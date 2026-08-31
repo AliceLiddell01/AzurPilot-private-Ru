@@ -15,6 +15,7 @@ from module.dev_runtime import (
     ControlOutcome,
     DevEnvironment,
     DevTarget,
+    DevTargetRegistry,
     RuntimeControlManager,
     RuntimeSessionState,
     RuntimeSnapshot,
@@ -508,7 +509,11 @@ def test_runtime_control_conflicts_with_session_smoke_and_second_operation(
     environment = _environment(tmp_path)
     backend = _FakeRuntimeBackend()
 
-    session_manager = _manager(environment, backend, session_state="running")
+    session_manager = _manager(
+        environment,
+        backend,
+        session_state=RuntimeSessionState("running"),
+    )
     session_result = session_manager.start(ControlAction.START_GAME)
     assert session_result.code == "DEV_CONTROL_CONFLICT_DEV_SESSION"
     assert session_result.details["outcome"] == ControlOutcome.CONFLICT.value
@@ -600,8 +605,6 @@ def test_control_operation_fails_closed_after_registry_target_switch(
     backend = _FakeRuntimeBackend()
     manager = _manager(environment, backend)
     control_id = _accepted(manager, ControlAction.START_GAME)
-
-    from module.dev_runtime.target import DevTargetRegistry
 
     DevTargetRegistry.configure(
         environment.repository_root,

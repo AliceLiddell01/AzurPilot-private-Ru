@@ -50,7 +50,7 @@ from module.dev_runtime.evidence import (
     validate_session_id,
 )
 from module.dev_runtime.process import ProcessBackend, _same_path
-from module.dev_runtime.target import DevTarget, DevTargetRegistry
+from module.dev_runtime.target import DevTarget, DevTargetError, DevTargetRegistry
 from module.dev_runtime.task_sandbox import (
     SCHEDULER_RESET_TIME,
     TASK_POLICY_ACTIVE,
@@ -107,10 +107,13 @@ class DevSessionManager(DevDiagnosticsMixin):
     def _refresh_target(self) -> None:
         """Обновить target перед новым вызовом долгоживущего manager."""
 
-        current_target = DevTargetRegistry.load_for_environment(
-            self.environment.repository_root,
-            fallback=self.environment.dev_target,
-        )
+        try:
+            current_target = DevTargetRegistry.load_for_environment(
+                self.environment.repository_root,
+                fallback=self.environment.dev_target,
+            )
+        except DevTargetError as exc:
+            raise TaskSandboxError(exc.code, str(exc)) from exc
         if current_target == self.environment.dev_target:
             return
         self.environment = replace(self.environment, dev_target=current_target)
@@ -677,8 +680,8 @@ class DevSessionManager(DevDiagnosticsMixin):
     def list_tasks(self) -> DevResult:
         """Вернуть каталог из исходного профиля без изменения состояния."""
 
-        self._refresh_target()
         try:
+            self._refresh_target()
             catalog = TaskCatalog.from_path(
                 self.environment.profile_file,
                 repository_root=self.environment.repository_root,
@@ -697,8 +700,8 @@ class DevSessionManager(DevDiagnosticsMixin):
     def status(self) -> DevResult:
         """Вернуть статус Dev Runtime и безопасный снимок политики задач только для чтения."""
 
-        self._refresh_target()
         try:
+            self._refresh_target()
             result = super().status()
         except TaskSandboxError as exc:
             return self._task_error(exc)
@@ -803,8 +806,11 @@ class DevSessionManager(DevDiagnosticsMixin):
     ) -> DevResult:
         """Сформировать план задач только для чтения будущей сессии с учётом задач."""
 
-        self._refresh_target()
-        _plan, result = self._build_task_plan(root_tasks, excluded_tasks)
+        try:
+            self._refresh_target()
+            _plan, result = self._build_task_plan(root_tasks, excluded_tasks)
+        except TaskSandboxError as exc:
+            return self._task_error(exc)
         return result
 
     def task_smoke(
@@ -888,9 +894,11 @@ class DevSessionManager(DevDiagnosticsMixin):
         )
 
     def cleanup(self) -> DevResult:
-        self._refresh_target()
         try:
+            self._refresh_target()
             return self._cleanup_impl()
+        except TaskSandboxError as exc:
+            return self._task_error(exc)
         except RuntimeCoordinationError as exc:
             return self._coordination_error(exc)
 
@@ -1622,7 +1630,10 @@ class DevSessionManager(DevDiagnosticsMixin):
         root_tasks: Iterable[str] | str | None = None,
         excluded_tasks: Iterable[str] | str | None = None,
     ) -> DevResult:
-        self._refresh_target()
+        try:
+            self._refresh_target()
+        except TaskSandboxError as exc:
+            return self._task_error(exc)
         task_aware = root_tasks is not None or excluded_tasks is not None
         if not task_aware:
             try:
@@ -1998,9 +2009,11 @@ class DevSessionManager(DevDiagnosticsMixin):
             )
 
     def stop(self, *, preserve_task_state: bool = False) -> DevResult:
-        self._refresh_target()
         try:
+            self._refresh_target()
             return self._stop_impl(preserve_task_state=preserve_task_state)
+        except TaskSandboxError as exc:
+            return self._task_error(exc)
         except RuntimeCoordinationError as exc:
             return self._coordination_error(exc)
 
@@ -2114,10 +2127,12 @@ class DevSessionManager(DevDiagnosticsMixin):
             )
 
     def recover(self) -> DevResult:
-        self._refresh_target()
         try:
+            self._refresh_target()
             with self._locked_state():
                 return self._recover_locked()
+        except TaskSandboxError as exc:
+            return self._task_error(exc)
         except RuntimeCoordinationError as exc:
             return self._coordination_error(exc)
 

@@ -25,6 +25,7 @@ from module.dev_runtime.contracts import DevEnvironment
 from module.dev_runtime.evidence import EvidenceScreenshot, validate_session_id
 from module.dev_runtime.sanitizer import MAX_SANITIZED_TEXT, redact_text
 from module.dev_runtime.smoke import SmokeSpec
+from module.dev_runtime.task_sandbox import TaskSandboxError
 from module.dev_runtime.target import DevTargetError, DevTargetRegistry
 
 logger = logging.getLogger(__name__)
@@ -1785,6 +1786,28 @@ class DevMcpAdapter:
                     "state": "failed",
                     "session_id": None,
                     "details": {"development_target": {"configured": False}},
+                }
+            )
+        except TaskSandboxError as exc:
+            if exc.code.startswith("DEV_TARGET_"):
+                return serialize_dev_result(
+                    {
+                        "ok": False,
+                        "code": exc.code,
+                        "message": "Development target не настроен или не прошёл безопасную проверку",
+                        "state": "failed",
+                        "session_id": None,
+                        "details": {"development_target": {"configured": False}},
+                    }
+                )
+            return serialize_dev_result(
+                {
+                    "ok": False,
+                    "code": exc.code,
+                    "message": str(exc),
+                    "state": "failed",
+                    "session_id": None,
+                    "details": {"error": exc.as_dict()},
                 }
             )
         except Exception as exc:  # noqa: BLE001 — граница обязана очищать ошибки выполнения

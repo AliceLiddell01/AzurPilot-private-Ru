@@ -359,3 +359,27 @@ def test_long_lived_manager_refreshes_target_before_new_read_only_call(
 
     assert result.ok is True
     assert manager.environment.profile_name == "profile-b"
+
+
+def test_long_lived_manager_reports_target_registry_error_as_result(
+    tmp_path: Path,
+) -> None:
+    _write_profile(tmp_path)
+    target = DevTargetRegistry.configure(
+        tmp_path,
+        profile_name=_TARGET_NAME,
+        explicit_consent=True,
+    )
+    manager = DevSessionManager(
+        DevEnvironment(tmp_path, Path("python"), target),
+        storage_probe=lambda _environment: (True, "ready"),
+        port_probe=lambda _host, _port: False,
+    )
+    marker = tmp_path / "config" / "state" / "dev-runtime-target.json"
+    marker.write_text("{", encoding="utf-8")
+
+    result = manager.list_tasks()
+
+    assert result.ok is False
+    assert result.code == "DEV_TARGET_STATE_CORRUPT"
+    assert result.details["error"]["code"] == "DEV_TARGET_STATE_CORRUPT"

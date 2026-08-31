@@ -86,7 +86,7 @@ development target: состояние эмулятора, ADB, приложен
 Mutating runtime control не выполняется при активном SmokeRun или DevSession и
 не допускает вторую активную operation. Долгие действия быстро возвращают
 `control_id`; итог читается через `dev_get_control_operation`. При
-`PRECONDITION_FAILED`, `CONFLICT`, `TIMEOUT` или `ABORTED` не повторяй тот же
+`PRECONDITION_FAILED`, `CONFLICT`, `CONTROL_FAILED`, `TIMEOUT` или `ABORTED` не повторяй тот же
 запрос автоматически. После подтверждённого восстановления создай новый
 SmokeRun с новой immutable спецификацией. Создание всех трёх runtime owners
 сериализуется общей repository-scoped coordination lock; собственный marker

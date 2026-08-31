@@ -25,6 +25,7 @@ from module.dev_runtime import (
     ProcessIdentity,
 )
 from module.dev_runtime.smoke import SmokeSpec
+from module.dev_runtime.task_sandbox import TaskSandboxError
 from tests.dev_mcp_contract_helpers import EXPECTED_CONTRACT
 
 
@@ -183,6 +184,11 @@ class _TargetAwareFakeManager(_FakeManager):
         self.environment = environment
 
 
+class _TaskSandboxErrorManager(_FakeManager):
+    def status(self) -> DevResult:
+        raise TaskSandboxError("DEV_TASK_STATE_CORRUPT", "synthetic task state error")
+
+
 def _adapter_with_factory() -> tuple[DevMcpAdapter, _FakeManager, list[int]]:
     manager = _FakeManager()
     factory_calls: list[int] = []
@@ -204,6 +210,14 @@ def test_contract_is_static_safe_and_does_not_construct_runtime_manager() -> Non
     assert result["details"]["contract"] == EXPECTED_CONTRACT
     assert factory_calls == []
     assert manager.calls == []
+
+
+def test_adapter_serializes_task_sandbox_error_from_manager() -> None:
+    result = DevMcpAdapter(lambda: _TaskSandboxErrorManager()).call("dev_status", {})
+
+    assert result["ok"] is False
+    assert result["code"] == "DEV_TASK_STATE_CORRUPT"
+    assert result["details"]["error"]["code"] == "DEV_TASK_STATE_CORRUPT"
 
 
 def test_adapter_rebinds_manager_when_registry_target_changes(tmp_path: Path) -> None:

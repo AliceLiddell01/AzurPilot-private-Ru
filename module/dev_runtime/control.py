@@ -1120,7 +1120,7 @@ class RuntimeControlManager:
         try:
             session_state = self.session_state_provider()
             smoke_active = self.smoke_active_provider()
-        except RuntimeControlError as exc:
+        except (RuntimeControlError, ValueError, OSError, TimeoutError) as exc:
             session_state = None
             smoke_active = None
             status_ok = False
