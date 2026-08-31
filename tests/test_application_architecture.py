@@ -131,7 +131,8 @@ def test_existing_webui_and_mcp_production_wiring_remains_independent():
     }
 
     assert not webui_application_imports, webui_application_imports
-    assert "module.application.game_services" in mcp_application_imports
+    assert "module.application" in mcp_application_imports
+    assert "module.application.game_services" not in mcp_application_imports
     assert "module.application.legacy_game_adapters" in mcp_application_imports
     assert "/mcp" in mounted_paths
     assert {

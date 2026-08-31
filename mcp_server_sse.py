@@ -18,6 +18,7 @@ from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
 
+from module.application import GameControlService, GameReadService
 from module.application.errors import ApplicationError, InvalidRequestError
 from module.application.game_models import (
     ConfigSnapshot,
@@ -28,7 +29,6 @@ from module.application.game_models import (
     ScheduleTaskRequest,
     thaw_payload,
 )
-from module.application.game_services import GameControlService, GameReadService
 from module.application.legacy_adapters import (
     GeneratedTaskCatalogAdapter,
     LegacyInstanceRuntimeAdapter,
@@ -223,10 +223,9 @@ async def list_tools() -> list[Tool]:
             name="update_config",
             description=(
                 "Изменить параметр конфигурации указанного экземпляра. "
-                "Формат пути: task.group.arg. Параметры "
-                "Error.OnePushConfig, Error.LlmApiKey и "
-                "OpsiGeneral.OpsiOnePushConfig являются sensitive: их значения "
-                "скрываются при чтении, а запись через этот MCP-инструмент запрещена. "
+                "Формат пути: task.group.arg. Параметры, помеченные "
+                "sensitive в generated metadata, скрываются при чтении, а "
+                "запись через этот MCP-инструмент запрещена. "
                 "Настройте их через WebUI конфигурации экземпляра."
             ),
             inputSchema={

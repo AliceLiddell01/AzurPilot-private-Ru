@@ -104,6 +104,28 @@ class ConfigGenerationTests(unittest.TestCase):
                 self.assertIs(source_data.get("sensitive"), True)
                 self.assertIs(generated_data.get("sensitive"), True)
 
+    def test_sensitive_metadata_is_kept_in_source_and_generated_config(self) -> None:
+        source_paths = {
+            (group, argument)
+            for group, group_data in self.argument_source.items()
+            if isinstance(group_data, dict)
+            for argument, argument_data in group_data.items()
+            if isinstance(argument_data, dict)
+            and argument_data.get("sensitive") is True
+        }
+        generated_paths = {
+            (group, argument)
+            for task_data in self.generated_args.values()
+            if isinstance(task_data, dict)
+            for group, group_data in task_data.items()
+            if isinstance(group_data, dict)
+            for argument, argument_data in group_data.items()
+            if isinstance(argument_data, dict)
+            and argument_data.get("sensitive") is True
+        }
+
+        self.assertEqual(generated_paths, source_paths)
+
 
 if __name__ == "__main__":
     unittest.main()
