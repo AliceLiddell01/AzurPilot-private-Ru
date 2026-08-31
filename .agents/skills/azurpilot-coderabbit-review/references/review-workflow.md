@@ -4,9 +4,8 @@
 
 1. В основном checkout проверь repository root, ветку, base SHA, PR head и
    чистоту относящихся к review файлов. Не смешивай пользовательские изменения.
-2. Создай отдельный обычный WSL2 Arch clone или другой canonical review checkout,
-   если это разрешено текущим Git-регламентом. Не используй linked worktree,
-   если CLI не распознаёт его как обычный Git repository.
+2. Создай отдельный обычный WSL2 Arch clone. Не используй linked worktree или
+   другую среду для CodeRabbit review.
 3. Получи exact branch/head и base без копирования локальных secrets/config.
    Перед запуском подтвердь `coderabbit --version` и
    `coderabbit auth status --agent`; interactive login допускается только как

@@ -126,10 +126,15 @@ def test_required_references_and_workflow_guardrails_are_present() -> None:
 
     review_dir = _SKILLS_ROOT / "azurpilot-coderabbit-review"
     review_content = (review_dir / "SKILL.md").read_text(encoding="utf-8")
-    assert (review_dir / "references" / "review-workflow.md").is_file()
+    review_reference = review_dir / "references" / "review-workflow.md"
+    assert review_reference.is_file()
     assert "references/review-workflow.md" in review_content
     for required in ("exact commit", "WSL2 Arch", "false positive", "rate limit", "READY_FOR_CHATGPT_REVIEW"):
         assert required.lower() in review_content.lower()
+    reference_content = review_reference.read_text(encoding="utf-8").lower()
+    assert "другой canonical review checkout" not in reference_content
+    assert "другую среду для coderabbit review" in reference_content
+    assert "linked worktree" in reference_content
 
 
 def test_new_skills_contain_no_local_paths_secrets_or_stage_baselines() -> None:
@@ -158,6 +163,8 @@ def test_canonical_lifecycle_requires_final_review_before_merge() -> None:
     combined = "\n".join(path.read_text(encoding="utf-8") for path in canonical_paths)
     assert "100% технического цикла" not in combined
     assert "auto-merge допустим после зелёных gates" not in combined
+    assert "завершить прогон как ожидающий review" not in combined
+    assert "READY_FOR_CHATGPT_REVIEW" in combined
 
 
 def test_ci_contract_keeps_stable_stage_agnostic_required_contexts() -> None:

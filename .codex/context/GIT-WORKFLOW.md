@@ -479,7 +479,7 @@ PR body должен содержать только существенное: �
 
 Не запускать полный внешний review заново из-за typo/format/docs или узкой test-only правки без изменения production contract.
 
-**Rate limit/cooldown:** не ждать таймер и не polling-loop внутри активного прогона. Сохранить branch/commit/PR и завершить прогон как ожидающий review; продолжить новым прогоном позже.
+**Rate limit/cooldown:** не ждать таймер и не polling-loop внутри активного прогона. Для CodeRabbit сохранить branch/commit/PR, зафиксировать последний проверенный exact head и завершить текущий прогон в состоянии `READY_FOR_CHATGPT_REVIEW`; новый review возможен только в отдельном будущем запуске после доступности reviewer.
 
 ### Merge
 
