@@ -28,6 +28,10 @@ from typing import Protocol
 from deploy.atomic import file_write, replace_tmp, to_tmp_file
 from module.dev_runtime.bounded_io import BoundedReadTooLarge, read_bounded_bytes
 from module.dev_runtime.contracts import DevEnvironment, DevResult
+from module.dev_runtime.coordination import (
+    RuntimeCoordinationError,
+    runtime_coordination_lock,
+)
 
 CONTROL_SCHEMA_VERSION = 1
 CONTROL_POLL_SECONDS = 0.25
@@ -459,6 +463,7 @@ class ConfiguredRuntimeBackend:
         self.environment = environment
         self._app: object | None = None
         self._platform: object | None = None
+        self._configuration_cache: tuple[str, str] | None = None
 
     @staticmethod
     def _deep_get(payload: object, path: str) -> object:
@@ -470,6 +475,8 @@ class ConfiguredRuntimeBackend:
         return current
 
     def _configuration(self) -> tuple[str, str]:
+        if self._configuration_cache is not None:
+            return self._configuration_cache
         from module.dev_runtime.task_sandbox import read_profile_payload
 
         payload = read_profile_payload(self.environment.profile_file, repository_root=self.environment.repository_root)
@@ -481,7 +488,8 @@ class ConfiguredRuntimeBackend:
             raise RuntimeControlError("DEV_TARGET_PACKAGE_UNCONFIGURED", "Пакет приложения development target не задан", outcome=ControlOutcome.PRECONDITION_FAILED)
         from module.device.connection_attr import ConnectionAttr
 
-        return ConnectionAttr.revise_serial(serial), package.strip()
+        self._configuration_cache = (ConnectionAttr.revise_serial(serial), package.strip())
+        return self._configuration_cache
 
     @staticmethod
     def _adb_client() -> object:
@@ -775,6 +783,34 @@ class RuntimeControlManager:
     def _operation_result(self, operation: DevRuntimeControlOperation, *, code: str, message: str, ok: bool = True) -> DevResult:
         return self._result(ok=ok, code=code, message=message, state=operation.state.value, details={"control_operation": operation.as_dict()})
 
+    def _reserve_operation(self, action: ControlAction) -> DevRuntimeControlOperation:
+        """Атомарно проверить владельцев и создать persistent control reservation."""
+
+        with runtime_coordination_lock(self.environment):
+            conflict = self._conflict(action)
+            if conflict is not None:
+                raise conflict
+            # После обрыва питания persisted operation может остаться активной
+            # без supervisor. Сначала закрываем её fail-closed, затем разрешаем
+            # следующий запрос через обычный single-operation guard.
+            self._reconcile()
+            now = self.now()
+            created_at = _timestamp(now)
+            deadline_at = _timestamp(now + timedelta(seconds=self.action_timeouts[action]))
+            operation = DevRuntimeControlOperation(
+                control_id=uuid.uuid4().hex,
+                action=action,
+                state=ControlState.CREATED,
+                outcome=None,
+                created_at=created_at,
+                started_at=None,
+                deadline_at=deadline_at,
+                finished_at=None,
+                transitions=({"timestamp": created_at, "state": ControlState.CREATED.value, "code": "DEV_CONTROL_CREATED"},),
+            )
+            self.store.create(operation)
+            return operation
+
     def status(self) -> DevResult:
         try:
             snapshot = self._backend_instance().snapshot()
@@ -818,28 +854,7 @@ class RuntimeControlManager:
         except (ValueError, TypeError) as exc:
             return self._result(ok=False, code="DEV_CONTROL_ACTION_INVALID", message="Неизвестное действие runtime control", state="failed", details={"outcome": ControlOutcome.PRECONDITION_FAILED.value})
         try:
-            conflict = self._conflict(action)
-            if conflict is not None:
-                return self._result(ok=False, code=conflict.code, message=str(conflict), state="conflict", details={"action": action.value, "outcome": conflict.outcome.value})
-            # После обрыва питания persisted operation может остаться активной
-            # без supervisor. Сначала закрываем её fail-closed, затем разрешаем
-            # следующий запрос через обычный single-operation guard.
-            self._reconcile()
-            now = self.now()
-            created_at = _timestamp(now)
-            deadline_at = _timestamp(now + timedelta(seconds=self.action_timeouts[action]))
-            operation = DevRuntimeControlOperation(
-                control_id=uuid.uuid4().hex,
-                action=action,
-                state=ControlState.CREATED,
-                outcome=None,
-                created_at=created_at,
-                started_at=None,
-                deadline_at=deadline_at,
-                finished_at=None,
-                transitions=({"timestamp": created_at, "state": ControlState.CREATED.value, "code": "DEV_CONTROL_CREATED"},),
-            )
-            self.store.create(operation)
+            operation = self._reserve_operation(action)
             try:
                 handle = self.supervisor_launcher(self.environment, operation.control_id)
                 pid = getattr(handle, "pid", None)
@@ -912,6 +927,14 @@ class RuntimeControlManager:
                     ),
                 )
             return self._operation_result(operation, code="DEV_CONTROL_ACCEPTED", message="Control operation принята supervisor-процессом")
+        except RuntimeCoordinationError as exc:
+            return self._result(
+                ok=False,
+                code=exc.code,
+                message=str(exc),
+                state="failed",
+                details={"outcome": ControlOutcome.CONTROL_FAILED.value},
+            )
         except RuntimeControlError as exc:
             return self._result(ok=False, code=exc.code, message=str(exc), state="conflict" if exc.outcome is ControlOutcome.CONFLICT else "failed", details={"outcome": exc.outcome.value})
         except (OSError, TimeoutError) as exc:

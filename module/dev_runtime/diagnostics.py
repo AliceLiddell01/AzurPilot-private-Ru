@@ -292,7 +292,11 @@ class DevDiagnosticsMixin:
             )
 
         if session.state is DevSessionState.RUNNING:
-            ready, reason = self.readiness_probe(self.environment, identity)
+            session_environment = self.environment
+            environment_for_session = getattr(self, "_environment_for_session", None)
+            if callable(environment_for_session):
+                session_environment = environment_for_session(session)
+            ready, reason = self.readiness_probe(session_environment, identity)
             if not ready:
                 return self._session_result(
                     session,
@@ -344,7 +348,7 @@ class DevDiagnosticsMixin:
                 owner_pid, environment.host, environment.port
             ):
                 return False, "локальный порт не принадлежит подтверждённому владельцу WebUI"
-            worker = workers.get(self.environment.profile_name)
+            worker = workers.get(environment.profile_name)
             if worker is None:
                 return False, "рабочий процесс development target ещё не зарегистрирован"
             if worker_registry.process_matches(worker) is not True:

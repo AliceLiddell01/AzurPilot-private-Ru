@@ -2,14 +2,24 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import threading
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from module.dev_runtime import smoke
-from module.dev_runtime.contracts import DevEnvironment, DevResult
+from module.dev_runtime import (
+    ControlAction,
+    DevEnvironment,
+    DevResult,
+    DevSessionManager,
+    RuntimeControlManager,
+    RuntimeSnapshot,
+)
 from module.dev_runtime.evidence import EvidenceScreenshot, GitSnapshot
 from module.dev_runtime.target import DevTarget
 
@@ -243,6 +253,22 @@ class _Runtime:
 
     def port_probe(self, *_: object) -> bool:
         return False
+
+
+class _ControlBackend:
+    def snapshot(self) -> RuntimeSnapshot:
+        return RuntimeSnapshot(
+            target_configured=True,
+            emulator_detected=True,
+            emulator_running=True,
+            emulator_ready=True,
+            adb_reachable=True,
+            adb_state="device",
+            game_reachable=True,
+            game_foreground=False,
+            game_running=False,
+            unrelated_adb_devices=False,
+        )
 
 
 @pytest.fixture
@@ -569,6 +595,64 @@ def test_active_run_conflict_is_fail_closed(tmp_path: Path, clean_source: None) 
     assert started.ok is True
     assert conflict.ok is False
     assert conflict.code == "DEV_SMOKE_ACTIVE_CONFLICT"
+
+
+def test_cross_surface_reservation_blocks_smoke_and_session_during_control_start(
+    tmp_path: Path,
+    clean_source: None,
+) -> None:
+    environment = _environment(tmp_path)
+    runtime = _Runtime()
+    smoke_manager = smoke.SmokeRunManager(
+        environment,
+        runtime_factory=lambda: runtime,
+        supervisor_backend=_Backend(),
+        now=lambda: _NOW,
+    )
+    launcher_entered = threading.Event()
+    release_launcher = threading.Event()
+
+    def blocked_launcher(_environment: DevEnvironment, _control_id: str) -> object:
+        launcher_entered.set()
+        assert release_launcher.wait(timeout=2)
+        return SimpleNamespace(pid=os.getpid())
+
+    control_manager = RuntimeControlManager(
+        environment,
+        backend_factory=lambda _environment: _ControlBackend(),
+        supervisor_launcher=blocked_launcher,
+        now=lambda: _NOW,
+    )
+    control_result: list[DevResult] = []
+    control_thread = threading.Thread(
+        target=lambda: control_result.append(control_manager.start(ControlAction.START_GAME))
+    )
+    control_thread.start()
+    assert launcher_entered.wait(timeout=2)
+
+    smoke_result = smoke_manager.start_smoke(_spec())
+    session_manager = DevSessionManager(
+        environment,
+        storage_probe=lambda _environment: (True, "ready"),
+        port_probe=lambda _host, _port: False,
+    )
+    session_manager.preflight = lambda: DevResult(
+        True,
+        "DEV_PREFLIGHT_OK",
+        "Предварительная проверка пройдена",
+        "no_session",
+    )
+    session_result = session_manager.start()
+
+    release_launcher.set()
+    control_thread.join(timeout=3)
+
+    assert smoke_result.ok is False
+    assert smoke_result.code == "DEV_SMOKE_CONTROL_CONFLICT"
+    assert session_result.ok is False
+    assert session_result.code == "DEV_SESSION_CONFLICT_CONTROL"
+    assert control_result and control_result[0].ok is True
+    assert not smoke_manager.has_active_run()
 
 
 def test_config_registry_rejects_wrong_type_and_unknown_path(tmp_path: Path, clean_source: None) -> None:

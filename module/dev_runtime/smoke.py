@@ -48,6 +48,10 @@ from module.dev_runtime.contracts import (
     DevSessionState,
     DevStatusKind,
 )
+from module.dev_runtime.coordination import (
+    RuntimeCoordinationError,
+    runtime_coordination_lock,
+)
 from module.dev_runtime.evidence import (
     EVIDENCE_EVENT_TYPES,
     EVIDENCE_HEALTH_COMPLETE,
@@ -2637,6 +2641,14 @@ class SmokeRunManager:
 
         return self._active_record() is not None
 
+    def _control_reservation_active(self) -> bool:
+        from module.dev_runtime.control import ControlStore
+
+        store = ControlStore(self.environment)
+        with store.lock(create=False):
+            operation = store.read()
+        return operation is not None and operation.active
+
     def start_smoke(self, spec: object) -> DevResult:
         parsed, source, issues = self._validate_spec_and_preconditions(spec, check_runtime_conflict=True)
         if parsed is None or source is None or issues:
@@ -2648,26 +2660,66 @@ class SmokeRunManager:
                 details=self._validation_details(parsed, source, issues),
             )
         try:
-            self.store.prune(now=self.now())
-            active = self._active_record()
-        except SmokeStoreError as exc:
-            return self._result(ok=False, code=exc.code, message=str(exc), state=SmokeState.FINISHED.value)
-        if active is not None:
+            with runtime_coordination_lock(self.environment):
+                # Повторить precondition под общей lock: другой owner мог
+                # появиться после первоначального read-only validation.
+                fresh, fresh_source, fresh_issues = self._validate_spec_and_preconditions(
+                    parsed,
+                    check_runtime_conflict=True,
+                )
+                if fresh is None or fresh_source is None or fresh_issues:
+                    return self._result(
+                        ok=False,
+                        code="DEV_SMOKE_PRECONDITION_FAILED",
+                        message="SmokeRun не создан: предварительная проверка условий не пройдена",
+                        state=SmokeState.FINISHED.value,
+                        details=self._validation_details(fresh, fresh_source, fresh_issues),
+                    )
+                parsed = fresh
+                source = fresh_source
+                self.store.prune(now=self.now())
+                active = self._active_record()
+                if active is not None:
+                    return self._result(
+                        ok=False,
+                        code="DEV_SMOKE_ACTIVE_CONFLICT",
+                        message="Новый SmokeRun запрещён, пока предыдущий запуск не завершён или не отменён явно",
+                        state=active.state.value,
+                        smoke_id=active.smoke_id,
+                        session_id=active.session_id,
+                        details={"conflict_state": active.state.value},
+                    )
+                if self._control_reservation_active():
+                    return self._result(
+                        ok=False,
+                        code="DEV_SMOKE_CONTROL_CONFLICT",
+                        message="SmokeRun запрещён при активной control operation",
+                        state=SmokeState.FINISHED.value,
+                        details={"outcome": "CONFLICT"},
+                    )
+                created_at = _timestamp_now(self.now)
+                deadline_at = _add_seconds(created_at, float(parsed.timeout_seconds))
+                record = self.store.create(
+                    parsed,
+                    source,
+                    created_at=created_at,
+                    deadline_at=deadline_at,
+                )
+                record = self.store.update(
+                    record.smoke_id,
+                    {"state": SmokeState.PREPARING, "started_at": created_at},
+                )
+        except RuntimeCoordinationError as exc:
             return self._result(
                 ok=False,
-                code="DEV_SMOKE_ACTIVE_CONFLICT",
-                message="Новый SmokeRun запрещён, пока предыдущий запуск не завершён или не отменён явно",
-                state=active.state.value,
-                smoke_id=active.smoke_id,
-                session_id=active.session_id,
-                details={"conflict_state": active.state.value},
+                code=exc.code,
+                message=str(exc),
+                state=SmokeState.FINISHED.value,
             )
-        created_at = _timestamp_now(self.now)
-        deadline_at = _add_seconds(created_at, float(parsed.timeout_seconds))
+        except SmokeStoreError as exc:
+            return self._result(ok=False, code=exc.code, message=str(exc), state=SmokeState.FINISHED.value)
         supervisor: SmokeSupervisorIdentity | None = None
         try:
-            record = self.store.create(parsed, source, created_at=created_at, deadline_at=deadline_at)
-            record = self.store.update(record.smoke_id, {"state": SmokeState.PREPARING, "started_at": created_at})
             supervisor = self.supervisor_backend.launch(self.environment, record.smoke_id)
             record = self.store.update(record.smoke_id, {"supervisor": supervisor})
         except (SmokeStoreError, OSError, RuntimeError) as exc:

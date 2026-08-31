@@ -9,6 +9,7 @@ import time
 import uuid
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -26,7 +27,11 @@ from module.dev_runtime.contracts import (
     ProcessIdentity,
 )
 from module.dev_runtime.bounded_io import BoundedReadTooLarge, read_bounded_bytes
-from module.dev_runtime.control import ControlAction, RuntimeControlManager
+from module.dev_runtime.control import ControlAction, ControlStore, RuntimeControlManager
+from module.dev_runtime.coordination import (
+    RuntimeCoordinationError,
+    runtime_coordination_lock,
+)
 from module.dev_runtime.diagnostics import (
     DevDiagnosticsMixin,
     _default_storage_probe,
@@ -40,6 +45,7 @@ from module.dev_runtime.evidence import (
     validate_session_id,
 )
 from module.dev_runtime.process import ProcessBackend, _same_path
+from module.dev_runtime.target import DevTarget
 from module.dev_runtime.task_sandbox import (
     SCHEDULER_RESET_TIME,
     TASK_POLICY_ACTIVE,
@@ -93,9 +99,33 @@ class DevSessionManager(DevDiagnosticsMixin):
         self._smoke_manager = None
         self._control_manager: RuntimeControlManager | None = None
 
-    def _evidence_for_session(self, session_id: str) -> EvidenceStore | None:
+    def _session_profile_name(self, session: DevSession) -> str | None:
+        return session.profile_name or (
+            session.process.command_profile_name() if session.process is not None else None
+        )
+
+    def _environment_for_session(self, session: DevSession) -> DevEnvironment:
+        profile_name = self._session_profile_name(session)
+        if profile_name is None or profile_name == self.environment.profile_name:
+            return self.environment
         try:
-            store = EvidenceStore.for_session(self.environment, session_id)
+            target = DevTarget(profile_name)
+        except ValueError:
+            return self.environment
+        return replace(self.environment, dev_target=target)
+
+    def _evidence_for_session(
+        self,
+        session_id: str,
+        *,
+        profile_name: str | None = None,
+    ) -> EvidenceStore | None:
+        try:
+            store = EvidenceStore.for_session(
+                self.environment,
+                session_id,
+                profile_name=profile_name,
+            )
         except (EvidenceError, ValueError):
             return None
         if not store.exists:
@@ -112,7 +142,10 @@ class DevSessionManager(DevDiagnosticsMixin):
         cached = self._evidence_store
         if cached is not None and cached.session_id == session.session_id:
             return cached
-        return self._evidence_for_session(session.session_id)
+        return self._evidence_for_session(
+            session.session_id,
+            profile_name=self._session_profile_name(session),
+        )
 
     def _evidence_event(
         self,
@@ -158,7 +191,10 @@ class DevSessionManager(DevDiagnosticsMixin):
 
         store = self._evidence_store
         if store is None and session.is_task_aware:
-            store = self._evidence_for_session(session.session_id)
+            store = self._evidence_for_session(
+                session.session_id,
+                profile_name=self._session_profile_name(session),
+            )
         if store is None:
             return
         if process_started:
@@ -267,7 +303,17 @@ class DevSessionManager(DevDiagnosticsMixin):
                     "session_id имеет недопустимый формат",
                     DevStatusKind.FAILED.value,
                 )
-        store = self._evidence_for_session(target_id)
+        target_session = (
+            current if current is not None and current.session_id == target_id else None
+        )
+        store = self._evidence_for_session(
+            target_id,
+            profile_name=(
+                self._session_profile_name(target_session)
+                if target_session is not None
+                else None
+            ),
+        )
         if store is None:
             return current, None, DevResult(
                 False,
@@ -449,7 +495,10 @@ class DevSessionManager(DevDiagnosticsMixin):
                     session.session_id,
                 )
             )
-        store = self._evidence_for_session(session.session_id)
+        store = self._evidence_for_session(
+            session.session_id,
+            profile_name=self._session_profile_name(session),
+        )
         if store is None:
             return EvidenceScreenshot(
                 DevResult(
@@ -619,7 +668,10 @@ class DevSessionManager(DevDiagnosticsMixin):
         details = dict(result.details)
         if session is not None:
             details["task_lifecycle"] = session.task_lifecycle_as_dict()
-        task_policy = TaskPolicyStore(self.environment).inspect()
+        task_policy_environment = (
+            self._environment_for_session(session) if session is not None else self.environment
+        )
+        task_policy = TaskPolicyStore(task_policy_environment).inspect()
         if task_policy.get("present") is not True:
             if session is not None and session.task_cleanup_needed:
                 return DevResult(
@@ -801,7 +853,10 @@ class DevSessionManager(DevDiagnosticsMixin):
                     state=DevStatusKind.CORRUPT.value,
                 )
             evidence_store = (
-                self._evidence_for_session(session.session_id)
+                self._evidence_for_session(
+                    session.session_id,
+                    profile_name=self._session_profile_name(session),
+                )
                 if session is not None and session.is_task_aware
                 else None
             )
@@ -867,6 +922,11 @@ class DevSessionManager(DevDiagnosticsMixin):
             cleanup = self._cleanup_task_state_locked(
                 expected_session_id=session.session_id if session is not None else None,
                 session=session,
+                environment=(
+                    self._environment_for_session(session)
+                    if session is not None
+                    else self.environment
+                ),
             )
             if not cleanup.ok:
                 if session is not None:
@@ -962,10 +1022,15 @@ class DevSessionManager(DevDiagnosticsMixin):
         )
 
     def _cleanup_leftover_task_state_locked(self) -> DevResult:
-        store = TaskPolicyStore(self.environment)
         try:
-            policy = store.read()
             session = self._read_session()
+            cleanup_environment = (
+                self._environment_for_session(session)
+                if session is not None
+                else self.environment
+            )
+            store = TaskPolicyStore(cleanup_environment)
+            policy = store.read()
         except TaskSandboxError as exc:
             return self._task_error(exc)
         except ValueError as exc:
@@ -1004,6 +1069,7 @@ class DevSessionManager(DevDiagnosticsMixin):
         return self._cleanup_task_state_locked(
             expected_session_id=expected_session_id,
             session=session,
+            environment=cleanup_environment,
         )
 
     def _prepare_task_session_locked(
@@ -1139,8 +1205,17 @@ class DevSessionManager(DevDiagnosticsMixin):
         catalog: TaskCatalog | None = None,
         session: DevSession | None = None,
         preserve_task_state: bool = False,
+        environment: DevEnvironment | None = None,
     ) -> DevResult:
-        store = TaskPolicyStore(self.environment)
+        cleanup_environment = (
+            environment
+            or (
+                self._environment_for_session(session)
+                if session is not None
+                else self.environment
+            )
+        )
+        store = TaskPolicyStore(cleanup_environment)
         try:
             policy = store.read()
         except TaskSandboxError as exc:
@@ -1208,13 +1283,13 @@ class DevSessionManager(DevDiagnosticsMixin):
                     policy_expected=True,
                 )
             fresh_catalog = TaskCatalog.from_path(
-                self.environment.profile_file,
-                repository_root=self.environment.repository_root,
-                profile_name=self.environment.profile_name,
+                cleanup_environment.profile_file,
+                repository_root=cleanup_environment.repository_root,
+                profile_name=cleanup_environment.profile_name,
             )
             payload = read_profile_payload(
-                self.environment.profile_file,
-                repository_root=self.environment.repository_root,
+                cleanup_environment.profile_file,
+                repository_root=cleanup_environment.repository_root,
             )
             cleaned = reset_scheduler_state(payload, fresh_catalog)
             current_state = scheduler_state(payload, fresh_catalog)
@@ -1224,19 +1299,19 @@ class DevSessionManager(DevDiagnosticsMixin):
             )
             if not already_clean:
                 write_profile_payload(
-                    self.environment.profile_file,
+                    cleanup_environment.profile_file,
                     cleaned,
-                    repository_root=self.environment.repository_root,
+                    repository_root=cleanup_environment.repository_root,
                 )
             verified_catalog = TaskCatalog.from_path(
-                self.environment.profile_file,
-                repository_root=self.environment.repository_root,
-                profile_name=self.environment.profile_name,
+                cleanup_environment.profile_file,
+                repository_root=cleanup_environment.repository_root,
+                profile_name=cleanup_environment.profile_name,
             )
             verified_state = scheduler_state(
                 read_profile_payload(
-                    self.environment.profile_file,
-                    repository_root=self.environment.repository_root,
+                    cleanup_environment.profile_file,
+                    repository_root=cleanup_environment.repository_root,
                 ),
                 verified_catalog,
             )
@@ -1324,13 +1399,22 @@ class DevSessionManager(DevDiagnosticsMixin):
         *,
         message: str,
         session: DevSession | None = None,
+        environment: DevEnvironment | None = None,
     ) -> DevResult:
         """Заблокировать политику, если владение процессом нельзя подтвердить."""
 
+        cleanup_environment = (
+            environment
+            or (
+                self._environment_for_session(session)
+                if session is not None
+                else self.environment
+            )
+        )
         pending = False
         try:
             pending = (
-                TaskPolicyStore(self.environment).mark_cleanup_pending(
+                TaskPolicyStore(cleanup_environment).mark_cleanup_pending(
                     timestamp=self._timestamp()
                 )
                 is not None
@@ -1372,7 +1456,10 @@ class DevSessionManager(DevDiagnosticsMixin):
         was_stopped = session.state is DevSessionState.STOPPED and session.process is None
         evidence_store = self._evidence_store
         if evidence_store is None and session.is_task_aware:
-            evidence_store = self._evidence_for_session(session.session_id)
+            evidence_store = self._evidence_for_session(
+                session.session_id,
+                profile_name=self._session_profile_name(session),
+            )
         if not was_stopped:
             self._evidence_event(
                 "process_stopped",
@@ -1390,6 +1477,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             expected_session_id=session.session_id,
             session=session,
             preserve_task_state=preserve_task_state,
+            environment=self._environment_for_session(session),
         )
         if not cleanup.ok:
             session.state = DevSessionState.FAILED
@@ -1458,11 +1546,59 @@ class DevSessionManager(DevDiagnosticsMixin):
     ) -> DevResult:
         task_aware = root_tasks is not None or excluded_tasks is not None
         if not task_aware:
-            return self._start_core()
+            try:
+                return self._start_core()
+            except RuntimeCoordinationError as exc:
+                return DevResult(
+                    ok=False,
+                    code=exc.code,
+                    message=str(exc),
+                    state=DevStatusKind.FAILED.value,
+                )
         plan, plan_result = self._build_task_plan(root_tasks, excluded_tasks)
         if plan is None:
             return plan_result
-        return self._start_core(plan)
+        try:
+            return self._start_core(plan)
+        except RuntimeCoordinationError as exc:
+            return DevResult(
+                ok=False,
+                code=exc.code,
+                message=str(exc),
+                state=DevStatusKind.FAILED.value,
+            )
+
+    def _runtime_start_conflict(self) -> DevResult | None:
+        """Проверить durable reservations control и Smoke под общей lock."""
+
+        try:
+            control_store = ControlStore(self.environment)
+            with control_store.lock(create=False):
+                control_operation = control_store.read()
+            if control_operation is not None and control_operation.active:
+                return DevResult(
+                    ok=False,
+                    code="DEV_SESSION_CONFLICT_CONTROL",
+                    message="DevSession запрещена при активной control operation",
+                    state=DevStatusKind.FAILED.value,
+                    details={"outcome": "CONFLICT"},
+                )
+            if self._get_smoke_manager().has_active_run():
+                return DevResult(
+                    ok=False,
+                    code="DEV_SESSION_CONFLICT_SMOKE",
+                    message="DevSession запрещена при активном SmokeRun",
+                    state=DevStatusKind.FAILED.value,
+                    details={"outcome": "CONFLICT"},
+                )
+        except Exception as exc:  # noqa: BLE001 — отсутствие общей картины блокирует новый owner
+            return DevResult(
+                ok=False,
+                code="DEV_RUNTIME_OWNER_STATE_UNAVAILABLE",
+                message=f"Нельзя подтвердить отсутствие другого runtime owner: {type(exc).__name__}",
+                state=DevStatusKind.FAILED.value,
+            )
+        return None
 
     def _start_core(self, task_plan: TaskPlan | None = None) -> DevResult:
         preflight = self.preflight()
@@ -1476,6 +1612,9 @@ class DevSessionManager(DevDiagnosticsMixin):
             )
 
         with self._locked_state():
+            conflict = self._runtime_start_conflict()
+            if conflict is not None:
+                return conflict
             current = self.status()
             if current.state not in {
                 DevStatusKind.NO_SESSION.value,
@@ -1512,6 +1651,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                 repository_root=str(self.environment.repository_root),
                 created_at=timestamp,
                 updated_at=timestamp,
+                profile_name=self.environment.profile_name,
                 last_code="DEV_SESSION_CREATED",
                 last_message="DevSession создана",
                 task_mode=(
@@ -1984,7 +2124,7 @@ class DevSessionManager(DevDiagnosticsMixin):
         if identity is None:
             try:
                 candidates = self.process_backend.find_by_session(
-                    self.environment, session.session_id
+                    self._environment_for_session(session), session.session_id
                 )
             except RuntimeError as exc:
                 return self._session_result(
@@ -2156,9 +2296,10 @@ class DevSessionManager(DevDiagnosticsMixin):
 
     @contextmanager
     def _locked_state(self) -> Iterator[None]:
-        self.environment.lock_file.parent.mkdir(parents=True, exist_ok=True)
-        with _state_thread_lock, _exclusive_file_lock(self.environment.lock_file):
-            yield
+        with runtime_coordination_lock(self.environment):
+            self.environment.lock_file.parent.mkdir(parents=True, exist_ok=True)
+            with _state_thread_lock, _exclusive_file_lock(self.environment.lock_file):
+                yield
 
     def _timestamp(self) -> str:
         timestamp = self.now()

@@ -28,7 +28,7 @@ def _environment(tmp_path: Path) -> DevEnvironment:
     root = tmp_path.resolve()
     (root / "module").mkdir(parents=True)
     (root / "config").mkdir()
-    (root / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
+    (root / "gui.py").write_text("# тестовый gui\n", encoding="utf-8")
     return DevEnvironment(
         repository_root=root,
         python_executable=root / ".venv" / "Scripts" / "python.exe",

@@ -132,6 +132,21 @@ class ProcessIdentity:
         session_id = self.command_line[index + 1]
         return session_id if session_id else None
 
+    def command_profile_name(self) -> str | None:
+        """Вернуть профиль из exact CLI signature, не читая текущий target marker."""
+
+        if self.command_line.count("--run") != 1:
+            return None
+        index = self.command_line.index("--run")
+        if index + 1 >= len(self.command_line):
+            return None
+        profile_name = self.command_line[index + 1]
+        try:
+            DevTarget(profile_name)
+        except ValueError:
+            return None
+        return profile_name
+
     def matches_dev_contract(
         self,
         repository_root: Path,
@@ -243,6 +258,7 @@ class DevSession:
     task_phase: DevTaskPhase = DevTaskPhase.NONE
     task_cleanup_required: bool = False
     task_policy_expected: bool = False
+    profile_name: str | None = None
 
     @property
     def is_task_aware(self) -> bool:
@@ -269,6 +285,7 @@ class DevSession:
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "process": self.process.as_dict() if self.process is not None else None,
+            "profile_name": self.profile_name,
             "last_code": self.last_code,
             "last_message": self.last_message,
             "task_mode": self.task_mode.value,
@@ -300,6 +317,23 @@ class DevSession:
             process_session_id = process.command_session_id()
             if process_session_id is not None and process_session_id != session_id:
                 raise ValueError("process принадлежит другой DevSession")
+        profile_name = payload.get("profile_name")
+        if profile_name is not None:
+            if not isinstance(profile_name, str):
+                raise ValueError("profile_name должен быть строкой или null")
+            try:
+                profile_name = DevTarget(profile_name).profile_name
+            except ValueError as exc:
+                raise ValueError("profile_name имеет недопустимый формат") from exc
+        process_profile_name = process.command_profile_name() if process is not None else None
+        if (
+            profile_name is not None
+            and process_profile_name is not None
+            and profile_name != process_profile_name
+        ):
+            raise ValueError("process принадлежит другому development target")
+        if profile_name is None:
+            profile_name = process_profile_name
         try:
             state = DevSessionState(str(payload["state"]))
         except (KeyError, ValueError) as exc:
@@ -352,6 +386,7 @@ class DevSession:
             task_phase=task_phase,
             task_cleanup_required=task_cleanup_required,
             task_policy_expected=task_policy_expected,
+            profile_name=profile_name,
         )
 
 
@@ -400,6 +435,10 @@ class DevEnvironment:
     @property
     def target_file(self) -> Path:
         return self.repository_root / "config" / "state" / "dev-runtime-target.json"
+
+    @property
+    def coordination_lock_file(self) -> Path:
+        return self.repository_root / "config" / "state" / "dev-runtime-coordination.lock"
 
     @property
     def control_root(self) -> Path:

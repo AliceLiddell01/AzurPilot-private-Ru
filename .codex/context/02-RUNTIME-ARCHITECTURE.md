@@ -113,13 +113,17 @@ pending dependency-sync marker блокирует старт, поэтому Dev
 а связкой exact-owned root process → WebUI owner из read-only registry snapshot
 → принадлежность локального listen socket → worker настроенного target → HTTP readiness.
 
-DevSession хранит repository-scoped marker и lock под `config/state/`. Ownership
+DevSession хранит repository-scoped marker и lock под `config/state/`. Marker
+также сохраняет назначенный profile сессии: уже запущенный процесс и его Evidence
+не перепривязываются к новому target marker до завершения старой сессии. Ownership
 процесса включает PID, время создания, executable, command line и cwd; PID или
 занятый порт сами по себе не дают права на остановку. `stop`/`recover` работают
 fail-closed и не завершают процесс при неоднозначном владении. `status` и
 `doctor` не мигрируют worker registry и не создают его lock-файлы. Повреждённый
 или stale marker классифицируется отдельно; повторный старт разрешён только
-после безопасного доказанного восстановления.
+после безопасного доказанного восстановления. Создание DevSession, SmokeRun и
+control operation сериализуется общей repository-scoped coordination lock, а
+каждый собственный marker служит durable reservation до завершения владельца.
 
 Этот слой остаётся основой Dev MCP и не меняет жизненный цикл рабочего MCP.
 Stage 4 добавляет подтверждающие данные в пределах сессии в отдельном

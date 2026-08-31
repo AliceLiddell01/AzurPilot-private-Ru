@@ -86,7 +86,9 @@ Mutating runtime control не выполняется при активном Smo
 `control_id`; итог читается через `dev_get_control_operation`. При
 `PRECONDITION_FAILED`, `CONFLICT`, `TIMEOUT` или `ABORTED` не повторяй тот же
 запрос автоматически. После подтверждённого восстановления создай новый
-SmokeRun с новой immutable спецификацией.
+SmokeRun с новой immutable спецификацией. Создание всех трёх runtime owners
+сериализуется общей repository-scoped coordination lock; собственный marker
+остаётся durable reservation после сбоя запуска до явного fail-closed recovery.
 
 ## Граница Game capability
 

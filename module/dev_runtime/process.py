@@ -11,7 +11,7 @@ from pathlib import Path
 import psutil
 
 from module.dev_runtime.contracts import DevEnvironment, ProcessIdentity
-from module.dev_runtime.target import DevTarget, DevTargetRegistry
+from module.dev_runtime.target import DevTarget
 from module.dev_runtime.task_sandbox import (
     TASK_POLICY_FILE_ENV,
     TASK_POLICY_ROOT_ENV,
@@ -94,12 +94,16 @@ class ProcessBackend:
         environment: DevEnvironment,
         session_id: str,
         identity: ProcessIdentity,
+        profile_name: str | None = None,
     ) -> bool:
+        expected_profile = (
+            profile_name if profile_name is not None else environment.profile_name
+        )
         return identity.matches_dev_contract(
             environment.repository_root,
             session_id,
             environment.python_executable,
-            environment.profile_name,
+            expected_profile,
         )
 
     def _identity_is_destructively_trusted(self, identity: ProcessIdentity) -> bool:
@@ -110,11 +114,12 @@ class ProcessBackend:
         session_id = identity.command_session_id()
         if session_id is None:
             return False
-        try:
-            profile_name = DevTargetRegistry.load(Path(identity.cwd)).profile_name
-        except ValueError:
+        profile_name = identity.command_profile_name()
+        if profile_name is None:
             return False
-        return identity.matches_dev_contract(Path(identity.cwd), session_id, profile_name=profile_name)
+        return identity.matches_dev_contract(
+            Path(identity.cwd), session_id, profile_name=profile_name
+        )
 
     def _abort_unverified_launch(self, pid: int) -> bool:
         """Остановить только что созданный процесс через принадлежащий нам Popen handle."""
@@ -359,7 +364,10 @@ class ProcessBackend:
                         cwd=str(Path(str(raw_cwd)).absolute()),
                     )
                     if not self.identity_belongs_to_session(
-                        environment, session_id, identity
+                        environment,
+                        session_id,
+                        identity,
+                        profile_name=environment.profile_name,
                     ):
                         raise RuntimeError(
                             "Найден процесс с идентификатором DevSession, но его "

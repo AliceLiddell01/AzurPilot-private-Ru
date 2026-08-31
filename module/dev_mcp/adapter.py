@@ -1736,14 +1736,16 @@ class DevMcpAdapter:
                     return DevMcpResponse(safe_result, screenshot.image, screenshot.mime_type)
                 return safe_result
         except DevTargetError as exc:
-            return {
-                "ok": False,
-                "code": exc.code,
-                "message": "Development target не настроен или не прошёл безопасную проверку",
-                "state": "failed",
-                "session_id": None,
-                "details": {"development_target": {"configured": False}},
-            }
+            return serialize_dev_result(
+                {
+                    "ok": False,
+                    "code": exc.code,
+                    "message": "Development target не настроен или не прошёл безопасную проверку",
+                    "state": "failed",
+                    "session_id": None,
+                    "details": {"development_target": {"configured": False}},
+                }
+            )
         except Exception as exc:  # noqa: BLE001 — граница обязана очищать ошибки выполнения
             logger.error(
                 "[Dev MCP] инструмент %s завершился неожиданной ошибкой: %s",

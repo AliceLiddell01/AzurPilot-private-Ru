@@ -15,18 +15,20 @@ from module.dev_runtime import (
     DevSessionManager,
     DevSessionState,
     DevTarget,
+    EvidenceStore,
     ProcessBackend,
     ProcessIdentity,
 )
 from module.dev_runtime import contracts as contracts_module
 from module.dev_runtime import diagnostics as diagnostics_module
 from module.dev_runtime import process as process_module
+from module.dev_runtime.target import DevTargetRegistry
 
 
 def _environment(tmp_path: Path) -> DevEnvironment:
     root = tmp_path.resolve()
     (root / "module").mkdir(parents=True, exist_ok=True)
-    (root / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
+    (root / "gui.py").write_text("# тестовый gui\n", encoding="utf-8")
     python = root / ".venv" / ("Scripts" if os.name == "nt" else "bin") / (
         "python.exe" if os.name == "nt" else "python"
     )
@@ -176,6 +178,85 @@ def test_find_by_session_rejects_same_token_with_wrong_signature(
 
     with pytest.raises(RuntimeError, match="полная process identity"):
         ProcessBackend().find_by_session(environment, session_id)
+
+
+def test_existing_session_keeps_recorded_target_after_registry_switch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path.resolve()
+    (root / "module").mkdir(parents=True)
+    (root / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
+    config = root / "config"
+    config.mkdir()
+    profile_payload = {
+        "Alas": {"Emulator": {}},
+        "General": {},
+        "SyntheticTask": {
+            "Scheduler": {
+                "Enable": False,
+                "Command": "SyntheticTask",
+                "NextRun": "2026-08-31 00:00:00",
+            }
+        },
+    }
+    for profile_name in ("profile-a", "profile-b"):
+        (config / f"{profile_name}.json").write_text(
+            json.dumps(profile_payload), encoding="utf-8"
+        )
+    target_a = DevTargetRegistry.configure(root, profile_name="profile-a")
+    environment_a = DevEnvironment(
+        root,
+        root / ".venv" / "Scripts" / "python.exe",
+        target_a,
+    )
+    identity = _identity(environment_a, "recorded-target-session", pid=7401)
+    EvidenceStore.create(
+        environment_a,
+        session_id="recorded-target-session",
+        root_tasks=["SyntheticTask"],
+        excluded_tasks=[],
+        timestamp="2026-08-31T00:00:00+00:00",
+    )
+    session = DevSession(
+        session_id="recorded-target-session",
+        state=DevSessionState.RUNNING,
+        repository_root=str(root),
+        created_at="2026-08-31T00:00:00+00:00",
+        updated_at="2026-08-31T00:00:00+00:00",
+        process=identity,
+        profile_name="profile-a",
+    )
+    state_path = root / "config" / "state" / "dev-runtime-session.json"
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(json.dumps(session.as_dict()), encoding="utf-8")
+
+    DevTargetRegistry.configure(root, profile_name="profile-b")
+    environment_b = DevEnvironment(
+        root,
+        root / ".venv" / "Scripts" / "python.exe",
+        DevTarget("profile-b"),
+    )
+    backend = ProcessBackend()
+    monkeypatch.setattr(backend, "capture", lambda _pid: identity)
+    monkeypatch.setattr(backend, "request_stop", lambda _identity: True)
+    monkeypatch.setattr(backend, "wait_exit", lambda _identity, _timeout: True)
+    manager = DevSessionManager(
+        environment_b,
+        process_backend=backend,
+        storage_probe=lambda _environment: (True, "ready"),
+        port_probe=lambda _host, _port: False,
+        readiness_probe=lambda _environment, _identity: (True, "ready"),
+    )
+
+    assert manager.status().state == "running_owned"
+    assert manager.get_evidence().ok is True
+    stopped = manager.stop()
+
+    assert stopped.ok is True
+    restored = DevSession.from_dict(json.loads(state_path.read_text(encoding="utf-8")))
+    assert restored.state is DevSessionState.STOPPED
+    assert restored.profile_name == "profile-a"
 
 
 def test_acceptance_cli_exposes_diagnostics_task_commands_and_cleanup() -> None:
