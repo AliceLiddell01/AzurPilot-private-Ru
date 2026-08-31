@@ -162,11 +162,26 @@ def test_canonical_lifecycle_requires_final_review_before_merge() -> None:
         _REPOSITORY_ROOT / ".codex" / "context" / "GIT-WORKFLOW.md",
         _REPOSITORY_ROOT / ".codex" / "context" / "08-VERIFICATION.md",
     )
+    merge_guards = {
+        _REPOSITORY_ROOT / "AGENTS.md": (
+            "только новое текущее сообщение пользователя",
+            "не выполняет merge без",
+        ),
+        _REPOSITORY_ROOT / ".codex" / "context" / "GIT-WORKFLOW.md": (
+            "до такой команды",
+            "отдельной текущей команды",
+        ),
+        _REPOSITORY_ROOT / ".codex" / "context" / "08-VERIFICATION.md": (
+            "merge не выполняется без отдельной текущей команды пользователя",
+            "не является разрешением на merge",
+        ),
+    }
     for path in canonical_paths:
-        content = path.read_text(encoding="utf-8")
-        assert "READY_FOR_CHATGPT_REVIEW" in content
-        assert "ChatGPT 5.6 Sol" in content
-        assert "отдельн" in content.lower()
+        content = path.read_text(encoding="utf-8").lower()
+        assert "ready_for_chatgpt_review" in content
+        assert "chatgpt 5.6 sol" in content
+        assert merge_guards[path][0] in content
+        assert merge_guards[path][1] in content
     combined = "\n".join(path.read_text(encoding="utf-8") for path in canonical_paths)
     assert "100% технического цикла" not in combined
     assert "auto-merge допустим после зелёных gates" not in combined
@@ -175,10 +190,29 @@ def test_canonical_lifecycle_requires_final_review_before_merge() -> None:
 
 
 def test_ci_contract_keeps_stable_stage_agnostic_required_contexts() -> None:
-    workflow = (_REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    workflow = yaml.safe_load(
+        (_REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    )
     ci_doc = (_REPOSITORY_ROOT / "docs" / "ci.md").read_text(encoding="utf-8")
-    assert "paths:" not in workflow
-    for context in ("name: Python", "name: Windows", "name: Security"):
-        assert context in workflow
+    assert isinstance(workflow, dict)
+    triggers = workflow.get("on", workflow.get(True))
+    assert isinstance(triggers, dict)
+    for event_name in ("pull_request", "push"):
+        event = triggers.get(event_name)
+        assert isinstance(event, dict)
+        assert event.get("branches") == ["personal/stable"]
+    for event in triggers.values():
+        if isinstance(event, dict):
+            assert "paths" not in event
+            assert "paths-ignore" not in event
+
+    jobs = workflow.get("jobs")
+    assert isinstance(jobs, dict)
+    job_names = {
+        job.get("name")
+        for job in jobs.values()
+        if isinstance(job, dict)
+    }
+    assert {"Python", "Windows", "Security"} <= job_names
     for invariant in ("текущее продуктовое поведение", "historical SHA", "stage-specific"):
         assert invariant.lower() in ci_doc.lower()
