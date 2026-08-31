@@ -61,6 +61,14 @@ class _Metadata:
                 default="safe",
                 options=("safe", "fast"),
             ),
+            ("Main", "Scheduler", "NextRun"): ConfigArgumentDefinition(
+                task="Main",
+                group="Scheduler",
+                argument="NextRun",
+                input_type="datetime",
+                default="2020-01-01 00:00:00",
+                validation="datetime",
+            ),
             ("Main", "Error", "ApiKey"): ConfigArgumentDefinition(
                 task="Main",
                 group="Error",
@@ -325,6 +333,16 @@ def test_control_service_fails_closed_for_invalid_config_and_state_results():
         service.update_config(ConfigUpdateRequest("ap", "Main", "General", "Mode", "unsafe"))
     with pytest.raises(ConfigurationValidationError):
         service.update_config(ConfigUpdateRequest("ap", "Main", "Error", "ApiKey", "new"))
+    with pytest.raises(ConfigurationValidationError):
+        service.update_config(
+            ConfigUpdateRequest(
+                "ap",
+                "Main",
+                "Scheduler",
+                "NextRun",
+                "not-a-datetime",
+            )
+        )
     with pytest.raises(ResourceNotFoundError):
         service.trigger_task(ScheduleTaskRequest("ap", "Unknown"))
 
@@ -335,6 +353,17 @@ def test_control_service_fails_closed_for_invalid_config_and_state_results():
     invalid_service, _config, _lifecycle = _control_service(lifecycle=InvalidLifecycle())
     with pytest.raises(OperationFailedError):
         invalid_service.start_instance("ap")
+
+
+def test_control_service_preserves_valid_datetime_string_for_legacy_parser():
+    service, config, _lifecycle = _control_service()
+    value = "2026-08-31 12:00:00"
+
+    service.update_config(
+        ConfigUpdateRequest("ap", "Main", "Scheduler", "NextRun", value)
+    )
+
+    assert config.updated[-1].value == value
 
 
 def test_control_service_sanitizes_writer_failure_without_internal_details():

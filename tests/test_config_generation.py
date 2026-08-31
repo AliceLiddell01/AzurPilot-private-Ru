@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import json
@@ -8,7 +7,6 @@ from pathlib import Path
 import yaml
 
 from module.config.locale import UI_LOCALE
-
 
 ROOT = Path(__file__).resolve().parents[1]
 ACTIVE_TEMPLATES = (
@@ -59,6 +57,21 @@ class ConfigGenerationTests(unittest.TestCase):
 
         self.assertTrue(source["Reward"]["CollectMission"]["smoke_override"])
         self.assertTrue(generated["Reward"]["Reward"]["CollectMission"]["smoke_override"])
+
+    def test_llm_api_base_remains_editable_in_generated_metadata(self) -> None:
+        source = yaml.safe_load(
+            (ROOT / "module/config/argument/argument.yaml").read_text(
+                encoding="utf-8"
+            )
+        )
+        generated = json.loads(
+            (ROOT / "module/config/argument/args.json").read_text(
+                encoding="utf-8"
+            )
+        )
+
+        self.assertNotIn("sensitive", source["Error"]["LlmApiBase"])
+        self.assertNotIn("sensitive", generated["Alas"]["Error"]["LlmApiBase"])
 
 
 if __name__ == "__main__":

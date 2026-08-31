@@ -48,6 +48,20 @@ class GameConfigWriter(Protocol):
     ) -> Sequence[str]: ...
 
 
+class GameConfigMetadata(Protocol):
+    """Metadata contract required by the legacy config adapter."""
+
+    def redact_config(
+        self,
+        config_data: Mapping[str, object],
+    ) -> Mapping[str, object]: ...
+
+    def read_dashboard_resources(
+        self,
+        config_data: Mapping[str, object],
+    ) -> DashboardResources: ...
+
+
 class ConfigSchemaReader(Protocol):
     def read_argument_definition(
         self,
@@ -91,6 +105,7 @@ __all__ = [
     "AdbController",
     "ConfigSchemaReader",
     "EmulatorController",
+    "GameConfigMetadata",
     "GameConfigReader",
     "GameConfigWriter",
     "InstanceLifecycleController",

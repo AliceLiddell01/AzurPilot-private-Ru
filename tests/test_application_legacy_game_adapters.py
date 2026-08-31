@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -148,6 +148,37 @@ def test_legacy_config_adapter_reads_redacted_data_and_limits_scheduler_mutation
     assert configs[-1].changes == [("Main.Scheduler.Enable", False)]
 
 
+def test_legacy_config_adapter_sorts_scheduler_datetimes_by_timestamp():
+    data = {
+        "Main": {
+            "Scheduler": {
+                "Enable": True,
+                "NextRun": datetime(
+                    2026,
+                    8,
+                    31,
+                    12,
+                    tzinfo=timezone(timedelta(hours=3)),
+                ),
+            },
+        },
+        "Event": {
+            "Scheduler": {
+                "Enable": True,
+                "NextRun": datetime(2026, 8, 31, 10, tzinfo=UTC),
+            },
+        },
+    }
+    adapter = LegacyConfigAdapter(
+        GeneratedTaskCatalogAdapter(ARGS, I18N),
+        updater_factory=lambda: _Updater(data),
+    )
+
+    queue = adapter.read_scheduler_queue("ap", ("Main", "Event"))
+
+    assert tuple(item.task for item in queue) == ("Main", "Event")
+
+
 def test_legacy_log_adapter_is_bounded_and_root_safe(tmp_path: Path):
     log_root = tmp_path / "log"
     log_root.mkdir()
@@ -276,3 +307,42 @@ def test_legacy_adb_adapter_requires_target_only_inventory_before_restart():
         target_serial_provider=lambda instance: "broken",
     )
     assert malformed_inventory.restart_adb("secondary") is False
+
+
+def test_legacy_adb_adapter_allows_only_singleton_auto_target():
+    calls: list[tuple[str, ...]] = []
+
+    def runner(argv: tuple[str, ...]) -> _CommandResult:
+        calls.append(argv)
+        if argv[-1] == "devices":
+            return _CommandResult(0, "List of devices attached\nserial-a\tdevice\n")
+        return _CommandResult(0)
+
+    adapter = LegacyAdbAdapter(
+        runner=runner,
+        adb_path_provider=lambda: "adb",
+        target_serial_provider=lambda instance: None,
+    )
+
+    assert adapter.restart_adb("secondary") is True
+    assert calls == [
+        ("adb", "devices"),
+        ("adb", "kill-server"),
+        ("adb", "start-server"),
+        ("adb", "devices"),
+    ]
+
+    no_device_calls: list[tuple[str, ...]] = []
+
+    def no_device_runner(argv: tuple[str, ...]) -> _CommandResult:
+        no_device_calls.append(argv)
+        return _CommandResult(0, "List of devices attached\n")
+
+    no_device = LegacyAdbAdapter(
+        runner=no_device_runner,
+        adb_path_provider=lambda: "adb",
+        target_serial_provider=lambda instance: None,
+    )
+
+    assert no_device.restart_adb("secondary") is False
+    assert no_device_calls == [("adb", "devices")]

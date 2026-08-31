@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from datetime import datetime
 
 from module.application.errors import (
     ApplicationError,
@@ -121,6 +122,20 @@ def same_value(left: object, right: object) -> bool:
     return left == right
 
 
+def _is_valid_datetime_value(value: object) -> bool:
+    """Проверить legacy datetime contract без изменения исходного значения."""
+
+    if isinstance(value, datetime):
+        return True
+    if not isinstance(value, str):
+        return False
+    try:
+        datetime.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
+
+
 def validate_config_value(
     definition: ConfigArgumentDefinition,
     value: object,
@@ -153,6 +168,10 @@ def validate_config_value(
         )
 
     input_type = definition.input_type.casefold()
+    if input_type == "datetime" and not _is_valid_datetime_value(frozen):
+        raise ConfigurationValidationError(
+            "Для этого параметра требуется корректное значение даты и времени."
+        )
     if input_type in {"checkbox", "state"} and type(frozen) is not bool:
         raise ConfigurationValidationError(
             "Для этого параметра требуется логическое значение."

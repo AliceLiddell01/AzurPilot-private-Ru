@@ -10,10 +10,9 @@ import re
 import shutil
 import subprocess
 from collections.abc import Callable, Mapping, Sequence
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Protocol
 
 from module.application.game_models import (
     ConfigUpdateRequest,
@@ -22,6 +21,7 @@ from module.application.game_models import (
     SchedulerEntry,
     thaw_payload,
 )
+from module.application.game_ports import GameConfigMetadata
 
 _MAX_LOG_LINES = 10_000
 _MAX_LOG_BYTES = 2 * 1024 * 1024
@@ -31,6 +31,20 @@ _TASK_LOG_PATTERNS = (
     re.compile(r"调度器: 开始任务\s*[`'\" ](.*?)[`'\" ]"),
     re.compile(r"<<<\s*Run task\s*(.*?)\s*>>>")
 )
+
+
+def _scheduler_sort_key(entry: SchedulerEntry) -> tuple[int, float, str]:
+    """Упорядочить datetime по абсолютному времени, fallback — по тексту."""
+
+    value = entry.next_run
+    if isinstance(value, datetime):
+        moment = (
+            value.astimezone(UTC)
+            if value.tzinfo is not None
+            else value.replace(tzinfo=UTC)
+        )
+        return (0, moment.timestamp(), "")
+    return (1, 0.0, str(value))
 
 
 def legacy_current_time() -> datetime:
@@ -81,19 +95,12 @@ def _safe_serial(value: object) -> str:
     return value
 
 
-class _GeneratedMetadata(Protocol):
-    def read_dashboard_resources(
-        self,
-        config_data: Mapping[str, Any],
-    ) -> DashboardResources: ...
-
-
 class LegacyConfigAdapter:
     """Адаптер generated config и существующего AzurLaneConfig owner."""
 
     def __init__(
         self,
-        metadata: _GeneratedMetadata,
+        metadata: GameConfigMetadata,
         *,
         config_factory: Callable[[str], object] | None = None,
         updater_factory: Callable[[], object] | None = None,
@@ -112,9 +119,7 @@ class LegacyConfigAdapter:
         data = updater.read_file(instance)  # type: ignore[attr-defined]
         if not isinstance(data, Mapping):
             raise TypeError("config owner вернул не mapping")
-        redactor = getattr(self._metadata, "redact_config", None)
-        if callable(redactor):
-            data = redactor(data)
+        data = self._metadata.redact_config(data)
         if task is None:
             return data
         selected = data.get(_safe_segment(task), {})
@@ -143,7 +148,7 @@ class LegacyConfigAdapter:
                 continue
             next_run = scheduler.get("NextRun", _SCHEDULER_FALLBACK_NEXT_RUN)
             entries.append(SchedulerEntry(task=task, next_run=next_run))
-        return tuple(sorted(entries, key=lambda entry: str(entry.next_run)))
+        return tuple(sorted(entries, key=_scheduler_sort_key))
 
     def update_config(self, request: ConfigUpdateRequest) -> None:
         config = self._make_config(request.instance)
@@ -472,8 +477,15 @@ class LegacyAdbAdapter:
         )
         if target_serial is not None:
             target_serial = _safe_serial(target_serial)
-        if not self._inventory_is_safe(devices, target_serial):
+        auto_target = instance is not None and target_serial is None
+        if not self._inventory_is_safe(
+            devices,
+            target_serial,
+            allow_singleton=auto_target,
+        ):
             return False
+        if auto_target:
+            target_serial = devices[0]
         target_present_before = (
             target_serial is not None and target_serial in devices
         )
@@ -512,6 +524,8 @@ class LegacyAdbAdapter:
     def _inventory_is_safe(
         devices: Sequence[str],
         target_serial: str | None,
+        *,
+        allow_singleton: bool = False,
     ) -> bool:
         try:
             normalized = tuple(_safe_serial(serial) for serial in devices)
@@ -520,7 +534,7 @@ class LegacyAdbAdapter:
         if normalized != tuple(devices) or len(devices) != len(set(devices)):
             return False
         if target_serial is None:
-            return not devices
+            return len(normalized) == 1 if allow_singleton else not normalized
         return all(serial == target_serial for serial in devices)
 
     @staticmethod
@@ -546,17 +560,21 @@ class LegacyAdbAdapter:
             from module.config.config_updater import ConfigUpdater
 
             data = ConfigUpdater().read_file(instance)
-            alas = data.get("Alas", {}) if isinstance(data, Mapping) else {}
-            emulator = alas.get("Emulator", {}) if isinstance(alas, Mapping) else {}
-            serial = emulator.get("Serial") if isinstance(emulator, Mapping) else None
-        except (AttributeError, OSError, TypeError, ValueError):
-            return None
+        except (AttributeError, OSError, TypeError, ValueError, KeyError):
+            raise ValueError("Не удалось прочитать конфигурацию ADB.") from None
+        if not isinstance(data, Mapping):
+            raise TypeError("Конфигурация ADB имеет неверный формат.")
+        alas = data.get("Alas", {})
+        emulator = alas.get("Emulator", {}) if isinstance(alas, Mapping) else {}
+        serial = emulator.get("Serial") if isinstance(emulator, Mapping) else None
         if not isinstance(serial, str):
-            return None
+            raise TypeError("В конфигурации ADB не задан serial.")
         serial = serial.strip()
-        if not serial or serial.casefold() == "auto":
+        if not serial:
+            raise ValueError("В конфигурации ADB не задан serial.")
+        if serial.casefold() == "auto":
             return None
-        return serial
+        return _safe_serial(serial)
 
     @staticmethod
     def _default_adb_path() -> str:
