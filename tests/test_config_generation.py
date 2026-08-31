@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import json
@@ -8,7 +7,6 @@ from pathlib import Path
 import yaml
 
 from module.config.locale import UI_LOCALE
-
 
 ROOT = Path(__file__).resolve().parents[1]
 ACTIVE_TEMPLATES = (
@@ -22,6 +20,20 @@ ACTIVE_TEMPLATES = (
 
 
 class ConfigGenerationTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        cls.argument_source = yaml.safe_load(
+            (ROOT / "module/config/argument/argument.yaml").read_text(
+                encoding="utf-8"
+            )
+        )
+        cls.generated_args = json.loads(
+            (ROOT / "module/config/argument/args.json").read_text(
+                encoding="utf-8"
+            )
+        )
+
     def test_generation_uses_one_ui_locale_and_explicit_event_source(self) -> None:
         source = (ROOT / "module/config/config_updater.py").read_text(encoding="utf-8")
         generate = source[source.index("    def generate(self):") :]
@@ -54,11 +66,51 @@ class ConfigGenerationTests(unittest.TestCase):
                 self.assertEqual(data["Deploy"]["Webui"]["Language"], UI_LOCALE)
 
     def test_smoke_override_capability_is_carried_into_generated_args(self) -> None:
-        source = yaml.safe_load((ROOT / "module/config/argument/argument.yaml").read_text(encoding="utf-8"))
-        generated = json.loads((ROOT / "module/config/argument/args.json").read_text(encoding="utf-8"))
+        self.assertTrue(
+            self.argument_source["Reward"]["CollectMission"]["smoke_override"]
+        )
+        self.assertTrue(
+            self.generated_args["Reward"]["Reward"]["CollectMission"][
+                "smoke_override"
+            ]
+        )
 
-        self.assertTrue(source["Reward"]["CollectMission"]["smoke_override"])
-        self.assertTrue(generated["Reward"]["Reward"]["CollectMission"]["smoke_override"])
+    def test_llm_api_base_remains_editable_in_generated_metadata(self) -> None:
+        self.assertNotIn("sensitive", self.argument_source["Error"]["LlmApiBase"])
+        self.assertNotIn(
+            "sensitive",
+            self.generated_args["Alas"]["Error"]["LlmApiBase"],
+        )
+
+    def test_sensitive_metadata_is_kept_in_source_and_generated_config(self) -> None:
+        source_paths = {
+            (group, argument)
+            for group, group_data in self.argument_source.items()
+            if isinstance(group_data, dict)
+            for argument, argument_data in group_data.items()
+            if isinstance(argument_data, dict)
+            and argument_data.get("sensitive") is True
+        }
+        generated_occurrences = [
+            (task, group, argument, argument_data.get("sensitive"))
+            for task, task_data in self.generated_args.items()
+            if isinstance(task_data, dict)
+            for group, group_data in task_data.items()
+            if isinstance(group_data, dict)
+            for argument, argument_data in group_data.items()
+            if isinstance(argument_data, dict)
+        ]
+        generated_paths = {
+            (group, argument)
+            for _task, group, argument, sensitive in generated_occurrences
+            if sensitive is True
+        }
+
+        self.assertEqual(generated_paths, source_paths)
+        for task, group, argument, sensitive in generated_occurrences:
+            if (group, argument) in source_paths:
+                with self.subTest(path=f"{task}.{group}.{argument}"):
+                    self.assertIs(sensitive, True)
 
 
 if __name__ == "__main__":

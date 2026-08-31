@@ -25,6 +25,24 @@ class ServiceUnavailableError(ApplicationError):
     code = "service_unavailable"
 
 
+class ConfigurationValidationError(ApplicationError):
+    """Значение не прошло проверку generated config metadata."""
+
+    code = "configuration_invalid"
+
+
+class OperationFailedError(ApplicationError):
+    """Инфраструктурный control operation не подтвердил успех."""
+
+    code = "operation_failed"
+
+
+class InstanceNotRunningError(ApplicationError):
+    """Операция требует подтверждённый запущенный экземпляр."""
+
+    code = "instance_not_running"
+
+
 class StorageError(ApplicationError):
     """Базовая ошибка application-owned storage boundary."""
 

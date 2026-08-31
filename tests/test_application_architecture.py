@@ -79,11 +79,15 @@ def test_existing_webui_and_mcp_production_wiring_remains_independent():
     mcp_source = mcp_path.read_text(encoding="utf-8")
     mcp_tree = ast.parse(mcp_source)
 
-    application_imports: set[str] = set()
-    for path, tree in ((app_path, app_tree), (mcp_path, mcp_tree)):
+    webui_application_imports: set[str] = set()
+    mcp_application_imports: set[str] = set()
+    for path, tree, destination in (
+        (app_path, app_tree, webui_application_imports),
+        (mcp_path, mcp_tree, mcp_application_imports),
+    ):
         for node in ast.walk(tree):
             candidates = absolute_import_candidates(ROOT, path, node)
-            application_imports.update(
+            destination.update(
                 name
                 for name in candidates
                 if name == "module.application"
@@ -126,7 +130,11 @@ def test_existing_webui_and_mcp_production_wiring_remains_independent():
         if isinstance(key, ast.Constant) and isinstance(key.value, str)
     }
 
-    assert not application_imports, application_imports
+    assert not webui_application_imports, webui_application_imports
+    assert "module.application" in mcp_application_imports
+    assert "module.application.game_control_service" not in mcp_application_imports
+    assert "module.application.game_read_service" not in mcp_application_imports
+    assert "module.application.legacy_game_adapters" in mcp_application_imports
     assert "/mcp" in mounted_paths
     assert {
         "list_instances",
