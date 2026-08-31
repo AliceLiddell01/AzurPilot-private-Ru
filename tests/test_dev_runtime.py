@@ -227,6 +227,17 @@ def test_profile_check_accepts_only_structural_local_ap(tmp_path: Path) -> None:
     assert "development target" in manager._profile_check()[1]
 
 
+def test_preflight_reports_invalid_target_as_unconfigured(tmp_path: Path) -> None:
+    manager, _backend = _manager(tmp_path)
+    manager._profile_check = lambda: (False, "target invalid")
+
+    result = manager.preflight()
+
+    assert result.ok is False
+    assert result.details["development_target"]["configured"] is False
+    assert "DEV_TARGET_INVALID" in result.details["blockers"]
+
+
 def test_start_persists_created_starting_running_transitions(tmp_path: Path) -> None:
     manager, backend = _manager(tmp_path)
     states: list[DevSessionState] = []

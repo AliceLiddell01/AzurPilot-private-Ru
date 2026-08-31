@@ -165,7 +165,7 @@ class DevDiagnosticsMixin:
                 DevStatusKind.NO_SESSION.value if ok else DevStatusKind.FAILED.value
             ),
             details={
-                "development_target": {"configured": True},
+                "development_target": {"configured": profile_ok},
                 "checks": checks,
                 "blockers": blockers,
             },

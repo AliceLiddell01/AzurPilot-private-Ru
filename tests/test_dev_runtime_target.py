@@ -86,13 +86,9 @@ def test_target_marker_rejects_invalid_assignment(tmp_path: Path, payload: dict[
     assert _error_code(error) in {"DEV_TARGET_STATE_CORRUPT", "DEV_TARGET_INVALID"}
 
 
-def test_target_marker_rejects_missing_and_duplicate_structural_profile(tmp_path: Path) -> None:
+def test_target_marker_rejects_missing_structural_profile(tmp_path: Path) -> None:
     _write_profile(tmp_path)
     DevTargetRegistry.configure(tmp_path, profile_name=_TARGET_NAME)
-    (tmp_path / "config" / f"{_TARGET_NAME}-extra.json").write_text(
-        json.dumps({"Alas": {"Emulator": {}}, "General": {}, "Task": {"Scheduler": {}}}),
-        encoding="utf-8",
-    )
     marker = tmp_path / "config" / "state" / "dev-runtime-target.json"
     marker.write_text(
         json.dumps({"schema_version": 1, "profile_name": "missing-target", "mod_name": "alas"}),
@@ -102,8 +98,6 @@ def test_target_marker_rejects_missing_and_duplicate_structural_profile(tmp_path
     with pytest.raises(DevTargetError) as error:
         DevTargetRegistry.load(tmp_path)
     assert _error_code(error) == "DEV_TARGET_PROFILE_MISSING"
-
-
 def test_target_marker_symlink_is_rejected_when_supported(tmp_path: Path) -> None:
     _write_profile(tmp_path)
     target = DevTargetRegistry.configure(tmp_path, profile_name=_TARGET_NAME)

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import time
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -166,6 +165,7 @@ def _manager(
     session_state: str | None = None,
     smoke_active: bool = False,
     sleep=None,
+    monotonic=None,
     action_timeout: float = 5.0,
 ) -> RuntimeControlManager:
     sleep_callback = sleep or (lambda _seconds: backend.settle())
@@ -177,6 +177,7 @@ def _manager(
         supervisor_launcher=lambda _environment, _control_id: SimpleNamespace(pid=os.getpid()),
         now=lambda: _NOW,
         sleep=sleep_callback,
+        monotonic=monotonic,
         action_timeouts={action: action_timeout for action in ControlAction},
     )
 
@@ -213,6 +214,25 @@ def test_runtime_status_is_read_only_and_reports_bounded_state(
     assert result.details["game"]["running"] is False
     assert backend.calls == []
     assert not environment.control_root.exists()
+
+
+def test_runtime_status_does_not_persist_orphan_reconciliation(
+    tmp_path: Path,
+    supervisor_identity: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    environment = _environment(tmp_path)
+    manager = _manager(environment, _FakeRuntimeBackend())
+    control_id = _accepted(manager, ControlAction.START_GAME)
+    before = manager.store.operation_path.read_bytes()
+    monkeypatch.setattr(control_module, "_process_matches", lambda _pid, _created_at: False)
+
+    result = manager.status()
+
+    assert result.ok is True
+    assert result.details["control_operation"]["active"] is False
+    assert result.details["control_operation"]["operation"]["outcome"] == ControlOutcome.ABORTED.value
+    assert manager.store.operation_path.read_bytes() == before
 
 
 def test_new_control_request_reconciles_crashed_previous_supervisor(
@@ -374,9 +394,10 @@ def test_runtime_control_timeout_is_not_reported_as_success(
     manager: RuntimeControlManager
 
     def expire(_seconds: float) -> None:
-        manager._execution_deadline = time.monotonic() - 1.0
+        clock[0] = 1.0
 
-    manager = _manager(environment, backend, sleep=expire, action_timeout=0.1)
+    clock = [0.0]
+    manager = _manager(environment, backend, sleep=expire, monotonic=lambda: clock[0], action_timeout=0.1)
     control_id = _accepted(manager, ControlAction.START_EMULATOR)
 
     result = _finish(manager, control_id)

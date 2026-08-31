@@ -395,58 +395,56 @@ class ControlStore:
             self._ensure_root()
         else:
             self._check_paths()
-            if not self.root.exists():
+            if not self.root.exists() or not self.lock_path.exists():
                 yield
                 return
-            if not self.lock_path.exists() and not self.operation_path.exists():
-                yield
-                return
-            self._ensure_root()
-        handle = self.lock_path.open("a+b")
-        if self.lock_path.stat().st_size == 0:
-            handle.write(b"\0")
-            handle.flush()
-            os.fsync(handle.fileno())
-        deadline = time.monotonic() + CONTROL_LOCK_TIMEOUT
-        acquired = False
+        handle = self.lock_path.open("a+b" if create else "r+b")
         try:
-            if os.name == "nt":
-                import msvcrt
-
-                while True:
-                    try:
-                        handle.seek(0)
-                        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
-                        acquired = True
-                        break
-                    except OSError:
-                        if time.monotonic() >= deadline:
-                            raise TimeoutError("Истекло время ожидания блокировки control state")
-                        time.sleep(CONTROL_LOCK_RETRY_SECONDS)
-            else:
-                import fcntl
-
-                while True:
-                    try:
-                        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                        acquired = True
-                        break
-                    except BlockingIOError:
-                        if time.monotonic() >= deadline:
-                            raise TimeoutError("Истекло время ожидания блокировки control state")
-                        time.sleep(CONTROL_LOCK_RETRY_SECONDS)
-            yield
-        finally:
-            if acquired:
-                handle.seek(0)
+            if create and self.lock_path.stat().st_size == 0:
+                handle.write(b"\0")
+                handle.flush()
+                os.fsync(handle.fileno())
+            deadline = time.monotonic() + CONTROL_LOCK_TIMEOUT
+            acquired = False
+            try:
                 if os.name == "nt":
                     import msvcrt
 
-                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                    while True:
+                        try:
+                            handle.seek(0)
+                            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                            acquired = True
+                            break
+                        except OSError:
+                            if time.monotonic() >= deadline:
+                                raise TimeoutError("Истекло время ожидания блокировки control state")
+                            time.sleep(CONTROL_LOCK_RETRY_SECONDS)
                 else:
                     import fcntl
 
-                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                    while True:
+                        try:
+                            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                            acquired = True
+                            break
+                        except BlockingIOError:
+                            if time.monotonic() >= deadline:
+                                raise TimeoutError("Истекло время ожидания блокировки control state")
+                            time.sleep(CONTROL_LOCK_RETRY_SECONDS)
+                yield
+            finally:
+                if acquired:
+                    handle.seek(0)
+                    if os.name == "nt":
+                        import msvcrt
+
+                        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                    else:
+                        import fcntl
+
+                        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        finally:
             handle.close()
 
 
@@ -692,6 +690,7 @@ class RuntimeControlManager:
         supervisor_launcher: Callable[[DevEnvironment, str], object] | None = None,
         now: Callable[[], datetime] | None = None,
         sleep: Callable[[float], None] | None = None,
+        monotonic: Callable[[], float] | None = None,
         poll_seconds: float = CONTROL_POLL_SECONDS,
         action_timeouts: Mapping[ControlAction, float] | None = None,
     ) -> None:
@@ -703,6 +702,7 @@ class RuntimeControlManager:
         self.supervisor_launcher = supervisor_launcher or self._launch_supervisor
         self.now = now or (lambda: datetime.now(UTC))
         self.sleep = sleep or time.sleep
+        self.monotonic = monotonic or time.monotonic
         self.poll_seconds = min(max(float(poll_seconds), 0.01), 2.0)
         self.action_timeouts = dict(_ACTION_TIMEOUTS)
         if action_timeouts:
@@ -947,7 +947,8 @@ class RuntimeControlManager:
                     else "DEV_CONTROL_SUPERVISOR_CRASHED"
                 )
                 operation = self._finish(operation, outcome=ControlOutcome.ABORTED, code=code)
-                self.store.write(operation)
+                if not read_only:
+                    self.store.write(operation)
             return operation
 
     def _launch_supervisor(self, environment: DevEnvironment, control_id: str) -> subprocess.Popen[bytes]:
@@ -1049,7 +1050,7 @@ class RuntimeControlManager:
 
     def _before_deadline(self, operation: DevRuntimeControlOperation) -> bool:
         if self._execution_deadline is not None:
-            return time.monotonic() < self._execution_deadline
+            return self.monotonic() < self._execution_deadline
         try:
             current = self.now()
             if current.tzinfo is None:
@@ -1168,9 +1169,9 @@ class RuntimeControlManager:
                     if current_time.tzinfo is None:
                         current_time = current_time.replace(tzinfo=UTC)
                     remaining = (deadline - current_time.astimezone(UTC)).total_seconds()
-                    self._execution_deadline = time.monotonic() + max(0.0, remaining)
+                    self._execution_deadline = self.monotonic() + max(0.0, remaining)
                 except (TypeError, ValueError):
-                    self._execution_deadline = time.monotonic()
+                    self._execution_deadline = self.monotonic()
             try:
                 finished = self._execute_action(operation, self._backend_instance())
             except RuntimeControlError as exc:
