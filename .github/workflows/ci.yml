@@ -891,8 +891,12 @@ jobs:
               'windows_integration'
               'tests'
           )
+          # Маркер выбирает тесты только из одного файла; общий file-sharding
+          # иначе получает пустые shard-ы с pytest exit 5.
+          $env:AZURPILOT_PYTEST_PARALLEL = '0'
           & $pythonExecutable @runnerArguments
           $runnerExitCode = $LASTEXITCODE
+          Remove-Item Env:AZURPILOT_PYTEST_PARALLEL -ErrorAction SilentlyContinue
 
           if ($runnerExitCode -ne 0) {
               throw ('Windows capability tests завершились с кодом {0}.' -f $runnerExitCode)
