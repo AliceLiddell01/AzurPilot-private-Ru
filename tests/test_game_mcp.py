@@ -444,6 +444,32 @@ def test_result_sequence_bounds_preserve_data_or_fail_explicitly() -> None:
     assert overflow["code"] == "GAME_RESULT_LIMIT_EXCEEDED"
     assert overflow["ok"] is False
 
+    oversized = _result(
+        ok=True,
+        code="TEST_RESULT",
+        message="ok",
+        state="ready",
+        details={"items": ["x" * 4096] * 512},
+    )
+    assert oversized["code"] == "GAME_RESPONSE_TOO_LARGE"
+    assert oversized["ok"] is False
+    assert oversized["details"] == {}
+
+    nested: object = "leaf"
+    for _ in range(10):
+        nested = {"nested": nested}
+    depth_limited = _result(
+        ok=True,
+        code="TEST_RESULT",
+        message="ok",
+        state="ready",
+        details={"nested": nested},
+    )
+    assert depth_limited["code"] == "TEST_RESULT"
+    assert "<вложенность скрыта>" in json.dumps(
+        depth_limited, ensure_ascii=False
+    )
+
 
 def test_server_construction_and_contract_are_lazy() -> None:
     calls: list[int] = []

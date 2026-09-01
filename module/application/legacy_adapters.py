@@ -83,7 +83,10 @@ class LegacyInstanceRuntimeAdapter:
         record = worker_registry.get_worker_read_only(name)
         if record is None:
             return RuntimeSnapshot(False, int(RuntimeState.STOPPED))
-        matches = worker_registry.process_matches(record)
+        try:
+            matches = worker_registry.process_matches(record)
+        except RuntimeError:
+            return RuntimeSnapshot(False, int(RuntimeState.WARNING))
         if matches is True:
             return RuntimeSnapshot(True, int(RuntimeState.RUNNING))
         if matches is None:

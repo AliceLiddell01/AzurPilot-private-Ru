@@ -308,6 +308,8 @@ class TestWorkerRegistry(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            current_before = current_file.read_bytes()
+            legacy_before = legacy_file.read_bytes()
 
             with (
                 patch.multiple(
@@ -322,6 +324,11 @@ class TestWorkerRegistry(unittest.TestCase):
                     {"created_at": 11.5, "pid": 200},
                     worker_registry.get_worker_read_only("alas"),
                 )
+
+            self.assertEqual(current_before, current_file.read_bytes())
+            self.assertEqual(legacy_before, legacy_file.read_bytes())
+            self.assertTrue(current_file.exists())
+            self.assertTrue(legacy_file.exists())
 
     def test_repeated_owner_claim_preserves_registered_workers(self):
         with tempfile.TemporaryDirectory() as directory:

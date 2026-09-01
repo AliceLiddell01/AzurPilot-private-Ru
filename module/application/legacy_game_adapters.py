@@ -27,6 +27,12 @@ from module.application.game_validation import INVALID_NAME_CHARS, UNKNOWN_TASK
 _MAX_LOG_LINES = 10_000
 _MAX_LOG_BYTES = 2 * 1024 * 1024
 _PASSIVE_SCREENSHOT_TIMEOUT_SECONDS = 10
+_ADB_PATH_CANDIDATES = (
+    Path(".venv/Scripts/adb.exe"),
+    Path(".venv/bin/adb"),
+    Path("bin/adb/adb.exe"),
+    Path("bin/adb/adb"),
+)
 _SCHEDULER_FALLBACK_NEXT_RUN = datetime.fromisoformat("2050-01-01")
 _ADB_DEVICE_STATES = frozenset({"device", "offline", "unauthorized"})
 _TASK_LOG_PATTERNS = (
@@ -162,20 +168,22 @@ def _parse_adb_inventory(output: str) -> tuple[_AdbDevice, ...] | None:
     return tuple(devices)
 
 
-def _find_passive_adb_path() -> str:
-    """Найти ADB без загрузки WebUI state и без его изменения."""
-
-    for candidate in (
-        Path(".venv/Scripts/adb.exe"),
-        Path(".venv/bin/adb"),
-        Path("bin/adb/adb.exe"),
-        Path("bin/adb/adb"),
-    ):
+def _first_existing_adb_path() -> str | None:
+    for candidate in _ADB_PATH_CANDIDATES:
         if candidate.is_file():
             return str(candidate.resolve())
     discovered = shutil.which("adb")
     if discovered:
         return str(Path(discovered).resolve())
+    return None
+
+
+def _find_passive_adb_path() -> str:
+    """Найти ADB без загрузки WebUI state и без его изменения."""
+
+    discovered = _first_existing_adb_path()
+    if discovered is not None:
+        return discovered
     raise ValueError("Исполняемый файл ADB не найден.")
 
 
@@ -713,16 +721,9 @@ class LegacyAdbAdapter:
                     return str(candidate.resolve())
         except (AttributeError, OSError, TypeError, ValueError):
             pass
-        for candidate in (
-            Path(".venv/Scripts/adb.exe"),
-            Path(".venv/bin/adb"),
-            Path("bin/adb/adb.exe"),
-        ):
-            if candidate.is_file():
-                return str(candidate.resolve())
-        discovered = shutil.which("adb")
-        if discovered:
-            return str(Path(discovered).resolve())
+        discovered = _first_existing_adb_path()
+        if discovered is not None:
+            return discovered
         raise ValueError("Исполняемый файл ADB не найден.")
 
 

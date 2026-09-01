@@ -700,7 +700,7 @@ def test_oidc_verifier_checks_signature_issuer_audience_expiry_subject_resource_
         def get_signing_key_from_jwt(self, token: str) -> SimpleNamespace:
             return SimpleNamespace(key=public_pem)
 
-    config = _config()
+    config = _config(public_url="https://resource.example.test/mcp")
     now = int(time.time())
     verifier = OIDCTokenVerifier(config, jwk_client=_JwkClient(), clock=lambda: now)
 
@@ -714,7 +714,7 @@ def test_oidc_verifier_checks_signature_issuer_audience_expiry_subject_resource_
             "scope": DEV_MCP_REQUIRED_SCOPE,
         }
         if include_resource:
-            values["resource"] = _AUDIENCE
+            values["resource"] = config.public_url
         values.update(claims)
         return jwt.encode(values, private_pem, algorithm="RS256")
 
@@ -724,11 +724,11 @@ def test_oidc_verifier_checks_signature_issuer_audience_expiry_subject_resource_
         assert valid.token == ""
         assert valid.client_id == "user-1"
         assert valid.scopes == [DEV_MCP_REQUIRED_SCOPE]
-        assert valid.resource == _AUDIENCE
+        assert valid.resource == config.public_url
 
         with_resource = await verifier.verify_token(token())
         assert with_resource is not None
-        assert with_resource.resource == _AUDIENCE
+        assert with_resource.resource == config.public_url
 
         for invalid in (
             token(aud="https://other.example.test"),
@@ -739,6 +739,7 @@ def test_oidc_verifier_checks_signature_issuer_audience_expiry_subject_resource_
             token(sub="other-user"),
             token(sub="пользователь"),
             token(resource=None),
+            token(resource=_AUDIENCE),
             token(resource="https://other.example.test/mcp"),
             token(resource="https://пример.example/mcp"),
             token(scope="other:scope"),

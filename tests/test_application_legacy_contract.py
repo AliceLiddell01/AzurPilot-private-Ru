@@ -129,3 +129,25 @@ def test_default_legacy_runtime_adapter_reads_registry_without_process_housekeep
     locked.assert_not_called()
     assert status.running is False
     assert status.state is RuntimeState.STOPPED
+
+
+def test_default_legacy_runtime_adapter_maps_process_check_error_to_warning():
+    adapter = LegacyInstanceRuntimeAdapter(list_instances=lambda: ("ap",))
+
+    with (
+        patch.object(
+            worker_registry,
+            "get_worker_read_only",
+            return_value={"pid": 123, "created_at": 10.5},
+        ),
+        patch.object(
+            worker_registry,
+            "process_matches",
+            side_effect=RuntimeError("process check unavailable"),
+        ),
+    ):
+        status = InstanceQueryService(adapter).get_status("ap")
+
+    assert status.name == "ap"
+    assert status.running is False
+    assert status.state is RuntimeState.WARNING

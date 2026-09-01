@@ -22,6 +22,11 @@ def _imported_modules(path: Path) -> set[str]:
             )
             if node.module:
                 names.add(node.module)
+                names.update(
+                    f"{node.module}.{alias.name}"
+                    for alias in node.names
+                    if alias.name != "*"
+                )
     return names
 
 
