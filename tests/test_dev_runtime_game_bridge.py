@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from pydantic import ValidationError
 
 from module.application.game_models import DashboardResource, DashboardResources
 from module.application.morale import (
@@ -634,7 +635,7 @@ def test_smoke_game_observations_have_named_intermediates_and_reserved_boundarie
     assert spec.game_observations.checkpoints[0].checkpoint_id == "midpoint"
     assert spec.game_observations.duplicate_policy == "keep_first"
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValidationError) as reserved:
         SmokeSpec.model_validate(
             {
                 "name": "reserved-checkpoint",
@@ -652,3 +653,4 @@ def test_smoke_game_observations_have_named_intermediates_and_reserved_boundarie
             },
             strict=True,
         )
+    assert any("checkpoint_id" in str(error["loc"]) for error in reserved.value.errors())

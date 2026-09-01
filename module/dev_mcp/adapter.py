@@ -14,7 +14,7 @@ import re
 import sys
 import threading
 from collections.abc import Callable, Mapping
-from contextlib import redirect_stdout
+from contextlib import ExitStack, redirect_stdout
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
@@ -2173,12 +2173,11 @@ class DevMcpAdapter:
             return serialize_dev_result(contract_result())
 
         self._manager_lock.acquire()
-        stdout_redirect = None
+        redirect_stack = ExitStack()
         try:
             if self._uses_default_manager:
                 _ensure_legacy_logger_stderr()
-                stdout_redirect = redirect_stdout(sys.stderr)
-                stdout_redirect.__enter__()
+                redirect_stack.enter_context(redirect_stdout(sys.stderr))
             manager = self._get_manager()
             if tool_name == "dev_preflight":
                 result = manager.preflight()
@@ -2368,8 +2367,7 @@ class DevMcpAdapter:
             )
             return _internal_error()
         finally:
-            if stdout_redirect is not None:
-                stdout_redirect.__exit__(None, None, None)
+            redirect_stack.close()
             self._manager_lock.release()
         return serialize_dev_result(result)
 

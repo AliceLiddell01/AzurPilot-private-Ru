@@ -261,7 +261,7 @@ def test_database_diagnostics_does_not_initialize_engine_or_install_environment(
     monkeypatch: pytest.MonkeyPatch,
 ):
     marker = tmp_path / DEFAULT_BACKEND_MARKER_PATH
-    marker.parent.mkdir(parents=True)
+    marker.parent.mkdir(parents=True, exist_ok=True)
     marker.write_text(json.dumps(_marker_payload()), encoding="utf-8")
 
     class _ReadOnlyEnvironment:
@@ -272,10 +272,15 @@ def test_database_diagnostics_does_not_initialize_engine_or_install_environment(
             pytest.fail("Диагностический путь не должен изменять process environment.")
 
     reads: list[Path] = []
+
+    def _record_read(path: object) -> _ReadOnlyEnvironment:
+        reads.append(Path(path))
+        return _ReadOnlyEnvironment()
+
     monkeypatch.setattr(
         persistence_runtime,
         "read_local_postgres_environment",
-        lambda path: (reads.append(Path(path)), _ReadOnlyEnvironment())[1],
+        _record_read,
     )
     monkeypatch.setattr(persistence_runtime, "_engine", None)
     monkeypatch.setattr(persistence_runtime, "_engine_settings", None)

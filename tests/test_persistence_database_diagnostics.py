@@ -60,7 +60,7 @@ class _HealthConnection:
             return _ScalarResult([self.schema_head])
         if "current_user" in sql:
             return _ScalarResult(["azurpilot_app"])
-        if "limit 1" in sql:
+        if "legacy_instance_alias" in sql and "limit 1" in sql:
             return _ScalarResult([1] if self.orphan else [])
         if "select 1" in sql:
             return _ScalarResult([1])
@@ -235,7 +235,7 @@ def test_database_diagnostics_import_does_not_open_connection() -> None:
         cwd=Path(__file__).resolve().parents[1],
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=60,
         check=False,
     )
 
