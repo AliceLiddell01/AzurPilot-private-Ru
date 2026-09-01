@@ -238,7 +238,7 @@ def test_legacy_log_adapter_falls_back_to_previous_calendar_date(tmp_path: Path)
 
 def test_legacy_screenshot_lifecycle_and_emulator_adapters_use_narrow_owners(monkeypatch):
     calls: list[tuple[str, ...]] = []
-    frame = b"png"
+    frame = b"\x89PNG\r\n\x1a\nframe"
     screenshot = LegacyScreenshotAdapter(
         runner=lambda argv: calls.append(tuple(argv))
         or _CommandResult(0, frame),
@@ -315,7 +315,7 @@ def test_legacy_screenshot_is_passive_and_unavailable_path_does_not_recover(monk
             raise AssertionError("пассивный screenshot вызвал control command")
         if argv[-1] == "devices":
             return _CommandResult(0, b"List of devices attached\nserial-a\tdevice\n")
-        return _CommandResult(0, b"frame")
+        return _CommandResult(0, b"\x89PNG\r\n\x1a\nframe")
 
     screenshot = LegacyScreenshotAdapter(
         runner=runner,
@@ -323,7 +323,9 @@ def test_legacy_screenshot_is_passive_and_unavailable_path_does_not_recover(monk
         target_serial_provider=lambda instance: None,
     )
 
-    assert screenshot.read_frame("secondary") == MediaFrame(b"frame", "image/png")
+    assert screenshot.read_frame("secondary") == MediaFrame(
+        b"\x89PNG\r\n\x1a\nframe", "image/png"
+    )
     assert calls == [
         ("adb", "devices"),
         ("adb", "-s", "serial-a", "exec-out", "screencap", "-p"),
@@ -345,6 +347,14 @@ def test_legacy_screenshot_is_passive_and_unavailable_path_does_not_recover(monk
         unavailable.read_frame("secondary")
     assert unavailable_calls == [("adb", "devices")]
     assert mutations == []
+
+    invalid_frame = LegacyScreenshotAdapter(
+        runner=lambda argv: _CommandResult(0, b"not a png"),
+        adb_path_provider=lambda: "adb",
+        target_serial_provider=lambda instance: "serial-a",
+    )
+    with pytest.raises(OSError, match="PNG"):
+        invalid_frame.read_frame("secondary")
 
 @dataclass
 class _CommandResult:

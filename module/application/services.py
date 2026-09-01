@@ -25,7 +25,7 @@ def _validated_name(value: object, *, resource: str) -> str:
 
 
 class InstanceQueryService:
-    """Запросы экземпляров без передачи runtime-объектов наружу."""
+    """Запросы экземпляров через read-only порт без lifecycle housekeeping."""
 
     def __init__(self, reader: InstanceRuntimeReader):
         self._reader = reader

@@ -261,8 +261,9 @@ def test_game_remote_is_stateless_modern_and_scope_separated() -> None:
 
 def test_game_remote_rejects_dev_scope_and_missing_auth() -> None:
     async def scenario() -> None:
+        adapter = _RecordingAdapter()
         app = create_remote_app(
-            _RecordingAdapter(),
+            adapter,
             config=_config(),
             token_verifier=_StaticVerifier(["azurpilot:dev"]),
         )
@@ -281,6 +282,7 @@ def test_game_remote_rejects_dev_scope_and_missing_auth() -> None:
             )
             assert dev_token.status_code == 403
             assert dev_token.json() == {"error": "forbidden"}
+        assert adapter.calls == []
 
     asyncio.run(scenario())
 

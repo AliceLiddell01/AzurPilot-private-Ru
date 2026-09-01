@@ -54,8 +54,8 @@ class RemoteConfig(_RemoteConfig):
     ENV_PREFIX = "AZURPILOT_DEV_MCP"
 
     @classmethod
-    def from_env(cls, prefix: str = ENV_PREFIX) -> RemoteConfig:
-        return super().from_env(prefix)
+    def from_env(cls, prefix: str | None = None) -> RemoteConfig:
+        return super().from_env(prefix if prefix is not None else cls.ENV_PREFIX)
 
 
 class OIDCTokenVerifier(_OIDCTokenVerifier):

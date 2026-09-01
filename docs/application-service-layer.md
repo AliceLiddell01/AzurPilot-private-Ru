@@ -28,9 +28,13 @@ Canonical task metadata остаются в generated `module/config/argument/ar
 `McpConfigHelper`: адаптер формирует immutable-проекцию из тех же источников.
 
 Физическое размещение `ProcessManager` в `module.webui` — зафиксированный legacy
-ownership debt. На этой стадии менеджер не переносится и не дублируется. Его
-status properties могут очищать устаревшие записи process registry, поэтому
-чтение runtime status намеренно не объявляется pure operation.
+ownership debt. На этой стадии менеджер не переносится и не дублируется.
+Основной default status path использует
+`LegacyInstanceRuntimeAdapter._default_read_instance_status`: он читает
+worker registry через `get_worker_read_only` и `process_matches`, не вызывая
+`ProcessManager` и lifecycle housekeeping. Injection path с
+`manager_factory` сохраняется только для совместимых legacy callers и
+тестов.
 
 ## Production storage wiring
 

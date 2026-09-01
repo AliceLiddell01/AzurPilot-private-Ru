@@ -124,7 +124,7 @@ def _read_target_serial(instance: str) -> str | None:
         from module.config.config_updater import ConfigUpdater
 
         data = ConfigUpdater().read_file(instance)
-    except (AttributeError, OSError, TypeError, ValueError, KeyError):
+    except (AttributeError, ImportError, OSError, TypeError, ValueError, KeyError):
         raise ValueError("Не удалось прочитать конфигурацию ADB.") from None
     if not isinstance(data, Mapping):
         raise TypeError("Конфигурация ADB имеет неверный формат.")
@@ -467,6 +467,8 @@ class LegacyScreenshotAdapter:
         data = getattr(result, "stdout", None)
         if not isinstance(data, bytes) or not data:
             raise OSError("Безопасный framebuffer недоступен.")
+        if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+            raise OSError("ADB вернул данные без корректной PNG-сигнатуры.")
         return MediaFrame(data=data, media_type="image/png")
 
     def _resolve_single_device(self, adb: str) -> str:

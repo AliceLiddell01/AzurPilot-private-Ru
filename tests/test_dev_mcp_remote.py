@@ -692,6 +692,10 @@ def test_oidc_verifier_checks_signature_issuer_audience_expiry_subject_resource_
         assert valid.scopes == [DEV_MCP_REQUIRED_SCOPE]
         assert valid.resource == _AUDIENCE
 
+        with_resource = await verifier.verify_token(token())
+        assert with_resource is not None
+        assert with_resource.resource == _AUDIENCE
+
         for invalid in (
             token(aud="https://other.example.test"),
             token(aud=None),
