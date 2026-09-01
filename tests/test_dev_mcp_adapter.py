@@ -220,6 +220,42 @@ def test_adapter_serializes_task_sandbox_error_from_manager() -> None:
     assert result["details"]["error"]["code"] == "DEV_TASK_STATE_CORRUPT"
 
 
+def test_adapter_serializes_mixed_game_and_smoke_capabilities_by_item_schema() -> None:
+    result = serialize_dev_result(
+        DevResult(
+            ok=True,
+            code="DEV_CAPABILITIES_READY",
+            message="Список capabilities готов",
+            state="no_session",
+            details={
+                "capabilities": [
+                    {
+                        "capability_id": "resources",
+                        "kind": "game_observation",
+                        "description": "Ресурсы",
+                        "source": "tests.synthetic",
+                        "parameters": [],
+                    },
+                    {
+                        "capability_id": "task_state",
+                        "kind": "smoke",
+                        "config_schema": {"fields": []},
+                        "evidence_source": "tests.synthetic",
+                        "deterministic": True,
+                        "external": False,
+                        "available": True,
+                        "description": "Состояние задачи",
+                    },
+                ]
+            },
+        )
+    )
+
+    capabilities = result["details"]["capabilities"]
+    assert capabilities[0]["parameters"] == []
+    assert capabilities[1]["evidence_source"] == "tests.synthetic"
+
+
 def test_adapter_rebinds_manager_when_registry_target_changes(tmp_path: Path) -> None:
     root = tmp_path.resolve()
     config = root / "config"

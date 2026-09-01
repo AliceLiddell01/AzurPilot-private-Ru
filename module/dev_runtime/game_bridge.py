@@ -618,7 +618,10 @@ class MoraleObservationProvider:
                     required=True,
                     minimum=min(SUPPORTED_SURFACE_FLEET_INDICES),
                     maximum=max(SUPPORTED_SURFACE_FLEET_INDICES),
-                    max_items=len(SUPPORTED_SURFACE_FLEET_INDICES),
+                    max_items=min(
+                        len(SUPPORTED_SURFACE_FLEET_INDICES),
+                        GAME_OBSERVATION_MAX_PARAMETERS,
+                    ),
                 ),
             ),
         )
@@ -762,6 +765,16 @@ class GameObservationStore:
 
     def __init__(self, environment: object, smoke_id: str) -> None:
         repository_root = getattr(environment, "repository_root", None)
+        if repository_root is None:
+            raise GameObservationError(
+                "DEV_GAME_OBSERVATION_INVALID",
+                "environment должен содержать repository_root",
+            )
+        if not isinstance(repository_root, (str, Path)):
+            raise GameObservationError(
+                "DEV_GAME_OBSERVATION_INVALID",
+                "environment.repository_root имеет недопустимый формат",
+            )
         if not isinstance(repository_root, Path):
             repository_root = Path(repository_root)
         self.repository_root = repository_root.resolve()
@@ -902,6 +915,8 @@ class GameObservationStore:
             "checkpoints": sorted({item.checkpoint_id for item in items}),
             "capabilities": sorted({item.capability_id for item in items}),
             "statuses": sorted({item.status.value for item in items}),
+            "profile_count": len(profiles),
+            "target_count": len(identities),
             "profile_name": next(iter(profiles)) if len(profiles) == 1 else None,
             "target_identity": next(iter(identities)) if len(identities) == 1 else None,
             "relative_file": self.relative_file,

@@ -28,7 +28,7 @@ from module.dev_runtime.game_bridge import (
     ObservationParameter,
     ObservationParameterType,
 )
-from module.dev_runtime.smoke import SmokeRunManager, SmokeSpec
+from module.dev_runtime.smoke import SmokeRunManager, SmokeSpec, SmokeStoreError
 from module.dev_runtime.target import DevTarget
 from module.formation.model import FleetSelection, FormationFleetSide
 
@@ -214,6 +214,44 @@ def test_store_is_scoped_atomic_and_has_bounded_duplicate_policy(tmp_path: Path)
     assert scope.value.code == "DEV_GAME_OBSERVATION_SCOPE_MISMATCH"
 
 
+def test_store_summary_distinguishes_empty_and_heterogeneous_targets(tmp_path: Path) -> None:
+    environment = SimpleNamespace(repository_root=tmp_path)
+    empty = GameObservationStore(environment, "empty").summary()
+
+    assert empty["count"] == 0
+    assert empty["profile_count"] == 0
+    assert empty["target_count"] == 0
+    assert empty["profile_name"] is None
+    assert empty["target_identity"] is None
+
+    mixed_store = GameObservationStore(environment, "mixed")
+    mixed_store.append(_snapshot(smoke_id="mixed", checkpoint_id="before"))
+    mixed_store.append(
+        _snapshot(
+            smoke_id="mixed",
+            checkpoint_id="final",
+            target=DevTarget("stale-target"),
+        )
+    )
+    mixed = mixed_store.summary()
+
+    assert mixed["count"] == 2
+    assert mixed["profile_count"] == 2
+    assert mixed["target_count"] == 2
+    assert mixed["profile_name"] is None
+    assert mixed["target_identity"] is None
+
+
+def test_store_rejects_missing_or_invalid_repository_root(tmp_path: Path) -> None:
+    with pytest.raises(GameObservationError) as missing:
+        GameObservationStore(SimpleNamespace(), "smoke-1")
+    assert missing.value.code == "DEV_GAME_OBSERVATION_INVALID"
+
+    with pytest.raises(GameObservationError) as invalid:
+        GameObservationStore(SimpleNamespace(repository_root=object()), "smoke-1")
+    assert invalid.value.code == "DEV_GAME_OBSERVATION_INVALID"
+
+
 def test_store_rejects_corruption_path_traversal_and_snapshot_limit(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -237,6 +275,28 @@ def test_store_rejects_corruption_path_traversal_and_snapshot_limit(
     with pytest.raises(GameObservationError) as limit:
         limited_store.append(_snapshot(smoke_id="limited", checkpoint_id="second"))
     assert limit.value.code == "DEV_GAME_OBSERVATION_LIMIT"
+
+
+def test_morale_capability_caps_list_size_to_parameter_contract(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        game_bridge,
+        "SUPPORTED_SURFACE_FLEET_INDICES",
+        tuple(range(1, game_bridge.GAME_OBSERVATION_MAX_PARAMETERS + 5)),
+    )
+
+    provider = MoraleObservationProvider(lambda: object())
+
+    assert provider.capability.parameters[0].max_items == game_bridge.GAME_OBSERVATION_MAX_PARAMETERS
+
+
+def test_smoke_target_binding_rejects_legacy_record_without_target(tmp_path: Path) -> None:
+    environment = DevEnvironment(tmp_path, Path("python"), _TARGET)
+    manager = SmokeRunManager(environment, now=lambda: _NOW)
+
+    with pytest.raises(SmokeStoreError) as error:
+        manager._bind_record_target(SimpleNamespace(target_profile=None, target_identity=None))  # type: ignore[arg-type]
+
+    assert error.value.code == "DEV_SMOKE_TARGET_MISSING"
 
 
 def test_smoke_checkpoint_rejects_provider_session_mismatch(tmp_path: Path) -> None:
@@ -405,6 +465,9 @@ def test_manager_preserves_state_for_unknown_database_check(tmp_path: Path) -> N
     environment = DevEnvironment(tmp_path, Path("python"), _TARGET)
 
     class _Diagnostics:
+        def list_checks(self) -> tuple[object, ...]:
+            return (SimpleNamespace(check_id="known-check"),)
+
         def run_check(self, _check_id: str, _target_profile: str) -> object:
             raise ValueError("Неизвестный database diagnostic check")
 
@@ -419,6 +482,39 @@ def test_manager_preserves_state_for_unknown_database_check(tmp_path: Path) -> N
     assert result.ok is False
     assert result.code == "DEV_DATABASE_CHECK_UNKNOWN"
     assert result.state == DevStatusKind.NO_SESSION.value
+
+
+def test_manager_distinguishes_invalid_database_target_from_unknown_check(tmp_path: Path) -> None:
+    environment = DevEnvironment(tmp_path, Path("python"), _TARGET)
+
+    class _Diagnostics:
+        def list_checks(self) -> tuple[object, ...]:
+            return (SimpleNamespace(check_id="connectivity"),)
+
+        def run_check(self, _check_id: str, _target_profile: str) -> object:
+            raise ValueError("target_profile имеет недопустимый формат")
+
+    manager = DevSessionManager(
+        environment,
+        target_locked=True,
+        database_diagnostics_factory=lambda _environment: _Diagnostics(),
+    )
+
+    result = manager.run_database_check("connectivity")
+
+    assert result.ok is False
+    assert result.code == "DEV_DATABASE_TARGET_INVALID"
+    assert result.state == DevStatusKind.NO_SESSION.value
+
+
+def test_manager_validates_database_repair_session_before_echo(tmp_path: Path) -> None:
+    environment = DevEnvironment(tmp_path, Path("python"), _TARGET)
+    manager = DevSessionManager(environment, target_locked=True)
+
+    result = manager.preview_database_repair("none", session_id="../foreign")
+
+    assert result.ok is False
+    assert result.code == "DEV_SESSION_ID_INVALID"
 
 
 def test_resources_provider_uses_typed_application_projection() -> None:

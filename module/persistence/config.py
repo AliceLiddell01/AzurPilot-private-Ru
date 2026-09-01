@@ -17,6 +17,7 @@ from module.persistence.schema import EXPECTED_ALEMBIC_HEAD
 
 DEFAULT_BACKEND_MARKER_PATH = Path("config/state/storage_backend.json")
 LEGACY_BACKEND_MARKER_PATH = Path("config/storage_backend.json")
+BACKEND_MARKER_VERSION = 1
 _BACKEND_MARKER_KEYS = frozenset(
     {
         "backend",
@@ -187,7 +188,11 @@ class DatabaseSettings:
             raise StorageConfigurationError(
                 "Production backend marker имеет некорректный contract."
             )
-        if payload.get("backend") != "postgresql" or payload.get("version") != 1:
+        if (
+            payload.get("backend") != "postgresql"
+            or type(payload.get("version")) is not int
+            or payload["version"] != BACKEND_MARKER_VERSION
+        ):
             raise StorageConfigurationError(
                 "Production backend marker не разрешает PostgreSQL runtime."
             )
@@ -268,10 +273,10 @@ class DatabaseSettings:
         )
 
 
-def load_backend_marker_for_schema_upgrade(
+def _load_backend_marker_contract(
     marker_path: str | Path = DEFAULT_BACKEND_MARKER_PATH,
-) -> tuple[DatabaseSettings, str]:
-    """Прочитать валидный marker предыдущей schema для штатного Alembic upgrade."""
+) -> tuple[DatabaseSettings, str, int]:
+    """Прочитать валидный backend marker вместе с наблюдённой версией."""
 
     _, payload = _read_backend_marker(Path(marker_path))
     settings = DatabaseSettings._from_backend_marker_payload(
@@ -283,7 +288,29 @@ def load_backend_marker_for_schema_upgrade(
         raise StorageConfigurationError(
             "Production backend marker содержит некорректный schema head."
         )
+    marker_version = payload["version"]
+    if type(marker_version) is not int:
+        raise StorageConfigurationError(
+            "Production backend marker содержит некорректную версию schema marker."
+        )
+    return settings, marker_head, marker_version
+
+
+def load_backend_marker_for_schema_upgrade(
+    marker_path: str | Path = DEFAULT_BACKEND_MARKER_PATH,
+) -> tuple[DatabaseSettings, str]:
+    """Прочитать валидный marker предыдущей schema для штатного Alembic upgrade."""
+
+    settings, marker_head, _marker_version = _load_backend_marker_contract(marker_path)
     return settings, marker_head
+
+
+def load_backend_marker_for_diagnostics(
+    marker_path: str | Path = DEFAULT_BACKEND_MARKER_PATH,
+) -> tuple[DatabaseSettings, str, int]:
+    """Прочитать settings, schema head и фактическую версию marker для diagnostics."""
+
+    return _load_backend_marker_contract(marker_path)
 
 
 def advance_backend_marker_schema_head(

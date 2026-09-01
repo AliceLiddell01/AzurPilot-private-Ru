@@ -30,14 +30,11 @@ from module.persistence.config import (
     DEFAULT_BACKEND_MARKER_PATH,
     LEGACY_BACKEND_MARKER_PATH,
     DatabaseSettings,
-    load_backend_marker_for_schema_upgrade,
+    load_backend_marker_for_diagnostics,
     migrate_legacy_backend_marker,
 )
 from module.persistence.database import LazyEngine, StorageHealthChecker
-from module.persistence.database_diagnostics import (
-    SCHEMA_MARKER_VERSION,
-    PostgresDatabaseDiagnostics,
-)
+from module.persistence.database_diagnostics import PostgresDatabaseDiagnostics
 from module.persistence.local_environment import (
     DEFAULT_LOCAL_ENV_PATH,
     read_local_postgres_environment,
@@ -157,10 +154,9 @@ def build_runtime_database_diagnostics(
     config_match = False
     engine: LazyEngine | None = None
     try:
-        settings, marker_head = load_backend_marker_for_schema_upgrade(
+        settings, marker_head, schema_marker_version = load_backend_marker_for_diagnostics(
             repository_root / DEFAULT_BACKEND_MARKER_PATH
         )
-        schema_marker_version = SCHEMA_MARKER_VERSION
         marker_ready = marker_head == EXPECTED_ALEMBIC_HEAD
         local_environment = read_local_postgres_environment(
             repository_root / DEFAULT_LOCAL_ENV_PATH

@@ -2686,8 +2686,11 @@ class SmokeRunManager:
         return bridge
 
     def _bind_record_target(self, record: SmokeRunRecord) -> None:
-        if record.target_profile is None:
-            return
+        if record.target_profile is None or record.target_identity is None:
+            raise SmokeStoreError(
+                "DEV_SMOKE_TARGET_MISSING",
+                "SmokeRun не содержит immutable target binding",
+            )
         try:
             target = DevTarget(record.target_profile)
         except ValueError as exc:
@@ -3313,6 +3316,8 @@ class SmokeRunManager:
         spec: SmokeSpec,
         checkpoint_id: str,
         session_id: str | None,
+        *,
+        validated_requests: Sequence[SmokeGameObservationRequest] | None = None,
     ) -> tuple[bool, dict[str, object], SmokeFailure | None]:
         if spec.game_observations is None:
             return True, {}, None
@@ -3323,7 +3328,11 @@ class SmokeRunManager:
             )
             return False, {"game_observations": {"checkpoint_id": checkpoint_id}}, failure
         try:
-            requests = self._game_requests(spec, checkpoint_id)
+            requests = (
+                tuple(validated_requests)
+                if validated_requests is not None
+                else self._game_requests(spec, checkpoint_id)
+            )
             bridge = self._get_game_bridge()
             store = GameObservationStore(self.environment, record.smoke_id)
             stored = 0
@@ -3464,11 +3473,10 @@ class SmokeRunManager:
             for checkpoint in spec.game_observations.checkpoints
             for request in checkpoint.observations
         )
-        target_profile = record.target_profile or self.environment.profile_name
-        try:
-            target_id = record.target_identity or target_identity(DevTarget(target_profile))
-        except ValueError:
+        if record.target_profile is None or record.target_identity is None:
             return False
+        target_profile = record.target_profile
+        target_id = record.target_identity
         actual = {
             (item.checkpoint_id, item.capability_id)
             for item in items
@@ -3509,12 +3517,13 @@ class SmokeRunManager:
                     smoke_id=smoke_id,
                     session_id=record.session_id,
                 )
-            self._game_requests(spec, checkpoint_id)
+            requests = self._game_requests(spec, checkpoint_id)
             ok, details, failure = self._capture_game_checkpoint(
                 record,
                 spec,
                 checkpoint_id,
                 record.session_id,
+                validated_requests=requests,
             )
             return self._result(
                 ok=ok,
@@ -3561,8 +3570,13 @@ class SmokeRunManager:
                 self._game_requests(spec, checkpoint_id)
             store = GameObservationStore(self.environment, smoke_id)
             observations = store.read(checkpoint_id=checkpoint_id)
-            target_profile = record.target_profile or self.environment.profile_name
-            target_id = record.target_identity or target_identity(DevTarget(target_profile))
+            if record.target_profile is None or record.target_identity is None:
+                raise SmokeStoreError(
+                    "DEV_SMOKE_TARGET_MISSING",
+                    "SmokeRun не содержит immutable target binding",
+                )
+            target_profile = record.target_profile
+            target_id = record.target_identity
             if any(
                 item.profile_name != target_profile
                 or item.target_identity != target_id

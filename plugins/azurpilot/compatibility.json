@@ -16,7 +16,7 @@
     "adb_maintenance": true,
     "game_observations": true,
     "database_diagnostics": true,
-    "database_repairs": true
+    "database_repairs": false
   },
   "required_capability_families": [
     "diagnostics",

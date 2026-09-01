@@ -25,7 +25,7 @@ DEV_MCP_FEATURE_FLAGS = {
     "adb_maintenance": True,
     "game_observations": True,
     "database_diagnostics": True,
-    "database_repairs": True,
+    "database_repairs": False,
 }
 DEV_MCP_CAPABILITY_FAMILIES = (
     "diagnostics",

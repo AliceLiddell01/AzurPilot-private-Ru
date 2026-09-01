@@ -622,6 +622,8 @@ _SAFE_GAME_SUMMARY_KEYS = frozenset(
         "checkpoints",
         "capabilities",
         "statuses",
+        "profile_count",
+        "target_count",
         "profile_name",
         "target_identity",
         "relative_file",
@@ -1379,6 +1381,8 @@ _GAME_SUMMARY_CHILD_SCHEMAS: dict[str, str | None] = {
     "checkpoints": "string_list",
     "capabilities": "string_list",
     "statuses": "string_list",
+    "profile_count": "int",
+    "target_count": "int",
     "profile_name": "string",
     "target_identity": "string",
     "relative_file": "string",
@@ -1886,6 +1890,10 @@ def _safe_value(
             return validate_session_id(value)
         except (TypeError, ValueError):
             return None
+    if schema == "game_value":
+        if value is None or isinstance(value, (bool, int, float, str)):
+            return _safe_value(value, depth=depth)
+        return None
     if schema == "bool":
         return value if isinstance(value, bool) else None
     if schema == "int":
@@ -1915,22 +1923,19 @@ def _safe_value(
         return _safe_mapping(value, schema=schema, depth=depth)
     if isinstance(value, (list, tuple)):
         if schema == "capability_list":
-            if value and all(
-                isinstance(item, Mapping)
-                and "parameters" in item
-                and "evidence_source" not in item
-                for item in value
-            ):
-                return _safe_sequence(
-                    list(value),
-                    item_schema="game_capability",
-                    depth=depth,
+            safe_capabilities: list[object] = []
+            for item in value[:_MAX_RESULT_ITEMS]:
+                if not isinstance(item, Mapping):
+                    continue
+                item_schema = (
+                    "game_capability"
+                    if "parameters" in item and "evidence_source" not in item
+                    else "smoke_capability"
                 )
-            return _safe_sequence(
-                list(value),
-                item_schema="smoke_capability",
-                depth=depth,
-            )
+                safe_capabilities.append(
+                    _safe_value(item, schema=item_schema, depth=depth + 1)
+                )
+            return safe_capabilities
         if schema == "catalog":
             return _safe_sequence(value, item_schema="string", depth=depth)
         item_schema = {

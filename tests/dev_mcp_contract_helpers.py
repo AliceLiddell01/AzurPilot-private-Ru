@@ -17,7 +17,7 @@ EXPECTED_CONTRACT = {
         "adb_maintenance": True,
         "game_observations": True,
         "database_diagnostics": True,
-        "database_repairs": True,
+        "database_repairs": False,
     },
     "capability_families": [
         "diagnostics",

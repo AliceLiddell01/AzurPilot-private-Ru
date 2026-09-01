@@ -11,6 +11,7 @@ from module.application.storage_models import StorageHealth, StorageHealthState
 from module.persistence.config import (
     DatabaseSettings,
     advance_backend_marker_schema_head,
+    load_backend_marker_for_diagnostics,
     load_backend_marker_for_schema_upgrade,
 )
 from module.persistence.schema import EXPECTED_ALEMBIC_HEAD
@@ -54,10 +55,14 @@ def test_runtime_rejects_stale_marker_but_upgrade_loader_accepts_it(
         DatabaseSettings.from_backend_marker(marker)
 
     settings, marker_head = load_backend_marker_for_schema_upgrade(marker)
+    diagnostic_settings, diagnostic_head, marker_version = load_backend_marker_for_diagnostics(marker)
 
     assert marker_head == _PREVIOUS_HEAD
     assert settings.user == "azurpilot_app"
     assert settings.database == "azurpilot"
+    assert diagnostic_settings == settings
+    assert diagnostic_head == marker_head
+    assert marker_version == 1
 
 
 def test_marker_schema_advance_changes_only_head_and_is_idempotent(

@@ -296,16 +296,7 @@ def test_remote_http_protocol_read_sequence_and_tool_auth_metadata() -> None:
                 assert result.status_code == 200
                 assert result.json()["result"]["structuredContent"]["ok"] is True
 
-            assert [name for name, _ in adapter.calls] == [
-                "dev_get_contract",
-                "dev_preflight",
-                "dev_list_smoke_capabilities",
-                "dev_list_game_observation_capabilities",
-                "dev_get_game_observation",
-                "dev_list_database_checks",
-                "dev_run_database_check",
-                "dev_list_database_repairs",
-            ]
+            assert adapter.calls == list(requests)
             assert app.state.session_manager._server_instances == {}
 
     asyncio.run(scenario())

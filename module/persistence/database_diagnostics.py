@@ -227,7 +227,7 @@ class PostgresDatabaseDiagnostics:
         ).check()
         # StorageHealthChecker обычно получает LazyEngine; этот адаптер — узкий
         # проверяемый мост, повторно использующий существующую health-семантику.
-        if health.state.value == "ready":
+        if health.state is StorageHealthState.READY:
             return DatabaseCheckResult(
                 "connectivity",
                 DatabaseCheckStatus.PASS,

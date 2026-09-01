@@ -965,6 +965,27 @@ class DevSessionManager(DevDiagnosticsMixin):
         resolved_session_id = session.session_id if session is not None else None
         try:
             diagnostics = self._get_database_diagnostics(refresh_target=False)
+            checks = diagnostics.list_checks()
+        except Exception as exc:
+            return DevResult(
+                False,
+                "DEV_DATABASE_DIAGNOSTICS_UNAVAILABLE",
+                f"PostgreSQL diagnostic check недоступен: {type(exc).__name__}",
+                state,
+                resolved_session_id,
+            )
+        if not isinstance(check_id, str) or not any(
+            getattr(descriptor, "check_id", None) == check_id
+            for descriptor in checks
+        ):
+            return DevResult(
+                False,
+                "DEV_DATABASE_CHECK_UNKNOWN",
+                "Запрошенная диагностическая проверка PostgreSQL не зарегистрирована",
+                state,
+                resolved_session_id,
+            )
+        try:
             result = diagnostics.run_check(check_id, environment.profile_name)
             status = getattr(result, "status", None)
             status_value = getattr(status, "value", status)
@@ -980,8 +1001,8 @@ class DevSessionManager(DevDiagnosticsMixin):
         except ValueError:
             return DevResult(
                 False,
-                "DEV_DATABASE_CHECK_UNKNOWN",
-                "Запрошенная диагностическая проверка PostgreSQL не зарегистрирована",
+                "DEV_DATABASE_TARGET_INVALID",
+                "Назначенный target недопустим для диагностической проверки PostgreSQL",
                 state,
                 resolved_session_id,
             )
@@ -1009,12 +1030,17 @@ class DevSessionManager(DevDiagnosticsMixin):
         *,
         session_id: str | None = None,
     ) -> DevResult:
+        _environment, session, error = self._observation_target(session_id)
+        if error is not None:
+            return error
+        state = session.state.value if session is not None else DevStatusKind.NO_SESSION.value
+        resolved_session_id = session.session_id if session is not None else None
         return DevResult(
             False,
             "DEV_DATABASE_REPAIR_UNAVAILABLE",
             "Для текущего database contract безопасные восстановления не зарегистрированы",
-            DevStatusKind.NO_SESSION.value,
-            session_id,
+            state,
+            resolved_session_id,
             {"repair": {"repair_id": repair_id, "available": False}},
         )
 

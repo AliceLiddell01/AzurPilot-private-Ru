@@ -106,7 +106,8 @@ Developer-only capability `Game` реализована как одностор�
 Smoke сохраняет before/final и объявленные intermediate checkpoints в
 существующем repository-scoped Smoke state. Duplicate policy ограничена
 `reject` или `keep_first`; unknown или unavailable observation не может дать
-PASS.
+PASS. Summary дополнительно сообщает число профилей и target identities, поэтому
+пустой набор и смешанные observations не становятся неразличимыми.
 
 Диагностика базы данных остаётся developer-only read-only catalog. Зарегистрированных
 repair actions сейчас нет: `dev_list_database_repairs` возвращает честный пустой

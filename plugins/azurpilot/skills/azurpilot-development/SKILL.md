@@ -49,10 +49,11 @@ Smoke по умолчанию выполняй только этим поток�
    оценки; не сочиняй визуальные доказательства.
 7. Для game-backed SmokeSpec объяви bounded `game_observations`: supervisor
    автоматически фиксирует `before` и `final`, а intermediate checkpoints
-   должны быть явно перечислены. При необходимости используй
-   `dev_capture_smoke_game_checkpoint`, затем проверь
-   `dev_get_smoke_game_observations`. `unknown`, `unavailable` и missing
-   required checkpoint исключают PASS.
+   должны быть явно перечислены и каждый объявленный intermediate checkpoint
+   должен быть зафиксирован до завершения SmokeRun. Используй
+   `dev_capture_smoke_game_checkpoint` для каждого такого checkpoint, затем
+   проверь `dev_get_smoke_game_observations`. `unknown`, `unavailable` и
+   missing required checkpoint исключают PASS.
 
 Не используй как стандартный smoke-путь `dev_start_session`, ручные
 `sleep`/клики, произвольное чтение логов, `dev_stop_session` или shell-команды.

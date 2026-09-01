@@ -7,6 +7,7 @@ import json
 import struct
 import zlib
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from mcp.client.client import Client
@@ -24,6 +25,9 @@ from module.dev_mcp.server import (
     tool_definitions,
 )
 from tests.dev_mcp_contract_helpers import EXPECTED_CONTRACT
+from module.dev_runtime import DevEnvironment, DevSessionManager
+from module.dev_runtime.game_bridge import GameObservationCapability
+from module.dev_runtime.target import DevTarget
 
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 _FORBIDDEN_INPUT_FIELDS = {
@@ -198,6 +202,29 @@ def test_server_bootstrap_does_not_construct_runtime_manager() -> None:
     create_server(DevMcpAdapter(factory))
 
     assert factory_calls == []
+
+
+def test_game_capability_protocol_uses_injected_bridge_factory(tmp_path: Path) -> None:
+    capability = GameObservationCapability(
+        capability_id="synthetic",
+        description="Синтетическая capability",
+        source="tests.synthetic",
+    )
+    bridge = SimpleNamespace(descriptors=lambda: (capability,))
+    manager = DevSessionManager(
+        DevEnvironment(tmp_path, Path("python"), DevTarget("fixture-target")),
+        target_locked=True,
+        game_bridge_factory=lambda _environment: bridge,
+    )
+
+    result = DevMcpAdapter(lambda: manager).call(
+        "dev_list_game_observation_capabilities",
+        {},
+    )
+
+    assert result["ok"] is True
+    assert result["code"] == "DEV_GAME_OBSERVATION_CAPABILITIES_READY"
+    assert result["details"]["capabilities"] == [capability.as_dict()]
 
 
 def test_screenshot_response_uses_mcp_image_content_without_json_base64() -> None:
