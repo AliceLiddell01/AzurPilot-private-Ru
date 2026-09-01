@@ -30,7 +30,10 @@ from module.game_mcp.adapter import (
     GameMcpAdapter,
     GameMcpResponse,
 )
-from module.game_mcp.contract import GAME_MCP_API_VERSION
+from module.game_mcp.contract import (
+    CONTRACT_SCHEMA_VERSION,
+    GAME_MCP_API_VERSION,
+)
 
 SERVER_NAME = "azurpilot-game"
 SERVER_VERSION = str(GAME_MCP_API_VERSION)
@@ -310,9 +313,15 @@ _MORALE_FLEET_OUTPUT = {
 _CONTRACT_OUTPUT = {
     "type": "object",
     "properties": {
-        "contract_schema_version": {"type": "integer", "const": 1},
+        "contract_schema_version": {
+            "type": "integer",
+            "const": CONTRACT_SCHEMA_VERSION,
+        },
         "product_family": {"type": "string", "maxLength": 128},
-        "game_mcp_api_version": {"type": "integer", "const": 1},
+        "game_mcp_api_version": {
+            "type": "integer",
+            "const": GAME_MCP_API_VERSION,
+        },
         "feature_flags": {
             "type": "object",
             "maxProperties": 32,

@@ -349,6 +349,18 @@ def test_server_construction_and_contract_are_lazy() -> None:
     assert calls == []
 
 
+def test_adapter_hides_backend_factory_failures() -> None:
+    def failing_factory() -> object:
+        raise RuntimeError("private backend path")
+
+    adapter = GameMcpAdapter(failing_factory)
+    result = adapter.call("game_list_profiles")
+
+    assert result["code"] == "GAME_SERVICE_UNAVAILABLE"
+    assert result["details"] == {"tool": "game_list_profiles"}
+    assert "private backend path" not in json.dumps(result, ensure_ascii=False)
+
+
 def test_adapter_is_stateless_and_profile_reads_are_isolated() -> None:
     backend = _backend()
     adapter = GameMcpAdapter(lambda: backend)

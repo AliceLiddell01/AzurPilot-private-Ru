@@ -513,8 +513,10 @@ class ConcurrencyLimitMiddleware:
         try:
             with anyio.fail_after(self._acquire_timeout):
                 await limiter.acquire()
-            acquired = True
+                acquired = True
         except TimeoutError:
+            if acquired:
+                limiter.release()
             await _send_error(send, 503, "server_busy")
             return
         try:

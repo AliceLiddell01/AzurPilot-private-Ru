@@ -1043,7 +1043,7 @@ class GameMcpAdapter:
         if tool == "game_get_fleet_state":
             if selection is None:
                 raise InvalidRequestError("Для Fleet State отсутствует selection.")
-            _profile, indices = selection
+            profile, indices = selection
             service = getattr(backend, "fleet_state", None)
             if service is None:
                 raise ServiceUnavailableError("Fleet State capability недоступна.")
@@ -1054,7 +1054,7 @@ class GameMcpAdapter:
         if tool == "game_get_morale":
             if selection is None:
                 raise InvalidRequestError("Для morale отсутствует selection.")
-            _profile, indices = selection
+            profile, indices = selection
             service = getattr(backend, "morale", None)
             if service is None:
                 raise ServiceUnavailableError("Morale capability недоступна.")
@@ -1079,7 +1079,19 @@ class GameMcpAdapter:
             return _invalid(tool_name)
         if tool_name == "game_get_contract":
             return contract_result()
-        backend = self._acquire_backend()
+        try:
+            backend = self._acquire_backend()
+        except Exception as exc:  # noqa: BLE001 - public boundary must hide adapter details.
+            logger.error(
+                "Источник Game MCP недоступен для %s: %s",
+                tool_name,
+                type(exc).__name__,
+            )
+            return _error(
+                "GAME_SERVICE_UNAVAILABLE",
+                "Источник Game данных сейчас недоступен.",
+                tool=tool_name,
+            )
         try:
             try:
                 result = self._dispatch(
