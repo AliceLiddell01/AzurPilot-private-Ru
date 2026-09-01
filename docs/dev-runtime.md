@@ -326,27 +326,27 @@ low-level API. Remote entrypoint использует зафиксированн
 и его `StreamableHTTPSessionManager` в stateless-режиме без event store; каждый
 HTTP request повторно проходит auth и не оставляет серверных session records.
 
-## Game Bridge и database diagnostics
+## Game Bridge и диагностика базы данных
 
-Developer-only `Game` capability идёт в одну сторону:
+Developer-only capability `Game` идёт в одну сторону:
 `Dev MCP → DevSessionManager/SmokeRunManager → нейтральный module/application`.
 Game MCP, MCP-to-MCP loopback, второй game domain и обратная зависимость
-`module.application` от Dev Runtime запрещены. Registry публикует только typed
-capabilities с фиксированными ID и bounded parameters. Сейчас доступны Stage-9
-`GameReadService` для resources и persistence/domain-backed per-ship morale
-projection; unavailable и unknown сохраняются как отдельные состояния и не
-подменяются догадкой.
+`module.application` от Dev Runtime запрещены. Registry публикует только
+типизированные capabilities с фиксированными ID и ограниченными parameters.
+Сейчас доступны `GameReadService` для resources и persistence/domain-backed
+morale projection по отдельным кораблям; unavailable и unknown сохраняются как
+отдельные состояния и не подменяются догадкой.
 
-Game observations target-bound: standalone вызов разрешает только текущий
-configured target, а SmokeRun фиксирует immutable target/profile/session
+Game observations привязаны к target: standalone-вызов разрешает только текущий
+configured target, а SmokeRun фиксирует неизменяемую target/profile/session
 provenance. Supervisor автоматически сохраняет `before` и `final`, а также
 только явно объявленные именованные intermediate checkpoints в
 `config/state/dev-runtime-smoke/<smoke-id>/game-observations.json`. Запись
-атомарная, scoped и checksum-проверяемая; duplicate policy ограничена
+атомарная, изолированная и checksum-проверяемая; duplicate policy ограничена
 `reject`/`keep_first`, а missing, unknown или unavailable required observation
 блокирует `PASS`.
 
-Developer-only PostgreSQL diagnostics используют фиксированный read-only catalog:
+Developer-only диагностика PostgreSQL использует фиксированный read-only catalog:
 marker, connectivity, app role, Alembic current/head, schema marker, configured
 target resolution, required tables, bounded domain consistency, transaction и
 config mismatch. Вход не принимает SQL, table/column name, dump, secret или

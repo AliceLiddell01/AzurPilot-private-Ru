@@ -101,4 +101,4 @@ class StorageHealthReader(Protocol):
 
 
 class DatabaseDiagnosticsPort(DatabaseDiagnosticsReader, Protocol):
-    """Read-only catalog boundary for developer diagnostics."""
+    """Граница доступа к каталогу developer diagnostics только для чтения."""

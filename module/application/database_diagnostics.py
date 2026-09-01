@@ -43,7 +43,7 @@ class DatabaseCheckDescriptor:
         if type(self.target_scoped) is not bool:
             raise TypeError("target_scoped должен быть bool")
         if self.read_only is not True:
-            raise ValueError("Database diagnostics должны быть read-only")
+            raise ValueError("Диагностика базы данных должна быть read-only")
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -122,7 +122,7 @@ class DatabaseStatusSnapshot:
         if self.domain_consistency is not None and type(self.domain_consistency) is not bool:
             raise TypeError("domain_consistency должен быть bool или None")
         if type(self.schema_version) is not int or self.schema_version != DATABASE_DIAGNOSTICS_SCHEMA_VERSION:
-            raise ValueError("Неподдерживаемая версия database diagnostics")
+            raise ValueError("Неподдерживаемая версия диагностики базы данных")
         if not isinstance(self.checks, tuple) or any(
             not isinstance(item, DatabaseCheckResult) for item in self.checks
         ):

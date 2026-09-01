@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -33,7 +34,10 @@ from module.persistence.config import (
     migrate_legacy_backend_marker,
 )
 from module.persistence.database import LazyEngine, StorageHealthChecker
-from module.persistence.database_diagnostics import PostgresDatabaseDiagnostics
+from module.persistence.database_diagnostics import (
+    SCHEMA_MARKER_VERSION,
+    PostgresDatabaseDiagnostics,
+)
 from module.persistence.local_environment import (
     DEFAULT_LOCAL_ENV_PATH,
     read_local_postgres_environment,
@@ -47,6 +51,7 @@ _engine: LazyEngine | None = None
 _engine_settings: DatabaseSettings | None = None
 _runtime_timezone: ZoneInfo | None = None
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,7 +160,7 @@ def build_runtime_database_diagnostics(
         settings, marker_head = load_backend_marker_for_schema_upgrade(
             repository_root / DEFAULT_BACKEND_MARKER_PATH
         )
-        schema_marker_version = 1
+        schema_marker_version = SCHEMA_MARKER_VERSION
         marker_ready = marker_head == EXPECTED_ALEMBIC_HEAD
         local_environment = read_local_postgres_environment(
             repository_root / DEFAULT_LOCAL_ENV_PATH
@@ -171,12 +176,16 @@ def build_runtime_database_diagnostics(
                 engine = _engine
             else:
                 # Не переориентировать живой process-local Engine на новый
-                # marker во время диагностики: active operations остаются
+                # marker во время диагностики: активные операции остаются
                 # привязанными к прежнему contract.
                 engine = None
         config_match = engine is not None
-    except Exception:
+    except Exception as exc:
         # Диагностическая граница намеренно не выпускает raw marker/DSN/error.
+        _LOGGER.warning(
+            "Сборка конфигурации диагностики базы данных завершилась недоступностью: %s",
+            type(exc).__name__,
+        )
         config_match = False
     return PostgresDatabaseDiagnostics(
         engine,

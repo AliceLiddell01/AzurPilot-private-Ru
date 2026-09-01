@@ -2688,7 +2688,13 @@ class SmokeRunManager:
     def _bind_record_target(self, record: SmokeRunRecord) -> None:
         if record.target_profile is None:
             return
-        target = DevTarget(record.target_profile)
+        try:
+            target = DevTarget(record.target_profile)
+        except ValueError as exc:
+            raise SmokeStoreError(
+                "DEV_SMOKE_TARGET_INVALID",
+                "SmokeRun содержит некорректный target profile",
+            ) from exc
         if record.target_identity != target_identity(target):
             raise SmokeStoreError(
                 "DEV_SMOKE_TARGET_MISMATCH",
@@ -3139,7 +3145,8 @@ class SmokeRunManager:
             self._bind_record_target(record)
             record = self.store.load(smoke_id)
         except (SmokeStoreError, ValueError) as exc:
-            return EvidenceScreenshot(self._result(ok=False, code="DEV_SMOKE_ID_INVALID", message=str(exc), state=SmokeState.FINISHED.value))
+            code = exc.code if isinstance(exc, SmokeStoreError) else "DEV_SMOKE_ID_INVALID"
+            return EvidenceScreenshot(self._result(ok=False, code=code, message=str(exc), state=SmokeState.FINISHED.value))
         pending = record.pending_evaluation
         if record.state is not SmokeState.AWAITING_EXTERNAL_EVALUATION or pending is None:
             return EvidenceScreenshot(self._result(ok=False, code="DEV_SMOKE_EVALUATION_NOT_PENDING", message="Для SmokeRun нет ожидающей внешней оценки", state=record.state.value, smoke_id=smoke_id, session_id=record.session_id))
@@ -3185,7 +3192,8 @@ class SmokeRunManager:
             record = self.store.load(smoke_id)
             spec = self.store.load_spec(smoke_id)
         except (SmokeStoreError, ValueError, ValidationError) as exc:
-            return self._result(ok=False, code="DEV_SMOKE_EVALUATION_INPUT_INVALID", message=str(exc), state=SmokeState.FINISHED.value, smoke_id=smoke_id if isinstance(smoke_id, str) else None)
+            code = exc.code if isinstance(exc, SmokeStoreError) else "DEV_SMOKE_EVALUATION_INPUT_INVALID"
+            return self._result(ok=False, code=code, message=str(exc), state=SmokeState.FINISHED.value, smoke_id=smoke_id if isinstance(smoke_id, str) else None)
         pending = record.pending_evaluation
         visual = next((item for item in spec.visual_assertions if item.assertion_id == assertion_id), None)
         if record.state is not SmokeState.AWAITING_EXTERNAL_EVALUATION or pending is None or visual is None or pending.assertion_id != assertion_id:
@@ -3355,12 +3363,28 @@ class SmokeRunManager:
                         "DEV_GAME_OBSERVATION_PROVIDER_INVALID",
                         "Bridge вернул observation с другой checkpoint или capability",
                     )
-                if store.append(
+                appended = store.append(
                     snapshot,
                     duplicate_policy=spec.game_observations.duplicate_policy,
-                ):
+                )
+                if appended:
                     stored += 1
-                statuses.append(snapshot.status.value)
+                    statuses.append(snapshot.status.value)
+                else:
+                    retained = next(
+                        (
+                            item
+                            for item in store.read(checkpoint_id=checkpoint_id)
+                            if item.capability_id == request.capability_id
+                        ),
+                        None,
+                    )
+                    if retained is None:
+                        raise GameObservationError(
+                            "DEV_GAME_OBSERVATION_CORRUPT",
+                            "После keep_first не найдено сохранённое observation",
+                        )
+                    statuses.append(retained.status.value)
             summary = store.summary()
             summary["evidence_refs"] = self._game_evidence_refs(
                 store,
@@ -3393,7 +3417,7 @@ class SmokeRunManager:
                     {"game_observations": summary},
                     SmokeFailure(
                         code=code,
-                        message="Required game observation не имеет подтверждённого known состояния",
+                        message="Обязательное game observation не имеет подтверждённого состояния known",
                     ),
                 )
             return True, {"game_observations": summary}, None
@@ -3473,7 +3497,7 @@ class SmokeRunManager:
                 return self._result(
                     ok=False,
                     code="DEV_GAME_CHECKPOINT_STATE_INVALID",
-                    message="Intermediate game checkpoint разрешён только для running SmokeRun",
+                    message="Промежуточный game checkpoint разрешён только для running SmokeRun",
                     state=record.state.value,
                     smoke_id=smoke_id,
                     session_id=record.session_id,
@@ -3497,7 +3521,7 @@ class SmokeRunManager:
             return self._result(
                 ok=ok,
                 code="DEV_GAME_CHECKPOINT_CAPTURED" if ok else (failure.code if failure else "DEV_GAME_CHECKPOINT_FAILED"),
-                message="Intermediate game checkpoint сохранён" if ok else (failure.message if failure else "Game checkpoint не сохранён"),
+                message="Промежуточный game checkpoint сохранён" if ok else (failure.message if failure else "Game checkpoint не сохранён"),
                 state=record.state.value,
                 smoke_id=smoke_id,
                 session_id=record.session_id,
@@ -3636,7 +3660,7 @@ class SmokeRunManager:
             primary_outcome = SmokeOutcome.EVIDENCE_INCOMPLETE
             primary_failure = before_failure or SmokeFailure(
                 code="DEV_GAME_OBSERVATION_UNAVAILABLE",
-                message="Before game observations не подтверждены",
+                message="Game observations для before не подтверждены",
             )
         while True:
             if primary_failure is not None:
@@ -3706,7 +3730,7 @@ class SmokeRunManager:
             primary_outcome = SmokeOutcome.EVIDENCE_INCOMPLETE
             primary_failure = final_game_failure or SmokeFailure(
                 code="DEV_GAME_OBSERVATION_UNAVAILABLE",
-                message="Final game observations не подтверждены",
+                message="Game observations для final не подтверждены",
             )
         record = self.store.update(smoke_id, {"state": SmokeState.CLEANING_UP})
         cleanup, cleanup_failure = self._cleanup_runtime(runtime, session_id, transaction, record)

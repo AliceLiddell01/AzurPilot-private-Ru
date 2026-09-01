@@ -14,8 +14,8 @@ from module.dev_runtime.target import (
     DevTarget,
     DevTargetError,
     DevTargetRegistry,
-    target_identity as calculate_target_identity,
 )
+from module.dev_runtime.target import target_identity as calculate_target_identity
 
 DEV_HOST = "127.0.0.1"
 DEV_PORT = 25549
@@ -275,7 +275,7 @@ class DevSession:
         try:
             target = DevTarget(self.profile_name)
         except ValueError:
-            # Оставляем прежнюю возможность создать synthetic corrupt marker:
+            # Оставляем прежнюю возможность создать искусственно повреждённый marker:
             # manager должен классифицировать его как DEV_TARGET_INVALID при
             # чтении, а не скрывать диагностику исключением конструктора.
             if self.target_identity is not None:

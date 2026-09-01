@@ -543,7 +543,7 @@ _SAFE_GAME_CAPABILITY_KEYS = frozenset(
     {"capability_id", "kind", "description", "source", "parameters"}
 )
 _SAFE_GAME_PROVENANCE_KEYS = frozenset(
-    {"capability_id", "owner", "freshness", "reason_code"}
+    {"capability_id", "owner", "freshness", "reason_code", "reason_type"}
 )
 _SAFE_GAME_RESOURCE_KEYS = frozenset(
     {"key", "label", "value", "limit", "total", "last_update"}
@@ -1288,6 +1288,7 @@ _GAME_PROVENANCE_CHILD_SCHEMAS: dict[str, str | None] = {
     "owner": "string",
     "freshness": "string",
     "reason_code": "string",
+    "reason_type": "string",
 }
 _GAME_RESOURCE_CHILD_SCHEMAS: dict[str, str | None] = {
     "key": "string",
@@ -1352,7 +1353,7 @@ _DATABASE_CHECK_RESULT_CHILD_SCHEMAS: dict[str, str | None] = {
     "status": "string",
     "code": "string",
     "message": "string",
-    "observed": "database_observed",
+    "observed": None,
 }
 _DATABASE_STATUS_CHILD_SCHEMAS: dict[str, str | None] = {
     "schema_version": "int",
@@ -1742,6 +1743,29 @@ class _ControlIdArguments(BaseModel):
     control_id: str = Field(min_length=1, max_length=128, pattern=r"^[a-f0-9]{32}$")
 
 
+_ARGUMENT_MODELS: dict[str, type[BaseModel]] = {
+    "dev_validate_smoke": SmokeSpec,
+    "dev_start_smoke": SmokeSpec,
+    "dev_get_smoke": _SmokeIdArguments,
+    "dev_cancel_smoke": _SmokeIdArguments,
+    "dev_get_smoke_evaluation": _SmokeIdArguments,
+    "dev_submit_smoke_evaluation": _SmokeEvaluationArguments,
+    "dev_get_game_observation": _GameObservationArguments,
+    "dev_capture_smoke_game_checkpoint": _SmokeCheckpointArguments,
+    "dev_get_smoke_game_observations": _SmokeObservationsArguments,
+    "dev_get_control_operation": _ControlIdArguments,
+    "dev_plan_session": _TaskArguments,
+    "dev_start_session": _TaskArguments,
+    "dev_stop_session": _StopArguments,
+    "dev_get_evidence": _SessionArguments,
+    "dev_get_timeline": _TimelineArguments,
+    "dev_get_logs": _LogsArguments,
+    "dev_get_database_status": _SessionArguments,
+    "dev_run_database_check": _DatabaseCheckArguments,
+    "dev_preview_database_repair": _DatabaseRepairArguments,
+}
+
+
 @dataclass(frozen=True, slots=True)
 class DevMcpResponse:
     """Безопасный ответ адаптера с отдельным вложением изображения MCP."""
@@ -2103,45 +2127,13 @@ class DevMcpAdapter:
             raw = self._arguments(arguments)
             if tool_name in _NO_ARGUMENT_TOOLS:
                 return _EmptyArguments.model_validate(raw, strict=True)
-            if tool_name in {"dev_validate_smoke", "dev_start_smoke"}:
-                return SmokeSpec.model_validate(raw, strict=True)
-            if tool_name in {"dev_get_smoke", "dev_cancel_smoke", "dev_get_smoke_evaluation"}:
-                return _SmokeIdArguments.model_validate(raw, strict=True)
-            if tool_name == "dev_submit_smoke_evaluation":
-                return _SmokeEvaluationArguments.model_validate(raw, strict=True)
-            if tool_name == "dev_get_game_observation":
-                parsed = _GameObservationArguments.model_validate(raw, strict=True)
-            elif tool_name == "dev_capture_smoke_game_checkpoint":
-                return _SmokeCheckpointArguments.model_validate(raw, strict=True)
-            elif tool_name == "dev_get_smoke_game_observations":
-                return _SmokeObservationsArguments.model_validate(raw, strict=True)
-            elif tool_name == "dev_run_database_check":
-                parsed = _DatabaseCheckArguments.model_validate(raw, strict=True)
-            elif tool_name == "dev_preview_database_repair":
-                parsed = _DatabaseRepairArguments.model_validate(raw, strict=True)
-            if tool_name == "dev_get_control_operation":
-                return _ControlIdArguments.model_validate(raw, strict=True)
-            if tool_name in {"dev_plan_session", "dev_start_session"}:
-                return _TaskArguments.model_validate(raw, strict=True)
-            if tool_name == "dev_stop_session":
-                return _StopArguments.model_validate(raw, strict=True)
-            if tool_name == "dev_get_evidence":
-                parsed = _SessionArguments.model_validate(raw, strict=True)
-            elif tool_name == "dev_get_timeline":
-                parsed = _TimelineArguments.model_validate(raw, strict=True)
-            elif tool_name == "dev_get_logs":
-                parsed = _LogsArguments.model_validate(raw, strict=True)
-            elif tool_name == "dev_get_database_status":
-                parsed = _SessionArguments.model_validate(raw, strict=True)
-            elif tool_name not in {
-                "dev_get_game_observation",
-                "dev_get_database_status",
-                "dev_run_database_check",
-                "dev_preview_database_repair",
-            }:
+            model = _ARGUMENT_MODELS.get(tool_name)
+            if model is None:
                 return None
-            if parsed.session_id is not None:
-                validate_session_id(parsed.session_id)
+            parsed = model.model_validate(raw, strict=True)
+            session_id = getattr(parsed, "session_id", None)
+            if session_id is not None:
+                validate_session_id(session_id)
             return parsed
         except (TypeError, ValueError, ValidationError):
             return None

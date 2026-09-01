@@ -11,7 +11,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from module.dev_runtime import smoke
 from module.dev_runtime import (
     ControlAction,
     DevEnvironment,
@@ -20,6 +19,7 @@ from module.dev_runtime import (
     DevSessionManager,
     RuntimeControlManager,
     RuntimeSnapshot,
+    smoke,
 )
 from module.dev_runtime.evidence import EvidenceScreenshot, GitSnapshot
 from module.dev_runtime.game_bridge import (
@@ -882,7 +882,7 @@ def test_capability_registry_rejects_duplicate_registration() -> None:
 
 
 def test_smoke_implementation_types_are_not_package_level_api() -> None:
-    import module.dev_runtime as dev_runtime
+    from module import dev_runtime
 
     assert "SmokeRunManager" not in dev_runtime.__all__
     assert not hasattr(dev_runtime, "SmokeRunManager")

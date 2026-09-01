@@ -1,9 +1,9 @@
 """Односторонний Dev → application bridge и ограниченные game observations.
 
-Модуль не содержит MCP types и не владеет игровым lifecycle.  Он получает
-typed application services через composition root, фиксирует только
-target-bound projections и сохраняет snapshots в уже принадлежащей Smoke
-границе.
+Модуль не содержит типов MCP и не владеет игровым lifecycle. Он получает
+типизированные application services через composition root, фиксирует только
+projections, привязанные к target, и сохраняет snapshots в уже принадлежащей
+Smoke границе.
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ _SAFE_TEXT = re.compile(r"^[^\x00-\x1f\x7f]{1,256}$")
 
 
 class GameObservationError(ValueError):
-    """Безопасная ошибка registry/bridge без raw provider details."""
+    """Безопасная ошибка registry/bridge без раскрытия raw details provider."""
 
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
@@ -513,7 +513,7 @@ class GameObservationRegistry:
             capture = provider.capture(target, validated, captured_at=captured_at)
         except GameObservationError:
             raise
-        except Exception as exc:  # noqa: BLE001 - provider boundary is fail-closed and sanitized.
+        except Exception as exc:  # noqa: BLE001 — граница provider завершается fail-closed и sanitized.
             capture = GameObservationCapture(
                 status=GameObservationStatus.UNAVAILABLE,
                 source=provider.capability.source,
@@ -521,10 +521,10 @@ class GameObservationRegistry:
                     "capability_id": provider.capability.capability_id,
                     "owner": "DevGameBridge",
                     "reason_code": "DEV_GAME_PROVIDER_UNAVAILABLE",
+                    "reason_type": type(exc).__name__,
                 },
                 payload={"reason_code": "DEV_GAME_PROVIDER_UNAVAILABLE"},
             )
-            _ = exc
         if not isinstance(capture, GameObservationCapture):
             raise GameObservationError("DEV_GAME_OBSERVATION_PROVIDER_INVALID", "Provider вернул некорректное observation")
         if capture.provenance.get("capability_id") != provider.capability.capability_id:
@@ -540,13 +540,13 @@ class GameObservationRegistry:
 
 
 class ResourcesObservationProvider:
-    """Provider поверх Stage 9 GameReadService, без чтения config напрямую."""
+    """Provider поверх текущего GameReadService, без чтения config напрямую."""
 
     def __init__(self, service_factory: Callable[[], GameReadService]) -> None:
         self._service_factory = service_factory
         self._capability = GameObservationCapability(
             capability_id="resources",
-            description="Текущее typed dashboard resource projection назначенного target",
+            description="Текущая типизированная projection ресурсов dashboard для назначенного target",
             source="application.game_read_service",
         )
 
@@ -592,13 +592,13 @@ class ResourcesObservationProvider:
 
 
 class MoraleObservationProvider:
-    """Provider typed per-ship morale projection через MoraleService."""
+    """Provider типизированной morale projection по отдельным кораблям через MoraleService."""
 
     def __init__(self, service_factory: Callable[[], object]) -> None:
         self._service_factory = service_factory
         self._capability = GameObservationCapability(
             capability_id="morale",
-            description="Typed per-ship morale projection из Fleet State и persistence",
+            description="Типизированная morale projection по отдельным кораблям из Fleet State и persistence",
             source="application.morale_service",
             parameters=(
                 ObservationParameter(
@@ -696,7 +696,7 @@ class MoraleObservationProvider:
 
 
 class DevGameBridge:
-    """Target-bound bridge, не владеющий MCP transport и lifecycle."""
+    """Bridge, привязанный к target и не владеющий MCP transport или lifecycle."""
 
     def __init__(
         self,
@@ -747,7 +747,7 @@ class DevGameBridge:
 
 
 class GameObservationStore:
-    """Atomic bounded sidecar под существующим каталoгом конкретного SmokeRun."""
+    """Атомарный ограниченный sidecar под существующим каталогом SmokeRun."""
 
     def __init__(self, environment: object, smoke_id: str) -> None:
         repository_root = getattr(environment, "repository_root", None)
@@ -834,6 +834,7 @@ class GameObservationStore:
         if not isinstance(duplicate_policy, str) or duplicate_policy not in {"reject", "keep_first"}:
             raise GameObservationError("DEV_GAME_CHECKPOINT_POLICY_INVALID", "duplicate policy не поддерживается")
         self.root.parent.mkdir(parents=True, exist_ok=True)
+        self.root.mkdir(parents=True, exist_ok=True)
         if _is_reparse_point(self.root) or _is_reparse_point(self.lock_path):
             raise GameObservationError("DEV_GAME_OBSERVATION_UNSAFE_PATH", "Каталог game observations не должен быть ссылкой")
         with _exclusive_policy_lock(self.lock_path):
@@ -845,7 +846,6 @@ class GameObservationStore:
                 raise GameObservationError("DEV_GAME_CHECKPOINT_DUPLICATE", "Checkpoint capability уже сохранён")
             if len(items) >= GAME_OBSERVATION_MAX_SNAPSHOTS:
                 raise GameObservationError("DEV_GAME_OBSERVATION_LIMIT", "SmokeRun достиг лимита game observations")
-            self.root.mkdir(parents=True, exist_ok=True)
             payload = self._empty()
             payload["observations"] = [item.as_dict() for item in (*items, snapshot)]
             try:
@@ -918,8 +918,8 @@ def build_runtime_game_bridge(
     """Собрать bridge на существующих application adapters и persistence root.
 
     Сборка не создаёт Device и не открывает PostgreSQL connection. Legacy
-    generated sources читаются только для typed Stage 9 projection; morale
-    factory получает уже общий LazyEngine при первом фактическом observation.
+    generated sources читаются только для типизированной projection; morale
+    factory получает общий LazyEngine при первом фактическом observation.
     """
 
     repository_root = getattr(environment, "repository_root", None)

@@ -503,6 +503,30 @@ class MoraleService:
         state = self.state(instance, FleetSelection.one(fleet_index), at=at)
         return state.fleets[0]
 
+    def _selection_state(
+        self,
+        uow: MoraleUnitOfWork,
+        instance_id: UUID,
+        selection: FleetSelection,
+        projected_at: datetime,
+    ) -> MoraleSelectionState:
+        formations = uow.fleet_state.latest(instance_id, selection)
+        morale = uow.morale.latest(instance_id, selection)
+        formation_by_fleet = {item.fleet_index: item for item in formations}
+        morale_by_slot = {
+            (item.fleet_index, item.side, item.position): item for item in morale
+        }
+        fleets = tuple(
+            self._fleet_state(
+                fleet_index,
+                formation_by_fleet.get(fleet_index),
+                morale_by_slot,
+                projected_at,
+            )
+            for fleet_index in selection.fleet_indices
+        )
+        return MoraleSelectionState(selection, fleets, projected_at)
+
     def state(
         self,
         instance: str,
@@ -515,22 +539,7 @@ class MoraleService:
         projected_at = self._now() if at is None else _aware(at, field="at")
 
         def operation(uow: MoraleUnitOfWork, instance_id: UUID) -> MoraleSelectionState:
-            formations = uow.fleet_state.latest(instance_id, selection)
-            morale = uow.morale.latest(instance_id, selection)
-            formation_by_fleet = {item.fleet_index: item for item in formations}
-            morale_by_slot = {
-                (item.fleet_index, item.side, item.position): item for item in morale
-            }
-            fleets = tuple(
-                self._fleet_state(
-                    fleet_index,
-                    formation_by_fleet.get(fleet_index),
-                    morale_by_slot,
-                    projected_at,
-                )
-                for fleet_index in selection.fleet_indices
-            )
-            return MoraleSelectionState(selection, fleets, projected_at)
+            return self._selection_state(uow, instance_id, selection, projected_at)
 
         return self._transaction(instance, operation)
 
@@ -556,22 +565,7 @@ class MoraleService:
             uow: MoraleUnitOfWork,
             instance_id: UUID,
         ) -> MoraleSelectionState:
-            formations = uow.fleet_state.latest(instance_id, selection)
-            morale = uow.morale.latest(instance_id, selection)
-            formation_by_fleet = {item.fleet_index: item for item in formations}
-            morale_by_slot = {
-                (item.fleet_index, item.side, item.position): item for item in morale
-            }
-            fleets = tuple(
-                self._fleet_state(
-                    fleet_index,
-                    formation_by_fleet.get(fleet_index),
-                    morale_by_slot,
-                    projected_at,
-                )
-                for fleet_index in selection.fleet_indices
-            )
-            return MoraleSelectionState(selection, fleets, projected_at)
+            return self._selection_state(uow, instance_id, selection, projected_at)
 
         with self._uow_factory() as uow:
             instance_id = resolve_existing_runtime_instance(uow, instance)

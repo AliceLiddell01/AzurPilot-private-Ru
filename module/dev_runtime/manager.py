@@ -777,7 +777,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             return DevResult(
                 True,
                 "DEV_GAME_OBSERVATION_CAPABILITIES_READY",
-                "Реестр game observation capabilities прочитан",
+                "Реестр capabilities game observation прочитан",
                 DevStatusKind.NO_SESSION.value,
                 details={"capabilities": [item.as_dict() for item in descriptors]},
             )
@@ -851,7 +851,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             return DevResult(
                 known,
                 code,
-                "Game observation прочитано" if known else "Game observation не подтверждено",
+                "Наблюдение game прочитано" if known else "Наблюдение game не подтверждено",
                 session.state.value if session is not None else DevStatusKind.NO_SESSION.value,
                 session.session_id if session is not None else None,
                 {"observation": snapshot.as_dict()},
@@ -868,7 +868,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             return DevResult(
                 False,
                 code,
-                f"Game observation недоступно: {type(exc).__name__}",
+                f"Наблюдение game недоступно: {type(exc).__name__}",
                 session.state.value if session is not None else DevStatusKind.NO_SESSION.value,
                 session.session_id if session is not None else None,
             )
@@ -896,11 +896,12 @@ class DevSessionManager(DevDiagnosticsMixin):
     @staticmethod
     def _database_check_dict(value: object) -> dict[str, object]:
         as_dict = getattr(value, "as_dict", None)
-        if callable(as_dict):
-            payload = as_dict()
-            if isinstance(payload, dict):
-                return payload
-        return {}
+        if not callable(as_dict):
+            raise TypeError("Диагностика базы данных вернула объект без as_dict()")
+        payload = as_dict()
+        if not isinstance(payload, dict):
+            raise TypeError("Диагностика базы данных вернула некорректный словарь")
+        return payload
 
     def get_database_status(self, *, session_id: str | None = None) -> DevResult:
         environment, session, error = self._observation_target(session_id)
@@ -915,7 +916,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             return DevResult(
                 True,
                 "DEV_DATABASE_STATUS_READY",
-                "Сводка developer-only PostgreSQL diagnostics прочитана",
+                "Сводка developer-only диагностики PostgreSQL прочитана",
                 state,
                 resolved_session_id,
                 {"database_status": self._database_check_dict(snapshot)},
@@ -936,7 +937,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             return DevResult(
                 True,
                 "DEV_DATABASE_CHECKS_READY",
-                "Каталог фиксированных PostgreSQL diagnostics прочитан",
+                "Каталог фиксированных диагностических проверок PostgreSQL прочитан",
                 DevStatusKind.NO_SESSION.value,
                 details={"database_checks": [self._database_check_dict(item) for item in checks]},
             )
@@ -969,7 +970,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             return DevResult(
                 ok,
                 "DEV_DATABASE_CHECK_PASS" if ok else "DEV_DATABASE_CHECK_NOT_PASS",
-                "PostgreSQL diagnostic check завершён",
+                "Диагностическая проверка PostgreSQL завершена",
                 state,
                 resolved_session_id,
                 {"database_check": self._database_check_dict(result)},
@@ -987,7 +988,7 @@ class DevSessionManager(DevDiagnosticsMixin):
         return DevResult(
             True,
             "DEV_DATABASE_REPAIRS_READY",
-            "Каталог безопасных database repairs пуст",
+            "Каталог безопасных восстановлений базы данных пуст",
             DevStatusKind.NO_SESSION.value,
             details={"repairs": []},
         )
@@ -1001,7 +1002,7 @@ class DevSessionManager(DevDiagnosticsMixin):
         return DevResult(
             False,
             "DEV_DATABASE_REPAIR_UNAVAILABLE",
-            "Для текущего database contract безопасные repairs не зарегистрированы",
+            "Для текущего database contract безопасные восстановления не зарегистрированы",
             DevStatusKind.NO_SESSION.value,
             session_id,
             {"repair": {"repair_id": repair_id, "available": False}},

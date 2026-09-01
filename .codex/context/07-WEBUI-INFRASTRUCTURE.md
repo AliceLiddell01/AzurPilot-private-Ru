@@ -77,13 +77,14 @@ fail-closed при их изменении.
 Плагин обязан остановиться с `PLUGIN_RUNTIME_INCOMPATIBLE` до mutating calls при
 любом несовпадении.
 
-Developer-only capability `Game` публикуется через target-bound one-way bridge к
-нейтральному `module.application`: Stage-9 `GameReadService` и persistence-backed
-morale projection. Game MCP, MCP-to-MCP loopback, второй game domain и обратная
-зависимость application от Dev Runtime запрещены. Database diagnostics используют
-fixed read-only catalog поверх общего lazy PostgreSQL engine/UoW; arbitrary SQL,
-dump, secrets и Alembic mutation не выдаются. Empty repair catalog является
-допустимым честным результатом.
+Developer-only capability `Game` публикуется через односторонний bridge,
+привязанный к target, к нейтральному `module.application`: `GameReadService` и
+persistence-backed morale projection. Game MCP, MCP-to-MCP loopback, второй
+game domain и обратная зависимость application от Dev Runtime запрещены.
+Диагностика базы данных использует фиксированный read-only catalog поверх
+общего lazy PostgreSQL engine/UoW; arbitrary SQL, dump, secrets и Alembic
+mutation не выдаются. Пустой repair catalog является допустимым честным
+результатом.
 
 ## Статистика
 

@@ -10,7 +10,7 @@ def _result(code: str, details: dict[str, object]) -> DevResult:
     return DevResult(
         ok=True,
         code=code,
-        message="synthetic game database result",
+        message="синтетический результат диагностики game database",
         state=DevStatusKind.NO_SESSION.value,
         details=details,
     )
@@ -70,7 +70,7 @@ class _GameDatabaseManager:
                         "items": [
                             {
                                 "key": "oil",
-                                "label": "Oil",
+                                "label": "Нефть",
                                 "value": 1,
                                 "limit": None,
                                 "total": None,
@@ -105,7 +105,7 @@ class _GameDatabaseManager:
                         {
                             "source": "game_observation",
                             "reference": "config/state/dev-runtime-smoke/smoke-1/game-observations.json#observation-1",
-                            "description": "persisted observation",
+                            "description": "сохранённое observation",
                             "secret": "must be removed",
                         }
                     ],
@@ -142,14 +142,14 @@ class _GameDatabaseManager:
         self.calls.append(("list_database_checks", None))
         return _result(
             "DEV_DATABASE_CHECKS_READY",
-            {"database_checks": [{"check_id": "connectivity", "description": "check", "target_scoped": True, "read_only": True}]},
+            {"database_checks": [{"check_id": "connectivity", "description": "Проверка", "target_scoped": True, "read_only": True}]},
         )
 
     def run_database_check(self, check_id: str, *, session_id: str | None = None) -> DevResult:
         self.calls.append(("run_database_check", (check_id, session_id)))
         return _result(
             "DEV_DATABASE_CHECK_PASS",
-            {"database_check": {"check_id": check_id, "status": "pass", "code": "DEV_DATABASE_CONNECTED", "message": "ok", "observed": True}},
+            {"database_check": {"check_id": check_id, "status": "pass", "code": "DEV_DATABASE_CONNECTED", "message": "Проверка выполнена", "observed": True}},
         )
 
     def list_database_repairs(self) -> DevResult:
@@ -161,7 +161,7 @@ class _GameDatabaseManager:
         return DevResult(
             ok=False,
             code="DEV_DATABASE_REPAIR_UNAVAILABLE",
-            message="repair unavailable",
+            message="восстановление недоступно",
             state=DevStatusKind.NO_SESSION.value,
             session_id=session_id,
             details={"repair": {"repair_id": repair_id, "available": False}},
@@ -223,8 +223,14 @@ def test_game_database_tools_delegate_and_serializer_keeps_only_known_fields() -
 
 
 def test_game_database_argument_schemas_reject_profile_sql_and_unknown_fields_before_manager_creation() -> None:
-    manager = _GameDatabaseManager()
-    adapter = DevMcpAdapter(lambda: manager)
+    created = 0
+
+    def factory() -> _GameDatabaseManager:
+        nonlocal created
+        created += 1
+        return _GameDatabaseManager()
+
+    adapter = DevMcpAdapter(factory)
 
     invalid = (
         ("dev_get_game_observation", {"capability_id": "resources", "profile": "fixture-target"}),
@@ -238,4 +244,4 @@ def test_game_database_argument_schemas_reject_profile_sql_and_unknown_fields_be
         result = adapter.call(tool_name, arguments)
         assert result["ok"] is False
         assert result["code"] == "DEV_MCP_INPUT_INVALID"
-    assert manager.calls == []
+    assert created == 0

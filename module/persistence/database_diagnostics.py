@@ -1,4 +1,4 @@
-"""Developer-only фиксированная диагностика PostgreSQL поверх существующих Engine/UoW."""
+"""Фиксированная developer-only диагностика PostgreSQL поверх существующих Engine/UoW."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ from module.persistence.schema import EXPECTED_ALEMBIC_HEAD, SCHEMA_NAME, metada
 from module.persistence.unit_of_work import PostgresUnitOfWork
 
 _APP_ROLE = "azurpilot_app"
-_SCHEMA_MARKER_VERSION = 1
+SCHEMA_MARKER_VERSION = 1
 _SAFE_TARGET = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _REQUIRED_TABLES = tuple(sorted(table.name for table in metadata.sorted_tables))
 _REQUIRED_TABLES_SQL = ", ".join(f":table_{index}" for index in range(len(_REQUIRED_TABLES)))
@@ -175,7 +175,7 @@ class PostgresDatabaseDiagnostics:
         )
 
     def _schema_marker_check(self) -> DatabaseCheckResult:
-        if self._schema_marker_version == _SCHEMA_MARKER_VERSION:
+        if self._schema_marker_version == SCHEMA_MARKER_VERSION:
             return DatabaseCheckResult(
                 "schema_marker",
                 DatabaseCheckStatus.PASS,
@@ -219,7 +219,7 @@ class PostgresDatabaseDiagnostics:
             return _failure(check_id, translate_database_error(exc))
         except (StorageAuthenticationError, IncompatibleSchemaError, StorageConfigurationError, StorageUnavailableError) as exc:
             return _failure(check_id, exc)
-        except Exception as exc:  # noqa: BLE001 - developer diagnostics fail closed.
+        except Exception as exc:  # noqa: BLE001 — developer diagnostics завершаются fail-closed.
             return _failure(check_id, exc)
 
     @staticmethod
@@ -227,8 +227,8 @@ class PostgresDatabaseDiagnostics:
         health = StorageHealthChecker(
             _ConnectionEngineAdapter(connection),
         ).check()
-        # StorageHealthChecker normally receives LazyEngine; the adapter is a
-        # narrow testable bridge which reuses its existing health semantics.
+        # StorageHealthChecker обычно получает LazyEngine; этот адаптер — узкий
+        # проверяемый мост, повторно использующий существующую health-семантику.
         if health.state.value == "ready":
             return DatabaseCheckResult(
                 "connectivity",
@@ -382,7 +382,7 @@ class PostgresDatabaseDiagnostics:
             )
         except SQLAlchemyError as exc:
             return _failure("target_resolution", translate_database_error(exc))
-        except Exception as exc:  # noqa: BLE001 - no raw persistence details.
+        except Exception as exc:  # noqa: BLE001 — детали persistence наружу не выдаются.
             return _failure("target_resolution", exc)
 
 

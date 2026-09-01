@@ -21,7 +21,11 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.server.auth.provider import AccessToken
-from mcp_types import CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY
+from mcp_types import (
+    CLIENT_CAPABILITIES_META_KEY,
+    CLIENT_INFO_META_KEY,
+    PROTOCOL_VERSION_META_KEY,
+)
 
 from module.dev_mcp.adapter import DevMcpResponse
 from module.dev_mcp.remote import (

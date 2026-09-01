@@ -39,7 +39,7 @@ _TARGET = DevTarget("fixture-target")
 class _SyntheticProvider:
     capability = GameObservationCapability(
         capability_id="synthetic",
-        description="Synthetic game projection",
+        description="Синтетическая game projection",
         source="tests.synthetic",
         parameters=(
             ObservationParameter(
@@ -74,7 +74,7 @@ class _SyntheticProvider:
 class _ExplodingProvider(_SyntheticProvider):
     capability = GameObservationCapability(
         capability_id="exploding",
-        description="Exploding game projection",
+        description="Падающая game projection",
         source="tests.exploding",
     )
 
@@ -85,7 +85,7 @@ class _ExplodingProvider(_SyntheticProvider):
         *,
         captured_at: datetime,
     ) -> GameObservationCapture:
-        raise RuntimeError("private provider detail must not cross the bridge")
+        raise RuntimeError("внутренние сведения provider не должны пересекать bridge")
 
 
 def _snapshot(
@@ -116,7 +116,7 @@ def _snapshot(
 def test_registry_is_sorted_strict_and_fail_closed_for_provider_errors() -> None:
     registry = GameObservationRegistry((_ExplodingProvider(), _SyntheticProvider()))
 
-    # The duplicate id is rejected before a second provider can shadow the first.
+    # Дублирующий capability_id отклоняется до того, как второй provider затенит первый.
     with pytest.raises(GameObservationError) as duplicate:
         GameObservationRegistry((_SyntheticProvider(), _SyntheticProvider()))
     assert duplicate.value.code == "DEV_GAME_CAPABILITY_CONFLICT"
@@ -306,6 +306,80 @@ def test_smoke_checkpoint_exposes_persisted_game_evidence_refs(tmp_path: Path) -
     assert refs[0]["reference"].endswith("#observation-1")
 
 
+def test_smoke_checkpoint_keep_first_uses_retained_status(tmp_path: Path) -> None:
+    environment = DevEnvironment(tmp_path, Path("python"), _TARGET)
+
+    class _ChangingBridge:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def capture(
+            self,
+            _target: DevTarget,
+            _capability_id: str,
+            _parameters: dict[str, object],
+            *,
+            checkpoint_id: str,
+            session_id: str,
+            smoke_id: str,
+            captured_at: datetime,
+        ) -> GameObservationSnapshot:
+            self.calls += 1
+            status = (
+                GameObservationStatus.KNOWN
+                if self.calls == 1
+                else GameObservationStatus.UNAVAILABLE
+            )
+            return GameObservationSnapshot.create(
+                GameObservationCapture(
+                    status=status,
+                    source="tests.synthetic",
+                    provenance={"capability_id": "synthetic"},
+                    payload={"call": self.calls},
+                ),
+                target=_TARGET,
+                checkpoint_id=checkpoint_id,
+                session_id=session_id,
+                smoke_id=smoke_id,
+                captured_at=captured_at,
+            )
+
+    bridge = _ChangingBridge()
+    manager = SmokeRunManager(environment, game_bridge=bridge, now=lambda: _NOW)
+    spec = SmokeSpec.model_validate(
+        {
+            "name": "keep-first-smoke",
+            "objective": "Проверить сохранение первого game observation",
+            "session": {"root_tasks": ["RootTask"]},
+            "game_observations": {
+                "observations": [{"capability_id": "synthetic"}],
+                "duplicate_policy": "keep_first",
+            },
+        }
+    )
+    record = SimpleNamespace(smoke_id="smoke-1")
+
+    first_ok, _first_details, first_failure = manager._capture_game_checkpoint(
+        record,
+        spec,
+        "before",
+        "session-1",
+    )
+    second_ok, second_details, second_failure = manager._capture_game_checkpoint(
+        record,
+        spec,
+        "before",
+        "session-1",
+    )
+
+    assert first_ok is True
+    assert first_failure is None
+    assert second_ok is True
+    assert second_failure is None
+    assert second_details["game_observations"]["stored"] == 0
+    assert second_details["game_observations"]["statuses"] == ["known"]
+
+
 def test_manager_rejects_stale_standalone_provider_target(tmp_path: Path) -> None:
     environment = DevEnvironment(tmp_path, Path("python"), _TARGET)
     bridge = SimpleNamespace(
@@ -337,7 +411,7 @@ def test_resources_provider_uses_typed_application_projection() -> None:
                 (
                     DashboardResource(
                         key="oil",
-                        label="Oil",
+                        label="Нефть",
                         value=123,
                         limit=1000,
                     ),
@@ -359,7 +433,7 @@ def test_resources_provider_uses_typed_application_projection() -> None:
     assert snapshot.as_dict()["payload"]["items"] == [
         {
             "key": "oil",
-            "label": "Oil",
+            "label": "Нефть",
             "value": 123,
             "limit": 1000,
             "total": None,

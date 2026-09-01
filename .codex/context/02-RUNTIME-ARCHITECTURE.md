@@ -173,20 +173,22 @@ adapter обслуживает modern protocol `2026-07-28` и legacy negotiatio
 MCP Tasks не эмулируются. `SmokeRun` и `DevRuntimeControlOperation` остаются
 application-level persistent entities.
 
-Stage 10 добавляет developer-only one-way Game Bridge и database diagnostics.
-Game Bridge вызывает только нейтральные typed application services: Stage-9
-`GameReadService` и persistence-backed morale projection; Game MCP, MCP-to-MCP
-loopback, второй game domain и обратный импорт Dev Runtime запрещены. Каждый
-snapshot имеет immutable target/session/checkpoint provenance, bounded payload и
-checksum. Smoke Harness сохраняет `before`, `final` и объявленные intermediate
-checkpoints в scoped sidecar, а unknown/unavailable/missing required snapshot не
-может дать `PASS`.
+Текущий development-контур предоставляет developer-only односторонний Game
+Bridge и диагностику базы данных. Game Bridge вызывает только нейтральные
+типизированные application services: `GameReadService` и persistence-backed
+morale projection; Game MCP, MCP-to-MCP loopback, второй game domain и обратный
+импорт Dev Runtime запрещены. Каждый snapshot имеет неизменяемую
+target/session/checkpoint provenance, ограниченный payload и checksum. Smoke
+Harness сохраняет `before`, `final` и объявленные промежуточные checkpoints в
+изолированном sidecar, а unknown/unavailable/missing required snapshot не может
+дать `PASS`.
 
-Database diagnostics принадлежат persistence adapter, но наружу выходят через
-typed `module.application` port и fixed read-only catalog. Они используют общий
-lazy engine/health/UoW composition root, не создают второй global engine и не
-принимают arbitrary SQL, dump или Alembic mutation. Repair catalog может быть
-пустым, если безопасного зарегистрированного repair нет.
+Диагностика базы данных принадлежит persistence adapter, но наружу выходит
+через типизированный `module.application` port и фиксированный read-only
+catalog. Она использует общий lazy engine/health/UoW composition root, не
+создаёт второй global engine и не принимает arbitrary SQL, dump или Alembic
+mutation. Repair catalog может быть пустым, если безопасного
+зарегистрированного repair нет.
 
 Не фиксировать в документации точное количество инструментов: оно меняется. Источник истины — регистрация tools в текущем коде.
 

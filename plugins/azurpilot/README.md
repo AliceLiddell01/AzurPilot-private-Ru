@@ -108,7 +108,7 @@ Smoke сохраняет before/final и объявленные intermediate che
 `reject` или `keep_first`; unknown или unavailable observation не может дать
 PASS.
 
-Database diagnostics остаются developer-only read-only catalog. Зарегистрированных
+Диагностика базы данных остаётся developer-only read-only catalog. Зарегистрированных
 repair actions сейчас нет: `dev_list_database_repairs` возвращает честный пустой
 каталог, а preview неизвестного repair не выполняет mutation и возвращает
 `DEV_DATABASE_REPAIR_UNAVAILABLE`.

@@ -24,12 +24,12 @@ class _ScalarResult:
 
     def scalar_one(self) -> object:
         if len(self._values) != 1:
-            raise AssertionError(f"expected one value, got {self._values!r}")
+            raise AssertionError(f"ожидалось одно значение, получено: {self._values!r}")
         return self._values[0]
 
     def scalar_one_or_none(self) -> object | None:
         if len(self._values) > 1:
-            raise AssertionError(f"expected at most one value, got {self._values!r}")
+            raise AssertionError(f"ожидалось не более одного значения, получено: {self._values!r}")
         return self._values[0] if self._values else None
 
     def scalars(self) -> _ScalarResult:
@@ -89,7 +89,7 @@ class _DiagnosticEngine:
 
 class _ErrorEngine:
     def get(self) -> object:
-        raise RuntimeError("password=secret should not be returned")
+        raise RuntimeError("password=secret не должен возвращаться")
 
 
 def test_database_diagnostics_exposes_fixed_read_only_catalog_without_engine() -> None:
