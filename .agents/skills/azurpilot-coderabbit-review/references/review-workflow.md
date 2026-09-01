@@ -10,13 +10,26 @@
 2. Создай отдельный обычный WSL2 Arch clone. Не используй linked worktree или
    другую среду для CodeRabbit review.
 3. Получи exact branch/head и base без копирования локальных secrets/config.
-   Перед запуском подтвердь `coderabbit --version` и
-   `coderabbit auth status --agent`; interactive login допускается только как
-   объективно необходимый внешний prerequisite.
-4. Перед запуском подтверди `coderabbit --version` и
-   `coderabbit review --help`. В текущей проверенной CLI help содержит
+   Перед запуском в WSL2 Arch разреши executable, а не alias или Windows
+   wrapper: сначала используй `command -v coderabbit`, затем исполняемый
+   `$HOME/.local/bin/coderabbit`, если он доступен. Сохрани найденный путь,
+   например `coderabbit_bin`, и вызывай через `"$coderabbit_bin"` все проверки и
+   review. Если executable не найден, остановись как на prerequisite blocker;
+   не переходи на другой distro, Windows `.cmd` или status check.
+4. До вызова CodeRabbit проверь remote review-клона:
+   `git remote get-url origin` должен вернуть canonical hosted URL текущего PR
+   (для GitHub — `https://github.com/...` или `git@github.com:...`). Локальный
+   `/mnt/c/...`, `file://`, UNC и URL с credentials означают, что clone не
+   подготовлен. Возьми URL из основного checkout/PR, установи его только в
+   review-клоне и проверь повторно. Если CLI сообщает, что repository не
+   распознан или использует free allowance из-за remote, прекрати этот запуск,
+   исправь remote и повтори не более одного раза; результат первого запуска не
+   засчитывай как substantive review.
+5. Перед запуском подтверди `"$coderabbit_bin" --version`,
+   `"$coderabbit_bin" auth status --agent` и
+   `"$coderabbit_bin" review --help`. В текущей проверенной CLI help содержит
    `--committed`; её canonical example для committed diff:
-   `coderabbit review --agent --committed --base-commit <base-sha>`.
+   `"$coderabbit_bin" review --agent --committed --base-commit <base-sha>`.
    Версия внешнего CLI не закреплена в репозитории, поэтому permanent contract
    не закрепляет mutable spelling внешних flags: reviewer
    должен работать в agent mode, использовать committed-only review scope и

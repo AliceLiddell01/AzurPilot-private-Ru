@@ -19,6 +19,26 @@ CodeRabbit — независимый reviewer, а не источник ист�
 с текущим кодом, call sites, tests и архитектурой. Autofix или совет reviewer не
 применяй вслепую.
 
+## Предварительные условия CLI и remote
+
+До первого вызова review в WSL2 Arch явно разреши исполняемый файл CodeRabbit.
+Не полагайся на shell alias, Windows `.cmd`-обёртку или на то, что
+`coderabbit` уже входит в non-interactive `PATH`: сначала проверь
+`command -v coderabbit`, затем стандартный пользовательский путь
+`$HOME/.local/bin/coderabbit`, если он существует и исполняем. Сохрани
+разрешённый путь в переменной и используй его для `--version`, `auth status`,
+`review --help` и самого review. Если исполняемый файл не найден, остановись с
+явным prerequisite blocker; не подменяй эту проверку GitHub status или free
+allowance.
+
+Перед запуском CLI review-клон обязан иметь hosted Git remote того же
+репозитория, который проверяется. Получи canonical URL из основного checkout и
+PR, установи его только в отдельном review-клоне и проверь `git remote get-url
+origin`. Локальные пути (`/mnt/c/...`, `file://`, UNC), отсутствующий remote и
+URL с credentials недопустимы. Если CodeRabbit сообщает, что repository не
+распознан или review уходит в free allowance из-за remote, такой запуск не
+считай review: исправь remote, перепроверь его и повтори не более одного раза.
+
 ## Обязательные границы
 
 - Получай live base/head и проверяй exact commit; если PR существует,
