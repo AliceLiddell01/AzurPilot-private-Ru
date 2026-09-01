@@ -99,7 +99,6 @@ class PostgresDatabaseDiagnostics:
         engine: LazyEngine | None,
         *,
         marker_ready: bool,
-        marker_head: str | None,
         schema_marker_version: int | None,
         config_match: bool,
     ) -> None:

@@ -98,7 +98,6 @@ def test_database_diagnostics_exposes_fixed_read_only_catalog_without_engine() -
     diagnostics = PostgresDatabaseDiagnostics(
         None,
         marker_ready=False,
-        marker_head=None,
         schema_marker_version=None,
         config_match=False,
     )
@@ -192,7 +191,6 @@ def test_database_diagnostics_maps_healthy_and_schema_drift_states() -> None:
     diagnostics = PostgresDatabaseDiagnostics(
         _DiagnosticEngine(healthy_connection),  # type: ignore[arg-type]
         marker_ready=True,
-        marker_head=EXPECTED_ALEMBIC_HEAD,
         schema_marker_version=1,
         config_match=True,
     )
@@ -209,7 +207,6 @@ def test_database_diagnostics_sanitizes_connection_failures() -> None:
     diagnostics = PostgresDatabaseDiagnostics(
         _ErrorEngine(),  # type: ignore[arg-type]
         marker_ready=True,
-        marker_head=EXPECTED_ALEMBIC_HEAD,
         schema_marker_version=1,
         config_match=True,
     )
@@ -219,6 +216,7 @@ def test_database_diagnostics_sanitizes_connection_failures() -> None:
     assert result.status is DatabaseCheckStatus.UNAVAILABLE
     assert result.code == "DEV_DATABASE_CHECK_UNAVAILABLE"
     assert "secret" not in result.message
+    assert result.observed is None or "secret" not in str(result.observed)
 
 
 def test_database_diagnostics_import_does_not_open_connection() -> None:

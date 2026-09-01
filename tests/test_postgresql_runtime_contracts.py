@@ -21,6 +21,7 @@ from module.persistence.config import (
     DatabaseSettings,
     migrate_legacy_backend_marker,
 )
+from module.persistence.local_environment import DEFAULT_LOCAL_ENV_PATH
 from module.persistence.schema import EXPECTED_ALEMBIC_HEAD
 from module.statistics import postgresql_stats
 from tests.import_inspection import imports_for_path
@@ -270,10 +271,11 @@ def test_database_diagnostics_does_not_initialize_engine_or_install_environment(
         def install(self, **_kwargs: object) -> None:
             pytest.fail("Диагностический путь не должен изменять process environment.")
 
+    reads: list[Path] = []
     monkeypatch.setattr(
         persistence_runtime,
         "read_local_postgres_environment",
-        lambda _path: _ReadOnlyEnvironment(),
+        lambda path: (reads.append(Path(path)), _ReadOnlyEnvironment())[1],
     )
     monkeypatch.setattr(persistence_runtime, "_engine", None)
     monkeypatch.setattr(persistence_runtime, "_engine_settings", None)
@@ -282,6 +284,7 @@ def test_database_diagnostics_does_not_initialize_engine_or_install_environment(
         SimpleNamespace(repository_root=tmp_path),
     )
 
+    assert reads == [tmp_path / DEFAULT_LOCAL_ENV_PATH]
     assert persistence_runtime.runtime_engine() is None
     assert diagnostics.run_check("connectivity", "fixture-target").code == (
         "DEV_DATABASE_CONNECTION_UNAVAILABLE"

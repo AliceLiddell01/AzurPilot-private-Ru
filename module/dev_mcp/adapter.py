@@ -1915,7 +1915,12 @@ def _safe_value(
         return _safe_mapping(value, schema=schema, depth=depth)
     if isinstance(value, (list, tuple)):
         if schema == "capability_list":
-            if all(isinstance(item, Mapping) and "source" in item for item in value):
+            if value and all(
+                isinstance(item, Mapping)
+                and "parameters" in item
+                and "evidence_source" not in item
+                for item in value
+            ):
                 return _safe_sequence(
                     list(value),
                     item_schema="game_capability",

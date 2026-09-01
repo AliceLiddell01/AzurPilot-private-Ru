@@ -14,7 +14,7 @@ from module.application.morale import (
     MoraleSelectionState,
     MoraleSlotState,
 )
-from module.dev_runtime import DevEnvironment, DevSessionManager, game_bridge
+from module.dev_runtime import DevEnvironment, DevSessionManager, DevStatusKind, game_bridge
 from module.dev_runtime.game_bridge import (
     DevGameBridge,
     GameObservationCapability,
@@ -399,6 +399,26 @@ def test_manager_rejects_stale_standalone_provider_target(tmp_path: Path) -> Non
 
     assert result.ok is False
     assert result.code == "DEV_GAME_OBSERVATION_TARGET_MISMATCH"
+
+
+def test_manager_preserves_state_for_unknown_database_check(tmp_path: Path) -> None:
+    environment = DevEnvironment(tmp_path, Path("python"), _TARGET)
+
+    class _Diagnostics:
+        def run_check(self, _check_id: str, _target_profile: str) -> object:
+            raise ValueError("Неизвестный database diagnostic check")
+
+    manager = DevSessionManager(
+        environment,
+        target_locked=True,
+        database_diagnostics_factory=lambda _environment: _Diagnostics(),
+    )
+
+    result = manager.run_database_check("missing-check")
+
+    assert result.ok is False
+    assert result.code == "DEV_DATABASE_CHECK_UNKNOWN"
+    assert result.state == DevStatusKind.NO_SESSION.value
 
 
 def test_resources_provider_uses_typed_application_projection() -> None:

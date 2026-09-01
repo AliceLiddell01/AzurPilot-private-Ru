@@ -977,12 +977,20 @@ class DevSessionManager(DevDiagnosticsMixin):
                 resolved_session_id,
                 {"database_check": self._database_check_dict(result)},
             )
+        except ValueError:
+            return DevResult(
+                False,
+                "DEV_DATABASE_CHECK_UNKNOWN",
+                "Запрошенная диагностическая проверка PostgreSQL не зарегистрирована",
+                state,
+                resolved_session_id,
+            )
         except Exception as exc:
             return DevResult(
                 False,
                 "DEV_DATABASE_DIAGNOSTICS_UNAVAILABLE",
                 f"PostgreSQL diagnostic check недоступен: {type(exc).__name__}",
-                DevStatusKind.FAILED.value,
+                state,
                 resolved_session_id,
             )
 

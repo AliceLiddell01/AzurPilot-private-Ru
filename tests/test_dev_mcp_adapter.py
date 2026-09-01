@@ -613,6 +613,36 @@ def test_serializer_preserves_smoke_result_and_active_conflict_state() -> None:
     }
 
 
+def test_serializer_distinguishes_game_and_smoke_capability_families() -> None:
+    result = serialize_dev_result(
+        {
+            "ok": True,
+            "code": "DEV_SMOKE_CAPABILITIES_READY",
+            "message": "готово",
+            "state": "no_session",
+            "details": {
+                "capabilities": [
+                    {
+                        "capability_id": "event_occurred",
+                        "kind": "event",
+                        "evidence_source": "timeline",
+                        "description": "Событие присутствует в timeline",
+                    }
+                ]
+            },
+        }
+    )
+
+    assert result["details"]["capabilities"] == [
+        {
+            "capability_id": "event_occurred",
+            "kind": "event",
+            "evidence_source": "timeline",
+            "description": "Событие присутствует в timeline",
+        }
+    ]
+
+
 def test_serializer_preserves_control_target_binding_without_internal_fields() -> None:
     result = serialize_dev_result(
         {

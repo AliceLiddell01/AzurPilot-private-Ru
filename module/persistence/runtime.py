@@ -186,7 +186,6 @@ def build_runtime_database_diagnostics(
     return PostgresDatabaseDiagnostics(
         engine,
         marker_ready=marker_ready,
-        marker_head=marker_head,
         schema_marker_version=schema_marker_version,
         config_match=config_match,
     )
