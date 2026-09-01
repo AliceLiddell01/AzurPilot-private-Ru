@@ -25,8 +25,13 @@ def test_game_mcp_has_no_dev_or_direct_storage_dependency() -> None:
     assert not any(
         name.startswith(("module.dev_mcp", "module.dev_runtime")) for name in imported
     )
-    assert "sqlalchemy" not in imported
-    assert "psycopg" not in imported
+    assert not any(
+        name == "sqlalchemy" or name.startswith("sqlalchemy.") for name in imported
+    )
+    assert not any(
+        name == "psycopg" or name.startswith(("psycopg.", "psycopg2"))
+        for name in imported
+    )
     assert "mcp.server.sse" not in imported
 
 

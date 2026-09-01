@@ -81,21 +81,23 @@ class GameMcpBackend:
     def fleet_state(self) -> object:
         """Лениво вернуть transport-neutral Fleet State read service."""
 
-        if self._fleet_state is None:
-            from module.application.fleet_state import FleetStateReadService
+        with self._persistence_lock:
+            if self._fleet_state is None:
+                from module.application.fleet_state import FleetStateReadService
 
-            self._fleet_state = FleetStateReadService(self._uow_factory)
-        return self._fleet_state
+                self._fleet_state = FleetStateReadService(self._uow_factory)
+            return self._fleet_state
 
     @property
     def morale(self) -> object:
         """Лениво вернуть transport-neutral Morale read service."""
 
-        if self._morale is None:
-            from module.application.morale import MoraleService
+        with self._persistence_lock:
+            if self._morale is None:
+                from module.application.morale import MoraleService
 
-            self._morale = MoraleService(self._uow_factory)
-        return self._morale
+                self._morale = MoraleService(self._uow_factory)
+            return self._morale
 
     def _uow_factory(self) -> MoraleUnitOfWork:
         composition = self._get_persistence()

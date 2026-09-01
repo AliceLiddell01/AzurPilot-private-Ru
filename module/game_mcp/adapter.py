@@ -613,9 +613,8 @@ def _fleet_state_payload(
         "observations": observations,
         "missing_fleet_indices": missing,
         "coverage_complete": not missing,
-        "snapshots_complete": all(
-            item["snapshot"]["complete"] for item in observations
-        ),
+        "snapshots_complete": bool(observations)
+        and all(item["snapshot"]["complete"] for item in observations),
     }
     return details, code, state
 
@@ -1057,7 +1056,7 @@ class GameMcpAdapter:
                     "Источник Game данных сейчас недоступен.",
                     tool=tool_name,
                 )
-            except ServiceUnavailableError, ApplicationError:
+            except ApplicationError:
                 return _error(
                     "GAME_SERVICE_UNAVAILABLE",
                     "Источник Game данных сейчас недоступен.",

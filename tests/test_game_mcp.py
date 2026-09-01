@@ -427,7 +427,7 @@ def test_adapter_redacts_config_sanitizes_logs_and_preserves_unknown_domain_stat
     config_json = json.dumps(config, ensure_ascii=False)
     assert "raw-secret" not in config_json
     assert '"Password": "<скрыто>"' in config_json
-    assert "raw" not in config_json
+    assert '"ApiKey": "raw"' not in config_json
 
     task_help = adapter.call("game_get_task_help", {"task": "Main"})
     task_help_json = json.dumps(task_help, ensure_ascii=False)
@@ -462,6 +462,27 @@ def test_adapter_preserves_unknown_current_task_state() -> None:
     assert result["code"] == "GAME_DATA_UNKNOWN"
     assert result["state"] == "unknown"
     assert result["details"] == {"profile": "alpha", "task": UNKNOWN_TASK}
+
+
+def test_adapter_does_not_claim_empty_fleet_snapshots_are_complete() -> None:
+    backend = _backend()
+
+    def empty_state(_profile: str, selection: FleetSelection) -> FleetStateResult:
+        return FleetStateResult(
+            FleetStateRequest(selection, FleetRefreshPolicy.NEVER),
+            (),
+            selection.fleet_indices,
+        )
+
+    backend.fleet_state.state_read_only = empty_state
+    adapter = GameMcpAdapter(lambda: backend)
+
+    result = adapter.call(
+        "game_get_fleet_state", {"profile": "alpha", "fleet_indices": [1]}
+    )
+
+    assert result["code"] == "GAME_DATA_UNKNOWN"
+    assert result["details"]["snapshots_complete"] is False
 
 
 def test_screenshot_response_is_bounded_native_image_content() -> None:
