@@ -106,23 +106,40 @@ _SECRET_KEY_PARTS = frozenset(
         "token",
         "secret",
         "apikey",
-        "api_key",
+        "accesstoken",
+        "refreshtoken",
+        "clientsecret",
+        "privatekey",
+        "signingkey",
         "cookie",
         "passfile",
         "credential",
         "credentials",
         "authorization",
         "dsn",
+        "sessionid",
+        "oauth",
     }
 )
 _ANSI_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
-_PATH_RE = re.compile(r"(?:[A-Za-z]:[\\/]|/)(?:[^\s'\"<>]|\\ )+")
+_PATH_RE = re.compile(
+    r"(?:\\\\[^\\/\s'\"<>]+[\\/][^\s'\"<>]+|[A-Za-z]:[\\/]|/)(?:[^\s'\"<>]|\\ )+"
+)
 _TRACEBACK_RE = re.compile(
     r"(?:traceback \(most recent call last\)|\bfile\s+[\"'])", re.IGNORECASE
 )
 _BEARER_RE = re.compile(r"(\bbearer\s+)[^\s,;]+", re.IGNORECASE)
+_SECRET_NAME_RE = (
+    r"(?:[A-Za-z][A-Za-z0-9_-]*?)?"
+    r"(?:password|passwd|token|secret|api[_-]?key|access[_-]?token|"
+    r"refresh[_-]?token|client[_-]?secret|private[_-]?key|signing[_-]?key|"
+    r"cookie|passfile|credential|credentials|authorization|dsn|session[_-]?id|oauth)"
+    r"[A-Za-z0-9_-]*"
+)
 _SECRET_VALUE_RE = re.compile(
-    r"(?P<prefix>\b(?:password|passwd|token|secret|api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|private[_-]?key|signing[_-]?key|cookie|passfile|credential|credentials|authorization|dsn)\b[\"']?\s*[:=]\s*[\"']?)(?P<value>[^\"'\s,;}\]]+)(?P<quote>[\"']?)",
+    r"(?P<prefix>(?<![A-Za-z0-9_-])(?P<key>"
+    + _SECRET_NAME_RE
+    + r")[\"']?\s*[:=]\s*[\"']?)(?P<value>[^\"'\s,;}\]]+)(?P<quote>[\"']?)",
     re.IGNORECASE,
 )
 
@@ -169,9 +186,8 @@ def _safe_text(value: str, *, maximum: int = _MAX_RESULT_STRING) -> str:
 
 def _secret_key(value: str) -> bool:
     normalized = re.sub(r"[^a-z0-9]+", "_", value.casefold()).strip("_")
-    return normalized in _SECRET_KEY_PARTS or any(
-        part in normalized.split("_") for part in _SECRET_KEY_PARTS
-    )
+    compact = normalized.replace("_", "")
+    return any(part in compact for part in _SECRET_KEY_PARTS)
 
 
 def _safe_value(value: object, *, key: str | None = None, depth: int = 0) -> object:

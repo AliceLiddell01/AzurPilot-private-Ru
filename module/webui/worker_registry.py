@@ -382,6 +382,30 @@ def get_workers(owner_pid: int) -> dict[str, dict]:
         return deepcopy(registry["workers"])
 
 
+def get_worker_read_only(config_name: str) -> dict | None:
+    """Прочитать worker без миграции, блокировки записи или housekeeping."""
+    if not isinstance(config_name, str) or not config_name:
+        raise ValueError("Имя экземпляра должно быть непустой строкой")
+
+    paths = [WORKER_REGISTRY_FILE]
+    if (
+        _legacy_registry_enabled()
+        and LEGACY_WORKER_REGISTRY_FILE != WORKER_REGISTRY_FILE
+    ):
+        paths.append(LEGACY_WORKER_REGISTRY_FILE)
+    for registry_file in paths:
+        if not registry_file.is_file():
+            continue
+        registry = _read_registry(registry_file)
+        record = registry["workers"].get(config_name)
+        if record is None:
+            continue
+        if not isinstance(record, dict):
+            raise RuntimeError("Недопустимая запись рабочего процесса")
+        return deepcopy(record)
+    return None
+
+
 def get_owner() -> int | None:
     """返回当前登记文件所有者的 PID。"""
     with _locked_registry() as registry_file:

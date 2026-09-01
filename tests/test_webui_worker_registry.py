@@ -164,6 +164,37 @@ class TestWorkerRegistry(unittest.TestCase):
                     json.loads(registry_file.read_text(encoding="utf-8")),
                 )
 
+    def test_read_only_worker_snapshot_does_not_migrate_or_create_lock(self):
+        with tempfile.TemporaryDirectory() as directory:
+            current_file = Path(directory) / "cache" / "webui-workers.json"
+            legacy_file = Path(directory) / "config" / "webui-workers.json"
+            legacy_file.parent.mkdir(parents=True)
+            legacy_file.write_text(
+                json.dumps(
+                    {
+                        "owner_created_at": 10.5,
+                        "owner_pid": 100,
+                        "workers": {"alas": {"created_at": 11.5, "pid": 200}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with patch.multiple(
+                worker_registry,
+                WORKER_REGISTRY_FILE=current_file,
+                LEGACY_WORKER_REGISTRY_FILE=legacy_file,
+                DEFAULT_WORKER_REGISTRY_FILE=current_file,
+            ):
+                self.assertEqual(
+                    {"created_at": 11.5, "pid": 200},
+                    worker_registry.get_worker_read_only("alas"),
+                )
+
+            self.assertFalse(current_file.exists())
+            self.assertTrue(legacy_file.exists())
+            self.assertFalse((legacy_file.parent / "webui-workers.json.lock").exists())
+
     def test_repeated_owner_claim_preserves_registered_workers(self):
         with tempfile.TemporaryDirectory() as directory:
             registry_file = Path(directory) / "workers.json"

@@ -25,11 +25,7 @@ def _validated_name(value: object, *, resource: str) -> str:
 
 
 class InstanceQueryService:
-    """Запросы экземпляров без передачи runtime-объектов наружу.
-
-    Чтение статуса не является pure operation: legacy ProcessManager вправе
-    удалить устаревшую запись из внутреннего реестра процессов.
-    """
+    """Запросы экземпляров без передачи runtime-объектов наружу."""
 
     def __init__(self, reader: InstanceRuntimeReader):
         self._reader = reader

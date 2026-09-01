@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 from module.application import InstanceQueryService, RuntimeState, TaskCatalogService
 from module.application.legacy_adapters import (
@@ -11,6 +12,7 @@ from module.application.models import TaskMetadata
 from module.config import locale as config_locale
 from module.config import utils as config_utils
 from module.config.mcp_helper import McpConfigHelper
+from module.webui import worker_registry
 
 
 def _legacy_task_dict(task: TaskMetadata) -> dict[str, object]:
@@ -106,3 +108,21 @@ def test_legacy_runtime_adapter_reads_alive_before_state_without_leaking_manager
     assert status.name == "ap"
     assert status.running is True
     assert status.state is RuntimeState.RUNNING
+
+
+def test_default_legacy_runtime_adapter_reads_registry_without_process_housekeeping():
+    adapter = LegacyInstanceRuntimeAdapter(list_instances=lambda: ("ap",))
+
+    with (
+        patch.object(
+            worker_registry,
+            "get_worker_read_only",
+            return_value={"pid": 123, "created_at": 10.5},
+        ),
+        patch.object(worker_registry, "process_matches", return_value=None),
+        patch.object(worker_registry, "_locked_registry", side_effect=AssertionError),
+    ):
+        status = InstanceQueryService(adapter).get_status("ap")
+
+    assert status.running is False
+    assert status.state is RuntimeState.STOPPED

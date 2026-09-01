@@ -22,6 +22,7 @@ from module.application.game_models import (
 )
 from module.application.models import (
     MetadataValue,
+    RuntimeState,
     TaskArgumentMetadata,
     TaskGroupMetadata,
     TaskMetadata,
@@ -56,10 +57,12 @@ class LegacyInstanceRuntimeAdapter:
         return tuple(provider())
 
     def read_instance_status(self, name: str) -> RuntimeSnapshot:
+        if self._manager_factory is None:
+            return self._default_read_instance_status(name)
         factory = self._manager_factory or self._default_manager_factory
         manager = factory(name)
-        # Порядок повторяет текущий MCP contract. Оба property-read могут
-        # выполнить housekeeping устаревшего process registry.
+        # Это совместимый injection path для legacy callers и тестов. Основной
+        # standalone read plane использует _default_read_instance_status ниже.
         running = manager.alive
         state_code = manager.state
         return RuntimeSnapshot(running=running, state_code=state_code)
@@ -73,6 +76,20 @@ class LegacyInstanceRuntimeAdapter:
     def _default_manager_factory(name: str) -> _LegacyManager:
         process_manager = importlib.import_module("module.webui.process_manager")
         return process_manager.ProcessManager.get_manager(name)
+
+    @staticmethod
+    def _default_read_instance_status(name: str) -> RuntimeSnapshot:
+        """Проверить worker registry без вызова lifecycle housekeeping."""
+        worker_registry = importlib.import_module("module.webui.worker_registry")
+        record = worker_registry.get_worker_read_only(name)
+        if record is None:
+            return RuntimeSnapshot(False, int(RuntimeState.STOPPED))
+        matches = worker_registry.process_matches(record)
+        if matches is True:
+            return RuntimeSnapshot(True, int(RuntimeState.RUNNING))
+        if matches is None:
+            return RuntimeSnapshot(False, int(RuntimeState.STOPPED))
+        return RuntimeSnapshot(False, int(RuntimeState.WARNING))
 
 
 class GeneratedTaskCatalogAdapter:

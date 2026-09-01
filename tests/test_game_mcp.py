@@ -233,7 +233,10 @@ class _Read:
         return RuntimeLogTail(
             profile,
             (
-                "\x1b[31msecret token=raw-token\x1b[0m\n",
+                "\x1b[31msecret token=raw-token oauth_token=oauth-sentinel "
+                "database_password=db-sentinel session_id=session-sentinel "
+                "LlmApiKey=llm-sentinel OAuthToken=oauth-camel-sentinel "
+                "ClientSecret=client-sentinel \\\\server\\share\\private.log\x1b[0m\n",
                 'Traceback (most recent call last): File "C:\\private\\run.py"\n',
             )[-limit:],
         )
@@ -439,6 +442,16 @@ def test_adapter_redacts_config_sanitizes_logs_and_preserves_unknown_domain_stat
     logs = adapter.call("game_get_recent_logs", {"profile": "alpha", "lines": 2})
     logs_json = json.dumps(logs, ensure_ascii=False)
     assert "raw-token" not in logs_json
+    for sentinel in (
+        "oauth-sentinel",
+        "db-sentinel",
+        "session-sentinel",
+        "llm-sentinel",
+        "oauth-camel-sentinel",
+        "client-sentinel",
+        "private.log",
+    ):
+        assert sentinel not in logs_json
     assert "Traceback" not in logs_json
     assert "private" not in logs_json
     assert "\x1b" not in logs_json
