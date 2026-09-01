@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import shutil
 import struct
 import zlib
 from datetime import UTC, datetime
@@ -12,6 +13,7 @@ from typing import Self
 from uuid import UUID, uuid4
 
 import anyio
+import pytest
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
@@ -117,7 +119,7 @@ def _fleet_result(instance: str, indices: tuple[int, ...]) -> FleetStateResult:
 
 def _morale_result(indices: tuple[int, ...]) -> MoraleSelectionState:
     now = datetime(2026, 9, 1, tzinfo=UTC)
-    fleets = []
+    fleets: list[MoraleFleetState] = []
     for fleet_index in indices:
         slots = tuple(
             MoraleSlotState(
@@ -545,6 +547,9 @@ def test_fleet_state_read_service_does_not_register_or_commit() -> None:
 
 
 def test_stdio_entrypoint_exposes_game_contract_and_tools() -> None:
+    if shutil.which(GAME_MCP_COMMAND) is None:
+        pytest.skip("uv недоступен в окружении локального stdio acceptance")
+
     async def scenario() -> None:
         parameters = StdioServerParameters(
             command=GAME_MCP_COMMAND,

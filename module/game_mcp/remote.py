@@ -52,9 +52,11 @@ GAME_MCP_PORT = 8766
 class RemoteConfig(_RemoteConfig):
     """Конфигурация Game MCP с независимым Game environment prefix."""
 
+    ENV_PREFIX = "AZURPILOT_GAME_MCP"
+
     @classmethod
-    def from_env(cls) -> RemoteConfig:
-        return super().from_env("AZURPILOT_GAME_MCP")
+    def from_env(cls, prefix: str = ENV_PREFIX) -> RemoteConfig:
+        return super().from_env(prefix)
 
 
 class OIDCTokenVerifier(_OIDCTokenVerifier):
@@ -139,36 +141,21 @@ def doctor() -> int:
         )
         return 1
     caddy_available = shutil.which("caddy") is not None
-    oauth_configured = all(
-        isinstance(value, str) and bool(value.strip())
-        for value in (
-            config.oauth_issuer,
-            config.oauth_audience,
-            config.oauth_jwks_url,
-            config.oauth_subject,
-        )
-    )
-    ready = caddy_available and oauth_configured
     print(
         json.dumps(
             {
-                "ok": ready,
-                "code": (
-                    "REMOTE_CONFIG_READY"
-                    if ready
-                    else "OAUTH_CONFIG_INVALID"
-                    if not oauth_configured
-                    else "CADDY_NOT_AVAILABLE"
-                ),
+                "ok": caddy_available,
+                "code": "REMOTE_CONFIG_READY"
+                if caddy_available
+                else "CADDY_NOT_AVAILABLE",
                 "bind_host_loopback": config.bind_host == "127.0.0.1",
                 "public_https_path": config.public_url.endswith(MCP_PATH),
-                "oauth_configured": oauth_configured,
                 "caddy_available": caddy_available,
             },
             ensure_ascii=False,
         )
     )
-    return 0 if ready else 1
+    return 0 if caddy_available else 1
 
 
 def main() -> None:

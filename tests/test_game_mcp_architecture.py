@@ -13,8 +13,12 @@ def _imported_modules(path: Path) -> set[str]:
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             names.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            names.add(node.module)
+        elif isinstance(node, ast.ImportFrom):
+            assert node.level == 0, (
+                "Game MCP architecture guard forbids relative imports"
+            )
+            if node.module:
+                names.add(node.module)
     return names
 
 

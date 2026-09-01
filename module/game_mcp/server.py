@@ -36,7 +36,14 @@ GAME_MCP_COMMAND = "uv"
 GAME_MCP_ARGS = ("run", "--locked", "--no-sync", "python", "-m", "module.game_mcp")
 GAME_MCP_REQUIRED_SCOPE = "azurpilot:game.read"
 
-_PROFILE_PATTERN = r"^[^\s./\\:*?\"<>|\x00-\x1f\x7f](?:[^./\\:*?\"<>|\x00-\x1f\x7f]{0,126}[^\s./\\:*?\"<>|\x00-\x1f\x7f])?$"
+_MAX_SELECTOR_LENGTH = 128
+_SELECTOR_FORBIDDEN = r'\s./\\:*?"<>|\x00-\x1f\x7f'
+_SELECTOR_CHARACTER = rf"[^{_SELECTOR_FORBIDDEN}]"
+_PROFILE_PATTERN = (
+    rf"^{_SELECTOR_CHARACTER}"
+    rf"(?:[^{_SELECTOR_FORBIDDEN}]{{0,{_MAX_SELECTOR_LENGTH - 2}}}"
+    rf"{_SELECTOR_CHARACTER})?$"
+)
 _NO_ARGUMENT_TOOLS = frozenset(
     {"game_get_contract", "game_list_profiles", "game_list_tasks"}
 )
@@ -46,7 +53,7 @@ _PROFILE_INPUT = {
         "profile": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 128,
+            "maxLength": _MAX_SELECTOR_LENGTH,
             "pattern": _PROFILE_PATTERN,
         }
     },
@@ -59,7 +66,7 @@ _TASK_INPUT = {
         "task": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 128,
+            "maxLength": _MAX_SELECTOR_LENGTH,
             "pattern": _PROFILE_PATTERN,
         }
     },
@@ -107,14 +114,24 @@ _JSON_VALUE = {
 }
 _PROFILE_OUTPUT = {
     "type": "object",
-    "properties": {"profile": {"type": "string", "minLength": 1, "maxLength": 128}},
+    "properties": {
+        "profile": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": _MAX_SELECTOR_LENGTH,
+        }
+    },
     "required": ["profile"],
     "additionalProperties": False,
 }
 _TASK_OUTPUT = {
     "type": "object",
     "properties": {
-        "name": {"type": "string", "minLength": 1, "maxLength": 128},
+        "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": _MAX_SELECTOR_LENGTH,
+        },
         "display_name": {"type": "string", "maxLength": 4096},
         "help": {"type": "string", "maxLength": 4096},
     },

@@ -14,6 +14,7 @@ import time
 from collections.abc import Callable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from threading import Lock
 from typing import Any, Self
 from urllib.parse import SplitResult, urlsplit
 
@@ -24,6 +25,7 @@ from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from starlette.applications import Starlette
+from starlette.middleware import Middleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
@@ -154,7 +156,7 @@ class RemoteConfig:
             raise RemoteConfigError(
                 "Backend remote MCP должен прослушивать только 127.0.0.1"
             )
-        public = _parse_https_url("public_url", self.public_url, exact_path=MCP_PATH)
+        _parse_https_url("public_url", self.public_url, exact_path=MCP_PATH)
         _parse_https_url("oauth_issuer", self.oauth_issuer)
         _parse_https_url("oauth_jwks_url", self.oauth_jwks_url)
         if not self.oauth_audience or len(self.oauth_audience) > 512:
@@ -193,8 +195,6 @@ class RemoteConfig:
         ):
             if not 0 < value <= upper_bound:
                 raise RemoteConfigError(f"{name} выходит за безопасное ограничение")
-        if public.path != MCP_PATH:
-            raise RemoteConfigError("public_url должен заканчиваться на /mcp")
 
     @property
     def mcp_path(self) -> str:
@@ -485,14 +485,27 @@ class ConcurrencyLimitMiddleware:
 
     def __init__(self, app: ASGIApp, config: RemoteConfig) -> None:
         self.app = app
-        self._limiter = anyio.CapacityLimiter(config.max_concurrent_requests)
+        self._total_tokens = config.max_concurrent_requests
+        self._limiter: anyio.CapacityLimiter | None = None
+        self._limiter_lock = Lock()
         self._acquire_timeout = config.concurrency_acquire_timeout_seconds
 
+    def _ensure_limiter(self) -> anyio.CapacityLimiter:
+        with self._limiter_lock:
+            if self._limiter is None:
+                self._limiter = anyio.CapacityLimiter(self._total_tokens)
+            return self._limiter
+
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope.get("type") != "http":
+            self._ensure_limiter()
+            await self.app(scope, receive, send)
+            return
+        limiter = self._ensure_limiter()
         acquired = False
         try:
             with anyio.fail_after(self._acquire_timeout):
-                await self._limiter.acquire()
+                await limiter.acquire()
             acquired = True
         except TimeoutError:
             await _send_error(send, 503, "server_busy")
@@ -501,7 +514,7 @@ class ConcurrencyLimitMiddleware:
             await self.app(scope, receive, send)
         finally:
             if acquired:
-                self._limiter.release()
+                limiter.release()
 
 
 class RequestBodyLimitMiddleware:
@@ -575,6 +588,9 @@ class RequestTimeoutMiddleware:
         self.timeout = config.request_timeout_seconds
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
         response_started = False
         response_completed = False
 
@@ -608,6 +624,9 @@ class FailSafeMiddleware:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
         response_started = False
 
         async def guarded_send(message: Message) -> None:
@@ -700,7 +719,6 @@ def create_remote_app(
         )
 
     mcp_endpoint: ASGIApp = _StreamableHTTPASGIApp(session_manager)
-    mcp_endpoint = RequestTimeoutMiddleware(mcp_endpoint, config)
     mcp_endpoint = RequestBodyLimitMiddleware(mcp_endpoint, config)
     mcp_endpoint = OAuthBearerMiddleware(
         mcp_endpoint,
@@ -708,9 +726,6 @@ def create_remote_app(
         verifier,
         required_scope=required_scope,
     )
-    mcp_endpoint = ConcurrencyLimitMiddleware(mcp_endpoint, config)
-    mcp_endpoint = StrictHostOriginMiddleware(mcp_endpoint, config)
-    mcp_endpoint = FailSafeMiddleware(mcp_endpoint)
 
     @asynccontextmanager
     async def lifespan(_: Starlette):
@@ -724,6 +739,12 @@ def create_remote_app(
 
     app = Starlette(
         debug=False,
+        middleware=[
+            Middleware(FailSafeMiddleware),
+            Middleware(RequestTimeoutMiddleware, config=config),
+            Middleware(StrictHostOriginMiddleware, config=config),
+            Middleware(ConcurrencyLimitMiddleware, config=config),
+        ],
         routes=[
             Route(
                 config.mcp_path,
