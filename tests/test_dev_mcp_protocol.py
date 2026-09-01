@@ -279,6 +279,8 @@ def test_pinned_mcp_client_initializes_and_calls_server() -> None:
             assert game_capabilities.structured_content["code"] in {
                 "DEV_GAME_OBSERVATION_CAPABILITIES_READY",
                 "DEV_GAME_OBSERVATION_UNAVAILABLE",
+                "DEV_TARGET_NOT_CONFIGURED",
+                "DEV_TARGET_DEFAULT_PROFILE_MISSING",
             }
             game_observation = await session.call_tool(
                 "dev_get_game_observation",
