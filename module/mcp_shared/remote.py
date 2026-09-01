@@ -66,8 +66,10 @@ def _parse_https_url(
     *,
     exact_path: str | None = None,
 ) -> SplitResult:
-    if not value:
+    if not isinstance(value, str) or not value:
         raise RemoteConfigError(f"{name}: значение обязательно")
+    if not value.isascii():
+        raise RemoteConfigError(f"{name}: URL должен содержать только ASCII")
     try:
         parsed = urlsplit(value)
         port = parsed.port
@@ -93,6 +95,8 @@ def _parse_https_url(
 
 
 def _validate_origin(value: str) -> None:
+    if not isinstance(value, str) or not value.isascii():
+        raise RemoteConfigError("Разрешённые Origin должны содержать только ASCII")
     try:
         parsed = urlsplit(value)
         parsed_port = parsed.port

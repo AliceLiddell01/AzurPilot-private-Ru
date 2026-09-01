@@ -212,6 +212,8 @@ def test_remote_config_is_https_loopback_and_oauth_fail_closed() -> None:
         _config(public_url="https://mcp.example.test:8443/mcp")
     with pytest.raises(RemoteConfigError, match="подстановочных символов"):
         _config(allowed_origins=("*",))
+    with pytest.raises(RemoteConfigError, match="ASCII"):
+        _config(public_url="https://пример.example/mcp")
 
 
 def test_remote_config_requires_all_oauth_environment_values(monkeypatch: pytest.MonkeyPatch) -> None:

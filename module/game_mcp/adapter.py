@@ -367,8 +367,9 @@ def _selection_arguments(arguments: dict[str, object]) -> tuple[str, tuple[int, 
 
 def _validate_arguments(
     tool: str, arguments: Mapping[str, object] | None
-) -> dict[str, object]:
+) -> tuple[dict[str, object], tuple[str, tuple[int, ...]] | None]:
     raw = _arguments(arguments)
+    selection: tuple[str, tuple[int, ...]] | None = None
     if tool in _NO_ARGUMENT_TOOLS:
         _check_keys(raw, allowed=frozenset())
     elif tool in {
@@ -385,7 +386,7 @@ def _validate_arguments(
     elif tool == "game_get_task_help":
         _task_arguments(raw)
     elif tool == "game_get_fleet_state" or tool == "game_get_morale":
-        _selection_arguments(raw)
+        selection = _selection_arguments(raw)
     elif tool == "game_get_config":
         _check_keys(
             raw, allowed=frozenset({"profile", "task"}), required=frozenset({"profile"})
@@ -407,7 +408,7 @@ def _validate_arguments(
             )
     else:
         raise InvalidRequestError("Для инструмента отсутствует строгая схема.")
-    return raw
+    return raw, selection
 
 
 def _resource_payload(resources: DashboardResources) -> list[dict[str, object]]:
@@ -824,7 +825,11 @@ class GameMcpAdapter:
         return _public_name(arguments["profile"], resource="профиля")
 
     def _dispatch(
-        self, tool: str, arguments: dict[str, object], backend: object
+        self,
+        tool: str,
+        arguments: dict[str, object],
+        backend: object,
+        selection: tuple[str, tuple[int, ...]] | None = None,
     ) -> GameMcpResponse | dict[str, object]:
         instances = getattr(backend, "instances", None)
         tasks = getattr(backend, "tasks", None)
@@ -992,7 +997,9 @@ class GameMcpAdapter:
                 structured=structured, image=data, mime_type=media_type
             )
         if tool == "game_get_fleet_state":
-            _profile, indices = _selection_arguments(arguments)
+            if selection is None:
+                raise InvalidRequestError("Для Fleet State отсутствует selection.")
+            _profile, indices = selection
             service = getattr(backend, "fleet_state", None)
             if service is None:
                 raise ServiceUnavailableError("Fleet State capability недоступна.")
@@ -1001,7 +1008,9 @@ class GameMcpAdapter:
             details["profile"] = profile
             return _ok(code, "Fleet State профиля готов", state, details)
         if tool == "game_get_morale":
-            _profile, indices = _selection_arguments(arguments)
+            if selection is None:
+                raise InvalidRequestError("Для morale отсутствует selection.")
+            _profile, indices = selection
             service = getattr(backend, "morale", None)
             if service is None:
                 raise ServiceUnavailableError("Morale capability недоступна.")
@@ -1021,14 +1030,16 @@ class GameMcpAdapter:
         if tool_name not in GAME_MCP_TOOL_NAMES:
             return _unknown_tool(tool_name)
         try:
-            parsed = _validate_arguments(tool_name, arguments)
+            parsed, selection = _validate_arguments(tool_name, arguments)
         except InvalidRequestError, TypeError, ValueError:
             return _invalid(tool_name)
         if tool_name == "game_get_contract":
             return contract_result()
         with self._backend_lock:
             try:
-                result = self._dispatch(tool_name, parsed, self._get_backend())
+                result = self._dispatch(
+                    tool_name, parsed, self._get_backend(), selection
+                )
             except InstanceNotRunningError:
                 return _error(
                     "GAME_PROFILE_NOT_RUNNING", "Профиль не запущен.", tool=tool_name
