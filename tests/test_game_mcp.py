@@ -48,6 +48,7 @@ from module.application import (
     RuntimeState,
     SchedulerEntry,
     SchedulerQueueSnapshot,
+    ServiceUnavailableError,
     TaskArgumentMetadata,
     TaskGroupMetadata,
     TaskMetadata,
@@ -64,6 +65,7 @@ from module.formation.model import (
     FormationFleetSnapshot,
 )
 from module.game_mcp.adapter import GameMcpAdapter, GameMcpResponse, _result
+from module.game_mcp.composition import GameMcpBackend
 from module.game_mcp.contract import contract_payload
 from module.game_mcp.server import (
     GAME_MCP_ARGS,
@@ -688,6 +690,79 @@ def test_adapter_sanitizes_logs_without_secrets_or_paths() -> None:
     assert all("private.log" not in line for line in log_lines)
     assert all(r"C:\private\run.py" not in line for line in log_lines)
     assert "\x1b" not in logs_json
+
+
+def test_adapter_limits_public_log_lines_to_the_advertised_bound() -> None:
+    backend = _backend()
+    backend.read.get_recent_logs = lambda profile, _limit: RuntimeLogTail(
+        profile,
+        tuple(f"line-{index}\n" for index in range(250)),
+    )
+    adapter = GameMcpAdapter(lambda: backend)
+
+    result = adapter.call("game_get_recent_logs", {"profile": "alpha", "lines": 200})
+
+    assert result["details"]["lines"] == [
+        f"line-{index}\n" for index in range(50, 250)
+    ]
+    assert result["details"]["truncated"] is True
+
+
+@pytest.mark.parametrize(
+    "entries",
+    [
+        (object(),),
+        tuple(
+            SchedulerEntry(f"Task-{index}", datetime(2026, 9, 1, tzinfo=UTC))
+            for index in range(513)
+        ),
+    ],
+)
+def test_adapter_rejects_malformed_scheduler_entries(entries: tuple[object, ...]) -> None:
+    backend = _backend()
+    snapshot = SchedulerQueueSnapshot("alpha", (SchedulerEntry("Main", datetime(2026, 9, 1, tzinfo=UTC)),))
+    object.__setattr__(snapshot, "entries", entries)
+    backend.read.get_scheduler_queue = lambda _profile: snapshot
+
+    result = GameMcpAdapter(lambda: backend).call(
+        "game_get_scheduler_queue", {"profile": "alpha"}
+    )
+
+    assert result["code"] == "GAME_SERVICE_UNAVAILABLE"
+
+
+def test_game_mcp_backend_dispose_invalidates_lazy_persistence_services() -> None:
+    class _Persistence:
+        def __init__(self) -> None:
+            self.disposed = False
+
+        def dispose(self) -> None:
+            self.disposed = True
+
+    persistence = _Persistence()
+    backend = GameMcpBackend(
+        instance_reader=object(),
+        task_catalog=object(),
+        config_reader=object(),
+        log_reader=object(),
+        screenshot_reader=object(),
+        persistence_factory=lambda _environment: persistence,
+    )
+    fleet_state = backend.fleet_state
+    morale = backend.morale
+    assert backend._get_persistence() is persistence
+
+    backend.dispose()
+
+    assert persistence.disposed is True
+    with pytest.raises(ServiceUnavailableError):
+        _ = backend.fleet_state
+    with pytest.raises(ServiceUnavailableError):
+        _ = backend.morale
+    with pytest.raises(ServiceUnavailableError):
+        fleet_state._uow_factory()
+    with pytest.raises(ServiceUnavailableError):
+        morale._uow_factory()
 
 
 def test_adapter_preserves_unknown_morale_state() -> None:

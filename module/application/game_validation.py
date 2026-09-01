@@ -18,6 +18,7 @@ from module.application.ports import InstanceRuntimeReader
 
 MAX_RECENT_LOG_LINES = 10_000
 MAX_SCHEDULABLE_TASKS = 512
+MAX_NAME_LENGTH = 128
 UNKNOWN_TASK = "Unknown"
 INVALID_NAME_CHARS = frozenset("./\\\x00:*?\"<>|")
 
@@ -30,7 +31,7 @@ def validated_name(value: object, *, resource: str) -> str:
         not normalized
         or normalized in {".", ".."}
         or any(char in INVALID_NAME_CHARS for char in normalized)
-        or len(normalized) > 128
+        or len(normalized) > MAX_NAME_LENGTH
     ):
         raise InvalidRequestError(f"Имя {resource} содержит недопустимое значение.")
     return normalized
@@ -212,6 +213,7 @@ def validate_config_value(
 
 __all__ = [
     "INVALID_NAME_CHARS",
+    "MAX_NAME_LENGTH",
     "MAX_RECENT_LOG_LINES",
     "MAX_SCHEDULABLE_TASKS",
     "UNKNOWN_TASK",

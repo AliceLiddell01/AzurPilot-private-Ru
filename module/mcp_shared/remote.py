@@ -496,12 +496,18 @@ class ConcurrencyLimitMiddleware:
     def __init__(self, app: ASGIApp, config: RemoteConfig) -> None:
         self.app = app
         self._total_tokens = config.max_concurrent_requests
+        self._mcp_path = config.mcp_path
         self._limiter: anyio.CapacityLimiter | None = None
+        self._stream_limiter: anyio.CapacityLimiter | None = None
         self._limiter_lock = Lock()
         self._acquire_timeout = config.concurrency_acquire_timeout_seconds
 
-    def _ensure_limiter(self) -> anyio.CapacityLimiter:
+    def _ensure_limiter(self, *, stream: bool = False) -> anyio.CapacityLimiter:
         with self._limiter_lock:
+            if stream:
+                if self._stream_limiter is None:
+                    self._stream_limiter = anyio.CapacityLimiter(self._total_tokens)
+                return self._stream_limiter
             if self._limiter is None:
                 self._limiter = anyio.CapacityLimiter(self._total_tokens)
             return self._limiter
@@ -511,7 +517,10 @@ class ConcurrencyLimitMiddleware:
             self._ensure_limiter()
             await self.app(scope, receive, send)
             return
-        limiter = self._ensure_limiter()
+        stream = (
+            scope.get("method") == "GET" and scope.get("path") == self._mcp_path
+        )
+        limiter = self._ensure_limiter(stream=stream)
         acquired = False
         try:
             with anyio.fail_after(self._acquire_timeout):

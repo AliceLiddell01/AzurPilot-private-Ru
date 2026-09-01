@@ -22,7 +22,11 @@ from module.application.game_models import (
     thaw_payload,
 )
 from module.application.game_ports import GameConfigMetadata
-from module.application.game_validation import INVALID_NAME_CHARS, UNKNOWN_TASK
+from module.application.game_validation import (
+    INVALID_NAME_CHARS,
+    MAX_NAME_LENGTH,
+    UNKNOWN_TASK,
+)
 
 _MAX_LOG_LINES = 10_000
 _MAX_LOG_BYTES = 2 * 1024 * 1024
@@ -77,7 +81,7 @@ def _safe_instance_name(value: object) -> str:
     if (
         not value
         or value in {".", ".."}
-        or len(value) > 128
+        or len(value) > MAX_NAME_LENGTH
         or any(char in INVALID_NAME_CHARS for char in value)
     ):
         raise ValueError("instance содержит недопустимое значение")
@@ -92,7 +96,7 @@ def _safe_segment(value: object) -> str:
         not value
         or value in {".", ".."}
         or any(char in INVALID_NAME_CHARS for char in value)
-        or len(value) > 128
+        or len(value) > MAX_NAME_LENGTH
     ):
         raise ValueError("segment содержит недопустимое значение")
     return value
@@ -169,9 +173,10 @@ def _parse_adb_inventory(output: str) -> tuple[_AdbDevice, ...] | None:
     return tuple(devices)
 
 
-def _first_existing_adb_path() -> str | None:
+def _first_existing_adb_path(*roots: Path) -> str | None:
+    search_roots = (*roots, _REPOSITORY_ROOT)
     for candidate in _ADB_PATH_CANDIDATES:
-        for base in (Path.cwd(), _REPOSITORY_ROOT):
+        for base in search_roots:
             resolved = base / candidate
             if resolved.is_file():
                 return str(resolved.resolve())
@@ -713,18 +718,22 @@ class LegacyAdbAdapter:
 
     @staticmethod
     def _default_adb_path() -> str:
+        configured_root: Path | None = None
         try:
             from module.webui.setting import State
 
             configured = State.deploy_config.AdbExecutable
-            root = State.deploy_config.root_filepath
+            configured_root = Path(State.deploy_config.root_filepath).resolve()
+            if not configured_root.is_dir():
+                configured_root = None
             if configured:
-                candidate = Path(root) / configured
+                candidate = (configured_root or _REPOSITORY_ROOT) / configured
                 if candidate.is_file():
                     return str(candidate.resolve())
         except (AttributeError, OSError, TypeError, ValueError):
             pass
-        discovered = _first_existing_adb_path()
+        roots = (configured_root,) if configured_root is not None else ()
+        discovered = _first_existing_adb_path(*roots)
         if discovered is not None:
             return discovered
         raise ValueError("Исполняемый файл ADB не найден.")

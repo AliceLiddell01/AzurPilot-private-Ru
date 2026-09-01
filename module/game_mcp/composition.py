@@ -8,6 +8,7 @@ from pathlib import Path
 from threading import Lock
 from typing import cast
 
+from module.application.errors import ServiceUnavailableError
 from module.application.game_read_service import GameReadService
 from module.application.legacy_adapters import (
     GeneratedTaskCatalogAdapter,
@@ -75,13 +76,16 @@ class GameMcpBackend:
         self._persistence_factory = persistence_factory or _default_persistence
         self._repository_root = (repository_root or _REPOSITORY_ROOT).resolve()
         self._persistence: object | None = None
+        self._closed = False
+        self._service_lock = Lock()
         self._persistence_lock = Lock()
 
     @property
     def fleet_state(self) -> object:
         """Лениво вернуть transport-neutral Fleet State read service."""
 
-        with self._persistence_lock:
+        with self._service_lock:
+            self._ensure_open()
             if self._fleet_state is None:
                 from module.application.fleet_state import FleetStateReadService
 
@@ -92,7 +96,8 @@ class GameMcpBackend:
     def morale(self) -> object:
         """Лениво вернуть transport-neutral Morale read service."""
 
-        with self._persistence_lock:
+        with self._service_lock:
+            self._ensure_open()
             if self._morale is None:
                 from module.application.morale import MoraleService
 
@@ -110,6 +115,7 @@ class GameMcpBackend:
 
     def _get_persistence(self) -> object:
         with self._persistence_lock:
+            self._ensure_open()
             if self._persistence is None:
                 self._persistence = self._persistence_factory(
                     GameMcpEnvironment(self._repository_root)
@@ -119,14 +125,24 @@ class GameMcpBackend:
     def dispose(self) -> None:
         """Освободить engine, если domain read действительно его создавал."""
 
-        with self._persistence_lock:
-            persistence = self._persistence
-            self._persistence = None
-            if persistence is None:
-                return
-            dispose = getattr(persistence, "dispose", None)
-            if callable(dispose):
-                dispose()
+        with self._service_lock:
+            with self._persistence_lock:
+                if self._closed:
+                    return
+                self._closed = True
+                self._fleet_state = None
+                self._morale = None
+                persistence = self._persistence
+                self._persistence = None
+                if persistence is None:
+                    return
+                dispose = getattr(persistence, "dispose", None)
+                if callable(dispose):
+                    dispose()
+
+    def _ensure_open(self) -> None:
+        if self._closed:
+            raise ServiceUnavailableError("Game MCP backend закрыт.")
 
 
 def _default_persistence(environment: GameMcpEnvironment) -> object:

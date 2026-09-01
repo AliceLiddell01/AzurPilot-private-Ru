@@ -623,6 +623,45 @@ def test_remote_request_bounds_cover_concurrency_and_timeout() -> None:
     asyncio.run(scenario())
 
 
+def test_remote_stream_limiter_does_not_consume_request_capacity() -> None:
+    async def scenario() -> None:
+        stream_started = asyncio.Event()
+        stream_release = asyncio.Event()
+
+        async def endpoint(scope: Any, _receive: Any, send: Any) -> None:
+            if scope.get("method") == "GET" and scope.get("path") == "/mcp":
+                stream_started.set()
+                await stream_release.wait()
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [(b"content-type", b"text/plain")],
+                }
+            )
+            await send({"type": "http.response.body", "body": b"ok"})
+
+        limited = ConcurrencyLimitMiddleware(
+            endpoint,
+            _config(max_concurrent_requests=1, concurrency_acquire_timeout_seconds=0.01),
+        )
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=limited),
+            base_url=_BASE_URL,
+        ) as client:
+            stream_request = asyncio.create_task(client.get("/mcp"))
+            await asyncio.wait_for(stream_started.wait(), timeout=1)
+            post = await client.post("/mcp", content=b"{}")
+            assert post.status_code == 200
+            second_stream = await client.get("/mcp")
+            assert second_stream.status_code == 503
+            stream_release.set()
+            stream_response = await asyncio.wait_for(stream_request, timeout=1)
+            assert stream_response.status_code == 200
+
+    asyncio.run(scenario())
+
+
 def test_remote_metadata_is_public_but_has_exact_cors_and_no_wildcard() -> None:
     async def scenario() -> None:
         app = create_remote_app(_RecordingAdapter(), config=_config(), token_verifier=_StaticVerifier(_AUDIENCE))

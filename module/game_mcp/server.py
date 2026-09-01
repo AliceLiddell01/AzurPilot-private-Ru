@@ -25,7 +25,7 @@ from mcp.types import (
     ToolAnnotations,
 )
 
-from module.application.game_validation import INVALID_NAME_CHARS
+from module.application.game_validation import INVALID_NAME_CHARS, MAX_NAME_LENGTH
 from module.formation.model import SUPPORTED_SURFACE_FLEET_INDICES
 from module.game_mcp.adapter import (
     GAME_MCP_TOOL_NAMES,
@@ -48,7 +48,6 @@ GAME_MCP_REQUIRED_SCOPE = "azurpilot:game.read"
 # backend-вызовы, поэтому отменённый worker не может пересечься с новым чтением.
 _LEGACY_STDOUT_LOCK = Lock()
 
-_MAX_SELECTOR_LENGTH = 128
 _SELECTOR_FORBIDDEN = "".join(
     re.escape(char)
     for char in sorted(INVALID_NAME_CHARS - {"\x00"})
@@ -57,7 +56,7 @@ _SELECTOR_CHARACTER = rf"[^{_SELECTOR_FORBIDDEN}]"
 _SELECTOR_EDGE = rf"[^\s{_SELECTOR_FORBIDDEN}]"
 _PROFILE_PATTERN = (
     rf"^{_SELECTOR_EDGE}"
-    rf"(?:{_SELECTOR_CHARACTER}{{0,{_MAX_SELECTOR_LENGTH - 2}}}"
+    rf"(?:{_SELECTOR_CHARACTER}{{0,{MAX_NAME_LENGTH - 2}}}"
     rf"{_SELECTOR_EDGE})?$"
 )
 _NO_ARGUMENT_TOOLS = frozenset(
@@ -69,7 +68,7 @@ _PROFILE_INPUT = {
         "profile": {
             "type": "string",
             "minLength": 1,
-            "maxLength": _MAX_SELECTOR_LENGTH,
+            "maxLength": MAX_NAME_LENGTH,
             "pattern": _PROFILE_PATTERN,
         }
     },
@@ -82,7 +81,7 @@ _TASK_INPUT = {
         "task": {
             "type": "string",
             "minLength": 1,
-            "maxLength": _MAX_SELECTOR_LENGTH,
+            "maxLength": MAX_NAME_LENGTH,
             "pattern": _PROFILE_PATTERN,
         }
     },
@@ -134,7 +133,7 @@ _PROFILE_OUTPUT = {
         "profile": {
             "type": "string",
             "minLength": 1,
-            "maxLength": _MAX_SELECTOR_LENGTH,
+            "maxLength": MAX_NAME_LENGTH,
         }
     },
     "required": ["profile"],
@@ -146,7 +145,7 @@ _TASK_OUTPUT = {
         "name": {
             "type": "string",
             "minLength": 1,
-            "maxLength": _MAX_SELECTOR_LENGTH,
+            "maxLength": MAX_NAME_LENGTH,
         },
         "display_name": {"type": "string", "maxLength": 4096},
         "help": {"type": "string", "maxLength": 4096},
@@ -180,7 +179,7 @@ _TASK_OPTION_OUTPUT = {
 _TASK_ARGUMENT_OUTPUT = {
     "type": "object",
     "properties": {
-        "name": {"type": "string", "minLength": 1, "maxLength": 128},
+        "name": {"type": "string", "minLength": 1, "maxLength": MAX_NAME_LENGTH},
         "display_name": {"type": "string", "maxLength": 4096},
         "help": {"type": "string", "maxLength": 4096},
         "input_type": {"type": "string", "minLength": 1, "maxLength": 128},
@@ -204,7 +203,7 @@ _TASK_ARGUMENT_OUTPUT = {
 _TASK_GROUP_OUTPUT = {
     "type": "object",
     "properties": {
-        "name": {"type": "string", "minLength": 1, "maxLength": 128},
+        "name": {"type": "string", "minLength": 1, "maxLength": MAX_NAME_LENGTH},
         "display_name": {"type": "string", "maxLength": 4096},
         "help": {"type": "string", "maxLength": 4096},
         "arguments": {
@@ -219,7 +218,7 @@ _TASK_GROUP_OUTPUT = {
 _TASK_METADATA_OUTPUT = {
     "type": "object",
     "properties": {
-        "name": {"type": "string", "minLength": 1, "maxLength": 128},
+        "name": {"type": "string", "minLength": 1, "maxLength": MAX_NAME_LENGTH},
         "display_name": {"type": "string", "maxLength": 4096},
         "help": {"type": "string", "maxLength": 4096},
         "groups": {
@@ -448,7 +447,7 @@ _DETAILS_OUTPUT = {
             "items": _PROFILE_OUTPUT,
         },
         "tasks": {"type": "array", "maxItems": 512, "items": _TASK_OUTPUT},
-        "profile": {"type": "string", "minLength": 1, "maxLength": 128},
+        "profile": {"type": "string", "minLength": 1, "maxLength": MAX_NAME_LENGTH},
         "running": {"type": "boolean"},
         "state": {"type": "string", "maxLength": 64},
         "resources": {

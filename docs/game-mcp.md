@@ -32,6 +32,9 @@ AZURPILOT_GAME_MCP_ALLOWED_ORIGINS
 azurpilot:game.read
 ```
 
+Долгоживущие authenticated `GET /mcp` streams используют отдельный bounded
+limiter и не занимают capacity для обычных `POST /mcp` запросов.
+
 Эти значения не имеют fallback к Dev MCP и не должны содержать секреты в
 репозитории. Remote verifier проверяет RS256, issuer, audience, subject,
 expiry и отдельный scope. Если provider дополнительно возвращает JWT claim
@@ -65,7 +68,8 @@ Composition root использует `GameReadService`, `InstanceQueryService`,
 лениво из `module.persistence.runtime` и использует отдельную lazy read-only
 composition: marker не мигрируется, environment не изменяется, production
 provider не устанавливается, а `FleetStateReadService` разрешает только уже
-известный DB instance alias. `GameMcpBackend.dispose()` освобождает engine.
+известный DB instance alias. `GameMcpBackend.dispose()` освобождает engine и
+закрывает backend: после этого lazy persistence services не создаются заново.
 
 Fleet State сохраняет observation/run provenance, timestamp, completeness,
 slot identity и unknown/ambiguous state. Morale сохраняет `EXACT`, `PROJECTED`

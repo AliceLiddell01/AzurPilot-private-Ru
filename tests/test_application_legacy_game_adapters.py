@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+import module.application.legacy_game_adapters as legacy_game_adapters
 from module.application import (
     REDACTED_CONFIG_VALUE,
     ConfigArgumentDefinition,
@@ -359,6 +360,28 @@ def test_legacy_screenshot_is_passive_and_unavailable_path_does_not_recover(monk
     )
     with pytest.raises(OSError, match="PNG"):
         invalid_frame.read_frame("secondary")
+
+
+def test_passive_adb_discovery_is_independent_of_process_cwd(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repository_root = tmp_path / "repository"
+    process_cwd = tmp_path / "caller"
+    adb = repository_root / ".venv" / "Scripts" / "adb.exe"
+    adb.parent.mkdir(parents=True)
+    process_cwd.mkdir()
+    adb.write_bytes(b"adb")
+
+    monkeypatch.setattr(legacy_game_adapters, "_REPOSITORY_ROOT", repository_root)
+    monkeypatch.setattr(
+        legacy_game_adapters,
+        "_ADB_PATH_CANDIDATES",
+        (Path(".venv/Scripts/adb.exe"),),
+    )
+    monkeypatch.chdir(process_cwd)
+
+    assert legacy_game_adapters._find_passive_adb_path() == str(adb.resolve())
 
 @dataclass
 class _CommandResult:

@@ -35,10 +35,15 @@ from module.application.game_models import (
     DashboardResources,
     MediaFrame,
     RuntimeLogTail,
+    SchedulerEntry,
     SchedulerQueueSnapshot,
     thaw_payload,
 )
-from module.application.game_validation import UNKNOWN_TASK
+from module.application.game_validation import (
+    INVALID_NAME_CHARS,
+    MAX_NAME_LENGTH,
+    UNKNOWN_TASK,
+)
 from module.application.models import (
     InstanceReference,
     InstanceStatus,
@@ -365,10 +370,12 @@ def _check_keys(
 def _public_name(value: object, *, resource: str) -> str:
     if not isinstance(value, str) or not value or value != value.strip():
         raise InvalidRequestError(f"Имя {resource} должно быть канонической строкой.")
-    if len(value) > 128 or value in {".", ".."}:
+    if len(value) > MAX_NAME_LENGTH or value in {".", ".."}:
         raise InvalidRequestError(f"Имя {resource} содержит недопустимое значение.")
-    invalid = frozenset('./\\\x00:*?"<>|')
-    if any(char in invalid or ord(char) < 32 or ord(char) == 127 for char in value):
+    if any(
+        char in INVALID_NAME_CHARS or ord(char) < 32 or ord(char) == 127
+        for char in value
+    ):
         raise InvalidRequestError(f"Имя {resource} содержит недопустимое значение.")
     return value
 
@@ -572,8 +579,9 @@ def _log_payload(logs: RuntimeLogTail) -> tuple[list[str], bool]:
         raise ServiceUnavailableError("Источник вернул некорректный журнал.")
     sanitized: list[str] = []
     bytes_used = 0
-    truncated = False
-    for raw_line in reversed(logs.lines):
+    bounded = logs.lines[-_MAX_PUBLIC_LOG_LINES:]
+    truncated = len(bounded) != len(logs.lines)
+    for raw_line in reversed(bounded):
         if _TRACEBACK_RE.search(raw_line):
             line = "[трассировка скрыта]\n"
         else:
@@ -584,7 +592,7 @@ def _log_payload(logs: RuntimeLogTail) -> tuple[list[str], bool]:
             break
         sanitized.append(line)
         bytes_used += encoded_size
-    if len(sanitized) != len(logs.lines):
+    if len(sanitized) != len(bounded):
         truncated = True
     sanitized.reverse()
     return sanitized, truncated
@@ -1011,6 +1019,12 @@ class GameMcpAdapter:
             if not isinstance(result, SchedulerQueueSnapshot):
                 raise ServiceUnavailableError(
                     "Источник вернул некорректную очередь scheduler."
+                )
+            if len(result.entries) > _MAX_RESULT_SEQUENCE_ITEMS or any(
+                not isinstance(entry, SchedulerEntry) for entry in result.entries
+            ):
+                raise ServiceUnavailableError(
+                    "Источник вернул некорректные элементы очереди scheduler."
                 )
             entries = [
                 {"task": entry.task, "next_run": thaw_payload(entry.next_run)}
