@@ -25,7 +25,9 @@
    распознан или использует free allowance из-за remote, прекрати этот запуск,
    исправь remote и повтори не более одного раза; результат первого запуска не
    засчитывай как substantive review.
-5. Перед запуском подтверди `"$coderabbit_bin" --version`,
+5. Перед запуском подтверди каноническую проверку `coderabbit review --help`
+   через разрешённый путь `"$coderabbit_bin"`, а также
+   `"$coderabbit_bin" --version`,
    `"$coderabbit_bin" auth status --agent` и
    `"$coderabbit_bin" review --help`. В текущей проверенной CLI help содержит
    `--committed`; её canonical example для committed diff:
