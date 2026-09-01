@@ -410,7 +410,11 @@ def _read_only_registry_paths() -> tuple[Path, ...]:
     if not legacy_file.is_file():
         return (current_file,)
 
-    legacy_registry = _read_registry(legacy_file)
+    try:
+        legacy_registry = _read_registry(legacy_file)
+    except RuntimeError:
+        # Повреждённый устаревший реестр не должен блокировать чтение текущего.
+        return (current_file,)
     if _record_is_alive(_owner_record(legacy_registry)):
         return (legacy_file, current_file)
     return (current_file, legacy_file)

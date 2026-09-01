@@ -13,7 +13,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
 from io import BytesIO
-from threading import RLock
+from threading import Condition, RLock
 from uuid import UUID
 
 from module.application.errors import (
@@ -794,18 +794,28 @@ class GameMcpAdapter:
             self._backend_factory = lambda: backend_factory
         self._backend: object | None = None
         self._backend_lock = RLock()
+        self._backend_condition = Condition(self._backend_lock)
+        self._active_calls = 0
+        self._closing = False
 
     def close(self) -> None:
         """Освободить ленивый persistence context, если он был создан."""
 
-        with self._backend_lock:
-            backend = self._backend
-            if backend is None:
-                return
-            dispose = getattr(backend, "dispose", None)
-            if callable(dispose):
-                dispose()
-            self._backend = None
+        with self._backend_condition:
+            self._closing = True
+            try:
+                while self._active_calls:
+                    self._backend_condition.wait()
+                backend = self._backend
+                self._backend = None
+                if backend is None:
+                    return
+                dispose = getattr(backend, "dispose", None)
+                if callable(dispose):
+                    dispose()
+            finally:
+                self._closing = False
+                self._backend_condition.notify_all()
 
     def _get_backend(self) -> object:
         with self._backend_lock:
@@ -815,6 +825,20 @@ class GameMcpAdapter:
                     raise ServiceUnavailableError("Game MCP backend недоступен.")
                 self._backend = backend
             return self._backend
+
+    def _acquire_backend(self) -> object:
+        with self._backend_condition:
+            while self._closing:
+                self._backend_condition.wait()
+            backend = self._get_backend()
+            self._active_calls += 1
+            return backend
+
+    def _release_backend(self) -> None:
+        with self._backend_condition:
+            self._active_calls -= 1
+            if self._active_calls == 0:
+                self._backend_condition.notify_all()
 
     @staticmethod
     def _known_profile(backend: object, profile: str) -> str:
@@ -1055,10 +1079,11 @@ class GameMcpAdapter:
             return _invalid(tool_name)
         if tool_name == "game_get_contract":
             return contract_result()
-        with self._backend_lock:
+        backend = self._acquire_backend()
+        try:
             try:
                 result = self._dispatch(
-                    tool_name, parsed, self._get_backend(), selection
+                    tool_name, parsed, backend, selection
                 )
             except InstanceNotRunningError:
                 return _error(
@@ -1105,6 +1130,8 @@ class GameMcpAdapter:
                     tool=tool_name,
                 )
             return result
+        finally:
+            self._release_backend()
 
 
 def _make_selection(indices: tuple[int, ...]) -> FleetSelection:

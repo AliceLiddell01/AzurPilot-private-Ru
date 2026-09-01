@@ -26,7 +26,7 @@ from module.game_mcp.remote import (
     create_remote_app,
     run_remote_server,
 )
-from module.game_mcp.server import _screenshot_call_result, tool_definitions
+from module.game_mcp.server import tool_definitions
 
 _BASE_URL = "https://game-mcp.example.test"
 _HOST = "game-mcp.example.test"
@@ -151,13 +151,30 @@ def test_game_remote_config_is_independent_and_loopback_only(
 def test_game_remote_is_stateless_modern_and_scope_separated() -> None:
     async def scenario() -> None:
         adapter = _RecordingAdapter()
+        config = _config()
         app = create_remote_app(
             adapter,
-            config=_config(),
+            config=config,
             token_verifier=_StaticVerifier([GAME_MCP_REQUIRED_SCOPE]),
         )
         assert app.state.session_manager.stateless is True
         async with _client(app) as client:
+            bad_host_headers = _headers()
+            bad_host_headers["Host"] = "attacker.example.test"
+            bad_host = await client.post(
+                "/mcp",
+                headers=bad_host_headers,
+                json={"jsonrpc": "2.0"},
+            )
+            assert bad_host.status_code == 421
+
+            bad_origin = await client.post(
+                "/mcp",
+                headers=_headers(origin="https://attacker.example.test"),
+                json={"jsonrpc": "2.0"},
+            )
+            assert bad_origin.status_code == 403
+
             discovered = await client.post(
                 "/mcp",
                 headers=_headers(method="server/discover"),
@@ -308,20 +325,62 @@ def test_game_remote_server_uses_dedicated_port(
     assert captured["port"] == GAME_MCP_PORT == 8766
 
 
-def test_game_screenshot_result_keeps_binary_out_of_structured_json() -> None:
+def test_game_remote_screenshot_result_uses_native_image_content() -> None:
     image = b"not-used-by-transport-test"
-    response = GameMcpResponse(
-        {
-            "ok": True,
-            "code": "GAME_SCREENSHOT_READY",
-            "message": "ok",
-            "state": "ready",
-            "details": {"screenshot": {"mime": "image/png"}},
-        },
-        image,
-        "image/png",
-    )
-    result = _screenshot_call_result(response)
-    structured = json.dumps(result.structured_content, ensure_ascii=False)
-    assert base64.b64encode(image).decode("ascii") not in structured
-    assert result.content[0].type == "image"
+
+    class _ScreenshotAdapter(_RecordingAdapter):
+        def call(
+            self, name: str, arguments: dict[str, Any]
+        ) -> dict[str, object] | GameMcpResponse:
+            self.calls.append((name, arguments))
+            if name == "game_get_screenshot":
+                return GameMcpResponse(
+                    {
+                        "ok": True,
+                        "code": "GAME_SCREENSHOT_READY",
+                        "message": "ok",
+                        "state": "ready",
+                        "details": {"screenshot": {"mime": "image/png"}},
+                    },
+                    image,
+                    "image/png",
+                )
+            return super().call(name, arguments)
+
+    async def scenario() -> None:
+        adapter = _ScreenshotAdapter()
+        app = create_remote_app(
+            adapter,
+            config=_config(),
+            token_verifier=_StaticVerifier([GAME_MCP_REQUIRED_SCOPE]),
+        )
+        async with _client(app) as client:
+            response = await client.post(
+                "/mcp",
+                headers=_headers(
+                    method="tools/call", name="game_get_screenshot"
+                ),
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 5,
+                    "method": "tools/call",
+                    "params": {
+                        **_modern_params("game_get_screenshot"),
+                        "arguments": {"profile": "ap"},
+                    },
+                },
+            )
+            assert response.status_code == 200
+            result = response.json()["result"]
+            assert result["content"][0]["type"] == "image"
+            assert result["content"][0]["mimeType"] == "image/png"
+            assert (
+                base64.b64decode(result["content"][0]["data"]) == image
+            )
+            structured = json.dumps(
+                result["structuredContent"], ensure_ascii=False
+            )
+            assert base64.b64encode(image).decode("ascii") not in structured
+        assert adapter.closed is True
+
+    asyncio.run(scenario())

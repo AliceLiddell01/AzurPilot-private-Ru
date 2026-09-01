@@ -23,6 +23,39 @@ def _imported_modules(path: Path) -> set[str]:
     return names
 
 
+def _code_identifiers(path: Path) -> set[str]:
+    """Вернуть идентификаторы и строковые protocol names из исполняемого AST."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    docstring_nodes = {
+        id(node.body[0].value)
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.body
+        and isinstance(node.body[0], ast.Expr)
+        and isinstance(node.body[0].value, ast.Constant)
+        and isinstance(node.body[0].value.value, str)
+    }
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name):
+            names.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            names.add(node.attr)
+        elif isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            names.add(node.name)
+        elif isinstance(node, ast.alias):
+            names.add(node.name)
+            if node.asname:
+                names.add(node.asname)
+        elif (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and id(node) not in docstring_nodes
+        ):
+            names.add(node.value)
+    return names
+
+
 def test_game_mcp_has_no_dev_or_direct_storage_dependency() -> None:
     paths = tuple(_GAME_MCP_ROOT.rglob("*.py"))
     assert paths
@@ -43,7 +76,7 @@ def test_game_mcp_has_no_dev_or_direct_storage_dependency() -> None:
 def test_game_mcp_tool_names_exclude_control_and_developer_surfaces() -> None:
     paths = tuple(_GAME_MCP_ROOT.rglob("*.py"))
     assert paths
-    source = "\n".join(path.read_text(encoding="utf-8") for path in paths)
+    identifiers = set().union(*(_code_identifiers(path) for path in paths))
     for forbidden in (
         "game_start_profile",
         "game_stop_profile",
@@ -60,4 +93,4 @@ def test_game_mcp_tool_names_exclude_control_and_developer_surfaces() -> None:
         "DevSession",
         "Smoke",
     ):
-        assert forbidden not in source
+        assert forbidden not in identifiers

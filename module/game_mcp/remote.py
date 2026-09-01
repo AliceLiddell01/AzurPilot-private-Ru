@@ -89,6 +89,15 @@ class OAuthBearerMiddleware(_OAuthBearerMiddleware):
         )
 
 
+def _create_remote_server(adapter: Any, *, abandon_on_cancel: bool) -> Any:
+    """Создать HTTP MCP server без перехвата stdout процесса."""
+    return create_server(
+        adapter,
+        abandon_on_cancel=abandon_on_cancel,
+        redirect_legacy_stdout=False,
+    )
+
+
 def create_remote_app(
     adapter: Any | None = None,
     *,
@@ -101,7 +110,7 @@ def create_remote_app(
     verifier = token_verifier or OIDCTokenVerifier(remote_config)
     bound_adapter = adapter if adapter is not None else GameMcpAdapter()
     return _create_remote_app(
-        create_server,
+        _create_remote_server,
         bound_adapter,
         config=remote_config,
         token_verifier=verifier,

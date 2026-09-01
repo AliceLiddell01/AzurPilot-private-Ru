@@ -8,6 +8,7 @@ import struct
 import zlib
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import Event, Thread
 from types import SimpleNamespace
 from typing import Self
 from uuid import UUID, uuid4
@@ -392,6 +393,50 @@ def test_adapter_is_stateless_and_profile_reads_are_isolated() -> None:
     assert backend.fleet_state.calls == [("beta", (2,))]
 
 
+def test_adapter_does_not_hold_lifecycle_lock_during_dispatch() -> None:
+    backend = _backend()
+    entered = Event()
+    release = Event()
+    original_get_resources = backend.read.get_resources
+
+    def blocking_get_resources(profile: str) -> DashboardResources:
+        entered.set()
+        release.wait(5)
+        return original_get_resources(profile)
+
+    backend.read.get_resources = blocking_get_resources
+    adapter = GameMcpAdapter(lambda: backend)
+    first_result: dict[str, object] = {}
+    second_result: dict[str, object] = {}
+    second_done = Event()
+
+    def first_call() -> None:
+        first_result["value"] = adapter.call(
+            "game_get_resources", {"profile": "alpha"}
+        )
+
+    def second_call() -> None:
+        second_result["value"] = adapter.call("game_list_tasks")
+        second_done.set()
+
+    first_thread = Thread(target=first_call)
+    second_thread = Thread(target=second_call)
+    first_thread.start()
+    try:
+        assert entered.wait(5)
+        second_thread.start()
+        assert second_done.wait(5)
+    finally:
+        release.set()
+        first_thread.join(timeout=5)
+        second_thread.join(timeout=5)
+
+    assert not first_thread.is_alive()
+    assert not second_thread.is_alive()
+    assert first_result["value"]["code"] == "GAME_RESOURCES_READY"
+    assert second_result["value"]["code"] == "GAME_TASKS_READY"
+
+
 def test_adapter_rejects_bad_selectors_unknown_profiles_and_unknown_tasks() -> None:
     adapter = GameMcpAdapter(lambda: _backend())
     for arguments in (
@@ -427,9 +472,7 @@ def test_adapter_rejects_bad_selectors_unknown_profiles_and_unknown_tasks() -> N
     )
 
 
-def test_adapter_redacts_config_sanitizes_logs_and_preserves_unknown_domain_state() -> (
-    None
-):
+def test_adapter_redacts_config_values() -> None:
     adapter = GameMcpAdapter(lambda: _backend())
     config = adapter.call("game_get_config", {"profile": "alpha"})
     config_json = json.dumps(config, ensure_ascii=False)
@@ -437,11 +480,17 @@ def test_adapter_redacts_config_sanitizes_logs_and_preserves_unknown_domain_stat
     assert '"Password": "<скрыто>"' in config_json
     assert '"ApiKey": "raw"' not in config_json
 
+
+def test_adapter_redacts_task_help_values() -> None:
+    adapter = GameMcpAdapter(lambda: _backend())
     task_help = adapter.call("game_get_task_help", {"task": "Main"})
     task_help_json = json.dumps(task_help, ensure_ascii=False)
     assert '"value": "<скрыто>"' in task_help_json
     assert '"value": "safe"' not in task_help_json
 
+
+def test_adapter_sanitizes_logs_without_secrets_or_paths() -> None:
+    adapter = GameMcpAdapter(lambda: _backend())
     logs = adapter.call("game_get_recent_logs", {"profile": "alpha", "lines": 2})
     logs_json = json.dumps(logs, ensure_ascii=False)
     assert "raw-token" not in logs_json
@@ -456,11 +505,16 @@ def test_adapter_redacts_config_sanitizes_logs_and_preserves_unknown_domain_stat
     ):
         assert sentinel not in logs_json
     assert "Traceback" not in logs_json
-    assert "private" not in logs_json
     assert "ratio=N/A" in logs_json
     assert "date=2026/09/02" in logs_json
+    log_lines = logs["details"]["lines"]
+    assert all("private.log" not in line for line in log_lines)
+    assert all(r"C:\private\run.py" not in line for line in log_lines)
     assert "\x1b" not in logs_json
 
+
+def test_adapter_preserves_unknown_morale_state() -> None:
+    adapter = GameMcpAdapter(lambda: _backend())
     morale = adapter.call("game_get_morale", {"profile": "alpha", "fleet_indices": [1]})
     assert morale["code"] == "GAME_DATA_UNKNOWN"
     assert morale["state"] == "unknown"

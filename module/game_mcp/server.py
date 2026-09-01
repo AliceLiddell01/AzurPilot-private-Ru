@@ -530,6 +530,7 @@ def create_server(
     adapter: GameMcpAdapter | None = None,
     *,
     abandon_on_cancel: bool = False,
+    redirect_legacy_stdout: bool = True,
 ) -> Server:
     """Создать MCP Server без сборки backend и без подключения к источникам."""
 
@@ -546,7 +547,9 @@ def create_server(
         arguments = params.arguments
 
         def call_adapter() -> dict[str, object] | GameMcpResponse:
-            # Legacy readers may print diagnostics; stdout is reserved for MCP JSON-RPC.
+            # Legacy-читатели печатают диагностику; stdout занят MCP JSON-RPC.
+            if not redirect_legacy_stdout:
+                return bound_adapter.call(name, arguments)
             with _LEGACY_STDOUT_LOCK, redirect_stdout(sys.stderr):
                 return bound_adapter.call(name, arguments)
 

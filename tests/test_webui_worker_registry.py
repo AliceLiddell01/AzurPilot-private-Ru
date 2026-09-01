@@ -185,11 +185,12 @@ class TestWorkerRegistry(unittest.TestCase):
                 WORKER_REGISTRY_FILE=current_file,
                 LEGACY_WORKER_REGISTRY_FILE=legacy_file,
                 DEFAULT_WORKER_REGISTRY_FILE=current_file,
-            ):
+            ), patch.object(worker_registry, "_locked_file") as locked_file:
                 self.assertEqual(
                     {"created_at": 11.5, "pid": 200},
                     worker_registry.get_worker_read_only("alas"),
                 )
+                locked_file.assert_not_called()
 
             self.assertFalse(current_file.exists())
             self.assertTrue(legacy_file.exists())
@@ -199,6 +200,42 @@ class TestWorkerRegistry(unittest.TestCase):
             self.assertFalse(
                 worker_registry._registry_lock_file(current_file).exists()
             )
+
+    def test_malformed_legacy_registry_does_not_block_current_snapshot(self):
+        with tempfile.TemporaryDirectory() as directory:
+            current_file = Path(directory) / "cache" / "webui-workers.json"
+            legacy_file = Path(directory) / "config" / "webui-workers.json"
+            current_file.parent.mkdir(parents=True)
+            legacy_file.parent.mkdir(parents=True)
+            current_file.write_text(
+                json.dumps(
+                    {
+                        "owner_created_at": 20.5,
+                        "owner_pid": 300,
+                        "workers": {"alas": {"created_at": 21.5, "pid": 400}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            legacy_file.write_text("{not-json", encoding="utf-8")
+
+            with (
+                patch.multiple(
+                    worker_registry,
+                    WORKER_REGISTRY_FILE=current_file,
+                    LEGACY_WORKER_REGISTRY_FILE=legacy_file,
+                    DEFAULT_WORKER_REGISTRY_FILE=current_file,
+                ),
+                patch.object(worker_registry, "_locked_file") as locked_file,
+            ):
+                self.assertEqual(
+                    {"created_at": 21.5, "pid": 400},
+                    worker_registry.get_worker_read_only("alas"),
+                )
+
+            locked_file.assert_not_called()
+            self.assertTrue(current_file.exists())
+            self.assertTrue(legacy_file.exists())
 
     def test_repeated_owner_claim_preserves_registered_workers(self):
         with tempfile.TemporaryDirectory() as directory:

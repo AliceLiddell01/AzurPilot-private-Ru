@@ -72,6 +72,8 @@ def _parse_https_url(
         raise RemoteConfigError(f"{name}: URL должен содержать только ASCII")
     try:
         parsed = urlsplit(value)
+        # Доступ к parsed.port намеренно валидирует номер порта: urlsplit
+        # разбирает URL, но не отклоняет недопустимый порт сам по себе.
         port = parsed.port
     except ValueError as exc:
         raise RemoteConfigError(f"{name}: некорректный URL") from exc
@@ -99,6 +101,7 @@ def _validate_origin(value: str) -> None:
         raise RemoteConfigError("Разрешённые Origin должны содержать только ASCII")
     try:
         parsed = urlsplit(value)
+        # Доступ к parsed.port намеренно валидирует номер порта после urlsplit.
         parsed_port = parsed.port
     except ValueError as exc:
         raise RemoteConfigError(
