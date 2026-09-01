@@ -1,10 +1,9 @@
-"""Публичный HTTPS Streamable HTTP entrypoint для AzurPilot Dev MCP."""
+"""Публичный authenticated Streamable HTTP entrypoint для Game MCP."""
 
 from __future__ import annotations
 
 import argparse
 import json
-import logging
 import shutil
 import sys
 import time
@@ -13,7 +12,11 @@ from typing import Any
 
 import uvicorn
 
-from module.dev_mcp.server import DEV_MCP_REQUIRED_SCOPE, create_server
+from module.game_mcp.adapter import GameMcpAdapter
+from module.game_mcp.server import (
+    GAME_MCP_REQUIRED_SCOPE,
+    create_server,
+)
 from module.mcp_shared.remote import (
     DEFAULT_ALLOWED_ORIGINS,
     DEFAULT_BODY_READ_TIMEOUT_SECONDS,
@@ -43,20 +46,19 @@ from module.mcp_shared.remote import (
     create_remote_app as _create_remote_app,
 )
 
-logger = logging.getLogger(__name__)
-DEV_MCP_PORT = 8765
+GAME_MCP_PORT = 8766
 
 
 class RemoteConfig(_RemoteConfig):
-    """Конфигурация Dev MCP с отдельным Dev environment prefix."""
+    """Конфигурация Game MCP с независимым Game environment prefix."""
 
     @classmethod
     def from_env(cls) -> RemoteConfig:
-        return super().from_env("AZURPILOT_DEV_MCP")
+        return super().from_env("AZURPILOT_GAME_MCP")
 
 
 class OIDCTokenVerifier(_OIDCTokenVerifier):
-    """Dev-обёртка над нейтральной проверкой resource token."""
+    """Game-обёртка над нейтральной проверкой resource token."""
 
     def __init__(
         self,
@@ -67,21 +69,21 @@ class OIDCTokenVerifier(_OIDCTokenVerifier):
     ) -> None:
         super().__init__(
             config,
-            required_scope=DEV_MCP_REQUIRED_SCOPE,
+            required_scope=GAME_MCP_REQUIRED_SCOPE,
             jwk_client=jwk_client,
             clock=clock,
         )
 
 
 class OAuthBearerMiddleware(_OAuthBearerMiddleware):
-    """Dev-совместимый wrapper с фиксированным Dev scope."""
+    """Game wrapper с фиксированным отдельным Game scope."""
 
     def __init__(self, app: Any, config: RemoteConfig, verifier: Any) -> None:
         super().__init__(
             app,
             config,
             verifier,
-            required_scope=DEV_MCP_REQUIRED_SCOPE,
+            required_scope=GAME_MCP_REQUIRED_SCOPE,
         )
 
 
@@ -91,28 +93,31 @@ def create_remote_app(
     config: RemoteConfig | None = None,
     token_verifier: Any | None = None,
 ):
-    """Создать stateless authenticated Dev MCP ASGI app."""
+    """Создать stateless authenticated Game MCP ASGI app."""
 
     remote_config = config or RemoteConfig.from_env()
     verifier = token_verifier or OIDCTokenVerifier(remote_config)
+    bound_adapter = adapter if adapter is not None else GameMcpAdapter()
     return _create_remote_app(
         create_server,
-        adapter,
+        bound_adapter,
         config=remote_config,
         token_verifier=verifier,
-        required_scope=DEV_MCP_REQUIRED_SCOPE,
+        required_scope=GAME_MCP_REQUIRED_SCOPE,
     )
 
 
-def run_remote_server(adapter: Any | None = None, config: RemoteConfig | None = None) -> None:
-    """Запустить Dev MCP на loopback для reverse proxy."""
+def run_remote_server(
+    adapter: Any | None = None, config: RemoteConfig | None = None
+) -> None:
+    """Запустить Game MCP на loopback для reverse proxy."""
 
     remote_config = config or RemoteConfig.from_env()
     app = create_remote_app(adapter, config=remote_config)
     uvicorn.run(
         app,
         host=remote_config.bind_host,
-        port=DEV_MCP_PORT,
+        port=GAME_MCP_PORT,
         proxy_headers=False,
         access_log=False,
         server_header=False,
@@ -138,7 +143,9 @@ def doctor() -> int:
         json.dumps(
             {
                 "ok": caddy_available,
-                "code": "REMOTE_CONFIG_READY" if caddy_available else "CADDY_NOT_AVAILABLE",
+                "code": "REMOTE_CONFIG_READY"
+                if caddy_available
+                else "CADDY_NOT_AVAILABLE",
                 "bind_host_loopback": config.bind_host == "127.0.0.1",
                 "public_https_path": config.public_url.endswith(MCP_PATH),
                 "oauth_configured": True,
@@ -151,8 +158,12 @@ def doctor() -> int:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Публичная точка входа AzurPilot Dev MCP")
-    parser.add_argument("command", nargs="?", choices=("serve", "doctor"), default="serve")
+    parser = argparse.ArgumentParser(
+        description="Публичная точка входа AzurPilot Game MCP"
+    )
+    parser.add_argument(
+        "command", nargs="?", choices=("serve", "doctor"), default="serve"
+    )
     args = parser.parse_args()
     if args.command == "doctor":
         raise SystemExit(doctor())
@@ -177,7 +188,8 @@ __all__ = (
     "DEFAULT_MAX_REQUEST_BODY_BYTES",
     "DEFAULT_REQUEST_TIMEOUT_SECONDS",
     "DEFAULT_VERIFICATION_TIMEOUT_SECONDS",
-    "DEV_MCP_PORT",
+    "GAME_MCP_PORT",
+    "GAME_MCP_REQUIRED_SCOPE",
     "MCP_PATH",
     "ConcurrencyLimitMiddleware",
     "FailSafeMiddleware",

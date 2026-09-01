@@ -176,12 +176,21 @@ application-level persistent entities.
 Текущий development-контур предоставляет developer-only односторонний Game
 Bridge и диагностику базы данных. Game Bridge вызывает только нейтральные
 типизированные application services: `GameReadService` и persistence-backed
-morale projection; Game MCP, MCP-to-MCP loopback, второй game domain и обратный
-импорт Dev Runtime запрещены. Каждый snapshot имеет неизменяемую
-target/session/checkpoint provenance, ограниченный payload и checksum. Smoke
-Harness сохраняет `before`, `final` и объявленные промежуточные checkpoints в
-изолированном sidecar, а unknown/unavailable/missing required snapshot не может
-дать `PASS`.
+morale projection; Dev MCP, Smoke, Evidence и DB diagnostics остаются
+developer-only. Каждый snapshot имеет неизменяемую target/session/checkpoint
+provenance, ограниченный payload и checksum. Smoke Harness сохраняет `before`,
+`final` и объявленные промежуточные checkpoints в изолированном sidecar, а
+unknown/unavailable/missing required snapshot не может дать `PASS`.
+
+Standalone Game MCP находится в `module.game_mcp` и использует тот же
+нейтральный application/domain слой через собственную lazy composition root.
+Он работает через stateless stdio и authenticated Streamable HTTP, принимает
+канонический `profile` в каждом target-dependent запросе и не импортирует Dev
+MCP, Dev Runtime или `GameControlService`. Его remote resource и scope
+отделены от Dev MCP, а общий transport/auth код размещён в
+`module.mcp_shared`. Fleet State и morale читаются без регистрации профиля,
+физического scan или скрытого commit; lifecycle, mutation, DB internals и
+developer evidence в Game MCP не выдаются.
 
 Диагностика базы данных принадлежит persistence adapter, но наружу выходит
 через типизированный `module.application` port и фиксированный read-only

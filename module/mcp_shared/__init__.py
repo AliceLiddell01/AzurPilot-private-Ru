@@ -1,0 +1,41 @@
+"""Небольшая нейтральная инфраструктура authenticated Streamable HTTP MCP."""
+
+from module.mcp_shared.remote import (
+    DEFAULT_ALLOWED_ORIGINS,
+    DEFAULT_BODY_READ_TIMEOUT_SECONDS,
+    DEFAULT_CONCURRENCY_ACQUIRE_TIMEOUT_SECONDS,
+    DEFAULT_MAX_CONCURRENT_REQUESTS,
+    DEFAULT_MAX_REQUEST_BODY_BYTES,
+    DEFAULT_REQUEST_TIMEOUT_SECONDS,
+    DEFAULT_VERIFICATION_TIMEOUT_SECONDS,
+    ConcurrencyLimitMiddleware,
+    FailSafeMiddleware,
+    OAuthBearerMiddleware,
+    OIDCTokenVerifier,
+    RemoteConfig,
+    RemoteConfigError,
+    RequestBodyLimitMiddleware,
+    RequestTimeoutMiddleware,
+    StrictHostOriginMiddleware,
+    create_remote_app,
+)
+
+__all__ = (
+    "DEFAULT_ALLOWED_ORIGINS",
+    "DEFAULT_BODY_READ_TIMEOUT_SECONDS",
+    "DEFAULT_CONCURRENCY_ACQUIRE_TIMEOUT_SECONDS",
+    "DEFAULT_MAX_CONCURRENT_REQUESTS",
+    "DEFAULT_MAX_REQUEST_BODY_BYTES",
+    "DEFAULT_REQUEST_TIMEOUT_SECONDS",
+    "DEFAULT_VERIFICATION_TIMEOUT_SECONDS",
+    "ConcurrencyLimitMiddleware",
+    "FailSafeMiddleware",
+    "OAuthBearerMiddleware",
+    "OIDCTokenVerifier",
+    "RemoteConfig",
+    "RemoteConfigError",
+    "RequestBodyLimitMiddleware",
+    "RequestTimeoutMiddleware",
+    "StrictHostOriginMiddleware",
+    "create_remote_app",
+)

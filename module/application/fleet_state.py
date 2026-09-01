@@ -11,7 +11,10 @@ from typing import Protocol, Self, TypeVar
 from uuid import UUID, uuid4
 
 from module.application.errors import StorageInvalidDataError
-from module.application.instance_identity import resolve_runtime_instance
+from module.application.instance_identity import (
+    resolve_existing_runtime_instance,
+    resolve_runtime_instance,
+)
 from module.application.storage_ports import StorageUnitOfWork
 from module.formation.model import (
     FleetSelection,
@@ -616,3 +619,64 @@ class FleetStateService(_FleetStateTransactions):
                 selection,
             ),
         )
+
+
+class FleetStateReadService:
+    """Прочитать сохранённый Fleet State без регистрации профиля или commit."""
+
+    def __init__(self, uow_factory: Callable[[], FleetStateUnitOfWork]):
+        self._uow_factory = uow_factory
+
+    def state_read_only(
+        self,
+        instance: str,
+        selection: FleetSelection,
+    ) -> FleetStateResult:
+        """Вернуть только уже сохранённые наблюдения выбранного профиля."""
+
+        if not isinstance(selection, FleetSelection):
+            raise TypeError("selection должен быть FleetSelection")
+        request = FleetStateRequest(selection, FleetRefreshPolicy.NEVER)
+        with self._uow_factory() as uow:
+            instance_id = resolve_existing_runtime_instance(uow, instance)
+            if instance_id is None:
+                return FleetStateResult(
+                    request=request,
+                    observations=(),
+                    missing_fleet_indices=selection.fleet_indices,
+                )
+            raw_observations = uow.fleet_state.latest(instance_id, selection)
+            if not isinstance(raw_observations, tuple):
+                raise StorageInvalidDataError(
+                    "Fleet State repository вернул не tuple наблюдений."
+                )
+            observations = tuple(raw_observations)
+            if any(
+                not isinstance(item, FleetStateObservation)
+                or item.instance_id != instance_id
+                for item in observations
+            ):
+                raise StorageInvalidDataError(
+                    "Fleet State repository вернул наблюдение другого профиля."
+                )
+        indices = tuple(item.fleet_index for item in observations)
+        if indices != tuple(sorted(indices)) or len(indices) != len(set(indices)):
+            raise StorageInvalidDataError(
+                "Fleet State repository вернул неуникальные наблюдения."
+            )
+        if any(index not in selection.fleet_indices for index in indices):
+            raise StorageInvalidDataError(
+                "Fleet State repository вернул наблюдение вне selection."
+            )
+        return FleetStateResult(
+            request=request,
+            observations=observations,
+            missing_fleet_indices=tuple(
+                index for index in selection.fleet_indices if index not in indices
+            ),
+        )
+
+    def state(self, instance: str, selection: FleetSelection) -> FleetStateResult:
+        """Короткий alias для transport-neutral read-only запроса."""
+
+        return self.state_read_only(instance, selection)

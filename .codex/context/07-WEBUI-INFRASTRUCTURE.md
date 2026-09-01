@@ -79,13 +79,21 @@ fail-closed при их изменении.
 
 Developer-only capability `Game` публикуется через односторонний bridge,
 привязанный к target, к нейтральному `module.application`: `GameReadService` и
-persistence-backed morale projection. Game MCP, MCP-to-MCP loopback, второй
-game domain и обратная зависимость application от Dev Runtime запрещены.
-Диагностика базы данных использует фиксированный read-only catalog поверх
-отдельного process-local lazy PostgreSQL engine/UoW, собранного из canonical
-marker и app passfile без production bootstrap/provider и `os.environ` mutation;
-arbitrary SQL, dump, secrets и Alembic mutation не выдаются. Пустой repair catalog является допустимым честным
-результатом.
+persistence-backed morale projection. Dev MCP, Smoke, Evidence и диагностика
+базы данных остаются developer-only; обратная зависимость application от Dev
+Runtime запрещена. Диагностика базы данных использует фиксированный read-only
+catalog поверх отдельного process-local lazy PostgreSQL engine/UoW, собранного
+из canonical marker и app passfile без production bootstrap/provider и
+`os.environ` mutation; arbitrary SQL, dump, secrets и Alembic mutation не
+выдаются. Пустой repair catalog является допустимым честным результатом.
+
+Standalone Game MCP находится в `module.game_mcp` и не является режимом Dev
+MCP. Его stateless read-only tools используют canonical `profile` в каждом
+target-dependent запросе, нейтральные application services и отдельную
+authenticated Game resource/scope. Общий Streamable HTTP/auth transport code
+находится в `module.mcp_shared`; Game MCP не импортирует Dev MCP, Dev Runtime
+или `GameControlService`. Lifecycle, config/scheduler mutation, DB internals,
+Smoke/Evidence и Git state не входят в Game client surface.
 
 ## Статистика
 

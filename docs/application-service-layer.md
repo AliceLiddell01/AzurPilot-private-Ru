@@ -5,7 +5,9 @@
 PostgreSQL Storage Foundation. Read-only services обслуживают сценарии:
 
 - список экземпляров, один статус и статусы всех экземпляров;
-- список задач и metadata/help выбранной задачи.
+- список задач и metadata/help выбранной задачи;
+- сохранённый Fleet State без регистрации нового профиля и без `commit`;
+- проекция morale через существующий read-only application service.
 
 Публичные результаты представлены неизменяемыми dataclass DTO. Через границу
 не передаются `ProcessManager`, config dictionaries, `State`, device objects,
@@ -59,3 +61,9 @@ Storage DTO, repository Protocol, ошибки и Unit of Work contract прин
 SQLAlchemy types и DBAPI exceptions не проходят через application boundary.
 Production wiring, no-fallback marker и lifecycle описаны в
 `postgresql-production-cutover.md`.
+
+`FleetStateReadService` использует `resolve_existing_runtime_instance`: запрос
+не создаёт alias для неизвестного профиля и не вызывает физическое сканирование.
+`MoraleService.state_read_only` сохраняет `EXACT`, `PROJECTED` и `UNKNOWN`, а
+также provenance, location и recovery context. Transport adapters могут
+выдавать эти DTO наружу только после собственной bounded-сериализации.
