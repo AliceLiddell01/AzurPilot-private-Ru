@@ -283,12 +283,12 @@ class DevSession:
             return
         expected = calculate_target_identity(target)
         if self.target_identity is None:
-            object.__setattr__(self, "target_identity", expected)
-        elif (
-            not isinstance(self.target_identity, str)
-            or not re.fullmatch(r"[0-9a-f]{64}", self.target_identity)
-            or self.target_identity != expected
+            raise ValueError("target_identity обязателен для profile_name")
+        if not isinstance(self.target_identity, str) or not re.fullmatch(
+            r"[0-9a-f]{64}", self.target_identity
         ):
+            raise ValueError("target_identity имеет некорректный формат")
+        if self.target_identity != expected:
             raise ValueError("target_identity не соответствует profile_name")
 
     @property

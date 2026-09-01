@@ -92,6 +92,18 @@ def test_missing_marker_defaults_to_ap_without_writing_marker(tmp_path: Path) ->
     assert not (tmp_path / "config" / "state" / "dev-runtime-target.json").exists()
 
 
+def test_session_requires_persisted_target_identity_for_valid_profile() -> None:
+    with pytest.raises(ValueError, match="target_identity обязателен"):
+        DevSession(
+            session_id="missing-target-identity",
+            state=DevSessionState.STOPPED,
+            repository_root=str(Path.cwd()),
+            created_at="2026-08-31T00:00:00+00:00",
+            updated_at="2026-08-31T00:00:00+00:00",
+            profile_name=_TARGET_NAME,
+        )
+
+
 def test_target_change_requires_explicit_consent(tmp_path: Path) -> None:
     _write_profile(tmp_path, "ap")
     _write_profile(tmp_path, _TARGET_NAME)
@@ -299,6 +311,7 @@ def test_existing_session_keeps_recorded_target_after_registry_switch(
         updated_at="2026-08-31T00:00:00+00:00",
         process=identity,
         profile_name="profile-a",
+        target_identity=target_module.target_identity(DevTarget("profile-a")),
     )
     state_path = root / "config" / "state" / "dev-runtime-session.json"
     state_path.parent.mkdir(parents=True, exist_ok=True)

@@ -32,6 +32,7 @@ from module.dev_runtime import contracts as contracts_module
 from module.dev_runtime import diagnostics as diagnostics_module
 from module.dev_runtime import diagnostics as runtime_module
 from module.dev_runtime import process as process_module
+from module.dev_runtime import target as target_module
 
 
 class FakeProcessBackend:
@@ -402,6 +403,7 @@ def test_cleanup_uses_recorded_session_target_for_process_lookup(
         session_id="recorded-target-cleanup",
     )
     session.profile_name = "historical-target"
+    session.target_identity = target_module.target_identity(DevTarget("historical-target"))
     manager._write_session(session)
     calls: list[tuple[str, str]] = []
 

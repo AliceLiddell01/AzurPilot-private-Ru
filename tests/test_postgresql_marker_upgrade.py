@@ -65,6 +65,24 @@ def test_runtime_rejects_stale_marker_but_upgrade_loader_accepts_it(
     assert marker_version == 1
 
 
+def test_diagnostics_preserve_incompatible_marker_version(
+    tmp_path: Path,
+) -> None:
+    marker = tmp_path / "storage_backend.json"
+    payload = _write_marker(marker, EXPECTED_ALEMBIC_HEAD)
+    payload["version"] = 2
+    marker.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(StorageConfigurationError, match="не разрешает"):
+        load_backend_marker_for_schema_upgrade(marker)
+
+    settings, marker_head, marker_version = load_backend_marker_for_diagnostics(marker)
+
+    assert settings.user == "azurpilot_app"
+    assert marker_head == EXPECTED_ALEMBIC_HEAD
+    assert marker_version == 2
+
+
 def test_marker_schema_advance_changes_only_head_and_is_idempotent(
     tmp_path: Path,
 ) -> None:

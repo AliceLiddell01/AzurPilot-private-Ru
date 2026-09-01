@@ -671,3 +671,38 @@ def test_smoke_game_observations_have_named_intermediates_and_reserved_boundarie
             strict=True,
         )
     assert any("checkpoint_id" in str(error["loc"]) for error in reserved.value.errors())
+
+
+def test_runtime_game_bridge_bootstraps_persistence_before_morale_factory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import module.application.morale as morale_module
+    import module.persistence.runtime as persistence_runtime
+
+    calls: list[str] = []
+    engine = object()
+
+    class _MoraleService:
+        def __init__(self, _uow_factory: object, *, clock: object = None) -> None:
+            calls.append("morale")
+
+    monkeypatch.setattr(
+        persistence_runtime,
+        "bootstrap_runtime_storage",
+        lambda **_kwargs: calls.append("bootstrap"),
+    )
+    monkeypatch.setattr(
+        persistence_runtime,
+        "runtime_engine",
+        lambda: calls.append("engine") or engine,
+    )
+    monkeypatch.setattr(morale_module, "MoraleService", _MoraleService)
+
+    bridge = game_bridge.build_runtime_game_bridge(
+        SimpleNamespace(repository_root=Path.cwd()),
+    )
+    provider = bridge.registry._providers["morale"]
+    service = provider._service_factory()
+
+    assert isinstance(service, _MoraleService)
+    assert calls == ["bootstrap", "engine", "morale"]

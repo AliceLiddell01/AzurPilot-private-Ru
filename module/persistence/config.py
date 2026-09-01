@@ -183,6 +183,7 @@ class DatabaseSettings:
         payload: dict[str, object],
         *,
         require_current_schema: bool,
+        require_current_version: bool = True,
     ) -> DatabaseSettings:
         if frozenset(payload) != _BACKEND_MARKER_KEYS:
             raise StorageConfigurationError(
@@ -191,7 +192,10 @@ class DatabaseSettings:
         if (
             payload.get("backend") != "postgresql"
             or type(payload.get("version")) is not int
-            or payload["version"] != BACKEND_MARKER_VERSION
+            or (
+                require_current_version
+                and payload["version"] != BACKEND_MARKER_VERSION
+            )
         ):
             raise StorageConfigurationError(
                 "Production backend marker не разрешает PostgreSQL runtime."
@@ -275,6 +279,8 @@ class DatabaseSettings:
 
 def _load_backend_marker_contract(
     marker_path: str | Path = DEFAULT_BACKEND_MARKER_PATH,
+    *,
+    require_current_version: bool = True,
 ) -> tuple[DatabaseSettings, str, int]:
     """Прочитать валидный backend marker вместе с наблюдённой версией."""
 
@@ -282,6 +288,7 @@ def _load_backend_marker_contract(
     settings = DatabaseSettings._from_backend_marker_payload(
         payload,
         require_current_schema=False,
+        require_current_version=require_current_version,
     )
     marker_head = payload["alembic_head"]
     if not isinstance(marker_head, str):
@@ -310,7 +317,10 @@ def load_backend_marker_for_diagnostics(
 ) -> tuple[DatabaseSettings, str, int]:
     """Прочитать settings, schema head и фактическую версию marker для diagnostics."""
 
-    return _load_backend_marker_contract(marker_path)
+    return _load_backend_marker_contract(
+        marker_path,
+        require_current_version=False,
+    )
 
 
 def advance_backend_marker_schema_head(

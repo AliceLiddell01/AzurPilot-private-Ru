@@ -252,8 +252,23 @@ def test_adapter_serializes_mixed_game_and_smoke_capabilities_by_item_schema() -
     )
 
     capabilities = result["details"]["capabilities"]
-    assert capabilities[0]["parameters"] == []
-    assert capabilities[1]["evidence_source"] == "tests.synthetic"
+    assert capabilities[0] == {
+        "capability_id": "resources",
+        "kind": "game_observation",
+        "description": "Ресурсы",
+        "source": "tests.synthetic",
+        "parameters": [],
+    }
+    assert capabilities[1] == {
+        "capability_id": "task_state",
+        "kind": "smoke",
+        "config_schema": {"fields": []},
+        "evidence_source": "tests.synthetic",
+        "deterministic": True,
+        "external": False,
+        "available": True,
+        "description": "Состояние задачи",
+    }
 
 
 def test_adapter_rebinds_manager_when_registry_target_changes(tmp_path: Path) -> None:

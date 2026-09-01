@@ -62,6 +62,8 @@ class _HealthConnection:
             return _ScalarResult(["azurpilot_app"])
         if "legacy_instance_alias" in sql and "limit 1" in sql:
             return _ScalarResult([1] if self.orphan else [])
+        # Ветка connectivity должна проверяться последней: другие запросы
+        # диагностики также содержат "select 1".
         if "select 1" in sql:
             return _ScalarResult([1])
         raise AssertionError(f"Неожиданный SQL в фикстуре: {sql}")

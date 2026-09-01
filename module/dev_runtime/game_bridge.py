@@ -947,7 +947,8 @@ def build_runtime_game_bridge(
 
     Сборка не создаёт Device и не открывает PostgreSQL connection. Legacy
     generated sources читаются только для типизированной projection; morale
-    factory получает общий LazyEngine при первом фактическом observation.
+    factory поднимает общий lazy persistence composition root при первом
+    фактическом observation.
     """
 
     repository_root = getattr(environment, "repository_root", None)
@@ -966,7 +967,7 @@ def build_runtime_game_bridge(
     )
     from module.application.morale import MoraleService
     from module.persistence.runtime import (
-        build_runtime_database_diagnostics,
+        bootstrap_runtime_storage,
         runtime_engine,
     )
     from module.persistence.unit_of_work import PostgresUnitOfWork
@@ -982,9 +983,9 @@ def build_runtime_game_bridge(
     )
 
     def morale_service_factory() -> MoraleService:
-        # Диагностический composition root только собирает общий lazy engine:
-        # observation не должна мигрировать marker или поднимать runtime service.
-        build_runtime_database_diagnostics(environment)
+        # Канонический composition root собирает общий lazy engine без health
+        # query; первый фактический observation открывает только свой UoW.
+        bootstrap_runtime_storage(require_ready=False)
         engine = runtime_engine()
         if engine is None:
             raise RuntimeError("Общий persistence Engine не собран")

@@ -27,6 +27,7 @@ from module.application.runtime_storage import (
     install_runtime_storage_provider,
 )
 from module.persistence.config import (
+    BACKEND_MARKER_VERSION,
     DEFAULT_BACKEND_MARKER_PATH,
     LEGACY_BACKEND_MARKER_PATH,
     DatabaseSettings,
@@ -157,7 +158,10 @@ def build_runtime_database_diagnostics(
         settings, marker_head, schema_marker_version = load_backend_marker_for_diagnostics(
             repository_root / DEFAULT_BACKEND_MARKER_PATH
         )
-        marker_ready = marker_head == EXPECTED_ALEMBIC_HEAD
+        marker_ready = (
+            marker_head == EXPECTED_ALEMBIC_HEAD
+            and schema_marker_version == BACKEND_MARKER_VERSION
+        )
         local_environment = read_local_postgres_environment(
             repository_root / DEFAULT_LOCAL_ENV_PATH
         )
@@ -165,7 +169,7 @@ def build_runtime_database_diagnostics(
             local_environment.require_app_runtime_match(settings)
             config_match = True
         with _lock:
-            if _engine is not None and _engine_settings == settings:
+            if marker_ready and _engine is not None and _engine_settings == settings:
                 engine = _engine
             else:
                 # Не переориентировать живой process-local Engine на новый
