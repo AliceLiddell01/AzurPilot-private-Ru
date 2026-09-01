@@ -638,7 +638,11 @@ class MoraleObservationProvider:
             "fleets": [
                 {
                     "fleet_index": fleet.fleet_index,
-                    "formation_observation_id": fleet.formation_observation_id,
+                    "formation_observation_id": (
+                        str(fleet.formation_observation_id)
+                        if fleet.formation_observation_id is not None
+                        else None
+                    ),
                     "formation_observed_at": fleet.formation_observed_at,
                     "slots": [
                         {
@@ -659,7 +663,11 @@ class MoraleObservationProvider:
                             "observed_at": slot.observed_at,
                             "source": slot.source,
                             "location": slot.location.value,
-                            "dorm_scan_id": slot.dorm_scan_id,
+                            "dorm_scan_id": (
+                                str(slot.dorm_scan_id)
+                                if slot.dorm_scan_id is not None
+                                else None
+                            ),
                         }
                         for slot in fleet.slots
                     ],

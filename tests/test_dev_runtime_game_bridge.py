@@ -4,6 +4,7 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
+from uuid import UUID
 
 import pytest
 from pydantic import ValidationError
@@ -605,7 +606,14 @@ def test_morale_provider_preserves_typed_unknown_without_inventing_baseline() ->
     )
     state = MoraleSelectionState(
         selection=FleetSelection.one(1),
-        fleets=(MoraleFleetState(1, None, None, slots),),
+        fleets=(
+            MoraleFleetState(
+                1,
+                UUID("12345678-1234-5678-1234-567812345678"),
+                _NOW,
+                slots,
+            ),
+        ),
         projected_at=_NOW,
     )
     calls: list[tuple[str, FleetSelection, datetime]] = []
@@ -631,6 +639,7 @@ def test_morale_provider_preserves_typed_unknown_without_inventing_baseline() ->
     assert calls == [("fixture-target", FleetSelection.one(1), _NOW)]
     payload = snapshot.payload
     assert payload["selection"] == (1,)
+    assert payload["fleets"][0]["formation_observation_id"] == "12345678-1234-5678-1234-567812345678"
     observed_slots = payload["fleets"][0]["slots"]
     assert len(observed_slots) == len(slots)
     assert all(slot["baseline"] is None for slot in observed_slots)
