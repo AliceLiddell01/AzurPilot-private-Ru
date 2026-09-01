@@ -281,12 +281,12 @@ def test_morale_capability_caps_list_size_to_parameter_contract(monkeypatch: pyt
     monkeypatch.setattr(
         game_bridge,
         "SUPPORTED_SURFACE_FLEET_INDICES",
-        tuple(range(1, game_bridge.GAME_OBSERVATION_MAX_PARAMETERS + 5)),
+        tuple(range(1, game_bridge.GAME_OBSERVATION_MAX_LIST_ITEMS + 5)),
     )
 
     provider = MoraleObservationProvider(lambda: object())
 
-    assert provider.capability.parameters[0].max_items == game_bridge.GAME_OBSERVATION_MAX_PARAMETERS
+    assert provider.capability.parameters[0].max_items == game_bridge.GAME_OBSERVATION_MAX_LIST_ITEMS
 
 
 def test_smoke_target_binding_rejects_legacy_record_without_target(tmp_path: Path) -> None:

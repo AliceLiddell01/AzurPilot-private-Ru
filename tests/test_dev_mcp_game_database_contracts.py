@@ -242,6 +242,7 @@ def test_game_database_argument_schemas_reject_profile_sql_and_unknown_fields_be
         ("dev_get_game_observation", {"capability_id": "resources", "parameters": {"../escape": 1}}),
         ("dev_get_database_status", {"session_id": "session-1", "query": "SELECT 1"}),
         ("dev_capture_smoke_game_checkpoint", {"smoke_id": "smoke-1", "checkpoint_id": "before"}),
+        ("dev_capture_smoke_game_checkpoint", {"smoke_id": "smoke-1", "checkpoint_id": "final"}),
         ("dev_get_smoke_game_observations", {"smoke_id": "smoke-1", "path": "C:\\private"}),
         ("dev_run_database_check", {"check_id": "connectivity", "query": "SELECT 1"}),
         ("dev_preview_database_repair", {"repair_id": "none", "sql": "UPDATE"}),

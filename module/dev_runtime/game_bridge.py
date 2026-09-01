@@ -45,6 +45,8 @@ GAME_OBSERVATION_MAX_SNAPSHOTS = 128
 GAME_OBSERVATION_MAX_STORE_BYTES = 8 * 1024 * 1024
 GAME_OBSERVATION_MAX_CAPABILITIES = 32
 GAME_OBSERVATION_MAX_PARAMETERS = 16
+# Ограничение элементов typed list независимо от числа named parameters.
+GAME_OBSERVATION_MAX_LIST_ITEMS = 64
 GAME_OBSERVATION_MAX_PROVENANCE_FIELDS = 16
 GAME_OBSERVATION_MAX_PARAMETER_VALUE = 10**12
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -147,7 +149,7 @@ class ObservationParameter:
             raise TypeError("maximum должен быть int или None")
         if self.minimum is not None and self.maximum is not None and self.minimum > self.maximum:
             raise ValueError("minimum не должен быть больше maximum")
-        if self.max_items is not None and (type(self.max_items) is not int or not 1 <= self.max_items <= GAME_OBSERVATION_MAX_PARAMETERS):
+        if self.max_items is not None and (type(self.max_items) is not int or not 1 <= self.max_items <= GAME_OBSERVATION_MAX_LIST_ITEMS):
             raise ValueError("max_items имеет недопустимое значение")
 
     def as_dict(self) -> dict[str, object]:
@@ -620,7 +622,7 @@ class MoraleObservationProvider:
                     maximum=max(SUPPORTED_SURFACE_FLEET_INDICES),
                     max_items=min(
                         len(SUPPORTED_SURFACE_FLEET_INDICES),
-                        GAME_OBSERVATION_MAX_PARAMETERS,
+                        GAME_OBSERVATION_MAX_LIST_ITEMS,
                     ),
                 ),
             ),
