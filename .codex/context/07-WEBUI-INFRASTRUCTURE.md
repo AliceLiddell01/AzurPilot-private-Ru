@@ -77,8 +77,15 @@ fail-closed при их изменении.
 Плагин обязан остановиться с `PLUGIN_RUNTIME_INCOMPATIBLE` до mutating calls при
 любом несовпадении.
 
-Текущий Development package не предоставляет capability `Game` или игровую
-production-интеграцию.
+Developer-only capability `Game` публикуется через односторонний bridge,
+привязанный к target, к нейтральному `module.application`: `GameReadService` и
+persistence-backed morale projection. Game MCP, MCP-to-MCP loopback, второй
+game domain и обратная зависимость application от Dev Runtime запрещены.
+Диагностика базы данных использует фиксированный read-only catalog поверх
+отдельного process-local lazy PostgreSQL engine/UoW, собранного из canonical
+marker и app passfile без production bootstrap/provider и `os.environ` mutation;
+arbitrary SQL, dump, secrets и Alembic mutation не выдаются. Пустой repair catalog является допустимым честным
+результатом.
 
 ## Статистика
 

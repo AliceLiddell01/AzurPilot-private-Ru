@@ -173,6 +173,24 @@ adapter обслуживает modern protocol `2026-07-28` и legacy negotiatio
 MCP Tasks не эмулируются. `SmokeRun` и `DevRuntimeControlOperation` остаются
 application-level persistent entities.
 
+Текущий development-контур предоставляет developer-only односторонний Game
+Bridge и диагностику базы данных. Game Bridge вызывает только нейтральные
+типизированные application services: `GameReadService` и persistence-backed
+morale projection; Game MCP, MCP-to-MCP loopback, второй game domain и обратный
+импорт Dev Runtime запрещены. Каждый snapshot имеет неизменяемую
+target/session/checkpoint provenance, ограниченный payload и checksum. Smoke
+Harness сохраняет `before`, `final` и объявленные промежуточные checkpoints в
+изолированном sidecar, а unknown/unavailable/missing required snapshot не может
+дать `PASS`.
+
+Диагностика базы данных принадлежит persistence adapter, но наружу выходит
+через типизированный `module.application` port и фиксированный read-only
+catalog. Она использует отдельный process-local lazy app-role engine/health/UoW
+composition для developer diagnostics, не запускает production bootstrap и не
+создаёт global provider. Явный lifecycle позволяет dispose диагностического
+engine; arbitrary SQL, dump или Alembic mutation по-прежнему запрещены. Repair catalog может быть пустым, если безопасного
+зарегистрированного repair нет.
+
 Не фиксировать в документации точное количество инструментов: оно меняется. Источник истины — регистрация tools в текущем коде.
 
 ## Основа хранения

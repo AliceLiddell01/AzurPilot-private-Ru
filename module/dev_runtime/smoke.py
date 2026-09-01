@@ -20,7 +20,7 @@ import time
 import uuid
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
@@ -62,6 +62,13 @@ from module.dev_runtime.evidence import (
     GitSnapshot,
     capture_git_snapshot,
 )
+from module.dev_runtime.game_bridge import (
+    GAME_OBSERVATION_MAX_PARAMETER_VALUE,
+    GameObservationError,
+    GameObservationSnapshot,
+    GameObservationStore,
+)
+from module.dev_runtime.target import DevTarget, target_identity
 from module.dev_runtime.task_sandbox import (
     SCHEDULER_RESET_TIME,
     TaskCatalog,
@@ -102,6 +109,10 @@ SMOKE_MAX_LOG_BYTES = 128 * 1024
 SMOKE_MAX_TIMELINE_EVENTS = 2048
 SMOKE_LOCK_TIMEOUT = 10.0
 SMOKE_LOCK_RETRY_SECONDS = 0.05
+SMOKE_MAX_GAME_OBSERVATIONS = 8
+SMOKE_MAX_GAME_CHECKPOINTS = 8
+SMOKE_MAX_GAME_PARAMETER_DEPTH = 4
+SMOKE_MAX_GAME_PARAMETER_ITEMS = 16
 
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _SAFE_CONFIG_PATH = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,63}(?:\.[A-Za-z][A-Za-z0-9_-]{0,63}){2,4}$")
@@ -527,6 +538,121 @@ class SmokeVisualAssertion(_AssertionBase):
         return _text(value, field_name="rubric", maximum=SMOKE_MAX_RUBRIC)
 
 
+def _game_parameter_value(value: object, *, field_name: str, depth: int = 0) -> object:
+    if depth > SMOKE_MAX_GAME_PARAMETER_DEPTH:
+        raise ValueError(f"{field_name} имеет слишком глубокую структуру")
+    if value is None or isinstance(value, bool):
+        return value
+    if isinstance(value, int) and not isinstance(value, bool):
+        if abs(value) > GAME_OBSERVATION_MAX_PARAMETER_VALUE:
+            raise ValueError(f"{field_name} выходит за bounded range")
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError(f"{field_name} должен быть конечным числом")
+        if abs(value) > GAME_OBSERVATION_MAX_PARAMETER_VALUE:
+            raise ValueError(f"{field_name} выходит за bounded range")
+        return value
+    if isinstance(value, str):
+        return _text(value, field_name=field_name, maximum=SMOKE_MAX_LITERAL, allow_empty=True)
+    if isinstance(value, Mapping):
+        if len(value) > SMOKE_MAX_GAME_PARAMETER_ITEMS:
+            raise ValueError(f"{field_name} содержит слишком много полей")
+        normalized: dict[str, object] = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise TypeError(f"{field_name} содержит нестроковый ключ")
+            safe_key = _text(key, field_name=f"{field_name}.key", maximum=128)
+            normalized[safe_key] = _game_parameter_value(
+                item,
+                field_name=f"{field_name}.{safe_key}",
+                depth=depth + 1,
+            )
+        return normalized
+    if isinstance(value, (list, tuple)):
+        if len(value) > SMOKE_MAX_GAME_PARAMETER_ITEMS:
+            raise ValueError(f"{field_name} превышает ограничение размера")
+        return [
+            _game_parameter_value(item, field_name=f"{field_name}[{index}]", depth=depth + 1)
+            for index, item in enumerate(value)
+        ]
+    raise TypeError(f"{field_name} содержит неподдерживаемый тип")
+
+
+class SmokeGameObservationRequest(_StrictModel):
+    capability_id: str = Field(min_length=1, max_length=128)
+    parameters: dict[str, object] = Field(
+        default_factory=dict,
+        max_length=SMOKE_MAX_GAME_PARAMETER_ITEMS,
+    )
+
+    @field_validator("capability_id")
+    @classmethod
+    def validate_capability_id(cls, value: str) -> str:
+        return _identifier(value, field_name="game_observations.capability_id")
+
+    @field_validator("parameters")
+    @classmethod
+    def validate_parameters(cls, value: dict[str, object]) -> dict[str, object]:
+        normalized = _game_parameter_value(
+            value,
+            field_name="game_observations.parameters",
+        )
+        if not isinstance(normalized, dict):
+            raise TypeError("game_observations.parameters должен быть объектом")
+        return normalized
+
+
+class SmokeGameCheckpoint(_StrictModel):
+    checkpoint_id: str = Field(min_length=1, max_length=128)
+    observations: list[SmokeGameObservationRequest] = Field(
+        min_length=1,
+        max_length=SMOKE_MAX_GAME_OBSERVATIONS,
+    )
+
+    @field_validator("checkpoint_id")
+    @classmethod
+    def validate_checkpoint_id(cls, value: str) -> str:
+        value = _identifier(value, field_name="game_observations.checkpoint_id")
+        if value in {"before", "final"}:
+            raise ValueError("game checkpoint_id before/final зарезервирован")
+        return value
+
+    @model_validator(mode="after")
+    def validate_observation_ids(self) -> SmokeGameCheckpoint:
+        capability_ids = [item.capability_id for item in self.observations]
+        if len(capability_ids) != len(set(capability_ids)):
+            raise ValueError("game checkpoint не должен содержать duplicate capability_id")
+        return self
+
+
+class SmokeGameObservationSpec(_StrictModel):
+    observations: list[SmokeGameObservationRequest] = Field(
+        min_length=1,
+        max_length=SMOKE_MAX_GAME_OBSERVATIONS,
+    )
+    checkpoints: list[SmokeGameCheckpoint] = Field(
+        default_factory=list,
+        max_length=SMOKE_MAX_GAME_CHECKPOINTS,
+    )
+    duplicate_policy: Literal["reject", "keep_first"] = "reject"
+
+    @model_validator(mode="after")
+    def validate_checkpoints(self) -> SmokeGameObservationSpec:
+        capability_ids = [item.capability_id for item in self.observations]
+        if len(capability_ids) != len(set(capability_ids)):
+            raise ValueError("game observations не должны содержать duplicate capability_id")
+        checkpoint_ids = [item.checkpoint_id for item in self.checkpoints]
+        if len(checkpoint_ids) != len(set(checkpoint_ids)):
+            raise ValueError("game checkpoint_id должен быть уникальным")
+        object.__setattr__(
+            self,
+            "checkpoints",
+            sorted(self.checkpoints, key=lambda item: item.checkpoint_id),
+        )
+        return self
+
+
 class SmokeSpec(_StrictModel):
     schema_version: Literal[SMOKE_SCHEMA_VERSION] = SMOKE_SCHEMA_VERSION
     name: str = Field(min_length=1, max_length=SMOKE_MAX_NAME)
@@ -536,6 +662,7 @@ class SmokeSpec(_StrictModel):
     setup: SmokeSetupSpec = Field(default_factory=SmokeSetupSpec)
     assertions: list[SmokeAssertion] = Field(default_factory=list, max_length=SMOKE_MAX_ASSERTIONS)
     visual_assertions: list[SmokeVisualAssertion] = Field(default_factory=list, max_length=SMOKE_MAX_ASSERTIONS)
+    game_observations: SmokeGameObservationSpec | None = None
 
     @field_validator("name")
     @classmethod
@@ -586,6 +713,7 @@ class SmokeEvidenceRef(_StrictModel):
         "config",
         "session_log",
         "external_visual",
+        "game_observation",
     ]
     reference: str = Field(min_length=1, max_length=256)
     description: str = Field(min_length=1, max_length=SMOKE_MAX_RESULT_TEXT)
@@ -915,6 +1043,8 @@ class SmokeRunRecord(_StrictModel):
     deadline_at: str
     finished_at: str | None = None
     session_id: str | None = None
+    target_profile: str | None = None
+    target_identity: str | None = None
     supervisor: SmokeSupervisorIdentity | None = None
     progress: SmokeProgress = Field(default_factory=SmokeProgress)
     cleanup: SmokeCleanup = Field(default_factory=SmokeCleanup)
@@ -949,6 +1079,20 @@ class SmokeRunRecord(_StrictModel):
     def validate_session_id(cls, value: str | None) -> str | None:
         return None if value is None else _identifier(value, field_name="session_id")
 
+    @field_validator("target_profile")
+    @classmethod
+    def validate_target_profile(cls, value: str | None) -> str | None:
+        return None if value is None else _identifier(value, field_name="target_profile")
+
+    @field_validator("target_identity")
+    @classmethod
+    def validate_target_identity(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not _SAFE_SHA.fullmatch(value):
+            raise ValueError("target_identity имеет неверный SHA-256")
+        return value
+
     @model_validator(mode="after")
     def validate_result_state(self) -> SmokeRunRecord:
         if self.state is SmokeState.FINISHED and self.outcome is None:
@@ -957,6 +1101,15 @@ class SmokeRunRecord(_StrictModel):
             raise ValueError("ожидающий внешней оценки SmokeRun должен иметь pending_evaluation")
         if self.external_verdict is not None and self.state is not SmokeState.FINISHED:
             raise ValueError("external_verdict разрешён только для завершённого SmokeRun")
+        if (self.target_profile is None) != (self.target_identity is None):
+            raise ValueError("target_profile и target_identity должны быть заданы вместе")
+        if self.target_profile is not None:
+            try:
+                expected = target_identity(DevTarget(self.target_profile))
+            except ValueError as exc:
+                raise ValueError("target_profile имеет недопустимое назначение") from exc
+            if self.target_identity != expected:
+                raise ValueError("target_identity не соответствует target_profile")
         return self
 
 
@@ -969,6 +1122,8 @@ class SmokeResult(_StrictModel):
     message: str
     source: SmokeSourceSnapshot
     session_id: str | None = None
+    target_profile: str | None = None
+    target_identity: str | None = None
     assertions: list[SmokeAssertionResult] = Field(default_factory=list, max_length=SMOKE_MAX_ASSERTIONS * 2)
     cleanup: SmokeCleanup
     primary_failure: SmokeFailure | None = None
@@ -1003,6 +1158,33 @@ class SmokeResult(_StrictModel):
     def validate_finished_at(cls, value: str) -> str:
         _timestamp(value, field_name="finished_at")
         return value
+
+    @field_validator("target_profile")
+    @classmethod
+    def validate_target_profile(cls, value: str | None) -> str | None:
+        return None if value is None else _identifier(value, field_name="result.target_profile")
+
+    @field_validator("target_identity")
+    @classmethod
+    def validate_target_identity(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not _SAFE_SHA.fullmatch(value):
+            raise ValueError("result.target_identity имеет неверный SHA-256")
+        return value
+
+    @model_validator(mode="after")
+    def validate_target(self) -> SmokeResult:
+        if (self.target_profile is None) != (self.target_identity is None):
+            raise ValueError("result target_profile и target_identity должны быть заданы вместе")
+        if self.target_profile is not None:
+            try:
+                expected = target_identity(DevTarget(self.target_profile))
+            except ValueError as exc:
+                raise ValueError("result.target_profile имеет недопустимое назначение") from exc
+            if self.target_identity != expected:
+                raise ValueError("result.target_identity не соответствует target_profile")
+        return self
 
 
 class SmokeControl(_StrictModel):
@@ -2149,6 +2331,8 @@ class SmokeStateStore:
             source=source,
             created_at=created_at,
             deadline_at=deadline_at,
+            target_profile=self.environment.profile_name,
+            target_identity=target_identity(self.environment.dev_target),
         )
         with self._locked():
             self.root.mkdir(parents=True, exist_ok=True)
@@ -2238,7 +2422,15 @@ class SmokeStateStore:
             raise SmokeStoreError("DEV_SMOKE_STATE_INVALID", "обновление SmokeRun имеет неверный тип")
         if not self._next_state_allowed(current.state, updated.state):
             raise SmokeStoreError("DEV_SMOKE_STATE_TRANSITION_INVALID", "переход SmokeRun state запрещён")
-        immutable = ("smoke_id", "spec_hash", "source", "created_at", "deadline_at")
+        immutable = (
+            "smoke_id",
+            "spec_hash",
+            "source",
+            "created_at",
+            "deadline_at",
+            "target_profile",
+            "target_identity",
+        )
         if any(getattr(current, key) != getattr(updated, key) for key in immutable):
             raise SmokeStoreError("DEV_SMOKE_STATE_IMMUTABLE", "замороженные поля SmokeRun нельзя изменить")
         return updated
@@ -2250,6 +2442,8 @@ class SmokeStateStore:
             and result.spec_hash == record.spec_hash
             and result.source == record.source
             and result.session_id == record.session_id
+            and result.target_profile == record.target_profile
+            and result.target_identity == record.target_identity
             and result.outcome == record.outcome
             and result.finished_at == record.finished_at
             and result.assertions == record.assertions
@@ -2458,6 +2652,8 @@ class SmokeRunManager:
         supervisor_backend: SmokeSupervisorBackend | None = None,
         now: Callable[[], datetime] | None = None,
         poll_seconds: float = SMOKE_POLL_SECONDS,
+        game_bridge: object | None = None,
+        game_bridge_factory: Callable[[], object] | None = None,
     ) -> None:
         self.environment = environment or DevEnvironment.current()
         self.runtime_factory = runtime_factory or self._default_runtime_factory
@@ -2468,11 +2664,66 @@ class SmokeRunManager:
         self.store = SmokeStateStore(self.environment, now=self.now)
         self._registry: ConfigRegistry | None = None
         self._manager_lock = threading.RLock()
+        self._game_bridge = game_bridge
+        self._game_bridge_factory = game_bridge_factory
 
     def _default_runtime_factory(self) -> object:
         from module.dev_runtime.manager import DevSessionManager
 
-        return DevSessionManager(environment=self.environment)
+        return DevSessionManager(
+            environment=self.environment,
+            target_locked=True,
+            smoke_owner=True,
+        )
+
+    def _get_game_bridge(self) -> object:
+        bridge = self._game_bridge
+        if bridge is not None:
+            return bridge
+        if self._game_bridge_factory is not None:
+            bridge = self._game_bridge_factory()
+        else:
+            from module.dev_runtime.game_bridge import build_runtime_game_bridge
+
+            bridge = build_runtime_game_bridge(self.environment, clock=self.now)
+        self._game_bridge = bridge
+        return bridge
+
+    def _bind_record_target(self, record: SmokeRunRecord) -> None:
+        if record.target_profile is None or record.target_identity is None:
+            raise SmokeStoreError(
+                "DEV_SMOKE_TARGET_MISSING",
+                "SmokeRun не содержит immutable target binding",
+            )
+        try:
+            target = DevTarget(record.target_profile)
+        except ValueError as exc:
+            raise SmokeStoreError(
+                "DEV_SMOKE_TARGET_INVALID",
+                "SmokeRun содержит некорректный target profile",
+            ) from exc
+        if record.target_identity != target_identity(target):
+            raise SmokeStoreError(
+                "DEV_SMOKE_TARGET_MISMATCH",
+                "SmokeRun target identity не соответствует target profile",
+            )
+        if self.environment.dev_target != target:
+            self.environment = replace(self.environment, dev_target=target)
+            self.store = SmokeStateStore(self.environment, now=self.now)
+            self._registry = None
+            self._dispose_resource(self._game_bridge)
+            self._game_bridge = None
+
+    @staticmethod
+    def _dispose_resource(resource: object | None) -> None:
+        """Освободить process-local bridge при смене immutable target."""
+
+        disposer = getattr(resource, "dispose", None)
+        if callable(disposer):
+            try:
+                disposer()
+            except Exception:  # noqa: BLE001, S110 - смена target не должна падать из-за cleanup bridge.
+                pass
 
     def _config_registry(self) -> ConfigRegistry:
         registry = self._registry
@@ -2533,6 +2784,16 @@ class SmokeRunManager:
                 "config_override_count": len(spec.setup.config_overrides),
                 "assertion_count": len(spec.assertions),
                 "visual_assertion_count": len(spec.visual_assertions),
+                "game_observation_count": (
+                    len(spec.game_observations.observations)
+                    if spec.game_observations is not None
+                    else 0
+                ),
+                "game_checkpoint_count": (
+                    len(spec.game_observations.checkpoints)
+                    if spec.game_observations is not None
+                    else 0
+                ),
             }
         if source is not None:
             details["source"] = _safe_model_json(source)
@@ -2551,6 +2812,32 @@ class SmokeRunManager:
             return None, None, [SmokeValidationIssue(code="DEV_SMOKE_SPEC_INVALID", message="SmokeSpec не прошёл строгую проверку")]
         try:
             self.capabilities.validate_spec(spec)
+            if spec.game_observations is not None:
+                try:
+                    bridge = self._get_game_bridge()
+                except GameObservationError as exc:
+                    issues.append(SmokeValidationIssue(code=exc.code, message=str(exc)))
+                except Exception:  # noqa: BLE001 — сборка bridge является precondition boundary
+                    issues.append(
+                        SmokeValidationIssue(
+                            code="DEV_SMOKE_PRECONDITION_FAILED",
+                            message="Development target невозможно безопасно проверить",
+                        )
+                    )
+                else:
+                    requests = [
+                        *spec.game_observations.observations,
+                        *(
+                            request
+                            for checkpoint in spec.game_observations.checkpoints
+                            for request in checkpoint.observations
+                        ),
+                    ]
+                    for request in requests:
+                        bridge.validate_request(
+                            request.capability_id,
+                            request.parameters,
+                        )
             if len(spec.visual_assertions) > 1:
                 issues.append(
                     SmokeValidationIssue(
@@ -2567,10 +2854,17 @@ class SmokeRunManager:
                     registry.leaf(assertion.path)
         except SmokeStoreError as exc:
             issues.append(SmokeValidationIssue(code=exc.code, message=str(exc)))
+        except GameObservationError as exc:
+            issues.append(SmokeValidationIssue(code=exc.code, message=str(exc)))
         except TaskSandboxError as exc:
             issues.append(SmokeValidationIssue(code=exc.code, message=str(exc)))
         except (OSError, ValueError):
-            issues.append(SmokeValidationIssue(code="DEV_SMOKE_PRECONDITION_FAILED", message="Профиль ap невозможно безопасно проверить"))
+            issues.append(
+                SmokeValidationIssue(
+                    code="DEV_SMOKE_PRECONDITION_FAILED",
+                    message="Development target невозможно безопасно проверить",
+                )
+            )
 
         source = _source_snapshot(capture_git_snapshot(self.environment.repository_root))
         if not source.available:
@@ -2805,7 +3099,9 @@ class SmokeRunManager:
 
     def get_smoke(self, smoke_id: str) -> DevResult:
         try:
-            record = self.store.load(_identifier(smoke_id, field_name="smoke_id"))
+            smoke_id = _identifier(smoke_id, field_name="smoke_id")
+            record = self.store.load(smoke_id)
+            self._bind_record_target(record)
         except (SmokeStoreError, ValueError) as exc:
             code = exc.code if isinstance(exc, SmokeStoreError) else "DEV_SMOKE_ID_INVALID"
             return self._result(ok=False, code=code, message=str(exc), state=SmokeState.FINISHED.value, smoke_id=smoke_id if isinstance(smoke_id, str) else None)
@@ -2853,6 +3149,7 @@ class SmokeRunManager:
         try:
             smoke_id = _identifier(smoke_id, field_name="smoke_id")
             record = self.store.load(smoke_id)
+            self._bind_record_target(record)
         except (SmokeStoreError, ValueError) as exc:
             return self._result(ok=False, code=exc.code if isinstance(exc, SmokeStoreError) else "DEV_SMOKE_ID_INVALID", message=str(exc), state=SmokeState.FINISHED.value)
         if record.state is SmokeState.FINISHED:
@@ -2873,8 +3170,10 @@ class SmokeRunManager:
         try:
             smoke_id = _identifier(smoke_id, field_name="smoke_id")
             record = self.store.load(smoke_id)
+            self._bind_record_target(record)
         except (SmokeStoreError, ValueError) as exc:
-            return EvidenceScreenshot(self._result(ok=False, code="DEV_SMOKE_ID_INVALID", message=str(exc), state=SmokeState.FINISHED.value))
+            code = exc.code if isinstance(exc, SmokeStoreError) else "DEV_SMOKE_ID_INVALID"
+            return EvidenceScreenshot(self._result(ok=False, code=code, message=str(exc), state=SmokeState.FINISHED.value))
         pending = record.pending_evaluation
         if record.state is not SmokeState.AWAITING_EXTERNAL_EVALUATION or pending is None:
             return EvidenceScreenshot(self._result(ok=False, code="DEV_SMOKE_EVALUATION_NOT_PENDING", message="Для SmokeRun нет ожидающей внешней оценки", state=record.state.value, smoke_id=smoke_id, session_id=record.session_id))
@@ -2916,9 +3215,11 @@ class SmokeRunManager:
             if verdict not in {"pass", "fail"}:
                 raise ValueError("verdict должен быть pass или fail")
             record = self.store.load(smoke_id)
+            self._bind_record_target(record)
             spec = self.store.load_spec(smoke_id)
         except (SmokeStoreError, ValueError, ValidationError) as exc:
-            return self._result(ok=False, code="DEV_SMOKE_EVALUATION_INPUT_INVALID", message=str(exc), state=SmokeState.FINISHED.value, smoke_id=smoke_id if isinstance(smoke_id, str) else None)
+            code = exc.code if isinstance(exc, SmokeStoreError) else "DEV_SMOKE_EVALUATION_INPUT_INVALID"
+            return self._result(ok=False, code=code, message=str(exc), state=SmokeState.FINISHED.value, smoke_id=smoke_id if isinstance(smoke_id, str) else None)
         pending = record.pending_evaluation
         visual = next((item for item in spec.visual_assertions if item.assertion_id == assertion_id), None)
         if record.state is not SmokeState.AWAITING_EXTERNAL_EVALUATION or pending is None or visual is None or pending.assertion_id != assertion_id:
@@ -2977,6 +3278,8 @@ class SmokeRunManager:
             message="SmokeRun завершён после внешнего визуального вердикта",
             source=candidate.source,
             session_id=candidate.session_id,
+            target_profile=candidate.target_profile,
+            target_identity=candidate.target_identity,
             assertions=candidate.assertions,
             cleanup=candidate.cleanup,
             primary_failure=primary_failure,
@@ -2989,6 +3292,356 @@ class SmokeRunManager:
         except SmokeStoreError as exc:
             return self._result(ok=False, code=exc.code, message=str(exc), state=record.state.value, smoke_id=smoke_id, session_id=record.session_id)
         return self._result(ok=outcome is SmokeOutcome.PASS, code=code, message=result.message, state=candidate.state.value, smoke_id=smoke_id, session_id=candidate.session_id, details={"outcome": outcome.value, "external_verdict": _safe_model_json(external), "cleanup": _safe_model_json(candidate.cleanup)})
+
+    @staticmethod
+    def _game_requests(
+        spec: SmokeSpec,
+        checkpoint_id: str,
+    ) -> tuple[SmokeGameObservationRequest, ...]:
+        game_spec = spec.game_observations
+        if game_spec is None:
+            return ()
+        if checkpoint_id in {"before", "final"}:
+            return tuple(game_spec.observations)
+        checkpoint = next(
+            (
+                item
+                for item in game_spec.checkpoints
+                if item.checkpoint_id == checkpoint_id
+            ),
+            None,
+        )
+        if checkpoint is None:
+            raise GameObservationError(
+                "DEV_GAME_CHECKPOINT_UNKNOWN",
+                "Запрошенный game checkpoint не объявлен в SmokeSpec",
+            )
+        return tuple(checkpoint.observations)
+
+    @staticmethod
+    def _game_evidence_refs(
+        store: GameObservationStore,
+        observations: Sequence[GameObservationSnapshot],
+    ) -> list[dict[str, object]]:
+        return [
+            _safe_model_json(
+                SmokeEvidenceRef(
+                    source="game_observation",
+                    reference=f"{store.relative_file}#{snapshot.observation_id}",
+                    description=(
+                        "Сохранённое game observation "
+                        f"{snapshot.checkpoint_id}/{snapshot.capability_id}"
+                    ),
+                )
+            )
+            for snapshot in observations[:SMOKE_MAX_EVIDENCE_REFS]
+        ]
+
+    def _capture_game_checkpoint(
+        self,
+        record: SmokeRunRecord,
+        spec: SmokeSpec,
+        checkpoint_id: str,
+        session_id: str | None,
+        *,
+        validated_requests: Sequence[SmokeGameObservationRequest] | None = None,
+    ) -> tuple[bool, dict[str, object], SmokeFailure | None]:
+        if spec.game_observations is None:
+            return True, {}, None
+        if session_id is None:
+            failure = SmokeFailure(
+                code="DEV_GAME_CHECKPOINT_SESSION_MISSING",
+                message="Game checkpoint нельзя связать с DevSession",
+            )
+            return False, {"game_observations": {"checkpoint_id": checkpoint_id}}, failure
+        try:
+            requests = (
+                tuple(validated_requests)
+                if validated_requests is not None
+                else self._game_requests(spec, checkpoint_id)
+            )
+            bridge = self._get_game_bridge()
+            store = GameObservationStore(self.environment, record.smoke_id)
+            stored = 0
+            statuses: list[str] = []
+            for request in requests:
+                snapshot = bridge.capture(
+                    self.environment.dev_target,
+                    request.capability_id,
+                    request.parameters,
+                    checkpoint_id=checkpoint_id,
+                    session_id=session_id,
+                    smoke_id=record.smoke_id,
+                    captured_at=self.now(),
+                )
+                if not isinstance(snapshot, GameObservationSnapshot):
+                    raise GameObservationError(
+                        "DEV_GAME_OBSERVATION_PROVIDER_INVALID",
+                        "Bridge вернул некорректный game snapshot",
+                    )
+                expected_target = target_identity(self.environment.dev_target)
+                if (
+                    snapshot.smoke_id != record.smoke_id
+                    or snapshot.session_id != session_id
+                    or snapshot.profile_name != self.environment.profile_name
+                    or snapshot.target_identity != expected_target
+                ):
+                    raise GameObservationError(
+                        "DEV_GAME_OBSERVATION_TARGET_MISMATCH",
+                        "Bridge вернул observation с другой session или target",
+                    )
+                if snapshot.checkpoint_id != checkpoint_id or snapshot.capability_id != request.capability_id:
+                    raise GameObservationError(
+                        "DEV_GAME_OBSERVATION_PROVIDER_INVALID",
+                        "Bridge вернул observation с другой checkpoint или capability",
+                    )
+                appended = store.append(
+                    snapshot,
+                    duplicate_policy=spec.game_observations.duplicate_policy,
+                )
+                if appended:
+                    stored += 1
+                    statuses.append(snapshot.status.value)
+                else:
+                    retained = next(
+                        (
+                            item
+                            for item in store.read(checkpoint_id=checkpoint_id)
+                            if item.capability_id == request.capability_id
+                        ),
+                        None,
+                    )
+                    if retained is None:
+                        raise GameObservationError(
+                            "DEV_GAME_OBSERVATION_CORRUPT",
+                            "После keep_first не найдено сохранённое observation",
+                        )
+                    statuses.append(retained.status.value)
+            summary = store.summary()
+            summary["evidence_refs"] = self._game_evidence_refs(
+                store,
+                store.read(checkpoint_id=checkpoint_id),
+            )
+            summary.update(
+                {
+                    "checkpoint_id": checkpoint_id,
+                    "requested": len(requests),
+                    "stored": stored,
+                    "checkpoint_statuses": statuses,
+                }
+            )
+            unavailable = next(
+                (
+                    status
+                    for status in statuses
+                    if status in {"unknown", "unavailable"}
+                ),
+                None,
+            )
+            if unavailable is not None:
+                code = (
+                    "DEV_GAME_OBSERVATION_UNKNOWN"
+                    if unavailable == "unknown"
+                    else "DEV_GAME_OBSERVATION_UNAVAILABLE"
+                )
+                return (
+                    False,
+                    {"game_observations": summary},
+                    SmokeFailure(
+                        code=code,
+                        message="Обязательное game observation не имеет подтверждённого состояния known",
+                    ),
+                )
+            return True, {"game_observations": summary}, None
+        except GameObservationError as exc:
+            return (
+                False,
+                {
+                    "game_observations": {
+                        "checkpoint_id": checkpoint_id,
+                        "status": "unavailable",
+                    }
+                },
+                SmokeFailure(code=exc.code, message=str(exc)),
+            )
+        except SmokeStoreError:
+            raise
+        except Exception as exc:
+            return (
+                False,
+                {
+                    "game_observations": {
+                        "checkpoint_id": checkpoint_id,
+                        "status": "unavailable",
+                    }
+                },
+                SmokeFailure(
+                    code="DEV_GAME_OBSERVATION_UNAVAILABLE",
+                    message=f"Game checkpoint недоступен: {type(exc).__name__}",
+                ),
+            )
+
+    def _game_required_complete(
+        self,
+        record: SmokeRunRecord,
+        spec: SmokeSpec,
+    ) -> bool:
+        if spec.game_observations is None:
+            return True
+        try:
+            items = GameObservationStore(self.environment, record.smoke_id).read()
+        except GameObservationError:
+            return False
+        expected = {
+            (checkpoint_id, request.capability_id)
+            for checkpoint_id in ("before", "final")
+            for request in spec.game_observations.observations
+        }
+        expected.update(
+            (checkpoint.checkpoint_id, request.capability_id)
+            for checkpoint in spec.game_observations.checkpoints
+            for request in checkpoint.observations
+        )
+        if record.target_profile is None or record.target_identity is None:
+            return False
+        target_profile = record.target_profile
+        target_id = record.target_identity
+        actual = {
+            (item.checkpoint_id, item.capability_id)
+            for item in items
+            if item.profile_name == target_profile
+            and item.target_identity == target_id
+            and item.session_id == record.session_id
+            and item.status.value == "known"
+        }
+        return expected.issubset(actual)
+
+    def capture_game_checkpoint(self, smoke_id: str, checkpoint_id: str) -> DevResult:
+        try:
+            smoke_id = _identifier(smoke_id, field_name="smoke_id")
+            checkpoint_id = _identifier(checkpoint_id, field_name="checkpoint_id")
+            if checkpoint_id in {"before", "final"}:
+                raise GameObservationError(
+                    "DEV_GAME_CHECKPOINT_RESERVED",
+                    "before/final checkpoint создаются supervisor автоматически",
+                )
+            record = self.store.load(smoke_id)
+            self._bind_record_target(record)
+            spec = self.store.load_spec(smoke_id)
+            if record.state is not SmokeState.RUNNING:
+                return self._result(
+                    ok=False,
+                    code="DEV_GAME_CHECKPOINT_STATE_INVALID",
+                    message="Промежуточный game checkpoint разрешён только для running SmokeRun",
+                    state=record.state.value,
+                    smoke_id=smoke_id,
+                    session_id=record.session_id,
+                )
+            if spec.game_observations is None:
+                return self._result(
+                    ok=False,
+                    code="DEV_GAME_OBSERVATION_NOT_DECLARED",
+                    message="SmokeSpec не объявляет game observations",
+                    state=record.state.value,
+                    smoke_id=smoke_id,
+                    session_id=record.session_id,
+                )
+            requests = self._game_requests(spec, checkpoint_id)
+            ok, details, failure = self._capture_game_checkpoint(
+                record,
+                spec,
+                checkpoint_id,
+                record.session_id,
+                validated_requests=requests,
+            )
+            return self._result(
+                ok=ok,
+                code="DEV_GAME_CHECKPOINT_CAPTURED" if ok else (failure.code if failure else "DEV_GAME_CHECKPOINT_FAILED"),
+                message="Промежуточный game checkpoint сохранён" if ok else (failure.message if failure else "Game checkpoint не сохранён"),
+                state=record.state.value,
+                smoke_id=smoke_id,
+                session_id=record.session_id,
+                details=details,
+            )
+        except (SmokeStoreError, ValueError, GameObservationError) as exc:
+            return self._result(
+                ok=False,
+                code=exc.code if isinstance(exc, (SmokeStoreError, GameObservationError)) else "DEV_GAME_CHECKPOINT_INPUT_INVALID",
+                message=str(exc),
+                state=SmokeState.FINISHED.value,
+                smoke_id=smoke_id if isinstance(smoke_id, str) else None,
+            )
+
+    def get_game_observations(
+        self,
+        smoke_id: str,
+        *,
+        checkpoint_id: str | None = None,
+    ) -> DevResult:
+        try:
+            smoke_id = _identifier(smoke_id, field_name="smoke_id")
+            if checkpoint_id is not None:
+                checkpoint_id = _identifier(checkpoint_id, field_name="checkpoint_id")
+            record = self.store.load(smoke_id)
+            self._bind_record_target(record)
+            spec = self.store.load_spec(smoke_id)
+            if spec.game_observations is None:
+                return self._result(
+                    ok=True,
+                    code="DEV_GAME_OBSERVATIONS_EMPTY",
+                    message="SmokeSpec не объявляет game observations",
+                    state=record.state.value,
+                    smoke_id=smoke_id,
+                    session_id=record.session_id,
+                    details={"observations": [], "required_complete": True},
+                )
+            if checkpoint_id is not None:
+                self._game_requests(spec, checkpoint_id)
+            store = GameObservationStore(self.environment, smoke_id)
+            observations = store.read(checkpoint_id=checkpoint_id)
+            if record.target_profile is None or record.target_identity is None:
+                raise SmokeStoreError(
+                    "DEV_SMOKE_TARGET_MISSING",
+                    "SmokeRun не содержит immutable target binding",
+                )
+            target_profile = record.target_profile
+            target_id = record.target_identity
+            if any(
+                item.profile_name != target_profile
+                or item.target_identity != target_id
+                or item.session_id != record.session_id
+                for item in observations
+            ):
+                raise GameObservationError(
+                    "DEV_GAME_OBSERVATION_TARGET_MISMATCH",
+                    "Game observations относятся к другой session или target",
+                )
+            summary = store.summary()
+            summary["evidence_refs"] = self._game_evidence_refs(store, observations)
+            summary["required_complete"] = self._game_required_complete(record, spec)
+            if checkpoint_id is not None:
+                summary["checkpoint_id"] = checkpoint_id
+                summary["selected_count"] = len(observations)
+            return self._result(
+                ok=True,
+                code="DEV_GAME_OBSERVATIONS_READY",
+                message="Сохранённые Smoke game observations прочитаны",
+                state=record.state.value,
+                smoke_id=smoke_id,
+                session_id=record.session_id,
+                details={
+                    "observations": [item.as_dict() for item in observations],
+                    "summary": summary,
+                },
+            )
+        except (SmokeStoreError, ValueError, GameObservationError) as exc:
+            return self._result(
+                ok=False,
+                code=exc.code if isinstance(exc, (SmokeStoreError, GameObservationError)) else "DEV_GAME_OBSERVATIONS_INPUT_INVALID",
+                message=str(exc),
+                state=SmokeState.FINISHED.value,
+                smoke_id=smoke_id if isinstance(smoke_id, str) else None,
+            )
 
     def run_supervisor(self, smoke_id: str) -> None:
         """Выполнить один замороженный SmokeRun; вызывается только фиксированной точкой входа supervisor."""
@@ -3005,6 +3658,7 @@ class SmokeRunManager:
 
     def _run_supervisor(self, smoke_id: str) -> None:
         record = self.store.load(smoke_id)
+        self._bind_record_target(record)
         if record.state is SmokeState.FINISHED or record.state is SmokeState.AWAITING_EXTERNAL_EVALUATION:
             return
         spec = self.store.load_spec(smoke_id)
@@ -3022,16 +3676,147 @@ class SmokeRunManager:
         )
         transaction.apply()
         record = self.store.load(smoke_id)
-        started = runtime.start(root_tasks=list(spec.session.root_tasks), excluded_tasks=list(spec.session.excluded_tasks))
+        before_hook_called = False
+        before_failure: SmokeFailure | None = None
+        before_harness_failure = False
+
+        def capture_before(session_id: str) -> None:
+            nonlocal before_hook_called, before_failure, before_harness_failure, record
+            before_hook_called = True
+            try:
+                record = self.store.update(
+                    smoke_id,
+                    {"state": SmokeState.RUNNING, "session_id": session_id},
+                )
+                before_ok, _before_details, before_failure = self._capture_game_checkpoint(
+                    record,
+                    spec,
+                    "before",
+                    session_id,
+                )
+            except SmokeStoreError as exc:
+                before_failure = SmokeFailure(code=exc.code, message=str(exc))
+                before_harness_failure = True
+                raise
+            if not before_ok:
+                raise RuntimeError("Smoke before checkpoint не подтверждён")
+
+        if spec.game_observations is None:
+            started = runtime.start(
+                root_tasks=list(spec.session.root_tasks),
+                excluded_tasks=list(spec.session.excluded_tasks),
+            )
+        else:
+            start_with_hook = getattr(runtime, "start_with_pre_execution_hook", None)
+            if not callable(start_with_hook):
+                started = DevResult(
+                    ok=False,
+                    code="DEV_SMOKE_PRESTART_HOOK_UNSUPPORTED",
+                    message="Runtime не предоставляет обязательный pre-execution checkpoint hook",
+                    state=DevStatusKind.FAILED.value,
+                )
+            else:
+                try:
+                    started = start_with_hook(
+                        root_tasks=list(spec.session.root_tasks),
+                        excluded_tasks=list(spec.session.excluded_tasks),
+                        before_process_launch=capture_before,
+                    )
+                except Exception as exc:  # noqa: BLE001 — старт завершается fail-closed.
+                    started = DevResult(
+                        ok=False,
+                        code="DEV_SMOKE_PRESTART_HOOK_FAILED",
+                        message="Pre-execution checkpoint не выполнен",
+                        state=DevStatusKind.FAILED.value,
+                        details={"error": type(exc).__name__},
+                    )
         if not _result_ok(started):
-            failure = SmokeFailure(code=str(getattr(started, "code", "DEV_SMOKE_SESSION_START_FAILED")), message="DevSession не смогла запуститься")
-            cleanup, cleanup_failure = self._cleanup_runtime(runtime, None, transaction, record)
-            self._finish_record(record, SmokeOutcome.PRECONDITION_FAILED, failure.code, failure.message, cleanup, primary_failure=failure, harness_failure=cleanup_failure)
+            record = self.store.load(smoke_id)
+            session_id = _result_session_id(started) or record.session_id
+            failure = before_failure or SmokeFailure(
+                code=str(
+                    getattr(started, "code", "DEV_SMOKE_SESSION_START_FAILED")
+                ),
+                message=(
+                    "Pre-execution checkpoint не подтверждён"
+                    if before_failure is not None
+                    else "DevSession не смогла запуститься"
+                ),
+            )
+            outcome = (
+                SmokeOutcome.HARNESS_FAILED
+                if before_harness_failure
+                else (
+                    SmokeOutcome.EVIDENCE_INCOMPLETE
+                    if before_failure is not None
+                    else (
+                        SmokeOutcome.HARNESS_FAILED
+                        if failure.code.startswith("DEV_SMOKE_PRESTART_HOOK_")
+                        else SmokeOutcome.PRECONDITION_FAILED
+                    )
+                )
+            )
+            cleanup, cleanup_failure = self._cleanup_runtime(
+                runtime,
+                session_id,
+                transaction,
+                record,
+            )
+            self._finish_record(
+                record,
+                outcome,
+                failure.code,
+                failure.message,
+                cleanup,
+                primary_failure=failure,
+                harness_failure=cleanup_failure,
+            )
             return
         session_id = _result_session_id(started)
         if session_id is None:
-            cleanup, cleanup_failure = self._cleanup_runtime(runtime, None, transaction, record)
-            self._finish_record(record, SmokeOutcome.HARNESS_FAILED, "DEV_SMOKE_SESSION_ID_MISSING", "DevSession start не вернул session_id", cleanup, harness_failure=SmokeFailure(code="DEV_SMOKE_SESSION_ID_MISSING", message="Невозможно связать runtime и SmokeRun"), primary_failure=None)
+            cleanup, cleanup_failure = self._cleanup_runtime(
+                runtime,
+                record.session_id,
+                transaction,
+                record,
+            )
+            self._finish_record(
+                record,
+                SmokeOutcome.HARNESS_FAILED,
+                "DEV_SMOKE_SESSION_ID_MISSING",
+                "DevSession start не вернул session_id",
+                cleanup,
+                harness_failure=SmokeFailure(
+                    code="DEV_SMOKE_SESSION_ID_MISSING",
+                    message="Невозможно связать runtime и SmokeRun",
+                ),
+                primary_failure=None,
+            )
+            return
+        if spec.game_observations is not None and not before_hook_called:
+            failure = SmokeFailure(
+                code="DEV_SMOKE_PRESTART_CHECKPOINT_MISSING",
+                message="Runtime не подтвердил before checkpoint до запуска target",
+            )
+            record = self.store.update(
+                smoke_id,
+                {"state": SmokeState.RUNNING, "session_id": session_id},
+            )
+            cleanup, cleanup_failure = self._cleanup_runtime(
+                runtime,
+                session_id,
+                transaction,
+                record,
+            )
+            self._finish_record(
+                record,
+                SmokeOutcome.HARNESS_FAILED,
+                failure.code,
+                failure.message,
+                cleanup,
+                primary_failure=failure,
+                harness_failure=cleanup_failure,
+            )
             return
         record = self.store.update(smoke_id, {"state": SmokeState.RUNNING, "session_id": session_id})
         previous_results: list[SmokeAssertionResult] = []
@@ -3094,6 +3879,18 @@ class SmokeRunManager:
                 break
             time.sleep(min(self.poll_seconds, max(0.01, (deadline - now_value).total_seconds())))
         record = self.store.update(smoke_id, {"state": SmokeState.EVALUATING})
+        final_game_ok, _final_game_details, final_game_failure = self._capture_game_checkpoint(
+            record,
+            spec,
+            "final",
+            session_id,
+        )
+        if not final_game_ok and primary_failure is None:
+            primary_outcome = SmokeOutcome.EVIDENCE_INCOMPLETE
+            primary_failure = final_game_failure or SmokeFailure(
+                code="DEV_GAME_OBSERVATION_UNAVAILABLE",
+                message="Game observations для final не подтверждены",
+            )
         record = self.store.update(smoke_id, {"state": SmokeState.CLEANING_UP})
         cleanup, cleanup_failure = self._cleanup_runtime(runtime, session_id, transaction, record)
         record = self.store.update(smoke_id, {"cleanup": cleanup})
@@ -3103,6 +3900,12 @@ class SmokeRunManager:
         else:
             final_results = previous_results
         record = self._save_progress(record, final_results, final_observed.context if final_observed.evidence_ok else None)
+        if not self._game_required_complete(record, spec) and primary_failure is None:
+            primary_outcome = SmokeOutcome.EVIDENCE_INCOMPLETE
+            primary_failure = SmokeFailure(
+                code="DEV_SMOKE_GAME_EVIDENCE_INCOMPLETE",
+                message="Обязательные game checkpoints не имеют полного known evidence",
+            )
         if cleanup_failure is not None and primary_failure is None:
             primary_outcome = SmokeOutcome.HARNESS_FAILED
             primary_failure = SmokeFailure(code=cleanup_failure.code, message=str(cleanup_failure))
@@ -3492,7 +4295,7 @@ class SmokeRunManager:
         candidate = _validate_json_model(SmokeRunRecord, _safe_model_json(candidate))
         if not isinstance(candidate, SmokeRunRecord):
             raise SmokeStoreError("DEV_SMOKE_STATE_INVALID", "Финальный SmokeRun имеет неверный тип")
-        result = SmokeResult(smoke_id=candidate.smoke_id, spec_hash=candidate.spec_hash, outcome=candidate.outcome, code=code, message=message, source=candidate.source, session_id=candidate.session_id, assertions=candidate.assertions, cleanup=candidate.cleanup, primary_failure=candidate.primary_failure, harness_failure=candidate.harness_failure, external_verdict=candidate.external_verdict, finished_at=candidate.finished_at or finished_at)
+        result = SmokeResult(smoke_id=candidate.smoke_id, spec_hash=candidate.spec_hash, outcome=candidate.outcome, code=code, message=message, source=candidate.source, session_id=candidate.session_id, target_profile=candidate.target_profile, target_identity=candidate.target_identity, assertions=candidate.assertions, cleanup=candidate.cleanup, primary_failure=candidate.primary_failure, harness_failure=candidate.harness_failure, external_verdict=candidate.external_verdict, finished_at=candidate.finished_at or finished_at)
         self.store.finish(record.smoke_id, updates, result)
         return result
 
@@ -3578,6 +4381,8 @@ class SmokeRunManager:
             "started_at": record.started_at,
             "finished_at": record.finished_at,
             "session_id": record.session_id,
+            "target_profile": record.target_profile,
+            "target_identity": record.target_identity,
             "progress": _safe_model_json(record.progress),
             "assertions": [_safe_model_json(item) for item in record.assertions],
             "cleanup": _safe_model_json(record.cleanup),
@@ -3663,6 +4468,9 @@ __all__ = [
     "SmokeControl",
     "SmokeExternalVerdict",
     "SmokeFieldSchema",
+    "SmokeGameCheckpoint",
+    "SmokeGameObservationRequest",
+    "SmokeGameObservationSpec",
     "SmokeOutcome",
     "SmokePendingEvaluation",
     "SmokeProgress",

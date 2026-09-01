@@ -11,7 +11,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from module.dev_runtime import smoke
 from module.dev_runtime import (
     ControlAction,
     DevEnvironment,
@@ -20,8 +19,15 @@ from module.dev_runtime import (
     DevSessionManager,
     RuntimeControlManager,
     RuntimeSnapshot,
+    smoke,
 )
 from module.dev_runtime.evidence import EvidenceScreenshot, GitSnapshot
+from module.dev_runtime.game_bridge import (
+    GameObservationCapture,
+    GameObservationSnapshot,
+    GameObservationStatus,
+    GameObservationStore,
+)
 from module.dev_runtime.target import DevTarget
 
 _NOW = datetime(2026, 8, 30, 9, 0, 1, tzinfo=UTC)
@@ -131,6 +137,7 @@ class _Runtime:
         self.visual = visual
         self.stopped_session_id = stopped_session_id
         self.stop_calls = 0
+        self.execution_order: list[str] = []
         self.screenshot = EvidenceScreenshot(
             DevResult(
                 True,
@@ -160,6 +167,17 @@ class _Runtime:
     def start(self, **_: object) -> DevResult:
         self.active = True
         return DevResult(True, "DEV_SESSION_STARTED", "Сессия запущена", "running", "session-1")
+
+    def start_with_pre_execution_hook(
+        self,
+        *,
+        before_process_launch,
+        **kwargs: object,
+    ) -> DevResult:
+        self.execution_order.append("before_hook")
+        before_process_launch("session-1")
+        self.execution_order.append("target_execution_side_effect")
+        return self.start(**kwargs)
 
     def status(self) -> DevResult:
         return DevResult(
@@ -272,6 +290,45 @@ class _ControlBackend:
         )
 
 
+class _SmokeGameBridge:
+    def __init__(self, execution_order: list[str] | None = None) -> None:
+        self.execution_order = execution_order
+
+    def validate_request(self, capability_id: object, parameters: object = None) -> dict[str, object]:
+        if capability_id != "synthetic" or parameters not in (None, {}):
+            raise ValueError("unexpected game observation request")
+        return {}
+
+    def capture(
+        self,
+        target: DevTarget,
+        capability_id: str,
+        parameters: object = None,
+        *,
+        checkpoint_id: str,
+        session_id: str | None,
+        smoke_id: str | None,
+        captured_at: datetime,
+    ) -> GameObservationSnapshot:
+        if capability_id != "synthetic" or parameters not in (None, {}):
+            raise ValueError("unexpected game observation request")
+        if self.execution_order is not None and checkpoint_id == "before":
+            self.execution_order.append("capture_before")
+        return GameObservationSnapshot.create(
+            GameObservationCapture(
+                status=GameObservationStatus.KNOWN,
+                source="tests.synthetic",
+                provenance={"capability_id": capability_id, "owner": "tests"},
+                payload={"checkpoint": checkpoint_id},
+            ),
+            target=target,
+            checkpoint_id=checkpoint_id,
+            session_id=session_id,
+            smoke_id=smoke_id,
+            captured_at=captured_at,
+        )
+
+
 @pytest.fixture
 def clean_source(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(smoke, "capture_git_snapshot", lambda _: _source())
@@ -295,6 +352,57 @@ def _spec(**kwargs: object) -> smoke.SmokeSpec:
     }
     values.update(kwargs)
     return smoke.SmokeSpec(**values)
+
+
+def test_smoke_runtime_owner_does_not_conflict_with_its_smoke_reservation(tmp_path: Path) -> None:
+    environment = _environment(tmp_path)
+    smoke_manager = smoke.SmokeRunManager(
+        environment,
+        supervisor_backend=_Backend(),
+        now=lambda: _NOW,
+    )
+    owned_runtime = smoke_manager._default_runtime_factory()
+    # Публичная сборка намеренно связывает менеджер внутри; здесь инъекция
+    # владельца нужна для проверки границы резервирования Smoke Harness.
+    owned_runtime._smoke_manager = SimpleNamespace(has_active_run=lambda: True)
+
+    assert owned_runtime._runtime_start_conflict() is None
+
+    regular_runtime = DevSessionManager(environment, target_locked=True)
+    # Публичная сборка намеренно связывает менеджер внутри; здесь инъекция
+    # владельца нужна для проверки межповерхностного конфликта.
+    regular_runtime._smoke_manager = SimpleNamespace(has_active_run=lambda: True)
+    conflict = regular_runtime._runtime_start_conflict()
+
+    assert conflict is not None
+    assert conflict.code == "DEV_SESSION_CONFLICT_SMOKE"
+
+
+def test_smoke_validation_fails_closed_when_game_bridge_factory_errors(
+    tmp_path: Path,
+    clean_source: None,
+) -> None:
+    def unavailable() -> object:
+        raise RuntimeError("сведения provider не должны пересекать границу проверки")
+
+    manager = smoke.SmokeRunManager(
+        _environment(tmp_path),
+        runtime_factory=lambda: _Runtime(),
+        supervisor_backend=_Backend(),
+        game_bridge_factory=unavailable,
+        now=lambda: _NOW,
+    )
+
+    result = manager.validate_smoke(
+        _spec(
+            game_observations={
+                "observations": [{"capability_id": "synthetic"}],
+            }
+        )
+    )
+
+    assert result.ok is False
+    assert result.details["issues"][0]["code"] == "DEV_SMOKE_PRECONDITION_FAILED"
 
 
 def test_smoke_spec_is_strict_canonical_and_rejects_malformed_paths() -> None:
@@ -539,6 +647,105 @@ def test_cancel_request_finishes_with_confirmed_cleanup(tmp_path: Path, clean_so
     assert result.cleanup.port_free is True
     assert runtime.stop_calls == 1
     assert manager.cancel_smoke(smoke_id).code == "DEV_SMOKE_ALREADY_FINISHED"
+
+
+def test_smoke_captures_automatic_game_boundaries(tmp_path: Path, clean_source: None) -> None:
+    manager = smoke.SmokeRunManager(
+        _environment(tmp_path),
+        runtime_factory=lambda: _Runtime(),
+        supervisor_backend=_Backend(),
+        game_bridge=_SmokeGameBridge(),
+        now=lambda: _NOW,
+    )
+    started = manager.start_smoke(
+        _spec(
+            game_observations={
+                "observations": [{"capability_id": "synthetic"}],
+            }
+        )
+    )
+    smoke_id = started.details["smoke_id"]
+
+    manager._run_supervisor(smoke_id)
+
+    result = manager.store.load_result(smoke_id)
+    assert result is not None
+    assert result.outcome is smoke.SmokeOutcome.PASS
+    observations = GameObservationStore(manager.environment, smoke_id).read()
+    assert {(item.checkpoint_id, item.capability_id) for item in observations} == {
+        ("before", "synthetic"),
+        ("final", "synthetic"),
+    }
+
+
+def test_smoke_captures_before_before_first_target_execution_side_effect(
+    tmp_path: Path,
+    clean_source: None,
+) -> None:
+    runtime = _Runtime()
+    manager = smoke.SmokeRunManager(
+        _environment(tmp_path),
+        runtime_factory=lambda: runtime,
+        supervisor_backend=_Backend(),
+        game_bridge=_SmokeGameBridge(runtime.execution_order),
+        now=lambda: _NOW,
+    )
+    started = manager.start_smoke(
+        _spec(
+            game_observations={
+                "observations": [{"capability_id": "synthetic"}],
+            }
+        )
+    )
+
+    manager._run_supervisor(started.details["smoke_id"])
+
+    required_events = {"capture_before", "target_execution_side_effect"}
+    assert required_events.issubset(runtime.execution_order), runtime.execution_order
+    assert runtime.execution_order.index("capture_before") < runtime.execution_order.index(
+        "target_execution_side_effect"
+    ), runtime.execution_order
+
+
+def test_smoke_store_error_before_checkpoint_is_a_harness_failure(
+    tmp_path: Path,
+    clean_source: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = _Runtime()
+    manager = smoke.SmokeRunManager(
+        _environment(tmp_path),
+        runtime_factory=lambda: runtime,
+        supervisor_backend=_Backend(),
+        game_bridge=_SmokeGameBridge(),
+        now=lambda: _NOW,
+    )
+    started = manager.start_smoke(
+        _spec(
+            game_observations={
+                "observations": [{"capability_id": "synthetic"}],
+            }
+        )
+    )
+    assert started.ok is True, started.as_dict()
+    original_update = manager.store.update
+
+    def fail_before_state_update(smoke_id: str, changes: dict[str, object]) -> smoke.SmokeRunRecord:
+        if changes.get("state") is smoke.SmokeState.RUNNING:
+            raise smoke.SmokeStoreError(
+                "DEV_SMOKE_STATE_WRITE_FAILED",
+                "Синтетический отказ записи состояния перед checkpoint",
+            )
+        return original_update(smoke_id, changes)
+
+    monkeypatch.setattr(manager.store, "update", fail_before_state_update)
+    manager._run_supervisor(started.details["smoke_id"])
+
+    result = manager.store.load_result(started.details["smoke_id"])
+    assert result is not None
+    assert result.outcome is smoke.SmokeOutcome.HARNESS_FAILED
+    assert result.primary_failure is not None
+    assert result.primary_failure.code == "DEV_SMOKE_STATE_WRITE_FAILED"
 
 
 def test_cancel_smoke_returns_request_for_live_supervisor(tmp_path: Path, clean_source: None) -> None:
@@ -813,7 +1020,7 @@ def test_capability_registry_rejects_duplicate_registration() -> None:
 
 
 def test_smoke_implementation_types_are_not_package_level_api() -> None:
-    import module.dev_runtime as dev_runtime
+    from module import dev_runtime
 
     assert "SmokeRunManager" not in dev_runtime.__all__
     assert not hasattr(dev_runtime, "SmokeRunManager")

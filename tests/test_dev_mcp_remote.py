@@ -21,7 +21,11 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.server.auth.provider import AccessToken
-from mcp_types import CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY
+from mcp_types import (
+    CLIENT_CAPABILITIES_META_KEY,
+    CLIENT_INFO_META_KEY,
+    PROTOCOL_VERSION_META_KEY,
+)
 
 from module.dev_mcp.adapter import DevMcpResponse
 from module.dev_mcp.remote import (
@@ -268,10 +272,17 @@ def test_remote_http_protocol_read_sequence_and_tool_auth_metadata() -> None:
                 for tool in tools
             )
 
-            for request_id, tool_name in enumerate(
-                ("dev_get_contract", "dev_preflight", "dev_list_smoke_capabilities"),
-                start=3,
-            ):
+            requests = (
+                ("dev_get_contract", {}),
+                ("dev_preflight", {}),
+                ("dev_list_smoke_capabilities", {}),
+                ("dev_list_game_observation_capabilities", {}),
+                ("dev_get_game_observation", {"capability_id": "resources", "parameters": {}}),
+                ("dev_list_database_checks", {}),
+                ("dev_run_database_check", {"check_id": "connectivity"}),
+                ("dev_list_database_repairs", {}),
+            )
+            for request_id, (tool_name, arguments) in enumerate(requests, start=3):
                 result = await client.post(
                     "/mcp",
                     headers=_headers(),
@@ -279,17 +290,13 @@ def test_remote_http_protocol_read_sequence_and_tool_auth_metadata() -> None:
                         "jsonrpc": "2.0",
                         "id": request_id,
                         "method": "tools/call",
-                        "params": {"name": tool_name, "arguments": {}},
+                        "params": {"name": tool_name, "arguments": arguments},
                     },
                 )
                 assert result.status_code == 200
                 assert result.json()["result"]["structuredContent"]["ok"] is True
 
-            assert [name for name, _ in adapter.calls] == [
-                "dev_get_contract",
-                "dev_preflight",
-                "dev_list_smoke_capabilities",
-            ]
+            assert adapter.calls == list(requests)
             assert app.state.session_manager._server_instances == {}
 
     asyncio.run(scenario())

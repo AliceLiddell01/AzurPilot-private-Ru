@@ -32,6 +32,7 @@ from module.dev_runtime import contracts as contracts_module
 from module.dev_runtime import diagnostics as diagnostics_module
 from module.dev_runtime import diagnostics as runtime_module
 from module.dev_runtime import process as process_module
+from module.dev_runtime import target as target_module
 
 
 class FakeProcessBackend:
@@ -268,6 +269,26 @@ def test_start_persists_created_starting_running_transitions(tmp_path: Path) -> 
     assert backend.launch_count == 1
 
 
+def test_pre_execution_hook_runs_before_first_process_launch(tmp_path: Path) -> None:
+    manager, backend = _manager(tmp_path)
+    events: list[str] = []
+
+    original_launch = backend.launch
+
+    def record_launch(environment: DevEnvironment, session_id: str) -> int:
+        events.append("process_launch")
+        return original_launch(environment, session_id)
+
+    backend.launch = record_launch
+    result = manager.start_with_pre_execution_hook(
+        before_process_launch=lambda _session_id: events.append("before"),
+    )
+
+    assert result.ok is True
+    assert events == ["before", "process_launch"]
+    assert manager.stop().ok is True
+
+
 def test_session_ids_are_unique_across_sequential_sessions(tmp_path: Path) -> None:
     manager, _backend = _manager(
         tmp_path,
@@ -402,6 +423,7 @@ def test_cleanup_uses_recorded_session_target_for_process_lookup(
         session_id="recorded-target-cleanup",
     )
     session.profile_name = "historical-target"
+    session.target_identity = target_module.target_identity(DevTarget("historical-target"))
     manager._write_session(session)
     calls: list[tuple[str, str]] = []
 

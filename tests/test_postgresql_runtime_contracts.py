@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import subprocess
 import sys
 from datetime import UTC, datetime
@@ -21,6 +22,7 @@ from module.persistence.config import (
     DatabaseSettings,
     migrate_legacy_backend_marker,
 )
+from module.persistence.local_environment import DEFAULT_LOCAL_ENV_PATH
 from module.persistence.schema import EXPECTED_ALEMBIC_HEAD
 from module.statistics import postgresql_stats
 from tests.import_inspection import imports_for_path
@@ -253,6 +255,115 @@ dispose_runtime_storage()
         check=False,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_database_diagnostics_builds_standalone_read_only_engine_without_production_mutation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    marker = tmp_path / DEFAULT_BACKEND_MARKER_PATH
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(json.dumps(_marker_payload()), encoding="utf-8")
+
+    class _ReadOnlyEnvironment:
+        app_passfile = "C:/secure/pgpass.conf"
+
+        def require_app_runtime_match(self, _settings: DatabaseSettings) -> None:
+            return None
+
+        def install(self, **_kwargs: object) -> None:
+            pytest.fail("Диагностический путь не должен изменять process environment.")
+
+    class _Connection:
+        def execute(self, statement: object, _parameters: object = None) -> object:
+            sql = str(statement).casefold()
+            if "show server_version_num" in sql:
+                return SimpleNamespace(scalar_one=lambda: "180000")
+            if "version_num from alembic_version" in sql:
+                return SimpleNamespace(scalars=lambda: iter([EXPECTED_ALEMBIC_HEAD]))
+            if "current_user" in sql:
+                return SimpleNamespace(scalar_one_or_none=lambda: "azurpilot_app")
+            if "select 1" in sql:
+                return SimpleNamespace(scalar_one=lambda: 1)
+            raise AssertionError(f"Неожиданный SQL в фикстуре: {sql}")
+
+    class _ConnectionContext:
+        def __enter__(self) -> _Connection:
+            return _Connection()
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    class _DiagnosticEngine:
+        def __init__(self, settings: DatabaseSettings) -> None:
+            self.settings = settings
+            self.connect_calls = 0
+            self.disposed = False
+
+        def get(self) -> _DiagnosticEngine:
+            return self
+
+        def connect(self) -> _ConnectionContext:
+            self.connect_calls += 1
+            return _ConnectionContext()
+
+        def dispose(self) -> None:
+            self.disposed = True
+
+    engines: list[_DiagnosticEngine] = []
+
+    def _engine(settings: DatabaseSettings) -> _DiagnosticEngine:
+        engine = _DiagnosticEngine(settings)
+        engines.append(engine)
+        return engine
+
+    reads: list[Path] = []
+
+    def _record_read(path: object) -> _ReadOnlyEnvironment:
+        reads.append(Path(path))
+        return _ReadOnlyEnvironment()
+
+    monkeypatch.setattr(
+        persistence_runtime,
+        "read_local_postgres_environment",
+        _record_read,
+    )
+    monkeypatch.setattr(persistence_runtime, "LazyEngine", _engine)
+    monkeypatch.setattr(persistence_runtime, "_engine", None)
+    monkeypatch.setattr(persistence_runtime, "_engine_settings", None)
+    monkeypatch.setattr(persistence_runtime, "_service", None)
+    from module.application import runtime_storage
+
+    production_provider = object()
+    monkeypatch.setattr(runtime_storage, "_provider", production_provider)
+    environment_before = dict(os.environ)
+    marker_before = marker.read_bytes()
+    legacy = tmp_path / LEGACY_BACKEND_MARKER_PATH
+    legacy.parent.mkdir(parents=True, exist_ok=True)
+    legacy.write_bytes(marker_before)
+
+    diagnostics = persistence_runtime.build_runtime_database_diagnostics(
+        SimpleNamespace(repository_root=tmp_path),
+    )
+
+    assert reads == [tmp_path / DEFAULT_LOCAL_ENV_PATH]
+    assert persistence_runtime.runtime_engine() is None
+    assert len(engines) == 1
+    assert engines[0].settings.user == "azurpilot_app"
+    assert engines[0].settings.passfile == "C:/secure/pgpass.conf"
+    assert engines[0].connect_calls == 0
+    assert diagnostics.run_check("connectivity", "fixture-target").code == "DEV_DATABASE_CONNECTED"
+    assert diagnostics.run_check("app_role", "fixture-target").code == "DEV_DATABASE_APP_ROLE_READY"
+    assert engines[0].connect_calls > 0
+    assert diagnostics.run_check("config_match", "fixture-target").code == (
+        "DEV_DATABASE_CONFIG_MATCH"
+    )
+    assert dict(os.environ) == environment_before
+    assert marker.read_bytes() == marker_before
+    assert legacy.read_bytes() == marker_before
+    assert runtime_storage._provider is production_provider
+    diagnostics.dispose()
+    assert engines[0].disposed is True
 
 
 def test_runtime_idempotency_key_is_stable_inside_observation_window():

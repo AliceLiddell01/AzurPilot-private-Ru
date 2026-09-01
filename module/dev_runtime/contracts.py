@@ -4,12 +4,18 @@ from __future__ import annotations
 
 import math
 import os
+import re
 import sys
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from pathlib import Path
 
-from module.dev_runtime.target import DevTarget, DevTargetError, DevTargetRegistry
+from module.dev_runtime.target import (
+    DevTarget,
+    DevTargetError,
+    DevTargetRegistry,
+)
+from module.dev_runtime.target import target_identity as calculate_target_identity
 
 DEV_HOST = "127.0.0.1"
 DEV_PORT = 25549
@@ -259,6 +265,32 @@ class DevSession:
     task_cleanup_required: bool = False
     task_policy_expected: bool = False
     profile_name: str | None = None
+    target_identity: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.profile_name is None:
+            if self.target_identity is not None:
+                raise ValueError("target_identity нельзя сохранить без profile_name")
+            return
+        try:
+            target = DevTarget(self.profile_name)
+        except ValueError:
+            # Оставляем прежнюю возможность создать искусственно повреждённый marker:
+            # manager должен классифицировать его как DEV_TARGET_INVALID при
+            # чтении, а не скрывать диагностику исключением конструктора.
+            if self.target_identity is not None:
+                raise ValueError("target_identity нельзя проверить для invalid profile_name") from None
+            return
+        expected = calculate_target_identity(target)
+        if self.target_identity is None:
+            # Маркеры предыдущей схемы могли содержать profile_name без identity.
+            return
+        if not isinstance(self.target_identity, str) or not re.fullmatch(
+            r"[0-9a-f]{64}", self.target_identity
+        ):
+            raise ValueError("target_identity имеет некорректный формат")
+        if self.target_identity != expected:
+            raise ValueError("target_identity не соответствует profile_name")
 
     @property
     def is_task_aware(self) -> bool:
@@ -286,6 +318,7 @@ class DevSession:
             "updated_at": self.updated_at,
             "process": self.process.as_dict() if self.process is not None else None,
             "profile_name": self.profile_name,
+            "target_identity": self.target_identity,
             "last_code": self.last_code,
             "last_message": self.last_message,
             "task_mode": self.task_mode.value,
@@ -334,6 +367,9 @@ class DevSession:
             raise ValueError("process принадлежит другому development target")
         if profile_name is None:
             profile_name = process_profile_name
+        target_identity = payload.get("target_identity")
+        if target_identity is not None and not isinstance(target_identity, str):
+            raise ValueError("target_identity должен быть строкой или null")
         try:
             state = DevSessionState(str(payload["state"]))
         except (KeyError, ValueError) as exc:
@@ -387,6 +423,7 @@ class DevSession:
             task_cleanup_required=task_cleanup_required,
             task_policy_expected=task_policy_expected,
             profile_name=profile_name,
+            target_identity=target_identity,
         )
 
 
@@ -413,6 +450,12 @@ class DevEnvironment:
     @property
     def lock_file(self) -> Path:
         return self.repository_root / "config" / "state" / "dev-runtime-session.lock"
+
+    @property
+    def pre_execution_lock_file(self) -> Path:
+        """Блокировка запуска до фиксации владения целевым процессом."""
+
+        return self.repository_root / "config" / "state" / "dev-runtime-pre-execution.lock"
 
     @property
     def log_file(self) -> Path:

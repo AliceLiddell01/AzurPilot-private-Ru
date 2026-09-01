@@ -92,6 +92,20 @@ def test_missing_marker_defaults_to_ap_without_writing_marker(tmp_path: Path) ->
     assert not (tmp_path / "config" / "state" / "dev-runtime-target.json").exists()
 
 
+def test_session_accepts_legacy_profile_without_target_identity() -> None:
+    session = DevSession(
+        session_id="missing-target-identity",
+        state=DevSessionState.STOPPED,
+        repository_root=str(Path.cwd()),
+        created_at="2026-08-31T00:00:00+00:00",
+        updated_at="2026-08-31T00:00:00+00:00",
+        profile_name=_TARGET_NAME,
+    )
+
+    assert session.profile_name == _TARGET_NAME
+    assert session.target_identity is None
+
+
 def test_target_change_requires_explicit_consent(tmp_path: Path) -> None:
     _write_profile(tmp_path, "ap")
     _write_profile(tmp_path, _TARGET_NAME)
@@ -299,6 +313,7 @@ def test_existing_session_keeps_recorded_target_after_registry_switch(
         updated_at="2026-08-31T00:00:00+00:00",
         process=identity,
         profile_name="profile-a",
+        target_identity=target_module.target_identity(DevTarget("profile-a")),
     )
     state_path = root / "config" / "state" / "dev-runtime-session.json"
     state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -330,6 +345,7 @@ def test_existing_session_keeps_recorded_target_after_registry_switch(
     restored = DevSession.from_dict(json.loads(state_path.read_text(encoding="utf-8")))
     assert restored.state is DevSessionState.STOPPED
     assert restored.profile_name == "profile-a"
+    assert restored.target_identity == target_module.target_identity(DevTarget("profile-a"))
 
 
 def test_long_lived_manager_refreshes_target_before_new_read_only_call(

@@ -13,14 +13,19 @@
     "runtime_control": true,
     "game_lifecycle": true,
     "emulator_lifecycle": true,
-    "adb_maintenance": true
+    "adb_maintenance": true,
+    "game_observations": true,
+    "database_diagnostics": true,
+    "database_repairs": false
   },
   "required_capability_families": [
     "diagnostics",
     "evidence",
     "lifecycle",
     "smoke",
-    "runtime_control"
+    "runtime_control",
+    "game",
+    "database"
   ],
   "result_outcomes": [
     "PASS",

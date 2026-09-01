@@ -10,13 +10,35 @@
 2. Создай отдельный обычный WSL2 Arch clone. Не используй linked worktree или
    другую среду для CodeRabbit review.
 3. Получи exact branch/head и base без копирования локальных secrets/config.
-   Перед запуском подтвердь `coderabbit --version` и
-   `coderabbit auth status --agent`; interactive login допускается только как
-   объективно необходимый внешний prerequisite.
-4. Перед запуском подтверди `coderabbit --version` и
-   `coderabbit review --help`. В текущей проверенной CLI help содержит
+   Перед запуском в WSL2 Arch разреши реальный executable, а не alias или
+   Windows wrapper: сначала проверь исполняемый
+   `$HOME/.local/bin/coderabbit` как regular file через `-f` и `-x`, проверь
+   resolved target и отвергни `.cmd`. Если проверка не прошла, используй
+   `type -P coderabbit`, затем снова проверь `-f`, `-x` и resolved target без
+   `.cmd`. Не используй `command -v` как источник истины: в интерактивном shell
+   он может вернуть alias или function. Сохрани найденный путь, например
+   `coderabbit_bin`, и вызывай через
+   `"$coderabbit_bin"` все проверки и review. Если executable не найден,
+   остановись как на prerequisite blocker; не переходи на другой distro,
+   Windows `.cmd` или status check.
+4. До любого `git remote set-url` или копирования remote в review-клон получи
+   canonical URL из основного checkout и PR. Нормализуй его к hosted Git URL
+   того же owner/repository без credentials, query/fragment и лишних path
+   components. Отвергни отсутствующий remote, локальный `/mnt/c/...`, `file://`,
+   UNC, URL с credentials и любой не-hosted URL. После установки только
+   проверенного URL в review-клоне `git remote get-url origin` обязан вернуть
+   тот же canonical URL; пока это не подтверждено, WSL2 clone недействителен
+   для review. Если CLI сообщает, что repository не распознан или использует
+   free allowance из-за remote, прекрати этот запуск, исправь remote и повтори
+   не более одного раза; результат первого запуска не засчитывай как
+   substantive review.
+5. Перед запуском подтверди каноническую проверку `coderabbit review --help`
+   через разрешённый путь `"$coderabbit_bin"`, а также
+   `"$coderabbit_bin" --version`,
+   `"$coderabbit_bin" auth status --agent` и
+   `"$coderabbit_bin" review --help`. В текущей проверенной CLI help содержит
    `--committed`; её canonical example для committed diff:
-   `coderabbit review --agent --committed --base-commit <base-sha>`.
+   `"$coderabbit_bin" review --agent --committed --base-commit <base-sha>`.
    Версия внешнего CLI не закреплена в репозитории, поэтому permanent contract
    не закрепляет mutable spelling внешних flags: reviewer
    должен работать в agent mode, использовать committed-only review scope и

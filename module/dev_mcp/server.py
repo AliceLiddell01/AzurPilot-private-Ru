@@ -12,7 +12,15 @@ from typing import Any
 import anyio
 from mcp.server.lowlevel import NotificationOptions, Server
 from mcp.server.stdio import stdio_server
-from mcp.types import CallToolRequestParams, CallToolResult, ImageContent, ListToolsResult, TextContent, Tool, ToolAnnotations
+from mcp.types import (
+    CallToolRequestParams,
+    CallToolResult,
+    ImageContent,
+    ListToolsResult,
+    TextContent,
+    Tool,
+    ToolAnnotations,
+)
 
 from module.dev_mcp.adapter import DEV_MCP_TOOL_NAMES, DevMcpAdapter, DevMcpResponse
 from module.dev_mcp.contract import DEV_MCP_API_VERSION
@@ -42,6 +50,9 @@ _NO_ARGUMENT_TOOLS = frozenset(
         "dev_stop_emulator",
         "dev_restart_emulator",
         "dev_restart_adb",
+        "dev_list_game_observation_capabilities",
+        "dev_list_database_checks",
+        "dev_list_database_repairs",
     }
 )
 
@@ -116,6 +127,87 @@ _SMOKE_EVALUATION_INPUT = {
         "rationale": {"type": "string", "minLength": 1, "maxLength": 1024},
     },
     "required": ["smoke_id", "assertion_id", "verdict", "rationale"],
+    "additionalProperties": False,
+}
+_GAME_OBSERVATION_INPUT = {
+    "type": "object",
+    "properties": {
+        "session_id": _SESSION_ID,
+        "capability_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+        },
+        "parameters": {
+            "type": "object",
+            "maxProperties": 16,
+            "patternProperties": {
+                r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$": {
+                    "type": ["string", "integer", "number", "boolean", "array", "object", "null"],
+                },
+            },
+            "additionalProperties": False,
+        },
+    },
+    "required": ["capability_id"],
+    "additionalProperties": False,
+}
+_SMOKE_CHECKPOINT_INPUT = {
+    "type": "object",
+    "properties": {
+        "smoke_id": _SMOKE_ID_INPUT["properties"]["smoke_id"],
+        "checkpoint_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+            "not": {"enum": ["before", "final"]},
+        },
+    },
+    "required": ["smoke_id", "checkpoint_id"],
+    "additionalProperties": False,
+}
+_SMOKE_OBSERVATIONS_INPUT = {
+    "type": "object",
+    "properties": {
+        "smoke_id": _SMOKE_ID_INPUT["properties"]["smoke_id"],
+        "checkpoint_id": {
+            "type": ["string", "null"],
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+        },
+    },
+    "required": ["smoke_id"],
+    "additionalProperties": False,
+}
+_DATABASE_CHECK_INPUT = {
+    "type": "object",
+    "properties": {
+        "session_id": _SESSION_ID,
+        "check_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+        },
+    },
+    "required": ["check_id"],
+    "additionalProperties": False,
+}
+_DATABASE_REPAIR_INPUT = {
+    "type": "object",
+    "properties": {
+        "session_id": _SESSION_ID,
+        "repair_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+        },
+    },
+    "required": ["repair_id"],
     "additionalProperties": False,
 }
 _CONTROL_ID_INPUT = {
@@ -226,6 +318,15 @@ def tool_definitions() -> list[Tool]:
         "dev_cancel_smoke": "Сохранить проверенный запрос отмены для конкретного SmokeRun и его supervisor.",
         "dev_get_smoke_evaluation": "Получить замороженную визуальную рубрику и точный сохранённый снимок экрана для внешней оценки.",
         "dev_submit_smoke_evaluation": "Добавить один неизменяемый внешний вердикт к ожидающему SmokeRun.",
+        "dev_list_game_observation_capabilities": "Получить каталог game observation capabilities, привязанных к target, только для чтения.",
+        "dev_get_game_observation": "Получить ограниченное типизированное observation назначенного game target через application bridge.",
+        "dev_capture_smoke_game_checkpoint": "Сохранить объявленный промежуточный game checkpoint конкретного SmokeRun.",
+        "dev_get_smoke_game_observations": "Получить ограниченные game observations конкретного SmokeRun и проверить их полноту.",
+        "dev_get_database_status": "Получить сводку фиксированной developer-only диагностики PostgreSQL.",
+        "dev_list_database_checks": "Получить каталог разрешённых read-only проверок PostgreSQL.",
+        "dev_run_database_check": "Запустить одну разрешённую read-only проверку PostgreSQL.",
+        "dev_list_database_repairs": "Получить каталог зарегистрированных безопасных восстановлений базы данных.",
+        "dev_preview_database_repair": "Проверить наличие зарегистрированного восстановления базы данных без выполнения.",
         "dev_get_runtime_status": "Получить bounded read-only состояние эмулятора, ADB и приложения без создания full Device.",
         "dev_start_game": "Асинхронно запустить приложение через существующий AppControl backend.",
         "dev_stop_game": "Асинхронно остановить приложение через существующий AppControl backend.",
@@ -250,10 +351,16 @@ def tool_definitions() -> list[Tool]:
         "dev_cancel_smoke": _SMOKE_ID_INPUT,
         "dev_get_smoke_evaluation": _SMOKE_ID_INPUT,
         "dev_submit_smoke_evaluation": _SMOKE_EVALUATION_INPUT,
+        "dev_get_game_observation": _GAME_OBSERVATION_INPUT,
+        "dev_capture_smoke_game_checkpoint": _SMOKE_CHECKPOINT_INPUT,
+        "dev_get_smoke_game_observations": _SMOKE_OBSERVATIONS_INPUT,
+        "dev_get_database_status": _SESSION_INPUT,
+        "dev_run_database_check": _DATABASE_CHECK_INPUT,
+        "dev_preview_database_repair": _DATABASE_REPAIR_INPUT,
         "dev_get_control_operation": _CONTROL_ID_INPUT,
     }
     mutating = {"dev_start_session", "dev_stop_session", "dev_cleanup", "dev_recover", "dev_cancel_smoke", "dev_start_smoke"}
-    additive = {"dev_get_evidence", "dev_get_logs", "dev_get_screenshot", "dev_submit_smoke_evaluation"}
+    additive = {"dev_get_evidence", "dev_get_logs", "dev_get_screenshot", "dev_submit_smoke_evaluation", "dev_capture_smoke_game_checkpoint"}
     control_annotations = {
         "dev_start_game": _CONTROL_START,
         "dev_start_emulator": _CONTROL_START,
