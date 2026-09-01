@@ -82,8 +82,9 @@ Developer-only capability `Game` публикуется через одност�
 persistence-backed morale projection. Game MCP, MCP-to-MCP loopback, второй
 game domain и обратная зависимость application от Dev Runtime запрещены.
 Диагностика базы данных использует фиксированный read-only catalog поверх
-общего lazy PostgreSQL engine/UoW; arbitrary SQL, dump, secrets и Alembic
-mutation не выдаются. Пустой repair catalog является допустимым честным
+отдельного process-local lazy PostgreSQL engine/UoW, собранного из canonical
+marker и app passfile без production bootstrap/provider и `os.environ` mutation;
+arbitrary SQL, dump, secrets и Alembic mutation не выдаются. Пустой repair catalog является допустимым честным
 результатом.
 
 ## Статистика

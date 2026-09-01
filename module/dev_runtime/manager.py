@@ -169,8 +169,21 @@ class DevSessionManager(DevDiagnosticsMixin):
         self._evidence_store = None
         self._smoke_manager = None
         self._control_manager = None
+        self._dispose_resource(self._game_bridge)
+        self._dispose_resource(self._database_diagnostics)
         self._game_bridge = None
         self._database_diagnostics = None
+
+    @staticmethod
+    def _dispose_resource(resource: object | None) -> None:
+        """Освободить process-local facade, если он предоставляет lifecycle hook."""
+
+        disposer = getattr(resource, "dispose", None)
+        if callable(disposer):
+            try:
+                disposer()
+            except Exception:  # noqa: BLE001, S110 - смена target не должна падать из-за cleanup facade.
+                pass
 
     def _session_profile_name(self, session: DevSession) -> str | None:
         return session.profile_name or (
@@ -2064,6 +2077,7 @@ class DevSessionManager(DevDiagnosticsMixin):
         *,
         root_tasks: Iterable[str] | str | None = None,
         excluded_tasks: Iterable[str] | str | None = None,
+        before_process_launch: Callable[[str], None] | None = None,
     ) -> DevResult:
         try:
             self._refresh_target()
@@ -2072,16 +2086,38 @@ class DevSessionManager(DevDiagnosticsMixin):
         task_aware = root_tasks is not None or excluded_tasks is not None
         if not task_aware:
             try:
-                return self._start_core()
+                return self._start_core(before_process_launch=before_process_launch)
             except RuntimeCoordinationError as exc:
                 return self._coordination_error(exc)
         plan, plan_result = self._build_task_plan(root_tasks, excluded_tasks)
         if plan is None:
             return plan_result
         try:
-            return self._start_core(plan)
+            return self._start_core(plan, before_process_launch=before_process_launch)
         except RuntimeCoordinationError as exc:
             return self._coordination_error(exc)
+
+    def start_with_pre_execution_hook(
+        self,
+        *,
+        root_tasks: Iterable[str] | str | None = None,
+        excluded_tasks: Iterable[str] | str | None = None,
+        before_process_launch: Callable[[str], None],
+    ) -> DevResult:
+        """Запустить DevSession с callback до первого запуска target process."""
+
+        if not callable(before_process_launch):
+            return DevResult(
+                ok=False,
+                code="DEV_SMOKE_PRESTART_HOOK_INVALID",
+                message="Pre-execution callback DevSession некорректен",
+                state=DevStatusKind.FAILED.value,
+            )
+        return self.start(
+            root_tasks=root_tasks,
+            excluded_tasks=excluded_tasks,
+            before_process_launch=before_process_launch,
+        )
 
     def _runtime_start_conflict(self) -> DevResult | None:
         """Проверить durable reservations control и Smoke под общей lock."""
@@ -2115,7 +2151,12 @@ class DevSessionManager(DevDiagnosticsMixin):
             )
         return None
 
-    def _start_core(self, task_plan: TaskPlan | None = None) -> DevResult:
+    def _start_core(
+        self,
+        task_plan: TaskPlan | None = None,
+        *,
+        before_process_launch: Callable[[str], None] | None = None,
+    ) -> DevResult:
         preflight = self.preflight()
         if not preflight.ok:
             return DevResult(
@@ -2234,6 +2275,8 @@ class DevSessionManager(DevDiagnosticsMixin):
             pid: int | None = None
             launched_identity: ProcessIdentity | None = None
             try:
+                if before_process_launch is not None:
+                    before_process_launch(session.session_id)
                 pid = self.process_backend.launch(self.environment, session.session_id)
                 identity = self.process_backend.capture(pid)
                 if identity is None:

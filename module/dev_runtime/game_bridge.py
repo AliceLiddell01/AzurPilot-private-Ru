@@ -720,6 +720,7 @@ class DevGameBridge:
         *,
         game_read_service_factory: Callable[[], GameReadService] | None = None,
         morale_service_factory: Callable[[], object] | None = None,
+        dispose_callback: Callable[[], None] | None = None,
     ) -> None:
         if registry is not None and (game_read_service_factory is not None or morale_service_factory is not None):
             raise ValueError("registry нельзя совмещать с provider factories")
@@ -731,6 +732,15 @@ class DevGameBridge:
                 providers.append(MoraleObservationProvider(morale_service_factory))
             registry = GameObservationRegistry(providers)
         self.registry = registry
+        self._dispose_callback = dispose_callback
+
+    def dispose(self) -> None:
+        """Освободить принадлежащую bridge read-only persistence composition."""
+
+        callback = self._dispose_callback
+        self._dispose_callback = None
+        if callback is not None:
+            callback()
 
     def descriptors(self) -> tuple[GameObservationCapability, ...]:
         return self.registry.descriptors()
@@ -943,11 +953,11 @@ def build_runtime_game_bridge(
     *,
     clock: Callable[[], datetime] | None = None,
 ) -> DevGameBridge:
-    """Собрать bridge на существующих application adapters и persistence root.
+    """Собрать bridge на существующих application adapters и read-only persistence root.
 
     Сборка не создаёт Device и не открывает PostgreSQL connection. Legacy
     generated sources читаются только для типизированной projection; morale
-    factory поднимает общий lazy persistence composition root при первом
+    factory поднимает отдельный lazy app-role composition при первом
     фактическом observation.
     """
 
@@ -967,10 +977,9 @@ def build_runtime_game_bridge(
     )
     from module.application.morale import MoraleService
     from module.persistence.runtime import (
-        bootstrap_runtime_storage,
-        runtime_engine,
+        ReadOnlyPersistenceComposition,
+        build_read_only_persistence_composition,
     )
-    from module.persistence.unit_of_work import PostgresUnitOfWork
 
     metadata = GeneratedTaskCatalogAdapter.from_generated_sources()
     instance_reader = LegacyInstanceRuntimeAdapter()
@@ -982,21 +991,26 @@ def build_runtime_game_bridge(
         metadata,
     )
 
+    composition: ReadOnlyPersistenceComposition | None = None
+
     def morale_service_factory() -> MoraleService:
-        # Канонический composition root собирает общий lazy engine без health
-        # query; первый фактический observation открывает только свой UoW.
-        bootstrap_runtime_storage(require_ready=False)
-        engine = runtime_engine()
-        if engine is None:
-            raise RuntimeError("Общий persistence Engine не собран")
-        return MoraleService(
-            lambda: PostgresUnitOfWork(engine),
-            clock=clock,
-        )
+        nonlocal composition
+        if composition is None:
+            composition = build_read_only_persistence_composition(environment)
+        if composition.engine is None:
+            raise RuntimeError("Read-only persistence Engine не собран")
+        return MoraleService(composition.uow_factory, clock=clock)
+
+    def dispose_read_only_persistence() -> None:
+        nonlocal composition
+        if composition is not None:
+            composition.dispose()
+            composition = None
 
     return DevGameBridge(
         game_read_service_factory=lambda: game_read_service,
         morale_service_factory=morale_service_factory,
+        dispose_callback=dispose_read_only_persistence,
     )
 
 

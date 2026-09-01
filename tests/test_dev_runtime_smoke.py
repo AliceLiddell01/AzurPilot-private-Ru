@@ -137,6 +137,7 @@ class _Runtime:
         self.visual = visual
         self.stopped_session_id = stopped_session_id
         self.stop_calls = 0
+        self.execution_order: list[str] = []
         self.screenshot = EvidenceScreenshot(
             DevResult(
                 True,
@@ -166,6 +167,17 @@ class _Runtime:
     def start(self, **_: object) -> DevResult:
         self.active = True
         return DevResult(True, "DEV_SESSION_STARTED", "Сессия запущена", "running", "session-1")
+
+    def start_with_pre_execution_hook(
+        self,
+        *,
+        before_process_launch,
+        **kwargs: object,
+    ) -> DevResult:
+        self.execution_order.append("before_hook")
+        before_process_launch("session-1")
+        self.execution_order.append("target_execution_side_effect")
+        return self.start(**kwargs)
 
     def status(self) -> DevResult:
         return DevResult(
@@ -279,6 +291,9 @@ class _ControlBackend:
 
 
 class _SmokeGameBridge:
+    def __init__(self, execution_order: list[str] | None = None) -> None:
+        self.execution_order = execution_order
+
     def validate_request(self, capability_id: object, parameters: object = None) -> dict[str, object]:
         if capability_id != "synthetic" or parameters not in (None, {}):
             raise ValueError("unexpected game observation request")
@@ -297,6 +312,8 @@ class _SmokeGameBridge:
     ) -> GameObservationSnapshot:
         if capability_id != "synthetic" or parameters not in (None, {}):
             raise ValueError("unexpected game observation request")
+        if self.execution_order is not None and checkpoint_id == "before":
+            self.execution_order.append("capture_before")
         return GameObservationSnapshot.create(
             GameObservationCapture(
                 status=GameObservationStatus.KNOWN,
@@ -659,6 +676,33 @@ def test_smoke_captures_automatic_game_boundaries(tmp_path: Path, clean_source: 
         ("before", "synthetic"),
         ("final", "synthetic"),
     }
+
+
+def test_smoke_captures_before_before_first_target_execution_side_effect(
+    tmp_path: Path,
+    clean_source: None,
+) -> None:
+    runtime = _Runtime()
+    manager = smoke.SmokeRunManager(
+        _environment(tmp_path),
+        runtime_factory=lambda: runtime,
+        supervisor_backend=_Backend(),
+        game_bridge=_SmokeGameBridge(runtime.execution_order),
+        now=lambda: _NOW,
+    )
+    started = manager.start_smoke(
+        _spec(
+            game_observations={
+                "observations": [{"capability_id": "synthetic"}],
+            }
+        )
+    )
+
+    manager._run_supervisor(started.details["smoke_id"])
+
+    assert runtime.execution_order.index("capture_before") < runtime.execution_order.index(
+        "target_execution_side_effect"
+    )
 
 
 def test_cancel_smoke_returns_request_for_live_supervisor(tmp_path: Path, clean_source: None) -> None:

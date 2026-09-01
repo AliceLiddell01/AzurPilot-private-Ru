@@ -2711,7 +2711,19 @@ class SmokeRunManager:
             self.environment = replace(self.environment, dev_target=target)
             self.store = SmokeStateStore(self.environment, now=self.now)
             self._registry = None
+            self._dispose_resource(self._game_bridge)
             self._game_bridge = None
+
+    @staticmethod
+    def _dispose_resource(resource: object | None) -> None:
+        """Освободить process-local bridge при смене immutable target."""
+
+        disposer = getattr(resource, "dispose", None)
+        if callable(disposer):
+            try:
+                disposer()
+            except Exception:  # noqa: BLE001, S110 - смена target не должна падать из-за cleanup bridge.
+                pass
 
     def _config_registry(self) -> ConfigRegistry:
         registry = self._registry
@@ -3662,34 +3674,143 @@ class SmokeRunManager:
         )
         transaction.apply()
         record = self.store.load(smoke_id)
-        started = runtime.start(root_tasks=list(spec.session.root_tasks), excluded_tasks=list(spec.session.excluded_tasks))
+        before_hook_called = False
+        before_failure: SmokeFailure | None = None
+
+        def capture_before(session_id: str) -> None:
+            nonlocal before_hook_called, before_failure, record
+            before_hook_called = True
+            record = self.store.update(
+                smoke_id,
+                {"state": SmokeState.RUNNING, "session_id": session_id},
+            )
+            before_ok, _before_details, before_failure = self._capture_game_checkpoint(
+                record,
+                spec,
+                "before",
+                session_id,
+            )
+            if not before_ok:
+                raise RuntimeError("Smoke before checkpoint не подтверждён")
+
+        if spec.game_observations is None:
+            started = runtime.start(
+                root_tasks=list(spec.session.root_tasks),
+                excluded_tasks=list(spec.session.excluded_tasks),
+            )
+        else:
+            start_with_hook = getattr(runtime, "start_with_pre_execution_hook", None)
+            if not callable(start_with_hook):
+                started = DevResult(
+                    ok=False,
+                    code="DEV_SMOKE_PRESTART_HOOK_UNSUPPORTED",
+                    message="Runtime не предоставляет обязательный pre-execution checkpoint hook",
+                    state=DevStatusKind.FAILED.value,
+                )
+            else:
+                try:
+                    started = start_with_hook(
+                        root_tasks=list(spec.session.root_tasks),
+                        excluded_tasks=list(spec.session.excluded_tasks),
+                        before_process_launch=capture_before,
+                    )
+                except Exception as exc:  # noqa: BLE001 — старт завершается fail-closed.
+                    started = DevResult(
+                        ok=False,
+                        code="DEV_SMOKE_PRESTART_HOOK_FAILED",
+                        message="Pre-execution checkpoint не выполнен",
+                        state=DevStatusKind.FAILED.value,
+                        details={"error": type(exc).__name__},
+                    )
         if not _result_ok(started):
-            failure = SmokeFailure(code=str(getattr(started, "code", "DEV_SMOKE_SESSION_START_FAILED")), message="DevSession не смогла запуститься")
-            cleanup, cleanup_failure = self._cleanup_runtime(runtime, None, transaction, record)
-            self._finish_record(record, SmokeOutcome.PRECONDITION_FAILED, failure.code, failure.message, cleanup, primary_failure=failure, harness_failure=cleanup_failure)
+            record = self.store.load(smoke_id)
+            session_id = _result_session_id(started) or record.session_id
+            failure = before_failure or SmokeFailure(
+                code=str(
+                    getattr(started, "code", "DEV_SMOKE_SESSION_START_FAILED")
+                ),
+                message=(
+                    "Pre-execution checkpoint не подтверждён"
+                    if before_failure is not None
+                    else "DevSession не смогла запуститься"
+                ),
+            )
+            outcome = (
+                SmokeOutcome.EVIDENCE_INCOMPLETE
+                if before_failure is not None
+                else (
+                    SmokeOutcome.HARNESS_FAILED
+                    if failure.code.startswith("DEV_SMOKE_PRESTART_HOOK_")
+                    else SmokeOutcome.PRECONDITION_FAILED
+                )
+            )
+            cleanup, cleanup_failure = self._cleanup_runtime(
+                runtime,
+                session_id,
+                transaction,
+                record,
+            )
+            self._finish_record(
+                record,
+                outcome,
+                failure.code,
+                failure.message,
+                cleanup,
+                primary_failure=failure,
+                harness_failure=cleanup_failure,
+            )
             return
         session_id = _result_session_id(started)
         if session_id is None:
-            cleanup, cleanup_failure = self._cleanup_runtime(runtime, None, transaction, record)
-            self._finish_record(record, SmokeOutcome.HARNESS_FAILED, "DEV_SMOKE_SESSION_ID_MISSING", "DevSession start не вернул session_id", cleanup, harness_failure=SmokeFailure(code="DEV_SMOKE_SESSION_ID_MISSING", message="Невозможно связать runtime и SmokeRun"), primary_failure=None)
+            cleanup, cleanup_failure = self._cleanup_runtime(
+                runtime,
+                record.session_id,
+                transaction,
+                record,
+            )
+            self._finish_record(
+                record,
+                SmokeOutcome.HARNESS_FAILED,
+                "DEV_SMOKE_SESSION_ID_MISSING",
+                "DevSession start не вернул session_id",
+                cleanup,
+                harness_failure=SmokeFailure(
+                    code="DEV_SMOKE_SESSION_ID_MISSING",
+                    message="Невозможно связать runtime и SmokeRun",
+                ),
+                primary_failure=None,
+            )
+            return
+        if spec.game_observations is not None and not before_hook_called:
+            failure = SmokeFailure(
+                code="DEV_SMOKE_PRESTART_CHECKPOINT_MISSING",
+                message="Runtime не подтвердил before checkpoint до запуска target",
+            )
+            record = self.store.update(
+                smoke_id,
+                {"state": SmokeState.RUNNING, "session_id": session_id},
+            )
+            cleanup, cleanup_failure = self._cleanup_runtime(
+                runtime,
+                session_id,
+                transaction,
+                record,
+            )
+            self._finish_record(
+                record,
+                SmokeOutcome.HARNESS_FAILED,
+                failure.code,
+                failure.message,
+                cleanup,
+                primary_failure=failure,
+                harness_failure=cleanup_failure,
+            )
             return
         record = self.store.update(smoke_id, {"state": SmokeState.RUNNING, "session_id": session_id})
         previous_results: list[SmokeAssertionResult] = []
         primary_failure: SmokeFailure | None = None
         primary_outcome: SmokeOutcome | None = None
         pending_visual = record.pending_evaluation
-        before_ok, _before_details, before_failure = self._capture_game_checkpoint(
-            record,
-            spec,
-            "before",
-            session_id,
-        )
-        if not before_ok:
-            primary_outcome = SmokeOutcome.EVIDENCE_INCOMPLETE
-            primary_failure = before_failure or SmokeFailure(
-                code="DEV_GAME_OBSERVATION_UNAVAILABLE",
-                message="Game observations для before не подтверждены",
-            )
         while True:
             if primary_failure is not None:
                 break

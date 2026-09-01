@@ -1,4 +1,4 @@
-"""Фиксированная developer-only диагностика PostgreSQL поверх существующих Engine/UoW."""
+"""Фиксированная developer-only диагностика PostgreSQL поверх lazy Engine/UoW."""
 
 from __future__ import annotations
 
@@ -101,11 +101,28 @@ class PostgresDatabaseDiagnostics:
         marker_ready: bool,
         schema_marker_version: int | None,
         config_match: bool,
+        dispose_callback: Callable[[], None] | None = None,
     ) -> None:
         self._engine = engine
         self._marker_ready = marker_ready
         self._schema_marker_version = schema_marker_version
         self._config_match = config_match
+        self._dispose_callback = dispose_callback
+
+    def dispose(self) -> None:
+        """Освободить диагностический Engine, если он принадлежит этому facade."""
+
+        engine = self._engine
+        self._engine = None
+        callback = self._dispose_callback
+        self._dispose_callback = None
+        if callback is not None:
+            callback()
+            return
+        if engine is not None:
+            disposer = getattr(engine, "dispose", None)
+            if callable(disposer):
+                disposer()
 
     def list_checks(self) -> tuple[DatabaseCheckDescriptor, ...]:
         return _DESCRIPTORS

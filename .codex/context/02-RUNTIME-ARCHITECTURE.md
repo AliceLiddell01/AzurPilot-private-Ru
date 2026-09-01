@@ -185,9 +185,10 @@ Harness сохраняет `before`, `final` и объявленные пром�
 
 Диагностика базы данных принадлежит persistence adapter, но наружу выходит
 через типизированный `module.application` port и фиксированный read-only
-catalog. Она использует общий lazy engine/health/UoW composition root, не
-создаёт второй global engine и не принимает arbitrary SQL, dump или Alembic
-mutation. Repair catalog может быть пустым, если безопасного
+catalog. Она использует отдельный process-local lazy app-role engine/health/UoW
+composition для developer diagnostics, не запускает production bootstrap и не
+создаёт global provider. Явный lifecycle позволяет dispose диагностического
+engine; arbitrary SQL, dump или Alembic mutation по-прежнему запрещены. Repair catalog может быть пустым, если безопасного
 зарегистрированного repair нет.
 
 Не фиксировать в документации точное количество инструментов: оно меняется. Источник истины — регистрация tools в текущем коде.

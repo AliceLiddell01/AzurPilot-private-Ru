@@ -279,9 +279,11 @@ symlink/junction. Состояния выполнения (`created`, `preparing
 
 Длительная часть запускается отдельным Python проекта через
 `module.dev_runtime.smoke_supervisor`; команда, рабочий каталог и личность
-исполняемого файла проверяются точно. Supervisor вызывает обычный
-`DevSessionManager.start()` с Task Sandbox и читает runtime только через
-публичные API Evidence API `evidence`, `timeline`, `logs`, `status` и снимка экрана.
+исполняемого файла проверяются точно. Для game-backed Smoke supervisor вызывает
+`DevSessionManager.start_with_pre_execution_hook()` с Task Sandbox: callback
+фиксирует `before` после target/task preparation и до первого запуска target
+process. Runtime читается только через публичные API Evidence API `evidence`,
+`timeline`, `logs`, `status` и снимка экрана.
 Он не вызывает gameplay handlers, `Device`, production MCP или raw scheduler.
 После ошибки сначала сохраняется первичная ошибка продукта, затем выполняются
 stop, очистка Task Sandbox, сброс scheduler, восстановление только объявленных
@@ -346,7 +348,11 @@ provenance. Supervisor автоматически сохраняет `before` и
 `reject`/`keep_first`, а missing, unknown или unavailable required observation
 блокирует `PASS`.
 
-Developer-only диагностика PostgreSQL использует фиксированный read-only catalog:
+Developer-only диагностика PostgreSQL использует фиксированный read-only catalog
+и standalone lazy app-role composition, собранный из canonical marker и
+защищённого app passfile. Этот контекст не запускает legacy marker migration,
+не меняет `os.environ`, production global Engine/provider и имеет явный
+`dispose` lifecycle. Каталог содержит:
 marker, connectivity, app role, Alembic current/head, schema marker, configured
 target resolution, required tables, bounded domain consistency, transaction и
 config mismatch. Вход не принимает SQL, table/column name, dump, secret или

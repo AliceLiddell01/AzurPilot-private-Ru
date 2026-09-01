@@ -95,6 +95,7 @@ class DatabaseSettings:
     sslmode: str = "verify-full"
     runtime_timezone: str = "UTC"
     pool: PoolSettings = field(default_factory=PoolSettings)
+    passfile: str | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         for label, value in (
@@ -122,6 +123,10 @@ class DatabaseSettings:
             raise StorageConfigurationError(
                 "Часовой пояс production runtime некорректен."
             ) from exc
+        if self.passfile is not None and (
+            not isinstance(self.passfile, str) or not self.passfile
+        ):
+            raise StorageConfigurationError("Путь PostgreSQL passfile некорректен.")
 
     def sqlalchemy_url(self) -> URL:
         return URL.create(
@@ -136,6 +141,8 @@ class DatabaseSettings:
     def connect_args(self) -> dict[str, object]:
         args: dict[str, object] = {"connect_timeout": self.connect_timeout_seconds}
         args["sslmode"] = self.sslmode
+        if self.passfile is not None:
+            args["passfile"] = self.passfile
         return args
 
     @classmethod

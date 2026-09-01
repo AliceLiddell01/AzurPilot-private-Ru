@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
@@ -76,6 +76,106 @@ class RuntimeFleetManualScanContext:
     coordinator: FleetManualScanCoordinator
 
 
+@dataclass(slots=True)
+class ReadOnlyPersistenceComposition:
+    """Локальный ленивый persistence context для чтения developer surface."""
+
+    engine: LazyEngine | None
+    marker_ready: bool
+    marker_head: str | None
+    schema_marker_version: int | None
+    config_match: bool
+    _disposed: bool = False
+
+    def uow_factory(self) -> PostgresUnitOfWork:
+        if self._disposed or self.engine is None:
+            raise StorageConfigurationError(
+                "Read-only persistence composition недоступна."
+            )
+        return PostgresUnitOfWork(self.engine)
+
+    def dispose(self) -> None:
+        if self._disposed:
+            return
+        self._disposed = True
+        if self.engine is not None:
+            self.engine.dispose()
+
+
+def build_read_only_persistence_composition(
+    environment: object,
+) -> ReadOnlyPersistenceComposition:
+    """Собрать отдельный lazy app-role context без production bootstrap side effects."""
+
+    repository_root = getattr(environment, "repository_root", None)
+    if repository_root is None:
+        raise TypeError("environment должен содержать repository_root")
+    repository_root = Path(repository_root).resolve()
+    settings, marker_head, schema_marker_version = load_backend_marker_for_diagnostics(
+        repository_root / DEFAULT_BACKEND_MARKER_PATH
+    )
+    marker_ready = (
+        marker_head == EXPECTED_ALEMBIC_HEAD
+        and schema_marker_version == BACKEND_MARKER_VERSION
+    )
+    composition_metadata = {
+        "marker_ready": marker_ready,
+        "marker_head": marker_head,
+        "schema_marker_version": schema_marker_version,
+    }
+    try:
+        local_environment = read_local_postgres_environment(
+            repository_root / DEFAULT_LOCAL_ENV_PATH
+        )
+    except Exception as exc:  # noqa: BLE001 - read-only diagnostics сохраняют marker metadata.
+        _LOGGER.warning(
+            "Чтение локальной конфигурации read-only persistence завершилось недоступностью: %s",
+            type(exc).__name__,
+        )
+        return ReadOnlyPersistenceComposition(
+            engine=None,
+            config_match=False,
+            **composition_metadata,
+        )
+    if local_environment is None:
+        return ReadOnlyPersistenceComposition(
+            engine=None,
+            config_match=False,
+            **composition_metadata,
+        )
+
+    try:
+        local_environment.require_app_runtime_match(settings)
+        settings = replace(settings, passfile=local_environment.app_passfile)
+    except Exception as exc:  # noqa: BLE001 - mismatch не должен раскрывать детали env.
+        _LOGGER.warning(
+            "Проверка app contract read-only persistence завершилась недоступностью: %s",
+            type(exc).__name__,
+        )
+        return ReadOnlyPersistenceComposition(
+            engine=None,
+            config_match=False,
+            **composition_metadata,
+        )
+    try:
+        engine = LazyEngine(settings)
+    except Exception as exc:  # noqa: BLE001 - сборка engine завершается fail-closed.
+        _LOGGER.warning(
+            "Сборка lazy read-only persistence Engine завершилась недоступностью: %s",
+            type(exc).__name__,
+        )
+        return ReadOnlyPersistenceComposition(
+            engine=None,
+            config_match=True,
+            **composition_metadata,
+        )
+    return ReadOnlyPersistenceComposition(
+        engine=engine,
+        config_match=True,
+        **composition_metadata,
+    )
+
+
 def bootstrap_runtime_storage(
     marker_path: str | Path = DEFAULT_BACKEND_MARKER_PATH,
     *,
@@ -136,58 +236,37 @@ def runtime_engine() -> LazyEngine | None:
 def build_runtime_database_diagnostics(
     environment: object,
 ) -> PostgresDatabaseDiagnostics:
-    """Собрать developer-only diagnostics из canonical marker и общего Engine.
+    """Собрать standalone developer-only diagnostics из read-only composition.
 
     Функция не выполняет запросов при сборке, не изменяет Alembic marker или
-    process environment и не создаёт новый global Engine. Если marker/config
-    contract не подтверждён либо общий Engine ещё не собран обычным runtime
-    composition root, diagnostics сохраняет каталог, но выдаёт безопасный
-    UNAVAILABLE/FAIL вместо попытки подобрать другое подключение.
+    process environment и не трогает production global Engine/provider. Запросы
+    используют отдельный lazy app-role Engine, если canonical marker и локальный
+    app passfile прошли структурную проверку.
     """
 
     repository_root = getattr(environment, "repository_root", None)
     if repository_root is None:
         raise TypeError("environment должен содержать repository_root")
-    repository_root = Path(repository_root).resolve()
-    marker_ready = False
-    marker_head: str | None = None
-    schema_marker_version: int | None = None
-    config_match = False
-    engine: LazyEngine | None = None
     try:
-        settings, marker_head, schema_marker_version = load_backend_marker_for_diagnostics(
-            repository_root / DEFAULT_BACKEND_MARKER_PATH
-        )
-        marker_ready = (
-            marker_head == EXPECTED_ALEMBIC_HEAD
-            and schema_marker_version == BACKEND_MARKER_VERSION
-        )
-        local_environment = read_local_postgres_environment(
-            repository_root / DEFAULT_LOCAL_ENV_PATH
-        )
-        if local_environment is not None:
-            local_environment.require_app_runtime_match(settings)
-            config_match = True
-        with _lock:
-            if marker_ready and _engine is not None and _engine_settings == settings:
-                engine = _engine
-            else:
-                # Не переориентировать живой process-local Engine на новый
-                # marker и не создавать его из диагностического пути: активные
-                # операции остаются привязанными к прежнему contract.
-                engine = None
+        composition = build_read_only_persistence_composition(environment)
     except Exception as exc:
         # Диагностическая граница намеренно не выпускает raw marker/DSN/error.
         _LOGGER.warning(
             "Сборка конфигурации диагностики базы данных завершилась недоступностью: %s",
             type(exc).__name__,
         )
-        config_match = False
+        return PostgresDatabaseDiagnostics(
+            None,
+            marker_ready=False,
+            schema_marker_version=None,
+            config_match=False,
+        )
     return PostgresDatabaseDiagnostics(
-        engine,
-        marker_ready=marker_ready,
-        schema_marker_version=schema_marker_version,
-        config_match=config_match,
+        composition.engine,
+        marker_ready=composition.marker_ready,
+        schema_marker_version=composition.schema_marker_version,
+        config_match=composition.config_match,
+        dispose_callback=composition.dispose,
     )
 
 
@@ -297,10 +376,12 @@ def dispose_runtime_storage() -> None:
 
 
 __all__ = [
+    "ReadOnlyPersistenceComposition",
     "RuntimeFleetManualScanContext",
     "RuntimeFleetPageContext",
     "RuntimeFleetStateContext",
     "bootstrap_runtime_storage",
+    "build_read_only_persistence_composition",
     "build_runtime_database_diagnostics",
     "build_runtime_fleet_manual_scan_context",
     "build_runtime_fleet_page_context",

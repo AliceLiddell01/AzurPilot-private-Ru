@@ -15,7 +15,12 @@ from module.application.morale import (
     MoraleSelectionState,
     MoraleSlotState,
 )
-from module.dev_runtime import DevEnvironment, DevSessionManager, DevStatusKind, game_bridge
+from module.dev_runtime import (
+    DevEnvironment,
+    DevSessionManager,
+    DevStatusKind,
+    game_bridge,
+)
 from module.dev_runtime.game_bridge import (
     DevGameBridge,
     GameObservationCapability,
@@ -673,14 +678,23 @@ def test_smoke_game_observations_have_named_intermediates_and_reserved_boundarie
     assert any("checkpoint_id" in str(error["loc"]) for error in reserved.value.errors())
 
 
-def test_runtime_game_bridge_bootstraps_persistence_before_morale_factory(
+def test_runtime_game_bridge_uses_read_only_persistence_for_morale_factory(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import module.application.morale as morale_module
     import module.persistence.runtime as persistence_runtime
+    from module.application import runtime_storage
 
     calls: list[str] = []
-    engine = object()
+
+    class _Composition:
+        engine = object()
+
+        def uow_factory(self) -> object:
+            return object()
+
+        def dispose(self) -> None:
+            calls.append("dispose")
 
     class _MoraleService:
         def __init__(self, _uow_factory: object, *, clock: object = None) -> None:
@@ -688,14 +702,16 @@ def test_runtime_game_bridge_bootstraps_persistence_before_morale_factory(
 
     monkeypatch.setattr(
         persistence_runtime,
-        "bootstrap_runtime_storage",
-        lambda **_kwargs: calls.append("bootstrap"),
+        "build_read_only_persistence_composition",
+        lambda _environment: calls.append("read_only_composition") or _Composition(),
     )
     monkeypatch.setattr(
         persistence_runtime,
-        "runtime_engine",
-        lambda: calls.append("engine") or engine,
+        "bootstrap_runtime_storage",
+        lambda **_kwargs: pytest.fail("Morale observation не должен запускать production bootstrap"),
     )
+    production_provider = object()
+    monkeypatch.setattr(runtime_storage, "_provider", production_provider)
     monkeypatch.setattr(morale_module, "MoraleService", _MoraleService)
 
     bridge = game_bridge.build_runtime_game_bridge(
@@ -705,4 +721,7 @@ def test_runtime_game_bridge_bootstraps_persistence_before_morale_factory(
     service = provider._service_factory()
 
     assert isinstance(service, _MoraleService)
-    assert calls == ["bootstrap", "engine", "morale"]
+    assert calls == ["read_only_composition", "morale"]
+    assert runtime_storage._provider is production_provider
+    bridge.dispose()
+    assert calls == ["read_only_composition", "morale", "dispose"]
