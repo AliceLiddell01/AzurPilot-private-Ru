@@ -27,6 +27,7 @@ from module.application.game_validation import INVALID_NAME_CHARS, UNKNOWN_TASK
 _MAX_LOG_LINES = 10_000
 _MAX_LOG_BYTES = 2 * 1024 * 1024
 _PASSIVE_SCREENSHOT_TIMEOUT_SECONDS = 10
+_REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 _ADB_PATH_CANDIDATES = (
     Path(".venv/Scripts/adb.exe"),
     Path(".venv/bin/adb"),
@@ -170,8 +171,10 @@ def _parse_adb_inventory(output: str) -> tuple[_AdbDevice, ...] | None:
 
 def _first_existing_adb_path() -> str | None:
     for candidate in _ADB_PATH_CANDIDATES:
-        if candidate.is_file():
-            return str(candidate.resolve())
+        for base in (Path.cwd(), _REPOSITORY_ROOT):
+            resolved = base / candidate
+            if resolved.is_file():
+                return str(resolved.resolve())
     discovered = shutil.which("adb")
     if discovered:
         return str(Path(discovered).resolve())
