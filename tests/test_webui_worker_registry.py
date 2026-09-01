@@ -185,17 +185,26 @@ class TestWorkerRegistry(unittest.TestCase):
             )
             legacy_before = legacy_file.read_bytes()
 
-            with patch.multiple(
-                worker_registry,
-                WORKER_REGISTRY_FILE=current_file,
-                LEGACY_WORKER_REGISTRY_FILE=legacy_file,
-                DEFAULT_WORKER_REGISTRY_FILE=current_file,
-            ), patch.object(worker_registry, "_locked_file") as locked_file:
+            with (
+                patch.multiple(
+                    worker_registry,
+                    WORKER_REGISTRY_FILE=current_file,
+                    LEGACY_WORKER_REGISTRY_FILE=legacy_file,
+                    DEFAULT_WORKER_REGISTRY_FILE=current_file,
+                ),
+                patch.object(worker_registry, "_locked_file") as locked_file,
+                patch.object(
+                    worker_registry,
+                    "_read_registry",
+                    wraps=worker_registry._read_registry,
+                ) as read_registry,
+            ):
                 self.assertEqual(
                     {"created_at": 11.5, "pid": 200},
                     worker_registry.get_worker_read_only("alas"),
                 )
                 locked_file.assert_not_called()
+                self.assertEqual(1, read_registry.call_count)
 
             current_after = (
                 current_file.read_bytes() if current_file.exists() else None
