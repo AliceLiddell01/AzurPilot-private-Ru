@@ -629,6 +629,7 @@ _SAFE_GAME_SUMMARY_KEYS = frozenset(
         "checkpoint_id",
         "requested",
         "stored",
+        "selected_count",
         "evidence_refs",
     }
 )
@@ -1385,6 +1386,7 @@ _GAME_SUMMARY_CHILD_SCHEMAS: dict[str, str | None] = {
     "checkpoint_id": "string",
     "requested": "int",
     "stored": "int",
+    "selected_count": "int",
     "evidence_refs": "smoke_evidence_ref_list",
 }
 
@@ -1707,6 +1709,13 @@ class _SmokeEvaluationArguments(_SmokeIdArguments):
 class _GameObservationArguments(_SessionArguments):
     capability_id: str = Field(min_length=1, max_length=128, pattern=_SESSION_ID_PATTERN)
     parameters: dict[str, object] = Field(default_factory=dict, max_length=16)
+
+    @field_validator("parameters")
+    @classmethod
+    def validate_parameter_names(cls, value: dict[str, object]) -> dict[str, object]:
+        if any(re.fullmatch(_SESSION_ID_PATTERN, name) is None for name in value):
+            raise ValueError("parameters содержит некорректное имя поля")
+        return value
 
 
 class _SmokeCheckpointArguments(_SmokeIdArguments):

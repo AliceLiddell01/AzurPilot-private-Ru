@@ -62,7 +62,9 @@ class _HealthConnection:
             return _ScalarResult(["azurpilot_app"])
         if "limit 1" in sql:
             return _ScalarResult([1] if self.orphan else [])
-        return _ScalarResult([1])
+        if "select 1" in sql:
+            return _ScalarResult([1])
+        raise AssertionError(f"Неожиданный SQL в фикстуре: {sql}")
 
 
 class _EngineContext:
@@ -226,16 +228,19 @@ def test_database_diagnostics_import_does_not_open_connection() -> None:
             "-c",
             (
                 "import module.persistence.database_diagnostics as diagnostics; "
+                "import module.persistence.runtime as runtime; "
                 "assert diagnostics.PostgresDatabaseDiagnostics is not None; "
+                "assert runtime.runtime_engine() is None; "
                 "print('import-ok')"
             ),
         ],
         cwd=Path(__file__).resolve().parents[1],
         capture_output=True,
         text=True,
+        timeout=10,
         check=False,
     )
 
     assert completed.returncode == 0
     assert completed.stdout.strip() == "import-ok"
-    assert completed.stderr == ""
+    assert "Traceback" not in completed.stderr

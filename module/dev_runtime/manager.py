@@ -926,7 +926,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                 False,
                 "DEV_DATABASE_DIAGNOSTICS_UNAVAILABLE",
                 f"PostgreSQL diagnostics недоступны: {type(exc).__name__}",
-                DevStatusKind.FAILED.value,
+                state,
                 resolved_session_id,
             )
 
@@ -941,6 +941,8 @@ class DevSessionManager(DevDiagnosticsMixin):
                 DevStatusKind.NO_SESSION.value,
                 details={"database_checks": [self._database_check_dict(item) for item in checks]},
             )
+        except TaskSandboxError as exc:
+            return self._task_error(exc)
         except Exception as exc:
             return DevResult(
                 False,

@@ -3072,7 +3072,6 @@ class SmokeRunManager:
             smoke_id = _identifier(smoke_id, field_name="smoke_id")
             record = self.store.load(smoke_id)
             self._bind_record_target(record)
-            record = self.store.load(smoke_id)
         except (SmokeStoreError, ValueError) as exc:
             code = exc.code if isinstance(exc, SmokeStoreError) else "DEV_SMOKE_ID_INVALID"
             return self._result(ok=False, code=code, message=str(exc), state=SmokeState.FINISHED.value, smoke_id=smoke_id if isinstance(smoke_id, str) else None)
@@ -3121,7 +3120,6 @@ class SmokeRunManager:
             smoke_id = _identifier(smoke_id, field_name="smoke_id")
             record = self.store.load(smoke_id)
             self._bind_record_target(record)
-            record = self.store.load(smoke_id)
         except (SmokeStoreError, ValueError) as exc:
             return self._result(ok=False, code=exc.code if isinstance(exc, SmokeStoreError) else "DEV_SMOKE_ID_INVALID", message=str(exc), state=SmokeState.FINISHED.value)
         if record.state is SmokeState.FINISHED:
@@ -3143,7 +3141,6 @@ class SmokeRunManager:
             smoke_id = _identifier(smoke_id, field_name="smoke_id")
             record = self.store.load(smoke_id)
             self._bind_record_target(record)
-            record = self.store.load(smoke_id)
         except (SmokeStoreError, ValueError) as exc:
             code = exc.code if isinstance(exc, SmokeStoreError) else "DEV_SMOKE_ID_INVALID"
             return EvidenceScreenshot(self._result(ok=False, code=code, message=str(exc), state=SmokeState.FINISHED.value))
@@ -3189,7 +3186,6 @@ class SmokeRunManager:
                 raise ValueError("verdict должен быть pass или fail")
             record = self.store.load(smoke_id)
             self._bind_record_target(record)
-            record = self.store.load(smoke_id)
             spec = self.store.load_spec(smoke_id)
         except (SmokeStoreError, ValueError, ValidationError) as exc:
             code = exc.code if isinstance(exc, SmokeStoreError) else "DEV_SMOKE_EVALUATION_INPUT_INVALID"
@@ -3469,7 +3465,10 @@ class SmokeRunManager:
             for request in checkpoint.observations
         )
         target_profile = record.target_profile or self.environment.profile_name
-        target_id = record.target_identity or target_identity(DevTarget(target_profile))
+        try:
+            target_id = record.target_identity or target_identity(DevTarget(target_profile))
+        except ValueError:
+            return False
         actual = {
             (item.checkpoint_id, item.capability_id)
             for item in items
@@ -3491,7 +3490,6 @@ class SmokeRunManager:
                 )
             record = self.store.load(smoke_id)
             self._bind_record_target(record)
-            record = self.store.load(smoke_id)
             spec = self.store.load_spec(smoke_id)
             if record.state is not SmokeState.RUNNING:
                 return self._result(
@@ -3548,7 +3546,6 @@ class SmokeRunManager:
                 checkpoint_id = _identifier(checkpoint_id, field_name="checkpoint_id")
             record = self.store.load(smoke_id)
             self._bind_record_target(record)
-            record = self.store.load(smoke_id)
             spec = self.store.load_spec(smoke_id)
             if spec.game_observations is None:
                 return self._result(
@@ -3579,6 +3576,9 @@ class SmokeRunManager:
             summary = store.summary()
             summary["evidence_refs"] = self._game_evidence_refs(store, observations)
             summary["required_complete"] = self._game_required_complete(record, spec)
+            if checkpoint_id is not None:
+                summary["checkpoint_id"] = checkpoint_id
+                summary["selected_count"] = len(observations)
             return self._result(
                 ok=True,
                 code="DEV_GAME_OBSERVATIONS_READY",
@@ -3616,7 +3616,6 @@ class SmokeRunManager:
     def _run_supervisor(self, smoke_id: str) -> None:
         record = self.store.load(smoke_id)
         self._bind_record_target(record)
-        record = self.store.load(smoke_id)
         if record.state is SmokeState.FINISHED or record.state is SmokeState.AWAITING_EXTERNAL_EVALUATION:
             return
         spec = self.store.load_spec(smoke_id)

@@ -175,6 +175,8 @@ class GameObservationCapability:
     def __post_init__(self) -> None:
         _identifier(self.capability_id, field="capability_id")
         _text(self.description, field="description")
+        if not isinstance(self.source, str):
+            raise TypeError("source должен быть строкой")
         _identifier(self.source.replace(".", "_"), field="source")
         if not isinstance(self.parameters, tuple) or len(self.parameters) > GAME_OBSERVATION_MAX_PARAMETERS:
             raise ValueError("parameters имеет недопустимый размер")
@@ -469,8 +471,11 @@ class GameObservationRegistry:
             return value
         raise GameObservationError("DEV_GAME_PARAMETERS_INVALID", f"Параметр {parameter.name} имеет неизвестный тип")
 
-    def validate_request(self, capability_id: object, parameters: object = None) -> dict[str, object]:
-        provider = self._provider(capability_id)
+    def _validate_request_for_provider(
+        self,
+        provider: GameObservationProvider,
+        parameters: object = None,
+    ) -> dict[str, object]:
         if parameters is None:
             parameters = {}
         if not isinstance(parameters, Mapping):
@@ -493,6 +498,12 @@ class GameObservationRegistry:
         }
         return validated
 
+    def validate_request(self, capability_id: object, parameters: object = None) -> dict[str, object]:
+        return self._validate_request_for_provider(
+            self._provider(capability_id),
+            parameters,
+        )
+
     def capture(
         self,
         *,
@@ -507,7 +518,7 @@ class GameObservationRegistry:
         if not isinstance(target, DevTarget):
             raise GameObservationError("DEV_GAME_OBSERVATION_TARGET_INVALID", "Registry получил некорректный target")
         provider = self._provider(capability_id)
-        validated = self.validate_request(capability_id, parameters)
+        validated = self._validate_request_for_provider(provider, parameters)
         captured_at = _aware(captured_at, field="captured_at")
         try:
             capture = provider.capture(target, validated, captured_at=captured_at)

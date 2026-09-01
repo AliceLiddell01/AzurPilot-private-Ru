@@ -140,13 +140,13 @@ def build_runtime_database_diagnostics(
 ) -> PostgresDatabaseDiagnostics:
     """Собрать developer-only diagnostics из canonical marker и общего Engine.
 
-    Функция не выполняет запросов при сборке и не изменяет Alembic marker. Если
-    marker/config contract не подтверждён, diagnostics сохраняет каталог, но
-    выдаёт безопасный UNAVAILABLE/FAIL вместо попытки подобрать другое
-    подключение.
+    Функция не выполняет запросов при сборке, не изменяет Alembic marker или
+    process environment и не создаёт новый global Engine. Если marker/config
+    contract не подтверждён либо общий Engine ещё не собран обычным runtime
+    composition root, diagnostics сохраняет каталог, но выдаёт безопасный
+    UNAVAILABLE/FAIL вместо попытки подобрать другое подключение.
     """
 
-    global _engine, _engine_settings
     repository_root = getattr(environment, "repository_root", None)
     if repository_root is None:
         raise TypeError("environment должен содержать repository_root")
@@ -167,17 +167,13 @@ def build_runtime_database_diagnostics(
         )
         if local_environment is not None:
             local_environment.require_app_runtime_match(settings)
-            local_environment.install(role="app")
         with _lock:
-            if _engine is None:
-                _engine = LazyEngine(settings)
-                _engine_settings = settings
-            if _engine_settings == settings:
+            if _engine is not None and _engine_settings == settings:
                 engine = _engine
             else:
                 # Не переориентировать живой process-local Engine на новый
-                # marker во время диагностики: активные операции остаются
-                # привязанными к прежнему contract.
+                # marker и не создавать его из диагностического пути: активные
+                # операции остаются привязанными к прежнему contract.
                 engine = None
         config_match = engine is not None
     except Exception as exc:

@@ -255,6 +255,39 @@ dispose_runtime_storage()
     assert result.returncode == 0, result.stderr
 
 
+def test_database_diagnostics_does_not_initialize_engine_or_install_environment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    marker = tmp_path / DEFAULT_BACKEND_MARKER_PATH
+    marker.parent.mkdir(parents=True)
+    marker.write_text(json.dumps(_marker_payload()), encoding="utf-8")
+
+    class _ReadOnlyEnvironment:
+        def require_app_runtime_match(self, _settings: DatabaseSettings) -> None:
+            return None
+
+        def install(self, **_kwargs: object) -> None:
+            pytest.fail("Диагностический путь не должен изменять process environment.")
+
+    monkeypatch.setattr(
+        persistence_runtime,
+        "read_local_postgres_environment",
+        lambda _path: _ReadOnlyEnvironment(),
+    )
+    monkeypatch.setattr(persistence_runtime, "_engine", None)
+    monkeypatch.setattr(persistence_runtime, "_engine_settings", None)
+
+    diagnostics = persistence_runtime.build_runtime_database_diagnostics(
+        SimpleNamespace(repository_root=tmp_path),
+    )
+
+    assert persistence_runtime.runtime_engine() is None
+    assert diagnostics.run_check("connectivity", "fixture-target").code == (
+        "DEV_DATABASE_CONNECTION_UNAVAILABLE"
+    )
+
+
 def test_runtime_idempotency_key_is_stable_inside_observation_window():
     observed_at = datetime(2026, 8, 23, 12, 30, 15, 100, tzinfo=UTC)
 

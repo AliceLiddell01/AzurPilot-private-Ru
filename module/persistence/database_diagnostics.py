@@ -105,7 +105,6 @@ class PostgresDatabaseDiagnostics:
     ) -> None:
         self._engine = engine
         self._marker_ready = marker_ready
-        self._marker_head = marker_head
         self._schema_marker_version = schema_marker_version
         self._config_match = config_match
 
@@ -116,7 +115,7 @@ class PostgresDatabaseDiagnostics:
         if not isinstance(check_id, str) or check_id not in _DESCRIPTORS_BY_ID:
             raise ValueError("Неизвестный database diagnostic check")
         if not isinstance(target_profile, str) or not _SAFE_TARGET.fullmatch(target_profile):
-            raise ValueError("target_profile должен быть непустым")
+            raise ValueError("target_profile имеет недопустимый формат")
         handlers: dict[str, Callable[[str], DatabaseCheckResult]] = {
             "backend_marker": lambda _target: self._marker_check(),
             "connectivity": lambda _target: self._connection_check("connectivity", self._connectivity),
