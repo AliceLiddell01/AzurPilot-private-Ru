@@ -233,10 +233,13 @@ class _Read:
         return RuntimeLogTail(
             profile,
             (
-                "\x1b[31msecret token=raw-token oauth_token=oauth-sentinel "
-                "database_password=db-sentinel session_id=session-sentinel "
-                "LlmApiKey=llm-sentinel OAuthToken=oauth-camel-sentinel "
-                "ClientSecret=client-sentinel \\\\server\\share\\private.log\x1b[0m\n",
+                (
+                    "\x1b[31msecret token=raw-token oauth_token=oauth-sentinel "
+                    "database_password=db-sentinel session_id=session-sentinel "
+                    "LlmApiKey=llm-sentinel OAuthToken=oauth-camel-sentinel "
+                    "ClientSecret=client-sentinel \\\\server\\share\\private.log "
+                    "ratio=N/A date=2026/09/02\x1b[0m\n"
+                ),
                 'Traceback (most recent call last): File "C:\\private\\run.py"\n',
             )[-limit:],
         )
@@ -454,6 +457,8 @@ def test_adapter_redacts_config_sanitizes_logs_and_preserves_unknown_domain_stat
         assert sentinel not in logs_json
     assert "Traceback" not in logs_json
     assert "private" not in logs_json
+    assert "ratio=N/A" in logs_json
+    assert "date=2026/09/02" in logs_json
     assert "\x1b" not in logs_json
 
     morale = adapter.call("game_get_morale", {"profile": "alpha", "fleet_indices": [1]})

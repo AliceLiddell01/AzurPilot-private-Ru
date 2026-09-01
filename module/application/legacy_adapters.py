@@ -59,8 +59,7 @@ class LegacyInstanceRuntimeAdapter:
     def read_instance_status(self, name: str) -> RuntimeSnapshot:
         if self._manager_factory is None:
             return self._default_read_instance_status(name)
-        factory = self._manager_factory or self._default_manager_factory
-        manager = factory(name)
+        manager = self._manager_factory(name)
         # Это совместимый injection path для legacy callers и тестов. Основной
         # standalone read plane использует _default_read_instance_status ниже.
         running = manager.alive

@@ -117,12 +117,15 @@ def test_default_legacy_runtime_adapter_reads_registry_without_process_housekeep
         patch.object(
             worker_registry,
             "get_worker_read_only",
-            return_value={"pid": 123, "created_at": 10.5},
-        ),
-        patch.object(worker_registry, "process_matches", return_value=None),
-        patch.object(worker_registry, "_locked_registry", side_effect=AssertionError),
+            return_value=None,
+        ) as read_only,
+        patch.object(worker_registry, "process_matches") as matches,
+        patch.object(worker_registry, "_locked_registry", side_effect=AssertionError) as locked,
     ):
         status = InstanceQueryService(adapter).get_status("ap")
 
+    read_only.assert_called_once_with("ap")
+    matches.assert_not_called()
+    locked.assert_not_called()
     assert status.running is False
     assert status.state is RuntimeState.STOPPED

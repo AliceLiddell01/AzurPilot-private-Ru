@@ -37,6 +37,10 @@ SERVER_VERSION = str(GAME_MCP_API_VERSION)
 GAME_MCP_COMMAND = "uv"
 GAME_MCP_ARGS = ("run", "--locked", "--no-sync", "python", "-m", "module.game_mcp")
 GAME_MCP_REQUIRED_SCOPE = "azurpilot:game.read"
+# Legacy-граф использует builtins.print и может инициализировать Rich handler
+# на stdout. Глобальная блокировка нужна, чтобы такой перехват не пересекался
+# с другим MCP Server в одном процессе; сам adapter дополнительно сериализует
+# backend-вызовы, поэтому отменённый worker не может пересечься с новым чтением.
 _LEGACY_STDOUT_LOCK = Lock()
 
 _MAX_SELECTOR_LENGTH = 128

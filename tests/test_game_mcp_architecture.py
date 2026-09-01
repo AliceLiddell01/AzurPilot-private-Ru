@@ -9,6 +9,7 @@ _GAME_MCP_ROOT = _ROOT / "module" / "game_mcp"
 
 def _imported_modules(path: Path) -> set[str]:
     tree = ast.parse(path.read_text(encoding="utf-8"))
+    # Эта проверка видит только прямые импорты файлов Game MCP, а не транзитивные зависимости.
     names: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):

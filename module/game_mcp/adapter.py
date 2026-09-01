@@ -123,7 +123,11 @@ _SECRET_KEY_PARTS = frozenset(
 )
 _ANSI_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
 _PATH_RE = re.compile(
-    r"(?:\\\\[^\\/\s'\"<>]+[\\/][^\s'\"<>]+|[A-Za-z]:[\\/]|/)(?:[^\s'\"<>]|\\ )+"
+    r"(?<![A-Za-z0-9:/])(?:"
+    r"\\\\[^\\/\s'\"<>]+[\\/][^\s'\"<>]+"
+    r"|[A-Za-z]:[\\/][^\s'\"<>]+[\\/][^\s'\"<>]+"
+    r"|/(?:[^/\s'\"<>]+/)+[^/\s'\"<>]+(?:[\\/][^\s'\"<>]+)*"
+    r")"
 )
 _TRACEBACK_RE = re.compile(
     r"(?:traceback \(most recent call last\)|\bfile\s+[\"'])", re.IGNORECASE

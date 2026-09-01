@@ -26,7 +26,7 @@ from module.game_mcp.remote import (
     create_remote_app,
     run_remote_server,
 )
-from module.game_mcp.server import tool_definitions
+from module.game_mcp.server import _screenshot_call_result, tool_definitions
 
 _BASE_URL = "https://game-mcp.example.test"
 _HOST = "game-mcp.example.test"
@@ -303,7 +303,7 @@ def test_game_remote_server_uses_dedicated_port(
         captured.update(kwargs)
 
     monkeypatch.setattr("module.game_mcp.remote.uvicorn.run", fake_run)
-    run_remote_server(config=_config())
+    run_remote_server(_RecordingAdapter(), config=_config())
     assert captured["host"] == "127.0.0.1"
     assert captured["port"] == GAME_MCP_PORT == 8766
 
@@ -321,5 +321,7 @@ def test_game_screenshot_result_keeps_binary_out_of_structured_json() -> None:
         image,
         "image/png",
     )
-    structured = json.dumps(response.structured, ensure_ascii=False)
+    result = _screenshot_call_result(response)
+    structured = json.dumps(result.structured_content, ensure_ascii=False)
     assert base64.b64encode(image).decode("ascii") not in structured
+    assert result.content[0].type == "image"

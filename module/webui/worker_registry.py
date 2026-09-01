@@ -387,12 +387,7 @@ def get_worker_read_only(config_name: str) -> dict | None:
     if not isinstance(config_name, str) or not config_name:
         raise ValueError("Имя экземпляра должно быть непустой строкой")
 
-    paths = [WORKER_REGISTRY_FILE]
-    if (
-        _legacy_registry_enabled()
-        and LEGACY_WORKER_REGISTRY_FILE != WORKER_REGISTRY_FILE
-    ):
-        paths.append(LEGACY_WORKER_REGISTRY_FILE)
+    paths = _read_only_registry_paths()
     for registry_file in paths:
         if not registry_file.is_file():
             continue
@@ -404,6 +399,21 @@ def get_worker_read_only(config_name: str) -> dict | None:
             raise RuntimeError("Недопустимая запись рабочего процесса")
         return deepcopy(record)
     return None
+
+
+def _read_only_registry_paths() -> tuple[Path, ...]:
+    """Выбрать порядок чтения, не изменяя файлы и не создавая блокировки."""
+    current_file = WORKER_REGISTRY_FILE
+    legacy_file = LEGACY_WORKER_REGISTRY_FILE
+    if not _legacy_registry_enabled() or legacy_file == current_file:
+        return (current_file,)
+    if not legacy_file.is_file():
+        return (current_file,)
+
+    legacy_registry = _read_registry(legacy_file)
+    if _record_is_alive(_owner_record(legacy_registry)):
+        return (legacy_file, current_file)
+    return (current_file, legacy_file)
 
 
 def get_owner() -> int | None:

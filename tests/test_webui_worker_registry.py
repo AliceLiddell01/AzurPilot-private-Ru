@@ -193,7 +193,12 @@ class TestWorkerRegistry(unittest.TestCase):
 
             self.assertFalse(current_file.exists())
             self.assertTrue(legacy_file.exists())
-            self.assertFalse((legacy_file.parent / "webui-workers.json.lock").exists())
+            self.assertFalse(
+                worker_registry._registry_lock_file(legacy_file).exists()
+            )
+            self.assertFalse(
+                worker_registry._registry_lock_file(current_file).exists()
+            )
 
     def test_repeated_owner_claim_preserves_registered_workers(self):
         with tempfile.TemporaryDirectory() as directory:
