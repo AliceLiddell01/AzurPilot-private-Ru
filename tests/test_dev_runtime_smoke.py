@@ -345,16 +345,47 @@ def test_smoke_runtime_owner_does_not_conflict_with_its_smoke_reservation(tmp_pa
         now=lambda: _NOW,
     )
     owned_runtime = smoke_manager._default_runtime_factory()
+    # Публичная сборка намеренно связывает менеджер внутри; здесь инъекция
+    # владельца нужна для проверки границы резервирования Smoke Harness.
     owned_runtime._smoke_manager = SimpleNamespace(has_active_run=lambda: True)
 
     assert owned_runtime._runtime_start_conflict() is None
 
     regular_runtime = DevSessionManager(environment, target_locked=True)
+    # Публичная сборка намеренно связывает менеджер внутри; здесь инъекция
+    # владельца нужна для проверки межповерхностного конфликта.
     regular_runtime._smoke_manager = SimpleNamespace(has_active_run=lambda: True)
     conflict = regular_runtime._runtime_start_conflict()
 
     assert conflict is not None
     assert conflict.code == "DEV_SESSION_CONFLICT_SMOKE"
+
+
+def test_smoke_validation_fails_closed_when_game_bridge_factory_errors(
+    tmp_path: Path,
+    clean_source: None,
+) -> None:
+    def unavailable() -> object:
+        raise RuntimeError("сведения provider не должны пересекать границу проверки")
+
+    manager = smoke.SmokeRunManager(
+        _environment(tmp_path),
+        runtime_factory=lambda: _Runtime(),
+        supervisor_backend=_Backend(),
+        game_bridge_factory=unavailable,
+        now=lambda: _NOW,
+    )
+
+    result = manager.validate_smoke(
+        _spec(
+            game_observations={
+                "observations": [{"capability_id": "synthetic"}],
+            }
+        )
+    )
+
+    assert result.ok is False
+    assert result.details["issues"][0]["code"] == "DEV_SMOKE_PRECONDITION_FAILED"
 
 
 def test_smoke_spec_is_strict_canonical_and_rejects_malformed_paths() -> None:

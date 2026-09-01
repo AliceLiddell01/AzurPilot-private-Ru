@@ -317,6 +317,8 @@ def test_smoke_checkpoint_rejects_provider_session_mismatch(tmp_path: Path) -> N
         }
     )
 
+    # Public capture_smoke_game_checkpoint требует сохранённую SmokeRun; здесь
+    # напрямую проверяется защита внутренней checkpoint boundary от чужой сессии.
     ok, _details, failure = manager._capture_game_checkpoint(
         SimpleNamespace(smoke_id="smoke-1"),
         spec,
@@ -352,6 +354,8 @@ def test_smoke_checkpoint_exposes_persisted_game_evidence_refs(tmp_path: Path) -
         }
     )
 
+    # Public capture_smoke_game_checkpoint не позволяет подменить bridge и
+    # immutable SmokeRun; этот тест проверяет сохранение evidence через boundary.
     ok, details, failure = manager._capture_game_checkpoint(
         SimpleNamespace(smoke_id="smoke-1"),
         spec,
@@ -420,6 +424,8 @@ def test_smoke_checkpoint_keep_first_uses_retained_status(tmp_path: Path) -> Non
     )
     record = SimpleNamespace(smoke_id="smoke-1")
 
+    # Public capture_smoke_game_checkpoint не поддерживает повторную инъекцию
+    # synthetic bridge для проверки duplicate_policy keep_first.
     first_ok, _first_details, first_failure = manager._capture_game_checkpoint(
         record,
         spec,
@@ -438,7 +444,7 @@ def test_smoke_checkpoint_keep_first_uses_retained_status(tmp_path: Path) -> Non
     assert second_ok is True
     assert second_failure is None
     assert second_details["game_observations"]["stored"] == 0
-    assert second_details["game_observations"]["statuses"] == ["known"]
+    assert second_details["game_observations"]["checkpoint_statuses"] == ["known"]
 
 
 def test_manager_rejects_stale_standalone_provider_target(tmp_path: Path) -> None:
@@ -516,6 +522,17 @@ def test_manager_validates_database_repair_session_before_echo(tmp_path: Path) -
 
     assert result.ok is False
     assert result.code == "DEV_SESSION_ID_INVALID"
+
+
+def test_manager_validates_database_repair_id_before_echo(tmp_path: Path) -> None:
+    environment = DevEnvironment(tmp_path, Path("python"), _TARGET)
+    manager = DevSessionManager(environment, target_locked=True)
+
+    result = manager.preview_database_repair("../secret", session_id=None)
+
+    assert result.ok is False
+    assert result.code == "DEV_DATABASE_REPAIR_ID_INVALID"
+    assert "secret" not in str(result.as_dict())
 
 
 def test_resources_provider_uses_typed_application_projection() -> None:

@@ -163,6 +163,7 @@ def build_runtime_database_diagnostics(
         )
         if local_environment is not None:
             local_environment.require_app_runtime_match(settings)
+            config_match = True
         with _lock:
             if _engine is not None and _engine_settings == settings:
                 engine = _engine
@@ -171,7 +172,6 @@ def build_runtime_database_diagnostics(
                 # marker и не создавать его из диагностического пути: активные
                 # операции остаются привязанными к прежнему contract.
                 engine = None
-        config_match = engine is not None
     except Exception as exc:
         # Диагностическая граница намеренно не выпускает raw marker/DSN/error.
         _LOGGER.warning(

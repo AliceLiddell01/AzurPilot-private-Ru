@@ -2801,20 +2801,31 @@ class SmokeRunManager:
         try:
             self.capabilities.validate_spec(spec)
             if spec.game_observations is not None:
-                bridge = self._get_game_bridge()
-                requests = [
-                    *spec.game_observations.observations,
-                    *(
-                        request
-                        for checkpoint in spec.game_observations.checkpoints
-                        for request in checkpoint.observations
-                    ),
-                ]
-                for request in requests:
-                    bridge.validate_request(
-                        request.capability_id,
-                        request.parameters,
+                try:
+                    bridge = self._get_game_bridge()
+                except GameObservationError as exc:
+                    issues.append(SmokeValidationIssue(code=exc.code, message=str(exc)))
+                except Exception:  # noqa: BLE001 — сборка bridge является precondition boundary
+                    issues.append(
+                        SmokeValidationIssue(
+                            code="DEV_SMOKE_PRECONDITION_FAILED",
+                            message="Development target невозможно безопасно проверить",
+                        )
                     )
+                else:
+                    requests = [
+                        *spec.game_observations.observations,
+                        *(
+                            request
+                            for checkpoint in spec.game_observations.checkpoints
+                            for request in checkpoint.observations
+                        ),
+                    ]
+                    for request in requests:
+                        bridge.validate_request(
+                            request.capability_id,
+                            request.parameters,
+                        )
             if len(spec.visual_assertions) > 1:
                 issues.append(
                     SmokeValidationIssue(
@@ -3404,7 +3415,7 @@ class SmokeRunManager:
                     "checkpoint_id": checkpoint_id,
                     "requested": len(requests),
                     "stored": stored,
-                    "statuses": statuses,
+                    "checkpoint_statuses": statuses,
                 }
             )
             unavailable = next(

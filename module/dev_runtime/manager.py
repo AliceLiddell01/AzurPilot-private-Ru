@@ -1034,6 +1034,15 @@ class DevSessionManager(DevDiagnosticsMixin):
         *,
         session_id: str | None = None,
     ) -> DevResult:
+        try:
+            repair_id = validate_session_id(repair_id)
+        except ValueError:
+            return DevResult(
+                False,
+                "DEV_DATABASE_REPAIR_ID_INVALID",
+                "repair_id имеет недопустимый формат",
+                DevStatusKind.FAILED.value,
+            )
         _environment, session, error = self._observation_target(session_id)
         if error is not None:
             return error

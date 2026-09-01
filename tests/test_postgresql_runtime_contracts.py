@@ -259,7 +259,7 @@ dispose_runtime_storage()
 def test_database_diagnostics_does_not_initialize_engine_or_install_environment(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-):
+) -> None:
     marker = tmp_path / DEFAULT_BACKEND_MARKER_PATH
     marker.parent.mkdir(parents=True, exist_ok=True)
     marker.write_text(json.dumps(_marker_payload()), encoding="utf-8")
@@ -293,6 +293,9 @@ def test_database_diagnostics_does_not_initialize_engine_or_install_environment(
     assert persistence_runtime.runtime_engine() is None
     assert diagnostics.run_check("connectivity", "fixture-target").code == (
         "DEV_DATABASE_CONNECTION_UNAVAILABLE"
+    )
+    assert diagnostics.run_check("config_match", "fixture-target").code == (
+        "DEV_DATABASE_CONFIG_MATCH"
     )
 
 

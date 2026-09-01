@@ -288,7 +288,12 @@ def _load_backend_marker_contract(
         raise StorageConfigurationError(
             "Production backend marker содержит некорректный schema head."
         )
-    return settings, marker_head, BACKEND_MARKER_VERSION
+    marker_version = payload["version"]
+    if type(marker_version) is not int:
+        raise StorageConfigurationError(
+            "Production backend marker содержит некорректную версию."
+        )
+    return settings, marker_head, marker_version
 
 
 def load_backend_marker_for_schema_upgrade(
