@@ -19,17 +19,17 @@
    `"$coderabbit_bin"` все проверки и review. Если executable не найден,
    остановись как на prerequisite blocker; не переходи на другой distro,
    Windows `.cmd` или status check.
-4. До вызова CodeRabbit проверь remote review-клона:
-   `git remote get-url origin` обязан вернуть canonical hosted Git URL текущего
-   PR (для GitHub — `https://github.com/...` или `git@github.com:...`). Пока
-   такой Git remote не подтверждён, WSL2 clone недействителен для review:
-   отсутствие ссылки может отправить CodeRabbit в free allowance или привести
-   к нераспознанному repository. Локальный `/mnt/c/...`, `file://`, UNC и URL
-   с credentials означают, что clone не подготовлен. Возьми URL из основного
-   checkout/PR, установи его только в review-клоне и проверь повторно. Если
-   CLI сообщает, что repository не распознан или использует free allowance из-за
-   remote, прекрати этот запуск, исправь remote и повтори не более одного раза;
-   результат первого запуска не засчитывай как substantive review.
+4. До любого `git remote set-url` или копирования remote в review-клон получи
+   canonical URL из основного checkout и PR. Нормализуй его к hosted Git URL
+   того же owner/repository без credentials, query/fragment и лишних path
+   components. Отвергни отсутствующий remote, локальный `/mnt/c/...`, `file://`,
+   UNC, URL с credentials и любой не-hosted URL. После установки только
+   проверенного URL в review-клоне `git remote get-url origin` обязан вернуть
+   тот же canonical URL; пока это не подтверждено, WSL2 clone недействителен
+   для review. Если CLI сообщает, что repository не распознан или использует
+   free allowance из-за remote, прекрати этот запуск, исправь remote и повтори
+   не более одного раза; результат первого запуска не засчитывай как
+   substantive review.
 5. Перед запуском подтверди каноническую проверку `coderabbit review --help`
    через разрешённый путь `"$coderabbit_bin"`, а также
    `"$coderabbit_bin" --version`,

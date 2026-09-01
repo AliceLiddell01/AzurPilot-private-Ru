@@ -283,7 +283,8 @@ class DevSession:
             return
         expected = calculate_target_identity(target)
         if self.target_identity is None:
-            raise ValueError("target_identity обязателен для profile_name")
+            # Маркеры предыдущей схемы могли содержать profile_name без identity.
+            return
         if not isinstance(self.target_identity, str) or not re.fullmatch(
             r"[0-9a-f]{64}", self.target_identity
         ):

@@ -28,8 +28,8 @@ from module.persistence.database import (
     StorageHealthChecker,
     translate_database_error,
 )
+from module.persistence.repositories import PostgresInstanceIdentityRepository
 from module.persistence.schema import EXPECTED_ALEMBIC_HEAD, SCHEMA_NAME, metadata
-from module.persistence.unit_of_work import PostgresUnitOfWork
 
 _APP_ROLE = "azurpilot_app"
 _SAFE_TARGET = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -132,25 +132,60 @@ class PostgresDatabaseDiagnostics:
             raise ValueError("Неизвестный database diagnostic check")
         if not isinstance(target_profile, str) or not _SAFE_TARGET.fullmatch(target_profile):
             raise ValueError("target_profile имеет недопустимый формат")
+        return self._run_check(check_id, target_profile)
+
+    def _run_check(
+        self,
+        check_id: str,
+        target_profile: str,
+        *,
+        connection: Connection | None = None,
+    ) -> DatabaseCheckResult:
         handlers: dict[str, Callable[[str], DatabaseCheckResult]] = {
             "backend_marker": lambda _target: self._marker_check(),
-            "connectivity": lambda _target: self._connection_check("connectivity", self._connectivity),
-            "app_role": lambda _target: self._connection_check("app_role", self._app_role),
-            "schema_head": lambda _target: self._connection_check("schema_head", self._schema_head),
+            "connectivity": lambda _target: self._connection_check("connectivity", self._connectivity, connection=connection),
+            "app_role": lambda _target: self._connection_check("app_role", self._app_role, connection=connection),
+            "schema_head": lambda _target: self._connection_check("schema_head", self._schema_head, connection=connection),
             "schema_marker": lambda _target: self._schema_marker_check(),
-            "target_resolution": lambda target: self._target_resolution(target),
-            "required_tables": lambda _target: self._connection_check("required_tables", self._required_tables),
-            "domain_consistency": lambda _target: self._connection_check("domain_consistency", self._domain_consistency),
-            "transaction": lambda _target: self._connection_check("transaction", self._transaction),
+            "target_resolution": lambda target: self._target_resolution(target, connection=connection),
+            "required_tables": lambda _target: self._connection_check("required_tables", self._required_tables, connection=connection),
+            "domain_consistency": lambda _target: self._connection_check("domain_consistency", self._domain_consistency, connection=connection),
+            "transaction": lambda _target: self._connection_check("transaction", self._transaction, connection=connection),
             "config_match": lambda _target: self._config_match_check(),
         }
         return handlers[check_id](target_profile)
 
     def get_status(self, target_profile: str) -> DatabaseStatusSnapshot:
-        checks = tuple(
-            self.run_check(descriptor.check_id, target_profile)
-            for descriptor in _DESCRIPTORS
-        )
+        if not isinstance(target_profile, str) or not _SAFE_TARGET.fullmatch(target_profile):
+            raise ValueError("target_profile имеет недопустимый формат")
+        if self._engine is None:
+            checks = tuple(
+                self._run_check(descriptor.check_id, target_profile)
+                for descriptor in _DESCRIPTORS
+            )
+        else:
+            try:
+                with self._engine.get().connect() as connection:
+                    transaction = None
+                    begin = getattr(connection, "begin", None)
+                    if callable(begin):
+                        transaction = begin()
+                    try:
+                        checks = tuple(
+                            self._run_check(
+                                descriptor.check_id,
+                                target_profile,
+                                connection=connection,
+                            )
+                            for descriptor in _DESCRIPTORS
+                        )
+                    finally:
+                        if transaction is not None:
+                            transaction.rollback()
+            except SQLAlchemyError as exc:
+                checks = self._status_connection_failure(translate_database_error(exc))
+            except Exception as exc:  # noqa: BLE001 — сводка диагностики завершается fail-closed.
+                checks = self._status_connection_failure(exc)
         by_id = {item.check_id: item for item in checks}
         schema_head = by_id["schema_head"].observed
         current_schema_head = schema_head if isinstance(schema_head, str) else None
@@ -170,6 +205,21 @@ class PostgresDatabaseDiagnostics:
             transaction_ready=by_id["transaction"].status is DatabaseCheckStatus.PASS,
             config_match=by_id["config_match"].status is DatabaseCheckStatus.PASS,
             checks=checks,
+        )
+
+    def _status_connection_failure(
+        self,
+        exc: BaseException,
+    ) -> tuple[DatabaseCheckResult, ...]:
+        return tuple(
+            self._marker_check()
+            if descriptor.check_id == "backend_marker"
+            else self._schema_marker_check()
+            if descriptor.check_id == "schema_marker"
+            else self._config_match_check()
+            if descriptor.check_id == "config_match"
+            else _failure(descriptor.check_id, exc)
+            for descriptor in _DESCRIPTORS
         )
 
     def _marker_check(self) -> DatabaseCheckResult:
@@ -219,7 +269,11 @@ class PostgresDatabaseDiagnostics:
         self,
         check_id: str,
         operation: Callable[[Connection], DatabaseCheckResult],
+        *,
+        connection: Connection | None = None,
     ) -> DatabaseCheckResult:
+        if connection is not None:
+            return self._run_connection_operation(check_id, connection, operation)
         if self._engine is None:
             return DatabaseCheckResult(
                 check_id,
@@ -228,14 +282,45 @@ class PostgresDatabaseDiagnostics:
                 "Диагностический engine не собран из canonical config",
             )
         try:
-            with self._engine.get().connect() as connection:
-                return operation(connection)
+            with self._engine.get().connect() as opened:
+                return self._run_connection_operation(check_id, opened, operation)
         except SQLAlchemyError as exc:
             return _failure(check_id, translate_database_error(exc))
         except (StorageAuthenticationError, IncompatibleSchemaError, StorageConfigurationError, StorageUnavailableError) as exc:
             return _failure(check_id, exc)
         except Exception as exc:  # noqa: BLE001 — developer diagnostics завершаются fail-closed.
             return _failure(check_id, exc)
+
+    @staticmethod
+    def _run_connection_operation(
+        check_id: str,
+        connection: Connection,
+        operation: Callable[[Connection], DatabaseCheckResult],
+    ) -> DatabaseCheckResult:
+        transaction = None
+        try:
+            in_transaction = getattr(connection, "in_transaction", None)
+            if callable(in_transaction):
+                transaction = (
+                    connection.begin_nested()
+                    if in_transaction()
+                    else connection.begin()
+                )
+            result = operation(connection)
+        except SQLAlchemyError as exc:
+            result = _failure(check_id, translate_database_error(exc))
+        except (StorageAuthenticationError, IncompatibleSchemaError, StorageConfigurationError, StorageUnavailableError) as exc:
+            result = _failure(check_id, exc)
+        except Exception as exc:  # noqa: BLE001 — developer diagnostics завершаются fail-closed.
+            result = _failure(check_id, exc)
+        if transaction is not None:
+            try:
+                transaction.rollback()
+            except SQLAlchemyError as exc:
+                return _failure(check_id, translate_database_error(exc))
+            except Exception as exc:  # noqa: BLE001 — cleanup диагностики завершается fail-closed.
+                return _failure(check_id, exc)
+        return result
 
     @staticmethod
     def _connectivity(connection: Connection) -> DatabaseCheckResult:
@@ -320,6 +405,14 @@ class PostgresDatabaseDiagnostics:
 
     @staticmethod
     def _required_tables(connection: Connection) -> DatabaseCheckResult:
+        if not _REQUIRED_TABLES:
+            return DatabaseCheckResult(
+                "required_tables",
+                DatabaseCheckStatus.PASS,
+                "DEV_DATABASE_TABLES_EMPTY_CONTRACT",
+                "В текущем database contract обязательные domain tables отсутствуют",
+                True,
+            )
         values = {f"table_{index}": name for index, name in enumerate(_REQUIRED_TABLES)}
         rows = connection.execute(
             text(
@@ -359,11 +452,19 @@ class PostgresDatabaseDiagnostics:
 
     @staticmethod
     def _transaction(connection: Connection) -> DatabaseCheckResult:
-        transaction = connection.begin()
+        transaction = None
+        in_transaction = getattr(connection, "in_transaction", None)
+        if callable(in_transaction):
+            transaction = (
+                connection.begin_nested()
+                if in_transaction()
+                else connection.begin()
+            )
         try:
             connection.execute(text("SELECT 1")).scalar_one()
         finally:
-            transaction.rollback()
+            if transaction is not None:
+                transaction.rollback()
         return DatabaseCheckResult(
             "transaction",
             DatabaseCheckStatus.PASS,
@@ -372,21 +473,26 @@ class PostgresDatabaseDiagnostics:
             True,
         )
 
-    def _target_resolution(self, target_profile: str) -> DatabaseCheckResult:
-        if self._engine is None:
+    def _target_resolution(
+        self,
+        target_profile: str,
+        *,
+        connection: Connection | None = None,
+    ) -> DatabaseCheckResult:
+        if self._engine is None and connection is None:
             return DatabaseCheckResult(
                 "target_resolution",
                 DatabaseCheckStatus.UNAVAILABLE,
                 "DEV_DATABASE_CONNECTION_UNAVAILABLE",
                 "Нельзя разрешить target без диагностического engine",
             )
-        try:
+
+        def resolve(opened: Connection) -> DatabaseCheckResult:
             digest, expected_id = runtime_instance_identity(target_profile)
-            with PostgresUnitOfWork(self._engine) as uow:
-                identity = uow.instances.resolve(
-                    alias_kind="legacy_instance",
-                    alias_digest=digest,
-                )
+            identity = PostgresInstanceIdentityRepository(opened).resolve(
+                alias_kind="legacy_instance",
+                alias_digest=digest,
+            )
             resolved = identity is not None and identity.id == expected_id
             return DatabaseCheckResult(
                 "target_resolution",
@@ -395,10 +501,12 @@ class PostgresDatabaseDiagnostics:
                 "Configured development target разрешён в app_instance" if resolved else "Configured development target отсутствует в app_instance",
                 resolved,
             )
-        except SQLAlchemyError as exc:
-            return _failure("target_resolution", translate_database_error(exc))
-        except Exception as exc:  # noqa: BLE001 — детали persistence наружу не выдаются.
-            return _failure("target_resolution", exc)
+
+        return self._connection_check(
+            "target_resolution",
+            resolve,
+            connection=connection,
+        )
 
 
 class _ConnectionEngineAdapter:

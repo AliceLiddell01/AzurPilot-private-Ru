@@ -3812,8 +3812,6 @@ class SmokeRunManager:
         primary_outcome: SmokeOutcome | None = None
         pending_visual = record.pending_evaluation
         while True:
-            if primary_failure is not None:
-                break
             if self.store.is_cancel_requested(smoke_id):
                 primary_outcome = SmokeOutcome.CANCELLED
                 primary_failure = SmokeFailure(code="DEV_SMOKE_CANCELLED", message="Получен проверенный cancel request")

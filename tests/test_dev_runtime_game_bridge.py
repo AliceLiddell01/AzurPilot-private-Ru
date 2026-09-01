@@ -717,6 +717,8 @@ def test_runtime_game_bridge_uses_read_only_persistence_for_morale_factory(
     bridge = game_bridge.build_runtime_game_bridge(
         SimpleNamespace(repository_root=Path.cwd()),
     )
+    # Публичный bridge не отдаёт фабрику сервиса; read-only composition требует
+    # проверки этой внутренней границы без запуска production bootstrap.
     provider = bridge.registry._providers["morale"]
     service = provider._service_factory()
 

@@ -452,16 +452,14 @@ class GameObservationRegistry:
             if parameter.max_items is not None and len(value) > parameter.max_items:
                 raise GameObservationError("DEV_GAME_PARAMETERS_INVALID", f"Параметр {parameter.name} превышает ограничение размера")
             normalized = []
+            item_parameter = ObservationParameter(
+                name=parameter.name,
+                value_type=ObservationParameterType.INTEGER,
+                minimum=parameter.minimum,
+                maximum=parameter.maximum,
+            )
             for item in value:
-                normalized.append(GameObservationRegistry._validate_value(
-                    ObservationParameter(
-                        name=parameter.name,
-                        value_type=ObservationParameterType.INTEGER,
-                        minimum=parameter.minimum,
-                        maximum=parameter.maximum,
-                    ),
-                    item,
-                ))
+                normalized.append(GameObservationRegistry._validate_value(item_parameter, item))
             if len(set(normalized)) != len(normalized):
                 raise GameObservationError("DEV_GAME_PARAMETERS_INVALID", f"Параметр {parameter.name} содержит дубликаты")
             return normalized

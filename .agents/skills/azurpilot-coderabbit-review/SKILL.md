@@ -33,12 +33,17 @@ CodeRabbit — независимый reviewer, а не источник ист�
 blocker; не подменяй эту проверку GitHub status или free allowance.
 
 Перед запуском CLI review-клон обязан иметь hosted Git remote того же
-репозитория, который проверяется. Получи canonical URL из основного checkout и
-PR, установи его только в отдельном review-клоне и проверь `git remote get-url
-origin`. Локальные пути (`/mnt/c/...`, `file://`, UNC), отсутствующий remote и
-URL с credentials недопустимы. Если CodeRabbit сообщает, что repository не
-распознан или review уходит в free allowance из-за remote, такой запуск не
-считай review: исправь remote, перепроверь его и повтори не более одного раза.
+репозитория, который проверяется. Сначала получи canonical URL из основного
+checkout и PR, нормализуй его к hosted Git URL репозитория без credentials,
+query/fragment и лишних path components и сравни owner/repository с PR. До
+любого `git remote set-url` или копирования remote в clone отвергни
+отсутствующий remote, локальный путь (`/mnt/c/...`), `file://`, UNC, URL с
+credentials и любой не-hosted URL. Установи только уже проверенный URL в
+отдельном review-клоне и затем проверь `git remote get-url origin`; повторно
+убедись, что он совпадает с canonical URL PR. Если CodeRabbit сообщает, что
+repository не распознан или review уходит в free allowance из-за remote, такой
+запуск не считай review: исправь remote, перепроверь его и повтори не более
+одного раза.
 
 ## Обязательные границы
 

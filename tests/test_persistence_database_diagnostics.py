@@ -91,6 +91,25 @@ class _DiagnosticEngine:
         return self.context
 
 
+class _CountingEngineContext(_EngineContext):
+    def __init__(self, connection: _HealthConnection, owner: _CountingDiagnosticEngine) -> None:
+        super().__init__(connection)
+        self.owner = owner
+
+    def connect(self) -> _CountingEngineContext:
+        self.owner.connect_calls += 1
+        return self
+
+
+class _CountingDiagnosticEngine:
+    def __init__(self, connection: _HealthConnection) -> None:
+        self.connect_calls = 0
+        self.context = _CountingEngineContext(connection, self)
+
+    def get(self) -> _CountingEngineContext:
+        return self.context
+
+
 class _ErrorEngine:
     def get(self) -> object:
         raise RuntimeError("password=secret не должен возвращаться")
@@ -203,6 +222,21 @@ def test_database_diagnostics_maps_healthy_and_schema_drift_states() -> None:
     )
     assert orphan.status is DatabaseCheckStatus.FAIL
     assert orphan.code == "DEV_DATABASE_DOMAIN_INCONSISTENT"
+
+
+def test_database_diagnostics_status_reuses_one_connection() -> None:
+    engine = _CountingDiagnosticEngine(_HealthConnection())
+    diagnostics = PostgresDatabaseDiagnostics(
+        engine,  # type: ignore[arg-type]
+        marker_ready=True,
+        schema_marker_version=1,
+        config_match=True,
+    )
+
+    status = diagnostics.get_status(_TARGET_PROFILE)
+
+    assert engine.connect_calls == 1
+    assert status.connectivity is True
 
 
 def test_database_diagnostics_sanitizes_connection_failures() -> None:

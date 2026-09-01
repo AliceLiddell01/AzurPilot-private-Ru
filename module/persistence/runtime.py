@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
@@ -85,7 +85,7 @@ class ReadOnlyPersistenceComposition:
     marker_head: str | None
     schema_marker_version: int | None
     config_match: bool
-    _disposed: bool = False
+    _disposed: bool = field(default=False, init=False, repr=False)
 
     def uow_factory(self) -> PostgresUnitOfWork:
         if self._disposed or self.engine is None:
@@ -249,7 +249,7 @@ def build_runtime_database_diagnostics(
         raise TypeError("environment должен содержать repository_root")
     try:
         composition = build_read_only_persistence_composition(environment)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - диагностическая граница завершается fail-closed.
         # Диагностическая граница намеренно не выпускает raw marker/DSN/error.
         _LOGGER.warning(
             "Сборка конфигурации диагностики базы данных завершилась недоступностью: %s",
