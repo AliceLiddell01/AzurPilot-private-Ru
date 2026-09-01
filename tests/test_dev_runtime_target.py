@@ -345,6 +345,7 @@ def test_existing_session_keeps_recorded_target_after_registry_switch(
     restored = DevSession.from_dict(json.loads(state_path.read_text(encoding="utf-8")))
     assert restored.state is DevSessionState.STOPPED
     assert restored.profile_name == "profile-a"
+    assert restored.target_identity == target_module.target_identity(DevTarget("profile-a"))
 
 
 def test_long_lived_manager_refreshes_target_before_new_read_only_call(

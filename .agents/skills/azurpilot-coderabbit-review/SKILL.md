@@ -25,12 +25,14 @@ CodeRabbit — независимый reviewer, а не источник ист�
 Не ищи и не создавай shell alias, не используй Windows `.cmd`-обёртку и не
 вызывай голое имя `coderabbit`: alias может существовать только в
 интерактивном shell и не является prerequisite. Сначала проверь явный
-исполняемый путь `$HOME/.local/bin/coderabbit`, а если его нет — разреши
-реальный executable через `type -P coderabbit` с проверкой `-x`, а не через
-вывод, который может обозначать alias или function. Сохрани разрешённый путь в
-переменной и используй его для `--version`, `auth status`, `review --help` и
-самого review. Если executable не найден, остановись с явным prerequisite
-blocker; не подменяй эту проверку GitHub status или free allowance.
+исполняемый путь `$HOME/.local/bin/coderabbit` как regular file с `-f` и `-x`,
+проверь его resolved target и отвергни путь, оканчивающийся на `.cmd`. Если
+проверка не прошла, разреши реальный executable через `type -P coderabbit`,
+после этого снова проверь `-f`, `-x` и resolved target без `.cmd`, не принимая
+alias или function. Сохрани разрешённый путь в переменной и используй его для
+`--version`, `auth status`, `review --help` и самого review. Если executable
+не найден, остановись с явным prerequisite blocker; не подменяй эту проверку
+GitHub status или free allowance.
 
 Перед запуском CLI review-клон обязан иметь hosted Git remote того же
 репозитория, который проверяется. Сначала получи canonical URL из основного

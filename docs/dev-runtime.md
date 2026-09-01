@@ -284,7 +284,7 @@ symlink/junction. Состояния выполнения (`created`, `preparing
 фиксирует `before` после target/task preparation и до первого запуска target
 process. Отдельная pre-execution lock сериализует callback, первый запуск и
 операции `stop`/`recover`/`cleanup`, но общая coordination lock не удерживается
-на время потенциально долгого read-only checkpoint. Runtime читается только через публичные API Evidence API `evidence`,
+на время потенциально долгого read-only checkpoint. Runtime читается только через публичные методы Evidence API `evidence`,
 `timeline`, `logs`, `status` и снимка экрана.
 Он не вызывает gameplay handlers, `Device`, production MCP или raw scheduler.
 После ошибки сначала сохраняется первичная ошибка продукта, затем выполняются

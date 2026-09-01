@@ -631,7 +631,9 @@ def test_morale_provider_preserves_typed_unknown_without_inventing_baseline() ->
     assert calls == [("fixture-target", FleetSelection.one(1), _NOW)]
     payload = snapshot.payload
     assert payload["selection"] == (1,)
-    assert all(slot["baseline"] is None for slot in payload["fleets"][0]["slots"])
+    observed_slots = payload["fleets"][0]["slots"]
+    assert len(observed_slots) == len(slots)
+    assert all(slot["baseline"] is None for slot in observed_slots)
 
 
 def test_smoke_game_observations_have_named_intermediates_and_reserved_boundaries() -> None:

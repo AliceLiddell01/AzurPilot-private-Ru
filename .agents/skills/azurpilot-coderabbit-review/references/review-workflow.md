@@ -12,10 +12,12 @@
 3. Получи exact branch/head и base без копирования локальных secrets/config.
    Перед запуском в WSL2 Arch разреши реальный executable, а не alias или
    Windows wrapper: сначала проверь исполняемый
-   `$HOME/.local/bin/coderabbit`, затем при необходимости используй
-   `type -P coderabbit` и проверь `-x`. Не используй `command -v` как источник
-   истины: в интерактивном shell он может вернуть alias или function. Сохрани
-   найденный путь, например `coderabbit_bin`, и вызывай через
+   `$HOME/.local/bin/coderabbit` как regular file через `-f` и `-x`, проверь
+   resolved target и отвергни `.cmd`. Если проверка не прошла, используй
+   `type -P coderabbit`, затем снова проверь `-f`, `-x` и resolved target без
+   `.cmd`. Не используй `command -v` как источник истины: в интерактивном shell
+   он может вернуть alias или function. Сохрани найденный путь, например
+   `coderabbit_bin`, и вызывай через
    `"$coderabbit_bin"` все проверки и review. Если executable не найден,
    остановись как на prerequisite blocker; не переходи на другой distro,
    Windows `.cmd` или status check.
