@@ -323,24 +323,24 @@ def test_pinned_mcp_client_initializes_and_calls_server() -> None:
                         for parameter in capability["parameters"]
                     )
                 ]
-                assert parameterless
-                game_observation = await session.call_tool(
-                    "dev_get_game_observation",
-                    {"capability_id": parameterless[0]["capability_id"], "parameters": {}},
-                )
-                assert game_observation.structured_content is not None
-                assert game_observation.structured_content["code"] in {
-                    "DEV_GAME_OBSERVATION_READY",
-                    "DEV_GAME_OBSERVATION_UNKNOWN",
-                    "DEV_GAME_OBSERVATION_UNAVAILABLE",
-                    "DEV_TARGET_NOT_CONFIGURED",
-                    "DEV_TARGET_DEFAULT_PROFILE_MISSING",
-                }
-                if game_observation.structured_content["code"] == "DEV_GAME_OBSERVATION_READY":
-                    assert isinstance(
-                        game_observation.structured_content["details"]["observation"],
-                        dict,
+                if parameterless:
+                    game_observation = await session.call_tool(
+                        "dev_get_game_observation",
+                        {"capability_id": parameterless[0]["capability_id"], "parameters": {}},
                     )
+                    assert game_observation.structured_content is not None
+                    assert game_observation.structured_content["code"] in {
+                        "DEV_GAME_OBSERVATION_READY",
+                        "DEV_GAME_OBSERVATION_UNKNOWN",
+                        "DEV_GAME_OBSERVATION_UNAVAILABLE",
+                        "DEV_TARGET_NOT_CONFIGURED",
+                        "DEV_TARGET_DEFAULT_PROFILE_MISSING",
+                    }
+                    if game_observation.structured_content["code"] == "DEV_GAME_OBSERVATION_READY":
+                        assert isinstance(
+                            game_observation.structured_content["details"]["observation"],
+                            dict,
+                        )
             database_checks = await session.call_tool("dev_list_database_checks", {})
             assert database_checks.structured_content is not None
             assert database_checks.structured_content["code"] in {

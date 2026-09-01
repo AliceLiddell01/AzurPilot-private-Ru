@@ -199,6 +199,8 @@ def test_database_diagnostics_contracts_allow_only_sanitized_scalars() -> None:
 
 def test_database_diagnostics_maps_healthy_and_schema_drift_states() -> None:
     healthy_connection = _HealthConnection()
+    # Эти private-вызовы изолированно проверяют mapping отдельных DB checks;
+    # общий run_check здесь смешал бы независимые synthetic состояния.
     healthy = PostgresDatabaseDiagnostics._connectivity(healthy_connection)  # type: ignore[arg-type]
     assert healthy.status is DatabaseCheckStatus.PASS
     assert healthy.code == "DEV_DATABASE_CONNECTED"

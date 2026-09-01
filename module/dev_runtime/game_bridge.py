@@ -731,19 +731,32 @@ class DevGameBridge:
             registry = GameObservationRegistry(providers)
         self.registry = registry
         self._dispose_callback = dispose_callback
+        self._disposed = False
+
+    def _ensure_available(self) -> None:
+        if self._disposed:
+            raise GameObservationError(
+                "DEV_GAME_OBSERVATION_PROVIDER_UNAVAILABLE",
+                "Bridge уже освобождён",
+            )
 
     def dispose(self) -> None:
         """Освободить принадлежащую bridge read-only persistence composition."""
 
+        if self._disposed:
+            return
+        self._disposed = True
         callback = self._dispose_callback
         self._dispose_callback = None
         if callback is not None:
             callback()
 
     def descriptors(self) -> tuple[GameObservationCapability, ...]:
+        self._ensure_available()
         return self.registry.descriptors()
 
     def validate_request(self, capability_id: object, parameters: object = None) -> dict[str, object]:
+        self._ensure_available()
         return self.registry.validate_request(capability_id, parameters)
 
     def capture(
@@ -757,6 +770,7 @@ class DevGameBridge:
         smoke_id: str | None = None,
         captured_at: datetime,
     ) -> GameObservationSnapshot:
+        self._ensure_available()
         if not isinstance(target, DevTarget):
             raise GameObservationError("DEV_GAME_OBSERVATION_TARGET_INVALID", "Bridge получил некорректный target")
         return self.registry.capture(

@@ -664,7 +664,7 @@ def test_serializer_preserves_smoke_result_and_active_conflict_state() -> None:
     }
 
 
-def test_serializer_distinguishes_game_and_smoke_capability_families() -> None:
+def test_serializer_preserves_event_capability_schema() -> None:
     result = serialize_dev_result(
         {
             "ok": True,

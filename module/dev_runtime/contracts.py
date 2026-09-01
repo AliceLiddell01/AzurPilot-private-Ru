@@ -452,6 +452,12 @@ class DevEnvironment:
         return self.repository_root / "config" / "state" / "dev-runtime-session.lock"
 
     @property
+    def pre_execution_lock_file(self) -> Path:
+        """Блокировка запуска до фиксации владения целевым процессом."""
+
+        return self.repository_root / "config" / "state" / "dev-runtime-pre-execution.lock"
+
+    @property
     def log_file(self) -> Path:
         return self.repository_root / "config" / "state" / "dev-runtime-gui.log"
 

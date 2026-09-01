@@ -282,7 +282,9 @@ symlink/junction. Состояния выполнения (`created`, `preparing
 исполняемого файла проверяются точно. Для game-backed Smoke supervisor вызывает
 `DevSessionManager.start_with_pre_execution_hook()` с Task Sandbox: callback
 фиксирует `before` после target/task preparation и до первого запуска target
-process. Runtime читается только через публичные API Evidence API `evidence`,
+process. Отдельная pre-execution lock сериализует callback, первый запуск и
+операции `stop`/`recover`/`cleanup`, но общая coordination lock не удерживается
+на время потенциально долгого read-only checkpoint. Runtime читается только через публичные API Evidence API `evidence`,
 `timeline`, `logs`, `status` и снимка экрана.
 Он не вызывает gameplay handlers, `Device`, production MCP или raw scheduler.
 После ошибки сначала сохраняется первичная ошибка продукта, затем выполняются

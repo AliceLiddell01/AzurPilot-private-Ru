@@ -8,7 +8,7 @@ import threading
 import time
 import uuid
 from collections.abc import Callable, Iterable, Iterator, Mapping
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -1344,7 +1344,8 @@ class DevSessionManager(DevDiagnosticsMixin):
     def cleanup(self) -> DevResult:
         try:
             self._refresh_target()
-            return self._cleanup_impl()
+            with self._pre_execution_lock():
+                return self._cleanup_impl()
         except TaskSandboxError as exc:
             return self._task_error(exc)
         except RuntimeCoordinationError as exc:
@@ -2167,190 +2168,202 @@ class DevSessionManager(DevDiagnosticsMixin):
                 details={"preflight": preflight.as_dict()},
             )
 
-        with self._locked_state():
-            conflict = self._runtime_start_conflict()
-            if conflict is not None:
-                return conflict
-            current = self.status()
-            if current.state not in {
-                DevStatusKind.NO_SESSION.value,
-                DevStatusKind.STARTING.value,
-                DevStatusKind.STOPPED.value,
-                DevStatusKind.FAILED.value,
-                DevStatusKind.STALE.value,
-            }:
-                return DevResult(
-                    ok=False,
-                    code="DEV_SESSION_CONFLICT",
-                    message="Другая DevSession уже активна",
-                    state=current.state,
-                    session_id=current.session_id,
-                )
-            if current.state in {
-                DevStatusKind.STARTING.value,
-                DevStatusKind.FAILED.value,
-                DevStatusKind.STALE.value,
-            }:
-                recovered = self._recover_locked()
-                if not recovered.ok:
-                    return recovered
-
-            previous_cleanup = self._cleanup_leftover_task_state_locked()
-            if not previous_cleanup.ok:
-                return previous_cleanup
-
-            self._evidence_store = None
-            timestamp = self._timestamp()
-            session = DevSession(
-                session_id=self.session_id_factory(),
-                state=DevSessionState.CREATED,
-                repository_root=str(self.environment.repository_root),
-                created_at=timestamp,
-                updated_at=timestamp,
-                profile_name=self.environment.profile_name,
-                target_identity=target_identity(self.environment.dev_target),
-                last_code="DEV_SESSION_CREATED",
-                last_message="DevSession создана",
-                task_mode=(
-                    DevTaskMode.TASK_AWARE
-                    if task_plan is not None
-                    else DevTaskMode.NONE
-                ),
-                task_phase=(
-                    DevTaskPhase.PREPARING
-                    if task_plan is not None
-                    else DevTaskPhase.NONE
-                ),
-                task_cleanup_required=task_plan is not None,
-                task_policy_expected=task_plan is not None,
-            )
-            self._write_session(session)
-            if task_plan is not None:
-                self._initialize_evidence(session, task_plan)
-            if task_plan is not None:
-                preparation = self._prepare_task_session_locked(task_plan, session)
-                if not preparation.ok:
-                    self._evidence_event(
-                        "runtime_warning",
-                        {"code": preparation.code, "phase": "task_prepare"},
-                    )
-                    session.state = DevSessionState.FAILED
-                    session.updated_at = self._timestamp()
-                    session.last_code = preparation.code
-                    session.last_message = preparation.message
-                    self._write_session(session)
-                    cleanup_details = preparation.details.get("cleanup")
-                    cleanup_confirmed = isinstance(cleanup_details, dict) and cleanup_details.get("ok") is True
-                    self._finish_failed_evidence(
-                        session,
-                        process_started=False,
-                        process_stopped=True,
-                        cleanup_attempted=True,
-                        cleanup_confirmed=cleanup_confirmed,
-                        reason=preparation.code,
-                    )
-                    return self._session_result(
-                        session,
+        with self._pre_execution_lock():
+            with self._locked_state():
+                conflict = self._runtime_start_conflict()
+                if conflict is not None:
+                    return conflict
+                current = self.status()
+                if current.state not in {
+                    DevStatusKind.NO_SESSION.value,
+                    DevStatusKind.STARTING.value,
+                    DevStatusKind.STOPPED.value,
+                    DevStatusKind.FAILED.value,
+                    DevStatusKind.STALE.value,
+                }:
+                    return DevResult(
                         ok=False,
-                        code=preparation.code,
-                        message=preparation.message,
-                        state=DevStatusKind.FAILED,
-                        details=preparation.details,
+                        code="DEV_SESSION_CONFLICT",
+                        message="Другая DevSession уже активна",
+                        state=current.state,
+                        session_id=current.session_id,
                     )
-                self._evidence_event(
-                    "policy_prepared",
-                    {"profile": self.environment.profile_name, "state": TASK_POLICY_ACTIVE},
+                if current.state in {
+                    DevStatusKind.STARTING.value,
+                    DevStatusKind.FAILED.value,
+                    DevStatusKind.STALE.value,
+                }:
+                    recovered = self._recover_locked()
+                    if not recovered.ok:
+                        return recovered
+
+                previous_cleanup = self._cleanup_leftover_task_state_locked()
+                if not previous_cleanup.ok:
+                    return previous_cleanup
+
+                self._evidence_store = None
+                timestamp = self._timestamp()
+                session = DevSession(
+                    session_id=self.session_id_factory(),
+                    state=DevSessionState.CREATED,
+                    repository_root=str(self.environment.repository_root),
+                    created_at=timestamp,
+                    updated_at=timestamp,
+                    profile_name=self.environment.profile_name,
+                    target_identity=target_identity(self.environment.dev_target),
+                    last_code="DEV_SESSION_CREATED",
+                    last_message="DevSession создана",
+                    task_mode=(
+                        DevTaskMode.TASK_AWARE
+                        if task_plan is not None
+                        else DevTaskMode.NONE
+                    ),
+                    task_phase=(
+                        DevTaskPhase.PREPARING
+                        if task_plan is not None
+                        else DevTaskPhase.NONE
+                    ),
+                    task_cleanup_required=task_plan is not None,
+                    task_policy_expected=task_plan is not None,
                 )
-                try:
-                    if self._evidence_store is not None:
-                        self._evidence_store.capture_log_boundary()
-                except EvidenceError:
-                    pass
-            session.state = DevSessionState.STARTING
-            session.updated_at = self._timestamp()
-            session.last_code = "DEV_SESSION_STARTING"
-            session.last_message = "Запускается штатный gui.py для назначенного development target"
-            self._write_session(session)
+                self._write_session(session)
+                if task_plan is not None:
+                    self._initialize_evidence(session, task_plan)
+                if task_plan is not None:
+                    preparation = self._prepare_task_session_locked(task_plan, session)
+                    if not preparation.ok:
+                        self._evidence_event(
+                            "runtime_warning",
+                            {"code": preparation.code, "phase": "task_prepare"},
+                        )
+                        session.state = DevSessionState.FAILED
+                        session.updated_at = self._timestamp()
+                        session.last_code = preparation.code
+                        session.last_message = preparation.message
+                        self._write_session(session)
+                        cleanup_details = preparation.details.get("cleanup")
+                        cleanup_confirmed = isinstance(cleanup_details, dict) and cleanup_details.get("ok") is True
+                        self._finish_failed_evidence(
+                            session,
+                            process_started=False,
+                            process_stopped=True,
+                            cleanup_attempted=True,
+                            cleanup_confirmed=cleanup_confirmed,
+                            reason=preparation.code,
+                        )
+                        return self._session_result(
+                            session,
+                            ok=False,
+                            code=preparation.code,
+                            message=preparation.message,
+                            state=DevStatusKind.FAILED,
+                            details=preparation.details,
+                        )
+                    self._evidence_event(
+                        "policy_prepared",
+                        {"profile": self.environment.profile_name, "state": TASK_POLICY_ACTIVE},
+                    )
+                    try:
+                        if self._evidence_store is not None:
+                            self._evidence_store.capture_log_boundary()
+                    except EvidenceError:
+                        pass
+                session.state = DevSessionState.STARTING
+                session.updated_at = self._timestamp()
+                session.last_code = "DEV_SESSION_STARTING"
+                session.last_message = "Запускается штатный gui.py для назначенного development target"
+                self._write_session(session)
 
             pid: int | None = None
             launched_identity: ProcessIdentity | None = None
             try:
                 if before_process_launch is not None:
                     before_process_launch(session.session_id)
-                pid = self.process_backend.launch(self.environment, session.session_id)
-                identity = self.process_backend.capture(pid)
-                if identity is None:
-                    raise RuntimeError("Запущенный процесс завершился до фиксации владения")
-                launched_identity = identity
-                session.process = identity
-                session.updated_at = self._timestamp()
-                self._write_session(session)
-                self._evidence_event(
-                    "process_started",
-                    {"state": DevSessionState.STARTING.value},
-                )
-            except Exception as exc:
-                self._evidence_error(exc, phase="session_start")
-                process_cleanup_confirmed = pid is None
-                if pid is not None:
-                    identity = launched_identity
+                with self._locked_state():
+                    latest = self._read_session()
+                    if (
+                        latest is None
+                        or latest.session_id != session.session_id
+                        or latest.state is not DevSessionState.STARTING
+                        or latest.process is not None
+                    ):
+                        raise RuntimeError("Состояние DevSession изменилось до запуска target")
+                    session = latest
+                    pid = self.process_backend.launch(self.environment, session.session_id)
+                    identity = self.process_backend.capture(pid)
                     if identity is None:
-                        try:
-                            identity = self.process_backend.capture(pid)
-                        except RuntimeError:
-                            identity = None
-                    if identity is not None:
-                        process_cleanup_confirmed = self.process_backend.force_stop(identity)
-                    else:
-                        process_cleanup_confirmed = False
-                failure_code = "DEV_LAUNCH_FAILED"
-                failure_details: dict[str, object] = {}
-                if task_plan is not None:
-                    task_cleanup = (
-                        self._cleanup_task_state_locked(
-                            expected_session_id=session.session_id,
-                            catalog=task_plan.catalog,
-                            session=session,
+                        raise RuntimeError("Запущенный процесс завершился до фиксации владения")
+                    launched_identity = identity
+                    session.process = identity
+                    session.updated_at = self._timestamp()
+                    self._write_session(session)
+                    self._evidence_event(
+                        "process_started",
+                        {"state": DevSessionState.STARTING.value},
+                    )
+            except Exception as exc:
+                with self._locked_state():
+                    self._evidence_error(exc, phase="session_start")
+                    process_cleanup_confirmed = pid is None
+                    if pid is not None:
+                        identity = launched_identity
+                        if identity is None:
+                            try:
+                                identity = self.process_backend.capture(pid)
+                            except RuntimeError:
+                                identity = None
+                        if identity is not None:
+                            process_cleanup_confirmed = self.process_backend.force_stop(identity)
+                        else:
+                            process_cleanup_confirmed = False
+                    failure_code = "DEV_LAUNCH_FAILED"
+                    failure_details: dict[str, object] = {}
+                    if task_plan is not None:
+                        task_cleanup = (
+                            self._cleanup_task_state_locked(
+                                expected_session_id=session.session_id,
+                                catalog=task_plan.catalog,
+                                session=session,
+                            )
+                            if process_cleanup_confirmed
+                            else self._task_cleanup_unconfirmed_locked(
+                                message="После ошибки запуска процесс не удалось безопасно завершить",
+                                session=session,
+                            )
                         )
-                        if process_cleanup_confirmed
-                        else self._task_cleanup_unconfirmed_locked(
-                            message="После ошибки запуска процесс не удалось безопасно завершить",
-                            session=session,
+                        failure_details = {"cleanup": task_cleanup.as_dict()}
+                        if not task_cleanup.ok:
+                            failure_code = "DEV_CLEANUP_FAILED"
+                    session.state = DevSessionState.FAILED
+                    session.updated_at = self._timestamp()
+                    session.last_code = failure_code
+                    session.last_message = f"Не удалось запустить DevSession: {type(exc).__name__}"
+                    if failure_code == "DEV_CLEANUP_FAILED":
+                        session.last_message += "; состояние планировщика не подтверждено очищенным"
+                    self._write_session(session)
+                    cleanup_confirmed = (
+                        task_plan is None
+                        or (
+                            isinstance(failure_details.get("cleanup"), dict)
+                            and failure_details["cleanup"].get("ok") is True
                         )
                     )
-                    failure_details = {"cleanup": task_cleanup.as_dict()}
-                    if not task_cleanup.ok:
-                        failure_code = "DEV_CLEANUP_FAILED"
-                session.state = DevSessionState.FAILED
-                session.updated_at = self._timestamp()
-                session.last_code = failure_code
-                session.last_message = f"Не удалось запустить DevSession: {type(exc).__name__}"
-                if failure_code == "DEV_CLEANUP_FAILED":
-                    session.last_message += "; состояние планировщика не подтверждено очищенным"
-                self._write_session(session)
-                cleanup_confirmed = (
-                    task_plan is None
-                    or (
-                        isinstance(failure_details.get("cleanup"), dict)
-                        and failure_details["cleanup"].get("ok") is True
+                    self._finish_failed_evidence(
+                        session,
+                        process_started=pid is not None,
+                        process_stopped=process_cleanup_confirmed,
+                        cleanup_attempted=task_plan is not None,
+                        cleanup_confirmed=cleanup_confirmed and process_cleanup_confirmed,
+                        reason=failure_code,
                     )
-                )
-                self._finish_failed_evidence(
-                    session,
-                    process_started=pid is not None,
-                    process_stopped=process_cleanup_confirmed,
-                    cleanup_attempted=task_plan is not None,
-                    cleanup_confirmed=cleanup_confirmed and process_cleanup_confirmed,
-                    reason=failure_code,
-                )
-                return self._session_result(
-                    session,
-                    ok=False,
-                    code=failure_code,
-                    message=session.last_message,
-                    state=DevStatusKind.FAILED,
-                    details=failure_details,
-                )
+                    return self._session_result(
+                        session,
+                        ok=False,
+                        code=failure_code,
+                        message=session.last_message,
+                        state=DevStatusKind.FAILED,
+                        details=failure_details,
+                    )
 
         assert session.process is not None
         ready, reason = self._wait_for_readiness(session.process)
@@ -2490,7 +2503,8 @@ class DevSessionManager(DevDiagnosticsMixin):
     def stop(self, *, preserve_task_state: bool = False) -> DevResult:
         try:
             self._refresh_target()
-            return self._stop_impl(preserve_task_state=preserve_task_state)
+            with self._pre_execution_lock():
+                return self._stop_impl(preserve_task_state=preserve_task_state)
         except TaskSandboxError as exc:
             return self._task_error(exc)
         except RuntimeCoordinationError as exc:
@@ -2608,8 +2622,9 @@ class DevSessionManager(DevDiagnosticsMixin):
     def recover(self) -> DevResult:
         try:
             self._refresh_target()
-            with self._locked_state():
-                return self._recover_locked()
+            with self._pre_execution_lock():
+                with self._locked_state():
+                    return self._recover_locked()
         except TaskSandboxError as exc:
             return self._task_error(exc)
         except RuntimeCoordinationError as exc:
@@ -2878,6 +2893,33 @@ class DevSessionManager(DevDiagnosticsMixin):
             self.environment.lock_file.parent.mkdir(parents=True, exist_ok=True)
             with _state_thread_lock, _exclusive_file_lock(self.environment.lock_file):
                 yield
+
+    @contextmanager
+    def _pre_execution_lock(self) -> Iterator[None]:
+        """Сериализовать pre-execution callback и первый запуск target process."""
+
+        path = self.environment.pre_execution_lock_file
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise RuntimeCoordinationError(
+                "Блокировка pre-execution запуска недоступна"
+            ) from exc
+        stack = ExitStack()
+        try:
+            try:
+                stack.enter_context(_exclusive_file_lock(path))
+            except TimeoutError as exc:
+                raise RuntimeCoordinationError(
+                    "Истекло время ожидания блокировки pre-execution запуска"
+                ) from exc
+            except OSError as exc:
+                raise RuntimeCoordinationError(
+                    "Блокировка pre-execution запуска недоступна"
+                ) from exc
+            yield
+        finally:
+            stack.close()
 
     def _timestamp(self) -> str:
         timestamp = self.now()

@@ -69,9 +69,12 @@ def test_diagnostics_preserve_incompatible_marker_version(
     tmp_path: Path,
 ) -> None:
     marker = tmp_path / "storage_backend.json"
-    payload = _write_marker(marker, EXPECTED_ALEMBIC_HEAD)
+    payload = _marker_payload(EXPECTED_ALEMBIC_HEAD)
     payload["version"] = 2
-    marker.write_text(json.dumps(payload), encoding="utf-8")
+    marker.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
 
     with pytest.raises(StorageConfigurationError, match="не разрешает"):
         load_backend_marker_for_schema_upgrade(marker)

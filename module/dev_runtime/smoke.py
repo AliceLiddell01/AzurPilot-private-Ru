@@ -3464,6 +3464,8 @@ class SmokeRunManager:
                 },
                 SmokeFailure(code=exc.code, message=str(exc)),
             )
+        except SmokeStoreError:
+            raise
         except Exception as exc:
             return (
                 False,
@@ -3676,20 +3678,26 @@ class SmokeRunManager:
         record = self.store.load(smoke_id)
         before_hook_called = False
         before_failure: SmokeFailure | None = None
+        before_harness_failure = False
 
         def capture_before(session_id: str) -> None:
-            nonlocal before_hook_called, before_failure, record
+            nonlocal before_hook_called, before_failure, before_harness_failure, record
             before_hook_called = True
-            record = self.store.update(
-                smoke_id,
-                {"state": SmokeState.RUNNING, "session_id": session_id},
-            )
-            before_ok, _before_details, before_failure = self._capture_game_checkpoint(
-                record,
-                spec,
-                "before",
-                session_id,
-            )
+            try:
+                record = self.store.update(
+                    smoke_id,
+                    {"state": SmokeState.RUNNING, "session_id": session_id},
+                )
+                before_ok, _before_details, before_failure = self._capture_game_checkpoint(
+                    record,
+                    spec,
+                    "before",
+                    session_id,
+                )
+            except SmokeStoreError as exc:
+                before_failure = SmokeFailure(code=exc.code, message=str(exc))
+                before_harness_failure = True
+                raise
             if not before_ok:
                 raise RuntimeError("Smoke before checkpoint не подтверждён")
 
@@ -3736,12 +3744,16 @@ class SmokeRunManager:
                 ),
             )
             outcome = (
-                SmokeOutcome.EVIDENCE_INCOMPLETE
-                if before_failure is not None
+                SmokeOutcome.HARNESS_FAILED
+                if before_harness_failure
                 else (
-                    SmokeOutcome.HARNESS_FAILED
-                    if failure.code.startswith("DEV_SMOKE_PRESTART_HOOK_")
-                    else SmokeOutcome.PRECONDITION_FAILED
+                    SmokeOutcome.EVIDENCE_INCOMPLETE
+                    if before_failure is not None
+                    else (
+                        SmokeOutcome.HARNESS_FAILED
+                        if failure.code.startswith("DEV_SMOKE_PRESTART_HOOK_")
+                        else SmokeOutcome.PRECONDITION_FAILED
+                    )
                 )
             )
             cleanup, cleanup_failure = self._cleanup_runtime(

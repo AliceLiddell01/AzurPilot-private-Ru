@@ -700,9 +700,52 @@ def test_smoke_captures_before_before_first_target_execution_side_effect(
 
     manager._run_supervisor(started.details["smoke_id"])
 
+    required_events = {"capture_before", "target_execution_side_effect"}
+    assert required_events.issubset(runtime.execution_order), runtime.execution_order
     assert runtime.execution_order.index("capture_before") < runtime.execution_order.index(
         "target_execution_side_effect"
+    ), runtime.execution_order
+
+
+def test_smoke_store_error_before_checkpoint_is_a_harness_failure(
+    tmp_path: Path,
+    clean_source: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = _Runtime()
+    manager = smoke.SmokeRunManager(
+        _environment(tmp_path),
+        runtime_factory=lambda: runtime,
+        supervisor_backend=_Backend(),
+        game_bridge=_SmokeGameBridge(),
+        now=lambda: _NOW,
     )
+    started = manager.start_smoke(
+        _spec(
+            game_observations={
+                "observations": [{"capability_id": "synthetic"}],
+            }
+        )
+    )
+    assert started.ok is True, started.as_dict()
+    original_update = manager.store.update
+
+    def fail_before_state_update(smoke_id: str, changes: dict[str, object]) -> smoke.SmokeRunRecord:
+        if changes.get("state") is smoke.SmokeState.RUNNING:
+            raise smoke.SmokeStoreError(
+                "DEV_SMOKE_STATE_WRITE_FAILED",
+                "Синтетический отказ записи состояния перед checkpoint",
+            )
+        return original_update(smoke_id, changes)
+
+    monkeypatch.setattr(manager.store, "update", fail_before_state_update)
+    manager._run_supervisor(started.details["smoke_id"])
+
+    result = manager.store.load_result(started.details["smoke_id"])
+    assert result is not None
+    assert result.outcome is smoke.SmokeOutcome.HARNESS_FAILED
+    assert result.primary_failure is not None
+    assert result.primary_failure.code == "DEV_SMOKE_STATE_WRITE_FAILED"
 
 
 def test_cancel_smoke_returns_request_for_live_supervisor(tmp_path: Path, clean_source: None) -> None:

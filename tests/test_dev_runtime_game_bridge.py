@@ -700,10 +700,14 @@ def test_runtime_game_bridge_uses_read_only_persistence_for_morale_factory(
         def __init__(self, _uow_factory: object, *, clock: object = None) -> None:
             calls.append("morale")
 
+    def _read_only_composition(_environment: object) -> _Composition:
+        calls.append("read_only_composition")
+        return _Composition()
+
     monkeypatch.setattr(
         persistence_runtime,
         "build_read_only_persistence_composition",
-        lambda _environment: calls.append("read_only_composition") or _Composition(),
+        _read_only_composition,
     )
     monkeypatch.setattr(
         persistence_runtime,
@@ -727,3 +731,6 @@ def test_runtime_game_bridge_uses_read_only_persistence_for_morale_factory(
     assert runtime_storage._provider is production_provider
     bridge.dispose()
     assert calls == ["read_only_composition", "morale", "dispose"]
+    with pytest.raises(GameObservationError) as disposed:
+        bridge.capture(_TARGET, "morale", {"fleet_indices": [1]}, captured_at=_NOW)
+    assert disposed.value.code == "DEV_GAME_OBSERVATION_PROVIDER_UNAVAILABLE"

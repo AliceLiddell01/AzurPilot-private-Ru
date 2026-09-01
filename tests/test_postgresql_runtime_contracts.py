@@ -301,10 +301,10 @@ def test_database_diagnostics_builds_standalone_read_only_engine_without_product
             self.disposed = False
 
         def get(self) -> _DiagnosticEngine:
-            self.connect_calls += 1
             return self
 
         def connect(self) -> _ConnectionContext:
+            self.connect_calls += 1
             return _ConnectionContext()
 
         def dispose(self) -> None:
