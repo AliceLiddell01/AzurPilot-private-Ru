@@ -122,6 +122,7 @@ class DevSessionManager(DevDiagnosticsMixin):
         stop_timeout: float = DEFAULT_STOP_TIMEOUT,
         screenshot_timeout: float = 5.0,
         target_locked: bool = False,
+        smoke_owner: bool = False,
         game_bridge_factory: Callable[[DevEnvironment], object] | None = None,
         database_diagnostics_factory: Callable[[DevEnvironment], object] | None = None,
     ):
@@ -137,6 +138,9 @@ class DevSessionManager(DevDiagnosticsMixin):
         self.stop_timeout = stop_timeout
         self.screenshot_timeout = screenshot_timeout
         self._target_locked = target_locked
+        # Внутренний runtime Smoke Harness владеет своей reservation и не
+        # должен считать собственный SmokeRun внешним конфликтом.
+        self._smoke_owner = smoke_owner
         self._game_bridge_factory = game_bridge_factory
         self._database_diagnostics_factory = database_diagnostics_factory
         self._evidence_store: EvidenceStore | None = None
@@ -2085,7 +2089,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                     state=DevStatusKind.FAILED.value,
                     details={"outcome": "CONFLICT"},
                 )
-            if self._get_smoke_manager().has_active_run():
+            if not self._smoke_owner and self._get_smoke_manager().has_active_run():
                 return DevResult(
                     ok=False,
                     code="DEV_SESSION_CONFLICT_SMOKE",

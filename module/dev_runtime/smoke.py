@@ -2670,7 +2670,11 @@ class SmokeRunManager:
     def _default_runtime_factory(self) -> object:
         from module.dev_runtime.manager import DevSessionManager
 
-        return DevSessionManager(environment=self.environment, target_locked=True)
+        return DevSessionManager(
+            environment=self.environment,
+            target_locked=True,
+            smoke_owner=True,
+        )
 
     def _get_game_bridge(self) -> object:
         bridge = self._game_bridge

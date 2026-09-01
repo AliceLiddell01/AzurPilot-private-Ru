@@ -337,6 +337,26 @@ def _spec(**kwargs: object) -> smoke.SmokeSpec:
     return smoke.SmokeSpec(**values)
 
 
+def test_smoke_runtime_owner_does_not_conflict_with_its_smoke_reservation(tmp_path: Path) -> None:
+    environment = _environment(tmp_path)
+    smoke_manager = smoke.SmokeRunManager(
+        environment,
+        supervisor_backend=_Backend(),
+        now=lambda: _NOW,
+    )
+    owned_runtime = smoke_manager._default_runtime_factory()
+    owned_runtime._smoke_manager = SimpleNamespace(has_active_run=lambda: True)
+
+    assert owned_runtime._runtime_start_conflict() is None
+
+    regular_runtime = DevSessionManager(environment, target_locked=True)
+    regular_runtime._smoke_manager = SimpleNamespace(has_active_run=lambda: True)
+    conflict = regular_runtime._runtime_start_conflict()
+
+    assert conflict is not None
+    assert conflict.code == "DEV_SESSION_CONFLICT_SMOKE"
+
+
 def test_smoke_spec_is_strict_canonical_and_rejects_malformed_paths() -> None:
     spec = _spec(
         assertions=[
