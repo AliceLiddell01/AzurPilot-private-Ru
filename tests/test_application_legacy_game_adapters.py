@@ -383,6 +383,7 @@ def test_passive_adb_discovery_is_independent_of_process_cwd(
 
     assert legacy_game_adapters._find_passive_adb_path() == str(adb.resolve())
 
+
 @dataclass
 class _CommandResult:
     returncode: int

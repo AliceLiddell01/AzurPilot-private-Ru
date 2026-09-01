@@ -180,9 +180,6 @@ class TestWorkerRegistry(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            current_before = (
-                current_file.read_bytes() if current_file.exists() else None
-            )
             legacy_before = legacy_file.read_bytes()
 
             with (
@@ -206,12 +203,8 @@ class TestWorkerRegistry(unittest.TestCase):
                 locked_file.assert_not_called()
                 self.assertEqual(1, read_registry.call_count)
 
-            current_after = (
-                current_file.read_bytes() if current_file.exists() else None
-            )
             self.assertFalse(current_file.exists())
             self.assertTrue(legacy_file.exists())
-            self.assertEqual(current_after, current_before)
             self.assertEqual(legacy_before, legacy_file.read_bytes())
             self.assertFalse(
                 worker_registry._registry_lock_file(legacy_file).exists()
@@ -281,7 +274,6 @@ class TestWorkerRegistry(unittest.TestCase):
                     LEGACY_WORKER_REGISTRY_FILE=legacy_file,
                     DEFAULT_WORKER_REGISTRY_FILE=current_file,
                 ),
-                patch.object(worker_registry, "_record_is_alive", return_value=False),
             ):
                 self.assertEqual(
                     {"created_at": 11.5, "pid": 200},

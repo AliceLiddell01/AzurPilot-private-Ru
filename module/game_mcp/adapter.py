@@ -341,7 +341,11 @@ def _unknown_tool(tool: object) -> dict[str, object]:
     return _error(
         "GAME_MCP_UNKNOWN_TOOL",
         "Запрошенный инструмент Game MCP не существует",
-        tool=_safe_text(tool) if isinstance(tool, str) else None,
+        tool=(
+            _safe_text(tool, maximum=MAX_NAME_LENGTH)
+            if isinstance(tool, str)
+            else None
+        ),
     )
 
 

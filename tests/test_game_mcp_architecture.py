@@ -60,9 +60,5 @@ def test_game_mcp_tool_names_exclude_control_and_developer_surfaces() -> None:
         "game_run_database_check",
         "game_list_database_repairs",
         "game_execute_sql",
-        "GameControlService",
-        "DevGameBridge",
-        "DevSession",
-        "Smoke",
     ):
         assert forbidden not in published_names

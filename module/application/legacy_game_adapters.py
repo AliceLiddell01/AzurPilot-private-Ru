@@ -730,7 +730,7 @@ class LegacyAdbAdapter:
                 candidate = (configured_root or _REPOSITORY_ROOT) / configured
                 if candidate.is_file():
                     return str(candidate.resolve())
-        except (AttributeError, OSError, TypeError, ValueError):
+        except (AttributeError, ImportError, OSError, TypeError, ValueError):
             pass
         roots = (configured_root,) if configured_root is not None else ()
         discovered = _first_existing_adb_path(*roots)

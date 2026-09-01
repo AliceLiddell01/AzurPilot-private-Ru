@@ -933,9 +933,15 @@ def test_stdio_entrypoint_accepts_2026_self_describing_requests_without_initiali
                     )
                 )
             )
-            envelope = await read_stream.receive()
-            message = envelope.message if isinstance(envelope, SessionMessage) else envelope
-            assert getattr(message, "id", None) == request_id
+            while True:
+                envelope = await read_stream.receive()
+                message = (
+                    envelope.message
+                    if isinstance(envelope, SessionMessage)
+                    else envelope
+                )
+                if getattr(message, "id", None) == request_id:
+                    break
             assert getattr(message, "error", None) is None
             result = getattr(message, "result", None)
             if hasattr(result, "model_dump"):
