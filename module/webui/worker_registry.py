@@ -383,7 +383,7 @@ def get_workers(owner_pid: int) -> dict[str, dict]:
 
 
 def get_worker_read_only(config_name: str) -> dict | None:
-    """Прочитать worker без миграции, блокировки записи или housekeeping."""
+    """Прочитать worker без миграции и блокировки, не проверяя владельца."""
     if not isinstance(config_name, str) or not config_name:
         raise ValueError("Имя экземпляра должно быть непустой строкой")
 
@@ -391,7 +391,11 @@ def get_worker_read_only(config_name: str) -> dict | None:
     for registry_file in paths:
         if not registry_file.is_file():
             continue
-        registry = _read_registry(registry_file)
+        try:
+            registry = _read_registry(registry_file)
+        except RuntimeError:
+            # Повреждённый реестр не должен прерывать чтение остальных путей.
+            continue
         record = registry["workers"].get(config_name)
         if record is None:
             continue

@@ -586,6 +586,40 @@ def test_remote_request_bounds_cover_concurrency_and_timeout() -> None:
             assert completed.status_code == 200
             assert completed.content == b""
 
+        long_lived_started = asyncio.Event()
+        long_lived_release = asyncio.Event()
+
+        async def long_lived_get(scope: Any, receive: Any, send: Any) -> None:
+            long_lived_started.set()
+            await long_lived_release.wait()
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [(b"content-type", b"text/plain")],
+                }
+            )
+            await send({"type": "http.response.body", "body": b"ok"})
+
+        long_lived_app = RequestTimeoutMiddleware(
+            long_lived_get,
+            _config(request_timeout_seconds=0.01),
+        )
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=long_lived_app),
+            base_url=_BASE_URL,
+        ) as client:
+            request = asyncio.create_task(client.get("/mcp"))
+            try:
+                await asyncio.wait_for(long_lived_started.wait(), timeout=1)
+                done, _ = await asyncio.wait({request}, timeout=0.05)
+                assert not done
+            finally:
+                long_lived_release.set()
+            response = await asyncio.wait_for(request, timeout=1)
+            assert response.status_code == 200
+            assert response.content == b"ok"
+
     asyncio.run(scenario())
 
 

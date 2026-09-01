@@ -34,7 +34,9 @@ ownership debt. На этой стадии менеджер не перенос�
 worker registry через `get_worker_read_only` и `process_matches`, не вызывая
 `ProcessManager` и lifecycle housekeeping. Injection path с
 `manager_factory` сохраняется только для совместимых legacy callers и
-тестов.
+тестов. Read-only registry snapshot сам по себе не проверяет владельца и может
+содержать запись завершившегося процесса; caller обязан отдельно выполнить
+`process_matches`.
 
 ## Production storage wiring
 

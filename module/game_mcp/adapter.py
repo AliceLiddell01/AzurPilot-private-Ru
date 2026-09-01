@@ -292,7 +292,7 @@ def _result(
     }
     try:
         encoded = json.dumps(response, ensure_ascii=False, separators=(",", ":"))
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return {
             "ok": False,
             "code": "GAME_MCP_INTERNAL_ERROR",
@@ -825,12 +825,16 @@ class GameMcpAdapter:
         self._backend_condition = Condition(self._backend_lock)
         self._active_calls = 0
         self._closing = False
+        self._closed = False
 
     def close(self) -> None:
         """Освободить ленивый persistence context, если он был создан."""
 
         with self._backend_condition:
+            if self._closed:
+                return
             self._closing = True
+            self._closed = True
             try:
                 while self._active_calls:
                     self._backend_condition.wait()
@@ -854,10 +858,16 @@ class GameMcpAdapter:
                 self._backend = backend
             return self._backend
 
+    def _is_closed(self) -> bool:
+        with self._backend_lock:
+            return self._closed
+
     def _acquire_backend(self) -> object:
         with self._backend_condition:
             while self._closing:
                 self._backend_condition.wait()
+            if self._closed:
+                raise ServiceUnavailableError("Game MCP adapter закрыт.")
             backend = self._get_backend()
             self._active_calls += 1
             return backend
@@ -1101,9 +1111,15 @@ class GameMcpAdapter:
 
         if tool_name not in GAME_MCP_TOOL_NAMES:
             return _unknown_tool(tool_name)
+        if self._is_closed():
+            return _error(
+                "GAME_SERVICE_UNAVAILABLE",
+                "Game MCP adapter закрыт.",
+                tool=tool_name,
+            )
         try:
             parsed, selection = _validate_arguments(tool_name, arguments)
-        except InvalidRequestError, TypeError, ValueError:
+        except (InvalidRequestError, TypeError, ValueError):
             return _invalid(tool_name)
         if tool_name == "game_get_contract":
             return contract_result()

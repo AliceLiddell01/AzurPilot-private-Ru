@@ -43,6 +43,7 @@ from module.application import (
     MoraleKnowledge,
     MoraleSelectionState,
     MoraleSlotState,
+    ResourceNotFoundError,
     RuntimeLogTail,
     RuntimeState,
     SchedulerEntry,
@@ -175,9 +176,9 @@ class _Tasks:
     def list_tasks(self) -> tuple[TaskSummary, ...]:
         return (TaskSummary("Main", "Главная", "Запуск"),)
 
-    def get_task_metadata(self, name: str) -> TaskMetadata | None:
+    def get_task_metadata(self, name: str) -> TaskMetadata:
         if name != "Main":
-            return None
+            raise ResourceNotFoundError("Задача не найдена.")
         return TaskMetadata(
             "Main",
             "Главная",
@@ -469,6 +470,34 @@ def test_adapter_hides_backend_factory_failures() -> None:
     assert result["code"] == "GAME_SERVICE_UNAVAILABLE"
     assert result["details"] == {"tool": "game_list_profiles"}
     assert "private backend path" not in json.dumps(result, ensure_ascii=False)
+
+
+def test_adapter_rejects_calls_after_close_without_recreating_backend() -> None:
+    backend = _backend()
+    factory_calls: list[bool] = []
+    disposed: list[bool] = []
+    backend.dispose = lambda: disposed.append(True)
+
+    def factory() -> object:
+        factory_calls.append(True)
+        return backend
+
+    adapter = GameMcpAdapter(factory)
+    assert adapter.call("game_list_tasks")["code"] == "GAME_TASKS_READY"
+
+    adapter.close()
+
+    assert disposed == [True]
+    assert (
+        adapter.call("game_list_tasks")["code"] == "GAME_SERVICE_UNAVAILABLE"
+    )
+    assert (
+        adapter.call("game_get_contract")["code"] == "GAME_SERVICE_UNAVAILABLE"
+    )
+    assert factory_calls == [True]
+
+    adapter.close()
+    assert disposed == [True]
 
 
 def test_adapter_is_stateless_and_profile_reads_are_isolated() -> None:

@@ -603,6 +603,9 @@ class RequestTimeoutMiddleware:
         if scope.get("type") != "http":
             await self.app(scope, receive, send)
             return
+        if scope.get("method") == "GET" and scope.get("path") == MCP_PATH:
+            await self.app(scope, receive, send)
+            return
         response_started = False
         response_completed = False
 

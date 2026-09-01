@@ -180,6 +180,11 @@ class TestWorkerRegistry(unittest.TestCase):
                 encoding="utf-8",
             )
 
+            current_before = (
+                current_file.read_bytes() if current_file.exists() else None
+            )
+            legacy_before = legacy_file.read_bytes()
+
             with patch.multiple(
                 worker_registry,
                 WORKER_REGISTRY_FILE=current_file,
@@ -192,8 +197,13 @@ class TestWorkerRegistry(unittest.TestCase):
                 )
                 locked_file.assert_not_called()
 
+            current_after = (
+                current_file.read_bytes() if current_file.exists() else None
+            )
             self.assertFalse(current_file.exists())
             self.assertTrue(legacy_file.exists())
+            self.assertEqual(current_after, current_before)
+            self.assertEqual(legacy_before, legacy_file.read_bytes())
             self.assertFalse(
                 worker_registry._registry_lock_file(legacy_file).exists()
             )
@@ -235,6 +245,41 @@ class TestWorkerRegistry(unittest.TestCase):
 
             locked_file.assert_not_called()
             self.assertTrue(current_file.exists())
+            self.assertTrue(legacy_file.exists())
+
+    def test_malformed_current_registry_does_not_block_legacy_snapshot(self):
+        with tempfile.TemporaryDirectory() as directory:
+            current_file = Path(directory) / "cache" / "webui-workers.json"
+            legacy_file = Path(directory) / "config" / "webui-workers.json"
+            current_file.parent.mkdir(parents=True)
+            legacy_file.parent.mkdir(parents=True)
+            current_file.write_text("{not-json", encoding="utf-8")
+            legacy_file.write_text(
+                json.dumps(
+                    {
+                        "owner_created_at": 10.5,
+                        "owner_pid": 100,
+                        "workers": {"alas": {"created_at": 11.5, "pid": 200}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with (
+                patch.multiple(
+                    worker_registry,
+                    WORKER_REGISTRY_FILE=current_file,
+                    LEGACY_WORKER_REGISTRY_FILE=legacy_file,
+                    DEFAULT_WORKER_REGISTRY_FILE=current_file,
+                ),
+                patch.object(worker_registry, "_record_is_alive", return_value=False),
+            ):
+                self.assertEqual(
+                    {"created_at": 11.5, "pid": 200},
+                    worker_registry.get_worker_read_only("alas"),
+                )
+
+            self.assertEqual(current_file.read_text(encoding="utf-8"), "{not-json")
             self.assertTrue(legacy_file.exists())
 
     def test_read_only_snapshot_prefers_live_legacy_registry(self):

@@ -171,7 +171,7 @@ _TASK_METADATA_VALUE = {
 _TASK_OPTION_OUTPUT = {
     "type": "object",
     "properties": {
-        "value": {"type": "string", "maxLength": 4096},
+        "value": _TASK_METADATA_SCALAR,
         "display_name": {"type": "string", "maxLength": 4096},
     },
     "required": ["value", "display_name"],

@@ -239,9 +239,13 @@ def test_legacy_log_adapter_falls_back_to_previous_calendar_date(tmp_path: Path)
 def test_legacy_screenshot_lifecycle_and_emulator_adapters_use_narrow_owners(monkeypatch):
     calls: list[tuple[str, ...]] = []
     frame = b"\x89PNG\r\n\x1a\nframe"
+
+    def runner(argv: tuple[str, ...]) -> _CommandResult:
+        calls.append(argv)
+        return _CommandResult(0, frame)
+
     screenshot = LegacyScreenshotAdapter(
-        runner=lambda argv: calls.append(tuple(argv))
-        or _CommandResult(0, frame),
+        runner=runner,
         adb_path_provider=lambda: "adb",
         target_serial_provider=lambda instance: "serial-a",
     )
