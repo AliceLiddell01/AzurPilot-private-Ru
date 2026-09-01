@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from typing import Self
 from uuid import UUID, uuid4
 
+import anyio
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
@@ -41,6 +42,7 @@ from module.application import (
     TaskOption,
     TaskSummary,
 )
+from module.application.game_validation import UNKNOWN_TASK
 from module.application.instance_identity import runtime_instance_identity
 from module.application.storage_models import InstanceIdentity
 from module.formation.model import (
@@ -224,6 +226,8 @@ class _Read:
 
     def get_recent_logs(self, profile: str, limit: int) -> RuntimeLogTail:
         self.profiles.append(profile)
+        if limit == 0:
+            return RuntimeLogTail(profile, ())
         return RuntimeLogTail(
             profile,
             (
@@ -445,6 +449,21 @@ def test_adapter_redacts_config_sanitizes_logs_and_preserves_unknown_domain_stat
     assert slot["baseline"] is None
 
 
+def test_adapter_preserves_unknown_current_task_state() -> None:
+    backend = _backend()
+    backend.read.get_current_running_task = lambda _profile: CurrentTaskSnapshot(
+        "alpha", UNKNOWN_TASK
+    )
+    adapter = GameMcpAdapter(lambda: backend)
+
+    result = adapter.call("game_get_current_task", {"profile": "alpha"})
+
+    assert result["ok"] is True
+    assert result["code"] == "GAME_DATA_UNKNOWN"
+    assert result["state"] == "unknown"
+    assert result["details"] == {"profile": "alpha", "task": UNKNOWN_TASK}
+
+
 def test_screenshot_response_is_bounded_native_image_content() -> None:
     adapter = GameMcpAdapter(lambda: _backend())
     response = adapter.call("game_get_screenshot", {"profile": "alpha"})
@@ -496,7 +515,9 @@ def test_fleet_state_read_service_does_not_register_or_commit() -> None:
             self.commits += 1
 
     uow = _Uow()
-    result = FleetStateReadService(lambda: uow).state("alpha", FleetSelection.one(1))
+    result = FleetStateReadService(lambda: uow).state_read_only(
+        "alpha", FleetSelection.one(1)
+    )
     assert result.observations == (observation,)
     assert uow.commits == 0
     assert uow.registers == 0
@@ -509,18 +530,21 @@ def test_stdio_entrypoint_exposes_game_contract_and_tools() -> None:
             args=list(GAME_MCP_ARGS),
             cwd=str(Path(__file__).resolve().parents[1]),
         )
-        async with (
-            stdio_client(parameters) as (read_stream, write_stream),
-            ClientSession(read_stream, write_stream) as session,
-        ):
-            await session.initialize()
-            assert (await session.list_tools()).tools[0].name == "game_get_contract"
-            result = await session.call_tool("game_get_contract", {})
-            assert result.structured_content["code"] == "GAME_MCP_CONTRACT_READY"
-            assert (
-                result.structured_content["details"]["contract"]["game_mcp_api_version"]
-                == 1
-            )
-            assert result.is_error is False
+        with anyio.fail_after(60):
+            async with (
+                stdio_client(parameters) as (read_stream, write_stream),
+                ClientSession(read_stream, write_stream) as session,
+            ):
+                await session.initialize()
+                assert (await session.list_tools()).tools[0].name == "game_get_contract"
+                result = await session.call_tool("game_get_contract", {})
+                assert result.structured_content["code"] == "GAME_MCP_CONTRACT_READY"
+                assert (
+                    result.structured_content["details"]["contract"][
+                        "game_mcp_api_version"
+                    ]
+                    == 1
+                )
+                assert result.is_error is False
 
     asyncio.run(scenario())

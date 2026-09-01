@@ -38,6 +38,7 @@ from module.application.game_models import (
     SchedulerQueueSnapshot,
     thaw_payload,
 )
+from module.application.game_validation import UNKNOWN_TASK
 from module.application.models import (
     InstanceReference,
     InstanceStatus,
@@ -89,7 +90,7 @@ _MAX_TASK_COUNT = 512
 _MAX_SELECTION_SIZE = len(SUPPORTED_SURFACE_FLEET_INDICES)
 _MAX_PUBLIC_LOG_LINES = 200
 _MAX_PUBLIC_LOG_BYTES = 64 * 1024
-_MAX_CONFIG_RESULT_BYTES = 256 * 1024
+_MAX_RESULT_BYTES = 256 * 1024
 _MAX_RESULT_DEPTH = 8
 _MAX_RESULT_ITEMS = 256
 _MAX_RESULT_STRING = 4096
@@ -121,7 +122,7 @@ _TRACEBACK_RE = re.compile(
 )
 _BEARER_RE = re.compile(r"(\bbearer\s+)[^\s,;]+", re.IGNORECASE)
 _SECRET_VALUE_RE = re.compile(
-    r"(\b(?:password|passwd|token|secret|api[_-]?key|cookie|passfile|credential|authorization|dsn)\b\s*[:=]\s*)[^\s,;]+",
+    r"(?P<prefix>\b(?:password|passwd|token|secret|api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|private[_-]?key|signing[_-]?key|cookie|passfile|credential|credentials|authorization|dsn)\b[\"']?\s*[:=]\s*[\"']?)(?P<value>[^\"'\s,;}\]]+)(?P<quote>[\"']?)",
     re.IGNORECASE,
 )
 
@@ -156,10 +157,12 @@ def _enum_value(value: object) -> str | None:
 def _safe_text(value: str, *, maximum: int = _MAX_RESULT_STRING) -> str:
     value = _ANSI_RE.sub("", value)
     value = "".join(
-        char for char in value if char in {"\n", "\r", "\t"} or ord(char) >= 32
+        char
+        for char in value
+        if char in {"\n", "\r", "\t"} or (ord(char) >= 32 and ord(char) != 127)
     )
     value = _BEARER_RE.sub(r"\1<скрыто>", value)
-    value = _SECRET_VALUE_RE.sub(r"\1<скрыто>", value)
+    value = _SECRET_VALUE_RE.sub(r"\g<prefix><скрыто>\g<quote>", value)
     value = _PATH_RE.sub("<путь скрыт>", value)
     return value[:maximum]
 
@@ -249,7 +252,7 @@ def _result(
             "state": "failed",
             "details": {},
         }
-    if len(encoded.encode("utf-8")) > _MAX_CONFIG_RESULT_BYTES:
+    if len(encoded.encode("utf-8")) > _MAX_RESULT_BYTES:
         return {
             "ok": False,
             "code": "GAME_RESPONSE_TOO_LARGE",
@@ -399,7 +402,9 @@ def _validate_arguments(
         _profile_arguments({"profile": raw["profile"]})
         lines = raw.get("lines", 50)
         if type(lines) is not int or not 0 <= lines <= _MAX_PUBLIC_LOG_LINES:
-            raise InvalidRequestError("lines должен быть целым числом от 0 до 200.")
+            raise InvalidRequestError(
+                f"lines должен быть целым числом от 0 до {_MAX_PUBLIC_LOG_LINES}."
+            )
     else:
         raise InvalidRequestError("Для инструмента отсутствует строгая схема.")
     return raw
@@ -906,10 +911,13 @@ class GameMcpAdapter:
                 raise ServiceUnavailableError(
                     "Источник вернул некорректную текущую задачу."
                 )
+            task_unknown = result.task == UNKNOWN_TASK
             return _ok(
-                "GAME_CURRENT_TASK_READY",
-                "Текущая задача определена",
-                "running",
+                "GAME_DATA_UNKNOWN" if task_unknown else "GAME_CURRENT_TASK_READY",
+                "Текущая задача неизвестна."
+                if task_unknown
+                else "Текущая задача определена",
+                "unknown" if task_unknown else "running",
                 {"profile": profile, "task": result.task},
             )
         if tool == "game_get_scheduler_queue":

@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
+from typing import cast
 
 from module.application.game_read_service import GameReadService
 from module.application.legacy_adapters import (
@@ -17,6 +18,7 @@ from module.application.legacy_game_adapters import (
     LegacyRuntimeLogAdapter,
     LegacyScreenshotAdapter,
 )
+from module.application.morale import MoraleUnitOfWork
 from module.application.services import InstanceQueryService, TaskCatalogService
 
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -95,14 +97,14 @@ class GameMcpBackend:
             self._morale = MoraleService(self._uow_factory)
         return self._morale
 
-    def _uow_factory(self) -> object:
+    def _uow_factory(self) -> MoraleUnitOfWork:
         composition = self._get_persistence()
         factory = getattr(composition, "uow_factory", None)
         if not callable(factory):
             raise TypeError(
                 "Read-only persistence composition не предоставила uow_factory"
             )
-        return factory()
+        return cast(MoraleUnitOfWork, factory())
 
     def _get_persistence(self) -> object:
         with self._persistence_lock:

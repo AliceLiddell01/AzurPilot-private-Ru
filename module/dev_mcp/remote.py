@@ -13,6 +13,7 @@ from typing import Any
 
 import uvicorn
 
+from module.dev_mcp.adapter import DevMcpAdapter
 from module.dev_mcp.server import DEV_MCP_REQUIRED_SCOPE, create_server
 from module.mcp_shared.remote import (
     DEFAULT_ALLOWED_ORIGINS,
@@ -95,9 +96,10 @@ def create_remote_app(
 
     remote_config = config or RemoteConfig.from_env()
     verifier = token_verifier or OIDCTokenVerifier(remote_config)
+    bound_adapter = adapter if adapter is not None else DevMcpAdapter()
     return _create_remote_app(
         create_server,
-        adapter,
+        bound_adapter,
         config=remote_config,
         token_verifier=verifier,
         required_scope=DEV_MCP_REQUIRED_SCOPE,
@@ -134,20 +136,36 @@ def doctor() -> int:
         )
         return 1
     caddy_available = shutil.which("caddy") is not None
+    oauth_configured = all(
+        isinstance(value, str) and bool(value.strip())
+        for value in (
+            config.oauth_issuer,
+            config.oauth_audience,
+            config.oauth_jwks_url,
+            config.oauth_subject,
+        )
+    )
+    ready = caddy_available and oauth_configured
     print(
         json.dumps(
             {
-                "ok": caddy_available,
-                "code": "REMOTE_CONFIG_READY" if caddy_available else "CADDY_NOT_AVAILABLE",
+                "ok": ready,
+                "code": (
+                    "REMOTE_CONFIG_READY"
+                    if ready
+                    else "OAUTH_CONFIG_INVALID"
+                    if not oauth_configured
+                    else "CADDY_NOT_AVAILABLE"
+                ),
                 "bind_host_loopback": config.bind_host == "127.0.0.1",
                 "public_https_path": config.public_url.endswith(MCP_PATH),
-                "oauth_configured": True,
+                "oauth_configured": oauth_configured,
                 "caddy_available": caddy_available,
             },
             ensure_ascii=False,
         )
     )
-    return 0 if caddy_available else 1
+    return 0 if ready else 1
 
 
 def main() -> None:

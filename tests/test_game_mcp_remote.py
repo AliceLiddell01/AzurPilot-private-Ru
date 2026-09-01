@@ -215,8 +215,28 @@ def test_game_remote_is_stateless_modern_and_scope_separated() -> None:
             assert (
                 called.json()["result"]["structuredContent"]["code"] == "GAME_TEST_OK"
             )
-            assert app.state.session_manager._server_instances == {}
-        assert adapter.calls == [("game_get_contract", {})]
+            called_again = await client.post(
+                "/mcp",
+                headers=_headers(method="tools/call", name="game_get_contract"),
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 4,
+                    "method": "tools/call",
+                    "params": {
+                        **_modern_params("game_get_contract"),
+                        "arguments": {},
+                    },
+                },
+            )
+            assert called_again.status_code == 200
+            assert (
+                called_again.json()["result"]["structuredContent"]["code"]
+                == "GAME_TEST_OK"
+            )
+        assert adapter.calls == [
+            ("game_get_contract", {}),
+            ("game_get_contract", {}),
+        ]
         assert adapter.closed is True
 
     asyncio.run(scenario())

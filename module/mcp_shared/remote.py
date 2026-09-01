@@ -119,7 +119,8 @@ def _validate_origin(value: str) -> None:
 
 def _canonical_host(parsed: SplitResult) -> str:
     hostname = parsed.hostname
-    assert hostname is not None
+    if hostname is None:
+        raise RemoteConfigError("public_url: отсутствует hostname")
     host = hostname.casefold()
     if ":" in host and not host.startswith("["):
         host = f"[{host}]"
@@ -315,11 +316,8 @@ class OIDCTokenVerifier:
         ):
             return None
         resource = claims.get("resource")
-        if resource is not None and (
-            not isinstance(resource, str)
-            or not hmac.compare_digest(
-                resource.encode("utf-8"), self._config.public_url.encode("utf-8")
-            )
+        if not isinstance(resource, str) or not hmac.compare_digest(
+            resource.encode("utf-8"), self._config.public_url.encode("utf-8")
         ):
             return None
         expires_at = claims.get("exp")
@@ -652,7 +650,7 @@ def _metadata_headers(request: Request, config: RemoteConfig) -> dict[str, str]:
 
 def create_remote_app(
     server_factory: Callable[..., Any],
-    adapter: Any | None = None,
+    adapter: Any,
     *,
     config: RemoteConfig,
     token_verifier: TokenVerifier | None,
@@ -660,6 +658,8 @@ def create_remote_app(
 ) -> Starlette:
     """Создать stateless authenticated Streamable HTTP ASGI app."""
 
+    if adapter is None:
+        raise ValueError("create_remote_app требует заранее собранный adapter")
     verifier = token_verifier or OIDCTokenVerifier(
         config,
         required_scope=required_scope,

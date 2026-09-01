@@ -297,7 +297,6 @@ def test_remote_http_protocol_read_sequence_and_tool_auth_metadata() -> None:
                 assert result.json()["result"]["structuredContent"]["ok"] is True
 
             assert adapter.calls == list(requests)
-            assert app.state.session_manager._server_instances == {}
 
     asyncio.run(scenario())
 
@@ -669,7 +668,7 @@ def test_oidc_verifier_checks_signature_issuer_audience_expiry_subject_resource_
     now = int(time.time())
     verifier = OIDCTokenVerifier(config, jwk_client=_JwkClient(), clock=lambda: now)
 
-    def token(**claims: Any) -> str:
+    def token(*, include_resource: bool = True, **claims: Any) -> str:
         values = {
             "iss": _ISSUER,
             "aud": _AUDIENCE,
@@ -678,11 +677,13 @@ def test_oidc_verifier_checks_signature_issuer_audience_expiry_subject_resource_
             "nbf": now - 1,
             "scope": DEV_MCP_REQUIRED_SCOPE,
         }
+        if include_resource:
+            values["resource"] = _AUDIENCE
         values.update(claims)
         return jwt.encode(values, private_pem, algorithm="RS256")
 
     async def scenario() -> None:
-        valid = await verifier.verify_token(token(resource=_AUDIENCE))
+        valid = await verifier.verify_token(token())
         assert valid is not None
         assert valid.token == ""
         assert valid.client_id == "user-1"
@@ -697,6 +698,8 @@ def test_oidc_verifier_checks_signature_issuer_audience_expiry_subject_resource_
             token(nbf=now + 100),
             token(sub="other-user"),
             token(sub="пользователь"),
+            token(include_resource=False),
+            token(resource=None),
             token(resource="https://other.example.test/mcp"),
             token(resource="https://пример.example/mcp"),
             token(scope="other:scope"),

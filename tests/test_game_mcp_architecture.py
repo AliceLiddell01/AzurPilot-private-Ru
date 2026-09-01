@@ -19,9 +19,9 @@ def _imported_modules(path: Path) -> set[str]:
 
 
 def test_game_mcp_has_no_dev_or_direct_storage_dependency() -> None:
-    imported = set().union(
-        *(_imported_modules(path) for path in _GAME_MCP_ROOT.glob("*.py"))
-    )
+    paths = tuple(_GAME_MCP_ROOT.rglob("*.py"))
+    assert paths
+    imported = set().union(*(_imported_modules(path) for path in paths))
     assert not any(
         name.startswith(("module.dev_mcp", "module.dev_runtime")) for name in imported
     )
@@ -31,9 +31,9 @@ def test_game_mcp_has_no_dev_or_direct_storage_dependency() -> None:
 
 
 def test_game_mcp_tool_names_exclude_control_and_developer_surfaces() -> None:
-    source = "\n".join(
-        path.read_text(encoding="utf-8") for path in _GAME_MCP_ROOT.glob("*.py")
-    )
+    paths = tuple(_GAME_MCP_ROOT.rglob("*.py"))
+    assert paths
+    source = "\n".join(path.read_text(encoding="utf-8") for path in paths)
     for forbidden in (
         "game_start_profile",
         "game_stop_profile",

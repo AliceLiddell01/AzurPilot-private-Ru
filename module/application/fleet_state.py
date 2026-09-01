@@ -675,8 +675,3 @@ class FleetStateReadService:
                 index for index in selection.fleet_indices if index not in indices
             ),
         )
-
-    def state(self, instance: str, selection: FleetSelection) -> FleetStateResult:
-        """Короткий alias для transport-neutral read-only запроса."""
-
-        return self.state_read_only(instance, selection)

@@ -7,7 +7,6 @@ import base64
 import json
 import logging
 import sys
-from contextlib import redirect_stdout
 from typing import Any
 
 import anyio
@@ -37,7 +36,7 @@ GAME_MCP_COMMAND = "uv"
 GAME_MCP_ARGS = ("run", "--locked", "--no-sync", "python", "-m", "module.game_mcp")
 GAME_MCP_REQUIRED_SCOPE = "azurpilot:game.read"
 
-_PROFILE_PATTERN = r"[^\s./\\:*?\"<>|\x00-\x1f\x7f](?:[^./\\:*?\"<>|\x00-\x1f\x7f]{0,126}[^\s./\\:*?\"<>|\x00-\x1f\x7f])?"
+_PROFILE_PATTERN = r"^[^\s./\\:*?\"<>|\x00-\x1f\x7f](?:[^./\\:*?\"<>|\x00-\x1f\x7f]{0,126}[^\s./\\:*?\"<>|\x00-\x1f\x7f])?$"
 _NO_ARGUMENT_TOOLS = frozenset(
     {"game_get_contract", "game_list_profiles", "game_list_tasks"}
 )
@@ -523,8 +522,7 @@ def create_server(
         arguments = params.arguments
 
         def call_adapter() -> dict[str, object] | GameMcpResponse:
-            with redirect_stdout(sys.stderr):
-                return bound_adapter.call(name, arguments)
+            return bound_adapter.call(name, arguments)
 
         response = await anyio.to_thread.run_sync(
             call_adapter,

@@ -2,22 +2,26 @@
 
 from __future__ import annotations
 
+from types import MappingProxyType
+
 CONTRACT_SCHEMA_VERSION = 1
 GAME_MCP_API_VERSION = 1
 PRODUCT_FAMILY = "AzurPilot"
 
-GAME_MCP_FEATURE_FLAGS = {
-    "read_only": True,
-    "stateless": True,
-    "multi_profile": True,
-    "fleet_state": True,
-    "morale": True,
-    "resources": True,
-    "configuration_read": True,
-    "runtime_logs": True,
-    "screenshots": True,
-    "remote_streamable_http": True,
-}
+GAME_MCP_FEATURE_FLAGS = MappingProxyType(
+    {
+        "read_only": True,
+        "stateless": True,
+        "multi_profile": True,
+        "fleet_state": True,
+        "morale": True,
+        "resources": True,
+        "configuration_read": True,
+        "runtime_logs": True,
+        "screenshots": True,
+        "remote_streamable_http": True,
+    }
+)
 GAME_MCP_CAPABILITY_FAMILIES = (
     "profiles",
     "runtime",
