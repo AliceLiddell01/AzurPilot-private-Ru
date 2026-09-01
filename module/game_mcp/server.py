@@ -7,6 +7,8 @@ import base64
 import json
 import logging
 import sys
+from contextlib import redirect_stdout
+from threading import Lock
 from typing import Any
 
 import anyio
@@ -35,6 +37,7 @@ SERVER_VERSION = str(GAME_MCP_API_VERSION)
 GAME_MCP_COMMAND = "uv"
 GAME_MCP_ARGS = ("run", "--locked", "--no-sync", "python", "-m", "module.game_mcp")
 GAME_MCP_REQUIRED_SCOPE = "azurpilot:game.read"
+_LEGACY_STDOUT_LOCK = Lock()
 
 _MAX_SELECTOR_LENGTH = 128
 _SELECTOR_FORBIDDEN = r'\s./\\:*?"<>|\x00-\x1f\x7f'
@@ -539,7 +542,9 @@ def create_server(
         arguments = params.arguments
 
         def call_adapter() -> dict[str, object] | GameMcpResponse:
-            return bound_adapter.call(name, arguments)
+            # Legacy readers may print diagnostics; stdout is reserved for MCP JSON-RPC.
+            with _LEGACY_STDOUT_LOCK, redirect_stdout(sys.stderr):
+                return bound_adapter.call(name, arguments)
 
         response = await anyio.to_thread.run_sync(
             call_adapter,
