@@ -322,11 +322,14 @@ class OIDCTokenVerifier:
             subject.encode("utf-8"), self._config.oauth_subject.encode("utf-8")
         ):
             return None
-        resource = claims.get("resource")
-        if not isinstance(resource, str) or not hmac.compare_digest(
-            resource.encode("utf-8"), self._config.public_url.encode("utf-8")
-        ):
-            return None
+        # OAuth Resource Indicator не означает обязательный одноимённый JWT
+        # claim: intended audience уже проверена через обязательный `aud`.
+        if "resource" in claims:
+            resource = claims["resource"]
+            if not isinstance(resource, str) or not hmac.compare_digest(
+                resource.encode("utf-8"), self._config.public_url.encode("utf-8")
+            ):
+                return None
         expires_at = claims.get("exp")
         if isinstance(expires_at, bool) or not isinstance(expires_at, (int, float)):
             return None

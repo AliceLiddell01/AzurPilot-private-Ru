@@ -10,13 +10,21 @@ from datetime import UTC, datetime
 from pathlib import Path
 from threading import Event, Thread
 from types import SimpleNamespace
-from typing import Self
+from typing import Any, Self
 from uuid import UUID, uuid4
 
 import anyio
 import pytest
+from jsonschema import Draft202012Validator
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
+from mcp.shared.message import SessionMessage
+from mcp.types import JSONRPCRequest
+from mcp_types import (
+    CLIENT_CAPABILITIES_META_KEY,
+    CLIENT_INFO_META_KEY,
+    PROTOCOL_VERSION_META_KEY,
+)
 
 from module.application import (
     ConfigSnapshot,
@@ -54,7 +62,7 @@ from module.formation.model import (
     FormationFleetSlotObservation,
     FormationFleetSnapshot,
 )
-from module.game_mcp.adapter import GameMcpAdapter, GameMcpResponse
+from module.game_mcp.adapter import GameMcpAdapter, GameMcpResponse, _result
 from module.game_mcp.contract import contract_payload
 from module.game_mcp.server import (
     GAME_MCP_ARGS,
@@ -332,6 +340,108 @@ def test_contract_and_tool_catalog_are_game_specific_and_read_only() -> None:
     for tool in tools:
         assert tool.input_schema["additionalProperties"] is False
         assert tool.description
+
+
+def test_structured_content_conforms_to_each_advertised_output_schema() -> None:
+    adapter = GameMcpAdapter(lambda: _backend())
+    calls = (
+        ("game_get_contract", {}),
+        ("game_list_profiles", {}),
+        ("game_get_profile_status", {"profile": "alpha"}),
+        ("game_get_resources", {"profile": "alpha"}),
+        ("game_get_current_task", {"profile": "alpha"}),
+        ("game_get_scheduler_queue", {"profile": "alpha"}),
+        ("game_list_tasks", {}),
+        ("game_get_task_help", {"task": "Main"}),
+        ("game_get_fleet_state", {"profile": "alpha", "fleet_indices": [1]}),
+        ("game_get_morale", {"profile": "alpha", "fleet_indices": [1]}),
+        ("game_get_config", {"profile": "alpha"}),
+        ("game_get_recent_logs", {"profile": "alpha", "lines": 2}),
+        ("game_get_screenshot", {"profile": "alpha"}),
+    )
+    tools = {tool.name: tool for tool in tool_definitions()}
+    task_help: dict[str, object] | None = None
+
+    for name, arguments in calls:
+        response = adapter.call(name, arguments)
+        structured = (
+            response.structured if isinstance(response, GameMcpResponse) else response
+        )
+        assert isinstance(structured, dict)
+        errors = list(
+            Draft202012Validator(tools[name].output_schema).iter_errors(structured)
+        )
+        assert not errors, f"{name}: {errors[0].message if errors else ''}"
+        if name == "game_get_task_help":
+            task_help = structured
+
+    assert task_help is not None
+    malformed = json.loads(json.dumps(task_help, ensure_ascii=False))
+    malformed["details"]["task"]["unexpected"] = True
+    validator = Draft202012Validator(tools["game_get_task_help"].output_schema)
+    assert not validator.is_valid(malformed)
+
+
+def test_profile_selector_allows_internal_spaces_and_rejects_unsafe_edges() -> None:
+    backend = _backend()
+    backend.instances.list_instances = lambda: (InstanceReference("alpha beta"),)
+    adapter = GameMcpAdapter(lambda: backend)
+
+    profiles = adapter.call("game_list_profiles")
+    assert profiles["details"]["profiles"] == [{"profile": "alpha beta"}]
+    for tool, arguments in (
+        ("game_get_profile_status", {"profile": "alpha beta"}),
+        ("game_get_resources", {"profile": "alpha beta"}),
+        ("game_get_current_task", {"profile": "alpha beta"}),
+        ("game_get_scheduler_queue", {"profile": "alpha beta"}),
+        (
+            "game_get_fleet_state",
+            {"profile": "alpha beta", "fleet_indices": [1]},
+        ),
+        ("game_get_morale", {"profile": "alpha beta", "fleet_indices": [1]}),
+        ("game_get_config", {"profile": "alpha beta"}),
+        ("game_get_recent_logs", {"profile": "alpha beta", "lines": 1}),
+        ("game_get_screenshot", {"profile": "alpha beta"}),
+    ):
+        result = adapter.call(tool, arguments)
+        structured = result.structured if isinstance(result, GameMcpResponse) else result
+        assert structured["code"] not in {
+            "GAME_MCP_INVALID_REQUEST",
+            "GAME_UNKNOWN_PROFILE",
+        }
+
+    profile_schema = next(
+        tool.input_schema["properties"]["profile"]
+        for tool in tool_definitions()
+        if tool.name == "game_get_resources"
+    )
+    validator = Draft202012Validator(profile_schema)
+    assert validator.is_valid("alpha beta")
+    for unsafe in (" alpha", "alpha ", "alpha/../beta", "alpha\x00beta", "alpha\nbeta"):
+        assert not validator.is_valid(unsafe)
+
+
+def test_result_sequence_bounds_preserve_data_or_fail_explicitly() -> None:
+    for count in (255, 256, 257, 512):
+        result = _result(
+            ok=True,
+            code="TEST_RESULT",
+            message="ok",
+            state="ready",
+            details={"items": list(range(count))},
+        )
+        assert result["code"] == "TEST_RESULT"
+        assert result["details"]["items"] == list(range(count))
+
+    overflow = _result(
+        ok=True,
+        code="TEST_RESULT",
+        message="ok",
+        state="ready",
+        details={"items": list(range(513))},
+    )
+    assert overflow["code"] == "GAME_RESULT_LIMIT_EXCEEDED"
+    assert overflow["ok"] is False
 
 
 def test_server_construction_and_contract_are_lazy() -> None:
@@ -656,5 +766,74 @@ def test_stdio_entrypoint_exposes_game_contract_and_tools() -> None:
                     == 1
                 )
                 assert result.is_error is False
+
+    asyncio.run(scenario())
+
+
+def test_stdio_entrypoint_accepts_2026_self_describing_requests_without_initialize() -> None:
+    if shutil.which(GAME_MCP_COMMAND) is None:
+        pytest.skip("uv недоступен в окружении локального stdio acceptance")
+
+    async def scenario() -> None:
+        parameters = StdioServerParameters(
+            command=GAME_MCP_COMMAND,
+            args=list(GAME_MCP_ARGS),
+            cwd=str(Path(__file__).resolve().parents[1]),
+        )
+        request_meta = {
+            PROTOCOL_VERSION_META_KEY: "2026-07-28",
+            CLIENT_INFO_META_KEY: {"name": "game-mcp-regression", "version": "1"},
+            CLIENT_CAPABILITIES_META_KEY: {},
+        }
+
+        async def request(
+            read_stream: Any,
+            write_stream: Any,
+            request_id: int,
+            method: str,
+            params: dict[str, object],
+        ) -> dict[str, object]:
+            await write_stream.send(
+                SessionMessage(
+                    JSONRPCRequest(
+                        jsonrpc="2.0",
+                        id=request_id,
+                        method=method,
+                        params=params,
+                    )
+                )
+            )
+            envelope = await read_stream.receive()
+            message = envelope.message if isinstance(envelope, SessionMessage) else envelope
+            assert getattr(message, "id", None) == request_id
+            assert getattr(message, "error", None) is None
+            result = getattr(message, "result", None)
+            if hasattr(result, "model_dump"):
+                result = result.model_dump(by_alias=True)
+            assert isinstance(result, dict)
+            return result
+
+        with anyio.fail_after(60):
+            async with stdio_client(parameters) as (read_stream, write_stream):
+                tools_result = await request(
+                    read_stream,
+                    write_stream,
+                    1,
+                    "tools/list",
+                    {"_meta": request_meta},
+                )
+                assert tools_result["tools"][0]["name"] == "game_get_contract"
+                call_result = await request(
+                    read_stream,
+                    write_stream,
+                    2,
+                    "tools/call",
+                    {
+                        "name": "game_get_contract",
+                        "arguments": {},
+                        "_meta": request_meta,
+                    },
+                )
+                assert call_result["structuredContent"]["code"] == "GAME_MCP_CONTRACT_READY"
 
     asyncio.run(scenario())

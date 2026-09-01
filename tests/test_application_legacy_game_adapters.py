@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 import os
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta, timezone
@@ -236,17 +237,17 @@ def test_legacy_log_adapter_falls_back_to_previous_calendar_date(tmp_path: Path)
 
 
 def test_legacy_screenshot_lifecycle_and_emulator_adapters_use_narrow_owners(monkeypatch):
-    class Device:
-        def screenshot(self) -> object:
-            return "frame"
-
+    calls: list[tuple[str, ...]] = []
+    frame = b"png"
     screenshot = LegacyScreenshotAdapter(
-        device_factory=lambda instance: Device(),
-        frame_encoder=lambda image: b"encoded",
-        media_type="image/png",
+        runner=lambda argv: calls.append(tuple(argv))
+        or _CommandResult(0, frame),
+        adb_path_provider=lambda: "adb",
+        target_serial_provider=lambda instance: "serial-a",
     )
     monkeypatch.delenv("ALAS_CONFIG_NAME", raising=False)
-    assert screenshot.read_frame("secondary") == MediaFrame(b"encoded", "image/png")
+    assert screenshot.read_frame("secondary") == MediaFrame(frame, "image/png")
+    assert calls == [("adb", "-s", "serial-a", "exec-out", "screencap", "-p")]
     assert "ALAS_CONFIG_NAME" not in os.environ
 
     class Manager:
@@ -287,10 +288,68 @@ def test_legacy_screenshot_lifecycle_and_emulator_adapters_use_narrow_owners(mon
     assert events == ["stop", "start"]
 
 
+def test_legacy_screenshot_is_passive_and_unavailable_path_does_not_recover(monkeypatch):
+    calls: list[tuple[str, ...]] = []
+    mutations: list[str] = []
+    real_import = builtins.__import__
+
+    def guarded_import(name, *args, **kwargs):
+        if name in {
+            "module.config.config",
+            "module.device.device",
+            "module.webui.fake_pil_module",
+        }:
+            mutations.append(f"import:{name}")
+            raise AssertionError("пассивный screenshot импортировал control path")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+
+    def runner(argv: tuple[str, ...]) -> _CommandResult:
+        calls.append(argv)
+        if any(
+            command in argv
+            for command in ("kill-server", "start-server", "input", "emulator")
+        ):
+            mutations.append("control command")
+            raise AssertionError("пассивный screenshot вызвал control command")
+        if argv[-1] == "devices":
+            return _CommandResult(0, b"List of devices attached\nserial-a\tdevice\n")
+        return _CommandResult(0, b"frame")
+
+    screenshot = LegacyScreenshotAdapter(
+        runner=runner,
+        adb_path_provider=lambda: "adb",
+        target_serial_provider=lambda instance: None,
+    )
+
+    assert screenshot.read_frame("secondary") == MediaFrame(b"frame", "image/png")
+    assert calls == [
+        ("adb", "devices"),
+        ("adb", "-s", "serial-a", "exec-out", "screencap", "-p"),
+    ]
+    assert mutations == []
+
+    unavailable_calls: list[tuple[str, ...]] = []
+
+    def unavailable_runner(argv: tuple[str, ...]) -> _CommandResult:
+        unavailable_calls.append(argv)
+        return _CommandResult(1, b"")
+
+    unavailable = LegacyScreenshotAdapter(
+        runner=unavailable_runner,
+        adb_path_provider=lambda: "adb",
+        target_serial_provider=lambda instance: None,
+    )
+    with pytest.raises(OSError):
+        unavailable.read_frame("secondary")
+    assert unavailable_calls == [("adb", "devices")]
+    assert mutations == []
+
 @dataclass
 class _CommandResult:
     returncode: int
-    stdout: str = ""
+    stdout: str | bytes = ""
 
 
 _EXPECTED_RESTART_CALLS = (

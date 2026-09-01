@@ -93,6 +93,7 @@ _MAX_PUBLIC_LOG_BYTES = 64 * 1024
 _MAX_RESULT_BYTES = 256 * 1024
 _MAX_RESULT_DEPTH = 8
 _MAX_RESULT_ITEMS = 256
+_MAX_RESULT_SEQUENCE_ITEMS = 512
 _MAX_RESULT_STRING = 4096
 _MAX_SCREENSHOT_BYTES = 4 * 1024 * 1024
 _MAX_SCREENSHOT_WIDTH = 8192
@@ -150,6 +151,10 @@ _SECRET_VALUE_RE = re.compile(
 
 class _UnknownTaskError(ResourceNotFoundError):
     """Внутренняя метка для различения unknown task и unknown profile."""
+
+
+class _ResultLimitExceeded(ValueError):
+    """Внутренняя метка для явного отказа без потери элементов ответа."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -216,18 +221,24 @@ def _safe_value(value: object, *, key: str | None = None, depth: int = 0) -> obj
     if isinstance(value, str):
         return _safe_text(value)
     if isinstance(value, Mapping):
+        if len(value) > _MAX_RESULT_ITEMS:
+            raise _ResultLimitExceeded("Ответ содержит слишком много полей.")
         result: dict[str, object] = {}
         for index, (raw_key, raw_item) in enumerate(value.items()):
-            if index >= _MAX_RESULT_ITEMS or not isinstance(raw_key, str):
-                break
+            if index >= _MAX_RESULT_ITEMS:
+                raise _ResultLimitExceeded("Ответ содержит слишком много полей.")
+            if not isinstance(raw_key, str):
+                raise TypeError("Ключ ответа должен быть строкой.")
             safe_key = _safe_text(raw_key, maximum=128)
             if not safe_key:
                 continue
             result[safe_key] = _safe_value(raw_item, key=raw_key, depth=depth + 1)
         return result
     if isinstance(value, (list, tuple)):
+        if len(value) > _MAX_RESULT_SEQUENCE_ITEMS:
+            raise _ResultLimitExceeded("Ответ содержит слишком много элементов.")
         return [
-            _safe_value(item, depth=depth + 1) for item in value[:_MAX_RESULT_ITEMS]
+            _safe_value(item, depth=depth + 1) for item in value
         ]
     return None
 
@@ -252,7 +263,24 @@ def _result(
     state: str,
     details: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
-    safe_details = _safe_value(details or {})
+    try:
+        safe_details = _safe_value(details or {})
+    except _ResultLimitExceeded:
+        return {
+            "ok": False,
+            "code": "GAME_RESULT_LIMIT_EXCEEDED",
+            "message": "Ответ Game MCP превышает ограничение элементов",
+            "state": "failed",
+            "details": {},
+        }
+    except (TypeError, ValueError):
+        return {
+            "ok": False,
+            "code": "GAME_MCP_INTERNAL_ERROR",
+            "message": "Game MCP не смог сформировать безопасный ответ",
+            "state": "failed",
+            "details": {},
+        }
     if not isinstance(safe_details, dict):
         safe_details = {}
     response: dict[str, object] = {

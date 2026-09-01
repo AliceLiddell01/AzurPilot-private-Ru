@@ -34,7 +34,9 @@ azurpilot:game.read
 
 Эти значения не имеют fallback к Dev MCP и не должны содержать секреты в
 репозитории. Remote verifier проверяет RS256, issuer, audience, subject,
-expiry, resource и отдельный scope.
+expiry и отдельный scope. Если provider дополнительно возвращает JWT claim
+`resource`, он должен совпадать с настроенным public URL; отсутствие этого
+нестандартного claim допустимо при корректной проверке `aud`.
 
 ## Публичная модель
 
@@ -42,7 +44,11 @@ expiry, resource и отдельный scope.
 аргументах. Сервер не хранит выбранный профиль, не меняет target между
 запросами и не кэширует профильные данные под глобальным ключом.
 `game_list_profiles` использует существующий canonical instance owner и
-возвращает только безопасные идентификаторы.
+возвращает только безопасные идентификаторы. Локальный screenshot path читает
+существующий framebuffer только через прямой пассивный ADB primitive
+`exec-out screencap -p`: он не создаёт `Device`, не запускает emulator,
+benchmark или night-commission handling и не выполняет input/config writes.
+При отсутствии однозначного готового ADB target чтение завершается fail-closed.
 
 Контракт и инструменты регистрируются в `module.game_mcp.server`. Текущий
 read catalog включает contract, profiles, profile status, resources, current
@@ -67,6 +73,12 @@ slot identity и unknown/ambiguous state. Morale сохраняет `EXACT`, `PR
 в fake baseline, пустой корабль или успешный scan.
 
 ## Границы безопасности
+
+Локальный stdio и remote Streamable HTTP используют stateless
+self-describing request semantics MCP `2026-07-28`; legacy initialize flow
+сохраняется только как совместимость SDK. Cache hints для инструментов явно
+не задаются: MCP SDK `2.1.1` по умолчанию использует `ttlMs=0` и
+`cacheScope=private`, что сохраняет актуальность и изоляцию профильных данных.
 
 Все инструменты имеют read-only annotations и строгие схемы с
 `additionalProperties: false`. Профили, задачи и fleet selection ограничены

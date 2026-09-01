@@ -6,6 +6,7 @@ import asyncio
 import base64
 import json
 import logging
+import re
 import sys
 from contextlib import redirect_stdout
 from threading import Lock
@@ -24,6 +25,7 @@ from mcp.types import (
     ToolAnnotations,
 )
 
+from module.application.game_validation import INVALID_NAME_CHARS
 from module.formation.model import SUPPORTED_SURFACE_FLEET_INDICES
 from module.game_mcp.adapter import (
     GAME_MCP_TOOL_NAMES,
@@ -47,12 +49,16 @@ GAME_MCP_REQUIRED_SCOPE = "azurpilot:game.read"
 _LEGACY_STDOUT_LOCK = Lock()
 
 _MAX_SELECTOR_LENGTH = 128
-_SELECTOR_FORBIDDEN = r'\s./\\:*?"<>|\x00-\x1f\x7f'
+_SELECTOR_FORBIDDEN = "".join(
+    re.escape(char)
+    for char in sorted(INVALID_NAME_CHARS - {"\x00"})
+) + r"\x00-\x1f\x7f"
 _SELECTOR_CHARACTER = rf"[^{_SELECTOR_FORBIDDEN}]"
+_SELECTOR_EDGE = rf"[^\s{_SELECTOR_FORBIDDEN}]"
 _PROFILE_PATTERN = (
-    rf"^{_SELECTOR_CHARACTER}"
-    rf"(?:[^{_SELECTOR_FORBIDDEN}]{{0,{_MAX_SELECTOR_LENGTH - 2}}}"
-    rf"{_SELECTOR_CHARACTER})?$"
+    rf"^{_SELECTOR_EDGE}"
+    rf"(?:{_SELECTOR_CHARACTER}{{0,{_MAX_SELECTOR_LENGTH - 2}}}"
+    rf"{_SELECTOR_EDGE})?$"
 )
 _NO_ARGUMENT_TOOLS = frozenset(
     {"game_get_contract", "game_list_profiles", "game_list_tasks"}
@@ -146,6 +152,83 @@ _TASK_OUTPUT = {
         "help": {"type": "string", "maxLength": 4096},
     },
     "required": ["name", "display_name", "help"],
+    "additionalProperties": False,
+}
+_TASK_METADATA_SCALAR = {
+    "type": ["boolean", "integer", "number", "null", "string"],
+    "maxLength": 4096,
+}
+_TASK_METADATA_VALUE = {
+    "oneOf": [
+        _TASK_METADATA_SCALAR,
+        {
+            "type": "array",
+            "maxItems": 512,
+            "items": _TASK_METADATA_SCALAR,
+        },
+    ]
+}
+_TASK_OPTION_OUTPUT = {
+    "type": "object",
+    "properties": {
+        "value": {"type": "string", "maxLength": 4096},
+        "display_name": {"type": "string", "maxLength": 4096},
+    },
+    "required": ["value", "display_name"],
+    "additionalProperties": False,
+}
+_TASK_ARGUMENT_OUTPUT = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 128},
+        "display_name": {"type": "string", "maxLength": 4096},
+        "help": {"type": "string", "maxLength": 4096},
+        "input_type": {"type": "string", "minLength": 1, "maxLength": 128},
+        "default": _TASK_METADATA_VALUE,
+        "options": {
+            "type": "array",
+            "maxItems": 256,
+            "items": _TASK_OPTION_OUTPUT,
+        },
+    },
+    "required": [
+        "name",
+        "display_name",
+        "help",
+        "input_type",
+        "default",
+        "options",
+    ],
+    "additionalProperties": False,
+}
+_TASK_GROUP_OUTPUT = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 128},
+        "display_name": {"type": "string", "maxLength": 4096},
+        "help": {"type": "string", "maxLength": 4096},
+        "arguments": {
+            "type": "array",
+            "maxItems": 256,
+            "items": _TASK_ARGUMENT_OUTPUT,
+        },
+    },
+    "required": ["name", "display_name", "help", "arguments"],
+    "additionalProperties": False,
+}
+_TASK_METADATA_OUTPUT = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 128},
+        "display_name": {"type": "string", "maxLength": 4096},
+        "help": {"type": "string", "maxLength": 4096},
+        "groups": {
+            "type": "array",
+            "maxItems": 256,
+            "items": _TASK_GROUP_OUTPUT,
+        },
+    },
+    "required": ["name", "display_name", "help", "groups"],
     "additionalProperties": False,
 }
 _RESOURCE_OUTPUT = {
@@ -373,7 +456,13 @@ _DETAILS_OUTPUT = {
             "maxItems": 256,
             "items": _RESOURCE_OUTPUT,
         },
-        "task": {"type": ["string", "null"], "maxLength": 4096},
+        "task": {
+            "oneOf": [
+                {"type": "string", "maxLength": 4096},
+                {"type": "null"},
+                _TASK_METADATA_OUTPUT,
+            ]
+        },
         "entries": {
             "type": "array",
             "maxItems": 512,
@@ -405,6 +494,7 @@ _DETAILS_OUTPUT = {
         },
         "coverage_complete": {"type": "boolean"},
         "snapshots_complete": {"type": "boolean"},
+        "projected_at": {"type": "string", "maxLength": 128},
         "fleets": {
             "type": "array",
             "maxItems": len(SUPPORTED_SURFACE_FLEET_INDICES),
@@ -541,7 +631,13 @@ def create_server(
     abandon_on_cancel: bool = False,
     redirect_legacy_stdout: bool = True,
 ) -> Server:
-    """Создать MCP Server без сборки backend и без подключения к источникам."""
+    """Создать MCP Server без сборки backend и без подключения к источникам.
+
+    `cache_hints` намеренно не задаются: в используемом MCP SDK 2.1.1
+    применяются безопасные defaults `ttlMs=0` и `cacheScope=private`. Для
+    profile runtime data, logs, morale и screenshots это сохраняет актуальность
+    и изоляцию данных.
+    """
 
     bound_adapter = adapter if adapter is not None else GameMcpAdapter()
 

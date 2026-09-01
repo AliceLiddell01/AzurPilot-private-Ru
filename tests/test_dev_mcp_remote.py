@@ -685,7 +685,7 @@ def test_oidc_verifier_checks_signature_issuer_audience_expiry_subject_resource_
         return jwt.encode(values, private_pem, algorithm="RS256")
 
     async def scenario() -> None:
-        valid = await verifier.verify_token(token())
+        valid = await verifier.verify_token(token(include_resource=False))
         assert valid is not None
         assert valid.token == ""
         assert valid.client_id == "user-1"
@@ -700,7 +700,6 @@ def test_oidc_verifier_checks_signature_issuer_audience_expiry_subject_resource_
             token(nbf=now + 100),
             token(sub="other-user"),
             token(sub="пользователь"),
-            token(include_resource=False),
             token(resource=None),
             token(resource="https://other.example.test/mcp"),
             token(resource="https://пример.example/mcp"),
