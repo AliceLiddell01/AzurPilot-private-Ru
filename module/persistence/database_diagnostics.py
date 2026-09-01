@@ -22,6 +22,7 @@ from module.application.errors import (
 )
 from module.application.instance_identity import runtime_instance_identity
 from module.application.storage_models import StorageHealthState
+from module.persistence.config import BACKEND_MARKER_VERSION
 from module.persistence.database import (
     LazyEngine,
     StorageHealthChecker,
@@ -31,7 +32,6 @@ from module.persistence.schema import EXPECTED_ALEMBIC_HEAD, SCHEMA_NAME, metada
 from module.persistence.unit_of_work import PostgresUnitOfWork
 
 _APP_ROLE = "azurpilot_app"
-SCHEMA_MARKER_VERSION = 1
 _SAFE_TARGET = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _REQUIRED_TABLES = tuple(sorted(table.name for table in metadata.sorted_tables))
 _REQUIRED_TABLES_SQL = ", ".join(f":table_{index}" for index in range(len(_REQUIRED_TABLES)))
@@ -173,7 +173,7 @@ class PostgresDatabaseDiagnostics:
         )
 
     def _schema_marker_check(self) -> DatabaseCheckResult:
-        if self._schema_marker_version == SCHEMA_MARKER_VERSION:
+        if self._schema_marker_version == BACKEND_MARKER_VERSION:
             return DatabaseCheckResult(
                 "schema_marker",
                 DatabaseCheckStatus.PASS,
