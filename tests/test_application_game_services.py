@@ -19,6 +19,7 @@ from module.application import (
     LifecycleOutcome,
     MediaFrame,
     OperationFailedError,
+    PostconditionFailedError,
     ResourceNotFoundError,
     RuntimeState,
     SchedulerEntry,
@@ -357,6 +358,122 @@ def test_control_service_validates_config_scheduler_and_lifecycle_postconditions
     ]
 
 
+def test_control_service_verifies_config_and_scheduler_readbacks():
+    class _AuthoritativeConfig(_Config):
+        def __init__(self) -> None:
+            super().__init__()
+            self.count = 1
+            self.scheduled_tasks: set[str] = set()
+
+        def update_config(self, request: ConfigUpdateRequest) -> None:
+            super().update_config(request)
+            if request.task == "Main" and request.group == "Fleet":
+                self.count = request.value  # type: ignore[assignment]
+
+        def read_config(self, instance: str, task: str | None = None) -> dict[str, object]:
+            data: dict[str, object] = {
+                "Main": {"Fleet": {"Count": self.count}},
+            }
+            return data[task] if task else data  # type: ignore[return-value]
+
+        def schedule_task(self, instance: str, task: str, scheduled_at: datetime) -> None:
+            super().schedule_task(instance, task, scheduled_at)
+            self.scheduled_tasks.add(task)
+
+        def read_scheduler_queue(
+            self,
+            instance: str,
+            schedulable_tasks: tuple[str, ...],
+        ) -> tuple[SchedulerEntry, ...]:
+            return tuple(
+                SchedulerEntry(task, datetime(2026, 8, 31, 12, 0, tzinfo=UTC))
+                for task in schedulable_tasks
+                if task in self.scheduled_tasks
+            )
+
+        def clear_scheduler_queue(
+            self,
+            instance: str,
+            schedulable_tasks: tuple[str, ...],
+        ) -> tuple[str, ...]:
+            cleared = tuple(task for task in schedulable_tasks if task in self.scheduled_tasks)
+            self.scheduled_tasks.difference_update(cleared)
+            return cleared
+
+    config = _AuthoritativeConfig()
+    metadata = _Metadata()
+    service = GameControlService(
+        instance_reader=_Instances(),
+        config_schema=_ConfigSchema(metadata.definitions),
+        config_writer=config,
+        scheduler_tasks=_SchedulerTasks(metadata.tasks),
+        lifecycle=_Lifecycle(),
+        emulator=_Emulator(),
+        adb=_Adb(),
+        clock=lambda: datetime(2026, 8, 31, 10, 0, tzinfo=UTC),
+        config_reader=config,
+    )
+
+    updated = service.update_config(
+        ConfigUpdateRequest("ap", "Main", "Fleet", "Count", 4)
+    )
+    assert updated.verified is True
+    scheduled = service.trigger_task(ScheduleTaskRequest("ap", "Event"))
+    assert scheduled.verified is True
+    cleared = service.clear_scheduler_queue("ap")
+    assert cleared.verified is True
+    assert cleared.cleared_tasks == ("Event",)
+
+    stale_writer = _Config()
+    stale_reader = _Config()
+    stale_service = GameControlService(
+        instance_reader=_Instances(),
+        config_schema=_ConfigSchema(metadata.definitions),
+        config_writer=stale_writer,
+        scheduler_tasks=_SchedulerTasks(metadata.tasks),
+        lifecycle=_Lifecycle(),
+        emulator=_Emulator(),
+        adb=_Adb(),
+        config_reader=stale_reader,
+    )
+    with pytest.raises(PostconditionFailedError):
+        stale_service.update_config(
+            ConfigUpdateRequest("ap", "Main", "Fleet", "Count", 5)
+        )
+
+    class StaleQueueConfig(_AuthoritativeConfig):
+        def clear_scheduler_queue(
+            self,
+            instance: str,
+            schedulable_tasks: tuple[str, ...],
+        ) -> tuple[str, ...]:
+            return tuple(task for task in schedulable_tasks if task in self.scheduled_tasks)
+
+    stale_queue = StaleQueueConfig()
+    stale_queue.scheduled_tasks.add("Event")
+    stale_queue_service = GameControlService(
+        instance_reader=_Instances(),
+        config_schema=_ConfigSchema(metadata.definitions),
+        config_writer=stale_queue,
+        scheduler_tasks=_SchedulerTasks(metadata.tasks),
+        lifecycle=_Lifecycle(),
+        emulator=_Emulator(),
+        adb=_Adb(),
+        config_reader=stale_queue,
+    )
+    with pytest.raises(PostconditionFailedError):
+        stale_queue_service.clear_scheduler_queue("ap")
+
+
+def test_control_service_rejects_unbounded_config_values():
+    service, _config, _lifecycle = _control_service()
+    long_value = "x" * 4097
+    with pytest.raises(ConfigurationValidationError):
+        service.update_config(
+            ConfigUpdateRequest("ap", "Main", "General", "Mode", long_value)
+        )
+
+
 def test_control_service_rejects_unscoped_adb_restart_before_adapter_call():
     instances = _Instances()
     adb = _Adb()
@@ -409,6 +526,32 @@ def test_control_service_fails_closed_for_invalid_config_and_state_results():
     invalid_service, _config, _lifecycle = _control_service(lifecycle=InvalidLifecycle())
     with pytest.raises(OperationFailedError):
         invalid_service.start_instance("ap")
+
+    class StartPostconditionMismatch(_Lifecycle):
+        def start_instance(self, instance: str) -> bool:
+            self.calls.append("start")
+            return True
+
+    start_mismatch, _config, _lifecycle = _control_service(
+        lifecycle=StartPostconditionMismatch()
+    )
+    with pytest.raises(PostconditionFailedError):
+        start_mismatch.start_instance("ap")
+
+    class StopPostconditionMismatch(_Lifecycle):
+        def __init__(self) -> None:
+            super().__init__()
+            self.running = True
+
+        def stop_instance(self, instance: str) -> bool:
+            self.calls.append("stop")
+            return True
+
+    stop_mismatch, _config, _lifecycle = _control_service(
+        lifecycle=StopPostconditionMismatch()
+    )
+    with pytest.raises(PostconditionFailedError):
+        stop_mismatch.stop_instance("ap")
 
 
 def test_control_service_preserves_valid_datetime_string_for_legacy_parser():

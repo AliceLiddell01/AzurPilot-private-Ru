@@ -16,11 +16,16 @@ from mcp_types import (
     PROTOCOL_VERSION_META_KEY,
 )
 
-from module.game_mcp.adapter import GameMcpResponse
+from module.game_mcp.adapter import (
+    GAME_MCP_CONTROL_TOOL_NAMES,
+    GameMcpResponse,
+)
 from module.game_mcp.remote import (
     DEFAULT_ALLOWED_ORIGINS,
+    GAME_MCP_CONTROL_SCOPE,
     GAME_MCP_PORT,
     GAME_MCP_REQUIRED_SCOPE,
+    GAME_MCP_SCOPES,
     RemoteConfig,
     RemoteConfigError,
     create_remote_app,
@@ -213,7 +218,16 @@ def test_game_remote_is_stateless_modern_and_scope_separated() -> None:
             ]
             assert all(
                 tool["_meta"]["securitySchemes"]
-                == [{"type": "oauth2", "scopes": [GAME_MCP_REQUIRED_SCOPE]}]
+                == [
+                    {
+                        "type": "oauth2",
+                        "scopes": [
+                            GAME_MCP_CONTROL_SCOPE
+                            if tool["name"] in GAME_MCP_CONTROL_TOOL_NAMES
+                            else GAME_MCP_REQUIRED_SCOPE
+                        ],
+                    }
+                ]
                 for tool in listed.json()["result"]["tools"]
             )
 
@@ -303,6 +317,83 @@ def test_game_remote_rejects_dev_scope_and_missing_auth() -> None:
     asyncio.run(scenario())
 
 
+def test_game_remote_enforces_per_tool_scope_before_adapter() -> None:
+    async def scenario() -> None:
+        read_adapter = _RecordingAdapter()
+        read_app = create_remote_app(
+            read_adapter,
+            config=_config(),
+            token_verifier=_StaticVerifier([GAME_MCP_REQUIRED_SCOPE]),
+        )
+        async with _client(read_app) as client:
+            denied_control = await client.post(
+                "/mcp",
+                headers=_headers(method="tools/call", name="game_start_profile"),
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 10,
+                    "method": "tools/call",
+                    "params": {
+                        **_modern_params("game_start_profile"),
+                        "arguments": {"profile": "alpha"},
+                    },
+                },
+            )
+            assert denied_control.status_code == 200
+            assert (
+                denied_control.json()["result"]["structuredContent"]["code"]
+                == "GAME_MCP_UNAUTHORIZED"
+            )
+        assert read_adapter.calls == []
+
+        control_adapter = _RecordingAdapter()
+        control_app = create_remote_app(
+            control_adapter,
+            config=_config(),
+            token_verifier=_StaticVerifier([GAME_MCP_CONTROL_SCOPE]),
+        )
+        async with _client(control_app) as client:
+            denied_read = await client.post(
+                "/mcp",
+                headers=_headers(method="tools/call", name="game_get_contract"),
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 11,
+                    "method": "tools/call",
+                    "params": {
+                        **_modern_params("game_get_contract"),
+                        "arguments": {},
+                    },
+                },
+            )
+            assert denied_read.status_code == 200
+            assert (
+                denied_read.json()["result"]["structuredContent"]["code"]
+                == "GAME_MCP_UNAUTHORIZED"
+            )
+            allowed_control = await client.post(
+                "/mcp",
+                headers=_headers(method="tools/call", name="game_start_profile"),
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 12,
+                    "method": "tools/call",
+                    "params": {
+                        **_modern_params("game_start_profile"),
+                        "arguments": {"profile": "alpha"},
+                    },
+                },
+            )
+            assert allowed_control.status_code == 200
+            assert (
+                allowed_control.json()["result"]["structuredContent"]["code"]
+                == "GAME_TEST_OK"
+            )
+        assert control_adapter.calls == [("game_start_profile", {"profile": "alpha"})]
+
+    asyncio.run(scenario())
+
+
 def test_game_remote_metadata_contains_game_resource_and_scope() -> None:
     async def scenario() -> None:
         app = create_remote_app(
@@ -319,7 +410,7 @@ def test_game_remote_metadata_contains_game_resource_and_scope() -> None:
             assert response.json() == {
                 "resource": _AUDIENCE,
                 "authorization_servers": [_ISSUER],
-                "scopes_supported": [GAME_MCP_REQUIRED_SCOPE],
+                "scopes_supported": list(GAME_MCP_SCOPES),
                 "bearer_methods_supported": ["header"],
             }
             assert (

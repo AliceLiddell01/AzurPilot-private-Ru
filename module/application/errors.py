@@ -20,7 +20,7 @@ class ResourceNotFoundError(ApplicationError):
 
 
 class ServiceUnavailableError(ApplicationError):
-    """Источник данных временно не может выполнить read-only операцию."""
+    """Источник данных временно не может выполнить операцию."""
 
     code = "service_unavailable"
 
@@ -35,6 +35,24 @@ class OperationFailedError(ApplicationError):
     """Инфраструктурный control operation не подтвердил успех."""
 
     code = "operation_failed"
+
+
+class PreconditionFailedError(OperationFailedError):
+    """Безопасное выполнение операции невозможно из-за precondition."""
+
+    code = "precondition_failed"
+
+
+class OwnershipAmbiguousError(PreconditionFailedError):
+    """Невозможно доказать ownership целевого host/device ресурса."""
+
+    code = "ownership_ambiguous"
+
+
+class PostconditionFailedError(OperationFailedError):
+    """После mutation не подтверждено ожидаемое состояние."""
+
+    code = "postcondition_failed"
 
 
 class InstanceNotRunningError(ApplicationError):

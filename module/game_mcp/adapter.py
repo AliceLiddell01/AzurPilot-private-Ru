@@ -1,4 +1,4 @@
-"""Строгий transport adapter standalone Game MCP read plane."""
+"""Строгий transport adapter standalone Game MCP read/control plane."""
 
 from __future__ import annotations
 
@@ -7,20 +7,25 @@ import json
 import logging
 import math
 import re
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
 from io import BytesIO
-from threading import Condition, RLock
+from threading import Condition, Lock, RLock
 from uuid import UUID
 
 from module.application.errors import (
     ApplicationError,
+    ConfigurationValidationError,
     IncompatibleSchemaError,
     InstanceNotRunningError,
     InvalidRequestError,
+    OperationFailedError,
+    OwnershipAmbiguousError,
+    PostconditionFailedError,
+    PreconditionFailedError,
     ResourceNotFoundError,
     ServiceUnavailableError,
     StorageAuthenticationError,
@@ -30,19 +35,29 @@ from module.application.errors import (
 )
 from module.application.fleet_state import FleetStateObservation, FleetStateResult
 from module.application.game_models import (
+    AdbRestartResult,
     ConfigSnapshot,
+    ConfigUpdateRequest,
+    ConfigUpdateResult,
     CurrentTaskSnapshot,
     DashboardResources,
+    EmulatorRestartResult,
+    LifecycleOutcome,
+    LifecycleResult,
     MediaFrame,
     RuntimeLogTail,
     SchedulerEntry,
+    SchedulerQueueClearResult,
     SchedulerQueueSnapshot,
+    ScheduleTaskRequest,
+    ScheduleTaskResult,
     thaw_payload,
 )
 from module.application.game_validation import (
     INVALID_NAME_CHARS,
     MAX_NAME_LENGTH,
     UNKNOWN_TASK,
+    validate_json_value,
 )
 from module.application.models import (
     InstanceReference,
@@ -67,11 +82,16 @@ from module.formation.model import (
     FormationFleetSlotObservation,
     FormationFleetSnapshot,
 )
-from module.game_mcp.contract import GAME_MCP_NO_ARGUMENT_TOOLS, contract_result
+from module.game_mcp.contract import (
+    GAME_MCP_CONTROL_SCOPE,
+    GAME_MCP_NO_ARGUMENT_TOOLS,
+    GAME_MCP_READ_SCOPE,
+    contract_result,
+)
 
 logger = logging.getLogger(__name__)
 
-GAME_MCP_TOOL_NAMES = (
+GAME_MCP_READ_TOOL_NAMES = (
     "game_get_contract",
     "game_list_profiles",
     "game_get_profile_status",
@@ -86,6 +106,20 @@ GAME_MCP_TOOL_NAMES = (
     "game_get_recent_logs",
     "game_get_screenshot",
 )
+GAME_MCP_CONTROL_TOOL_NAMES = (
+    "game_start_profile",
+    "game_stop_profile",
+    "game_trigger_task",
+    "game_clear_scheduler_queue",
+    "game_update_config",
+    "game_restart_emulator",
+    "game_restart_adb",
+)
+GAME_MCP_TOOL_NAMES = GAME_MCP_READ_TOOL_NAMES + GAME_MCP_CONTROL_TOOL_NAMES
+GAME_MCP_TOOL_REQUIRED_SCOPES = {
+    **{name: GAME_MCP_READ_SCOPE for name in GAME_MCP_READ_TOOL_NAMES},
+    **{name: GAME_MCP_CONTROL_SCOPE for name in GAME_MCP_CONTROL_TOOL_NAMES},
+}
 
 _MAX_PROFILE_COUNT = 256
 _MAX_TASK_COUNT = 512
@@ -153,6 +187,10 @@ _SECRET_VALUE_RE = re.compile(
 
 class _UnknownTaskError(ResourceNotFoundError):
     """Внутренняя метка для различения unknown task и unknown profile."""
+
+
+class _UnknownConfigError(ResourceNotFoundError):
+    """Внутренняя метка для различения unknown config и unknown profile."""
 
 
 class _ResultLimitExceeded(ValueError):
@@ -462,6 +500,43 @@ def _validate_arguments(
             raise InvalidRequestError(
                 f"lines должен быть целым числом от 0 до {_MAX_PUBLIC_LOG_LINES}."
             )
+    elif tool in {
+        "game_start_profile",
+        "game_stop_profile",
+        "game_clear_scheduler_queue",
+        "game_restart_emulator",
+        "game_restart_adb",
+    }:
+        _profile_arguments(raw)
+    elif tool == "game_trigger_task":
+        _check_keys(
+            raw,
+            allowed=frozenset({"profile", "task"}),
+            required=frozenset({"profile", "task"}),
+        )
+        _profile_arguments({"profile": raw["profile"]})
+        _task_arguments({"task": raw["task"]})
+    elif tool == "game_update_config":
+        _check_keys(
+            raw,
+            allowed=frozenset({"profile", "task", "group", "argument", "value"}),
+            required=frozenset(
+                {"profile", "task", "group", "argument", "value"}
+            ),
+        )
+        _profile_arguments({"profile": raw["profile"]})
+        for key, resource in (
+            ("task", "задачи"),
+            ("group", "группы"),
+            ("argument", "аргумента"),
+        ):
+            _public_name(raw[key], resource=resource)
+        try:
+            validate_json_value(raw["value"])
+        except (TypeError, ValueError):
+            raise InvalidRequestError(
+                "Значение конфигурации не прошло bounded JSON-проверку."
+            ) from None
     else:
         raise InvalidRequestError("Для инструмента отсутствует строгая схема.")
     return raw, selection
@@ -817,8 +892,219 @@ def _validate_media(frame: MediaFrame) -> tuple[bytes, str, int, int]:
     return frame.data, media_type, width, height
 
 
+def _control_service(backend: object) -> object:
+    control = getattr(backend, "control", None)
+    if control is None:
+        raise ServiceUnavailableError("Game control capability недоступна.")
+    return control
+
+
+def _control_lifecycle_result(
+    tool: str,
+    profile: str,
+    control: object,
+) -> dict[str, object]:
+    method_name = "start_instance" if tool == "game_start_profile" else "stop_instance"
+    method = getattr(control, method_name, None)
+    if not callable(method):
+        raise ServiceUnavailableError("Game lifecycle capability недоступна.")
+    result = method(profile)
+    if not isinstance(result, LifecycleResult) or result.instance != profile:
+        raise ServiceUnavailableError("Lifecycle owner вернул некорректный результат.")
+    expected = (
+        {LifecycleOutcome.STARTED, LifecycleOutcome.ALREADY_RUNNING}
+        if tool == "game_start_profile"
+        else {LifecycleOutcome.STOPPED, LifecycleOutcome.ALREADY_STOPPED}
+    )
+    if result.outcome not in expected:
+        raise ServiceUnavailableError("Lifecycle owner вернул некорректный результат.")
+    if result.outcome is LifecycleOutcome.STARTED:
+        code = "GAME_PROFILE_STARTED"
+    elif result.outcome is LifecycleOutcome.ALREADY_RUNNING:
+        code = "GAME_PROFILE_ALREADY_RUNNING"
+    elif result.outcome is LifecycleOutcome.STOPPED:
+        code = "GAME_PROFILE_STOPPED"
+    else:
+        code = "GAME_PROFILE_ALREADY_STOPPED"
+    state = "running" if result.outcome in {
+        LifecycleOutcome.STARTED,
+        LifecycleOutcome.ALREADY_RUNNING,
+    } else "stopped"
+    return _ok(
+        code,
+        "Профиль запущен" if state == "running" else "Профиль остановлен",
+        state,
+        {"profile": profile, "outcome": result.outcome.value},
+    )
+
+
+def _control_schedule_result(profile: str, control: object, arguments: dict[str, object]) -> dict[str, object]:
+    method = getattr(control, "trigger_task", None)
+    if not callable(method):
+        raise ServiceUnavailableError("Game scheduler capability недоступна.")
+    task = _public_name(arguments["task"], resource="задачи")
+    try:
+        result = method(ScheduleTaskRequest(profile, task))
+    except ResourceNotFoundError:
+        raise _UnknownTaskError("Задача не найдена.") from None
+    if (
+        not isinstance(result, ScheduleTaskResult)
+        or result.request.instance != profile
+        or result.request.task != task
+        or result.verified is not True
+    ):
+        raise PostconditionFailedError("Планирование задачи не подтверждено.")
+    scheduled_at = _safe_value(result.scheduled_at)
+    if not isinstance(scheduled_at, str) or not scheduled_at:
+        raise ServiceUnavailableError("Источник вернул некорректное время планирования.")
+    return _ok(
+        "GAME_TASK_SCHEDULED",
+        "Задача поставлена в scheduler",
+        "scheduled",
+        {
+            "profile": profile,
+            "task": task,
+            "scheduled_at": scheduled_at,
+            "verified": True,
+        },
+    )
+
+
+def _control_clear_result(profile: str, control: object) -> dict[str, object]:
+    method = getattr(control, "clear_scheduler_queue", None)
+    if not callable(method):
+        raise ServiceUnavailableError("Game scheduler capability недоступна.")
+    result = method(profile)
+    if (
+        not isinstance(result, SchedulerQueueClearResult)
+        or result.instance != profile
+        or result.verified is not True
+    ):
+        raise PostconditionFailedError("Очистка очереди scheduler не подтверждена.")
+    cleared = [_public_name(task, resource="задачи") for task in result.cleared_tasks]
+    return _ok(
+        "GAME_SCHEDULER_QUEUE_CLEARED",
+        "Очередь scheduler очищена",
+        "ready",
+        {
+            "profile": profile,
+            "cleared_tasks": cleared,
+            "cleared_count": len(cleared),
+            "verified": True,
+        },
+    )
+
+
+def _control_config_result(
+    profile: str,
+    control: object,
+    arguments: dict[str, object],
+) -> dict[str, object]:
+    method = getattr(control, "update_config", None)
+    if not callable(method):
+        raise ServiceUnavailableError("Game configuration capability недоступна.")
+    task = _public_name(arguments["task"], resource="задачи")
+    group = _public_name(arguments["group"], resource="группы")
+    argument = _public_name(arguments["argument"], resource="аргумента")
+    try:
+        result = method(
+            ConfigUpdateRequest(
+                instance=profile,
+                task=task,
+                group=group,
+                argument=argument,
+                value=arguments["value"],
+            )
+        )
+    except ResourceNotFoundError:
+        raise _UnknownConfigError("Параметр конфигурации не найден.") from None
+    if (
+        not isinstance(result, ConfigUpdateResult)
+        or result.request.instance != profile
+        or result.request.task != task
+        or result.request.group != group
+        or result.request.argument != argument
+        or result.verified is not True
+    ):
+        raise PostconditionFailedError("Изменение конфигурации не подтверждено.")
+    return _ok(
+        "GAME_CONFIG_UPDATED",
+        "Конфигурация обновлена",
+        "ready",
+        {
+            "profile": profile,
+            "task": task,
+            "group": group,
+            "argument": argument,
+            "verified": True,
+        },
+    )
+
+
+def _control_restart_result(
+    tool: str,
+    profile: str,
+    control: object,
+) -> dict[str, object]:
+    method_name = (
+        "restart_emulator" if tool == "game_restart_emulator" else "restart_adb"
+    )
+    method = getattr(control, method_name, None)
+    if not callable(method):
+        raise ServiceUnavailableError("Game restart capability недоступна.")
+    result = method(profile)
+    result_type = (
+        EmulatorRestartResult
+        if tool == "game_restart_emulator"
+        else AdbRestartResult
+    )
+    if not isinstance(result, result_type) or result.instance != profile:
+        raise ServiceUnavailableError("Restart owner вернул некорректный результат.")
+    return _ok(
+        "GAME_EMULATOR_RESTARTED"
+        if tool == "game_restart_emulator"
+        else "GAME_ADB_RESTARTED",
+        "Эмулятор перезапущен"
+        if tool == "game_restart_emulator"
+        else "ADB перезапущен",
+        "ready",
+        {"profile": profile, "verified": True},
+    )
+
+
+def _current_request_scopes() -> tuple[str, ...] | None:
+    """Вернуть scopes remote principal; None означает local stdio authority."""
+
+    from module.mcp_shared.auth import current_access_token
+
+    access_token = current_access_token()
+    if access_token is None:
+        return None
+    scopes = getattr(access_token, "scopes", None)
+    if isinstance(scopes, (str, bytes)) or not isinstance(scopes, Collection):
+        return ()
+    if any(not isinstance(scope, str) for scope in scopes):
+        return ()
+    return tuple(scopes)
+
+
+def _authorized(
+    tool: str,
+    explicit_scopes: Collection[str] | None,
+) -> bool:
+    scopes = (
+        tuple(explicit_scopes)
+        if explicit_scopes is not None
+        else _current_request_scopes()
+    )
+    if scopes is None:
+        return True
+    required_scope = GAME_MCP_TOOL_REQUIRED_SCOPES[tool]
+    return required_scope in scopes
+
+
 class GameMcpAdapter:
-    """Маршрутизировать только явно разрешённые read-only Game MCP tools."""
+    """Маршрутизировать stateless read/control Game MCP tools."""
 
     def __init__(
         self, backend_factory: Callable[[], object] | object | None = None
@@ -835,6 +1121,8 @@ class GameMcpAdapter:
         self._active_calls = 0
         self._closing = False
         self._closed = False
+        self._mutation_locks: dict[str, Lock] = {}
+        self._mutation_locks_guard = Lock()
 
     def close(self) -> None:
         """Освободить ленивый persistence context, если он был создан."""
@@ -886,6 +1174,14 @@ class GameMcpAdapter:
             self._active_calls -= 1
             if self._active_calls == 0:
                 self._backend_condition.notify_all()
+
+    def _mutation_lock(self, profile: str) -> Lock:
+        with self._mutation_locks_guard:
+            lock = self._mutation_locks.get(profile)
+            if lock is None:
+                lock = Lock()
+                self._mutation_locks[profile] = lock
+            return lock
 
     @staticmethod
     def _known_profile(backend: object, profile: str) -> str:
@@ -970,6 +1266,19 @@ class GameMcpAdapter:
 
         profile = self._profile_from(arguments)
         self._known_profile(backend, profile)
+        if tool in GAME_MCP_CONTROL_TOOL_NAMES:
+            control = _control_service(backend)
+            if tool in {"game_start_profile", "game_stop_profile"}:
+                return _control_lifecycle_result(tool, profile, control)
+            if tool == "game_trigger_task":
+                return _control_schedule_result(profile, control, arguments)
+            if tool == "game_clear_scheduler_queue":
+                return _control_clear_result(profile, control)
+            if tool == "game_update_config":
+                return _control_config_result(profile, control, arguments)
+            if tool in {"game_restart_emulator", "game_restart_adb"}:
+                return _control_restart_result(tool, profile, control)
+            raise InvalidRequestError("Для control-инструмента отсутствует обработчик.")
         if tool == "game_get_profile_status":
             status = instances.get_status(profile)
             if not isinstance(status, InstanceStatus):
@@ -1121,8 +1430,10 @@ class GameMcpAdapter:
         self,
         tool_name: str,
         arguments: Mapping[str, object] | None = None,
+        *,
+        scopes: Collection[str] | None = None,
     ) -> dict[str, object] | GameMcpResponse:
-        """Выполнить один self-contained read-only запрос без выбранного профиля."""
+        """Выполнить один self-contained запрос без выбранного профиля."""
 
         if tool_name not in GAME_MCP_TOOL_NAMES:
             return _unknown_tool(tool_name)
@@ -1130,6 +1441,16 @@ class GameMcpAdapter:
             return _error(
                 "GAME_SERVICE_UNAVAILABLE",
                 "Game MCP adapter закрыт.",
+                tool=tool_name,
+            )
+        try:
+            authorized = _authorized(tool_name, scopes)
+        except (KeyError, TypeError, ValueError):
+            authorized = False
+        if not authorized:
+            return _error(
+                "GAME_MCP_UNAUTHORIZED",
+                "Недостаточно полномочий для этого инструмента Game MCP.",
                 tool=tool_name,
             )
         try:
@@ -1153,18 +1474,64 @@ class GameMcpAdapter:
             )
         try:
             try:
-                result = self._dispatch(
-                    tool_name, parsed, backend, selection
-                )
+                if tool_name in GAME_MCP_CONTROL_TOOL_NAMES:
+                    profile = self._profile_from(parsed)
+                    self._known_profile(backend, profile)
+                    with self._mutation_lock(profile):
+                        result = self._dispatch(
+                            tool_name, parsed, backend, selection
+                        )
+                else:
+                    result = self._dispatch(
+                        tool_name, parsed, backend, selection
+                    )
             except InstanceNotRunningError:
                 return _error(
                     "GAME_PROFILE_NOT_RUNNING", "Профиль не запущен.", tool=tool_name
                 )
+            except InvalidRequestError:
+                return _invalid(tool_name)
+            except ConfigurationValidationError:
+                return _error(
+                    "GAME_CONFIG_INVALID",
+                    "Значение конфигурации не прошло проверку.",
+                    tool=tool_name,
+                )
             except _UnknownTaskError:
                 return _error("GAME_UNKNOWN_TASK", "Задача не найдена.", tool=tool_name)
+            except _UnknownConfigError:
+                return _error(
+                    "GAME_UNKNOWN_CONFIG",
+                    "Параметр конфигурации не найден.",
+                    tool=tool_name,
+                )
             except ResourceNotFoundError:
                 return _error(
                     "GAME_UNKNOWN_PROFILE", "Профиль не найден.", tool=tool_name
+                )
+            except PostconditionFailedError:
+                return _error(
+                    "GAME_POSTCONDITION_FAILED",
+                    "Изменение не подтверждено ожидаемым состоянием.",
+                    tool=tool_name,
+                )
+            except OwnershipAmbiguousError:
+                return _error(
+                    "GAME_OWNERSHIP_AMBIGUOUS",
+                    "Ownership целевого Game ресурса не подтвержден.",
+                    tool=tool_name,
+                )
+            except PreconditionFailedError:
+                return _error(
+                    "GAME_PRECONDITION_FAILED",
+                    "Безопасное условие Game операции не выполнено.",
+                    tool=tool_name,
+                )
+            except OperationFailedError:
+                return _error(
+                    "GAME_OPERATION_FAILED",
+                    "Операция Game MCP не подтверждена.",
+                    tool=tool_name,
                 )
             except (
                 StorageConfigurationError,
@@ -1181,6 +1548,16 @@ class GameMcpAdapter:
                 return _error(
                     "GAME_SERVICE_UNAVAILABLE",
                     "Источник Game данных сейчас недоступен.",
+                    tool=tool_name,
+                )
+            except ServiceUnavailableError:
+                return _error(
+                    "GAME_CAPABILITY_UNAVAILABLE"
+                    if tool_name in GAME_MCP_CONTROL_TOOL_NAMES
+                    else "GAME_SERVICE_UNAVAILABLE",
+                    "Запрошенная Game capability сейчас недоступна."
+                    if tool_name in GAME_MCP_CONTROL_TOOL_NAMES
+                    else "Источник Game данных сейчас недоступен.",
                     tool=tool_name,
                 )
             except ApplicationError:
@@ -1209,4 +1586,11 @@ def _make_selection(indices: tuple[int, ...]) -> FleetSelection:
     return FleetSelection(indices)
 
 
-__all__ = ("GAME_MCP_TOOL_NAMES", "GameMcpAdapter", "GameMcpResponse")
+__all__ = (
+    "GAME_MCP_CONTROL_TOOL_NAMES",
+    "GAME_MCP_READ_TOOL_NAMES",
+    "GAME_MCP_TOOL_NAMES",
+    "GAME_MCP_TOOL_REQUIRED_SCOPES",
+    "GameMcpAdapter",
+    "GameMcpResponse",
+)

@@ -5,6 +5,7 @@ import os
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
+from threading import Event, Thread
 
 import pytest
 
@@ -13,6 +14,9 @@ from module.application import (
     REDACTED_CONFIG_VALUE,
     ConfigArgumentDefinition,
     ConfigUpdateRequest,
+    OperationFailedError,
+    OwnershipAmbiguousError,
+    PostconditionFailedError,
 )
 from module.application.game_models import MediaFrame
 from module.application.legacy_adapters import GeneratedTaskCatalogAdapter
@@ -286,16 +290,87 @@ def test_legacy_screenshot_lifecycle_and_emulator_adapters_use_narrow_owners(mon
     events: list[str] = []
 
     class Platform:
+        def __init__(self) -> None:
+            self.running = True
+
+        def is_emulator_instance_running(self) -> bool:
+            return self.running
+
         def emulator_stop(self) -> bool:
             events.append("stop")
+            self.running = False
             return True
 
         def emulator_start(self) -> bool:
             events.append("start")
+            self.running = True
             return True
 
-    assert LegacyEmulatorAdapter(platform_factory=lambda instance: Platform()).restart_emulator("secondary") is True
+    assert (
+        LegacyEmulatorAdapter(platform_factory=lambda instance: Platform()).restart_emulator(
+            "secondary"
+        )
+        is True
+    )
     assert events == ["stop", "start"]
+
+
+def test_typed_emulator_failures_distinguish_ownership_operation_and_postcondition():
+    class NoChecker:
+        def emulator_stop(self) -> bool:
+            raise AssertionError("операция не должна начинаться без ownership")
+
+        def emulator_start(self) -> bool:
+            raise AssertionError("операция не должна начинаться без ownership")
+
+    with pytest.raises(OwnershipAmbiguousError):
+        LegacyEmulatorAdapter(
+            platform_factory=lambda instance: NoChecker(),
+            typed_failures=True,
+        ).restart_emulator("secondary")
+
+    class StuckAfterStop:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def is_emulator_instance_running(self) -> bool:
+            return True
+
+        def emulator_stop(self) -> bool:
+            self.calls.append("stop")
+            return True
+
+        def emulator_start(self) -> bool:
+            self.calls.append("start")
+            return True
+
+    stuck = StuckAfterStop()
+    with pytest.raises(PostconditionFailedError):
+        LegacyEmulatorAdapter(
+            platform_factory=lambda instance: stuck,
+            typed_failures=True,
+        ).restart_emulator("secondary")
+    assert stuck.calls == ["stop"]
+
+    class FailedStart:
+        def __init__(self) -> None:
+            self.running = True
+
+        def is_emulator_instance_running(self) -> bool:
+            return self.running
+
+        def emulator_stop(self) -> bool:
+            self.running = False
+            return True
+
+        def emulator_start(self) -> bool:
+            return False
+
+    with pytest.raises(OperationFailedError):
+        LegacyEmulatorAdapter(
+            platform_factory=lambda instance: FailedStart(),
+            typed_failures=True,
+        ).restart_emulator("secondary")
 
 
 def test_legacy_screenshot_is_passive_and_unavailable_path_does_not_recover(monkeypatch):
@@ -370,6 +445,66 @@ def test_legacy_screenshot_is_passive_and_unavailable_path_does_not_recover(monk
     )
     with pytest.raises(OSError, match="PNG"):
         invalid_frame.read_frame("secondary")
+
+
+def test_legacy_adb_restart_serializes_with_passive_screenshot():
+    screenshot_entered = Event()
+    release_screenshot = Event()
+    screenshot_errors: list[BaseException] = []
+    restart_errors: list[BaseException] = []
+    restart_done = Event()
+
+    def screenshot_runner(argv: tuple[str, ...]) -> _CommandResult:
+        if argv == ("adb", "devices"):
+            screenshot_entered.set()
+            assert release_screenshot.wait(timeout=5)
+            return _CommandResult(0, "List of devices attached\nserial-a\tdevice\n")
+        return _CommandResult(0, b"\x89PNG\r\n\x1a\nframe")
+
+    def restart_runner(argv: tuple[str, ...]) -> _CommandResult:
+        if argv[-1] == "devices":
+            return _CommandResult(0, "List of devices attached\nserial-a\tdevice\n")
+        return _CommandResult(0)
+
+    screenshot = LegacyScreenshotAdapter(
+        runner=screenshot_runner,
+        adb_path_provider=lambda: "adb",
+        target_serial_provider=lambda instance: "serial-a",
+    )
+    restart = LegacyAdbAdapter(
+        runner=restart_runner,
+        adb_path_provider=lambda: "adb",
+        target_serial_provider=lambda instance: "serial-a",
+    )
+
+    def read_screenshot() -> None:
+        try:
+            screenshot.read_frame("secondary")
+        except BaseException as error:  # noqa: BLE001 - test thread propagation.
+            screenshot_errors.append(error)
+
+    def restart_adb() -> None:
+        try:
+            assert restart.restart_adb("secondary") is True
+        except BaseException as error:  # noqa: BLE001 - test thread propagation.
+            restart_errors.append(error)
+        finally:
+            restart_done.set()
+
+    screenshot_thread = Thread(target=read_screenshot)
+    restart_thread = Thread(target=restart_adb)
+    screenshot_thread.start()
+    assert screenshot_entered.wait(timeout=5)
+    restart_thread.start()
+    assert not restart_done.wait(timeout=0.1)
+    release_screenshot.set()
+    screenshot_thread.join(timeout=5)
+    restart_thread.join(timeout=5)
+
+    assert not screenshot_thread.is_alive()
+    assert not restart_thread.is_alive()
+    assert screenshot_errors == []
+    assert restart_errors == []
 
 
 def test_passive_screenshot_resolves_only_canonical_emulator_aliases():
@@ -592,6 +727,7 @@ _EXPECTED_RESTART_CALLS = (
 def _make_adb_adapter(
     *inventories: str,
     target_serial: str | None = "serial-a",
+    typed_failures: bool = False,
 ) -> tuple[LegacyAdbAdapter, list[tuple[str, ...]]]:
     calls: list[tuple[str, ...]] = []
     inventory_iter = iter(inventories)
@@ -608,6 +744,7 @@ def _make_adb_adapter(
         runner=runner,
         adb_path_provider=lambda: "adb",
         target_serial_provider=lambda instance: target_serial,
+        typed_failures=typed_failures,
     )
     return adapter, calls
 
@@ -734,6 +871,25 @@ def test_legacy_adb_adapter_rejects_changed_explicit_target_inventory():
 
     assert adapter.restart_adb("secondary") is False
     assert tuple(calls) == _EXPECTED_RESTART_CALLS
+
+
+def test_typed_adb_failures_distinguish_ownership_and_postcondition():
+    ambiguous, ambiguous_calls = _make_adb_adapter(
+        "List of devices attached\nforeign\tdevice\n",
+        typed_failures=True,
+    )
+    with pytest.raises(OwnershipAmbiguousError):
+        ambiguous.restart_adb("secondary")
+    assert ambiguous_calls == [("adb", "devices")]
+
+    postcondition, postcondition_calls = _make_adb_adapter(
+        "List of devices attached\nserial-a\tdevice\n",
+        "List of devices attached\nserial-b\tdevice\n",
+        typed_failures=True,
+    )
+    with pytest.raises(PostconditionFailedError):
+        postcondition.restart_adb("secondary")
+    assert tuple(postcondition_calls) == _EXPECTED_RESTART_CALLS
 
 
 def test_legacy_adb_adapter_rejects_unscoped_restart_without_touching_adb():

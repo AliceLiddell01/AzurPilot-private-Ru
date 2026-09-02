@@ -27,13 +27,13 @@ _REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 @dataclass(frozen=True, slots=True)
 class GameMcpEnvironment:
-    """Минимальный environment contract для read-only persistence builder."""
+    """Минимальный environment contract для Game MCP persistence builder."""
 
     repository_root: Path
 
 
 class GameMcpBackend:
-    """Собрать только read services, оставляя persistence и тяжёлые источники lazy."""
+    """Собрать read services и лениво подключить control owners."""
 
     def __init__(
         self,
@@ -62,6 +62,8 @@ class GameMcpBackend:
             screenshot_reader = LegacyScreenshotAdapter()
 
         self._instance_reader = instance_reader
+        self._task_catalog = task_catalog
+        self._config_reader = config_reader
         self.instances = InstanceQueryService(instance_reader)  # type: ignore[arg-type]
         self.tasks = TaskCatalogService(task_catalog)  # type: ignore[arg-type]
         self.read = GameReadService(
@@ -73,6 +75,7 @@ class GameMcpBackend:
         )
         self._fleet_state = fleet_state_reader
         self._morale = morale_reader
+        self._control: object | None = None
         self._persistence_factory = persistence_factory or _default_persistence
         self._repository_root = (repository_root or _REPOSITORY_ROOT).resolve()
         self._persistence: object | None = None
@@ -104,6 +107,34 @@ class GameMcpBackend:
                 self._morale = MoraleService(self._uow_factory)
             return self._morale
 
+    @property
+    def control(self) -> object:
+        """Лениво вернуть нейтральный Game control service."""
+
+        with self._service_lock:
+            self._ensure_open()
+            if self._control is None:
+                from module.application.game_control_service import GameControlService
+                from module.application.legacy_game_adapters import (
+                    LegacyAdbAdapter,
+                    LegacyEmulatorAdapter,
+                    LegacyProcessManagerAdapter,
+                    legacy_current_time,
+                )
+
+                self._control = GameControlService(
+                    instance_reader=self._instance_reader,  # type: ignore[arg-type]
+                    config_schema=self._task_catalog,  # type: ignore[arg-type]
+                    config_writer=self._config_reader,  # type: ignore[arg-type]
+                    scheduler_tasks=self._task_catalog,  # type: ignore[arg-type]
+                    lifecycle=LegacyProcessManagerAdapter(),
+                    emulator=LegacyEmulatorAdapter(typed_failures=True),
+                    adb=LegacyAdbAdapter(typed_failures=True),
+                    clock=legacy_current_time,
+                    config_reader=self._config_reader,
+                )
+            return self._control
+
     def _uow_factory(self) -> MoraleUnitOfWork:
         composition = self._get_persistence()
         factory = getattr(composition, "uow_factory", None)
@@ -132,6 +163,7 @@ class GameMcpBackend:
                 self._closed = True
                 self._fleet_state = None
                 self._morale = None
+                self._control = None
                 persistence = self._persistence
                 self._persistence = None
                 if persistence is None:
@@ -146,7 +178,7 @@ class GameMcpBackend:
 
 
 def _default_persistence(environment: GameMcpEnvironment) -> object:
-    """Получить нейтральную read-only persistence composition без Dev Runtime."""
+    """Получить нейтральную persistence composition без Dev Runtime."""
 
     from module.persistence.runtime import build_read_only_persistence_composition
 

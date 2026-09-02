@@ -187,6 +187,13 @@ class ConfigUpdateResult:
     """Подтверждённое изменение config без transport-specific details."""
 
     request: ConfigUpdateRequest
+    verified: bool = False
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.request, ConfigUpdateRequest):
+            raise TypeError("request должен быть ConfigUpdateRequest")
+        if type(self.verified) is not bool:
+            raise TypeError("verified должен быть bool")
 
 
 @dataclass(frozen=True, slots=True)
@@ -277,6 +284,7 @@ class ScheduleTaskRequest:
 class ScheduleTaskResult:
     request: ScheduleTaskRequest
     scheduled_at: FrozenPayload
+    verified: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.request, ScheduleTaskRequest):
@@ -286,12 +294,15 @@ class ScheduleTaskResult:
             "scheduled_at",
             freeze_payload(self.scheduled_at, field_name="scheduled_at"),
         )
+        if type(self.verified) is not bool:
+            raise TypeError("verified должен быть bool")
 
 
 @dataclass(frozen=True, slots=True)
 class SchedulerQueueClearResult:
     instance: str
     cleared_tasks: tuple[str, ...]
+    verified: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.instance, str) or not self.instance:
@@ -302,6 +313,8 @@ class SchedulerQueueClearResult:
             raise TypeError("cleared_tasks должен быть tuple имён задач")
         if len(self.cleared_tasks) != len(set(self.cleared_tasks)):
             raise ValueError("cleared_tasks не должен содержать дубликаты")
+        if type(self.verified) is not bool:
+            raise TypeError("verified должен быть bool")
 
 
 class LifecycleOutcome(StrEnum):

@@ -83,6 +83,7 @@ class _LegacyGameBackend:
             emulator=emulator,
             adb=adb,
             clock=legacy_current_time,
+            config_reader=config,
         )
 
 

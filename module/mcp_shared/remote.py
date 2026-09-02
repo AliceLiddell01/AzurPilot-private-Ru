@@ -11,7 +11,7 @@ import json
 import logging
 import os
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from threading import Lock
@@ -31,6 +31,11 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from module.mcp_shared.auth import (
+    reset_current_access_token,
+    set_current_access_token,
+)
+
 logger = logging.getLogger(__name__)
 
 MCP_PATH = "/mcp"
@@ -45,6 +50,33 @@ DEFAULT_ALLOWED_ORIGINS = (
     "https://chat.openai.com",
 )
 _JWT_ALGORITHMS = ("RS256",)
+
+
+def _normalize_scopes(
+    required_scope: str,
+    accepted_scopes: Sequence[str] | None,
+) -> tuple[str, ...]:
+    """Собрать bounded scope policy с обязательным primary scope."""
+
+    if accepted_scopes is None:
+        values = (required_scope,)
+    elif isinstance(accepted_scopes, (str, bytes)):
+        raise RemoteConfigError("Scope policy remote MCP имеет неверный формат")
+    else:
+        try:
+            values = tuple(accepted_scopes)
+        except TypeError:
+            raise RemoteConfigError(
+                "Scope policy remote MCP имеет неверный формат"
+            ) from None
+    if required_scope not in values:
+        values = (required_scope, *values)
+    if not values or any(
+        not isinstance(scope, str) or not scope or len(scope) > 128
+        for scope in values
+    ):
+        raise RemoteConfigError("Scope policy remote MCP имеет неверный формат")
+    return tuple(dict.fromkeys(values))
 
 
 class RemoteConfigError(ValueError):
@@ -258,11 +290,13 @@ class OIDCTokenVerifier:
         config: RemoteConfig,
         *,
         required_scope: str,
+        accepted_scopes: tuple[str, ...] | None = None,
         jwk_client: Any | None = None,
         clock: Callable[[], float] = time.time,
     ) -> None:
         self._config = config
         self._required_scope = required_scope
+        self._accepted_scopes = _normalize_scopes(required_scope, accepted_scopes)
         self._clock = clock
         self._jwk_client = jwk_client or PyJWKClient(
             config.oauth_jwks_url,
@@ -337,7 +371,9 @@ class OIDCTokenVerifier:
         if expires_at_int <= int(self._clock()):
             return None
         scopes = self._scopes(claims.get("scope"))
-        if scopes is None or self._required_scope not in scopes:
+        if scopes is None or not any(
+            scope in scopes for scope in self._accepted_scopes
+        ):
             return None
         return AccessToken(
             token="",
@@ -418,11 +454,13 @@ class OAuthBearerMiddleware:
         verifier: TokenVerifier,
         *,
         required_scope: str,
+        accepted_scopes: tuple[str, ...] | None = None,
     ) -> None:
         self.app = app
         self.config = config
         self.verifier = verifier
         self.required_scope = required_scope
+        self.accepted_scopes = _normalize_scopes(required_scope, accepted_scopes)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope.get("type") != "http" or scope.get("path") != self.config.mcp_path:
@@ -443,7 +481,7 @@ class OAuthBearerMiddleware:
         ):
             await self._unauthorized(send)
             return
-        if self.required_scope not in access_token.scopes:
+        if not any(scope in access_token.scopes for scope in self.accepted_scopes):
             await _send_error(
                 send,
                 403,
@@ -455,7 +493,11 @@ class OAuthBearerMiddleware:
             return
         child_scope = dict(scope)
         child_scope["azurpilot.access_token"] = access_token
-        await self.app(child_scope, receive, send)
+        context_token = set_current_access_token(access_token)
+        try:
+            await self.app(child_scope, receive, send)
+        finally:
+            reset_current_access_token(context_token)
 
     @staticmethod
     def _extract_token(scope: Scope) -> str | None:
@@ -698,6 +740,7 @@ def create_remote_app(
     config: RemoteConfig,
     token_verifier: TokenVerifier | None,
     required_scope: str,
+    accepted_scopes: Sequence[str] | None = None,
 ) -> Starlette:
     """Создать stateless authenticated Streamable HTTP ASGI app."""
 
@@ -706,7 +749,9 @@ def create_remote_app(
     verifier = token_verifier or OIDCTokenVerifier(
         config,
         required_scope=required_scope,
+        accepted_scopes=accepted_scopes,
     )
+    scope_policy = _normalize_scopes(required_scope, accepted_scopes)
     server = server_factory(adapter, abandon_on_cancel=True)
     session_manager = StreamableHTTPSessionManager(
         app=server,
@@ -736,7 +781,7 @@ def create_remote_app(
             {
                 "resource": config.public_url,
                 "authorization_servers": [config.oauth_issuer],
-                "scopes_supported": [required_scope],
+                "scopes_supported": list(scope_policy),
                 "bearer_methods_supported": ["header"],
             },
             headers=_metadata_headers(request, config),
@@ -749,6 +794,7 @@ def create_remote_app(
         config,
         verifier,
         required_scope=required_scope,
+        accepted_scopes=scope_policy,
     )
 
     @asynccontextmanager

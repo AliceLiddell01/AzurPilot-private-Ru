@@ -88,12 +88,13 @@ catalog поверх отдельного process-local lazy PostgreSQL engine/U
 выдаются. Пустой repair catalog является допустимым честным результатом.
 
 Standalone Game MCP находится в `module.game_mcp` и не является режимом Dev
-MCP. Его stateless read-only tools используют canonical `profile` в каждом
-target-dependent запросе, нейтральные application services и отдельную
-authenticated Game resource/scope. Общий Streamable HTTP/auth transport code
-находится в `module.mcp_shared`; Game MCP не импортирует Dev MCP, Dev Runtime
-или `GameControlService`. Lifecycle, config/scheduler mutation, DB internals,
-Smoke/Evidence и Git state не входят в Game client surface.
+MCP. Его stateless read/control tools используют canonical `profile` в каждом
+target-dependent запросе, нейтральные application services и отдельные
+authenticated Game scopes `azurpilot:game.read` и `azurpilot:game.control`.
+Общий Streamable HTTP/auth transport code находится в `module.mcp_shared`; Game
+MCP не импортирует Dev MCP или Dev Runtime. Lifecycle, config/scheduler
+mutation, emulator/ADB control, DB internals, Smoke/Evidence и Git state
+остаются отдельными границами, а mutation scope проверяется до side effect.
 
 ## Статистика
 

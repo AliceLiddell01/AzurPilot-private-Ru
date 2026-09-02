@@ -8,7 +8,7 @@ import struct
 import zlib
 from datetime import UTC, datetime
 from pathlib import Path
-from threading import Event, Thread
+from threading import Event, Lock, Thread
 from types import SimpleNamespace
 from typing import Any, Self
 from uuid import UUID, uuid4
@@ -27,10 +27,14 @@ from mcp_types import (
 )
 
 from module.application import (
+    AdbRestartResult,
     ConfigSnapshot,
+    ConfigUpdateRequest,
+    ConfigUpdateResult,
     CurrentTaskSnapshot,
     DashboardResource,
     DashboardResources,
+    EmulatorRestartResult,
     FleetRefreshPolicy,
     FleetStateObservation,
     FleetStateReadService,
@@ -38,6 +42,8 @@ from module.application import (
     FleetStateResult,
     InstanceReference,
     InstanceStatus,
+    LifecycleOutcome,
+    LifecycleResult,
     MediaFrame,
     MoraleFleetState,
     MoraleKnowledge,
@@ -47,7 +53,10 @@ from module.application import (
     RuntimeLogTail,
     RuntimeState,
     SchedulerEntry,
+    SchedulerQueueClearResult,
     SchedulerQueueSnapshot,
+    ScheduleTaskRequest,
+    ScheduleTaskResult,
     ServiceUnavailableError,
     TaskArgumentMetadata,
     TaskGroupMetadata,
@@ -279,17 +288,55 @@ class _Morale:
         return _morale_result(selection.fleet_indices)
 
 
+class _Control:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    def start_instance(self, profile: str) -> LifecycleResult:
+        self.calls.append(("start", profile))
+        return LifecycleResult(profile, LifecycleOutcome.STARTED)
+
+    def stop_instance(self, profile: str) -> LifecycleResult:
+        self.calls.append(("stop", profile))
+        return LifecycleResult(profile, LifecycleOutcome.STOPPED)
+
+    def trigger_task(self, request: ScheduleTaskRequest) -> ScheduleTaskResult:
+        self.calls.append(("trigger", request.instance))
+        return ScheduleTaskResult(
+            request,
+            datetime(2026, 9, 1, tzinfo=UTC),
+            verified=True,
+        )
+
+    def clear_scheduler_queue(self, profile: str) -> SchedulerQueueClearResult:
+        self.calls.append(("clear", profile))
+        return SchedulerQueueClearResult(profile, ("Main",), verified=True)
+
+    def update_config(self, request: ConfigUpdateRequest) -> ConfigUpdateResult:
+        self.calls.append(("update", request.instance))
+        return ConfigUpdateResult(request, verified=True)
+
+    def restart_emulator(self, profile: str) -> EmulatorRestartResult:
+        self.calls.append(("emulator", profile))
+        return EmulatorRestartResult(profile)
+
+    def restart_adb(self, profile: str) -> AdbRestartResult:
+        self.calls.append(("adb", profile))
+        return AdbRestartResult(profile)
+
+
 def _backend() -> SimpleNamespace:
     return SimpleNamespace(
         instances=_Instances(),
         tasks=_Tasks(),
         read=_Read(),
+        control=_Control(),
         fleet_state=_Fleet(),
         morale=_Morale(),
     )
 
 
-def test_contract_and_tool_catalog_are_game_specific_and_read_only() -> None:
+def test_contract_and_tool_catalog_are_game_specific_and_scope_separated() -> None:
     contract = contract_payload()
     assert contract["game_mcp_api_version"] == 1
     assert {
@@ -304,6 +351,12 @@ def test_contract_and_tool_catalog_are_game_specific_and_read_only() -> None:
         "unavailable",
         "failed",
     } <= set(contract["result_states"])
+    assert contract["authorization_scopes"] == [
+        "azurpilot:game.read",
+        "azurpilot:game.control",
+    ]
+    assert contract["feature_flags"]["read_only"] is False
+    assert contract["feature_flags"]["control_plane"] is True
     assert "dev_mcp_api_version" not in contract
     assert "runtime_control" not in contract["feature_flags"]
 
@@ -322,16 +375,35 @@ def test_contract_and_tool_catalog_are_game_specific_and_read_only() -> None:
         "game_get_config",
         "game_get_recent_logs",
         "game_get_screenshot",
+        "game_start_profile",
+        "game_stop_profile",
+        "game_trigger_task",
+        "game_clear_scheduler_queue",
+        "game_update_config",
+        "game_restart_emulator",
+        "game_restart_adb",
     ]
-    assert all(tool.annotations.read_only_hint for tool in tools)
-    assert all(tool.annotations.destructive_hint is False for tool in tools)
-    assert all(tool.annotations.idempotent_hint for tool in tools)
+    read_tools = tools[:13]
+    control_tools = tools[13:]
+    assert all(tool.annotations.read_only_hint for tool in read_tools)
+    assert all(tool.annotations.destructive_hint is False for tool in read_tools)
+    assert all(tool.annotations.idempotent_hint for tool in read_tools)
     assert all(
         tool.meta
         == {
             "securitySchemes": [{"type": "oauth2", "scopes": [GAME_MCP_REQUIRED_SCOPE]}]
         }
-        for tool in tools
+        for tool in read_tools
+    )
+    assert all(tool.annotations.read_only_hint is False for tool in control_tools)
+    assert all(tool.annotations.open_world_hint is False for tool in control_tools)
+    assert all(
+        tool.meta == {
+            "securitySchemes": [
+                {"type": "oauth2", "scopes": ["azurpilot:game.control"]}
+            ]
+        }
+        for tool in control_tools
     )
     assert all(tool.output_schema["additionalProperties"] is False for tool in tools)
     assert all(
@@ -374,6 +446,32 @@ def test_output_schemas_are_scoped_to_their_tool_details() -> None:
         "game_get_config": {"config", "profile", "task", "tool"},
         "game_get_recent_logs": {"lines", "profile", "tool", "truncated"},
         "game_get_screenshot": {"profile", "screenshot", "tool"},
+        "game_start_profile": {"outcome", "profile", "tool"},
+        "game_stop_profile": {"outcome", "profile", "tool"},
+        "game_trigger_task": {
+            "profile",
+            "scheduled_at",
+            "task",
+            "tool",
+            "verified",
+        },
+        "game_clear_scheduler_queue": {
+            "cleared_count",
+            "cleared_tasks",
+            "profile",
+            "tool",
+            "verified",
+        },
+        "game_update_config": {
+            "argument",
+            "group",
+            "profile",
+            "task",
+            "tool",
+            "verified",
+        },
+        "game_restart_emulator": {"profile", "tool", "verified"},
+        "game_restart_adb": {"profile", "tool", "verified"},
     }
     actual = {
         tool.name: set(tool.output_schema["properties"]["details"]["properties"])
@@ -399,6 +497,22 @@ def test_structured_content_conforms_to_each_advertised_output_schema() -> None:
         ("game_get_config", {"profile": "alpha"}),
         ("game_get_recent_logs", {"profile": "alpha", "lines": 2}),
         ("game_get_screenshot", {"profile": "alpha"}),
+        ("game_start_profile", {"profile": "alpha"}),
+        ("game_stop_profile", {"profile": "alpha"}),
+        ("game_trigger_task", {"profile": "alpha", "task": "Main"}),
+        ("game_clear_scheduler_queue", {"profile": "alpha"}),
+        (
+            "game_update_config",
+            {
+                "profile": "alpha",
+                "task": "Main",
+                "group": "General",
+                "argument": "Mode",
+                "value": "safe",
+            },
+        ),
+        ("game_restart_emulator", {"profile": "alpha"}),
+        ("game_restart_adb", {"profile": "alpha"}),
     )
     tools = {tool.name: tool for tool in tool_definitions()}
     task_help: dict[str, object] | None = None
@@ -538,6 +652,84 @@ def test_adapter_hides_backend_factory_failures() -> None:
     assert "private backend path" not in json.dumps(result, ensure_ascii=False)
 
 
+def test_control_scope_is_checked_before_backend_factory_and_arguments() -> None:
+    factory_calls: list[bool] = []
+
+    def factory() -> object:
+        factory_calls.append(True)
+        return _backend()
+
+    adapter = GameMcpAdapter(factory)
+    result = adapter.call(
+        "game_start_profile",
+        {"profile": "alpha"},
+        scopes=(GAME_MCP_REQUIRED_SCOPE,),
+    )
+
+    assert result == {
+        "ok": False,
+        "code": "GAME_MCP_UNAUTHORIZED",
+        "message": "Недостаточно полномочий для этого инструмента Game MCP.",
+        "state": "failed",
+        "details": {"tool": "game_start_profile"},
+    }
+    assert factory_calls == []
+
+
+def test_control_tools_return_typed_bounded_results() -> None:
+    backend = _backend()
+    adapter = GameMcpAdapter(lambda: backend)
+
+    assert adapter.call("game_start_profile", {"profile": "alpha"})["code"] == (
+        "GAME_PROFILE_STARTED"
+    )
+    assert adapter.call("game_stop_profile", {"profile": "alpha"})["code"] == (
+        "GAME_PROFILE_STOPPED"
+    )
+    task = adapter.call(
+        "game_trigger_task", {"profile": "alpha", "task": "Main"}
+    )
+    assert task["code"] == "GAME_TASK_SCHEDULED"
+    assert task["details"]["verified"] is True
+    cleared = adapter.call("game_clear_scheduler_queue", {"profile": "alpha"})
+    assert cleared["code"] == "GAME_SCHEDULER_QUEUE_CLEARED"
+    updated = adapter.call(
+        "game_update_config",
+        {
+            "profile": "alpha",
+            "task": "Main",
+            "group": "General",
+            "argument": "Mode",
+            "value": "safe",
+        },
+    )
+    assert updated["code"] == "GAME_CONFIG_UPDATED"
+    assert "value" not in json.dumps(updated, ensure_ascii=False)
+    assert adapter.call("game_restart_emulator", {"profile": "alpha"})["code"] == (
+        "GAME_EMULATOR_RESTARTED"
+    )
+    assert adapter.call("game_restart_adb", {"profile": "alpha"})["code"] == (
+        "GAME_ADB_RESTARTED"
+    )
+
+
+def test_control_result_without_authoritative_verification_fails_closed() -> None:
+    backend = _backend()
+    backend.control.update_config = lambda request: ConfigUpdateResult(request)
+    result = GameMcpAdapter(lambda: backend).call(
+        "game_update_config",
+        {
+            "profile": "alpha",
+            "task": "Main",
+            "group": "General",
+            "argument": "Mode",
+            "value": "safe",
+        },
+    )
+
+    assert result["code"] == "GAME_POSTCONDITION_FAILED"
+
+
 def test_adapter_rejects_calls_after_close_without_recreating_backend() -> None:
     backend = _backend()
     factory_calls: list[bool] = []
@@ -652,6 +844,106 @@ def test_adapter_does_not_hold_lifecycle_lock_during_dispatch() -> None:
     assert not second_thread.is_alive()
     assert first_result["value"]["code"] == "GAME_RESOURCES_READY"
     assert second_result["value"]["code"] == "GAME_TASKS_READY"
+
+
+def test_adapter_serializes_mutations_per_profile() -> None:
+    backend = _backend()
+    entered = Event()
+    release = Event()
+    second_entered = Event()
+    state_lock = Lock()
+    invocation_count = 0
+    active_count = 0
+    max_active = 0
+
+    class _SerializedControl(_Control):
+        def start_instance(self, profile: str) -> LifecycleResult:
+            nonlocal active_count, invocation_count, max_active
+            with state_lock:
+                invocation_count += 1
+                invocation = invocation_count
+                active_count += 1
+                max_active = max(max_active, active_count)
+            if invocation == 1:
+                entered.set()
+                release.wait(5)
+            else:
+                second_entered.set()
+            with state_lock:
+                active_count -= 1
+            return LifecycleResult(profile, LifecycleOutcome.STARTED)
+
+    backend.control = _SerializedControl()
+    adapter = GameMcpAdapter(lambda: backend)
+    results: list[dict[str, object]] = []
+
+    def call_start() -> None:
+        results.append(adapter.call("game_start_profile", {"profile": "alpha"}))
+
+    first_thread = Thread(target=call_start)
+    second_thread = Thread(target=call_start)
+    first_thread.start()
+    try:
+        assert entered.wait(5)
+        second_thread.start()
+        assert not second_entered.wait(0.2)
+    finally:
+        release.set()
+        first_thread.join(timeout=5)
+        second_thread.join(timeout=5)
+
+    assert not first_thread.is_alive()
+    assert not second_thread.is_alive()
+    assert len(results) == 2
+    assert all(result["code"] == "GAME_PROFILE_STARTED" for result in results)
+    assert max_active == 1
+
+
+def test_adapter_allows_mutations_for_different_profiles_in_parallel() -> None:
+    backend = _backend()
+    both_entered = Event()
+    release = Event()
+    state_lock = Lock()
+    active_count = 0
+    max_active = 0
+
+    class _ParallelControl(_Control):
+        def start_instance(self, profile: str) -> LifecycleResult:
+            nonlocal active_count, max_active
+            with state_lock:
+                active_count += 1
+                max_active = max(max_active, active_count)
+                if active_count == 2:
+                    both_entered.set()
+            release.wait(5)
+            with state_lock:
+                active_count -= 1
+            return LifecycleResult(profile, LifecycleOutcome.STARTED)
+
+    backend.control = _ParallelControl()
+    adapter = GameMcpAdapter(lambda: backend)
+    results: list[dict[str, object]] = []
+
+    def call_start(profile: str) -> None:
+        results.append(adapter.call("game_start_profile", {"profile": profile}))
+
+    threads = [
+        Thread(target=call_start, args=("alpha",)),
+        Thread(target=call_start, args=("beta",)),
+    ]
+    for thread in threads:
+        thread.start()
+    try:
+        assert both_entered.wait(5)
+    finally:
+        release.set()
+        for thread in threads:
+            thread.join(timeout=5)
+
+    assert all(not thread.is_alive() for thread in threads)
+    assert len(results) == 2
+    assert all(result["code"] == "GAME_PROFILE_STARTED" for result in results)
+    assert max_active == 2
 
 
 def test_adapter_rejects_bad_selectors_unknown_profiles_and_unknown_tasks() -> None:

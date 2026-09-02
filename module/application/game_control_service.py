@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 
 from module.application.errors import (
     ApplicationError,
     InvalidRequestError,
     OperationFailedError,
+    PostconditionFailedError,
     ResourceNotFoundError,
     ServiceUnavailableError,
 )
@@ -20,14 +21,17 @@ from module.application.game_models import (
     EmulatorRestartResult,
     LifecycleOutcome,
     LifecycleResult,
+    SchedulerEntry,
     SchedulerQueueClearResult,
     ScheduleTaskRequest,
     ScheduleTaskResult,
+    freeze_payload,
 )
 from module.application.game_ports import (
     AdbController,
     ConfigSchemaReader,
     EmulatorController,
+    GameConfigReader,
     GameConfigWriter,
     InstanceLifecycleController,
     SchedulerTaskReader,
@@ -36,6 +40,7 @@ from module.application.game_validation import (
     known_instance,
     require_bool,
     safe_control,
+    same_value,
     scheduler_tasks,
     validate_config_value,
     validated_segment,
@@ -57,6 +62,7 @@ class GameControlService:
         adb: AdbController,
         *,
         clock: Callable[[], datetime] | None = None,
+        config_reader: GameConfigReader | None = None,
     ) -> None:
         self._instance_reader = instance_reader
         self._config_schema = config_schema
@@ -66,6 +72,7 @@ class GameControlService:
         self._emulator = emulator
         self._adb = adb
         self._clock = clock or datetime.now
+        self._config_reader = config_reader
 
     def update_config(self, request: ConfigUpdateRequest) -> ConfigUpdateResult:
         if not isinstance(request, ConfigUpdateRequest):
@@ -80,6 +87,8 @@ class GameControlService:
                 group,
                 argument,
             )
+        except ResourceNotFoundError:
+            raise
         except ApplicationError:
             raise ServiceUnavailableError(
                 "Не удалось проверить metadata конфигурации."
@@ -108,7 +117,8 @@ class GameControlService:
             "изменения конфигурации",
             lambda: self._config_writer.update_config(canonical_request),
         )
-        return ConfigUpdateResult(request=canonical_request)
+        verified = self._verify_config_update(canonical_request)
+        return ConfigUpdateResult(request=canonical_request, verified=verified)
 
     def start_instance(self, instance: str) -> LifecycleResult:
         instance = known_instance(self._instance_reader, instance)
@@ -138,7 +148,7 @@ class GameControlService:
             operation="запуска",
         )
         if not confirmed:
-            raise OperationFailedError("Экземпляр не подтвердил запуск.")
+            raise PostconditionFailedError("Экземпляр не подтвердил запуск.")
         return LifecycleResult(instance, LifecycleOutcome.STARTED)
 
     def stop_instance(self, instance: str) -> LifecycleResult:
@@ -169,7 +179,7 @@ class GameControlService:
             operation="остановки",
         )
         if confirmed:
-            raise OperationFailedError("Экземпляр не подтвердил остановку.")
+            raise PostconditionFailedError("Экземпляр не подтвердил остановку.")
         return LifecycleResult(instance, LifecycleOutcome.STOPPED)
 
     def trigger_task(self, request: ScheduleTaskRequest) -> ScheduleTaskResult:
@@ -195,9 +205,11 @@ class GameControlService:
                 scheduled_at,
             ),
         )
+        verified = self._verify_scheduled_task(instance, task, tasks)
         return ScheduleTaskResult(
             request=canonical_request,
             scheduled_at=scheduled_at,
+            verified=verified,
         )
 
     def clear_scheduler_queue(self, instance: str) -> SchedulerQueueClearResult:
@@ -214,7 +226,12 @@ class GameControlService:
             not isinstance(task, str) or task not in tasks for task in cleared
         ) or len(cleared) != len(set(cleared)):
             raise OperationFailedError("Адаптер очистки очереди вернул неверный результат.")
-        return SchedulerQueueClearResult(instance=instance, cleared_tasks=cleared)
+        verified = self._verify_cleared_scheduler_queue(instance, cleared, tasks)
+        return SchedulerQueueClearResult(
+            instance=instance,
+            cleared_tasks=cleared,
+            verified=verified,
+        )
 
     def restart_emulator(self, instance: str) -> EmulatorRestartResult:
         instance = known_instance(self._instance_reader, instance)
@@ -243,6 +260,136 @@ class GameControlService:
         if not result:
             raise OperationFailedError("ADB не подтвердил перезапуск.")
         return AdbRestartResult(instance=instance)
+
+    def _verify_config_update(self, request: ConfigUpdateRequest) -> bool:
+        if self._config_reader is None:
+            return False
+        reader = getattr(self._config_reader, "read_config", None)
+        if not callable(reader):
+            raise PostconditionFailedError(
+                "Не удалось подтвердить изменение конфигурации."
+            )
+        try:
+            data = reader(request.instance, request.task)
+        except ResourceNotFoundError:
+            raise
+        except Exception:  # noqa: BLE001 - postcondition boundary is sanitized.
+            raise PostconditionFailedError(
+                "Не удалось подтвердить изменение конфигурации."
+            ) from None
+        if not isinstance(data, Mapping):
+            raise PostconditionFailedError(
+                "Не удалось подтвердить изменение конфигурации."
+            )
+        selected: object = data
+        nested_task = data.get(request.task)
+        if isinstance(nested_task, Mapping):
+            selected = nested_task
+        if not isinstance(selected, Mapping):
+            raise PostconditionFailedError(
+                "Изменение конфигурации не подтверждено."
+            )
+        group = selected.get(request.group)
+        actual = group.get(request.argument) if isinstance(group, Mapping) else None
+        if not isinstance(group, Mapping) or request.argument not in group:
+            raise PostconditionFailedError(
+                "Изменение конфигурации не подтверждено."
+            )
+        try:
+            frozen_actual = freeze_payload(actual, field_name="readback")
+        except TypeError:
+            raise PostconditionFailedError(
+                "Изменение конфигурации не подтверждено."
+            ) from None
+        if self._values_equal(request.value, frozen_actual):
+            return True
+        raise PostconditionFailedError("Изменение конфигурации не подтверждено.")
+
+    def _verify_scheduled_task(
+        self,
+        instance: str,
+        task: str,
+        schedulable_tasks: tuple[str, ...],
+    ) -> bool:
+        if self._config_reader is None:
+            return False
+        reader = getattr(self._config_reader, "read_scheduler_queue", None)
+        if not callable(reader):
+            raise PostconditionFailedError(
+                "Не удалось подтвердить планирование задачи."
+            )
+        try:
+            queue = reader(instance, schedulable_tasks)
+        except ResourceNotFoundError:
+            raise
+        except Exception:  # noqa: BLE001 - postcondition boundary is sanitized.
+            raise PostconditionFailedError(
+                "Не удалось подтвердить планирование задачи."
+            ) from None
+        if isinstance(queue, (str, bytes)) or not isinstance(queue, Sequence):
+            raise PostconditionFailedError(
+                "Планирование задачи не подтверждено."
+            )
+        entries = tuple(queue)
+        if any(not isinstance(entry, SchedulerEntry) for entry in entries):
+            raise PostconditionFailedError(
+                "Планирование задачи не подтверждено."
+            )
+        if any(entry.task == task for entry in entries):
+            return True
+        raise PostconditionFailedError("Планирование задачи не подтверждено.")
+
+    def _verify_cleared_scheduler_queue(
+        self,
+        instance: str,
+        cleared: tuple[str, ...],
+        schedulable_tasks: tuple[str, ...],
+    ) -> bool:
+        if self._config_reader is None:
+            return False
+        reader = getattr(self._config_reader, "read_scheduler_queue", None)
+        if not callable(reader):
+            raise PostconditionFailedError(
+                "Не удалось подтвердить очистку очереди scheduler."
+            )
+        try:
+            queue = reader(instance, schedulable_tasks)
+        except ResourceNotFoundError:
+            raise
+        except Exception:  # noqa: BLE001 - postcondition boundary is sanitized.
+            raise PostconditionFailedError(
+                "Не удалось подтвердить очистку очереди scheduler."
+            ) from None
+        if isinstance(queue, (str, bytes)) or not isinstance(queue, Sequence):
+            raise PostconditionFailedError(
+                "Очистка очереди scheduler не подтверждена."
+            )
+        entries = tuple(queue)
+        if any(not isinstance(entry, SchedulerEntry) for entry in entries):
+            raise PostconditionFailedError(
+                "Очистка очереди scheduler не подтверждена."
+            )
+        if entries:
+            raise PostconditionFailedError(
+                "Очистка очереди scheduler не подтверждена."
+            )
+        return True
+
+    @staticmethod
+    def _values_equal(left: object, right: object) -> bool:
+        if same_value(left, right):
+            return True
+        if isinstance(left, str) and isinstance(right, datetime):
+            try:
+                return datetime.fromisoformat(left) == right
+            except ValueError:
+                return False
+        if isinstance(right, str) and isinstance(left, datetime):
+            try:
+                return left == datetime.fromisoformat(right)
+            except ValueError:
+                return False
+        return False
 
 
 __all__ = ["GameControlService"]
