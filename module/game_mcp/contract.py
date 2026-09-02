@@ -33,6 +33,9 @@ GAME_MCP_CAPABILITY_FAMILIES = (
     "fleet_state",
     "morale",
 )
+GAME_MCP_NO_ARGUMENT_TOOLS = frozenset(
+    {"game_get_contract", "game_list_profiles", "game_list_tasks"}
+)
 GAME_MCP_RESULT_STATES = (
     "ready",
     "running",
@@ -85,6 +88,7 @@ __all__ = (
     "GAME_MCP_API_VERSION",
     "GAME_MCP_CAPABILITY_FAMILIES",
     "GAME_MCP_FEATURE_FLAGS",
+    "GAME_MCP_NO_ARGUMENT_TOOLS",
     "GAME_MCP_RESULT_STATES",
     "PRODUCT_FAMILY",
     "contract_payload",

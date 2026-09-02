@@ -52,6 +52,8 @@ expiry и отдельный scope. Если provider дополнительно
 `exec-out screencap -p`: он не создаёт `Device`, не запускает emulator,
 benchmark или night-commission handling и не выполняет input/config writes.
 При отсутствии однозначного готового ADB target чтение завершается fail-closed.
+Только read-only aliases эмулятора могут кратко кэшироваться внутри одного
+адаптера; свежий `adb devices` выполняется для каждого screenshot-запроса.
 
 Контракт и инструменты регистрируются в `module.game_mcp.server`. Текущий
 read catalog включает contract, profiles, profile status, resources, current

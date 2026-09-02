@@ -67,7 +67,7 @@ from module.formation.model import (
     FormationFleetSlotObservation,
     FormationFleetSnapshot,
 )
-from module.game_mcp.contract import contract_result
+from module.game_mcp.contract import GAME_MCP_NO_ARGUMENT_TOOLS, contract_result
 
 logger = logging.getLogger(__name__)
 
@@ -87,9 +87,6 @@ GAME_MCP_TOOL_NAMES = (
     "game_get_screenshot",
 )
 
-_NO_ARGUMENT_TOOLS = frozenset(
-    {"game_get_contract", "game_list_profiles", "game_list_tasks"}
-)
 _MAX_PROFILE_COUNT = 256
 _MAX_TASK_COUNT = 512
 _MAX_SELECTION_SIZE = len(SUPPORTED_SURFACE_FLEET_INDICES)
@@ -429,7 +426,7 @@ def _validate_arguments(
 ) -> tuple[dict[str, object], tuple[str, tuple[int, ...]] | None]:
     raw = _arguments(arguments)
     selection: tuple[str, tuple[int, ...]] | None = None
-    if tool in _NO_ARGUMENT_TOOLS:
+    if tool in GAME_MCP_NO_ARGUMENT_TOOLS:
         _check_keys(raw, allowed=frozenset())
     elif tool in {
         "game_get_profile_status",

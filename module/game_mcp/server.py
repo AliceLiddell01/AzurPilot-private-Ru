@@ -35,6 +35,7 @@ from module.game_mcp.adapter import (
 from module.game_mcp.contract import (
     CONTRACT_SCHEMA_VERSION,
     GAME_MCP_API_VERSION,
+    GAME_MCP_NO_ARGUMENT_TOOLS,
 )
 
 SERVER_NAME = "azurpilot-game"
@@ -58,9 +59,6 @@ _PROFILE_PATTERN = (
     rf"^{_SELECTOR_EDGE}"
     rf"(?:{_SELECTOR_CHARACTER}{{0,{MAX_NAME_LENGTH - 2}}}"
     rf"{_SELECTOR_EDGE})?$"
-)
-_NO_ARGUMENT_TOOLS = frozenset(
-    {"game_get_contract", "game_list_profiles", "game_list_tasks"}
 )
 _PROFILE_INPUT = {
     "type": "object",
@@ -646,7 +644,7 @@ def tool_definitions() -> list[Tool]:
     schemas = {
         **{
             name: {"type": "object", "properties": {}, "additionalProperties": False}
-            for name in _NO_ARGUMENT_TOOLS
+            for name in GAME_MCP_NO_ARGUMENT_TOOLS
         },
         "game_get_profile_status": _PROFILE_INPUT,
         "game_get_resources": _PROFILE_INPUT,

@@ -423,6 +423,44 @@ def test_passive_screenshot_does_not_singleton_fallback_for_explicit_target():
     assert calls == [("adb", "devices")]
 
 
+def test_passive_screenshot_bounds_alias_discovery_cache(monkeypatch):
+    calls: list[tuple[str, ...]] = []
+    alias_calls: list[str] = []
+    clock = [100.0]
+
+    monkeypatch.setattr(legacy_game_adapters, "monotonic", lambda: clock[0])
+
+    def runner(argv: tuple[str, ...]) -> _CommandResult:
+        calls.append(argv)
+        if argv == ("adb", "devices"):
+            return _CommandResult(
+                0,
+                "List of devices attached\nemulator-5560\tdevice\n",
+            )
+        return _CommandResult(0, b"\x89PNG\r\n\x1a\nframe")
+
+    def aliases_provider(serial: str) -> tuple[str, ...]:
+        alias_calls.append(serial)
+        return (serial, "emulator-5560")
+
+    screenshot = LegacyScreenshotAdapter(
+        runner=runner,
+        adb_path_provider=lambda: "adb",
+        target_serial_provider=lambda instance: "127.0.0.1:16416",
+        target_serial_aliases_provider=aliases_provider,
+    )
+
+    screenshot.read_frame("ap")
+    screenshot.read_frame("ap")
+    assert alias_calls == ["127.0.0.1:16416"]
+    assert calls.count(("adb", "devices")) == 2
+
+    clock[0] += legacy_game_adapters._PASSIVE_EMULATOR_ALIASES_CACHE_TTL_SECONDS
+    screenshot.read_frame("ap")
+    assert alias_calls == ["127.0.0.1:16416", "127.0.0.1:16416"]
+    assert calls.count(("adb", "devices")) == 3
+
+
 @pytest.mark.skipif(os.name != "nt", reason="Проверяется Windows vbox/nemu parser")
 def test_mumu_vbox_parser_exposes_all_adb_forwarding_aliases(tmp_path: Path):
     from module.device.platform.emulator_windows import Emulator

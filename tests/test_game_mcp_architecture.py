@@ -18,7 +18,7 @@ def _imported_modules(path: Path) -> set[str]:
             names.update(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
             assert node.level == 0, (
-                "Game MCP architecture guard forbids relative imports"
+                "Проверка архитектуры Game MCP запрещает относительные импорты"
             )
             if node.module:
                 names.add(node.module)
