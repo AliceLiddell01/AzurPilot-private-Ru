@@ -13,6 +13,8 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
+from threading import Lock
+from time import monotonic
 from typing import NamedTuple
 
 from module.application.game_models import (
@@ -23,10 +25,24 @@ from module.application.game_models import (
     thaw_payload,
 )
 from module.application.game_ports import GameConfigMetadata
-from module.application.game_validation import INVALID_NAME_CHARS, UNKNOWN_TASK
+from module.application.game_validation import (
+    INVALID_NAME_CHARS,
+    MAX_NAME_LENGTH,
+    UNKNOWN_TASK,
+)
 
 _MAX_LOG_LINES = 10_000
 _MAX_LOG_BYTES = 2 * 1024 * 1024
+_PASSIVE_SCREENSHOT_TIMEOUT_SECONDS = 10
+_PASSIVE_SCREENSHOT_MAX_BYTES = 4 * 1024 * 1024
+_PASSIVE_EMULATOR_ALIASES_CACHE_TTL_SECONDS = 1.0
+_REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+_ADB_PATH_CANDIDATES = (
+    Path(".venv/Scripts/adb.exe"),
+    Path(".venv/bin/adb"),
+    Path("bin/adb/adb.exe"),
+    Path("bin/adb/adb"),
+)
 _SCHEDULER_FALLBACK_NEXT_RUN = datetime.fromisoformat("2050-01-01")
 _ADB_DEVICE_STATES = frozenset({"device", "offline", "unauthorized"})
 _TASK_LOG_PATTERNS = (
@@ -70,7 +86,7 @@ def _safe_instance_name(value: object) -> str:
     if (
         not value
         or value in {".", ".."}
-        or len(value) > 128
+        or len(value) > MAX_NAME_LENGTH
         or any(char in INVALID_NAME_CHARS for char in value)
     ):
         raise ValueError("instance содержит недопустимое значение")
@@ -85,7 +101,7 @@ def _safe_segment(value: object) -> str:
         not value
         or value in {".", ".."}
         or any(char in INVALID_NAME_CHARS for char in value)
-        or len(value) > 128
+        or len(value) > MAX_NAME_LENGTH
     ):
         raise ValueError("segment содержит недопустимое значение")
     return value
@@ -115,6 +131,129 @@ def _safe_adb_state(value: object) -> str:
     ):
         raise ValueError("state содержит недопустимое значение")
     return value
+
+
+def _read_target_serial(instance: str) -> str | None:
+    """Прочитать profile-scoped serial без изменения конфигурации."""
+
+    try:
+        from module.config.config_updater import ConfigUpdater
+
+        data = ConfigUpdater().read_file(instance)
+    except (AttributeError, ImportError, OSError, TypeError, ValueError, KeyError):
+        raise ValueError("Не удалось прочитать конфигурацию ADB.") from None
+    if not isinstance(data, Mapping):
+        raise TypeError("Конфигурация ADB имеет неверный формат.")
+    alas = data.get("Alas", {})
+    emulator = alas.get("Emulator", {}) if isinstance(alas, Mapping) else {}
+    serial = emulator.get("Serial") if isinstance(emulator, Mapping) else None
+    if not isinstance(serial, str):
+        raise TypeError("В конфигурации ADB не задан serial.")
+    serial = serial.strip()
+    if not serial:
+        raise ValueError("В конфигурации ADB не задан serial.")
+    if serial.casefold() == "auto":
+        return None
+    return _safe_serial(serial)
+
+
+def _parse_adb_inventory(output: str) -> tuple[_AdbDevice, ...] | None:
+    devices = []
+    for line in output.splitlines():
+        line = line.strip()
+        if not line or line.startswith(("List of devices attached", "*")):
+            continue
+        fields = line.split()
+        if len(fields) != 2:
+            return None
+        try:
+            devices.append(
+                _AdbDevice(
+                    serial=_safe_serial(fields[0]),
+                    state=_safe_adb_state(fields[1]),
+                )
+            )
+        except (TypeError, ValueError):
+            return None
+    return tuple(devices)
+
+
+def _bound_passive_screenshot(data: bytes) -> tuple[bytes, str]:
+    """Сжать крупный PNG в памяти до bounded Game media contract."""
+
+    if len(data) <= _PASSIVE_SCREENSHOT_MAX_BYTES:
+        return data, "image/png"
+
+    try:
+        from PIL import Image
+
+        with Image.open(BytesIO(data)) as image:
+            image.load()
+            rgb = image.convert("RGB")
+            for quality in (90, 80, 70, 60, 50):
+                output = BytesIO()
+                rgb.save(output, format="JPEG", quality=quality, optimize=True)
+                candidate = output.getvalue()
+                if len(candidate) <= _PASSIVE_SCREENSHOT_MAX_BYTES:
+                    return candidate, "image/jpeg"
+    except Exception:  # noqa: BLE001 - passive media boundary fails closed.
+        raise OSError("Крупный framebuffer не прошёл bounded media contract.") from None
+
+    raise OSError("Крупный framebuffer не удалось уложить в bounded media contract.")
+
+
+def _first_existing_adb_path(*roots: Path) -> str | None:
+    search_roots = (*roots, _REPOSITORY_ROOT)
+    for base in search_roots:
+        for candidate in _ADB_PATH_CANDIDATES:
+            resolved = base / candidate
+            if resolved.is_file():
+                return str(resolved.resolve())
+    discovered = shutil.which("adb")
+    if discovered:
+        return str(Path(discovered).resolve())
+    return None
+
+
+def _find_passive_adb_path() -> str:
+    """Найти ADB без загрузки WebUI state и без его изменения."""
+
+    discovered = _first_existing_adb_path()
+    if discovered is not None:
+        return discovered
+    raise ValueError("Исполняемый файл ADB не найден.")
+
+
+def _read_only_emulator_serial_aliases(target_serial: str) -> tuple[str, ...]:
+    """Найти aliases настроенного инстанса без Device и lifecycle recovery."""
+
+    try:
+        from module.device.platform.emulator_windows import EmulatorManager
+    except (ImportError, OSError):
+        return ()
+
+    try:
+        instances = tuple(EmulatorManager().all_emulator_instances)
+    except (AttributeError, OSError, TypeError, ValueError):
+        return ()
+
+    matches: list[tuple[str, ...]] = []
+    for instance in instances:
+        try:
+            aliases = getattr(instance, "adb_serials", ())
+        except (AttributeError, OSError, TypeError, ValueError):
+            continue
+        if isinstance(aliases, (str, bytes)) or not isinstance(aliases, Sequence):
+            continue
+        normalized = tuple(
+            alias for alias in aliases if isinstance(alias, str) and alias
+        )
+        if target_serial in normalized:
+            matches.append(normalized)
+
+    if len(matches) != 1:
+        return ()
+    return matches[0]
 
 
 class LegacyConfigAdapter:
@@ -368,54 +507,137 @@ class LegacyRuntimeLogAdapter:
 
 
 class LegacyScreenshotAdapter:
-    """Получить кадр через существующий Device fallback и вернуть bytes."""
+    """Пассивно прочитать framebuffer через прямой ADB read primitive."""
 
     def __init__(
         self,
         *,
-        device_factory: Callable[[str], object] | None = None,
-        frame_encoder: Callable[[object], bytes] | None = None,
-        media_type: str = "image/jpeg",
+        runner: Callable[[Sequence[str]], object] | None = None,
+        adb_path_provider: Callable[[], str] | None = None,
+        target_serial_provider: Callable[[str], str | None] | None = None,
+        target_serial_aliases_provider: Callable[[str], Sequence[str]] | None = None,
     ) -> None:
-        if not isinstance(media_type, str) or not media_type:
-            raise ValueError("media_type должен быть непустой строкой")
-        self._device_factory = device_factory
-        self._frame_encoder = frame_encoder or self._encode_jpeg
-        self._media_type = media_type
+        self._runner = runner or self._run
+        self._adb_path_provider = adb_path_provider or _find_passive_adb_path
+        self._target_serial_provider = target_serial_provider or _read_target_serial
+        self._target_serial_aliases_provider = (
+            target_serial_aliases_provider or _read_only_emulator_serial_aliases
+        )
+        self._target_serial_aliases_cache: dict[
+            str, tuple[float, tuple[object, ...]]
+        ] = {}
+        self._target_serial_aliases_cache_lock = Lock()
 
     def read_frame(self, instance: str) -> MediaFrame:
         instance = _safe_instance_name(instance)
-        device = self._make_device(instance)
-        data = self._frame_encoder(device.screenshot())  # type: ignore[attr-defined]
+        adb = self._adb_path_provider()
+        if not isinstance(adb, str) or not adb:
+            raise ValueError("ADB path не определён.")
+        serial = self._target_serial_provider(instance)
+        if isinstance(serial, str) and serial.casefold() == "auto":
+            serial = None
+        if serial is not None:
+            serial = _safe_serial(serial)
+        devices = self._read_inventory(adb)
+        serial = self._resolve_target_serial(serial, devices)
+
+        result = self._runner(
+            (adb, "-s", serial, "exec-out", "screencap", "-p")
+        )
+        returncode = getattr(result, "returncode", None)
+        if type(returncode) is not int:
+            raise TypeError("ADB runner вернул объект без returncode.")
+        if returncode != 0:
+            raise OSError("ADB не вернул framebuffer.")
+        data = getattr(result, "stdout", None)
         if not isinstance(data, bytes) or not data:
-            raise TypeError("encoder вернул пустой кадр")
-        return MediaFrame(data=data, media_type=self._media_type)
+            raise OSError("Безопасный framebuffer недоступен.")
+        if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+            raise OSError("ADB вернул данные без корректной PNG-сигнатуры.")
+        data, media_type = _bound_passive_screenshot(data)
+        return MediaFrame(data=data, media_type=media_type)
 
-    def _make_device(self, instance: str) -> object:
-        if self._device_factory is not None:
-            return self._device_factory(instance)
-        try:
-            from module.webui.fake_pil_module import remove_fake_pil_module
-
-            remove_fake_pil_module()
-        except ImportError:
-            pass
-        from module.config.config import AzurLaneConfig
-        from module.device.device import Device
-
-        return Device(AzurLaneConfig(instance))
+    def _read_inventory(self, adb: str) -> tuple[_AdbDevice, ...]:
+        inventory = self._runner((adb, "devices"))
+        returncode = getattr(inventory, "returncode", None)
+        if type(returncode) is not int:
+            raise TypeError("ADB runner вернул объект без returncode.")
+        if returncode != 0:
+            raise OSError("Инвентарь ADB недоступен.")
+        output = getattr(inventory, "stdout", None)
+        if isinstance(output, bytes):
+            output = output.decode("utf-8", errors="strict")
+        if not isinstance(output, str):
+            raise TypeError("ADB inventory имеет неверный формат.")
+        devices = _parse_adb_inventory(output)
+        if devices is None:
+            raise OSError("Инвентарь ADB имеет неверный формат.")
+        return devices
 
     @staticmethod
-    def _encode_jpeg(image: object) -> bytes:
-        from PIL import Image
+    def _resolve_single_device(devices: Sequence[_AdbDevice]) -> str:
+        if len(devices) != 1 or devices[0].state != "device":
+            raise OSError("Единственный готовый ADB target не подтверждён.")
+        return devices[0].serial
 
-        try:
-            import PIL.JpegImagePlugin  # noqa: F401 - регистрирует JPEG encoder.
-        except ImportError:
-            pass
-        buffered = BytesIO()
-        Image.fromarray(image).save(buffered, format="JPEG")
-        return buffered.getvalue()
+    def _resolve_target_serial(
+        self,
+        target_serial: str | None,
+        devices: Sequence[_AdbDevice],
+    ) -> str:
+        if target_serial is None:
+            return self._resolve_single_device(devices)
+
+        ready_serials = tuple(
+            device.serial for device in devices if device.state == "device"
+        )
+        if target_serial in ready_serials:
+            return target_serial
+
+        aliases = self._read_target_serial_aliases(target_serial)
+        if isinstance(aliases, (str, bytes)) or not isinstance(aliases, Sequence):
+            raise TypeError("Resolver ADB aliases вернул неверный формат.")
+        safe_aliases: set[str] = set()
+        for alias in aliases:
+            try:
+                safe_aliases.add(_safe_serial(alias))
+            except (TypeError, ValueError):
+                continue
+        matches = tuple(serial for serial in ready_serials if serial in safe_aliases)
+        if len(matches) != 1:
+            raise OSError("Настроенный ADB target не подтверждён.")
+        return matches[0]
+
+    def _read_target_serial_aliases(self, target_serial: str) -> object:
+        now = monotonic()
+        with self._target_serial_aliases_cache_lock:
+            cached = self._target_serial_aliases_cache.get(target_serial)
+            if (
+                cached is not None
+                and now - cached[0] < _PASSIVE_EMULATOR_ALIASES_CACHE_TTL_SECONDS
+            ):
+                return cached[1]
+
+        aliases = self._target_serial_aliases_provider(target_serial)
+        if isinstance(aliases, (str, bytes)) or not isinstance(aliases, Sequence):
+            return aliases
+
+        snapshot = tuple(aliases)
+        with self._target_serial_aliases_cache_lock:
+            self._target_serial_aliases_cache[target_serial] = (
+                monotonic(),
+                snapshot,
+            )
+        return snapshot
+
+    @staticmethod
+    def _run(argv: Sequence[str]) -> object:
+        return subprocess.run(
+            list(argv),
+            check=False,
+            capture_output=True,
+            timeout=_PASSIVE_SCREENSHOT_TIMEOUT_SECONDS,
+        )
 
 
 class LegacyProcessManagerAdapter:
@@ -557,24 +779,7 @@ class LegacyAdbAdapter:
         output = getattr(result, "stdout", None)
         if not isinstance(output, str):
             return None
-        devices = []
-        for line in output.splitlines():
-            line = line.strip()
-            if not line or line.startswith(("List of devices attached", "*")):
-                continue
-            fields = line.split()
-            if len(fields) != 2:
-                return None
-            try:
-                devices.append(
-                    _AdbDevice(
-                        serial=_safe_serial(fields[0]),
-                        state=_safe_adb_state(fields[1]),
-                    )
-                )
-            except (TypeError, ValueError):
-                return None
-        return tuple(devices)
+        return _parse_adb_inventory(output)
 
     @staticmethod
     def _inventory_is_safe(
@@ -635,49 +840,28 @@ class LegacyAdbAdapter:
 
     @staticmethod
     def _default_target_serial(instance: str) -> str | None:
-        try:
-            from module.config.config_updater import ConfigUpdater
-
-            data = ConfigUpdater().read_file(instance)
-        except (AttributeError, OSError, TypeError, ValueError, KeyError):
-            raise ValueError("Не удалось прочитать конфигурацию ADB.") from None
-        if not isinstance(data, Mapping):
-            raise TypeError("Конфигурация ADB имеет неверный формат.")
-        alas = data.get("Alas", {})
-        emulator = alas.get("Emulator", {}) if isinstance(alas, Mapping) else {}
-        serial = emulator.get("Serial") if isinstance(emulator, Mapping) else None
-        if not isinstance(serial, str):
-            raise TypeError("В конфигурации ADB не задан serial.")
-        serial = serial.strip()
-        if not serial:
-            raise ValueError("В конфигурации ADB не задан serial.")
-        if serial.casefold() == "auto":
-            return None
-        return _safe_serial(serial)
+        return _read_target_serial(instance)
 
     @staticmethod
     def _default_adb_path() -> str:
+        configured_root: Path | None = None
         try:
             from module.webui.setting import State
 
             configured = State.deploy_config.AdbExecutable
-            root = State.deploy_config.root_filepath
+            configured_root = Path(State.deploy_config.root_filepath).resolve()
+            if not configured_root.is_dir():
+                configured_root = None
             if configured:
-                candidate = Path(root) / configured
+                candidate = (configured_root or _REPOSITORY_ROOT) / configured
                 if candidate.is_file():
                     return str(candidate.resolve())
-        except (AttributeError, OSError, TypeError, ValueError):
+        except (AttributeError, ImportError, OSError, TypeError, ValueError):
             pass
-        for candidate in (
-            Path(".venv/Scripts/adb.exe"),
-            Path(".venv/bin/adb"),
-            Path("bin/adb/adb.exe"),
-        ):
-            if candidate.is_file():
-                return str(candidate.resolve())
-        discovered = shutil.which("adb")
-        if discovered:
-            return str(Path(discovered).resolve())
+        roots = (configured_root,) if configured_root is not None else ()
+        discovered = _first_existing_adb_path(*roots)
+        if discovered is not None:
+            return discovered
         raise ValueError("Исполняемый файл ADB не найден.")
 
 

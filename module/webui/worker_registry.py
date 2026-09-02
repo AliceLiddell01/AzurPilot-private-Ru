@@ -382,6 +382,51 @@ def get_workers(owner_pid: int) -> dict[str, dict]:
         return deepcopy(registry["workers"])
 
 
+def get_worker_read_only(config_name: str) -> dict | None:
+    """Прочитать worker без миграции и блокировки, не проверяя владельца."""
+    if not isinstance(config_name, str) or not config_name:
+        raise ValueError("Имя экземпляра должно быть непустой строкой")
+
+    paths, legacy_registry = _read_only_registry_paths()
+    for registry_file in paths:
+        if not registry_file.is_file():
+            continue
+        if registry_file == LEGACY_WORKER_REGISTRY_FILE and legacy_registry is not None:
+            registry = legacy_registry
+        else:
+            try:
+                registry = _read_registry(registry_file)
+            except RuntimeError:
+                # Повреждённый реестр не должен прерывать чтение остальных путей.
+                continue
+        record = registry["workers"].get(config_name)
+        if record is None:
+            continue
+        if not isinstance(record, dict):
+            raise RuntimeError("Недопустимая запись рабочего процесса")
+        return deepcopy(record)
+    return None
+
+
+def _read_only_registry_paths() -> tuple[tuple[Path, ...], dict | None]:
+    """Выбрать порядок чтения, не изменяя файлы и не создавая блокировки."""
+    current_file = WORKER_REGISTRY_FILE
+    legacy_file = LEGACY_WORKER_REGISTRY_FILE
+    if not _legacy_registry_enabled() or legacy_file == current_file:
+        return (current_file,), None
+    if not legacy_file.is_file():
+        return (current_file,), None
+
+    try:
+        legacy_registry = _read_registry(legacy_file)
+    except RuntimeError:
+        # Повреждённый устаревший реестр не должен блокировать чтение текущего.
+        return (current_file,), None
+    if _record_is_alive(_owner_record(legacy_registry)):
+        return (legacy_file, current_file), legacy_registry
+    return (current_file, legacy_file), legacy_registry
+
+
 def get_owner() -> int | None:
     """返回当前登记文件所有者的 PID。"""
     with _locked_registry() as registry_file:

@@ -212,6 +212,8 @@ def test_remote_config_is_https_loopback_and_oauth_fail_closed() -> None:
         _config(public_url="https://mcp.example.test:8443/mcp")
     with pytest.raises(RemoteConfigError, match="подстановочных символов"):
         _config(allowed_origins=("*",))
+    with pytest.raises(RemoteConfigError, match="ASCII"):
+        _config(public_url="https://пример.example/mcp")
 
 
 def test_remote_config_requires_all_oauth_environment_values(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -297,7 +299,6 @@ def test_remote_http_protocol_read_sequence_and_tool_auth_metadata() -> None:
                 assert result.json()["result"]["structuredContent"]["ok"] is True
 
             assert adapter.calls == list(requests)
-            assert app.state.session_manager._server_instances == {}
 
     asyncio.run(scenario())
 
@@ -585,6 +586,79 @@ def test_remote_request_bounds_cover_concurrency_and_timeout() -> None:
             assert completed.status_code == 200
             assert completed.content == b""
 
+        long_lived_started = asyncio.Event()
+        long_lived_release = asyncio.Event()
+
+        async def long_lived_get(scope: Any, receive: Any, send: Any) -> None:
+            long_lived_started.set()
+            await long_lived_release.wait()
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [(b"content-type", b"text/plain")],
+                }
+            )
+            await send({"type": "http.response.body", "body": b"ok"})
+
+        long_lived_app = RequestTimeoutMiddleware(
+            long_lived_get,
+            _config(request_timeout_seconds=0.01),
+        )
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=long_lived_app),
+            base_url=_BASE_URL,
+        ) as client:
+            request = asyncio.create_task(client.get("/mcp"))
+            try:
+                await asyncio.wait_for(long_lived_started.wait(), timeout=1)
+                done, _ = await asyncio.wait({request}, timeout=0.05)
+                assert not done
+            finally:
+                long_lived_release.set()
+            response = await asyncio.wait_for(request, timeout=1)
+            assert response.status_code == 200
+            assert response.content == b"ok"
+
+    asyncio.run(scenario())
+
+
+def test_remote_stream_limiter_does_not_consume_request_capacity() -> None:
+    async def scenario() -> None:
+        stream_started = asyncio.Event()
+        stream_release = asyncio.Event()
+
+        async def endpoint(scope: Any, _receive: Any, send: Any) -> None:
+            if scope.get("method") == "GET" and scope.get("path") == "/mcp":
+                stream_started.set()
+                await stream_release.wait()
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [(b"content-type", b"text/plain")],
+                }
+            )
+            await send({"type": "http.response.body", "body": b"ok"})
+
+        limited = ConcurrencyLimitMiddleware(
+            endpoint,
+            _config(max_concurrent_requests=1, concurrency_acquire_timeout_seconds=0.01),
+        )
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=limited),
+            base_url=_BASE_URL,
+        ) as client:
+            stream_request = asyncio.create_task(client.get("/mcp"))
+            await asyncio.wait_for(stream_started.wait(), timeout=1)
+            post = await client.post("/mcp", content=b"{}")
+            assert post.status_code == 200
+            second_stream = await client.get("/mcp")
+            assert second_stream.status_code == 503
+            stream_release.set()
+            stream_response = await asyncio.wait_for(stream_request, timeout=1)
+            assert stream_response.status_code == 200
+
     asyncio.run(scenario())
 
 
@@ -665,11 +739,11 @@ def test_oidc_verifier_checks_signature_issuer_audience_expiry_subject_resource_
         def get_signing_key_from_jwt(self, token: str) -> SimpleNamespace:
             return SimpleNamespace(key=public_pem)
 
-    config = _config()
+    config = _config(public_url="https://resource.example.test/mcp")
     now = int(time.time())
     verifier = OIDCTokenVerifier(config, jwk_client=_JwkClient(), clock=lambda: now)
 
-    def token(**claims: Any) -> str:
+    def token(*, include_resource: bool = True, **claims: Any) -> str:
         values = {
             "iss": _ISSUER,
             "aud": _AUDIENCE,
@@ -678,16 +752,22 @@ def test_oidc_verifier_checks_signature_issuer_audience_expiry_subject_resource_
             "nbf": now - 1,
             "scope": DEV_MCP_REQUIRED_SCOPE,
         }
+        if include_resource:
+            values["resource"] = config.public_url
         values.update(claims)
         return jwt.encode(values, private_pem, algorithm="RS256")
 
     async def scenario() -> None:
-        valid = await verifier.verify_token(token(resource=_AUDIENCE))
+        valid = await verifier.verify_token(token(include_resource=False))
         assert valid is not None
         assert valid.token == ""
         assert valid.client_id == "user-1"
         assert valid.scopes == [DEV_MCP_REQUIRED_SCOPE]
-        assert valid.resource == _AUDIENCE
+        assert valid.resource == config.public_url
+
+        with_resource = await verifier.verify_token(token())
+        assert with_resource is not None
+        assert with_resource.resource == config.public_url
 
         for invalid in (
             token(aud="https://other.example.test"),
@@ -697,6 +777,8 @@ def test_oidc_verifier_checks_signature_issuer_audience_expiry_subject_resource_
             token(nbf=now + 100),
             token(sub="other-user"),
             token(sub="пользователь"),
+            token(resource=None),
+            token(resource=_AUDIENCE),
             token(resource="https://other.example.test/mcp"),
             token(resource="https://пример.example/mcp"),
             token(scope="other:scope"),

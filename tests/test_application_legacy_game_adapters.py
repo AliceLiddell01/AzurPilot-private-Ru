@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 import os
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta, timezone
@@ -7,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+import module.application.legacy_game_adapters as legacy_game_adapters
 from module.application import (
     REDACTED_CONFIG_VALUE,
     ConfigArgumentDefinition,
@@ -236,17 +238,26 @@ def test_legacy_log_adapter_falls_back_to_previous_calendar_date(tmp_path: Path)
 
 
 def test_legacy_screenshot_lifecycle_and_emulator_adapters_use_narrow_owners(monkeypatch):
-    class Device:
-        def screenshot(self) -> object:
-            return "frame"
+    calls: list[tuple[str, ...]] = []
+    frame = b"\x89PNG\r\n\x1a\nframe"
+
+    def runner(argv: tuple[str, ...]) -> _CommandResult:
+        calls.append(argv)
+        if argv == ("adb", "devices"):
+            return _CommandResult(0, b"List of devices attached\nserial-a\tdevice\n")
+        return _CommandResult(0, frame)
 
     screenshot = LegacyScreenshotAdapter(
-        device_factory=lambda instance: Device(),
-        frame_encoder=lambda image: b"encoded",
-        media_type="image/png",
+        runner=runner,
+        adb_path_provider=lambda: "adb",
+        target_serial_provider=lambda instance: "serial-a",
     )
     monkeypatch.delenv("ALAS_CONFIG_NAME", raising=False)
-    assert screenshot.read_frame("secondary") == MediaFrame(b"encoded", "image/png")
+    assert screenshot.read_frame("secondary") == MediaFrame(frame, "image/png")
+    assert calls == [
+        ("adb", "devices"),
+        ("adb", "-s", "serial-a", "exec-out", "screencap", "-p"),
+    ]
     assert "ALAS_CONFIG_NAME" not in os.environ
 
     class Manager:
@@ -287,10 +298,287 @@ def test_legacy_screenshot_lifecycle_and_emulator_adapters_use_narrow_owners(mon
     assert events == ["stop", "start"]
 
 
+def test_legacy_screenshot_is_passive_and_unavailable_path_does_not_recover(monkeypatch):
+    calls: list[tuple[str, ...]] = []
+    mutations: list[str] = []
+    real_import = builtins.__import__
+
+    def guarded_import(name, *args, **kwargs):
+        if name in {
+            "module.config.config",
+            "module.device.device",
+            "module.webui.fake_pil_module",
+        }:
+            mutations.append(f"import:{name}")
+            raise AssertionError("пассивный screenshot импортировал control path")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+
+    def runner(argv: tuple[str, ...]) -> _CommandResult:
+        calls.append(argv)
+        if any(
+            command in argv
+            for command in ("kill-server", "start-server", "input", "emulator")
+        ):
+            mutations.append("control command")
+            raise AssertionError("пассивный screenshot вызвал control command")
+        if argv[-1] == "devices":
+            return _CommandResult(0, b"List of devices attached\nserial-a\tdevice\n")
+        return _CommandResult(0, b"\x89PNG\r\n\x1a\nframe")
+
+    screenshot = LegacyScreenshotAdapter(
+        runner=runner,
+        adb_path_provider=lambda: "adb",
+        target_serial_provider=lambda instance: None,
+    )
+
+    assert screenshot.read_frame("secondary") == MediaFrame(
+        b"\x89PNG\r\n\x1a\nframe", "image/png"
+    )
+    assert calls == [
+        ("adb", "devices"),
+        ("adb", "-s", "serial-a", "exec-out", "screencap", "-p"),
+    ]
+    assert mutations == []
+
+    unavailable_calls: list[tuple[str, ...]] = []
+
+    def unavailable_runner(argv: tuple[str, ...]) -> _CommandResult:
+        unavailable_calls.append(argv)
+        return _CommandResult(1, b"")
+
+    unavailable = LegacyScreenshotAdapter(
+        runner=unavailable_runner,
+        adb_path_provider=lambda: "adb",
+        target_serial_provider=lambda instance: None,
+    )
+    with pytest.raises(OSError):
+        unavailable.read_frame("secondary")
+    assert unavailable_calls == [("adb", "devices")]
+    assert mutations == []
+
+    def invalid_runner(argv: tuple[str, ...]) -> _CommandResult:
+        if argv == ("adb", "devices"):
+            return _CommandResult(0, b"List of devices attached\nserial-a\tdevice\n")
+        return _CommandResult(0, b"not a png")
+
+    invalid_frame = LegacyScreenshotAdapter(
+        runner=invalid_runner,
+        adb_path_provider=lambda: "adb",
+        target_serial_provider=lambda instance: "serial-a",
+    )
+    with pytest.raises(OSError, match="PNG"):
+        invalid_frame.read_frame("secondary")
+
+
+def test_passive_screenshot_resolves_only_canonical_emulator_aliases():
+    calls: list[tuple[str, ...]] = []
+    frame = b"\x89PNG\r\n\x1a\nframe"
+
+    def runner(argv: tuple[str, ...]) -> _CommandResult:
+        calls.append(argv)
+        if argv == ("adb", "devices"):
+            return _CommandResult(
+                0,
+                "List of devices attached\nemulator-5560\tdevice\n",
+            )
+        return _CommandResult(0, frame)
+
+    screenshot = LegacyScreenshotAdapter(
+        runner=runner,
+        adb_path_provider=lambda: "adb",
+        target_serial_provider=lambda instance: "127.0.0.1:16448",
+        target_serial_aliases_provider=lambda serial: (
+            serial,
+            " ",
+            "127.0.0.1:5561",
+            "emulator-5560",
+        ),
+    )
+
+    assert screenshot.read_frame("secondary") == MediaFrame(frame, "image/png")
+    assert calls == [
+        ("adb", "devices"),
+        ("adb", "-s", "emulator-5560", "exec-out", "screencap", "-p"),
+    ]
+
+
+def test_passive_screenshot_does_not_singleton_fallback_for_explicit_target():
+    calls: list[tuple[str, ...]] = []
+
+    def runner(argv: tuple[str, ...]) -> _CommandResult:
+        calls.append(argv)
+        return _CommandResult(0, "List of devices attached\nforeign\tdevice\n")
+
+    screenshot = LegacyScreenshotAdapter(
+        runner=runner,
+        adb_path_provider=lambda: "adb",
+        target_serial_provider=lambda instance: "configured-target",
+        target_serial_aliases_provider=lambda serial: (),
+    )
+
+    with pytest.raises(OSError, match="Настроенный ADB target"):
+        screenshot.read_frame("secondary")
+    assert calls == [("adb", "devices")]
+
+
+def test_passive_screenshot_bounds_alias_discovery_cache(monkeypatch):
+    calls: list[tuple[str, ...]] = []
+    alias_calls: list[str] = []
+    clock = [100.0]
+
+    monkeypatch.setattr(legacy_game_adapters, "monotonic", lambda: clock[0])
+
+    def runner(argv: tuple[str, ...]) -> _CommandResult:
+        calls.append(argv)
+        if argv == ("adb", "devices"):
+            return _CommandResult(
+                0,
+                "List of devices attached\nemulator-5560\tdevice\n",
+            )
+        return _CommandResult(0, b"\x89PNG\r\n\x1a\nframe")
+
+    def aliases_provider(serial: str) -> tuple[str, ...]:
+        alias_calls.append(serial)
+        return (serial, "emulator-5560")
+
+    screenshot = LegacyScreenshotAdapter(
+        runner=runner,
+        adb_path_provider=lambda: "adb",
+        target_serial_provider=lambda instance: "127.0.0.1:16416",
+        target_serial_aliases_provider=aliases_provider,
+    )
+
+    screenshot.read_frame("ap")
+    screenshot.read_frame("ap")
+    assert alias_calls == ["127.0.0.1:16416"]
+    assert calls.count(("adb", "devices")) == 2
+
+    clock[0] += legacy_game_adapters._PASSIVE_EMULATOR_ALIASES_CACHE_TTL_SECONDS
+    screenshot.read_frame("ap")
+    assert alias_calls == ["127.0.0.1:16416", "127.0.0.1:16416"]
+    assert calls.count(("adb", "devices")) == 3
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Проверяется Windows vbox/nemu parser")
+def test_mumu_vbox_parser_exposes_all_adb_forwarding_aliases(tmp_path: Path):
+    from module.device.platform.emulator_windows import Emulator
+
+    vbox_file = tmp_path / "instance.nemu"
+    vbox_file.write_text(
+        '<Forwarding name="ADB_PORT" hostport="16448" guestport="5555"/>\n'
+        '<Forwarding name="ADB_PORT_EX" hostport="5561" guestport="5555"/>\n'
+        '<Forwarding name="ADB_PORT_OLD" hostport="7555" guestport="5555"/>\n',
+        encoding="utf-8",
+    )
+
+    assert Emulator.vbox_file_to_serials(str(vbox_file)) == (
+        "127.0.0.1:16448",
+        "127.0.0.1:5561",
+        "emulator-5560",
+        "127.0.0.1:7555",
+    )
+
+
+def test_passive_screenshot_bounds_large_png_in_memory(monkeypatch):
+    from io import BytesIO
+
+    from PIL import Image
+
+    image = Image.effect_noise((512, 512), 100).convert("RGB")
+    source = BytesIO()
+    image.save(source, format="PNG")
+    source_data = source.getvalue()
+    monkeypatch.setattr(
+        legacy_game_adapters,
+        "_PASSIVE_SCREENSHOT_MAX_BYTES",
+        len(source_data) // 2,
+    )
+
+    bounded, media_type = legacy_game_adapters._bound_passive_screenshot(source_data)
+
+    assert media_type == "image/jpeg"
+    assert len(bounded) <= len(source_data) // 2
+    with Image.open(BytesIO(bounded)) as decoded:
+        assert decoded.size == image.size
+
+
+def test_passive_adb_discovery_is_independent_of_process_cwd(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repository_root = tmp_path / "repository"
+    process_cwd = tmp_path / "caller"
+    adb = repository_root / ".venv" / "Scripts" / "adb.exe"
+    adb.parent.mkdir(parents=True)
+    process_cwd.mkdir()
+    adb.write_bytes(b"adb")
+
+    monkeypatch.setattr(legacy_game_adapters, "_REPOSITORY_ROOT", repository_root)
+    monkeypatch.setattr(
+        legacy_game_adapters,
+        "_ADB_PATH_CANDIDATES",
+        (Path(".venv/Scripts/adb.exe"),),
+    )
+    monkeypatch.chdir(process_cwd)
+
+    assert legacy_game_adapters._find_passive_adb_path() == str(adb.resolve())
+
+
+def test_adb_discovery_prioritizes_supplied_root_before_candidate_order(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    configured_root = tmp_path / "configured"
+    repository_root = tmp_path / "repository"
+    configured_adb = configured_root / "bin" / "adb" / "adb"
+    repository_adb = repository_root / ".venv" / "Scripts" / "adb.exe"
+    configured_adb.parent.mkdir(parents=True)
+    repository_adb.parent.mkdir(parents=True)
+    configured_adb.write_bytes(b"configured")
+    repository_adb.write_bytes(b"repository")
+
+    monkeypatch.setattr(legacy_game_adapters, "_REPOSITORY_ROOT", repository_root)
+
+    assert legacy_game_adapters._first_existing_adb_path(configured_root) == str(
+        configured_adb.resolve()
+    )
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Проверяется Windows MuMu instance discovery")
+def test_mumu_instance_alias_discovery_scans_all_nemu_files(tmp_path: Path) -> None:
+    from module.device.platform.emulator_windows import EmulatorInstance
+
+    emulator_root = tmp_path / "mumu"
+    emulator_path = emulator_root / "nx_main" / "MuMuNxMain.exe"
+    vms_folder = emulator_root / "vms" / "MuMuPlayerGlobal-15.0-1"
+    vms_folder.mkdir(parents=True)
+    (vms_folder / "renamed-instance.nemu").write_text(
+        '<Forwarding name="ADB_PORT" hostport="16416" guestport="5555"/>\n'
+        '<Forwarding name="ADB_PORT_EX" hostport="5557" guestport="5555"/>\n'
+        '<Forwarding name="ADB_PORT_OLD" hostport="7555" guestport="5555"/>\n',
+        encoding="utf-8",
+    )
+
+    instance = EmulatorInstance(
+        serial="127.0.0.1:16416",
+        name="MuMuPlayerGlobal-15.0-1",
+        path=str(emulator_path),
+    )
+
+    assert instance.adb_serials == (
+        "127.0.0.1:16416",
+        "127.0.0.1:5557",
+        "emulator-5556",
+        "127.0.0.1:7555",
+    )
+
+
 @dataclass
 class _CommandResult:
     returncode: int
-    stdout: str = ""
+    stdout: str | bytes = ""
 
 
 _EXPECTED_RESTART_CALLS = (
