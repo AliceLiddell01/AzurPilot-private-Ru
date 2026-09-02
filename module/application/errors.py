@@ -37,6 +37,12 @@ class OperationFailedError(ApplicationError):
     code = "operation_failed"
 
 
+class ResourceBusyError(OperationFailedError):
+    """Ресурс уже занят другой несовместимой control-операцией."""
+
+    code = "resource_busy"
+
+
 class PreconditionFailedError(OperationFailedError):
     """Безопасное выполнение операции невозможно из-за precondition."""
 

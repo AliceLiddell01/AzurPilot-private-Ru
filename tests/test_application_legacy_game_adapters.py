@@ -402,6 +402,37 @@ def test_emulator_restart_polls_until_stop_and_start_states_are_confirmed():
     ).restart_emulator("secondary") is True
 
 
+def test_typed_emulator_failures_sanitize_platform_operation_errors():
+    class ExplodingStop:
+        def is_emulator_instance_running(self) -> bool:
+            return True
+
+        def emulator_stop(self) -> bool:
+            raise RuntimeError("platform detail")
+
+    with pytest.raises(OperationFailedError):
+        LegacyEmulatorAdapter(
+            platform_factory=lambda instance: ExplodingStop(),
+            typed_failures=True,
+        ).restart_emulator("secondary")
+
+    class MissingStart:
+        def __init__(self) -> None:
+            self.states = iter((True, False))
+
+        def is_emulator_instance_running(self) -> bool:
+            return next(self.states)
+
+        def emulator_stop(self) -> bool:
+            return True
+
+    with pytest.raises(OperationFailedError):
+        LegacyEmulatorAdapter(
+            platform_factory=lambda instance: MissingStart(),
+            typed_failures=True,
+        ).restart_emulator("secondary")
+
+
 def test_emulator_restart_serializes_with_passive_screenshot():
     screenshot_entered = Event()
     release_screenshot = Event()
@@ -870,6 +901,16 @@ def _make_adb_adapter(
     return adapter, calls
 
 
+@pytest.fixture
+def fast_adb_restart_polling(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        legacy_game_adapters,
+        "_ADB_RESTART_READY_RETRY_INTERVAL_SECONDS",
+        0.001,
+    )
+    monkeypatch.setattr(legacy_game_adapters, "_ADB_RESTART_READY_MAX_ATTEMPTS", 2)
+
+
 def test_legacy_adb_adapter_preserves_device_state_in_inventory():
     parsed = LegacyAdbAdapter._parse_devices(
         _CommandResult(0, "List of devices attached\nserial-a\toffline\n")
@@ -890,7 +931,7 @@ def test_legacy_adb_adapter_confirms_offline_target_recovers_to_device():
     assert tuple(calls) == _EXPECTED_RESTART_CALLS
 
 
-def test_legacy_adb_adapter_polls_until_target_is_ready():
+def test_legacy_adb_adapter_polls_until_target_is_ready(fast_adb_restart_polling):
     adapter, calls = _make_adb_adapter(
         "List of devices attached\nserial-a\tdevice\n",
         "List of devices attached\nserial-a\toffline\n",
@@ -907,7 +948,9 @@ def test_legacy_adb_adapter_polls_until_target_is_ready():
     ]
 
 
-def test_legacy_adb_adapter_rejects_offline_target_that_stays_offline():
+def test_legacy_adb_adapter_rejects_offline_target_that_stays_offline(
+    fast_adb_restart_polling,
+):
     adapter, calls = _make_adb_adapter(
         "List of devices attached\nserial-a\toffline\n",
         "List of devices attached\nserial-a\toffline\n",
@@ -918,7 +961,9 @@ def test_legacy_adb_adapter_rejects_offline_target_that_stays_offline():
     assert len(calls) > len(_EXPECTED_RESTART_CALLS)
 
 
-def test_legacy_adb_adapter_rejects_unauthorized_post_restart_state():
+def test_legacy_adb_adapter_rejects_unauthorized_post_restart_state(
+    fast_adb_restart_polling,
+):
     adapter, calls = _make_adb_adapter(
         "List of devices attached\nserial-a\tdevice\n",
         "List of devices attached\nserial-a\tunauthorized\n",
@@ -929,7 +974,9 @@ def test_legacy_adb_adapter_rejects_unauthorized_post_restart_state():
     assert len(calls) > len(_EXPECTED_RESTART_CALLS)
 
 
-def test_legacy_adb_adapter_rejects_target_that_disappears_after_restart():
+def test_legacy_adb_adapter_rejects_target_that_disappears_after_restart(
+    fast_adb_restart_polling,
+):
     adapter, calls = _make_adb_adapter(
         "List of devices attached\nserial-a\tdevice\n",
         "List of devices attached\n",
@@ -1004,7 +1051,9 @@ def test_legacy_adb_adapter_rejects_multiple_devices_for_auto_target():
     assert calls == [("adb", "devices")]
 
 
-def test_legacy_adb_adapter_rejects_changed_explicit_target_inventory():
+def test_legacy_adb_adapter_rejects_changed_explicit_target_inventory(
+    fast_adb_restart_polling,
+):
     adapter, calls = _make_adb_adapter(
         "List of devices attached\nserial-a\tdevice\n",
         "List of devices attached\nserial-b\tdevice\n",
@@ -1015,7 +1064,9 @@ def test_legacy_adb_adapter_rejects_changed_explicit_target_inventory():
     assert len(calls) > len(_EXPECTED_RESTART_CALLS)
 
 
-def test_typed_adb_failures_distinguish_ownership_and_postcondition():
+def test_typed_adb_failures_distinguish_ownership_and_postcondition(
+    fast_adb_restart_polling,
+):
     ambiguous, ambiguous_calls = _make_adb_adapter(
         "List of devices attached\nforeign\tdevice\n",
         typed_failures=True,

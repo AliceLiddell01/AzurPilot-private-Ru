@@ -744,14 +744,22 @@ class LegacyEmulatorAdapter:
                     "Ownership emulator instance не подтверждён."
                 )
             )
-        stopped = platform.emulator_stop()  # type: ignore[attr-defined]
+        stopped = self._call_platform(
+            platform,
+            "emulator_stop",
+            "остановку эмулятора",
+        )
         if stopped is not True or not self._await_running(is_running, False):
             return self._failure(
                 PostconditionFailedError(
                     "Эмулятор не подтвердил состояние stopped после stop."
                 )
             )
-        started = platform.emulator_start()  # type: ignore[attr-defined]
+        started = self._call_platform(
+            platform,
+            "emulator_start",
+            "запуск эмулятора",
+        )
         if started is not True:
             return self._failure(
                 OperationFailedError("Эмулятор не подтвердил запуск после stop.")
@@ -793,6 +801,26 @@ class LegacyEmulatorAdapter:
                 break
             sleep(min(_EMULATOR_STATE_RETRY_INTERVAL_SECONDS, remaining))
         return False
+
+    def _call_platform(
+        self,
+        platform: object,
+        method_name: str,
+        operation: str,
+    ) -> object:
+        try:
+            method = getattr(platform, method_name, None)
+            if not callable(method):
+                return self._failure(
+                    OperationFailedError(
+                        f"Platform не предоставила операцию: {operation}."
+                    )
+                )
+            return method()
+        except Exception:  # noqa: BLE001 - platform boundary is sanitized.
+            return self._failure(
+                OperationFailedError(f"Не удалось выполнить {operation}.")
+            )
 
     def _make_platform(self, instance: str) -> object:
         if self._platform_factory is not None:

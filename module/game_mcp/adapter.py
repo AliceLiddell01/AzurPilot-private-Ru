@@ -26,6 +26,7 @@ from module.application.errors import (
     OwnershipAmbiguousError,
     PostconditionFailedError,
     PreconditionFailedError,
+    ResourceBusyError,
     ResourceNotFoundError,
     ServiceUnavailableError,
     StorageAuthenticationError,
@@ -136,6 +137,7 @@ _MAX_SCREENSHOT_WIDTH = 8192
 _MAX_SCREENSHOT_HEIGHT = 8192
 _MAX_SCREENSHOT_PIXELS = 16_777_216
 _ALLOWED_IMAGE_TYPES = frozenset({"image/png", "image/jpeg"})
+_MUTATION_LOCK_TIMEOUT_SECONDS = 30.0
 _SECRET_KEY_PARTS = frozenset(
     {
         "password",
@@ -1181,6 +1183,12 @@ class GameMcpAdapter:
                 self._mutation_locks[profile] = lock
             return lock
 
+    def _acquire_mutation_lock(self, profile: str) -> Lock:
+        lock = self._mutation_lock(profile)
+        if not lock.acquire(timeout=_MUTATION_LOCK_TIMEOUT_SECONDS):
+            raise ResourceBusyError("Профиль занят другой control-операцией.")
+        return lock
+
     @staticmethod
     def _known_profile(backend: object, profile: str) -> str:
         instances = getattr(backend, "instances", None)
@@ -1475,10 +1483,13 @@ class GameMcpAdapter:
                 if tool_name in GAME_MCP_CONTROL_TOOL_NAMES:
                     profile = self._profile_from(parsed)
                     self._known_profile(backend, profile)
-                    with self._mutation_lock(profile):
+                    mutation_lock = self._acquire_mutation_lock(profile)
+                    try:
                         result = self._dispatch(
                             tool_name, parsed, backend, selection
                         )
+                    finally:
+                        mutation_lock.release()
                 else:
                     result = self._dispatch(
                         tool_name, parsed, backend, selection
@@ -1511,6 +1522,12 @@ class GameMcpAdapter:
                 return _error(
                     "GAME_POSTCONDITION_FAILED",
                     "Изменение не подтверждено ожидаемым состоянием.",
+                    tool=tool_name,
+                )
+            except ResourceBusyError:
+                return _error(
+                    "GAME_RESOURCE_BUSY",
+                    "Профиль занят другой control-операцией.",
                     tool=tool_name,
                 )
             except OwnershipAmbiguousError:

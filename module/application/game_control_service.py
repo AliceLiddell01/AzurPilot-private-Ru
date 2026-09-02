@@ -283,11 +283,7 @@ class GameControlService:
             raise PostconditionFailedError(
                 "Не удалось подтвердить изменение конфигурации."
             )
-        selected: Mapping[str, object] = data
-        nested_task = data.get(request.task)
-        if isinstance(nested_task, Mapping):
-            selected = nested_task
-        group = selected.get(request.group)
+        group = data.get(request.group)
         actual = group.get(request.argument) if isinstance(group, Mapping) else None
         if not isinstance(group, Mapping) or request.argument not in group:
             raise PostconditionFailedError(
@@ -303,38 +299,46 @@ class GameControlService:
             return True
         raise PostconditionFailedError("Изменение конфигурации не подтверждено.")
 
+    def _read_scheduler_queue(
+        self,
+        instance: str,
+        schedulable_tasks: tuple[str, ...],
+        *,
+        unavailable_message: str,
+        invalid_message: str,
+    ) -> tuple[SchedulerEntry, ...] | None:
+        if self._config_reader is None:
+            return None
+        reader = getattr(self._config_reader, "read_scheduler_queue", None)
+        if not callable(reader):
+            raise PostconditionFailedError(unavailable_message)
+        try:
+            queue = reader(instance, schedulable_tasks)
+        except ResourceNotFoundError:
+            raise PostconditionFailedError(unavailable_message) from None
+        except Exception:  # noqa: BLE001 - postcondition boundary is sanitized.
+            raise PostconditionFailedError(unavailable_message) from None
+        if isinstance(queue, (str, bytes)) or not isinstance(queue, Sequence):
+            raise PostconditionFailedError(invalid_message)
+        entries = tuple(queue)
+        if any(not isinstance(entry, SchedulerEntry) for entry in entries):
+            raise PostconditionFailedError(invalid_message)
+        return entries
+
     def _verify_scheduled_task(
         self,
         instance: str,
         task: str,
         schedulable_tasks: tuple[str, ...],
     ) -> bool:
-        if self._config_reader is None:
+        entries = self._read_scheduler_queue(
+            instance,
+            schedulable_tasks,
+            unavailable_message="Не удалось подтвердить планирование задачи.",
+            invalid_message="Планирование задачи не подтверждено.",
+        )
+        if entries is None:
             return False
-        reader = getattr(self._config_reader, "read_scheduler_queue", None)
-        if not callable(reader):
-            raise PostconditionFailedError(
-                "Не удалось подтвердить планирование задачи."
-            )
-        try:
-            queue = reader(instance, schedulable_tasks)
-        except ResourceNotFoundError:
-            raise PostconditionFailedError(
-                "Не удалось подтвердить планирование задачи."
-            ) from None
-        except Exception:  # noqa: BLE001 - postcondition boundary is sanitized.
-            raise PostconditionFailedError(
-                "Не удалось подтвердить планирование задачи."
-            ) from None
-        if isinstance(queue, (str, bytes)) or not isinstance(queue, Sequence):
-            raise PostconditionFailedError(
-                "Планирование задачи не подтверждено."
-            )
-        entries = tuple(queue)
-        if any(not isinstance(entry, SchedulerEntry) for entry in entries):
-            raise PostconditionFailedError(
-                "Планирование задачи не подтверждено."
-            )
         if any(entry.task == task for entry in entries):
             return True
         raise PostconditionFailedError("Планирование задачи не подтверждено.")
@@ -345,32 +349,14 @@ class GameControlService:
         cleared: tuple[str, ...],
         schedulable_tasks: tuple[str, ...],
     ) -> bool:
-        if self._config_reader is None:
+        entries = self._read_scheduler_queue(
+            instance,
+            schedulable_tasks,
+            unavailable_message="Не удалось подтвердить очистку очереди scheduler.",
+            invalid_message="Очистка очереди scheduler не подтверждена.",
+        )
+        if entries is None:
             return False
-        reader = getattr(self._config_reader, "read_scheduler_queue", None)
-        if not callable(reader):
-            raise PostconditionFailedError(
-                "Не удалось подтвердить очистку очереди scheduler."
-            )
-        try:
-            queue = reader(instance, schedulable_tasks)
-        except ResourceNotFoundError:
-            raise PostconditionFailedError(
-                "Не удалось подтвердить очистку очереди scheduler."
-            ) from None
-        except Exception:  # noqa: BLE001 - postcondition boundary is sanitized.
-            raise PostconditionFailedError(
-                "Не удалось подтвердить очистку очереди scheduler."
-            ) from None
-        if isinstance(queue, (str, bytes)) or not isinstance(queue, Sequence):
-            raise PostconditionFailedError(
-                "Очистка очереди scheduler не подтверждена."
-            )
-        entries = tuple(queue)
-        if any(not isinstance(entry, SchedulerEntry) for entry in entries):
-            raise PostconditionFailedError(
-                "Очистка очереди scheduler не подтверждена."
-            )
         if entries:
             raise PostconditionFailedError(
                 "Очистка очереди scheduler не подтверждена."

@@ -107,8 +107,10 @@ sanitization. Logs ограничены числом строк и размер�
 Каждая mutation требует `azurpilot:game.control`; read-инструменты требуют
 `azurpilot:game.read`. Scope проверяется до создания control backend и до
 side effect, а stdio остаётся локальной authority без OAuth. Control-операции
-используют явный canonical `profile`, per-profile serialization и не делают
-автоматических transport retries. Lifecycle публикует только подтверждённые
+используют явный canonical `profile`, bounded per-profile serialization и не
+делают автоматических transport retries. Если профиль занят другой
+control-операцией дольше допустимого ожидания, операция не передаётся backend и
+возвращает `GAME_RESOURCE_BUSY`. Lifecycle публикует только подтверждённые
 `STARTED/STOPPED/ALREADY_*`, scheduler и config — только после authoritative
 postcondition readback. Scheduler ограничен generated registry; произвольные
 shell/module/function/natural-language actions отсутствуют.
@@ -119,7 +121,9 @@ shell/module/function/natural-language actions отсутствуют.
 ADB restart допускается только после fresh inventory и доказанной
 instance/serial ownership; `adb kill-server` сериализуется host-global lock,
 а post-restart inventory bounded-поллингом должен подтвердить тот же ready
-target. Screenshot по-прежнему пассивен и не вызывает control path. DB
+target. Пассивный screenshot кратко захватывает тот же host lock, чтобы
+`adb devices` и `screencap` не пересекались с `adb kill-server`; control path он
+по-прежнему не вызывает. DB
 diagnostics, SQL,
 произвольная файловая система, DevSession, Smoke, Evidence и Git state в Game
 surface отсутствуют. `module.game_mcp` не импортирует Dev MCP или Dev Runtime;

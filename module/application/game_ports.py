@@ -16,6 +16,12 @@ from module.application.game_models import (
 
 
 class GameConfigReader(Protocol):
+    """Читатель config snapshot с явно выбранным уровнем данных.
+
+    При ``task is None`` возвращается полный snapshot, иначе — mapping
+    выбранной задачи без дополнительной обёртки с именем задачи.
+    """
+
     def read_config(
         self,
         instance: str,

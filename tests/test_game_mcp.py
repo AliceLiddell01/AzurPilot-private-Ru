@@ -26,6 +26,7 @@ from mcp_types import (
     PROTOCOL_VERSION_META_KEY,
 )
 
+import module.game_mcp.adapter as game_mcp_adapter
 from module.application import (
     AdbRestartResult,
     ConfigSnapshot,
@@ -908,6 +909,46 @@ def test_adapter_serializes_mutations_per_profile() -> None:
     assert len(results) == 2
     assert all(result["code"] == "GAME_PROFILE_STARTED" for result in results)
     assert max_active == 1
+
+
+def test_adapter_returns_busy_when_mutation_lock_times_out(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(game_mcp_adapter, "_MUTATION_LOCK_TIMEOUT_SECONDS", 0.01)
+    backend = _backend()
+    entered = Event()
+    release = Event()
+    calls: list[str] = []
+
+    class _BlockingControl(_Control):
+        def start_instance(self, profile: str) -> LifecycleResult:
+            calls.append(profile)
+            entered.set()
+            release.wait(5)
+            return LifecycleResult(profile, LifecycleOutcome.STARTED)
+
+    backend.control = _BlockingControl()
+    adapter = GameMcpAdapter(lambda: backend)
+    first_result: dict[str, object] = {}
+
+    def call_start() -> None:
+        first_result.update(
+            adapter.call("game_start_profile", {"profile": "alpha"})
+        )
+
+    first_thread = Thread(target=call_start)
+    first_thread.start()
+    try:
+        assert entered.wait(5)
+        busy = adapter.call("game_start_profile", {"profile": "alpha"})
+        assert busy["code"] == "GAME_RESOURCE_BUSY"
+        assert calls == ["alpha"]
+    finally:
+        release.set()
+        first_thread.join(timeout=5)
+
+    assert not first_thread.is_alive()
+    assert first_result["code"] == "GAME_PROFILE_STARTED"
 
 
 def test_adapter_allows_mutations_for_different_profiles_in_parallel() -> None:
