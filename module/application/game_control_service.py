@@ -92,7 +92,7 @@ def _profile_mutation[**ControlParameters, ControlReturn](
 
 
 class GameControlService:
-    """Control API игры с явными typed requests и fail-closed результатами."""
+    """API управления игрой с типизированными запросами и проверкой результата."""
 
     def __init__(
         self,
@@ -105,9 +105,16 @@ class GameControlService:
         adb: AdbController,
         *,
         clock: Callable[[], datetime] | None = None,
-        config_reader: GameConfigReader | None = None,
+        config_reader: GameConfigReader,
         mutation_lock_root: Path | str | None = None,
     ) -> None:
+        if config_reader is None:
+            raise TypeError("config_reader обязателен для подтверждения результата")
+        for method_name in ("read_config", "read_scheduler_queue"):
+            if not callable(getattr(config_reader, method_name, None)):
+                raise TypeError(
+                    f"config_reader не предоставляет {method_name} для подтверждения результата"
+                )
         self._instance_reader = instance_reader
         self._config_schema = config_schema
         self._config_writer = config_writer
@@ -127,6 +134,9 @@ class GameControlService:
         task = validated_segment(request.task, resource="задачи")
         group = validated_segment(request.group, resource="группы")
         argument = validated_segment(request.argument, resource="аргумента")
+        self._readback_method(
+            "read_config", "Не удалось подтвердить изменение конфигурации."
+        )
         try:
             definition = self._config_schema.read_argument_definition(
                 task,
@@ -245,6 +255,9 @@ class GameControlService:
         )
         if not isinstance(scheduled_at, datetime):
             raise OperationFailedError("Источник времени вернул некорректное значение.")
+        self._readback_method(
+            "read_scheduler_queue", "Не удалось подтвердить планирование задачи."
+        )
         canonical_request = ScheduleTaskRequest(instance=instance, task=task)
         safe_control(
             "немедленного планирования задачи",
@@ -270,6 +283,9 @@ class GameControlService:
     def clear_scheduler_queue(self, instance: str) -> SchedulerQueueClearResult:
         instance = known_instance(self._instance_reader, instance)
         tasks = scheduler_tasks(self._scheduler_tasks)
+        self._readback_method(
+            "read_scheduler_queue", "Не удалось подтвердить очистку очереди scheduler."
+        )
         result = safe_control(
             "очистки очереди scheduler",
             lambda: self._config_writer.clear_scheduler_queue(instance, tasks),
@@ -319,20 +335,16 @@ class GameControlService:
         return AdbRestartResult(instance=instance)
 
     def _verify_config_update(self, request: ConfigUpdateRequest) -> bool:
-        if self._config_reader is None:
-            return False
-        reader = getattr(self._config_reader, "read_config", None)
-        if not callable(reader):
-            raise PostconditionFailedError(
-                "Не удалось подтвердить изменение конфигурации."
-            )
+        reader = self._readback_method(
+            "read_config", "Не удалось подтвердить изменение конфигурации."
+        )
         try:
             data = reader(request.instance, request.task)
         except ResourceNotFoundError:
             raise PostconditionFailedError(
                 "Не удалось подтвердить изменение конфигурации."
             ) from None
-        except Exception:  # noqa: BLE001 - postcondition boundary is sanitized.
+        except Exception:  # noqa: BLE001 - граница постусловия скрывает детали.
             raise PostconditionFailedError(
                 "Не удалось подтвердить изменение конфигурации."
             ) from None
@@ -363,17 +375,13 @@ class GameControlService:
         *,
         unavailable_message: str,
         invalid_message: str,
-    ) -> tuple[SchedulerEntry, ...] | None:
-        if self._config_reader is None:
-            return None
-        reader = getattr(self._config_reader, "read_scheduler_queue", None)
-        if not callable(reader):
-            raise PostconditionFailedError(unavailable_message)
+    ) -> tuple[SchedulerEntry, ...]:
+        reader = self._readback_method("read_scheduler_queue", unavailable_message)
         try:
             queue = reader(instance, schedulable_tasks)
         except ResourceNotFoundError:
             raise PostconditionFailedError(unavailable_message) from None
-        except Exception:  # noqa: BLE001 - postcondition boundary is sanitized.
+        except Exception:  # noqa: BLE001 - граница постусловия скрывает детали.
             raise PostconditionFailedError(unavailable_message) from None
         if isinstance(queue, (str, bytes)) or not isinstance(queue, Sequence):
             raise PostconditionFailedError(invalid_message)
@@ -395,8 +403,6 @@ class GameControlService:
             unavailable_message="Не удалось подтвердить планирование задачи.",
             invalid_message="Планирование задачи не подтверждено.",
         )
-        if entries is None:
-            return False
         if any(
             entry.task == task
             and self._values_equal(expected_scheduled_at, entry.next_run)
@@ -417,13 +423,22 @@ class GameControlService:
             unavailable_message="Не удалось подтвердить очистку очереди scheduler.",
             invalid_message="Очистка очереди scheduler не подтверждена.",
         )
-        if entries is None:
-            return False
         if entries:
             raise PostconditionFailedError(
                 "Очистка очереди scheduler не подтверждена."
             )
         return True
+
+    def _readback_method(
+        self,
+        name: str,
+        unavailable_message: str,
+    ) -> Callable[..., object]:
+        reader = self._config_reader
+        method = getattr(reader, name, None)
+        if not callable(method):
+            raise PostconditionFailedError(unavailable_message)
+        return method
 
     @staticmethod
     def _values_equal(left: object, right: object) -> bool:

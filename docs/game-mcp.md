@@ -123,7 +123,9 @@ shell/module/function/natural-language actions отсутствуют.
 ADB restart допускается только после fresh inventory и доказанной
 instance/serial ownership; `adb kill-server` сериализуется стабильным
 пользовательским host lock, identity которого строится по ADB server endpoint,
-а не по checkout. Post-restart inventory bounded-поллингом должен подтвердить
+а не по checkout. На POSIX host runtime root создаётся с режимом `0700`,
+принадлежит текущему пользователю и не может проходить через symlink/junction.
+Post-restart inventory bounded-поллингом должен подтвердить
 тот же ready target. Пассивный screenshot кратко захватывает lock того же
 endpoint, чтобы `adb devices` и `screencap` не пересекались с
 `adb kill-server`; control path он по-прежнему не вызывает. DB

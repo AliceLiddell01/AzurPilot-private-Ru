@@ -38,6 +38,7 @@ from module.application.game_validation import (
 )
 from module.application.host_lock import (
     application_host_lock,
+    ensure_host_runtime_root,
     host_scoped_lock_path,
 )
 
@@ -93,6 +94,7 @@ _TASK_LOG_PATTERNS = (
 def _adb_host_lock(server_identity: str | None = None):
     """Сериализовать Game ADB операции для одного server endpoint."""
 
+    ensure_host_runtime_root()
     return application_host_lock(
         _adb_host_lock_path(server_identity),
         timeout=_ADB_HOST_LOCK_TIMEOUT_SECONDS,

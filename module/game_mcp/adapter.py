@@ -1228,6 +1228,8 @@ class GameMcpAdapter:
         arguments: dict[str, object],
         backend: object,
         selection: tuple[str, tuple[int, ...]] | None = None,
+        *,
+        profile: str | None = None,
     ) -> GameMcpResponse | dict[str, object]:
         instances = getattr(backend, "instances", None)
         tasks = getattr(backend, "tasks", None)
@@ -1275,7 +1277,8 @@ class GameMcpAdapter:
                 {"task": _task_metadata_payload(task)},
             )
 
-        profile = self._profile_from(arguments)
+        if profile is None:
+            profile = self._profile_from(arguments)
         self._known_profile(backend, profile)
         if tool in GAME_MCP_CONTROL_TOOL_NAMES:
             control = _control_service(backend)
@@ -1489,8 +1492,13 @@ class GameMcpAdapter:
                     profile = self._profile_from(parsed)
                     self._known_profile(backend, profile)
                     with self._acquire_mutation_lock(profile, backend):
+                        # Повторная проверка после lock закрывает TOCTOU-окно.
                         result = self._dispatch(
-                            tool_name, parsed, backend, selection
+                            tool_name,
+                            parsed,
+                            backend,
+                            selection,
+                            profile=profile,
                         )
                 else:
                     result = self._dispatch(

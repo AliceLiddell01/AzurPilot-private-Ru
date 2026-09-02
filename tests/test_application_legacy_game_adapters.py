@@ -9,8 +9,6 @@ from threading import Event, Thread
 
 import pytest
 
-import module.application.host_lock as host_lock
-import module.application.legacy_game_adapters as legacy_game_adapters
 from module.application import (
     REDACTED_CONFIG_VALUE,
     ConfigArgumentDefinition,
@@ -18,6 +16,8 @@ from module.application import (
     OperationFailedError,
     OwnershipAmbiguousError,
     PostconditionFailedError,
+    host_lock,
+    legacy_game_adapters,
 )
 from module.application.game_models import MediaFrame
 from module.application.legacy_adapters import GeneratedTaskCatalogAdapter
@@ -433,7 +433,12 @@ def test_typed_emulator_failures_sanitize_platform_operation_errors():
         ).restart_emulator("secondary")
 
 
-def test_emulator_restart_serializes_with_passive_screenshot():
+def test_emulator_restart_serializes_with_passive_screenshot(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    host_runtime = tmp_path / "host-runtime"
+    monkeypatch.setattr(host_lock, "host_runtime_root", lambda: host_runtime)
     screenshot_entered = Event()
     release_screenshot = Event()
     screenshot_errors: list[BaseException] = []
@@ -475,13 +480,13 @@ def test_emulator_restart_serializes_with_passive_screenshot():
     def read_screenshot() -> None:
         try:
             screenshot.read_frame("secondary")
-        except BaseException as error:  # noqa: BLE001 - test thread propagation.
+        except BaseException as error:  # noqa: BLE001 - передача ошибки из тестового потока.
             screenshot_errors.append(error)
 
     def restart_emulator() -> None:
         try:
             assert emulator.restart_emulator("secondary") is True
-        except BaseException as error:  # noqa: BLE001 - test thread propagation.
+        except BaseException as error:  # noqa: BLE001 - передача ошибки из тестового потока.
             emulator_errors.append(error)
         finally:
             emulator_done.set()
@@ -513,9 +518,10 @@ def test_host_lock_releases_process_lock_when_os_unlock_fails(
         raise OSError("simulated unlock failure")
 
     monkeypatch.setattr(host_lock, "_release_os_lock", broken_release)
-    with pytest.raises(OSError, match="simulated unlock failure"):
-        with host_lock.application_host_lock(lock_path):
-            pass
+    with pytest.raises(OSError, match="simulated unlock failure"), host_lock.application_host_lock(
+        lock_path
+    ):
+        pass
 
     monkeypatch.setattr(host_lock, "_release_os_lock", real_release)
     with host_lock.application_host_lock(lock_path):
@@ -596,7 +602,12 @@ def test_legacy_screenshot_is_passive_and_unavailable_path_does_not_recover(monk
         invalid_frame.read_frame("secondary")
 
 
-def test_legacy_adb_restart_serializes_with_passive_screenshot():
+def test_legacy_adb_restart_serializes_with_passive_screenshot(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    host_runtime = tmp_path / "host-runtime"
+    monkeypatch.setattr(host_lock, "host_runtime_root", lambda: host_runtime)
     screenshot_entered = Event()
     release_screenshot = Event()
     screenshot_errors: list[BaseException] = []
@@ -629,13 +640,13 @@ def test_legacy_adb_restart_serializes_with_passive_screenshot():
     def read_screenshot() -> None:
         try:
             screenshot.read_frame("secondary")
-        except BaseException as error:  # noqa: BLE001 - test thread propagation.
+        except BaseException as error:  # noqa: BLE001 - передача ошибки из тестового потока.
             screenshot_errors.append(error)
 
     def restart_adb() -> None:
         try:
             assert restart.restart_adb("secondary") is True
-        except BaseException as error:  # noqa: BLE001 - test thread propagation.
+        except BaseException as error:  # noqa: BLE001 - передача ошибки из тестового потока.
             restart_errors.append(error)
         finally:
             restart_done.set()
@@ -831,6 +842,35 @@ def test_adb_host_lock_is_scoped_by_server_endpoint_not_checkout(
         legacy_game_adapters._adb_host_lock(secondary),
     ):
         pass
+    assert host_runtime.is_dir()
+    if os.name != "nt":
+        assert host_runtime.stat().st_mode & 0o777 == 0o700
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Проверяется POSIX-защита ссылок")
+@pytest.mark.parametrize("symlink_scope", ("root", "ancestor"))
+def test_adb_host_lock_rejects_symlinked_runtime_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    symlink_scope: str,
+) -> None:
+    real_root = tmp_path / "real-root"
+    real_root.mkdir()
+    if symlink_scope == "root":
+        host_runtime = tmp_path / "host-runtime"
+        host_runtime.symlink_to(real_root, target_is_directory=True)
+    else:
+        linked_parent = tmp_path / "linked-parent"
+        linked_parent.symlink_to(real_root, target_is_directory=True)
+        host_runtime = linked_parent / "host-runtime"
+    monkeypatch.setattr(host_lock, "host_runtime_root", lambda: host_runtime)
+
+    with pytest.raises(OSError, match="ссылкой"), legacy_game_adapters._adb_host_lock(
+        "tcp:127.0.0.1:5037"
+    ):
+        pass
+
+    assert not (real_root / "host-runtime").exists()
 
 
 def test_adb_server_identity_prefers_explicit_socket_over_tcp_environment(

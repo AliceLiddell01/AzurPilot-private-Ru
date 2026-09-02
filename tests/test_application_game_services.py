@@ -134,12 +134,18 @@ class _Config:
         self.updated: list[ConfigUpdateRequest] = []
         self.scheduled: list[tuple[str, str, datetime]] = []
         self.cleared_for: list[tuple[str, tuple[str, ...]]] = []
+        self._config_values: dict[tuple[str, str, str], object] = {}
+        self.scheduled_at: dict[str, datetime] = {
+            "Main": datetime(2026, 8, 31, 12, 0, tzinfo=UTC)
+        }
 
     def read_config(self, instance: str, task: str | None = None) -> dict[str, object]:
-        data: dict[str, object] = {
+        data: dict[str, dict[str, dict[str, object]]] = {
             "Main": {"Fleet": {"Count": 1}},
             "Error": {"ApiKey": "opaque-value"},
         }
+        for (task_name, group, argument), value in self._config_values.items():
+            data.setdefault(task_name, {}).setdefault(group, {})[argument] = value
         return data[task] if task else data  # type: ignore[return-value]
 
     def read_resources(self, instance: str) -> DashboardResources:
@@ -153,21 +159,73 @@ class _Config:
         schedulable_tasks: tuple[str, ...],
     ) -> tuple[SchedulerEntry, ...]:
         assert schedulable_tasks == ("Main", "Event")
-        return (SchedulerEntry("Main", datetime(2026, 8, 31, 12, 0, tzinfo=UTC)),)
+        return tuple(
+            SchedulerEntry(task, scheduled_at)
+            for task, scheduled_at in self.scheduled_at.items()
+            if task in schedulable_tasks
+        )
 
     def update_config(self, request: ConfigUpdateRequest) -> None:
         self.updated.append(request)
+        self._config_values[(request.task, request.group, request.argument)] = request.value
 
     def schedule_task(self, instance: str, task: str, scheduled_at: datetime) -> None:
         self.scheduled.append((instance, task, scheduled_at))
+        self.scheduled_at[task] = scheduled_at
 
     def clear_scheduler_queue(
         self,
         instance: str,
         schedulable_tasks: tuple[str, ...],
     ) -> tuple[str, ...]:
+        cleared = tuple(task for task in schedulable_tasks if task in self.scheduled_at)
         self.cleared_for.append((instance, tuple(schedulable_tasks)))
-        return ("Main",)
+        for task in cleared:
+            self.scheduled_at.pop(task, None)
+        return cleared
+
+
+class _AuthoritativeConfig(_Config):
+    def __init__(self) -> None:
+        super().__init__()
+        self.count = 1
+        self.scheduled_at = {}
+
+    def update_config(self, request: ConfigUpdateRequest) -> None:
+        super().update_config(request)
+        if request.task == "Main" and request.group == "Fleet":
+            self.count = request.value  # type: ignore[assignment]
+
+    def read_config(self, instance: str, task: str | None = None) -> dict[str, object]:
+        data: dict[str, object] = {
+            "Main": {"Fleet": {"Count": self.count}},
+        }
+        return data[task] if task else data  # type: ignore[return-value]
+
+    def schedule_task(self, instance: str, task: str, scheduled_at: datetime) -> None:
+        super().schedule_task(instance, task, scheduled_at)
+        self.scheduled_at[task] = scheduled_at
+
+    def read_scheduler_queue(
+        self,
+        instance: str,
+        schedulable_tasks: tuple[str, ...],
+    ) -> tuple[SchedulerEntry, ...]:
+        return tuple(
+            SchedulerEntry(task, self.scheduled_at[task])
+            for task in schedulable_tasks
+            if task in self.scheduled_at
+        )
+
+    def clear_scheduler_queue(
+        self,
+        instance: str,
+        schedulable_tasks: tuple[str, ...],
+    ) -> tuple[str, ...]:
+        cleared = tuple(task for task in schedulable_tasks if task in self.scheduled_at)
+        for task in cleared:
+            self.scheduled_at.pop(task, None)
+        return cleared
 
 
 class _Logs:
@@ -261,10 +319,34 @@ def _control_service(
             emulator=_Emulator(),
             adb=_Adb(),
             clock=clock or (lambda: datetime(2026, 8, 31, 10, 0, tzinfo=UTC)),
+            config_reader=config,
             mutation_lock_root=mutation_lock_root,
         ),
         config,
         lifecycle,
+    )
+
+
+def _authoritative_control_service(
+    config: _Config,
+    *,
+    mutation_lock_root: Path,
+    clock: Callable[[], datetime] | None = None,
+    config_reader: _Config | None = None,
+) -> GameControlService:
+    metadata = _Metadata()
+    config_reader = config_reader or config
+    return GameControlService(
+        instance_reader=_Instances(),
+        config_schema=_ConfigSchema(metadata.definitions),
+        config_writer=config,
+        scheduler_tasks=_SchedulerTasks(metadata.tasks),
+        lifecycle=_Lifecycle(),
+        emulator=_Emulator(),
+        adb=_Adb(),
+        clock=clock or (lambda: datetime(2026, 8, 31, 10, 0, tzinfo=UTC)),
+        config_reader=config_reader,
+        mutation_lock_root=mutation_lock_root,
     )
 
 
@@ -322,7 +404,9 @@ def test_read_service_sanitizes_malformed_adapter_results_and_exceptions():
         GameReadService(_Instances(), _Config(), _Logs(), BrokenScreenshot(), _Metadata()).get_screenshot("ap")  # type: ignore[arg-type]
 
 
-def test_application_boundaries_sanitize_application_errors_from_ports():
+def test_application_boundaries_sanitize_application_errors_from_ports(
+    tmp_path: Path,
+) -> None:
     class BrokenInstances(_Instances):
         def list_instance_names(self) -> tuple[str, ...]:
             raise ServiceUnavailableError("internal instances adapter detail")
@@ -336,15 +420,20 @@ def test_application_boundaries_sanitize_application_errors_from_ports():
         def update_config(self, request: ConfigUpdateRequest) -> None:
             raise ServiceUnavailableError("internal profile adapter detail")
 
-    service, _config, _lifecycle = _control_service(config=BrokenWriter())
+    service, _config, _lifecycle = _control_service(
+        config=BrokenWriter(),
+        mutation_lock_root=tmp_path,
+    )
     with pytest.raises(OperationFailedError) as control_failure:
         service.update_config(ConfigUpdateRequest("ap", "Main", "Fleet", "Count", 2))
     assert "internal" not in str(control_failure.value)
     assert "detail" not in str(control_failure.value)
 
 
-def test_control_service_validates_config_scheduler_and_lifecycle_postconditions():
-    service, config, lifecycle = _control_service()
+def test_control_service_validates_config_scheduler_and_lifecycle_postconditions(
+    tmp_path: Path,
+) -> None:
+    service, config, lifecycle = _control_service(mutation_lock_root=tmp_path)
     update = service.update_config(
         ConfigUpdateRequest("ap", "Main", "Fleet", "Count", 4)
     )
@@ -356,7 +445,7 @@ def test_control_service_validates_config_scheduler_and_lifecycle_postconditions
     assert service.stop_instance("ap").outcome is LifecycleOutcome.STOPPED
     assert service.stop_instance("ap").outcome is LifecycleOutcome.ALREADY_STOPPED
     assert service.trigger_task(ScheduleTaskRequest("ap", "Event")).request.task == "Event"
-    assert service.clear_scheduler_queue("ap").cleared_tasks == ("Main",)
+    assert service.clear_scheduler_queue("ap").cleared_tasks == ("Main", "Event")
     assert service.restart_emulator("ap").instance == "ap"
     assert service.restart_adb("secondary").instance == "secondary"
     assert lifecycle.calls == [
@@ -424,62 +513,30 @@ def test_independent_control_services_share_profile_mutation_lock(
     assert all(result.outcome is LifecycleOutcome.STARTED for result in results)
 
 
-def test_control_service_verifies_config_and_scheduler_readbacks():
-    class _AuthoritativeConfig(_Config):
-        def __init__(self) -> None:
-            super().__init__()
-            self.count = 1
-            self.scheduled_at: dict[str, datetime] = {}
-
-        def update_config(self, request: ConfigUpdateRequest) -> None:
-            super().update_config(request)
-            if request.task == "Main" and request.group == "Fleet":
-                self.count = request.value  # type: ignore[assignment]
-
-        def read_config(self, instance: str, task: str | None = None) -> dict[str, object]:
-            data: dict[str, object] = {
-                "Main": {"Fleet": {"Count": self.count}},
-            }
-            return data[task] if task else data  # type: ignore[return-value]
-
-        def schedule_task(self, instance: str, task: str, scheduled_at: datetime) -> None:
-            super().schedule_task(instance, task, scheduled_at)
-            self.scheduled_at[task] = scheduled_at
-
-        def read_scheduler_queue(
-            self,
-            instance: str,
-            schedulable_tasks: tuple[str, ...],
-        ) -> tuple[SchedulerEntry, ...]:
-            return tuple(
-                SchedulerEntry(task, self.scheduled_at[task])
-                for task in schedulable_tasks
-                if task in self.scheduled_at
-            )
-
-        def clear_scheduler_queue(
-            self,
-            instance: str,
-            schedulable_tasks: tuple[str, ...],
-        ) -> tuple[str, ...]:
-            cleared = tuple(task for task in schedulable_tasks if task in self.scheduled_at)
-            for task in cleared:
-                self.scheduled_at.pop(task, None)
-            return cleared
-
-    config = _AuthoritativeConfig()
+def test_control_service_requires_authoritative_readback() -> None:
     metadata = _Metadata()
+    with pytest.raises(TypeError, match="config_reader"):
+        GameControlService(
+            instance_reader=_Instances(),
+            config_schema=_ConfigSchema(metadata.definitions),
+            config_writer=_Config(),
+            scheduler_tasks=_SchedulerTasks(metadata.tasks),
+            lifecycle=_Lifecycle(),
+            emulator=_Emulator(),
+            adb=_Adb(),
+            config_reader=None,  # type: ignore[arg-type]
+        )
+
+
+def test_control_service_verifies_config_and_scheduler_readbacks(
+    tmp_path: Path,
+) -> None:
+    config = _AuthoritativeConfig()
     scheduled_clock = [datetime(2026, 8, 31, 10, 0, tzinfo=UTC)]
-    service = GameControlService(
-        instance_reader=_Instances(),
-        config_schema=_ConfigSchema(metadata.definitions),
-        config_writer=config,
-        scheduler_tasks=_SchedulerTasks(metadata.tasks),
-        lifecycle=_Lifecycle(),
-        emulator=_Emulator(),
-        adb=_Adb(),
+    service = _authoritative_control_service(
+        config,
         clock=lambda: scheduled_clock[0],
-        config_reader=config,
+        mutation_lock_root=tmp_path,
     )
 
     updated = service.update_config(
@@ -496,6 +553,10 @@ def test_control_service_verifies_config_and_scheduler_readbacks():
     assert cleared.verified is True
     assert cleared.cleared_tasks == ("Event",)
 
+
+def test_control_service_rejects_stale_config_and_scheduler_readbacks(
+    tmp_path: Path,
+) -> None:
     class StaleTriggerConfig(_AuthoritativeConfig):
         def __init__(self) -> None:
             super().__init__()
@@ -510,16 +571,9 @@ def test_control_service_verifies_config_and_scheduler_readbacks():
             self.scheduled.append((instance, task, scheduled_at))
 
     stale_trigger = StaleTriggerConfig()
-    stale_trigger_service = GameControlService(
-        instance_reader=_Instances(),
-        config_schema=_ConfigSchema(metadata.definitions),
-        config_writer=stale_trigger,
-        scheduler_tasks=_SchedulerTasks(metadata.tasks),
-        lifecycle=_Lifecycle(),
-        emulator=_Emulator(),
-        adb=_Adb(),
-        clock=lambda: datetime(2026, 8, 31, 10, 0, tzinfo=UTC),
-        config_reader=stale_trigger,
+    stale_trigger_service = _authoritative_control_service(
+        stale_trigger,
+        mutation_lock_root=tmp_path,
     )
     with pytest.raises(PostconditionFailedError):
         stale_trigger_service.trigger_task(ScheduleTaskRequest("ap", "Event"))
@@ -541,31 +595,19 @@ def test_control_service_verifies_config_and_scheduler_readbacks():
             return ()
 
     missing_trigger = MissingTriggerConfig()
-    missing_trigger_service = GameControlService(
-        instance_reader=_Instances(),
-        config_schema=_ConfigSchema(metadata.definitions),
-        config_writer=missing_trigger,
-        scheduler_tasks=_SchedulerTasks(metadata.tasks),
-        lifecycle=_Lifecycle(),
-        emulator=_Emulator(),
-        adb=_Adb(),
-        clock=lambda: datetime(2026, 8, 31, 10, 0, tzinfo=UTC),
-        config_reader=missing_trigger,
+    missing_trigger_service = _authoritative_control_service(
+        missing_trigger,
+        mutation_lock_root=tmp_path,
     )
     with pytest.raises(PostconditionFailedError):
         missing_trigger_service.trigger_task(ScheduleTaskRequest("ap", "Event"))
 
     stale_writer = _Config()
     stale_reader = _Config()
-    stale_service = GameControlService(
-        instance_reader=_Instances(),
-        config_schema=_ConfigSchema(metadata.definitions),
-        config_writer=stale_writer,
-        scheduler_tasks=_SchedulerTasks(metadata.tasks),
-        lifecycle=_Lifecycle(),
-        emulator=_Emulator(),
-        adb=_Adb(),
+    stale_service = _authoritative_control_service(
+        stale_writer,
         config_reader=stale_reader,
+        mutation_lock_root=tmp_path,
     )
     with pytest.raises(PostconditionFailedError):
         stale_service.update_config(
@@ -582,19 +624,15 @@ def test_control_service_verifies_config_and_scheduler_readbacks():
 
     stale_queue = StaleQueueConfig()
     stale_queue.scheduled_at["Event"] = datetime(2026, 8, 31, 10, 0, tzinfo=UTC)
-    stale_queue_service = GameControlService(
-        instance_reader=_Instances(),
-        config_schema=_ConfigSchema(metadata.definitions),
-        config_writer=stale_queue,
-        scheduler_tasks=_SchedulerTasks(metadata.tasks),
-        lifecycle=_Lifecycle(),
-        emulator=_Emulator(),
-        adb=_Adb(),
-        config_reader=stale_queue,
+    stale_queue_service = _authoritative_control_service(
+        stale_queue,
+        mutation_lock_root=tmp_path,
     )
     with pytest.raises(PostconditionFailedError):
         stale_queue_service.clear_scheduler_queue("ap")
 
+
+def test_control_service_rejects_unavailable_readbacks(tmp_path: Path) -> None:
     class MissingReadback(_AuthoritativeConfig):
         def read_config(self, instance: str, task: str | None = None) -> dict[str, object]:
             raise ResourceNotFoundError("readback unavailable")
@@ -607,15 +645,9 @@ def test_control_service_verifies_config_and_scheduler_readbacks():
             raise ResourceNotFoundError("readback unavailable")
 
     missing = MissingReadback()
-    missing_service = GameControlService(
-        instance_reader=_Instances(),
-        config_schema=_ConfigSchema(metadata.definitions),
-        config_writer=missing,
-        scheduler_tasks=_SchedulerTasks(metadata.tasks),
-        lifecycle=_Lifecycle(),
-        emulator=_Emulator(),
-        adb=_Adb(),
-        config_reader=missing,
+    missing_service = _authoritative_control_service(
+        missing,
+        mutation_lock_root=tmp_path,
     )
     with pytest.raises(PostconditionFailedError):
         missing_service.update_config(
@@ -627,8 +659,8 @@ def test_control_service_verifies_config_and_scheduler_readbacks():
         missing_service.clear_scheduler_queue("ap")
 
 
-def test_control_service_rejects_unbounded_config_values():
-    service, _config, _lifecycle = _control_service()
+def test_control_service_rejects_unbounded_config_values(tmp_path: Path) -> None:
+    service, _config, _lifecycle = _control_service(mutation_lock_root=tmp_path)
     long_value = "x" * 4097
     with pytest.raises(ConfigurationValidationError):
         service.update_config(
@@ -641,23 +673,28 @@ def test_control_service_rejects_unbounded_config_values():
                 "Main",
                 "General",
                 "Text",
-                Decimal("1000000000001"),
+                Decimal(1000000000001),
             )
         )
 
 
-def test_control_service_rejects_unscoped_adb_restart_before_adapter_call():
+def test_control_service_rejects_unscoped_adb_restart_before_adapter_call(
+    tmp_path: Path,
+) -> None:
     instances = _Instances()
     adb = _Adb()
+    config = _Config()
     metadata = _Metadata()
     service = GameControlService(
         instance_reader=instances,
         config_schema=_ConfigSchema(metadata.definitions),
-        config_writer=_Config(),
+        config_writer=config,
         scheduler_tasks=_SchedulerTasks(metadata.tasks),
         lifecycle=_Lifecycle(),
         emulator=_Emulator(),
         adb=adb,
+        config_reader=config,
+        mutation_lock_root=tmp_path,
     )
 
     with pytest.raises(InvalidRequestError):
@@ -665,8 +702,10 @@ def test_control_service_rejects_unscoped_adb_restart_before_adapter_call():
     assert adb.calls == []
 
 
-def test_control_service_fails_closed_for_invalid_config_and_state_results():
-    service, _config, _lifecycle = _control_service()
+def test_control_service_fails_closed_for_invalid_config_and_state_results(
+    tmp_path: Path,
+) -> None:
+    service, _config, _lifecycle = _control_service(mutation_lock_root=tmp_path)
 
     with pytest.raises(ConfigurationValidationError):
         service.update_config(ConfigUpdateRequest("ap", "Main", "Fleet", "Count", 7))
@@ -695,7 +734,10 @@ def test_control_service_fails_closed_for_invalid_config_and_state_results():
         def is_running(self, instance: str) -> int:  # type: ignore[override]
             return 1
 
-    invalid_service, _config, _lifecycle = _control_service(lifecycle=InvalidLifecycle())
+    invalid_service, _config, _lifecycle = _control_service(
+        lifecycle=InvalidLifecycle(),
+        mutation_lock_root=tmp_path,
+    )
     with pytest.raises(OperationFailedError):
         invalid_service.start_instance("ap")
 
@@ -705,7 +747,8 @@ def test_control_service_fails_closed_for_invalid_config_and_state_results():
             return True
 
     start_mismatch, _config, _lifecycle = _control_service(
-        lifecycle=StartPostconditionMismatch()
+        lifecycle=StartPostconditionMismatch(),
+        mutation_lock_root=tmp_path,
     )
     with pytest.raises(PostconditionFailedError):
         start_mismatch.start_instance("ap")
@@ -720,14 +763,17 @@ def test_control_service_fails_closed_for_invalid_config_and_state_results():
             return True
 
     stop_mismatch, _config, _lifecycle = _control_service(
-        lifecycle=StopPostconditionMismatch()
+        lifecycle=StopPostconditionMismatch(),
+        mutation_lock_root=tmp_path,
     )
     with pytest.raises(PostconditionFailedError):
         stop_mismatch.stop_instance("ap")
 
 
-def test_control_service_preserves_valid_datetime_string_for_legacy_parser():
-    service, config, _lifecycle = _control_service()
+def test_control_service_preserves_valid_datetime_string_for_legacy_parser(
+    tmp_path: Path,
+) -> None:
+    service, config, _lifecycle = _control_service(mutation_lock_root=tmp_path)
     value = "2026-08-31 12:00:00"
 
     service.update_config(
@@ -751,23 +797,31 @@ def test_config_validation_rejects_non_numeric_range_without_raw_type_error():
         validate_config_value(definition, "not-a-number")
 
 
-def test_control_service_sanitizes_writer_failure_without_internal_details():
+def test_control_service_sanitizes_writer_failure_without_internal_details(
+    tmp_path: Path,
+) -> None:
     class BrokenConfig(_Config):
         def update_config(self, request: ConfigUpdateRequest) -> None:
             raise RuntimeError("internal profile adapter detail")
 
-    service, _config, _lifecycle = _control_service(config=BrokenConfig())
+    service, _config, _lifecycle = _control_service(
+        config=BrokenConfig(),
+        mutation_lock_root=tmp_path,
+    )
     with pytest.raises(OperationFailedError) as failure:
         service.update_config(ConfigUpdateRequest("ap", "Main", "Fleet", "Count", 2))
     assert "internal" not in str(failure.value)
     assert "detail" not in str(failure.value)
 
 
-def test_control_service_sanitizes_clock_failure():
+def test_control_service_sanitizes_clock_failure(tmp_path: Path) -> None:
     def broken_clock() -> datetime:
         raise RuntimeError("internal clock adapter detail")
 
-    service, _config, _lifecycle = _control_service(clock=broken_clock)
+    service, _config, _lifecycle = _control_service(
+        clock=broken_clock,
+        mutation_lock_root=tmp_path,
+    )
 
     with pytest.raises(OperationFailedError) as failure:
         service.trigger_task(ScheduleTaskRequest("ap", "Event"))

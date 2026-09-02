@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import os
-import sys
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from hashlib import sha256
 from pathlib import Path
 
@@ -48,14 +47,12 @@ def profile_mutation_lock(
         timeout=timeout,
         retry_interval=GAME_CONTROL_LOCK_RETRY_INTERVAL_SECONDS,
     )
-    try:
-        manager.__enter__()
-    except TimeoutError:
-        raise ResourceBusyError("Профиль занят другой control-операцией.") from None
-    try:
+    with ExitStack() as stack:
+        try:
+            stack.enter_context(manager)
+        except TimeoutError:
+            raise ResourceBusyError("Профиль занят другой control-операцией.") from None
         yield
-    finally:
-        manager.__exit__(*sys.exc_info())
 
 
 __all__ = (

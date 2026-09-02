@@ -37,6 +37,78 @@ def host_runtime_root() -> Path:
     return Path(tempfile.gettempdir()) / "AzurPilot"
 
 
+def _is_link(path: Path) -> bool:
+    if path.is_symlink():
+        return True
+    is_junction = getattr(path, "is_junction", None)
+    return bool(is_junction()) if callable(is_junction) else False
+
+
+def _ensure_directory_tree(directory: Path) -> None:
+    """Создать каталог и проверить каждый созданный компонент на ссылку."""
+
+    pending: list[Path] = []
+    current = Path(directory)
+    while True:
+        if _is_link(current):
+            raise OSError("Каталог application host lock не должен быть ссылкой")
+        if current.exists():
+            if not current.is_dir():
+                raise OSError("Каталог application host lock должен быть каталогом")
+            break
+        parent = current.parent
+        if parent == current:
+            raise OSError("Не удалось определить родительский каталог host lock")
+        pending.append(current)
+        current = parent
+
+    for child in reversed(pending):
+        try:
+            child.mkdir(mode=0o700)
+        except FileExistsError:
+            pass
+        if _is_link(child):
+            raise OSError("Каталог application host lock не должен быть ссылкой")
+        if not child.is_dir():
+            raise OSError("Каталог application host lock должен быть каталогом")
+
+    _validate_directory_ancestors(Path(directory))
+
+
+def _validate_directory_ancestors(directory: Path) -> None:
+    """Проверить весь путь до filesystem root, включая существующие каталоги."""
+
+    current = Path(directory)
+    while True:
+        if _is_link(current):
+            raise OSError("Каталог application host lock не должен быть ссылкой")
+        if not current.exists():
+            raise OSError("Каталог application host lock должен существовать")
+        if not current.is_dir():
+            raise OSError("Каталог application host lock должен быть каталогом")
+        parent = current.parent
+        if parent == current:
+            return
+        current = parent
+
+
+def ensure_host_runtime_root() -> Path:
+    """Создать и проверить пользовательский root до использования lock paths."""
+
+    root = Path(host_runtime_root())
+    _ensure_directory_tree(root)
+    if _is_link(root):
+        raise OSError("Корень application host lock не должен быть ссылкой")
+    if os.name != "nt":
+        uid = os.getuid()
+        if root.stat().st_uid != uid:
+            raise OSError("Корень application host lock принадлежит другому uid")
+        root.chmod(0o700)
+        if (root.stat().st_mode & 0o777) != 0o700:
+            raise OSError("Корень application host lock должен иметь режим 0700")
+    return root
+
+
 def host_scoped_lock_path(resource: str, identity: str) -> Path:
     """Построить host-scoped lock path без включения identity в имя файла."""
 
@@ -155,10 +227,10 @@ def application_host_lock(
         raise ValueError("Интервал application host lock должен быть положительным")
 
     path = Path(lock_path)
-    if path.is_symlink() or path.is_junction():
+    if _is_link(path):
         raise OSError("Application host lock не должен быть ссылкой")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if path.is_symlink() or path.is_junction():
+    _ensure_directory_tree(path.parent)
+    if _is_link(path):
         raise OSError("Application host lock не должен быть ссылкой")
 
     process_lock = _process_lock(path)
@@ -214,6 +286,7 @@ __all__ = (
     "HOST_LOCK_RETRY_INTERVAL_SECONDS",
     "HOST_LOCK_TIMEOUT_SECONDS",
     "application_host_lock",
+    "ensure_host_runtime_root",
     "host_runtime_root",
     "host_scoped_lock_path",
 )

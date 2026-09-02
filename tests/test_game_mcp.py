@@ -408,6 +408,22 @@ def test_contract_and_tool_catalog_are_game_specific_and_scope_separated() -> No
     )
     assert all(tool.annotations.read_only_hint is False for tool in control_tools)
     assert all(tool.annotations.open_world_hint is False for tool in control_tools)
+    expected_control_annotations = {
+        "game_start_profile": (False, True),
+        "game_stop_profile": (True, True),
+        "game_trigger_task": (False, False),
+        "game_clear_scheduler_queue": (True, True),
+        "game_update_config": (True, False),
+        "game_restart_emulator": (True, False),
+        "game_restart_adb": (True, False),
+    }
+    assert {
+        tool.name: (
+            tool.annotations.destructive_hint,
+            tool.annotations.idempotent_hint,
+        )
+        for tool in control_tools
+    } == expected_control_annotations
     assert all(
         tool.meta == {
             "securitySchemes": [
@@ -963,6 +979,7 @@ def test_independent_adapters_share_mutation_lock_for_one_profile(
 
 def test_adapter_returns_busy_when_mutation_lock_times_out(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     monkeypatch.setattr(game_mcp_adapter, "_MUTATION_LOCK_TIMEOUT_SECONDS", 0.01)
     backend = _backend()
@@ -978,7 +995,7 @@ def test_adapter_returns_busy_when_mutation_lock_times_out(
             return LifecycleResult(profile, LifecycleOutcome.STARTED)
 
     backend.control = _BlockingControl()
-    adapter = GameMcpAdapter(lambda: backend)
+    adapter = GameMcpAdapter(lambda: backend, mutation_lock_root=tmp_path)
     first_result: dict[str, object] = {}
 
     def call_start() -> None:
@@ -1100,7 +1117,9 @@ def test_server_cancellation_while_waiting_for_lock_does_not_retry(
     asyncio.run(scenario())
 
 
-def test_adapter_allows_mutations_for_different_profiles_in_parallel() -> None:
+def test_adapter_allows_mutations_for_different_profiles_in_parallel(
+    tmp_path: Path,
+) -> None:
     backend = _backend()
     both_entered = Event()
     release = Event()
@@ -1122,7 +1141,7 @@ def test_adapter_allows_mutations_for_different_profiles_in_parallel() -> None:
             return LifecycleResult(profile, LifecycleOutcome.STARTED)
 
     backend.control = _ParallelControl()
-    adapter = GameMcpAdapter(lambda: backend)
+    adapter = GameMcpAdapter(lambda: backend, mutation_lock_root=tmp_path)
     results: list[dict[str, object]] = []
 
     def call_start(profile: str) -> None:
