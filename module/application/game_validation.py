@@ -149,8 +149,11 @@ def _validate_bounded_payload(
             raise ValueError("Строка конфигурации слишком длинная")
         return
     if allow_extended_scalars and isinstance(value, (date, datetime, Decimal)):
-        if isinstance(value, Decimal) and not value.is_finite():
-            raise ValueError("Число конфигурации не является конечным")
+        if isinstance(value, Decimal):
+            if not value.is_finite():
+                raise ValueError("Число конфигурации не является конечным")
+            if abs(value) > MAX_CONFIG_VALUE_MAGNITUDE:
+                raise ValueError("Число конфигурации выходит за безопасный диапазон")
         return
     if isinstance(value, Mapping):
         if len(value) > MAX_CONFIG_VALUE_ITEMS:

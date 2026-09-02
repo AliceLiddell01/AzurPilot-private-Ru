@@ -14,7 +14,7 @@ from datetime import UTC, date, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 from threading import Lock
-from time import monotonic
+from time import monotonic, sleep
 from typing import NamedTuple
 
 from module.application.errors import (
@@ -52,6 +52,9 @@ _ADB_PATH_CANDIDATES = (
 _SCHEDULER_FALLBACK_NEXT_RUN = datetime.fromisoformat("2050-01-01")
 _ADB_DEVICE_STATES = frozenset({"device", "offline", "unauthorized"})
 _ADB_HOST_LOCK_PATH = _REPOSITORY_ROOT / "config" / "state" / "game-mcp-adb.lock"
+_ADB_RESTART_READY_TIMEOUT_SECONDS = 5.0
+_ADB_RESTART_READY_RETRY_INTERVAL_SECONDS = 0.1
+_ADB_RESTART_READY_MAX_ATTEMPTS = 30
 _TASK_LOG_PATTERNS = (
     re.compile(r"调度器: 开始任务\s*[`'\" ](.*?)[`'\" ]"),
     re.compile(r"<<<\s*Run task\s*(.*?)\s*>>>")
@@ -722,6 +725,10 @@ class LegacyEmulatorAdapter:
 
     def restart_emulator(self, instance: str) -> bool:
         instance = _safe_instance_name(instance)
+        with _adb_host_lock():
+            return self._restart_emulator(instance)
+
+    def _restart_emulator(self, instance: str) -> bool:
         platform = self._make_platform(instance)
         is_running = getattr(platform, "is_emulator_instance_running", None)
         if not callable(is_running) or self._read_running(is_running) is None:
@@ -832,24 +839,40 @@ class LegacyAdbAdapter:
             target_serial = devices[0].serial
         kill = self._runner((adb, "kill-server"))
         start = self._runner((adb, "start-server"))
-        ready = self._runner((adb, "devices"))
-        if not all(self._returncode(result) == 0 for result in (kill, start, ready)):
+        if not all(self._returncode(result) == 0 for result in (kill, start)):
             return self._failure(
                 OperationFailedError("ADB не подтвердил выполнение restart.")
             )
-        ready_devices = self._parse_devices(ready)
-        if (
-            ready_devices is None
-            or not self._inventory_is_safe(
-                ready_devices,
-                target_serial,
-            )
-            or not self._target_is_ready(ready_devices, target_serial)
-        ):
-            return self._failure(
-                PostconditionFailedError("ADB target не подтверждён после restart.")
-            )
-        return True
+        deadline = monotonic() + _ADB_RESTART_READY_TIMEOUT_SECONDS
+        ready_devices: tuple[_AdbDevice, ...] | None = None
+        for attempt in range(_ADB_RESTART_READY_MAX_ATTEMPTS):
+            ready = self._runner((adb, "devices"))
+            if self._returncode(ready) != 0:
+                return self._failure(
+                    OperationFailedError("ADB не подтвердил выполнение restart.")
+                )
+            ready_devices = self._parse_devices(ready)
+            if (
+                ready_devices is not None
+                and self._inventory_is_safe(
+                    ready_devices,
+                    target_serial,
+                )
+                and self._target_is_ready(ready_devices, target_serial)
+            ):
+                return True
+            if (
+                attempt + 1 >= _ADB_RESTART_READY_MAX_ATTEMPTS
+                or monotonic() >= deadline
+            ):
+                break
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                break
+            sleep(min(_ADB_RESTART_READY_RETRY_INTERVAL_SECONDS, remaining))
+        return self._failure(
+            PostconditionFailedError("ADB target не подтверждён после restart.")
+        )
 
     def _failure(self, error: OperationFailedError) -> bool:
         if self._typed_failures:

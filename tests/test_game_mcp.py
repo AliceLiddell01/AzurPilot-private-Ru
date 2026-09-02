@@ -73,7 +73,12 @@ from module.formation.model import (
     FormationFleetSlotObservation,
     FormationFleetSnapshot,
 )
-from module.game_mcp.adapter import GameMcpAdapter, GameMcpResponse, _result
+from module.game_mcp.adapter import (
+    GAME_MCP_CONTROL_TOOL_NAMES,
+    GameMcpAdapter,
+    GameMcpResponse,
+    _result,
+)
 from module.game_mcp.composition import GameMcpBackend
 from module.game_mcp.contract import contract_payload
 from module.game_mcp.server import (
@@ -383,8 +388,12 @@ def test_contract_and_tool_catalog_are_game_specific_and_scope_separated() -> No
         "game_restart_emulator",
         "game_restart_adb",
     ]
-    read_tools = tools[:13]
-    control_tools = tools[13:]
+    control_tools = [
+        tool for tool in tools if tool.name in GAME_MCP_CONTROL_TOOL_NAMES
+    ]
+    read_tools = [
+        tool for tool in tools if tool.name not in GAME_MCP_CONTROL_TOOL_NAMES
+    ]
     assert all(tool.annotations.read_only_hint for tool in read_tools)
     assert all(tool.annotations.destructive_hint is False for tool in read_tools)
     assert all(tool.annotations.idempotent_hint for tool in read_tools)

@@ -118,14 +118,10 @@ def application_host_lock(
         raise ValueError("Интервал application host lock должен быть положительным")
 
     path = Path(lock_path)
-    if path.is_symlink() or (
-        hasattr(path, "is_junction") and path.is_junction()
-    ):
+    if path.is_symlink() or path.is_junction():
         raise OSError("Application host lock не должен быть ссылкой")
     path.parent.mkdir(parents=True, exist_ok=True)
-    if path.is_symlink() or (
-        hasattr(path, "is_junction") and path.is_junction()
-    ):
+    if path.is_symlink() or path.is_junction():
         raise OSError("Application host lock не должен быть ссылкой")
 
     process_lock = _process_lock(path)
@@ -145,11 +141,15 @@ def application_host_lock(
         acquired = True
         yield
     finally:
-        if acquired and handle is not None:
-            _release_os_lock(handle)
-        if handle is not None:
-            handle.close()
-        process_lock.release()
+        try:
+            try:
+                if acquired and handle is not None:
+                    _release_os_lock(handle)
+            finally:
+                if handle is not None:
+                    handle.close()
+        finally:
+            process_lock.release()
 
 
 __all__ = (

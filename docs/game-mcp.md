@@ -118,8 +118,9 @@ shell/module/function/natural-language actions отсутствуют.
 
 ADB restart допускается только после fresh inventory и доказанной
 instance/serial ownership; `adb kill-server` сериализуется host-global lock,
-а post-restart inventory должен подтвердить тот же ready target. Screenshot
-по-прежнему пассивен и не вызывает control path. DB diagnostics, SQL,
+а post-restart inventory bounded-поллингом должен подтвердить тот же ready
+target. Screenshot по-прежнему пассивен и не вызывает control path. DB
+diagnostics, SQL,
 произвольная файловая система, DevSession, Smoke, Evidence и Git state в Game
 surface отсутствуют. `module.game_mcp` не импортирует Dev MCP или Dev Runtime;
 общий authenticated HTTP код находится в нейтральном `module.mcp_shared`.

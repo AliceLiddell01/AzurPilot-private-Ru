@@ -9,6 +9,7 @@ from threading import Event, Thread
 
 import pytest
 
+import module.application.host_lock as host_lock
 import module.application.legacy_game_adapters as legacy_game_adapters
 from module.application import (
     REDACTED_CONFIG_VALUE,
@@ -373,6 +374,95 @@ def test_typed_emulator_failures_distinguish_ownership_operation_and_postconditi
         ).restart_emulator("secondary")
 
 
+def test_emulator_restart_serializes_with_passive_screenshot():
+    screenshot_entered = Event()
+    release_screenshot = Event()
+    screenshot_errors: list[BaseException] = []
+    emulator_errors: list[BaseException] = []
+    emulator_done = Event()
+
+    def screenshot_runner(argv: tuple[str, ...]) -> _CommandResult:
+        if argv == ("adb", "devices"):
+            screenshot_entered.set()
+            assert release_screenshot.wait(timeout=5)
+            return _CommandResult(0, "List of devices attached\nserial-a\tdevice\n")
+        return _CommandResult(0, b"\x89PNG\r\n\x1a\nframe")
+
+    class Platform:
+        def __init__(self) -> None:
+            self.running = True
+
+        def is_emulator_instance_running(self) -> bool:
+            return self.running
+
+        def emulator_stop(self) -> bool:
+            self.running = False
+            return True
+
+        def emulator_start(self) -> bool:
+            self.running = True
+            return True
+
+    screenshot = LegacyScreenshotAdapter(
+        runner=screenshot_runner,
+        adb_path_provider=lambda: "adb",
+        target_serial_provider=lambda instance: "serial-a",
+    )
+    emulator = LegacyEmulatorAdapter(
+        platform_factory=lambda instance: Platform(),
+        typed_failures=True,
+    )
+
+    def read_screenshot() -> None:
+        try:
+            screenshot.read_frame("secondary")
+        except BaseException as error:  # noqa: BLE001 - test thread propagation.
+            screenshot_errors.append(error)
+
+    def restart_emulator() -> None:
+        try:
+            assert emulator.restart_emulator("secondary") is True
+        except BaseException as error:  # noqa: BLE001 - test thread propagation.
+            emulator_errors.append(error)
+        finally:
+            emulator_done.set()
+
+    screenshot_thread = Thread(target=read_screenshot)
+    emulator_thread = Thread(target=restart_emulator)
+    screenshot_thread.start()
+    assert screenshot_entered.wait(timeout=5)
+    emulator_thread.start()
+    assert not emulator_done.wait(timeout=0.1)
+    release_screenshot.set()
+    screenshot_thread.join(timeout=5)
+    emulator_thread.join(timeout=5)
+
+    assert not screenshot_thread.is_alive()
+    assert not emulator_thread.is_alive()
+    assert screenshot_errors == []
+    assert emulator_errors == []
+
+
+def test_host_lock_releases_process_lock_when_os_unlock_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    lock_path = tmp_path / "host.lock"
+    real_release = host_lock._release_os_lock
+
+    def broken_release(handle: object) -> None:
+        raise OSError("simulated unlock failure")
+
+    monkeypatch.setattr(host_lock, "_release_os_lock", broken_release)
+    with pytest.raises(OSError, match="simulated unlock failure"):
+        with host_lock.application_host_lock(lock_path):
+            pass
+
+    monkeypatch.setattr(host_lock, "_release_os_lock", real_release)
+    with host_lock.application_host_lock(lock_path):
+        pass
+
+
 def test_legacy_screenshot_is_passive_and_unavailable_path_does_not_recover(monkeypatch):
     calls: list[tuple[str, ...]] = []
     mutations: list[str] = []
@@ -731,12 +821,15 @@ def _make_adb_adapter(
 ) -> tuple[LegacyAdbAdapter, list[tuple[str, ...]]]:
     calls: list[tuple[str, ...]] = []
     inventory_iter = iter(inventories)
+    last_inventory: str | None = None
 
     def runner(argv: tuple[str, ...]) -> _CommandResult:
         calls.append(argv)
         if argv[-1] == "devices":
-            inventory = next(inventory_iter, None)
+            nonlocal last_inventory
+            inventory = next(inventory_iter, last_inventory)
             assert inventory is not None, "адаптер запросил инвентарь лишний раз"
+            last_inventory = inventory
             return _CommandResult(0, inventory)
         return _CommandResult(0)
 
@@ -769,6 +862,23 @@ def test_legacy_adb_adapter_confirms_offline_target_recovers_to_device():
     assert tuple(calls) == _EXPECTED_RESTART_CALLS
 
 
+def test_legacy_adb_adapter_polls_until_target_is_ready():
+    adapter, calls = _make_adb_adapter(
+        "List of devices attached\nserial-a\tdevice\n",
+        "List of devices attached\nserial-a\toffline\n",
+        "List of devices attached\nserial-a\tdevice\n",
+    )
+
+    assert adapter.restart_adb("secondary") is True
+    assert calls == [
+        ("adb", "devices"),
+        ("adb", "kill-server"),
+        ("adb", "start-server"),
+        ("adb", "devices"),
+        ("adb", "devices"),
+    ]
+
+
 def test_legacy_adb_adapter_rejects_offline_target_that_stays_offline():
     adapter, calls = _make_adb_adapter(
         "List of devices attached\nserial-a\toffline\n",
@@ -776,7 +886,8 @@ def test_legacy_adb_adapter_rejects_offline_target_that_stays_offline():
     )
 
     assert adapter.restart_adb("secondary") is False
-    assert tuple(calls) == _EXPECTED_RESTART_CALLS
+    assert tuple(calls[:4]) == _EXPECTED_RESTART_CALLS
+    assert len(calls) > len(_EXPECTED_RESTART_CALLS)
 
 
 def test_legacy_adb_adapter_rejects_unauthorized_post_restart_state():
@@ -786,7 +897,8 @@ def test_legacy_adb_adapter_rejects_unauthorized_post_restart_state():
     )
 
     assert adapter.restart_adb("secondary") is False
-    assert tuple(calls) == _EXPECTED_RESTART_CALLS
+    assert tuple(calls[:4]) == _EXPECTED_RESTART_CALLS
+    assert len(calls) > len(_EXPECTED_RESTART_CALLS)
 
 
 def test_legacy_adb_adapter_rejects_target_that_disappears_after_restart():
@@ -796,7 +908,8 @@ def test_legacy_adb_adapter_rejects_target_that_disappears_after_restart():
     )
 
     assert adapter.restart_adb("secondary") is False
-    assert tuple(calls) == _EXPECTED_RESTART_CALLS
+    assert tuple(calls[:4]) == _EXPECTED_RESTART_CALLS
+    assert len(calls) > len(_EXPECTED_RESTART_CALLS)
 
 
 def test_legacy_adb_adapter_rejects_unsupported_state_before_restart():
@@ -870,7 +983,8 @@ def test_legacy_adb_adapter_rejects_changed_explicit_target_inventory():
     )
 
     assert adapter.restart_adb("secondary") is False
-    assert tuple(calls) == _EXPECTED_RESTART_CALLS
+    assert tuple(calls[:4]) == _EXPECTED_RESTART_CALLS
+    assert len(calls) > len(_EXPECTED_RESTART_CALLS)
 
 
 def test_typed_adb_failures_distinguish_ownership_and_postcondition():
@@ -889,7 +1003,8 @@ def test_typed_adb_failures_distinguish_ownership_and_postcondition():
     )
     with pytest.raises(PostconditionFailedError):
         postcondition.restart_adb("secondary")
-    assert tuple(postcondition_calls) == _EXPECTED_RESTART_CALLS
+    assert tuple(postcondition_calls[:4]) == _EXPECTED_RESTART_CALLS
+    assert len(postcondition_calls) > len(_EXPECTED_RESTART_CALLS)
 
 
 def test_legacy_adb_adapter_rejects_unscoped_restart_without_touching_adb():

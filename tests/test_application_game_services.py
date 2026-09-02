@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import UTC, datetime
+from decimal import Decimal
 
 import pytest
 
@@ -63,6 +64,13 @@ class _Metadata:
                 input_type="select",
                 default="safe",
                 options=("safe", "fast"),
+            ),
+            ("Main", "General", "Text"): ConfigArgumentDefinition(
+                task="Main",
+                group="General",
+                argument="Text",
+                input_type="input",
+                default="",
             ),
             ("Main", "Scheduler", "NextRun"): ConfigArgumentDefinition(
                 task="Main",
@@ -470,7 +478,17 @@ def test_control_service_rejects_unbounded_config_values():
     long_value = "x" * 4097
     with pytest.raises(ConfigurationValidationError):
         service.update_config(
-            ConfigUpdateRequest("ap", "Main", "General", "Mode", long_value)
+            ConfigUpdateRequest("ap", "Main", "General", "Text", long_value)
+        )
+    with pytest.raises(ConfigurationValidationError):
+        service.update_config(
+            ConfigUpdateRequest(
+                "ap",
+                "Main",
+                "General",
+                "Text",
+                Decimal("1000000000001"),
+            )
         )
 
 

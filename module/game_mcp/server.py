@@ -809,7 +809,7 @@ def tool_definitions() -> list[Tool]:
     """Вернуть детерминированный каталог read и control инструментов."""
 
     descriptions = {
-        "game_get_contract": "Получить стабильный контракт AzurPilot Game MCP read plane.",
+        "game_get_contract": "Получить стабильный контракт AzurPilot Game MCP read/control plane.",
         "game_list_profiles": "Перечислить канонические профили AzurPilot без путей и секретов.",
         "game_get_profile_status": "Получить статус выбранного профиля AzurPilot.",
         "game_get_resources": "Получить ограниченный снимок игровых ресурсов выбранного профиля.",
