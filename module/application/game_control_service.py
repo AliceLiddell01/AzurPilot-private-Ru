@@ -272,7 +272,9 @@ class GameControlService:
         try:
             data = reader(request.instance, request.task)
         except ResourceNotFoundError:
-            raise
+            raise PostconditionFailedError(
+                "Не удалось подтвердить изменение конфигурации."
+            ) from None
         except Exception:  # noqa: BLE001 - postcondition boundary is sanitized.
             raise PostconditionFailedError(
                 "Не удалось подтвердить изменение конфигурации."
@@ -281,14 +283,10 @@ class GameControlService:
             raise PostconditionFailedError(
                 "Не удалось подтвердить изменение конфигурации."
             )
-        selected: object = data
+        selected: Mapping[str, object] = data
         nested_task = data.get(request.task)
         if isinstance(nested_task, Mapping):
             selected = nested_task
-        if not isinstance(selected, Mapping):
-            raise PostconditionFailedError(
-                "Изменение конфигурации не подтверждено."
-            )
         group = selected.get(request.group)
         actual = group.get(request.argument) if isinstance(group, Mapping) else None
         if not isinstance(group, Mapping) or request.argument not in group:
@@ -321,7 +319,9 @@ class GameControlService:
         try:
             queue = reader(instance, schedulable_tasks)
         except ResourceNotFoundError:
-            raise
+            raise PostconditionFailedError(
+                "Не удалось подтвердить планирование задачи."
+            ) from None
         except Exception:  # noqa: BLE001 - postcondition boundary is sanitized.
             raise PostconditionFailedError(
                 "Не удалось подтвердить планирование задачи."
@@ -355,7 +355,9 @@ class GameControlService:
         try:
             queue = reader(instance, schedulable_tasks)
         except ResourceNotFoundError:
-            raise
+            raise PostconditionFailedError(
+                "Не удалось подтвердить очистку очереди scheduler."
+            ) from None
         except Exception:  # noqa: BLE001 - postcondition boundary is sanitized.
             raise PostconditionFailedError(
                 "Не удалось подтвердить очистку очереди scheduler."

@@ -713,7 +713,9 @@ def test_control_tools_return_typed_bounded_results() -> None:
         },
     )
     assert updated["code"] == "GAME_CONFIG_UPDATED"
-    assert "value" not in json.dumps(updated, ensure_ascii=False)
+    updated_json = json.dumps(updated, ensure_ascii=False)
+    assert "value" not in updated_json
+    assert "safe" not in updated_json
     assert adapter.call("game_restart_emulator", {"profile": "alpha"})["code"] == (
         "GAME_EMULATOR_RESTARTED"
     )

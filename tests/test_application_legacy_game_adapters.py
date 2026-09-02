@@ -316,7 +316,16 @@ def test_legacy_screenshot_lifecycle_and_emulator_adapters_use_narrow_owners(mon
     assert events == ["stop", "start"]
 
 
-def test_typed_emulator_failures_distinguish_ownership_operation_and_postcondition():
+def test_typed_emulator_failures_distinguish_ownership_operation_and_postcondition(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(legacy_game_adapters, "_EMULATOR_STATE_MAX_ATTEMPTS", 2)
+    monkeypatch.setattr(
+        legacy_game_adapters,
+        "_EMULATOR_STATE_RETRY_INTERVAL_SECONDS",
+        0.001,
+    )
+
     class NoChecker:
         def emulator_stop(self) -> bool:
             raise AssertionError("операция не должна начинаться без ownership")
@@ -372,6 +381,25 @@ def test_typed_emulator_failures_distinguish_ownership_operation_and_postconditi
             platform_factory=lambda instance: FailedStart(),
             typed_failures=True,
         ).restart_emulator("secondary")
+
+
+def test_emulator_restart_polls_until_stop_and_start_states_are_confirmed():
+    states = iter((True, True, False, False, True))
+
+    class Platform:
+        def emulator_stop(self) -> bool:
+            return True
+
+        def emulator_start(self) -> bool:
+            return True
+
+        def is_emulator_instance_running(self) -> bool:
+            return next(states)
+
+    assert LegacyEmulatorAdapter(
+        platform_factory=lambda instance: Platform(),
+        typed_failures=True,
+    ).restart_emulator("secondary") is True
 
 
 def test_emulator_restart_serializes_with_passive_screenshot():

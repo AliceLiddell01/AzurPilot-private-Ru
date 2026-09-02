@@ -52,9 +52,13 @@ _ADB_PATH_CANDIDATES = (
 _SCHEDULER_FALLBACK_NEXT_RUN = datetime.fromisoformat("2050-01-01")
 _ADB_DEVICE_STATES = frozenset({"device", "offline", "unauthorized"})
 _ADB_HOST_LOCK_PATH = _REPOSITORY_ROOT / "config" / "state" / "game-mcp-adb.lock"
+_ADB_HOST_LOCK_TIMEOUT_SECONDS = 75.0
 _ADB_RESTART_READY_TIMEOUT_SECONDS = 5.0
 _ADB_RESTART_READY_RETRY_INTERVAL_SECONDS = 0.1
-_ADB_RESTART_READY_MAX_ATTEMPTS = 30
+_ADB_RESTART_READY_MAX_ATTEMPTS = 60
+_EMULATOR_STATE_TIMEOUT_SECONDS = 5.0
+_EMULATOR_STATE_RETRY_INTERVAL_SECONDS = 0.1
+_EMULATOR_STATE_MAX_ATTEMPTS = 60
 _TASK_LOG_PATTERNS = (
     re.compile(r"调度器: 开始任务\s*[`'\" ](.*?)[`'\" ]"),
     re.compile(r"<<<\s*Run task\s*(.*?)\s*>>>")
@@ -64,7 +68,10 @@ _TASK_LOG_PATTERNS = (
 def _adb_host_lock():
     """Сериализовать все Game ADB операции внутри и между процессами."""
 
-    return application_host_lock(_ADB_HOST_LOCK_PATH)
+    return application_host_lock(
+        _ADB_HOST_LOCK_PATH,
+        timeout=_ADB_HOST_LOCK_TIMEOUT_SECONDS,
+    )
 
 
 class _AdbDevice(NamedTuple):
@@ -738,7 +745,7 @@ class LegacyEmulatorAdapter:
                 )
             )
         stopped = platform.emulator_stop()  # type: ignore[attr-defined]
-        if stopped is not True or self._read_running(is_running) is not False:
+        if stopped is not True or not self._await_running(is_running, False):
             return self._failure(
                 PostconditionFailedError(
                     "Эмулятор не подтвердил состояние stopped после stop."
@@ -749,7 +756,7 @@ class LegacyEmulatorAdapter:
             return self._failure(
                 OperationFailedError("Эмулятор не подтвердил запуск после stop.")
             )
-        if self._read_running(is_running) is not True:
+        if not self._await_running(is_running, True):
             return self._failure(
                 PostconditionFailedError(
                     "Эмулятор не подтвердил состояние running после start."
@@ -769,6 +776,23 @@ class LegacyEmulatorAdapter:
         except Exception:  # noqa: BLE001 - lifecycle confirmation fails closed.
             return None
         return value if type(value) is bool else None
+
+    @staticmethod
+    def _await_running(checker: Callable[[], object], expected: bool) -> bool:
+        deadline = monotonic() + _EMULATOR_STATE_TIMEOUT_SECONDS
+        for attempt in range(_EMULATOR_STATE_MAX_ATTEMPTS):
+            if LegacyEmulatorAdapter._read_running(checker) is expected:
+                return True
+            if (
+                attempt + 1 >= _EMULATOR_STATE_MAX_ATTEMPTS
+                or monotonic() >= deadline
+            ):
+                break
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                break
+            sleep(min(_EMULATOR_STATE_RETRY_INTERVAL_SECONDS, remaining))
+        return False
 
     def _make_platform(self, instance: str) -> object:
         if self._platform_factory is not None:
@@ -844,7 +868,6 @@ class LegacyAdbAdapter:
                 OperationFailedError("ADB не подтвердил выполнение restart.")
             )
         deadline = monotonic() + _ADB_RESTART_READY_TIMEOUT_SECONDS
-        ready_devices: tuple[_AdbDevice, ...] | None = None
         for attempt in range(_ADB_RESTART_READY_MAX_ATTEMPTS):
             ready = self._runner((adb, "devices"))
             if self._returncode(ready) != 0:

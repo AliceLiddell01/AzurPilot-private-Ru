@@ -954,9 +954,7 @@ def _control_schedule_result(profile: str, control: object, arguments: dict[str,
         or result.verified is not True
     ):
         raise PostconditionFailedError("Планирование задачи не подтверждено.")
-    scheduled_at = _safe_value(result.scheduled_at)
-    if not isinstance(scheduled_at, str) or not scheduled_at:
-        raise ServiceUnavailableError("Источник вернул некорректное время планирования.")
+    scheduled_at = _safe_datetime(result.scheduled_at)
     return _ok(
         "GAME_TASK_SCHEDULED",
         "Задача поставлена в scheduler",

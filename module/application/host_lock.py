@@ -9,11 +9,12 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from threading import Lock
+from weakref import WeakValueDictionary
 
 HOST_LOCK_TIMEOUT_SECONDS = 10.0
 HOST_LOCK_RETRY_INTERVAL_SECONDS = 0.05
 _PROCESS_LOCKS_GUARD = Lock()
-_PROCESS_LOCKS: dict[str, Lock] = {}
+_PROCESS_LOCKS: WeakValueDictionary[str, Lock] = WeakValueDictionary()
 
 
 def _process_lock(path: Path) -> Lock:

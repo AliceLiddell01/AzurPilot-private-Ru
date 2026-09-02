@@ -472,6 +472,37 @@ def test_control_service_verifies_config_and_scheduler_readbacks():
     with pytest.raises(PostconditionFailedError):
         stale_queue_service.clear_scheduler_queue("ap")
 
+    class MissingReadback(_AuthoritativeConfig):
+        def read_config(self, instance: str, task: str | None = None) -> dict[str, object]:
+            raise ResourceNotFoundError("readback unavailable")
+
+        def read_scheduler_queue(
+            self,
+            instance: str,
+            schedulable_tasks: tuple[str, ...],
+        ) -> tuple[SchedulerEntry, ...]:
+            raise ResourceNotFoundError("readback unavailable")
+
+    missing = MissingReadback()
+    missing_service = GameControlService(
+        instance_reader=_Instances(),
+        config_schema=_ConfigSchema(metadata.definitions),
+        config_writer=missing,
+        scheduler_tasks=_SchedulerTasks(metadata.tasks),
+        lifecycle=_Lifecycle(),
+        emulator=_Emulator(),
+        adb=_Adb(),
+        config_reader=missing,
+    )
+    with pytest.raises(PostconditionFailedError):
+        missing_service.update_config(
+            ConfigUpdateRequest("ap", "Main", "Fleet", "Count", 5)
+        )
+    with pytest.raises(PostconditionFailedError):
+        missing_service.trigger_task(ScheduleTaskRequest("ap", "Event"))
+    with pytest.raises(PostconditionFailedError):
+        missing_service.clear_scheduler_queue("ap")
+
 
 def test_control_service_rejects_unbounded_config_values():
     service, _config, _lifecycle = _control_service()
