@@ -345,6 +345,44 @@ def test_contract_and_tool_catalog_are_game_specific_and_read_only() -> None:
         assert tool.description
 
 
+def test_output_schemas_are_scoped_to_their_tool_details() -> None:
+    expected = {
+        "game_get_contract": {"contract", "tool"},
+        "game_list_profiles": {"profiles", "tool"},
+        "game_get_profile_status": {"profile", "running", "state", "tool"},
+        "game_get_resources": {"profile", "resources", "tool"},
+        "game_get_current_task": {"profile", "task", "tool"},
+        "game_get_scheduler_queue": {"entries", "profile", "tool"},
+        "game_list_tasks": {"tasks", "tool"},
+        "game_get_task_help": {"task", "tool"},
+        "game_get_fleet_state": {
+            "coverage_complete",
+            "missing_fleet_indices",
+            "observations",
+            "profile",
+            "selection",
+            "snapshots_complete",
+            "tool",
+        },
+        "game_get_morale": {
+            "fleets",
+            "profile",
+            "projected_at",
+            "selection",
+            "tool",
+        },
+        "game_get_config": {"config", "profile", "task", "tool"},
+        "game_get_recent_logs": {"lines", "profile", "tool", "truncated"},
+        "game_get_screenshot": {"profile", "screenshot", "tool"},
+    }
+    actual = {
+        tool.name: set(tool.output_schema["properties"]["details"]["properties"])
+        for tool in tool_definitions()
+    }
+
+    assert actual == expected
+
+
 def test_structured_content_conforms_to_each_advertised_output_schema() -> None:
     adapter = GameMcpAdapter(lambda: _backend())
     calls = (

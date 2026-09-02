@@ -436,103 +436,173 @@ _CONTRACT_OUTPUT = {
     ],
     "additionalProperties": False,
 }
-_DETAILS_OUTPUT = {
+_DETAILS_COMMON_OUTPUT = {"tool": {"type": "string", "maxLength": 128}}
+_PROFILE_DETAILS_OUTPUT = {
+    "profile": {"type": "string", "minLength": 1, "maxLength": MAX_NAME_LENGTH},
+}
+_SELECTION_OUTPUT = {
+    "type": "array",
+    "minItems": 1,
+    "maxItems": len(SUPPORTED_SURFACE_FLEET_INDICES),
+    "uniqueItems": True,
+    "items": {
+        "type": "integer",
+        "enum": list(SUPPORTED_SURFACE_FLEET_INDICES),
+    },
+}
+_MISSING_FLEET_INDICES_OUTPUT = {
+    "type": "array",
+    "maxItems": len(SUPPORTED_SURFACE_FLEET_INDICES),
+    "uniqueItems": True,
+    "items": {
+        "type": "integer",
+        "enum": list(SUPPORTED_SURFACE_FLEET_INDICES),
+    },
+}
+_SCREENSHOT_OUTPUT = {
     "type": "object",
     "properties": {
-        "tool": {"type": "string", "maxLength": 128},
-        "contract": _CONTRACT_OUTPUT,
-        "profiles": {
-            "type": "array",
-            "maxItems": 256,
-            "items": _PROFILE_OUTPUT,
-        },
-        "tasks": {"type": "array", "maxItems": 512, "items": _TASK_OUTPUT},
-        "profile": {"type": "string", "minLength": 1, "maxLength": MAX_NAME_LENGTH},
-        "running": {"type": "boolean"},
-        "state": {"type": "string", "maxLength": 64},
-        "resources": {
-            "type": "array",
-            "maxItems": 256,
-            "items": _RESOURCE_OUTPUT,
-        },
-        "task": {
-            "oneOf": [
-                {"type": "string", "maxLength": 4096},
-                {"type": "null"},
-                _TASK_METADATA_OUTPUT,
-            ]
-        },
-        "entries": {
-            "type": "array",
-            "maxItems": 512,
-            "items": _SCHEDULER_ENTRY_OUTPUT,
-        },
-        "selection": {
-            "type": "array",
-            "minItems": 1,
-            "maxItems": len(SUPPORTED_SURFACE_FLEET_INDICES),
-            "uniqueItems": True,
-            "items": {
-                "type": "integer",
-                "enum": list(SUPPORTED_SURFACE_FLEET_INDICES),
-            },
-        },
-        "observations": {
-            "type": "array",
-            "maxItems": len(SUPPORTED_SURFACE_FLEET_INDICES),
-            "items": _FLEET_OBSERVATION_OUTPUT,
-        },
-        "missing_fleet_indices": {
-            "type": "array",
-            "maxItems": len(SUPPORTED_SURFACE_FLEET_INDICES),
-            "uniqueItems": True,
-            "items": {
-                "type": "integer",
-                "enum": list(SUPPORTED_SURFACE_FLEET_INDICES),
-            },
-        },
-        "coverage_complete": {"type": "boolean"},
-        "snapshots_complete": {"type": "boolean"},
-        "projected_at": {"type": "string", "maxLength": 128},
-        "fleets": {
-            "type": "array",
-            "maxItems": len(SUPPORTED_SURFACE_FLEET_INDICES),
-            "items": _MORALE_FLEET_OUTPUT,
-        },
-        "lines": {"type": "array", "maxItems": 200, "items": {"type": "string"}},
-        "truncated": {"type": "boolean"},
-        "config": {
-            "type": "object",
-            "maxProperties": 256,
-            "additionalProperties": _JSON_VALUE,
-        },
-        "screenshot": {
-            "type": "object",
-            "properties": {
-                "mime": {"type": "string", "enum": ["image/png", "image/jpeg"]},
-                "width": {"type": "integer", "minimum": 1, "maximum": 8192},
-                "height": {"type": "integer", "minimum": 1, "maximum": 8192},
-                "byte_size": {"type": "integer", "minimum": 1, "maximum": 4194304},
-                "sha256": {"type": "string", "pattern": r"^[a-f0-9]{64}$"},
-            },
-            "required": ["mime", "width", "height", "byte_size", "sha256"],
-            "additionalProperties": False,
-        },
+        "mime": {"type": "string", "enum": ["image/png", "image/jpeg"]},
+        "width": {"type": "integer", "minimum": 1, "maximum": 8192},
+        "height": {"type": "integer", "minimum": 1, "maximum": 8192},
+        "byte_size": {"type": "integer", "minimum": 1, "maximum": 4194304},
+        "sha256": {"type": "string", "pattern": r"^[a-f0-9]{64}$"},
     },
-    "maxProperties": 32,
+    "required": ["mime", "width", "height", "byte_size", "sha256"],
     "additionalProperties": False,
 }
-_OUTPUT = {
-    "type": "object",
-    "properties": {
-        "ok": {"type": "boolean"},
-        "code": {"type": "string", "maxLength": 128},
-        "message": {"type": "string", "maxLength": 4096},
-        "state": {"type": "string", "maxLength": 64},
-        "details": _DETAILS_OUTPUT,
-    },
-    "required": ["ok", "code", "message", "state", "details"],
-    "additionalProperties": False,
+
+
+def _details_output(properties: dict[str, Any]) -> dict[str, Any]:
+    """Собрать schema только для полей details конкретного инструмента."""
+
+    return {
+        "type": "object",
+        "properties": {**_DETAILS_COMMON_OUTPUT, **properties},
+        "maxProperties": 32,
+        "additionalProperties": False,
+    }
+
+
+_COMMON_OUTPUT_PROPERTIES = {
+    "ok": {"type": "boolean"},
+    "code": {"type": "string", "maxLength": 128},
+    "message": {"type": "string", "maxLength": 4096},
+    "state": {"type": "string", "maxLength": 64},
+}
+
+
+def _output_schema(details: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            **_COMMON_OUTPUT_PROPERTIES,
+            "details": _details_output(details),
+        },
+        "required": ["ok", "code", "message", "state", "details"],
+        "additionalProperties": False,
+    }
+
+
+_OUTPUT_SCHEMAS = {
+    "game_get_contract": _output_schema({"contract": _CONTRACT_OUTPUT}),
+    "game_list_profiles": _output_schema(
+        {
+            "profiles": {
+                "type": "array",
+                "maxItems": 256,
+                "items": _PROFILE_OUTPUT,
+            }
+        }
+    ),
+    "game_get_profile_status": _output_schema(
+        {
+            **_PROFILE_DETAILS_OUTPUT,
+            "running": {"type": "boolean"},
+            "state": {"type": "string", "maxLength": 64},
+        }
+    ),
+    "game_get_resources": _output_schema(
+        {
+            **_PROFILE_DETAILS_OUTPUT,
+            "resources": {
+                "type": "array",
+                "maxItems": 256,
+                "items": _RESOURCE_OUTPUT,
+            },
+        }
+    ),
+    "game_get_current_task": _output_schema(
+        {
+            **_PROFILE_DETAILS_OUTPUT,
+            "task": {"type": ["string", "null"], "maxLength": 4096},
+        }
+    ),
+    "game_get_scheduler_queue": _output_schema(
+        {
+            **_PROFILE_DETAILS_OUTPUT,
+            "entries": {
+                "type": "array",
+                "maxItems": 512,
+                "items": _SCHEDULER_ENTRY_OUTPUT,
+            },
+        }
+    ),
+    "game_list_tasks": _output_schema(
+        {"tasks": {"type": "array", "maxItems": 512, "items": _TASK_OUTPUT}}
+    ),
+    "game_get_task_help": _output_schema({"task": _TASK_METADATA_OUTPUT}),
+    "game_get_fleet_state": _output_schema(
+        {
+            **_PROFILE_DETAILS_OUTPUT,
+            "selection": _SELECTION_OUTPUT,
+            "observations": {
+                "type": "array",
+                "maxItems": len(SUPPORTED_SURFACE_FLEET_INDICES),
+                "items": _FLEET_OBSERVATION_OUTPUT,
+            },
+            "missing_fleet_indices": _MISSING_FLEET_INDICES_OUTPUT,
+            "coverage_complete": {"type": "boolean"},
+            "snapshots_complete": {"type": "boolean"},
+        }
+    ),
+    "game_get_morale": _output_schema(
+        {
+            **_PROFILE_DETAILS_OUTPUT,
+            "selection": _SELECTION_OUTPUT,
+            "projected_at": {"type": "string", "maxLength": 128},
+            "fleets": {
+                "type": "array",
+                "maxItems": len(SUPPORTED_SURFACE_FLEET_INDICES),
+                "items": _MORALE_FLEET_OUTPUT,
+            },
+        }
+    ),
+    "game_get_config": _output_schema(
+        {
+            **_PROFILE_DETAILS_OUTPUT,
+            "task": {"type": ["string", "null"], "maxLength": 4096},
+            "config": {
+                "type": "object",
+                "maxProperties": 256,
+                "additionalProperties": _JSON_VALUE,
+            },
+        }
+    ),
+    "game_get_recent_logs": _output_schema(
+        {
+            **_PROFILE_DETAILS_OUTPUT,
+            "lines": {
+                "type": "array",
+                "maxItems": 200,
+                "items": {"type": "string"},
+            },
+            "truncated": {"type": "boolean"},
+        }
+    ),
+    "game_get_screenshot": _output_schema(
+        {**_PROFILE_DETAILS_OUTPUT, "screenshot": _SCREENSHOT_OUTPUT}
+    ),
 }
 _READ_ONLY = ToolAnnotations(
     readOnlyHint=True,
@@ -547,7 +617,7 @@ def _tool(name: str, description: str, input_schema: dict[str, Any]) -> Tool:
         name=name,
         description=description,
         inputSchema=input_schema,
-        outputSchema=_OUTPUT,
+        outputSchema=_OUTPUT_SCHEMAS[name],
         annotations=_READ_ONLY,
         _meta={
             "securitySchemes": [{"type": "oauth2", "scopes": [GAME_MCP_REQUIRED_SCOPE]}]
