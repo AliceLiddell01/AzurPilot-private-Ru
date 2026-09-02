@@ -58,7 +58,9 @@ class _StaticVerifier:
     def __init__(self, scopes: list[str]) -> None:
         self.scopes = scopes
 
-    async def verify_token(self, _token: str) -> AccessToken | None:
+    async def verify_token(self, token: str) -> AccessToken | None:
+        if token != "valid-token":
+            return None
         return AccessToken(
             token="",
             client_id="user-1",
@@ -276,6 +278,20 @@ def test_game_remote_rejects_dev_scope_and_missing_auth() -> None:
                 f'scope="{GAME_MCP_REQUIRED_SCOPE}"'
                 in missing.headers["www-authenticate"]
             )
+
+            wrong_token = await client.post(
+                "/mcp",
+                headers={**_headers(), "Authorization": "Bearer wrong-token"},
+                json={"jsonrpc": "2.0"},
+            )
+            assert wrong_token.status_code == 401
+
+            query_token = await client.post(
+                "/mcp?access_token=valid-token",
+                headers=_headers(auth=False),
+                json={"jsonrpc": "2.0"},
+            )
+            assert query_token.status_code == 401
 
             dev_token = await client.post(
                 "/mcp", headers=_headers(), json={"jsonrpc": "2.0"}

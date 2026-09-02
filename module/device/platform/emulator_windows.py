@@ -95,8 +95,10 @@ class EmulatorInstance(EmulatorInstanceBase):
         serials = [self.serial] if self.serial else []
         if self.type in (Emulator.MuMuPlayerX, Emulator.MuMuPlayer12):
             emulator = self.emulator
-            vbox_file = emulator.abspath(f'../vms/{self.name}/{self.name}.nemu')
-            serials.extend(emulator.vbox_file_to_serials(vbox_file))
+            if self.name:
+                vbox_folder = emulator.abspath(f'../vms/{self.name}')
+                for vbox_file in iter_folder(vbox_folder, ext='.nemu'):
+                    serials.extend(emulator.vbox_file_to_serials(vbox_file))
         return tuple(dict.fromkeys(serial for serial in serials if serial))
 
 

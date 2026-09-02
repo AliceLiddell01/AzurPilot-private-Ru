@@ -201,8 +201,8 @@ def _bound_passive_screenshot(data: bytes) -> tuple[bytes, str]:
 
 def _first_existing_adb_path(*roots: Path) -> str | None:
     search_roots = (*roots, _REPOSITORY_ROOT)
-    for candidate in _ADB_PATH_CANDIDATES:
-        for base in search_roots:
+    for base in search_roots:
+        for candidate in _ADB_PATH_CANDIDATES:
             resolved = base / candidate
             if resolved.is_file():
                 return str(resolved.resolve())
@@ -590,7 +590,12 @@ class LegacyScreenshotAdapter:
         aliases = self._target_serial_aliases_provider(target_serial)
         if isinstance(aliases, (str, bytes)) or not isinstance(aliases, Sequence):
             raise TypeError("Resolver ADB aliases вернул неверный формат.")
-        safe_aliases = frozenset(_safe_serial(alias) for alias in aliases)
+        safe_aliases: set[str] = set()
+        for alias in aliases:
+            try:
+                safe_aliases.add(_safe_serial(alias))
+            except (TypeError, ValueError):
+                continue
         matches = tuple(serial for serial in ready_serials if serial in safe_aliases)
         if len(matches) != 1:
             raise OSError("Настроенный ADB target не подтверждён.")

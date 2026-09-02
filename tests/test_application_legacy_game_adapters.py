@@ -391,6 +391,7 @@ def test_passive_screenshot_resolves_only_canonical_emulator_aliases():
         target_serial_provider=lambda instance: "127.0.0.1:16448",
         target_serial_aliases_provider=lambda serial: (
             serial,
+            " ",
             "127.0.0.1:5561",
             "emulator-5560",
         ),
@@ -485,6 +486,55 @@ def test_passive_adb_discovery_is_independent_of_process_cwd(
     monkeypatch.chdir(process_cwd)
 
     assert legacy_game_adapters._find_passive_adb_path() == str(adb.resolve())
+
+
+def test_adb_discovery_prioritizes_supplied_root_before_candidate_order(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    configured_root = tmp_path / "configured"
+    repository_root = tmp_path / "repository"
+    configured_adb = configured_root / "bin" / "adb" / "adb"
+    repository_adb = repository_root / ".venv" / "Scripts" / "adb.exe"
+    configured_adb.parent.mkdir(parents=True)
+    repository_adb.parent.mkdir(parents=True)
+    configured_adb.write_bytes(b"configured")
+    repository_adb.write_bytes(b"repository")
+
+    monkeypatch.setattr(legacy_game_adapters, "_REPOSITORY_ROOT", repository_root)
+
+    assert legacy_game_adapters._first_existing_adb_path(configured_root) == str(
+        configured_adb.resolve()
+    )
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Проверяется Windows MuMu instance discovery")
+def test_mumu_instance_alias_discovery_scans_all_nemu_files(tmp_path: Path) -> None:
+    from module.device.platform.emulator_windows import EmulatorInstance
+
+    emulator_root = tmp_path / "mumu"
+    emulator_path = emulator_root / "nx_main" / "MuMuNxMain.exe"
+    vms_folder = emulator_root / "vms" / "MuMuPlayerGlobal-15.0-1"
+    vms_folder.mkdir(parents=True)
+    (vms_folder / "renamed-instance.nemu").write_text(
+        '<Forwarding name="ADB_PORT" hostport="16416" guestport="5555"/>\n'
+        '<Forwarding name="ADB_PORT_EX" hostport="5557" guestport="5555"/>\n'
+        '<Forwarding name="ADB_PORT_OLD" hostport="7555" guestport="5555"/>\n',
+        encoding="utf-8",
+    )
+
+    instance = EmulatorInstance(
+        serial="127.0.0.1:16416",
+        name="MuMuPlayerGlobal-15.0-1",
+        path=str(emulator_path),
+    )
+
+    assert instance.adb_serials == (
+        "127.0.0.1:16416",
+        "127.0.0.1:5557",
+        "emulator-5556",
+        "127.0.0.1:7555",
+    )
 
 
 @dataclass
