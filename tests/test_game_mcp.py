@@ -19,7 +19,7 @@ from jsonschema import Draft202012Validator
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.shared.message import SessionMessage
-from mcp.types import JSONRPCRequest
+from mcp.types import CallToolRequestParams, JSONRPCRequest
 from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
@@ -65,6 +65,7 @@ from module.application import (
     TaskOption,
     TaskSummary,
 )
+from module.application.game_control_lock import profile_mutation_lock
 from module.application.game_validation import UNKNOWN_TASK
 from module.application.instance_identity import runtime_instance_identity
 from module.application.storage_models import InstanceIdentity
@@ -911,6 +912,55 @@ def test_adapter_serializes_mutations_per_profile() -> None:
     assert max_active == 1
 
 
+def test_independent_adapters_share_mutation_lock_for_one_profile(
+    tmp_path: Path,
+) -> None:
+    backend = _backend()
+    entered = Event()
+    release = Event()
+    second_entered = Event()
+    invocation_count = 0
+    state_lock = Lock()
+
+    class _BlockingControl(_Control):
+        def start_instance(self, profile: str) -> LifecycleResult:
+            nonlocal invocation_count
+            with state_lock:
+                invocation_count += 1
+                invocation = invocation_count
+            if invocation == 1:
+                entered.set()
+                assert release.wait(5)
+            else:
+                second_entered.set()
+            return LifecycleResult(profile, LifecycleOutcome.STARTED)
+
+    backend.control = _BlockingControl()
+    first_adapter = GameMcpAdapter(lambda: backend, mutation_lock_root=tmp_path)
+    second_adapter = GameMcpAdapter(lambda: backend, mutation_lock_root=tmp_path)
+    results: list[dict[str, object]] = []
+
+    def call_start(adapter: GameMcpAdapter) -> None:
+        results.append(adapter.call("game_start_profile", {"profile": "alpha"}))
+
+    first_thread = Thread(target=call_start, args=(first_adapter,))
+    second_thread = Thread(target=call_start, args=(second_adapter,))
+    first_thread.start()
+    try:
+        assert entered.wait(5)
+        second_thread.start()
+        assert not second_entered.wait(0.2)
+    finally:
+        release.set()
+        first_thread.join(timeout=5)
+        second_thread.join(timeout=5)
+
+    assert not first_thread.is_alive()
+    assert not second_thread.is_alive()
+    assert len(results) == 2
+    assert all(result["code"] == "GAME_PROFILE_STARTED" for result in results)
+
+
 def test_adapter_returns_busy_when_mutation_lock_times_out(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -949,6 +999,105 @@ def test_adapter_returns_busy_when_mutation_lock_times_out(
 
     assert not first_thread.is_alive()
     assert first_result["code"] == "GAME_PROFILE_STARTED"
+
+
+def test_server_cancellation_does_not_retry_started_mutation(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        backend = _backend()
+        entered = Event()
+        release = Event()
+        finished = Event()
+        calls: list[str] = []
+
+        class _BlockingControl(_Control):
+            def start_instance(self, profile: str) -> LifecycleResult:
+                calls.append(profile)
+                entered.set()
+                assert release.wait(5)
+                try:
+                    return LifecycleResult(profile, LifecycleOutcome.STARTED)
+                finally:
+                    finished.set()
+
+        backend.control = _BlockingControl()
+        adapter = GameMcpAdapter(lambda: backend, mutation_lock_root=tmp_path)
+        handler_entry = create_server(
+            adapter,
+            abandon_on_cancel=True,
+            redirect_legacy_stdout=False,
+        ).get_request_handler("tools/call")
+        assert handler_entry is not None
+
+        task = asyncio.create_task(
+            handler_entry.handler(
+                None,
+                CallToolRequestParams(
+                    name="game_start_profile",
+                    arguments={"profile": "alpha"},
+                ),
+            )
+        )
+        assert await anyio.to_thread.run_sync(entered.wait, 5)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        release.set()
+        assert await anyio.to_thread.run_sync(finished.wait, 5)
+        assert calls == ["alpha"]
+
+    asyncio.run(scenario())
+
+
+def test_server_cancellation_while_waiting_for_lock_does_not_retry(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(game_mcp_adapter, "_MUTATION_LOCK_TIMEOUT_SECONDS", 0.05)
+
+    async def scenario() -> None:
+        backend = _backend()
+        lookup_started = Event()
+        calls: list[str] = []
+
+        class _ObservedInstances(_Instances):
+            def list_instances(self) -> tuple[InstanceReference, ...]:
+                lookup_started.set()
+                return super().list_instances()
+
+        class _CountingControl(_Control):
+            def start_instance(self, profile: str) -> LifecycleResult:
+                calls.append(profile)
+                return LifecycleResult(profile, LifecycleOutcome.STARTED)
+
+        backend.instances = _ObservedInstances()
+        backend.control = _CountingControl()
+        adapter = GameMcpAdapter(lambda: backend, mutation_lock_root=tmp_path)
+        handler_entry = create_server(
+            adapter,
+            abandon_on_cancel=True,
+            redirect_legacy_stdout=False,
+        ).get_request_handler("tools/call")
+        assert handler_entry is not None
+
+        with profile_mutation_lock("alpha", repository_root=tmp_path):
+            task = asyncio.create_task(
+                handler_entry.handler(
+                    None,
+                    CallToolRequestParams(
+                        name="game_start_profile",
+                        arguments={"profile": "alpha"},
+                    ),
+                )
+            )
+            assert await anyio.to_thread.run_sync(lookup_started.wait, 5)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            await anyio.sleep(0.1)
+            assert calls == []
+
+    asyncio.run(scenario())
 
 
 def test_adapter_allows_mutations_for_different_profiles_in_parallel() -> None:

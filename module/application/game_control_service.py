@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from datetime import datetime
+from datetime import UTC, datetime
+from functools import wraps
+from pathlib import Path
+from typing import Concatenate
 
 from module.application.errors import (
     ApplicationError,
@@ -12,6 +15,10 @@ from module.application.errors import (
     PostconditionFailedError,
     ResourceNotFoundError,
     ServiceUnavailableError,
+)
+from module.application.game_control_lock import (
+    GAME_CONTROL_LOCK_TIMEOUT_SECONDS,
+    profile_mutation_lock,
 )
 from module.application.game_models import (
     AdbRestartResult,
@@ -48,6 +55,42 @@ from module.application.game_validation import (
 from module.application.ports import InstanceRuntimeReader
 
 
+def _control_profile(value: object) -> str | None:
+    if isinstance(value, (ConfigUpdateRequest, ScheduleTaskRequest)):
+        value = value.instance
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def _profile_mutation[**ControlParameters, ControlReturn](
+    method: Callable[
+        Concatenate[GameControlService, ControlParameters], ControlReturn
+    ],
+) -> Callable[Concatenate[GameControlService, ControlParameters], ControlReturn]:
+    """Сериализовать каждую публичную mutation по canonical profile."""
+
+    @wraps(method)
+    def wrapped(
+        self: GameControlService,
+        *args: ControlParameters.args,
+        **kwargs: ControlParameters.kwargs,
+    ) -> ControlReturn:
+        value = args[0] if args else kwargs.get("request", kwargs.get("instance"))
+        profile = _control_profile(value)
+        if profile is None:
+            return method(self, *args, **kwargs)
+        with profile_mutation_lock(
+            profile,
+            repository_root=self._mutation_lock_root,
+            timeout=GAME_CONTROL_LOCK_TIMEOUT_SECONDS,
+        ):
+            return method(self, *args, **kwargs)
+
+    return wrapped
+
+
 class GameControlService:
     """Control API игры с явными typed requests и fail-closed результатами."""
 
@@ -63,6 +106,7 @@ class GameControlService:
         *,
         clock: Callable[[], datetime] | None = None,
         config_reader: GameConfigReader | None = None,
+        mutation_lock_root: Path | str | None = None,
     ) -> None:
         self._instance_reader = instance_reader
         self._config_schema = config_schema
@@ -73,7 +117,9 @@ class GameControlService:
         self._adb = adb
         self._clock = clock or datetime.now
         self._config_reader = config_reader
+        self._mutation_lock_root = mutation_lock_root
 
+    @_profile_mutation
     def update_config(self, request: ConfigUpdateRequest) -> ConfigUpdateResult:
         if not isinstance(request, ConfigUpdateRequest):
             raise InvalidRequestError("Запрос изменения конфигурации имеет неверный тип.")
@@ -120,6 +166,7 @@ class GameControlService:
         verified = self._verify_config_update(canonical_request)
         return ConfigUpdateResult(request=canonical_request, verified=verified)
 
+    @_profile_mutation
     def start_instance(self, instance: str) -> LifecycleResult:
         instance = known_instance(self._instance_reader, instance)
         running = require_bool(
@@ -151,6 +198,7 @@ class GameControlService:
             raise PostconditionFailedError("Экземпляр не подтвердил запуск.")
         return LifecycleResult(instance, LifecycleOutcome.STARTED)
 
+    @_profile_mutation
     def stop_instance(self, instance: str) -> LifecycleResult:
         instance = known_instance(self._instance_reader, instance)
         running = require_bool(
@@ -182,6 +230,7 @@ class GameControlService:
             raise PostconditionFailedError("Экземпляр не подтвердил остановку.")
         return LifecycleResult(instance, LifecycleOutcome.STOPPED)
 
+    @_profile_mutation
     def trigger_task(self, request: ScheduleTaskRequest) -> ScheduleTaskResult:
         if not isinstance(request, ScheduleTaskRequest):
             raise InvalidRequestError("Запрос планирования имеет неверный тип.")
@@ -205,13 +254,19 @@ class GameControlService:
                 scheduled_at,
             ),
         )
-        verified = self._verify_scheduled_task(instance, task, tasks)
+        verified = self._verify_scheduled_task(
+            instance,
+            task,
+            scheduled_at,
+            tasks,
+        )
         return ScheduleTaskResult(
             request=canonical_request,
             scheduled_at=scheduled_at,
             verified=verified,
         )
 
+    @_profile_mutation
     def clear_scheduler_queue(self, instance: str) -> SchedulerQueueClearResult:
         instance = known_instance(self._instance_reader, instance)
         tasks = scheduler_tasks(self._scheduler_tasks)
@@ -233,6 +288,7 @@ class GameControlService:
             verified=verified,
         )
 
+    @_profile_mutation
     def restart_emulator(self, instance: str) -> EmulatorRestartResult:
         instance = known_instance(self._instance_reader, instance)
         result = require_bool(
@@ -246,6 +302,7 @@ class GameControlService:
             raise OperationFailedError("Эмулятор не подтвердил перезапуск.")
         return EmulatorRestartResult(instance=instance)
 
+    @_profile_mutation
     def restart_adb(self, instance: str | None) -> AdbRestartResult:
         if instance is None:
             raise InvalidRequestError("Перезапуск ADB требует имя экземпляра.")
@@ -329,6 +386,7 @@ class GameControlService:
         self,
         instance: str,
         task: str,
+        expected_scheduled_at: datetime,
         schedulable_tasks: tuple[str, ...],
     ) -> bool:
         entries = self._read_scheduler_queue(
@@ -339,7 +397,11 @@ class GameControlService:
         )
         if entries is None:
             return False
-        if any(entry.task == task for entry in entries):
+        if any(
+            entry.task == task
+            and self._values_equal(expected_scheduled_at, entry.next_run)
+            for entry in entries
+        ):
             return True
         raise PostconditionFailedError("Планирование задачи не подтверждено.")
 
@@ -365,19 +427,33 @@ class GameControlService:
 
     @staticmethod
     def _values_equal(left: object, right: object) -> bool:
+        if isinstance(left, datetime) and isinstance(right, datetime):
+            return GameControlService._datetimes_equal(left, right)
         if same_value(left, right):
             return True
         if isinstance(left, str) and isinstance(right, datetime):
             try:
-                return datetime.fromisoformat(left) == right
+                return GameControlService._datetimes_equal(
+                    datetime.fromisoformat(left), right
+                )
             except ValueError:
                 return False
         if isinstance(right, str) and isinstance(left, datetime):
             try:
-                return left == datetime.fromisoformat(right)
+                return GameControlService._datetimes_equal(
+                    left, datetime.fromisoformat(right)
+                )
             except ValueError:
                 return False
         return False
+
+    @staticmethod
+    def _datetimes_equal(left: datetime, right: datetime) -> bool:
+        if (left.tzinfo is None) != (right.tzinfo is None):
+            return False
+        if left.tzinfo is None:
+            return left == right
+        return left.astimezone(UTC) == right.astimezone(UTC)
 
 
 __all__ = ["GameControlService"]

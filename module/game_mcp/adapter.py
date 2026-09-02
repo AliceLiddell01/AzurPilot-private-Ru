@@ -8,12 +8,14 @@ import logging
 import math
 import re
 from collections.abc import Callable, Collection, Mapping, Sequence
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
 from io import BytesIO
-from threading import Condition, Lock, RLock
+from pathlib import Path
+from threading import Condition, RLock
 from uuid import UUID
 
 from module.application.errors import (
@@ -35,6 +37,7 @@ from module.application.errors import (
     StorageUnavailableError,
 )
 from module.application.fleet_state import FleetStateObservation, FleetStateResult
+from module.application.game_control_lock import profile_mutation_lock
 from module.application.game_models import (
     AdbRestartResult,
     ConfigSnapshot,
@@ -1107,7 +1110,10 @@ class GameMcpAdapter:
     """Маршрутизировать stateless read/control Game MCP tools."""
 
     def __init__(
-        self, backend_factory: Callable[[], object] | object | None = None
+        self,
+        backend_factory: Callable[[], object] | object | None = None,
+        *,
+        mutation_lock_root: Path | str | None = None,
     ) -> None:
         if backend_factory is None:
             self._backend_factory: Callable[[], object] = _default_backend
@@ -1121,8 +1127,7 @@ class GameMcpAdapter:
         self._active_calls = 0
         self._closing = False
         self._closed = False
-        self._mutation_locks: dict[str, Lock] = {}
-        self._mutation_locks_guard = Lock()
+        self._mutation_lock_root = mutation_lock_root
 
     def close(self) -> None:
         """Освободить ленивый persistence context, если он был создан."""
@@ -1175,19 +1180,19 @@ class GameMcpAdapter:
             if self._active_calls == 0:
                 self._backend_condition.notify_all()
 
-    def _mutation_lock(self, profile: str) -> Lock:
-        with self._mutation_locks_guard:
-            lock = self._mutation_locks.get(profile)
-            if lock is None:
-                lock = Lock()
-                self._mutation_locks[profile] = lock
-            return lock
-
-    def _acquire_mutation_lock(self, profile: str) -> Lock:
-        lock = self._mutation_lock(profile)
-        if not lock.acquire(timeout=_MUTATION_LOCK_TIMEOUT_SECONDS):
-            raise ResourceBusyError("Профиль занят другой control-операцией.")
-        return lock
+    def _acquire_mutation_lock(
+        self,
+        profile: str,
+        backend: object,
+    ) -> AbstractContextManager[None]:
+        root = getattr(backend, "mutation_lock_root", None)
+        if root is None:
+            root = self._mutation_lock_root
+        return profile_mutation_lock(
+            profile,
+            repository_root=root,
+            timeout=_MUTATION_LOCK_TIMEOUT_SECONDS,
+        )
 
     @staticmethod
     def _known_profile(backend: object, profile: str) -> str:
@@ -1483,13 +1488,10 @@ class GameMcpAdapter:
                 if tool_name in GAME_MCP_CONTROL_TOOL_NAMES:
                     profile = self._profile_from(parsed)
                     self._known_profile(backend, profile)
-                    mutation_lock = self._acquire_mutation_lock(profile)
-                    try:
+                    with self._acquire_mutation_lock(profile, backend):
                         result = self._dispatch(
                             tool_name, parsed, backend, selection
                         )
-                    finally:
-                        mutation_lock.release()
                 else:
                     result = self._dispatch(
                         tool_name, parsed, backend, selection

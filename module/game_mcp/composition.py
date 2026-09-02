@@ -132,8 +132,15 @@ class GameMcpBackend:
                     adb=LegacyAdbAdapter(typed_failures=True),
                     clock=legacy_current_time,
                     config_reader=self._config_reader,
+                    mutation_lock_root=self._repository_root,
                 )
             return self._control
+
+    @property
+    def mutation_lock_root(self) -> Path:
+        """Repository-scoped runtime root для общей profile mutation lock."""
+
+        return self._repository_root
 
     def _uow_factory(self) -> MoraleUnitOfWork:
         composition = self._get_persistence()

@@ -810,6 +810,44 @@ def test_passive_adb_discovery_is_independent_of_process_cwd(
     assert legacy_game_adapters._find_passive_adb_path() == str(adb.resolve())
 
 
+def test_adb_host_lock_is_scoped_by_server_endpoint_not_checkout(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    host_runtime = tmp_path / "host-runtime"
+    checkout = tmp_path / "checkout"
+    monkeypatch.setattr(host_lock, "host_runtime_root", lambda: host_runtime)
+    monkeypatch.setattr(legacy_game_adapters, "_REPOSITORY_ROOT", checkout)
+
+    primary = "tcp:127.0.0.1:5037"
+    secondary = "tcp:127.0.0.1:5038"
+    primary_path = legacy_game_adapters._adb_host_lock_path(primary)
+    secondary_path = legacy_game_adapters._adb_host_lock_path(secondary)
+
+    assert primary_path != secondary_path
+    assert str(checkout) not in str(primary_path)
+    with (
+        legacy_game_adapters._adb_host_lock(primary),
+        legacy_game_adapters._adb_host_lock(secondary),
+    ):
+        pass
+
+
+def test_adb_server_identity_prefers_explicit_socket_over_tcp_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("ADB_SERVER_SOCKET", raising=False)
+    monkeypatch.setenv("ANDROID_ADB_SERVER_ADDRESS", "10.0.0.2")
+    monkeypatch.setenv("ANDROID_ADB_SERVER_PORT", "5038")
+    assert legacy_game_adapters._adb_server_identity() == "tcp:10.0.0.2:5038"
+
+    monkeypatch.setenv("ADB_SERVER_SOCKET", "tcp:10.0.0.2:5038")
+    assert legacy_game_adapters._adb_server_identity() == "tcp:10.0.0.2:5038"
+
+    monkeypatch.setenv("ADB_SERVER_SOCKET", "local:/tmp/adb.sock")
+    assert legacy_game_adapters._adb_server_identity() == "socket:local:/tmp/adb.sock"
+
+
 def test_adb_discovery_prioritizes_supplied_root_before_candidate_order(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import Decimal
+from pathlib import Path
+from threading import Event, Thread
 
 import pytest
 
@@ -18,6 +20,7 @@ from module.application import (
     InstanceNotRunningError,
     InvalidRequestError,
     LifecycleOutcome,
+    LifecycleResult,
     MediaFrame,
     OperationFailedError,
     PostconditionFailedError,
@@ -240,6 +243,7 @@ def _control_service(
     metadata: _Metadata | None = None,
     lifecycle: _Lifecycle | None = None,
     clock: Callable[[], datetime] | None = None,
+    mutation_lock_root: Path | str | None = None,
 ) -> tuple[GameControlService, _Config, _Lifecycle]:
     instances = instances or _Instances()
     config = config or _Config()
@@ -257,6 +261,7 @@ def _control_service(
             emulator=_Emulator(),
             adb=_Adb(),
             clock=clock or (lambda: datetime(2026, 8, 31, 10, 0, tzinfo=UTC)),
+            mutation_lock_root=mutation_lock_root,
         ),
         config,
         lifecycle,
@@ -366,12 +371,65 @@ def test_control_service_validates_config_scheduler_and_lifecycle_postconditions
     ]
 
 
+def test_independent_control_services_share_profile_mutation_lock(
+    tmp_path: Path,
+) -> None:
+    first_entered = Event()
+    second_entered = Event()
+    release = Event()
+
+    class _BlockingLifecycle(_Lifecycle):
+        def __init__(self, entered: Event) -> None:
+            super().__init__()
+            self.entered = entered
+
+        def start_instance(self, instance: str) -> bool:
+            self.calls.append("start")
+            self.entered.set()
+            assert release.wait(5)
+            self.running = True
+            return True
+
+    first_lifecycle = _BlockingLifecycle(first_entered)
+    second_lifecycle = _BlockingLifecycle(second_entered)
+    first_service, _first_config, _ = _control_service(
+        lifecycle=first_lifecycle,
+        mutation_lock_root=tmp_path,
+    )
+    second_service, _second_config, _ = _control_service(
+        lifecycle=second_lifecycle,
+        mutation_lock_root=tmp_path,
+    )
+    results: list[LifecycleResult] = []
+
+    first_thread = Thread(
+        target=lambda: results.append(first_service.start_instance("ap"))
+    )
+    second_thread = Thread(
+        target=lambda: results.append(second_service.start_instance("ap"))
+    )
+    first_thread.start()
+    try:
+        assert first_entered.wait(5)
+        second_thread.start()
+        assert not second_entered.wait(0.2)
+    finally:
+        release.set()
+        first_thread.join(timeout=5)
+        second_thread.join(timeout=5)
+
+    assert not first_thread.is_alive()
+    assert not second_thread.is_alive()
+    assert len(results) == 2
+    assert all(result.outcome is LifecycleOutcome.STARTED for result in results)
+
+
 def test_control_service_verifies_config_and_scheduler_readbacks():
     class _AuthoritativeConfig(_Config):
         def __init__(self) -> None:
             super().__init__()
             self.count = 1
-            self.scheduled_tasks: set[str] = set()
+            self.scheduled_at: dict[str, datetime] = {}
 
         def update_config(self, request: ConfigUpdateRequest) -> None:
             super().update_config(request)
@@ -386,7 +444,7 @@ def test_control_service_verifies_config_and_scheduler_readbacks():
 
         def schedule_task(self, instance: str, task: str, scheduled_at: datetime) -> None:
             super().schedule_task(instance, task, scheduled_at)
-            self.scheduled_tasks.add(task)
+            self.scheduled_at[task] = scheduled_at
 
         def read_scheduler_queue(
             self,
@@ -394,9 +452,9 @@ def test_control_service_verifies_config_and_scheduler_readbacks():
             schedulable_tasks: tuple[str, ...],
         ) -> tuple[SchedulerEntry, ...]:
             return tuple(
-                SchedulerEntry(task, datetime(2026, 8, 31, 12, 0, tzinfo=UTC))
+                SchedulerEntry(task, self.scheduled_at[task])
                 for task in schedulable_tasks
-                if task in self.scheduled_tasks
+                if task in self.scheduled_at
             )
 
         def clear_scheduler_queue(
@@ -404,12 +462,14 @@ def test_control_service_verifies_config_and_scheduler_readbacks():
             instance: str,
             schedulable_tasks: tuple[str, ...],
         ) -> tuple[str, ...]:
-            cleared = tuple(task for task in schedulable_tasks if task in self.scheduled_tasks)
-            self.scheduled_tasks.difference_update(cleared)
+            cleared = tuple(task for task in schedulable_tasks if task in self.scheduled_at)
+            for task in cleared:
+                self.scheduled_at.pop(task, None)
             return cleared
 
     config = _AuthoritativeConfig()
     metadata = _Metadata()
+    scheduled_clock = [datetime(2026, 8, 31, 10, 0, tzinfo=UTC)]
     service = GameControlService(
         instance_reader=_Instances(),
         config_schema=_ConfigSchema(metadata.definitions),
@@ -418,7 +478,7 @@ def test_control_service_verifies_config_and_scheduler_readbacks():
         lifecycle=_Lifecycle(),
         emulator=_Emulator(),
         adb=_Adb(),
-        clock=lambda: datetime(2026, 8, 31, 10, 0, tzinfo=UTC),
+        clock=lambda: scheduled_clock[0],
         config_reader=config,
     )
 
@@ -428,9 +488,72 @@ def test_control_service_verifies_config_and_scheduler_readbacks():
     assert updated.verified is True
     scheduled = service.trigger_task(ScheduleTaskRequest("ap", "Event"))
     assert scheduled.verified is True
+    scheduled_clock[0] = datetime(2026, 8, 31, 11, 0, tzinfo=UTC)
+    rescheduled = service.trigger_task(ScheduleTaskRequest("ap", "Event"))
+    assert rescheduled.verified is True
+    assert rescheduled.scheduled_at == scheduled_clock[0]
     cleared = service.clear_scheduler_queue("ap")
     assert cleared.verified is True
     assert cleared.cleared_tasks == ("Event",)
+
+    class StaleTriggerConfig(_AuthoritativeConfig):
+        def __init__(self) -> None:
+            super().__init__()
+            self.scheduled_at["Event"] = datetime(2026, 8, 31, 9, 0, tzinfo=UTC)
+
+        def schedule_task(
+            self,
+            instance: str,
+            task: str,
+            scheduled_at: datetime,
+        ) -> None:
+            self.scheduled.append((instance, task, scheduled_at))
+
+    stale_trigger = StaleTriggerConfig()
+    stale_trigger_service = GameControlService(
+        instance_reader=_Instances(),
+        config_schema=_ConfigSchema(metadata.definitions),
+        config_writer=stale_trigger,
+        scheduler_tasks=_SchedulerTasks(metadata.tasks),
+        lifecycle=_Lifecycle(),
+        emulator=_Emulator(),
+        adb=_Adb(),
+        clock=lambda: datetime(2026, 8, 31, 10, 0, tzinfo=UTC),
+        config_reader=stale_trigger,
+    )
+    with pytest.raises(PostconditionFailedError):
+        stale_trigger_service.trigger_task(ScheduleTaskRequest("ap", "Event"))
+
+    class MissingTriggerConfig(_AuthoritativeConfig):
+        def schedule_task(
+            self,
+            instance: str,
+            task: str,
+            scheduled_at: datetime,
+        ) -> None:
+            self.scheduled.append((instance, task, scheduled_at))
+
+        def read_scheduler_queue(
+            self,
+            instance: str,
+            schedulable_tasks: tuple[str, ...],
+        ) -> tuple[SchedulerEntry, ...]:
+            return ()
+
+    missing_trigger = MissingTriggerConfig()
+    missing_trigger_service = GameControlService(
+        instance_reader=_Instances(),
+        config_schema=_ConfigSchema(metadata.definitions),
+        config_writer=missing_trigger,
+        scheduler_tasks=_SchedulerTasks(metadata.tasks),
+        lifecycle=_Lifecycle(),
+        emulator=_Emulator(),
+        adb=_Adb(),
+        clock=lambda: datetime(2026, 8, 31, 10, 0, tzinfo=UTC),
+        config_reader=missing_trigger,
+    )
+    with pytest.raises(PostconditionFailedError):
+        missing_trigger_service.trigger_task(ScheduleTaskRequest("ap", "Event"))
 
     stale_writer = _Config()
     stale_reader = _Config()
@@ -455,10 +578,10 @@ def test_control_service_verifies_config_and_scheduler_readbacks():
             instance: str,
             schedulable_tasks: tuple[str, ...],
         ) -> tuple[str, ...]:
-            return tuple(task for task in schedulable_tasks if task in self.scheduled_tasks)
+            return tuple(task for task in schedulable_tasks if task in self.scheduled_at)
 
     stale_queue = StaleQueueConfig()
-    stale_queue.scheduled_tasks.add("Event")
+    stale_queue.scheduled_at["Event"] = datetime(2026, 8, 31, 10, 0, tzinfo=UTC)
     stale_queue_service = GameControlService(
         instance_reader=_Instances(),
         config_schema=_ConfigSchema(metadata.definitions),

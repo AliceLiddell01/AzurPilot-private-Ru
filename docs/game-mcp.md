@@ -107,8 +107,10 @@ sanitization. Logs ограничены числом строк и размер�
 Каждая mutation требует `azurpilot:game.control`; read-инструменты требуют
 `azurpilot:game.read`. Scope проверяется до создания control backend и до
 side effect, а stdio остаётся локальной authority без OAuth. Control-операции
-используют явный canonical `profile`, bounded per-profile serialization и не
-делают автоматических transport retries. Если профиль занят другой
+используют явный canonical `profile` и общую для Game MCP и legacy
+application-level file lock в `config/state/game-control`; bounded
+per-profile serialization не оставляет stale ownership после завершения
+процесса. Автоматических transport retries нет. Если профиль занят другой
 control-операцией дольше допустимого ожидания, операция не передаётся backend и
 возвращает `GAME_RESOURCE_BUSY`. Lifecycle публикует только подтверждённые
 `STARTED/STOPPED/ALREADY_*`, scheduler и config — только после authoritative
@@ -119,11 +121,12 @@ shell/module/function/natural-language actions отсутствуют.
 фактическом `tools/call` и отклоняет mutation до backend acquisition.
 
 ADB restart допускается только после fresh inventory и доказанной
-instance/serial ownership; `adb kill-server` сериализуется host-global lock,
-а post-restart inventory bounded-поллингом должен подтвердить тот же ready
-target. Пассивный screenshot кратко захватывает тот же host lock, чтобы
-`adb devices` и `screencap` не пересекались с `adb kill-server`; control path он
-по-прежнему не вызывает. DB
+instance/serial ownership; `adb kill-server` сериализуется стабильным
+пользовательским host lock, identity которого строится по ADB server endpoint,
+а не по checkout. Post-restart inventory bounded-поллингом должен подтвердить
+тот же ready target. Пассивный screenshot кратко захватывает lock того же
+endpoint, чтобы `adb devices` и `screencap` не пересекались с
+`adb kill-server`; control path он по-прежнему не вызывает. DB
 diagnostics, SQL,
 произвольная файловая система, DevSession, Smoke, Evidence и Git state в Game
 surface отсутствуют. `module.game_mcp` не импортирует Dev MCP или Dev Runtime;

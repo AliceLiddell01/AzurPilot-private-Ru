@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -35,7 +36,10 @@ from module.application.game_validation import (
     MAX_NAME_LENGTH,
     UNKNOWN_TASK,
 )
-from module.application.host_lock import application_host_lock
+from module.application.host_lock import (
+    application_host_lock,
+    host_scoped_lock_path,
+)
 
 _MAX_LOG_LINES = 10_000
 _MAX_LOG_BYTES = 2 * 1024 * 1024
@@ -51,7 +55,28 @@ _ADB_PATH_CANDIDATES = (
 )
 _SCHEDULER_FALLBACK_NEXT_RUN = datetime.fromisoformat("2050-01-01")
 _ADB_DEVICE_STATES = frozenset({"device", "offline", "unauthorized"})
-_ADB_HOST_LOCK_PATH = _REPOSITORY_ROOT / "config" / "state" / "game-mcp-adb.lock"
+
+
+def _adb_server_identity() -> str:
+    """Определить identity фактического ADB server, а не checkout."""
+
+    socket = os.environ.get("ADB_SERVER_SOCKET", "").strip()
+    if socket:
+        if socket.casefold().startswith("tcp:"):
+            return socket
+        return f"socket:{socket}"
+    address = os.environ.get("ANDROID_ADB_SERVER_ADDRESS", "127.0.0.1").strip()
+    port = os.environ.get("ANDROID_ADB_SERVER_PORT", "5037").strip()
+    return f"tcp:{address or '127.0.0.1'}:{port or '5037'}"
+
+
+def _adb_host_lock_path(server_identity: str | None = None) -> Path:
+    """Вернуть stable user-runtime lock path для одного ADB endpoint."""
+
+    return host_scoped_lock_path("adb", server_identity or _adb_server_identity())
+
+
+_ADB_HOST_LOCK_PATH = _adb_host_lock_path()
 _ADB_HOST_LOCK_TIMEOUT_SECONDS = 75.0
 _ADB_RESTART_READY_TIMEOUT_SECONDS = 5.0
 _ADB_RESTART_READY_RETRY_INTERVAL_SECONDS = 0.1
@@ -65,11 +90,11 @@ _TASK_LOG_PATTERNS = (
 )
 
 
-def _adb_host_lock():
-    """Сериализовать все Game ADB операции внутри и между процессами."""
+def _adb_host_lock(server_identity: str | None = None):
+    """Сериализовать Game ADB операции для одного server endpoint."""
 
     return application_host_lock(
-        _ADB_HOST_LOCK_PATH,
+        _adb_host_lock_path(server_identity),
         timeout=_ADB_HOST_LOCK_TIMEOUT_SECONDS,
     )
 
