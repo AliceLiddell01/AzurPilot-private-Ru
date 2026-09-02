@@ -11,6 +11,7 @@ import shutil
 import subprocess
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
+from io import BytesIO
 from pathlib import Path
 from typing import NamedTuple
 
@@ -31,6 +32,7 @@ from module.application.game_validation import (
 _MAX_LOG_LINES = 10_000
 _MAX_LOG_BYTES = 2 * 1024 * 1024
 _PASSIVE_SCREENSHOT_TIMEOUT_SECONDS = 10
+_PASSIVE_SCREENSHOT_MAX_BYTES = 4 * 1024 * 1024
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 _ADB_PATH_CANDIDATES = (
     Path(".venv/Scripts/adb.exe"),
@@ -173,6 +175,30 @@ def _parse_adb_inventory(output: str) -> tuple[_AdbDevice, ...] | None:
     return tuple(devices)
 
 
+def _bound_passive_screenshot(data: bytes) -> tuple[bytes, str]:
+    """Сжать крупный PNG в памяти до bounded Game media contract."""
+
+    if len(data) <= _PASSIVE_SCREENSHOT_MAX_BYTES:
+        return data, "image/png"
+
+    try:
+        from PIL import Image
+
+        with Image.open(BytesIO(data)) as image:
+            image.load()
+            rgb = image.convert("RGB")
+            for quality in (90, 80, 70, 60, 50):
+                output = BytesIO()
+                rgb.save(output, format="JPEG", quality=quality, optimize=True)
+                candidate = output.getvalue()
+                if len(candidate) <= _PASSIVE_SCREENSHOT_MAX_BYTES:
+                    return candidate, "image/jpeg"
+    except Exception:  # noqa: BLE001 - passive media boundary fails closed.
+        raise OSError("Крупный framebuffer не прошёл bounded media contract.") from None
+
+    raise OSError("Крупный framebuffer не удалось уложить в bounded media contract.")
+
+
 def _first_existing_adb_path(*roots: Path) -> str | None:
     search_roots = (*roots, _REPOSITORY_ROOT)
     for candidate in _ADB_PATH_CANDIDATES:
@@ -193,6 +219,38 @@ def _find_passive_adb_path() -> str:
     if discovered is not None:
         return discovered
     raise ValueError("Исполняемый файл ADB не найден.")
+
+
+def _read_only_emulator_serial_aliases(target_serial: str) -> tuple[str, ...]:
+    """Найти aliases настроенного инстанса без Device и lifecycle recovery."""
+
+    try:
+        from module.device.platform.emulator_windows import EmulatorManager
+    except (ImportError, OSError):
+        return ()
+
+    try:
+        instances = tuple(EmulatorManager().all_emulator_instances)
+    except (AttributeError, OSError, TypeError, ValueError):
+        return ()
+
+    matches: list[tuple[str, ...]] = []
+    for instance in instances:
+        try:
+            aliases = getattr(instance, "adb_serials", ())
+        except (AttributeError, OSError, TypeError, ValueError):
+            continue
+        if isinstance(aliases, (str, bytes)) or not isinstance(aliases, Sequence):
+            continue
+        normalized = tuple(
+            alias for alias in aliases if isinstance(alias, str) and alias
+        )
+        if target_serial in normalized:
+            matches.append(normalized)
+
+    if len(matches) != 1:
+        return ()
+    return matches[0]
 
 
 class LegacyConfigAdapter:
@@ -454,10 +512,14 @@ class LegacyScreenshotAdapter:
         runner: Callable[[Sequence[str]], object] | None = None,
         adb_path_provider: Callable[[], str] | None = None,
         target_serial_provider: Callable[[str], str | None] | None = None,
+        target_serial_aliases_provider: Callable[[str], Sequence[str]] | None = None,
     ) -> None:
         self._runner = runner or self._run
         self._adb_path_provider = adb_path_provider or _find_passive_adb_path
         self._target_serial_provider = target_serial_provider or _read_target_serial
+        self._target_serial_aliases_provider = (
+            target_serial_aliases_provider or _read_only_emulator_serial_aliases
+        )
 
     def read_frame(self, instance: str) -> MediaFrame:
         instance = _safe_instance_name(instance)
@@ -469,8 +531,8 @@ class LegacyScreenshotAdapter:
             serial = None
         if serial is not None:
             serial = _safe_serial(serial)
-        else:
-            serial = self._resolve_single_device(adb)
+        devices = self._read_inventory(adb)
+        serial = self._resolve_target_serial(serial, devices)
 
         result = self._runner(
             (adb, "-s", serial, "exec-out", "screencap", "-p")
@@ -485,9 +547,10 @@ class LegacyScreenshotAdapter:
             raise OSError("Безопасный framebuffer недоступен.")
         if not data.startswith(b"\x89PNG\r\n\x1a\n"):
             raise OSError("ADB вернул данные без корректной PNG-сигнатуры.")
-        return MediaFrame(data=data, media_type="image/png")
+        data, media_type = _bound_passive_screenshot(data)
+        return MediaFrame(data=data, media_type=media_type)
 
-    def _resolve_single_device(self, adb: str) -> str:
+    def _read_inventory(self, adb: str) -> tuple[_AdbDevice, ...]:
         inventory = self._runner((adb, "devices"))
         returncode = getattr(inventory, "returncode", None)
         if type(returncode) is not int:
@@ -500,9 +563,38 @@ class LegacyScreenshotAdapter:
         if not isinstance(output, str):
             raise TypeError("ADB inventory имеет неверный формат.")
         devices = _parse_adb_inventory(output)
-        if devices is None or len(devices) != 1 or devices[0].state != "device":
+        if devices is None:
+            raise OSError("Инвентарь ADB имеет неверный формат.")
+        return devices
+
+    @staticmethod
+    def _resolve_single_device(devices: Sequence[_AdbDevice]) -> str:
+        if len(devices) != 1 or devices[0].state != "device":
             raise OSError("Единственный готовый ADB target не подтверждён.")
         return devices[0].serial
+
+    def _resolve_target_serial(
+        self,
+        target_serial: str | None,
+        devices: Sequence[_AdbDevice],
+    ) -> str:
+        if target_serial is None:
+            return self._resolve_single_device(devices)
+
+        ready_serials = tuple(
+            device.serial for device in devices if device.state == "device"
+        )
+        if target_serial in ready_serials:
+            return target_serial
+
+        aliases = self._target_serial_aliases_provider(target_serial)
+        if isinstance(aliases, (str, bytes)) or not isinstance(aliases, Sequence):
+            raise TypeError("Resolver ADB aliases вернул неверный формат.")
+        safe_aliases = frozenset(_safe_serial(alias) for alias in aliases)
+        matches = tuple(serial for serial in ready_serials if serial in safe_aliases)
+        if len(matches) != 1:
+            raise OSError("Настроенный ADB target не подтверждён.")
+        return matches[0]
 
     @staticmethod
     def _run(argv: Sequence[str]) -> object:

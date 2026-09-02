@@ -11,8 +11,13 @@ from dataclasses import dataclass
 # module/device/platform/emulator_base.py
 # module/device/platform/emulator_windows.py
 # 会在 Alas Easy Install 中使用，不应导入任何 Alas 模块。
-from module.device.platform.emulator_base import EmulatorBase, EmulatorInstanceBase, EmulatorManagerBase, \
-    remove_duplicated_path
+from module.device.platform.emulator_base import (
+    EmulatorBase,
+    EmulatorInstanceBase,
+    EmulatorManagerBase,
+    get_serial_pair,
+    remove_duplicated_path,
+)
 from module.device.platform.utils import cached_property, iter_folder
 
 
@@ -82,6 +87,17 @@ class EmulatorInstance(EmulatorInstanceBase):
             Emulator: 当前实例对应的 Windows 模拟器对象
         """
         return Emulator(self.path)
+
+    @cached_property
+    def adb_serials(self) -> tuple[str, ...]:
+        """Вернуть канонический serial и read-only aliases одного инстанса."""
+
+        serials = [self.serial] if self.serial else []
+        if self.type in (Emulator.MuMuPlayerX, Emulator.MuMuPlayer12):
+            emulator = self.emulator
+            vbox_file = emulator.abspath(f'../vms/{self.name}/{self.name}.nemu')
+            serials.extend(emulator.vbox_file_to_serials(vbox_file))
+        return tuple(dict.fromkeys(serial for serial in serials if serial))
 
 
 class Emulator(EmulatorBase):
@@ -218,17 +234,30 @@ class Emulator(EmulatorBase):
         Returns:
             str: 序列号，如 `127.0.0.1:5555`；未找到则返回空字符串
         """
+        serials = Emulator.vbox_file_to_serials(file)
+        return serials[0] if serials else ''
+
+    @staticmethod
+    def vbox_file_to_serials(file: str) -> tuple[str, ...]:
+        """Прочитать все ADB aliases из одного vbox/nemu forwarding-файла."""
+
         regex = re.compile('<*?hostport="(.*?)".*?guestport="5555"/>')
+        serials = []
         try:
             with open(file, 'r', encoding='utf-8', errors='ignore') as f:
-                for line in f.readlines():
-                    # <Forwarding name="port2" proto="1" hostip="127.0.0.1" hostport="62026" guestport="5555"/>
+                for line in f:
                     res = regex.search(line)
-                    if res:
-                        return f'127.0.0.1:{res.group(1)}'
-            return ''
+                    if not res:
+                        continue
+                    serial = f'127.0.0.1:{res.group(1)}'
+                    if serial not in serials:
+                        serials.append(serial)
+                    _, emu_serial = get_serial_pair(serial)
+                    if emu_serial and emu_serial not in serials:
+                        serials.append(emu_serial)
         except FileNotFoundError:
-            return ''
+            pass
+        return tuple(serials)
 
     def iter_instances(self):
         """
