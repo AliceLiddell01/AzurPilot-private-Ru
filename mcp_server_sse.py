@@ -2,6 +2,7 @@ import base64
 import json
 import logging
 import threading
+from pathlib import Path
 from typing import Any
 
 from mcp.server.lowlevel import Server
@@ -50,6 +51,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("azurpilot-mcp")
 
 ToolResponse = list[TextContent | ImageContent]
+_REPOSITORY_ROOT = Path(__file__).resolve().parent
 
 
 class _LegacyGameBackend:
@@ -83,6 +85,8 @@ class _LegacyGameBackend:
             emulator=emulator,
             adb=adb,
             clock=legacy_current_time,
+            config_reader=config,
+            mutation_lock_root=_REPOSITORY_ROOT,
         )
 
 

@@ -1,4 +1,4 @@
-"""Локальный stdio-сервер standalone Game MCP read plane."""
+"""Локальный stdio-сервер standalone Game MCP read/control plane."""
 
 from __future__ import annotations
 
@@ -29,20 +29,25 @@ from module.application.game_validation import INVALID_NAME_CHARS, MAX_NAME_LENG
 from module.formation.model import SUPPORTED_SURFACE_FLEET_INDICES
 from module.game_mcp.adapter import (
     GAME_MCP_TOOL_NAMES,
+    GAME_MCP_TOOL_REQUIRED_SCOPES,
     GameMcpAdapter,
     GameMcpResponse,
 )
 from module.game_mcp.contract import (
     CONTRACT_SCHEMA_VERSION,
     GAME_MCP_API_VERSION,
+    GAME_MCP_CONTROL_SCOPE,
     GAME_MCP_NO_ARGUMENT_TOOLS,
+    GAME_MCP_READ_SCOPE,
+    GAME_MCP_SCOPES,
 )
+from module.mcp_shared.auth import current_access_token
 
 SERVER_NAME = "azurpilot-game"
 SERVER_VERSION = str(GAME_MCP_API_VERSION)
 GAME_MCP_COMMAND = "uv"
 GAME_MCP_ARGS = ("run", "--locked", "--no-sync", "python", "-m", "module.game_mcp")
-GAME_MCP_REQUIRED_SCOPE = "azurpilot:game.read"
+GAME_MCP_REQUIRED_SCOPE = GAME_MCP_READ_SCOPE
 # Legacy-граф использует builtins.print и может инициализировать Rich handler
 # на stdout. Глобальная блокировка нужна, чтобы такой перехват не пересекался
 # с другим MCP Server в одном процессе; сам adapter дополнительно сериализует
@@ -120,6 +125,62 @@ _LOG_INPUT = {
         "lines": {"type": "integer", "minimum": 0, "maximum": 200, "default": 50},
     },
     "required": ["profile"],
+    "additionalProperties": False,
+}
+_CONFIG_VALUE_DEFS = {
+    "configValue": {
+        "anyOf": [
+            {"type": "null"},
+            {"type": "boolean"},
+            {
+                "type": "integer",
+                "minimum": -10**12,
+                "maximum": 10**12,
+            },
+            {
+                "type": "number",
+                "minimum": -10**12,
+                "maximum": 10**12,
+            },
+            {"type": "string", "maxLength": 4096},
+            {
+                "type": "array",
+                "maxItems": 256,
+                "items": {"$ref": "#/$defs/configValue"},
+            },
+            {
+                "type": "object",
+                "maxProperties": 256,
+                "propertyNames": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": MAX_NAME_LENGTH,
+                },
+                "additionalProperties": {"$ref": "#/$defs/configValue"},
+            },
+        ]
+    }
+}
+_CONFIG_UPDATE_INPUT = {
+    "$defs": _CONFIG_VALUE_DEFS,
+    "type": "object",
+    "properties": {
+        "profile": _PROFILE_INPUT["properties"]["profile"],
+        "task": _TASK_INPUT["properties"]["task"],
+        "group": _TASK_INPUT["properties"]["task"],
+        "argument": _TASK_INPUT["properties"]["task"],
+        "value": {"$ref": "#/$defs/configValue"},
+    },
+    "required": ["profile", "task", "group", "argument", "value"],
+    "additionalProperties": False,
+}
+_TRIGGER_INPUT = {
+    "type": "object",
+    "properties": {
+        "profile": _PROFILE_INPUT["properties"]["profile"],
+        "task": _TASK_INPUT["properties"]["task"],
+    },
+    "required": ["profile", "task"],
     "additionalProperties": False,
 }
 _JSON_VALUE = {
@@ -402,6 +463,12 @@ _CONTRACT_OUTPUT = {
             "type": "integer",
             "const": GAME_MCP_API_VERSION,
         },
+        "authorization_scopes": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 8,
+            "items": {"type": "string", "maxLength": 128},
+        },
         "feature_flags": {
             "type": "object",
             "maxProperties": 32,
@@ -422,15 +489,22 @@ _CONTRACT_OUTPUT = {
             "maxItems": 32,
             "items": {"type": "string", "maxLength": 128},
         },
+        "control_guarantees": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {"type": "string", "maxLength": 128},
+        },
     },
     "required": [
         "contract_schema_version",
         "product_family",
         "game_mcp_api_version",
+        "authorization_scopes",
         "feature_flags",
         "capability_families",
         "result_states",
         "read_only_guarantees",
+        "control_guarantees",
     ],
     "additionalProperties": False,
 }
@@ -601,6 +675,65 @@ _OUTPUT_SCHEMAS = {
     "game_get_screenshot": _output_schema(
         {**_PROFILE_DETAILS_OUTPUT, "screenshot": _SCREENSHOT_OUTPUT}
     ),
+    "game_start_profile": _output_schema(
+        {
+            **_PROFILE_DETAILS_OUTPUT,
+            "outcome": {
+                "type": "string",
+                "enum": ["started", "already_running"],
+            },
+        }
+    ),
+    "game_stop_profile": _output_schema(
+        {
+            **_PROFILE_DETAILS_OUTPUT,
+            "outcome": {
+                "type": "string",
+                "enum": ["stopped", "already_stopped"],
+            },
+        }
+    ),
+    "game_trigger_task": _output_schema(
+        {
+            **_PROFILE_DETAILS_OUTPUT,
+            "task": {"type": "string", "maxLength": MAX_NAME_LENGTH},
+            "scheduled_at": {"type": "string", "maxLength": 128},
+            "verified": {"type": "boolean", "const": True},
+        }
+    ),
+    "game_clear_scheduler_queue": _output_schema(
+        {
+            **_PROFILE_DETAILS_OUTPUT,
+            "cleared_tasks": {
+                "type": "array",
+                "maxItems": 512,
+                "items": {"type": "string", "maxLength": MAX_NAME_LENGTH},
+            },
+            "cleared_count": {"type": "integer", "minimum": 0, "maximum": 512},
+            "verified": {"type": "boolean", "const": True},
+        }
+    ),
+    "game_update_config": _output_schema(
+        {
+            **_PROFILE_DETAILS_OUTPUT,
+            "task": {"type": "string", "maxLength": MAX_NAME_LENGTH},
+            "group": {"type": "string", "maxLength": MAX_NAME_LENGTH},
+            "argument": {"type": "string", "maxLength": MAX_NAME_LENGTH},
+            "verified": {"type": "boolean", "const": True},
+        }
+    ),
+    "game_restart_emulator": _output_schema(
+        {
+            **_PROFILE_DETAILS_OUTPUT,
+            "verified": {"type": "boolean", "const": True},
+        }
+    ),
+    "game_restart_adb": _output_schema(
+        {
+            **_PROFILE_DETAILS_OUTPUT,
+            "verified": {"type": "boolean", "const": True},
+        }
+    ),
 }
 _READ_ONLY = ToolAnnotations(
     readOnlyHint=True,
@@ -608,6 +741,50 @@ _READ_ONLY = ToolAnnotations(
     idempotentHint=True,
     openWorldHint=False,
 )
+_MUTATION_ANNOTATIONS = {
+    "game_start_profile": ToolAnnotations(
+        readOnlyHint=False,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=False,
+    ),
+    "game_stop_profile": ToolAnnotations(
+        readOnlyHint=False,
+        destructiveHint=True,
+        idempotentHint=True,
+        openWorldHint=False,
+    ),
+    "game_trigger_task": ToolAnnotations(
+        readOnlyHint=False,
+        destructiveHint=False,
+        idempotentHint=False,
+        openWorldHint=False,
+    ),
+    "game_clear_scheduler_queue": ToolAnnotations(
+        readOnlyHint=False,
+        destructiveHint=True,
+        idempotentHint=True,
+        openWorldHint=False,
+    ),
+    "game_update_config": ToolAnnotations(
+        readOnlyHint=False,
+        destructiveHint=True,
+        idempotentHint=False,
+        openWorldHint=False,
+    ),
+    "game_restart_emulator": ToolAnnotations(
+        readOnlyHint=False,
+        destructiveHint=True,
+        idempotentHint=False,
+        openWorldHint=False,
+    ),
+    "game_restart_adb": ToolAnnotations(
+        readOnlyHint=False,
+        destructiveHint=True,
+        idempotentHint=False,
+        openWorldHint=False,
+    ),
+}
 
 
 def _tool(name: str, description: str, input_schema: dict[str, Any]) -> Tool:
@@ -616,18 +793,23 @@ def _tool(name: str, description: str, input_schema: dict[str, Any]) -> Tool:
         description=description,
         inputSchema=input_schema,
         outputSchema=_OUTPUT_SCHEMAS[name],
-        annotations=_READ_ONLY,
+        annotations=_MUTATION_ANNOTATIONS.get(name, _READ_ONLY),
         _meta={
-            "securitySchemes": [{"type": "oauth2", "scopes": [GAME_MCP_REQUIRED_SCOPE]}]
+            "securitySchemes": [
+                {
+                    "type": "oauth2",
+                    "scopes": [GAME_MCP_TOOL_REQUIRED_SCOPES[name]],
+                }
+            ]
         },
     )
 
 
 def tool_definitions() -> list[Tool]:
-    """Вернуть детерминированный и полностью read-only каталог инструментов."""
+    """Вернуть детерминированный каталог read и control инструментов."""
 
     descriptions = {
-        "game_get_contract": "Получить стабильный контракт AzurPilot Game MCP read plane.",
+        "game_get_contract": "Получить стабильный контракт AzurPilot Game MCP read/control plane.",
         "game_list_profiles": "Перечислить канонические профили AzurPilot без путей и секретов.",
         "game_get_profile_status": "Получить статус выбранного профиля AzurPilot.",
         "game_get_resources": "Получить ограниченный снимок игровых ресурсов выбранного профиля.",
@@ -640,6 +822,13 @@ def tool_definitions() -> list[Tool]:
         "game_get_config": "Получить ограниченный и redacted снимок конфигурации профиля.",
         "game_get_recent_logs": "Получить ограниченный и sanitized tail журнала профиля.",
         "game_get_screenshot": "Получить bounded MCP image content выбранного профиля без ввода.",
+        "game_start_profile": "Запустить выбранный профиль с подтверждением lifecycle postcondition.",
+        "game_stop_profile": "Остановить выбранный профиль с подтверждением lifecycle postcondition.",
+        "game_trigger_task": "Поставить generated scheduler task выбранного профиля в очередь.",
+        "game_clear_scheduler_queue": "Очистить только generated scheduler queue выбранного профиля.",
+        "game_update_config": "Изменить один разрешённый нечувствительный параметр config с readback-проверкой.",
+        "game_restart_emulator": "Перезапустить эмулятор выбранного профиля с подтверждением результата.",
+        "game_restart_adb": "Перезапустить ADB для выбранного профиля после проверки ownership target.",
     }
     schemas = {
         **{
@@ -656,6 +845,13 @@ def tool_definitions() -> list[Tool]:
         "game_get_config": _CONFIG_INPUT,
         "game_get_recent_logs": _LOG_INPUT,
         "game_get_screenshot": _PROFILE_INPUT,
+        "game_start_profile": _PROFILE_INPUT,
+        "game_stop_profile": _PROFILE_INPUT,
+        "game_trigger_task": _TRIGGER_INPUT,
+        "game_clear_scheduler_queue": _PROFILE_INPUT,
+        "game_update_config": _CONFIG_UPDATE_INPUT,
+        "game_restart_emulator": _PROFILE_INPUT,
+        "game_restart_adb": _PROFILE_INPUT,
     }
     return [
         _tool(name, descriptions[name], schemas[name]) for name in GAME_MCP_TOOL_NAMES
@@ -717,6 +913,22 @@ def create_server(
     ) -> CallToolResult:
         name = params.name
         arguments = params.arguments
+        required_scope = GAME_MCP_TOOL_REQUIRED_SCOPES.get(name)
+        access_token = current_access_token()
+        if (
+            required_scope is not None
+            and access_token is not None
+            and required_scope not in access_token.scopes
+        ):
+            return _text_call_result(
+                {
+                    "ok": False,
+                    "code": "GAME_MCP_UNAUTHORIZED",
+                    "message": "Недостаточно полномочий для этого инструмента Game MCP.",
+                    "state": "failed",
+                    "details": {"tool": name},
+                }
+            )
 
         def call_adapter() -> dict[str, object] | GameMcpResponse:
             # Legacy-читатели печатают диагностику; stdout занят MCP JSON-RPC.
@@ -786,7 +998,9 @@ def main() -> None:
 __all__ = (
     "GAME_MCP_ARGS",
     "GAME_MCP_COMMAND",
+    "GAME_MCP_CONTROL_SCOPE",
     "GAME_MCP_REQUIRED_SCOPE",
+    "GAME_MCP_SCOPES",
     "SERVER_NAME",
     "SERVER_VERSION",
     "create_server",

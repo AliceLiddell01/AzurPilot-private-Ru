@@ -47,15 +47,20 @@ def test_game_mcp_has_no_dev_or_direct_storage_dependency() -> None:
     assert "mcp.server.sse" not in imported
 
 
-def test_game_mcp_tool_names_exclude_control_and_developer_surfaces() -> None:
+def test_game_mcp_publishes_control_but_excludes_developer_surfaces() -> None:
     published_names = {tool.name for tool in tool_definitions()}
-    for forbidden in (
+    assert {
         "game_start_profile",
         "game_stop_profile",
-        "game_restart_profile",
         "game_trigger_task",
-        "game_clear_scheduler",
+        "game_clear_scheduler_queue",
         "game_update_config",
+        "game_restart_emulator",
+        "game_restart_adb",
+    } <= published_names
+    for forbidden in (
+        "game_restart_profile",
+        "game_clear_scheduler",
         "game_get_database_status",
         "game_run_database_check",
         "game_list_database_repairs",

@@ -186,14 +186,15 @@ Standalone Game MCP находится в `module.game_mcp` и использу�
 нейтральный application/domain слой через собственную lazy composition root.
 Он работает через stateless stdio и authenticated Streamable HTTP, принимает
 канонический `profile` в каждом target-dependent запросе и не импортирует Dev
-MCP, Dev Runtime или `GameControlService`. Его remote resource и scope
-отделены от Dev MCP, а общий transport/auth код размещён в
-`module.mcp_shared`. Fleet State и morale читаются без регистрации профиля,
-физического scan или скрытого commit; lifecycle, mutation, DB internals и
-developer evidence в Game MCP не выдаются.
+MCP или Dev Runtime. Его remote resource и scopes `azurpilot:game.read` и
+`azurpilot:game.control` отделены от Dev MCP, а общий transport/auth код
+размещён в `module.mcp_shared`. Fleet State и morale читаются без регистрации
+профиля, физического scan или скрытого commit; lifecycle, config/scheduler,
+emulator/ADB control, DB internals и developer evidence в Game MCP выдаются
+только через отдельные bounded control contracts либо не выдаются вовсе.
 
 Диагностика базы данных принадлежит persistence adapter, но наружу выходит
-через типизированный `module.application` port и фиксированный read-only
+через типизированный `module.application` port и фиксированный bounded
 catalog. Она использует отдельный process-local lazy app-role engine/health/UoW
 composition для developer diagnostics, не запускает production bootstrap и не
 создаёт global provider. Явный lifecycle позволяет dispose диагностического

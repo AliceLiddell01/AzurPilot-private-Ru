@@ -5,14 +5,19 @@ import os
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
+from threading import Event, Thread
 
 import pytest
 
-import module.application.legacy_game_adapters as legacy_game_adapters
 from module.application import (
     REDACTED_CONFIG_VALUE,
     ConfigArgumentDefinition,
     ConfigUpdateRequest,
+    OperationFailedError,
+    OwnershipAmbiguousError,
+    PostconditionFailedError,
+    host_lock,
+    legacy_game_adapters,
 )
 from module.application.game_models import MediaFrame
 from module.application.legacy_adapters import GeneratedTaskCatalogAdapter
@@ -286,16 +291,241 @@ def test_legacy_screenshot_lifecycle_and_emulator_adapters_use_narrow_owners(mon
     events: list[str] = []
 
     class Platform:
+        def __init__(self) -> None:
+            self.running = True
+
+        def is_emulator_instance_running(self) -> bool:
+            return self.running
+
         def emulator_stop(self) -> bool:
             events.append("stop")
+            self.running = False
             return True
 
         def emulator_start(self) -> bool:
             events.append("start")
+            self.running = True
             return True
 
-    assert LegacyEmulatorAdapter(platform_factory=lambda instance: Platform()).restart_emulator("secondary") is True
+    assert (
+        LegacyEmulatorAdapter(platform_factory=lambda instance: Platform()).restart_emulator(
+            "secondary"
+        )
+        is True
+    )
     assert events == ["stop", "start"]
+
+
+def test_typed_emulator_failures_distinguish_ownership_operation_and_postcondition(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(legacy_game_adapters, "_EMULATOR_STATE_MAX_ATTEMPTS", 2)
+    monkeypatch.setattr(
+        legacy_game_adapters,
+        "_EMULATOR_STATE_RETRY_INTERVAL_SECONDS",
+        0.001,
+    )
+
+    class NoChecker:
+        def emulator_stop(self) -> bool:
+            raise AssertionError("операция не должна начинаться без ownership")
+
+        def emulator_start(self) -> bool:
+            raise AssertionError("операция не должна начинаться без ownership")
+
+    with pytest.raises(OwnershipAmbiguousError):
+        LegacyEmulatorAdapter(
+            platform_factory=lambda instance: NoChecker(),
+            typed_failures=True,
+        ).restart_emulator("secondary")
+
+    class StuckAfterStop:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def is_emulator_instance_running(self) -> bool:
+            return True
+
+        def emulator_stop(self) -> bool:
+            self.calls.append("stop")
+            return True
+
+        def emulator_start(self) -> bool:
+            self.calls.append("start")
+            return True
+
+    stuck = StuckAfterStop()
+    with pytest.raises(PostconditionFailedError):
+        LegacyEmulatorAdapter(
+            platform_factory=lambda instance: stuck,
+            typed_failures=True,
+        ).restart_emulator("secondary")
+    assert stuck.calls == ["stop"]
+
+    class FailedStart:
+        def __init__(self) -> None:
+            self.running = True
+
+        def is_emulator_instance_running(self) -> bool:
+            return self.running
+
+        def emulator_stop(self) -> bool:
+            self.running = False
+            return True
+
+        def emulator_start(self) -> bool:
+            return False
+
+    with pytest.raises(OperationFailedError):
+        LegacyEmulatorAdapter(
+            platform_factory=lambda instance: FailedStart(),
+            typed_failures=True,
+        ).restart_emulator("secondary")
+
+
+def test_emulator_restart_polls_until_stop_and_start_states_are_confirmed():
+    states = iter((True, True, False, False, True))
+
+    class Platform:
+        def emulator_stop(self) -> bool:
+            return True
+
+        def emulator_start(self) -> bool:
+            return True
+
+        def is_emulator_instance_running(self) -> bool:
+            return next(states)
+
+    assert LegacyEmulatorAdapter(
+        platform_factory=lambda instance: Platform(),
+        typed_failures=True,
+    ).restart_emulator("secondary") is True
+
+
+def test_typed_emulator_failures_sanitize_platform_operation_errors():
+    class ExplodingStop:
+        def is_emulator_instance_running(self) -> bool:
+            return True
+
+        def emulator_stop(self) -> bool:
+            raise RuntimeError("platform detail")
+
+    with pytest.raises(OperationFailedError):
+        LegacyEmulatorAdapter(
+            platform_factory=lambda instance: ExplodingStop(),
+            typed_failures=True,
+        ).restart_emulator("secondary")
+
+    class MissingStart:
+        def __init__(self) -> None:
+            self.states = iter((True, False))
+
+        def is_emulator_instance_running(self) -> bool:
+            return next(self.states)
+
+        def emulator_stop(self) -> bool:
+            return True
+
+    with pytest.raises(OperationFailedError):
+        LegacyEmulatorAdapter(
+            platform_factory=lambda instance: MissingStart(),
+            typed_failures=True,
+        ).restart_emulator("secondary")
+
+
+def test_emulator_restart_serializes_with_passive_screenshot(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    host_runtime = tmp_path / "host-runtime"
+    monkeypatch.setattr(host_lock, "host_runtime_root", lambda: host_runtime)
+    screenshot_entered = Event()
+    release_screenshot = Event()
+    screenshot_errors: list[BaseException] = []
+    emulator_errors: list[BaseException] = []
+    emulator_done = Event()
+
+    def screenshot_runner(argv: tuple[str, ...]) -> _CommandResult:
+        if argv == ("adb", "devices"):
+            screenshot_entered.set()
+            assert release_screenshot.wait(timeout=5)
+            return _CommandResult(0, "List of devices attached\nserial-a\tdevice\n")
+        return _CommandResult(0, b"\x89PNG\r\n\x1a\nframe")
+
+    class Platform:
+        def __init__(self) -> None:
+            self.running = True
+
+        def is_emulator_instance_running(self) -> bool:
+            return self.running
+
+        def emulator_stop(self) -> bool:
+            self.running = False
+            return True
+
+        def emulator_start(self) -> bool:
+            self.running = True
+            return True
+
+    screenshot = LegacyScreenshotAdapter(
+        runner=screenshot_runner,
+        adb_path_provider=lambda: "adb",
+        target_serial_provider=lambda instance: "serial-a",
+    )
+    emulator = LegacyEmulatorAdapter(
+        platform_factory=lambda instance: Platform(),
+        typed_failures=True,
+    )
+
+    def read_screenshot() -> None:
+        try:
+            screenshot.read_frame("secondary")
+        except BaseException as error:  # noqa: BLE001 - передача ошибки из тестового потока.
+            screenshot_errors.append(error)
+
+    def restart_emulator() -> None:
+        try:
+            assert emulator.restart_emulator("secondary") is True
+        except BaseException as error:  # noqa: BLE001 - передача ошибки из тестового потока.
+            emulator_errors.append(error)
+        finally:
+            emulator_done.set()
+
+    screenshot_thread = Thread(target=read_screenshot)
+    emulator_thread = Thread(target=restart_emulator)
+    screenshot_thread.start()
+    assert screenshot_entered.wait(timeout=5)
+    emulator_thread.start()
+    assert not emulator_done.wait(timeout=0.1)
+    release_screenshot.set()
+    screenshot_thread.join(timeout=5)
+    emulator_thread.join(timeout=5)
+
+    assert not screenshot_thread.is_alive()
+    assert not emulator_thread.is_alive()
+    assert screenshot_errors == []
+    assert emulator_errors == []
+
+
+def test_host_lock_releases_process_lock_when_os_unlock_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    lock_path = tmp_path / "host.lock"
+    real_release = host_lock._release_os_lock
+
+    def broken_release(handle: object) -> None:
+        raise OSError("simulated unlock failure")
+
+    monkeypatch.setattr(host_lock, "_release_os_lock", broken_release)
+    with pytest.raises(OSError, match="simulated unlock failure"), host_lock.application_host_lock(
+        lock_path
+    ):
+        pass
+
+    monkeypatch.setattr(host_lock, "_release_os_lock", real_release)
+    with host_lock.application_host_lock(lock_path):
+        pass
 
 
 def test_legacy_screenshot_is_passive_and_unavailable_path_does_not_recover(monkeypatch):
@@ -370,6 +600,71 @@ def test_legacy_screenshot_is_passive_and_unavailable_path_does_not_recover(monk
     )
     with pytest.raises(OSError, match="PNG"):
         invalid_frame.read_frame("secondary")
+
+
+def test_legacy_adb_restart_serializes_with_passive_screenshot(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    host_runtime = tmp_path / "host-runtime"
+    monkeypatch.setattr(host_lock, "host_runtime_root", lambda: host_runtime)
+    screenshot_entered = Event()
+    release_screenshot = Event()
+    screenshot_errors: list[BaseException] = []
+    restart_errors: list[BaseException] = []
+    restart_done = Event()
+
+    def screenshot_runner(argv: tuple[str, ...]) -> _CommandResult:
+        if argv == ("adb", "devices"):
+            screenshot_entered.set()
+            assert release_screenshot.wait(timeout=5)
+            return _CommandResult(0, "List of devices attached\nserial-a\tdevice\n")
+        return _CommandResult(0, b"\x89PNG\r\n\x1a\nframe")
+
+    def restart_runner(argv: tuple[str, ...]) -> _CommandResult:
+        if argv[-1] == "devices":
+            return _CommandResult(0, "List of devices attached\nserial-a\tdevice\n")
+        return _CommandResult(0)
+
+    screenshot = LegacyScreenshotAdapter(
+        runner=screenshot_runner,
+        adb_path_provider=lambda: "adb",
+        target_serial_provider=lambda instance: "serial-a",
+    )
+    restart = LegacyAdbAdapter(
+        runner=restart_runner,
+        adb_path_provider=lambda: "adb",
+        target_serial_provider=lambda instance: "serial-a",
+    )
+
+    def read_screenshot() -> None:
+        try:
+            screenshot.read_frame("secondary")
+        except BaseException as error:  # noqa: BLE001 - передача ошибки из тестового потока.
+            screenshot_errors.append(error)
+
+    def restart_adb() -> None:
+        try:
+            assert restart.restart_adb("secondary") is True
+        except BaseException as error:  # noqa: BLE001 - передача ошибки из тестового потока.
+            restart_errors.append(error)
+        finally:
+            restart_done.set()
+
+    screenshot_thread = Thread(target=read_screenshot)
+    restart_thread = Thread(target=restart_adb)
+    screenshot_thread.start()
+    assert screenshot_entered.wait(timeout=5)
+    restart_thread.start()
+    assert not restart_done.wait(timeout=0.1)
+    release_screenshot.set()
+    screenshot_thread.join(timeout=5)
+    restart_thread.join(timeout=5)
+
+    assert not screenshot_thread.is_alive()
+    assert not restart_thread.is_alive()
+    assert screenshot_errors == []
+    assert restart_errors == []
 
 
 def test_passive_screenshot_resolves_only_canonical_emulator_aliases():
@@ -526,6 +821,73 @@ def test_passive_adb_discovery_is_independent_of_process_cwd(
     assert legacy_game_adapters._find_passive_adb_path() == str(adb.resolve())
 
 
+def test_adb_host_lock_is_scoped_by_server_endpoint_not_checkout(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    host_runtime = tmp_path / "host-runtime"
+    checkout = tmp_path / "checkout"
+    monkeypatch.setattr(host_lock, "host_runtime_root", lambda: host_runtime)
+    monkeypatch.setattr(legacy_game_adapters, "_REPOSITORY_ROOT", checkout)
+
+    primary = "tcp:127.0.0.1:5037"
+    secondary = "tcp:127.0.0.1:5038"
+    primary_path = legacy_game_adapters._adb_host_lock_path(primary)
+    secondary_path = legacy_game_adapters._adb_host_lock_path(secondary)
+
+    assert primary_path != secondary_path
+    assert str(checkout) not in str(primary_path)
+    with (
+        legacy_game_adapters._adb_host_lock(primary),
+        legacy_game_adapters._adb_host_lock(secondary),
+    ):
+        pass
+    assert host_runtime.is_dir()
+    if os.name != "nt":
+        assert host_runtime.stat().st_mode & 0o777 == 0o700
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Проверяется POSIX-защита ссылок")
+@pytest.mark.parametrize("symlink_scope", ("root", "ancestor"))
+def test_adb_host_lock_rejects_symlinked_runtime_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    symlink_scope: str,
+) -> None:
+    real_root = tmp_path / "real-root"
+    real_root.mkdir()
+    if symlink_scope == "root":
+        host_runtime = tmp_path / "host-runtime"
+        host_runtime.symlink_to(real_root, target_is_directory=True)
+    else:
+        linked_parent = tmp_path / "linked-parent"
+        linked_parent.symlink_to(real_root, target_is_directory=True)
+        host_runtime = linked_parent / "host-runtime"
+    monkeypatch.setattr(host_lock, "host_runtime_root", lambda: host_runtime)
+
+    with pytest.raises(OSError, match="ссылкой"), legacy_game_adapters._adb_host_lock(
+        "tcp:127.0.0.1:5037"
+    ):
+        pass
+
+    assert not (real_root / "host-runtime").exists()
+
+
+def test_adb_server_identity_prefers_explicit_socket_over_tcp_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("ADB_SERVER_SOCKET", raising=False)
+    monkeypatch.setenv("ANDROID_ADB_SERVER_ADDRESS", "10.0.0.2")
+    monkeypatch.setenv("ANDROID_ADB_SERVER_PORT", "5038")
+    assert legacy_game_adapters._adb_server_identity() == "tcp:10.0.0.2:5038"
+
+    monkeypatch.setenv("ADB_SERVER_SOCKET", "tcp:10.0.0.2:5038")
+    assert legacy_game_adapters._adb_server_identity() == "tcp:10.0.0.2:5038"
+
+    monkeypatch.setenv("ADB_SERVER_SOCKET", "local:/tmp/adb.sock")
+    assert legacy_game_adapters._adb_server_identity() == "socket:local:/tmp/adb.sock"
+
+
 def test_adb_discovery_prioritizes_supplied_root_before_candidate_order(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -592,15 +954,19 @@ _EXPECTED_RESTART_CALLS = (
 def _make_adb_adapter(
     *inventories: str,
     target_serial: str | None = "serial-a",
+    typed_failures: bool = False,
 ) -> tuple[LegacyAdbAdapter, list[tuple[str, ...]]]:
     calls: list[tuple[str, ...]] = []
     inventory_iter = iter(inventories)
+    last_inventory: str | None = None
 
     def runner(argv: tuple[str, ...]) -> _CommandResult:
         calls.append(argv)
         if argv[-1] == "devices":
-            inventory = next(inventory_iter, None)
+            nonlocal last_inventory
+            inventory = next(inventory_iter, last_inventory)
             assert inventory is not None, "адаптер запросил инвентарь лишний раз"
+            last_inventory = inventory
             return _CommandResult(0, inventory)
         return _CommandResult(0)
 
@@ -608,8 +974,19 @@ def _make_adb_adapter(
         runner=runner,
         adb_path_provider=lambda: "adb",
         target_serial_provider=lambda instance: target_serial,
+        typed_failures=typed_failures,
     )
     return adapter, calls
+
+
+@pytest.fixture
+def fast_adb_restart_polling(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        legacy_game_adapters,
+        "_ADB_RESTART_READY_RETRY_INTERVAL_SECONDS",
+        0.001,
+    )
+    monkeypatch.setattr(legacy_game_adapters, "_ADB_RESTART_READY_MAX_ATTEMPTS", 2)
 
 
 def test_legacy_adb_adapter_preserves_device_state_in_inventory():
@@ -632,34 +1009,60 @@ def test_legacy_adb_adapter_confirms_offline_target_recovers_to_device():
     assert tuple(calls) == _EXPECTED_RESTART_CALLS
 
 
-def test_legacy_adb_adapter_rejects_offline_target_that_stays_offline():
+def test_legacy_adb_adapter_polls_until_target_is_ready(fast_adb_restart_polling):
+    adapter, calls = _make_adb_adapter(
+        "List of devices attached\nserial-a\tdevice\n",
+        "List of devices attached\nserial-a\toffline\n",
+        "List of devices attached\nserial-a\tdevice\n",
+    )
+
+    assert adapter.restart_adb("secondary") is True
+    assert calls == [
+        ("adb", "devices"),
+        ("adb", "kill-server"),
+        ("adb", "start-server"),
+        ("adb", "devices"),
+        ("adb", "devices"),
+    ]
+
+
+def test_legacy_adb_adapter_rejects_offline_target_that_stays_offline(
+    fast_adb_restart_polling,
+):
     adapter, calls = _make_adb_adapter(
         "List of devices attached\nserial-a\toffline\n",
         "List of devices attached\nserial-a\toffline\n",
     )
 
     assert adapter.restart_adb("secondary") is False
-    assert tuple(calls) == _EXPECTED_RESTART_CALLS
+    assert tuple(calls[:4]) == _EXPECTED_RESTART_CALLS
+    assert len(calls) > len(_EXPECTED_RESTART_CALLS)
 
 
-def test_legacy_adb_adapter_rejects_unauthorized_post_restart_state():
+def test_legacy_adb_adapter_rejects_unauthorized_post_restart_state(
+    fast_adb_restart_polling,
+):
     adapter, calls = _make_adb_adapter(
         "List of devices attached\nserial-a\tdevice\n",
         "List of devices attached\nserial-a\tunauthorized\n",
     )
 
     assert adapter.restart_adb("secondary") is False
-    assert tuple(calls) == _EXPECTED_RESTART_CALLS
+    assert tuple(calls[:4]) == _EXPECTED_RESTART_CALLS
+    assert len(calls) > len(_EXPECTED_RESTART_CALLS)
 
 
-def test_legacy_adb_adapter_rejects_target_that_disappears_after_restart():
+def test_legacy_adb_adapter_rejects_target_that_disappears_after_restart(
+    fast_adb_restart_polling,
+):
     adapter, calls = _make_adb_adapter(
         "List of devices attached\nserial-a\tdevice\n",
         "List of devices attached\n",
     )
 
     assert adapter.restart_adb("secondary") is False
-    assert tuple(calls) == _EXPECTED_RESTART_CALLS
+    assert tuple(calls[:4]) == _EXPECTED_RESTART_CALLS
+    assert len(calls) > len(_EXPECTED_RESTART_CALLS)
 
 
 def test_legacy_adb_adapter_rejects_unsupported_state_before_restart():
@@ -726,14 +1129,39 @@ def test_legacy_adb_adapter_rejects_multiple_devices_for_auto_target():
     assert calls == [("adb", "devices")]
 
 
-def test_legacy_adb_adapter_rejects_changed_explicit_target_inventory():
+def test_legacy_adb_adapter_rejects_changed_explicit_target_inventory(
+    fast_adb_restart_polling,
+):
     adapter, calls = _make_adb_adapter(
         "List of devices attached\nserial-a\tdevice\n",
         "List of devices attached\nserial-b\tdevice\n",
     )
 
     assert adapter.restart_adb("secondary") is False
-    assert tuple(calls) == _EXPECTED_RESTART_CALLS
+    assert tuple(calls[:4]) == _EXPECTED_RESTART_CALLS
+    assert len(calls) > len(_EXPECTED_RESTART_CALLS)
+
+
+def test_typed_adb_failures_distinguish_ownership_and_postcondition(
+    fast_adb_restart_polling,
+):
+    ambiguous, ambiguous_calls = _make_adb_adapter(
+        "List of devices attached\nforeign\tdevice\n",
+        typed_failures=True,
+    )
+    with pytest.raises(OwnershipAmbiguousError):
+        ambiguous.restart_adb("secondary")
+    assert ambiguous_calls == [("adb", "devices")]
+
+    postcondition, postcondition_calls = _make_adb_adapter(
+        "List of devices attached\nserial-a\tdevice\n",
+        "List of devices attached\nserial-b\tdevice\n",
+        typed_failures=True,
+    )
+    with pytest.raises(PostconditionFailedError):
+        postcondition.restart_adb("secondary")
+    assert tuple(postcondition_calls[:4]) == _EXPECTED_RESTART_CALLS
+    assert len(postcondition_calls) > len(_EXPECTED_RESTART_CALLS)
 
 
 def test_legacy_adb_adapter_rejects_unscoped_restart_without_touching_adb():

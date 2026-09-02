@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
-from datetime import datetime
+import math
+from collections.abc import Callable, Mapping, Sequence
+from datetime import date, datetime
+from decimal import Decimal
 
 from module.application.errors import (
     ConfigurationValidationError,
     InvalidRequestError,
     OperationFailedError,
+    PostconditionFailedError,
+    PreconditionFailedError,
     ResourceNotFoundError,
     ServiceUnavailableError,
 )
@@ -19,6 +23,10 @@ from module.application.ports import InstanceRuntimeReader
 MAX_RECENT_LOG_LINES = 10_000
 MAX_SCHEDULABLE_TASKS = 512
 MAX_NAME_LENGTH = 128
+MAX_CONFIG_VALUE_DEPTH = 8
+MAX_CONFIG_VALUE_ITEMS = 256
+MAX_CONFIG_VALUE_STRING_LENGTH = 4096
+MAX_CONFIG_VALUE_MAGNITUDE = 10**12
 UNKNOWN_TASK = "Unknown"
 INVALID_NAME_CHARS = frozenset("./\\\x00:*?\"<>|")
 
@@ -94,6 +102,8 @@ def safe_read(operation: str, callback: Callable[[], object]) -> object:
 def safe_control(operation: str, callback: Callable[[], object]) -> object:
     try:
         return callback()
+    except (PreconditionFailedError, PostconditionFailedError):
+        raise
     except Exception:  # noqa: BLE001 - public result must not expose adapter details.
         raise OperationFailedError(f"Не удалось выполнить операцию: {operation}.") from None
 
@@ -110,6 +120,76 @@ def same_value(left: object, right: object) -> bool:
     if type(left) is not type(right):
         return False
     return left == right
+
+
+def _validate_bounded_payload(
+    value: object,
+    *,
+    depth: int = 0,
+    allow_extended_scalars: bool,
+) -> None:
+    """Проверить размер и тип динамического значения до его заморозки."""
+
+    if depth > MAX_CONFIG_VALUE_DEPTH:
+        raise ValueError("Значение конфигурации слишком глубоко вложено")
+    if value is None or type(value) is bool:
+        return
+    if type(value) is int:
+        if abs(value) > MAX_CONFIG_VALUE_MAGNITUDE:
+            raise ValueError("Число конфигурации выходит за безопасный диапазон")
+        return
+    if type(value) is float:
+        if not math.isfinite(value):
+            raise ValueError("Число конфигурации не является конечным")
+        if abs(value) > MAX_CONFIG_VALUE_MAGNITUDE:
+            raise ValueError("Число конфигурации выходит за безопасный диапазон")
+        return
+    if isinstance(value, str):
+        if len(value) > MAX_CONFIG_VALUE_STRING_LENGTH:
+            raise ValueError("Строка конфигурации слишком длинная")
+        return
+    if allow_extended_scalars and isinstance(value, (date, datetime, Decimal)):
+        if isinstance(value, Decimal):
+            if not value.is_finite():
+                raise ValueError("Число конфигурации не является конечным")
+            if abs(value) > MAX_CONFIG_VALUE_MAGNITUDE:
+                raise ValueError("Число конфигурации выходит за безопасный диапазон")
+        return
+    if isinstance(value, Mapping):
+        if len(value) > MAX_CONFIG_VALUE_ITEMS:
+            raise ValueError("Объект конфигурации содержит слишком много полей")
+        for key, item in value.items():
+            if not isinstance(key, str) or not key or len(key) > MAX_NAME_LENGTH:
+                raise ValueError("Ключ конфигурации имеет недопустимый размер")
+            _validate_bounded_payload(
+                item,
+                depth=depth + 1,
+                allow_extended_scalars=allow_extended_scalars,
+            )
+        return
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        if len(value) > MAX_CONFIG_VALUE_ITEMS:
+            raise ValueError("Массив конфигурации содержит слишком много элементов")
+        for item in value:
+            _validate_bounded_payload(
+                item,
+                depth=depth + 1,
+                allow_extended_scalars=allow_extended_scalars,
+            )
+        return
+    raise ValueError("Значение конфигурации содержит неподдерживаемый тип")
+
+
+def validate_json_value(value: object) -> None:
+    """Проверить bounded JSON value для внешнего mutation contract."""
+
+    _validate_bounded_payload(value, allow_extended_scalars=False)
+
+
+def validate_config_payload(value: object) -> None:
+    """Проверить bounded payload application config, включая datetime values."""
+
+    _validate_bounded_payload(value, allow_extended_scalars=True)
 
 
 def _is_valid_datetime_value(value: object) -> bool:
@@ -134,6 +214,12 @@ def validate_config_value(
         raise ConfigurationValidationError(
             "Изменение чувствительного параметра запрещено."
         )
+    try:
+        validate_config_payload(value)
+    except ValueError:
+        raise ConfigurationValidationError(
+            "Значение конфигурации не прошло bounded-проверку."
+        ) from None
     try:
         frozen = freeze_payload(value, field_name="value")
     except TypeError:
@@ -213,6 +299,10 @@ def validate_config_value(
 
 __all__ = [
     "INVALID_NAME_CHARS",
+    "MAX_CONFIG_VALUE_DEPTH",
+    "MAX_CONFIG_VALUE_ITEMS",
+    "MAX_CONFIG_VALUE_MAGNITUDE",
+    "MAX_CONFIG_VALUE_STRING_LENGTH",
     "MAX_NAME_LENGTH",
     "MAX_RECENT_LOG_LINES",
     "MAX_SCHEDULABLE_TASKS",
@@ -223,7 +313,9 @@ __all__ = [
     "safe_read",
     "same_value",
     "scheduler_tasks",
+    "validate_config_payload",
     "validate_config_value",
+    "validate_json_value",
     "validated_name",
     "validated_segment",
 ]

@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -14,9 +15,14 @@ from datetime import UTC, date, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 from threading import Lock
-from time import monotonic
+from time import monotonic, sleep
 from typing import NamedTuple
 
+from module.application.errors import (
+    OperationFailedError,
+    OwnershipAmbiguousError,
+    PostconditionFailedError,
+)
 from module.application.game_models import (
     ConfigUpdateRequest,
     DashboardResources,
@@ -29,6 +35,11 @@ from module.application.game_validation import (
     INVALID_NAME_CHARS,
     MAX_NAME_LENGTH,
     UNKNOWN_TASK,
+)
+from module.application.host_lock import (
+    application_host_lock,
+    ensure_host_runtime_root,
+    host_scoped_lock_path,
 )
 
 _MAX_LOG_LINES = 10_000
@@ -45,10 +56,49 @@ _ADB_PATH_CANDIDATES = (
 )
 _SCHEDULER_FALLBACK_NEXT_RUN = datetime.fromisoformat("2050-01-01")
 _ADB_DEVICE_STATES = frozenset({"device", "offline", "unauthorized"})
+
+
+def _adb_server_identity() -> str:
+    """Определить identity фактического ADB server, а не checkout."""
+
+    socket = os.environ.get("ADB_SERVER_SOCKET", "").strip()
+    if socket:
+        if socket.casefold().startswith("tcp:"):
+            return socket
+        return f"socket:{socket}"
+    address = os.environ.get("ANDROID_ADB_SERVER_ADDRESS", "127.0.0.1").strip()
+    port = os.environ.get("ANDROID_ADB_SERVER_PORT", "5037").strip()
+    return f"tcp:{address or '127.0.0.1'}:{port or '5037'}"
+
+
+def _adb_host_lock_path(server_identity: str | None = None) -> Path:
+    """Вернуть stable user-runtime lock path для одного ADB endpoint."""
+
+    return host_scoped_lock_path("adb", server_identity or _adb_server_identity())
+
+
+_ADB_HOST_LOCK_PATH = _adb_host_lock_path()
+_ADB_HOST_LOCK_TIMEOUT_SECONDS = 75.0
+_ADB_RESTART_READY_TIMEOUT_SECONDS = 5.0
+_ADB_RESTART_READY_RETRY_INTERVAL_SECONDS = 0.1
+_ADB_RESTART_READY_MAX_ATTEMPTS = 60
+_EMULATOR_STATE_TIMEOUT_SECONDS = 5.0
+_EMULATOR_STATE_RETRY_INTERVAL_SECONDS = 0.1
+_EMULATOR_STATE_MAX_ATTEMPTS = 60
 _TASK_LOG_PATTERNS = (
     re.compile(r"调度器: 开始任务\s*[`'\" ](.*?)[`'\" ]"),
     re.compile(r"<<<\s*Run task\s*(.*?)\s*>>>")
 )
+
+
+def _adb_host_lock(server_identity: str | None = None):
+    """Сериализовать Game ADB операции для одного server endpoint."""
+
+    ensure_host_runtime_root()
+    return application_host_lock(
+        _adb_host_lock_path(server_identity),
+        timeout=_ADB_HOST_LOCK_TIMEOUT_SECONDS,
+    )
 
 
 class _AdbDevice(NamedTuple):
@@ -530,6 +580,10 @@ class LegacyScreenshotAdapter:
 
     def read_frame(self, instance: str) -> MediaFrame:
         instance = _safe_instance_name(instance)
+        with _adb_host_lock():
+            return self._read_frame(instance)
+
+    def _read_frame(self, instance: str) -> MediaFrame:
         adb = self._adb_path_provider()
         if not isinstance(adb, str) or not adb:
             raise ValueError("ADB path не определён.")
@@ -690,31 +744,118 @@ class LegacyProcessManagerAdapter:
 
 
 class LegacyEmulatorAdapter:
-    """Выполняет instance-scoped restart через существующий Platform owner."""
+    """Выполняет instance-scoped restart через проверяемый Platform owner."""
 
     def __init__(
         self,
         *,
         platform_factory: Callable[[str], object] | None = None,
+        typed_failures: bool = False,
     ) -> None:
         self._platform_factory = platform_factory
+        if type(typed_failures) is not bool:
+            raise TypeError("typed_failures должен быть bool")
+        self._typed_failures = typed_failures
 
     def restart_emulator(self, instance: str) -> bool:
         instance = _safe_instance_name(instance)
+        with _adb_host_lock():
+            return self._restart_emulator(instance)
+
+    def _restart_emulator(self, instance: str) -> bool:
         platform = self._make_platform(instance)
-        stopped = platform.emulator_stop()  # type: ignore[attr-defined]
-        if stopped is not True:
-            return False
-        started = platform.emulator_start()  # type: ignore[attr-defined]
-        return started is True
+        is_running = getattr(platform, "is_emulator_instance_running", None)
+        if not callable(is_running) or self._read_running(is_running) is None:
+            return self._failure(
+                OwnershipAmbiguousError(
+                    "Ownership emulator instance не подтверждён."
+                )
+            )
+        stopped = self._call_platform(
+            platform,
+            "emulator_stop",
+            "остановку эмулятора",
+        )
+        if stopped is not True or not self._await_running(is_running, False):
+            return self._failure(
+                PostconditionFailedError(
+                    "Эмулятор не подтвердил состояние stopped после stop."
+                )
+            )
+        started = self._call_platform(
+            platform,
+            "emulator_start",
+            "запуск эмулятора",
+        )
+        if started is not True:
+            return self._failure(
+                OperationFailedError("Эмулятор не подтвердил запуск после stop.")
+            )
+        if not self._await_running(is_running, True):
+            return self._failure(
+                PostconditionFailedError(
+                    "Эмулятор не подтвердил состояние running после start."
+                )
+            )
+        return True
+
+    def _failure(self, error: OperationFailedError) -> bool:
+        if self._typed_failures:
+            raise error
+        return False
+
+    @staticmethod
+    def _read_running(checker: Callable[[], object]) -> bool | None:
+        try:
+            value = checker()
+        except Exception:  # noqa: BLE001 - lifecycle confirmation fails closed.
+            return None
+        return value if type(value) is bool else None
+
+    @staticmethod
+    def _await_running(checker: Callable[[], object], expected: bool) -> bool:
+        deadline = monotonic() + _EMULATOR_STATE_TIMEOUT_SECONDS
+        for attempt in range(_EMULATOR_STATE_MAX_ATTEMPTS):
+            if LegacyEmulatorAdapter._read_running(checker) is expected:
+                return True
+            if (
+                attempt + 1 >= _EMULATOR_STATE_MAX_ATTEMPTS
+                or monotonic() >= deadline
+            ):
+                break
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                break
+            sleep(min(_EMULATOR_STATE_RETRY_INTERVAL_SECONDS, remaining))
+        return False
+
+    def _call_platform(
+        self,
+        platform: object,
+        method_name: str,
+        operation: str,
+    ) -> object:
+        try:
+            method = getattr(platform, method_name, None)
+            if not callable(method):
+                return self._failure(
+                    OperationFailedError(
+                        f"Platform не предоставила операцию: {operation}."
+                    )
+                )
+            return method()
+        except Exception:  # noqa: BLE001 - platform boundary is sanitized.
+            return self._failure(
+                OperationFailedError(f"Не удалось выполнить {operation}.")
+            )
 
     def _make_platform(self, instance: str) -> object:
         if self._platform_factory is not None:
             return self._platform_factory(instance)
         from module.config.config import AzurLaneConfig
-        from module.device.platform import Platform
+        from module.device.platform import get_recovery_platform
 
-        return Platform(AzurLaneConfig(instance, task=None), connect=False)
+        return get_recovery_platform(AzurLaneConfig(instance, task=None))
 
 
 class LegacyAdbAdapter:
@@ -726,12 +867,22 @@ class LegacyAdbAdapter:
         runner: Callable[[Sequence[str]], object] | None = None,
         adb_path_provider: Callable[[], str] | None = None,
         target_serial_provider: Callable[[str], str | None] | None = None,
+        typed_failures: bool = False,
     ) -> None:
         self._runner = runner or self._run
         self._adb_path_provider = adb_path_provider or self._default_adb_path
         self._target_serial_provider = target_serial_provider or self._default_target_serial
+        if type(typed_failures) is not bool:
+            raise TypeError("typed_failures должен быть bool")
+        self._typed_failures = typed_failures
 
     def restart_adb(self, instance: str | None = None) -> bool:
+        """Сериализовать host-global kill/start между всеми Game owners."""
+
+        with _adb_host_lock():
+            return self._restart_adb(instance)
+
+    def _restart_adb(self, instance: str | None = None) -> bool:
         # `adb kill-server` является host-global операцией. Без доказанной
         # принадлежности конкретному экземпляру она может оборвать чужие
         # устройства и потому запрещена до любого обращения к ADB.
@@ -743,10 +894,14 @@ class LegacyAdbAdapter:
             raise ValueError("ADB path не определён")
         inventory = self._runner((adb, "devices"))
         if self._returncode(inventory) != 0:
-            return False
+            return self._failure(
+                OwnershipAmbiguousError("Свежий инвентарь ADB недоступен.")
+            )
         devices = self._parse_devices(inventory)
         if devices is None:
-            return False
+            return self._failure(
+                OwnershipAmbiguousError("Инвентарь ADB не подтверждает ownership target.")
+            )
         target_serial = self._target_serial_provider(instance)
         if target_serial is not None:
             target_serial = _safe_serial(target_serial)
@@ -756,23 +911,51 @@ class LegacyAdbAdapter:
             target_serial,
             allow_singleton=auto_target,
         ):
-            return False
+            return self._failure(
+                OwnershipAmbiguousError("Ownership ADB target не подтверждён.")
+            )
         if auto_target:
             target_serial = devices[0].serial
         kill = self._runner((adb, "kill-server"))
         start = self._runner((adb, "start-server"))
-        ready = self._runner((adb, "devices"))
-        if not all(self._returncode(result) == 0 for result in (kill, start, ready)):
-            return False
-        ready_devices = self._parse_devices(ready)
-        return (
-            ready_devices is not None
-            and self._inventory_is_safe(
-                ready_devices,
-                target_serial,
+        if not all(self._returncode(result) == 0 for result in (kill, start)):
+            return self._failure(
+                OperationFailedError("ADB не подтвердил выполнение restart.")
             )
-            and self._target_is_ready(ready_devices, target_serial)
+        deadline = monotonic() + _ADB_RESTART_READY_TIMEOUT_SECONDS
+        for attempt in range(_ADB_RESTART_READY_MAX_ATTEMPTS):
+            ready = self._runner((adb, "devices"))
+            if self._returncode(ready) != 0:
+                return self._failure(
+                    OperationFailedError("ADB не подтвердил выполнение restart.")
+                )
+            ready_devices = self._parse_devices(ready)
+            if (
+                ready_devices is not None
+                and self._inventory_is_safe(
+                    ready_devices,
+                    target_serial,
+                )
+                and self._target_is_ready(ready_devices, target_serial)
+            ):
+                return True
+            if (
+                attempt + 1 >= _ADB_RESTART_READY_MAX_ATTEMPTS
+                or monotonic() >= deadline
+            ):
+                break
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                break
+            sleep(min(_ADB_RESTART_READY_RETRY_INTERVAL_SECONDS, remaining))
+        return self._failure(
+            PostconditionFailedError("ADB target не подтверждён после restart.")
         )
+
+    def _failure(self, error: OperationFailedError) -> bool:
+        if self._typed_failures:
+            raise error
+        return False
 
     @staticmethod
     def _parse_devices(result: object) -> tuple[_AdbDevice, ...] | None:

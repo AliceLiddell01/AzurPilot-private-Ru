@@ -14,7 +14,9 @@ import uvicorn
 
 from module.game_mcp.adapter import GameMcpAdapter
 from module.game_mcp.server import (
+    GAME_MCP_CONTROL_SCOPE,
     GAME_MCP_REQUIRED_SCOPE,
+    GAME_MCP_SCOPES,
     create_server,
 )
 from module.mcp_shared.remote import (
@@ -72,6 +74,7 @@ class OIDCTokenVerifier(_OIDCTokenVerifier):
         super().__init__(
             config,
             required_scope=GAME_MCP_REQUIRED_SCOPE,
+            accepted_scopes=GAME_MCP_SCOPES,
             jwk_client=jwk_client,
             clock=clock,
         )
@@ -86,6 +89,7 @@ class OAuthBearerMiddleware(_OAuthBearerMiddleware):
             config,
             verifier,
             required_scope=GAME_MCP_REQUIRED_SCOPE,
+            accepted_scopes=GAME_MCP_SCOPES,
         )
 
 
@@ -115,6 +119,7 @@ def create_remote_app(
         config=remote_config,
         token_verifier=verifier,
         required_scope=GAME_MCP_REQUIRED_SCOPE,
+        accepted_scopes=GAME_MCP_SCOPES,
     )
 
 
@@ -198,8 +203,10 @@ __all__ = (
     "DEFAULT_MAX_REQUEST_BODY_BYTES",
     "DEFAULT_REQUEST_TIMEOUT_SECONDS",
     "DEFAULT_VERIFICATION_TIMEOUT_SECONDS",
+    "GAME_MCP_CONTROL_SCOPE",
     "GAME_MCP_PORT",
     "GAME_MCP_REQUIRED_SCOPE",
+    "GAME_MCP_SCOPES",
     "MCP_PATH",
     "ConcurrencyLimitMiddleware",
     "FailSafeMiddleware",
