@@ -1,0 +1,17 @@
+merge_tree_exit_code=1
+93646d29445e232bf571cd0778813d5d7f6f7253
+module/application/__init__.py
+module/application/morale.py
+module/persistence/runtime.py
+
+Auto-merging .codex/context/02-RUNTIME-ARCHITECTURE.md
+Auto-merging alas.py
+Auto-merging module/application/__init__.py
+CONFLICT (content): Merge conflict in module/application/__init__.py
+Auto-merging module/application/morale.py
+CONFLICT (content): Merge conflict in module/application/morale.py
+Auto-merging module/config/argument/args.json
+Auto-merging module/config/argument/argument.yaml
+Auto-merging module/config/config.py
+Auto-merging module/persistence/runtime.py
+CONFLICT (content): Merge conflict in module/persistence/runtime.py
