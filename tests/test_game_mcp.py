@@ -77,12 +77,18 @@ from module.formation.model import (
 )
 from module.game_mcp.adapter import (
     GAME_MCP_CONTROL_TOOL_NAMES,
+    GAME_MCP_TOOL_NAMES,
     GameMcpAdapter,
     GameMcpResponse,
     _result,
 )
 from module.game_mcp.composition import GameMcpBackend
-from module.game_mcp.contract import contract_payload
+from module.game_mcp.contract import (
+    GAME_MCP_CONTROL_SCOPE,
+    GAME_MCP_READ_SCOPE,
+    contract_payload,
+    tool_catalog_sha256,
+)
 from module.game_mcp.server import (
     GAME_MCP_ARGS,
     GAME_MCP_COMMAND,
@@ -362,6 +368,8 @@ def test_contract_and_tool_catalog_are_game_specific_and_scope_separated() -> No
         "azurpilot:game.read",
         "azurpilot:game.control",
     ]
+    assert contract["tool_count"] == len(GAME_MCP_TOOL_NAMES) == 20
+    assert contract["tool_catalog_sha256"] == tool_catalog_sha256(GAME_MCP_TOOL_NAMES)
     assert contract["feature_flags"]["read_only"] is False
     assert contract["feature_flags"]["control_plane"] is True
     assert "dev_mcp_api_version" not in contract
@@ -444,9 +452,44 @@ def test_contract_and_tool_catalog_are_game_specific_and_scope_separated() -> No
         assert tool.description
 
 
+def test_tool_catalog_fingerprint_is_order_independent_and_rejects_duplicates() -> None:
+    expected = tool_catalog_sha256(GAME_MCP_TOOL_NAMES)
+    assert tool_catalog_sha256(reversed(GAME_MCP_TOOL_NAMES)) == expected
+    assert tool_catalog_sha256((*GAME_MCP_TOOL_NAMES, "game_future_tool")) != expected
+    with pytest.raises(ValueError, match="повторные"):
+        tool_catalog_sha256((*GAME_MCP_TOOL_NAMES, GAME_MCP_TOOL_NAMES[0]))
+
+
+def test_contract_reports_bounded_request_context_without_token_data() -> None:
+    adapter = GameMcpAdapter(lambda: _backend())
+    local = adapter.call("game_get_contract")
+    assert local["details"]["request_context"] == {
+        "transport": "local_stdio",
+        "authenticated": False,
+        "local_authority": True,
+        "granted_scopes": [],
+        "read_allowed": True,
+        "control_allowed": True,
+    }
+
+    remote = adapter.call(
+        "game_get_contract",
+        scopes=(GAME_MCP_READ_SCOPE, GAME_MCP_CONTROL_SCOPE),
+    )
+    assert remote["details"]["request_context"] == {
+        "transport": "remote_http",
+        "authenticated": True,
+        "local_authority": False,
+        "granted_scopes": [GAME_MCP_READ_SCOPE, GAME_MCP_CONTROL_SCOPE],
+        "read_allowed": True,
+        "control_allowed": True,
+    }
+    assert "token" not in json.dumps(remote, ensure_ascii=False).casefold()
+
+
 def test_output_schemas_are_scoped_to_their_tool_details() -> None:
     expected = {
-        "game_get_contract": {"contract", "tool"},
+        "game_get_contract": {"contract", "request_context", "tool"},
         "game_list_profiles": {"profiles", "tool"},
         "game_get_profile_status": {"profile", "running", "state", "tool"},
         "game_get_resources": {"profile", "resources", "tool"},

@@ -463,6 +463,15 @@ _CONTRACT_OUTPUT = {
             "type": "integer",
             "const": GAME_MCP_API_VERSION,
         },
+        "tool_count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 256,
+        },
+        "tool_catalog_sha256": {
+            "type": "string",
+            "pattern": r"^[a-f0-9]{64}$",
+        },
         "authorization_scopes": {
             "type": "array",
             "minItems": 2,
@@ -499,12 +508,45 @@ _CONTRACT_OUTPUT = {
         "contract_schema_version",
         "product_family",
         "game_mcp_api_version",
+        "tool_count",
+        "tool_catalog_sha256",
         "authorization_scopes",
         "feature_flags",
         "capability_families",
         "result_states",
         "read_only_guarantees",
         "control_guarantees",
+    ],
+    "additionalProperties": False,
+}
+_REQUEST_CONTEXT_OUTPUT = {
+    "type": "object",
+    "properties": {
+        "transport": {
+            "type": "string",
+            "enum": ["local_stdio", "remote_http"],
+        },
+        "authenticated": {"type": "boolean"},
+        "local_authority": {"type": "boolean"},
+        "granted_scopes": {
+            "type": "array",
+            "maxItems": len(GAME_MCP_SCOPES),
+            "uniqueItems": True,
+            "items": {
+                "type": "string",
+                "enum": list(GAME_MCP_SCOPES),
+            },
+        },
+        "read_allowed": {"type": "boolean"},
+        "control_allowed": {"type": "boolean"},
+    },
+    "required": [
+        "transport",
+        "authenticated",
+        "local_authority",
+        "granted_scopes",
+        "read_allowed",
+        "control_allowed",
     ],
     "additionalProperties": False,
 }
@@ -577,7 +619,9 @@ def _output_schema(details: dict[str, Any]) -> dict[str, Any]:
 
 
 _OUTPUT_SCHEMAS = {
-    "game_get_contract": _output_schema({"contract": _CONTRACT_OUTPUT}),
+    "game_get_contract": _output_schema(
+        {"contract": _CONTRACT_OUTPUT, "request_context": _REQUEST_CONTEXT_OUTPUT}
+    ),
     "game_list_profiles": _output_schema(
         {
             "profiles": {
