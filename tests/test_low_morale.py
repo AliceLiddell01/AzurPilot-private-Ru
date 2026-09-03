@@ -183,6 +183,31 @@ def test_handler_combines_partial_hierarchy_with_bounded_ocr(monkeypatch):
     assert received == [(355, 680, 3)]
 
 
+def test_handler_rate_limits_expensive_low_morale_evidence(monkeypatch):
+    handler = _warning_handler(
+        ("Cancel", "Confirm", "Morale is low. Affinity will be reduced if forced to attack.")
+    )
+    monkeypatch.setattr(handler, "appear", lambda *_args, **_kwargs: True)
+    hierarchy_calls = []
+    monkeypatch.setattr(
+        handler,
+        "_low_morale_warning_texts",
+        lambda: hierarchy_calls.append("hierarchy") or (
+            "Morale is low. Affinity will be reduced if forced to attack.",
+        ),
+    )
+    clock = [100.0]
+    monkeypatch.setattr("module.base.timer.time", lambda: clock[0])
+
+    assert handler._low_morale_warning_evidence() is not None
+    assert handler._low_morale_warning_evidence() is None
+    assert hierarchy_calls == ["hierarchy"]
+
+    clock[0] += 1.6
+    assert handler._low_morale_warning_evidence() is not None
+    assert hierarchy_calls == ["hierarchy", "hierarchy"]
+
+
 def test_handler_keeps_unproven_hierarchy_and_malformed_ocr_closed(monkeypatch):
     handler = _warning_handler(("Cancel", "Confirm", "Mood status"))
     monkeypatch.setattr(handler, "appear", lambda *_args, **_kwargs: True)

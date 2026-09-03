@@ -269,15 +269,23 @@ class InfoHandler(ModuleBase):
             return ()
 
     def _low_morale_warning_evidence(self):
+        evidence_interval = getattr(self, '_low_morale_evidence_interval', None)
+        if evidence_interval is None:
+            evidence_interval = Timer(1.5)
+            self._low_morale_evidence_interval = evidence_interval
         if not (
             self.appear(POPUP_CANCEL, offset=self._popup_offset)
             or self.appear(POPUP_CANCEL_WHITE, offset=self._popup_offset)
         ):
+            evidence_interval.clear()
             return None
         if not (
             self.appear(POPUP_CONFIRM, offset=self._popup_offset)
             or self.appear(POPUP_CONFIRM_WHITE, offset=self._popup_offset)
         ):
+            evidence_interval.clear()
+            return None
+        if not evidence_interval.reached_and_reset():
             return None
         from module.application.low_morale import LowMoraleWarningDetector
 
