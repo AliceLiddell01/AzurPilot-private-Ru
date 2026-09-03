@@ -11,6 +11,7 @@ from module.application.storage_models import StorageHealth, StorageHealthState
 from module.persistence.config import (
     DatabaseSettings,
     advance_backend_marker_schema_head,
+    load_backend_marker_for_diagnostics,
     load_backend_marker_for_schema_upgrade,
 )
 from module.persistence.schema import EXPECTED_ALEMBIC_HEAD
@@ -54,10 +55,35 @@ def test_runtime_rejects_stale_marker_but_upgrade_loader_accepts_it(
         DatabaseSettings.from_backend_marker(marker)
 
     settings, marker_head = load_backend_marker_for_schema_upgrade(marker)
+    diagnostic_settings, diagnostic_head, marker_version = load_backend_marker_for_diagnostics(marker)
 
     assert marker_head == _PREVIOUS_HEAD
     assert settings.user == "azurpilot_app"
     assert settings.database == "azurpilot"
+    assert diagnostic_settings == settings
+    assert diagnostic_head == marker_head
+    assert marker_version == 1
+
+
+def test_diagnostics_preserve_incompatible_marker_version(
+    tmp_path: Path,
+) -> None:
+    marker = tmp_path / "storage_backend.json"
+    payload = _marker_payload(EXPECTED_ALEMBIC_HEAD)
+    payload["version"] = 2
+    marker.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(StorageConfigurationError, match="не разрешает"):
+        load_backend_marker_for_schema_upgrade(marker)
+
+    settings, marker_head, marker_version = load_backend_marker_for_diagnostics(marker)
+
+    assert settings.user == "azurpilot_app"
+    assert marker_head == EXPECTED_ALEMBIC_HEAD
+    assert marker_version == 2
 
 
 def test_marker_schema_advance_changes_only_head_and_is_idempotent(

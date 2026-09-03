@@ -98,6 +98,48 @@ Foreground Start, который сам создал backend, сохраняет
 открывает его и сообщает путь к Stop. Stop не завершает PostgreSQL и не считает
 один лишь занятый порт доказательством ownership.
 
+## Dev Runtime Foundation
+
+Локальный developer runtime живёт в импортируемом пакете `module.dev_runtime` и
+работает с target из канонического registry, loopback `127.0.0.1` и отдельным
+портом `25549`. Target хранится в repository-scoped marker под `config/state/`,
+проверяется структурным profile discovery; при отсутствии marker read-only
+разрешается default из tracked target policy (`ap` после проверки профиля).
+Переключение target требует явного согласия пользователя, а публичный lifecycle
+API не принимает произвольный профиль. Adapter перепривязывает новые вызовы к
+текущему registry target, а уже принятая control operation сохраняет immutable
+target identity и fingerprint критической конфигурации; mismatch не может
+молча перенаправить мутацию на другой профиль и завершается fail-closed.
+
+Обычный runtime запускается только через project `.venv` Python и штатный
+`gui.py --run <configured-target>`. Preflight требует уже подготовленное окружение: наличие
+pending dependency-sync marker блокирует старт, поэтому Dev Runtime сам не
+запускает `uv sync`, upgrade или repair. Готовность подтверждается не таймером,
+а связкой exact-owned root process → WebUI owner из read-only registry snapshot
+→ принадлежность локального listen socket → worker настроенного target → HTTP readiness.
+
+DevSession хранит repository-scoped marker и lock под `config/state/`. Marker
+также сохраняет назначенный profile сессии: уже запущенный процесс и его Evidence
+не перепривязываются к новому target marker до завершения старой сессии. Ownership
+процесса включает PID, время создания, executable, command line и cwd; PID или
+занятый порт сами по себе не дают права на остановку. `stop`/`recover` работают
+fail-closed и не завершают процесс при неоднозначном владении. `status` и
+`doctor` не мигрируют worker registry и не создают его lock-файлы. Повреждённый
+или stale marker классифицируется отдельно; повторный старт разрешён только
+после безопасного доказанного восстановления. Создание DevSession, SmokeRun и
+control operation сериализуется общей repository-scoped coordination lock, а
+каждый собственный marker служит durable reservation до завершения владельца.
+
+Этот слой остаётся основой Dev MCP и не меняет жизненный цикл игрового
+планировщика и рабочих задач.
+Stage 4 добавляет подтверждающие данные в пределах сессии в отдельном
+`module.dev_runtime.evidence`: игнорируемые артефакты живут под
+`config/state/dev-runtime-runs/<session-id>/`, используют атомарные метаданные,
+межпроцессную блокировку, ограниченное хранение и типизированное состояние. Снимок Git,
+каноническая хронология, происхождение задач и зависимостей, граница журнала сессии,
+структурированные ошибки и явный запрос снимка принадлежат точной рабочей копии,
+`session_id` и настроенному development target.
+
 ## MCP
 
 MCP не должен становиться обходом конфигурационных и безопасностных границ. Для каждого инструмента проверить:
@@ -109,6 +151,56 @@ MCP не должен становиться обходом конфигурац
 - обработку ошибок;
 - доступ к screenshot, логам и пользовательским данным;
 - отключаемость интеграции.
+
+`module/dev_mcp` — отдельный stdio-адаптер только для разработки поверх
+`DevSessionManager` и `RuntimeControlManager`. Он использует только target,
+разрешённый registry (включая policy default при отсутствии marker), создаёт
+менеджер лениво и не связан с Game MCP. При смене marker
+создаётся новый manager только для новых операций; старые DevSession/Evidence
+разрешают записанный profile. Запуск не должен
+читать профиль или запускать runtime; схема и безопасная сериализация остаются
+границей адаптера, а владение, политика задач и очистка принадлежат
+`DevSessionManager`; runtime control владеет отдельными persistent operations.
+Диагностические инструменты вызывают API менеджера для
+подтверждающих данных, хронологии, ограниченного журнала сессии и явного снимка экрана.
+Обработчик MCP не читает артефакты, не запускает Git и не создаёт второй
+`Device`; рабочий процесс снимка экрана обслуживает только явный запрос текущим кадром
+уже существующего runtime. Обычный рабочий процесс без проверенной активной DevSession не
+создаёт подтверждающие данные.
+
+MCP server использует официальную low-level API установленной стабильной MCP
+SDK v2 для общей регистрации tools в stdio и Streamable HTTP. Один и тот же
+adapter обслуживает modern protocol `2026-07-28` и legacy negotiation; native
+MCP Tasks не эмулируются. `SmokeRun` и `DevRuntimeControlOperation` остаются
+application-level persistent entities.
+
+Текущий development-контур предоставляет developer-only односторонний Game
+Bridge и диагностику базы данных. Game Bridge вызывает только нейтральные
+типизированные application services: `GameReadService` и persistence-backed
+morale projection; Dev MCP, Smoke, Evidence и DB diagnostics остаются
+developer-only. Каждый snapshot имеет неизменяемую target/session/checkpoint
+provenance, ограниченный payload и checksum. Smoke Harness сохраняет `before`,
+`final` и объявленные промежуточные checkpoints в изолированном sidecar, а
+unknown/unavailable/missing required snapshot не может дать `PASS`.
+
+Standalone Game MCP находится в `module.game_mcp` и использует тот же
+нейтральный application/domain слой через собственную lazy composition root.
+Он работает через stateless stdio и authenticated Streamable HTTP, принимает
+канонический `profile` в каждом target-dependent запросе и не импортирует Dev
+MCP или Dev Runtime. Его remote resource и scopes `azurpilot:game.read` и
+`azurpilot:game.control` отделены от Dev MCP, а общий transport/auth код
+размещён в `module.mcp_shared`. Fleet State и morale читаются без регистрации
+профиля, физического scan или скрытого commit; lifecycle, config/scheduler,
+emulator/ADB control, DB internals и developer evidence в Game MCP выдаются
+только через отдельные bounded control contracts либо не выдаются вовсе.
+
+Диагностика базы данных принадлежит persistence adapter, но наружу выходит
+через типизированный `module.application` port и фиксированный bounded
+catalog. Она использует отдельный process-local lazy app-role engine/health/UoW
+composition для developer diagnostics, не запускает production bootstrap и не
+создаёт global provider. Явный lifecycle позволяет dispose диагностического
+engine; arbitrary SQL, dump или Alembic mutation по-прежнему запрещены. Repair catalog может быть пустым, если безопасного
+зарегистрированного repair нет.
 
 Не фиксировать в документации точное количество инструментов: оно меняется. Источник истины — регистрация tools в текущем коде.
 

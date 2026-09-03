@@ -34,6 +34,9 @@ debug_ocr/
 PaddleOCR
 .trae
 docs/
+# Локальная конфигурация public HTTPS содержит host и OAuth-значения оператора.
+docs/dev-mcp/Caddyfile
+.tools/caddy/
 # Created by .ignore support plugin (hsz.mobi)
 
 ### JetBrains template

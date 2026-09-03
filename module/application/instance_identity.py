@@ -25,12 +25,37 @@ def resolve_runtime_instance(
 ) -> UUID:
     """Разрешить профиль через действующий app_instance/legacy alias contract."""
 
+    resolved = _resolve_runtime_instance(uow, instance, register_missing=True)
+    if resolved is None:
+        raise StorageConfigurationError(
+            "Идентификатор runtime-профиля не удалось зарегистрировать."
+        )
+    return resolved
+
+
+def resolve_existing_runtime_instance(
+    uow: StorageUnitOfWork,
+    instance: str,
+) -> UUID | None:
+    """Разрешить уже известный runtime-профиль без регистрации или commit."""
+
+    return _resolve_runtime_instance(uow, instance, register_missing=False)
+
+
+def _resolve_runtime_instance(
+    uow: StorageUnitOfWork,
+    instance: str,
+    *,
+    register_missing: bool,
+) -> UUID | None:
     digest, identity_id = runtime_instance_identity(instance)
     identity = uow.instances.resolve(
         alias_kind="legacy_instance",
         alias_digest=digest,
     )
     if identity is None:
+        if not register_missing:
+            return None
         identity = InstanceIdentity(identity_id, instance)
         uow.instances.register(
             identity,
@@ -40,6 +65,6 @@ def resolve_runtime_instance(
         )
     elif identity.id != identity_id:
         raise StorageConfigurationError(
-            "Идентификатор экземпляра не совпадает с происхождением миграции."
+            "Идентификатор runtime-профиля не совпадает с ожидаемым идентификатором."
         )
     return identity.id

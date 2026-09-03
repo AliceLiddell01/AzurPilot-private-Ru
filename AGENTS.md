@@ -82,7 +82,8 @@
 uv sync --frozen
 uv run python gui.py
 uv run python alas.py
-uv run python mcp_server_sse.py
+uv run --locked --no-sync python -m module.game_mcp
+uv run --locked --no-sync python -m module.dev_mcp
 uv run ruff check . --select E9,F63,F7,F82 --ignore F821,F722
 uv run -m module.config.config_updater
 uv run -m dev_tools.button_extract
@@ -94,7 +95,9 @@ uv run -m dev_tools.button_extract
 
 - `alas.py` — планировщик и диспетчер задач.
 - `gui.py` — жизненный цикл WebUI.
-- `mcp_server_sse.py` — отдельный MCP/SSE-контур, если он присутствует в целевой ветке.
+- `module/game_mcp/` — отдельная игровая Game MCP read/control поверхность.
+- `module/dev_mcp/` — Dev MCP для development runtime и smoke/evidence.
+- `module/mcp_shared/` — нейтральные общие компоненты authenticated MCP transport.
 - `module/base/` — базовые абстракции распознавания и выполнения.
 - `module/config/` — загрузка, миграция и генерация конфигурации.
 - `module/device/` — соединение, скриншоты, ввод и управление приложением.
@@ -211,9 +214,24 @@ git reflog expire
 git gc --prune=now
 ```
 
-## 12. Автономная модель и глубина работы
+## 11.1. Долговременные инварианты изменения
 
-Основная модель ответственности — **100% Codex**. Codex самостоятельно выполняет технический цикл: разведку, реализацию, проверки, Git, PR, независимое ревью, merge, post-merge verification и cleanup. Пользователь не используется как ручной CI, оператор Git или исполнитель промежуточных команд.
+- **Жёсткая привязка к конкретной задаче (task-specific hardcode) запрещена.** Значения, меняющиеся вместе с конкретной задачей, ивентом, картой, магазином, OCR-сценарием, task ID, migration phase, smoke-run, PR или историческим состоянием, должны идти через подходящий config, registry, model, abstraction, extension point, schema, data-driven mapping или generated source. Литерал допустим только как стабильная часть внешнего протокола/domain contract, установленная архитектурная константа текущего scope или прямо заданный пользователем узкий контракт.
+- Постоянные CI-проверки и тесты проверяют текущее продуктовое поведение, а не историю разработки. Нельзя добавлять stage-specific fixtures, baselines, historical SHA, committed evidence или jobs, существующие только ради номера этапа.
+- Если файл попал в diff, весь его человеческий текст аудируется: комментарии, операторские логи и диагностические сообщения должны быть литературным русским. Имена API, идентификаторы, protocol tokens, exact external error codes, package names, paths, URLs, технические термины и требуемые собственные имена сохраняются.
+- Последовательная разработка выполняется в текущем основном checkout. Дополнительный implementation checkout/worktree не используется по умолчанию и допустим только в явно перечисленных исключениях `.codex/context/GIT-WORKFLOW.md`; отдельный WSL2 Arch review clone — штатный special case только для независимого CodeRabbit review. Изменения продукта в review clone не разрабатываются.
+
+## 12. Автономная модель и границы lifecycle
+
+Основная модель ответственности — **100% технической работы Codex до готового draft PR**. Codex самостоятельно выполняет разведку, реализацию, проверки, Git, PR, self-review, доступные review checkpoints и required CI, но не выполняет merge без отдельной явной команды пользователя. Пользователь не используется как ручной CI, Git-оператор или исполнитель промежуточных команд.
+
+Нормальная pre-merge конечная точка — `READY_FOR_CHATGPT_REVIEW`: draft PR создан, exact-head gates проверены, открытые blocking findings отсутствуют, а финальное ревью выполняет пользователь через ChatGPT 5.6 Sol. После этого Codex останавливается. Только новое текущее сообщение пользователя, однозначно относящееся к этому PR, разрешает merge; старое разрешение или общая фраза «сделай всё» не подходят. После разрешённого merge Codex самостоятельно выполняет post-merge verification и cleanup.
+
+До финального ChatGPT review CodeRabbit rate limit/cooldown не является product blocker:
+не ждать cooldown и не делать бесконечные retry; зафиксировать последний реально
+проверенный exact head и завершить доступные pre-merge gates в состоянии
+`READY_FOR_CHATGPT_REVIEW`. После merge rate limit не возвращает lifecycle в
+pre-merge состояние.
 
 Класс задачи выбирается по риску:
 
@@ -221,7 +239,7 @@ git gc --prune=now
 - Стандартный — обычное исправление или небольшая функция в одной известной подсистеме.
 - Расширенный — `master`, upstream, `personal/stable`, Start/Update/Repair/Build, зависимости, устройство, OCR, combat, Operation Siren, MCP, безопасность или несколько подсистем.
 
-Если класс неочевиден, выбирай более строгий. Если обязательный gate недоступен, завершай задачу fail-closed со статусом `blocked`, не передавая техническую работу пользователю.
+Если класс неочевиден, выбирай более строгий. Если обязательная продуктовая проверка недоступна, завершай задачу fail-closed со статусом `blocked`, не передавая техническую работу пользователю. Исключение до финального ChatGPT review — CodeRabbit rate limit/cooldown: он не является блокером продукта; зафиксируй последний exact head и передай draft PR на `READY_FOR_CHATGPT_REVIEW` после остальных доступных gates.
 
 ## 13. Проверки
 

@@ -12,7 +12,10 @@ from typing import Protocol, Self, TypeVar
 from uuid import UUID, uuid4
 
 from module.application.fleet_state import FleetStateObservation, FleetStateRepository
-from module.application.instance_identity import resolve_runtime_instance
+from module.application.instance_identity import (
+    resolve_existing_runtime_instance,
+    resolve_runtime_instance,
+)
 from module.application.storage_ports import StorageUnitOfWork
 from module.dock_inventory.model import CanonicalShipIdentity, IdentityStatus, ShipForm
 from module.formation.model import (
@@ -848,6 +851,30 @@ class MoraleService:
         state = self.state(instance, FleetSelection.one(fleet_index), at=at)
         return state.fleets[0]
 
+    def _selection_state(
+        self,
+        uow: MoraleUnitOfWork,
+        instance_id: UUID,
+        selection: FleetSelection,
+        projected_at: datetime,
+    ) -> MoraleSelectionState:
+        formations = uow.fleet_state.latest(instance_id, selection)
+        morale = uow.morale.latest(instance_id, selection)
+        formation_by_fleet = {item.fleet_index: item for item in formations}
+        morale_by_slot = {
+            (item.fleet_index, item.side, item.position): item for item in morale
+        }
+        fleets = tuple(
+            self._fleet_state(
+                fleet_index,
+                formation_by_fleet.get(fleet_index),
+                morale_by_slot,
+                projected_at,
+            )
+            for fleet_index in selection.fleet_indices
+        )
+        return MoraleSelectionState(selection, fleets, projected_at)
+
     def state(
         self,
         instance: str,
@@ -860,14 +887,33 @@ class MoraleService:
         projected_at = self._now() if at is None else _aware(at, field="at")
 
         def operation(uow: MoraleUnitOfWork, instance_id: UUID) -> MoraleSelectionState:
-            return self.state_in_uow(
-                uow,
-                instance_id,
-                selection,
-                at=projected_at,
-            )
+            return self._selection_state(uow, instance_id, selection, projected_at)
 
         return self._transaction(instance, operation)
+
+    def state_read_only(
+        self,
+        instance: str,
+        selection: FleetSelection,
+        *,
+        at: datetime | None = None,
+    ) -> MoraleSelectionState:
+        """Прочитать morale только для уже зарегистрированного app instance.
+
+        Dev observation не должна регистрировать новый профиль побочным
+        эффектом. Отсутствующий alias трактуется как безопасно неизвестное
+        состояние и не превращается в пустую запись в PostgreSQL.
+        """
+
+        if not isinstance(selection, FleetSelection):
+            raise TypeError("selection должен быть FleetSelection")
+        projected_at = self._now() if at is None else _aware(at, field="at")
+
+        with self._uow_factory() as uow:
+            instance_id = resolve_existing_runtime_instance(uow, instance)
+            if instance_id is None:
+                return self._unknown_state(selection, projected_at)
+            return self._selection_state(uow, instance_id, selection, projected_at)
 
     def state_in_uow(
         self,
@@ -884,14 +930,7 @@ class MoraleService:
         if not isinstance(instance_id, UUID):
             raise TypeError("instance_id должен быть UUID")
         projected_at = self._now() if at is None else _aware(at, field="at")
-        formations = uow.fleet_state.latest(instance_id, selection)
-        morale = uow.morale.latest(instance_id, selection)
-        return self.state_from_observations(
-            selection,
-            formations,
-            morale,
-            at=projected_at,
-        )
+        return self._selection_state(uow, instance_id, selection, projected_at)
 
     def state_from_observations(
         self,
@@ -920,6 +959,36 @@ class MoraleService:
             for fleet_index in selection.fleet_indices
         )
         return MoraleSelectionState(selection, fleets, projected_at)
+
+    def _selection_state(
+        self,
+        uow: MoraleUnitOfWork,
+        instance_id: UUID,
+        selection: FleetSelection,
+        projected_at: datetime,
+    ) -> MoraleSelectionState:
+        formations = uow.fleet_state.latest(instance_id, selection)
+        morale = uow.morale.latest(instance_id, selection)
+        return self.state_from_observations(
+            selection,
+            formations,
+            morale,
+            at=projected_at,
+        )
+
+    def _unknown_state(
+        self,
+        selection: FleetSelection,
+        projected_at: datetime,
+    ) -> MoraleSelectionState:
+        return MoraleSelectionState(
+            selection,
+            tuple(
+                self._fleet_state(fleet_index, None, {}, projected_at)
+                for fleet_index in selection.fleet_indices
+            ),
+            projected_at,
+        )
 
     @staticmethod
     def _fleet_state(

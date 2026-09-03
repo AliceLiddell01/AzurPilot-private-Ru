@@ -22,7 +22,7 @@ PROTECTED_PATHS = {
     "tests/test_translation_structural_gate.py",
     "tests/test_translation_structural_gate_display_sinks.py",
 }
-ENTRY_POINTS = {"alas.py", "gui.py", "mcp_server_sse.py"}
+ENTRY_POINTS = {"alas.py", "gui.py"}
 LOGGER_METHODS = {
     "info",
     "warning",
@@ -887,17 +887,6 @@ class _ApprovedSiteCollector(ast.NodeVisitor):
             and not node.keywords
         ):
             self._approve(node.args[0], f"Island display context {'.'.join(name)}")
-
-        if (
-            self.source_path == "mcp_server_sse.py"
-            and current_function == "list_tools"
-            and name == ("Tool",)
-        ):
-            for keyword in node.keywords:
-                if keyword.arg == "description":
-                    self._approve(keyword.value, "MCP Tool.description")
-                elif keyword.arg == "inputSchema":
-                    self._approve_schema_descriptions(keyword.value)
 
         if (
             self.source_path == "module/os_simulator/plotter.py"

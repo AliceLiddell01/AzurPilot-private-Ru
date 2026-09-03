@@ -14,7 +14,7 @@ Workflow публикует три стабильных status contexts:
 - `Windows`;
 - `Security`.
 
-Активный repository ruleset `Protect personal/stable` (ID `20179789`) применяется к `refs/heads/personal/stable` и требует именно эти три context со strict-проверкой актуальности ветки. Старые Stage-зависимые required contexts отсутствуют. Ruleset также запрещает удаление ветки и non-fast-forward updates, требует pull request и разрешения review threads. Имена jobs являются публичным контрактом; переименование требует согласованного изменения ruleset.
+Активный repository ruleset `Protect personal/stable` (ID `20179789`) применяется к `refs/heads/personal/stable` и требует именно эти три context со strict-проверкой актуальности ветки. Старые исторически зависимые required contexts отсутствуют. Ruleset также запрещает удаление ветки и non-fast-forward updates, требует pull request и разрешения review threads. Имена jobs являются публичным контрактом; переименование требует согласованного изменения ruleset.
 
 ## Python
 
@@ -49,7 +49,7 @@ uv run --locked ruff check . --select E9,F63,F7,F82 --ignore F821,F722
 
 Локальный эквивалент PostgreSQL/Alembic-цикла описан в
 [`postgresql-storage-foundation.md`](postgresql-storage-foundation.md#alembic).
-Контракт Stage 3 importer и rehearsal описан в
+Контракт importer и migration rehearsal описан в
 [`postgresql-migration-tooling.md`](postgresql-migration-tooling.md).
 
 Job `Python` не содержит ручного реестра модулей: `pytest` автоматически собирает весь каталог `tests/`. Тесты, которым требуется реальное устройство, эмулятор или игровой аккаунт, должны проверять только локальный контракт либо оставаться в `tools/acceptance/`.
@@ -200,7 +200,7 @@ Workflow публикации Docker-образа, синхронизации з
 При изменении `.github/workflows/ci.yml` необходимо:
 
 1. сохранить точные публичные имена required jobs;
-2. не вводить исторические Stage/evidence-зависимости;
+2. не вводить исторические evidence-зависимости;
 3. проверить full-SHA pins и минимальные permissions;
 4. выполнить exact-head CI;
 5. убедиться, что на head запустился только один обязательный workflow с тремя required jobs;

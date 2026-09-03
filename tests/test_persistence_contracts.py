@@ -81,10 +81,9 @@ class PersistenceArchitectureTests(unittest.TestCase):
     def test_production_consumers_use_persistence_only_at_composition_roots(self):
         composition_roots = {
             ROOT / "alas.py",
-            ROOT / "mcp_server_sse.py",
             ROOT / "module" / "webui" / "app_lifecycle.py",
         }
-        checked = [ROOT / "alas.py", ROOT / "gui.py", ROOT / "mcp_server_sse.py"]
+        checked = [ROOT / "alas.py", ROOT / "gui.py"]
         checked.extend((ROOT / "module" / "webui").rglob("*.py"))
         checked.extend((ROOT / "module" / "statistics").rglob("*.py"))
         for path in checked:
@@ -150,12 +149,12 @@ assert 'sqlite3' not in sys.modules
             "AZURPILOT_POSTGRES_DISPOSABLE": "1",
             "AZURPILOT_POSTGRES_HOST": "127.0.0.1",
             "AZURPILOT_POSTGRES_PORT": "5432",
-            "AZURPILOT_POSTGRES_DATABASE": "stage2_test",
-            "AZURPILOT_POSTGRES_USER": "stage2_test",
+            "AZURPILOT_POSTGRES_DATABASE": "ci_contract_test",
+            "AZURPILOT_POSTGRES_USER": "ci_contract_test",
             "AZURPILOT_POSTGRES_DISPOSABLE_HOST": "127.0.0.1",
             "AZURPILOT_POSTGRES_DISPOSABLE_PORT": "5432",
             "AZURPILOT_POSTGRES_DISPOSABLE_DATABASE": "production_like",
-            "AZURPILOT_POSTGRES_DISPOSABLE_USER": "stage2_test",
+            "AZURPILOT_POSTGRES_DISPOSABLE_USER": "ci_contract_test",
         }
         with (
             patch.dict(os.environ, environment, clear=True),
@@ -171,8 +170,8 @@ class DatabaseConfigurationTests(unittest.TestCase):
         return DatabaseSettings(
             host="127.0.0.1",
             port=5432,
-            database="stage2",
-            user="stage2",
+            database="disposable_ci",
+            user="disposable_ci",
             password="synthetic-value",
         )
 
@@ -185,8 +184,8 @@ class DatabaseConfigurationTests(unittest.TestCase):
     def test_empty_optional_environment_values_use_defaults(self):
         values = {
             "AZURPILOT_POSTGRES_HOST": "127.0.0.1",
-            "AZURPILOT_POSTGRES_DATABASE": "stage2",
-            "AZURPILOT_POSTGRES_USER": "stage2",
+            "AZURPILOT_POSTGRES_DATABASE": "disposable_ci",
+            "AZURPILOT_POSTGRES_USER": "disposable_ci",
             "AZURPILOT_POSTGRES_PASSWORD": "",
             "AZURPILOT_POSTGRES_SSLMODE": "",
         }

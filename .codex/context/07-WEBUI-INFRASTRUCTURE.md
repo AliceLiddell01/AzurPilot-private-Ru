@@ -44,6 +44,62 @@ MCP-инструменты делятся на read-only и меняющие с�
 - необработанные логи с identifiers;
 - screenshot с чувствительными данными.
 
+Dev MCP для локальной Codex-интеграции находится в `module/dev_mcp` и работает
+через stdio. Для ChatGPT есть отдельный `module.dev_mcp.remote` с HTTPS
+Streamable HTTP `/mcp`; оба entrypoint-а используют один тонкий adapter к
+существующим `DevSessionManager` и отдельным `RuntimeControlManager` с target,
+разрешённым каноническим registry (default policy применяется только при
+отсутствии marker). Remote backend
+bind-ится только на `127.0.0.1`, требует внешний OAuth/OIDC access token и не
+добавляет generic shell/config tools или управление production profiles.
+Game MCP и Dev MCP остаются независимыми продуктами и используют нейтральные
+общие компоненты `module.mcp_shared` только для authenticated Streamable HTTP.
+WebUI не монтирует MCP transport; игровые и development endpoints запускаются
+отдельными entrypoint-ами с собственными scope и runtime boundaries.
+
+## Canonical Plugin AzurPilot
+
+`plugins/azurpilot/` — source-controlled package, сгенерированный текущим
+Plugin Creator. Его machine-readable ID — `azurpilot`, display name —
+`AzurPilot`; текущий пакет публикует три разделённых skill:
+`azurpilot-development`, `azurpilot-game-control` и
+`azurpilot-troubleshooting`. `.app.json` содержит только references на
+существующие приложения `AzurPilot Development Verified` и `AzurPilot Game`.
+Пакет не содержит ChatGPT app state, tunnel profile, credentials, screenshots,
+archives или runtime cache и не регистрирует второй MCP implementation.
+
+Codex использует project-scoped `azurpilot-dev` через прямой local stdio и
+`module.dev_mcp`. ChatGPT использует подключённое приложение с
+authenticated public URL `https://<public-host>/mcp`, Caddy reverse proxy и
+внешним OAuth/OIDC provider; custom authorization server и Secure MCP Tunnel
+для этого пути не требуются. `module.dev_mcp.contract` публикует read-only boundary с
+версиями API/Smoke schemas, required feature flags, capability families и
+result outcomes. Runtime status/control не раскрывают serial, package, пути или
+команды и хранят bounded operation state в ignored `config/state/`; control
+operation сохраняет target identity и fingerprint критической конфигурации и
+fail-closed при их изменении.
+Плагин обязан остановиться с `PLUGIN_RUNTIME_INCOMPATIBLE` до mutating calls при
+любом несовпадении.
+
+Developer-only capability `Game` публикуется через односторонний bridge,
+привязанный к target, к нейтральному `module.application`: `GameReadService` и
+persistence-backed morale projection. Dev MCP, Smoke, Evidence и диагностика
+базы данных остаются developer-only; обратная зависимость application от Dev
+Runtime запрещена. Диагностика базы данных использует фиксированный read-only
+catalog поверх отдельного process-local lazy PostgreSQL engine/UoW, собранного
+из canonical marker и app passfile без production bootstrap/provider и
+`os.environ` mutation; arbitrary SQL, dump, secrets и Alembic mutation не
+выдаются. Пустой repair catalog является допустимым честным результатом.
+
+Standalone Game MCP находится в `module.game_mcp` и не является режимом Dev
+MCP. Его stateless read/control tools используют canonical `profile` в каждом
+target-dependent запросе, нейтральные application services и отдельные
+authenticated Game scopes `azurpilot:game.read` и `azurpilot:game.control`.
+Общий Streamable HTTP/auth transport code находится в `module.mcp_shared`; Game
+MCP не импортирует Dev MCP или Dev Runtime. Lifecycle, config/scheduler
+mutation, emulator/ADB control, DB internals, Smoke/Evidence и Git state
+остаются отдельными границами, а mutation scope проверяется до side effect.
+
 ## Статистика
 
 Статистика schema v1 хранится только в production PostgreSQL через

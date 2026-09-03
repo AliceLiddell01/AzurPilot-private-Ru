@@ -106,6 +106,12 @@ class LocalPostgresEnvironment:
                 "Локальный PostgreSQL env не совпадает с production marker."
             )
 
+    @property
+    def app_passfile(self) -> str:
+        """Вернуть путь app passfile без раскрытия содержимого секрета."""
+
+        return self.values[_APP_PREFIX + "PGPASSFILE"]
+
 
 def _parse_value(raw: str, line_number: int) -> str:
     value = raw.strip()

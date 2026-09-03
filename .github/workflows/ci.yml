@@ -25,22 +25,22 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     env:
-      CI_POSTGRES_ADMIN_USER: stage2_admin
-      CI_POSTGRES_ADMIN_PASSWORD: stage2-admin-${{ github.run_id }}-${{ github.run_attempt }}
+      CI_POSTGRES_ADMIN_USER: azurpilot_ci_admin
+      CI_POSTGRES_ADMIN_PASSWORD: ci-admin-${{ github.run_id }}-${{ github.run_attempt }}
       CI_POSTGRES_OWNER_USER: azurpilot_ci_owner
       CI_POSTGRES_MIGRATOR_USER: azurpilot_ci_migrator
-      CI_POSTGRES_MIGRATOR_PASSWORD: stage4-migrator-${{ github.run_id }}-${{ github.run_attempt }}
+      CI_POSTGRES_MIGRATOR_PASSWORD: ci-migrator-${{ github.run_id }}-${{ github.run_attempt }}
       AZURPILOT_POSTGRES_HOST: 127.0.0.1
       AZURPILOT_POSTGRES_PORT: "5432"
       AZURPILOT_POSTGRES_DATABASE: azurpilot_ci
       AZURPILOT_POSTGRES_USER: azurpilot_ci
-      AZURPILOT_POSTGRES_PASSWORD: stage2-app-${{ github.run_id }}-${{ github.run_attempt }}
+      AZURPILOT_POSTGRES_PASSWORD: ci-app-${{ github.run_id }}-${{ github.run_attempt }}
       AZURPILOT_POSTGRES_SSLMODE: disable
       AZURPILOT_POSTGRES_MIGRATOR_HOST: 127.0.0.1
       AZURPILOT_POSTGRES_MIGRATOR_PORT: "5432"
       AZURPILOT_POSTGRES_MIGRATOR_DATABASE: azurpilot_ci
       AZURPILOT_POSTGRES_MIGRATOR_USER: azurpilot_ci_migrator
-      AZURPILOT_POSTGRES_MIGRATOR_PASSWORD: stage4-migrator-${{ github.run_id }}-${{ github.run_attempt }}
+      AZURPILOT_POSTGRES_MIGRATOR_PASSWORD: ci-migrator-${{ github.run_id }}-${{ github.run_attempt }}
       AZURPILOT_POSTGRES_MIGRATOR_SSLMODE: disable
       AZURPILOT_POSTGRES_DISPOSABLE: "1"
       AZURPILOT_POSTGRES_DISPOSABLE_HOST: 127.0.0.1
@@ -52,13 +52,13 @@ jobs:
       postgres:
         image: postgres:18@sha256:06cad38a5d9f5d24b4d83d86def30795d5e4b757fedbf5281172b576dedcd941
         env:
-          POSTGRES_USER: stage2_admin
-          POSTGRES_PASSWORD: stage2-admin-${{ github.run_id }}-${{ github.run_attempt }}
+          POSTGRES_USER: azurpilot_ci_admin
+          POSTGRES_PASSWORD: ci-admin-${{ github.run_id }}-${{ github.run_attempt }}
           POSTGRES_DB: postgres
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U stage2_admin -d postgres"
+          --health-cmd "pg_isready -U azurpilot_ci_admin -d postgres"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -226,7 +226,7 @@ jobs:
             -- bash "$cycle_script"
           unset PGOPTIONS
           export AZURPILOT_POSTGRES_USER="azurpilot_ci"
-          export AZURPILOT_POSTGRES_PASSWORD="stage2-app-${{ github.run_id }}-${{ github.run_attempt }}"
+          export AZURPILOT_POSTGRES_PASSWORD="ci-app-${{ github.run_id }}-${{ github.run_attempt }}"
           export AZURPILOT_POSTGRES_DISPOSABLE_USER="azurpilot_ci"
           uv run --locked python - <<'PY'
           import os
@@ -292,7 +292,6 @@ jobs:
           roots = (
               Path("alas.py"),
               Path("gui.py"),
-              Path("mcp_server_sse.py"),
               Path("module"),
               Path("dev_tools"),
               Path("tests"),
@@ -341,8 +340,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          dump_dir="${RUNNER_TEMP}/azurpilot-stage3-dump"
-          dump_path="${dump_dir}/stage3-migration.dump"
+          dump_dir="${RUNNER_TEMP}/azurpilot-migration-rehearsal"
+          dump_path="${dump_dir}/migration-rehearsal.dump"
           mkdir -p "$dump_dir"
           trap 'rm -f -- "$dump_path"; rmdir -- "$dump_dir" 2>/dev/null || true' EXIT
           export PGPASSWORD="${AZURPILOT_POSTGRES_PASSWORD}"
@@ -358,12 +357,12 @@ jobs:
               --format custom \
               --no-owner \
               --no-acl \
-              --file /evidence/stage3-migration.dump \
+              --file /evidence/migration-rehearsal.dump \
               "${AZURPILOT_POSTGRES_DATABASE}"
           docker run --rm \
             -v "${dump_dir}:/evidence:ro" \
             postgres:18@sha256:06cad38a5d9f5d24b4d83d86def30795d5e4b757fedbf5281172b576dedcd941 \
-            pg_restore --list /evidence/stage3-migration.dump >/dev/null
+            pg_restore --list /evidence/migration-rehearsal.dump >/dev/null
           export PGPASSWORD="${CI_POSTGRES_MIGRATOR_PASSWORD}"
           export PGOPTIONS="-c role=${CI_POSTGRES_OWNER_USER}"
           docker run --rm --network host \
@@ -379,7 +378,7 @@ jobs:
               --no-owner \
               --no-acl \
               --dbname "${AZURPILOT_POSTGRES_DISPOSABLE_SCRATCH_DATABASE}" \
-              /evidence/stage3-migration.dump
+              /evidence/migration-rehearsal.dump
           unset PGOPTIONS
           export PGPASSWORD="${AZURPILOT_POSTGRES_PASSWORD}"
           uv run --locked python - <<'PY'
@@ -649,6 +648,8 @@ jobs:
               $uvExecutable
               'sync'
               '--locked'
+              '--group'
+              'ci'
           )
           & $pythonExecutable @runnerArguments
           $runnerExitCode = $LASTEXITCODE
@@ -864,6 +865,40 @@ jobs:
 
           if ($runnerExitCode -ne 0) {
               throw ('Windows-регрессии завершились с кодом {0}.' -f $runnerExitCode)
+          }
+
+          $capabilityLogPath = Join-Path -Path $env:RUNNER_TEMP -ChildPath 'azurpilot-ci-windows/windows-capabilities.log'
+          $runnerArguments = @(
+              $runnerPath
+              '--label'
+              'Windows capability tests'
+              '--heartbeat-seconds'
+              '60'
+              '--log-file'
+              $capabilityLogPath
+              '--'
+              $uvExecutable
+              'run'
+              '--locked'
+              '--group'
+              'ci'
+              'python'
+              '-m'
+              'pytest'
+              '-q'
+              '-m'
+              'windows_integration'
+              'tests'
+          )
+          # Маркер выбирает тесты только из одного файла; общий file-sharding
+          # иначе получает пустые shard-ы с pytest exit 5.
+          $env:AZURPILOT_PYTEST_PARALLEL = '0'
+          & $pythonExecutable @runnerArguments
+          $runnerExitCode = $LASTEXITCODE
+          Remove-Item Env:AZURPILOT_PYTEST_PARALLEL -ErrorAction SilentlyContinue
+
+          if ($runnerExitCode -ne 0) {
+              throw ('Windows capability tests завершились с кодом {0}.' -f $runnerExitCode)
           }
 
           $pwshCommand = Get-Command pwsh -CommandType Application -ErrorAction Stop | Select-Object -First 1
@@ -1162,7 +1197,6 @@ jobs:
             README.md
             alas.py
             gui.py
-            mcp_server_sse.py
             pyproject.toml
             uv.lock
           )

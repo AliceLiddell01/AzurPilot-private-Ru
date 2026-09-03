@@ -179,6 +179,7 @@ Error:
   OnePushConfig:
     type: textarea
     mode: yaml
+    sensitive: true
     value: "provider: null"
   ScreenshotLength: 1
   GameStuckRestart: true
@@ -193,6 +194,7 @@ Error:
   LlmApiKey:
     type: textarea
     value: ""
+    sensitive: true
   LlmApiBase:
     type: textarea
     value: ""
@@ -712,7 +714,9 @@ Reward:
   CollectOil: true
   CollectCoin: true
   CollectExp: true
-  CollectMission: true
+  CollectMission:
+    value: true
+    smoke_override: true
   CollectWeeklyMission: false
 Awaken:
   LevelCap:
@@ -951,6 +955,7 @@ OpsiGeneral:
     type: textarea
     mode: yaml
     value: "provider: null"
+    sensitive: true
   AutoSearchTimeLimit:
     value: 5
     validate: [1, 240]

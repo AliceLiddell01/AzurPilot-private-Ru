@@ -1,0 +1,23 @@
+{
+	# Caddy admin API остаётся доступен только локально и не публикуется.
+	admin 127.0.0.1:2019
+}
+
+# Заменить на собственное DNS-имя до запуска. example.invalid намеренно
+# является непубличным placeholder и не должен использоваться в production.
+mcp.example.invalid {
+	encode gzip
+	header Cache-Control "no-store"
+
+	# Access log отключён, чтобы Authorization не попадал в журналы reverse proxy.
+	log {
+		output discard
+	}
+
+	reverse_proxy 127.0.0.1:8765 {
+		transport http {
+			dial_timeout 3s
+			response_header_timeout 195s
+		}
+	}
+}

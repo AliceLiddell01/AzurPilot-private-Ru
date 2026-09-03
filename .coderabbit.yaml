@@ -1,0 +1,137 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: ru-RU
+
+early_access: true
+
+reviews:
+  profile: assertive
+  request_changes_workflow: true
+  high_level_summary_instructions: >-
+    Суммируй pull request по подсистемам и строго в рамках Scope, явно объявленного в описании PR.
+
+    Опиши, что изменено, зачем это изменено и каков архитектурный или поведенческий эффект.
+
+    В конце добавь раздел "Scope guard" и укажи: - что PR намеренно меняет; - что явно находится вне Scope; -
+    соответствует ли фактический diff заявленному Scope; - есть ли изменения, которые выглядят несвязанными с заявленной
+    задачей.
+
+    Для Scope: translation-only отдельно подтверждай сохранение исполняемого поведения.
+
+    Для feature, bugfix, refactor, infrastructure, documentation и upstream-sync оценивай PR согласно фактически
+    объявленному Scope, а не применяй ограничения translation-only ко всем PR.
+
+    Не представляй предположение как подтверждённый факт: если контекста недостаточно, явно укажи это.
+  high_level_summary_in_walkthrough: true
+  review_details: true
+  fail_commit_status: true
+  suggested_labels: false
+  suggested_reviewers: false
+  in_progress_fortune: false
+  path_instructions:
+    - path: "**/*.py"
+      instructions: Учитывай правила AzurPilot Private RU из корневого AGENTS.md. Не предлагай хардкод поведения, зависящего
+        от событий, карт, магазинов, OCR, ассетов, задач, режимов и других изменяемых игровых сущностей, если это должно
+        решаться через существующие конфиги, реестры, модели, абстракции или extension points. Не предлагай
+        compatibility-shim, legacy-обвязку, дубликат или deprecated-слой без доказанной необходимости. В затронутом
+        first-party коде новые и изменённые комментарии и пользовательские логи должны быть на русском, кроме
+        неизменяемого внешнего текста, протоколов, API и собственных имён. Перед предложением исправления сначала
+        проверь фактический контракт, call sites и существующие тесты.
+    - path: scripts/**/*.ps1
+      instructions: Считай .codex/context/POWERSHELL-GIT-RULES.md обязательным контрактом. Для PowerShell с Git проверяй
+        совместимость с PowerShell 7.6.x, Set-StrictMode, ручную обработку native exit codes, немедленное сохранение
+        $LASTEXITCODE после каждого Git-вызова, передачу Git-аргументов отдельными элементами массива, отсутствие
+        Invoke-Expression, запрет разделения выполняемых команд через ";" и отсутствие разрушительных Git-операций без
+        явного разрешения. Не предлагай bash/cmd как замену PowerShell Parser или PSScriptAnalyzer.
+    - path: .github/workflows/**
+      instructions: Проверяй минимальные permissions, отсутствие лишнего доступа к secrets, ограниченные triggers,
+        timeout/concurrency и закрепление сторонних GitHub Actions по commit SHA там, где это принято проектом. Не
+        предлагай новый постоянный workflow ради одноразовой команды, одной временной проверки или обхода отсутствующего
+        инструмента. Временная workflow-инфраструктура допустима только как узкий изолированный механизм, когда это
+        объективно лучше существующего CI и GitHub-коннектора, и не должна попадать в stable как случайный артефакт.
+  auto_review:
+    enabled: false
+    auto_incremental_review: false
+    auto_pause_after_reviewed_commits: 0
+    base_branches:
+      - personal/stable
+  finishing_touches:
+    docstrings:
+      enabled: false
+    unit_tests:
+      enabled: false
+    fix_ci:
+      enabled: false
+    resolve_merge_conflict:
+      enabled: false
+  pre_merge_checks:
+    docstrings:
+      mode: off
+    title:
+      requirements: Заголовок должен кратко и содержательно описывать основное изменение PR. Не используй бессодержательные
+        названия вроде fix, final, update, test или again. Заголовок не должен обещать Scope шире фактического diff.
+    issue_assessment:
+      mode: off
+    custom_checks:
+      - mode: error
+        name: Declared scope contract
+        instructions: >-
+          Проверь PR строго против Scope, явно указанного в его описании.
+
+          Поддерживаемые значения: translation-only, bugfix, feature, refactor, infrastructure, documentation,
+          upstream-sync.
+
+          Если поддерживаемый Scope отсутствует, FAIL и запроси его.
+
+          Для "Scope: translation-only": FAIL при любом функциональном или структурном изменении. Разрешены только
+          first-party пользовательский текст и локализация. Флагай изменения функций, классов, imports, signatures,
+          control flow, вызовов, состояния, констант, config/contracts и machine-consumed literals. Исполняемое
+          поведение должно сохраняться.
+
+          Для "Scope: bugfix": разрешены только изменения поведения, тесты и документация, необходимые для заявленного
+          исправления. FAIL на несвязанные feature, refactor, cleanup или изменения поведения.
+
+          Для "Scope: feature": разрешены новое или изменённое поведение, тесты и документация, необходимые для
+          заявленной функции. FAIL на несвязанные изменения.
+
+          Для "Scope: refactor": разрешены структурные изменения. FAIL на непреднамеренное внешне наблюдаемое изменение
+          поведения, если оно явно не объявлено.
+
+          Для "Scope: infrastructure": разрешены CI, build, deployment, tooling и эксплуатационная инфраструктура в
+          заявленных границах. FAIL на несвязанные изменения продуктового или игрового поведения.
+
+          Для "Scope: documentation": разрешены документация и связанный first-party текст без изменения исполняемого
+          поведения, runtime contracts или конфигурационной семантики. FAIL на функциональные изменения.
+
+          Для "Scope: upstream-sync": Scope допустим для контролируемой синхронизации upstream. FAIL на fork-specific
+          функциональные изменения, смешанные с такой синхронизацией, или на изменения вне заявленного upstream range.
+
+          Во всех режимах сначала сверяй фактический diff и PR description. Не применяй правила одного Scope к другому.
+
+chat:
+  art: false
+  auto_reply: false
+
+knowledge_base:
+  code_guidelines:
+    filePatterns:
+      - .codex/context/GIT-WORKFLOW.md
+      - .codex/context/POWERSHELL-GIT-RULES.md
+  learnings:
+    scope: local
+    approval_delay: 30
+  issues:
+    scope: local
+  jira:
+    usage: disabled
+  linear:
+    usage: disabled
+  pull_requests:
+    scope: local
+  mcp:
+    usage: disabled
+
+issue_enrichment:
+  planning:
+    enabled: false
+    auto_planning:
+      enabled: false

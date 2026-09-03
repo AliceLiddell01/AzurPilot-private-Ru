@@ -17,6 +17,7 @@ from module.persistence.schema import EXPECTED_ALEMBIC_HEAD
 
 DEFAULT_BACKEND_MARKER_PATH = Path("config/state/storage_backend.json")
 LEGACY_BACKEND_MARKER_PATH = Path("config/storage_backend.json")
+BACKEND_MARKER_VERSION = 1
 _BACKEND_MARKER_KEYS = frozenset(
     {
         "backend",
@@ -94,6 +95,7 @@ class DatabaseSettings:
     sslmode: str = "verify-full"
     runtime_timezone: str = "UTC"
     pool: PoolSettings = field(default_factory=PoolSettings)
+    passfile: str | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         for label, value in (
@@ -121,6 +123,10 @@ class DatabaseSettings:
             raise StorageConfigurationError(
                 "Часовой пояс production runtime некорректен."
             ) from exc
+        if self.passfile is not None and (
+            not isinstance(self.passfile, str) or not self.passfile
+        ):
+            raise StorageConfigurationError("Путь PostgreSQL passfile некорректен.")
 
     def sqlalchemy_url(self) -> URL:
         return URL.create(
@@ -135,6 +141,8 @@ class DatabaseSettings:
     def connect_args(self) -> dict[str, object]:
         args: dict[str, object] = {"connect_timeout": self.connect_timeout_seconds}
         args["sslmode"] = self.sslmode
+        if self.passfile is not None:
+            args["passfile"] = self.passfile
         return args
 
     @classmethod
@@ -182,12 +190,20 @@ class DatabaseSettings:
         payload: dict[str, object],
         *,
         require_current_schema: bool,
+        require_current_version: bool = True,
     ) -> DatabaseSettings:
         if frozenset(payload) != _BACKEND_MARKER_KEYS:
             raise StorageConfigurationError(
                 "Production backend marker имеет некорректный contract."
             )
-        if payload.get("backend") != "postgresql" or payload.get("version") != 1:
+        if (
+            payload.get("backend") != "postgresql"
+            or type(payload.get("version")) is not int
+            or (
+                require_current_version
+                and payload["version"] != BACKEND_MARKER_VERSION
+            )
+        ):
             raise StorageConfigurationError(
                 "Production backend marker не разрешает PostgreSQL runtime."
             )
@@ -268,22 +284,50 @@ class DatabaseSettings:
         )
 
 
-def load_backend_marker_for_schema_upgrade(
+def _load_backend_marker_contract(
     marker_path: str | Path = DEFAULT_BACKEND_MARKER_PATH,
-) -> tuple[DatabaseSettings, str]:
-    """Прочитать валидный marker предыдущей schema для штатного Alembic upgrade."""
+    *,
+    require_current_version: bool = True,
+) -> tuple[DatabaseSettings, str, int]:
+    """Прочитать валидный backend marker вместе с наблюдённой версией."""
 
     _, payload = _read_backend_marker(Path(marker_path))
     settings = DatabaseSettings._from_backend_marker_payload(
         payload,
         require_current_schema=False,
+        require_current_version=require_current_version,
     )
     marker_head = payload["alembic_head"]
     if not isinstance(marker_head, str):
         raise StorageConfigurationError(
             "Production backend marker содержит некорректный schema head."
         )
+    marker_version = payload["version"]
+    if type(marker_version) is not int:
+        raise StorageConfigurationError(
+            "Production backend marker содержит некорректную версию."
+        )
+    return settings, marker_head, marker_version
+
+
+def load_backend_marker_for_schema_upgrade(
+    marker_path: str | Path = DEFAULT_BACKEND_MARKER_PATH,
+) -> tuple[DatabaseSettings, str]:
+    """Прочитать валидный marker предыдущей schema для штатного Alembic upgrade."""
+
+    settings, marker_head, _marker_version = _load_backend_marker_contract(marker_path)
     return settings, marker_head
+
+
+def load_backend_marker_for_diagnostics(
+    marker_path: str | Path = DEFAULT_BACKEND_MARKER_PATH,
+) -> tuple[DatabaseSettings, str, int]:
+    """Прочитать settings, schema head и фактическую версию marker для diagnostics."""
+
+    return _load_backend_marker_contract(
+        marker_path,
+        require_current_version=False,
+    )
 
 
 def advance_backend_marker_schema_head(

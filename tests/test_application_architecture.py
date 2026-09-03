@@ -10,6 +10,159 @@ from tests.import_inspection import absolute_import_candidates, imports_for_path
 ROOT = Path(__file__).resolve().parents[1]
 APPLICATION_ROOT = ROOT / "module" / "application"
 FORBIDDEN_IMPORT_ROOTS = {"fastapi", "mcp", "pywebio", "starlette"}
+ROUTE_REGISTRATION_METHODS = {"mount", "add_route", "add_websocket_route"}
+
+
+def _constant_string_value(
+    node: ast.AST, bindings: dict[str, str | frozenset[str]]
+) -> str | None:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.Name):
+        value = bindings.get(node.id)
+        return value if isinstance(value, str) else None
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left = _constant_string_value(node.left, bindings)
+        right = _constant_string_value(node.right, bindings)
+        if left is not None and right is not None:
+            return left + right
+    if isinstance(node, ast.JoinedStr):
+        parts: list[str] = []
+        for value in node.values:
+            if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                parts.append(value.value)
+                continue
+            if isinstance(value, ast.FormattedValue):
+                formatted = _constant_string_value(value.value, bindings)
+                if formatted is None:
+                    return None
+                parts.append(formatted)
+                continue
+            return None
+        return "".join(parts)
+    return None
+
+
+def _constant_mapping_keys(
+    node: ast.AST, bindings: dict[str, str | frozenset[str]]
+) -> frozenset[str] | None:
+    if isinstance(node, ast.Name):
+        value = bindings.get(node.id)
+        return value if isinstance(value, frozenset) else None
+    if isinstance(node, ast.Constant) and node.value is None:
+        return frozenset()
+    if not isinstance(node, ast.Dict):
+        return None
+    keys: set[str] = set()
+    for key in node.keys:
+        if key is None:
+            return None
+        value = _constant_string_value(key, bindings)
+        if value is None:
+            return None
+        keys.add(value)
+    return frozenset(keys)
+
+
+class _ScopeCollector(ast.NodeVisitor):
+    def __init__(self, inherited: dict[str, str | frozenset[str]]):
+        self.bindings = dict(inherited)
+        self.calls: list[tuple[ast.Call, dict[str, str | frozenset[str]]]] = []
+        self.nested_scopes: list[ast.AST] = []
+
+    def _bind_targets(
+        self, targets: list[ast.expr], value_node: ast.AST
+    ) -> None:
+        value = _constant_string_value(value_node, self.bindings)
+        if value is None:
+            value = _constant_mapping_keys(value_node, self.bindings)
+        if value is None:
+            return
+        for target in targets:
+            if isinstance(target, ast.Name):
+                self.bindings[target.id] = value
+
+    def visit_Assign(self, node: ast.Assign) -> None:
+        self._bind_targets(node.targets, node.value)
+        self.generic_visit(node)
+
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+        if node.value is not None:
+            self._bind_targets([node.target], node.value)
+        self.generic_visit(node)
+
+    def visit_Call(self, node: ast.Call) -> None:
+        self.calls.append((node, dict(self.bindings)))
+        self.generic_visit(node)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self.nested_scopes.append(node)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self.nested_scopes.append(node)
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        self.nested_scopes.append(node)
+
+
+def _scope_body(scope: ast.AST) -> list[ast.stmt]:
+    return getattr(scope, "body", [])
+
+
+def _call_name(call: ast.Call) -> str | None:
+    if isinstance(call.func, ast.Attribute):
+        return call.func.attr
+    if isinstance(call.func, ast.Name):
+        return call.func.id
+    return None
+
+
+def _registered_route_paths(tree: ast.AST) -> tuple[set[str], list[str]]:
+    paths: set[str] = set()
+    unresolved: list[str] = []
+
+    def collect_scope(scope: ast.AST, inherited: dict[str, str | frozenset[str]]) -> None:
+        collector = _ScopeCollector(inherited)
+        for statement in _scope_body(scope):
+            collector.visit(statement)
+        for call, bindings in collector.calls:
+            call_name = _call_name(call)
+            if call_name in ROUTE_REGISTRATION_METHODS:
+                if not call.args:
+                    unresolved.append(ast.unparse(call))
+                    continue
+                path = _constant_string_value(call.args[0], bindings)
+                if path is None:
+                    unresolved.append(ast.unparse(call.args[0]))
+                else:
+                    paths.add(path)
+            if call_name != "asgi_app":
+                continue
+            static_mounts = next(
+                (
+                    keyword.value
+                    for keyword in call.keywords
+                    if keyword.arg == "static_mounts"
+                ),
+                None,
+            )
+            if static_mounts is None:
+                continue
+            mount_paths = _constant_mapping_keys(static_mounts, bindings)
+            if mount_paths is None:
+                unresolved.append(ast.unparse(static_mounts))
+            else:
+                paths.update(mount_paths)
+        for nested_scope in collector.nested_scopes:
+            collect_scope(nested_scope, collector.bindings)
+
+    collect_scope(tree, {})
+    return paths, unresolved
+
+
+def _is_mcp_route(path: str) -> bool:
+    normalized = path.rstrip("/") or "/"
+    return normalized == "/mcp" or normalized.startswith("/mcp/")
 
 
 def _import_roots(path: Path) -> set[str]:
@@ -70,70 +223,51 @@ for name in (
     assert result.returncode == 0, result.stderr
 
 
-def test_existing_webui_and_mcp_production_wiring_remains_independent():
+def test_legacy_mcp_entrypoint_is_absent_and_webui_has_no_mcp_mount():
     app_path = ROOT / "module" / "webui" / "app.py"
-    mcp_path = ROOT / "mcp_server_sse.py"
     assert app_path.is_file(), app_path
-    assert mcp_path.is_file(), mcp_path
+    assert not (ROOT / "mcp_server_sse.py").exists()
     app_tree = ast.parse(app_path.read_text(encoding="utf-8"))
-    mcp_source = mcp_path.read_text(encoding="utf-8")
-    mcp_tree = ast.parse(mcp_source)
+    webui_application_imports: set[str] = set()
+    for node in ast.walk(app_tree):
+        candidates = absolute_import_candidates(ROOT, app_path, node)
+        webui_application_imports.update(
+            name
+            for name in candidates
+            if name == "module.application"
+            or name.startswith("module.application.")
+        )
+    registered_route_paths, unresolved_route_paths = _registered_route_paths(app_tree)
+    assert not webui_application_imports, webui_application_imports
+    assert not unresolved_route_paths, unresolved_route_paths
+    assert _is_mcp_route("/mcp")
+    assert _is_mcp_route("/mcp/")
+    assert _is_mcp_route("/mcp/messages")
+    assert not _is_mcp_route("/mcpx")
+    assert not {
+        path for path in registered_route_paths if _is_mcp_route(path)
+    }, sorted(registered_route_paths)
+    assert (ROOT / "module" / "game_mcp" / "__init__.py").is_file()
+    assert (ROOT / "module" / "dev_mcp" / "__init__.py").is_file()
+    assert (ROOT / "module" / "mcp_shared" / "remote.py").is_file()
 
-    application_imports: set[str] = set()
-    for path, tree in ((app_path, app_tree), (mcp_path, mcp_tree)):
-        for node in ast.walk(tree):
-            candidates = absolute_import_candidates(ROOT, path, node)
-            application_imports.update(
-                name
-                for name in candidates
-                if name == "module.application"
-                or name.startswith("module.application.")
-            )
-    mounted_paths = {
-        node.args[0].value
-        for node in ast.walk(app_tree)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "mount"
-        and node.args
-        and isinstance(node.args[0], ast.Constant)
-        and isinstance(node.args[0].value, str)
-    }
-    handler_assignment = next(
-        (
-            node
-            for node in mcp_tree.body
-            if (
-                isinstance(node, ast.Assign)
-                and any(
-                    isinstance(target, ast.Name) and target.id == "TOOL_HANDLERS"
-                    for target in node.targets
-                )
-            )
-            or (
-                isinstance(node, ast.AnnAssign)
-                and isinstance(node.target, ast.Name)
-                and node.target.id == "TOOL_HANDLERS"
-            )
-        ),
-        None,
+
+def test_route_analysis_uses_scope_specific_bindings():
+    tree = ast.parse(
+        """
+MCP_PATH = "/mcp"
+
+def register(application):
+    MCP_PATH = "/static"
+    application.mount(MCP_PATH, object())
+    MCP_PATH = "/mcp/late"
+"""
     )
-    assert handler_assignment is not None, mcp_path
-    assert isinstance(handler_assignment.value, ast.Dict)
-    handler_names = {
-        key.value
-        for key in handler_assignment.value.keys
-        if isinstance(key, ast.Constant) and isinstance(key.value, str)
-    }
 
-    assert not application_imports, application_imports
-    assert "/mcp" in mounted_paths
-    assert {
-        "list_instances",
-        "get_status",
-        "list_tasks",
-        "get_task_help",
-    } <= handler_names
+    paths, unresolved = _registered_route_paths(tree)
+
+    assert not unresolved, unresolved
+    assert paths == {"/static"}
 
 
 def test_application_import_candidates_cover_from_module_form():
