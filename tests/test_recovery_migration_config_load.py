@@ -80,3 +80,22 @@ def test_missing_profile_is_not_created_by_migration_load_boundary():
             config.load()
 
     config.write_file.assert_not_called()
+
+
+def test_legacy_emotion_scan_runs_only_once_per_config_instance():
+    config = _make_config(_legacy_data(marker=True))
+
+    with tempfile.TemporaryDirectory() as tmp:
+        existing = Path(tmp) / 'migration-test.json'
+        existing.write_text('{}', encoding='utf-8')
+        with (
+            patch('module.config.config.filepath_config', return_value=str(existing)),
+            patch(
+                'module.config.config.legacy_emotion_state_present',
+                wraps=lambda data: False,
+            ) as legacy_scan,
+        ):
+            config.load()
+            config.load()
+
+    legacy_scan.assert_called_once_with({})

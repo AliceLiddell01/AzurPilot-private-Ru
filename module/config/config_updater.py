@@ -50,6 +50,9 @@ from module.config.task_priority import get_scheduler_tasks, merge_task_priority
 from module.config.utils import *
 from module.config.redirect_utils.utils import *
 
+
+_READ_FILE_UNSET = object()
+
 # config_generated.py 的头部模板
 CONFIG_IMPORT = '''
 # 此文件是配置系统的更新器。
@@ -76,6 +79,45 @@ WAR_ARCHIVES = ['WarArchives']
 COALITIONS = ['Coalition', 'CoalitionSp', 'CoalitionScuttle']
 MARITIME_ESCORTS = ['MaritimeEscort']
 HOSPITAL = ['Hospital', 'HospitalEvent']
+_LEGACY_EMOTION_STATE_FIELDS = frozenset(
+    {
+        'FleetValue',
+        'FleetRecord',
+        'FleetRecover',
+        'FleetOath',
+        'FleetOnsen',
+        'Fleet1Value',
+        'Fleet1Record',
+        'Fleet1Recover',
+        'Fleet1Oath',
+        'Fleet1Onsen',
+        'Fleet2Value',
+        'Fleet2Record',
+        'Fleet2Recover',
+        'Fleet2Oath',
+        'Fleet2Onsen',
+    }
+)
+_LEGACY_PUBLIC_EMOTION_FIELDS = frozenset({'Enable', 'Tasks'})
+
+
+def legacy_emotion_state_present(data: object) -> bool:
+    """Проверить наличие удалённого устаревшего состояния морали в данных профиля."""
+
+    if not isinstance(data, dict):
+        return False
+    for group, value in data.items():
+        if group == 'Emotion' and isinstance(value, dict):
+            if any(key in value for key in _LEGACY_EMOTION_STATE_FIELDS):
+                return True
+        if group == 'PublicEmotion' and isinstance(value, dict):
+            if any(key in value for key in _LEGACY_PUBLIC_EMOTION_FIELDS) or any(
+                key in value for key in _LEGACY_EMOTION_STATE_FIELDS
+            ):
+                return True
+        if legacy_emotion_state_present(value):
+            return True
+    return False
 
 
 def fleet_autoscan_mode_to_scheduler_enable(value):
@@ -353,7 +395,7 @@ class ConfigGenerator:
         visited_path = set()
         lines = CONFIG_IMPORT
         for path, data in deep_iter(self.argument, depth=2):
-            group, arg = path
+            group, _arg = path
             if group not in visited_group:
                 lines.append('')
                 lines.append(f'    # 配置组 `{group}`')
@@ -907,18 +949,13 @@ class ConfigUpdater:
         配置保存时的回调函数，用于联动更新相关配置项。
 
         Args:
-            key: 配置 JSON 中的键路径，例如 "Main.Emotion.Fleet1Value"。
-            value: 用户设置的值，例如 "98"。
+            key: 配置 JSON 中的键路径。
+            value: 用户设置的值。
 
         Yields:
-            str: 需要设置的配置 JSON 键路径，例如 "Main.Emotion.Fleet1Record"。
-            any: 需要设置的值，例如 "2020-01-01 00:00:00"。
+            str: 需要联动更新的配置 JSON 键路径。
+            any: 需要联动写入的值。
         """
-        if "Emotion" in key and "Value" in key:
-            key = key.split(".")
-            key[-1] = key[-1].replace("Value", "Record")
-            yield ".".join(key), datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
         # 智能调度与侵蚀1配置双向同步
         # 当修改智能调度的黄币保留时，同步到侵蚀1
         if key == 'OpsiScheduling.OpsiScheduling.OperationCoinsPreserve':
@@ -933,18 +970,24 @@ class ConfigUpdater:
         # elif key == 'Alas.Emulator.ControlMethod' and value == 'nemu_ipc':
         #     yield 'Alas.Emulator.ScreenshotMethod', 'nemu_ipc'
 
-    def read_file(self, config_name, is_template=False):
+    def read_file(self, config_name, is_template=False, *, data=_READ_FILE_UNSET):
         """
         读取并更新配置文件。
 
         Args:
             config_name: 配置文件名，对应 ./config/{file}.json。
             is_template: 是否为模板配置。
+            data: Предварительно загруженные данные; если значение не передано,
+                файл читается из config.
 
         Returns:
             更新后的配置字典。
         """
-        old = read_file(filepath_config(config_name))
+        old = (
+            read_file(filepath_config(config_name))
+            if data is _READ_FILE_UNSET
+            else data
+        )
         new = self.config_update(old, is_template=is_template)
         # 更新后的配置未写回文件，出于性能考虑已注释掉写入操作
         # self.write_file(config_name, new)

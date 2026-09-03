@@ -72,6 +72,7 @@ class AzurLaneAutoScript:
         # 上次计划重启模拟器的时间戳
         self.last_emulator_restart_time = time.monotonic()
         self._manual_scan_wakeup = False
+        self._morale_scan_state = {}
 
     def _try_restart_emulator(self, *, reason='adb_offline', verify_game=False):
         """Выполнить одну проверяемую цепочку восстановления эмулятора.
@@ -184,7 +185,7 @@ class AzurLaneAutoScript:
             logger.exception_context(
                 title='Не удалось перезапустить эмулятор',
                 exc=e,
-                impact='Эмулятор может оставаться недоступным; текущую задачу восстановить невозможно.',
+                impact='Эмулятор может оставаться недоступен; текущую задачу восстановить невозможно.',
                 action='Проверьте права процесса эмулятора, службу ADB и параметры управления эмулятором.',
             )
             return False
@@ -333,6 +334,163 @@ class AzurLaneAutoScript:
                 f'{execution.batch_result.failed_fleet_index}'
             )
         return execution
+
+    def _campaign_morale_task(self, task):
+        if not isinstance(task, str) or not task.strip():
+            return False
+        cross_get = getattr(self.config, 'cross_get', None)
+        if not callable(cross_get):
+            return False
+        try:
+            campaign = cross_get(keys=[task, 'Campaign'], default=None)
+            emotion = cross_get(keys=[task, 'Emotion'], default=None)
+        except (TypeError, ValueError, KeyError):
+            return False
+        return isinstance(campaign, dict) and isinstance(emotion, dict)
+
+    def _campaign_morale_enabled(self, task):
+        return (
+            self._campaign_morale_task(task)
+            and 'calculate' in getattr(self.config, 'Emotion_Mode', 'nothing')
+        )
+
+    def _campaign_morale_scan_safely(self, task, *, source):
+        """Остановить только campaign task при недоказанном morale evidence."""
+
+        from module.application.morale_bootstrap import CampaignMoraleBootstrapError
+
+        try:
+            return self._scan_campaign_morale(task, source=source)
+        except CampaignMoraleBootstrapError:
+            raise
+        except RequestHumanTakeover as error:
+            self.config.task_delay(success=False)
+            logger.warning(
+                '[Настроение] Campaign scan не дал достаточного evidence; '
+                f'текущая задача отложена без Restart: {error}'
+            )
+            raise CampaignMoraleBootstrapError(
+                'scan_evidence_incomplete',
+                str(error),
+            ) from error
+
+    def _scan_campaign_morale(self, task, *, source):
+        """Пересканировать рабочие Formation fleets и оба этажа Dorm."""
+
+        from module.application.fleet_autoscan import FleetAutoScanConfig
+        from module.application.fleet_mapping import working_fleet_bindings
+        from module.application.morale import MoraleKnowledge
+        from module.application.morale_bootstrap import CampaignMoraleBootstrapper
+        from module.dock_inventory.model import IdentityStatus
+        from module.dorm.morale_controller import DormMoraleController
+        from module.formation.model import FleetSelection
+        from module.persistence.runtime import build_runtime_morale_context
+
+        from module.application.morale_bootstrap import CampaignMoraleBootstrapError
+
+        try:
+            selection = FleetSelection(
+                tuple(
+                    binding.physical_fleet_index
+                    for binding in working_fleet_bindings(self.config, task=task)
+                )
+            )
+        except (TypeError, ValueError) as error:
+            self.config.task_delay(success=False)
+            raise CampaignMoraleBootstrapError(
+                'fleet_mapping_invalid',
+                str(error),
+            ) from error
+        logger.hr('[Настроение] Сканирование рабочих флотов и Dorm', level=1)
+        execution = self.fleet_autoscan.run(
+            self.config_name,
+            FleetAutoScanConfig(selection),
+        )
+        if execution.incomplete_fleet_indices or execution.batch_result.failed_fleet_index is not None:
+            raise RequestHumanTakeover(
+                '[Настроение] Formation scan рабочих флотов завершён не полностью.'
+            )
+
+        dorm_controller = DormMoraleController(
+            self.config,
+            device=self.device,
+        )
+        scan = dorm_controller.scan_both_floors(source=source)
+        context = build_runtime_morale_context(require_ready=False)
+        bootstrapper = CampaignMoraleBootstrapper(
+            self.config,
+            self.device,
+            dorm_controller,
+            context_factory=lambda require_ready=False: context,
+        )
+        filtered_scan, summary = bootstrapper.run(scan)
+        result = bootstrapper.last_reconciliation_result
+        if result is None:
+            raise RequestHumanTakeover(
+                '[Настроение] Bootstrap не вернул reconciliation evidence.'
+            )
+        state = context.morale_service.state(self.config_name, selection)
+        blocked = tuple(
+            slot
+            for fleet in state.fleets
+            for slot in fleet.slots
+            if slot.occupied
+            and (
+                slot.identity_status is not IdentityStatus.MATCHED
+                or slot.knowledge is MoraleKnowledge.UNKNOWN
+                or slot.current is None
+                or slot.recovery is None
+            )
+        )
+        if blocked:
+            raise RequestHumanTakeover(
+                '[Настроение] После reconciliation остались неизвестные слоты рабочих флотов.'
+            )
+        if filtered_scan.id != result.dorm_scan_id:
+            raise RequestHumanTakeover(
+                '[Настроение] Итоговый Dorm scan не совпадает с reconciliation evidence.'
+            )
+        self._morale_scan_state[task] = {
+            'last_scan': time.monotonic(),
+            'completed_runs': 0,
+        }
+        logger.info(
+            f'[Настроение] Reconciliation завершён: флоты={selection.fleet_indices}, '
+            f'Dorm exact={summary.dorm_exact}, outside={summary.targeted_outside}; '
+            f'unrelated={summary.unmatched_unrelated}; unresolved={summary.unresolved_raw}'
+        )
+        return result
+
+    def _campaign_morale_after_clear(self, task, completed_runs):
+        result = self._campaign_morale_scan_safely(
+            task,
+            source=f'campaign:periodic_{completed_runs}',
+        )
+        state = self._morale_scan_state.get(task)
+        if state is not None:
+            state['completed_runs'] = completed_runs
+        return result
+
+    def _run_campaign_task(self, task):
+        from module.campaign.run import CampaignRun
+
+        runner = CampaignRun(config=self.config, device=self.device)
+        if self._campaign_morale_enabled(task):
+            runner.morale_reconciliation_callback = lambda: self._campaign_morale_scan_safely(
+                task,
+                source='campaign:critical',
+            )
+            runner.morale_campaign_clear_callback = (
+                lambda completed_runs: self._campaign_morale_after_clear(
+                    task,
+                    completed_runs,
+                )
+            )
+        return runner.run(
+            name=self.config.Campaign_Name,
+            folder=self.config.Campaign_Event,
+            mode=self.config.Campaign_Mode,
+        )
 
     def _check_sensitive_exit(self, command, error):
         """
@@ -1194,34 +1352,22 @@ class AzurLaneAutoScript:
         OSCampaignRun(config=self.config, device=self.device).opsi_daily_delay()
 
     def main(self):
-        from module.campaign.run import CampaignRun
-        CampaignRun(config=self.config, device=self.device).run(
-            name=self.config.Campaign_Name, folder=self.config.Campaign_Event, mode=self.config.Campaign_Mode)
+        return self._run_campaign_task('Main')
 
     def main2(self):
-        from module.campaign.run import CampaignRun
-        CampaignRun(config=self.config, device=self.device).run(
-            name=self.config.Campaign_Name, folder=self.config.Campaign_Event, mode=self.config.Campaign_Mode)
+        return self._run_campaign_task('Main2')
 
     def main3(self):
-        from module.campaign.run import CampaignRun
-        CampaignRun(config=self.config, device=self.device).run(
-            name=self.config.Campaign_Name, folder=self.config.Campaign_Event, mode=self.config.Campaign_Mode)
+        return self._run_campaign_task('Main3')
 
     def event(self):
-        from module.campaign.run import CampaignRun
-        CampaignRun(config=self.config, device=self.device).run(
-            name=self.config.Campaign_Name, folder=self.config.Campaign_Event, mode=self.config.Campaign_Mode)
+        return self._run_campaign_task('Event')
 
     def event2(self):
-        from module.campaign.run import CampaignRun
-        CampaignRun(config=self.config, device=self.device).run(
-            name=self.config.Campaign_Name, folder=self.config.Campaign_Event, mode=self.config.Campaign_Mode)
+        return self._run_campaign_task('Event2')
 
     def event3(self):
-        from module.campaign.run import CampaignRun
-        CampaignRun(config=self.config, device=self.device).run(
-            name=self.config.Campaign_Name, folder=self.config.Campaign_Event, mode=self.config.Campaign_Mode)
+        return self._run_campaign_task('Event3')
 
     def raid(self):
         from module.raid.run import RaidRun
@@ -1252,19 +1398,13 @@ class AzurLaneAutoScript:
         CoalitionScuttleRun(config=self.config, device=self.device).run()
 
     def c72_mystery_farming(self):
-        from module.campaign.run import CampaignRun
-        CampaignRun(config=self.config, device=self.device).run(
-            name=self.config.Campaign_Name, folder=self.config.Campaign_Event, mode=self.config.Campaign_Mode)
+        return self._run_campaign_task('C72MysteryFarming')
 
     def c122_medium_leveling(self):
-        from module.campaign.run import CampaignRun
-        CampaignRun(config=self.config, device=self.device).run(
-            name=self.config.Campaign_Name, folder=self.config.Campaign_Event, mode=self.config.Campaign_Mode)
+        return self._run_campaign_task('C122MediumLeveling')
 
     def c124_large_leveling(self):
-        from module.campaign.run import CampaignRun
-        CampaignRun(config=self.config, device=self.device).run(
-            name=self.config.Campaign_Name, folder=self.config.Campaign_Event, mode=self.config.Campaign_Mode)
+        return self._run_campaign_task('C124LargeLeveling')
 
     def gems_farming(self):
         from module.campaign.gems_farming import GemsFarming
@@ -1567,7 +1707,7 @@ class AzurLaneAutoScript:
         return task.command
 
     def _prepare_task_boundary(self, task):
-        """Обработать durable manual scan только между обычными задачами."""
+        """Обработать scanner-owned действия только между обычными задачами."""
 
         _ = self.device
         self.device.config = self.config
@@ -1590,6 +1730,23 @@ class AzurLaneAutoScript:
         if woke_for_manual:
             # Другой worker мог забрать команду, поэтому возвращаемся к штатному ожиданию.
             return False
+        if self._campaign_morale_enabled(task):
+            from module.application.morale_bootstrap import CampaignMoraleBootstrapError
+
+            try:
+                self._campaign_morale_scan_safely(task, source='campaign:first_run')
+            except CampaignMoraleBootstrapError as error:
+                logger.warning(
+                    '[Настроение] Campaign bootstrap безопасно остановил только '
+                    f'текущую задачу: stage={error.code}'
+                )
+                return False
+            except RequestHumanTakeover as error:
+                logger.warning(
+                    '[Настроение] Campaign scan не дал достаточного evidence; '
+                    f'текущая задача остановлена: {error}'
+                )
+                return False
         return True
 
     def loop(self):

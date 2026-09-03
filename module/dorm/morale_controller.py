@@ -13,7 +13,6 @@ import numpy as np
 
 from module.base.button import Button
 from module.base.decorator import cached_property
-from module.dorm.assets import OCR_DORM_SLOT
 from module.dorm.morale_model import (
     DormFloor,
     DormFloorScanAttempt,
@@ -21,7 +20,7 @@ from module.dorm.morale_model import (
     DormMoraleScanResult,
 )
 from module.dorm.morale_scanner import DormMoraleInputError, DormMoraleScanner
-from module.ui.page import page_dorm
+from module.ui.page import page_dorm, page_main, page_main_white
 from module.ui.ui import UI
 
 
@@ -36,12 +35,30 @@ class DormTrainLayout:
     # В live UI вкладка Train показывает персонажей 1F, Rest — персонажей 2F.
     floor_1_probe: tuple[int, int, int, int] = (145, 90, 330, 120)
     floor_2_probe: tuple[int, int, int, int] = (360, 90, 545, 120)
+    train_modal_probe: tuple[int, int, int, int] = (555, 40, 900, 110)
+    dorm_home_header_probe: tuple[int, int, int, int] = (830, 20, 1260, 130)
     floor_1_button: tuple[int, int, int, int] = (134, 85, 347, 137)
     floor_2_button: tuple[int, int, int, int] = (347, 85, 561, 137)
+    train_button: tuple[int, int, int, int] = (20, 640, 230, 719)
+    close_button: tuple[int, int, int, int] = (1110, 65, 1160, 120)
+    # Реальные пять Train cards из EN UI. Клик выполняется только по уже
+    # наблюдаемому occupant и лишь открывает replacement-selection modal.
+    train_card_buttons: tuple[tuple[int, int, int, int], ...] = (
+        (141, 205, 299, 535),
+        (311, 205, 469, 535),
+        (481, 205, 639, 535),
+        (651, 205, 809, 535),
+        (821, 205, 979, 535),
+    )
 
 
 @dataclass(frozen=True, slots=True)
 class DormTrainStatePolicy:
+    dorm_home_luma_min: float = 170.0
+    dorm_home_light_ratio_min: float = 0.55
+    light_pixel_luma_min: float = 180.0
+    train_modal_dark_luma_max: float = 100.0
+    train_modal_dark_ratio_min: float = 0.5
     selected_luma_min: float = 180.0
     unselected_luma_max: float = 140.0
     selected_delta_min: float = 60.0
@@ -81,8 +98,36 @@ class DormTrainStateDetector:
         x1, y1, x2, y2 = area
         return float(np.mean(cv2.cvtColor(frame[y1:y2, x1:x2], cv2.COLOR_RGB2GRAY)))
 
+    def _light_ratio(self, frame: np.ndarray, area: tuple[int, int, int, int]) -> float:
+        x1, y1, x2, y2 = area
+        luma = cv2.cvtColor(frame[y1:y2, x1:x2], cv2.COLOR_RGB2GRAY)
+        return float(np.mean(luma >= self.policy.light_pixel_luma_min))
+
+    def train_modal_visible(self, frame: np.ndarray) -> bool:
+        frame = self._normalize(frame)
+        x1, y1, x2, y2 = self.layout.train_modal_probe
+        luma = cv2.cvtColor(frame[y1:y2, x1:x2], cv2.COLOR_RGB2GRAY)
+        dark_ratio = float(np.mean(luma <= self.policy.train_modal_dark_luma_max))
+        return dark_ratio >= self.policy.train_modal_dark_ratio_min
+
+    def dorm_home_visible(self, frame: np.ndarray) -> bool:
+        """Подтверждает Home Dorm по Train, а не по кнопке редактора Move."""
+        frame = self._normalize(frame)
+        if self.train_modal_visible(frame):
+            return False
+        for area in (self.layout.train_button, self.layout.dorm_home_header_probe):
+            if (
+                self._mean_luma(frame, area) < self.policy.dorm_home_luma_min
+                or self._light_ratio(frame, area)
+                < self.policy.dorm_home_light_ratio_min
+            ):
+                return False
+        return True
+
     def selected_floor(self, frame: np.ndarray) -> DormFloor | None:
         frame = self._normalize(frame)
+        if not self.train_modal_visible(frame):
+            return None
         floor_1 = self._mean_luma(frame, self.layout.floor_1_probe)
         floor_2 = self._mean_luma(frame, self.layout.floor_2_probe)
         if (
@@ -157,17 +202,30 @@ class DormMoraleController(UI):
         return value[:64] or "dorm_scan_failed"
 
     def _open_train(self) -> np.ndarray:
-        self.ui_ensure(page_dorm)
         frame = self._capture()
+        if self.dorm_train_state.selected_floor(frame) is not None:
+            return frame
+        if not self.dorm_train_state.dorm_home_visible(frame) and not self.ui_page_appear(
+            page_dorm,
+            offset=(20, 20),
+        ):
+            self.ui_ensure(page_dorm)
+            frame = self._current_frame()
         train_requested = False
-        for _ in range(20):
+        for attempt in range(20):
             if self.dorm_train_state.selected_floor(frame) is not None:
                 return frame
-            if not train_requested and self.ui_page_appear(
-                page_dorm,
-                offset=(20, 20),
+            home_visible = self.dorm_train_state.dorm_home_visible(frame)
+            if (
+                (home_visible or self.ui_page_appear(page_dorm, offset=(20, 20)))
+                and (not train_requested or (home_visible and attempt % 5 == 0))
             ):
-                self.device.click(OCR_DORM_SLOT)
+                self.device.click(
+                    self._button(
+                        self.dorm_train_layout.train_button,
+                        "DORM_MORALE_TRAIN",
+                    )
+                )
                 train_requested = True
                 frame = self._capture()
                 continue
@@ -186,7 +244,7 @@ class DormMoraleController(UI):
 
     def _select_floor(self, frame: np.ndarray, floor: DormFloor) -> np.ndarray:
         switch_requested = False
-        for _ in range(10):
+        for attempt in range(10):
             selected = self.dorm_train_state.selected_floor(frame)
             if selected is floor:
                 return frame
@@ -200,7 +258,7 @@ class DormMoraleController(UI):
                 raise DormMoraleControllerError(
                     "Состояние этажа Train Dorm не распознано."
                 )
-            if switch_requested:
+            if switch_requested and attempt % 4 != 0:
                 frame = self._capture()
                 continue
             area = (
@@ -212,6 +270,112 @@ class DormMoraleController(UI):
             switch_requested = True
             frame = self._capture()
         raise DormMoraleControllerError(f"Не удалось выбрать этаж Dorm {floor.value}.")
+
+    def close_train(self) -> np.ndarray:
+        """Закрыть Train/Rest только по доказанному modal state."""
+
+        frame = self._capture()
+        close_requested = False
+        for attempt in range(15):
+            if self.ui_page_appear(page_main, offset=(20, 20)) or self.ui_page_appear(
+                page_main_white,
+                offset=(20, 20),
+            ):
+                return frame
+            if self.dorm_train_state.dorm_home_visible(frame):
+                return frame
+            modal_visible = self.dorm_train_state.train_modal_visible(frame)
+            if modal_visible and (not close_requested or attempt % 5 == 0):
+                self.device.click(
+                    self._button(
+                        self.dorm_train_layout.close_button,
+                        "DORM_MORALE_CLOSE",
+                    )
+                )
+                close_requested = True
+                frame = self._capture()
+                continue
+            if close_requested:
+                frame = self._capture()
+                continue
+            raise DormMoraleControllerError(
+                "Безопасный выход из Train Dorm не доказан."
+            )
+        raise DormMoraleControllerError(
+            "Истёк лимит ожидания закрытия Train Dorm."
+        )
+
+    def open_candidate_selection(self, scan: DormMoraleScanResult) -> np.ndarray:
+        """Открыть replacement-selection через уже наблюдаемого Train occupant.
+
+        Метод намеренно не нажимает REMOVE, result card, Cancel или Confirm.
+        Единственное действие после доказанного Train state — tap по существующему
+        occupant, что в подтверждённом EN UI открывает read-only для нашей задачи
+        candidate-selection до тех пор, пока Confirm не используется.
+        """
+
+        if not isinstance(scan, DormMoraleScanResult):
+            raise TypeError("scan должен быть DormMoraleScanResult")
+        floor_1 = next(
+            (attempt for attempt in scan.attempts if attempt.floor is DormFloor.FLOOR_1),
+            None,
+        )
+        if (
+            floor_1 is None
+            or floor_1.status is not DormFloorScanStatus.SUCCEEDED
+            or floor_1.snapshot is None
+            or not floor_1.snapshot.observations
+        ):
+            raise DormMoraleControllerError(
+                "Targeted Search требует хотя бы одного доказанного Train occupant."
+            )
+        ordinal = floor_1.snapshot.observations[0].ordinal
+        if (
+            type(ordinal) is not int
+            or not 1 <= ordinal <= len(self.dorm_train_layout.train_card_buttons)
+        ):
+            raise DormMoraleControllerError(
+                "Ordinal Train occupant не соответствует подтверждённой геометрии 1F."
+            )
+
+        frame = self._open_train()
+        frame = self._select_floor(frame, DormFloor.FLOOR_1)
+        if self.dorm_train_state.selected_floor(frame) is not DormFloor.FLOOR_1:
+            raise DormMoraleControllerError(
+                "Train 1F не доказан перед открытием candidate-selection."
+            )
+
+        from module.retire.assets import DOCK_CHECK
+
+        button = self._button(
+            self.dorm_train_layout.train_card_buttons[ordinal - 1],
+            "DORM_MORALE_EXISTING_TRAIN_OCCUPANT",
+        )
+        clicked = False
+        unknown_frames = 0
+        for _attempt in range(8):
+            if self.appear(DOCK_CHECK, offset=(20, 20)):
+                return frame
+            selected_floor = self.dorm_train_state.selected_floor(frame)
+            if selected_floor is None:
+                unknown_frames += 1
+                if unknown_frames >= 2:
+                    raise DormMoraleControllerError(
+                        "После tap Train occupant состояние UI не доказано."
+                    )
+            elif selected_floor is not DormFloor.FLOOR_1:
+                raise DormMoraleControllerError(
+                    "После tap Train occupant получено неожиданное состояние UI."
+                )
+            else:
+                unknown_frames = 0
+                if not clicked:
+                    self.device.click(button)
+                    clicked = True
+            frame = self._capture()
+        raise DormMoraleControllerError(
+            "Candidate-selection не открылся за ограниченное число попыток."
+        )
 
     def _scan_floor(
         self,
@@ -261,7 +425,7 @@ class DormMoraleController(UI):
                 )
             )
             finished_at = self._now()
-            return DormMoraleScanResult(
+            result = DormMoraleScanResult(
                 id=scan_id,
                 started_at=started_at,
                 finished_at=finished_at,
@@ -269,6 +433,7 @@ class DormMoraleController(UI):
                 source=source,
                 idempotency_key=f"dorm-morale-scan-v1:{scan_id}",
             )
+            return result
 
         try:
             _frame, floor_2 = self._scan_floor(frame, DormFloor.FLOOR_2)
@@ -282,7 +447,7 @@ class DormMoraleController(UI):
                 )
             )
         finished_at = self._now()
-        return DormMoraleScanResult(
+        result = DormMoraleScanResult(
             id=scan_id,
             started_at=started_at,
             finished_at=finished_at,
@@ -290,12 +455,13 @@ class DormMoraleController(UI):
             source=source,
             idempotency_key=f"dorm-morale-scan-v1:{scan_id}",
         )
+        return result
 
 
 __all__ = (
+    "DormMoraleController",
+    "DormMoraleControllerError",
     "DormTrainLayout",
     "DormTrainStateDetector",
     "DormTrainStatePolicy",
-    "DormMoraleController",
-    "DormMoraleControllerError",
 )

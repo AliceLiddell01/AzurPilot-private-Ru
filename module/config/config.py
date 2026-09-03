@@ -18,12 +18,28 @@ import pywebio
 from module.base.filter import Filter
 from module.config.config_generated import GeneratedConfig
 from module.config.config_manual import ManualConfig, OutputConfig
-from module.config.config_updater import ConfigUpdater, ensure_time, get_server_next_update, nearest_future
+from module.config.config_updater import (
+    ConfigUpdater,
+    ensure_time,
+    get_server_next_update,
+    legacy_emotion_state_present,
+    nearest_future,
+)
 from module.config.deep import deep_get, deep_set
 from module.config.opsi_data_logger import data_logger_is_active_from_data
-from module.config.recovery_default_on_migration import apply_recovery_default_on_migration
+from module.config.recovery_default_on_migration import (
+    apply_recovery_default_on_migration,
+)
 from module.config.time_source import now as current_time
-from module.config.utils import DEFAULT_TIME, dict_to_kv, filepath_config, get_os_reset_remain, path_to_arg, is_good_gpu
+from module.config.utils import (
+    DEFAULT_TIME,
+    dict_to_kv,
+    filepath_config,
+    get_os_reset_remain,
+    is_good_gpu,
+    path_to_arg,
+    read_file,
+)
 from module.config.watcher import ConfigWatcher
 from module.exception import RequestHumanTakeover, ScriptError
 from module.logger import logger
@@ -147,6 +163,7 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
         # 强制覆盖的变量
         # 键：GeneratedConfig 中的参数名。值：修改后的值。
         self.overridden = {}
+        self._legacy_emotion_migration_checked = False
         # 调度器队列，在 `get_next_task()` 中更新，包含 Function 对象列表
         # pending_task：运行时间已到，但因任务调度尚未执行
         # waiting_task：运行时间未到，需要等待
@@ -189,16 +206,37 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
         self.save()
 
     def load(self):
-        self.data = self.read_file(self.config_name)
-        if (
-            not self.is_template_config
-            and os.path.exists(filepath_config(self.config_name))
-            and apply_recovery_default_on_migration(self.data)
+        legacy_emotion_migration = False
+        config_path = filepath_config(self.config_name)
+        config_exists = not self.is_template_config and os.path.exists(config_path)
+        raw_data = None
+        if config_exists and not getattr(
+            self, "_legacy_emotion_migration_checked", False
         ):
-            logger.info(
-                "[Конфигурация] Stage 3: unattended emulator recovery включён "
-                "для существующего профиля; migration marker сохранён"
+            raw_data = read_file(config_path)
+            legacy_emotion_migration = legacy_emotion_state_present(
+                raw_data
             )
+            self._legacy_emotion_migration_checked = True
+        self.data = (
+            self.read_file(self.config_name, data=raw_data)
+            if raw_data is not None
+            else self.read_file(self.config_name)
+        )
+        recovery_migration = config_exists and apply_recovery_default_on_migration(
+            self.data
+        )
+        if recovery_migration or legacy_emotion_migration:
+            if legacy_emotion_migration:
+                logger.info(
+                    "[Конфигурация] Устаревшее состояние морали удалено из данных профиля; "
+                    "источником морали теперь является MoraleService"
+                )
+            if recovery_migration:
+                logger.info(
+                    "[Конфигурация] Этап 3: автоматическое восстановление эмулятора включено "
+                    "для существующего профиля; маркер миграции сохранён"
+                )
             self.write_file(self.config_name, data=self.data)
         self.config_override()
 

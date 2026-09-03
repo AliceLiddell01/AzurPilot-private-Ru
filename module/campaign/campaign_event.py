@@ -67,10 +67,6 @@ class CampaignEvent(CampaignStatus):
                 keys = f'{task}.Scheduler.Enable'
                 logger.info(f'[Кампания события] Задача `{task}` отключена')
                 self.config.cross_set(keys=keys, value=False)
-                keys = f'{task}.Emotion.Fleet1Onsen'
-                self.config.cross_set(keys=keys, value=False)
-                keys = f'{task}.Emotion.Fleet2Onsen'
-                self.config.cross_set(keys=keys, value=False)
 
             # 重置 GemsFarming
             self._reset_gems_farming(tasks)

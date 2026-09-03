@@ -18,10 +18,17 @@ from module.base.timer import Timer
 from module.campaign.campaign_status import CampaignStatus
 from module.combat.assets import *
 from module.combat.combat import Combat
+from module.combat.emotion import begin_morale_combat_event
 from module.exception import CampaignEnd, ScriptEnd
 from module.handler.assets import AUTO_SEARCH_MAP_OPTION_ON, GET_MISSION
 from module.logger import logger
-from module.map.assets import WITHDRAW, SWITCH_OVER, FLEET_WITHDRAW, FLEET_SWITCH_CONFIRM, FLEET_WITHDRAW_BOSS
+from module.map.assets import (
+    FLEET_SWITCH_CONFIRM,
+    FLEET_WITHDRAW,
+    FLEET_WITHDRAW_BOSS,
+    SWITCH_OVER,
+    WITHDRAW,
+)
 from module.map.map_operation import MapOperation
 
 
@@ -241,6 +248,9 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
         Args:
             emotion_reduce (bool):
             fleet_index (int):
+            battle (tuple[int, int] | None):
+                Текущая координата battle_count/map battle для morale event и
+                force_call логики.
             expected_end (callable):
 
         Pages:
@@ -279,7 +289,7 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
         self.device.stuck_record_clear()
         self.device.click_record_clear()
         if emotion_reduce:
-            self.emotion.reduce(fleet_index)
+            self.emotion.reduce(fleet_index, battle=battle)
         auto = self.config.Fleet_Fleet1Mode if fleet_index == 1 else self.config.Fleet_Fleet2Mode
 
         confirm_timer = Timer(10)
@@ -321,7 +331,11 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
                 continue
             if self.appear_then_click(OPTS_INFO_D, offset=(30, 30), interval=2):
                 if emotion_reduce and not self._shipwreck_emotion_reduced:
-                    self.emotion.reduce(fleet_index, shipwreck=True)
+                    self.emotion.reduce(
+                        fleet_index,
+                        shipwreck=True,
+                        battle=battle,
+                    )
                     self._shipwreck_emotion_reduced = True
                 self._withdraw = True
                 break
@@ -341,8 +355,6 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
                 break
             if self.appear(BATTLE_STATUS_A) or self.appear(BATTLE_STATUS_B) \
                     or self.appear(EXP_INFO_A) or self.appear(EXP_INFO_B):
-                if emotion_reduce:
-                    self.emotion.reduce(fleet_index, shipwreck=True)
                 break
             if self.appear(BATTLE_STATUS_S) or self.appear(EXP_INFO_S) \
                     or self.appear(GET_MISSION) or self.is_auto_search_running():
@@ -399,7 +411,7 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
         self.fleet_alive_multiple = False
         return True
 
-    def auto_search_combat_status(self):
+    def auto_search_combat_status(self, *, battle=None):
         """
         Pages:
             in: any
@@ -523,7 +535,11 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
             if self.appear(OPTS_INFO_D, offset=(30, 30)):
                 logger.info('[Автопоиск — результаты] Обнаружено окно потери корабля; перехожу к обработке отступления')
                 if self._auto_search_emotion_reduce and not self._shipwreck_emotion_reduced:
-                    self.emotion.reduce(self._auto_search_fleet_index, shipwreck=True)
+                    self.emotion.reduce(
+                        self._auto_search_fleet_index,
+                        shipwreck=True,
+                        battle=battle,
+                    )
                     self._shipwreck_emotion_reduced = True
                 self._withdraw = True
                 continue
@@ -545,17 +561,26 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
 
     def auto_search_combat(self, emotion_reduce=None, fleet_index=1, battle=None):
         """
-        Execute a combat.
+        Выполнить один бой в режиме автопоиска.
 
-        Note that fleet index == 1 is mob fleet, 2 is boss fleet.
-        It's not the fleet index in fleet preparation or auto search setting.
+        `fleet_index == 1` означает mob fleet, `2` — boss fleet.
+        Это не индекс флота в экране подготовки или настройке автопоиска.
         """
         emotion_reduce = emotion_reduce if emotion_reduce is not None else self.emotion.is_calculate
 
         self._auto_search_emotion_reduce = emotion_reduce
         self._auto_search_fleet_index = fleet_index
+        self._morale_fleet_index = fleet_index
         self._shipwreck_emotion_reduced = False
+        begin_morale_combat_event(
+            self.emotion,
+            "auto",
+            getattr(self.config, "campaign_name", "unknown"),
+            getattr(self, "morale_campaign_run_index", 0),
+            battle if battle is not None else getattr(self, "battle_count", 0),
+            fleet_index,
+        )
         self.auto_search_combat_execute(emotion_reduce=emotion_reduce, fleet_index=fleet_index, battle=battle)
-        self.auto_search_combat_status()
+        self.auto_search_combat_status(battle=battle)
 
         logger.info('[Автопоиск — бой] Бой завершён')

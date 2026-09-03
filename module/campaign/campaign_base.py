@@ -194,6 +194,9 @@ class CampaignBase(CampaignUI, Map, AutoSearchCombat):
             else:
                 raise ScriptError('Бой не выполнен.')
 
+        if result and self.emotion.is_calculate:
+            self.emotion.log_working_fleets(f"after_battle_{self.battle_count}")
+
         return result
 
     def run(self):
@@ -302,6 +305,8 @@ class CampaignBase(CampaignUI, Map, AutoSearchCombat):
         """
         logger.hr(f'{self.FUNCTION_NAME_BASE}{self.battle_count}', level=2)
         self.auto_search_moving()
-        self.auto_search_combat(fleet_index=self.fleet_show_index,
+        self.auto_search_combat(fleet_index=self.fleet_current_index,
                                 battle=(self.battle_count, self._map_battle))
         self.battle_count += 1
+        if self.emotion.is_calculate:
+            self.emotion.log_working_fleets(f"after_battle_{self.battle_count}")

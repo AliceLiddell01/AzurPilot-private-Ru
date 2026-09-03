@@ -1,4 +1,4 @@
-"""PostgreSQL adapter append-only Per-ship Morale observations."""
+"""PostgreSQL-адаптер добавления наблюдений Morale по отдельным кораблям."""
 
 from __future__ import annotations
 
@@ -48,14 +48,23 @@ def _payload(observation: MoraleObservation) -> dict[str, object]:
     }
 
 
-def _storage_idempotency_key(observation: MoraleObservation) -> str:
-    """Namespace caller idempotency внутри app instance без расширения DB field."""
+def _storage_idempotency_for(instance_id: UUID, key: str) -> str:
+    """Получить ключ хранения для ключа вызова без раскрытия исходного ключа в БД."""
 
     return payload_digest(
         {
-            "instance_id": observation.instance_id,
-            "idempotency_key": observation.idempotency_key,
+            "instance_id": instance_id,
+            "idempotency_key": key,
         }
+    )
+
+
+def _storage_idempotency_key(observation: MoraleObservation) -> str:
+    """Изолировать idempotency вызова внутри app instance без изменения поля БД."""
+
+    return _storage_idempotency_for(
+        observation.instance_id,
+        observation.idempotency_key,
     )
 
 
@@ -83,7 +92,7 @@ class PostgresMoraleRepository:
                 if existing["payload_digest"] == digest:
                     try:
                         hydrated = self._hydrate(existing)
-                    except KeyError, TypeError, ValueError:
+                    except (KeyError, TypeError, ValueError):
                         raise StorageInvalidDataError(
                             "PostgreSQL содержит некорректное Morale observation."
                         ) from None
@@ -204,10 +213,42 @@ class PostgresMoraleRepository:
             raise translate_database_error(exc) from None
         try:
             return tuple(self._hydrate(row) for row in rows)
-        except KeyError, TypeError, ValueError:
+        except (KeyError, TypeError, ValueError):
             raise StorageInvalidDataError(
                 "PostgreSQL содержит некорректное Morale observation."
             ) from None
+
+    def contains_idempotency(
+        self,
+        instance_id: UUID,
+        keys: tuple[str, ...],
+    ) -> frozenset[str]:
+        """Проверить ключи отдельных слотов одним set-based запросом."""
+
+        if not isinstance(instance_id, UUID) or not isinstance(keys, tuple):
+            raise StorageInvalidDataError("Morale idempotency request некорректен.")
+        if not keys:
+            return frozenset()
+        if any(
+            not isinstance(key, str) or not key.strip() or len(key) > 128
+            for key in keys
+        ):
+            raise StorageInvalidDataError(
+                "Morale idempotency request содержит некорректный key."
+            )
+        storage_keys = {
+            _storage_idempotency_for(instance_id, key): key for key in keys
+        }
+        table = formation_surface_fleet_morale_observation
+        try:
+            rows = self._connection.execute(
+                select(table.c.idempotency_key).where(
+                    table.c.idempotency_key.in_(tuple(storage_keys))
+                )
+            ).scalars()
+            return frozenset(storage_keys[value] for value in rows)
+        except SQLAlchemyError as exc:
+            raise translate_database_error(exc) from None
 
     @staticmethod
     def _hydrate(row: Mapping[str, object]) -> MoraleObservation:

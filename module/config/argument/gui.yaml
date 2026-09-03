@@ -90,6 +90,34 @@ FleetPage:
   StatusComplete:
   StatusIncomplete:
   StatusNoData:
+  MoraleTitle:
+  MoraleHelp:
+  MoraleNoData:
+  MoraleUnknown:
+  MoraleLastKnown:
+  MoraleExact:
+  MoraleProjected:
+  MoraleMain:
+  MoraleVanguard:
+  MoraleBase:
+  MoraleRetrofit:
+  MoraleHour:
+  MoraleLocationUnknown:
+  MoraleLocationDorm1:
+  MoraleLocationDorm2:
+  MoraleLocationOutside:
+  MoraleRoleMob:
+  MoraleRoleBoss:
+  MoraleRoleAll:
+  MoraleColumnTask:
+  MoraleColumnRole:
+  MoraleColumnFleetSlot:
+  MoraleColumnShip:
+  MoraleColumnCurrent:
+  MoraleColumnRecovery:
+  MoraleColumnLocation:
+  MoraleColumnKnowledge:
+  MoraleColumnLastSync:
 
 MenuDevelop:
   HomePage:

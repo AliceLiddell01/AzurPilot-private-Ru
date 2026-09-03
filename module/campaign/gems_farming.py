@@ -19,6 +19,7 @@
 - Retirement：退役与船坞管理
 """
 
+from module.application.morale import MoraleKnowledge
 from module.base.decorator import cached_property
 from module.campaign.assets import CHAPTER_NEXT, CHAPTER_PREV
 from module.campaign.campaign_base import CampaignBase
@@ -73,8 +74,9 @@ class GemsEmotion(Emotion):
         if not self.is_calculate:
             return
 
+        self._require_battle_coordinate(battle)
         recovered, delay = self._check_reduce(battle)
-        if delay:
+        if recovered is None or delay:
             self.config.GEMS_EMOTION_TRIGGERED = True
             logger.info('[Фарм самоцветов] Обнаружено низкое настроение; текущая задача приостановлена')
             raise CampaignEnd('Emotion control')
@@ -96,15 +98,15 @@ class GemsCampaignOverride(CampaignBase):
         如果启用了更换先锋，撤出战斗并更换旗舰和先锋。
         """
         if self.config.GemsFarming_IgnoreEmotionWarning or self.config.GemsFarming_ChangeVanguard == 'disabled':
-            result = self.handle_popup_confirm('IGNORE_LOW_EMOTION')
+            result = self._handle_low_morale_warning(allow_confirm=True, stop=False)
             if result:
-                # 避免点击 AUTO_SEARCH_MAP_OPTION_OFF
+                # Не допускаем нажатия AUTO_SEARCH_MAP_OPTION_OFF.
                 self.interval_reset(AUTO_SEARCH_MAP_OPTION_OFF)
                 if self.config.GemsFarming_IgnoreEmotionWarning and self.config.GemsFarming_ChangeVanguard != 'disabled':
                     self.config.GEMS_EMOTION_TRIGGERED = True
             return result
 
-        if self.handle_popup_cancel('IGNORE_LOW_EMOTION'):
+        if self._handle_low_morale_warning(stop=False):
             self.config.GEMS_EMOTION_TRIGGERED = True
             logger.hr('[Фарм самоцветов] Отступление из-за настроения')
 
@@ -113,7 +115,7 @@ class GemsCampaignOverride(CampaignBase):
 
                 if self.handle_story_skip():
                     continue
-                if self.handle_popup_cancel('IGNORE_LOW_EMOTION'):
+                if self._handle_low_morale_warning(stop=False):
                     continue
 
                 if self.appear(BATTLE_PREPARATION, offset=(20, 20), interval=2):
@@ -932,10 +934,6 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
         更换旗舰并计算情绪值。
         """
         target_ship = max(ship, key=lambda s: (s.level, s.emotion))
-        if self.change_vanguard:
-            self.set_emotion(min(self.get_emotion(), target_ship.emotion))
-        elif self.config.GemsFarming_AllowHighFlagshipLevel:
-            self.set_emotion(target_ship.emotion)
         self._ship_change_confirm(target_ship.button)
 
     def flagship_change_execute(self):
@@ -983,8 +981,6 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
         更换先锋并计算情绪值。
         """
         target_ship = max(ship, key=lambda s: s.emotion)
-        if self.change_vanguard:
-            self.set_emotion(target_ship.emotion)
         self._ship_change_confirm(target_ship.button)
 
     def vanguard_change_execute(self):
@@ -1055,25 +1051,41 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
 
     def get_emotion(self):
         """
-        从配置中获取舰队情绪值。
+        Получить безопасную нижнюю границу текущей projection morale.
         """
-        if self.config.Fleet_FleetOrder == 'fleet1_standby_fleet2_all':
-            return self.campaign.config.Emotion_Fleet2Value
-        else:
-            return self.campaign.config.Emotion_Fleet1Value
+        logical = 2 if self.config.Fleet_FleetOrder == 'fleet1_standby_fleet2_all' else 1
+        try:
+            state = self.campaign.emotion.fleet_state(logical)
+        except (TypeError, ValueError, LookupError) as exc:
+            logger.exception(exc)
+            logger.warning(
+                '[Фарм самоцветов] Morale projection недоступна; используется нижняя граница 0'
+            )
+            return 0
+        values = [
+            slot.current
+            for slot in state.slots
+            if slot.knowledge is not MoraleKnowledge.UNKNOWN and slot.current is not None
+        ]
+        if not values:
+            logger.warning(
+                '[Фарм самоцветов] Morale projection неизвестна; выбор корабля использует безопасную нижнюю границу 0'
+            )
+            return 0
+        return int(min(values))
 
     def set_emotion(self, emotion):
         """
-        设置舰队情绪值。
+        Сохранить совместимость вызовов без записи устаревшего числового state.
         """
-        if self.config.Fleet_FleetOrder == 'fleet1_standby_fleet2_all':
-            self.campaign.config.set_record(Emotion_Fleet2Value=emotion)
-        else:
-            self.campaign.config.set_record(Emotion_Fleet1Value=emotion)
+        del emotion
+        logger.info(
+            '[Фарм самоцветов] Legacy запись morale пропущена; точное состояние появится после подтверждённого Fleet/Dorm observation'
+        )
 
     def run(self, name, folder='campaign_main', mode='normal', total=0):
         """
-        运行钻石 farming 任务。
+        Запустить задачу Gems farming.
 
         Args:
             name (str): .py 文件名称。
@@ -1102,7 +1114,6 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
                     self._trigger_emotion = True
                 elif e.args[0] == 'Emotion withdraw':
                     self._trigger_emotion = True
-                    self.set_emotion(0)
                 else:
                     raise e
             except HardNotSatisfied:
@@ -1136,15 +1147,12 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
             if self._trigger_lv32 or self._trigger_emotion:
                 success = True
                 self.hard_mode_override()
-                emotion = self.get_emotion()
                 vanguard_success = True
                 flagship_success = True
                 if self.change_vanguard:
                     vanguard_success = self.vanguard_change()
                 if self.change_flagship and (vanguard_success or self._trigger_lv32):
                     flagship_success = self.flagship_change()
-                    if not flagship_success and self.config.GemsFarming_AllowHighFlagshipLevel:
-                        self.set_emotion(emotion)
                 success = vanguard_success and flagship_success
 
                 if is_limit and self.config.StopCondition_RunCount <= 0:

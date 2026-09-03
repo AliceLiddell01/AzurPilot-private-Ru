@@ -1,0 +1,119 @@
+from types import SimpleNamespace
+
+import pytest
+
+from module.application.fleet_mapping import (
+    physical_fleet_index,
+    working_fleet_bindings,
+    working_fleet_bindings_from_data,
+)
+
+
+def test_logical_fleet_maps_to_configured_physical_surface_fleet():
+    config = SimpleNamespace(
+        config_name="alas",
+        task=SimpleNamespace(command="Main"),
+        Fleet_Fleet1=4,
+        Fleet_Fleet2=6,
+        Fleet_FleetOrder="fleet1_mob_fleet2_boss",
+    )
+
+    bindings = working_fleet_bindings(config)
+
+    assert physical_fleet_index(config, 1) == 4
+    assert physical_fleet_index(config, 2) == 6
+    assert [(item.role, item.physical_fleet_index) for item in bindings] == [
+        ("mob", 4),
+        ("boss", 6),
+    ]
+
+
+def test_working_mapping_does_not_use_profile_name_as_task_fallback():
+    config = SimpleNamespace(
+        config_name="profile-name",
+        Fleet_Fleet1=4,
+        Fleet_Fleet2=6,
+        Fleet_FleetOrder="fleet1_all_fleet2_standby",
+    )
+
+    with pytest.raises(ValueError, match="определить task"):
+        working_fleet_bindings(config)
+
+
+@pytest.mark.parametrize(
+    ("order", "expected"),
+    (
+        ("fleet1_all_fleet2_standby", [(1, 5, "all")]),
+        ("fleet1_standby_fleet2_all", [(2, 6, "all")]),
+        ("fleet1_mob_fleet2_boss", [(1, 5, "mob"), (2, 6, "boss")]),
+        ("fleet1_boss_fleet2_mob", [(1, 5, "boss"), (2, 6, "mob")]),
+    ),
+)
+def test_working_mapping_covers_all_supported_fleet_orders(order, expected):
+    data = {
+        "Main": {
+            "Fleet": {
+                "Fleet1": 5,
+                "Fleet2": 6,
+                "FleetOrder": order,
+            }
+        }
+    }
+
+    bindings = working_fleet_bindings_from_data(data, "Main")
+
+    assert [
+        (item.logical_fleet_index, item.physical_fleet_index, item.role)
+        for item in bindings
+    ] == expected
+
+
+def test_working_mapping_from_profile_only_includes_active_all_role():
+    data = {
+        "Main": {
+            "Fleet": {
+                "Fleet1": 5,
+                "Fleet2": 6,
+                "FleetOrder": "fleet1_standby_fleet2_all",
+            }
+        }
+    }
+
+    bindings = working_fleet_bindings_from_data(data, "Main")
+
+    assert len(bindings) == 1
+    assert bindings[0].logical_fleet_index == 2
+    assert bindings[0].physical_fleet_index == 6
+    assert bindings[0].role == "all"
+
+
+def test_working_mapping_rejects_duplicate_physical_fleet():
+    with pytest.raises(ValueError, match="physical Fleet"):
+        working_fleet_bindings_from_data(
+            {
+                "Main": {
+                    "Fleet": {
+                        "Fleet1": 3,
+                        "Fleet2": 3,
+                        "FleetOrder": "fleet1_mob_fleet2_boss",
+                    }
+                }
+            },
+            "Main",
+        )
+
+
+def test_working_mapping_rejects_zero_for_active_second_fleet():
+    with pytest.raises(ValueError, match=r"диапазоне 1\.\.6"):
+        working_fleet_bindings_from_data(
+            {
+                "Main": {
+                    "Fleet": {
+                        "Fleet1": 5,
+                        "Fleet2": 0,
+                        "FleetOrder": "fleet1_standby_fleet2_all",
+                    }
+                }
+            },
+            "Main",
+        )

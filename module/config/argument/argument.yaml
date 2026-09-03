@@ -267,29 +267,6 @@ Retirement:
   RetireMode:
     value: one_click_retire
     option: [one_click_retire, enhance, old_retire]
-PublicEmotion:
-  Enable: false
-  Tasks:
-    type: textarea
-    value: null
-  FleetValue: 119
-  FleetRecord:
-    value: 2020-01-01 00:00:00
-    display: disabled
-  FleetControl:
-    value: prevent_yellow_face
-    option:
-      [
-        keep_exp_bonus,
-        prevent_green_face,
-        prevent_yellow_face,
-        prevent_red_face,
-      ]
-  FleetRecover:
-    value: not_in_dormitory
-    option: [not_in_dormitory, dormitory_floor_1, dormitory_floor_2]
-  FleetOath: false
-  FleetOnsen: false
 YukikazeTaskManager:
   TaskPriorityAdjustment:
     type: task_priority
@@ -438,30 +415,12 @@ Emotion:
   Mode:
     value: calculate
     option: [calculate, ignore, calculate_ignore]
-  Fleet1Value: 119
-  Fleet1Record:
-    value: 2020-01-01 00:00:00
-    display: disabled
   Fleet1Control:
     value: prevent_green_face
     option: [ keep_exp_bonus, prevent_green_face, prevent_yellow_face, prevent_red_face ]
-  Fleet1Recover:
-    value: not_in_dormitory
-    option: [not_in_dormitory, dormitory_floor_1, dormitory_floor_2]
-  Fleet1Oath: false
-  Fleet1Onsen: false
-  Fleet2Value: 119
-  Fleet2Record:
-    value: 2020-01-01 00:00:00
-    display: disabled
   Fleet2Control:
     value: prevent_green_face
     option: [ keep_exp_bonus, prevent_green_face, prevent_yellow_face, prevent_red_face ]
-  Fleet2Recover:
-    value: not_in_dormitory
-    option: [not_in_dormitory, dormitory_floor_1, dormitory_floor_2]
-  Fleet2Oath: false
-  Fleet2Onsen: false
 HpControl:
   UseHpBalance: false
   UseEmergencyRepair: false

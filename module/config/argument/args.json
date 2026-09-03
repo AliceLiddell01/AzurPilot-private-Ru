@@ -673,53 +673,6 @@
         ]
       }
     },
-    "PublicEmotion": {
-      "Enable": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Tasks": {
-        "type": "textarea",
-        "value": null
-      },
-      "FleetValue": {
-        "type": "input",
-        "value": 119
-      },
-      "FleetRecord": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "disabled"
-      },
-      "FleetControl": {
-        "type": "select",
-        "value": "prevent_yellow_face",
-        "option": [
-          "keep_exp_bonus",
-          "prevent_green_face",
-          "prevent_yellow_face",
-          "prevent_red_face"
-        ]
-      },
-      "FleetRecover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ]
-      },
-      "FleetOath": {
-        "type": "checkbox",
-        "value": false
-      },
-      "FleetOnsen": {
-        "type": "checkbox",
-        "value": false
-      }
-    },
     "YukikazeTaskManager": {
       "TaskPriorityAdjustment": {
         "type": "task_priority",
@@ -1191,16 +1144,6 @@
           "calculate_ignore"
         ]
       },
-      "Fleet1Value": {
-        "type": "input",
-        "value": 119
-      },
-      "Fleet1Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "disabled"
-      },
       "Fleet1Control": {
         "type": "select",
         "value": "prevent_green_face",
@@ -1211,33 +1154,6 @@
           "prevent_red_face"
         ]
       },
-      "Fleet1Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ]
-      },
-      "Fleet1Oath": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet1Onsen": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet2Value": {
-        "type": "input",
-        "value": 119
-      },
-      "Fleet2Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "disabled"
-      },
       "Fleet2Control": {
         "type": "select",
         "value": "prevent_green_face",
@@ -1247,23 +1163,6 @@
           "prevent_yellow_face",
           "prevent_red_face"
         ]
-      },
-      "Fleet2Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ]
-      },
-      "Fleet2Oath": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet2Onsen": {
-        "type": "checkbox",
-        "value": false
       }
     },
     "HpControl": {
@@ -1616,16 +1515,6 @@
           "calculate_ignore"
         ]
       },
-      "Fleet1Value": {
-        "type": "input",
-        "value": 119
-      },
-      "Fleet1Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "disabled"
-      },
       "Fleet1Control": {
         "type": "select",
         "value": "prevent_green_face",
@@ -1636,33 +1525,6 @@
           "prevent_red_face"
         ]
       },
-      "Fleet1Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ]
-      },
-      "Fleet1Oath": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet1Onsen": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet2Value": {
-        "type": "input",
-        "value": 119
-      },
-      "Fleet2Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "disabled"
-      },
       "Fleet2Control": {
         "type": "select",
         "value": "prevent_green_face",
@@ -1672,23 +1534,6 @@
           "prevent_yellow_face",
           "prevent_red_face"
         ]
-      },
-      "Fleet2Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ]
-      },
-      "Fleet2Oath": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet2Onsen": {
-        "type": "checkbox",
-        "value": false
       }
     },
     "HpControl": {
@@ -2041,16 +1886,6 @@
           "calculate_ignore"
         ]
       },
-      "Fleet1Value": {
-        "type": "input",
-        "value": 119
-      },
-      "Fleet1Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "disabled"
-      },
       "Fleet1Control": {
         "type": "select",
         "value": "prevent_green_face",
@@ -2061,33 +1896,6 @@
           "prevent_red_face"
         ]
       },
-      "Fleet1Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ]
-      },
-      "Fleet1Oath": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet1Onsen": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet2Value": {
-        "type": "input",
-        "value": 119
-      },
-      "Fleet2Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "disabled"
-      },
       "Fleet2Control": {
         "type": "select",
         "value": "prevent_green_face",
@@ -2097,23 +1905,6 @@
           "prevent_yellow_face",
           "prevent_red_face"
         ]
-      },
-      "Fleet2Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ]
-      },
-      "Fleet2Oath": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet2Onsen": {
-        "type": "checkbox",
-        "value": false
       }
     },
     "HpControl": {
@@ -2579,16 +2370,6 @@
         ],
         "display": "hide"
       },
-      "Fleet1Value": {
-        "type": "input",
-        "value": 119
-      },
-      "Fleet1Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "disabled"
-      },
       "Fleet1Control": {
         "type": "select",
         "value": "prevent_red_face",
@@ -2598,36 +2379,6 @@
           "prevent_yellow_face",
           "prevent_red_face"
         ],
-        "display": "hide"
-      },
-      "Fleet1Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ],
-        "display": "hide"
-      },
-      "Fleet1Oath": {
-        "type": "checkbox",
-        "value": false,
-        "display": "hide"
-      },
-      "Fleet1Onsen": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet2Value": {
-        "type": "input",
-        "value": 119,
-        "display": "hide"
-      },
-      "Fleet2Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
         "display": "hide"
       },
       "Fleet2Control": {
@@ -2640,25 +2391,6 @@
           "prevent_red_face"
         ],
         "display": "hide"
-      },
-      "Fleet2Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ],
-        "display": "hide"
-      },
-      "Fleet2Oath": {
-        "type": "checkbox",
-        "value": false,
-        "display": "hide"
-      },
-      "Fleet2Onsen": {
-        "type": "checkbox",
-        "value": false
       }
     },
     "Storage": {
@@ -3080,16 +2812,6 @@
         ],
         "display": "hide"
       },
-      "Fleet1Value": {
-        "type": "input",
-        "value": 119
-      },
-      "Fleet1Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "disabled"
-      },
       "Fleet1Control": {
         "type": "select",
         "value": "prevent_red_face",
@@ -3101,35 +2823,6 @@
         ],
         "display": "hide"
       },
-      "Fleet1Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ],
-        "display": "hide"
-      },
-      "Fleet1Oath": {
-        "type": "checkbox",
-        "value": false,
-        "display": "hide"
-      },
-      "Fleet1Onsen": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet2Value": {
-        "type": "input",
-        "value": 119
-      },
-      "Fleet2Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "disabled"
-      },
       "Fleet2Control": {
         "type": "select",
         "value": "prevent_red_face",
@@ -3140,25 +2833,6 @@
           "prevent_red_face"
         ],
         "display": "hide"
-      },
-      "Fleet2Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ],
-        "display": "hide"
-      },
-      "Fleet2Oath": {
-        "type": "checkbox",
-        "value": false,
-        "display": "hide"
-      },
-      "Fleet2Onsen": {
-        "type": "checkbox",
-        "value": false
       }
     },
     "Storage": {
@@ -3576,16 +3250,6 @@
           "calculate_ignore"
         ]
       },
-      "Fleet1Value": {
-        "type": "input",
-        "value": 119
-      },
-      "Fleet1Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "disabled"
-      },
       "Fleet1Control": {
         "type": "select",
         "value": "prevent_green_face",
@@ -3596,33 +3260,6 @@
           "prevent_red_face"
         ]
       },
-      "Fleet1Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ]
-      },
-      "Fleet1Oath": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet1Onsen": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet2Value": {
-        "type": "input",
-        "value": 119
-      },
-      "Fleet2Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "disabled"
-      },
       "Fleet2Control": {
         "type": "select",
         "value": "prevent_green_face",
@@ -3632,23 +3269,6 @@
           "prevent_yellow_face",
           "prevent_red_face"
         ]
-      },
-      "Fleet2Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ]
-      },
-      "Fleet2Oath": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet2Onsen": {
-        "type": "checkbox",
-        "value": false
       }
     },
     "Storage": {
@@ -4005,16 +3625,6 @@
           "calculate_ignore"
         ]
       },
-      "Fleet1Value": {
-        "type": "input",
-        "value": 119
-      },
-      "Fleet1Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "disabled"
-      },
       "Fleet1Control": {
         "type": "select",
         "value": "prevent_green_face",
@@ -4025,33 +3635,6 @@
           "prevent_red_face"
         ]
       },
-      "Fleet1Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ]
-      },
-      "Fleet1Oath": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet1Onsen": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet2Value": {
-        "type": "input",
-        "value": 119
-      },
-      "Fleet2Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "disabled"
-      },
       "Fleet2Control": {
         "type": "select",
         "value": "prevent_green_face",
@@ -4061,23 +3644,6 @@
           "prevent_yellow_face",
           "prevent_red_face"
         ]
-      },
-      "Fleet2Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ]
-      },
-      "Fleet2Oath": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet2Onsen": {
-        "type": "checkbox",
-        "value": false
       }
     },
     "HpControl": {
@@ -4437,16 +4003,6 @@
           "calculate_ignore"
         ]
       },
-      "Fleet1Value": {
-        "type": "input",
-        "value": 119
-      },
-      "Fleet1Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "disabled"
-      },
       "Fleet1Control": {
         "type": "select",
         "value": "prevent_green_face",
@@ -4457,33 +4013,6 @@
           "prevent_red_face"
         ]
       },
-      "Fleet1Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ]
-      },
-      "Fleet1Oath": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet1Onsen": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet2Value": {
-        "type": "input",
-        "value": 119
-      },
-      "Fleet2Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "disabled"
-      },
       "Fleet2Control": {
         "type": "select",
         "value": "prevent_green_face",
@@ -4493,23 +4022,6 @@
           "prevent_yellow_face",
           "prevent_red_face"
         ]
-      },
-      "Fleet2Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ]
-      },
-      "Fleet2Oath": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet2Onsen": {
-        "type": "checkbox",
-        "value": false
       }
     },
     "HpControl": {
@@ -4868,16 +4380,6 @@
           "calculate_ignore"
         ]
       },
-      "Fleet1Value": {
-        "type": "input",
-        "value": 119
-      },
-      "Fleet1Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "disabled"
-      },
       "Fleet1Control": {
         "type": "select",
         "value": "prevent_green_face",
@@ -4888,33 +4390,6 @@
           "prevent_red_face"
         ]
       },
-      "Fleet1Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ]
-      },
-      "Fleet1Oath": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet1Onsen": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet2Value": {
-        "type": "input",
-        "value": 119
-      },
-      "Fleet2Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "disabled"
-      },
       "Fleet2Control": {
         "type": "select",
         "value": "prevent_green_face",
@@ -4924,23 +4399,6 @@
           "prevent_yellow_face",
           "prevent_red_face"
         ]
-      },
-      "Fleet2Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ]
-      },
-      "Fleet2Oath": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet2Onsen": {
-        "type": "checkbox",
-        "value": false
       }
     },
     "HpControl": {
@@ -5184,16 +4642,6 @@
           "calculate_ignore"
         ]
       },
-      "Fleet1Value": {
-        "type": "input",
-        "value": 119
-      },
-      "Fleet1Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "disabled"
-      },
       "Fleet1Control": {
         "type": "select",
         "value": "prevent_yellow_face",
@@ -5203,34 +4651,6 @@
           "prevent_yellow_face",
           "prevent_red_face"
         ],
-        "display": "hide"
-      },
-      "Fleet1Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ]
-      },
-      "Fleet1Oath": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet1Onsen": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet2Value": {
-        "type": "input",
-        "value": 119,
-        "display": "hide"
-      },
-      "Fleet2Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
         "display": "hide"
       },
       "Fleet2Control": {
@@ -5243,25 +4663,6 @@
           "prevent_red_face"
         ],
         "display": "hide"
-      },
-      "Fleet2Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ],
-        "display": "hide"
-      },
-      "Fleet2Oath": {
-        "type": "checkbox",
-        "value": false,
-        "display": "hide"
-      },
-      "Fleet2Onsen": {
-        "type": "checkbox",
-        "value": false
       }
     },
     "Storage": {
@@ -5603,16 +5004,6 @@
           "calculate_ignore"
         ]
       },
-      "Fleet1Value": {
-        "type": "input",
-        "value": 119
-      },
-      "Fleet1Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "disabled"
-      },
       "Fleet1Control": {
         "type": "select",
         "value": "prevent_green_face",
@@ -5623,33 +5014,6 @@
           "prevent_red_face"
         ]
       },
-      "Fleet1Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ]
-      },
-      "Fleet1Oath": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet1Onsen": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet2Value": {
-        "type": "input",
-        "value": 119
-      },
-      "Fleet2Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "disabled"
-      },
       "Fleet2Control": {
         "type": "select",
         "value": "prevent_green_face",
@@ -5659,23 +5023,6 @@
           "prevent_yellow_face",
           "prevent_red_face"
         ]
-      },
-      "Fleet2Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ]
-      },
-      "Fleet2Oath": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet2Onsen": {
-        "type": "checkbox",
-        "value": false
       }
     },
     "Storage": {
@@ -5798,16 +5145,6 @@
           "calculate_ignore"
         ]
       },
-      "Fleet1Value": {
-        "type": "input",
-        "value": 119
-      },
-      "Fleet1Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "disabled"
-      },
       "Fleet1Control": {
         "type": "select",
         "value": "prevent_yellow_face",
@@ -5819,37 +5156,6 @@
         ],
         "display": "hide"
       },
-      "Fleet1Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ],
-        "display": "hide"
-      },
-      "Fleet1Oath": {
-        "type": "checkbox",
-        "value": false,
-        "display": "hide"
-      },
-      "Fleet1Onsen": {
-        "type": "checkbox",
-        "value": false,
-        "display": "hide"
-      },
-      "Fleet2Value": {
-        "type": "input",
-        "value": 119,
-        "display": "hide"
-      },
-      "Fleet2Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "hide"
-      },
       "Fleet2Control": {
         "type": "select",
         "value": "prevent_yellow_face",
@@ -5859,26 +5165,6 @@
           "prevent_yellow_face",
           "prevent_red_face"
         ],
-        "display": "hide"
-      },
-      "Fleet2Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ],
-        "display": "hide"
-      },
-      "Fleet2Oath": {
-        "type": "checkbox",
-        "value": false,
-        "display": "hide"
-      },
-      "Fleet2Onsen": {
-        "type": "checkbox",
-        "value": false,
         "display": "hide"
       }
     },
@@ -6082,16 +5368,6 @@
           "calculate_ignore"
         ]
       },
-      "Fleet1Value": {
-        "type": "input",
-        "value": 119
-      },
-      "Fleet1Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "disabled"
-      },
       "Fleet1Control": {
         "type": "select",
         "value": "prevent_green_face",
@@ -6101,34 +5377,6 @@
           "prevent_yellow_face",
           "prevent_red_face"
         ]
-      },
-      "Fleet1Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ]
-      },
-      "Fleet1Oath": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet1Onsen": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet2Value": {
-        "type": "input",
-        "value": 119,
-        "display": "hide"
-      },
-      "Fleet2Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "hide"
       },
       "Fleet2Control": {
         "type": "select",
@@ -6140,25 +5388,6 @@
           "prevent_red_face"
         ],
         "display": "hide"
-      },
-      "Fleet2Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ],
-        "display": "hide"
-      },
-      "Fleet2Oath": {
-        "type": "checkbox",
-        "value": false,
-        "display": "hide"
-      },
-      "Fleet2Onsen": {
-        "type": "checkbox",
-        "value": false
       }
     },
     "Storage": {
@@ -6373,16 +5602,6 @@
           "calculate_ignore"
         ]
       },
-      "Fleet1Value": {
-        "type": "input",
-        "value": 119
-      },
-      "Fleet1Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "disabled"
-      },
       "Fleet1Control": {
         "type": "select",
         "value": "prevent_green_face",
@@ -6393,33 +5612,6 @@
           "prevent_red_face"
         ]
       },
-      "Fleet1Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ]
-      },
-      "Fleet1Oath": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet1Onsen": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet2Value": {
-        "type": "input",
-        "value": 119
-      },
-      "Fleet2Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "disabled"
-      },
       "Fleet2Control": {
         "type": "select",
         "value": "prevent_green_face",
@@ -6429,23 +5621,6 @@
           "prevent_yellow_face",
           "prevent_red_face"
         ]
-      },
-      "Fleet2Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ]
-      },
-      "Fleet2Oath": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet2Onsen": {
-        "type": "checkbox",
-        "value": false
       }
     },
     "Storage": {
@@ -7078,16 +6253,6 @@
           "calculate_ignore"
         ]
       },
-      "Fleet1Value": {
-        "type": "input",
-        "value": 119
-      },
-      "Fleet1Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "disabled"
-      },
       "Fleet1Control": {
         "type": "select",
         "value": "prevent_green_face",
@@ -7098,33 +6263,6 @@
           "prevent_red_face"
         ]
       },
-      "Fleet1Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ]
-      },
-      "Fleet1Oath": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet1Onsen": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet2Value": {
-        "type": "input",
-        "value": 119
-      },
-      "Fleet2Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "disabled"
-      },
       "Fleet2Control": {
         "type": "select",
         "value": "prevent_green_face",
@@ -7134,23 +6272,6 @@
           "prevent_yellow_face",
           "prevent_red_face"
         ]
-      },
-      "Fleet2Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ]
-      },
-      "Fleet2Oath": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet2Onsen": {
-        "type": "checkbox",
-        "value": false
       }
     },
     "HpControl": {
@@ -7527,16 +6648,6 @@
           "calculate_ignore"
         ]
       },
-      "Fleet1Value": {
-        "type": "input",
-        "value": 119
-      },
-      "Fleet1Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "disabled"
-      },
       "Fleet1Control": {
         "type": "select",
         "value": "prevent_green_face",
@@ -7547,33 +6658,6 @@
           "prevent_red_face"
         ]
       },
-      "Fleet1Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ]
-      },
-      "Fleet1Oath": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet1Onsen": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet2Value": {
-        "type": "input",
-        "value": 119
-      },
-      "Fleet2Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "disabled"
-      },
       "Fleet2Control": {
         "type": "select",
         "value": "prevent_green_face",
@@ -7583,23 +6667,6 @@
           "prevent_yellow_face",
           "prevent_red_face"
         ]
-      },
-      "Fleet2Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ]
-      },
-      "Fleet2Oath": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet2Onsen": {
-        "type": "checkbox",
-        "value": false
       }
     },
     "HpControl": {
@@ -7976,16 +7043,6 @@
           "calculate_ignore"
         ]
       },
-      "Fleet1Value": {
-        "type": "input",
-        "value": 119
-      },
-      "Fleet1Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "disabled"
-      },
       "Fleet1Control": {
         "type": "select",
         "value": "prevent_green_face",
@@ -7996,33 +7053,6 @@
           "prevent_red_face"
         ]
       },
-      "Fleet1Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ]
-      },
-      "Fleet1Oath": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet1Onsen": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet2Value": {
-        "type": "input",
-        "value": 119
-      },
-      "Fleet2Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "disabled"
-      },
       "Fleet2Control": {
         "type": "select",
         "value": "prevent_green_face",
@@ -8032,23 +7062,6 @@
           "prevent_yellow_face",
           "prevent_red_face"
         ]
-      },
-      "Fleet2Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ]
-      },
-      "Fleet2Oath": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet2Onsen": {
-        "type": "checkbox",
-        "value": false
       }
     },
     "HpControl": {
@@ -8425,16 +7438,6 @@
           "calculate_ignore"
         ]
       },
-      "Fleet1Value": {
-        "type": "input",
-        "value": 119
-      },
-      "Fleet1Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "disabled"
-      },
       "Fleet1Control": {
         "type": "select",
         "value": "prevent_green_face",
@@ -8445,33 +7448,6 @@
           "prevent_red_face"
         ]
       },
-      "Fleet1Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ]
-      },
-      "Fleet1Oath": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet1Onsen": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet2Value": {
-        "type": "input",
-        "value": 119
-      },
-      "Fleet2Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "disabled"
-      },
       "Fleet2Control": {
         "type": "select",
         "value": "prevent_green_face",
@@ -8481,23 +7457,6 @@
           "prevent_yellow_face",
           "prevent_red_face"
         ]
-      },
-      "Fleet2Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ]
-      },
-      "Fleet2Oath": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet2Onsen": {
-        "type": "checkbox",
-        "value": false
       }
     },
     "HpControl": {
@@ -8874,16 +7833,6 @@
           "calculate_ignore"
         ]
       },
-      "Fleet1Value": {
-        "type": "input",
-        "value": 119
-      },
-      "Fleet1Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "disabled"
-      },
       "Fleet1Control": {
         "type": "select",
         "value": "prevent_green_face",
@@ -8894,33 +7843,6 @@
           "prevent_red_face"
         ]
       },
-      "Fleet1Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ]
-      },
-      "Fleet1Oath": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet1Onsen": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet2Value": {
-        "type": "input",
-        "value": 119
-      },
-      "Fleet2Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "disabled"
-      },
       "Fleet2Control": {
         "type": "select",
         "value": "prevent_green_face",
@@ -8930,23 +7852,6 @@
           "prevent_yellow_face",
           "prevent_red_face"
         ]
-      },
-      "Fleet2Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ]
-      },
-      "Fleet2Oath": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet2Onsen": {
-        "type": "checkbox",
-        "value": false
       }
     },
     "HpControl": {
@@ -9314,16 +8219,6 @@
           "calculate_ignore"
         ]
       },
-      "Fleet1Value": {
-        "type": "input",
-        "value": 119
-      },
-      "Fleet1Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "disabled"
-      },
       "Fleet1Control": {
         "type": "select",
         "value": "prevent_green_face",
@@ -9334,33 +8229,6 @@
           "prevent_red_face"
         ]
       },
-      "Fleet1Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ]
-      },
-      "Fleet1Oath": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet1Onsen": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet2Value": {
-        "type": "input",
-        "value": 119
-      },
-      "Fleet2Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "disabled"
-      },
       "Fleet2Control": {
         "type": "select",
         "value": "prevent_green_face",
@@ -9370,23 +8238,6 @@
           "prevent_yellow_face",
           "prevent_red_face"
         ]
-      },
-      "Fleet2Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ]
-      },
-      "Fleet2Oath": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet2Onsen": {
-        "type": "checkbox",
-        "value": false
       }
     },
     "HpControl": {
@@ -9621,16 +8472,6 @@
           "calculate_ignore"
         ]
       },
-      "Fleet1Value": {
-        "type": "input",
-        "value": 119
-      },
-      "Fleet1Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "disabled"
-      },
       "Fleet1Control": {
         "type": "select",
         "value": "prevent_green_face",
@@ -9641,34 +8482,6 @@
           "prevent_red_face"
         ]
       },
-      "Fleet1Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ]
-      },
-      "Fleet1Oath": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet1Onsen": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet2Value": {
-        "type": "input",
-        "value": 119,
-        "display": "hide"
-      },
-      "Fleet2Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "hide"
-      },
       "Fleet2Control": {
         "type": "select",
         "value": "prevent_yellow_face",
@@ -9678,26 +8491,6 @@
           "prevent_yellow_face",
           "prevent_red_face"
         ],
-        "display": "hide"
-      },
-      "Fleet2Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ],
-        "display": "hide"
-      },
-      "Fleet2Oath": {
-        "type": "checkbox",
-        "value": false,
-        "display": "hide"
-      },
-      "Fleet2Onsen": {
-        "type": "checkbox",
-        "value": false,
         "display": "hide"
       }
     },
@@ -9903,16 +8696,6 @@
           "calculate_ignore"
         ]
       },
-      "Fleet1Value": {
-        "type": "input",
-        "value": 119
-      },
-      "Fleet1Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "disabled"
-      },
       "Fleet1Control": {
         "type": "select",
         "value": "prevent_green_face",
@@ -9922,34 +8705,6 @@
           "prevent_yellow_face",
           "prevent_red_face"
         ]
-      },
-      "Fleet1Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ]
-      },
-      "Fleet1Oath": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet1Onsen": {
-        "type": "checkbox",
-        "value": false
-      },
-      "Fleet2Value": {
-        "type": "input",
-        "value": 119,
-        "display": "hide"
-      },
-      "Fleet2Record": {
-        "type": "datetime",
-        "value": "2020-01-01 00:00:00",
-        "validate": "datetime",
-        "display": "hide"
       },
       "Fleet2Control": {
         "type": "select",
@@ -9961,25 +8716,6 @@
           "prevent_red_face"
         ],
         "display": "hide"
-      },
-      "Fleet2Recover": {
-        "type": "select",
-        "value": "not_in_dormitory",
-        "option": [
-          "not_in_dormitory",
-          "dormitory_floor_1",
-          "dormitory_floor_2"
-        ],
-        "display": "hide"
-      },
-      "Fleet2Oath": {
-        "type": "checkbox",
-        "value": false,
-        "display": "hide"
-      },
-      "Fleet2Onsen": {
-        "type": "checkbox",
-        "value": false
       }
     },
     "Storage": {

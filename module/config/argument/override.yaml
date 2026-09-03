@@ -47,13 +47,7 @@ GemsFarming:
   Emotion:
     Mode: calculate_ignore
     Fleet1Control: prevent_red_face
-    Fleet1Recover: not_in_dormitory
-    Fleet1Oath: false
-    Fleet2Value: 119
-    Fleet2Record: 2020-01-01 00:00:00
     Fleet2Control: prevent_red_face
-    Fleet2Recover: not_in_dormitory
-    Fleet2Oath: false
   Submarine:
     Mode:
       display: display
@@ -94,11 +88,7 @@ ThreeOilLowCost:
   Emotion:
     Mode: calculate_ignore
     Fleet1Control: prevent_red_face
-    Fleet1Recover: not_in_dormitory
-    Fleet1Oath: false
     Fleet2Control: prevent_red_face
-    Fleet2Recover: not_in_dormitory
-    Fleet2Oath: false
   Submarine:
     Mode:
       display: display
@@ -258,11 +248,7 @@ Raid:
     DistanceToBoss: 2_grid_to_boss
   Emotion:
     Fleet1Control: prevent_yellow_face
-    Fleet2Value: 119
-    Fleet2Record: 2020-01-01 00:00:00
     Fleet2Control: prevent_yellow_face
-    Fleet2Recover: not_in_dormitory
-    Fleet2Oath: false
 
 RaidScuttle:
   Campaign:
@@ -278,15 +264,7 @@ Hospital:
     ReachLevel: 0
   Emotion:
     Fleet1Control: prevent_yellow_face
-    Fleet1Recover: not_in_dormitory
-    Fleet1Oath: false
-    Fleet1Onsen: false
-    Fleet2Value: 119
-    Fleet2Record: 2020-01-01 00:00:00
     Fleet2Control: prevent_yellow_face
-    Fleet2Recover: not_in_dormitory
-    Fleet2Oath: false
-    Fleet2Onsen: false
 HospitalEvent:
   StopCondition:
     MapAchievement: non_stop
@@ -294,12 +272,7 @@ HospitalEvent:
     GetNewShip: false
     ReachLevel: 0
   Emotion:
-    Fleet2Value: 119
-    Fleet2Record: 2020-01-01 00:00:00
     Fleet2Control: prevent_yellow_face
-    Fleet2Recover: not_in_dormitory
-    Fleet2Oath: false
-    Fleet2Onsen: false
 RaidDaily:
   Scheduler:
     SuccessInterval: 30
@@ -320,12 +293,7 @@ RaidDaily:
     GetNewShip: false
     ReachLevel: 0
   Emotion:
-    Fleet2Value: 119
-    Fleet2Record: 2020-01-01 00:00:00
     Fleet2Control: prevent_yellow_face
-    Fleet2Recover: not_in_dormitory
-    Fleet2Oath: false
-    Fleet2Onsen: False
 MaritimeEscort:
   Scheduler:
     SuccessInterval: 30
@@ -355,11 +323,7 @@ Coalition:
     GetNewShip: false
     ReachLevel: 0
   Emotion:
-    Fleet2Value: 119
-    Fleet2Record: 2020-01-01 00:00:00
     Fleet2Control: prevent_yellow_face
-    Fleet2Recover: not_in_dormitory
-    Fleet2Oath: false
 
 CoalitionScuttle:
   Scheduler:
@@ -407,12 +371,7 @@ CoalitionSp:
     GetNewShip: false
     ReachLevel: 0
   Emotion:
-    Fleet2Value: 119
-    Fleet2Record: 2020-01-01 00:00:00
     Fleet2Control: prevent_yellow_face
-    Fleet2Recover: not_in_dormitory
-    Fleet2Oath: false
-    Fleet2Onsen: False
 CoalitionSp:
   Scheduler:
     SuccessInterval: 30
@@ -435,11 +394,7 @@ CoalitionSp:
     GetNewShip: false
     ReachLevel: 0
   Emotion:
-    Fleet2Value: 119
-    Fleet2Record: 2020-01-01 00:00:00
     Fleet2Control: prevent_yellow_face
-    Fleet2Recover: not_in_dormitory
-    Fleet2Oath: false
 EventShop:
   Scheduler:
     SuccessInterval: 30

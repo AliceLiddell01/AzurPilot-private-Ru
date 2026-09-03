@@ -1,9 +1,13 @@
 from datetime import UTC, datetime, timedelta
 
 import numpy as np
+import pytest
 
-from module.dorm.assets import OCR_DORM_SLOT
-from module.dorm.morale_controller import DormMoraleController, DormTrainStateDetector
+from module.dorm.morale_controller import (
+    DormMoraleController,
+    DormTrainStateDetector,
+    DormTrainStatePolicy,
+)
 from module.dorm.morale_model import (
     DormFloor,
     DormFloorSnapshot,
@@ -87,6 +91,29 @@ def test_state_detector_distinguishes_selected_floor_and_unknown():
     assert detector.selected_floor(np.zeros((720, 1280, 3), dtype=np.uint8)) is None
 
 
+def test_state_detector_does_not_treat_dorm_home_floor_header_as_train_popup():
+    frame = _frame(DormFloor.FLOOR_1)
+    x1, y1, x2, y2 = DormTrainStateDetector().layout.train_modal_probe
+    frame[y1:y2, x1:x2] = 255
+
+    assert DormTrainStateDetector().selected_floor(frame) is None
+
+
+def test_state_detector_uses_train_button_to_confirm_dorm_home():
+    frame = np.full((720, 1280, 3), 255, dtype=np.uint8)
+
+    assert DormTrainStateDetector().dorm_home_visible(frame)
+
+
+def test_state_detector_uses_configured_light_pixel_threshold():
+    frame = np.full((720, 1280, 3), 255, dtype=np.uint8)
+    detector = DormTrainStateDetector(
+        policy=DormTrainStatePolicy(light_pixel_luma_min=256)
+    )
+
+    assert detector.dorm_home_visible(frame) is False
+
+
 def test_state_detector_uses_rgb_channel_contract():
     frame = np.zeros((720, 1280, 3), dtype=np.uint8)
     x1, y1, x2, y2 = (145, 90, 330, 120)
@@ -105,8 +132,41 @@ def test_controller_reuses_train_slot_anchor_once_and_waits_for_confirmed_floor(
     frame = controller._open_train()
 
     assert controller.dorm_train_state.selected_floor(frame) is DormFloor.FLOOR_1
-    assert controller.device.clicks == ["OCR_DORM_SLOT"]
-    assert controller.device.clicked_buttons == [OCR_DORM_SLOT]
+    assert controller.device.clicks == ["DORM_MORALE_TRAIN"]
+    assert controller.device.clicked_buttons[0].button == (20, 640, 230, 719)
+
+
+def test_controller_opens_train_from_home_without_dorm_check_move_button():
+    home = np.full((720, 1280, 3), 255, dtype=np.uint8)
+    controller = _controller(
+        (home, np.zeros((720, 1280, 3), dtype=np.uint8), _frame(DormFloor.FLOOR_1))
+    )
+
+    frame = controller._open_train()
+
+    assert controller.dorm_train_state.selected_floor(frame) is DormFloor.FLOOR_1
+    assert controller.device.clicks == ["DORM_MORALE_TRAIN"]
+    assert not hasattr(controller, "ensured")
+
+
+def test_controller_retries_train_only_while_fresh_home_is_still_proven():
+    home = np.full((720, 1280, 3), 255, dtype=np.uint8)
+    controller = _controller(
+        (
+            home,
+            home.copy(),
+            home.copy(),
+            home.copy(),
+            home.copy(),
+            home.copy(),
+            _frame(DormFloor.FLOOR_1),
+        )
+    )
+
+    frame = controller._open_train()
+
+    assert controller.dorm_train_state.selected_floor(frame) is DormFloor.FLOOR_1
+    assert controller.device.clicks == ["DORM_MORALE_TRAIN", "DORM_MORALE_TRAIN"]
 
 
 def test_controller_switches_one_action_per_screenshot_and_scans_both_floors():
@@ -142,6 +202,61 @@ def test_controller_waits_through_transitional_frame_after_floor_switch():
     assert result.status is DormMoraleScanStatus.SUCCEEDED
     assert controller._scanner.calls == [DormFloor.FLOOR_1, DormFloor.FLOOR_2]
     assert controller.device.clicks == ["DORM_MORALE_2F"]
+
+
+def test_controller_retries_floor_switch_only_from_confirmed_opposite_floor():
+    floor_1 = _frame(DormFloor.FLOOR_1)
+    controller = _controller(
+        (
+            floor_1,
+            floor_1.copy(),
+            floor_1.copy(),
+            floor_1.copy(),
+            floor_1.copy(),
+            _frame(DormFloor.FLOOR_2),
+        )
+    )
+
+    frame = controller._select_floor(floor_1, DormFloor.FLOOR_2)
+
+    assert controller.dorm_train_state.selected_floor(frame) is DormFloor.FLOOR_2
+    assert controller.device.clicks == ["DORM_MORALE_2F", "DORM_MORALE_2F"]
+
+
+def test_controller_closes_train_only_from_confirmed_modal_state():
+    home = np.full((720, 1280, 3), 255, dtype=np.uint8)
+    controller = _controller((
+        _frame(DormFloor.FLOOR_2),
+        home,
+    ))
+
+    frame = controller.close_train()
+
+    assert controller.dorm_train_state.dorm_home_visible(frame)
+    assert controller.device.clicks == ["DORM_MORALE_CLOSE"]
+    assert controller.device.clicked_buttons[0].button == (1110, 65, 1160, 120)
+
+
+def test_controller_does_not_close_unknown_screen_blindly():
+    unknown = np.full((720, 1280, 3), 120, dtype=np.uint8)
+    controller = _controller((unknown,))
+
+    from module.dorm.morale_controller import DormMoraleControllerError
+
+    with pytest.raises(DormMoraleControllerError, match="не доказан"):
+        controller.close_train()
+
+    assert controller.device.clicks == []
+
+
+def test_controller_closes_modal_when_selected_floor_is_unreadable():
+    modal_unknown = np.zeros((720, 1280, 3), dtype=np.uint8)
+    home = np.full((720, 1280, 3), 255, dtype=np.uint8)
+    controller = _controller((modal_unknown, home))
+
+    controller.close_train()
+
+    assert controller.device.clicks == ["DORM_MORALE_CLOSE"]
 
 
 def test_controller_second_floor_failure_is_partial_not_outside_evidence():

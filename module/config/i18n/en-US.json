@@ -818,51 +818,6 @@
       "old_retire": "traditional retirement"
     }
   },
-  "PublicEmotion": {
-    "_info": {
-      "name": "Shared Morale",
-      "help": "Can use the same team to complete multiple tasks\nWhen using this function, please ensure that the fleet function of the corresponding task is to clear all single teams, and the team is a shared team."
-    },
-    "Enable": {
-      "name": "Enable Shared Morale",
-      "help": "After enabling, the shared morale will be used, and the following morale configuration will replace the original configuration."
-    },
-    "Tasks": {
-      "name": "Shared Morale Tasks",
-      "help": "Select tasks that use shared morale, separated by half-width commas, such as \"Main, Event, EventA\"\nMain Line Diagram-1: Main, Main Line Diagram-2: Main2, Main Line Diagram-3: Main3\nActivity Diagram-1: Event, Activity Diagram-2: Event2, War Archives: WarArchives\nDaily A chart: EventA, Daily B chart: EventB, Daily C chart: EventC, Daily D chart: EventD, Daily SP chart: EventSp"
-    },
-    "FleetValue": {
-      "name": "Morale Value",
-      "help": ""
-    },
-    "FleetRecord": {
-      "name": "Morale Record Time",
-      "help": ""
-    },
-    "FleetControl": {
-      "name": "Morale Control",
-      "help": "",
-      "keep_exp_bonus": "Maintain experience bonus (>120)",
-      "prevent_green_face": "Prevent green face (>40)",
-      "prevent_yellow_face": "Prevent yellow face (>30)",
-      "prevent_red_face": "Prevent red face (>0)"
-    },
-    "FleetRecover": {
-      "name": "Morale Recovery",
-      "help": "",
-      "not_in_dormitory": "Not in Dorm (20/h)",
-      "dormitory_floor_1": "Dorm 1st Floor (40/h)",
-      "dormitory_floor_2": "Dorm 2nd Floor (50/h)"
-    },
-    "FleetOath": {
-      "name": "All members are married (+10/h)",
-      "help": ""
-    },
-    "FleetOnsen": {
-      "name": "All members have placed hot springs (+10/h)",
-      "help": ""
-    }
-  },
   "YukikazeTaskManager": {
     "_info": {
       "name": "Yukikaze-sama's task management",
@@ -1332,14 +1287,6 @@
       "ignore": "Ignore Low Morale Warning",
       "calculate_ignore": "Calculate Morale + Ignore Low Morale Warning"
     },
-    "Fleet1Value": {
-      "name": "Fleet 1 Morale Value",
-      "help": ""
-    },
-    "Fleet1Record": {
-      "name": "Fleet 1 Morale Record Time",
-      "help": ""
-    },
     "Fleet1Control": {
       "name": "Fleet 1 Morale Control",
       "help": "",
@@ -1348,29 +1295,6 @@
       "prevent_yellow_face": "Prevent Yellow Face (>30)",
       "prevent_red_face": "Prevent Red Face (>0)"
     },
-    "Fleet1Recover": {
-      "name": "Fleet 1 Morale Recovery",
-      "help": "",
-      "not_in_dormitory": "Not in Dorm (20/h)",
-      "dormitory_floor_1": "Dorm 1st Floor (40/h)",
-      "dormitory_floor_2": "Dorm 2nd Floor (50/h)"
-    },
-    "Fleet1Oath": {
-      "name": "All Fleet 1 Members Oathed (+10/h)",
-      "help": ""
-    },
-    "Fleet1Onsen": {
-      "name": "All Fleet 1 Members Have Hot Spring (+10/h)",
-      "help": ""
-    },
-    "Fleet2Value": {
-      "name": "Fleet 2 Morale Value",
-      "help": ""
-    },
-    "Fleet2Record": {
-      "name": "Fleet 2 Morale Record Time",
-      "help": ""
-    },
     "Fleet2Control": {
       "name": "Fleet 2 Morale Control",
       "help": "",
@@ -1378,21 +1302,6 @@
       "prevent_green_face": "Prevent Green Face (>40)",
       "prevent_yellow_face": "Prevent Yellow Face (>30)",
       "prevent_red_face": "Prevent Red Face (>0)"
-    },
-    "Fleet2Recover": {
-      "name": "Fleet 2 Morale Recovery",
-      "help": "",
-      "not_in_dormitory": "Not in Dorm (20/h)",
-      "dormitory_floor_1": "Dorm 1st Floor (40/h)",
-      "dormitory_floor_2": "Dorm 2nd Floor (50/h)"
-    },
-    "Fleet2Oath": {
-      "name": "All Fleet 2 Members Oathed (+10/h)",
-      "help": ""
-    },
-    "Fleet2Onsen": {
-      "name": "All Fleet 2 Members Have Hot Spring (+10/h)",
-      "help": ""
     }
   },
   "HpControl": {
@@ -5826,7 +5735,35 @@
       "NoData": "No data",
       "StatusComplete": "Complete",
       "StatusIncomplete": "Incomplete",
-      "StatusNoData": "No data"
+      "StatusNoData": "No data",
+      "MoraleTitle": "Ship morale",
+      "MoraleHelp": "Current per-ship projection for fleets used by the selected task only.",
+      "MoraleNoData": "No confirmed morale data for the working fleets.",
+      "MoraleUnknown": "UNKNOWN",
+      "MoraleLastKnown": "Last known",
+      "MoraleExact": "Exact",
+      "MoraleProjected": "Projected",
+      "MoraleMain": "Main",
+      "MoraleVanguard": "Vanguard",
+      "MoraleBase": "Base",
+      "MoraleRetrofit": "Retrofit",
+      "MoraleHour": "h",
+      "MoraleLocationUnknown": "Location unknown",
+      "MoraleLocationDorm1": "Dorm, floor 1",
+      "MoraleLocationDorm2": "Dorm, floor 2",
+      "MoraleLocationOutside": "Outside Dorm",
+      "MoraleRoleMob": "Mob fleet",
+      "MoraleRoleBoss": "Boss fleet",
+      "MoraleRoleAll": "Working fleet",
+      "MoraleColumnTask": "Task",
+      "MoraleColumnRole": "Role",
+      "MoraleColumnFleetSlot": "Fleet / slot",
+      "MoraleColumnShip": "Ship",
+      "MoraleColumnCurrent": "Current morale",
+      "MoraleColumnRecovery": "Recovery",
+      "MoraleColumnLocation": "Location / source",
+      "MoraleColumnKnowledge": "Knowledge",
+      "MoraleColumnLastSync": "Last sync"
     },
     "MenuDevelop": {
       "HomePage": "Home",

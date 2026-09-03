@@ -8,7 +8,9 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from alas import AzurLaneAutoScript
+from module.application.morale_bootstrap import CampaignMoraleBootstrapError
 from module.config.time_source import now as current_time
+from module.exception import RequestHumanTakeover
 from module.persistence import runtime as persistence_runtime
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -45,6 +47,15 @@ class _Config(SimpleNamespace):
     def task_delay(self, **kwargs):
         self.delay_calls.append(kwargs)
 
+    def cross_get(self, keys, default=None):
+        path = keys.split('.') if isinstance(keys, str) else tuple(keys)
+        value = getattr(self, 'task_groups', {})
+        for key in path:
+            if not isinstance(value, dict) or key not in value:
+                return default
+            value = value[key]
+        return value
+
 
 class _Device:
     def __init__(self, events=None) -> None:
@@ -74,6 +85,7 @@ def _script(*, coordinator=None):
     script.config = _Config(
         FleetAutoScan_Fleets=[1, 2],
         delay_calls=[],
+        task_groups={"Main": {"Campaign": {}, "Emotion": {}}},
     )
     script.is_first_task = False
     script.device = _Device()
@@ -115,7 +127,7 @@ def test_scheduler_failure_policy_uses_failure_interval(execution, failed) -> No
     assert script.config.delay_calls == [{"success": False}]
 
 
-def test_prepare_boundary_only_processes_manual_command() -> None:
+def test_prepare_boundary_only_processes_manual_command_for_non_campaign() -> None:
     events = []
     script = _script()
     script.device = _Device(events)
@@ -124,6 +136,105 @@ def test_prepare_boundary_only_processes_manual_command() -> None:
     assert script._prepare_task_boundary("Commission")
     assert events == [("manual", "profile-a")]
     assert script.device.config is script.config
+
+
+def test_prepare_boundary_scans_campaign_morale_after_manual_command() -> None:
+    events = []
+    script = _script()
+    script.config.Emotion_Mode = "calculate"
+    script.fleet_manual_scan = _ManualCoordinator(events)
+    script._scan_campaign_morale = (
+        lambda task, *, source: events.append(("morale", task, source))
+    )
+
+    assert script._prepare_task_boundary("Main")
+    assert events == [
+        ("manual", "profile-a"),
+        ("morale", "Main", "campaign:first_run"),
+    ]
+
+
+def test_prepare_boundary_bootstrap_failure_stops_only_current_task() -> None:
+    events = []
+    script = _script()
+    script.config.Emotion_Mode = "calculate"
+    script.fleet_manual_scan = _ManualCoordinator(events)
+
+    def fail_bootstrap(task, *, source):
+        events.append(("morale", task, source))
+        raise CampaignMoraleBootstrapError(
+            "target_lookup_failed",
+            "synthetic target evidence failure",
+        )
+
+    script._scan_campaign_morale = fail_bootstrap
+
+    assert script._prepare_task_boundary("Main") is False
+    assert events == [
+        ("manual", "profile-a"),
+        ("morale", "Main", "campaign:first_run"),
+    ]
+
+
+def test_campaign_morale_periodic_callback_executes_without_second_gate() -> None:
+    script = _script()
+    script._morale_scan_state = {
+        "Main": {"last_scan": 100.0, "completed_runs": 0}
+    }
+    calls = []
+    script._scan_campaign_morale = (
+        lambda task, *, source: calls.append((task, source))
+    )
+
+    script._campaign_morale_after_clear("Main", 3)
+
+    assert calls == [("Main", "campaign:periodic_3")]
+    assert script._morale_scan_state["Main"]["completed_runs"] == 3
+
+
+def test_campaign_morale_periodic_callback_scans_when_state_is_missing() -> None:
+    script = _script()
+    script._morale_scan_state = {}
+    calls = []
+    script._scan_campaign_morale = (
+        lambda task, *, source: calls.append((task, source))
+    )
+
+    script._campaign_morale_after_clear("Main", 10)
+
+    assert calls == [("Main", "campaign:periodic_10")]
+
+
+def test_campaign_morale_scan_wraps_takeover_as_task_level_failure() -> None:
+    script = _script()
+
+    def fail_scan(_task, *, source):
+        raise RequestHumanTakeover(f"synthetic failure: {source}")
+
+    script._scan_campaign_morale = fail_scan
+
+    with pytest.raises(CampaignMoraleBootstrapError) as exc:
+        script._campaign_morale_scan_safely("Main", source="campaign:first_run")
+
+    assert exc.value.code == "scan_evidence_incomplete"
+    assert script.config.delay_calls == [{"success": False}]
+
+
+def test_periodic_morale_scan_updates_completed_runs_only_after_success() -> None:
+    script = _script()
+    script._morale_scan_state = {
+        "Main": {"last_scan": 100.0, "completed_runs": 0}
+    }
+
+    def fail_scan(_task, *, source):
+        raise CampaignMoraleBootstrapError("synthetic_failure", source)
+
+    script._scan_campaign_morale = fail_scan
+
+    with pytest.raises(CampaignMoraleBootstrapError):
+        script._campaign_morale_after_clear("Main", 3)
+
+    assert script._morale_scan_state["Main"]["completed_runs"] == 0
 
 
 def test_long_wait_manual_wakeup_does_not_run_future_normal_task_early() -> None:
@@ -205,7 +316,7 @@ def test_runtime_factory_is_lazy_and_does_not_create_second_engine(monkeypatch) 
     assert controller_calls == [True]
 
 
-def test_scheduler_source_has_no_hidden_autoscan_boundary() -> None:
+def test_scheduler_source_runs_campaign_morale_scan_after_manual_boundary() -> None:
     source = (ROOT / "alas.py").read_text(encoding="utf-8")
     prepare = source[
         source.index("    def _prepare_task_boundary(self, task):") : source.index(
@@ -213,8 +324,7 @@ def test_scheduler_source_has_no_hidden_autoscan_boundary() -> None:
         )
     ]
 
-    assert "_run_fleet_autoscan_if_due" not in source
     assert "fleet_auto_scan" in source
-    assert prepare.index("task == 'Restart'") < prepare.index(
-        "self._run_fleet_manual_scan_if_pending()"
+    assert prepare.index("self._run_fleet_manual_scan_if_pending()") < prepare.index(
+        "self._campaign_morale_scan_safely("
     )

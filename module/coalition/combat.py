@@ -9,6 +9,7 @@ from module.base.timer import Timer
 from module.campaign.campaign_base import CampaignBase
 from module.coalition.assets import *
 from module.coalition.ui import CoalitionUI
+from module.combat.emotion import begin_morale_combat_event
 from module.exception import CampaignEnd
 from module.logger import logger
 from module.os_ash.assets import BATTLE_STATUS
@@ -79,6 +80,13 @@ class CoalitionCombat(CoalitionUI, CampaignBase):
         try:
             while 1:
                 logger.hr(f'{self.FUNCTION_NAME_BASE}{self.battle_count}', level=2)
+                self._morale_fleet_index = 1
+                begin_morale_combat_event(
+                    self.emotion,
+                    "coalition",
+                    getattr(self.config, "campaign_name", "unknown"),
+                    self.battle_count,
+                )
                 self.auto_search_combat_execute(
                     emotion_reduce=self.battle_count == 0 or self.config.Coalition_Fleet == 'single',
                     fleet_index=1,

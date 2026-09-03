@@ -13,7 +13,6 @@ from module.webui.app_dependencies import (
     stop_ocr_server_process,
     task_handler,
 )
-
 from module.webui.app_helpers import (
     is_demo_mode,
 )
@@ -24,6 +23,16 @@ def build_fleet_page_runtime_context(*, clock=None, require_ready: bool = True):
     from module.persistence.runtime import build_runtime_fleet_page_context
 
     return build_runtime_fleet_page_context(
+        clock=clock,
+        require_ready=require_ready,
+    )
+
+
+def build_morale_runtime_context(*, clock=None, require_ready: bool = True):
+    """Собрать общий Morale/Dorm-контур в разрешённой корневой точке WebUI."""
+    from module.persistence.runtime import build_runtime_morale_context
+
+    return build_runtime_morale_context(
         clock=clock,
         require_ready=require_ready,
     )

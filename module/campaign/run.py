@@ -16,8 +16,11 @@ import copy
 import importlib
 import os
 import random
+import time
 
 from campaign import _adapt_generated_campaign_ui
+from module.application.morale_bootstrap import CampaignMoraleBootstrapError
+from module.application.morale_rescan import MoraleRescanPolicy
 from module.campaign.campaign_base import CampaignBase
 from module.campaign.campaign_event import CampaignEvent
 from module.shop.shop_status import ShopStatus
@@ -459,7 +462,33 @@ class CampaignRun(CampaignEvent, ShopStatus):
 
     def after_campaign_run(self):
         """Расширяемый hook после завершения одного запуска кампании."""
-        pass
+        if self.campaign.emotion.is_calculate:
+            self.campaign.emotion.log_working_fleets(f"after_map_{self.run_count}")
+        callback = getattr(self, "morale_campaign_clear_callback", None)
+        if callable(callback):
+            policy = MoraleRescanPolicy.from_config(self.config)
+            now = time.monotonic()
+            last_scan = getattr(self, "_morale_rescan_last_at", now)
+            due, reason = policy.due(
+                completed_runs=self.run_count,
+                elapsed_seconds=max(0.0, now - last_scan),
+            )
+            if due:
+                logger.info(
+                    "[Настроение] Периодическая rescan: "
+                    f"reason={reason}; completed_runs={self.run_count}; "
+                    f"policy_runs={policy.runs}; policy_minutes={policy.minutes}"
+                )
+                try:
+                    callback(self.run_count)
+                except CampaignMoraleBootstrapError as error:
+                    logger.warning(
+                        "[Настроение] Периодический bootstrap безопасно остановил "
+                        f"текущую campaign task: stage={error.code}"
+                    )
+                    return False
+                self._morale_rescan_last_at = time.monotonic()
+        return True
 
     def handle_commission_notice(self):
         """Обработать уведомление о завершившейся комиссии.
@@ -497,8 +526,12 @@ class CampaignRun(CampaignEvent, ShopStatus):
             self.load_campaign(name, folder=folder)
         finally:
             del self._campaign_load_route
+        callback = getattr(self, "morale_reconciliation_callback", None)
+        if callable(callback):
+            self.campaign.morale_reconciliation_callback = callback
         self.run_count = 0
         self.run_limit = self.config.StopCondition_RunCount
+        self._morale_rescan_last_at = time.monotonic()
         while 1:
             # Условия завершения.
             if total and self.run_count >= total:
@@ -560,6 +593,10 @@ class CampaignRun(CampaignEvent, ShopStatus):
             # Запуск карты.
             self.device.stuck_record_clear()
             self.device.click_record_clear()
+            # Устойчивая координата карты внутри одного Scheduler run. Она
+            # отличает одинаковые battle_count на последовательных зачистках,
+            # сохраняя повторяемость ключей при рестарте в пределах первой карты.
+            self.campaign.morale_campaign_run_index = self.run_count
             try:
                 self.campaign.run()
             except ScriptEnd as e:
@@ -578,7 +615,8 @@ class CampaignRun(CampaignEvent, ShopStatus):
             self.run_count += 1
             if self.config.StopCondition_RunCount:
                 self.config.StopCondition_RunCount -= 1
-            self.after_campaign_run()
+            if not self.after_campaign_run():
+                break
             # Условия завершения после запуска.
             if self.triggered_stop_condition(oil_check=False):
                 break

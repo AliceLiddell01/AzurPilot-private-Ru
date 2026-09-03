@@ -88,13 +88,19 @@ tick semantics сверены с [Azur Lane Wiki](https://azur-lane.fandom.com/w
 `DormMoraleScanner` чисто распознаёт уже открытый этаж, а controller получает 1F
 и 2F через существующий UI graph. `MoraleReconciliationService` сохраняет
 append-only Dorm scan provenance и сопоставляет его с Fleet State одним чтением.
-Найденный корабль получает exact UI baseline/rate и floor; доказанное отсутствие
-на обоих этажах — unknown morale с `outside_dorm`, `20/ч` и ceiling `119`.
-Partial scan отсутствие не доказывает. Неоднозначные identity/form и stale Fleet
-State fail closed.
+Найденный корабль получает exact UI baseline/rate и floor. Если occupied target
+не найден на полном сканировании обоих этажей, сервис создаёт только
+`lookup_targets`: `outside_dorm` и baseline не выводятся из отсутствия карточки.
+Они появляются лишь после отдельного однозначного targeted lookup. Повторный
+complete scan продолжает прежнюю projection, поэтому не восстанавливает уже
+списанную боем мораль. Partial scan отсутствие не доказывает.
+Неоднозначные identity/form и stale Fleet State остаются `unknown` и fail closed.
 
-Stage 2 не подключает core к `module/combat/emotion.py`, Scheduler или Fleet
-WebUI. Legacy Combat остаётся production path до отдельного этапа.
+Campaign-задачи в режиме `Emotion_Mode=calculate` выполняют первичный scan
+только своих физических рабочих флотов и обоих этажей Dorm на task boundary.
+После каждого подтверждённого battle node и clear карты ledger логирует новую
+projection. Повторный UI scan выполняется по low-morale evidence, раз в 10
+успешных clear или через час, а не после каждой карты.
 
 Опциональный Fleet AutoScan запускается планировщиком на безопасной границе
 перед обычной задачей и использует тот же `Device`, `LazyEngine` и
