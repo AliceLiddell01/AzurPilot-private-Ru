@@ -11,6 +11,7 @@ from module.application.game_models import (
     ConfigUpdateRequest,
     DashboardResources,
     GameApplicationState,
+    GameLoginState,
     MediaFrame,
     SchedulerEntry,
 )
@@ -112,11 +113,18 @@ class EmulatorController(Protocol):
 
 
 class GameApplicationController(Protocol):
-    """Узкий application boundary для запуска настроенной игры."""
+    """Узкий application boundary для запуска и входа в настроенную игру."""
 
     def read_state(self, instance: str) -> GameApplicationState: ...
 
     def start_game(self, instance: str) -> bool: ...
+
+    def login_to_main(
+        self,
+        instance: str,
+        *,
+        timeout_seconds: float,
+    ) -> GameLoginState: ...
 
 
 class AdbController(Protocol):

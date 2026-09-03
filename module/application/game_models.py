@@ -363,6 +363,57 @@ class GameApplicationState:
 
 
 @dataclass(frozen=True, slots=True)
+class GameLoginState:
+    """Состояние приложения после существующего login/UI flow."""
+
+    adb_ready: bool
+    game_running: bool
+    game_foreground: bool
+    logged_in: bool
+    main: bool
+
+    def __post_init__(self) -> None:
+        for name in (
+            "adb_ready",
+            "game_running",
+            "game_foreground",
+            "logged_in",
+            "main",
+        ):
+            if type(getattr(self, name)) is not bool:
+                raise TypeError(f"{name} должен быть bool")
+
+
+@dataclass(frozen=True, slots=True)
+class GameLoginResult:
+    """Подтверждённый вход в игру с authoritative main UI postcondition."""
+
+    instance: str
+    verified: bool
+    adb_ready: bool
+    game_running: bool
+    game_foreground: bool
+    logged_in: bool
+    main: bool
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.instance, str) or not self.instance:
+            raise ValueError("instance должен быть непустой строкой")
+        for name in (
+            "verified",
+            "adb_ready",
+            "game_running",
+            "game_foreground",
+            "logged_in",
+            "main",
+        ):
+            if type(getattr(self, name)) is not bool:
+                raise TypeError(f"{name} должен быть bool")
+            if getattr(self, name) is not True:
+                raise ValueError(f"{name} должен подтверждать успешное состояние")
+
+
+@dataclass(frozen=True, slots=True)
 class GameRuntimeRestartResult:
     """Подтверждённое восстановление эмулятора и игрового приложения."""
 
@@ -428,6 +479,8 @@ __all__ = [
     "EmulatorRestartResult",
     "FrozenPayload",
     "GameApplicationState",
+    "GameLoginResult",
+    "GameLoginState",
     "GameRuntimeRestartResult",
     "LifecycleOutcome",
     "LifecycleResult",

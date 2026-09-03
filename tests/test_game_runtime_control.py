@@ -9,6 +9,8 @@ import pytest
 from module.application import (
     GameApplicationState,
     GameControlService,
+    GameLoginResult,
+    GameLoginState,
     GameRuntimeRestartResult,
     OperationFailedError,
     OwnershipAmbiguousError,
@@ -83,12 +85,16 @@ class _Application:
         *,
         start_result: bool = True,
         start_error: Exception | None = None,
+        login_state: GameLoginState | None = None,
     ) -> None:
         self.states = states
         self.start_result = start_result
         self.start_error = start_error
         self.read_calls = 0
         self.start_calls = 0
+        self.login_state = login_state or GameLoginState(True, True, True, True, True)
+        self.login_calls = 0
+        self.login_timeout: float | None = None
 
     def read_state(self, instance: str) -> GameApplicationState:
         index = min(self.read_calls, len(self.states) - 1)
@@ -100,6 +106,16 @@ class _Application:
         if self.start_error is not None:
             raise self.start_error
         return self.start_result
+
+    def login_to_main(
+        self,
+        instance: str,
+        *,
+        timeout_seconds: float,
+    ) -> GameLoginState:
+        self.login_calls += 1
+        self.login_timeout = timeout_seconds
+        return self.login_state
 
 
 def _service(
@@ -253,6 +269,50 @@ def test_runtime_restart_requires_running_and_foreground_not_only_foreground(
     assert application.start_calls == 1
 
 
+def test_login_runtime_uses_application_login_without_scheduler_or_emulator(
+    tmp_path: Path,
+) -> None:
+    lifecycle = _Lifecycle()
+    emulator = _Emulator()
+    application = _Application([_ready_game()])
+    service = GameControlService(
+        instance_reader=_Instances(),
+        config_schema=SimpleNamespace(),
+        config_writer=_Config(),
+        scheduler_tasks=SimpleNamespace(),
+        lifecycle=lifecycle,
+        emulator=emulator,
+        adb=_Adb(),
+        application=application,
+        config_reader=_Config(),
+        mutation_lock_root=tmp_path,
+        game_login_timeout_seconds=7.5,
+    )
+
+    result = service.login_runtime("alas")
+
+    assert result == GameLoginResult("alas", True, True, True, True, True, True)
+    assert application.login_calls == 1
+    assert application.login_timeout == 7.5
+    assert application.start_calls == 0
+    assert emulator.calls == 0
+    assert lifecycle.calls == []
+
+
+def test_login_runtime_requires_authoritative_main_postcondition(tmp_path: Path) -> None:
+    application = _Application(
+        [_ready_game()],
+        login_state=GameLoginState(True, True, True, False, False),
+    )
+
+    with pytest.raises(GameRuntimePhaseError) as failure:
+        _service(tmp_path, _Emulator(), application).login_runtime("alas")
+
+    assert failure.value.phase == "login"
+    assert isinstance(failure.value.cause, PostconditionFailedError)
+    assert application.login_calls == 1
+
+
 @dataclass
 class _Device:
     serial: str
@@ -298,6 +358,9 @@ def _application_adapter(
     package: object = "org.example.game",
     target_serial: str | None = "target",
     aliases: tuple[str, ...] = (),
+    device_factory=None,
+    login_handler_factory=None,
+    ui_factory=None,
 ) -> LegacyGameApplicationAdapter:
     config = SimpleNamespace(Emulator_PackageName=package)
     return LegacyGameApplicationAdapter(
@@ -307,6 +370,9 @@ def _application_adapter(
             device,
             app_package,
         ),
+        device_factory=device_factory,
+        login_handler_factory=login_handler_factory,
+        ui_factory=ui_factory,
         target_serial_provider=lambda instance: target_serial,
         target_serial_aliases_provider=lambda serial: aliases,
     )
@@ -366,6 +432,97 @@ def test_application_adapter_revalidates_target_before_start() -> None:
     assert replacement.start_calls == 0
 
 
+class _LoginDevice:
+    def __init__(self, running: bool) -> None:
+        self.running = running
+        self.screenshot_calls = 0
+        self.release_calls = 0
+
+    def app_is_running(self) -> bool:
+        return self.running
+
+    def screenshot(self) -> None:
+        self.screenshot_calls += 1
+
+    def release_resource(self) -> None:
+        self.release_calls += 1
+
+
+class _LoginHandler:
+    def __init__(self, target: _Device, package: str) -> None:
+        self.target = target
+        self.package = package
+        self.calls: list[tuple[str, float]] = []
+
+    def handle_app_login(self, *, timeout_seconds: float) -> None:
+        self.calls.append(("handle", timeout_seconds))
+        self.target.foreground = self.package
+        self.target.pid_output = "42"
+
+    def app_start(self, *, timeout_seconds: float) -> None:
+        self.calls.append(("start", timeout_seconds))
+        self.target.foreground = self.package
+        self.target.pid_output = "42"
+
+
+class _LoginUI:
+    def __init__(self, main: bool) -> None:
+        self.main = main
+        self.calls = 0
+
+    def is_in_main(self) -> bool:
+        self.calls += 1
+        return self.main
+
+
+@pytest.mark.parametrize(
+    ("running", "expected_method"),
+    ((True, "handle"), (False, "start")),
+)
+def test_application_adapter_reuses_login_handler_and_confirms_main_ui(
+    running: bool,
+    expected_method: str,
+) -> None:
+    package = "org.example.game"
+    target = _Device("target")
+    device = _LoginDevice(running)
+    handler = _LoginHandler(target, package)
+    ui = _LoginUI(main=True)
+    adapter = _application_adapter(
+        _Client([target]),
+        package=package,
+        device_factory=lambda config: device,
+        login_handler_factory=lambda config, current_device: handler,
+        ui_factory=lambda config, current_device: ui,
+    )
+
+    result = adapter.login_to_main("alas", timeout_seconds=3.5)
+
+    assert result == GameLoginState(True, True, True, True, True)
+    assert handler.calls == [(expected_method, 3.5)]
+    assert device.screenshot_calls == 1
+    assert device.release_calls == 1
+    assert ui.calls == 1
+
+
+def test_application_adapter_rejects_login_without_authoritative_main_ui() -> None:
+    target = _Device("target")
+    device = _LoginDevice(True)
+    handler = _LoginHandler(target, "org.example.game")
+    adapter = _application_adapter(
+        _Client([target]),
+        package="org.example.game",
+        device_factory=lambda config: device,
+        login_handler_factory=lambda config, current_device: handler,
+        ui_factory=lambda config, current_device: _LoginUI(main=False),
+    )
+
+    with pytest.raises(PostconditionFailedError, match="главный экран"):
+        adapter.login_to_main("alas", timeout_seconds=3.5)
+
+    assert device.release_calls == 1
+
+
 def test_application_adapter_resolves_fresh_alias_without_touching_neighbor() -> None:
     target = _Device("127.0.0.1:16416")
     neighbor = _Device("127.0.0.1:16417")
@@ -395,3 +552,5 @@ def test_runtime_result_models_reject_unverified_success() -> None:
         GameRuntimeRestartResult("alas", False, True, True, True)
     with pytest.raises(TypeError):
         GameApplicationState(True, "yes", True)  # type: ignore[arg-type]
+    with pytest.raises(ValueError):
+        GameLoginResult("alas", True, True, True, True, False, True)

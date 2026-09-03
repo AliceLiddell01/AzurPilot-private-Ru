@@ -28,6 +28,7 @@ from module.application.game_models import (
     ConfigUpdateRequest,
     DashboardResources,
     GameApplicationState,
+    GameLoginState,
     MediaFrame,
     SchedulerEntry,
     thaw_payload,
@@ -709,6 +710,9 @@ class LegacyGameApplicationAdapter:
         adb_client_factory: Callable[[], object] | None = None,
         app_control_factory: Callable[[object, object, str, str, object], object]
         | None = None,
+        device_factory: Callable[[object], object] | None = None,
+        login_handler_factory: Callable[[object, object], object] | None = None,
+        ui_factory: Callable[[object, object], object] | None = None,
         target_serial_provider: Callable[[str], str | None] | None = None,
         target_serial_aliases_provider: Callable[[str], Sequence[str]] | None = None,
     ) -> None:
@@ -717,6 +721,11 @@ class LegacyGameApplicationAdapter:
         self._app_control_factory = (
             app_control_factory or self._default_app_control_factory
         )
+        self._device_factory = device_factory or self._default_device_factory
+        self._login_handler_factory = (
+            login_handler_factory or self._default_login_handler_factory
+        )
+        self._ui_factory = ui_factory or self._default_ui_factory
         self._target_serial_provider = target_serial_provider or _read_target_serial
         self._target_serial_aliases_provider = (
             target_serial_aliases_provider or _read_only_emulator_serial_aliases
@@ -749,6 +758,102 @@ class LegacyGameApplicationAdapter:
                     "Application owner вернул некорректный результат запуска игры."
                 )
             return result
+
+    def login_to_main(
+        self,
+        instance: str,
+        *,
+        timeout_seconds: float,
+    ) -> GameLoginState:
+        """Переиспользовать LoginHandler и подтвердить main UI без scheduler."""
+
+        instance = _safe_instance_name(instance)
+        if type(timeout_seconds) is not float or timeout_seconds < 0:
+            raise ValueError("timeout_seconds должен быть неотрицательным float")
+
+        device: object | None = None
+        with _adb_host_lock():
+            try:
+                config = self._make_config(instance)
+                device = self._device_factory(config)
+                handler = self._login_handler_factory(config, device)
+                is_running = getattr(device, "app_is_running", None)
+                if not callable(is_running):
+                    raise OperationFailedError(
+                        "Device owner не предоставил проверку состояния игры."
+                    )
+                running = is_running()
+                if type(running) is not bool:
+                    raise OperationFailedError(
+                        "Device owner вернул некорректное состояние игры."
+                    )
+
+                method_name = "handle_app_login" if running else "app_start"
+                login = getattr(handler, method_name, None)
+                if not callable(login):
+                    raise OperationFailedError(
+                        "LoginHandler owner не предоставил существующий login flow."
+                    )
+                login(timeout_seconds=timeout_seconds)
+
+                screenshot = getattr(device, "screenshot", None)
+                if not callable(screenshot):
+                    raise OperationFailedError(
+                        "Device owner не предоставил свежий screenshot."
+                    )
+                screenshot()
+
+                ui = self._ui_factory(config, device)
+                is_in_main = getattr(ui, "is_in_main", None)
+                if not callable(is_in_main):
+                    raise OperationFailedError(
+                        "UI owner не предоставил authoritative main check."
+                    )
+                main = is_in_main()
+                if type(main) is not bool:
+                    raise OperationFailedError(
+                        "UI owner вернул некорректный main state."
+                    )
+                if main is not True:
+                    raise PostconditionFailedError(
+                        "UI не подтвердил главный экран после login flow."
+                    )
+
+                state = self._read_state(instance)
+                if state.adb_ready is not True:
+                    raise PreconditionFailedError(
+                        "ADB не подтвердил готовность target после login flow."
+                    )
+                if state.game_running is not True or state.game_foreground is not True:
+                    raise PostconditionFailedError(
+                        "Игра не подтвердила running и foreground после login flow."
+                    )
+                return GameLoginState(
+                    adb_ready=True,
+                    game_running=True,
+                    game_foreground=True,
+                    logged_in=True,
+                    main=True,
+                )
+            except (
+                OwnershipAmbiguousError,
+                PreconditionFailedError,
+                PostconditionFailedError,
+            ):
+                raise
+            except TimeoutError:
+                raise PostconditionFailedError(
+                    "Истёк bounded тайм-аут существующего login flow."
+                ) from None
+            except Exception:  # noqa: BLE001 - login boundary fails closed.
+                raise OperationFailedError(
+                    "Не удалось выполнить существующий login flow."
+                ) from None
+            finally:
+                if device is not None:
+                    release_resource = getattr(device, "release_resource", None)
+                    if callable(release_resource):
+                        release_resource()
 
     def _read_state(self, instance: str) -> GameApplicationState:
         app, package = self._make_app_control(instance, include_package=True)
@@ -802,6 +907,24 @@ class LegacyGameApplicationAdapter:
         from module.config.config import AzurLaneConfig
 
         return AzurLaneConfig(instance, task=None)
+
+    @staticmethod
+    def _default_device_factory(config: object) -> object:
+        from module.device.device import Device
+
+        return Device(config=config)
+
+    @staticmethod
+    def _default_login_handler_factory(config: object, device: object) -> object:
+        from module.handler.login import LoginHandler
+
+        return LoginHandler(config, device=device)
+
+    @staticmethod
+    def _default_ui_factory(config: object, device: object) -> object:
+        from module.ui.ui import UI
+
+        return UI(config, device=device)
 
     @staticmethod
     def _read_package(config: object) -> str:

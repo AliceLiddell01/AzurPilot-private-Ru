@@ -62,7 +62,8 @@ task, scheduler queue, task catalog/help, Fleet State, morale, redacted config,
 bounded logs и validated screenshot. Отдельный control catalog включает
 `game_start_profile`, `game_stop_profile`, `game_trigger_task`,
 `game_clear_scheduler_queue`, `game_update_config`,
-`game_restart_emulator`, `game_restart_runtime` и `game_restart_adb`.
+`game_restart_emulator`, `game_restart_runtime`, `game_login_runtime` и
+`game_restart_adb`.
 Стабильный contract находится в
 `module.game_mcp.contract`; application DTO и bounded serialization собираются
 в `module.game_mcp.adapter`. Добавление control catalog и отдельной control
@@ -167,6 +168,23 @@ postcondition завершается fail-closed. Ошибка emulator-фазы
 `azurpilot:game.control`, а ownership и postcondition checks fail-closed
 ограничивают recovery mutation тем же control boundary.
 
+`game_login_runtime` — отдельная bounded mutation для уже запущенного launch/login
+экрана. Контрактный аудит legacy lifecycle показывает: `AzurLaneAutoScript.start()`
+вызывает `LoginHandler.app_start()`, `restart()` дополнительно управляет scheduler
+timing через `delay_due_restart()`/`delay_next_restart()`, а `goto_main()` при уже
+запущенном приложении сразу вызывает `UI.ui_goto_main()` и не проходит
+`LoginHandler`. Поэтому Game MCP не запускает `AzurLaneAutoScript`, scheduler или
+обычный task loop: application adapter создаёт профильный `AzurLaneConfig` без
+task, использует существующий `Device`, выбирает `LoginHandler.handle_app_login()`
+для уже foreground игры либо `LoginHandler.app_start()` для запуска приложения,
+затем делает свежий screenshot и проверяет authoritative `UI.is_in_main()`.
+Пакет, server и account берутся существующими config/UI abstractions; в action
+нет их hardcode. Только после этой UI-проверки и повторного exact ADB readback
+`game_running`/`game_foreground` результат получает `GAME_RUNTIME_LOGIN_CONFIRMED`.
+Login flow bounded по одному timeout и не имеет automatic retry; отсутствие
+главного экрана или ADB postcondition возвращает fail-closed ошибку с
+`details.phase=login`.
+
 ## Legacy parity
 
 Переходный `mcp_server_sse.py` остаётся для совместимых старых клиентов,
@@ -196,7 +214,8 @@ Game MCP:
 
 `game_restart_runtime` намеренно остаётся новой standalone Game MCP
 capability: legacy SSE не получает отдельный composite mutation без отдельного
-legacy contract и acceptance.
+legacy contract и acceptance. `game_login_runtime` имеет ту же standalone
+границу и также не добавляется в legacy SSE.
 
 Снятие legacy entrypoint отложено: для него пока существуют startup/client
 совместимость и contract tests. Удаление возможно только после отдельного

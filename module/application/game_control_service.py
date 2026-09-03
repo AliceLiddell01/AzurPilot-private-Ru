@@ -31,6 +31,8 @@ from module.application.game_models import (
     ConfigUpdateResult,
     EmulatorRestartResult,
     GameApplicationState,
+    GameLoginResult,
+    GameLoginState,
     GameRuntimeRestartResult,
     LifecycleOutcome,
     LifecycleResult,
@@ -64,6 +66,7 @@ from module.application.ports import InstanceRuntimeReader
 _GAME_START_TIMEOUT_SECONDS = 60.0
 _GAME_START_RETRY_INTERVAL_SECONDS = 0.5
 _GAME_START_MAX_ATTEMPTS = 120
+_GAME_LOGIN_TIMEOUT_SECONDS = 120.0
 
 
 def _control_profile(value: object) -> str | None:
@@ -122,6 +125,7 @@ class GameControlService:
         game_start_timeout_seconds: float = _GAME_START_TIMEOUT_SECONDS,
         game_start_retry_interval_seconds: float = _GAME_START_RETRY_INTERVAL_SECONDS,
         game_start_max_attempts: int = _GAME_START_MAX_ATTEMPTS,
+        game_login_timeout_seconds: float = _GAME_LOGIN_TIMEOUT_SECONDS,
         monotonic_clock: Callable[[], float] | None = None,
         sleep_fn: Callable[[float], None] | None = None,
     ) -> None:
@@ -159,9 +163,17 @@ class GameControlService:
             )
         if type(game_start_max_attempts) is not int or game_start_max_attempts < 1:
             raise ValueError("game_start_max_attempts должен быть положительным int")
+        if (
+            type(game_login_timeout_seconds) is not float
+            or game_login_timeout_seconds < 0
+        ):
+            raise ValueError(
+                "game_login_timeout_seconds должен быть неотрицательным float"
+            )
         self._game_start_timeout_seconds = game_start_timeout_seconds
         self._game_start_retry_interval_seconds = game_start_retry_interval_seconds
         self._game_start_max_attempts = game_start_max_attempts
+        self._game_login_timeout_seconds = game_login_timeout_seconds
         self._monotonic = monotonic_clock or monotonic
         self._sleep = sleep_fn or sleep
 
@@ -386,6 +398,32 @@ class GameControlService:
         )
 
     @_profile_mutation
+    def login_runtime(self, instance: str) -> GameLoginResult:
+        """Выполнить существующий login flow и подтвердить главный экран."""
+
+        instance = known_instance(self._instance_reader, instance)
+        state = self._run_runtime_phase(
+            "login",
+            lambda: self._ensure_logged_in(instance),
+        )
+        if not isinstance(state, GameLoginState) or not self._login_ready(state):
+            raise GameRuntimePhaseError(
+                "login",
+                PostconditionFailedError(
+                    "Вход в игру не подтвердил рабочее состояние главного экрана."
+                ),
+            )
+        return GameLoginResult(
+            instance=instance,
+            verified=True,
+            adb_ready=True,
+            game_running=True,
+            game_foreground=True,
+            logged_in=True,
+            main=True,
+        )
+
+    @_profile_mutation
     def restart_adb(self, instance: str | None) -> AdbRestartResult:
         if instance is None:
             raise InvalidRequestError("Перезапуск ADB требует имя экземпляра.")
@@ -449,6 +487,23 @@ class GameControlService:
             )
         return self._await_game_ready(application, instance)
 
+    def _ensure_logged_in(self, instance: str) -> GameLoginState:
+        application = self._application
+        if application is None:
+            raise ServiceUnavailableError("Application capability входа в игру недоступна.")
+        state = safe_control(
+            "входа в игру и подтверждения главного экрана",
+            lambda: application.login_to_main(
+                instance,
+                timeout_seconds=self._game_login_timeout_seconds,
+            ),
+        )
+        if not isinstance(state, GameLoginState):
+            raise OperationFailedError(
+                "Application owner вернул некорректное состояние входа в игру."
+            )
+        return state
+
     def _await_game_ready(
         self,
         application: GameApplicationController,
@@ -500,6 +555,16 @@ class GameControlService:
         )
 
     @staticmethod
+    def _login_ready(state: GameLoginState) -> bool:
+        return (
+            state.adb_ready is True
+            and state.game_running is True
+            and state.game_foreground is True
+            and state.logged_in is True
+            and state.main is True
+        )
+
+    @staticmethod
     def _run_runtime_phase(phase: str, callback: Callable[[], object]) -> object:
         try:
             return callback()
@@ -511,6 +576,8 @@ class GameControlService:
             message = (
                 "Перезапуск эмулятора не подтверждён."
                 if phase == "emulator_restart"
+                else "Вход в игру не подтверждён."
+                if phase == "login"
                 else "Запуск игры не подтверждён."
             )
             raise GameRuntimePhaseError(phase, OperationFailedError(message)) from None
