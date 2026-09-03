@@ -1,0 +1,40 @@
+name: PR158 temporary sync diagnostic
+
+on:
+  push:
+    branches:
+      - codex/morale-stage3-production-integration
+    paths:
+      - .github/workflows/pr158-sync-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  merge-tree:
+    name: Диагностика merge tree
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Получить текущую ветку
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      - name: Проверить границы и построить merge tree
+        shell: bash
+        env:
+          EXPECTED_PARENT_SHA: e00eb6350a90a3759deaff2cbe382651dc1b2aa3
+          STABLE_SHA: cf54dfb3901c8d1ab8374840549db7deaa29b2f8
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = "codex/morale-stage3-production-integration"
+          test "$(git rev-parse HEAD^)" = "${EXPECTED_PARENT_SHA}"
+          git fetch --no-tags origin "${STABLE_SHA}"
+          set +e
+          output="$(git merge-tree --write-tree --name-only HEAD "${STABLE_SHA}" 2>&1)"
+          status=$?
+          set -e
+          printf '%s\n' "${output}"
+          exit "${status}"
