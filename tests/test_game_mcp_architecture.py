@@ -56,6 +56,8 @@ def test_game_mcp_publishes_control_but_excludes_developer_surfaces() -> None:
         "game_clear_scheduler_queue",
         "game_update_config",
         "game_restart_emulator",
+        "game_restart_runtime",
+        "game_login_runtime",
         "game_restart_adb",
     } <= published_names
     for forbidden in (

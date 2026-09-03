@@ -463,6 +463,15 @@ _CONTRACT_OUTPUT = {
             "type": "integer",
             "const": GAME_MCP_API_VERSION,
         },
+        "tool_count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 256,
+        },
+        "tool_catalog_sha256": {
+            "type": "string",
+            "pattern": r"^[a-f0-9]{64}$",
+        },
         "authorization_scopes": {
             "type": "array",
             "minItems": 2,
@@ -499,12 +508,45 @@ _CONTRACT_OUTPUT = {
         "contract_schema_version",
         "product_family",
         "game_mcp_api_version",
+        "tool_count",
+        "tool_catalog_sha256",
         "authorization_scopes",
         "feature_flags",
         "capability_families",
         "result_states",
         "read_only_guarantees",
         "control_guarantees",
+    ],
+    "additionalProperties": False,
+}
+_REQUEST_CONTEXT_OUTPUT = {
+    "type": "object",
+    "properties": {
+        "transport": {
+            "type": "string",
+            "enum": ["local_stdio", "remote_http"],
+        },
+        "authenticated": {"type": "boolean"},
+        "local_authority": {"type": "boolean"},
+        "granted_scopes": {
+            "type": "array",
+            "maxItems": len(GAME_MCP_SCOPES),
+            "uniqueItems": True,
+            "items": {
+                "type": "string",
+                "enum": list(GAME_MCP_SCOPES),
+            },
+        },
+        "read_allowed": {"type": "boolean"},
+        "control_allowed": {"type": "boolean"},
+    },
+    "required": [
+        "transport",
+        "authenticated",
+        "local_authority",
+        "granted_scopes",
+        "read_allowed",
+        "control_allowed",
     ],
     "additionalProperties": False,
 }
@@ -577,7 +619,9 @@ def _output_schema(details: dict[str, Any]) -> dict[str, Any]:
 
 
 _OUTPUT_SCHEMAS = {
-    "game_get_contract": _output_schema({"contract": _CONTRACT_OUTPUT}),
+    "game_get_contract": _output_schema(
+        {"contract": _CONTRACT_OUTPUT, "request_context": _REQUEST_CONTEXT_OUTPUT}
+    ),
     "game_list_profiles": _output_schema(
         {
             "profiles": {
@@ -728,6 +772,32 @@ _OUTPUT_SCHEMAS = {
             "verified": {"type": "boolean", "const": True},
         }
     ),
+    "game_restart_runtime": _output_schema(
+        {
+            **_PROFILE_DETAILS_OUTPUT,
+            "verified": {"type": "boolean", "const": True},
+            "emulator_verified": {"type": "boolean", "const": True},
+            "adb_ready": {"type": "boolean", "const": True},
+            "game_running": {"type": "boolean", "const": True},
+            "game_foreground": {"type": "boolean", "const": True},
+            "phase": {
+                "type": "string",
+                "enum": ["emulator_restart", "game_start"],
+            },
+        }
+    ),
+    "game_login_runtime": _output_schema(
+        {
+            **_PROFILE_DETAILS_OUTPUT,
+            "verified": {"type": "boolean", "const": True},
+            "adb_ready": {"type": "boolean", "const": True},
+            "game_running": {"type": "boolean", "const": True},
+            "game_foreground": {"type": "boolean", "const": True},
+            "logged_in": {"type": "boolean", "const": True},
+            "main": {"type": "boolean", "const": True},
+            "phase": {"type": "string", "enum": ["login"]},
+        }
+    ),
     "game_restart_adb": _output_schema(
         {
             **_PROFILE_DETAILS_OUTPUT,
@@ -773,6 +843,18 @@ _MUTATION_ANNOTATIONS = {
         openWorldHint=False,
     ),
     "game_restart_emulator": ToolAnnotations(
+        readOnlyHint=False,
+        destructiveHint=True,
+        idempotentHint=False,
+        openWorldHint=False,
+    ),
+    "game_restart_runtime": ToolAnnotations(
+        readOnlyHint=False,
+        destructiveHint=True,
+        idempotentHint=False,
+        openWorldHint=False,
+    ),
+    "game_login_runtime": ToolAnnotations(
         readOnlyHint=False,
         destructiveHint=True,
         idempotentHint=False,
@@ -828,6 +910,8 @@ def tool_definitions() -> list[Tool]:
         "game_clear_scheduler_queue": "Очистить только generated scheduler queue выбранного профиля.",
         "game_update_config": "Изменить один разрешённый нечувствительный параметр config с readback-проверкой.",
         "game_restart_emulator": "Перезапустить эмулятор выбранного профиля с подтверждением результата.",
+        "game_restart_runtime": "Перезапустить эмулятор и вернуть настроенную игру на передний план с подтверждением результата.",
+        "game_login_runtime": "Выполнить существующий login flow и подтвердить logged-in main UI без запуска scheduler или полного профиля.",
         "game_restart_adb": "Перезапустить ADB для выбранного профиля после проверки ownership target.",
     }
     schemas = {
@@ -851,6 +935,8 @@ def tool_definitions() -> list[Tool]:
         "game_clear_scheduler_queue": _PROFILE_INPUT,
         "game_update_config": _CONFIG_UPDATE_INPUT,
         "game_restart_emulator": _PROFILE_INPUT,
+        "game_restart_runtime": _PROFILE_INPUT,
+        "game_login_runtime": _PROFILE_INPUT,
         "game_restart_adb": _PROFILE_INPUT,
     }
     return [

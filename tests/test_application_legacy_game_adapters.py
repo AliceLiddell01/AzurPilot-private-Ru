@@ -340,27 +340,39 @@ def test_typed_emulator_failures_distinguish_ownership_operation_and_postconditi
         ).restart_emulator("secondary")
 
     class StuckAfterStop:
-        def __init__(self) -> None:
+        def __init__(self, *, force_result: bool = True, stop_on_force: bool = True) -> None:
             self.calls: list[str] = []
+            self.running = True
+            self.force_result = force_result
+            self.stop_on_force = stop_on_force
 
         def is_emulator_instance_running(self) -> bool:
-            return True
+            return self.running
 
         def emulator_stop(self) -> bool:
             self.calls.append("stop")
             return True
 
+        def emulator_force_stop_instance(self) -> bool:
+            self.calls.append("force")
+            if self.stop_on_force:
+                self.running = False
+            return self.force_result
+
         def emulator_start(self) -> bool:
             self.calls.append("start")
+            self.running = True
             return True
 
     stuck = StuckAfterStop()
-    with pytest.raises(PostconditionFailedError):
+    assert (
         LegacyEmulatorAdapter(
             platform_factory=lambda instance: stuck,
             typed_failures=True,
         ).restart_emulator("secondary")
-    assert stuck.calls == ["stop"]
+        is True
+    )
+    assert stuck.calls == ["stop", "force", "start"]
 
     class FailedStart:
         def __init__(self) -> None:
@@ -381,6 +393,180 @@ def test_typed_emulator_failures_distinguish_ownership_operation_and_postconditi
             platform_factory=lambda instance: FailedStart(),
             typed_failures=True,
         ).restart_emulator("secondary")
+
+
+def test_emulator_restart_does_not_force_kill_after_delayed_graceful_stop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(legacy_game_adapters, "_EMULATOR_STATE_MAX_ATTEMPTS", 3)
+    monkeypatch.setattr(
+        legacy_game_adapters,
+        "_EMULATOR_STATE_RETRY_INTERVAL_SECONDS",
+        0.001,
+    )
+    states = iter((True, True, False, True))
+    calls: list[str] = []
+
+    class Platform:
+        def is_emulator_instance_running(self) -> bool:
+            return next(states)
+
+        def emulator_stop(self) -> bool:
+            calls.append("stop")
+            return False
+
+        def emulator_force_stop_instance(self) -> bool:
+            calls.append("force")
+            return True
+
+        def emulator_start(self) -> bool:
+            calls.append("start")
+            return True
+
+    assert LegacyEmulatorAdapter(
+        platform_factory=lambda instance: Platform(),
+        typed_failures=True,
+    ).restart_emulator("secondary") is True
+    assert calls == ["stop", "start"]
+
+
+def test_emulator_restart_uses_authoritative_state_when_force_command_reports_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(legacy_game_adapters, "_EMULATOR_STATE_MAX_ATTEMPTS", 2)
+    monkeypatch.setattr(
+        legacy_game_adapters,
+        "_EMULATOR_STATE_RETRY_INTERVAL_SECONDS",
+        0.001,
+    )
+    platform_state = {"running": True}
+    calls: list[str] = []
+
+    class Platform:
+        def is_emulator_instance_running(self) -> bool:
+            return platform_state["running"]
+
+        def emulator_stop(self) -> bool:
+            calls.append("stop")
+            return True
+
+        def emulator_force_stop_instance(self) -> bool:
+            calls.append("force")
+            platform_state["running"] = False
+            return False
+
+        def emulator_start(self) -> bool:
+            calls.append("start")
+            platform_state["running"] = True
+            return True
+
+    assert LegacyEmulatorAdapter(
+        platform_factory=lambda instance: Platform(),
+        typed_failures=True,
+    ).restart_emulator("secondary") is True
+    assert calls == ["stop", "force", "start"]
+
+
+def test_emulator_restart_blocks_start_when_force_escalation_does_not_stop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(legacy_game_adapters, "_EMULATOR_STATE_MAX_ATTEMPTS", 2)
+    monkeypatch.setattr(
+        legacy_game_adapters,
+        "_EMULATOR_STATE_RETRY_INTERVAL_SECONDS",
+        0.001,
+    )
+    calls: list[str] = []
+
+    class Platform:
+        def is_emulator_instance_running(self) -> bool:
+            return True
+
+        def emulator_stop(self) -> bool:
+            calls.append("stop")
+            return True
+
+        def emulator_force_stop_instance(self) -> bool:
+            calls.append("force")
+            return False
+
+        def emulator_start(self) -> bool:
+            calls.append("start")
+            return True
+
+    with pytest.raises(PostconditionFailedError):
+        LegacyEmulatorAdapter(
+            platform_factory=lambda instance: Platform(),
+            typed_failures=True,
+        ).restart_emulator("secondary")
+    assert calls == ["stop", "force"]
+
+
+def test_emulator_restart_rejects_launch_false_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(legacy_game_adapters, "_EMULATOR_STATE_MAX_ATTEMPTS", 2)
+    monkeypatch.setattr(
+        legacy_game_adapters,
+        "_EMULATOR_STATE_RETRY_INTERVAL_SECONDS",
+        0.001,
+    )
+    calls: list[str] = []
+
+    class Platform:
+        def is_emulator_instance_running(self) -> bool:
+            return False
+
+        def emulator_stop(self) -> bool:
+            calls.append("stop")
+            return True
+
+        def emulator_start(self) -> bool:
+            calls.append("start")
+            return True
+
+    with pytest.raises(PostconditionFailedError):
+        LegacyEmulatorAdapter(
+            platform_factory=lambda instance: Platform(),
+            typed_failures=True,
+        ).restart_emulator("secondary")
+    assert calls == ["stop", "start"]
+
+
+def test_emulator_restart_fails_closed_when_ownership_becomes_ambiguous(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(legacy_game_adapters, "_EMULATOR_STATE_MAX_ATTEMPTS", 2)
+    monkeypatch.setattr(
+        legacy_game_adapters,
+        "_EMULATOR_STATE_RETRY_INTERVAL_SECONDS",
+        0.001,
+    )
+    calls: list[str] = []
+    states = iter((True, None, None, None))
+
+    class Platform:
+        def is_emulator_instance_running(self) -> object:
+            return next(states)
+
+        def emulator_stop(self) -> bool:
+            calls.append("stop")
+            return True
+
+        def emulator_force_stop_instance(self) -> bool:
+            calls.append("force")
+            return True
+
+        def emulator_start(self) -> bool:
+            calls.append("start")
+            return True
+
+    with pytest.raises(OwnershipAmbiguousError):
+        LegacyEmulatorAdapter(
+            platform_factory=lambda instance: Platform(),
+            typed_failures=True,
+        ).restart_emulator("secondary")
+    assert calls == ["stop"]
 
 
 def test_emulator_restart_polls_until_stop_and_start_states_are_confirmed():

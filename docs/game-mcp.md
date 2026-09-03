@@ -62,7 +62,9 @@ task, scheduler queue, task catalog/help, Fleet State, morale, redacted config,
 bounded logs и validated screenshot. Отдельный control catalog включает
 `game_start_profile`, `game_stop_profile`, `game_trigger_task`,
 `game_clear_scheduler_queue`, `game_update_config`,
-`game_restart_emulator` и `game_restart_adb`. Стабильный contract находится в
+`game_restart_emulator`, `game_restart_runtime`, `game_login_runtime` и
+`game_restart_adb`.
+Стабильный contract находится в
 `module.game_mcp.contract`; application DTO и bounded serialization собираются
 в `module.game_mcp.adapter`. Добавление control catalog и отдельной control
 authorization policy совместимо с текущим read contract, поэтому
@@ -120,6 +122,14 @@ shell/module/function/natural-language actions отсутствуют.
 описание control tools, но сервер повторно проверяет required scope на
 фактическом `tools/call` и отклоняет mutation до backend acquisition.
 
+`game_get_contract` возвращает `tool_count` и `tool_catalog_sha256`. Fingerprint
+строится только по каноническим именам tools: имена сортируются лексикографически,
+соединяются переводом строки без завершающего перевода строки, кодируются UTF-8 и
+хешируются SHA-256. В `details.request_context` backend сообщает только
+эффективный transport, факт аутентификации, local authority, разрешённые Game
+scopes и effective read/control access; token, JWT claims, subject, headers и
+provider internals наружу не передаются.
+
 ADB restart допускается только после fresh inventory и доказанной
 instance/serial ownership; `adb kill-server` сериализуется стабильным
 пользовательским host lock, identity которого строится по ADB server endpoint,
@@ -133,12 +143,47 @@ diagnostics, SQL,
 произвольная файловая система, DevSession, Smoke, Evidence и Git state в Game
 surface отсутствуют. `module.game_mcp` не импортирует Dev MCP или Dev Runtime;
 общий authenticated HTTP код находится в нейтральном `module.mcp_shared`.
-Emulator restart использует existing recovery Platform owner и требует
-подтверждения running state после stop и start; для платформ без доказуемой
-instance-safe проверки операция завершается без mutation success.
+Emulator restart использует existing recovery Platform owner. После bounded
+ожидания штатной остановки живой target повторно проверяется по актуальной
+exact MuMu instance identity перед вызовом platform-specific instance-scoped
+force-stop primitive. Результат force-stop проверяется тем же authoritative
+stopped postcondition: ошибка команды не перекрывает уже подтверждённое
+состояние stopped, но неподтверждённое или неоднозначное состояние запрещает
+launch. Только после подтверждённого stopped owner вызывает `launch_player` и
+ждёт running postcondition. Это одна bounded lifecycle transition, а не
+повторный запрос Game MCP restart; generic kill по имени процесса или PID не
+входит в Game MCP surface. Для платформ без доказуемой instance-safe проверки
+операция завершается без mutation success.
+`game_restart_emulator` на этом заканчивает свою transition: он не запускает
+игровой процесс. Для составного сценария существует отдельный
+`game_restart_runtime`: после той же подтверждённой emulator transition он
+проверяет готовность exact ADB target, при необходимости один раз вызывает
+штатный `AppControl.app_start_adb()` с package из конфигурации профиля и
+bounded-поллингом подтверждает, что настроенное приложение running и
+foreground. Этот action не вызывает `Device`, `LoginHandler`, scheduler или
+profile start; отсутствие ADB ownership, настроенного package или foreground
+postcondition завершается fail-closed. Ошибка emulator-фазы и ошибка запуска
+игры используют существующие коды, но различаются полем `details.phase`.
 Отдельный recovery scope не вводится: emulator/ADB остаются частью
 `azurpilot:game.control`, а ownership и postcondition checks fail-closed
 ограничивают recovery mutation тем же control boundary.
+
+`game_login_runtime` — отдельная bounded mutation для уже запущенного launch/login
+экрана. Контрактный аудит legacy lifecycle показывает: `AzurLaneAutoScript.start()`
+вызывает `LoginHandler.app_start()`, `restart()` дополнительно управляет scheduler
+timing через `delay_due_restart()`/`delay_next_restart()`, а `goto_main()` при уже
+запущенном приложении сразу вызывает `UI.ui_goto_main()` и не проходит
+`LoginHandler`. Поэтому Game MCP не запускает `AzurLaneAutoScript`, scheduler или
+обычный task loop: application adapter создаёт профильный `AzurLaneConfig` без
+task, использует существующий `Device`, выбирает `LoginHandler.handle_app_login()`
+для уже foreground игры либо `LoginHandler.app_start()` для запуска приложения,
+затем делает свежий screenshot и проверяет authoritative `UI.is_in_main()`.
+Пакет, server и account берутся существующими config/UI abstractions; в action
+нет их hardcode. Только после этой UI-проверки и повторного exact ADB readback
+`game_running`/`game_foreground` результат получает `GAME_RUNTIME_LOGIN_CONFIRMED`.
+Login flow bounded по одному timeout и не имеет automatic retry; отсутствие
+главного экрана или ADB postcondition возвращает fail-closed ошибку с
+`details.phase=login`.
 
 ## Legacy parity
 
@@ -166,6 +211,11 @@ Game MCP:
 | `clear_scheduler_queue` | `game_clear_scheduler_queue` |
 | `restart_emulator` | `game_restart_emulator` |
 | `restart_adb` | `game_restart_adb` |
+
+`game_restart_runtime` намеренно остаётся новой standalone Game MCP
+capability: legacy SSE не получает отдельный composite mutation без отдельного
+legacy contract и acceptance. `game_login_runtime` имеет ту же standalone
+границу и также не добавляется в legacy SSE.
 
 Снятие legacy entrypoint отложено: для него пока существуют startup/client
 совместимость и contract tests. Удаление возможно только после отдельного

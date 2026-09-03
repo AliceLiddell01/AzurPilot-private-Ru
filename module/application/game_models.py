@@ -346,6 +346,99 @@ class EmulatorRestartResult:
 
 
 @dataclass(frozen=True, slots=True)
+class GameApplicationState:
+    """Подтверждённое состояние приложения на exact ADB target."""
+
+    adb_ready: bool
+    game_running: bool | None
+    game_foreground: bool | None
+
+    def __post_init__(self) -> None:
+        if type(self.adb_ready) is not bool:
+            raise TypeError("adb_ready должен быть bool")
+        if self.game_running is not None and type(self.game_running) is not bool:
+            raise TypeError("game_running должен быть bool или None")
+        if self.game_foreground is not None and type(self.game_foreground) is not bool:
+            raise TypeError("game_foreground должен быть bool или None")
+
+
+@dataclass(frozen=True, slots=True)
+class GameLoginState:
+    """Состояние приложения после существующего login/UI flow."""
+
+    adb_ready: bool
+    game_running: bool
+    game_foreground: bool
+    logged_in: bool
+    main: bool
+
+    def __post_init__(self) -> None:
+        for name in (
+            "adb_ready",
+            "game_running",
+            "game_foreground",
+            "logged_in",
+            "main",
+        ):
+            if type(getattr(self, name)) is not bool:
+                raise TypeError(f"{name} должен быть bool")
+
+
+@dataclass(frozen=True, slots=True)
+class GameLoginResult:
+    """Подтверждённый вход в игру с authoritative main UI postcondition."""
+
+    instance: str
+    verified: bool
+    adb_ready: bool
+    game_running: bool
+    game_foreground: bool
+    logged_in: bool
+    main: bool
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.instance, str) or not self.instance:
+            raise ValueError("instance должен быть непустой строкой")
+        for name in (
+            "verified",
+            "adb_ready",
+            "game_running",
+            "game_foreground",
+            "logged_in",
+            "main",
+        ):
+            if type(getattr(self, name)) is not bool:
+                raise TypeError(f"{name} должен быть bool")
+            if getattr(self, name) is not True:
+                raise ValueError(f"{name} должен подтверждать успешное состояние")
+
+
+@dataclass(frozen=True, slots=True)
+class GameRuntimeRestartResult:
+    """Подтверждённое восстановление эмулятора и игрового приложения."""
+
+    instance: str
+    emulator_verified: bool
+    adb_ready: bool
+    game_running: bool
+    game_foreground: bool
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.instance, str) or not self.instance:
+            raise ValueError("instance должен быть непустой строкой")
+        for name in (
+            "emulator_verified",
+            "adb_ready",
+            "game_running",
+            "game_foreground",
+        ):
+            if type(getattr(self, name)) is not bool:
+                raise TypeError(f"{name} должен быть bool")
+            if getattr(self, name) is not True:
+                raise ValueError(f"{name} должен подтверждать успешное состояние")
+
+
+@dataclass(frozen=True, slots=True)
 class AdbRestartResult:
     instance: str
 
@@ -385,6 +478,10 @@ __all__ = [
     "DashboardResources",
     "EmulatorRestartResult",
     "FrozenPayload",
+    "GameApplicationState",
+    "GameLoginResult",
+    "GameLoginState",
+    "GameRuntimeRestartResult",
     "LifecycleOutcome",
     "LifecycleResult",
     "MediaFrame",
