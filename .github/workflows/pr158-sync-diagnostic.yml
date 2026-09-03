@@ -1,4 +1,4 @@
-name: PR158 temporary sync diagnostic
+name: PR158 temporary stable integration
 
 on:
   push:
@@ -11,10 +11,10 @@ permissions:
   contents: write
 
 jobs:
-  merge-tree:
-    name: Диагностика merge tree
+  integrate:
+    name: Интеграция personal/stable и регенерация config
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 30
     steps:
       - name: Получить текущую ветку
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -22,10 +22,13 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.sha }}
 
-      - name: Проверить границы и сохранить merge tree
+      - name: Установить uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+
+      - name: Интегрировать stable и разрешить подтверждённые конфликты
         shell: bash
         env:
-          EXPECTED_PARENT_SHA: 1f8b798ba889b233ac4cafdac6c4ee946f38c937
+          EXPECTED_PARENT_SHA: ceb6f0c488b6e805e69cb003fdc127bfc348ce5d
           STABLE_SHA: cf54dfb3901c8d1ab8374840549db7deaa29b2f8
           TARGET_BRANCH: codex/morale-stage3-production-integration
         run: |
@@ -33,19 +36,242 @@ jobs:
           test "${GITHUB_REF_NAME}" = "${TARGET_BRANCH}"
           test "$(git rev-parse HEAD^)" = "${EXPECTED_PARENT_SHA}"
           git fetch --no-tags origin "${STABLE_SHA}"
+
           set +e
-          output="$(git merge-tree --write-tree --name-only HEAD "${STABLE_SHA}" 2>&1)"
-          status=$?
+          git merge --no-ff --no-commit "${STABLE_SHA}"
+          merge_status=$?
           set -e
-          {
-            printf 'merge_tree_exit_code=%s\n' "${status}"
-            printf '%s\n' "${output}"
-          } > .github/pr158-merge-diagnostic.txt
-          git add -- .github/pr158-merge-diagnostic.txt
-          if git diff --cached --quiet; then
-            exit 0
+          test "${merge_status}" -eq 1
+          test "$(git rev-parse MERGE_HEAD)" = "${STABLE_SHA}"
+
+          mapfile -t conflicts < <(git diff --name-only --diff-filter=U | LC_ALL=C sort)
+          expected=(
+            'module/application/__init__.py'
+            'module/application/morale.py'
+            'module/persistence/runtime.py'
+          )
+          test "${#conflicts[@]}" -eq "${#expected[@]}"
+          for index in "${!expected[@]}"; do
+            test "${conflicts[$index]}" = "${expected[$index]}"
+          done
+
+          git checkout --theirs -- module/application/__init__.py
+          git checkout --ours -- module/application/morale.py
+          git checkout --theirs -- module/persistence/runtime.py
+
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              target = Path(path)
+              text = target.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise RuntimeError(
+                      f"Ожидалась одна точка интеграции в {path}, найдено: {count}"
+                  )
+              target.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          app = "module/application/__init__.py"
+          replace_once(
+              app,
+              "from module.application.fleet_page import (\n",
+              "from module.application.fleet_mapping import (\n"
+              "    WorkingFleetBinding,\n"
+              "    physical_fleet_index,\n"
+              "    working_fleet_bindings,\n"
+              "    working_fleet_bindings_from_data,\n"
+              ")\n"
+              "from module.application.fleet_page import (\n",
+          )
+          replace_once(
+              app,
+              "    FleetSlotViewModel,\n)\nfrom module.application.fleet_state import (\n",
+              "    FleetSlotViewModel,\n"
+              "    MoraleRowViewModel,\n"
+              ")\n"
+              "from module.application.fleet_state import (\n",
+          )
+          replace_once(
+              app,
+              "    MoraleContinuityError,\n    MoraleFleetState,\n",
+              "    MoraleContinuityError,\n"
+              "    MoraleEventKind,\n"
+              "    MoraleEventResult,\n"
+              "    MoraleFleetState,\n",
+          )
+          replace_once(
+              app,
+              "    MoraleSlotState,\n    RecordMoraleObservation,\n    project_morale,\n",
+              "    MoraleSlotState,\n"
+              "    RecordMoraleEvent,\n"
+              "    RecordMoraleObservation,\n"
+              "    morale_ready_at,\n"
+              "    project_morale,\n",
+          )
+          replace_once(
+              app,
+              '    "FleetManualScanSubmission",\n',
+              '    "FleetManualScanSubmission",\n    "WorkingFleetBinding",\n',
+          )
+          replace_once(
+              app,
+              '    "MoraleContinuityError",\n',
+              '    "MoraleContinuityError",\n'
+              '    "MoraleEventKind",\n'
+              '    "MoraleEventResult",\n',
+          )
+          replace_once(
+              app,
+              '    "MoraleRecoveryProfile",\n',
+              '    "MoraleRecoveryProfile",\n    "MoraleRowViewModel",\n',
+          )
+          replace_once(
+              app,
+              '    "RecordMoraleObservation",\n',
+              '    "RecordMoraleEvent",\n    "RecordMoraleObservation",\n',
+          )
+          replace_once(
+              app,
+              '    "UNKNOWN_TASK",\n    "finalize_rehearsal",\n    "project_morale",\n',
+              '    "UNKNOWN_TASK",\n'
+              '    "physical_fleet_index",\n'
+              '    "working_fleet_bindings",\n'
+              '    "working_fleet_bindings_from_data",\n'
+              '    "finalize_rehearsal",\n'
+              '    "morale_ready_at",\n'
+              '    "project_morale",\n',
+          )
+
+          morale = "module/application/morale.py"
+          replace_once(
+              morale,
+              "from module.application.instance_identity import resolve_runtime_instance\n",
+              "from module.application.instance_identity import (\n"
+              "    resolve_existing_runtime_instance,\n"
+              "    resolve_runtime_instance,\n"
+              ")\n",
+          )
+          read_only_method = '''    def state_read_only(\n        self,\n        instance: str,\n        selection: FleetSelection,\n        *,\n        at: datetime | None = None,\n    ) -> MoraleSelectionState:\n        \"\"\"Прочитать morale без регистрации нового app instance.\"\"\"\n\n        if not isinstance(selection, FleetSelection):\n            raise TypeError(\"selection должен быть FleetSelection\")\n        projected_at = self._now() if at is None else _aware(at, field=\"at\")\n        with self._uow_factory() as uow:\n            instance_id = resolve_existing_runtime_instance(uow, instance)\n            if instance_id is None:\n                return self.state_from_observations(\n                    selection,\n                    (),\n                    (),\n                    at=projected_at,\n                )\n            return self.state_in_uow(\n                uow,\n                instance_id,\n                selection,\n                at=projected_at,\n            )\n\n'''
+          replace_once(
+              morale,
+              "    def state_in_uow(\n",
+              read_only_method + "    def state_in_uow(\n",
+          )
+
+          runtime = "module/persistence/runtime.py"
+          replace_once(
+              runtime,
+              "from module.application.fleet_state import (\n"
+              "    FleetScanService,\n"
+              "    FleetStateService,\n"
+              "    FormationFleetScanController,\n"
+              ")\n",
+              "from module.application.fleet_state import (\n"
+              "    FleetScanService,\n"
+              "    FleetStateService,\n"
+              "    FormationFleetScanController,\n"
+              ")\n"
+              "from module.application.morale import MoraleService\n"
+              "from module.application.morale_reconciliation import MoraleReconciliationService\n",
+          )
+          replace_once(
+              runtime,
+              "_runtime_timezone: ZoneInfo | None = None\n",
+              "_runtime_timezone: ZoneInfo | None = None\n_morale_service: MoraleService | None = None\n",
+          )
+          replace_once(
+              runtime,
+              "    query_service: FleetPageQueryService\n"
+              "    command_service: FleetManualScanCommandService\n"
+              "    runtime_timezone: ZoneInfo\n",
+              "    query_service: FleetPageQueryService\n"
+              "    command_service: FleetManualScanCommandService\n"
+              "    morale_service: MoraleService\n"
+              "    runtime_timezone: ZoneInfo\n",
+          )
+          replace_once(
+              runtime,
+              "@dataclass(slots=True)\nclass ReadOnlyPersistenceComposition:\n",
+              "@dataclass(frozen=True, slots=True)\n"
+              "class RuntimeMoraleContext:\n"
+              "    \"\"\"Per-ship Morale и Dorm reconciliation поверх общего Engine.\"\"\"\n\n"
+              "    morale_service: MoraleService\n"
+              "    reconciliation_service: MoraleReconciliationService\n"
+              "    runtime_timezone: ZoneInfo\n\n\n"
+              "@dataclass(slots=True)\n"
+              "class ReadOnlyPersistenceComposition:\n",
+          )
+
+          old_fleet_page = '''def build_runtime_fleet_page_context(\n    *,\n    clock: Callable[[], datetime] | None = None,\n    require_ready: bool = True,\n) -> RuntimeFleetPageContext:\n    \"\"\"Собрать сервисы WebUI-страницы флотов без устройства и контроллера сканирования.\"\"\"\n\n    bootstrap_runtime_storage(require_ready=require_ready)\n    with _lock:\n        engine = _engine\n        runtime_timezone = _runtime_timezone\n    if engine is None or runtime_timezone is None:\n        raise RuntimeError(\"Точка сборки Fleet page не инициализирована.\")\n    uow_factory = lambda: PostgresUnitOfWork(engine)\n    return RuntimeFleetPageContext(\n        query_service=FleetPageQueryService(uow_factory),\n        command_service=FleetManualScanCommandService(\n            uow_factory,\n            clock=clock,\n        ),\n        runtime_timezone=runtime_timezone,\n    )\n\n\n'''
+          new_fleet_page = '''def build_runtime_fleet_page_context(\n    *,\n    clock: Callable[[], datetime] | None = None,\n    require_ready: bool = True,\n) -> RuntimeFleetPageContext:\n    \"\"\"Собрать сервисы WebUI-страницы флотов без устройства и контроллера сканирования.\"\"\"\n\n    bootstrap_runtime_storage(require_ready=require_ready)\n    with _lock:\n        engine = _engine\n        runtime_timezone = _runtime_timezone\n    if engine is None or runtime_timezone is None:\n        raise RuntimeError(\"Точка сборки Fleet page не инициализирована.\")\n    uow_factory = lambda: PostgresUnitOfWork(engine)\n    morale_service = build_runtime_morale_service(\n        clock=clock,\n        require_ready=False,\n    )\n    return RuntimeFleetPageContext(\n        query_service=FleetPageQueryService(\n            uow_factory,\n            morale_service=morale_service,\n        ),\n        command_service=FleetManualScanCommandService(\n            uow_factory,\n            clock=clock,\n        ),\n        morale_service=morale_service,\n        runtime_timezone=runtime_timezone,\n    )\n\n\ndef build_runtime_morale_service(\n    *,\n    clock: Callable[[], datetime] | None = None,\n    require_ready: bool = True,\n) -> MoraleService:\n    \"\"\"Вернуть общий application Morale service без создания второго Engine.\"\"\"\n\n    global _morale_service\n    bootstrap_runtime_storage(require_ready=require_ready)\n    with _lock:\n        engine = _engine\n    if engine is None:\n        raise RuntimeError(\"Точка сборки Morale не инициализирована.\")\n    if clock is not None:\n        return MoraleService(\n            lambda: PostgresUnitOfWork(engine),\n            clock=clock,\n        )\n    with _lock:\n        if _morale_service is None:\n            _morale_service = MoraleService(\n                lambda: PostgresUnitOfWork(engine),\n            )\n        return _morale_service\n\n\ndef build_runtime_morale_context(\n    *,\n    clock: Callable[[], datetime] | None = None,\n    require_ready: bool = True,\n) -> RuntimeMoraleContext:\n    \"\"\"Собрать Morale и Dorm boundary на том же storage composition root.\"\"\"\n\n    morale_service = build_runtime_morale_service(\n        clock=clock,\n        require_ready=require_ready,\n    )\n    with _lock:\n        engine = _engine\n        runtime_timezone = _runtime_timezone\n    if engine is None or runtime_timezone is None:\n        raise RuntimeError(\"Точка сборки Morale не инициализирована.\")\n    uow_factory = lambda: PostgresUnitOfWork(engine)\n    return RuntimeMoraleContext(\n        morale_service=morale_service,\n        reconciliation_service=MoraleReconciliationService(\n            uow_factory,\n            clock=clock,\n        ),\n        runtime_timezone=runtime_timezone,\n    )\n\n\n'''
+          replace_once(runtime, old_fleet_page, new_fleet_page)
+          replace_once(
+              runtime,
+              "def dispose_runtime_storage() -> None:\n"
+              "    global _engine, _engine_settings, _runtime_timezone, _service\n",
+              "def dispose_runtime_storage() -> None:\n"
+              "    global _engine, _engine_settings, _runtime_timezone, _service, _morale_service\n",
+          )
+          replace_once(
+              runtime,
+              "        _runtime_timezone = None\n        _service = None\n",
+              "        _runtime_timezone = None\n        _service = None\n        _morale_service = None\n",
+          )
+          replace_once(
+              runtime,
+              '    "RuntimeFleetStateContext",\n',
+              '    "RuntimeFleetStateContext",\n    "RuntimeMoraleContext",\n',
+          )
+          replace_once(
+              runtime,
+              '    "build_runtime_fleet_state_context",\n',
+              '    "build_runtime_fleet_state_context",\n'
+              '    "build_runtime_morale_context",\n'
+              '    "build_runtime_morale_service",\n',
+          )
+          PY
+
+          git add -- \
+            module/application/__init__.py \
+            module/application/morale.py \
+            module/persistence/runtime.py
+
+          if git diff --name-only --diff-filter=U | grep -q .; then
+            echo 'После разрешения остались unmerged paths.' >&2
+            exit 1
           fi
+
+      - name: Восстановить зависимости и перегенерировать config
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --frozen
+          uv run -m module.config.config_updater
+          git add -- \
+            config/template.json \
+            module/config/argument/args.json \
+            module/config/config_generated.py \
+            module/config/i18n/en-US.json \
+            module/config/i18n/ru-RU.json
+          unexpected="$(git diff --name-only)"
+          if test -n "${unexpected}"; then
+            printf 'Генератор изменил неожиданные незастейдженные файлы:\n%s\n' "${unexpected}" >&2
+            exit 1
+          fi
+          uv run pytest -q tests/test_config_generation.py
+          git diff --check
+
+      - name: Зафиксировать интеграцию и отправить ветку
+        shell: bash
+        env:
+          TARGET_BRANCH: codex/morale-stage3-production-integration
+          STABLE_SHA: cf54dfb3901c8d1ab8374840549db7deaa29b2f8
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse MERGE_HEAD)" = "${STABLE_SHA}"
+          test -z "$(git diff --name-only --diff-filter=U)"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'chore(pr158): сохранить диагностику merge'
+          git commit -m 'chore(pr158): синхронизировать с personal/stable'
           git push origin "HEAD:refs/heads/${TARGET_BRANCH}"
