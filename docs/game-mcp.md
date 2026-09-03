@@ -120,6 +120,14 @@ shell/module/function/natural-language actions отсутствуют.
 описание control tools, но сервер повторно проверяет required scope на
 фактическом `tools/call` и отклоняет mutation до backend acquisition.
 
+`game_get_contract` возвращает `tool_count` и `tool_catalog_sha256`. Fingerprint
+строится только по каноническим именам tools: имена сортируются лексикографически,
+соединяются переводом строки без завершающего перевода строки, кодируются UTF-8 и
+хешируются SHA-256. В `details.request_context` backend сообщает только
+эффективный transport, факт аутентификации, local authority, разрешённые Game
+scopes и effective read/control access; token, JWT claims, subject, headers и
+provider internals наружу не передаются.
+
 ADB restart допускается только после fresh inventory и доказанной
 instance/serial ownership; `adb kill-server` сериализуется стабильным
 пользовательским host lock, identity которого строится по ADB server endpoint,

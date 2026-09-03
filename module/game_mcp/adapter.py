@@ -88,42 +88,17 @@ from module.formation.model import (
 )
 from module.game_mcp.contract import (
     GAME_MCP_CONTROL_SCOPE,
+    GAME_MCP_CONTROL_TOOL_NAMES,
     GAME_MCP_NO_ARGUMENT_TOOLS,
     GAME_MCP_READ_SCOPE,
+    GAME_MCP_READ_TOOL_NAMES,
+    GAME_MCP_SCOPES,
+    GAME_MCP_TOOL_NAMES,
+    GAME_MCP_TOOL_REQUIRED_SCOPES,
     contract_result,
 )
 
 logger = logging.getLogger(__name__)
-
-GAME_MCP_READ_TOOL_NAMES = (
-    "game_get_contract",
-    "game_list_profiles",
-    "game_get_profile_status",
-    "game_get_resources",
-    "game_get_current_task",
-    "game_get_scheduler_queue",
-    "game_list_tasks",
-    "game_get_task_help",
-    "game_get_fleet_state",
-    "game_get_morale",
-    "game_get_config",
-    "game_get_recent_logs",
-    "game_get_screenshot",
-)
-GAME_MCP_CONTROL_TOOL_NAMES = (
-    "game_start_profile",
-    "game_stop_profile",
-    "game_trigger_task",
-    "game_clear_scheduler_queue",
-    "game_update_config",
-    "game_restart_emulator",
-    "game_restart_adb",
-)
-GAME_MCP_TOOL_NAMES = GAME_MCP_READ_TOOL_NAMES + GAME_MCP_CONTROL_TOOL_NAMES
-GAME_MCP_TOOL_REQUIRED_SCOPES = {
-    **{name: GAME_MCP_READ_SCOPE for name in GAME_MCP_READ_TOOL_NAMES},
-    **{name: GAME_MCP_CONTROL_SCOPE for name in GAME_MCP_CONTROL_TOOL_NAMES},
-}
 
 _MAX_PROFILE_COUNT = 256
 _MAX_TASK_COUNT = 512
@@ -1106,6 +1081,36 @@ def _authorized(
     return required_scope in scopes
 
 
+def _request_context(
+    explicit_scopes: Collection[str] | None,
+) -> dict[str, object]:
+    """Собрать bounded контекст полномочий без principal и token данных."""
+
+    scopes = (
+        tuple(explicit_scopes)
+        if explicit_scopes is not None
+        else _current_request_scopes()
+    )
+    if scopes is None:
+        return {
+            "transport": "local_stdio",
+            "authenticated": False,
+            "local_authority": True,
+            "granted_scopes": [],
+            "read_allowed": True,
+            "control_allowed": True,
+        }
+    granted = [scope for scope in GAME_MCP_SCOPES if scope in scopes]
+    return {
+        "transport": "remote_http",
+        "authenticated": True,
+        "local_authority": False,
+        "granted_scopes": granted,
+        "read_allowed": GAME_MCP_READ_SCOPE in scopes,
+        "control_allowed": GAME_MCP_CONTROL_SCOPE in scopes,
+    }
+
+
 class GameMcpAdapter:
     """Маршрутизировать stateless read/control Game MCP tools."""
 
@@ -1472,7 +1477,7 @@ class GameMcpAdapter:
         except (InvalidRequestError, TypeError, ValueError):
             return _invalid(tool_name)
         if tool_name == "game_get_contract":
-            return contract_result()
+            return contract_result(request_context=_request_context(scopes))
         try:
             backend = self._acquire_backend()
         except Exception as exc:  # noqa: BLE001 - public boundary must hide adapter details.

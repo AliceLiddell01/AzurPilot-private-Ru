@@ -18,6 +18,7 @@ from mcp_types import (
 
 from module.game_mcp.adapter import (
     GAME_MCP_CONTROL_TOOL_NAMES,
+    GameMcpAdapter,
     GameMcpResponse,
 )
 from module.game_mcp.remote import (
@@ -32,6 +33,7 @@ from module.game_mcp.remote import (
     run_remote_server,
 )
 from module.game_mcp.server import tool_definitions
+from module.mcp_shared.auth import current_access_token
 
 _BASE_URL = "https://game-mcp.example.test"
 _HOST = "game-mcp.example.test"
@@ -313,6 +315,111 @@ def test_game_remote_rejects_dev_scope_and_missing_auth() -> None:
             assert dev_token.status_code == 403
             assert dev_token.json() == {"error": "forbidden"}
         assert adapter.calls == []
+
+    asyncio.run(scenario())
+
+
+def test_game_remote_contract_reports_effective_context_and_cleans_principal() -> None:
+    async def scenario() -> None:
+        app = create_remote_app(
+            GameMcpAdapter(lambda: object()),
+            config=_config(),
+            token_verifier=_StaticVerifier(
+                [GAME_MCP_REQUIRED_SCOPE, GAME_MCP_CONTROL_SCOPE]
+            ),
+        )
+        async with _client(app) as client:
+            response = await client.post(
+                "/mcp",
+                headers=_headers(method="tools/call", name="game_get_contract"),
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 20,
+                    "method": "tools/call",
+                    "params": {
+                        **_modern_params("game_get_contract"),
+                        "arguments": {},
+                    },
+                },
+            )
+            assert response.status_code == 200
+            result = response.json()["result"]["structuredContent"]
+            assert result["details"]["request_context"] == {
+                "transport": "remote_http",
+                "authenticated": True,
+                "local_authority": False,
+                "granted_scopes": [
+                    GAME_MCP_REQUIRED_SCOPE,
+                    GAME_MCP_CONTROL_SCOPE,
+                ],
+                "read_allowed": True,
+                "control_allowed": True,
+            }
+            assert "valid-token" not in response.text
+        assert current_access_token() is None
+
+    asyncio.run(scenario())
+
+
+def test_game_remote_request_context_does_not_leak_between_concurrent_scopes() -> None:
+    class _ScopeVerifier:
+        async def verify_token(self, token: str) -> AccessToken | None:
+            scopes = {
+                "read-token": [GAME_MCP_REQUIRED_SCOPE],
+                "control-token": [GAME_MCP_REQUIRED_SCOPE, GAME_MCP_CONTROL_SCOPE],
+            }.get(token)
+            if scopes is None:
+                return None
+            return AccessToken(
+                token="",
+                client_id=token,
+                scopes=scopes,
+                expires_at=int(time.time()) + 300,
+                resource=_AUDIENCE,
+            )
+
+    async def scenario() -> None:
+        app = create_remote_app(
+            GameMcpAdapter(lambda: object()),
+            config=_config(),
+            token_verifier=_ScopeVerifier(),
+        )
+
+        async def request(client: httpx.AsyncClient, token: str, request_id: int):
+            headers = _headers(
+                auth=False, method="tools/call", name="game_get_contract"
+            )
+            headers["Authorization"] = f"Bearer {token}"
+            return await client.post(
+                "/mcp",
+                headers=headers,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "method": "tools/call",
+                    "params": {
+                        **_modern_params("game_get_contract"),
+                        "arguments": {},
+                    },
+                },
+            )
+
+        async with _client(app) as client:
+            tokens = ["read-token", "control-token"] * 4
+            responses = await asyncio.gather(
+                *(request(client, token, index) for index, token in enumerate(tokens))
+            )
+            for token, response in zip(tokens, responses, strict=True):
+                assert response.status_code == 200
+                result = response.json()["result"]["structuredContent"]
+                expected_scopes = [GAME_MCP_REQUIRED_SCOPE]
+                if token == "control-token":
+                    expected_scopes.append(GAME_MCP_CONTROL_SCOPE)
+                assert (
+                    result["details"]["request_context"]["granted_scopes"]
+                    == expected_scopes
+                )
+        assert current_access_token() is None
 
     asyncio.run(scenario())
 
