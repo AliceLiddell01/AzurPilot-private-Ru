@@ -1,0 +1,10 @@
+{
+  "apps": {
+    "azurpilot-development-verified": {
+      "id": "asdk_app_6a948a28ca2881919c12b80b2e081715"
+    },
+    "azurpilot-game": {
+      "id": "asdk_app_6a980b2135588191b53e9a0872fbddf0"
+    }
+  }
+}

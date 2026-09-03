@@ -1,13 +1,19 @@
 # AzurPilot
 
-Canonical Plugin Creator package для Development workflow `AzurPilot`. Plugin
-Creator нормализует machine-readable ID в `azurpilot`, а human-facing display
-name остаётся `AzurPilot`. Пакет поставляет skill `azurpilot-development`.
+Canonical Plugin Creator package для Development и Game workflow `AzurPilot`.
+Plugin Creator нормализует machine-readable ID в `azurpilot`, а human-facing
+display name остаётся `AzurPilot`. Пакет поставляет три разделённых skill:
+`azurpilot-development`, `azurpilot-game-control` и
+`azurpilot-troubleshooting`.
 
 ## Архитектура
 
-Пакет не содержит `.app.json` или `.mcp.json`: canonical runtime — это уже
-существующий `module.dev_mcp`.
+Пакет не содержит `.mcp.json` и не регистрирует новый MCP implementation.
+`.app.json` содержит только references на уже существующие приложения
+`AzurPilot Development Verified` и `AzurPilot Game`; их accounts, OAuth scopes,
+approval policy и runtime остаются внешними по отношению к package.
+
+Canonical runtimes — существующие `module.dev_mcp` и `module.game_mcp`.
 
 - Codex вызывает project-scoped `azurpilot-dev` напрямую через local stdio:
   `uv run --locked --no-sync python -m module.dev_mcp`.
@@ -17,9 +23,9 @@ name остаётся `AzurPilot`. Пакет поставляет skill `azurpi
 - `mcp_server_sse.py` остаётся отдельным production MCP и не используется этим
   приложением.
 
-Публикуемые данные должны оставаться Development-only. Не добавляй в checkout
+Публикуемые данные должны оставаться workflow-only. Не добавляй в checkout
 ChatGPT app state, tunnel profiles, control-plane keys, screenshots, archives,
-cookies или локальный runtime cache.
+cookies, credentials или локальный runtime cache.
 
 ## Установка и public HTTPS
 
@@ -96,12 +102,15 @@ control operation с новой immutable спецификацией. Созда
 сериализуется общей repository-scoped coordination lock; собственный marker
 остаётся durable reservation после сбоя запуска до явного fail-closed recovery.
 
-## Граница Game capability
+## Граница Game workflow
 
-Developer-only capability `Game` реализована как односторонний Dev → neutral
-`module/application` bridge. Она предоставляет только typed read observations
-назначенного target; Game MCP, MCP-to-MCP loopback, второй game domain и
-обратная зависимость application от Dev Runtime запрещены.
+Developer-only capability `Game` внутри `azurpilot-development` реализована как
+односторонний Dev → neutral `module/application` bridge и предоставляет только
+typed read observations назначенного target. Обычная игровая эксплуатация
+маршрутизируется в `azurpilot-game-control` через standalone `module.game_mcp`;
+его canonical `profile`, read/control scopes и postconditions не смешиваются с
+Dev MCP. MCP-to-MCP loopback, второй game domain и обратная зависимость
+application от Dev Runtime запрещены.
 
 Smoke сохраняет before/final и объявленные intermediate checkpoints в
 существующем repository-scoped Smoke state. Duplicate policy ограничена
