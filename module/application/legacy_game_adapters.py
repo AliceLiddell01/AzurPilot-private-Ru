@@ -771,17 +771,66 @@ class LegacyEmulatorAdapter:
                     "Ownership emulator instance не подтверждён."
                 )
             )
-        stopped = self._call_platform(
-            platform,
-            "emulator_stop",
-            "остановку эмулятора",
-        )
-        if stopped is not True or not self._await_running(is_running, False):
+
+        try:
+            self._call_platform(
+                platform,
+                "emulator_stop",
+                "остановку эмулятора",
+            )
+        except OperationFailedError:
+            # Решение о внутренней эскалации принимает свежая проверка
+            # instance state, а не exit code или исключение manager API.
+            pass
+
+        stop_state = self._state_after_wait(is_running, expected=False)
+        if stop_state is None:
             return self._failure(
-                PostconditionFailedError(
-                    "Эмулятор не подтвердил состояние stopped после stop."
+                OwnershipAmbiguousError(
+                    "Ownership emulator instance нельзя подтвердить после stop."
                 )
             )
+
+        if stop_state:
+            # Это одна lifecycle transition: штатная остановка уже завершилась
+            # неуспешно, поэтому перед instance-scoped escalation требуется
+            # отдельная актуальная проверка exact ownership.
+            if self._read_running(is_running) is not True:
+                stop_state = self._state_after_wait(is_running, expected=False)
+                if stop_state is None:
+                    return self._failure(
+                        OwnershipAmbiguousError(
+                            "Ownership emulator instance нельзя подтвердить перед escalation."
+                        )
+                    )
+            if stop_state:
+                force_error: OperationFailedError | None = None
+                try:
+                    self._call_platform(
+                        platform,
+                        "emulator_force_stop_instance",
+                        "instance-scoped завершение эмулятора",
+                    )
+                except OperationFailedError as error:
+                    # Даже при ошибке команды authoritative state может уже
+                    # быть stopped; ниже решение принимается только по нему.
+                    force_error = error
+
+                force_state = self._state_after_wait(is_running, expected=False)
+                if force_state is None:
+                    return self._failure(
+                        OwnershipAmbiguousError(
+                            "Ownership emulator instance нельзя подтвердить после escalation."
+                        )
+                    )
+                if force_state:
+                    return self._failure(
+                        force_error
+                        or PostconditionFailedError(
+                            "Эмулятор не подтвердил состояние stopped после escalation."
+                        )
+                    )
+
         started = self._call_platform(
             platform,
             "emulator_start",
@@ -798,6 +847,17 @@ class LegacyEmulatorAdapter:
                 )
             )
         return True
+
+    @classmethod
+    def _state_after_wait(
+        cls,
+        checker: Callable[[], object],
+        *,
+        expected: bool,
+    ) -> bool | None:
+        if cls._await_running(checker, expected):
+            return expected
+        return cls._read_running(checker)
 
     def _failure(self, error: OperationFailedError) -> bool:
         if self._typed_failures:
