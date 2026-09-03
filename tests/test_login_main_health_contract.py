@@ -70,3 +70,13 @@ def test_login_flow_timeout_is_bounded_and_restores_screenshot_interval():
         ((), {}),
     ]
     handler.device.screenshot.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "timeout_seconds", [float("nan"), float("inf"), float("-inf")]
+)
+def test_login_flow_rejects_non_finite_timeout(timeout_seconds: float):
+    handler = LoginHandler.__new__(LoginHandler)
+
+    with pytest.raises(ValueError, match="конечным"):
+        handler._handle_app_login(timeout_seconds=timeout_seconds)

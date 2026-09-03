@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from functools import wraps
+from math import isfinite
 from pathlib import Path
 from time import monotonic, sleep
 from typing import Concatenate
@@ -165,10 +166,11 @@ class GameControlService:
             raise ValueError("game_start_max_attempts должен быть положительным int")
         if (
             type(game_login_timeout_seconds) is not float
+            or not isfinite(game_login_timeout_seconds)
             or game_login_timeout_seconds < 0
         ):
             raise ValueError(
-                "game_login_timeout_seconds должен быть неотрицательным float"
+                "game_login_timeout_seconds должен быть неотрицательным конечным float"
             )
         self._game_start_timeout_seconds = game_start_timeout_seconds
         self._game_start_retry_interval_seconds = game_start_retry_interval_seconds
