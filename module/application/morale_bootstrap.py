@@ -16,6 +16,7 @@ from module.application.morale import (
 from module.application.morale_reconciliation import TargetedMoraleLookupTarget
 from module.dock_inventory.model import IdentityStatus
 from module.dorm.morale_composition import build_campaign_morale_context
+from module.dorm.morale_controller import DormMoraleControllerError
 from module.dorm.morale_lookup import (
     TargetedMoraleLocationHint,
     TargetedMoraleLookupController,
@@ -257,11 +258,8 @@ class CampaignMoraleBootstrapper:
             return
         try:
             self.dorm_controller.close_train()
-        except Exception as error:  # только fallback к штатному page graph.
-            from module.dorm.morale_controller import DormMoraleControllerError
-
-            if not isinstance(error, DormMoraleControllerError):
-                raise
+        except DormMoraleControllerError:  # только fallback к штатному page graph.
+            pass
         self.dorm_controller.ui_ensure(page_main)
 
     def _arm_task_level_failure(self, error: CampaignMoraleBootstrapError) -> None:
@@ -452,18 +450,14 @@ class CampaignMoraleBootstrapper:
                     targeted_outside += 1
             except CampaignMoraleBootstrapError as error:
                 self._fail_safely(error, lookup=lookup)
-            except Exception as exc:
-                from module.dorm.morale_controller import DormMoraleControllerError
-
-                if isinstance(exc, DormMoraleControllerError):
-                    self._fail_safely(
-                        CampaignMoraleBootstrapError(
-                            "selection_open_failed",
-                            str(exc),
-                        ),
-                        lookup=lookup,
-                    )
-                raise
+            except DormMoraleControllerError as exc:
+                self._fail_safely(
+                    CampaignMoraleBootstrapError(
+                        "selection_open_failed",
+                        str(exc),
+                    ),
+                    lookup=lookup,
+                )
 
         final_state = context.morale_service.state(
             self.config.config_name,

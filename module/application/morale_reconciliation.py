@@ -202,6 +202,10 @@ class MoraleReconciliationService:
         ``lookup_targets``. Даже полный Dorm scan не превращает отсутствие в
         фиктивное ``119/EXACT``: exact current для такого target должен быть
         прочитан отдельным безопасным Search lookup.
+
+        ``target_count`` отражает весь выбранный Formation target set и поэтому
+        включает stale fleets; ``lookup_targets`` содержит только актуальные
+        candidates, которым нужен дополнительный Search lookup.
         """
 
         if not isinstance(selection, FleetSelection):

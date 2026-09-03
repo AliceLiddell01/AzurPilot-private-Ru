@@ -178,8 +178,11 @@ class _Device:
         self.inputs = []
         self.clicks = []
         self.image = np.zeros((720, 1280, 3), dtype=np.uint8)
+        self.raise_on_input = False
 
     def text_input_and_confirm(self, text, clear=False):
+        if self.raise_on_input:
+            raise RuntimeError("synthetic input failure")
         self.inputs.append((text, clear))
 
     def click(self, button):
@@ -216,3 +219,42 @@ def test_lookup_focuses_search_input_and_never_clicks_result_or_confirm():
     assert result.target is target
     assert device.inputs == [("Argus", True)]
     assert device.clicks == ["MORALE_LOOKUP_SEARCH_INPUT"]
+
+
+def test_lookup_wraps_search_input_failure_in_declared_error():
+    target = _target()
+    device = _Device()
+    device.raise_on_input = True
+    controller = _Controller(device)
+
+    with pytest.raises(TargetedMoraleLookupError) as exc:
+        controller.lookup(target)
+
+    assert exc.value.error_code == "search_input_failed"
+
+
+class _ActivatingController(TargetedMoraleLookupController):
+    def __init__(self, frames):
+        self.device = _Device()
+        self.config = SimpleNamespace()
+        self._frames = list(frames)
+
+    def _capture(self):
+        return self._frames.pop(0)
+
+    def appear(self, *_args, **_kwargs):
+        return True
+
+    def _search_active(self, frame):
+        return bool(frame[0, 0, 0])
+
+
+def test_activate_search_waits_for_confirmed_active_state():
+    inactive = np.zeros((720, 1280, 3), dtype=np.uint8)
+    active = np.ones((720, 1280, 3), dtype=np.uint8)
+    controller = _ActivatingController((inactive, inactive, active))
+
+    frame = controller.activate_search()
+
+    assert frame is active
+    assert controller.device.clicks == ["MORALE_LOOKUP_SEARCH"]

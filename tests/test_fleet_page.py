@@ -376,6 +376,29 @@ def test_page_morale_rows_use_configured_working_physical_fleet_only() -> None:
     assert morale.calls == [(instance_id, (2,))]
 
 
+def test_page_skips_missing_morale_fleet_without_attribute_error(monkeypatch) -> None:
+    service, _, _, _, _ = _service()
+    monkeypatch.setattr(
+        service._morale_service,
+        "state_from_observations",
+        lambda *_args, **_kwargs: SimpleNamespace(fleets=()),
+    )
+
+    model = service.view(
+        "profile-a",
+        working_fleets=(
+            WorkingFleetBinding(
+                task="Main",
+                role="all",
+                logical_fleet_index=1,
+                physical_fleet_index=2,
+            ),
+        ),
+    )
+
+    assert model.morale_rows == ()
+
+
 def test_webui_morale_mapping_uses_only_current_running_task() -> None:
     data = {
         "Alas": {},

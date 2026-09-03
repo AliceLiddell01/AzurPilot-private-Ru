@@ -46,9 +46,7 @@ def _role_for(order: str, logical_fleet_index: int) -> str:
         return "mob" if logical_fleet_index == 1 else "boss"
     if order == "fleet1_boss_fleet2_mob":
         return "boss" if logical_fleet_index == 1 else "mob"
-    if order == "fleet1_all_fleet2_standby":
-        return "all"
-    if order == "fleet1_standby_fleet2_all":
+    if order in {"fleet1_all_fleet2_standby", "fleet1_standby_fleet2_all"}:
         return "all"
     raise ValueError(f"Неизвестный порядок флотов: {order}")
 

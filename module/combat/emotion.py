@@ -22,7 +22,6 @@ from module.exception import RequestHumanTakeover, ScriptEnd, ScriptError
 from module.formation.model import FleetSelection
 from module.logger import logger
 
-
 DIC_LIMIT = {
     "keep_exp_bonus": 120,
     "prevent_green_face": 40,
@@ -194,8 +193,7 @@ class Emotion:
         return self.fleets[logical_fleet_index - 1]
 
     @staticmethod
-    def _target(policy: FleetEmotion, expected_reduce: int, ceiling: Decimal) -> Decimal:
-        del ceiling
+    def _target(policy: FleetEmotion, expected_reduce: int) -> Decimal:
         effective_reduce = expected_reduce
         # Это отдельная legacy gameplay policy: при большом ожидаемом списании
         # keep-exp учитывает не более 29 пунктов. Она не разрешает снижать
@@ -261,7 +259,7 @@ class Emotion:
                     )
                     blocked = True
                     continue
-                target = self._target(policy, cost, slot.recovery.recovery_ceiling)
+                target = self._target(policy, cost)
                 if target > slot.recovery.recovery_ceiling or target > MORALE_MAX:
                     logger.warning(
                         f"[Настроение — проверка] Target {target} недостижим для слота физического Fleet {fleet_state.fleet_index}; вход заблокирован"
@@ -349,6 +347,10 @@ class Emotion:
         service = self._service()
         now = service.now()
         state = service.state(self._instance(), FleetSelection.one(physical), at=now)
+        if not state.fleets:
+            raise ScriptEnd(
+                f"[Настроение — ожидание] Fleet State physical Fleet {physical} не получен"
+            )
         fleet_state = state.fleets[0]
         if fleet_state.formation_observation_id is None:
             raise ScriptEnd(
@@ -378,7 +380,6 @@ class Emotion:
             target = self._target(
                 policy,
                 self.reduce_per_battle,
-                slot.recovery.recovery_ceiling,
             )
             if target > slot.recovery.recovery_ceiling or target > MORALE_MAX:
                 logger.warning(

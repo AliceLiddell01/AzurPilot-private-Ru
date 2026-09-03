@@ -339,7 +339,7 @@ def test_missing_target_uses_raw_train_occupant_for_search_and_records_exact_out
         matched_result_count=1,
         observed_at=NOW,
     )
-    bootstrapper, config, _controller, reconciliation, lookup = _bootstrap(
+    bootstrapper, config, controller, reconciliation, lookup = _bootstrap(
         scan=scan,
         lookup_targets=(target,),
         lookup_observations=(observed,),

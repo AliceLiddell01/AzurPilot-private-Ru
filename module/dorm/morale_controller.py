@@ -56,6 +56,7 @@ class DormTrainLayout:
 class DormTrainStatePolicy:
     dorm_home_luma_min: float = 170.0
     dorm_home_light_ratio_min: float = 0.55
+    light_pixel_luma_min: float = 180.0
     train_modal_dark_luma_max: float = 100.0
     train_modal_dark_ratio_min: float = 0.5
     selected_luma_min: float = 180.0
@@ -97,11 +98,10 @@ class DormTrainStateDetector:
         x1, y1, x2, y2 = area
         return float(np.mean(cv2.cvtColor(frame[y1:y2, x1:x2], cv2.COLOR_RGB2GRAY)))
 
-    @staticmethod
-    def _light_ratio(frame: np.ndarray, area: tuple[int, int, int, int]) -> float:
+    def _light_ratio(self, frame: np.ndarray, area: tuple[int, int, int, int]) -> float:
         x1, y1, x2, y2 = area
         luma = cv2.cvtColor(frame[y1:y2, x1:x2], cv2.COLOR_RGB2GRAY)
-        return float(np.mean(luma >= 180))
+        return float(np.mean(luma >= self.policy.light_pixel_luma_min))
 
     def train_modal_visible(self, frame: np.ndarray) -> bool:
         frame = self._normalize(frame)

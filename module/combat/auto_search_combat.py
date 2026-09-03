@@ -22,7 +22,13 @@ from module.combat.emotion import begin_morale_combat_event
 from module.exception import CampaignEnd, ScriptEnd
 from module.handler.assets import AUTO_SEARCH_MAP_OPTION_ON, GET_MISSION
 from module.logger import logger
-from module.map.assets import WITHDRAW, SWITCH_OVER, FLEET_WITHDRAW, FLEET_SWITCH_CONFIRM, FLEET_WITHDRAW_BOSS
+from module.map.assets import (
+    FLEET_SWITCH_CONFIRM,
+    FLEET_WITHDRAW,
+    FLEET_WITHDRAW_BOSS,
+    SWITCH_OVER,
+    WITHDRAW,
+)
 from module.map.map_operation import MapOperation
 
 
@@ -242,6 +248,9 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
         Args:
             emotion_reduce (bool):
             fleet_index (int):
+            battle (tuple[int, int] | None):
+                Текущая координата battle_count/map battle для morale event и
+                force_call логики.
             expected_end (callable):
 
         Pages:
@@ -322,7 +331,11 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
                 continue
             if self.appear_then_click(OPTS_INFO_D, offset=(30, 30), interval=2):
                 if emotion_reduce and not self._shipwreck_emotion_reduced:
-                    self.emotion.reduce(fleet_index, shipwreck=True)
+                    self.emotion.reduce(
+                        fleet_index,
+                        shipwreck=True,
+                        battle=battle,
+                    )
                     self._shipwreck_emotion_reduced = True
                 self._withdraw = True
                 break

@@ -800,8 +800,8 @@ def test_keep_exp_target_is_not_clamped_to_outside_ceiling():
     config = _emotion_config(control="keep_exp_bonus")
     policy = Emotion(config).fleet_1
 
-    assert Emotion._target(policy, 2, Decimal(119)) == Decimal(122)
-    assert Emotion._target(policy, 30, Decimal(119)) == Decimal(149)
+    assert Emotion._target(policy, 2) == Decimal(122)
+    assert Emotion._target(policy, 30) == Decimal(149)
 
 
 def test_keep_exp_unreachable_outside_target_cleanly_blocks_readiness():
@@ -898,6 +898,17 @@ def test_wait_blocks_unknown_morale_with_clean_scheduler_boundary():
     now = datetime(2026, 8, 27, 10, tzinfo=UTC)
     instances, fleets, _, service = _service(clock=lambda: now)
     _seed_fleet(instances, fleets, "profile", 1, observed_at=now)
+
+    with pytest.raises(ScriptEnd):
+        Emotion(_emotion_config(), morale_service=service).wait(1)
+
+
+def test_wait_blocks_missing_fleet_state_without_index_error():
+    now = datetime(2026, 8, 27, 10, tzinfo=UTC)
+    service = SimpleNamespace(
+        now=lambda: now,
+        state=lambda *_args, **_kwargs: SimpleNamespace(fleets=()),
+    )
 
     with pytest.raises(ScriptEnd):
         Emotion(_emotion_config(), morale_service=service).wait(1)
@@ -1050,8 +1061,12 @@ def test_fallback_event_key_uses_explicit_battle_coordinate():
 def test_fallback_reduce_uses_explicit_battle_coordinate_without_begin_event():
     now = datetime(2026, 8, 27, 10, tzinfo=UTC)
     event_at = now + timedelta(minutes=1)
-    clock_values = iter((now, now + timedelta(seconds=1), event_at))
-    instances, fleets, morale, service = _service(clock=lambda: next(clock_values))
+    clock_values = [now, now + timedelta(seconds=1), event_at]
+
+    def clock():
+        return clock_values.pop(0) if len(clock_values) > 1 else clock_values[0]
+
+    instances, fleets, morale, service = _service(clock=clock)
     _seed_fleet(instances, fleets, "profile", 1, observed_at=now)
     service.record("profile", _command(observed_at=now, baseline=Decimal(50)))
     emotion = Emotion(_emotion_config(run="run-a"), morale_service=service)

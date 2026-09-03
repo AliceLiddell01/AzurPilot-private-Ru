@@ -27,7 +27,9 @@ from module.config.config_updater import (
 )
 from module.config.deep import deep_get, deep_set
 from module.config.opsi_data_logger import data_logger_is_active_from_data
-from module.config.recovery_default_on_migration import apply_recovery_default_on_migration
+from module.config.recovery_default_on_migration import (
+    apply_recovery_default_on_migration,
+)
 from module.config.time_source import now as current_time
 from module.config.utils import (
     DEFAULT_TIME,
@@ -217,10 +219,8 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
             if config_exists
             else self.read_file(self.config_name)
         )
-        recovery_migration = (
-            not self.is_template_config
-            and os.path.exists(filepath_config(self.config_name))
-            and apply_recovery_default_on_migration(self.data)
+        recovery_migration = config_exists and apply_recovery_default_on_migration(
+            self.data
         )
         if recovery_migration or legacy_emotion_migration:
             if legacy_emotion_migration:

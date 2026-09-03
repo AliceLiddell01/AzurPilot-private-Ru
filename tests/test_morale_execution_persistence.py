@@ -1,3 +1,4 @@
+import copy
 from types import SimpleNamespace
 
 import pytest
@@ -26,7 +27,7 @@ def _config(storage=None, *, run="same-run"):
         Fleet_Fleet2=2,
         Fleet_FleetOrder="fleet1_all_fleet2_standby",
         Scheduler_NextRun=run,
-        Storage_Storage=dict(storage or {}),
+        Storage_Storage=copy.deepcopy(dict(storage or {})),
         task=SimpleNamespace(command="Main"),
     )
 

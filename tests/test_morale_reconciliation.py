@@ -253,7 +253,7 @@ def test_unique_unknown_form_writes_exact_ui_recovery_and_floor():
 
 def test_known_form_mismatch_routes_target_to_lookup_without_fake_outside():
     instance_id = _instance_id()
-    service, _, _morale = _service((_formation(instance_id),))
+    service, _, morale = _service((_formation(instance_id),))
     result = service.reconcile(
         "alas", FleetSelection.one(1), _scan(_observation(form=ShipForm.RETROFIT))
     )
@@ -278,7 +278,7 @@ def test_duplicate_candidates_are_ambiguous_and_each_target_needs_lookup():
 
 def test_complete_absence_never_synthesizes_initial_119():
     instance_id = _instance_id()
-    service, _, _morale = _service((_formation(instance_id),))
+    service, _, morale = _service((_formation(instance_id),))
     result = service.reconcile("alas", FleetSelection.one(1), _scan())
     assert result.complete_scan is True
     assert result.outside_dorm_observations == 0

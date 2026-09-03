@@ -306,7 +306,9 @@ class FleetPageQueryService:
             morale_rows = tuple(
                 _morale_row(binding, slot)
                 for binding in working_fleets
-                for slot in morale_by_index.get(binding.physical_fleet_index, ()).slots
+                for fleet in (morale_by_index.get(binding.physical_fleet_index),)
+                if fleet is not None
+                for slot in fleet.slots
                 if slot.occupied and slot.identity_status is IdentityStatus.MATCHED
             )
         else:

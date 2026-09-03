@@ -3,7 +3,11 @@ from datetime import UTC, datetime, timedelta
 import numpy as np
 import pytest
 
-from module.dorm.morale_controller import DormMoraleController, DormTrainStateDetector
+from module.dorm.morale_controller import (
+    DormMoraleController,
+    DormTrainStateDetector,
+    DormTrainStatePolicy,
+)
 from module.dorm.morale_model import (
     DormFloor,
     DormFloorSnapshot,
@@ -99,6 +103,15 @@ def test_state_detector_uses_train_button_to_confirm_dorm_home():
     frame = np.full((720, 1280, 3), 255, dtype=np.uint8)
 
     assert DormTrainStateDetector().dorm_home_visible(frame)
+
+
+def test_state_detector_uses_configured_light_pixel_threshold():
+    frame = np.full((720, 1280, 3), 255, dtype=np.uint8)
+    detector = DormTrainStateDetector(
+        policy=DormTrainStatePolicy(light_pixel_luma_min=256)
+    )
+
+    assert detector.dorm_home_visible(frame) is False
 
 
 def test_state_detector_uses_rgb_channel_contract():

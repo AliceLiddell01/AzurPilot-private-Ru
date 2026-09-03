@@ -16,7 +16,10 @@ from module.application.morale_reconciliation import TargetedMoraleLookupTarget
 from module.base.button import Button
 from module.base.decorator import cached_property
 from module.base.utils import extract_letters
-from module.dock_inventory.catalog import DockIdentityCatalog, load_dock_identity_catalog
+from module.dock_inventory.catalog import (
+    DockIdentityCatalog,
+    load_dock_identity_catalog,
+)
 from module.dock_inventory.identity import DockShipIdentityResolver, DockShipNameOcr
 from module.dock_inventory.model import IdentityStatus
 from module.dorm.morale_scanner import DormMoraleValueOcr
@@ -62,6 +65,11 @@ class TargetedMoraleLookupLayout:
     search_button: tuple[int, int, int, int] = (648, 3, 704, 51)
     search_input: tuple[int, int, int, int] = (720, 8, 970, 46)
     home_button: tuple[int, int, int, int] = (1206, 0, 1279, 72)
+    search_hue_min: int = 8
+    search_hue_max: int = 38
+    search_saturation_min: int = 70
+    search_value_min: int = 100
+    search_gold_ratio_min: float = 0.08
 
     def cards(self) -> tuple[TargetedMoraleCardGeometry, ...]:
         origin_x, origin_y = CARD_GRIDS.origin
@@ -392,12 +400,12 @@ class TargetedMoraleLookupController(UI):
         x1, y1, x2, y2 = self.targeted_morale_layout.search_button
         hsv = cv2.cvtColor(normalized[y1:y2, x1:x2], cv2.COLOR_RGB2HSV)
         gold = (
-            (hsv[:, :, 0] >= 8)
-            & (hsv[:, :, 0] <= 38)
-            & (hsv[:, :, 1] >= 70)
-            & (hsv[:, :, 2] >= 100)
+            (hsv[:, :, 0] >= self.targeted_morale_layout.search_hue_min)
+            & (hsv[:, :, 0] <= self.targeted_morale_layout.search_hue_max)
+            & (hsv[:, :, 1] >= self.targeted_morale_layout.search_saturation_min)
+            & (hsv[:, :, 2] >= self.targeted_morale_layout.search_value_min)
         )
-        return float(np.mean(gold)) >= 0.08
+        return float(np.mean(gold)) >= self.targeted_morale_layout.search_gold_ratio_min
 
     def activate_search(self) -> np.ndarray:
         """Открыть Search только после доказанного candidate-selection state."""
@@ -415,13 +423,14 @@ class TargetedMoraleLookupController(UI):
         self.device.click(
             self._button(self.targeted_morale_layout.search_button, "MORALE_LOOKUP_SEARCH")
         )
-        frame = self._capture()
-        if not self._search_active(frame):
-            raise TargetedMoraleLookupError(
-                "search_not_open",
-                "Search field не открылся после единственного безопасного клика.",
-            )
-        return frame
+        for _ in range(5):
+            frame = self._capture()
+            if self._search_active(frame):
+                return frame
+        raise TargetedMoraleLookupError(
+            "search_not_open",
+            "Search field не открылся после ограниченного безопасного ожидания.",
+        )
 
     def lookup(self, target: TargetedMoraleLookupTarget) -> TargetedMoraleLookupObservation:
         if not isinstance(target, TargetedMoraleLookupTarget):
@@ -436,7 +445,15 @@ class TargetedMoraleLookupController(UI):
             )
         )
         self._capture()
-        self.device.text_input_and_confirm(target.search_query, clear=True)
+        try:
+            self.device.text_input_and_confirm(target.search_query, clear=True)
+        except TargetedMoraleLookupError:
+            raise
+        except Exception as exc:
+            raise TargetedMoraleLookupError(
+                "search_input_failed",
+                f"Не удалось ввести Search query: {type(exc).__name__}.",
+            ) from exc
         last_error: TargetedMoraleLookupError | None = None
         for _ in range(5):
             frame = self._capture()
