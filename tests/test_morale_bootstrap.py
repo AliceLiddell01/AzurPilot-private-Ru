@@ -58,16 +58,20 @@ def _empty_slot(fleet, side, position):
     )
 
 
-def _target_slot(fleet=6, *, exact=False, dorm_scan_id=None):
+def _target_slot(fleet=6, *, exact=False, projected=False, dorm_scan_id=None):
     kwargs = {}
-    if exact:
+    if exact or projected:
         kwargs = {
-            "knowledge": MoraleKnowledge.EXACT,
+            "knowledge": (
+                MoraleKnowledge.PROJECTED
+                if projected
+                else MoraleKnowledge.EXACT
+            ),
             "baseline": Decimal(150),
             "current": Decimal(150),
             "recovery": MoraleRecoveryProfile.outside_dorm_base(),
             "observed_at": NOW,
-            "source": "targeted_search:exact",
+            "source": "targeted_search:projected" if projected else "targeted_search:exact",
             "morale_observation_id": uuid4(),
             "location": MoraleLocation.OUTSIDE_DORM,
             "dorm_scan_id": dorm_scan_id or uuid4(),
@@ -312,6 +316,18 @@ def test_bootstrap_filters_unrelated_dorm_cards_before_reconciliation():
     assert config.delays == []
 
 
+def test_bootstrap_accepts_projected_morale_with_current_scan_provenance():
+    scan = _scan(_dorm_observation(1, 1))
+    bootstrapper, _, _, _, _ = _bootstrap(
+        scan=scan,
+        after=_state(_target_slot(projected=True, dorm_scan_id=scan.id)),
+    )
+
+    _, summary = bootstrapper.run(scan)
+
+    assert summary.final_exact == summary.target_count == 1
+
+
 def test_missing_target_uses_raw_train_occupant_for_search_and_records_exact_outside():
     target = _target()
     scan = _scan(_dorm_observation(99, 1))
@@ -323,7 +339,7 @@ def test_missing_target_uses_raw_train_occupant_for_search_and_records_exact_out
         matched_result_count=1,
         observed_at=NOW,
     )
-    bootstrapper, config, controller, reconciliation, lookup = _bootstrap(
+    bootstrapper, config, _controller, reconciliation, lookup = _bootstrap(
         scan=scan,
         lookup_targets=(target,),
         lookup_observations=(observed,),
@@ -353,7 +369,7 @@ def test_search_selected_fails_closed_without_outside_write_and_suppresses_resta
         matched_result_count=1,
         observed_at=NOW,
     )
-    bootstrapper, config, controller, reconciliation, lookup = _bootstrap(
+    bootstrapper, config, _controller, reconciliation, lookup = _bootstrap(
         scan=scan,
         lookup_targets=(target,),
         lookup_observations=(observed,),

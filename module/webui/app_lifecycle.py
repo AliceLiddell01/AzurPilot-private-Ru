@@ -29,7 +29,7 @@ def build_fleet_page_runtime_context(*, clock=None, require_ready: bool = True):
 
 
 def build_morale_runtime_context(*, clock=None, require_ready: bool = True):
-    """Собрать общий Morale/Dorm boundary в разрешённой корневой точке WebUI."""
+    """Собрать общий Morale/Dorm-контур в разрешённой корневой точке WebUI."""
     from module.persistence.runtime import build_runtime_morale_context
 
     return build_runtime_morale_context(

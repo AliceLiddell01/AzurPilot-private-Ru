@@ -50,6 +50,9 @@ from module.config.task_priority import get_scheduler_tasks, merge_task_priority
 from module.config.utils import *
 from module.config.redirect_utils.utils import *
 
+
+_READ_FILE_UNSET = object()
+
 # config_generated.py 的头部模板
 CONFIG_IMPORT = '''
 # 此文件是配置系统的更新器。
@@ -967,7 +970,7 @@ class ConfigUpdater:
         # elif key == 'Alas.Emulator.ControlMethod' and value == 'nemu_ipc':
         #     yield 'Alas.Emulator.ScreenshotMethod', 'nemu_ipc'
 
-    def read_file(self, config_name, is_template=False):
+    def read_file(self, config_name, is_template=False, *, data=_READ_FILE_UNSET):
         """
         读取并更新配置文件。
 
@@ -978,7 +981,11 @@ class ConfigUpdater:
         Returns:
             更新后的配置字典。
         """
-        old = read_file(filepath_config(config_name))
+        old = (
+            read_file(filepath_config(config_name))
+            if data is _READ_FILE_UNSET
+            else data
+        )
         new = self.config_update(old, is_template=is_template)
         # 更新后的配置未写回文件，出于性能考虑已注释掉写入操作
         # self.write_file(config_name, new)

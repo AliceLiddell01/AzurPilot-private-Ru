@@ -232,16 +232,7 @@ div[style*="--fleet-page--"] .fleet-summary-error {
     color: var(--fleet-danger);
 }
 
-div[style*="--fleet-page--"] #pywebio-scope-fleet_state_table {
-    width: 100%;
-    max-width: 100%;
-    overflow-x: auto;
-    border: 1px solid var(--fleet-divider);
-    border-radius: 11px;
-    background: var(--fleet-surface-strong);
-    overscroll-behavior-inline: contain;
-}
-
+div[style*="--fleet-page--"] #pywebio-scope-fleet_state_table,
 div[style*="--fleet-page--"] #pywebio-scope-fleet_morale_table {
     width: 100%;
     max-width: 100%;

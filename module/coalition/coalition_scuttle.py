@@ -9,6 +9,7 @@ from module.combat.assets import (
 )
 from module.coalition.assets import *
 from module.coalition.combat import CoalitionCombat
+from module.combat.emotion import begin_morale_combat_event
 from module.coalition.coalition import Coalition
 from module.exception import ScriptEnd, ScriptError
 from module.logger import logger
@@ -137,11 +138,12 @@ class CoalitionScuttleCombat(CoalitionCombat):
                 self._is_shipwreck = False
                 self._is_s_rank = False
                 self._morale_fleet_index = 1
-                begin_event = getattr(self.emotion, "begin_event", None)
-                if callable(begin_event):
-                    campaign = str(getattr(self.config, "campaign_name", "unknown"))[:32]
-                    execution_id = f"coalition-scuttle:{campaign}:{self.battle_count}"
-                    begin_event(execution_id, execution_id=execution_id)
+                begin_morale_combat_event(
+                    self.emotion,
+                    "coalition-scuttle",
+                    getattr(self.config, "campaign_name", "unknown"),
+                    self.battle_count,
+                )
                 # 仅第一场战斗扣减2心情（关卡进入代价），后续战斗不再扣减
                 self.auto_search_combat_execute(
                     emotion_reduce=self.battle_count == 0,

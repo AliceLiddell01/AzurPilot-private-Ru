@@ -18,16 +18,20 @@ _LOW_MOOD_RE = re.compile(
     re.IGNORECASE,
 )
 _AFFINITY_RE = re.compile(
-    r"\b(?:affinity|relationship|friendship|bond)\b.*"
+    r"\b(?:affinity|relationship|friendship|bond)\b"
+    r"(?:\s+\w+){0,5}\s+"
     r"\b(?:reduce|reduced|decrease|decreased|lose|lost|losing|loss|drop|drops|lower)\b"
-    r"|\b(?:reduce|reduced|decrease|decreased|lose|lost|losing|loss|drop|drops|lower)\b.*"
+    r"|\b(?:reduce|reduced|decrease|decreased|lose|lost|losing|loss|drop|drops|lower)\b"
+    r"(?:\s+\w+){0,5}\s+"
     r"\b(?:affinity|relationship|friendship|bond)\b",
     re.IGNORECASE,
 )
 _FORCED_ATTACK_RE = re.compile(
-    r"\b(?:force|forced|forcing|continue)\b.*"
+    r"\b(?:force|forced|forcing|continue)\b"
+    r"(?:\s+\w+){0,5}\s+"
     r"\b(?:attack|attacking|battle|fight)\b"
-    r"|\b(?:attack|attacking|battle|fight)\b.*"
+    r"|\b(?:attack|attacking|battle|fight)\b"
+    r"(?:\s+\w+){0,5}\s+"
     r"\b(?:force|forced|forcing|continue)\b",
     re.IGNORECASE,
 )
@@ -75,8 +79,10 @@ class LowMoraleWarningDetector:
             normalized_text=normalized,
             mood_term=bool(_MOOD_RE.search(normalized)),
             low_term=any(_LOW_MOOD_RE.search(clause) for clause in clauses),
-            consequence_term=bool(_AFFINITY_RE.search(normalized)),
-            forced_attack_term=bool(_FORCED_ATTACK_RE.search(normalized)),
+            consequence_term=any(_AFFINITY_RE.search(clause) for clause in clauses),
+            forced_attack_term=any(
+                _FORCED_ATTACK_RE.search(clause) for clause in clauses
+            ),
         )
         return evidence if evidence.proven else None
 

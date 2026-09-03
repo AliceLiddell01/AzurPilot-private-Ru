@@ -204,11 +204,19 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
 
     def load(self):
         legacy_emotion_migration = False
-        if not self.is_template_config and os.path.exists(filepath_config(self.config_name)):
+        config_path = filepath_config(self.config_name)
+        config_exists = not self.is_template_config and os.path.exists(config_path)
+        raw_data = None
+        if config_exists:
+            raw_data = read_file(config_path)
             legacy_emotion_migration = legacy_emotion_state_present(
-                read_file(filepath_config(self.config_name))
+                raw_data
             )
-        self.data = self.read_file(self.config_name)
+        self.data = (
+            self.read_file(self.config_name, data=raw_data)
+            if config_exists
+            else self.read_file(self.config_name)
+        )
         recovery_migration = (
             not self.is_template_config
             and os.path.exists(filepath_config(self.config_name))

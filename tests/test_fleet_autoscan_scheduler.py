@@ -46,6 +46,15 @@ class _Config(SimpleNamespace):
     def task_delay(self, **kwargs):
         self.delay_calls.append(kwargs)
 
+    def cross_get(self, keys, default=None):
+        path = keys.split('.') if isinstance(keys, str) else tuple(keys)
+        value = getattr(self, 'task_groups', {})
+        for key in path:
+            if not isinstance(value, dict) or key not in value:
+                return default
+            value = value[key]
+        return value
+
 
 class _Device:
     def __init__(self, events=None) -> None:
@@ -75,6 +84,7 @@ def _script(*, coordinator=None):
     script.config = _Config(
         FleetAutoScan_Fleets=[1, 2],
         delay_calls=[],
+        task_groups={"Main": {"Campaign": {}, "Emotion": {}}},
     )
     script.is_first_task = False
     script.device = _Device()

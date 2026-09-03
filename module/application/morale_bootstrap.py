@@ -470,12 +470,13 @@ class CampaignMoraleBootstrapper:
             selection,
         )
         final_targets = self._occupied_targets(final_state)
-        final_exact = tuple(
+        final_known = tuple(
             slot
             for slot in final_targets
             if (
                 slot.identity_status is IdentityStatus.MATCHED
-                and slot.knowledge is MoraleKnowledge.EXACT
+                and slot.knowledge
+                in {MoraleKnowledge.EXACT, MoraleKnowledge.PROJECTED}
                 and slot.current is not None
                 and slot.recovery is not None
                 and slot.location is not MoraleLocation.UNKNOWN
@@ -490,18 +491,18 @@ class CampaignMoraleBootstrapper:
         unknown = tuple(
             slot
             for slot in final_targets
-            if slot not in final_exact and slot not in projected
+            if slot not in final_known
         )
         logger.info(
             "[Настроение] Final bootstrap: "
-            f"exact={len(final_exact)}; projected={len(projected)}; "
+            f"known={len(final_known)}; projected={len(projected)}; "
             f"unknown={len(unknown)}; targets={len(final_targets)}"
         )
-        if len(final_exact) != len(final_targets) or len(final_targets) != len(occupied):
+        if len(final_known) != len(final_targets) or len(final_targets) != len(occupied):
             self._fail_safely(
                 CampaignMoraleBootstrapError(
-                    "final_exact_incomplete",
-                    "Не каждый occupied target получил exact current и recovery context "
+                    "final_known_incomplete",
+                    "Не каждый occupied target получил known current и recovery context "
                     "с provenance текущего bootstrap scan.",
                 ),
                 lookup=lookup,
@@ -517,11 +518,11 @@ class CampaignMoraleBootstrapper:
             unmatched_unrelated=filtered.unmatched_unrelated,
             unresolved_raw=filtered.unresolved_raw,
             ambiguous_targets=filtered.ambiguous_targets,
-            final_exact=len(final_exact),
+            final_exact=len(final_known),
         )
         logger.info(
             "[Настроение] Bootstrap PASS: "
-            f"final_exact={summary.final_exact}/{summary.target_count}; "
+            f"final_known={summary.final_exact}/{summary.target_count}; "
             "returned_main=True; dorm_roster_changed=False"
         )
         return filtered.scan, summary

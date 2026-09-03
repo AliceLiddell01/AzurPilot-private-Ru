@@ -313,12 +313,12 @@ class InfoHandler(ModuleBase):
             return callback()
 
         from module.application.fleet_mapping import physical_fleet_index
+        from module.dorm.morale_composition import build_campaign_morale_context
         from module.dorm.morale_controller import DormMoraleController
         from module.formation.model import FleetSelection
-        from module.webui.app_lifecycle import build_morale_runtime_context
 
         physical = physical_fleet_index(self.config, logical_fleet_index)
-        context = build_morale_runtime_context(require_ready=False)
+        context = build_campaign_morale_context(require_ready=False)
         scan = DormMoraleController(
             self.config,
             device=self.device,

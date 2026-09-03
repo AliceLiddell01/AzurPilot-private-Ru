@@ -94,6 +94,7 @@ FleetPage:
   MoraleHelp:
   MoraleNoData:
   MoraleUnknown:
+  MoraleLastKnown:
   MoraleExact:
   MoraleProjected:
   MoraleMain:

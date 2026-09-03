@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -53,34 +53,55 @@ def _role_for(order: str, logical_fleet_index: int) -> str:
     raise ValueError(f"Неизвестный порядок флотов: {order}")
 
 
+def _working_logical_indices(order: str) -> tuple[int, ...]:
+    try:
+        return {
+            "fleet1_all_fleet2_standby": (1,),
+            "fleet1_standby_fleet2_all": (2,),
+            "fleet1_mob_fleet2_boss": (1, 2),
+            "fleet1_boss_fleet2_mob": (1, 2),
+        }[order]
+    except KeyError as exc:
+        raise ValueError(f"Неизвестный порядок флотов: {order}") from exc
+
+
+def _build_working_fleet_bindings(
+    task: str,
+    order: str,
+    read_physical_fleet: Callable[[int], object],
+) -> tuple[WorkingFleetBinding, ...]:
+    if not isinstance(task, str) or not task.strip():
+        raise ValueError("Нельзя определить task для Fleet mapping")
+    bindings = tuple(
+        WorkingFleetBinding(
+            task=task,
+            role=_role_for(order, logical_index),
+            logical_fleet_index=logical_index,
+            physical_fleet_index=validate_surface_fleet_index(
+                read_physical_fleet(logical_index)
+            ),
+        )
+        for logical_index in _working_logical_indices(order)
+    )
+    if len({item.physical_fleet_index for item in bindings}) != len(bindings):
+        raise ValueError("Две logical роли не могут ссылаться на один physical Fleet")
+    return bindings
+
+
 def working_fleet_bindings(config: Any, *, task: str | None = None) -> tuple[WorkingFleetBinding, ...]:
     """Вернуть только physical fleets, реально используемые текущей задачей."""
 
-    task_name = task or getattr(getattr(config, "task", None), "command", None)
-    if not isinstance(task_name, str) or not task_name.strip():
-        task_name = getattr(config, "config_name", None)
+    task_name = task if task is not None else getattr(getattr(config, "task", None), "command", None)
     if not isinstance(task_name, str) or not task_name.strip():
         raise ValueError("Нельзя определить task для Fleet mapping")
     order = getattr(config, "Fleet_FleetOrder", None)
     if not isinstance(order, str):
         raise TypeError("Fleet_FleetOrder должен быть строкой")
-    logical_indices = (1,) if order == "fleet1_all_fleet2_standby" else (
-        (2,) if order == "fleet1_standby_fleet2_all" else (1, 2)
+    return _build_working_fleet_bindings(
+        task_name,
+        order,
+        lambda logical_index: physical_fleet_index(config, logical_index),
     )
-    bindings: list[WorkingFleetBinding] = []
-    for logical_index in logical_indices:
-        physical = physical_fleet_index(config, logical_index)
-        bindings.append(
-            WorkingFleetBinding(
-                task=task_name,
-                role=_role_for(order, logical_index),
-                logical_fleet_index=logical_index,
-                physical_fleet_index=physical,
-            )
-        )
-    if len({item.physical_fleet_index for item in bindings}) != len(bindings):
-        raise ValueError("Две logical роли не могут ссылаться на один physical Fleet")
-    return tuple(bindings)
 
 
 def working_fleet_bindings_from_data(
@@ -104,24 +125,11 @@ def working_fleet_bindings_from_data(
     order = fleet.get("FleetOrder")
     if not isinstance(order, str):
         raise TypeError("Fleet_FleetOrder должен быть строкой")
-    logical_indices = (1,) if order == "fleet1_all_fleet2_standby" else (
-        (2,) if order == "fleet1_standby_fleet2_all" else (1, 2)
+    return _build_working_fleet_bindings(
+        task,
+        order,
+        lambda logical_index: fleet.get(f"Fleet{logical_index}"),
     )
-    bindings: list[WorkingFleetBinding] = []
-    for logical_index in logical_indices:
-        raw = fleet.get(f"Fleet{logical_index}")
-        physical = validate_surface_fleet_index(raw)
-        bindings.append(
-            WorkingFleetBinding(
-                task=task,
-                role=_role_for(order, logical_index),
-                logical_fleet_index=logical_index,
-                physical_fleet_index=physical,
-            )
-        )
-    if len({item.physical_fleet_index for item in bindings}) != len(bindings):
-        raise ValueError("Две logical роли не могут ссылаться на один physical Fleet")
-    return tuple(bindings)
 
 
 __all__ = (

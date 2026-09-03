@@ -177,7 +177,16 @@ class _Morale:
                 and value.fleet_index in selection.fleet_indices
             ):
                 latest[(value.fleet_index, value.side, value.position)] = value
-        return tuple(latest.values())
+        return tuple(
+            sorted(
+                latest.values(),
+                key=lambda value: (
+                    value.fleet_index,
+                    value.side.value,
+                    value.position,
+                ),
+            )
+        )
 
 
 class _Dorm:
@@ -244,7 +253,7 @@ def test_unique_unknown_form_writes_exact_ui_recovery_and_floor():
 
 def test_known_form_mismatch_routes_target_to_lookup_without_fake_outside():
     instance_id = _instance_id()
-    service, _, morale = _service((_formation(instance_id),))
+    service, _, _morale = _service((_formation(instance_id),))
     result = service.reconcile(
         "alas", FleetSelection.one(1), _scan(_observation(form=ShipForm.RETROFIT))
     )
@@ -269,7 +278,7 @@ def test_duplicate_candidates_are_ambiguous_and_each_target_needs_lookup():
 
 def test_complete_absence_never_synthesizes_initial_119():
     instance_id = _instance_id()
-    service, _, morale = _service((_formation(instance_id),))
+    service, _, _morale = _service((_formation(instance_id),))
     result = service.reconcile("alas", FleetSelection.one(1), _scan())
     assert result.complete_scan is True
     assert result.outside_dorm_observations == 0
@@ -323,7 +332,7 @@ def test_unrelated_matched_dorm_ship_is_counted_but_does_not_block_target_lookup
 
 def test_targeted_search_records_exact_150_outside_and_time_does_not_clamp_down():
     instance_id = _instance_id()
-    service, _, morale = _service((_formation(instance_id),))
+    service, _, _morale = _service((_formation(instance_id),))
     scan = _scan()
     result = service.reconcile("alas", FleetSelection.one(1), scan)
     target = result.lookup_targets[0]

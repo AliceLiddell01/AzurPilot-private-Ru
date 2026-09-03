@@ -27,6 +27,7 @@ from module.base.utils import color_similar, get_color, lower_template_match_sim
 from module.combat.assets import *
 from module.combat.combat_auto import CombatAuto
 from module.combat.combat_manual import CombatManual
+from module.combat.emotion import begin_morale_combat_event
 from module.combat.hp_balancer import HPBalancer
 from module.combat.level import Level
 from module.combat.submarine import SubmarineCall
@@ -764,18 +765,17 @@ class Combat(Level, HPBalancer, Retirement, SubmarineCall, CombatAuto, CombatMan
         self._morale_fleet_index = fleet_index
         self._morale_execution_sequence = getattr(self, "_morale_execution_sequence", 0) + 1
         self._morale_battle_id = self._morale_execution_sequence
-        begin_event = getattr(self.emotion, "begin_event", None)
-        if callable(begin_event):
-            campaign = str(getattr(self.config, "campaign_name", "unknown"))[:32]
-            # battle_count — координата боя в текущем scheduler run; sequence
-            # различает несколько засад, пока карта остаётся на той же позиции.
-            battle_coordinate = getattr(self, "battle_count", 0)
-            campaign_run = getattr(self, "morale_campaign_run_index", 0)
-            execution_id = (
-                f"combat:{campaign}:{campaign_run}:{battle_coordinate}:"
-                f"{self._morale_execution_sequence}:{fleet_index}"
-            )
-            begin_event(execution_id, execution_id=execution_id)
+        # battle_count — координата боя в текущем scheduler run; sequence
+        # различает несколько засад, пока карта остаётся на той же позиции.
+        begin_morale_combat_event(
+            self.emotion,
+            "combat",
+            getattr(self.config, "campaign_name", "unknown"),
+            getattr(self, "morale_campaign_run_index", 0),
+            getattr(self, "battle_count", 0),
+            self._morale_execution_sequence,
+            fleet_index,
+        )
 
         with self.stat.new(
                 genre=self.config.campaign_name, method=self.config.DropRecord_CombatRecord

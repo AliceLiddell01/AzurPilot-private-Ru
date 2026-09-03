@@ -88,10 +88,12 @@ tick semantics сверены с [Azur Lane Wiki](https://azur-lane.fandom.com/w
 `DormMoraleScanner` чисто распознаёт уже открытый этаж, а controller получает 1F
 и 2F через существующий UI graph. `MoraleReconciliationService` сохраняет
 append-only Dorm scan provenance и сопоставляет его с Fleet State одним чтением.
-Найденный корабль получает exact UI baseline/rate и floor; доказанное отсутствие
-на обоих этажах — известный baseline `119` с `outside_dorm`, `20/ч` и ceiling
-`119`. Повторный complete scan продолжает прежнюю projection, поэтому не
-восстанавливает уже списанную боем мораль. Partial scan отсутствие не доказывает.
+Найденный корабль получает exact UI baseline/rate и floor. Если occupied target
+не найден на полном сканировании обоих этажей, сервис создаёт только
+`lookup_targets`: `outside_dorm` и baseline не выводятся из отсутствия карточки.
+Они появляются лишь после отдельного однозначного targeted lookup. Повторный
+complete scan продолжает прежнюю projection, поэтому не восстанавливает уже
+списанную боем мораль. Partial scan отсутствие не доказывает.
 Неоднозначные identity/form и stale Fleet State остаются `unknown` и fail closed.
 
 Campaign-задачи в режиме `Emotion_Mode=calculate` выполняют первичный scan

@@ -1,12 +1,12 @@
-from xml.etree import ElementTree
 from types import SimpleNamespace
+from xml.etree import ElementTree
 
 import numpy as np
 import pytest
 
 from module.application.low_morale import LowMoraleWarningDetector
 from module.campaign.gems_farming import GemsFarming
-from module.exception import ScriptEnd
+from module.exception import RequestHumanTakeover, ScriptEnd
 from module.handler.info_handler import InfoHandler
 
 
@@ -303,8 +303,25 @@ def test_gems_morale_compatibility_read_returns_safe_lower_bound_on_error():
     farming.campaign = SimpleNamespace(
         config=SimpleNamespace(Fleet_Fleet1=2),
         emotion=SimpleNamespace(
-            _service=lambda: (_ for _ in ()).throw(RuntimeError("projection unavailable"))
+            fleet_state=lambda _logical: (_ for _ in ()).throw(
+                ValueError("projection unavailable")
+            )
         ),
     )
 
     assert farming.get_emotion() == 0
+
+
+def test_gems_morale_compatibility_read_does_not_swallow_takeover_request():
+    farming = object.__new__(GemsFarming)
+    farming.config = SimpleNamespace(Fleet_FleetOrder="fleet1_all_fleet2_standby")
+    farming.campaign = SimpleNamespace(
+        emotion=SimpleNamespace(
+            fleet_state=lambda _logical: (_ for _ in ()).throw(
+                RequestHumanTakeover("morale mapping unavailable")
+            )
+        )
+    )
+
+    with pytest.raises(RequestHumanTakeover, match="morale mapping unavailable"):
+        farming.get_emotion()

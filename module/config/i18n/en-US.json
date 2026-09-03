@@ -5740,6 +5740,7 @@
       "MoraleHelp": "Current per-ship projection for fleets used by the selected task only.",
       "MoraleNoData": "No confirmed morale data for the working fleets.",
       "MoraleUnknown": "UNKNOWN",
+      "MoraleLastKnown": "Last known",
       "MoraleExact": "Exact",
       "MoraleProjected": "Projected",
       "MoraleMain": "Main",

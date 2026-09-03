@@ -113,11 +113,7 @@ class HospitalCombat(Combat, HospitalUI, CampaignEvent):
                 if emotion_reduce:
                     self.emotion.reduce(
                         fleet_index,
-                        battle=getattr(
-                            self,
-                            '_morale_battle_id',
-                            getattr(self, 'run_count', 0),
-                        ),
+                        battle=self._morale_battle_coordinate(),
                     )
                 break
 

@@ -28,6 +28,18 @@ def test_logical_fleet_maps_to_configured_physical_surface_fleet():
     ]
 
 
+def test_working_mapping_does_not_use_profile_name_as_task_fallback():
+    config = SimpleNamespace(
+        config_name="profile-name",
+        Fleet_Fleet1=4,
+        Fleet_Fleet2=6,
+        Fleet_FleetOrder="fleet1_all_fleet2_standby",
+    )
+
+    with pytest.raises(ValueError, match="определить task"):
+        working_fleet_bindings(config)
+
+
 @pytest.mark.parametrize(
     ("order", "expected"),
     (

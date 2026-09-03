@@ -294,7 +294,7 @@ class FleetPageMixin(WebUIMixinBase):
 
     @staticmethod
     def _morale_task_text(row: MoraleRowViewModel) -> str:
-        return "last-known" if row.last_known else row.task
+        return t("Gui.FleetPage.MoraleLastKnown") if row.last_known else row.task
 
     @staticmethod
     def _morale_role_text(row: MoraleRowViewModel) -> str:
@@ -311,7 +311,7 @@ class FleetPageMixin(WebUIMixinBase):
         if row.source:
             location = f"{location} · {row.source}"
         if row.last_known:
-            location = f"last-known · {location}"
+            location = f"{t('Gui.FleetPage.MoraleLastKnown')} · {location}"
         return [
             self._table_cell(
                 self._morale_task_text(row),

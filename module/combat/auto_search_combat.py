@@ -18,6 +18,7 @@ from module.base.timer import Timer
 from module.campaign.campaign_status import CampaignStatus
 from module.combat.assets import *
 from module.combat.combat import Combat
+from module.combat.emotion import begin_morale_combat_event
 from module.exception import CampaignEnd, ScriptEnd
 from module.handler.assets import AUTO_SEARCH_MAP_OPTION_ON, GET_MISSION
 from module.logger import logger
@@ -558,13 +559,14 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
         self._auto_search_fleet_index = fleet_index
         self._morale_fleet_index = fleet_index
         self._shipwreck_emotion_reduced = False
-        begin_event = getattr(self.emotion, "begin_event", None)
-        if callable(begin_event):
-            campaign = str(getattr(self.config, "campaign_name", "unknown"))[:32]
-            battle_text = str(battle if battle is not None else getattr(self, "battle_count", 0))[:16]
-            campaign_run = getattr(self, "morale_campaign_run_index", 0)
-            execution_id = f"auto:{campaign}:{campaign_run}:{battle_text}:{fleet_index}"
-            begin_event(execution_id, execution_id=execution_id)
+        begin_morale_combat_event(
+            self.emotion,
+            "auto",
+            getattr(self.config, "campaign_name", "unknown"),
+            getattr(self, "morale_campaign_run_index", 0),
+            battle if battle is not None else getattr(self, "battle_count", 0),
+            fleet_index,
+        )
         self.auto_search_combat_execute(emotion_reduce=emotion_reduce, fleet_index=fleet_index, battle=battle)
         self.auto_search_combat_status(battle=battle)
 

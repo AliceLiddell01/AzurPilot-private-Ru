@@ -44,6 +44,35 @@ DIC_RECOVER_MAX = {
 _MORALE_EXECUTION_STORAGE_KEY = "MoraleCombatExecution"
 
 
+def _morale_combat_event_key(prefix: str, *coordinates: object) -> str:
+    if not isinstance(prefix, str) or not prefix.strip():
+        raise ValueError("prefix morale event должен быть непустой строкой")
+    if not coordinates:
+        raise ValueError("morale event должен содержать координаты боя")
+    values = tuple(
+        str(value)[:32 if index == 0 else 16]
+        for index, value in enumerate(coordinates)
+    )
+    event_key = f"{prefix}:{':'.join(values)}"
+    if len(event_key) <= 80:
+        return event_key
+    digest = hashlib.sha256(event_key.encode("utf-8")).hexdigest()[:16]
+    return f"{prefix[:16]}:{values[0][:32]}:{digest}"
+
+
+def begin_morale_combat_event(emotion, prefix: str, *coordinates: object) -> None:
+    """Открыть durable morale event единым форматом для всех боевых путей."""
+
+    event_key = _morale_combat_event_key(prefix, *coordinates)
+    begin_combat_event = getattr(emotion, "begin_combat_event", None)
+    if callable(begin_combat_event):
+        begin_combat_event(prefix, *coordinates)
+        return
+    begin_event = getattr(emotion, "begin_event", None)
+    if callable(begin_event):
+        begin_event(event_key, execution_id=event_key)
+
+
 class FleetEmotion:
     """Policy view одной logical роли без собственного morale state."""
 
@@ -105,6 +134,12 @@ class Emotion:
                 f"Не удалось доказать physical Fleet для logical роли {logical_fleet_index}."
             ) from exc
 
+    def fleet_state(self, logical_fleet_index: int, *, at=None):
+        """Вернуть состояние logical Fleet через единый mapping и service."""
+
+        physical = self._physical_fleet(logical_fleet_index)
+        return self._service().fleet(self._instance(), physical, at=at)
+
     def _instance(self) -> str:
         instance = getattr(self.config, "config_name", None)
         if not isinstance(instance, str) or not instance.strip():
@@ -147,6 +182,13 @@ class Emotion:
         if order == "fleet1_standby_fleet2_all":
             return 0, battle
         raise ScriptError(f"Неизвестный порядок флотов: {order}")
+
+    @staticmethod
+    def _require_battle_coordinate(battle: object) -> None:
+        if type(battle) is not int or battle < 1:
+            raise ScriptEnd(
+                "[Настроение — проверка] Число боёв на карте не доказано; вход заблокирован"
+            )
 
     def _policy(self, logical_fleet_index: int) -> FleetEmotion:
         return self.fleets[logical_fleet_index - 1]
@@ -283,6 +325,7 @@ class Emotion:
 
         if not self.is_calculate:
             return
+        self._require_battle_coordinate(battle)
         recovered, delay = self._check_reduce(battle)
         if recovered is None:
             raise ScriptEnd(
@@ -486,6 +529,12 @@ class Emotion:
             event_key = f"{event_key[:48]}:{event_digest}"
         self._active_event_key = f"{event_key}:exec:{execution_digest}"
 
+    def begin_combat_event(self, prefix: str, *coordinates: object) -> None:
+        """Открыть боевой event с единым bounded execution identity."""
+
+        event_key = _morale_combat_event_key(prefix, *coordinates)
+        self.begin_event(event_key, execution_id=event_key)
+
     def _durable_run_token(self) -> str:
         run = getattr(self.config, "Scheduler_NextRun", None)
         if run is None or not str(run).strip():
@@ -607,4 +656,5 @@ __all__ = (
     "DIC_RECOVER_MAX",
     "Emotion",
     "FleetEmotion",
+    "begin_morale_combat_event",
 )

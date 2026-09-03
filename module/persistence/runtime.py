@@ -82,7 +82,7 @@ class RuntimeFleetManualScanContext:
 
 @dataclass(frozen=True, slots=True)
 class RuntimeMoraleContext:
-    """Per-ship Morale и Dorm reconciliation поверх общего Engine."""
+    """Morale по кораблям и Dorm reconciliation поверх общего Engine."""
 
     morale_service: MoraleService
     reconciliation_service: MoraleReconciliationService
@@ -381,7 +381,7 @@ def build_runtime_morale_context(
     clock: Callable[[], datetime] | None = None,
     require_ready: bool = True,
 ) -> RuntimeMoraleContext:
-    """Собрать Morale и Dorm boundary на том же storage composition root."""
+    """Собрать Morale и Dorm-контур на том же storage composition root."""
 
     morale_service = build_runtime_morale_service(
         clock=clock,

@@ -394,11 +394,15 @@ class DormMoraleController(UI):
             return result
         from module.application.morale_bootstrap import CampaignMoraleBootstrapper
 
-        filtered, _summary = CampaignMoraleBootstrapper(
-            self.config,
-            self.device,
-            self,
-        ).run(result)
+        try:
+            filtered, _summary = CampaignMoraleBootstrapper(
+                self.config,
+                self.device,
+                self,
+            ).run(result)
+        except Exception as exc:  # noqa: BLE001 - partial scan is the durable evidence.
+            logger.exception(exc)
+            return result
         return filtered
 
     def scan_both_floors(self, *, source: str) -> DormMoraleScanResult:

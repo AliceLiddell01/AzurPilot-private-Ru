@@ -13,7 +13,7 @@ class _RecordingService:
     def apply_event(self, instance, event):
         self.events.append((instance, event))
         return SimpleNamespace(
-            exact_slots=(1,),
+            exact_slots=1,
             applied_slots=1,
             skipped_slots=0,
         )

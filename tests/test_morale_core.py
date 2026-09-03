@@ -22,8 +22,8 @@ from module.application.morale import (
     project_morale,
 )
 from module.application.storage_models import InstanceIdentity
-from module.combat.emotion import Emotion
 from module.campaign.gems_farming import GemsCampaignOverride, GemsEmotion
+from module.combat.emotion import Emotion
 from module.dock_inventory.model import CanonicalShipIdentity, IdentityStatus, ShipForm
 from module.exception import CampaignEnd, ScriptEnd
 from module.formation.model import (
@@ -724,6 +724,13 @@ def test_calculated_readiness_blocks_unknown_slot_without_scheduling_fake_eta():
         Emotion(config, morale_service=service).check_reduce(1)
 
     assert delays == []
+
+
+def test_check_reduce_rejects_unproven_zero_battle_coordinate_fail_closed():
+    config = _emotion_config()
+
+    with pytest.raises(ScriptEnd, match="Число боёв на карте не доказано"):
+        Emotion(config).check_reduce(0)
 
 
 def test_calculated_readiness_blocks_mixed_exact_and_unknown_slots():

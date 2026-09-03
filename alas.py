@@ -335,12 +335,18 @@ class AzurLaneAutoScript:
             )
         return execution
 
-    @staticmethod
-    def _campaign_morale_task(task):
-        return task in {
-            'Main', 'Main2', 'Main3', 'Event', 'Event2', 'Event3',
-            'C72MysteryFarming', 'C122MediumLeveling', 'C124LargeLeveling',
-        }
+    def _campaign_morale_task(self, task):
+        if not isinstance(task, str) or not task.strip():
+            return False
+        cross_get = getattr(self.config, 'cross_get', None)
+        if not callable(cross_get):
+            return False
+        try:
+            campaign = cross_get(keys=[task, 'Campaign'], default=None)
+            emotion = cross_get(keys=[task, 'Emotion'], default=None)
+        except (TypeError, ValueError, KeyError):
+            return False
+        return isinstance(campaign, dict) and isinstance(emotion, dict)
 
     def _campaign_morale_enabled(self, task):
         return (
@@ -1701,6 +1707,12 @@ class AzurLaneAutoScript:
                 logger.warning(
                     '[Настроение] Campaign bootstrap безопасно остановил только '
                     f'текущую задачу: stage={error.code}'
+                )
+                return False
+            except RequestHumanTakeover as error:
+                logger.warning(
+                    '[Настроение] Campaign scan не дал достаточного evidence; '
+                    f'текущая задача остановлена: {error}'
                 )
                 return False
         return True

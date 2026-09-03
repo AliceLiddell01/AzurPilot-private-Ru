@@ -19,7 +19,6 @@
 - Retirement：退役与船坞管理
 """
 
-from module.application.fleet_mapping import physical_fleet_index
 from module.application.morale import MoraleKnowledge
 from module.base.decorator import cached_property
 from module.campaign.assets import CHAPTER_NEXT, CHAPTER_PREV
@@ -75,6 +74,7 @@ class GemsEmotion(Emotion):
         if not self.is_calculate:
             return
 
+        self._require_battle_coordinate(battle)
         recovered, delay = self._check_reduce(battle)
         if recovered is None or delay:
             self.config.GEMS_EMOTION_TRIGGERED = True
@@ -934,10 +934,6 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
         更换旗舰并计算情绪值。
         """
         target_ship = max(ship, key=lambda s: (s.level, s.emotion))
-        if self.change_vanguard:
-            self.set_emotion(min(self.get_emotion(), target_ship.emotion))
-        elif self.config.GemsFarming_AllowHighFlagshipLevel:
-            self.set_emotion(target_ship.emotion)
         self._ship_change_confirm(target_ship.button)
 
     def flagship_change_execute(self):
@@ -985,8 +981,6 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
         更换先锋并计算情绪值。
         """
         target_ship = max(ship, key=lambda s: s.emotion)
-        if self.change_vanguard:
-            self.set_emotion(target_ship.emotion)
         self._ship_change_confirm(target_ship.button)
 
     def vanguard_change_execute(self):
@@ -1061,12 +1055,8 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
         """
         logical = 2 if self.config.Fleet_FleetOrder == 'fleet1_standby_fleet2_all' else 1
         try:
-            physical = physical_fleet_index(self.campaign.config, logical)
-            state = self.campaign.emotion._service().fleet(
-                self.campaign.config.config_name,
-                physical,
-            )
-        except Exception as exc:
+            state = self.campaign.emotion.fleet_state(logical)
+        except (TypeError, ValueError, LookupError) as exc:
             logger.exception(exc)
             logger.warning(
                 '[Фарм самоцветов] Morale projection недоступна; используется нижняя граница 0'
@@ -1124,7 +1114,6 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
                     self._trigger_emotion = True
                 elif e.args[0] == 'Emotion withdraw':
                     self._trigger_emotion = True
-                    self.set_emotion(0)
                 else:
                     raise e
             except HardNotSatisfied:
@@ -1158,15 +1147,12 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
             if self._trigger_lv32 or self._trigger_emotion:
                 success = True
                 self.hard_mode_override()
-                emotion = self.get_emotion()
                 vanguard_success = True
                 flagship_success = True
                 if self.change_vanguard:
                     vanguard_success = self.vanguard_change()
                 if self.change_flagship and (vanguard_success or self._trigger_lv32):
                     flagship_success = self.flagship_change()
-                    if not flagship_success and self.config.GemsFarming_AllowHighFlagshipLevel:
-                        self.set_emotion(emotion)
                 success = vanguard_success and flagship_success
 
                 if is_limit and self.config.StopCondition_RunCount <= 0:
