@@ -15,14 +15,36 @@ from module.dev_runtime.smoke import SMOKE_SCHEMA_VERSION, SMOKE_STATE_SCHEMA_VE
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 _PLUGIN_ROOT = _REPOSITORY_ROOT / "plugins" / "azurpilot"
 _MANIFEST_PATH = _PLUGIN_ROOT / ".codex-plugin" / "plugin.json"
+_APP_MANIFEST_PATH = _PLUGIN_ROOT / ".app.json"
 _COMPATIBILITY_PATH = _PLUGIN_ROOT / "compatibility.json"
 _SKILL_PATH = _PLUGIN_ROOT / "skills" / "azurpilot-development" / "SKILL.md"
+_GAME_SKILL_PATH = _PLUGIN_ROOT / "skills" / "azurpilot-game-control" / "SKILL.md"
+_TROUBLESHOOTING_SKILL_PATH = (
+    _PLUGIN_ROOT / "skills" / "azurpilot-troubleshooting" / "SKILL.md"
+)
+_TROUBLESHOOTING_MATRIX_PATH = (
+    _PLUGIN_ROOT
+    / "skills"
+    / "azurpilot-troubleshooting"
+    / "references"
+    / "diagnostic-matrix.md"
+)
 _ABSOLUTE_LOCAL_PATH = re.compile(r"(?<![A-Za-z0-9])(?:[A-Za-z]:[\\/]|\\\\|(?<![A-Za-z0-9/:.`])/(?!/))")
 _URL = re.compile(r"\b[A-Za-z][A-Za-z0-9+.-]*://[^\s`]+")
 
 
 def _find_absolute_local_path(value: str) -> re.Match[str] | None:
     return _ABSOLUTE_LOCAL_PATH.search(_URL.sub("", value))
+
+
+def _markdown_subsection(content: str, heading: str) -> str:
+    match = re.search(
+        rf"^### {re.escape(heading)}\n(?P<section>.*?)(?=^### |^## |\Z)",
+        content,
+        re.MULTILINE | re.DOTALL,
+    )
+    assert match is not None, heading
+    return match.group("section")
 
 
 def _json(path: Path) -> dict[str, object]:
@@ -41,14 +63,29 @@ def test_plugin_manifest_and_generated_marketplace_are_canonical() -> None:
     assert isinstance(version, str)
     assert re.fullmatch(r"0\.1\.0\+codex\.\d{14}", version)
     assert manifest["skills"] == "./skills/"
-    assert "apps" not in manifest
+    assert manifest["apps"] == "./.app.json"
     assert "mcpServers" not in manifest
     assert interface["displayName"] == "AzurPilot"
     assert isinstance(interface["capabilities"], list)
-    assert "Development" in interface["capabilities"]
+    assert {"Development", "Game", "Diagnostics"} <= set(interface["capabilities"])
     assert isinstance(interface["defaultPrompt"], list)
     assert interface["defaultPrompt"]
     assert all(isinstance(prompt, str) and prompt for prompt in interface["defaultPrompt"])
+    assert len(interface["defaultPrompt"]) <= 3
+    assert all(len(prompt) <= 128 for prompt in interface["defaultPrompt"])
+    assert "Game capability в этом пакете отсутствует" not in interface["longDescription"]
+
+    app_manifest = _json(_APP_MANIFEST_PATH)
+    apps = app_manifest["apps"]
+    assert isinstance(apps, dict)
+    assert set(apps) == {"azurpilot-development-verified", "azurpilot-game"}
+    app_ids = [app["id"] for app in apps.values() if isinstance(app, dict)]
+    assert len(app_ids) == 2
+    assert all(
+        isinstance(app_id, str) and re.fullmatch(r"asdk_app_[a-z0-9]+", app_id)
+        for app_id in app_ids
+    )
+    assert len(set(app_ids)) == len(app_ids)
 
     marketplace = _json(_REPOSITORY_ROOT / ".agents" / "plugins" / "marketplace.json")
     assert marketplace["name"] == "personal"
@@ -133,6 +170,11 @@ def test_required_development_skill_has_fail_closed_workflow() -> None:
         for path in (_PLUGIN_ROOT / "skills").iterdir()
         if path.is_dir() and not path.name.startswith(".")
     ]
+    assert {path.name for path in skill_dirs} == {
+        "azurpilot-development",
+        "azurpilot-game-control",
+        "azurpilot-troubleshooting",
+    }
     assert _SKILL_PATH.parent in skill_dirs
     assert _SKILL_PATH.is_file()
 
@@ -167,6 +209,175 @@ def test_required_development_skill_has_fail_closed_workflow() -> None:
     ):
         assert required in skill
     assert "capability `Game`" in skill
+    assert "azurpilot-game-control" in skill
+    assert "azurpilot-troubleshooting" in skill
+
+
+def test_game_and_troubleshooting_skills_have_distinct_fail_closed_routes() -> None:
+    game_skill = _GAME_SKILL_PATH.read_text(encoding="utf-8")
+    troubleshooting_skill = _TROUBLESHOOTING_SKILL_PATH.read_text(encoding="utf-8")
+    troubleshooting_matrix = _TROUBLESHOOTING_MATRIX_PATH.read_text(encoding="utf-8")
+
+    assert game_skill.startswith("---\nname: azurpilot-game-control\n")
+    assert troubleshooting_skill.startswith("---\nname: azurpilot-troubleshooting\n")
+    for required in (
+        "AzurPilot Game",
+        "game_get_contract",
+        "game_list_profiles",
+        "game_list_tasks",
+        "game_get_task_help",
+        "game_get_profile_status",
+        "game_trigger_task",
+        "game_update_config",
+        "game_restart_emulator",
+        "game_restart_adb",
+        "game_restart_runtime",
+        "game_login_runtime",
+        "automatic",
+        "postcondition",
+        "STOP WRITES",
+    ):
+        assert required in game_skill
+    for required in (
+        "AzurPilot Development Verified",
+        "AzurPilot Game",
+        "dev_get_contract",
+        "game_get_contract",
+        "tool_count",
+        "tool_catalog_sha256",
+        "PER_SESSION_CALLABLE_SNAPSHOT_DRIFT",
+        "STOP WRITES",
+        "postcondition",
+        "fork",
+        "Reconnect",
+        "chat/task",
+        "НЕ изменять backend/source code ради появления tool в этой session",
+        "client/plugin/session refresh layer",
+        "browser/UI automation",
+        "AX/DOM",
+        "unavailable",
+        "transcript",
+        "tool marker",
+        "machine-readable result",
+        "новый browser tab",
+        "same-directory fork",
+        "azurpilot-game-control",
+        "azurpilot-development",
+    ):
+        assert required in troubleshooting_skill
+    for required in (
+        "`game_get_profile_status` никогда не является доказательством",
+        "ровно один game_restart_runtime(<profile>)",
+        "ровно один game_login_runtime(<profile>)",
+        "emulator ready",
+        "ADB ready",
+        "game running",
+        "game foreground",
+        "login/main-ready",
+    ):
+        assert required in game_skill
+
+    game_control_match = re.search(
+        r"^## Control и lifecycle\n(?P<section>.*?)(?=^## |\Z)",
+        game_skill,
+        re.MULTILINE | re.DOTALL,
+    )
+    assert game_control_match is not None
+    game_control_section = re.sub(r"\s+", " ", game_control_match.group("section"))
+    for required in (
+        "game_get_contract",
+        "любой Game mutation",
+        "обязательная предварительная проверка",
+        "STOP WRITES",
+        "azurpilot-troubleshooting",
+        "scopes",
+        "preconditions",
+        "game_trigger_task",
+        "generated task из catalog",
+        "обратимость подтверждена contract",
+        "необратимым игровым эффектом",
+        "расходованием ресурсов",
+    ):
+        assert required in game_control_section
+
+    combined = f"{game_skill}\n{troubleshooting_skill}"
+    assert not re.search(r"\b[a-f0-9]{64}\b", combined, re.IGNORECASE)
+    assert not re.search(r"tool_count\s*=\s*\d+", combined)
+    assert not re.search(r"profile\s*[=:]\s*[\"']alas[\"']", combined)
+    assert not re.search(r"game_trigger_task\([^\n]*Login", combined, re.IGNORECASE)
+    assert (_GAME_SKILL_PATH.parent / "references" / "architecture.md").is_file()
+    assert _TROUBLESHOOTING_MATRIX_PATH.is_file()
+
+    contract_section = _markdown_subsection(
+        troubleshooting_skill, "Подтверждение contract перед возвратом к mutation"
+    )
+    for required in (
+        "dev_get_contract",
+        "compatibility.json",
+        "PLUGIN_RUNTIME_INCOMPATIBLE",
+        "game_get_contract",
+        "backend contract unavailable",
+        "capability gap не доказан",
+        "callable surface",
+        "STOP WRITES",
+    ):
+        assert required in contract_section
+
+    scenario_c = _markdown_subsection(
+        troubleshooting_skill, "Сценарий C: Ошибка exit/postcondition"
+    )
+    for required in (
+        "product state",
+        "authoritative product-postcondition failure",
+        "STOP WRITES",
+        "read-only recovery",
+        "Last Confirmed State",
+        "automatic retry запрещён",
+    ):
+        assert required in scenario_c
+
+    browser_section = _markdown_subsection(
+        troubleshooting_skill, "Browser automation и fallback через Computer Use"
+    )
+    for required in (
+        "browser automation = unavailable",
+        "Computer Use",
+        "уже открытое активное окно браузера",
+        "мышь и клавиатуру",
+        "authoritative read-only verification",
+        "Game MCP",
+        "game_restart_runtime",
+        "game_login_runtime",
+        "retry loop не создавать",
+    ):
+        assert required in browser_section
+
+    matrix_scenario_c = next(
+        line
+        for line in troubleshooting_matrix.splitlines()
+        if "| C. Exit/postcondition |" in line
+    )
+    for required in (
+        "STOP WRITES",
+        "read-only recovery",
+        "Last Confirmed State",
+        "automatic retry запрещён",
+        "нового подтверждённого решения",
+    ):
+        assert required in matrix_scenario_c
+
+    matrix_browser = next(
+        line
+        for line in troubleshooting_matrix.splitlines()
+        if "| H. Browser refresh unavailable |" in line
+    )
+    for required in (
+        "Computer Use",
+        "authoritative read-only verification",
+        "без retry loop",
+        "без обхода Game/Dev MCP",
+    ):
+        assert required in matrix_browser
 
 
 @pytest.mark.parametrize(
@@ -220,5 +431,5 @@ def test_plugin_sources_contain_no_local_paths_or_credentials() -> None:
         for token in forbidden_tokens:
             assert token not in text, (path, token)
 
-    assert not (_PLUGIN_ROOT / ".app.json").exists()
+    assert (_PLUGIN_ROOT / ".app.json").is_file()
     assert not (_PLUGIN_ROOT / ".mcp.json").exists()
