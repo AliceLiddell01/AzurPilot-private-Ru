@@ -22,12 +22,29 @@ _GAME_SKILL_PATH = _PLUGIN_ROOT / "skills" / "azurpilot-game-control" / "SKILL.m
 _TROUBLESHOOTING_SKILL_PATH = (
     _PLUGIN_ROOT / "skills" / "azurpilot-troubleshooting" / "SKILL.md"
 )
+_TROUBLESHOOTING_MATRIX_PATH = (
+    _PLUGIN_ROOT
+    / "skills"
+    / "azurpilot-troubleshooting"
+    / "references"
+    / "diagnostic-matrix.md"
+)
 _ABSOLUTE_LOCAL_PATH = re.compile(r"(?<![A-Za-z0-9])(?:[A-Za-z]:[\\/]|\\\\|(?<![A-Za-z0-9/:.`])/(?!/))")
 _URL = re.compile(r"\b[A-Za-z][A-Za-z0-9+.-]*://[^\s`]+")
 
 
 def _find_absolute_local_path(value: str) -> re.Match[str] | None:
     return _ABSOLUTE_LOCAL_PATH.search(_URL.sub("", value))
+
+
+def _markdown_subsection(content: str, heading: str) -> str:
+    match = re.search(
+        rf"^### {re.escape(heading)}\n(?P<section>.*?)(?=^### |^## |\Z)",
+        content,
+        re.MULTILINE | re.DOTALL,
+    )
+    assert match is not None, heading
+    return match.group("section")
 
 
 def _json(path: Path) -> dict[str, object]:
@@ -199,6 +216,7 @@ def test_required_development_skill_has_fail_closed_workflow() -> None:
 def test_game_and_troubleshooting_skills_have_distinct_fail_closed_routes() -> None:
     game_skill = _GAME_SKILL_PATH.read_text(encoding="utf-8")
     troubleshooting_skill = _TROUBLESHOOTING_SKILL_PATH.read_text(encoding="utf-8")
+    troubleshooting_matrix = _TROUBLESHOOTING_MATRIX_PATH.read_text(encoding="utf-8")
 
     assert game_skill.startswith("---\nname: azurpilot-game-control\n")
     assert troubleshooting_skill.startswith("---\nname: azurpilot-troubleshooting\n")
@@ -259,14 +277,83 @@ def test_game_and_troubleshooting_skills_have_distinct_fail_closed_routes() -> N
         assert required in game_skill
 
     combined = f"{game_skill}\n{troubleshooting_skill}"
-    assert "50451f11dd855999345ff00c162433c0d99af07dc1a5e3c5fb57c3eab544b843" not in combined
+    assert not re.search(r"\b[a-f0-9]{64}\b", combined, re.IGNORECASE)
     assert not re.search(r"tool_count\s*=\s*\d+", combined)
     assert not re.search(r"profile\s*[=:]\s*[\"']alas[\"']", combined)
     assert not re.search(r"game_trigger_task\([^\n]*Login", combined, re.IGNORECASE)
     assert (_GAME_SKILL_PATH.parent / "references" / "architecture.md").is_file()
-    assert (
-        _TROUBLESHOOTING_SKILL_PATH.parent / "references" / "diagnostic-matrix.md"
-    ).is_file()
+    assert _TROUBLESHOOTING_MATRIX_PATH.is_file()
+
+    contract_section = _markdown_subsection(
+        troubleshooting_skill, "Contract evidence before returning to mutation"
+    )
+    for required in (
+        "dev_get_contract",
+        "compatibility.json",
+        "PLUGIN_RUNTIME_INCOMPATIBLE",
+        "game_get_contract",
+        "backend contract unavailable",
+        "capability gap не доказан",
+        "callable surface",
+        "STOP WRITES",
+    ):
+        assert required in contract_section
+
+    scenario_c = _markdown_subsection(
+        troubleshooting_skill, "Scenario C: Exit/postcondition failure"
+    )
+    for required in (
+        "product state",
+        "authoritative product-postcondition failure",
+        "STOP WRITES",
+        "read-only recovery",
+        "Last Confirmed State",
+        "automatic retry запрещён",
+    ):
+        assert required in scenario_c
+
+    browser_section = _markdown_subsection(
+        troubleshooting_skill, "Browser automation и Computer Use fallback"
+    )
+    for required in (
+        "browser automation = unavailable",
+        "Computer Use",
+        "уже открытое активное окно браузера",
+        "мышь и клавиатуру",
+        "authoritative read-only verification",
+        "Game MCP",
+        "game_restart_runtime",
+        "game_login_runtime",
+        "retry loop не создавать",
+    ):
+        assert required in browser_section
+
+    matrix_scenario_c = next(
+        line
+        for line in troubleshooting_matrix.splitlines()
+        if "| C. Exit/postcondition |" in line
+    )
+    for required in (
+        "STOP WRITES",
+        "read-only recovery",
+        "Last Confirmed State",
+        "automatic retry запрещён",
+        "нового подтверждённого решения",
+    ):
+        assert required in matrix_scenario_c
+
+    matrix_browser = next(
+        line
+        for line in troubleshooting_matrix.splitlines()
+        if "| H. Browser refresh unavailable |" in line
+    )
+    for required in (
+        "Computer Use",
+        "authoritative read-only verification",
+        "без retry loop",
+        "без обхода Game/Dev MCP",
+    ):
+        assert required in matrix_browser
 
 
 @pytest.mark.parametrize(

@@ -36,20 +36,29 @@ paths, serials, account identifiers и необработанные логи. Ev
 1. Определи intended route: `Development`, `Game` или проблема именно
    package/app/catalog.
 2. Выполни минимальное read-only наблюдение на соответствующей поверхности.
-   Для Game используй `game_get_contract`, если он callable, и точный текущий
-   catalog tools; для Dev используй `dev_get_contract` и доступные
-   `dev_preflight`, `dev_doctor` или `dev_status`. Не запускай Smoke или
-   mutation только ради preflight.
+   Для Game сначала проверь текущую callable surface. Если `game_get_contract`
+   отсутствует или не поддерживается client catalog, зафиксируй
+   `backend contract unavailable`: capability gap этим не доказан, mutation
+   запрещена, а диагностика остаётся на client/plugin/app/session layer. Если
+   tool callable, получи актуальный contract и точные catalog tools; для Dev
+   используй `dev_get_contract`, существующую compatibility validation с
+   `compatibility.json` и доступные `dev_preflight`, `dev_doctor` или
+   `dev_status`. Не запускай Smoke или mutation только ради preflight.
 3. Сопоставь observables с вероятным слоем ниже. Проверяй от дешёвого evidence
    к дорогому и не обходи слой, который ещё не подтверждён.
 4. Сравни source/deployment/runtime только когда это релевантно: Git HEAD,
    backend PID/start time/cwd и contract/catalog fingerprint. Новый checkout не
    означает, что уже работающий процесс загрузил новый код.
 5. Выбери ровно один refresh/recovery для доказанно stale слоя. После него
-   повторно проверь тот же observable.
-6. Если callable catalog синхронизирован, верни normal operation в
-   `azurpilot-game-control` или `azurpilot-development`. Диагностика сама не
-   повторяет исходную mutation.
+   повторно проверь callable catalog и соответствующий backend contract. Для
+   Development снова вызови `dev_get_contract` и прогони существующую
+   compatibility validation; для Game снова вызови `game_get_contract`, если
+   он callable, и сопоставь contract с текущей callable surface. При недоступном
+   или несовместимом contract оставайся fail-closed.
+6. Только когда и callable catalog содержит требуемое действие, и
+   соответствующий contract получен и признан совместимым, верни normal
+   operation в `azurpilot-game-control` или `azurpilot-development`.
+   Диагностика сама не повторяет исходную mutation.
 
 ## Catalog и per-session drift
 
@@ -59,6 +68,30 @@ Backend contract/catalog и callable surface текущей ChatGPT/Codex sessio
 точным catalog текущего клиента и отдельно проверь наличие требуемого tool.
 Если fingerprint не публикуется, сравнивай exact tool names и доступные
 contract fields; не выдумывай fingerprint.
+
+### Contract evidence before returning to mutation
+
+Перед возвратом к mutation нужны два независимых подтверждения: актуальный
+callable catalog с требуемым действием и соответствующий backend contract,
+признанный совместимым с этой surface. Само наличие tool в catalog не заменяет
+contract.
+
+Для `Development` после любого refresh повторно вызови `dev_get_contract` и
+используй существующую проверку совместимости с `compatibility.json`. При
+недоступном или несовместимом contract верни `PLUGIN_RUNTIME_INCOMPATIBLE`,
+сохрани `STOP WRITES` и не возвращай mutation.
+
+Для `Game`, если `game_get_contract` callable, получи свежий backend contract и
+сопоставь его capability/action metadata с точной текущей callable surface. Если
+`game_get_contract` отсутствует или не поддерживается текущим catalog, верни
+`backend contract unavailable`: client snapshot не позволяет отличить
+отсутствующий backend capability от stale client/plugin/app/session, поэтому
+capability gap не доказан. Mutation запрещена; диагностируй только
+client/plugin/app/session layer. Не выдумывай backend contract из документации
+или старого snapshot.
+
+Возвращай normal operation только после подтверждения обоих источников. При
+любом несовпадении contract и surface оставайся fail-closed.
 
 Ситуация «backend публикует новый tool, а текущая session его не видит»
 классифицируется как stale client/plugin/app/session snapshot после
@@ -89,9 +122,10 @@ contract fields; не выдумывай fingerprint.
 - решать только client/plugin/session refresh layer и повторно проверять
   callable surface.
 
-Если backend сам не публикует нужную capability, это capability gap, а не
-доказанный stale client. Зафиксируй finding и направь отдельную implementation
-задачу; не импровизируй прямым ADB, shell, GUI click или scheduler task.
+Если доступный backend contract явно не публикует нужную capability, это
+capability gap, а не доказанный stale client. Зафиксируй finding и направь
+отдельную implementation задачу; не импровизируй прямым ADB, shell, GUI click
+или scheduler task.
 
 ## Модель диагностических слоёв
 
@@ -135,13 +169,50 @@ accounts; новый chat не перезапускает backend; plugin refres
 scope. После двух безрезультатных штатных попыток не создавай reconnect loop —
 проверь доступность surface/status/support path и сообщи точное evidence.
 
-Если browser/UI automation для app/plugin refresh дважды не даёт
-authoritative result или зависает на AX/DOM, классифицируй UI automation как
-`unavailable` для текущего run и больше автоматически её не повторяй. IAB,
-новый browser tab, fork, subtask и same-directory fork сами по себе не являются
-доказанным refresh callable catalog. Без transcript, tool marker или
-machine-readable result действие не считать выполненным и mutation не
-повторять.
+### Browser automation и Computer Use fallback
+
+Для обычного plugin/app/browser refresh browser/UI automation — основной путь:
+используй Codex in-app browser, Chrome/browser integration или другое доступное
+browser-native действие, если оно подходит текущей session. Если browser
+automation дважды зависает, получает AX/DOM timeout, не выполняет нужное действие
+или не даёт authoritative result, классифицируй `browser automation = unavailable`
+для текущего run. После этого не повторяй автоматически тот же Browser path, не
+создавай новый browser tab или новые tabs/forks/subtasks и не считай их refresh
+evidence.
+
+Если в текущем Codex доступен `Computer Use`, используй его как один fallback для
+той же ограниченной client/plugin/app/browser recovery:
+
+1. переключись на `Computer Use`;
+2. выбери уже открытое активное окно браузера либо сделай нужное browser window
+   активным;
+3. визуально через мышь и клавиатуру выполни только то же штатное действие,
+   которое требовала диагностика: открыть нужный раздел, нажать `Refresh`,
+   `Sync now`, `Reconnect` или перейти между нужными страницами;
+4. не делай DOM/AX/CDP обязательной основой fallback — его смысл именно в
+   visual/manual control текущего окна;
+5. после действия повтори тот же authoritative read-only verification:
+   plugin/app status, callable catalog, required tool, contract compatibility или
+   другой заранее выбранный postcondition.
+
+Сам запуск `Computer Use`, фокус окна, click, нажатие кнопки, открытие новой
+вкладки или движение страницы не являются доказательством refresh. Computer Use
+разрешён здесь только для recovery client/plugin/app/browser layer. Не используй
+его как замену Game MCP mutation, ADB, shell, произвольным game clicks,
+`game_restart_runtime`, `game_login_runtime` или Dev Smoke; Game actions всё ещё
+идут через соответствующий MCP contract.
+
+Если browser UI требует password, MFA, CAPTCHA или другой закрытый секрет, не
+извлекай его и не записывай в логи или chat. Если `Computer Use` не может
+продолжить без него, запроси один минимальный ручной шаг пользователя и после
+него продолжи проверку. Если `Computer Use` тоже unavailable или failed:
+
+```text
+STOP browser recovery
+→ зафиксировать evidence и точный blocker
+→ mutation не выполнять
+→ retry loop не создавать
+```
 
 ## Timeout, неизвестный результат и postcondition
 
@@ -165,11 +236,26 @@ tool marker или machine-readable result не доказывает обнов�
 snapshot. Не переходи к Game Control и не выполняй mutation, пока свежая
 callable surface реально не содержит требуемый action.
 
+### Scenario C: Exit/postcondition failure
+
 `exit code=0` или request acknowledgement не равны product state. Для Game
 раздельно проверяй emulator running, ADB ready, game process running, game
 foreground, login/main и AzurPilot profile lifecycle. `game_get_profile_status`
 описывает profile, а не автоматически игру на foreground. Failure
 postcondition важнее транспортного успеха.
+
+После любого подтверждённого authoritative product-postcondition failure, даже
+при успешном transport acknowledgement или exit success, действуй так:
+
+```text
+STOP WRITES
+→ read-only recovery
+→ зафиксировать Last Confirmed State
+→ automatic retry запрещён
+```
+
+Следующая mutation допустима только после локализации причины и нового
+подтверждённого решения; не повторяй предыдущий control action автоматически.
 
 Для Dev сначала анализируй существующий run/evidence через доступные
 read-only tools; новый Smoke не запускай автоматически только для диагностики.
@@ -188,7 +274,7 @@ Development skill не становится fallback для Game operations. Gam
 приёмка, сообщи один точный ручной шаг и ожидаемый результат; не используй
 пользователя как ручной CI.
 
-Подробная матрица сценариев A–G находится в
+Подробная матрица сценариев A–H находится в
 [references/diagnostic-matrix.md](references/diagnostic-matrix.md).
 
 ## Отчёт
