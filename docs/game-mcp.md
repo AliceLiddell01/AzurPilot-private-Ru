@@ -141,9 +141,17 @@ diagnostics, SQL,
 произвольная файловая система, DevSession, Smoke, Evidence и Git state в Game
 surface отсутствуют. `module.game_mcp` не импортирует Dev MCP или Dev Runtime;
 общий authenticated HTTP код находится в нейтральном `module.mcp_shared`.
-Emulator restart использует existing recovery Platform owner и требует
-подтверждения running state после stop и start; для платформ без доказуемой
-instance-safe проверки операция завершается без mutation success.
+Emulator restart использует existing recovery Platform owner. После bounded
+ожидания штатной остановки живой target повторно проверяется по актуальной
+exact MuMu instance identity перед вызовом platform-specific instance-scoped
+force-stop primitive. Результат force-stop проверяется тем же authoritative
+stopped postcondition: ошибка команды не перекрывает уже подтверждённое
+состояние stopped, но неподтверждённое или неоднозначное состояние запрещает
+launch. Только после подтверждённого stopped owner вызывает `launch_player` и
+ждёт running postcondition. Это одна bounded lifecycle transition, а не
+повторный запрос Game MCP restart; generic kill по имени процесса или PID не
+входит в Game MCP surface. Для платформ без доказуемой instance-safe проверки
+операция завершается без mutation success.
 Отдельный recovery scope не вводится: emulator/ADB остаются частью
 `azurpilot:game.control`, а ownership и postcondition checks fail-closed
 ограничивают recovery mutation тем же control boundary.
