@@ -455,6 +455,32 @@ class DockCardGridScanner:
             )
         return values
 
+    def _recover_preceding_visible_row(
+        self,
+        frame: np.ndarray,
+        accepted: Sequence[int],
+        *,
+        height: int,
+    ) -> tuple[int, ...]:
+        """Recover one top row only from proven grid phase plus presence evidence."""
+        values = tuple(accepted)
+        if len(values) < 2:
+            return values
+        if abs((values[1] - values[0]) - self.ROW_DELTA) > self.ROW_SPACING_TOLERANCE:
+            return values
+
+        inferred = values[0] - self.ROW_DELTA
+        safe_bottom = height - self.SAFE_BOTTOM_MARGIN
+        if inferred < self.SAFE_SCAN_TOP or inferred + self.CARD_HEIGHT > safe_bottom:
+            return values
+
+        states = tuple(
+            slot.presence for slot in self._scan_row(frame, 0, inferred)
+        )
+        if DockCardPresence.PRESENT not in states:
+            return values
+        return (inferred, *values)
+
     def register_rows(self, frame: np.ndarray) -> tuple[int, ...]:
         """Return structurally proven, fully visible card-row origins."""
         height, _ = self._validate_frame(frame)
@@ -477,7 +503,12 @@ class DockCardGridScanner:
                     f"Структура candidate row неоднозначна: origin={origin}."
                 )
             # An all-ABSENT candidate is background, not a registered card row.
-        return self._validate_row_origins(accepted, height=height)
+        recovered = self._recover_preceding_visible_row(
+            frame,
+            accepted,
+            height=height,
+        )
+        return self._validate_row_origins(recovered, height=height)
 
     def scan_viewport(self, viewport: DockTraversalViewport) -> DockViewportCardScan:
         """Scan only ``viewport.frame``; no screenshot, click, or scroll occurs."""

@@ -47,18 +47,37 @@ class DockTraversalResult:
     reached_bottom: bool
     final_viewport_visited: bool
     no_progress_retries: int
+    dpad_actions: int = 0
+    dpad_progress_actions: int = 0
+    scroll_fallback_calls: int = 0
+    initial_nudge_applied: bool = False
 
     def __post_init__(self) -> None:
         if type(self.visited_viewports) is not int or self.visited_viewports < 0:
             raise ValueError("visited_viewports должен быть неотрицательным int")
         if self.visited_viewports != len(self.positions):
             raise ValueError("visited_viewports должен совпадать с числом positions")
-        if any(not math.isfinite(value) or not 0.0 <= value <= 1.0 for value in self.positions):
+        if any(
+            not math.isfinite(value) or not 0.0 <= value <= 1.0
+            for value in self.positions
+        ):
             raise ValueError("positions должны содержать конечные значения в [0, 1]")
-        if type(self.reached_bottom) is not bool or type(self.final_viewport_visited) is not bool:
+        if (
+            type(self.reached_bottom) is not bool
+            or type(self.final_viewport_visited) is not bool
+            or type(self.initial_nudge_applied) is not bool
+        ):
             raise TypeError("Флаги результата обхода должны быть bool")
-        if type(self.no_progress_retries) is not int or self.no_progress_retries < 0:
-            raise ValueError("no_progress_retries должен быть неотрицательным int")
+        for name, value in (
+            ("no_progress_retries", self.no_progress_retries),
+            ("dpad_actions", self.dpad_actions),
+            ("dpad_progress_actions", self.dpad_progress_actions),
+            ("scroll_fallback_calls", self.scroll_fallback_calls),
+        ):
+            if type(value) is not int or value < 0:
+                raise ValueError(f"{name} должен быть неотрицательным int")
+        if self.dpad_progress_actions > self.dpad_actions:
+            raise ValueError("dpad_progress_actions не может превышать dpad_actions")
 
 
 class _DockRuntime(Protocol):
@@ -80,10 +99,22 @@ class _DockScroll(Protocol):
 
 
 DockViewportVisitor = Callable[[DockTraversalViewport], object]
+DockKeyeventSender = Callable[[str], object]
+DockInitialNudgeSender = Callable[[], object]
 
 
 class DockInventoryTraversal:
-    """Visit every stable Dock viewport using the canonical Dock scrollbar.
+    """Visit every stable Dock viewport with independently proven progress.
+
+    MuMu host-side arrow keys are known to scroll Dock smoothly, so runtime
+    probes the Android DPAD equivalent as the preferred movement path. DPAD is
+    kept only when the scrollbar independently proves the expected movement.
+    If ADB keyevents are unavailable or ineffective, traversal disables them
+    and falls back to the previously accepted canonical ``Scroll`` movement.
+
+    Before the first visitor, one small deterministic upward swipe may normalize
+    the top viewport so three complete card rows fit on screen. It is accepted
+    only while scrollbar evidence remains inside the proven top threshold.
 
     Stage 2 intentionally requires a visible, non-degenerate scrollbar. A
     reliable single-viewport/small-Dock distinction needs card-presence data
@@ -96,6 +127,13 @@ class DockInventoryTraversal:
     MAX_NO_PROGRESS_RETRIES = 3
     MAX_VIEWPORTS = 100
     MAX_STEPS = 400
+    MAX_TOP_KEYEVENT_STEPS = 100
+    KEYEVENT_NO_PROGRESS_RETRIES = 1
+    DPAD_UP = "KEYCODE_DPAD_UP"
+    DPAD_DOWN = "KEYCODE_DPAD_DOWN"
+    INITIAL_NUDGE_START = (640, 360)
+    INITIAL_NUDGE_END = (640, 338)
+    INITIAL_NUDGE_DURATION = (0.25, 0.25)
 
     def __init__(
         self,
@@ -108,6 +146,12 @@ class DockInventoryTraversal:
         max_no_progress_retries: int = MAX_NO_PROGRESS_RETRIES,
         max_viewports: int = MAX_VIEWPORTS,
         max_steps: int = MAX_STEPS,
+        max_top_keyevent_steps: int = MAX_TOP_KEYEVENT_STEPS,
+        keyevent_no_progress_retries: int = KEYEVENT_NO_PROGRESS_RETRIES,
+        prefer_keyevents: bool = True,
+        keyevent_sender: DockKeyeventSender | None = None,
+        normalize_initial_viewport: bool = True,
+        initial_nudge_sender: DockInitialNudgeSender | None = None,
     ) -> None:
         if not 0.0 < page_step < 1.0:
             raise ValueError("page_step должен быть в диапазоне (0, 1)")
@@ -115,11 +159,32 @@ class DockInventoryTraversal:
             raise ValueError("Допуски позиции не могут быть отрицательными")
         if any(
             type(value) is not int
-            for value in (max_no_progress_retries, max_viewports, max_steps)
+            for value in (
+                max_no_progress_retries,
+                max_viewports,
+                max_steps,
+                max_top_keyevent_steps,
+                keyevent_no_progress_retries,
+            )
         ):
             raise TypeError("Лимиты обхода должны быть int")
-        if max_no_progress_retries < 0 or max_viewports < 1 or max_steps < 1:
-            raise ValueError("Лимиты обхода должны быть положительными")
+        if (
+            max_no_progress_retries < 0
+            or max_viewports < 1
+            or max_steps < 1
+            or max_top_keyevent_steps < 1
+            or keyevent_no_progress_retries < 0
+        ):
+            raise ValueError(
+                "Лимиты шагов должны быть >= 1, лимиты повторов должны быть >= 0"
+            )
+        if type(prefer_keyevents) is not bool or type(normalize_initial_viewport) is not bool:
+            raise TypeError("prefer_keyevents и normalize_initial_viewport должны быть bool")
+        if keyevent_sender is not None and not callable(keyevent_sender):
+            raise TypeError("keyevent_sender должен быть callable или None")
+        if initial_nudge_sender is not None and not callable(initial_nudge_sender):
+            raise TypeError("initial_nudge_sender должен быть callable или None")
+
         self.main = main
         self.scroll = scroll
         self.page_step = page_step
@@ -128,6 +193,93 @@ class DockInventoryTraversal:
         self.max_no_progress_retries = max_no_progress_retries
         self.max_viewports = max_viewports
         self.max_steps = max_steps
+        self.max_top_keyevent_steps = max_top_keyevent_steps
+        self.keyevent_no_progress_retries = keyevent_no_progress_retries
+        self._keyevent_sender = (
+            self._resolve_keyevent_sender(keyevent_sender) if prefer_keyevents else None
+        )
+        self._initial_nudge_sender = (
+            self._resolve_initial_nudge_sender(initial_nudge_sender)
+            if normalize_initial_viewport
+            else None
+        )
+        self._reset_movement_evidence()
+
+    def _reset_movement_evidence(self) -> None:
+        self._dpad_actions = 0
+        self._dpad_progress_actions = 0
+        self._scroll_fallback_calls = 0
+        self._initial_nudge_applied = False
+
+    def _resolve_keyevent_sender(
+        self,
+        explicit: DockKeyeventSender | None,
+    ) -> DockKeyeventSender | None:
+        if explicit is not None:
+            return explicit
+        adb_shell = getattr(self.main.device, "adb_shell", None)
+        if not callable(adb_shell):
+            return None
+
+        def send(keycode: str) -> object:
+            return adb_shell(["input", "keyevent", keycode])
+
+        return send
+
+    def _resolve_initial_nudge_sender(
+        self,
+        explicit: DockInitialNudgeSender | None,
+    ) -> DockInitialNudgeSender | None:
+        if explicit is not None:
+            return explicit
+        swipe = getattr(self.main.device, "swipe", None)
+        if not callable(swipe):
+            return None
+
+        def send() -> object:
+            return swipe(
+                self.INITIAL_NUDGE_START,
+                self.INITIAL_NUDGE_END,
+                duration=self.INITIAL_NUDGE_DURATION,
+                name="НОРМАЛИЗАЦИЯ_ПЕРВОГО_ОКНА_ДОКА",
+            )
+
+        return send
+
+    def _disable_keyevents(self, reason: str) -> None:
+        if self._keyevent_sender is None:
+            return
+        logger.warning(
+            "[Инвентарь дока] ADB DPAD отключён: %s; используется проверенный резервный Scroll.",
+            reason,
+        )
+        self._keyevent_sender = None
+
+    def _keyevent_candidate(self, keycode: str) -> tuple[np.ndarray, float] | None:
+        sender = self._keyevent_sender
+        if sender is None:
+            raise DockInventoryTraversalError(
+                "Внутренняя ошибка: DPAD action запрошен после его отключения."
+            )
+        try:
+            sender(keycode)
+        except Exception as exc:
+            self._disable_keyevents(
+                f"{keycode}: отправка ADB keyevent завершилась ошибкой "
+                f"{type(exc).__name__}: {exc}"
+            )
+            return None
+
+        self._dpad_actions += 1
+        frame = self.capture_stable_frame()
+        try:
+            position = self.read_scroll_position()
+        except DockInventoryTraversalError as exc:
+            self._disable_keyevents(
+                f"{keycode}: после DPAD не подтверждена полоса прокрутки: {exc}"
+            )
+            return None
+        return frame, position
 
     def capture_stable_frame(self) -> np.ndarray:
         """Detach the current stable frame from a potentially reused backend buffer."""
@@ -159,12 +311,53 @@ class DockInventoryTraversal:
         return position
 
     def canonicalize_top(self) -> tuple[np.ndarray, float]:
-        """Reach top and independently verify it after ``Scroll.set_top``."""
+        """Reach top with DPAD_UP when proven, otherwise use verified Scroll fallback."""
         frame = self.capture_stable_frame()
         position = self.read_scroll_position()
         if position <= self.scroll.edge_threshold:
             return frame, position
 
+        if self._keyevent_sender is not None:
+            no_progress = 0
+            for _step in range(self.max_top_keyevent_steps):
+                previous = position
+                candidate_result = self._keyevent_candidate(self.DPAD_UP)
+                if candidate_result is None:
+                    break
+                candidate_frame, candidate = candidate_result
+                if candidate <= self.scroll.edge_threshold:
+                    self._dpad_progress_actions += 1
+                    return candidate_frame, candidate
+
+                progressed = candidate < previous - self.progress_epsilon
+                reversed_too_far = candidate > previous + self.reverse_tolerance
+                if progressed and not reversed_too_far:
+                    self._dpad_progress_actions += 1
+                    frame = candidate_frame
+                    position = candidate
+                    no_progress = 0
+                    continue
+
+                no_progress += 1
+                reason = "обратное движение" if reversed_too_far else "нет прогресса"
+                logger.warning(
+                    "[Инвентарь дока] DPAD_UP: %s: до=%.6f, после=%.6f, "
+                    "повтор=%s/%s",
+                    reason,
+                    previous,
+                    candidate,
+                    no_progress,
+                    self.keyevent_no_progress_retries + 1,
+                )
+                if no_progress > self.keyevent_no_progress_retries:
+                    self._disable_keyevents("DPAD_UP не подтвердил движение к началу")
+                    break
+            else:
+                self._disable_keyevents(
+                    f"DPAD_UP достиг лимита {self.max_top_keyevent_steps} действий"
+                )
+
+        self._scroll_fallback_calls += 1
         self.scroll.set_top(self.main, skip_first_screenshot=True)
         frame = self.capture_stable_frame()
         position = self.read_scroll_position()
@@ -175,9 +368,62 @@ class DockInventoryTraversal:
             )
         return frame, position
 
+    def _normalize_initial_viewport(
+        self,
+        frame: np.ndarray,
+        position: float,
+    ) -> tuple[np.ndarray, float]:
+        sender = self._initial_nudge_sender
+        if sender is None:
+            return frame, position
+        try:
+            sender()
+        except Exception as exc:
+            raise DockInventoryTraversalError(
+                "Стартовая нормализация Dock завершилась ошибкой input backend: "
+                f"{type(exc).__name__}: {exc}"
+            ) from exc
+
+        candidate_frame = self.capture_stable_frame()
+        candidate = self.read_scroll_position()
+        if candidate > self.scroll.edge_threshold:
+            logger.warning(
+                "[Инвентарь дока] Стартовый nudge вышел за top threshold: "
+                "до=%.6f, после=%.6f; восстановление начала Dock.",
+                position,
+                candidate,
+            )
+            self._scroll_fallback_calls += 1
+            self.scroll.set_top(self.main, skip_first_screenshot=True)
+            restored_frame = self.capture_stable_frame()
+            restored = self.read_scroll_position()
+            if restored > self.scroll.edge_threshold:
+                raise DockInventoryTraversalError(
+                    "После отката стартового nudge начало Dock не подтверждено: "
+                    f"position={restored:.6f}."
+                )
+            return restored_frame, restored
+
+        if np.array_equal(candidate_frame, frame):
+            logger.warning(
+                "[Инвентарь дока] Стартовый nudge не изменил стабильный frame; "
+                "используется исходное верхнее окно."
+            )
+            return candidate_frame, candidate
+
+        self._initial_nudge_applied = True
+        logger.info(
+            "[Инвентарь дока] Стартовая нормализация применена: до=%.6f, после=%.6f.",
+            position,
+            candidate,
+        )
+        return candidate_frame, candidate
+
     def traverse(self, visitor: DockViewportVisitor) -> DockTraversalResult:
         """Visit top through the confirmed final bottom viewport exactly once."""
+        self._reset_movement_evidence()
         frame, position = self.canonicalize_top()
+        frame, position = self._normalize_initial_viewport(frame, position)
         positions: list[float] = []
         no_progress_retries = 0
         steps = 0
@@ -203,43 +449,87 @@ class DockInventoryTraversal:
                     reached_bottom=True,
                     final_viewport_visited=True,
                     no_progress_retries=no_progress_retries,
+                    dpad_actions=self._dpad_actions,
+                    dpad_progress_actions=self._dpad_progress_actions,
+                    scroll_fallback_calls=self._scroll_fallback_calls,
+                    initial_nudge_applied=self._initial_nudge_applied,
                 )
 
             next_frame: np.ndarray | None = None
             next_position: float | None = None
-            for attempt in range(self.max_no_progress_retries + 1):
-                if steps >= self.max_steps:
-                    raise DockInventoryTraversalError(
-                        f"Достигнут safety-лимит шагов Dock: {self.max_steps}."
+
+            if self._keyevent_sender is not None:
+                keyevent_failures = 0
+                while keyevent_failures <= self.keyevent_no_progress_retries:
+                    if steps >= self.max_steps:
+                        raise DockInventoryTraversalError(
+                            f"Достигнут safety-лимит шагов Dock: {self.max_steps}."
+                        )
+                    candidate_result = self._keyevent_candidate(self.DPAD_DOWN)
+                    steps += 1
+                    if candidate_result is None:
+                        break
+                    candidate_frame, candidate = candidate_result
+                    reached_bottom = candidate >= 1.0 - self.scroll.edge_threshold
+                    progressed = candidate > position + self.progress_epsilon
+                    reversed_too_far = candidate < position - self.reverse_tolerance
+                    if reached_bottom or (progressed and not reversed_too_far):
+                        self._dpad_progress_actions += 1
+                        next_frame = candidate_frame
+                        next_position = candidate
+                        break
+
+                    keyevent_failures += 1
+                    no_progress_retries += 1
+                    reason = "обратное движение" if reversed_too_far else "нет прогресса"
+                    logger.warning(
+                        "[Инвентарь дока] DPAD_DOWN: %s: до=%.6f, после=%.6f, "
+                        "повтор=%s/%s",
+                        reason,
+                        position,
+                        candidate,
+                        keyevent_failures,
+                        self.keyevent_no_progress_retries + 1,
                     )
-                self.scroll.next_page(
-                    self.main,
-                    page=self.page_step,
-                    skip_first_screenshot=True,
-                )
-                steps += 1
-                candidate_frame = self.capture_stable_frame()
-                candidate = self.read_scroll_position()
 
-                reached_bottom = candidate >= 1.0 - self.scroll.edge_threshold
-                progressed = candidate > position + self.progress_epsilon
-                reversed_too_far = candidate < position - self.reverse_tolerance
-                if reached_bottom or (progressed and not reversed_too_far):
-                    next_frame = candidate_frame
-                    next_position = candidate
-                    break
+                if next_frame is None:
+                    self._disable_keyevents("DPAD_DOWN не подтвердил движение к низу")
 
-                no_progress_retries += 1
-                reason = "обратное движение" if reversed_too_far else "нет прогресса"
-                logger.warning(
-                    "[Dock Inventory] %s после шага: previous=%.6f, "
-                    "current=%.6f, retry=%s/%s",
-                    reason,
-                    position,
-                    candidate,
-                    attempt + 1,
-                    self.max_no_progress_retries + 1,
-                )
+            if next_frame is None:
+                for attempt in range(self.max_no_progress_retries + 1):
+                    if steps >= self.max_steps:
+                        raise DockInventoryTraversalError(
+                            f"Достигнут safety-лимит шагов Dock: {self.max_steps}."
+                        )
+                    self._scroll_fallback_calls += 1
+                    self.scroll.next_page(
+                        self.main,
+                        page=self.page_step,
+                        skip_first_screenshot=True,
+                    )
+                    steps += 1
+                    candidate_frame = self.capture_stable_frame()
+                    candidate = self.read_scroll_position()
+
+                    reached_bottom = candidate >= 1.0 - self.scroll.edge_threshold
+                    progressed = candidate > position + self.progress_epsilon
+                    reversed_too_far = candidate < position - self.reverse_tolerance
+                    if reached_bottom or (progressed and not reversed_too_far):
+                        next_frame = candidate_frame
+                        next_position = candidate
+                        break
+
+                    no_progress_retries += 1
+                    reason = "обратное движение" if reversed_too_far else "нет прогресса"
+                    logger.warning(
+                        "[Инвентарь дока] %s после резервного Scroll: до=%.6f, "
+                        "после=%.6f, повтор=%s/%s",
+                        reason,
+                        position,
+                        candidate,
+                        attempt + 1,
+                        self.max_no_progress_retries + 1,
+                    )
 
             if next_frame is None or next_position is None:
                 raise DockInventoryTraversalError(
