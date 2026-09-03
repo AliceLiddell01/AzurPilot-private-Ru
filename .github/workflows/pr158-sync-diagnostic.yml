@@ -28,13 +28,15 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          EXPECTED_PARENT_SHA: f9a8c23752af5a37c71b1e73057b74a284c563b7
+          EXPECTED_PARENT_SHA: 5e61f2297a5d81d1abdadde35879f14026d406db
           STABLE_SHA: cf54dfb3901c8d1ab8374840549db7deaa29b2f8
           REPOSITORY: AliceLiddell01/AzurPilot-private-Ru
           PR_NUMBER: '158'
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD^)" = "${EXPECTED_PARENT_SHA}"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           diagnostic="$(mktemp)"
           trap 'rm -f "${diagnostic}"' EXIT
 
