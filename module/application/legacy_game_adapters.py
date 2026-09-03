@@ -22,10 +22,12 @@ from module.application.errors import (
     OperationFailedError,
     OwnershipAmbiguousError,
     PostconditionFailedError,
+    PreconditionFailedError,
 )
 from module.application.game_models import (
     ConfigUpdateRequest,
     DashboardResources,
+    GameApplicationState,
     MediaFrame,
     SchedulerEntry,
     thaw_payload,
@@ -56,6 +58,9 @@ _ADB_PATH_CANDIDATES = (
 )
 _SCHEDULER_FALLBACK_NEXT_RUN = datetime.fromisoformat("2050-01-01")
 _ADB_DEVICE_STATES = frozenset({"device", "offline", "unauthorized"})
+_GAME_PACKAGE_RE = re.compile(
+    r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$"
+)
 
 
 def _adb_server_identity() -> str:
@@ -694,6 +699,279 @@ class LegacyScreenshotAdapter:
         )
 
 
+class LegacyGameApplicationAdapter:
+    """Запустить настроенную игру через существующий ADB application boundary."""
+
+    def __init__(
+        self,
+        *,
+        config_factory: Callable[[str], object] | None = None,
+        adb_client_factory: Callable[[], object] | None = None,
+        app_control_factory: Callable[[object, object, str, str, object], object]
+        | None = None,
+        target_serial_provider: Callable[[str], str | None] | None = None,
+        target_serial_aliases_provider: Callable[[str], Sequence[str]] | None = None,
+    ) -> None:
+        self._config_factory = config_factory
+        self._adb_client_factory = adb_client_factory or self._default_adb_client
+        self._app_control_factory = (
+            app_control_factory or self._default_app_control_factory
+        )
+        self._target_serial_provider = target_serial_provider or _read_target_serial
+        self._target_serial_aliases_provider = (
+            target_serial_aliases_provider or _read_only_emulator_serial_aliases
+        )
+
+    def read_state(self, instance: str) -> GameApplicationState:
+        instance = _safe_instance_name(instance)
+        with _adb_host_lock():
+            return self._read_state(instance)
+
+    def start_game(self, instance: str) -> bool:
+        instance = _safe_instance_name(instance)
+        with _adb_host_lock():
+            app = self._make_app_control(instance)
+            method = getattr(app, "app_start_adb", None)
+            if not callable(method):
+                raise OperationFailedError(
+                    "Application owner не предоставил запуск настроенной игры."
+                )
+            try:
+                result = method()
+            except (OwnershipAmbiguousError, PreconditionFailedError):
+                raise
+            except Exception:  # noqa: BLE001 - application boundary is sanitized.
+                raise OperationFailedError(
+                    "Не удалось запустить настроенную игру."
+                ) from None
+            if type(result) is not bool:
+                raise OperationFailedError(
+                    "Application owner вернул некорректный результат запуска игры."
+                )
+            return result
+
+    def _read_state(self, instance: str) -> GameApplicationState:
+        app, package = self._make_app_control(instance, include_package=True)
+        foreground: bool | None
+        try:
+            current = app.app_current_adb()  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001 - foreground read fails closed.
+            foreground = None
+        else:
+            foreground = (
+                current.strip() == package if isinstance(current, str) else None
+            )
+
+        running: bool | None
+        shell = getattr(app, "adb_shell", None)
+        if not callable(shell):
+            running = None
+        else:
+            try:
+                output = shell(["pidof", package], timeout=5)
+            except Exception:  # noqa: BLE001 - process read is best effort.
+                running = None
+            else:
+                running = bool(re.search(r"\b\d+\b", str(output)))
+        if foreground is True:
+            running = True
+        return GameApplicationState(
+            adb_ready=True,
+            game_running=running,
+            game_foreground=foreground,
+        )
+
+    def _make_app_control(
+        self,
+        instance: str,
+        *,
+        include_package: bool = False,
+    ) -> object | tuple[object, str]:
+        config = self._make_config(instance)
+        package = self._read_package(config)
+        client = self._make_adb_client()
+        device, serial = self._resolve_target_device(instance, client)
+        app = self._app_control_factory(config, device, serial, package, client)
+        if include_package:
+            return app, package
+        return app
+
+    def _make_config(self, instance: str) -> object:
+        if self._config_factory is not None:
+            return self._config_factory(instance)
+        from module.config.config import AzurLaneConfig
+
+        return AzurLaneConfig(instance, task=None)
+
+    @staticmethod
+    def _read_package(config: object) -> str:
+        package = getattr(config, "Emulator_PackageName", None)
+        if (
+            not isinstance(package, str)
+            or package != package.strip()
+            or len(package) > 256
+            or _GAME_PACKAGE_RE.fullmatch(package) is None
+        ):
+            raise PreconditionFailedError(
+                "В конфигурации не задан валидный пакет настроенной игры."
+            )
+        return package
+
+    def _make_adb_client(self) -> object:
+        try:
+            return self._adb_client_factory()
+        except (OwnershipAmbiguousError, PreconditionFailedError):
+            raise
+        except Exception:  # noqa: BLE001 - ADB setup fails closed.
+            raise PreconditionFailedError("ADB server недоступен.") from None
+
+    def _resolve_target_device(
+        self,
+        instance: str,
+        client: object,
+    ) -> tuple[object, str]:
+        list_devices = getattr(client, "device_list", None)
+        if not callable(list_devices):
+            raise PreconditionFailedError("ADB client не предоставляет inventory target.")
+        try:
+            devices = list(list_devices())
+        except Exception:  # noqa: BLE001 - ADB inventory fails closed.
+            raise PreconditionFailedError("ADB inventory target недоступен.") from None
+        if not devices:
+            raise OwnershipAmbiguousError("Готовый ADB target не найден.")
+
+        records: list[tuple[object, str, str]] = []
+        seen_serials: set[str] = set()
+        for device in devices:
+            try:
+                serial = _safe_serial(device.serial)  # type: ignore[attr-defined]
+            except (TypeError, ValueError):
+                raise OwnershipAmbiguousError(
+                    "ADB inventory содержит неподтверждённый serial."
+                ) from None
+            if serial in seen_serials:
+                raise OwnershipAmbiguousError(
+                    "ADB inventory содержит повторный serial."
+                )
+            seen_serials.add(serial)
+            state = self._read_device_state(device)
+            records.append((device, serial, state))
+
+        try:
+            target_serial = self._target_serial_provider(instance)
+        except (OwnershipAmbiguousError, PreconditionFailedError):
+            raise
+        except Exception:  # noqa: BLE001 - target config fails closed.
+            raise PreconditionFailedError(
+                "Конфигурация ADB target недоступна."
+            ) from None
+        if isinstance(target_serial, str) and target_serial.casefold() == "auto":
+            target_serial = None
+        if target_serial is not None:
+            try:
+                target_serial = _safe_serial(target_serial)
+            except (TypeError, ValueError):
+                raise PreconditionFailedError(
+                    "Конфигурация ADB target имеет некорректный serial."
+                ) from None
+
+        ready = [record for record in records if record[2] == "device"]
+        if target_serial is None:
+            if len(records) != 1 or len(ready) != 1:
+                raise OwnershipAmbiguousError(
+                    "Ownership ADB target неоднозначен без configured serial."
+                )
+            _device, serial, _state = ready[0]
+            return _device, serial
+
+        exact = [record for record in ready if record[1] == target_serial]
+        if len(exact) == 1:
+            device, serial, _state = exact[0]
+            return device, serial
+
+        try:
+            aliases = self._target_serial_aliases_provider(target_serial)
+        except Exception:  # noqa: BLE001 - aliases are not proof when unavailable.
+            raise OwnershipAmbiguousError(
+                "Ownership ADB target нельзя подтвердить по aliases."
+            ) from None
+        if isinstance(aliases, (str, bytes)) or not isinstance(aliases, Sequence):
+            raise OwnershipAmbiguousError(
+                "Resolver ADB aliases вернул неподтверждённый результат."
+            )
+        safe_aliases: set[str] = set()
+        for alias in aliases:
+            try:
+                safe_aliases.add(_safe_serial(alias))
+            except (TypeError, ValueError):
+                continue
+        matches = [record for record in ready if record[1] in safe_aliases]
+        if len(matches) != 1:
+            raise OwnershipAmbiguousError(
+                "Ownership configured ADB target не подтверждён."
+            )
+        device, serial, _state = matches[0]
+        return device, serial
+
+    @staticmethod
+    def _read_device_state(device: object) -> str:
+        checker = getattr(device, "get_state", None)
+        if not callable(checker):
+            raise OwnershipAmbiguousError("ADB target не предоставляет state check.")
+        try:
+            state = checker()
+        except Exception:  # noqa: BLE001 - target state fails closed.
+            raise PreconditionFailedError("Состояние ADB target недоступно.") from None
+        try:
+            return _safe_adb_state(state)
+        except (TypeError, ValueError):
+            raise OwnershipAmbiguousError("ADB target вернул некорректное состояние.") from None
+
+    @staticmethod
+    def _default_adb_client() -> object:
+        import adbutils
+
+        port = 5037
+        raw_port = os.environ.get("ANDROID_ADB_SERVER_PORT")
+        if raw_port is not None:
+            try:
+                port = int(raw_port)
+            except ValueError:
+                raise PreconditionFailedError(
+                    "Порт ADB имеет некорректный формат."
+                ) from None
+        if not 1 <= port <= 65_535:
+            raise PreconditionFailedError("Порт ADB вне допустимого диапазона.")
+        return adbutils.AdbClient("127.0.0.1", port)
+
+    @staticmethod
+    def _default_app_control_factory(
+        config: object,
+        device: object,
+        serial: str,
+        package: str,
+        client: object,
+    ) -> object:
+        from module.device.app_control import AppControl
+
+        class LegacyGameAppControl(AppControl):
+            def __init__(self) -> None:
+                self.config = config
+                self.adb = device
+                self.adb_client = client
+                self.serial = serial
+                self.package = package
+                self.is_wsa = False
+                self.is_local_network_device = False
+                self.is_waydroid = False
+
+            def adb_shell(self, cmd: object, **kwargs: object) -> str:
+                timeout = kwargs.get("timeout", 10)
+                return str(self.adb.shell(cmd, timeout=timeout))
+
+        return LegacyGameAppControl()
+
+
 class LegacyProcessManagerAdapter:
     """Узкий adapter к WebUI-owned ProcessManager."""
 
@@ -1112,6 +1390,7 @@ __all__ = [
     "LegacyAdbAdapter",
     "LegacyConfigAdapter",
     "LegacyEmulatorAdapter",
+    "LegacyGameApplicationAdapter",
     "LegacyProcessManagerAdapter",
     "LegacyRuntimeLogAdapter",
     "LegacyScreenshotAdapter",

@@ -21,6 +21,7 @@ from uuid import UUID
 from module.application.errors import (
     ApplicationError,
     ConfigurationValidationError,
+    GameRuntimePhaseError,
     IncompatibleSchemaError,
     InstanceNotRunningError,
     InvalidRequestError,
@@ -46,6 +47,7 @@ from module.application.game_models import (
     CurrentTaskSnapshot,
     DashboardResources,
     EmulatorRestartResult,
+    GameRuntimeRestartResult,
     LifecycleOutcome,
     LifecycleResult,
     MediaFrame,
@@ -337,10 +339,22 @@ def _ok(
     return _result(ok=True, code=code, message=message, state=state, details=details)
 
 
-def _error(code: str, message: str, *, tool: str | None = None) -> dict[str, object]:
-    details = {"tool": tool} if tool is not None else {}
+def _error(
+    code: str,
+    message: str,
+    *,
+    tool: str | None = None,
+    details: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    error_details = dict(details or {})
+    if tool is not None:
+        error_details["tool"] = tool
     return _result(
-        ok=False, code=code, message=message, state="failed", details=details
+        ok=False,
+        code=code,
+        message=message,
+        state="failed",
+        details=error_details,
     )
 
 
@@ -485,6 +499,7 @@ def _validate_arguments(
         "game_stop_profile",
         "game_clear_scheduler_queue",
         "game_restart_emulator",
+        "game_restart_runtime",
         "game_restart_adb",
     }:
         _profile_arguments(raw)
@@ -1050,6 +1065,101 @@ def _control_restart_result(
     )
 
 
+def _control_runtime_restart_result(
+    profile: str,
+    control: object,
+) -> dict[str, object]:
+    method = getattr(control, "restart_runtime", None)
+    if not callable(method):
+        raise ServiceUnavailableError("Game runtime restart capability недоступна.")
+    result = method(profile)
+    if (
+        not isinstance(result, GameRuntimeRestartResult)
+        or result.instance != profile
+        or result.emulator_verified is not True
+        or result.adb_ready is not True
+        or result.game_running is not True
+        or result.game_foreground is not True
+    ):
+        raise ServiceUnavailableError(
+            "Runtime owner вернул некорректный результат восстановления."
+        )
+    return _ok(
+        "GAME_RUNTIME_RESTARTED",
+        "Эмулятор перезапущен, игра запущена",
+        "ready",
+        {
+            "profile": profile,
+            "verified": True,
+            "emulator_verified": True,
+            "adb_ready": True,
+            "game_running": True,
+            "game_foreground": True,
+        },
+    )
+
+
+def _runtime_phase_error_result(
+    tool: str,
+    failure: GameRuntimePhaseError,
+) -> dict[str, object]:
+    """Преобразовать composite failure в существующий bounded error taxonomy."""
+
+    phase = failure.phase
+    is_emulator_phase = phase == "emulator_restart"
+    details = {"phase": phase}
+    cause = failure.cause
+    if isinstance(cause, ResourceBusyError):
+        return _error(
+            "GAME_RESOURCE_BUSY",
+            "Профиль занят другой control-операцией.",
+            tool=tool,
+            details=details,
+        )
+    if isinstance(cause, OwnershipAmbiguousError):
+        return _error(
+            "GAME_OWNERSHIP_AMBIGUOUS",
+            "Ownership целевого эмулятора не подтверждён."
+            if is_emulator_phase
+            else "Ownership целевого игрового устройства не подтверждён.",
+            tool=tool,
+            details=details,
+        )
+    if isinstance(cause, PostconditionFailedError):
+        return _error(
+            "GAME_POSTCONDITION_FAILED",
+            "Перезапуск эмулятора не подтверждён ожидаемым состоянием."
+            if is_emulator_phase
+            else "Эмулятор перезапущен, но запуск игры не подтверждён ожидаемым состоянием.",
+            tool=tool,
+            details=details,
+        )
+    if isinstance(cause, PreconditionFailedError):
+        return _error(
+            "GAME_PRECONDITION_FAILED",
+            "Безопасное условие перезапуска эмулятора не выполнено."
+            if is_emulator_phase
+            else "Эмулятор перезапущен, но безопасное условие запуска игры не выполнено.",
+            tool=tool,
+            details=details,
+        )
+    if isinstance(cause, ServiceUnavailableError):
+        return _error(
+            "GAME_CAPABILITY_UNAVAILABLE",
+            "Запрошенная Game runtime capability сейчас недоступна.",
+            tool=tool,
+            details=details,
+        )
+    return _error(
+        "GAME_OPERATION_FAILED",
+        "Перезапуск эмулятора не подтверждён."
+        if is_emulator_phase
+        else "Эмулятор перезапущен, но запуск игры не подтверждён.",
+        tool=tool,
+        details=details,
+    )
+
+
 def _current_request_scopes() -> tuple[str, ...] | None:
     """Вернуть scopes remote principal; None означает local stdio authority."""
 
@@ -1295,6 +1405,8 @@ class GameMcpAdapter:
                 return _control_clear_result(profile, control)
             if tool == "game_update_config":
                 return _control_config_result(profile, control, arguments)
+            if tool == "game_restart_runtime":
+                return _control_runtime_restart_result(profile, control)
             if tool in {"game_restart_emulator", "game_restart_adb"}:
                 return _control_restart_result(tool, profile, control)
             raise InvalidRequestError("Для control-инструмента отсутствует обработчик.")
@@ -1529,6 +1641,8 @@ class GameMcpAdapter:
                     "Параметр конфигурации не найден.",
                     tool=tool_name,
                 )
+            except GameRuntimePhaseError as error:
+                return _runtime_phase_error_result(tool_name, error)
             except ResourceNotFoundError:
                 return _error(
                     "GAME_UNKNOWN_PROFILE", "Профиль не найден.", tool=tool_name

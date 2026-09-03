@@ -10,6 +10,7 @@ from module.application.game_models import (
     ConfigArgumentDefinition,
     ConfigUpdateRequest,
     DashboardResources,
+    GameApplicationState,
     MediaFrame,
     SchedulerEntry,
 )
@@ -110,6 +111,14 @@ class EmulatorController(Protocol):
     def restart_emulator(self, instance: str) -> bool: ...
 
 
+class GameApplicationController(Protocol):
+    """Узкий application boundary для запуска настроенной игры."""
+
+    def read_state(self, instance: str) -> GameApplicationState: ...
+
+    def start_game(self, instance: str) -> bool: ...
+
+
 class AdbController(Protocol):
     def restart_adb(self, instance: str | None) -> bool: ...
 
@@ -118,6 +127,7 @@ __all__ = [
     "AdbController",
     "ConfigSchemaReader",
     "EmulatorController",
+    "GameApplicationController",
     "GameConfigMetadata",
     "GameConfigReader",
     "GameConfigWriter",
