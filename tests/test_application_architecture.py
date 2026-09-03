@@ -64,69 +64,99 @@ def _constant_mapping_keys(
     return frozenset(keys)
 
 
-def _constant_bindings(tree: ast.AST) -> dict[str, str | frozenset[str]]:
-    bindings: dict[str, str | frozenset[str]] = {}
-    assignments = [
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, (ast.Assign, ast.AnnAssign))
-    ]
-    for _ in range(len(assignments) + 1):
-        changed = False
-        for node in assignments:
-            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-            for target in targets:
-                if not isinstance(target, ast.Name):
-                    continue
-                value: str | frozenset[str] | None
-                if isinstance(node, ast.Assign):
-                    value = _constant_string_value(node.value, bindings)
-                    if value is None:
-                        value = _constant_mapping_keys(node.value, bindings)
-                else:
-                    value = _constant_string_value(node.value, bindings)
-                    if value is None:
-                        value = _constant_mapping_keys(node.value, bindings)
-                if value is not None and bindings.get(target.id) != value:
-                    bindings[target.id] = value
-                    changed = True
-        if not changed:
-            break
-    return bindings
+class _ScopeCollector(ast.NodeVisitor):
+    def __init__(self, inherited: dict[str, str | frozenset[str]]):
+        self.bindings = dict(inherited)
+        self.calls: list[ast.Call] = []
+        self.nested_scopes: list[ast.AST] = []
+
+    def _bind_targets(
+        self, targets: list[ast.expr], value_node: ast.AST
+    ) -> None:
+        value = _constant_string_value(value_node, self.bindings)
+        if value is None:
+            value = _constant_mapping_keys(value_node, self.bindings)
+        if value is None:
+            return
+        for target in targets:
+            if isinstance(target, ast.Name):
+                self.bindings[target.id] = value
+
+    def visit_Assign(self, node: ast.Assign) -> None:
+        self._bind_targets(node.targets, node.value)
+        self.generic_visit(node)
+
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+        if node.value is not None:
+            self._bind_targets([node.target], node.value)
+        self.generic_visit(node)
+
+    def visit_Call(self, node: ast.Call) -> None:
+        self.calls.append(node)
+        self.generic_visit(node)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self.nested_scopes.append(node)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self.nested_scopes.append(node)
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        self.nested_scopes.append(node)
+
+
+def _scope_body(scope: ast.AST) -> list[ast.stmt]:
+    return getattr(scope, "body", [])
+
+
+def _call_name(call: ast.Call) -> str | None:
+    if isinstance(call.func, ast.Attribute):
+        return call.func.attr
+    if isinstance(call.func, ast.Name):
+        return call.func.id
+    return None
 
 
 def _registered_route_paths(tree: ast.AST) -> tuple[set[str], list[str]]:
-    bindings = _constant_bindings(tree)
     paths: set[str] = set()
     unresolved: list[str] = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
-            continue
-        if node.func.attr in ROUTE_REGISTRATION_METHODS:
-            if not node.args:
-                unresolved.append(ast.unparse(node))
+
+    def collect_scope(scope: ast.AST, inherited: dict[str, str | frozenset[str]]) -> None:
+        collector = _ScopeCollector(inherited)
+        for statement in _scope_body(scope):
+            collector.visit(statement)
+        for call in collector.calls:
+            call_name = _call_name(call)
+            if call_name in ROUTE_REGISTRATION_METHODS:
+                if not call.args:
+                    unresolved.append(ast.unparse(call))
+                    continue
+                path = _constant_string_value(call.args[0], collector.bindings)
+                if path is None:
+                    unresolved.append(ast.unparse(call.args[0]))
+                else:
+                    paths.add(path)
+            if call_name != "asgi_app":
                 continue
-            path = _constant_string_value(node.args[0], bindings)
-            if path is None:
-                unresolved.append(ast.unparse(node.args[0]))
-            else:
-                paths.add(path)
-        if node.func.attr == "asgi_app":
             static_mounts = next(
                 (
                     keyword.value
-                    for keyword in node.keywords
+                    for keyword in call.keywords
                     if keyword.arg == "static_mounts"
                 ),
                 None,
             )
             if static_mounts is None:
                 continue
-            mount_paths = _constant_mapping_keys(static_mounts, bindings)
+            mount_paths = _constant_mapping_keys(static_mounts, collector.bindings)
             if mount_paths is None:
                 unresolved.append(ast.unparse(static_mounts))
             else:
                 paths.update(mount_paths)
+        for nested_scope in collector.nested_scopes:
+            collect_scope(nested_scope, collector.bindings)
+
+    collect_scope(tree, {})
     return paths, unresolved
 
 
@@ -220,6 +250,23 @@ def test_legacy_mcp_entrypoint_is_absent_and_webui_has_no_mcp_mount():
     assert (ROOT / "module" / "game_mcp" / "__init__.py").is_file()
     assert (ROOT / "module" / "dev_mcp" / "__init__.py").is_file()
     assert (ROOT / "module" / "mcp_shared" / "remote.py").is_file()
+
+
+def test_route_analysis_uses_scope_specific_bindings():
+    tree = ast.parse(
+        """
+MCP_PATH = "/mcp"
+
+def register(application):
+    MCP_PATH = "/static"
+    application.mount(MCP_PATH, object())
+"""
+    )
+
+    paths, unresolved = _registered_route_paths(tree)
+
+    assert not unresolved, unresolved
+    assert paths == {"/static"}
 
 
 def test_application_import_candidates_cover_from_module_form():
