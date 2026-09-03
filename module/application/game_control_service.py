@@ -5,19 +5,14 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from functools import wraps
-from math import isfinite
 from pathlib import Path
-from time import monotonic, sleep
 from typing import Concatenate
 
 from module.application.errors import (
     ApplicationError,
-    GameRuntimePhaseError,
     InvalidRequestError,
     OperationFailedError,
-    OwnershipAmbiguousError,
     PostconditionFailedError,
-    PreconditionFailedError,
     ResourceNotFoundError,
     ServiceUnavailableError,
 )
@@ -31,10 +26,6 @@ from module.application.game_models import (
     ConfigUpdateRequest,
     ConfigUpdateResult,
     EmulatorRestartResult,
-    GameApplicationState,
-    GameLoginResult,
-    GameLoginState,
-    GameRuntimeRestartResult,
     LifecycleOutcome,
     LifecycleResult,
     SchedulerEntry,
@@ -47,7 +38,6 @@ from module.application.game_ports import (
     AdbController,
     ConfigSchemaReader,
     EmulatorController,
-    GameApplicationController,
     GameConfigReader,
     GameConfigWriter,
     InstanceLifecycleController,
@@ -63,11 +53,6 @@ from module.application.game_validation import (
     validated_segment,
 )
 from module.application.ports import InstanceRuntimeReader
-
-_GAME_START_TIMEOUT_SECONDS = 60.0
-_GAME_START_RETRY_INTERVAL_SECONDS = 0.5
-_GAME_START_MAX_ATTEMPTS = 120
-_GAME_LOGIN_TIMEOUT_SECONDS = 120.0
 
 
 def _control_profile(value: object) -> str | None:
@@ -119,16 +104,9 @@ class GameControlService:
         emulator: EmulatorController,
         adb: AdbController,
         *,
-        application: GameApplicationController | None = None,
         clock: Callable[[], datetime] | None = None,
         config_reader: GameConfigReader,
         mutation_lock_root: Path | str | None = None,
-        game_start_timeout_seconds: float = _GAME_START_TIMEOUT_SECONDS,
-        game_start_retry_interval_seconds: float = _GAME_START_RETRY_INTERVAL_SECONDS,
-        game_start_max_attempts: int = _GAME_START_MAX_ATTEMPTS,
-        game_login_timeout_seconds: float = _GAME_LOGIN_TIMEOUT_SECONDS,
-        monotonic_clock: Callable[[], float] | None = None,
-        sleep_fn: Callable[[float], None] | None = None,
     ) -> None:
         if config_reader is None:
             raise TypeError("config_reader обязателен для подтверждения результата")
@@ -144,42 +122,9 @@ class GameControlService:
         self._lifecycle = lifecycle
         self._emulator = emulator
         self._adb = adb
-        self._application = application
         self._clock = clock or datetime.now
         self._config_reader = config_reader
         self._mutation_lock_root = mutation_lock_root
-        if (
-            type(game_start_timeout_seconds) is not float
-            or not isfinite(game_start_timeout_seconds)
-            or game_start_timeout_seconds < 0
-        ):
-            raise ValueError(
-                "game_start_timeout_seconds должен быть неотрицательным float"
-            )
-        if (
-            type(game_start_retry_interval_seconds) is not float
-            or not isfinite(game_start_retry_interval_seconds)
-            or game_start_retry_interval_seconds < 0
-        ):
-            raise ValueError(
-                "game_start_retry_interval_seconds должен быть неотрицательным float"
-            )
-        if type(game_start_max_attempts) is not int or game_start_max_attempts < 1:
-            raise ValueError("game_start_max_attempts должен быть положительным int")
-        if (
-            type(game_login_timeout_seconds) is not float
-            or not isfinite(game_login_timeout_seconds)
-            or game_login_timeout_seconds < 0
-        ):
-            raise ValueError(
-                "game_login_timeout_seconds должен быть неотрицательным конечным float"
-            )
-        self._game_start_timeout_seconds = game_start_timeout_seconds
-        self._game_start_retry_interval_seconds = game_start_retry_interval_seconds
-        self._game_start_max_attempts = game_start_max_attempts
-        self._game_login_timeout_seconds = game_login_timeout_seconds
-        self._monotonic = monotonic_clock or monotonic
-        self._sleep = sleep_fn or sleep
 
     @_profile_mutation
     def update_config(self, request: ConfigUpdateRequest) -> ConfigUpdateResult:
@@ -374,60 +319,6 @@ class GameControlService:
         return EmulatorRestartResult(instance=instance)
 
     @_profile_mutation
-    def restart_runtime(self, instance: str) -> GameRuntimeRestartResult:
-        """Перезапустить эмулятор и вернуть настроенную игру на передний план."""
-
-        instance = known_instance(self._instance_reader, instance)
-        self._run_runtime_phase(
-            "emulator_restart",
-            lambda: self._restart_emulator_transition(instance),
-        )
-        state = self._run_runtime_phase(
-            "game_start",
-            lambda: self._ensure_game_started(instance),
-        )
-        if not isinstance(state, GameApplicationState) or not self._game_ready(state):
-            raise GameRuntimePhaseError(
-                "game_start",
-                PostconditionFailedError(
-                    "Эмулятор перезапущен, но игра не подтвердила рабочее состояние."
-                ),
-            )
-        return GameRuntimeRestartResult(
-            instance=instance,
-            emulator_verified=True,
-            adb_ready=True,
-            game_running=True,
-            game_foreground=True,
-        )
-
-    @_profile_mutation
-    def login_runtime(self, instance: str) -> GameLoginResult:
-        """Выполнить существующий login flow и подтвердить главный экран."""
-
-        instance = known_instance(self._instance_reader, instance)
-        state = self._run_runtime_phase(
-            "login",
-            lambda: self._ensure_logged_in(instance),
-        )
-        if not isinstance(state, GameLoginState) or not self._login_ready(state):
-            raise GameRuntimePhaseError(
-                "login",
-                PostconditionFailedError(
-                    "Вход в игру не подтвердил рабочее состояние главного экрана."
-                ),
-            )
-        return GameLoginResult(
-            instance=instance,
-            verified=True,
-            adb_ready=True,
-            game_running=True,
-            game_foreground=True,
-            logged_in=True,
-            main=True,
-        )
-
-    @_profile_mutation
     def restart_adb(self, instance: str | None) -> AdbRestartResult:
         if instance is None:
             raise InvalidRequestError("Перезапуск ADB требует имя экземпляра.")
@@ -442,178 +333,6 @@ class GameControlService:
         if not result:
             raise OperationFailedError("ADB не подтвердил перезапуск.")
         return AdbRestartResult(instance=instance)
-
-    def _restart_emulator_transition(self, instance: str) -> None:
-        result = require_bool(
-            safe_control(
-                "перезапуска эмулятора",
-                lambda: self._emulator.restart_emulator(instance),
-            ),
-            operation="перезапуска эмулятора",
-        )
-        if not result:
-            raise OperationFailedError("Эмулятор не подтвердил перезапуск.")
-
-    def _ensure_game_started(self, instance: str) -> GameApplicationState:
-        application = self._application
-        if application is None:
-            raise ServiceUnavailableError("Application capability запуска игры недоступна.")
-
-        state = self._await_adb_ready(application, instance)
-        if self._game_ready(state):
-            return state
-
-        start_error: ApplicationError | None = None
-        started = False
-        try:
-            started = require_bool(
-                safe_control(
-                    "запуска настроенной игры",
-                    lambda: application.start_game(instance),
-                ),
-                operation="запуска игры",
-            )
-        except ApplicationError as error:
-            start_error = error
-
-        if start_error is not None or not started:
-            if isinstance(start_error, (OwnershipAmbiguousError, PreconditionFailedError)):
-                raise start_error
-            state = self._read_application_state(application, instance)
-            if self._game_ready(state):
-                return state
-            raise start_error or OperationFailedError(
-                "Команда запуска игры не подтвердила выполнение."
-            )
-        return self._await_game_ready(application, instance)
-
-    def _await_adb_ready(
-        self,
-        application: GameApplicationController,
-        instance: str,
-    ) -> GameApplicationState:
-        deadline = self._monotonic() + self._game_start_timeout_seconds
-        last_error: ApplicationError | None = None
-        for attempt in range(self._game_start_max_attempts):
-            try:
-                state = self._read_application_state(application, instance)
-            except (OwnershipAmbiguousError, PreconditionFailedError) as error:
-                last_error = error
-            else:
-                if state.adb_ready is True:
-                    return state
-                last_error = PreconditionFailedError(
-                    "ADB не подтвердил готовность target после перезапуска эмулятора."
-                )
-            if (
-                attempt + 1 >= self._game_start_max_attempts
-                or self._monotonic() >= deadline
-            ):
-                break
-            remaining = deadline - self._monotonic()
-            if remaining <= 0:
-                break
-            self._sleep(min(self._game_start_retry_interval_seconds, remaining))
-        if last_error is not None:
-            raise last_error
-        raise PreconditionFailedError(
-            "ADB не подтвердил готовность target после перезапуска эмулятора."
-        )
-
-    def _ensure_logged_in(self, instance: str) -> GameLoginState:
-        application = self._application
-        if application is None:
-            raise ServiceUnavailableError("Application capability входа в игру недоступна.")
-        state = safe_control(
-            "входа в игру и подтверждения главного экрана",
-            lambda: application.login_to_main(
-                instance,
-                timeout_seconds=self._game_login_timeout_seconds,
-            ),
-        )
-        if not isinstance(state, GameLoginState):
-            raise OperationFailedError(
-                "Application owner вернул некорректное состояние входа в игру."
-            )
-        return state
-
-    def _await_game_ready(
-        self,
-        application: GameApplicationController,
-        instance: str,
-    ) -> GameApplicationState:
-        deadline = self._monotonic() + self._game_start_timeout_seconds
-        for attempt in range(self._game_start_max_attempts):
-            state = self._read_application_state(application, instance)
-            if state.adb_ready is not True:
-                raise PreconditionFailedError(
-                    "ADB потерял готовность target во время запуска игры."
-                )
-            if self._game_ready(state):
-                return state
-            if (
-                attempt + 1 >= self._game_start_max_attempts
-                or self._monotonic() >= deadline
-            ):
-                break
-            remaining = deadline - self._monotonic()
-            if remaining <= 0:
-                break
-            self._sleep(min(self._game_start_retry_interval_seconds, remaining))
-        raise PostconditionFailedError(
-            "Эмулятор перезапущен, но игра не подтвердила foreground в bounded wait."
-        )
-
-    @staticmethod
-    def _read_application_state(
-        application: GameApplicationController,
-        instance: str,
-    ) -> GameApplicationState:
-        state = safe_control(
-            "проверки состояния настроенной игры",
-            lambda: application.read_state(instance),
-        )
-        if not isinstance(state, GameApplicationState):
-            raise OperationFailedError(
-                "Application owner вернул некорректное состояние игры."
-            )
-        return state
-
-    @staticmethod
-    def _game_ready(state: GameApplicationState) -> bool:
-        return (
-            state.adb_ready is True
-            and state.game_running is True
-            and state.game_foreground is True
-        )
-
-    @staticmethod
-    def _login_ready(state: GameLoginState) -> bool:
-        return (
-            state.adb_ready is True
-            and state.game_running is True
-            and state.game_foreground is True
-            and state.logged_in is True
-            and state.main is True
-        )
-
-    @staticmethod
-    def _run_runtime_phase(phase: str, callback: Callable[[], object]) -> object:
-        try:
-            return callback()
-        except GameRuntimePhaseError:
-            raise
-        except ApplicationError as error:
-            raise GameRuntimePhaseError(phase, error) from None
-        except Exception:  # noqa: BLE001 - composite boundary fails closed.
-            message = (
-                "Перезапуск эмулятора не подтверждён."
-                if phase == "emulator_restart"
-                else "Вход в игру не подтверждён."
-                if phase == "login"
-                else "Запуск игры не подтверждён."
-            )
-            raise GameRuntimePhaseError(phase, OperationFailedError(message)) from None
 
     def _verify_config_update(self, request: ConfigUpdateRequest) -> bool:
         reader = self._readback_method(

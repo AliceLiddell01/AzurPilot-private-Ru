@@ -136,32 +136,6 @@ def mumu_instance_owned_processes(instance: MuMuInstanceLike) -> list[psutil.Pro
     return list(unique.values())
 
 
-def _revalidated_owned_processes(instance: MuMuInstanceLike) -> list[psutil.Process]:
-    """Получить свежий process set и повторно проверить identity перед kill."""
-    initial = mumu_instance_owned_processes(instance)
-    if not initial:
-        return []
-
-    current = mumu_instance_owned_processes(instance)
-    if not current:
-        return []
-    if current[0].pid != initial[0].pid:
-        logger.info(
-            '[Устройство — Windows] Identity целевого MuMu изменилась до escalation; '
-            'используется свежий process set'
-        )
-    return current
-
-
-def _revalidate_owned_process(
-        instance: MuMuInstanceLike,
-        pid: int,
-) -> psutil.Process | None:
-    """Вернуть PID только если он всё ещё входит в свежий target set."""
-    current = mumu_instance_owned_processes(instance)
-    return next((proc for proc in current if proc.pid == pid), None)
-
-
 def force_stop_mumu_instance(
         instance: MuMuInstanceLike,
         *,
@@ -169,7 +143,7 @@ def force_stop_mumu_instance(
 ) -> bool:
     """Завершить только доказанно instance-owned process tree и проверить остановку."""
     try:
-        targets = _revalidated_owned_processes(instance)
+        targets = mumu_instance_owned_processes(instance)
     except MuMuInstanceIdentityError as exc:
         logger.error(f'[Устройство — Windows] Hard kill MuMu отклонён: {exc}')
         return False
@@ -181,16 +155,7 @@ def force_stop_mumu_instance(
     root = targets[0]
     ordered = [proc for proc in targets[1:] if proc.pid != root.pid] + [root]
     signaled_pids: list[int] = []
-    for expected in ordered:
-        try:
-            proc = _revalidate_owned_process(instance, expected.pid)
-        except MuMuInstanceIdentityError as exc:
-            logger.error(f'[Устройство — Windows] Hard kill MuMu отклонён перед PID {expected.pid}: {exc}')
-            return False
-        if proc is None:
-            # Процесс мог завершиться сам или его PID больше не принадлежит
-            # актуальному target set; старый process object не используется.
-            continue
+    for proc in ordered:
         try:
             logger.warning(
                 f'[Устройство — Windows] Instance-scoped hard kill: {instance.name}, '

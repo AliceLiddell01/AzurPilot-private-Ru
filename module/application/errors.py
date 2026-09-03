@@ -37,21 +37,6 @@ class OperationFailedError(ApplicationError):
     code = "operation_failed"
 
 
-class GameRuntimePhaseError(OperationFailedError):
-    """Сохранить фазу composite runtime mutation без нового public error code."""
-
-    _PHASES = frozenset({"emulator_restart", "game_start", "login"})
-
-    def __init__(self, phase: str, cause: ApplicationError) -> None:
-        if phase not in self._PHASES:
-            raise ValueError("Неизвестная фаза Game runtime operation.")
-        if not isinstance(cause, ApplicationError):
-            raise TypeError("cause должен быть ApplicationError")
-        self.phase = phase
-        self.cause = cause
-        super().__init__(str(cause))
-
-
 class ResourceBusyError(OperationFailedError):
     """Ресурс уже занят другой несовместимой control-операцией."""
 

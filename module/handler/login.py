@@ -1,44 +1,35 @@
-"""Обработчик входа в игру.
+"""登录流程处理器。
 
-Управляет входом в Azur Lane и перезапуском игры, включая:
-- запуск приложения и обнаружение экрана входа;
-- обработку различных окон входа (объявления, события, награды за вход);
-- восстановление после сбоя или зависания игры;
-- обработку ошибок подключения к серверу.
+管理碧蓝航线的登录和游戏重启流程，包括：
+- 应用启动和登录画面检测
+- 各种登录弹窗处理（公告、活动、签到等）
+- 游戏崩溃/卡死时的重启恢复
+- 服务器连接异常处理
 
-Поток входа покрывает состояния UI после запуска игры, обнаруживает и
-обрабатывает возможные окна и диалоги через цикл свежих screenshots, а затем
-подтверждает возврат игры на главный экран.
+登录流程覆盖了游戏启动后的各种 UI 状态，
+通过截图循环检测并处理所有可能出现的弹窗和确认框，
+最终确保游戏回到主界面。
 
-Класс наследуется от UI и использует его навигацию для переходов между
-страницами и обработки окон.
+继承自 UI，利用页面导航能力处理跨页面的弹窗。
 """
 
-# Логика smart restart добавлена поверх оригинального login.py.
-# Она обрабатывает окна и объявления входа, а также восстанавливает приложение
-# после сбоя.
-# Последнее обновление: 2025-08-25 20:41
-from math import isfinite
-from time import monotonic
-
+# 基于原版 login.py 增加了智能的游戏重启逻辑
+# 用于处理登录流程中的各种弹窗、公告以及在应用崩溃时执行重启恢复操作。
+# 最后更新: 2025-08-25 20:41
 import numpy as np
 from scipy.signal import find_peaks
-
-# Эта последовательность импорта нужна для совместимости legacy dependencies.
-# isort: off
-# Исправить pkg_resources перед импортом adbutils и uiautomator2.
+# 在导入 adbutils 和 uiautomator2 之前修补 pkg_resources
 from module.device.pkg_resources import get_distribution
 from uiautomator2 import UiObject
 from uiautomator2.exceptions import XPathElementNotFoundError
 from uiautomator2.xpath import XPath, XPathSelector
-# isort: on
 
 _ = get_distribution
 
+import module.config.server as server
 from module.base.button import Button
 from module.base.timer import Timer
 from module.base.utils import color_similarity_2d, crop
-from module.config import server
 from module.handler.assets import *
 from module.logger import logger
 from module.map.assets import *
@@ -47,49 +38,29 @@ from module.ui.page import page_campaign_menu
 from module.ui.ui import UI
 
 
-class LoginHandlerTimeoutError(TimeoutError):
-    """Ожидаемое завершение bounded login flow по тайм-ауту."""
-
-
 class LoginHandler(UI):
-    """Обработчик входа и перезапуска игры.
+    """登录和游戏重启处理器。
 
-    Обрабатывает вход после запуска игры, автоматически закрывает окна,
-    объявления и награды за вход, а также восстанавливает игру после сбоя.
+    处理游戏启动后的登录流程，包括各种弹窗、公告、签到奖励的自动关闭，
+    以及游戏崩溃后的重启恢复逻辑。
 
-    Основные методы:
-    - _handle_app_login(): полный flow от любой страницы до главного экрана;
-    - app_restart(): перезапуск приложения;
-    - handle_app_login(): вход с восстановлением screenshot interval.
+    主要方法：
+    - _handle_app_login(): 完整的登录流程，从任意页面到主界面
+    - app_restart(): 重启游戏应用
+    - handle_app_login(): 带重试的登录入口
     """
 
-    def _handle_app_login(self, timeout_seconds: float | None = None):
+    def _handle_app_login(self):
         """
         Pages:
-            in: любая страница
+            in: 任意页面
             out: page_main
 
         Raises:
-            ValueError: timeout_seconds имеет неподдерживаемое значение.
-            GameStuckError: игра зависла.
-            GameTooManyClickError: превышено число нажатий.
-            GameNotRunningError: игра не запущена.
-            LoginHandlerTimeoutError: истёк bounded тайм-аут входа.
+            GameStuckError: 游戏卡死。
+            GameTooManyClickError: 点击次数过多。
+            GameNotRunningError: 游戏未运行。
         """
-        if timeout_seconds is not None and (
-            type(timeout_seconds) is not float
-            or not isfinite(timeout_seconds)
-            or timeout_seconds < 0
-        ):
-            raise ValueError(
-                'timeout_seconds должен быть неотрицательным конечным float или None'
-            )
-        deadline = (
-            None
-            if timeout_seconds is None
-            else monotonic() + timeout_seconds
-        )
-
         logger.hr('Вход в приложение')
 
         confirm_timer = Timer(1.5, count=4).start()
@@ -99,19 +70,15 @@ class LoginHandler(UI):
         self.device.click_record_clear()
 
         while 1:
-            if deadline is not None and monotonic() >= deadline:
-                raise LoginHandlerTimeoutError(
-                    'Истёк bounded тайм-аут входа в приложение.'
-                )
-            # Проверить поворот экрана устройства.
+            # 监测设备屏幕旋转
             if not login_success and orientation_timer.reached():
-                # После запуска приложения ориентация экрана может измениться.
+                # 启动应用后屏幕可能会旋转
                 self.device.get_orientation()
                 orientation_timer.reset()
 
             self.device.screenshot()
 
-            # Условие завершения.
+            # 结束条件
             if self.is_in_main():
                 if confirm_timer.reached():
                     logger.info('[Вход] Подтверждение перехода на главный экран')
@@ -119,12 +86,7 @@ class LoginHandler(UI):
             else:
                 confirm_timer.reset()
 
-            if deadline is not None and monotonic() >= deadline:
-                raise LoginHandlerTimeoutError(
-                    'Истёк bounded тайм-аут входа в приложение.'
-                )
-
-            # Обработка входа.
+            # 登录处理
             if self.match_template_color(LOGIN_CHECK, offset=(30, 30), interval=5):
                 self.device.click(LOGIN_CHECK)
                 if not login_success:
@@ -143,29 +105,30 @@ class LoginHandler(UI):
             if self.appear(EVENT_LIST_CHECK, offset=(30, 30), interval=5):
                 self.device.click(BACK_ARROW)
                 continue
-            # Обновление и обслуживание.
+            # 更新和维护
             if self.appear_then_click(MAINTENANCE_ANNOUNCE, offset=(30, 30), interval=5):
                 continue
             if self.appear_then_click(LOGIN_GAME_UPDATE, offset=(30, 30), interval=5):
                 continue
-            if server.server == 'cn' and not login_success and self.handle_cn_user_agreement():
-                continue
-            # Возвращение пользователя.
+            if server.server == 'cn' and not login_success:
+                if self.handle_cn_user_agreement():
+                    continue
+            # 回归玩家
             if self.appear_then_click(LOGIN_RETURN_SIGN, offset=(30, 30), interval=5):
                 continue
             if self.appear_then_click(LOGIN_RETURN_INFO, offset=(30, 30), interval=5):
                 continue
             if self.appear_then_click(AVATAR_EXPIRED, offset=(30, 30), interval=5):
                 continue
-            # Обработка окон.
+            # 弹窗处理
             if self.handle_popup_confirm('LOGIN'):
                 continue
             if self.handle_urgent_commission():
                 continue
-            # Окна главного экрана.
+            # 主界面弹窗
             if self.ui_page_main_popups(get_ship=login_success):
                 continue
-            # Всегда пытаться вернуться на главный экран.
+            # 始终尝试返回主界面
             if self.appear_then_click(GOTO_MAIN, offset=(30, 30), interval=5):
                 continue
 
@@ -182,16 +145,15 @@ class LoginHandler(UI):
             color_threshold=245, encourage=25, name='AGREEMENT_CONFIRM')
         if right is None:
             return False
-        # С 2026-04-17 прокрутка не требуется: перед подтверждением достаточно
-        # выполнить простой swipe.
-        # Синяя кнопка только справа означает кнопку подтверждения.
-        # Синие кнопки с обеих сторон означают центральное подтверждение входа.
+        # 2026.04.17 不再需要滚动，只需在点击确认前简单滑动
+        # 如果屏幕右半部分有蓝色按钮而左半部分没有，则为确认按钮
+        # 如果两侧都有，则是中间的登录确认按钮
         left = self.image_color_button(
             area=(0, 360, 640, 720), color=(78, 189, 234),
             color_threshold=245, encourage=25, name='AGREEMENT_CONFIRM')
         if left is None:
-            # Пользовательское соглашение.
-            # Выполнить swipe в центральной области экрана.
+            # 用户协议
+            # 在屏幕中间某处进行滑动
             box = (350, 230, 920, 430)
             self.device.swipe_vector((0, -150), box, name='AGREEMENT_SCROLL')
             self.device.swipe_vector((0, -150), box, name='AGREEMENT_SCROLL')
@@ -199,29 +161,27 @@ class LoginHandler(UI):
             self._user_agreement_timer.reset()
             return True
         else:
-            # Подтверждение входа пользователя.
+            # 用户登录确认
             self.device.click(right)
             self._user_agreement_timer.reset()
             return True
 
-    def handle_app_login(self, timeout_seconds: float | None = None):
+    def handle_app_login(self):
         """
-        Обработать поток входа в приложение.
+        处理应用登录流程。
 
         Returns:
-            Ничего: успех подтверждается состоянием UI вызывающим кодом.
+            是否登录成功。
 
         Raises:
-            ValueError: timeout_seconds имеет неподдерживаемое значение.
-            GameStuckError: игра зависла.
-            GameTooManyClickError: превышено число нажатий.
-            GameNotRunningError: игра не запущена.
-            LoginHandlerTimeoutError: истёк bounded тайм-аут входа.
+            GameStuckError: 游戏卡死。
+            GameTooManyClickError: 点击次数过多。
+            GameNotRunningError: 游戏未运行。
         """
         logger.info('[Вход] Обработка входа в приложение')
         self.device.screenshot_interval_set(1.0)
         try:
-            self._handle_app_login(timeout_seconds=timeout_seconds)
+            self._handle_app_login()
         finally:
             self.device.screenshot_interval_set()
 
@@ -229,10 +189,10 @@ class LoginHandler(UI):
         logger.hr('Остановка приложения')
         self.device.app_stop()
 
-    def app_start(self, timeout_seconds: float | None = None):
+    def app_start(self):
         logger.hr('Запуск приложения')
         self.device.app_start()
-        self.handle_app_login(timeout_seconds=timeout_seconds)
+        self.handle_app_login()
         # self.ensure_no_unfinished_campaign()
 
     # def app_restart(self):
@@ -245,7 +205,7 @@ class LoginHandler(UI):
 
     def app_restart(self):
         logger.hr('Перезапуск приложения')
-        # Ограниченный цикл повторных попыток перезапуска.
+        # 智能的多次尝试重启逻辑
         RESTART_TRIES = 4
         FIRST_TRY_WAIT_SECONDS = 30
         SUBSEQUENT_TRY_WAIT_SECONDS = 20
@@ -264,17 +224,17 @@ class LoginHandler(UI):
             logger.info(f"[Перезапуск] Ожидание {wait_seconds} с для запуска и стабилизации приложения...")
             self.device.sleep(wait_seconds)
 
-            # Проверить, запущено ли приложение.
+            # 验证应用是否已运行
             if self.device.app_is_running():
                 logger.info("[Перезапуск] Приложение успешно запущено и работает")
                 is_restart_success = True
-                break  # Успешный запуск: выйти из цикла.
+                break  # 成功启动，跳出循环
             else:
                 logger.warning(f"[Перезапуск] Попытка {i + 1} не удалась: после запуска приложение не работает (возможно, произошёл сбой)")
                 if i < RESTART_TRIES - 1:
                     logger.info("[Перезапуск] Повторная попытка...")
 
-        # Если все попытки завершились неудачей, передать управление пользователю.
+        # 所有尝试均失败则抛出异常
         if not is_restart_success:
             logger.critical(f"[Перезапуск] Выполнено {RESTART_TRIES} повторных попыток, но приложение всё ещё не запускается")
             from module.exception import RequestHumanTakeover
@@ -288,7 +248,7 @@ class LoginHandler(UI):
             in: page_main
             out: page_main
 
-        Убедиться, что нет незавершённого боя; при наличии выйти из него.
+        确保没有未完成的战役，如有则撤退。
         """
 
         def ensure_campaign_retreat():
@@ -310,11 +270,11 @@ class LoginHandler(UI):
             else:
                 self.device.screenshot()
 
-            # Условие завершения.
+            # 结束条件
             if in_campaign():
                 break
 
-            # Допустимые нажатия.
+            # 点击操作
             if self.ui_main_appear_then_click(page_campaign_menu, interval=3):
                 continue
             if ensure_campaign_retreat():
@@ -324,14 +284,13 @@ class LoginHandler(UI):
 
     def handle_user_agreement(self, xp, hierarchy):
         """
-        Обработать окно пользовательского соглашения (только CN server).
+        处理用户协议弹窗（仅限国服）。
 
-        В CN client из-за ошибки соглашение и политика конфиденциальности могут
-        появляться повторно после принятия. Метод пролистывает текст вниз и
-        нажимает кнопку согласия.
+        国服客户端存在 bug，用户协议和隐私政策可能在已同意后再次弹出。
+        此方法滑动到底部并点击同意按钮。
 
         Returns:
-            Было ли обработано окно соглашения.
+            是否处理了用户协议弹窗。
         """
 
         if server.server == 'cn':
@@ -376,7 +335,7 @@ class LoginHandler(UI):
             return True
 
     def handle_user_login(self, xp, hierarchy) -> bool:
-        """Обработать нажатие кнопки входа пользователя."""
+        """处理用户登录按钮点击。"""
         login_wait_results = self.get_for_any_ele([
             XPS('//*[@text="登录"]', xp, hierarchy),
             XPS('//*[@content-desc="登录"]', xp, hierarchy)])
@@ -390,13 +349,13 @@ class LoginHandler(UI):
     @staticmethod
     def get_for_any_ele(list_u2_path: list) -> bool | tuple:
         """
-        Найти первый существующий элемент среди XPath и UiObject.
+        从候选 XPath 或 UiObject 列表中查找第一个存在的元素。
 
         Args:
-            list_u2_path: список UiObject или XPathSelector длиной не менее 1.
+            list_u2_path: UiObject 或 XPathSelector 的列表，长度 >= 1。
 
         Returns:
-            False, если элемент не найден; tuple с границами элемента — иначе.
+            False 表示未找到元素，tuple 表示找到的元素边界。
         """
         for path in list_u2_path:
             try:

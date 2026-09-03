@@ -115,9 +115,6 @@ class MuMuProcessControlTests(unittest.TestCase):
 
         snapshots = [
             [root0, root1, shared_main, shared_service],
-            [root0, root1, shared_main, shared_service],
-            [root0, root1, shared_main, shared_service],
-            [root0, root1, shared_main, shared_service],
             [root1, shared_main, shared_service],
         ]
         process_iter.side_effect = lambda: snapshots.pop(0)
@@ -129,44 +126,6 @@ class MuMuProcessControlTests(unittest.TestCase):
         self.assertFalse(root1.killed)
         self.assertFalse(shared_main.killed)
         self.assertFalse(shared_service.killed)
-
-    @mock.patch('module.device.platform.mumu_process_control.psutil.wait_procs')
-    @mock.patch('module.device.platform.mumu_process_control.psutil.process_iter')
-    def test_identity_change_before_escalation_uses_fresh_target_set(self, process_iter, wait_procs):
-        old_child = FakeProcess(501, 'old-child.exe', ['old-child.exe'])
-        old_root = self.root(self.instance1, 500, children=[old_child])
-        new_child = FakeProcess(601, 'new-child.exe', ['new-child.exe'])
-        new_root = self.root(self.instance1, 600, children=[new_child])
-        other_root = self.root(self.instance0, 700)
-
-        snapshots = [
-            [old_root, other_root],
-            [new_root, other_root],
-            [new_root, other_root],
-            [new_root, other_root],
-            [other_root],
-        ]
-        process_iter.side_effect = lambda: snapshots.pop(0)
-        wait_procs.return_value = ([new_child, new_root], [])
-
-        self.assertTrue(force_stop_mumu_instance(self.instance1, timeout=0))
-        self.assertFalse(old_root.killed)
-        self.assertFalse(old_child.killed)
-        self.assertTrue(new_root.killed)
-        self.assertTrue(new_child.killed)
-        self.assertTrue(other_root.killed is False)
-
-    @mock.patch('module.device.platform.mumu_process_control.psutil.wait_procs')
-    @mock.patch('module.device.platform.mumu_process_control.psutil.process_iter')
-    def test_ambiguous_identity_before_escalation_fails_without_kill(self, process_iter, wait_procs):
-        root = self.root(self.instance1, 800)
-        duplicate = self.root(self.instance1, 801)
-        process_iter.side_effect = ([root], [root, duplicate])
-
-        self.assertFalse(force_stop_mumu_instance(self.instance1, timeout=0))
-        self.assertFalse(root.killed)
-        self.assertFalse(duplicate.killed)
-        wait_procs.assert_not_called()
 
     @mock.patch('module.device.platform.mumu_process_control.psutil.process_iter')
     def test_owned_process_set_is_exact_root_plus_descendants(self, process_iter):
