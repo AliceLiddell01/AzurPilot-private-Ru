@@ -28,29 +28,31 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          EXPECTED_PARENT_SHA: b706d0776d634fdd5d5086b09ed326a34450d679
+          EXPECTED_PARENT_SHA: f9a8c23752af5a37c71b1e73057b74a284c563b7
           STABLE_SHA: cf54dfb3901c8d1ab8374840549db7deaa29b2f8
           REPOSITORY: AliceLiddell01/AzurPilot-private-Ru
           PR_NUMBER: '158'
         run: |
-          set -u
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "${EXPECTED_PARENT_SHA}"
           diagnostic="$(mktemp)"
           trap 'rm -f "${diagnostic}"' EXIT
 
           printf '<!-- azurpilot-ai-handoff -->\n' > "${diagnostic}"
           printf '## Временная диагностика синхронизации PR #158\n\n```text\n' >> "${diagnostic}"
           printf 'head=%s\n' "$(git rev-parse HEAD)" >> "${diagnostic}"
-          printf 'parent=%s\n' "$(git rev-parse HEAD^)" >> "${diagnostic}"
-          printf 'expected_parent=%s\n' "${EXPECTED_PARENT_SHA}" >> "${diagnostic}"
+          printf 'stable=%s\n' "${STABLE_SHA}" >> "${diagnostic}"
 
           git fetch --no-tags origin "${STABLE_SHA}" >> "${diagnostic}" 2>&1
-          printf 'fetch_status=%s\n' "$?" >> "${diagnostic}"
-
+          set +e
           git merge --no-ff --no-commit "${STABLE_SHA}" >> "${diagnostic}" 2>&1
-          printf 'merge_status=%s\n' "$?" >> "${diagnostic}"
-          printf 'merge_head=%s\n' "$(git rev-parse MERGE_HEAD 2>/dev/null)" >> "${diagnostic}"
+          merge_status=$?
+          set -e
+          printf 'merge_status=%s\n' "${merge_status}" >> "${diagnostic}"
+          test "${merge_status}" -eq 1
+          test "$(git rev-parse MERGE_HEAD)" = "${STABLE_SHA}"
           printf 'conflicts:\n' >> "${diagnostic}"
-          git diff --name-only --diff-filter=U | LC_ALL=C sort >> "${diagnostic}" 2>&1
+          git diff --name-only --diff-filter=U | LC_ALL=C sort >> "${diagnostic}"
 
           for path in \
             module/application/__init__.py \
@@ -58,80 +60,34 @@ jobs:
             module/persistence/runtime.py
           do
             safe_name="$(printf '%s' "${path}" | tr '/.' '__')"
-            git show ":2:${path}" > "/tmp/${safe_name}.ours" 2>> "${diagnostic}"
-            printf '%s_ours_status=%s\n' "${safe_name}" "$?" >> "${diagnostic}"
-            git show ":3:${path}" > "/tmp/${safe_name}.theirs" 2>> "${diagnostic}"
-            printf '%s_theirs_status=%s\n' "${safe_name}" "$?" >> "${diagnostic}"
+            git show ":2:${path}" > "/tmp/${safe_name}.ours"
+            git show ":3:${path}" > "/tmp/${safe_name}.theirs"
           done
 
-          python - >> "${diagnostic}" 2>&1 <<'PY'
+          python - >> "${diagnostic}" <<'PY'
           from pathlib import Path
 
           checks = {
-              "app_theirs_fleet_page_import": (
-                  "/tmp/module_application___init___py.theirs",
-                  "from module.application.fleet_page import (\n",
-              ),
-              "app_theirs_fleet_slot_view": (
-                  "/tmp/module_application___init___py.theirs",
-                  "    FleetSlotViewModel,\n)\nfrom module.application.fleet_state import (\n",
-              ),
-              "app_theirs_morale_events": (
-                  "/tmp/module_application___init___py.theirs",
-                  "    MoraleContinuityError,\n    MoraleFleetState,\n",
-              ),
-              "app_theirs_record_morale": (
-                  "/tmp/module_application___init___py.theirs",
-                  "    MoraleSlotState,\n    RecordMoraleObservation,\n    project_morale,\n",
-              ),
-              "app_theirs_exports_tail": (
-                  "/tmp/module_application___init___py.theirs",
-                  '    "UNKNOWN_TASK",\n    "finalize_rehearsal",\n    "project_morale",\n',
-              ),
-              "morale_ours_instance_import": (
-                  "/tmp/module_application_morale_py.ours",
-                  "from module.application.instance_identity import resolve_runtime_instance\n",
-              ),
-              "morale_ours_state_in_uow": (
-                  "/tmp/module_application_morale_py.ours",
-                  "    def state_in_uow(\n",
-              ),
-              "runtime_theirs_fleet_import": (
-                  "/tmp/module_persistence_runtime_py.theirs",
-                  "from module.application.fleet_state import (\n    FleetScanService,\n    FleetStateService,\n    FormationFleetScanController,\n)\n",
-              ),
-              "runtime_theirs_timezone_global": (
-                  "/tmp/module_persistence_runtime_py.theirs",
-                  "_runtime_timezone: ZoneInfo | None = None\n",
-              ),
-              "runtime_theirs_fleet_page_fields": (
-                  "/tmp/module_persistence_runtime_py.theirs",
-                  "    query_service: FleetPageQueryService\n    command_service: FleetManualScanCommandService\n    runtime_timezone: ZoneInfo\n",
-              ),
-              "runtime_theirs_readonly_class": (
-                  "/tmp/module_persistence_runtime_py.theirs",
-                  "@dataclass(slots=True)\nclass ReadOnlyPersistenceComposition:\n",
-              ),
-              "runtime_theirs_dispose": (
-                  "/tmp/module_persistence_runtime_py.theirs",
-                  "def dispose_runtime_storage() -> None:\n    global _engine, _engine_settings, _runtime_timezone, _service\n",
-              ),
+              "app_theirs_fleet_page_import": ("/tmp/module_application___init___py.theirs", "from module.application.fleet_page import (\n"),
+              "app_theirs_fleet_slot_view": ("/tmp/module_application___init___py.theirs", "    FleetSlotViewModel,\n)\nfrom module.application.fleet_state import (\n"),
+              "app_theirs_morale_events": ("/tmp/module_application___init___py.theirs", "    MoraleContinuityError,\n    MoraleFleetState,\n"),
+              "app_theirs_record_morale": ("/tmp/module_application___init___py.theirs", "    MoraleSlotState,\n    RecordMoraleObservation,\n    project_morale,\n"),
+              "app_theirs_exports_tail": ("/tmp/module_application___init___py.theirs", '    "UNKNOWN_TASK",\n    "finalize_rehearsal",\n    "project_morale",\n'),
+              "morale_ours_instance_import": ("/tmp/module_application_morale_py.ours", "from module.application.instance_identity import resolve_runtime_instance\n"),
+              "morale_ours_state_in_uow": ("/tmp/module_application_morale_py.ours", "    def state_in_uow(\n"),
+              "runtime_theirs_fleet_import": ("/tmp/module_persistence_runtime_py.theirs", "from module.application.fleet_state import (\n    FleetScanService,\n    FleetStateService,\n    FormationFleetScanController,\n)\n"),
+              "runtime_theirs_timezone_global": ("/tmp/module_persistence_runtime_py.theirs", "_runtime_timezone: ZoneInfo | None = None\n"),
+              "runtime_theirs_fleet_page_fields": ("/tmp/module_persistence_runtime_py.theirs", "    query_service: FleetPageQueryService\n    command_service: FleetManualScanCommandService\n    runtime_timezone: ZoneInfo\n"),
+              "runtime_theirs_readonly_class": ("/tmp/module_persistence_runtime_py.theirs", "@dataclass(slots=True)\nclass ReadOnlyPersistenceComposition:\n"),
+              "runtime_theirs_dispose": ("/tmp/module_persistence_runtime_py.theirs", "def dispose_runtime_storage() -> None:\n    global _engine, _engine_settings, _runtime_timezone, _service\n"),
           }
           for label, (filename, needle) in checks.items():
-              path = Path(filename)
-              if not path.exists():
-                  print(f"{label}=missing-stage-file")
-                  continue
-              text = path.read_text(encoding="utf-8")
+              text = Path(filename).read_text(encoding="utf-8")
               print(f"{label}={text.count(needle)}")
           PY
 
-          if git rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1
-          then
-            git merge --abort >> "${diagnostic}" 2>&1
-            printf 'abort_status=%s\n' "$?" >> "${diagnostic}"
-          fi
-          printf '```\n' >> "${diagnostic}"
+          git merge --abort
+          printf 'abort_status=0\n```\n' >> "${diagnostic}"
 
           existing_id="$(gh api "repos/${REPOSITORY}/issues/${PR_NUMBER}/comments" --paginate --jq '.[] | select(.body | contains("<!-- azurpilot-ai-handoff -->")) | .id' | head -n 1)"
           if test -n "${existing_id}"
