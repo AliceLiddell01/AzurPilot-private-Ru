@@ -8,7 +8,7 @@ on:
       - .github/workflows/pr158-sync-diagnostic.yml
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   merge-tree:
@@ -22,19 +22,30 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.sha }}
 
-      - name: Проверить границы и построить merge tree
+      - name: Проверить границы и сохранить merge tree
         shell: bash
         env:
-          EXPECTED_PARENT_SHA: e00eb6350a90a3759deaff2cbe382651dc1b2aa3
+          EXPECTED_PARENT_SHA: 1f8b798ba889b233ac4cafdac6c4ee946f38c937
           STABLE_SHA: cf54dfb3901c8d1ab8374840549db7deaa29b2f8
+          TARGET_BRANCH: codex/morale-stage3-production-integration
         run: |
           set -euo pipefail
-          test "${GITHUB_REF_NAME}" = "codex/morale-stage3-production-integration"
+          test "${GITHUB_REF_NAME}" = "${TARGET_BRANCH}"
           test "$(git rev-parse HEAD^)" = "${EXPECTED_PARENT_SHA}"
           git fetch --no-tags origin "${STABLE_SHA}"
           set +e
           output="$(git merge-tree --write-tree --name-only HEAD "${STABLE_SHA}" 2>&1)"
           status=$?
           set -e
-          printf '%s\n' "${output}"
-          exit "${status}"
+          {
+            printf 'merge_tree_exit_code=%s\n' "${status}"
+            printf '%s\n' "${output}"
+          } > .github/pr158-merge-diagnostic.txt
+          git add -- .github/pr158-merge-diagnostic.txt
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'chore(pr158): сохранить диагностику merge'
+          git push origin "HEAD:refs/heads/${TARGET_BRANCH}"
