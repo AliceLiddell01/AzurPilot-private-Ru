@@ -47,6 +47,7 @@ from module.application.game_models import (
     CurrentTaskSnapshot,
     DashboardResources,
     EmulatorRestartResult,
+    GameLoginResult,
     GameRuntimeRestartResult,
     LifecycleOutcome,
     LifecycleResult,
@@ -500,6 +501,7 @@ def _validate_arguments(
         "game_clear_scheduler_queue",
         "game_restart_emulator",
         "game_restart_runtime",
+        "game_login_runtime",
         "game_restart_adb",
     }:
         _profile_arguments(raw)
@@ -1099,6 +1101,43 @@ def _control_runtime_restart_result(
     )
 
 
+def _control_runtime_login_result(
+    profile: str,
+    control: object,
+) -> dict[str, object]:
+    method = getattr(control, "login_runtime", None)
+    if not callable(method):
+        raise ServiceUnavailableError("Game runtime login capability недоступна.")
+    result = method(profile)
+    if (
+        not isinstance(result, GameLoginResult)
+        or result.instance != profile
+        or result.verified is not True
+        or result.adb_ready is not True
+        or result.game_running is not True
+        or result.game_foreground is not True
+        or result.logged_in is not True
+        or result.main is not True
+    ):
+        raise ServiceUnavailableError(
+            "Login owner вернул некорректный результат подтверждения."
+        )
+    return _ok(
+        "GAME_RUNTIME_LOGIN_CONFIRMED",
+        "Вход в игру подтверждён главным экраном",
+        "ready",
+        {
+            "profile": profile,
+            "verified": True,
+            "adb_ready": True,
+            "game_running": True,
+            "game_foreground": True,
+            "logged_in": True,
+            "main": True,
+        },
+    )
+
+
 def _runtime_phase_error_result(
     tool: str,
     failure: GameRuntimePhaseError,
@@ -1107,6 +1146,7 @@ def _runtime_phase_error_result(
 
     phase = failure.phase
     is_emulator_phase = phase == "emulator_restart"
+    is_login_phase = phase == "login"
     details = {"phase": phase}
     cause = failure.cause
     if isinstance(cause, ResourceBusyError):
@@ -1130,6 +1170,8 @@ def _runtime_phase_error_result(
             "GAME_POSTCONDITION_FAILED",
             "Перезапуск эмулятора не подтверждён ожидаемым состоянием."
             if is_emulator_phase
+            else "Вход в игру не подтверждён главным экраном."
+            if is_login_phase
             else "Эмулятор перезапущен, но запуск игры не подтверждён ожидаемым состоянием.",
             tool=tool,
             details=details,
@@ -1139,6 +1181,8 @@ def _runtime_phase_error_result(
             "GAME_PRECONDITION_FAILED",
             "Безопасное условие перезапуска эмулятора не выполнено."
             if is_emulator_phase
+            else "Безопасное условие входа в игру не выполнено."
+            if is_login_phase
             else "Эмулятор перезапущен, но безопасное условие запуска игры не выполнено.",
             tool=tool,
             details=details,
@@ -1154,6 +1198,8 @@ def _runtime_phase_error_result(
         "GAME_OPERATION_FAILED",
         "Перезапуск эмулятора не подтверждён."
         if is_emulator_phase
+        else "Вход в игру не подтверждён."
+        if is_login_phase
         else "Эмулятор перезапущен, но запуск игры не подтверждён.",
         tool=tool,
         details=details,
@@ -1407,6 +1453,8 @@ class GameMcpAdapter:
                 return _control_config_result(profile, control, arguments)
             if tool == "game_restart_runtime":
                 return _control_runtime_restart_result(profile, control)
+            if tool == "game_login_runtime":
+                return _control_runtime_login_result(profile, control)
             if tool in {"game_restart_emulator", "game_restart_adb"}:
                 return _control_restart_result(tool, profile, control)
             raise InvalidRequestError("Для control-инструмента отсутствует обработчик.")

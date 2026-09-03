@@ -41,6 +41,7 @@ from module.application import (
     FleetStateReadService,
     FleetStateRequest,
     FleetStateResult,
+    GameLoginResult,
     GameRuntimeRestartResult,
     InstanceReference,
     InstanceStatus,
@@ -346,6 +347,18 @@ class _Control:
             game_foreground=True,
         )
 
+    def login_runtime(self, profile: str) -> GameLoginResult:
+        self.calls.append(("login", profile))
+        return GameLoginResult(
+            profile,
+            verified=True,
+            adb_ready=True,
+            game_running=True,
+            game_foreground=True,
+            logged_in=True,
+            main=True,
+        )
+
     def restart_adb(self, profile: str) -> AdbRestartResult:
         self.calls.append(("adb", profile))
         return AdbRestartResult(profile)
@@ -381,7 +394,7 @@ def test_contract_and_tool_catalog_are_game_specific_and_scope_separated() -> No
         "azurpilot:game.read",
         "azurpilot:game.control",
     ]
-    assert contract["tool_count"] == len(GAME_MCP_TOOL_NAMES) == 21
+    assert contract["tool_count"] == len(GAME_MCP_TOOL_NAMES) == 22
     assert contract["tool_catalog_sha256"] == tool_catalog_sha256(GAME_MCP_TOOL_NAMES)
     assert contract["feature_flags"]["read_only"] is False
     assert contract["feature_flags"]["control_plane"] is True
@@ -410,6 +423,7 @@ def test_contract_and_tool_catalog_are_game_specific_and_scope_separated() -> No
         "game_update_config",
         "game_restart_emulator",
         "game_restart_runtime",
+        "game_login_runtime",
         "game_restart_adb",
     ]
     control_tools = [
@@ -438,6 +452,7 @@ def test_contract_and_tool_catalog_are_game_specific_and_scope_separated() -> No
         "game_update_config": (True, False),
         "game_restart_emulator": (True, False),
         "game_restart_runtime": (True, False),
+        "game_login_runtime": (True, False),
         "game_restart_adb": (True, False),
     }
     assert {
@@ -566,6 +581,17 @@ def test_output_schemas_are_scoped_to_their_tool_details() -> None:
             "tool",
             "verified",
         },
+        "game_login_runtime": {
+            "adb_ready",
+            "game_foreground",
+            "game_running",
+            "logged_in",
+            "main",
+            "phase",
+            "profile",
+            "tool",
+            "verified",
+        },
         "game_restart_adb": {"profile", "tool", "verified"},
     }
     actual = {
@@ -608,6 +634,7 @@ def test_structured_content_conforms_to_each_advertised_output_schema() -> None:
         ),
         ("game_restart_emulator", {"profile": "alpha"}),
         ("game_restart_runtime", {"profile": "alpha"}),
+        ("game_login_runtime", {"profile": "alpha"}),
         ("game_restart_adb", {"profile": "alpha"}),
     )
     tools = {tool.name: tool for tool in tool_definitions()}
@@ -809,6 +836,10 @@ def test_control_tools_return_typed_bounded_results() -> None:
     runtime = adapter.call("game_restart_runtime", {"profile": "alpha"})
     assert runtime["code"] == "GAME_RUNTIME_RESTARTED"
     assert runtime["details"]["game_foreground"] is True
+    login = adapter.call("game_login_runtime", {"profile": "alpha"})
+    assert login["code"] == "GAME_RUNTIME_LOGIN_CONFIRMED"
+    assert login["details"]["logged_in"] is True
+    assert login["details"]["main"] is True
     assert adapter.call("game_restart_adb", {"profile": "alpha"})["code"] == (
         "GAME_ADB_RESTARTED"
     )
@@ -847,6 +878,31 @@ def test_runtime_failure_preserves_existing_code_and_reports_safe_phase() -> Non
         ).iter_errors(result)
     )
     assert not errors
+
+
+def test_login_runtime_failure_reports_login_phase_without_internal_detail() -> None:
+    backend = _backend()
+
+    def fail_login(profile: str) -> GameLoginResult:
+        raise GameRuntimePhaseError(
+            "login",
+            PostconditionFailedError("internal main UI detail"),
+        )
+
+    backend.control.login_runtime = fail_login
+    result = GameMcpAdapter(lambda: backend).call(
+        "game_login_runtime",
+        {"profile": "alpha"},
+    )
+
+    assert result == {
+        "ok": False,
+        "code": "GAME_POSTCONDITION_FAILED",
+        "message": "Вход в игру не подтверждён главным экраном.",
+        "state": "failed",
+        "details": {"phase": "login", "tool": "game_login_runtime"},
+    }
+    assert "internal main UI detail" not in json.dumps(result, ensure_ascii=False)
 
 
 def test_control_result_without_authoritative_verification_fails_closed() -> None:

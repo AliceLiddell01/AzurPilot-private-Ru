@@ -40,7 +40,7 @@ class OperationFailedError(ApplicationError):
 class GameRuntimePhaseError(OperationFailedError):
     """Сохранить фазу composite runtime mutation без нового public error code."""
 
-    _PHASES = frozenset({"emulator_restart", "game_start"})
+    _PHASES = frozenset({"emulator_restart", "game_start", "login"})
 
     def __init__(self, phase: str, cause: ApplicationError) -> None:
         if phase not in self._PHASES:
