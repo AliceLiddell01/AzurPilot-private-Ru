@@ -60,6 +60,8 @@ skill: добавление capability не должно требовать ег
 Поэтому `profile stopped` не означает `emulator stopped` или `game app
 stopped`, а `game app foreground` не означает `profile running`. `UNKNOWN`,
 `unavailable` и отсутствующее evidence сохраняй как неизвестное состояние.
+`game_get_profile_status` никогда не является доказательством emulator, ADB,
+game process, foreground или login/main state.
 
 ## Нормальный read workflow
 
@@ -103,6 +105,22 @@ actions, например `game_restart_runtime` или `game_login_runtime`, с
 - `game_login_runtime` допустим только как официальный current action. Его
   bounded login flow должен завершиться authoritative UI/main и ADB/app
   postconditions; не подменяй его scheduler task или прямым вводом.
+
+Для live workflow `restart → login` в свежей callable session соблюдай ровно
+такой порядок:
+
+```text
+pre-mutation read-only status
+→ ровно один game_restart_runtime(<profile>)
+→ только после success ровно один game_login_runtime(<profile>)
+→ authoritative read-only postcondition
+```
+
+Финальное postcondition должно отдельно доказать emulator ready, ADB ready,
+game running, game foreground и login/main-ready по фактическому output
+contract. Если `game_login_runtime` отсутствует в текущем callable surface,
+остановись и передай mismatch в `azurpilot-troubleshooting`; не выполняй
+restart как замену login.
 
 При `TIMEOUT`, неизвестном результате, конфликте ownership или нарушенном
 postcondition не повторяй mutation. Останови writes, сохрани последний

@@ -1,7 +1,7 @@
 {
   "contract_schema_version": 1,
   "product_family": "AzurPilot",
-  "plugin_version": "0.1.0+codex.20260903122517",
+  "plugin_version": "0.1.0+codex.20260903132550",
   "dev_mcp_api_version": 2,
   "smoke_spec_schema_version": 1,
   "smoke_result_schema_version": 1,

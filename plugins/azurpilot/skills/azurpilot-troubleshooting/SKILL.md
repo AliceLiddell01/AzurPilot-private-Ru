@@ -72,6 +72,23 @@ contract fields; не выдумывай fingerprint.
   callable surface;
 - не встраивай исторические counts или hashes в skill.
 
+Жёсткий guardrail для этого случая:
+
+```text
+Если backend contract уже публикует capability/tool,
+но текущая client session его не имеет в callable surface,
+НЕ изменять backend/source code ради появления tool в этой session.
+```
+
+Следовательно, при таком mismatch:
+
+- backend/source code не чинить;
+- похожим старым action отсутствующий tool не подменять;
+- mutation не выполнять;
+- retry не делать;
+- решать только client/plugin/session refresh layer и повторно проверять
+  callable surface.
+
 Если backend сам не публикует нужную capability, это capability gap, а не
 доказанный stale client. Зафиксируй finding и направь отдельную implementation
 задачу; не импровизируй прямым ADB, shell, GUI click или scheduler task.
@@ -118,6 +135,14 @@ accounts; новый chat не перезапускает backend; plugin refres
 scope. После двух безрезультатных штатных попыток не создавай reconnect loop —
 проверь доступность surface/status/support path и сообщи точное evidence.
 
+Если browser/UI automation для app/plugin refresh дважды не даёт
+authoritative result или зависает на AX/DOM, классифицируй UI automation как
+`unavailable` для текущего run и больше автоматически её не повторяй. IAB,
+новый browser tab, fork, subtask и same-directory fork сами по себе не являются
+доказанным refresh callable catalog. Без transcript, tool marker или
+machine-readable result действие не считать выполненным и mutation не
+повторять.
+
 ## Timeout, неизвестный результат и postcondition
 
 После timeout или обрыва действует порядок:
@@ -134,6 +159,11 @@ STOP WRITES
 review или Smoke. Отсутствующий transcript, tool marker, machine-readable
 result или authoritative postcondition означает «действие не доказано», а не
 успех; mutation нельзя повторять «на всякий случай».
+
+Это правило также относится к refresh: отсутствие фактического transcript,
+tool marker или machine-readable result не доказывает обновление client/app
+snapshot. Не переходи к Game Control и не выполняй mutation, пока свежая
+callable surface реально не содержит требуемый action.
 
 `exit code=0` или request acknowledgement не равны product state. Для Game
 раздельно проверяй emulator running, ADB ready, game process running, game

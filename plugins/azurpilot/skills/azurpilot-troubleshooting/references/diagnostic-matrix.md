@@ -11,8 +11,9 @@ values не являются fixtures production skill.
 | C. Exit/postcondition | command acknowledgement или exit success, но authoritative state не изменился | доверять postcondition, сохранить failure и искать backend/external cause. |
 | D. Authorization | app policy разрешает actions, но backend возвращает authorization failure | отдельно проверить OAuth/provider grant и required scope; UI policy alone не доказательство. |
 | E. Timeout | control call оборван или не имеет результата | `STOP WRITES`, read-only recovery, Last Confirmed State; automatic retry запрещён. |
-| F. Fork without evidence | fork/subtask создан, но transcript, tool marker или machine result отсутствует | fork не доказал refresh и mutation; не повторять действие, вернуться к evidence. |
+| F. Refresh without evidence | fork/subtask/same-directory fork или новый browser tab создан, но transcript, tool marker или machine result отсутствует | refresh не доказан; действие не считать выполненным и mutation не повторять. |
 | G. Routing regression | обычный Game request загрузил только Development workflow | вернуть Game operation в `azurpilot-game-control`; catalog/runtime/auth mismatch направить сюда; Development не использовать как Game fallback. |
+| H. Browser refresh unavailable | browser/UI automation дважды зависла на AX/DOM или не дала authoritative result | классифицировать UI automation как `unavailable` для текущего run; больше автоматически не повторять, перейти к доступному client/session refresh path. |
 
 Дополнительные быстрые признаки:
 

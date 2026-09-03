@@ -232,10 +232,31 @@ def test_game_and_troubleshooting_skills_have_distinct_fail_closed_routes() -> N
         "fork",
         "Reconnect",
         "chat/task",
+        "НЕ изменять backend/source code ради появления tool в этой session",
+        "client/plugin/session refresh layer",
+        "browser/UI automation",
+        "AX/DOM",
+        "unavailable",
+        "transcript",
+        "tool marker",
+        "machine-readable result",
+        "новый browser tab",
+        "same-directory fork",
         "azurpilot-game-control",
         "azurpilot-development",
     ):
         assert required in troubleshooting_skill
+    for required in (
+        "`game_get_profile_status` никогда не является доказательством",
+        "ровно один game_restart_runtime(<profile>)",
+        "ровно один game_login_runtime(<profile>)",
+        "emulator ready",
+        "ADB ready",
+        "game running",
+        "game foreground",
+        "login/main-ready",
+    ):
+        assert required in game_skill
 
     combined = f"{game_skill}\n{troubleshooting_skill}"
     assert "50451f11dd855999345ff00c162433c0d99af07dc1a5e3c5fb57c3eab544b843" not in combined
