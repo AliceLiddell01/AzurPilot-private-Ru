@@ -122,6 +122,10 @@ def _service(
     tmp_path: Path,
     emulator: _Emulator,
     application: _Application,
+    *,
+    game_start_timeout_seconds: float = 0.0,
+    game_start_retry_interval_seconds: float = 0.0,
+    game_start_max_attempts: int = 1,
 ) -> GameControlService:
     return GameControlService(
         instance_reader=_Instances(),
@@ -134,9 +138,9 @@ def _service(
         application=application,
         config_reader=_Config(),
         mutation_lock_root=tmp_path,
-        game_start_timeout_seconds=0.0,
-        game_start_retry_interval_seconds=0.0,
-        game_start_max_attempts=1,
+        game_start_timeout_seconds=game_start_timeout_seconds,
+        game_start_retry_interval_seconds=game_start_retry_interval_seconds,
+        game_start_max_attempts=game_start_max_attempts,
     )
 
 
@@ -255,6 +259,30 @@ def test_runtime_restart_requires_adb_ready_before_app_start(tmp_path: Path) -> 
     assert failure.value.phase == "game_start"
     assert isinstance(failure.value.cause, PreconditionFailedError)
     assert application.start_calls == 0
+
+
+def test_runtime_restart_waits_for_adb_readiness_before_app_start(
+    tmp_path: Path,
+) -> None:
+    application = _Application(
+        [
+            GameApplicationState(False, None, None),
+            _not_ready_game(),
+            _ready_game(),
+        ]
+    )
+
+    result = _service(
+        tmp_path,
+        _Emulator(),
+        application,
+        game_start_timeout_seconds=1.0,
+        game_start_max_attempts=3,
+    ).restart_runtime("alas")
+
+    assert result.game_foreground is True
+    assert application.read_calls == 3
+    assert application.start_calls == 1
 
 
 def test_runtime_restart_requires_running_and_foreground_not_only_foreground(

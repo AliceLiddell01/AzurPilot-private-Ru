@@ -150,6 +150,7 @@ class GameControlService:
         self._mutation_lock_root = mutation_lock_root
         if (
             type(game_start_timeout_seconds) is not float
+            or not isfinite(game_start_timeout_seconds)
             or game_start_timeout_seconds < 0
         ):
             raise ValueError(
@@ -157,6 +158,7 @@ class GameControlService:
             )
         if (
             type(game_start_retry_interval_seconds) is not float
+            or not isfinite(game_start_retry_interval_seconds)
             or game_start_retry_interval_seconds < 0
         ):
             raise ValueError(
@@ -457,11 +459,7 @@ class GameControlService:
         if application is None:
             raise ServiceUnavailableError("Application capability запуска игры недоступна.")
 
-        state = self._read_application_state(application, instance)
-        if state.adb_ready is not True:
-            raise PreconditionFailedError(
-                "ADB не подтвердил готовность target после перезапуска эмулятора."
-            )
+        state = self._await_adb_ready(application, instance)
         if self._game_ready(state):
             return state
 
@@ -488,6 +486,39 @@ class GameControlService:
                 "Команда запуска игры не подтвердила выполнение."
             )
         return self._await_game_ready(application, instance)
+
+    def _await_adb_ready(
+        self,
+        application: GameApplicationController,
+        instance: str,
+    ) -> GameApplicationState:
+        deadline = self._monotonic() + self._game_start_timeout_seconds
+        last_error: ApplicationError | None = None
+        for attempt in range(self._game_start_max_attempts):
+            try:
+                state = self._read_application_state(application, instance)
+            except (OwnershipAmbiguousError, PreconditionFailedError) as error:
+                last_error = error
+            else:
+                if state.adb_ready is True:
+                    return state
+                last_error = PreconditionFailedError(
+                    "ADB не подтвердил готовность target после перезапуска эмулятора."
+                )
+            if (
+                attempt + 1 >= self._game_start_max_attempts
+                or self._monotonic() >= deadline
+            ):
+                break
+            remaining = deadline - self._monotonic()
+            if remaining <= 0:
+                break
+            self._sleep(min(self._game_start_retry_interval_seconds, remaining))
+        if last_error is not None:
+            raise last_error
+        raise PreconditionFailedError(
+            "ADB не подтвердил готовность target после перезапуска эмулятора."
+        )
 
     def _ensure_logged_in(self, instance: str) -> GameLoginState:
         application = self._application
