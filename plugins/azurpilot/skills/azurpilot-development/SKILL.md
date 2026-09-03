@@ -134,11 +134,16 @@ server, Tunnel profile или второй MCP implementation. Сначала в
 `CHATGPT_WRITE_UNAVAILABLE_PRODUCT_LIMITATION`; read-only
 contract/diagnostics при этом остаются действительным результатом.
 
-## Граница Game capability
+## Граница Game workflow
 
-`Game` остаётся Developer-only capability текущего Development workflow:
-только typed read observations через `module/application`, без Game MCP,
-MCP-to-MCP loopback, второго game domain или обратной зависимости application
-от Dev Runtime. Текущие providers — `GameReadService` и persistence-backed morale
-projection по отдельным кораблям. Не подменяй ими игровой lifecycle или
-произвольный доступ к конфигурации и БД.
+Developer-only capability `Game` внутри этого Development skill означает только typed read
+observations через `module/application`. Это не standalone Game MCP и не
+игровой lifecycle: не подменяй им `AzurPilot Game`, scheduler, конфигурацию или
+произвольный доступ к устройству и БД.
+
+Для обычной работы через Game MCP используй skill
+`azurpilot-game-control` и подключённое приложение `AzurPilot Game`. Если
+проблема относится к отсутствующему tool, каталогу, app/auth, runtime или
+postcondition, переключись в `azurpilot-troubleshooting`. Development skill не
+является универсальным fallback для Game operations и не создаёт MCP-to-MCP
+loopback или второй game domain.
