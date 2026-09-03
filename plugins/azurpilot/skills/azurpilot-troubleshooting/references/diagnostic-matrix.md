@@ -24,9 +24,9 @@ values не являются fixtures production skill.
 
 Для сценария A fail-closed означает: пока требуемый action отсутствует в
 callable surface текущей session, не вызывать ни старый аналог, ни цепочку
-restart/login. Если `game_get_contract` не callable, зафиксируй `backend contract
-unavailable`: capability gap не доказан, mutation запрещена, а диагностика
-остаётся на client/plugin/app/session layer. После доказанной синхронизации и
-совместимости contract верни пользовательскую операцию в normal Game workflow,
+restart/login. Если `game_get_contract` не callable, зафиксируй `backend contract unavailable`:
+capability gap не доказан, mutation запрещена, а диагностика остаётся на
+client/plugin/app/session layer. После доказанной синхронизации и совместимости
+contract верни пользовательскую операцию в normal Game workflow,
 где mutation и её authoritative postcondition определяются текущим Game
 contract.
