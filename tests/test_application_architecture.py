@@ -67,7 +67,7 @@ def _constant_mapping_keys(
 class _ScopeCollector(ast.NodeVisitor):
     def __init__(self, inherited: dict[str, str | frozenset[str]]):
         self.bindings = dict(inherited)
-        self.calls: list[ast.Call] = []
+        self.calls: list[tuple[ast.Call, dict[str, str | frozenset[str]]]] = []
         self.nested_scopes: list[ast.AST] = []
 
     def _bind_targets(
@@ -92,7 +92,7 @@ class _ScopeCollector(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
-        self.calls.append(node)
+        self.calls.append((node, dict(self.bindings)))
         self.generic_visit(node)
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
@@ -125,13 +125,13 @@ def _registered_route_paths(tree: ast.AST) -> tuple[set[str], list[str]]:
         collector = _ScopeCollector(inherited)
         for statement in _scope_body(scope):
             collector.visit(statement)
-        for call in collector.calls:
+        for call, bindings in collector.calls:
             call_name = _call_name(call)
             if call_name in ROUTE_REGISTRATION_METHODS:
                 if not call.args:
                     unresolved.append(ast.unparse(call))
                     continue
-                path = _constant_string_value(call.args[0], collector.bindings)
+                path = _constant_string_value(call.args[0], bindings)
                 if path is None:
                     unresolved.append(ast.unparse(call.args[0]))
                 else:
@@ -148,7 +148,7 @@ def _registered_route_paths(tree: ast.AST) -> tuple[set[str], list[str]]:
             )
             if static_mounts is None:
                 continue
-            mount_paths = _constant_mapping_keys(static_mounts, collector.bindings)
+            mount_paths = _constant_mapping_keys(static_mounts, bindings)
             if mount_paths is None:
                 unresolved.append(ast.unparse(static_mounts))
             else:
@@ -260,6 +260,7 @@ MCP_PATH = "/mcp"
 def register(application):
     MCP_PATH = "/static"
     application.mount(MCP_PATH, object())
+    MCP_PATH = "/mcp/late"
 """
     )
 
