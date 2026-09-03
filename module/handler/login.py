@@ -110,10 +110,6 @@ class LoginHandler(UI):
                 orientation_timer.reset()
 
             self.device.screenshot()
-            if deadline is not None and monotonic() >= deadline:
-                raise LoginHandlerTimeoutError(
-                    'Истёк bounded тайм-аут входа в приложение.'
-                )
 
             # Условие завершения.
             if self.is_in_main():
@@ -122,6 +118,11 @@ class LoginHandler(UI):
                     break
             else:
                 confirm_timer.reset()
+
+            if deadline is not None and monotonic() >= deadline:
+                raise LoginHandlerTimeoutError(
+                    'Истёк bounded тайм-аут входа в приложение.'
+                )
 
             # Обработка входа.
             if self.match_template_color(LOGIN_CHECK, offset=(30, 30), interval=5):
@@ -211,9 +212,11 @@ class LoginHandler(UI):
             Ничего: успех подтверждается состоянием UI вызывающим кодом.
 
         Raises:
+            ValueError: timeout_seconds имеет неподдерживаемое значение.
             GameStuckError: игра зависла.
             GameTooManyClickError: превышено число нажатий.
             GameNotRunningError: игра не запущена.
+            LoginHandlerTimeoutError: истёк bounded тайм-аут входа.
         """
         logger.info('[Вход] Обработка входа в приложение')
         self.device.screenshot_interval_set(1.0)
