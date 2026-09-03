@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   diagnose:
-    name: Диагностика точек semantic merge
+    name: Диагностика semantic merge
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -22,96 +22,133 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.sha }}
 
-      - name: Проверить merge и точки интеграции
+      - name: Сохранить подробную диагностику
         shell: bash
         env:
-          EXPECTED_PARENT_SHA: 611c3da22e2853c5bf49b9bc31322ccf41a70d81
+          EXPECTED_PARENT_SHA: 4270f1bafffb074971cfe41d119e039851204a16
           STABLE_SHA: cf54dfb3901c8d1ab8374840549db7deaa29b2f8
           TARGET_BRANCH: codex/morale-stage3-production-integration
         run: |
-          set -euo pipefail
+          set -u
           diagnostic=.github/pr158-integration-diagnostic.txt
+          temporary_dir="$(mktemp -d)"
+          trap 'rm -rf "${temporary_dir}"' EXIT
           : > "${diagnostic}"
-          printf 'ref=%s\n' "${GITHUB_REF_NAME}" >> "${diagnostic}"
-          printf 'head=%s\n' "$(git rev-parse HEAD)" >> "${diagnostic}"
-          printf 'parent=%s\n' "$(git rev-parse HEAD^)" >> "${diagnostic}"
-          printf 'expected_parent=%s\n' "${EXPECTED_PARENT_SHA}" >> "${diagnostic}"
-          git fetch --no-tags origin "${STABLE_SHA}"
 
-          set +e
+          record() {
+            printf '%s=%s\n' "$1" "$2" >> "${diagnostic}"
+          }
+
+          record ref "${GITHUB_REF_NAME}"
+          record head "$(git rev-parse HEAD 2>/dev/null)"
+          record parent "$(git rev-parse HEAD^ 2>/dev/null)"
+          record expected_parent "${EXPECTED_PARENT_SHA}"
+
+          git fetch --no-tags origin "${STABLE_SHA}" >> "${diagnostic}" 2>&1
+          record fetch_status "$?"
+
           git merge --no-ff --no-commit "${STABLE_SHA}" >> "${diagnostic}" 2>&1
           merge_status=$?
-          set -e
-          printf 'merge_status=%s\n' "${merge_status}" >> "${diagnostic}"
-          printf 'merge_head=%s\n' "$(git rev-parse MERGE_HEAD)" >> "${diagnostic}"
+          record merge_status "${merge_status}"
+          record merge_head "$(git rev-parse MERGE_HEAD 2>/dev/null)"
           printf '%s\n' 'conflicts:' >> "${diagnostic}"
-          git diff --name-only --diff-filter=U | LC_ALL=C sort >> "${diagnostic}"
+          git diff --name-only --diff-filter=U | LC_ALL=C sort >> "${diagnostic}" 2>&1
+          record conflict_list_status "$?"
 
-          git checkout --theirs -- module/application/__init__.py
-          git checkout --ours -- module/application/morale.py
-          git checkout --theirs -- module/persistence/runtime.py
+          for path in \
+            module/application/__init__.py \
+            module/application/morale.py \
+            module/persistence/runtime.py
+          do
+            safe_name="$(printf '%s' "${path}" | tr '/.' '__')"
+            git show ":2:${path}" > "${temporary_dir}/${safe_name}.ours" 2>> "${diagnostic}"
+            record "${safe_name}_ours_status" "$?"
+            git show ":3:${path}" > "${temporary_dir}/${safe_name}.theirs" 2>> "${diagnostic}"
+            record "${safe_name}_theirs_status" "$?"
+          done
 
-          python - <<'PY' >> "${diagnostic}" 2>&1
+          python - "${temporary_dir}" >> "${diagnostic}" 2>&1 <<'PY'
           from pathlib import Path
+          import sys
 
+          root = Path(sys.argv[1])
           checks = {
-              "app:fleet_page_import": (
-                  "module/application/__init__.py",
+              "app_theirs_fleet_page_import": (
+                  "module_application___init___py.theirs",
                   "from module.application.fleet_page import (\n",
               ),
-              "app:fleet_slot_view": (
-                  "module/application/__init__.py",
+              "app_theirs_fleet_slot_view": (
+                  "module_application___init___py.theirs",
                   "    FleetSlotViewModel,\n)\nfrom module.application.fleet_state import (\n",
               ),
-              "app:morale_events": (
-                  "module/application/__init__.py",
+              "app_theirs_morale_events": (
+                  "module_application___init___py.theirs",
                   "    MoraleContinuityError,\n    MoraleFleetState,\n",
               ),
-              "app:record_morale": (
-                  "module/application/__init__.py",
+              "app_theirs_record_morale": (
+                  "module_application___init___py.theirs",
                   "    MoraleSlotState,\n    RecordMoraleObservation,\n    project_morale,\n",
               ),
-              "app:exports_tail": (
-                  "module/application/__init__.py",
+              "app_theirs_exports_tail": (
+                  "module_application___init___py.theirs",
                   '    "UNKNOWN_TASK",\n    "finalize_rehearsal",\n    "project_morale",\n',
               ),
-              "morale:instance_import": (
-                  "module/application/morale.py",
+              "morale_ours_instance_import": (
+                  "module_application_morale_py.ours",
                   "from module.application.instance_identity import resolve_runtime_instance\n",
               ),
-              "morale:state_in_uow": (
-                  "module/application/morale.py",
+              "morale_ours_state_in_uow": (
+                  "module_application_morale_py.ours",
                   "    def state_in_uow(\n",
               ),
-              "runtime:fleet_import": (
-                  "module/persistence/runtime.py",
+              "runtime_theirs_fleet_import": (
+                  "module_persistence_runtime_py.theirs",
                   "from module.application.fleet_state import (\n    FleetScanService,\n    FleetStateService,\n    FormationFleetScanController,\n)\n",
               ),
-              "runtime:timezone_global": (
-                  "module/persistence/runtime.py",
+              "runtime_theirs_timezone_global": (
+                  "module_persistence_runtime_py.theirs",
                   "_runtime_timezone: ZoneInfo | None = None\n",
               ),
-              "runtime:fleet_page_fields": (
-                  "module/persistence/runtime.py",
+              "runtime_theirs_fleet_page_fields": (
+                  "module_persistence_runtime_py.theirs",
                   "    query_service: FleetPageQueryService\n    command_service: FleetManualScanCommandService\n    runtime_timezone: ZoneInfo\n",
               ),
-              "runtime:readonly_class": (
-                  "module/persistence/runtime.py",
+              "runtime_theirs_readonly_class": (
+                  "module_persistence_runtime_py.theirs",
                   "@dataclass(slots=True)\nclass ReadOnlyPersistenceComposition:\n",
               ),
-              "runtime:dispose": (
-                  "module/persistence/runtime.py",
+              "runtime_theirs_dispose": (
+                  "module_persistence_runtime_py.theirs",
                   "def dispose_runtime_storage() -> None:\n    global _engine, _engine_settings, _runtime_timezone, _service\n",
               ),
           }
-          for label, (path, needle) in checks.items():
-              text = Path(path).read_text(encoding="utf-8")
+          for label, (filename, needle) in checks.items():
+              path = root / filename
+              if not path.exists():
+                  print(f"{label}=missing-stage-file")
+                  continue
+              text = path.read_text(encoding="utf-8")
               print(f"{label}={text.count(needle)}")
           PY
+          record python_status "$?"
 
-          git merge --abort
+          if git rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1
+          then
+            git merge --abort >> "${diagnostic}" 2>&1
+            record abort_status "$?"
+          else
+            record abort_status no_merge
+          fi
+
           git add -- "${diagnostic}"
+          record add_status "$?"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'chore(pr158): уточнить semantic merge'
+          git commit -m 'chore(pr158): сохранить semantic merge diagnostics' >> "${diagnostic}" 2>&1
+          commit_status=$?
+          if test "${commit_status}" -ne 0
+          then
+            printf 'commit_status=%s\n' "${commit_status}"
+            exit "${commit_status}"
+          fi
           git push origin "HEAD:refs/heads/${TARGET_BRANCH}"
