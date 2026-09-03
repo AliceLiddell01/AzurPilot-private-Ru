@@ -74,8 +74,8 @@ authorization policy совместимо с текущим read contract, по�
 ## Application и persistence
 
 Composition root использует `GameReadService`, `InstanceQueryService`,
-`TaskCatalogService`, `FleetStateReadService` и `MoraleService`. Existing
-application adapters подключаются только при явном создании backend. Persistence
+`TaskCatalogService`, `FleetStateReadService` и `MoraleService`. Существующие
+прикладные адаптеры подключаются только при явном создании backend. Persistence
 builder импортируется
 лениво из `module.persistence.runtime` и использует отдельную lazy read-only
 composition: marker не мигрируется, environment не изменяется, production
