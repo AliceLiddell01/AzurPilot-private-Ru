@@ -22,7 +22,7 @@
 Нельзя выводить serial, package, локальные пути или credentials в пользовательскую
 сводку.
 
-## Lifecycle boundary
+## Граница жизненного цикла
 
 В `alas.py` методы `start()` и `restart()` используют существующий
 `LoginHandler`. `goto_main()` сначала проверяет состояние приложения, затем
@@ -47,7 +47,7 @@ game process running != game foreground != login completed != main UI
 current catalog означает capability gap, а не разрешение на прямой ADB/input
 обход.
 
-## Upstream context
+## Контекст upstream
 
 Публичный upstream ALAS подтверждает reuse `LoginHandler.app_restart()` для
 `restart()`, `LoginHandler.app_start()` для `start()` и различие веток

@@ -1,8 +1,9 @@
 # AzurPilot
 
-Canonical Plugin Creator package для Development и Game workflow `AzurPilot`.
-Plugin Creator нормализует machine-readable ID в `azurpilot`, а human-facing
-display name остаётся `AzurPilot`. Пакет поставляет три разделённых skill:
+Канонический пакет Plugin Creator для рабочих процессов Development и Game
+`AzurPilot`. Plugin Creator нормализует машинный идентификатор в `azurpilot`, а
+отображаемое для пользователя имя остаётся `AzurPilot`. Пакет поставляет три
+разделённых skill:
 `azurpilot-development`, `azurpilot-game-control` и
 `azurpilot-troubleshooting`.
 
@@ -13,7 +14,7 @@ display name остаётся `AzurPilot`. Пакет поставляет тр�
 `AzurPilot Development Verified` и `AzurPilot Game`; их accounts, OAuth scopes,
 approval policy и runtime остаются внешними по отношению к package.
 
-Canonical runtimes — существующие `module.dev_mcp` и `module.game_mcp`.
+Канонические runtime — существующие `module.dev_mcp` и `module.game_mcp`.
 
 - Codex вызывает project-scoped `azurpilot-dev` напрямую через local stdio:
   `uv run --locked --no-sync python -m module.dev_mcp`.
@@ -27,7 +28,7 @@ Canonical runtimes — существующие `module.dev_mcp` и `module.game
 ChatGPT app state, tunnel profiles, control-plane keys, screenshots, archives,
 cookies, credentials или локальный runtime cache.
 
-## Установка и public HTTPS
+## Установка и публичный HTTPS
 
 Marketplace создаётся Plugin Creator в `.agents/plugins/marketplace.json`.
 Подключи этот marketplace к Codex и установи `azurpilot`; затем проверь
@@ -85,7 +86,7 @@ PASS требует одновременно PASS-result, exact source, подт
 `PRECONDITION_FAILED` маршрутизируются по skill без auto-retry и без изменения
 исходного SmokeSpec.
 
-## Runtime Control
+## Управление runtime
 
 `dev_get_runtime_status` возвращает ограниченный read-only снимок настроенного
 development target: состояние эмулятора, ADB, приложения, DevSession, SmokeRun

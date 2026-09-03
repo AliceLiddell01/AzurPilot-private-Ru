@@ -80,13 +80,21 @@ game process, foreground или login/main state.
 
 ## Control и lifecycle
 
+Для любой Game mutation `game_get_contract` — обязательная предварительная
+проверка. Если tool отсутствует или не callable в текущей session, установи
+`STOP WRITES` и передай выполнение в `azurpilot-troubleshooting`; не продолжай
+без подтверждённых scopes и preconditions из актуального contract.
+
 Перед control action проверь профиль, требуемый scope и precondition из
 contract. Выполняй одну осознанную mutation за раз, с явным `<profile>` и без
 автоматического retry (automatic retry запрещён). После ответа проверь authoritative postcondition,
 который требует именно этот tool:
 
 - `game_start_profile` и `game_stop_profile` относятся к lifecycle профиля;
-- `game_trigger_task` ставит только generated task из catalog;
+- `game_trigger_task` ставит только generated task из catalog, если её
+  обратимость подтверждена contract; задачи с необратимым игровым эффектом или
+  расходованием ресурсов запускать запрещено. При неподтверждённой обратимости
+  установи `STOP WRITES` и передай выполнение в `azurpilot-troubleshooting`;
 - `game_clear_scheduler_queue` меняет только bounded scheduler queue;
 - `game_update_config` изменяет один разрешённый нечувствительный параметр и
   требует readback;
@@ -126,7 +134,7 @@ restart как замену login.
 postcondition не повторяй mutation. Останови writes, сохрани последний
 подтверждённый state и переключись в `azurpilot-troubleshooting`.
 
-## Event- и server-agnostic правила
+## Правила, независимые от события и сервера
 
 Не хардкодь profile, server, package, emulator instance, ADB serial, port,
 active event, map, task list или coordinates. Server/package/account и

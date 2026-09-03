@@ -1,8 +1,8 @@
 # Матрица диагностических сценариев
 
-Это reusable classification aid. Значения `N`, fingerprints и имена будущих
-tools всегда берутся из текущего contract/catalog; исторические incident
-values не являются fixtures production skill.
+Это вспомогательная матрица классификации. Значения `N`, fingerprints и имена
+будущих tools всегда берутся из текущего contract/catalog; исторические значения
+incident не являются фикстурами production skill.
 
 | Сценарий | Evidence | Диагноз и безопасное поведение |
 | --- | --- | --- |

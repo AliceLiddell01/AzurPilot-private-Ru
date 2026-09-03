@@ -235,6 +235,7 @@ def test_game_and_troubleshooting_skills_have_distinct_fail_closed_routes() -> N
         "game_login_runtime",
         "automatic",
         "postcondition",
+        "STOP WRITES",
     ):
         assert required in game_skill
     for required in (
@@ -276,6 +277,29 @@ def test_game_and_troubleshooting_skills_have_distinct_fail_closed_routes() -> N
     ):
         assert required in game_skill
 
+    game_control_match = re.search(
+        r"^## Control и lifecycle\n(?P<section>.*?)(?=^## |\Z)",
+        game_skill,
+        re.MULTILINE | re.DOTALL,
+    )
+    assert game_control_match is not None
+    game_control_section = re.sub(r"\s+", " ", game_control_match.group("section"))
+    for required in (
+        "game_get_contract",
+        "любой Game mutation",
+        "обязательная предварительная проверка",
+        "STOP WRITES",
+        "azurpilot-troubleshooting",
+        "scopes",
+        "preconditions",
+        "game_trigger_task",
+        "generated task из catalog",
+        "обратимость подтверждена contract",
+        "необратимым игровым эффектом",
+        "расходованием ресурсов",
+    ):
+        assert required in game_control_section
+
     combined = f"{game_skill}\n{troubleshooting_skill}"
     assert not re.search(r"\b[a-f0-9]{64}\b", combined, re.IGNORECASE)
     assert not re.search(r"tool_count\s*=\s*\d+", combined)
@@ -285,7 +309,7 @@ def test_game_and_troubleshooting_skills_have_distinct_fail_closed_routes() -> N
     assert _TROUBLESHOOTING_MATRIX_PATH.is_file()
 
     contract_section = _markdown_subsection(
-        troubleshooting_skill, "Contract evidence before returning to mutation"
+        troubleshooting_skill, "Подтверждение contract перед возвратом к mutation"
     )
     for required in (
         "dev_get_contract",
@@ -300,7 +324,7 @@ def test_game_and_troubleshooting_skills_have_distinct_fail_closed_routes() -> N
         assert required in contract_section
 
     scenario_c = _markdown_subsection(
-        troubleshooting_skill, "Scenario C: Exit/postcondition failure"
+        troubleshooting_skill, "Сценарий C: Ошибка exit/postcondition"
     )
     for required in (
         "product state",
@@ -313,7 +337,7 @@ def test_game_and_troubleshooting_skills_have_distinct_fail_closed_routes() -> N
         assert required in scenario_c
 
     browser_section = _markdown_subsection(
-        troubleshooting_skill, "Browser automation и Computer Use fallback"
+        troubleshooting_skill, "Browser automation и fallback через Computer Use"
     )
     for required in (
         "browser automation = unavailable",
