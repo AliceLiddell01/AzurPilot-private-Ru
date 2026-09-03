@@ -243,13 +243,16 @@ class _DormController:
 
 
 class _Lookup:
-    def __init__(self, observations):
+    def __init__(self, observations, error=None):
         self.observations = list(observations)
+        self.error = error
         self.targets = []
         self.exits = 0
 
     def lookup(self, target):
         self.targets.append(target)
+        if self.error is not None:
+            raise self.error
         return self.observations.pop(0)
 
     def exit_to_main(self):
@@ -274,6 +277,7 @@ def _bootstrap(
     after=None,
     lookup_targets=(),
     lookup_observations=(),
+    lookup_error=None,
 ):
     config = _Config()
     before = before or _state(_target_slot())
@@ -282,7 +286,7 @@ def _bootstrap(
     reconciliation = _Reconciliation(lookup_targets)
     context = SimpleNamespace(morale_service=morale, reconciliation_service=reconciliation)
     controller = _DormController()
-    lookup = _Lookup(lookup_observations)
+    lookup = _Lookup(lookup_observations, error=lookup_error)
 
     bootstrapper = CampaignMoraleBootstrapper(
         config,
@@ -383,6 +387,24 @@ def test_search_selected_fails_closed_without_outside_write_and_delays_task_only
     assert lookup.exits == 1
     assert config.delays == [{"success": False}]
     assert config.calls == []
+
+
+def test_unexpected_targeted_lookup_failure_uses_existing_cleanup_boundary():
+    target = _target()
+    scan = _scan(_dorm_observation(99, 1))
+    bootstrapper, config, _controller, reconciliation, lookup = _bootstrap(
+        scan=scan,
+        lookup_targets=(target,),
+        lookup_error=RuntimeError("synthetic lookup failure"),
+    )
+
+    with pytest.raises(CampaignMoraleBootstrapError) as exc:
+        bootstrapper.run(scan)
+
+    assert exc.value.code == "lookup_unexpected_failure"
+    assert reconciliation.recorded == []
+    assert lookup.exits == 1
+    assert config.delays == [{"success": False}]
 
 
 def test_partial_dorm_scan_delays_only_campaign_task_and_does_not_schedule_restart():

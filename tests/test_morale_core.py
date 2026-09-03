@@ -1091,17 +1091,19 @@ def test_fallback_event_key_uses_explicit_battle_coordinate():
 def test_fallback_reduce_uses_explicit_battle_coordinate_without_begin_event():
     now = datetime(2026, 8, 27, 10, tzinfo=UTC)
     event_at = now + timedelta(minutes=1)
-    clock_values = [now, now + timedelta(seconds=1), event_at]
+    current = {"at": now}
 
     def clock():
-        return clock_values.pop(0) if len(clock_values) > 1 else clock_values[0]
+        return current["at"]
 
     instances, fleets, morale, service = _service(clock=clock)
     _seed_fleet(instances, fleets, "profile", 1, observed_at=now)
     service.record("profile", _command(observed_at=now, baseline=Decimal(50)))
     emotion = Emotion(_emotion_config(run="run-a"), morale_service=service)
+    current["at"] = now + timedelta(seconds=1)
 
     first = emotion.reduce(1, battle=0)
+    current["at"] = event_at
     second = emotion.reduce(1, battle=1)
 
     assert first.applied is True

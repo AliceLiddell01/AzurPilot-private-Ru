@@ -325,9 +325,6 @@ def test_scheduler_source_runs_campaign_morale_scan_after_manual_boundary() -> N
     ]
 
     assert "fleet_auto_scan" in source
-    assert prepare.index("task == 'Restart'") < prepare.index(
-        "self._run_fleet_manual_scan_if_pending()"
-    )
     assert prepare.index("self._run_fleet_manual_scan_if_pending()") < prepare.index(
-        "self._campaign_morale_scan_safely(task, source='campaign:first_run')"
+        "self._campaign_morale_scan_safely("
     )

@@ -468,6 +468,14 @@ class CampaignMoraleBootstrapper:
                     ),
                     lookup=lookup,
                 )
+            except Exception as exc:  # noqa: BLE001 - lookup path must fail closed.
+                self._fail_safely(
+                    CampaignMoraleBootstrapError(
+                        "lookup_unexpected_failure",
+                        f"Targeted lookup прерван: {type(exc).__name__}.",
+                    ),
+                    lookup=lookup,
+                )
 
         final_state = context.morale_service.state(
             self.config.config_name,

@@ -411,7 +411,12 @@ class Emotion:
                         "[Настроение — ожидание] Ожидание прервано запросом остановки"
                     )
             else:
-                sleep(60)
+                for _ in range(60):
+                    if stop_event is not None and stop_event.is_set():
+                        raise ScriptEnd(
+                            "[Настроение — ожидание] Ожидание прервано запросом остановки"
+                        )
+                    sleep(1)
 
     def _execution_storage(self) -> dict[str, object] | None:
         """Вернуть скрытый persisted task Storage для generation morale event."""
