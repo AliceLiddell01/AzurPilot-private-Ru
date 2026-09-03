@@ -314,20 +314,33 @@ class InfoHandler(ModuleBase):
 
         from module.application.fleet_mapping import physical_fleet_index
         from module.dorm.morale_composition import build_campaign_morale_context
-        from module.dorm.morale_controller import DormMoraleController
+        from module.dorm.morale_controller import (
+            DormMoraleController,
+            DormMoraleControllerError,
+        )
         from module.formation.model import FleetSelection
 
         physical = physical_fleet_index(self.config, logical_fleet_index)
         context = build_campaign_morale_context(require_ready=False)
-        scan = DormMoraleController(
+        controller = DormMoraleController(
             self.config,
             device=self.device,
-        ).scan_both_floors(source="combat:low_morale_warning")
-        return context.reconciliation_service.reconcile(
-            self.config.config_name,
-            FleetSelection.one(physical),
-            scan,
         )
+        try:
+            scan = controller.scan_both_floors(source="combat:low_morale_warning")
+            return context.reconciliation_service.reconcile(
+                self.config.config_name,
+                FleetSelection.one(physical),
+                scan,
+            )
+        finally:
+            try:
+                controller.close_train()
+            except DormMoraleControllerError as exc:
+                logger.warning(
+                    "[Настроение — popup] Не удалось доказать закрытие Train после "
+                    f"reconciliation: {exc}"
+                )
 
     def _cancel_low_morale_warning_safely(self) -> None:
         """Закрыть доказанное предупреждение только безопасной кнопкой."""

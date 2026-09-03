@@ -358,7 +358,7 @@ def test_missing_target_uses_raw_train_occupant_for_search_and_records_exact_out
     assert config.delays == []
 
 
-def test_search_selected_fails_closed_without_outside_write_and_suppresses_restart():
+def test_search_selected_fails_closed_without_outside_write_and_delays_task_only():
     target = _target()
     scan = _scan(_dorm_observation(99, 1))
     observed = TargetedMoraleLookupObservation(
@@ -382,7 +382,6 @@ def test_search_selected_fails_closed_without_outside_write_and_suppresses_resta
     assert reconciliation.recorded == []
     assert lookup.exits == 1
     assert config.delays == [{"success": False}]
-    assert config.task_call("Restart") is False
     assert config.calls == []
 
 
@@ -395,7 +394,33 @@ def test_partial_dorm_scan_delays_only_campaign_task_and_does_not_schedule_resta
 
     assert exc.value.code == "dorm_scan_incomplete"
     assert config.delays == [{"success": False}]
-    assert config.task_call("Restart") is False
     assert config.calls == []
     assert controller.close_calls == 1
     assert len(controller.ensure_calls) == 1
+
+
+def test_targeted_bootstrap_rejects_mismatched_physical_fleet_badge():
+    target = _target()
+    scan = _scan(_dorm_observation(99, 1))
+    observed = TargetedMoraleLookupObservation(
+        target=target,
+        morale=Decimal(150),
+        location_hint=TargetedMoraleLocationHint.OUTSIDE_DORM,
+        fleet_badge=1,
+        matched_result_count=1,
+        observed_at=NOW,
+    )
+    bootstrapper, config, controller, reconciliation, lookup = _bootstrap(
+        scan=scan,
+        lookup_targets=(target,),
+        lookup_observations=(observed,),
+    )
+
+    with pytest.raises(CampaignMoraleBootstrapError) as exc:
+        bootstrapper.run(scan)
+
+    assert exc.value.code == "lookup_fleet_not_proven"
+    assert reconciliation.recorded == []
+    assert lookup.exits == 1
+    assert config.delays == [{"success": False}]
+    assert controller.close_calls == 0

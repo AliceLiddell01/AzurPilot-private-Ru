@@ -10,6 +10,7 @@ import pytest
 from alas import AzurLaneAutoScript
 from module.application.morale_bootstrap import CampaignMoraleBootstrapError
 from module.config.time_source import now as current_time
+from module.exception import RequestHumanTakeover
 from module.persistence import runtime as persistence_runtime
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -204,6 +205,38 @@ def test_campaign_morale_periodic_callback_scans_when_state_is_missing() -> None
     assert calls == [("Main", "campaign:periodic_10")]
 
 
+def test_campaign_morale_scan_wraps_takeover_as_task_level_failure() -> None:
+    script = _script()
+    script._scan_campaign_morale = (
+        lambda _task, *, source: (_ for _ in ()).throw(
+            RequestHumanTakeover(f"synthetic failure: {source}")
+        )
+    )
+
+    with pytest.raises(CampaignMoraleBootstrapError) as exc:
+        script._campaign_morale_scan_safely("Main", source="campaign:first_run")
+
+    assert exc.value.code == "scan_evidence_incomplete"
+    assert script.config.delay_calls == [{"success": False}]
+
+
+def test_periodic_morale_scan_updates_completed_runs_only_after_success() -> None:
+    script = _script()
+    script._morale_scan_state = {
+        "Main": {"last_scan": 100.0, "completed_runs": 0}
+    }
+    script._scan_campaign_morale = (
+        lambda _task, *, source: (_ for _ in ()).throw(
+            CampaignMoraleBootstrapError("synthetic_failure", source)
+        )
+    )
+
+    with pytest.raises(CampaignMoraleBootstrapError):
+        script._campaign_morale_after_clear("Main", 3)
+
+    assert script._morale_scan_state["Main"]["completed_runs"] == 0
+
+
 def test_long_wait_manual_wakeup_does_not_run_future_normal_task_early() -> None:
     script = _script()
     script._manual_scan_wakeup = True
@@ -296,5 +329,5 @@ def test_scheduler_source_runs_campaign_morale_scan_after_manual_boundary() -> N
         "self._run_fleet_manual_scan_if_pending()"
     )
     assert prepare.index("self._run_fleet_manual_scan_if_pending()") < prepare.index(
-        "self._scan_campaign_morale(task, source='campaign:first_run')"
+        "self._campaign_morale_scan_safely(task, source='campaign:first_run')"
     )

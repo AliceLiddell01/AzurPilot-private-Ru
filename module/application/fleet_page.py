@@ -104,6 +104,10 @@ class MoraleRowViewModel:
     last_known: bool = False
 
     def __post_init__(self) -> None:
+        if not isinstance(self.canonical_identity, str):
+            raise TypeError("Morale row canonical identity должен быть строкой")
+        if not isinstance(self.ship_name, str):
+            raise TypeError("Morale row ship name должен быть строкой")
         if not self.canonical_identity.strip():
             raise ValueError("Morale row требует canonical identity")
         if not self.ship_name.strip():

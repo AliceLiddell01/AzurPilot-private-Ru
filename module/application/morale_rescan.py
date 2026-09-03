@@ -23,7 +23,7 @@ def _non_negative_int(raw: object, *, name: str, default: int) -> int:
 
 @dataclass(frozen=True, slots=True)
 class MoraleRescanPolicy:
-    """Periodic policy из task config; `0` отключает соответствующий trigger."""
+    """Периодическая политика из task config; `0` отключает соответствующий trigger."""
 
     runs: int = 10
     minutes: int = 60

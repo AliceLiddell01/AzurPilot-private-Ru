@@ -320,11 +320,17 @@ class TargetedMoraleLookupScanner:
                 "state_ocr_failed",
                 f"Не удалось прочитать overlay Search cards: {type(exc).__name__}.",
             ) from exc
+        if len(fleet_texts) != len(matched) or len(state_texts) != len(matched):
+            raise TargetedMoraleLookupError(
+                "state_ocr_failed",
+                "OCR overlay Search cards вернул неверное число значений.",
+            )
 
         badges = tuple(self._fleet_badge(value) for value in fleet_texts)
         chosen_index: int | None = None
         if len(matched) == 1:
-            chosen_index = 0
+            if badges[0] == target.fleet_index:
+                chosen_index = 0
         else:
             fleet_matches = tuple(
                 index
@@ -335,8 +341,14 @@ class TargetedMoraleLookupScanner:
                 chosen_index = fleet_matches[0]
         if chosen_index is None:
             raise TargetedMoraleLookupError(
-                "duplicate_ambiguous",
-                f"Несколько физических copies {target.canonical_name} остались неоднозначны.",
+                "fleet_not_proven" if len(matched) == 1 else "duplicate_ambiguous",
+                (
+                    f"Физический Fleet {target.fleet_index} не доказан для "
+                    f"{target.canonical_name}."
+                    if len(matched) == 1
+                    else f"Несколько физических copies {target.canonical_name} "
+                    "остались неоднозначны."
+                ),
             )
 
         chosen = matched[chosen_index]
@@ -345,6 +357,8 @@ class TargetedMoraleLookupScanner:
                 normalized,
                 (chosen.morale_area,),
             )
+        except TargetedMoraleLookupError:
+            raise
         except Exception as exc:
             raise TargetedMoraleLookupError(
                 "morale_ocr_failed",
@@ -471,6 +485,7 @@ class TargetedMoraleLookupController(UI):
                     "identity_ocr_failed",
                     "morale_ocr_failed",
                     "state_ocr_failed",
+                    "fleet_not_proven",
                 }:
                     raise
         assert last_error is not None

@@ -1051,7 +1051,7 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
 
     def get_emotion(self):
         """
-        Получить безопасную нижнюю границу текущей morale projection.
+        Получить безопасную нижнюю границу текущей projection morale.
         """
         logical = 2 if self.config.Fleet_FleetOrder == 'fleet1_standby_fleet2_all' else 1
         try:
@@ -1076,7 +1076,7 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
 
     def set_emotion(self, emotion):
         """
-        Сохранить совместимость вызовов без записи устаревшего числового состояния.
+        Сохранить совместимость вызовов без записи устаревшего числового state.
         """
         del emotion
         logger.info(
@@ -1085,7 +1085,7 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
 
     def run(self, name, folder='campaign_main', mode='normal', total=0):
         """
-        运行钻石 farming 任务。
+        Запустить задачу Gems farming.
 
         Args:
             name (str): .py 文件名称。

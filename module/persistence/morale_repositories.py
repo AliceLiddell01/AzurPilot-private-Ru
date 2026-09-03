@@ -1,4 +1,4 @@
-"""PostgreSQL adapter append-only Per-ship Morale observations."""
+"""PostgreSQL-адаптер append-only наблюдений per-ship Morale."""
 
 from __future__ import annotations
 
@@ -60,7 +60,7 @@ def _storage_idempotency_for(instance_id: UUID, key: str) -> str:
 
 
 def _storage_idempotency_key(observation: MoraleObservation) -> str:
-    """Namespace caller idempotency внутри app instance без расширения DB field."""
+    """Изолировать caller idempotency внутри app instance без расширения DB field."""
 
     return _storage_idempotency_for(
         observation.instance_id,
@@ -229,6 +229,13 @@ class PostgresMoraleRepository:
             raise StorageInvalidDataError("Morale idempotency request некорректен.")
         if not keys:
             return frozenset()
+        if any(
+            not isinstance(key, str) or not key.strip() or len(key) > 128
+            for key in keys
+        ):
+            raise StorageInvalidDataError(
+                "Morale idempotency request содержит некорректный key."
+            )
         storage_keys = {
             _storage_idempotency_for(instance_id, key): key for key in keys
         }

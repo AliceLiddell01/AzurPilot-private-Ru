@@ -475,7 +475,7 @@ class CampaignRun(CampaignEvent, ShopStatus):
             )
             if due:
                 logger.info(
-                    "[Настроение] Periodic rescan: "
+                    "[Настроение] Периодическая rescan: "
                     f"reason={reason}; completed_runs={self.run_count}; "
                     f"policy_runs={policy.runs}; policy_minutes={policy.minutes}"
                 )
@@ -483,7 +483,7 @@ class CampaignRun(CampaignEvent, ShopStatus):
                     callback(self.run_count)
                 except CampaignMoraleBootstrapError as error:
                     logger.warning(
-                        "[Настроение] Periodic bootstrap безопасно остановил "
+                        "[Настроение] Периодический bootstrap безопасно остановил "
                         f"текущую campaign task: stage={error.code}"
                     )
                     return False

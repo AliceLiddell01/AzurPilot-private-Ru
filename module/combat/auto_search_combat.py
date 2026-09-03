@@ -561,10 +561,10 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
 
     def auto_search_combat(self, emotion_reduce=None, fleet_index=1, battle=None):
         """
-        Execute a combat.
+        Выполнить один бой в режиме автопоиска.
 
-        Note that fleet index == 1 is mob fleet, 2 is boss fleet.
-        It's not the fleet index in fleet preparation or auto search setting.
+        `fleet_index == 1` означает mob fleet, `2` — boss fleet.
+        Это не индекс флота в экране подготовки или настройке автопоиска.
         """
         emotion_reduce = emotion_reduce if emotion_reduce is not None else self.emotion.is_calculate
 

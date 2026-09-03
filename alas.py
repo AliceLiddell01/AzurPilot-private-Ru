@@ -354,12 +354,33 @@ class AzurLaneAutoScript:
             and 'calculate' in getattr(self.config, 'Emotion_Mode', 'nothing')
         )
 
+    def _campaign_morale_scan_safely(self, task, *, source):
+        """Остановить только campaign task при недоказанном morale evidence."""
+
+        from module.application.morale_bootstrap import CampaignMoraleBootstrapError
+
+        try:
+            return self._scan_campaign_morale(task, source=source)
+        except CampaignMoraleBootstrapError:
+            raise
+        except RequestHumanTakeover as error:
+            self.config.task_delay(success=False)
+            logger.warning(
+                '[Настроение] Campaign scan не дал достаточного evidence; '
+                f'текущая задача отложена без Restart: {error}'
+            )
+            raise CampaignMoraleBootstrapError(
+                'scan_evidence_incomplete',
+                str(error),
+            ) from error
+
     def _scan_campaign_morale(self, task, *, source):
         """Пересканировать рабочие Formation fleets и оба этажа Dorm."""
 
         from module.application.fleet_autoscan import FleetAutoScanConfig
         from module.application.fleet_mapping import working_fleet_bindings
         from module.application.morale import MoraleKnowledge
+        from module.application.morale_bootstrap import CampaignMoraleBootstrapper
         from module.dock_inventory.model import IdentityStatus
         from module.dorm.morale_controller import DormMoraleController
         from module.formation.model import FleetSelection
@@ -386,22 +407,18 @@ class AzurLaneAutoScript:
             device=self.device,
         )
         scan = dorm_controller.scan_both_floors(source=source)
-        if scan.complete:
-            dorm_controller.close_train()
         context = build_runtime_morale_context(require_ready=False)
-        result = context.reconciliation_service.reconcile(
-            self.config_name,
-            selection,
-            scan,
+        bootstrapper = CampaignMoraleBootstrapper(
+            self.config,
+            self.device,
+            dorm_controller,
+            context_factory=lambda require_ready=False: context,
         )
-        if (
-            not result.complete_scan
-            or result.ambiguous_observations
-            or result.unresolved_observations
-            or result.stale_fleet_indices
-        ):
+        filtered_scan, summary = bootstrapper.run(scan)
+        result = bootstrapper.last_reconciliation_result
+        if result is None:
             raise RequestHumanTakeover(
-                '[Настроение] Полное и однозначное сопоставление рабочих флотов с Dorm не доказано.'
+                '[Настроение] Bootstrap не вернул reconciliation evidence.'
             )
         state = context.morale_service.state(self.config_name, selection)
         blocked = tuple(
@@ -420,31 +437,37 @@ class AzurLaneAutoScript:
             raise RequestHumanTakeover(
                 '[Настроение] После reconciliation остались неизвестные слоты рабочих флотов.'
             )
+        if filtered_scan.id != result.dorm_scan_id:
+            raise RequestHumanTakeover(
+                '[Настроение] Итоговый Dorm scan не совпадает с reconciliation evidence.'
+            )
         self._morale_scan_state[task] = {
             'last_scan': time.monotonic(),
             'completed_runs': 0,
         }
         logger.info(
             f'[Настроение] Reconciliation завершён: флоты={selection.fleet_indices}, '
-            f'Dorm exact={result.exact_observations}, outside={result.outside_dorm_observations}'
+            f'Dorm exact={summary.dorm_exact}, outside={summary.targeted_outside}; '
+            f'unrelated={summary.unmatched_unrelated}; unresolved={summary.unresolved_raw}'
         )
         return result
 
     def _campaign_morale_after_clear(self, task, completed_runs):
-        state = self._morale_scan_state.get(task)
-        if state is not None:
-            state['completed_runs'] = completed_runs
-        return self._scan_campaign_morale(
+        result = self._campaign_morale_scan_safely(
             task,
             source=f'campaign:periodic_{completed_runs}',
         )
+        state = self._morale_scan_state.get(task)
+        if state is not None:
+            state['completed_runs'] = completed_runs
+        return result
 
     def _run_campaign_task(self, task):
         from module.campaign.run import CampaignRun
 
         runner = CampaignRun(config=self.config, device=self.device)
         if self._campaign_morale_enabled(task):
-            runner.morale_reconciliation_callback = lambda: self._scan_campaign_morale(
+            runner.morale_reconciliation_callback = lambda: self._campaign_morale_scan_safely(
                 task,
                 source='campaign:critical',
             )
@@ -1702,7 +1725,7 @@ class AzurLaneAutoScript:
             from module.application.morale_bootstrap import CampaignMoraleBootstrapError
 
             try:
-                self._scan_campaign_morale(task, source='campaign:first_run')
+                self._campaign_morale_scan_safely(task, source='campaign:first_run')
             except CampaignMoraleBootstrapError as error:
                 logger.warning(
                     '[Настроение] Campaign bootstrap безопасно остановил только '

@@ -395,7 +395,7 @@ class ConfigGenerator:
         visited_path = set()
         lines = CONFIG_IMPORT
         for path, data in deep_iter(self.argument, depth=2):
-            group, arg = path
+            group, _arg = path
             if group not in visited_group:
                 lines.append('')
                 lines.append(f'    # 配置组 `{group}`')
@@ -977,6 +977,8 @@ class ConfigUpdater:
         Args:
             config_name: 配置文件名，对应 ./config/{file}.json。
             is_template: 是否为模板配置。
+            data: Предварительно загруженные данные; если значение не передано,
+                файл читается из config.
 
         Returns:
             更新后的配置字典。

@@ -351,17 +351,28 @@ class DormMoraleController(UI):
             self.dorm_train_layout.train_card_buttons[ordinal - 1],
             "DORM_MORALE_EXISTING_TRAIN_OCCUPANT",
         )
-        for attempt in range(8):
+        clicked = False
+        unknown_frames = 0
+        for _attempt in range(8):
             if self.appear(DOCK_CHECK, offset=(20, 20)):
                 return frame
-            if self.dorm_train_state.selected_floor(frame) is DormFloor.FLOOR_1:
-                if attempt in {0, 4}:
+            selected_floor = self.dorm_train_state.selected_floor(frame)
+            if selected_floor is None:
+                unknown_frames += 1
+                if unknown_frames >= 2:
+                    raise DormMoraleControllerError(
+                        "После tap Train occupant состояние UI не доказано."
+                    )
+            elif selected_floor is not DormFloor.FLOOR_1:
+                raise DormMoraleControllerError(
+                    "После tap Train occupant получено неожиданное состояние UI."
+                )
+            else:
+                unknown_frames = 0
+                if not clicked:
                     self.device.click(button)
-                frame = self._capture()
-                continue
-            raise DormMoraleControllerError(
-                "После tap Train occupant получено неожиданное состояние UI."
-            )
+                    clicked = True
+            frame = self._capture()
         raise DormMoraleControllerError(
             "Candidate-selection не открылся за ограниченное число попыток."
         )
@@ -385,25 +396,6 @@ class DormMoraleController(UI):
             observed_at=observed_at,
             snapshot=snapshot,
         )
-
-    def _finalize_campaign_scan(
-        self,
-        result: DormMoraleScanResult,
-    ) -> DormMoraleScanResult:
-        if not result.source.startswith("campaign:"):
-            return result
-        from module.application.morale_bootstrap import CampaignMoraleBootstrapper
-
-        try:
-            filtered, _summary = CampaignMoraleBootstrapper(
-                self.config,
-                self.device,
-                self,
-            ).run(result)
-        except Exception as exc:  # noqa: BLE001 - partial scan is the durable evidence.
-            logger.exception(exc)
-            return result
-        return filtered
 
     def scan_both_floors(self, *, source: str) -> DormMoraleScanResult:
         if not isinstance(source, str) or not source.strip() or len(source) > 64:
@@ -441,7 +433,7 @@ class DormMoraleController(UI):
                 source=source,
                 idempotency_key=f"dorm-morale-scan-v1:{scan_id}",
             )
-            return self._finalize_campaign_scan(result)
+            return result
 
         try:
             _frame, floor_2 = self._scan_floor(frame, DormFloor.FLOOR_2)
@@ -463,7 +455,7 @@ class DormMoraleController(UI):
             source=source,
             idempotency_key=f"dorm-morale-scan-v1:{scan_id}",
         )
-        return self._finalize_campaign_scan(result)
+        return result
 
 
 __all__ = (

@@ -100,7 +100,13 @@ def test_search_morale_crop_matches_dock_digit_geometry():
 
 def test_one_filtered_result_reads_exact_150_without_fake_119():
     target = _target()
-    scanner = _scanner(target, names=("Argus",), morale="150", fleet=("",), state=("",))
+    scanner = _scanner(
+        target,
+        names=("Argus",),
+        morale="150",
+        fleet=("FLEET 6",),
+        state=("",),
+    )
     result = scanner.scan(_frame(scanner, (0,)), target, observed_at=NOW)
     assert result.morale == Decimal(150)
     assert result.location_hint is TargetedMoraleLocationHint.OUTSIDE_DORM
@@ -109,9 +115,47 @@ def test_one_filtered_result_reads_exact_150_without_fake_119():
 
 def test_search_card_119_is_exact_current_not_a_synthetic_default():
     target = _target()
-    scanner = _scanner(target, names=("Argus",), morale="119", fleet=("",), state=("",))
+    scanner = _scanner(
+        target,
+        names=("Argus",),
+        morale="119",
+        fleet=("FLEET 6",),
+        state=("",),
+    )
     result = scanner.scan(_frame(scanner, (0,)), target, observed_at=NOW)
     assert result.morale == Decimal(119)
+
+
+def test_single_result_fails_closed_when_physical_fleet_badge_mismatches():
+    target = _target(fleet=6)
+    scanner = _scanner(
+        target,
+        names=("Argus",),
+        fleet=("FLEET 1",),
+        state=("",),
+    )
+
+    with pytest.raises(TargetedMoraleLookupError) as exc:
+        scanner.scan(_frame(scanner, (0,)), target, observed_at=NOW)
+
+    assert exc.value.error_code == "fleet_not_proven"
+
+
+class _TypedMoraleOcr:
+    def read_values(self, _frame, _areas):
+        raise TargetedMoraleLookupError("morale_ocr_failed", "synthetic typed error")
+
+
+def test_morale_lookup_preserves_declared_ocr_error():
+    target = _target()
+    scanner = _scanner(target, names=("Argus",), fleet=("FLEET 6",), state=("",))
+    scanner.morale_ocr = _TypedMoraleOcr()
+
+    with pytest.raises(TargetedMoraleLookupError) as exc:
+        scanner.scan(_frame(scanner, (0,)), target, observed_at=NOW)
+
+    assert exc.value.error_code == "morale_ocr_failed"
+    assert str(exc.value) == "synthetic typed error"
 
 
 @pytest.mark.parametrize(

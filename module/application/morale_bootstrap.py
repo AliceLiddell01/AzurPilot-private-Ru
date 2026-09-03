@@ -13,7 +13,10 @@ from module.application.morale import (
     MoraleLocation,
     MoraleSlotState,
 )
-from module.application.morale_reconciliation import TargetedMoraleLookupTarget
+from module.application.morale_reconciliation import (
+    MoraleReconciliationResult,
+    TargetedMoraleLookupTarget,
+)
 from module.dock_inventory.model import IdentityStatus
 from module.dorm.morale_composition import build_campaign_morale_context
 from module.dorm.morale_controller import DormMoraleControllerError
@@ -195,6 +198,13 @@ class CampaignMoraleBootstrapper:
         self.dorm_controller = dorm_controller
         self._context_factory = context_factory
         self._lookup_factory = lookup_factory
+        self._last_reconciliation_result: MoraleReconciliationResult | None = None
+
+    @property
+    def last_reconciliation_result(self) -> MoraleReconciliationResult | None:
+        """Последний результат reconciliation, выполненного этим bootstrapper."""
+
+        return self._last_reconciliation_result
 
     def _task(self) -> str:
         task = getattr(getattr(self.config, "task", None), "command", None)
@@ -262,30 +272,12 @@ class CampaignMoraleBootstrapper:
             pass
         self.dorm_controller.ui_ensure(page_main)
 
-    def _arm_task_level_failure(self, error: CampaignMoraleBootstrapError) -> None:
-        """Отложить только campaign task и подавить внешний Restart request."""
-
-        self.config.task_delay(success=False)
-        original_task_call = self.config.task_call
-
-        def guarded_task_call(task, force_call=True):
-            if task == "Restart":
-                logger.warning(
-                    "[Настроение] Restart не назначен: bootstrap завершился "
-                    f"детерминированным evidence failure `{error.code}`."
-                )
-                return False
-            return original_task_call(task, force_call=force_call)
-
-        # Guard живёт только на текущем cached config object. После обработки
-        # исключения scheduler перечитает конфигурацию, поэтому global policy не меняется.
-        self.config.task_call = guarded_task_call
-
     def _fail_safely(
         self,
         error: CampaignMoraleBootstrapError,
         *,
         lookup=None,
+        cleanup: bool = True,
     ) -> None:
         target = _target_label(error.target) if error.target is not None else "нет"
         logger.error_context(
@@ -298,8 +290,15 @@ class CampaignMoraleBootstrapper:
             ),
             level=40,
         )
-        self._return_to_main(lookup)
-        self._arm_task_level_failure(error)
+        if cleanup:
+            try:
+                self._return_to_main(lookup)
+            except Exception as cleanup_error:  # noqa: BLE001 - primary evidence error wins.
+                logger.exception(
+                    "[Настроение] Не удалось доказать cleanup UI после bootstrap failure: "
+                    f"{type(cleanup_error).__name__}; исходная причина сохранена"
+                )
+        self.config.task_delay(success=False)
         raise error
 
     def run(
@@ -309,6 +308,7 @@ class CampaignMoraleBootstrapper:
         if not isinstance(scan, DormMoraleScanResult):
             raise TypeError("scan должен быть DormMoraleScanResult")
 
+        self._last_reconciliation_result = None
         task = self._task()
         bindings = working_fleet_bindings(self.config, task=task)
         physical_fleets = tuple(item.physical_fleet_index for item in bindings)
@@ -387,6 +387,7 @@ class CampaignMoraleBootstrapper:
             selection,
             filtered.scan,
         )
+        self._last_reconciliation_result = reconciliation
         if reconciliation.stale_fleet_indices:
             self._fail_safely(
                 CampaignMoraleBootstrapError(
@@ -419,6 +420,15 @@ class CampaignMoraleBootstrapper:
                             str(exc),
                             target=target,
                         ) from exc
+                    if (
+                        observed.target != target
+                        or observed.fleet_badge != target.fleet_index
+                    ):
+                        raise CampaignMoraleBootstrapError(
+                            "lookup_fleet_not_proven",
+                            "Targeted lookup не доказал правильный physical Fleet.",
+                            target=target,
+                        )
                     logger.info(
                         "[Настроение] Targeted lookup: "
                         f"ship={target.canonical_name}; query={target.search_query}; "
@@ -502,7 +512,17 @@ class CampaignMoraleBootstrapper:
                 lookup=lookup,
             )
 
-        self._return_to_main(lookup)
+        try:
+            self._return_to_main(lookup)
+        except Exception as exc:  # noqa: BLE001 - cleanup failure must fail closed.
+            self._fail_safely(
+                CampaignMoraleBootstrapError(
+                    "cleanup_failed",
+                    f"Безопасный возврат в Main не доказан: {type(exc).__name__}.",
+                ),
+                lookup=lookup,
+                cleanup=False,
+            )
         summary = CampaignMoraleBootstrapSummary(
             task=task,
             physical_fleets=physical_fleets,
