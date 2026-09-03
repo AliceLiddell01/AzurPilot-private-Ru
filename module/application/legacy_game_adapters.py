@@ -13,6 +13,7 @@ import subprocess
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
 from io import BytesIO
+from math import isfinite
 from pathlib import Path
 from threading import Lock
 from time import monotonic, sleep
@@ -768,8 +769,14 @@ class LegacyGameApplicationAdapter:
         """Переиспользовать LoginHandler и подтвердить main UI без scheduler."""
 
         instance = _safe_instance_name(instance)
-        if type(timeout_seconds) is not float or timeout_seconds < 0:
-            raise ValueError("timeout_seconds должен быть неотрицательным float")
+        if (
+            type(timeout_seconds) is not float
+            or not isfinite(timeout_seconds)
+            or timeout_seconds < 0
+        ):
+            raise ValueError(
+                "timeout_seconds должен быть неотрицательным конечным float"
+            )
 
         device: object | None = None
         with _adb_host_lock():

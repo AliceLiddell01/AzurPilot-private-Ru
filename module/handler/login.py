@@ -18,6 +18,7 @@
 # Она обрабатывает окна и объявления входа, а также восстанавливает приложение
 # после сбоя.
 # Последнее обновление: 2025-08-25 20:41
+from math import isfinite
 from time import monotonic
 
 import numpy as np
@@ -69,15 +70,19 @@ class LoginHandler(UI):
             out: page_main
 
         Raises:
+            ValueError: timeout_seconds имеет неподдерживаемое значение.
             GameStuckError: игра зависла.
             GameTooManyClickError: превышено число нажатий.
             GameNotRunningError: игра не запущена.
+            LoginHandlerTimeoutError: истёк bounded тайм-аут входа.
         """
         if timeout_seconds is not None and (
-            type(timeout_seconds) is not float or timeout_seconds < 0
+            type(timeout_seconds) is not float
+            or not isfinite(timeout_seconds)
+            or timeout_seconds < 0
         ):
             raise ValueError(
-                'timeout_seconds должен быть неотрицательным float или None'
+                'timeout_seconds должен быть неотрицательным конечным float или None'
             )
         deadline = (
             None
