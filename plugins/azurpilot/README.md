@@ -21,8 +21,6 @@ approval policy и runtime остаются внешними по отношен
 - ChatGPT использует подключённое приложение через authenticated public HTTPS
   URL `https://<public-host>/mcp`, Caddy и внешний OAuth/OIDC provider; это тот
   же adapter, а не второй runtime.
-- `mcp_server_sse.py` остаётся отдельным production MCP и не используется этим
-  приложением.
 
 Публикуемые данные должны оставаться workflow-only. Не добавляй в checkout
 ChatGPT app state, tunnel profiles, control-plane keys, screenshots, archives,

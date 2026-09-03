@@ -52,17 +52,21 @@ Streamable HTTP `/mcp`; оба entrypoint-а используют один то�
 отсутствии marker). Remote backend
 bind-ится только на `127.0.0.1`, требует внешний OAuth/OIDC access token и не
 добавляет generic shell/config tools или управление production profiles.
-Production MCP и его transport остаются независимыми; `mcp_server_sse.py`
-получает только минимальную compatibility-адаптацию для общей MCP SDK v2.
+Game MCP и Dev MCP остаются независимыми продуктами и используют нейтральные
+общие компоненты `module.mcp_shared` только для authenticated Streamable HTTP.
+WebUI не монтирует MCP transport; игровые и development endpoints запускаются
+отдельными entrypoint-ами с собственными scope и runtime boundaries.
 
 ## Canonical Plugin AzurPilot
 
 `plugins/azurpilot/` — source-controlled package, сгенерированный текущим
 Plugin Creator. Его machine-readable ID — `azurpilot`, display name —
-`AzurPilot`; текущий пакет публикует capability `Development` и
-`azurpilot-development` skill. Пакет не содержит ChatGPT app state, tunnel
-profile, credentials, screenshots, archives или runtime cache и не регистрирует
-второй MCP implementation.
+`AzurPilot`; текущий пакет публикует три разделённых skill:
+`azurpilot-development`, `azurpilot-game-control` и
+`azurpilot-troubleshooting`. `.app.json` содержит только references на
+существующие приложения `AzurPilot Development Verified` и `AzurPilot Game`.
+Пакет не содержит ChatGPT app state, tunnel profile, credentials, screenshots,
+archives или runtime cache и не регистрирует второй MCP implementation.
 
 Codex использует project-scoped `azurpilot-dev` через прямой local stdio и
 `module.dev_mcp`. ChatGPT использует подключённое приложение с

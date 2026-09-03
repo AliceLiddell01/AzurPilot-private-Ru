@@ -70,29 +70,20 @@ for name in (
     assert result.returncode == 0, result.stderr
 
 
-def test_existing_webui_and_mcp_production_wiring_remains_independent():
+def test_legacy_mcp_entrypoint_is_absent_and_webui_has_no_mcp_mount():
     app_path = ROOT / "module" / "webui" / "app.py"
-    mcp_path = ROOT / "mcp_server_sse.py"
     assert app_path.is_file(), app_path
-    assert mcp_path.is_file(), mcp_path
+    assert not (ROOT / "mcp_server_sse.py").exists()
     app_tree = ast.parse(app_path.read_text(encoding="utf-8"))
-    mcp_source = mcp_path.read_text(encoding="utf-8")
-    mcp_tree = ast.parse(mcp_source)
-
     webui_application_imports: set[str] = set()
-    mcp_application_imports: set[str] = set()
-    for path, tree, destination in (
-        (app_path, app_tree, webui_application_imports),
-        (mcp_path, mcp_tree, mcp_application_imports),
-    ):
-        for node in ast.walk(tree):
-            candidates = absolute_import_candidates(ROOT, path, node)
-            destination.update(
-                name
-                for name in candidates
-                if name == "module.application"
-                or name.startswith("module.application.")
-            )
+    for node in ast.walk(app_tree):
+        candidates = absolute_import_candidates(ROOT, app_path, node)
+        webui_application_imports.update(
+            name
+            for name in candidates
+            if name == "module.application"
+            or name.startswith("module.application.")
+        )
     mounted_paths = {
         node.args[0].value
         for node in ast.walk(app_tree)
@@ -103,45 +94,11 @@ def test_existing_webui_and_mcp_production_wiring_remains_independent():
         and isinstance(node.args[0], ast.Constant)
         and isinstance(node.args[0].value, str)
     }
-    handler_assignment = next(
-        (
-            node
-            for node in mcp_tree.body
-            if (
-                isinstance(node, ast.Assign)
-                and any(
-                    isinstance(target, ast.Name) and target.id == "TOOL_HANDLERS"
-                    for target in node.targets
-                )
-            )
-            or (
-                isinstance(node, ast.AnnAssign)
-                and isinstance(node.target, ast.Name)
-                and node.target.id == "TOOL_HANDLERS"
-            )
-        ),
-        None,
-    )
-    assert handler_assignment is not None, mcp_path
-    assert isinstance(handler_assignment.value, ast.Dict)
-    handler_names = {
-        key.value
-        for key in handler_assignment.value.keys
-        if isinstance(key, ast.Constant) and isinstance(key.value, str)
-    }
-
     assert not webui_application_imports, webui_application_imports
-    assert "module.application" in mcp_application_imports
-    assert "module.application.game_control_service" not in mcp_application_imports
-    assert "module.application.game_read_service" not in mcp_application_imports
-    assert "module.application.legacy_game_adapters" in mcp_application_imports
-    assert "/mcp" in mounted_paths
-    assert {
-        "list_instances",
-        "get_status",
-        "list_tasks",
-        "get_task_help",
-    } <= handler_names
+    assert "/mcp" not in mounted_paths
+    assert (ROOT / "module" / "game_mcp" / "__init__.py").is_file()
+    assert (ROOT / "module" / "dev_mcp" / "__init__.py").is_file()
+    assert (ROOT / "module" / "mcp_shared" / "remote.py").is_file()
 
 
 def test_application_import_candidates_cover_from_module_form():

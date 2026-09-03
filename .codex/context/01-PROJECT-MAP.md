@@ -10,7 +10,9 @@ AzurPilot автоматизирует Azur Lane через цикл распо�
 
 - `alas.py` — планировщик и запуск игровых задач.
 - `gui.py` — WebUI и серверный процесс.
-- `mcp_server_sse.py` — внешнее MCP-управление, если включено в целевой ветке.
+- `module/game_mcp/` — отдельная игровая Game MCP read/control поверхность.
+- `module/dev_mcp/` — Dev MCP для development runtime и smoke/evidence.
+- `module/mcp_shared/` — нейтральные общие компоненты authenticated MCP transport.
 
 ### Базовый слой
 
