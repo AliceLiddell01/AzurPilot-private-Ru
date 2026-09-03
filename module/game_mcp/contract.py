@@ -34,6 +34,7 @@ GAME_MCP_CONTROL_TOOL_NAMES = (
     "game_clear_scheduler_queue",
     "game_update_config",
     "game_restart_emulator",
+    "game_restart_runtime",
     "game_restart_adb",
 )
 GAME_MCP_TOOL_NAMES = GAME_MCP_READ_TOOL_NAMES + GAME_MCP_CONTROL_TOOL_NAMES

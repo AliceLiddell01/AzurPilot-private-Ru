@@ -62,7 +62,8 @@ task, scheduler queue, task catalog/help, Fleet State, morale, redacted config,
 bounded logs и validated screenshot. Отдельный control catalog включает
 `game_start_profile`, `game_stop_profile`, `game_trigger_task`,
 `game_clear_scheduler_queue`, `game_update_config`,
-`game_restart_emulator` и `game_restart_adb`. Стабильный contract находится в
+`game_restart_emulator`, `game_restart_runtime` и `game_restart_adb`.
+Стабильный contract находится в
 `module.game_mcp.contract`; application DTO и bounded serialization собираются
 в `module.game_mcp.adapter`. Добавление control catalog и отдельной control
 authorization policy совместимо с текущим read contract, поэтому
@@ -152,6 +153,16 @@ launch. Только после подтверждённого stopped owner в�
 повторный запрос Game MCP restart; generic kill по имени процесса или PID не
 входит в Game MCP surface. Для платформ без доказуемой instance-safe проверки
 операция завершается без mutation success.
+`game_restart_emulator` на этом заканчивает свою transition: он не запускает
+игровой процесс. Для составного сценария существует отдельный
+`game_restart_runtime`: после той же подтверждённой emulator transition он
+проверяет готовность exact ADB target, при необходимости один раз вызывает
+штатный `AppControl.app_start_adb()` с package из конфигурации профиля и
+bounded-поллингом подтверждает, что настроенное приложение running и
+foreground. Этот action не вызывает `Device`, `LoginHandler`, scheduler или
+profile start; отсутствие ADB ownership, настроенного package или foreground
+postcondition завершается fail-closed. Ошибка emulator-фазы и ошибка запуска
+игры используют существующие коды, но различаются полем `details.phase`.
 Отдельный recovery scope не вводится: emulator/ADB остаются частью
 `azurpilot:game.control`, а ownership и postcondition checks fail-closed
 ограничивают recovery mutation тем же control boundary.
@@ -182,6 +193,10 @@ Game MCP:
 | `clear_scheduler_queue` | `game_clear_scheduler_queue` |
 | `restart_emulator` | `game_restart_emulator` |
 | `restart_adb` | `game_restart_adb` |
+
+`game_restart_runtime` намеренно остаётся новой standalone Game MCP
+capability: legacy SSE не получает отдельный composite mutation без отдельного
+legacy contract и acceptance.
 
 Снятие legacy entrypoint отложено: для него пока существуют startup/client
 совместимость и contract tests. Удаление возможно только после отдельного

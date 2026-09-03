@@ -41,6 +41,7 @@ from module.application import (
     FleetStateReadService,
     FleetStateRequest,
     FleetStateResult,
+    GameRuntimeRestartResult,
     InstanceReference,
     InstanceStatus,
     LifecycleOutcome,
@@ -50,6 +51,7 @@ from module.application import (
     MoraleKnowledge,
     MoraleSelectionState,
     MoraleSlotState,
+    PostconditionFailedError,
     ResourceNotFoundError,
     RuntimeLogTail,
     RuntimeState,
@@ -65,6 +67,7 @@ from module.application import (
     TaskOption,
     TaskSummary,
 )
+from module.application.errors import GameRuntimePhaseError
 from module.application.game_control_lock import profile_mutation_lock
 from module.application.game_validation import UNKNOWN_TASK
 from module.application.instance_identity import runtime_instance_identity
@@ -333,6 +336,16 @@ class _Control:
         self.calls.append(("emulator", profile))
         return EmulatorRestartResult(profile)
 
+    def restart_runtime(self, profile: str) -> GameRuntimeRestartResult:
+        self.calls.append(("runtime", profile))
+        return GameRuntimeRestartResult(
+            profile,
+            emulator_verified=True,
+            adb_ready=True,
+            game_running=True,
+            game_foreground=True,
+        )
+
     def restart_adb(self, profile: str) -> AdbRestartResult:
         self.calls.append(("adb", profile))
         return AdbRestartResult(profile)
@@ -368,7 +381,7 @@ def test_contract_and_tool_catalog_are_game_specific_and_scope_separated() -> No
         "azurpilot:game.read",
         "azurpilot:game.control",
     ]
-    assert contract["tool_count"] == len(GAME_MCP_TOOL_NAMES) == 20
+    assert contract["tool_count"] == len(GAME_MCP_TOOL_NAMES) == 21
     assert contract["tool_catalog_sha256"] == tool_catalog_sha256(GAME_MCP_TOOL_NAMES)
     assert contract["feature_flags"]["read_only"] is False
     assert contract["feature_flags"]["control_plane"] is True
@@ -396,6 +409,7 @@ def test_contract_and_tool_catalog_are_game_specific_and_scope_separated() -> No
         "game_clear_scheduler_queue",
         "game_update_config",
         "game_restart_emulator",
+        "game_restart_runtime",
         "game_restart_adb",
     ]
     control_tools = [
@@ -423,6 +437,7 @@ def test_contract_and_tool_catalog_are_game_specific_and_scope_separated() -> No
         "game_clear_scheduler_queue": (True, True),
         "game_update_config": (True, False),
         "game_restart_emulator": (True, False),
+        "game_restart_runtime": (True, False),
         "game_restart_adb": (True, False),
     }
     assert {
@@ -541,6 +556,16 @@ def test_output_schemas_are_scoped_to_their_tool_details() -> None:
             "verified",
         },
         "game_restart_emulator": {"profile", "tool", "verified"},
+        "game_restart_runtime": {
+            "adb_ready",
+            "emulator_verified",
+            "game_foreground",
+            "game_running",
+            "phase",
+            "profile",
+            "tool",
+            "verified",
+        },
         "game_restart_adb": {"profile", "tool", "verified"},
     }
     actual = {
@@ -582,6 +607,7 @@ def test_structured_content_conforms_to_each_advertised_output_schema() -> None:
             },
         ),
         ("game_restart_emulator", {"profile": "alpha"}),
+        ("game_restart_runtime", {"profile": "alpha"}),
         ("game_restart_adb", {"profile": "alpha"}),
     )
     tools = {tool.name: tool for tool in tool_definitions()}
@@ -780,9 +806,47 @@ def test_control_tools_return_typed_bounded_results() -> None:
     assert adapter.call("game_restart_emulator", {"profile": "alpha"})["code"] == (
         "GAME_EMULATOR_RESTARTED"
     )
+    runtime = adapter.call("game_restart_runtime", {"profile": "alpha"})
+    assert runtime["code"] == "GAME_RUNTIME_RESTARTED"
+    assert runtime["details"]["game_foreground"] is True
     assert adapter.call("game_restart_adb", {"profile": "alpha"})["code"] == (
         "GAME_ADB_RESTARTED"
     )
+
+
+def test_runtime_failure_preserves_existing_code_and_reports_safe_phase() -> None:
+    backend = _backend()
+
+    def fail_runtime(profile: str) -> GameRuntimeRestartResult:
+        raise GameRuntimePhaseError(
+            "game_start",
+            PostconditionFailedError("internal foreground detail"),
+        )
+
+    backend.control.restart_runtime = fail_runtime
+    result = GameMcpAdapter(lambda: backend).call(
+        "game_restart_runtime",
+        {"profile": "alpha"},
+    )
+
+    assert result == {
+        "ok": False,
+        "code": "GAME_POSTCONDITION_FAILED",
+        "message": "Эмулятор перезапущен, но запуск игры не подтверждён ожидаемым состоянием.",
+        "state": "failed",
+        "details": {"phase": "game_start", "tool": "game_restart_runtime"},
+    }
+    assert "internal foreground detail" not in json.dumps(result, ensure_ascii=False)
+    errors = list(
+        Draft202012Validator(
+            next(
+                tool.output_schema
+                for tool in tool_definitions()
+                if tool.name == "game_restart_runtime"
+            )
+        ).iter_errors(result)
+    )
+    assert not errors
 
 
 def test_control_result_without_authoritative_verification_fails_closed() -> None:

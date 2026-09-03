@@ -118,6 +118,7 @@ class GameMcpBackend:
                 from module.application.legacy_game_adapters import (
                     LegacyAdbAdapter,
                     LegacyEmulatorAdapter,
+                    LegacyGameApplicationAdapter,
                     LegacyProcessManagerAdapter,
                     legacy_current_time,
                 )
@@ -130,6 +131,7 @@ class GameMcpBackend:
                     lifecycle=LegacyProcessManagerAdapter(),
                     emulator=LegacyEmulatorAdapter(typed_failures=True),
                     adb=LegacyAdbAdapter(typed_failures=True),
+                    application=LegacyGameApplicationAdapter(),
                     clock=legacy_current_time,
                     config_reader=self._config_reader,
                     mutation_lock_root=self._repository_root,

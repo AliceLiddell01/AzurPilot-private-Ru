@@ -772,6 +772,20 @@ _OUTPUT_SCHEMAS = {
             "verified": {"type": "boolean", "const": True},
         }
     ),
+    "game_restart_runtime": _output_schema(
+        {
+            **_PROFILE_DETAILS_OUTPUT,
+            "verified": {"type": "boolean", "const": True},
+            "emulator_verified": {"type": "boolean", "const": True},
+            "adb_ready": {"type": "boolean", "const": True},
+            "game_running": {"type": "boolean", "const": True},
+            "game_foreground": {"type": "boolean", "const": True},
+            "phase": {
+                "type": "string",
+                "enum": ["emulator_restart", "game_start"],
+            },
+        }
+    ),
     "game_restart_adb": _output_schema(
         {
             **_PROFILE_DETAILS_OUTPUT,
@@ -817,6 +831,12 @@ _MUTATION_ANNOTATIONS = {
         openWorldHint=False,
     ),
     "game_restart_emulator": ToolAnnotations(
+        readOnlyHint=False,
+        destructiveHint=True,
+        idempotentHint=False,
+        openWorldHint=False,
+    ),
+    "game_restart_runtime": ToolAnnotations(
         readOnlyHint=False,
         destructiveHint=True,
         idempotentHint=False,
@@ -872,6 +892,7 @@ def tool_definitions() -> list[Tool]:
         "game_clear_scheduler_queue": "Очистить только generated scheduler queue выбранного профиля.",
         "game_update_config": "Изменить один разрешённый нечувствительный параметр config с readback-проверкой.",
         "game_restart_emulator": "Перезапустить эмулятор выбранного профиля с подтверждением результата.",
+        "game_restart_runtime": "Перезапустить эмулятор и вернуть настроенную игру на передний план с подтверждением результата.",
         "game_restart_adb": "Перезапустить ADB для выбранного профиля после проверки ownership target.",
     }
     schemas = {
@@ -895,6 +916,7 @@ def tool_definitions() -> list[Tool]:
         "game_clear_scheduler_queue": _PROFILE_INPUT,
         "game_update_config": _CONFIG_UPDATE_INPUT,
         "game_restart_emulator": _PROFILE_INPUT,
+        "game_restart_runtime": _PROFILE_INPUT,
         "game_restart_adb": _PROFILE_INPUT,
     }
     return [
