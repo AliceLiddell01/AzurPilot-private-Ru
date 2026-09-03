@@ -86,11 +86,12 @@ def test_campaign_hook_invokes_periodic_callback_only_when_config_policy_is_due(
     assert calls == [3]
 
 
-def test_campaign_hook_time_trigger_uses_same_safe_boundary():
+def test_campaign_hook_time_trigger_uses_same_safe_boundary(monkeypatch):
     calls = []
     runner = _runner(1, runs=0, minutes=1)
     runner.morale_campaign_clear_callback = calls.append
-    runner._morale_rescan_last_at = time.monotonic() - 61
+    monkeypatch.setattr("module.campaign.run.time.monotonic", lambda: 1000.0)
+    runner._morale_rescan_last_at = 939.0
 
     assert runner.after_campaign_run() is True
 

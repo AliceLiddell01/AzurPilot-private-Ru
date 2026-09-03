@@ -1,4 +1,4 @@
-"""PostgreSQL-адаптер append-only наблюдений per-ship Morale."""
+"""PostgreSQL-адаптер добавления наблюдений Morale по отдельным кораблям."""
 
 from __future__ import annotations
 
@@ -49,7 +49,7 @@ def _payload(observation: MoraleObservation) -> dict[str, object]:
 
 
 def _storage_idempotency_for(instance_id: UUID, key: str) -> str:
-    """Получить storage key для caller key без раскрытия raw key в БД."""
+    """Получить ключ хранения для ключа вызова без раскрытия исходного ключа в БД."""
 
     return payload_digest(
         {
@@ -60,7 +60,7 @@ def _storage_idempotency_for(instance_id: UUID, key: str) -> str:
 
 
 def _storage_idempotency_key(observation: MoraleObservation) -> str:
-    """Изолировать caller idempotency внутри app instance без расширения DB field."""
+    """Изолировать idempotency вызова внутри app instance без изменения поля БД."""
 
     return _storage_idempotency_for(
         observation.instance_id,
@@ -223,7 +223,7 @@ class PostgresMoraleRepository:
         instance_id: UUID,
         keys: tuple[str, ...],
     ) -> frozenset[str]:
-        """Проверить slot-scoped caller keys одним set-based запросом."""
+        """Проверить ключи отдельных слотов одним set-based запросом."""
 
         if not isinstance(instance_id, UUID) or not isinstance(keys, tuple):
             raise StorageInvalidDataError("Morale idempotency request некорректен.")

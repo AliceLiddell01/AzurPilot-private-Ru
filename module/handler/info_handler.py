@@ -314,10 +314,7 @@ class InfoHandler(ModuleBase):
 
         from module.application.fleet_mapping import physical_fleet_index
         from module.dorm.morale_composition import build_campaign_morale_context
-        from module.dorm.morale_controller import (
-            DormMoraleController,
-            DormMoraleControllerError,
-        )
+        from module.dorm.morale_controller import DormMoraleController
         from module.formation.model import FleetSelection
 
         physical = physical_fleet_index(self.config, logical_fleet_index)
@@ -336,7 +333,7 @@ class InfoHandler(ModuleBase):
         finally:
             try:
                 controller.close_train()
-            except DormMoraleControllerError as exc:
+            except Exception as exc:  # noqa: BLE001 - cleanup не должен подменять исходную ошибку.
                 logger.warning(
                     "[Настроение — popup] Не удалось доказать закрытие Train после "
                     f"reconciliation: {exc}"

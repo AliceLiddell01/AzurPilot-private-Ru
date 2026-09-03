@@ -320,16 +320,20 @@ class FleetPageQueryService:
                 (item.fleet_index, item.side, item.position)
                 for item in morale_observations
             }
-            morale_rows = tuple(
-                _last_known_morale_row(slot)
-                for fleet in morale_state.fleets
-                for slot in fleet.slots
-                if (
-                    slot.occupied
-                    and slot.identity_status is IdentityStatus.MATCHED
-                    and (fleet.fleet_index, slot.side, slot.position) in persisted_keys
+            if morale_state is None:
+                morale_rows = ()
+            else:
+                morale_rows = tuple(
+                    _last_known_morale_row(slot)
+                    for fleet in morale_state.fleets
+                    for slot in fleet.slots
+                    if (
+                        slot.occupied
+                        and slot.identity_status is IdentityStatus.MATCHED
+                        and (fleet.fleet_index, slot.side, slot.position)
+                        in persisted_keys
+                    )
                 )
-            ) if morale_state is not None else ()
 
         return FleetPageViewModel(
             instance=instance,

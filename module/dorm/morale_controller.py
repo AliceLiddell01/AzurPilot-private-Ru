@@ -284,7 +284,7 @@ class DormMoraleController(UI):
                 return frame
             if self.dorm_train_state.dorm_home_visible(frame):
                 return frame
-            modal_visible = self.dorm_train_state.selected_floor(frame) is not None
+            modal_visible = self.dorm_train_state.train_modal_visible(frame)
             if modal_visible and (not close_requested or attempt % 5 == 0):
                 self.device.click(
                     self._button(

@@ -57,7 +57,7 @@ _LOGGER = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class RuntimeFleetStateContext:
-    """Production Fleet State service поверх общего engine и runtime timezone."""
+    """Production Fleet State service использует общий Engine и runtime timezone."""
 
     state_service: FleetStateService
     runtime_timezone: ZoneInfo
@@ -82,7 +82,7 @@ class RuntimeFleetManualScanContext:
 
 @dataclass(frozen=True, slots=True)
 class RuntimeMoraleContext:
-    """Morale по кораблям и Dorm reconciliation поверх общего Engine."""
+    """Morale по кораблям и Dorm reconciliation используют общий Engine."""
 
     morale_service: MoraleService
     reconciliation_service: MoraleReconciliationService
@@ -117,7 +117,7 @@ class ReadOnlyPersistenceComposition:
 def build_read_only_persistence_composition(
     environment: object,
 ) -> ReadOnlyPersistenceComposition:
-    """Собрать отдельный lazy app-role context без production bootstrap side effects."""
+    """Собрать отдельный lazy app-role context без побочных эффектов production bootstrap."""
 
     repository_root = getattr(environment, "repository_root", None)
     if repository_root is None:

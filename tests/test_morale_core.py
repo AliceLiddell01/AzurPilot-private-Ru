@@ -914,6 +914,36 @@ def test_wait_blocks_missing_fleet_state_without_index_error():
         Emotion(_emotion_config(), morale_service=service).wait(1)
 
 
+def test_wait_uses_stop_event_to_interrupt_recovery_wait():
+    now = datetime(2026, 8, 27, 10, tzinfo=UTC)
+    instances, fleets, _, service = _service(clock=lambda: now)
+    _seed_fleet(instances, fleets, "profile", 1, observed_at=now)
+    service.record(
+        "profile",
+        _command(observed_at=now, baseline=Decimal(2)),
+    )
+
+    class _StopEvent:
+        def __init__(self):
+            self.waits = []
+
+        def is_set(self):
+            return False
+
+        def wait(self, *, timeout):
+            self.waits.append(timeout)
+            return True
+
+    stop_event = _StopEvent()
+    config = _emotion_config()
+    config.stop_event = stop_event
+
+    with pytest.raises(ScriptEnd, match="прервано запросом остановки"):
+        Emotion(config, morale_service=service).wait(1)
+
+    assert stop_event.waits == [60]
+
+
 def test_gems_override_stops_on_unknown_instead_of_entering_battle():
     now = datetime(2026, 8, 27, 10, tzinfo=UTC)
     instances, fleets, _, service = _service(clock=lambda: now)

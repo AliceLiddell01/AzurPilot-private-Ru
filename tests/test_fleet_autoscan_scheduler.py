@@ -207,11 +207,11 @@ def test_campaign_morale_periodic_callback_scans_when_state_is_missing() -> None
 
 def test_campaign_morale_scan_wraps_takeover_as_task_level_failure() -> None:
     script = _script()
-    script._scan_campaign_morale = (
-        lambda _task, *, source: (_ for _ in ()).throw(
-            RequestHumanTakeover(f"synthetic failure: {source}")
-        )
-    )
+
+    def fail_scan(_task, *, source):
+        raise RequestHumanTakeover(f"synthetic failure: {source}")
+
+    script._scan_campaign_morale = fail_scan
 
     with pytest.raises(CampaignMoraleBootstrapError) as exc:
         script._campaign_morale_scan_safely("Main", source="campaign:first_run")
@@ -225,11 +225,11 @@ def test_periodic_morale_scan_updates_completed_runs_only_after_success() -> Non
     script._morale_scan_state = {
         "Main": {"last_scan": 100.0, "completed_runs": 0}
     }
-    script._scan_campaign_morale = (
-        lambda _task, *, source: (_ for _ in ()).throw(
-            CampaignMoraleBootstrapError("synthetic_failure", source)
-        )
-    )
+
+    def fail_scan(_task, *, source):
+        raise CampaignMoraleBootstrapError("synthetic_failure", source)
+
+    script._scan_campaign_morale = fail_scan
 
     with pytest.raises(CampaignMoraleBootstrapError):
         script._campaign_morale_after_clear("Main", 3)

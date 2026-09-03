@@ -163,6 +163,7 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
         # 强制覆盖的变量
         # 键：GeneratedConfig 中的参数名。值：修改后的值。
         self.overridden = {}
+        self._legacy_emotion_migration_checked = False
         # 调度器队列，在 `get_next_task()` 中更新，包含 Function 对象列表
         # pending_task：运行时间已到，但因任务调度尚未执行
         # waiting_task：运行时间未到，需要等待
@@ -209,14 +210,17 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
         config_path = filepath_config(self.config_name)
         config_exists = not self.is_template_config and os.path.exists(config_path)
         raw_data = None
-        if config_exists:
+        if config_exists and not getattr(
+            self, "_legacy_emotion_migration_checked", False
+        ):
             raw_data = read_file(config_path)
             legacy_emotion_migration = legacy_emotion_state_present(
                 raw_data
             )
+            self._legacy_emotion_migration_checked = True
         self.data = (
             self.read_file(self.config_name, data=raw_data)
-            if config_exists
+            if raw_data is not None
             else self.read_file(self.config_name)
         )
         recovery_migration = config_exists and apply_recovery_default_on_migration(

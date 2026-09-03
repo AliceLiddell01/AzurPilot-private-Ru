@@ -1,4 +1,4 @@
-"""Target-driven bootstrap per-ship morale перед запуском campaign map."""
+"""Target-driven bootstrap morale по кораблям перед запуском campaign map."""
 
 from __future__ import annotations
 

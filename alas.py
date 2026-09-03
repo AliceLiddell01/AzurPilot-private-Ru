@@ -386,12 +386,21 @@ class AzurLaneAutoScript:
         from module.formation.model import FleetSelection
         from module.persistence.runtime import build_runtime_morale_context
 
-        selection = FleetSelection(
-            tuple(
-                binding.physical_fleet_index
-                for binding in working_fleet_bindings(self.config, task=task)
+        from module.application.morale_bootstrap import CampaignMoraleBootstrapError
+
+        try:
+            selection = FleetSelection(
+                tuple(
+                    binding.physical_fleet_index
+                    for binding in working_fleet_bindings(self.config, task=task)
+                )
             )
-        )
+        except (TypeError, ValueError) as error:
+            self.config.task_delay(success=False)
+            raise CampaignMoraleBootstrapError(
+                'fleet_mapping_invalid',
+                str(error),
+            ) from error
         logger.hr('[Настроение] Сканирование рабочих флотов и Dorm', level=1)
         execution = self.fleet_autoscan.run(
             self.config_name,

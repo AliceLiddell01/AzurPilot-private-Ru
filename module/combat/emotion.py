@@ -62,13 +62,13 @@ def _morale_combat_event_key(prefix: str, *coordinates: object) -> str:
 def begin_morale_combat_event(emotion, prefix: str, *coordinates: object) -> None:
     """Открыть durable morale event единым форматом для всех боевых путей."""
 
-    event_key = _morale_combat_event_key(prefix, *coordinates)
     begin_combat_event = getattr(emotion, "begin_combat_event", None)
     if callable(begin_combat_event):
         begin_combat_event(prefix, *coordinates)
         return
     begin_event = getattr(emotion, "begin_event", None)
     if callable(begin_event):
+        event_key = _morale_combat_event_key(prefix, *coordinates)
         begin_event(event_key, execution_id=event_key)
 
 
@@ -397,9 +397,21 @@ class Emotion:
                 f"[Настроение — ожидание] Нет доказательства безопасного morale для physical Fleet {physical}"
             )
         recovered = max(ready, default=now)
+        stop_event = getattr(self.config, "stop_event", None)
         while service.now() < recovered:
+            if stop_event is not None and stop_event.is_set():
+                raise ScriptEnd(
+                    "[Настроение — ожидание] Ожидание прервано запросом остановки"
+                )
             logger.attr("Ожидание до", recovered)
-            sleep(60)
+            wait = getattr(stop_event, "wait", None) if stop_event is not None else None
+            if callable(wait):
+                if wait(timeout=60):
+                    raise ScriptEnd(
+                        "[Настроение — ожидание] Ожидание прервано запросом остановки"
+                    )
+            else:
+                sleep(60)
 
     def _execution_storage(self) -> dict[str, object] | None:
         """Вернуть скрытый persisted task Storage для generation morale event."""

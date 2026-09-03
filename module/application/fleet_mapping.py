@@ -9,6 +9,14 @@ from typing import Any
 from module.formation.model import validate_surface_fleet_index
 
 
+_FLEET_ORDER_ROLES: dict[str, dict[int, str]] = {
+    "fleet1_mob_fleet2_boss": {1: "mob", 2: "boss"},
+    "fleet1_boss_fleet2_mob": {1: "boss", 2: "mob"},
+    "fleet1_all_fleet2_standby": {1: "all"},
+    "fleet1_standby_fleet2_all": {2: "all"},
+}
+
+
 @dataclass(frozen=True, slots=True)
 class WorkingFleetBinding:
     """Связь роли задачи с физическим Formation Surface Fleet."""
@@ -42,23 +50,19 @@ def physical_fleet_index(config: Any, logical_fleet_index: int) -> int:
 
 
 def _role_for(order: str, logical_fleet_index: int) -> str:
-    if order == "fleet1_mob_fleet2_boss":
-        return "mob" if logical_fleet_index == 1 else "boss"
-    if order == "fleet1_boss_fleet2_mob":
-        return "boss" if logical_fleet_index == 1 else "mob"
-    if order in {"fleet1_all_fleet2_standby", "fleet1_standby_fleet2_all"}:
-        return "all"
-    raise ValueError(f"Неизвестный порядок флотов: {order}")
+    try:
+        return _FLEET_ORDER_ROLES[order][logical_fleet_index]
+    except KeyError as exc:
+        if order not in _FLEET_ORDER_ROLES:
+            raise ValueError(f"Неизвестный порядок флотов: {order}") from exc
+        raise ValueError(
+            f"Логический Fleet {logical_fleet_index} не используется в порядке {order}"
+        ) from exc
 
 
 def _working_logical_indices(order: str) -> tuple[int, ...]:
     try:
-        return {
-            "fleet1_all_fleet2_standby": (1,),
-            "fleet1_standby_fleet2_all": (2,),
-            "fleet1_mob_fleet2_boss": (1, 2),
-            "fleet1_boss_fleet2_mob": (1, 2),
-        }[order]
+        return tuple(_FLEET_ORDER_ROLES[order])
     except KeyError as exc:
         raise ValueError(f"Неизвестный порядок флотов: {order}") from exc
 

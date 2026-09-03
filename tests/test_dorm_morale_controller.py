@@ -238,7 +238,8 @@ def test_controller_closes_train_only_from_confirmed_modal_state():
 
 
 def test_controller_does_not_close_unknown_screen_blindly():
-    controller = _controller((np.zeros((720, 1280, 3), dtype=np.uint8),))
+    unknown = np.full((720, 1280, 3), 120, dtype=np.uint8)
+    controller = _controller((unknown,))
 
     from module.dorm.morale_controller import DormMoraleControllerError
 
@@ -246,6 +247,16 @@ def test_controller_does_not_close_unknown_screen_blindly():
         controller.close_train()
 
     assert controller.device.clicks == []
+
+
+def test_controller_closes_modal_when_selected_floor_is_unreadable():
+    modal_unknown = np.zeros((720, 1280, 3), dtype=np.uint8)
+    home = np.full((720, 1280, 3), 255, dtype=np.uint8)
+    controller = _controller((modal_unknown, home))
+
+    controller.close_train()
+
+    assert controller.device.clicks == ["DORM_MORALE_CLOSE"]
 
 
 def test_controller_second_floor_failure_is_partial_not_outside_evidence():
