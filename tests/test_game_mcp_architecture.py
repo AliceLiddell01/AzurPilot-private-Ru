@@ -7,6 +7,8 @@ from module.game_mcp.server import tool_definitions
 
 _ROOT = Path(__file__).resolve().parents[1]
 _GAME_MCP_ROOT = _ROOT / "module" / "game_mcp"
+_DEV_MCP_ROOT = _ROOT / "module" / "dev_mcp"
+_SHARED_MCP_ROOT = _ROOT / "module" / "mcp_shared"
 
 
 def _imported_modules(path: Path) -> set[str]:
@@ -45,6 +47,25 @@ def test_game_mcp_has_no_dev_or_direct_storage_dependency() -> None:
         for name in imported
     )
     assert "mcp.server.sse" not in imported
+
+
+def test_modern_mcp_surfaces_are_independent() -> None:
+    game_paths = tuple(_GAME_MCP_ROOT.rglob("*.py"))
+    dev_paths = tuple(_DEV_MCP_ROOT.rglob("*.py"))
+    shared_paths = tuple(_SHARED_MCP_ROOT.rglob("*.py"))
+    assert game_paths
+    assert dev_paths
+    assert shared_paths
+    game_imported = set().union(*(_imported_modules(path) for path in game_paths))
+    dev_imported = set().union(*(_imported_modules(path) for path in dev_paths))
+    shared_imported = set().union(*(_imported_modules(path) for path in shared_paths))
+    assert not any(name.startswith("module.dev_mcp") for name in game_imported)
+    assert not any(name.startswith("module.game_mcp") for name in dev_imported)
+    assert not any(
+        name.startswith(("module.game_mcp", "module.dev_mcp", "module.dev_runtime"))
+        for name in shared_imported
+    )
+    assert not any(name == "mcp.server.sse" for name in game_imported | dev_imported)
 
 
 def test_game_mcp_publishes_control_but_excludes_developer_surfaces() -> None:

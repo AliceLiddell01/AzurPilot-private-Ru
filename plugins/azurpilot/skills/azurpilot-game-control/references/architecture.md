@@ -7,7 +7,7 @@
 ## Источники текущего форка
 
 - `docs/game-mcp.md` описывает standalone stateless read/control plane,
-  canonical `profile`, раздельные Game scopes и границы legacy SSE.
+  canonical `profile`, раздельные Game scopes и независимую transport boundary.
 - `module/game_mcp/contract.py` и `module/game_mcp/server.py` являются
   источниками contract, tool schemas, annotations и required scopes.
 - `module/game_mcp/adapter.py` валидирует bounded arguments, выбирает profile и

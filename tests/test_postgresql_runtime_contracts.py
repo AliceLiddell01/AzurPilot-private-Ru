@@ -30,7 +30,6 @@ from tests.import_inspection import imports_for_path
 ROOT = Path(__file__).resolve().parents[1]
 PRODUCTION_ROOTS = (
     ROOT / "alas.py",
-    ROOT / "mcp_server_sse.py",
     ROOT / "module" / "application",
     ROOT / "module" / "persistence",
     ROOT / "module" / "statistics",

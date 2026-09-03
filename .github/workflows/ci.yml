@@ -292,7 +292,6 @@ jobs:
           roots = (
               Path("alas.py"),
               Path("gui.py"),
-              Path("mcp_server_sse.py"),
               Path("module"),
               Path("dev_tools"),
               Path("tests"),
@@ -1198,7 +1197,6 @@ jobs:
             README.md
             alas.py
             gui.py
-            mcp_server_sse.py
             pyproject.toml
             uv.lock
           )

@@ -21,8 +21,9 @@ Codex
 
 Dev MCP для Codex использует локальный транспорт stdio. Для ChatGPT существует
 отдельный `module.dev_mcp.remote` с authenticated HTTPS Streamable HTTP на `/mcp`;
-он не переиспользует `mcp_server_sse.py`. Production MCP остаётся отдельным и
-не импортируется адаптером. Запуск обоих Dev MCP entrypoint-ов не создаёт
+он не переиспользует Game MCP и не монтируется в WebUI. Game MCP остаётся
+отдельным продуктом с собственными tools, scopes и runtime adapters. Запуск
+обоих Dev MCP entrypoint-ов не создаёт
 `DevSessionManager`, не читает целевой профиль, не запускает WebUI и не требует
 PostgreSQL, эмулятор или ADB. Менеджер создаётся лениво при первом вызове инструмента.
 
@@ -129,8 +130,8 @@ capability families и result outcomes. В контракте нет путей,
 Обработчик MCP остаётся тонким: он валидирует строгую схему и вызывает единый
 API `DevSessionManager` и отдельный `RuntimeControlManager`. Чтение артефактов, Git, журнала, владения и снимка экрана
 делается внутри слоя выполнения и диагностики. В обычном рабочем процессе перехватчики —
-лёгкая пустая операция; `mcp_server_sse.py` сохраняет свой production/general surface и
-получает только необходимую compatibility-адаптацию для MCP SDK v2.
+лёгкая пустая операция; transport boundary остаётся отдельной от runtime
+composition и не добавляет игровых или production task handlers.
 
 Evidence API не добавляет `run_task_smoke`, автоматическую оценку игрового PASS/FAIL,
 координацию повторов и ожидания, периодические снимки, произвольную оболочку,
@@ -286,7 +287,7 @@ process. Отдельная pre-execution lock сериализует callback, 
 операции `stop`/`recover`/`cleanup`, но общая coordination lock не удерживается
 на время потенциально долгого read-only checkpoint. Runtime читается только через публичные методы Evidence API `evidence`,
 `timeline`, `logs`, `status` и снимка экрана.
-Он не вызывает gameplay handlers, `Device`, production MCP или raw scheduler.
+Он не вызывает gameplay handlers, `Device`, Game MCP или raw scheduler.
 После ошибки сначала сохраняется первичная ошибка продукта, затем выполняются
 stop, очистка Task Sandbox, сброс scheduler, восстановление только объявленных
 overrides и проверки orphan/source.
@@ -324,9 +325,7 @@ Smoke Harness расширяет локальный stdio Dev MCP ровно с�
 `dev_submit_smoke_evaluation`. `dev_start_smoke` быстро возвращает `smoke_id`,
 не удерживая MCP request; результат читается через polling `dev_get_smoke`.
 Сервер остаётся без побочных действий при startup и сохраняет stdout только для
-MCP protocol. Production `mcp_server_sse.py` сохраняет свой tool surface и
-transport contract; его compatibility-слой использует поддержанную MCP SDK v2
-low-level API. Remote entrypoint использует зафиксированный в проекте `mcp==2.1.1`
+MCP protocol. Remote entrypoint использует зафиксированный в проекте `mcp==2.1.1`
 и его `StreamableHTTPSessionManager` в stateless-режиме без event store; каждый
 HTTP request повторно проходит auth и не оставляет серверных session records.
 
@@ -380,8 +379,8 @@ Tunnel:
 
 Backend намеренно принимает только `127.0.0.1` и не должен публиковаться через
 firewall/router. Наружу разрешаются только TCP `443` и, при необходимости для
-ACME/redirect Caddy, TCP `80`. Порты `8765`, `2019`, `5432`, ADB/emulator,
-production WebUI и `mcp_server_sse.py` наружу не пробрасываются.
+ACME/redirect Caddy, TCP `80`. Порты `8765`, `8766`, `2019`, `5432`,
+ADB/emulator и production WebUI наружу не пробрасываются.
 
 Внешний OAuth/OIDC provider является authorization server; AzurPilot не
 реализует собственный auth server. Production запуск fail-closed и требует все
@@ -454,11 +453,17 @@ OAuth credentials и отключить app в ChatGPT. Системный netwo
 
 Canonical Plugin Creator package находится в `plugins/azurpilot/`; его
 machine-readable ID — `azurpilot`, а отображаемое имя — `AzurPilot`. Пакет
-поставляет Development skill и не регистрирует `.app.json` или
-`.mcp.json`: Codex использует этот stdio Dev MCP напрямую, а ChatGPT подключается
-к тому же adapter через authenticated public HTTPS `/mcp`. OAuth/OIDC provider,
-Caddy config и credentials хранятся вне Git; второй MCP implementation и
-production `mcp_server_sse.py` не используются.
+поставляет три разделённых skill: `azurpilot-development`,
+`azurpilot-game-control` и `azurpilot-troubleshooting`. `.app.json` содержит
+только references на уже существующие приложения `AzurPilot Development
+Verified` и `AzurPilot Game`; accounts, OAuth scopes, approval policy и runtime
+остаются внешними по отношению к package. Второй MCP implementation и снятый
+transport не добавляются.
+
+Codex использует project-scoped `azurpilot-dev` через local stdio Dev MCP, а
+обычные игровые операции выполняются через существующий Game MCP. ChatGPT
+использует соответствующее подключённое приложение через authenticated public
+HTTPS `/mcp`; OAuth/OIDC provider, Caddy config и credentials хранятся вне Git.
 
 Основной workflow skill: `dev_get_contract` →
 `dev_list_smoke_capabilities` → строгий `SmokeSpec` → `dev_validate_smoke` →
@@ -469,8 +474,10 @@ PASS-result, exact source, подтверждённой очистке и пол
 `INVALIDATED`, `CANCELLED` и `PRECONDITION_FAILED` не превращаются в auto-retry
 или успех.
 
-Текущий Development package предоставляет developer-only capability `Game`
-через typed bridge, но не игровые production tools/app или production-интеграцию.
+`azurpilot-game-control` предназначен для обычных Game MCP read/control
+операций, а `azurpilot-troubleshooting` — для проверки contract, transport и
+подключённого приложения. `azurpilot-development` остаётся developer-only
+интерфейсом Dev Runtime и typed bridge; он не объединяет Game и Dev MCP.
 Ограничения ChatGPT Developer Mode
 или текущего плана на write tools фиксируются как
 `CHATGPT_WRITE_UNAVAILABLE_PRODUCT_LIMITATION`, а не

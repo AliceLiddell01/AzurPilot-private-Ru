@@ -82,7 +82,8 @@
 uv sync --frozen
 uv run python gui.py
 uv run python alas.py
-uv run python mcp_server_sse.py
+uv run --locked --no-sync python -m module.game_mcp
+uv run --locked --no-sync python -m module.dev_mcp
 uv run ruff check . --select E9,F63,F7,F82 --ignore F821,F722
 uv run -m module.config.config_updater
 uv run -m dev_tools.button_extract
@@ -94,7 +95,9 @@ uv run -m dev_tools.button_extract
 
 - `alas.py` — планировщик и диспетчер задач.
 - `gui.py` — жизненный цикл WebUI.
-- `mcp_server_sse.py` — отдельный MCP/SSE-контур, если он присутствует в целевой ветке.
+- `module/game_mcp/` — отдельная игровая Game MCP read/control поверхность.
+- `module/dev_mcp/` — Dev MCP для development runtime и smoke/evidence.
+- `module/mcp_shared/` — нейтральные общие компоненты authenticated MCP transport.
 - `module/base/` — базовые абстракции распознавания и выполнения.
 - `module/config/` — загрузка, миграция и генерация конфигурации.
 - `module/device/` — соединение, скриншоты, ввод и управление приложением.

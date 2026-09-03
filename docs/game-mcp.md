@@ -1,7 +1,8 @@
 # AzurPilot Game MCP Read/Control Plane
 
 Game MCP — отдельная stateless read/control поверхность для игровых клиентов. Она не
-является режимом Dev MCP и не заменяет переходный `mcp_server_sse.py`.
+является режимом Dev MCP; Game и Dev MCP имеют независимые tool catalogs,
+authorization scopes и runtime boundaries.
 
 ## Точки входа
 
@@ -73,8 +74,9 @@ authorization policy совместимо с текущим read contract, по�
 ## Application и persistence
 
 Composition root использует `GameReadService`, `InstanceQueryService`,
-`TaskCatalogService`, `FleetStateReadService` и `MoraleService`. Legacy sources
-подключаются только при явном создании backend. Persistence builder импортируется
+`TaskCatalogService`, `FleetStateReadService` и `MoraleService`. Существующие
+прикладные адаптеры подключаются только при явном создании backend. Persistence
+builder импортируется
 лениво из `module.persistence.runtime` и использует отдельную lazy read-only
 composition: marker не мигрируется, environment не изменяется, production
 provider не устанавливается, а `FleetStateReadService` разрешает только уже
@@ -89,8 +91,8 @@ slot identity и unknown/ambiguous state. Morale сохраняет `EXACT`, `PR
 ## Границы безопасности
 
 Локальный stdio и remote Streamable HTTP используют stateless
-self-describing request semantics MCP `2026-07-28`; legacy initialize flow
-сохраняется только как совместимость SDK. Cache hints для инструментов явно
+self-describing request semantics MCP `2026-07-28`; backward-compatible
+initialize negotiation сохраняется только как совместимость SDK. Cache hints для инструментов явно
 не задаются: MCP SDK `2.1.1` по умолчанию использует `ttlMs=0` и
 `cacheScope=private`, что сохраняет актуальность и изоляцию профильных данных.
 
@@ -109,8 +111,8 @@ sanitization. Logs ограничены числом строк и размер�
 Каждая mutation требует `azurpilot:game.control`; read-инструменты требуют
 `azurpilot:game.read`. Scope проверяется до создания control backend и до
 side effect, а stdio остаётся локальной authority без OAuth. Control-операции
-используют явный canonical `profile` и общую для Game MCP и legacy
-application-level file lock в `config/state/game-control`; bounded
+используют явный canonical `profile` и общую application-level file lock в
+`config/state/game-control`; bounded
 per-profile serialization не оставляет stale ownership после завершения
 процесса. Автоматических transport retries нет. Если профиль занят другой
 control-операцией дольше допустимого ожидания, операция не передаётся backend и
@@ -169,7 +171,7 @@ postcondition завершается fail-closed. Ошибка emulator-фазы
 ограничивают recovery mutation тем же control boundary.
 
 `game_login_runtime` — отдельная bounded mutation для уже запущенного launch/login
-экрана. Контрактный аудит legacy lifecycle показывает: `AzurLaneAutoScript.start()`
+экрана. Контрактный аудит существующего lifecycle показывает: `AzurLaneAutoScript.start()`
 вызывает `LoginHandler.app_start()`, `restart()` дополнительно управляет scheduler
 timing через `delay_due_restart()`/`delay_next_restart()`, а `goto_main()` при уже
 запущенном приложении сразу вызывает `UI.ui_goto_main()` и не проходит
@@ -185,47 +187,12 @@ Login flow bounded по одному timeout и не имеет automatic retry;
 главного экрана или ADB postcondition возвращает fail-closed ошибку с
 `details.phase=login`.
 
-## Legacy parity
-
-Переходный `mcp_server_sse.py` остаётся для совместимых старых клиентов,
-документации и regression tests. Его обработчики используют тот же
-application boundary, но старый SSE transport не является backend для нового
-Game MCP:
-
-| Legacy tool | Game MCP tool |
-| --- | --- |
-| `list_instances` | `game_list_profiles` |
-| `get_status` | `game_get_profile_status` |
-| `list_tasks` | `game_list_tasks` |
-| `get_task_help` | `game_get_task_help` |
-| `get_resources` | `game_get_resources` |
-| `get_config` | `game_get_config` |
-| `update_config` | `game_update_config` |
-| `get_recent_logs` | `game_get_recent_logs` |
-| `start_instance` | `game_start_profile` |
-| `stop_instance` | `game_stop_profile` |
-| `get_screenshot` | `game_get_screenshot` |
-| `get_current_running_task` | `game_get_current_task` |
-| `get_scheduler_queue` | `game_get_scheduler_queue` |
-| `trigger_task` | `game_trigger_task` |
-| `clear_scheduler_queue` | `game_clear_scheduler_queue` |
-| `restart_emulator` | `game_restart_emulator` |
-| `restart_adb` | `game_restart_adb` |
-
-`game_restart_runtime` намеренно остаётся новой standalone Game MCP
-capability: legacy SSE не получает отдельный composite mutation без отдельного
-legacy contract и acceptance. `game_login_runtime` имеет ту же standalone
-границу и также не добавляется в legacy SSE.
-
-Снятие legacy entrypoint отложено: для него пока существуют startup/client
-совместимость и contract tests. Удаление возможно только после отдельного
-доказательства отсутствия deployment и client зависимости.
-
 Для отсутствующего профиля, неработающего профиля, недоступной capability,
 неизвестных данных и service failure используются разные безопасные коды.
 `UNKNOWN` для domain state — валидный результат чтения, а не подмена ошибки
 нулевым значением.
 
-Отдельный Game client skill не добавляется: текущего server-side MCP surface
-достаточно, а `azurpilot-development` остаётся developer-only и не получает
-Game/Dev объединённый контракт.
+Для обычной работы с игровым MCP используется `azurpilot-game-control`, а для
+снимков контракта, диагностики транспорта и подключённого приложения —
+`azurpilot-troubleshooting`. `azurpilot-development` остаётся developer-only
+интерфейсом Dev Runtime; Game и Dev MCP не объединяются в один контракт.

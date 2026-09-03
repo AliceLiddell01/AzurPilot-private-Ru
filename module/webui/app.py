@@ -247,8 +247,6 @@ def app():
     def manage() -> None:
         _run_gui(initial_page="manage")
 
-    from mcp_server_sse import app as mcp_app
-
     application = asgi_app(
         applications=[index, manage],
         cdn=cdn,
@@ -260,5 +258,4 @@ def app():
         ],
         on_shutdown=[clearup],
     )
-    application.mount("/mcp", mcp_app)
     return application

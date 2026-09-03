@@ -81,10 +81,9 @@ class PersistenceArchitectureTests(unittest.TestCase):
     def test_production_consumers_use_persistence_only_at_composition_roots(self):
         composition_roots = {
             ROOT / "alas.py",
-            ROOT / "mcp_server_sse.py",
             ROOT / "module" / "webui" / "app_lifecycle.py",
         }
-        checked = [ROOT / "alas.py", ROOT / "gui.py", ROOT / "mcp_server_sse.py"]
+        checked = [ROOT / "alas.py", ROOT / "gui.py"]
         checked.extend((ROOT / "module" / "webui").rglob("*.py"))
         checked.extend((ROOT / "module" / "statistics").rglob("*.py"))
         for path in checked:

@@ -90,40 +90,6 @@ def test_exact_display_call_contract_is_fail_closed(
     assert_blocked(path, base, head)
 
 
-def test_mcp_tool_and_schema_descriptions_translation_passes() -> None:
-    base = '''def list_tools():
-    return [Tool(name="status", description="获取运行状态", inputSchema={"type": "object", "properties": {"instance": {"type": "string", "description": "实例名称"}}})]
-'''
-    head = '''def list_tools():
-    return [Tool(name="status", description="Получить состояние выполнения", inputSchema={"type": "object", "properties": {"instance": {"type": "string", "description": "Имя экземпляра"}}})]
-'''
-    assert_passes("mcp_server_sse.py", base, head)
-
-
-def test_mcp_nested_schema_descriptions_translation_passes() -> None:
-    base = '''def list_tools():
-    return [Tool(name="update", description="修改配置", inputSchema={"oneOf": [{"type": "string", "description": "新的配置值"}]})]
-'''
-    head = '''def list_tools():
-    return [Tool(name="update", description="Изменить конфигурацию", inputSchema={"oneOf": [{"type": "string", "description": "Новое значение конфигурации"}]})]
-'''
-    assert_passes("mcp_server_sse.py", base, head)
-
-
-def test_mcp_schema_machine_values_stay_exact() -> None:
-    base = 'Tool(name="status", description="状态", inputSchema={"type": "object"})\n'
-    head = 'Tool(name="status", description="Состояние", inputSchema={"type": "объект"})\n'
-    assert_blocked("mcp_server_sse.py", base, head)
-
-
-def test_mcp_description_contract_is_function_scoped() -> None:
-    assert_blocked(
-        "mcp_server_sse.py",
-        "def other():\n    return Tool(name='status', description='状态', inputSchema={})\n",
-        "def other():\n    return Tool(name='status', description='Состояние', inputSchema={})\n",
-    )
-
-
 @pytest.mark.parametrize(
     ("path", "base", "head"),
     [
