@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -28,6 +29,7 @@ def test_control_plane_executes_owner_operation_once_and_is_idempotent(tmp_path:
         request_id: str,
         idempotency_key: str,
         session_id: str | None,
+        expires_at: str,
     ) -> RuntimeControlResult:
         calls.append((operation, profile))
         return RuntimeControlResult(
@@ -89,7 +91,7 @@ def test_control_plane_rejects_changed_owner_and_unsafe_error_key(tmp_path: Path
         executor=lambda *args, **kwargs: pytest.fail("executor не должен быть вызван"),
     )
     request = {
-        "schema_version": 1,
+        "schema_version": 2,
         "request_id": "request-1",
         "idempotency_key": "key-1",
         "operation": "start_profile",
@@ -97,6 +99,7 @@ def test_control_plane_rejects_changed_owner_and_unsafe_error_key(tmp_path: Path
         "session_id": None,
         "expected_owner": expected.as_dict(),
         "created_at": "2026-09-04T00:00:00+00:00",
+        "expires_at": "2099-01-01T00:00:00+00:00",
     }
     requests = tmp_path / "config" / "state" / "webui-control" / "requests"
     results = tmp_path / "config" / "state" / "webui-control" / "results"
@@ -130,14 +133,13 @@ def test_control_plane_serializes_concurrent_owner_operations(tmp_path: Path) ->
         request_id: str,
         idempotency_key: str,
         session_id: str | None,
+        expires_at: str,
     ) -> RuntimeControlResult:
         nonlocal active, maximum
         with guard:
             active += 1
             maximum = max(maximum, active)
         try:
-            import time
-
             time.sleep(0.03)
             return RuntimeControlResult(
                 True,
@@ -196,6 +198,54 @@ def test_runtime_control_rejects_nonfinite_owner_identity() -> None:
     assert error.value.code == "RUNTIME_OWNER_INVALID"
 
 
+def test_control_plane_requires_positive_timeout_and_rejects_expired_request(tmp_path: Path) -> None:
+    owner = RuntimeOwnerIdentity(pid=4321, created_at=1234.5)
+    with pytest.raises(ValueError):
+        WebUIControlClient(
+            tmp_path,
+            owner_reader=lambda: owner.as_dict(),
+            owner_matches=lambda candidate: candidate == owner,
+            timeout=0,
+        )
+
+    calls = 0
+
+    def executor(*args: object, **kwargs: object) -> RuntimeControlResult:
+        nonlocal calls
+        calls += 1
+        raise AssertionError("просроченный request не должен достигать executor")
+
+    server = WebUIControlServer(
+        tmp_path,
+        owner_reader=lambda: owner.as_dict(),
+        owner_matches=lambda candidate: candidate == owner,
+        executor=executor,
+    )
+    requests = tmp_path / "config" / "state" / "webui-control" / "requests"
+    results = tmp_path / "config" / "state" / "webui-control" / "results"
+    requests.mkdir(parents=True)
+    results.mkdir(parents=True)
+    request = {
+        "schema_version": 2,
+        "request_id": "expired-request",
+        "idempotency_key": "expired-key",
+        "operation": "start_profile",
+        "profile": "ap",
+        "session_id": None,
+        "expected_owner": owner.as_dict(),
+        "created_at": "2026-09-04T00:00:00+00:00",
+        "expires_at": "2026-09-04T00:00:01+00:00",
+    }
+    (requests / "expired-key.json").write_text(json.dumps(request), encoding="utf-8")
+
+    assert server.serve_once() == 1
+    result = RuntimeControlResult.from_dict(
+        json.loads((results / "expired-key.json").read_text(encoding="utf-8"))
+    )
+    assert result.code == "RUNTIME_CONTROL_EXPIRED"
+    assert calls == 0
+
+
 def test_control_plane_rejects_executor_result_from_different_owner(tmp_path: Path) -> None:
     owner = RuntimeOwnerIdentity(pid=4321, created_at=1234.5)
     foreign = RuntimeOwnerIdentity(pid=9876, created_at=5432.1)
@@ -207,6 +257,7 @@ def test_control_plane_rejects_executor_result_from_different_owner(tmp_path: Pa
         request_id: str,
         idempotency_key: str,
         session_id: str | None,
+        expires_at: str,
     ) -> RuntimeControlResult:
         return RuntimeControlResult(
             ok=True,

@@ -24,6 +24,16 @@ T = TypeVar("T")
 DEPENDENCY_SYNC_PENDING_FILE = "./config/webui-dependency-sync-pending"
 
 
+def _close_runtime_control_server(server: object | None) -> None:
+    """Закрыть control server, если объект предоставляет штатный lifecycle hook."""
+
+    if server is None:
+        return
+    close = getattr(server, "close", None)
+    if callable(close):
+        close()
+
+
 def _ensure_gui_process_lifetime_guard() -> None:
     """Включить Windows-защиту только для корневого процесса ``gui.py``."""
     if os.name != "nt":
@@ -188,10 +198,7 @@ class State:
         cls._restart_requested = False
         previous_server = cls._runtime_control_server
         cls._runtime_control_server = None
-        if previous_server is not None:
-            close = getattr(previous_server, "close", None)
-            if callable(close):
-                close()
+        _close_runtime_control_server(previous_server)
         manager = multiprocessing.Manager()
         cls.manager = manager
         # Browser sessions may run in separate processes, so workers need a
@@ -221,16 +228,21 @@ class State:
         except Exception:
             # Нельзя оставлять worker registry owner без control server: это
             # создало бы невидимый и неуправляемый runtime.
-            if server is not None:
-                close = getattr(server, "close", None)
-                if callable(close):
-                    close()
+            _close_runtime_control_server(server)
             try:
                 from module.webui.worker_registry import clear_owner
 
                 clear_owner(os.getpid())
-            except Exception:
-                pass
+            except Exception as exc:  # noqa: BLE001 - ошибку rollback необходимо отразить в журнале.
+                from module.logger import logger
+
+                logger.exception_context(
+                    title="Не удалось откатить регистрацию WebUI owner",
+                    exc=exc,
+                    impact="В registry могла остаться запись owner без control server.",
+                    action="Проверьте состояние registry и выполните безопасное восстановление WebUI.",
+                    level=40,
+                )
             cls.process_registry = None
             cls.manager = None
             cls._init = False
@@ -253,10 +265,7 @@ class State:
         cls._clearup = True
         server = cls._runtime_control_server
         cls._runtime_control_server = None
-        if server is not None:
-            close = getattr(server, "close", None)
-            if callable(close):
-                close()
+        _close_runtime_control_server(server)
         manager = cls.manager
         try:
             if manager is not None:

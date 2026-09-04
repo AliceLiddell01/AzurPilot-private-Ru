@@ -131,12 +131,10 @@ class DevSessionManager(DevDiagnosticsMixin):
         shared_lifecycle: object | None = None,
     ):
         self.environment = environment or DevEnvironment.current()
-        # Переданный ProcessBackend сохраняет seam тестов и исторического
-        # standalone-контракта. Публичная сборка без этого seam использует
-        # единственного общего WebUI owner.
-        self.shared_webui = (
-            process_backend is None if shared_webui is None else shared_webui
-        )
+        # Production lifecycle всегда принадлежит единственному общему WebUI
+        # owner. Standalone backend разрешён только при явном выборе тестового
+        # seam через shared_webui=False.
+        self.shared_webui = True if shared_webui is None else shared_webui
         self.process_backend = process_backend or ProcessBackend()
         self.shared_lifecycle = (
             shared_lifecycle
@@ -330,13 +328,19 @@ class DevSessionManager(DevDiagnosticsMixin):
             return
         attempted = notification.get("attempted")
         confirmed = notification.get("confirmed")
-        if type(attempted) is not bool or type(confirmed) is not bool:
+        outcome = notification.get("outcome")
+        if (
+            type(attempted) is not bool
+            or type(confirmed) is not bool
+            or not isinstance(outcome, str)
+        ):
             return
         fields = {
             "phase": "preemption_notice",
             "reason": "notification",
             "attempted": attempted,
             "confirmed": confirmed,
+            "outcome": outcome,
         }
         if isinstance(profile, str):
             fields["profile"] = profile
@@ -347,7 +351,9 @@ class DevSessionManager(DevDiagnosticsMixin):
     def _session_runtime_matches(self, session: DevSession) -> bool | None:
         """Проверить ownership текущей DevSession через её фактический runtime."""
 
-        if self.shared_webui and session.runtime_mode is DevRuntimeMode.SHARED_WEBUI:
+        if session.runtime_mode is DevRuntimeMode.SHARED_WEBUI:
+            if not self.shared_webui:
+                return None
             matcher = getattr(self.shared_lifecycle, "matches_session", None)
             if not callable(matcher):
                 return False
@@ -358,6 +364,8 @@ class DevSessionManager(DevDiagnosticsMixin):
                 ) is True
             except Exception:
                 return None
+        if self.shared_webui:
+            return None
         if session.process is None:
             return None
         try:
@@ -1520,7 +1528,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                         )
                     try:
                         worker_present = present(profile)
-                    except Exception as exc:  # noqa: BLE001 - cleanup fails closed.
+                    except Exception as exc:  # noqa: BLE001 - ошибка cleanup переводит путь в fail-closed режим.
                         return self._session_result(
                             session,
                             ok=False,
@@ -1528,7 +1536,15 @@ class DevSessionManager(DevDiagnosticsMixin):
                             message=f"Нельзя подтвердить состояние shared worker: {type(exc).__name__}",
                             state=DevStatusKind.OWNERSHIP_MISMATCH,
                         )
-                    if worker_present is not False:
+                    if worker_present is None:
+                        return self._session_result(
+                            session,
+                            ok=False,
+                            code="DEV_OWNERSHIP_UNKNOWN",
+                            message="Не удалось доказать отсутствие shared worker; cleanup запрещен",
+                            state=DevStatusKind.OWNERSHIP_MISMATCH,
+                        )
+                    if worker_present is True:
                         return self._session_result(
                             session,
                             ok=False,
@@ -2501,7 +2517,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                 if before_process_launch is not None:
                     try:
                         before_process_launch(session.session_id)
-                    except Exception as exc:  # noqa: BLE001 - prestart gate fails closed.
+                    except Exception as exc:  # noqa: BLE001 - ошибка prestart gate переводит путь в fail-closed режим.
                         self._evidence_error(exc, phase="session_start")
                         return self._shared_start_failure(
                             session,
@@ -2610,7 +2626,6 @@ class DevSessionManager(DevDiagnosticsMixin):
 
         assert session.process is not None
         ready, reason = self._wait_for_readiness(session.process)
-        ownership_lost = False
         with self._locked_state():
             latest = self._read_session()
             if latest is None or latest.session_id != session.session_id:
@@ -2800,14 +2815,6 @@ class DevSessionManager(DevDiagnosticsMixin):
                 code="DEV_SHARED_WEBUI_START_UNCONFIRMED",
                 message=f"Не удалось подтвердить identity общего WebUI: {type(exc).__name__}",
             )
-        # Shared worker настраивает собственный `log/<profile>.txt` и может
-        # заменить старый файл при старте. Переснимаем границу после запуска,
-        # чтобы manifest не ссылался на устаревший inode/offset.
-        try:
-            if self._evidence_store is not None:
-                self._evidence_store.capture_log_boundary()
-        except EvidenceError:
-            pass
         with self._locked_state():
             latest = self._read_session()
             if latest is None or latest.session_id != session.session_id:
@@ -2908,14 +2915,19 @@ class DevSessionManager(DevDiagnosticsMixin):
             ownership_lost = False
             if not state_changed:
                 shared_ready = getattr(shared, "matches_session", None)
-                ownership_lost = (
-                    not callable(shared_ready)
-                    or shared_ready(
-                        latest.session_id,
-                        latest.profile_name or self.environment.profile_name,
-                    )
-                    is not True
-                )
+                if not callable(shared_ready):
+                    ownership_lost = True
+                else:
+                    try:
+                        ownership_lost = (
+                            shared_ready(
+                                latest.session_id,
+                                latest.profile_name or self.environment.profile_name,
+                            )
+                            is not True
+                        )
+                    except Exception:  # noqa: BLE001 - ошибка подтверждения ownership переводит readiness в fail-closed режим.
+                        ownership_lost = True
                 if not ownership_lost:
                     latest.state = DevSessionState.RUNNING
                     if latest.is_task_aware:
@@ -3050,10 +3062,21 @@ class DevSessionManager(DevDiagnosticsMixin):
         deadline = time.monotonic() + self.ready_timeout
         last_reason = "готовность shared target ещё не подтверждена"
         while True:
-            ready, reason = probe(
-                session.profile_name or self.environment.profile_name,
-                session.session_id,
-            )
+            try:
+                result = probe(
+                    session.profile_name or self.environment.profile_name,
+                    session.session_id,
+                )
+            except Exception as exc:  # noqa: BLE001 - граница readiness работает в режиме fail-closed.
+                return False, f"проверка shared readiness завершилась ошибкой: {type(exc).__name__}"
+            if (
+                not isinstance(result, tuple)
+                or len(result) != 2
+                or type(result[0]) is not bool
+                or not isinstance(result[1], str)
+            ):
+                return False, "shared readiness вернула неподдерживаемый результат"
+            ready, reason = result
             if ready:
                 return True, reason
             last_reason = reason
@@ -3191,19 +3214,36 @@ class DevSessionManager(DevDiagnosticsMixin):
             )
 
     def _stop_impl(self, *, preserve_task_state: bool = False) -> DevResult:
+        with self._locked_state():
+            try:
+                current = self._read_session()
+            except ValueError as exc:
+                return DevResult(
+                    ok=False,
+                    code="DEV_STATE_CORRUPT",
+                    message=f"Маркер DevSession повреждён; остановка запрещена: {exc}",
+                    state=DevStatusKind.CORRUPT.value,
+                )
+        if current is not None and current.runtime_mode is DevRuntimeMode.SHARED_WEBUI:
+            if not self.shared_webui:
+                return self._session_result(
+                    current,
+                    ok=False,
+                    code="DEV_RUNTIME_MODE_MISMATCH",
+                    message="Маркер DevSession требует shared WebUI, но текущий manager работает в другом runtime mode",
+                    state=DevStatusKind.OWNERSHIP_MISMATCH,
+                )
+            return self._stop_shared_impl(preserve_task_state=preserve_task_state)
         if self.shared_webui:
-            with self._locked_state():
-                try:
-                    current = self._read_session()
-                except ValueError as exc:
-                    return DevResult(
-                        ok=False,
-                        code="DEV_STATE_CORRUPT",
-                        message=f"Маркер DevSession повреждён; остановка запрещена: {exc}",
-                        state=DevStatusKind.CORRUPT.value,
-                    )
-            if current is not None and current.runtime_mode is DevRuntimeMode.SHARED_WEBUI:
+            if current is None:
                 return self._stop_shared_impl(preserve_task_state=preserve_task_state)
+            return self._session_result(
+                current,
+                ok=False,
+                code="DEV_RUNTIME_MODE_MISMATCH",
+                message="Shared WebUI manager обнаружил marker с неподдерживаемым standalone runtime mode",
+                state=DevStatusKind.OWNERSHIP_MISMATCH,
+            )
         with self._locked_state():
             try:
                 session = self._read_session()
@@ -3394,8 +3434,24 @@ class DevSessionManager(DevDiagnosticsMixin):
                 message="DevSession отсутствует",
                 state=DevStatusKind.NO_SESSION.value,
             )
-        if self.shared_webui and session.runtime_mode is DevRuntimeMode.SHARED_WEBUI:
+        if session.runtime_mode is DevRuntimeMode.SHARED_WEBUI:
+            if not self.shared_webui:
+                return self._session_result(
+                    session,
+                    ok=False,
+                    code="DEV_RUNTIME_MODE_MISMATCH",
+                    message="Маркер DevSession требует shared WebUI, но текущий manager работает в другом runtime mode",
+                    state=DevStatusKind.OWNERSHIP_MISMATCH,
+                )
             return self._recover_shared_locked(session)
+        if self.shared_webui:
+            return self._session_result(
+                session,
+                ok=False,
+                code="DEV_RUNTIME_MODE_MISMATCH",
+                message="Shared WebUI manager обнаружил marker с неподдерживаемым standalone runtime mode",
+                state=DevStatusKind.OWNERSHIP_MISMATCH,
+            )
         try:
             session_environment = self._environment_for_session(session)
         except TaskSandboxError as exc:
@@ -3531,7 +3587,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             )
         try:
             worker_present = present(session.profile_name or self.environment.profile_name)
-        except Exception as exc:  # noqa: BLE001 - recovery fails closed.
+        except Exception as exc:  # noqa: BLE001 - ошибка recovery переводит путь в fail-closed режим.
             return self._session_result(
                 session,
                 ok=False,
@@ -3539,7 +3595,15 @@ class DevSessionManager(DevDiagnosticsMixin):
                 message=f"Нельзя подтвердить отсутствие shared worker: {type(exc).__name__}",
                 state=DevStatusKind.OWNERSHIP_MISMATCH,
             )
-        if worker_present is not False:
+        if worker_present is None:
+            return self._session_result(
+                session,
+                ok=False,
+                code="DEV_RECOVERY_OWNERSHIP_UNKNOWN",
+                message="Не удалось доказать отсутствие shared worker; восстановление запрещено",
+                state=DevStatusKind.OWNERSHIP_MISMATCH,
+            )
+        if worker_present is True:
             return self._session_result(
                 session,
                 ok=False,

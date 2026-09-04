@@ -270,7 +270,13 @@ def test_legacy_screenshot_lifecycle_and_emulator_adapters_use_narrow_owners(mon
             self.alive = False
             self.calls: list[str] = []
 
-        def start(self, *, func: str) -> None:
+        def start(
+            self,
+            *,
+            func: str,
+            operation_id: str | None = None,
+            session_id: str | None = None,
+        ) -> None:
             self.calls.append(func)
             self.alive = True
 

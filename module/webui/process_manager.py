@@ -201,7 +201,7 @@ class ProcessManager:
             process = self._process
             local_process_alive = self._is_process_alive(process)
 
-            if local_process_alive:
+            if process is not None:
                 pid, record, pid_verified = self._registered_worker(process.pid)
             else:
                 pid, record, pid_verified = self._registered_worker()
@@ -244,7 +244,7 @@ class ProcessManager:
                         stopped = not self._is_process_alive(process)
             if stopped:
                 self._process = None
-                stopped = self._unregister_process()
+                stopped = self._unregister_process(expected_worker=record)
                 if stopped and pid is not None:
                     self.renderables.append(
                         Text(f"[{self.config_name}] exited. Reason: Manual stop\n")
@@ -525,7 +525,7 @@ class ProcessManager:
         else:
             logger.info(f"[{self.config_name}] Рабочий процесс PID {pid} завершён; устаревшая запись удалена")
 
-        unregistered = self._unregister_process()
+        unregistered = self._unregister_process(expected_worker=record)
         if expected_pid is not None:
             # process_matches 已确认进程死亡（返回 None）或 PID 已复用
             # （返回 False），本地句柄可能是未 join 的僵尸。
@@ -554,41 +554,71 @@ class ProcessManager:
     def _register_process(self, pid: int | None) -> None:
         if pid is None:
             return
-        register_worker(os.getpid(), self.config_name, pid)
+        registered_record = register_worker(os.getpid(), self.config_name, pid)
         if State.process_registry is not None:
             State.process_registry[self.config_name] = pid
+        record: dict | None = None
         try:
             from module.application.runtime_state import RuntimePhase, RuntimeStateStore
 
             record = get_workers(os.getpid()).get(self.config_name)
-            if isinstance(record, dict):
-                worker_pid = int(record["pid"])
-                worker_created_at = float(record["created_at"])
-                phase = RuntimePhase.USER_PROFILE_IDLE
-                current = RuntimeStateStore(_REPOSITORY_ROOT).read(self.config_name)
-                if (
-                    current is not None
-                    and current.phase is RuntimePhase.AP_ACQUIRING
-                    and current.operation_id == self._runtime_operation_id
-                    and current.session_id == self._runtime_session_id
-                ):
-                    phase = RuntimePhase.AP_ACQUIRING
-                RuntimeStateStore(_REPOSITORY_ROOT).mark_worker_started(
-                    self.config_name,
-                    worker_pid=worker_pid,
-                    worker_created_at=worker_created_at,
-                    operation_id=self._runtime_operation_id,
-                    session_id=self._runtime_session_id,
-                    phase=phase,
-                )
-        except Exception as exc:  # noqa: BLE001 - registry remains authoritative.
+            if not isinstance(record, dict):
+                raise RuntimeError("После регистрации отсутствует запись worker")
+            worker_pid = int(record["pid"])
+            worker_created_at = float(record["created_at"])
+            phase = RuntimePhase.USER_PROFILE_IDLE
+            current = RuntimeStateStore(_REPOSITORY_ROOT).read(self.config_name)
+            if (
+                current is not None
+                and current.phase is RuntimePhase.RESOURCE_ACQUIRING
+                and current.operation_id == self._runtime_operation_id
+                and current.session_id == self._runtime_session_id
+            ):
+                phase = RuntimePhase.RESOURCE_ACQUIRING
+            RuntimeStateStore(_REPOSITORY_ROOT).mark_worker_started(
+                self.config_name,
+                worker_pid=worker_pid,
+                worker_created_at=worker_created_at,
+                operation_id=self._runtime_operation_id,
+                session_id=self._runtime_session_id,
+                phase=phase,
+            )
+        except Exception as exc:  # noqa: BLE001 - при ошибке worker не должен остаться без учёта.
             logger.warning(
                 f"[{self.config_name}] Не удалось обновить process-shared runtime state: {exc}"
             )
+            try:
+                rollback_record = (
+                    record
+                    if isinstance(record, dict)
+                    else registered_record
+                    if isinstance(registered_record, dict)
+                    else None
+                )
+                self._unregister_process(expected_worker=rollback_record)
+            except Exception as rollback_exc:  # noqa: BLE001 - исходная ошибка остаётся причиной отказа.
+                logger.error(
+                    f"[{self.config_name}] Не удалось откатить регистрацию worker после ошибки runtime state: {rollback_exc}"
+                )
+            raise
 
-    def _unregister_process(self) -> bool:
+    def _unregister_process(self, *, expected_worker: dict | None = None) -> bool:
+        if expected_worker is None:
+            # Отсутствие ожидаемой identity означает, что этот manager больше
+            # не имеет права очищать запись, которая могла уже принадлежать
+            # новому worker того же profile.
+            if not is_current_owner(os.getpid()):
+                return False
+            self._stop_event = None
+            self._runtime_operation_id = None
+            self._runtime_session_id = None
+            return True
         try:
-            if not unregister_worker(os.getpid(), self.config_name):
+            if not unregister_worker(
+                os.getpid(),
+                self.config_name,
+                expected_worker=expected_worker,
+            ):
                 logger.error(
                     f"[{self.config_name}] Текущая WebUI не владеет записью рабочего процесса; очистка отклонена"
                 )
@@ -609,10 +639,12 @@ class ProcessManager:
 
             RuntimeStateStore(_REPOSITORY_ROOT).mark_worker_stopped(
                 self.config_name,
+                expected_worker_pid=(expected_worker.get("pid") if expected_worker else None),
+                expected_worker_created_at=(expected_worker.get("created_at") if expected_worker else None),
                 operation_id=self._runtime_operation_id,
                 session_id=self._runtime_session_id,
             )
-        except Exception as exc:  # noqa: BLE001 - registry remains authoritative.
+        except Exception as exc:  # noqa: BLE001 - registry остаётся источником истины.
             logger.warning(
                 f"[{self.config_name}] Не удалось обновить остановленное runtime state: {exc}"
             )
@@ -736,15 +768,19 @@ class ProcessManager:
         finally:
             try:
                 from module.application.runtime_state import RuntimeStateStore
+                import psutil
 
+                created_at = float(psutil.Process(os.getpid()).create_time())
                 RuntimeStateStore(repository_root or _REPOSITORY_ROOT).mark_worker_stopped(
                     config_name,
+                    expected_worker_pid=os.getpid(),
+                    expected_worker_created_at=created_at,
                     operation_id=operation_id,
                     session_id=session_id,
                 )
             except Exception:
-                # Registry/owner remains the authoritative lifecycle source;
-                # child cleanup cannot change ownership on its own.
+                # Registry/owner остаётся источником истины; дочерний cleanup
+                # не может самостоятельно изменить ownership.
                 pass
 
     @staticmethod

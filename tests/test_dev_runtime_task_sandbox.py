@@ -211,6 +211,7 @@ def _manager(environment: DevEnvironment, backend: _Backend) -> DevSessionManage
     manager = DevSessionManager(
         environment,
         process_backend=backend,
+        shared_webui=False,
         storage_probe=lambda _environment: (True, "ready"),
         port_probe=lambda _host, _port: False,
         readiness_probe=lambda _environment, _identity: (True, "ready"),

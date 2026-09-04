@@ -22,30 +22,28 @@ def record_task_started(config_name: object, task: object) -> bool:
     state_ok = _record_runtime_state(config_name, task=task, started=True)
     if not state_ok:
         return False
-    if not _enabled():
-        return True
-    try:
-        from module.dev_runtime.evidence import record_task_started as record
+    if _enabled():
+        try:
+            from module.dev_runtime.evidence import record_task_started as record
 
-        record(config_name, task)
-    except Exception:
-        return True
-    return True
+            record(config_name, task)
+        except Exception:
+            pass
+    return state_ok
 
 
 def record_task_finished(config_name: object, task: object) -> bool:
     state_ok = _record_runtime_state(config_name, task=task, started=False)
     if not state_ok:
         return False
-    if not _enabled():
-        return True
-    try:
-        from module.dev_runtime.evidence import record_task_finished as record
+    if _enabled():
+        try:
+            from module.dev_runtime.evidence import record_task_finished as record
 
-        record(config_name, task, "returned")
-    except Exception:
-        return True
-    return True
+            record(config_name, task, "returned")
+        except Exception:
+            pass
+    return state_ok
 
 
 def record_runtime_error(
@@ -128,7 +126,7 @@ def _record_runtime_state(config_name: object, *, task: object, started: bool) -
         from module.application.runtime_state import RuntimeStateStore
 
         profile = str(config_name)
-        if not isinstance(task, str) or not task.strip():
+        if started and (not isinstance(task, str) or not task.strip()):
             return False
         store = RuntimeStateStore(_repository_root())
         # Старый/тестовый worker может работать без process-shared snapshot.

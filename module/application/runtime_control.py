@@ -12,7 +12,7 @@ import time
 import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from typing import Protocol
@@ -21,7 +21,7 @@ from deploy.atomic import atomic_write
 from module.application.host_lock import application_host_lock
 from module.application.runtime_state import RuntimeStateError, _scoped_path
 
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
 _MAX_REQUEST_BYTES = 32 * 1024
 _MAX_RESULT_BYTES = 128 * 1024
 _MAX_REQUEST_FILES = 128
@@ -164,12 +164,11 @@ class RuntimeControlExecutor(Protocol):
         request_id: str,
         idempotency_key: str,
         session_id: str | None,
+        expires_at: str,
     ) -> RuntimeControlResult | Mapping[str, object]: ...
 
 
 def _text(value: object, *, maximum: int, field: str, pattern: str | None = None) -> str:
-    import re
-
     if (
         not isinstance(value, str)
         or not value
@@ -192,6 +191,27 @@ def _profile(value: object) -> str:
 
 def _timestamp() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _expires_at(timeout: float) -> str:
+    return (datetime.now(UTC) + timedelta(seconds=timeout)).isoformat()
+
+
+def _parse_utc_timestamp(value: object, *, field: str) -> datetime:
+    text = _text(value, maximum=80, field=field)
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError as exc:
+        raise RuntimeControlError(
+            "RUNTIME_CONTROL_FIELD_INVALID",
+            f"Поле {field} не является ISO timestamp",
+        ) from exc
+    if parsed.tzinfo is None or parsed.utcoffset() != UTC.utcoffset(parsed):
+        raise RuntimeControlError(
+            "RUNTIME_CONTROL_FIELD_INVALID",
+            f"Поле {field} должно быть в UTC",
+        )
+    return parsed
 
 
 def _safe_plane_path(repository_root: Path, relative: str) -> Path:
@@ -263,8 +283,8 @@ class WebUIControlClient:
         timeout: float = 15.0,
         poll_interval: float = 0.05,
     ) -> None:
-        if type(timeout) not in (int, float) or not 0 <= float(timeout) <= 120:
-            raise ValueError("timeout control plane должен быть в диапазоне 0..120 секунд")
+        if type(timeout) not in (int, float) or not math.isfinite(float(timeout)) or not 0 < float(timeout) <= 120:
+            raise ValueError("timeout control plane должен быть в диапазоне (0, 120] секунд")
         if type(poll_interval) not in (int, float) or not 0 < float(poll_interval) <= 1:
             raise ValueError("poll_interval control plane должен быть в диапазоне (0, 1]")
         self.repository_root = Path(repository_root).resolve()
@@ -340,6 +360,7 @@ class WebUIControlClient:
                     "session_id": session_id,
                     "expected_owner": owner.as_dict(),
                     "created_at": _timestamp(),
+                    "expires_at": _expires_at(self.timeout),
                 }
                 _write_json(request_path, payload, _MAX_REQUEST_BYTES)
 
@@ -433,14 +454,27 @@ def _validate_request(
 ) -> str:
     if not isinstance(payload, Mapping):
         raise RuntimeControlError("RUNTIME_REQUEST_CONFLICT", "Повторный idempotency key имеет неверный request")
-    required = {"schema_version", "request_id", "idempotency_key", "operation", "profile", "session_id", "expected_owner", "created_at"}
+    required = {
+        "schema_version",
+        "request_id",
+        "idempotency_key",
+        "operation",
+        "profile",
+        "session_id",
+        "expected_owner",
+        "created_at",
+        "expires_at",
+    }
     if set(payload) != required or payload.get("schema_version") != _SCHEMA_VERSION:
         raise RuntimeControlError("RUNTIME_REQUEST_CONFLICT", "Повторный runtime request имеет неизвестные поля")
     request_id = _token(payload.get("request_id"), field="request_id")
     if payload.get("idempotency_key") != idempotency_key or payload.get("operation") != operation.value or payload.get("profile") != profile or payload.get("session_id") != session_id:
         raise RuntimeControlError("RUNTIME_REQUEST_CONFLICT", "Idempotency key уже связан с другой operation")
     RuntimeOwnerIdentity.from_value(payload.get("expected_owner"))
-    _text(payload.get("created_at"), maximum=80, field="created_at")
+    created_at = _parse_utc_timestamp(payload.get("created_at"), field="created_at")
+    expires_at = _parse_utc_timestamp(payload.get("expires_at"), field="expires_at")
+    if expires_at <= created_at:
+        raise RuntimeControlError("RUNTIME_REQUEST_CONFLICT", "Срок действия runtime request должен быть позже создания")
     return request_id
 
 
@@ -545,7 +579,7 @@ class WebUIControlServer:
                 self._remove_request(request_path)
                 if written:
                     processed += 1
-            except Exception:  # noqa: BLE001 - server must keep serving other requests.
+            except Exception:  # noqa: BLE001 - сервер должен продолжать обслуживать остальные запросы.
                 written = self._write_error_result(
                     payload,
                     code="RUNTIME_EXECUTION_FAILED",
@@ -571,20 +605,61 @@ class WebUIControlServer:
         if session_id is not None:
             session_id = _token(session_id, field="session_id")
         expected_owner = RuntimeOwnerIdentity.from_value(request["expected_owner"])
+        expires_at = _parse_utc_timestamp(request["expires_at"], field="expires_at")
         raw_owner = self.owner_reader()
         if raw_owner is None:
             return RuntimeControlResult(False, "RUNTIME_OWNER_UNAVAILABLE", "Общий WebUI owner завершил работу", operation, profile, request_id, key)
         owner = RuntimeOwnerIdentity.from_value(raw_owner)
         if not _owner_equal(owner, expected_owner):
             return RuntimeControlResult(False, "RUNTIME_OWNER_CHANGED", "Владелец WebUI изменился до выполнения operation", operation, profile, request_id, key, owner=owner)
+        if datetime.now(UTC) >= expires_at:
+            return RuntimeControlResult(
+                False,
+                "RUNTIME_CONTROL_EXPIRED",
+                "Срок действия runtime control request истёк до выполнения operation",
+                operation,
+                profile,
+                request_id,
+                key,
+                owner=owner,
+            )
         try:
             valid = self.owner_matches(owner)
-        except Exception:  # noqa: BLE001 - owner boundary fails closed.
+        except Exception:  # noqa: BLE001 - граница owner работает fail-closed.
             valid = False
         if valid is not True:
             return RuntimeControlResult(False, "RUNTIME_OWNER_STALE", "Идентичность WebUI owner больше не подтверждается", operation, profile, request_id, key, owner=owner)
         with self._operation_lock:
-            result = self.executor(operation, profile, request_id=request_id, idempotency_key=key, session_id=session_id)
+            if datetime.now(UTC) >= expires_at:
+                return RuntimeControlResult(
+                    False,
+                    "RUNTIME_CONTROL_EXPIRED",
+                    "Срок действия runtime control request истёк до захвата operation lock",
+                    operation,
+                    profile,
+                    request_id,
+                    key,
+                    owner=owner,
+                )
+            result = self.executor(
+                operation,
+                profile,
+                request_id=request_id,
+                idempotency_key=key,
+                session_id=session_id,
+                expires_at=expires_at.isoformat(),
+            )
+        if datetime.now(UTC) >= expires_at:
+            return RuntimeControlResult(
+                False,
+                "RUNTIME_CONTROL_EXPIRED",
+                "Срок действия runtime control request истёк после выполнения operation",
+                operation,
+                profile,
+                request_id,
+                key,
+                owner=owner,
+            )
         if isinstance(result, RuntimeControlResult):
             if result.request_id != request_id or result.idempotency_key != key:
                 raise RuntimeControlError("RUNTIME_EXECUTION_INVALID", "Executor владельца вернул чужую identity")
@@ -643,7 +718,7 @@ class WebUIControlServer:
                 candidate = RuntimeOwnerIdentity.from_value(raw_owner)
                 if self.owner_matches(candidate) is True:
                     owner = candidate
-        except Exception:  # noqa: BLE001 - error result is best effort.
+        except Exception:  # noqa: BLE001 - результат ошибки записывается по возможности.
             owner = None
         result = RuntimeControlResult(
             ok=False,
@@ -691,7 +766,17 @@ class WebUIControlServer:
 def _parse_request(payload: object) -> dict[str, object]:
     if not isinstance(payload, Mapping):
         raise RuntimeControlError("RUNTIME_REQUEST_INVALID", "Runtime request должен быть объектом")
-    required = {"schema_version", "request_id", "idempotency_key", "operation", "profile", "session_id", "expected_owner", "created_at"}
+    required = {
+        "schema_version",
+        "request_id",
+        "idempotency_key",
+        "operation",
+        "profile",
+        "session_id",
+        "expected_owner",
+        "created_at",
+        "expires_at",
+    }
     if set(payload) != required or payload.get("schema_version") != _SCHEMA_VERSION:
         raise RuntimeControlError("RUNTIME_REQUEST_INVALID", "Runtime request имеет неизвестные поля")
     request_id = _token(payload.get("request_id"), field="request_id")
@@ -705,7 +790,10 @@ def _parse_request(payload: object) -> dict[str, object]:
     if session_id is not None:
         session_id = _token(session_id, field="session_id")
     RuntimeOwnerIdentity.from_value(payload.get("expected_owner"))
-    _text(payload.get("created_at"), maximum=80, field="created_at")
+    created_at = _parse_utc_timestamp(payload.get("created_at"), field="created_at")
+    expires_at = _parse_utc_timestamp(payload.get("expires_at"), field="expires_at")
+    if expires_at <= created_at:
+        raise RuntimeControlError("RUNTIME_REQUEST_INVALID", "Срок действия runtime request должен быть позже создания")
     return {
         "request_id": request_id,
         "idempotency_key": key,
@@ -713,6 +801,7 @@ def _parse_request(payload: object) -> dict[str, object]:
         "profile": profile,
         "session_id": session_id,
         "expected_owner": payload["expected_owner"],
+        "expires_at": expires_at.isoformat(),
     }
 
 
@@ -748,35 +837,41 @@ class SharedWebUIBootstrapper:
             return existing
         if not self.gui_path.is_file() or not self.python_executable.is_file():
             raise RuntimeControlError("RUNTIME_BOOTSTRAP_UNAVAILABLE", "Canonical gui.py или project Python отсутствует")
-        with application_host_lock(self.lock_path, timeout=min(30.0, self.timeout or 30.0)):
-            existing = self._read_valid_owner()
-            if existing is not None:
-                return existing
-            try:
-                self._process = subprocess.Popen(
-                    [str(self.python_executable), str(self.gui_path)],
-                    cwd=str(self.repository_root),
-                    stdin=subprocess.DEVNULL,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    shell=False,
-                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                    start_new_session=os.name != "nt",
-                )
-            except OSError as exc:
-                raise RuntimeControlError("RUNTIME_BOOTSTRAP_FAILED", "Не удалось запустить общий WebUI") from exc
-            deadline = time.monotonic() + self.timeout
-            while True:
-                owner = self._read_valid_owner()
-                if owner is not None:
-                    return owner
-                if self._process.poll() is not None:
-                    raise RuntimeControlError("RUNTIME_BOOTSTRAP_FAILED", "Общий WebUI завершился до регистрации owner")
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    self._stop_owned_process()
-                    raise RuntimeControlError("RUNTIME_BOOTSTRAP_TIMEOUT", "Общий WebUI не зарегистрировал owner в ограниченный срок")
-                time.sleep(min(self.poll_interval, remaining))
+        try:
+            with application_host_lock(self.lock_path, timeout=min(30.0, self.timeout or 30.0)):
+                existing = self._read_valid_owner()
+                if existing is not None:
+                    return existing
+                try:
+                    self._process = subprocess.Popen(
+                        [str(self.python_executable), str(self.gui_path)],
+                        cwd=str(self.repository_root),
+                        stdin=subprocess.DEVNULL,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        shell=False,
+                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                        start_new_session=os.name != "nt",
+                    )
+                except OSError as exc:
+                    raise RuntimeControlError("RUNTIME_BOOTSTRAP_FAILED", "Не удалось запустить общий WebUI") from exc
+                deadline = time.monotonic() + self.timeout
+                while True:
+                    owner = self._read_valid_owner()
+                    if owner is not None:
+                        return owner
+                    if self._process.poll() is not None:
+                        raise RuntimeControlError("RUNTIME_BOOTSTRAP_FAILED", "Общий WebUI завершился до регистрации owner")
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        self._stop_owned_process()
+                        raise RuntimeControlError("RUNTIME_BOOTSTRAP_TIMEOUT", "Общий WebUI не зарегистрировал owner в ограниченный срок")
+                    time.sleep(min(self.poll_interval, remaining))
+        except TimeoutError as exc:
+            raise RuntimeControlError(
+                "RUNTIME_BOOTSTRAP_TIMEOUT",
+                "Не удалось получить bootstrap lock общего WebUI в ограниченный срок",
+            ) from exc
 
     def _read_valid_owner(self) -> RuntimeOwnerIdentity | None:
         raw = self.owner_reader()
@@ -786,7 +881,7 @@ class SharedWebUIBootstrapper:
         try:
             if self.owner_matches(owner) is True:
                 return owner
-        except Exception:  # noqa: BLE001 - stale owner is treated as absent.
+        except Exception:  # noqa: BLE001 - устаревший owner считается отсутствующим.
             return None
         return None
 
@@ -800,8 +895,8 @@ class SharedWebUIBootstrapper:
                 process.terminate()
                 process.wait(timeout=3)
         except (OSError, subprocess.TimeoutExpired):
-            # Bootstrap failure never escalates to taskkill: the owner registry
-            # remains the authority for any later recovery.
+            # При ошибке bootstrap не используется taskkill: registry owner
+            # остаётся источником истины для последующего восстановления.
             pass
 
 

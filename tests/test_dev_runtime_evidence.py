@@ -243,6 +243,33 @@ def test_evidence_logs_use_boundary_cursor_and_sanitization(tmp_path: Path) -> N
     assert error.value.code == "DEV_EVIDENCE_LOG_BOUNDARY_LOST"
 
 
+def test_evidence_logs_keep_replacement_startup_lines_during_active_session(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    log_path = store.environment.log_file
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_bytes(b"before session\n")
+    store.capture_log_boundary()
+
+    replacement = log_path.with_name("rotated-startup.txt")
+    replacement.write_bytes(b"new worker startup\n")
+    replacement.replace(log_path)
+
+    active = store.logs_page(active_owned=True)
+    assert [item["text"] for item in active["items"]] == ["new worker startup"]
+    assert "before session" not in json.dumps(active, ensure_ascii=False)
+
+    with log_path.open("ab") as handle:
+        handle.write(b"new worker body\n")
+    store.finalize(stopped_at=_TIME, cleanup_confirmed=True)
+    finished = store.logs_page(active_owned=False)
+    assert [item["text"] for item in finished["items"]] == [
+        "new worker startup",
+        "new worker body",
+    ]
+
+
 def test_evidence_logs_respect_hard_page_byte_bound(tmp_path: Path) -> None:
     store = _store(tmp_path)
     store.environment.log_file.parent.mkdir(parents=True, exist_ok=True)

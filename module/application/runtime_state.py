@@ -18,9 +18,12 @@ from enum import StrEnum
 from pathlib import Path
 
 from deploy.atomic import atomic_write
-from module.application.host_lock import application_host_lock
+from module.application.host_lock import (
+    HOST_LOCK_TIMEOUT_SECONDS,
+    application_host_lock,
+)
 
-_STATE_SCHEMA_VERSION = 1
+_STATE_SCHEMA_VERSION = 2
 _MAX_STATE_BYTES = 256 * 1024
 _MAX_PROFILES = 128
 _MAX_TEXT = 256
@@ -51,8 +54,8 @@ class RuntimePhase(StrEnum):
     CURRENT_TASK_STOPPED = "current_task_stopped"
     RETURNING_TO_MAIN = "returning_to_main"
     MAIN_CONFIRMED = "main_confirmed"
-    AP_ACQUIRING = "ap_acquiring"
-    AP_READY = "ap_ready"
+    RESOURCE_ACQUIRING = "resource_acquiring"
+    RESOURCE_READY = "resource_ready"
     FAILED = "failed"
 
 
@@ -382,12 +385,21 @@ class RuntimeStateStore:
         self,
         profile: str,
         *,
+        expected_worker_pid: int | None = None,
+        expected_worker_created_at: float | None = None,
         operation_id: str | None = None,
         session_id: str | None = None,
         phase: RuntimePhase = RuntimePhase.STOPPED,
         terminal_state: str | None = "stopped",
         provenance: str = "webui_owner",
     ) -> RuntimeStateSnapshot:
+        if (expected_worker_pid is None) != (expected_worker_created_at is None):
+            raise RuntimeStateError(
+                "RUNTIME_WORKER_ID_INVALID",
+                "Ожидаемая identity worker должна содержать PID и created_at",
+            )
+        if expected_worker_pid is not None and expected_worker_created_at is not None:
+            self._validate_worker(expected_worker_pid, expected_worker_created_at)
         return self._update(
             profile,
             phase=phase,
@@ -403,10 +415,15 @@ class RuntimeStateStore:
             worker_pid=None,
             worker_created_at=None,
             provenance=provenance,
+            _expected_worker=(expected_worker_pid, expected_worker_created_at)
+            if expected_worker_pid is not None and expected_worker_created_at is not None
+            else None,
         )
 
     def mark_task_started(self, profile: str, task: str, *, operation_id: str | None = None, session_id: str | None = None) -> RuntimeStateSnapshot:
-        _optional_text(task, maximum=_MAX_TASK) or _raise_text()
+        task = _optional_text(task, maximum=_MAX_TASK)
+        if task is None:
+            raise RuntimeStateError("RUNTIME_STATE_TEXT_INVALID", "Текстовое поле runtime state не может быть пустым")
         return self._update(
             profile,
             phase=RuntimePhase.USER_PROFILE_BUSY,
@@ -433,7 +450,9 @@ class RuntimeStateStore:
     ) -> bool:
         """Атомарно подтвердить границу задачи, если handover ещё не начат."""
 
-        _optional_text(task, maximum=_MAX_TASK) or _raise_text()
+        task = _optional_text(task, maximum=_MAX_TASK)
+        if task is None:
+            raise RuntimeStateError("RUNTIME_STATE_TEXT_INVALID", "Текстовое поле runtime state не может быть пустым")
         profile = _profile(profile)
         with application_host_lock(self.lock_path):
             current = self.read(profile)
@@ -469,6 +488,67 @@ class RuntimeStateStore:
             _preserve_handover=True,
         )
 
+    def begin_handover(
+        self,
+        profile: str,
+        *,
+        operation_id: str,
+        session_id: str | None = None,
+        timeout_seconds: float = HOST_LOCK_TIMEOUT_SECONDS,
+    ) -> RuntimeStateSnapshot | None:
+        """Атомарно прочитать свежий worker и выставить handover-флаг."""
+
+        profile = _profile(profile)
+        operation_id = _token(operation_id, field="Идентификатор runtime operation")
+        session_id = _optional_token(session_id)
+        if (
+            type(timeout_seconds) not in (int, float)
+            or not math.isfinite(float(timeout_seconds))
+            or not 0 < float(timeout_seconds) <= 120
+        ):
+            raise ValueError("Тайм-аут handover state должен быть в диапазоне (0, 120]")
+        with application_host_lock(self.lock_path, timeout=float(timeout_seconds)):
+            payload = self._read_payload()
+            records = payload["profiles"]
+            existing = records.get(profile)
+            if existing is None:
+                return None
+            snapshot = RuntimeStateSnapshot.from_dict(existing)
+            if snapshot.profile != profile:
+                raise RuntimeStateError(
+                    "RUNTIME_STATE_CORRUPT",
+                    "Ключ runtime-профиля не совпадает с записью snapshot",
+                )
+            snapshot = replace(snapshot, freshness=_freshness(snapshot.updated_at))
+            if snapshot.freshness != "fresh":
+                raise RuntimeStateError(
+                    "RUNTIME_HANDOVER_STATE_STALE",
+                    "Состояние пользовательского профиля устарело",
+                )
+            if snapshot.worker_running is not True:
+                return snapshot
+            if snapshot.handover_requested and snapshot.operation_id not in (None, operation_id):
+                raise RuntimeStateError(
+                    "RUNTIME_HANDOVER_IN_PROGRESS",
+                    "Для пользовательского профиля уже выполняется handover",
+                )
+            current = dict(snapshot.as_dict())
+            current.update(
+                {
+                    "phase": RuntimePhase.HANDOVER_REQUESTED.value,
+                    "operation_id": operation_id,
+                    "session_id": session_id,
+                    "handover_requested": True,
+                    "updated_at": self._now(),
+                    "freshness": "fresh",
+                }
+            )
+            updated = RuntimeStateSnapshot.from_dict(current)
+            records = dict(records)
+            records[profile] = updated.as_dict()
+            _atomic_state_write(self.path, records)
+            return updated
+
     def request_handover(self, profile: str, *, operation_id: str, session_id: str | None = None) -> RuntimeStateSnapshot:
         return self._update(profile, phase=RuntimePhase.HANDOVER_REQUESTED, operation_id=operation_id, session_id=session_id, handover_requested=True)
 
@@ -493,20 +573,23 @@ class RuntimeStateStore:
     def mark_main_confirmed(self, profile: str, *, operation_id: str, session_id: str | None = None) -> RuntimeStateSnapshot:
         return self._update(profile, phase=RuntimePhase.MAIN_CONFIRMED, operation_id=operation_id, session_id=session_id, handover_requested=True, terminal_state="main_confirmed")
 
-    def mark_ap_acquiring(self, profile: str, *, operation_id: str, session_id: str | None = None) -> RuntimeStateSnapshot:
-        return self._update(profile, phase=RuntimePhase.AP_ACQUIRING, operation_id=operation_id, session_id=session_id, handover_requested=False, terminal_state=None)
+    def mark_resource_acquiring(self, profile: str, *, operation_id: str, session_id: str | None = None) -> RuntimeStateSnapshot:
+        return self._update(profile, phase=RuntimePhase.RESOURCE_ACQUIRING, operation_id=operation_id, session_id=session_id, handover_requested=False, terminal_state=None)
 
-    def mark_ap_ready(self, profile: str, *, worker_pid: int, worker_created_at: float, operation_id: str, session_id: str | None = None) -> RuntimeStateSnapshot:
+    def mark_resource_ready(self, profile: str, *, worker_pid: int, worker_created_at: float, operation_id: str, session_id: str | None = None) -> RuntimeStateSnapshot:
         self._validate_worker(worker_pid, worker_created_at)
-        return self._update(profile, phase=RuntimePhase.AP_READY, worker_running=True, busy=False, current_task=None, operation_id=operation_id, session_id=session_id, handover_requested=False, draining=False, stop_requested=False, terminal_state="ready", worker_pid=worker_pid, worker_created_at=float(worker_created_at), provenance="dev_runtime")
+        return self._update(profile, phase=RuntimePhase.RESOURCE_READY, worker_running=True, busy=False, current_task=None, operation_id=operation_id, session_id=session_id, handover_requested=False, draining=False, stop_requested=False, terminal_state="ready", worker_pid=worker_pid, worker_created_at=float(worker_created_at), provenance="dev_runtime")
 
     def mark_failed(self, profile: str, *, operation_id: str | None = None, session_id: str | None = None, terminal_state: str = "failed") -> RuntimeStateSnapshot:
-        _optional_text(terminal_state, maximum=_MAX_TEXT) or _raise_text()
+        terminal_state = _optional_text(terminal_state, maximum=_MAX_TEXT)
+        if terminal_state is None:
+            raise RuntimeStateError("RUNTIME_STATE_TEXT_INVALID", "Текстовое поле runtime state не может быть пустым")
         return self._update(profile, phase=RuntimePhase.FAILED, operation_id=operation_id, session_id=session_id, handover_requested=False, draining=False, stop_requested=False, terminal_state=terminal_state, provenance="runtime_control")
 
     def _update(self, profile: str, **changes: object) -> RuntimeStateSnapshot:
         profile = _profile(profile)
         preserve_handover = changes.pop("_preserve_handover", False) is True
+        expected_worker = changes.pop("_expected_worker", None)
         with application_host_lock(self.lock_path):
             payload = self._read_payload()
             records = dict(payload["profiles"])
@@ -520,6 +603,23 @@ class RuntimeStateStore:
                         "Ключ runtime-профиля не совпадает с записью snapshot",
                     )
                 current = dict(existing_snapshot.as_dict())
+                if expected_worker is not None:
+                    expected_pid, expected_created_at = expected_worker
+                    if not existing_snapshot.worker_running:
+                        return replace(existing_snapshot, freshness=_freshness(existing_snapshot.updated_at))
+                    if (
+                        existing_snapshot.worker_pid != expected_pid
+                        or existing_snapshot.worker_created_at != expected_created_at
+                    ):
+                        raise RuntimeStateError(
+                            "RUNTIME_STATE_STALE_WRITE",
+                            "Попытка старого worker изменить snapshot нового worker отклонена",
+                        )
+            elif expected_worker is not None:
+                raise RuntimeStateError(
+                    "RUNTIME_STATE_STALE_WRITE",
+                    "Snapshot ожидаемого worker отсутствует",
+                )
             if preserve_handover:
                 for key in ("handover_requested", "draining", "stop_requested"):
                     changes[key] = current[key]
@@ -571,10 +671,6 @@ class RuntimeStateStore:
             raise RuntimeStateError("RUNTIME_WORKER_ID_INVALID", "worker_pid должен быть положительным int")
         if isinstance(worker_created_at, bool) or not isinstance(worker_created_at, (int, float)) or not math.isfinite(float(worker_created_at)) or float(worker_created_at) <= 0:
             raise RuntimeStateError("RUNTIME_WORKER_ID_INVALID", "worker_created_at должен быть положительным числом")
-
-
-def _raise_text() -> None:
-    raise RuntimeStateError("RUNTIME_STATE_TEXT_INVALID", "Текстовое поле runtime state не может быть пустым")
 
 
 def _atomic_state_write(path: Path, records: Mapping[str, object]) -> None:

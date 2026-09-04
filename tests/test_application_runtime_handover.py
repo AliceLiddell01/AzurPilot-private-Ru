@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-import json
 from collections import deque
-from pathlib import Path
 
 from module.application.runtime_handover import (
     HandoverPolicy,
+    NotificationOutcome,
     ProfileHandoverCoordinator,
 )
 from module.application.runtime_state import RuntimePhase, RuntimeStateSnapshot
-from module.application.scheduler_runtime import SchedulerRuntimeStateReader
 
 
 def _snapshot(*, busy: bool, worker_running: bool = True) -> RuntimeStateSnapshot:
@@ -35,25 +33,42 @@ def _snapshot(*, busy: bool, worker_running: bool = True) -> RuntimeStateSnapsho
 
 class Hooks:
     def __init__(self, states: list[RuntimeStateSnapshot | None]) -> None:
-        self.states = deque(states)
+        self.begin_states = deque(states[:1])
+        self.read_states = deque(states[1:])
+        self.begin_calls = 0
+        self.read_calls = 0
         self.phases: list[str] = []
         self.notifications = 0
+        self.notification_outcome = NotificationOutcome.DELIVERED
         self.quiesce_requests = 0
         self.wait_calls: list[float] = []
         self.return_calls = 0
         self.main_confirmed = True
 
+    def begin_handover(
+        self,
+        profile: str,
+        operation_id: str,
+        session_id: str | None,
+    ) -> RuntimeStateSnapshot | None:
+        self.begin_calls += 1
+        return self.begin_states.popleft() if self.begin_states else None
+
     def read_state(self, profile: str) -> RuntimeStateSnapshot | None:
-        if len(self.states) > 1:
-            return self.states.popleft()
-        return self.states[0] if self.states else None
+        self.read_calls += 1
+        return self.read_states.popleft() if self.read_states else None
 
     def mark_phase(self, profile: str, phase: RuntimePhase, operation_id: str, session_id: str | None) -> None:
         self.phases.append(phase.value)
 
-    def notify_preemption(self, profile: str, operation_id: str, session_id: str | None) -> bool:
+    def notify_preemption(
+        self,
+        profile: str,
+        operation_id: str,
+        session_id: str | None,
+    ) -> NotificationOutcome:
         self.notifications += 1
-        return True
+        return self.notification_outcome
 
     def request_cooperative_quiesce(self, profile: str, operation_id: str, session_id: str | None) -> bool:
         self.quiesce_requests += 1
@@ -88,17 +103,19 @@ def test_idle_handover_uses_cooperative_stop_and_confirms_main() -> None:
     )
 
     assert result.ok is True
+    assert hooks.begin_calls == 1
+    assert hooks.read_calls == 0
     assert hooks.notifications == 0
     assert hooks.quiesce_requests == 1
     assert hooks.return_calls == 1
     assert hooks.phases == [
-        "handover_requested",
         "quiesce_requested",
         "current_task_draining",
         "current_task_stopped",
         "returning_to_main",
         "main_confirmed",
     ]
+    assert result.phases[0] == "handover_requested"
 
 
 def test_busy_handover_warns_before_grace_and_does_not_use_hard_stop() -> None:
@@ -111,14 +128,13 @@ def test_busy_handover_warns_before_grace_and_does_not_use_hard_stop() -> None:
     )
 
     assert result.ok is True
+    assert hooks.begin_calls == 1
+    assert hooks.read_calls == 1
     assert hooks.notifications == 1
     assert hooks.wait_calls == [3]
-    assert hooks.phases[:3] == [
-        "handover_requested",
-        "preemption_notice",
-        "grace_period",
-    ]
+    assert hooks.phases[:2] == ["preemption_notice", "grace_period"]
     assert hooks.phases[-3:] == ["current_task_stopped", "returning_to_main", "main_confirmed"]
+    assert result.phases[:3] == ("handover_requested", "preemption_notice", "grace_period")
 
 
 def test_busy_handover_fails_closed_on_unknown_state_and_timeout() -> None:
@@ -132,6 +148,7 @@ def test_busy_handover_fails_closed_on_unknown_state_and_timeout() -> None:
     assert unknown.ok is False
     assert unknown.code == "RUNTIME_HANDOVER_STATE_UNKNOWN"
     assert unknown_hooks.quiesce_requests == 0
+    assert unknown_hooks.read_calls == 1
 
     timeout_hooks = Hooks([_snapshot(busy=False)])
     timeout_hooks.wait_worker_stopped = lambda _profile, _timeout: False
@@ -158,37 +175,22 @@ def test_handover_requires_an_authoritative_initial_state() -> None:
     assert result.code == "RUNTIME_HANDOVER_STATE_UNKNOWN"
 
 
-def test_handover_keeps_user_scheduler_semantic_fingerprint(tmp_path: Path) -> None:
-    config = tmp_path / "config"
-    config.mkdir()
-    (config / "alas.json").write_text(
-        json.dumps(
-            {
-                "DailyTask": {
-                    "Scheduler": {
-                        "Enable": False,
-                        "NextRun": "2026-09-05T01:00:00+00:00",
-                    }
-                },
-                "WeeklyTask": {
-                    "Scheduler": {
-                        "Enable": True,
-                        "NextRun": "2026-09-05T00:30:00+00:00",
-                    }
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-    reader = SchedulerRuntimeStateReader(tmp_path)
-    before = reader.semantic_fingerprint("alas", ("DailyTask", "WeeklyTask"))
+def test_handover_requires_confirmed_notification_delivery() -> None:
+    hooks = Hooks([_snapshot(busy=True)])
+    hooks.notification_outcome = NotificationOutcome.ACCEPTED
 
     result = _coordinator().run(
         "alas",
-        operation_id="handover-scheduler",
+        operation_id="handover-notification",
         session_id=None,
-        hooks=Hooks([_snapshot(busy=False)]),
+        hooks=hooks,
     )
 
-    assert result.ok is True
-    assert reader.semantic_fingerprint("alas", ("DailyTask", "WeeklyTask")) == before
+    assert result.ok is False
+    assert result.code == "RUNTIME_HANDOVER_NOTIFICATION_FAILED"
+    assert hooks.quiesce_requests == 0
+    assert result.details["notification"] == {
+        "attempted": True,
+        "outcome": "accepted",
+        "confirmed": False,
+    }

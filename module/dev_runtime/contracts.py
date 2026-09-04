@@ -271,7 +271,7 @@ class DevSession:
     task_policy_expected: bool = False
     profile_name: str | None = None
     target_identity: str | None = None
-    runtime_mode: DevRuntimeMode = DevRuntimeMode.STANDALONE_PROCESS
+    runtime_mode: DevRuntimeMode = DevRuntimeMode.SHARED_WEBUI
 
     def __post_init__(self) -> None:
         if self.profile_name is None:
@@ -379,7 +379,7 @@ class DevSession:
             raise ValueError("target_identity должен быть строкой или null")
         try:
             runtime_mode = DevRuntimeMode(
-                str(payload.get("runtime_mode", DevRuntimeMode.STANDALONE_PROCESS.value))
+                str(payload.get("runtime_mode", DevRuntimeMode.SHARED_WEBUI.value))
             )
         except ValueError as exc:
             raise ValueError("маркер содержит некорректный runtime mode") from exc

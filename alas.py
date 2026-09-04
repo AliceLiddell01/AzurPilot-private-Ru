@@ -1608,8 +1608,6 @@ class AzurLaneAutoScript:
             "_record_dev_runtime_task_finished",
             lambda *_args, **_kwargs: None,
         )
-        from module.dev_runtime.hooks import handover_requested as is_handover_requested
-
         from module.config.utils import is_oobe_needed
 
         if is_oobe_needed():
@@ -1627,6 +1625,15 @@ class AzurLaneAutoScript:
         MAX_GLOBAL_FAILURES = 3
         RESTART_DELAY = 20
         LONG_WAIT = 300
+
+        try:
+            from module.dev_runtime.hooks import handover_requested as _handover_requested
+        except ImportError:
+            def _handover_requested(*_args, **_kwargs):
+                return None
+
+        def is_handover_requested(config_name: str) -> bool | None:
+            return _handover_requested(config_name)
 
         while 1:
             try:

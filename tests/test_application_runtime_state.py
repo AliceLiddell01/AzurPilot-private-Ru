@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -97,3 +98,20 @@ def test_runtime_state_does_not_claim_a_task_after_handover_request(tmp_path: Pa
     snapshot = store.read("alas")
     assert snapshot.busy is False
     assert snapshot.handover_requested is True
+
+
+def test_runtime_state_begin_handover_atomically_blocks_new_task_boundary(tmp_path: Path) -> None:
+    store = _store(tmp_path, datetime.now(UTC).isoformat())
+    store.mark_worker_started("alas", worker_pid=1004, worker_created_at=2004.0)
+
+    handover = store.begin_handover(
+        "alas",
+        operation_id="handover-atomic",
+        session_id="session-atomic",
+    )
+
+    assert handover is not None
+    assert handover.phase is RuntimePhase.HANDOVER_REQUESTED
+    assert handover.handover_requested is True
+    assert store.try_mark_task_started("alas", "DailyTask", operation_id="task-race") is False
+    assert store.read("alas").current_task is None

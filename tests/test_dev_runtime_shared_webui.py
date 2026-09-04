@@ -162,7 +162,7 @@ def test_shared_runtime_requires_worker_registry_identity_to_match_runtime_state
     shared._owner_matches = lambda _owner: True  # type: ignore[method-assign]
     shared._worker_record = lambda _profile: record  # type: ignore[method-assign]
     shared._process_matches = lambda _record: True  # type: ignore[method-assign]
-    RuntimeStateStore(tmp_path).mark_ap_ready(
+    RuntimeStateStore(tmp_path).mark_resource_ready(
         "ap",
         worker_pid=7010,
         worker_created_at=8010.0,

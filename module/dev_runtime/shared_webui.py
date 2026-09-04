@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 from module.application.runtime_control import (
@@ -26,12 +27,15 @@ class SharedWebUIRuntime:
         self.repository_root = Path(repository_root).resolve()
         self.state = RuntimeStateStore(self.repository_root)
         self._control_client = control_client
+        self._profile_name: str | None = None
 
     @property
     def profile_name(self) -> str:
-        from module.dev_runtime.target import DevTargetRegistry
+        if self._profile_name is None:
+            from module.dev_runtime.target import DevTargetRegistry
 
-        return DevTargetRegistry.load(self.repository_root).profile_name
+            self._profile_name = DevTargetRegistry.load(self.repository_root).profile_name
+        return self._profile_name
 
     @property
     def log_file(self) -> Path:
@@ -101,7 +105,7 @@ class SharedWebUIRuntime:
             return process_matches(record) is True
         except RuntimeError:
             return None
-        except Exception:  # noqa: BLE001 - identity check fails closed.
+        except Exception:  # noqa: BLE001 - ошибка проверки identity переводит путь в fail-closed режим.
             return None
 
     def ready(self, profile: str | None = None, session_id: str | None = None) -> tuple[bool, str]:
@@ -177,11 +181,19 @@ class SharedWebUIRuntime:
             or not isinstance(record_pid, int)
             or isinstance(record_created_at, bool)
             or not isinstance(record_created_at, (int, float))
+            or not math.isfinite(float(record_created_at))
+            or float(record_created_at) <= 0
+            or isinstance(worker_pid, bool)
+            or not isinstance(worker_pid, int)
+            or worker_pid <= 0
+            or isinstance(worker_created_at, bool)
+            or not isinstance(worker_created_at, (int, float))
+            or not math.isfinite(float(worker_created_at))
+            or float(worker_created_at) <= 0
         ):
             return False
         return (
             worker_pid == record_pid
-            and worker_created_at is not None
             and float(worker_created_at) == float(record_created_at)
         )
 

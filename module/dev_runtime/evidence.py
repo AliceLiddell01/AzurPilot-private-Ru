@@ -27,14 +27,15 @@ from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
 
 from deploy.atomic import file_write, replace_tmp, to_tmp_file
+from module.dev_runtime.bounded_io import BoundedReadTooLarge, read_bounded_bytes
 from module.dev_runtime.contracts import (
     DevEnvironment,
     DevResult,
     DevSession,
     DevSessionState,
 )
-from module.dev_runtime.bounded_io import BoundedReadTooLarge, read_bounded_bytes
 from module.dev_runtime.sanitizer import MAX_SANITIZED_TEXT, redact_text
+from module.dev_runtime.target import DevTarget
 from module.dev_runtime.task_sandbox import (
     TASK_POLICY_ACTIVE,
     TASK_POLICY_FILE_ENV,
@@ -42,7 +43,6 @@ from module.dev_runtime.task_sandbox import (
     TASK_POLICY_SESSION_ENV,
     TaskPolicyStore,
 )
-from module.dev_runtime.target import DevTarget
 
 EVIDENCE_SCHEMA_VERSION = 2
 TIMELINE_SCHEMA_VERSION = 1
@@ -915,7 +915,7 @@ def _validate_timeline_metadata(value: object) -> dict[str, object]:
 
 
 def _validate_log_metadata(value: object) -> dict[str, object]:
-    required = {
+    legacy_required = {
         "source",
         "available",
         "boundary_offset",
@@ -924,7 +924,8 @@ def _validate_log_metadata(value: object) -> dict[str, object]:
         "end_identity",
         "truncated",
     }
-    if not isinstance(value, Mapping) or set(value) != required:
+    segmented_required = legacy_required | {"segments"}
+    if not isinstance(value, Mapping) or set(value) not in (legacy_required, segmented_required):
         raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Манифест журнала имеет неполную структуру")
     source = value.get("source")
     available = value.get("available")
@@ -954,12 +955,77 @@ def _validate_log_metadata(value: object) -> dict[str, object]:
         and end_offset < boundary_offset
     ):
         raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Конечная граница журнала предшествует начальной")
-    if (
-        end_identity is not None
-        and boundary_identity is not None
-        and not end_identity.same_file(boundary_identity)
-    ):
-        raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Конечная граница журнала относится к другому файлу")
+    raw_segments = value.get("segments")
+    if raw_segments is None:
+        segments = (
+            [
+                {
+                    "identity": boundary_identity.as_dict() if boundary_identity is not None else None,
+                    "boundary_offset": boundary_offset,
+                    "end_offset": end_offset,
+                }
+            ]
+            if available
+            else []
+        )
+        if (
+            end_identity is not None
+            and boundary_identity is not None
+            and not end_identity.same_file(boundary_identity)
+        ):
+            raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Конечная граница журнала относится к другому файлу")
+    else:
+        if not isinstance(raw_segments, list) or len(raw_segments) > 32 or (available and not raw_segments) or (not available and raw_segments):
+            raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Сегменты журнала имеют неверное количество")
+        segments = []
+        previous_identity: _FileIdentity | None = None
+        for raw_segment in raw_segments:
+            if not isinstance(raw_segment, Mapping) or set(raw_segment) != {
+                "identity",
+                "boundary_offset",
+                "end_offset",
+            }:
+                raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Сегмент журнала имеет неполную структуру")
+            segment_identity = _FileIdentity.from_value(raw_segment.get("identity"))
+            segment_boundary = raw_segment.get("boundary_offset")
+            segment_end = raw_segment.get("end_offset")
+            if (
+                segment_identity is None
+                or isinstance(segment_boundary, bool)
+                or not isinstance(segment_boundary, int)
+                or segment_boundary < 0
+                or (
+                    segment_end is not None
+                    and (
+                        isinstance(segment_end, bool)
+                        or not isinstance(segment_end, int)
+                        or segment_end < segment_boundary
+                    )
+                )
+            ):
+                raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Сегмент журнала имеет неверные границы")
+            if previous_identity is not None and segment_identity.same_file(previous_identity):
+                raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Сегменты журнала не должны повторять inode")
+            previous_identity = segment_identity
+            segments.append(
+                {
+                    "identity": segment_identity.as_dict(),
+                    "boundary_offset": segment_boundary,
+                    "end_offset": segment_end,
+                }
+            )
+        if segments:
+            first = segments[0]
+            first_identity = _FileIdentity.from_value(first["identity"])
+            assert first_identity is not None
+            if (
+                boundary_offset != first["boundary_offset"]
+                or boundary_identity is None
+                or not boundary_identity.same_file(first_identity)
+            ):
+                raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Исходная граница журнала не совпадает с первым сегментом")
+            if len(segments) == 1 and end_offset != segments[0]["end_offset"]:
+                raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Конечная граница журнала не совпадает с сегментом")
     if not available and (
         boundary_offset is not None
         or boundary_identity is not None
@@ -975,6 +1041,7 @@ def _validate_log_metadata(value: object) -> dict[str, object]:
         "end_offset": end_offset,
         "end_identity": end_identity.as_dict() if end_identity is not None else None,
         "truncated": truncated,
+        "segments": segments,
     }
 
 
@@ -1433,6 +1500,7 @@ class EvidenceStore:
                 "end_offset": None,
                 "end_identity": None,
                 "truncated": False,
+                "segments": [],
             },
             "screenshots": {"count": 0, "latest": None},
             "last_error": None,
@@ -1574,18 +1642,23 @@ class EvidenceStore:
         """Зафиксировать границу журнала перед запуском корневого процесса gui.py."""
 
         try:
-            log_path = _ensure_scoped_path(
-                self.log_file,
-                self.environment.repository_root,
-                label="путь журнала сессии",
-            )
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            if not log_path.exists():
-                with log_path.open("ab"):
-                    pass
-            identity = _file_identity(log_path)
             with _exclusive_lock(self.lock_path, self.environment.repository_root):
                 manifest = self._manifest_locked()
+                logs = _validate_log_metadata(manifest["logs"])
+                if logs["available"]:
+                    # Граница сессии является одноразовой: поздний вызов не
+                    # должен исключить уже записанные startup lines.
+                    return
+                log_path = _ensure_scoped_path(
+                    self.log_file,
+                    self.environment.repository_root,
+                    label="путь журнала сессии",
+                )
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                if not log_path.exists():
+                    with log_path.open("ab"):
+                        pass
+                identity = _file_identity(log_path)
                 manifest["logs"] = {
                     "source": self.log_source,
                     "available": True,
@@ -1594,6 +1667,13 @@ class EvidenceStore:
                     "end_offset": None,
                     "end_identity": None,
                     "truncated": False,
+                    "segments": [
+                        {
+                            "identity": identity.as_dict(),
+                            "boundary_offset": int(log_path.stat().st_size),
+                            "end_offset": None,
+                        }
+                    ],
                 }
                 self._write_manifest_locked(manifest)
         except Exception as exc:
@@ -1604,10 +1684,6 @@ class EvidenceStore:
         logs = _validate_log_metadata(manifest["logs"])
         if not logs["available"]:
             return
-        boundary_offset = logs["boundary_offset"]
-        boundary_identity = _FileIdentity.from_value(logs["boundary_identity"])
-        assert isinstance(boundary_offset, int)
-        assert boundary_identity is not None
         try:
             log_path = _ensure_scoped_path(
                 self._log_path_from_source(logs["source"]),
@@ -1619,14 +1695,36 @@ class EvidenceStore:
         except (EvidenceError, OSError):
             self._set_health_locked(manifest, "log_boundary_lost")
             return
-        if not end_identity.same_file(boundary_identity) or end_offset < boundary_offset:
+        segments = [dict(segment) for segment in logs["segments"]]
+        last = segments[-1]
+        last_identity = _FileIdentity.from_value(last["identity"])
+        assert last_identity is not None
+        if not end_identity.same_file(last_identity):
+            if manifest.get("stopped_at") is not None:
+                self._set_health_locked(manifest, "log_boundary_lost")
+                return
+            # Старый inode уже недоступен; закрываем его на исходной границе и
+            # продолжаем чтение с нулевого смещения нового сегмента.
+            last["end_offset"] = last["boundary_offset"]
+            segments.append(
+                {
+                    "identity": end_identity.as_dict(),
+                    "boundary_offset": 0,
+                    "end_offset": end_offset,
+                }
+            )
+        elif end_offset < int(last["boundary_offset"]):
             self._set_health_locked(manifest, "log_boundary_lost")
             return
-        manifest["logs"] = {
+        else:
+            last["end_offset"] = end_offset
+        updated_logs = {
             **logs,
-            "end_offset": end_offset,
-            "end_identity": end_identity.as_dict(),
+            "segments": segments,
+            "end_offset": end_offset if len(segments) == 1 else None,
+            "end_identity": end_identity.as_dict() if len(segments) == 1 else None,
         }
+        manifest["logs"] = updated_logs
 
     def _append_event_locked(
         self,
@@ -2282,16 +2380,17 @@ class EvidenceStore:
             "health": dict(manifest["evidence_health"]),
         }
 
-    def _cursor(self, *, offset: int, identity: _FileIdentity) -> str:
+    def _cursor(self, *, segment: int = 0, offset: int, identity: _FileIdentity) -> str:
         payload = {
             "session_id": self.session_id,
+            "segment": segment,
             "offset": offset,
             "identity": identity.as_dict(),
         }
         raw = json.dumps(payload, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
         return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
 
-    def _decode_cursor(self, value: str) -> tuple[int, _FileIdentity]:
+    def _decode_cursor(self, value: str) -> tuple[int, int, _FileIdentity]:
         if not isinstance(value, str) or not value or len(value) > _MAX_CURSOR_LENGTH:
             raise EvidenceError("DEV_EVIDENCE_CURSOR_INVALID", "Курсор журнала имеет некорректный формат")
         try:
@@ -2300,20 +2399,26 @@ class EvidenceStore:
             payload = json.loads(raw.decode("utf-8"))
         except (ValueError, UnicodeError, json.JSONDecodeError) as exc:
             raise EvidenceError("DEV_EVIDENCE_CURSOR_INVALID", "Курсор журнала невозможно проверить") from exc
-        if not isinstance(payload, Mapping) or set(payload) != {"session_id", "offset", "identity"}:
+        if not isinstance(payload, Mapping) or set(payload) not in (
+            {"session_id", "offset", "identity"},
+            {"session_id", "segment", "offset", "identity"},
+        ):
             raise EvidenceError("DEV_EVIDENCE_CURSOR_INVALID", "Курсор журнала имеет неизвестные поля")
         if payload.get("session_id") != self.session_id:
             raise EvidenceError("DEV_EVIDENCE_CURSOR_INVALID", "Курсор журнала принадлежит другой сессии")
         offset = payload.get("offset")
         if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
             raise EvidenceError("DEV_EVIDENCE_CURSOR_INVALID", "Смещение курсора журнала некорректно")
+        segment = payload.get("segment", 0)
+        if isinstance(segment, bool) or not isinstance(segment, int) or not 0 <= segment < 32:
+            raise EvidenceError("DEV_EVIDENCE_CURSOR_INVALID", "Сегмент курсора журнала некорректен")
         try:
             identity = _FileIdentity.from_value(payload.get("identity"))
         except EvidenceCorrupt as exc:
             raise EvidenceError("DEV_EVIDENCE_CURSOR_INVALID", "Курсор содержит повреждённый идентификатор файла") from exc
         if identity is None:
             raise EvidenceError("DEV_EVIDENCE_CURSOR_INVALID", "Курсор журнала не содержит идентификатор файла")
-        return offset, identity
+        return segment, offset, identity
 
     def logs_page(
         self,
@@ -2326,8 +2431,8 @@ class EvidenceStore:
             raise EvidenceError("DEV_EVIDENCE_LIMIT_INVALID", "Ограничение журнала выходит за допустимые границы")
         with _exclusive_lock(self.lock_path, self.environment.repository_root):
             manifest = self._manifest_locked()
-            logs = manifest["logs"]
-            if not isinstance(logs, Mapping) or not logs.get("available"):
+            logs = _validate_log_metadata(manifest["logs"])
+            if not logs["available"]:
                 self._set_health_locked(manifest, "log_boundary_lost")
                 self._write_manifest_locked(manifest)
                 return {
@@ -2338,19 +2443,11 @@ class EvidenceStore:
                     "truncated": False,
                     "health": dict(manifest["evidence_health"]),
                 }
-            boundary_offset = logs.get("boundary_offset")
-            boundary_identity = _FileIdentity.from_value(logs.get("boundary_identity"))
-            if isinstance(boundary_offset, bool) or not isinstance(boundary_offset, int) or boundary_identity is None:
-                self._set_health_locked(manifest, "log_boundary_lost")
-                self._write_manifest_locked(manifest)
-                raise EvidenceError("DEV_EVIDENCE_LOG_BOUNDARY_LOST", "Граница журнала повреждена")
             log_path = _ensure_scoped_path(
                 self._log_path_from_source(logs.get("source")),
                 self.environment.repository_root,
                 label="путь журнала сессии",
             )
-            end_offset = logs.get("end_offset")
-            end_identity = _FileIdentity.from_value(logs.get("end_identity"))
             stopped = manifest.get("stopped_at") is not None
             try:
                 current_identity = _file_identity(log_path)
@@ -2366,15 +2463,52 @@ class EvidenceStore:
                     "truncated": False,
                     "health": dict(manifest["evidence_health"]),
                 }
-            if not current_identity.same_file(boundary_identity) or current_size < boundary_offset:
+
+            segments = [dict(segment) for segment in logs["segments"]]
+            last_segment = segments[-1]
+            last_identity = _FileIdentity.from_value(last_segment["identity"])
+            assert last_identity is not None
+            if not current_identity.same_file(last_identity):
+                if stopped or active_owned is False:
+                    self._set_health_locked(manifest, "log_boundary_lost")
+                    self._write_manifest_locked(manifest)
+                    raise EvidenceError(
+                        "DEV_EVIDENCE_LOG_BOUNDARY_LOST",
+                        "Файл журнала был заменён после завершения сессии",
+                    )
+                # Ротация во время активной сессии создаёт новый сегмент. Его
+                # нулевая граница содержит startup lines нового worker, а
+                # исходная pre-side-effect граница остаётся в manifest.
+                last_segment["end_offset"] = last_segment["boundary_offset"]
+                segments.append(
+                    {
+                        "identity": current_identity.as_dict(),
+                        "boundary_offset": 0,
+                        "end_offset": None,
+                    }
+                )
+                logs = {
+                    **logs,
+                    "segments": segments,
+                    "end_offset": None,
+                    "end_identity": None,
+                }
+                manifest["logs"] = logs
+                self._write_manifest_locked(manifest)
+            current_segment_index = len(segments) - 1
+            current_segment = segments[-1]
+            boundary_offset = current_segment["boundary_offset"]
+            boundary_identity = _FileIdentity.from_value(current_segment["identity"])
+            end_offset = current_segment["end_offset"]
+            assert isinstance(boundary_offset, int)
+            assert boundary_identity is not None
+            if current_size < boundary_offset:
                 self._set_health_locked(manifest, "log_boundary_lost")
                 self._write_manifest_locked(manifest)
                 raise EvidenceError("DEV_EVIDENCE_LOG_BOUNDARY_LOST", "Файл журнала был заменён или обрезан")
             if end_offset is not None:
                 if (
                     not isinstance(end_offset, int)
-                    or end_identity is None
-                    or not end_identity.same_file(boundary_identity)
                     or end_offset < boundary_offset
                     or current_size < end_offset
                 ):
@@ -2396,8 +2530,12 @@ class EvidenceStore:
                 read_end = current_size
             offset = boundary_offset
             if cursor is not None:
-                offset, cursor_identity = self._decode_cursor(cursor)
-                if (
+                cursor_segment, offset, cursor_identity = self._decode_cursor(cursor)
+                if cursor_segment < current_segment_index:
+                    offset = boundary_offset
+                elif cursor_segment != current_segment_index:
+                    raise EvidenceError("DEV_EVIDENCE_CURSOR_INVALID", "Курсор журнала выходит за границу сессии")
+                elif (
                     not cursor_identity.same_file(boundary_identity)
                     or offset < boundary_offset
                     or offset > read_end
@@ -2482,7 +2620,15 @@ class EvidenceStore:
                 manifest["logs"] = updated_logs
                 self._write_manifest_locked(manifest)
             truncated = truncated or previous_truncated
-            next_cursor = self._cursor(offset=next_offset, identity=boundary_identity) if more else None
+            next_cursor = (
+                self._cursor(
+                    segment=current_segment_index,
+                    offset=next_offset,
+                    identity=boundary_identity,
+                )
+                if more
+                else None
+            )
             return {
                 "session_id": self.session_id,
                 "items": items,

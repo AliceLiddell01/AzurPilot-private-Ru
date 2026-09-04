@@ -62,3 +62,51 @@ def test_scheduler_reader_rejects_unsafe_paths_and_malformed_persisted_state(tmp
     with pytest.raises(SchedulerRuntimeStateError) as state_error:
         reader.read_state("alas", ("DailyTask",))
     assert state_error.value.code == "SCHEDULER_STATE_INVALID"
+
+
+def test_scheduler_reader_accepts_registered_unicode_and_spaced_names(tmp_path: Path) -> None:
+    config = tmp_path / "config"
+    config.mkdir()
+    profile = "Профиль один"
+    task = "Ежедневная задача"
+    (config / f"{profile}.json").write_text(
+        json.dumps(
+            {
+                task: {
+                    "Scheduler": {
+                        "Enable": True,
+                        "NextRun": "2026-09-04T00:30:00+00:00",
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    queue = SchedulerRuntimeStateReader(tmp_path).read_queue(profile, (task,))
+
+    assert [entry.task for entry in queue] == [task]
+
+
+@pytest.mark.parametrize(
+    "scheduler",
+    (
+        {"NextRun": "2026-09-04T00:30:00+00:00"},
+        {"Enable": True},
+    ),
+)
+def test_scheduler_reader_requires_enable_and_next_run_fields(
+    tmp_path: Path,
+    scheduler: dict[str, object],
+) -> None:
+    config = tmp_path / "config"
+    config.mkdir()
+    (config / "alas.json").write_text(
+        json.dumps({"DailyTask": {"Scheduler": scheduler}}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SchedulerRuntimeStateError) as error:
+        SchedulerRuntimeStateReader(tmp_path).read_state("alas", ("DailyTask",))
+
+    assert error.value.code == "SCHEDULER_STATE_MISSING"

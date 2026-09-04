@@ -7,15 +7,15 @@ import math
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from module.application.game_models import SchedulerEntry
+from module.application.game_validation import INVALID_NAME_CHARS, MAX_NAME_LENGTH
 
 _MAX_BYTES = 1024 * 1024
 _MAX_TASKS = 256
-_SAFE_SEGMENT = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
-_FALLBACK_NEXT_RUN = datetime.fromisoformat("2050-01-01")
+_SAFE_SEGMENT = re.compile(r"^.{1,128}$", re.DOTALL)
 
 
 class SchedulerRuntimeStateError(RuntimeError):
@@ -89,12 +89,20 @@ class SchedulerRuntimeStateReader:
                 raise SchedulerRuntimeStateError(
                     "SCHEDULER_STATE_INVALID", f"Scheduler state задачи {task} имеет неверный тип"
                 )
-            enabled = scheduler.get("Enable", False)
+            if "Enable" not in scheduler:
+                raise SchedulerRuntimeStateError(
+                    "SCHEDULER_STATE_MISSING", f"Scheduler.Enable задачи {task} отсутствует"
+                )
+            enabled = scheduler["Enable"]
             if type(enabled) is not bool:
                 raise SchedulerRuntimeStateError(
                     "SCHEDULER_STATE_INVALID", f"Scheduler.Enable задачи {task} не является boolean"
                 )
-            next_run = scheduler.get("NextRun", _FALLBACK_NEXT_RUN)
+            if "NextRun" not in scheduler:
+                raise SchedulerRuntimeStateError(
+                    "SCHEDULER_STATE_MISSING", f"Scheduler.NextRun задачи {task} отсутствует"
+                )
+            next_run = scheduler["NextRun"]
             if isinstance(next_run, str):
                 if len(next_run) > 80:
                     raise SchedulerRuntimeStateError(
@@ -127,11 +135,7 @@ class SchedulerRuntimeStateReader:
         return tuple(
             sorted(
                 entries,
-                key=lambda entry: (
-                    0,
-                    _datetime_timestamp(entry.next_run),
-                    entry.task,
-                ),
+                key=scheduler_entry_sort_key,
             )
         )
 
@@ -175,7 +179,14 @@ class SchedulerRuntimeStateReader:
 
     @staticmethod
     def _safe_segment(value: object, *, field: str) -> str:
-        if not isinstance(value, str) or _SAFE_SEGMENT.fullmatch(value) is None or ".." in value:
+        if (
+            not isinstance(value, str)
+            or _SAFE_SEGMENT.fullmatch(value) is None
+            or value != value.strip()
+            or value in {".", ".."}
+            or any(char in INVALID_NAME_CHARS or ord(char) < 32 or ord(char) == 127 for char in value)
+            or len(value) > MAX_NAME_LENGTH
+        ):
             raise SchedulerRuntimeStateError(
                 "SCHEDULER_STATE_PATH_INVALID", f"{field} имеет небезопасный формат"
             )
@@ -196,17 +207,24 @@ class SchedulerRuntimeStateReader:
             ) from exc
 
 
-def _datetime_timestamp(value: object) -> float:
-    if not isinstance(value, datetime):
-        return math.inf
-    try:
-        return value.timestamp()
-    except (OverflowError, OSError, ValueError):
-        return math.inf
+def scheduler_entry_sort_key(entry: SchedulerEntry) -> tuple[int, float, str]:
+    """Упорядочить scheduler entries по абсолютному времени в общем формате."""
+
+    value = entry.next_run
+    if isinstance(value, datetime):
+        try:
+            # Наивный datetime в legacy config трактуется как UTC, чтобы raw- и
+            # adapter-reader не зависели от локальной временной зоны процесса.
+            normalized = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+            return (0, normalized.timestamp(), "")
+        except (OverflowError, OSError, ValueError):
+            return (0, math.inf, "")
+    return (1, 0.0, str(value))
 
 
 __all__ = [
     "SchedulerRuntimeEntry",
     "SchedulerRuntimeStateError",
     "SchedulerRuntimeStateReader",
+    "scheduler_entry_sort_key",
 ]

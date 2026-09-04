@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import math
 import os
 from collections.abc import Callable, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 
+from module.application.host_lock import HOST_LOCK_TIMEOUT_SECONDS
+from module.application.resource_lease import ResourceLeaseError, game_runtime_lease
 from module.application.runtime_control import (
     RuntimeControlOperation,
     RuntimeControlResult,
@@ -15,10 +19,12 @@ from module.application.runtime_control import (
 from module.application.runtime_handover import (
     HandoverHooks,
     HandoverPolicy,
+    NotificationOutcome,
     ProfileHandoverCoordinator,
 )
 from module.application.runtime_state import (
     RuntimePhase,
+    RuntimeStateError,
     RuntimeStateSnapshot,
     RuntimeStateStore,
 )
@@ -33,7 +39,7 @@ class WebUIRuntimeControlOwner:
         *,
         manager_factory: Callable[[str], object] | None = None,
         application: object | None = None,
-        notifier: Callable[[str, str, str], bool] | None = None,
+        notifier: Callable[[str, str, str], NotificationOutcome | bool] | None = None,
         profile_provider: Callable[[], Sequence[str]] | None = None,
         worker_record_provider: Callable[[str], dict[str, object] | None] | None = None,
         function_factory: Callable[[str], object] | None = None,
@@ -85,8 +91,21 @@ class WebUIRuntimeControlOwner:
         request_id: str,
         idempotency_key: str,
         session_id: str | None,
+        expires_at: str,
     ) -> RuntimeControlResult:
         owner = self.owner_identity()
+        try:
+            deadline = self._parse_deadline(expires_at)
+        except (TypeError, ValueError):
+            return self._failure(
+                operation,
+                profile,
+                request_id,
+                idempotency_key,
+                "RUNTIME_CONTROL_FIELD_INVALID",
+                "Срок действия runtime control request имеет неверный формат",
+                owner=owner,
+            )
         try:
             if owner is None or self.owner_matches(owner) is not True:
                 return self._failure(
@@ -108,32 +127,75 @@ class WebUIRuntimeControlOwner:
                     "Профиль не входит в canonical registry рабочей копии",
                     owner=owner,
                 )
+            development_profile = self._development_profile()
+            if self._deadline_expired(deadline):
+                return self._failure(
+                    operation,
+                    profile,
+                    request_id,
+                    idempotency_key,
+                    "RUNTIME_CONTROL_EXPIRED",
+                    "Срок действия runtime control request истёк до захвата игрового ресурса",
+                    owner=owner,
+                )
             if operation is RuntimeControlOperation.START_PROFILE:
-                return self._start(
+                target_operation = self._start
+            elif operation is RuntimeControlOperation.STOP_PROFILE:
+                target_operation = self._stop
+            else:
+                target_operation = None
+            if target_operation is None:
+                return self._failure(
+                    operation,
+                    profile,
+                    request_id,
+                    idempotency_key,
+                    "RUNTIME_OPERATION_INVALID",
+                    "Операция отсутствует в фиксированном типизированном каталоге",
+                    owner=owner,
+                )
+            lease_timeout = self._remaining_deadline(deadline)
+            with game_runtime_lease(self.repository_root, timeout=lease_timeout):
+                if self._deadline_expired(deadline):
+                    return self._failure(
+                        operation,
+                        profile,
+                        request_id,
+                        idempotency_key,
+                        "RUNTIME_CONTROL_EXPIRED",
+                        "Срок действия runtime control request истёк до выполнения operation",
+                        owner=owner,
+                    )
+                return target_operation(
                     profile,
                     request_id=request_id,
                     idempotency_key=idempotency_key,
                     session_id=session_id,
                     owner=owner,
+                    deadline=deadline,
+                    development_profile=development_profile,
                 )
-            if operation is RuntimeControlOperation.STOP_PROFILE:
-                return self._stop(
-                    profile,
-                    request_id=request_id,
-                    idempotency_key=idempotency_key,
-                    session_id=session_id,
-                    owner=owner,
-                )
+        except (ResourceLeaseError, TimeoutError):
+            code = (
+                "RUNTIME_CONTROL_EXPIRED"
+                if self._deadline_expired(deadline)
+                else "RUNTIME_RESOURCE_LEASE_UNAVAILABLE"
+            )
+            message = (
+                "Срок действия runtime control request истёк во время ожидания игрового ресурса"
+                if code == "RUNTIME_CONTROL_EXPIRED"
+                else "Игровой runtime занят другой операцией или его identity невозможно подтвердить"
+            )
             return self._failure(
                 operation,
                 profile,
                 request_id,
                 idempotency_key,
-                "RUNTIME_OPERATION_INVALID",
-                "Операция отсутствует в фиксированном типизированном каталоге",
+                code,
+                message,
                 owner=owner,
             )
-        except Exception:  # noqa: BLE001 - owner boundary fails closed.
+        except Exception:  # noqa: BLE001 - ошибка границы owner переводит путь в fail-closed режим.
             return self._failure(
                 operation,
                 profile,
@@ -152,9 +214,30 @@ class WebUIRuntimeControlOwner:
         idempotency_key: str,
         session_id: str | None,
         owner: RuntimeOwnerIdentity,
+        deadline: datetime,
+        development_profile: str | None,
     ) -> RuntimeControlResult:
+        if self._deadline_expired(deadline):
+            return self._failure(
+                RuntimeControlOperation.START_PROFILE,
+                profile,
+                request_id,
+                idempotency_key,
+                "RUNTIME_CONTROL_EXPIRED",
+                "Срок действия runtime control request истёк до чтения source ownership",
+                owner=owner,
+            )
         manager = self._manager(profile)
-        development_profile = self._development_profile()
+        if profile == development_profile and session_id is None:
+            return self._failure(
+                RuntimeControlOperation.START_PROFILE,
+                profile,
+                request_id,
+                idempotency_key,
+                "RUNTIME_SESSION_REQUIRED",
+                "Для управления development profile требуется session_id",
+                owner=owner,
+            )
         if self._read_alive(manager):
             snapshot = self.state.read(profile)
             if snapshot is None:
@@ -169,7 +252,6 @@ class WebUIRuntimeControlOwner:
                 )
             if (
                 profile == development_profile
-                and session_id is not None
                 and snapshot.session_id != session_id
             ):
                 return self._failure(
@@ -194,10 +276,20 @@ class WebUIRuntimeControlOwner:
                         "Профиль считается запущенным только при подтверждённой записи worker",
                         owner=owner,
                     )
-                snapshot = self.state.mark_ap_ready(
+                if self._deadline_expired(deadline):
+                    return self._failure(
+                        RuntimeControlOperation.START_PROFILE,
+                        profile,
+                        request_id,
+                        idempotency_key,
+                        "RUNTIME_CONTROL_EXPIRED",
+                        "Срок действия runtime control request истёк до подтверждения уже работающего worker",
+                        owner=owner,
+                    )
+                snapshot = self.state.mark_resource_ready(
                     profile,
-                    worker_pid=int(record["pid"]),
-                    worker_created_at=float(record["created_at"]),
+                    worker_pid=record["pid"],
+                    worker_created_at=record["created_at"],
                     operation_id=request_id,
                     session_id=session_id or snapshot.session_id,
                 )
@@ -242,7 +334,11 @@ class WebUIRuntimeControlOwner:
                 source,
                 operation_id=request_id,
                 session_id=session_id,
-                hooks=_OwnerHandoverHooks(self, source),
+                hooks=_OwnerHandoverHooks(self, source, deadline=deadline),
+                deadline_check=lambda: not self._deadline_expired(deadline),
+                deadline_remaining=lambda: max(
+                    (deadline - datetime.now(UTC)).total_seconds(), 0.0
+                ),
             )
             if not handover.ok:
                 return self._failure(
@@ -268,63 +364,148 @@ class WebUIRuntimeControlOwner:
                 )
             handover_details = handover.as_dict()
 
-        if profile == development_profile:
-            self.state.mark_ap_acquiring(profile, operation_id=request_id, session_id=session_id)
-        self._start_manager(manager, profile, request_id, session_id)
-        if self._read_alive(manager) is not True:
-            self.state.mark_failed(
-                profile,
-                operation_id=request_id,
-                session_id=session_id,
-                terminal_state="start_unconfirmed",
-            )
+        if self._deadline_expired(deadline):
             return self._failure(
                 RuntimeControlOperation.START_PROFILE,
                 profile,
                 request_id,
                 idempotency_key,
-                "RUNTIME_START_UNCONFIRMED",
-                "WebUI-owned ProcessManager не подтвердил запуск worker",
+                "RUNTIME_CONTROL_EXPIRED",
+                "Срок действия runtime control request истёк до запуска worker",
                 owner=owner,
             )
-        record = self._worker_record(profile)
-        if record is None:
-            cleanup_confirmed = self._cooperative_stop_unconfirmed(
+        if profile == development_profile:
+            self.state.mark_resource_acquiring(profile, operation_id=request_id, session_id=session_id)
+        try:
+            self._start_manager(manager, profile, request_id, session_id)
+        except Exception as exc:  # noqa: BLE001 - запущенный worker должен быть согласован с registry.
+            return self._start_failure_after_launch(
+                profile,
                 manager,
                 request_id=request_id,
+                idempotency_key=idempotency_key,
                 session_id=session_id,
+                owner=owner,
+                deadline=deadline,
+                code="RUNTIME_START_UNCONFIRMED",
+                message="WebUI-owned ProcessManager не подтвердил запуск worker",
+                terminal_state="start_failed",
+                extra_details={"error": type(exc).__name__},
             )
-            self.state.mark_failed(
+        if self._deadline_expired(deadline):
+            return self._start_failure_after_launch(
                 profile,
-                operation_id=request_id,
+                manager,
+                request_id=request_id,
+                idempotency_key=idempotency_key,
                 session_id=session_id,
+                owner=owner,
+                deadline=deadline,
+                code="RUNTIME_CONTROL_EXPIRED",
+                message="Срок действия runtime control request истёк после запуска worker",
+                terminal_state="control_expired",
+            )
+        try:
+            alive = self._read_alive(manager)
+        except Exception as exc:  # noqa: BLE001 - состояние worker должно быть подтверждено.
+            return self._start_failure_after_launch(
+                profile,
+                manager,
+                request_id=request_id,
+                idempotency_key=idempotency_key,
+                session_id=session_id,
+                owner=owner,
+                deadline=deadline,
+                code="RUNTIME_START_UNCONFIRMED",
+                message="WebUI-owned ProcessManager не подтвердил состояние worker",
+                terminal_state="start_unconfirmed",
+                extra_details={"error": type(exc).__name__},
+            )
+        if alive is not True:
+            return self._start_failure_after_launch(
+                profile,
+                manager,
+                request_id=request_id,
+                idempotency_key=idempotency_key,
+                session_id=session_id,
+                owner=owner,
+                deadline=deadline,
+                code="RUNTIME_START_UNCONFIRMED",
+                message="WebUI-owned ProcessManager не подтвердил запуск worker",
+                terminal_state="start_unconfirmed",
+            )
+        try:
+            record = self._worker_record(profile)
+        except Exception as exc:  # noqa: BLE001 - чтение registry должно подтверждать источник истины.
+            return self._start_failure_after_launch(
+                profile,
+                manager,
+                request_id=request_id,
+                idempotency_key=idempotency_key,
+                session_id=session_id,
+                owner=owner,
+                deadline=deadline,
+                code="RUNTIME_START_UNCONFIRMED",
+                message="Worker запущен без authoritative registry readback",
+                terminal_state="worker_record_unconfirmed",
+                extra_details={"error": type(exc).__name__},
+            )
+        if record is None:
+            return self._start_failure_after_launch(
+                profile,
+                manager,
+                request_id=request_id,
+                idempotency_key=idempotency_key,
+                session_id=session_id,
+                owner=owner,
+                deadline=deadline,
+                code="RUNTIME_START_UNCONFIRMED",
+                message="Worker запущен без authoritative registry readback",
                 terminal_state="worker_record_unconfirmed",
             )
-            return self._failure(
-                RuntimeControlOperation.START_PROFILE,
+        if self._deadline_expired(deadline):
+            return self._start_failure_after_launch(
                 profile,
-                request_id,
-                idempotency_key,
-                "RUNTIME_START_UNCONFIRMED",
-                "Worker запущен без authoritative registry readback",
+                manager,
+                request_id=request_id,
+                idempotency_key=idempotency_key,
+                session_id=session_id,
                 owner=owner,
-                details={"cleanup_confirmed": cleanup_confirmed},
+                deadline=deadline,
+                code="RUNTIME_CONTROL_EXPIRED",
+                message="Срок действия runtime control request истёк до подтверждения worker",
+                terminal_state="control_expired",
             )
-        if profile == development_profile:
-            snapshot = self.state.mark_ap_ready(
+        try:
+            if profile == development_profile:
+                snapshot = self.state.mark_resource_ready(
+                    profile,
+                    worker_pid=record["pid"],
+                    worker_created_at=record["created_at"],
+                    operation_id=request_id,
+                    session_id=session_id,
+                )
+            else:
+                snapshot = self.state.mark_worker_started(
+                    profile,
+                    worker_pid=record["pid"],
+                    worker_created_at=record["created_at"],
+                    operation_id=request_id,
+                    session_id=session_id,
+                )
+        except Exception as exc:  # noqa: BLE001 - после ошибки записи state worker должен быть согласован.
+            return self._start_failure_after_launch(
                 profile,
-                worker_pid=int(record["pid"]),
-                worker_created_at=float(record["created_at"]),
-                operation_id=request_id,
+                manager,
+                request_id=request_id,
+                idempotency_key=idempotency_key,
                 session_id=session_id,
-            )
-        else:
-            snapshot = self.state.mark_worker_started(
-                profile,
-                worker_pid=int(record["pid"]),
-                worker_created_at=float(record["created_at"]),
-                operation_id=request_id,
-                session_id=session_id,
+                owner=owner,
+                deadline=deadline,
+                code="RUNTIME_STATE_WRITE_FAILED",
+                message="Runtime state не подтвердил запущенный worker",
+                terminal_state="runtime_state_write_failed",
+                extra_details={"error": type(exc).__name__},
             )
         return self._success(
             RuntimeControlOperation.START_PROFILE,
@@ -346,8 +527,30 @@ class WebUIRuntimeControlOwner:
         idempotency_key: str,
         session_id: str | None,
         owner: RuntimeOwnerIdentity,
+        deadline: datetime,
+        development_profile: str | None,
     ) -> RuntimeControlResult:
+        if self._deadline_expired(deadline):
+            return self._failure(
+                RuntimeControlOperation.STOP_PROFILE,
+                profile,
+                request_id,
+                idempotency_key,
+                "RUNTIME_CONTROL_EXPIRED",
+                "Срок действия runtime control request истёк до чтения worker state",
+                owner=owner,
+            )
         snapshot = self.state.read(profile)
+        if profile == development_profile and session_id is None:
+            return self._failure(
+                RuntimeControlOperation.STOP_PROFILE,
+                profile,
+                request_id,
+                idempotency_key,
+                "RUNTIME_SESSION_REQUIRED",
+                "Для управления development profile требуется session_id",
+                owner=owner,
+            )
         if session_id is not None and (
             snapshot is None or snapshot.session_id != session_id or snapshot.profile != profile
         ):
@@ -361,7 +564,27 @@ class WebUIRuntimeControlOwner:
                 owner=owner,
             )
         manager = self._manager(profile)
+        if self._deadline_expired(deadline):
+            return self._failure(
+                RuntimeControlOperation.STOP_PROFILE,
+                profile,
+                request_id,
+                idempotency_key,
+                "RUNTIME_CONTROL_EXPIRED",
+                "Срок действия runtime control request истёк до получения manager",
+                owner=owner,
+            )
         if self._read_alive(manager) is not True:
+            if self._deadline_expired(deadline):
+                return self._failure(
+                    RuntimeControlOperation.STOP_PROFILE,
+                    profile,
+                    request_id,
+                    idempotency_key,
+                    "RUNTIME_CONTROL_EXPIRED",
+                    "Срок действия runtime control request истёк до фиксации остановленного worker",
+                    owner=owner,
+                )
             snapshot = self.state.mark_worker_stopped(
                 profile,
                 operation_id=request_id,
@@ -378,8 +601,39 @@ class WebUIRuntimeControlOwner:
                 owner,
                 {"idempotent": True},
             )
+        if self._deadline_expired(deadline):
+            return self._failure(
+                RuntimeControlOperation.STOP_PROFILE,
+                profile,
+                request_id,
+                idempotency_key,
+                "RUNTIME_CONTROL_EXPIRED",
+                "Срок действия runtime control request истёк до остановки worker",
+                owner=owner,
+            )
         stopped = manager.stop()
+        if self._deadline_expired(deadline):
+            return self._failure(
+                RuntimeControlOperation.STOP_PROFILE,
+                profile,
+                request_id,
+                idempotency_key,
+                "RUNTIME_CONTROL_EXPIRED",
+                "Срок действия runtime control request истёк после запроса остановки worker",
+                owner=owner,
+                details={"stop_returned": stopped if type(stopped) is bool else None},
+            )
         if type(stopped) is not bool or stopped is not True or self._read_alive(manager):
+            if self._deadline_expired(deadline):
+                return self._failure(
+                    RuntimeControlOperation.STOP_PROFILE,
+                    profile,
+                    request_id,
+                    idempotency_key,
+                    "RUNTIME_CONTROL_EXPIRED",
+                    "Срок действия runtime control request истёк при подтверждении остановки worker",
+                    owner=owner,
+                )
             self.state.mark_failed(
                 profile,
                 operation_id=request_id,
@@ -393,6 +647,16 @@ class WebUIRuntimeControlOwner:
                 idempotency_key,
                 "RUNTIME_STOP_UNCONFIRMED",
                 "WebUI-owned ProcessManager не подтвердил остановку worker",
+                owner=owner,
+            )
+        if self._deadline_expired(deadline):
+            return self._failure(
+                RuntimeControlOperation.STOP_PROFILE,
+                profile,
+                request_id,
+                idempotency_key,
+                "RUNTIME_CONTROL_EXPIRED",
+                "Срок действия runtime control request истёк до записи остановленного worker",
                 owner=owner,
             )
         snapshot = self.state.mark_worker_stopped(
@@ -428,7 +692,7 @@ class WebUIRuntimeControlOwner:
             from module.dev_runtime.target import DevTargetRegistry
 
             return DevTargetRegistry.load(self.repository_root).profile_name
-        except Exception:  # noqa: BLE001 - target discovery fails closed.
+        except Exception:  # noqa: BLE001 - ошибка поиска target переводит путь в fail-closed режим.
             return None
 
     def _live_profiles(self) -> list[str]:
@@ -476,6 +740,7 @@ class WebUIRuntimeControlOwner:
         *,
         request_id: str,
         session_id: str | None,
+        deadline: datetime | None = None,
     ) -> bool:
         request = getattr(manager, "request_cooperative_stop", None)
         wait = getattr(manager, "wait_for_exit", None)
@@ -484,17 +749,102 @@ class WebUIRuntimeControlOwner:
         try:
             if request(operation_id=request_id, session_id=session_id) is not True:
                 return False
-            return wait(self._grace_seconds()) is True
-        except Exception:  # noqa: BLE001 - cooperative stop fails closed.
+            timeout = self._grace_seconds()
+            if deadline is not None:
+                remaining = (deadline - datetime.now(UTC)).total_seconds()
+                timeout = min(timeout, max(remaining, 0.0))
+            return wait(timeout) is True
+        except Exception:  # noqa: BLE001 - ошибка cooperative stop переводит путь в fail-closed режим.
             return False
+
+    def _start_failure_after_launch(
+        self,
+        profile: str,
+        manager: object,
+        *,
+        request_id: str,
+        idempotency_key: str,
+        session_id: str | None,
+        owner: RuntimeOwnerIdentity,
+        deadline: datetime,
+        code: str,
+        message: str,
+        terminal_state: str,
+        extra_details: dict[str, object] | None = None,
+    ) -> RuntimeControlResult:
+        details = dict(extra_details or {})
+        details["cleanup_confirmed"] = self._cooperative_stop_unconfirmed(
+            manager,
+            request_id=request_id,
+            session_id=session_id,
+            deadline=deadline,
+        )
+        try:
+            self.state.mark_failed(
+                profile,
+                operation_id=request_id,
+                session_id=session_id,
+                terminal_state=terminal_state,
+            )
+        except Exception as exc:  # noqa: BLE001 - при ошибке состояние остаётся неизвестным.
+            details["runtime_state_recorded"] = False
+            details["runtime_state_error"] = type(exc).__name__
+        return self._failure(
+            RuntimeControlOperation.START_PROFILE,
+            profile,
+            request_id,
+            idempotency_key,
+            code,
+            message,
+            owner=owner,
+            details=details,
+        )
 
     def _worker_record(self, profile: str) -> dict[str, object] | None:
         if self._worker_record_provider is not None:
-            return self._worker_record_provider(profile)
-        from module.webui.worker_registry import get_workers
+            record = self._worker_record_provider(profile)
+        else:
+            from module.webui.worker_registry import get_workers
 
-        record = get_workers(os.getpid()).get(profile)
-        return record if isinstance(record, dict) else None
+            record = get_workers(os.getpid()).get(profile)
+        if not isinstance(record, dict) or set(record) != {"pid", "created_at"}:
+            return None
+        pid = record.get("pid")
+        created_at = record.get("created_at")
+        if (
+            isinstance(pid, bool)
+            or not isinstance(pid, int)
+            or pid <= 0
+            or isinstance(created_at, bool)
+            or not isinstance(created_at, (int, float))
+            or not math.isfinite(float(created_at))
+            or float(created_at) <= 0
+        ):
+            return None
+        return {"pid": pid, "created_at": float(created_at)}
+
+    @staticmethod
+    def _parse_deadline(value: str) -> datetime:
+        if not isinstance(value, str) or len(value) > 80:
+            raise ValueError("expires_at имеет неверный формат")
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError as exc:
+            raise ValueError("expires_at не является ISO timestamp") from exc
+        if parsed.tzinfo is None or parsed.utcoffset() != UTC.utcoffset(parsed):
+            raise ValueError("expires_at должен быть в UTC")
+        return parsed
+
+    @staticmethod
+    def _deadline_expired(deadline: datetime) -> bool:
+        return datetime.now(UTC) >= deadline
+
+    @staticmethod
+    def _remaining_deadline(deadline: datetime) -> float:
+        remaining = (deadline - datetime.now(UTC)).total_seconds()
+        if remaining <= 0:
+            raise ResourceLeaseError("Срок действия runtime control request истёк")
+        return min(30.0, remaining)
 
     def _grace_seconds(self) -> float:
         try:
@@ -521,26 +871,97 @@ class WebUIRuntimeControlOwner:
             self._application = LegacyGameApplicationAdapter()
         return self._application
 
-    def _notify(self, profile: str, operation_id: str, session_id: str | None) -> bool:
+    def begin_handover(
+        self,
+        profile: str,
+        operation_id: str,
+        session_id: str | None,
+        *,
+        deadline: datetime | None = None,
+    ) -> RuntimeStateSnapshot | None:
+        timeout_seconds = None
+        if deadline is not None:
+            remaining = (deadline - datetime.now(UTC)).total_seconds()
+            if remaining <= 0:
+                raise RuntimeStateError(
+                    "RUNTIME_CONTROL_EXPIRED",
+                    "Срок действия runtime control request истёк до handover",
+                )
+            timeout_seconds = min(HOST_LOCK_TIMEOUT_SECONDS, remaining)
+        if timeout_seconds is None:
+            return self.state.begin_handover(
+                profile,
+                operation_id=operation_id,
+                session_id=session_id,
+            )
+        return self.state.begin_handover(
+            profile,
+            operation_id=operation_id,
+            session_id=session_id,
+            timeout_seconds=timeout_seconds,
+        )
+
+    def notify_preemption(
+        self,
+        profile: str,
+        operation_id: str,
+        session_id: str | None,
+    ) -> NotificationOutcome:
+        del operation_id, session_id
         target = self._development_profile() or "development profile"
         content = (
             f"Текущий профиль занят; после короткого периода ожидания "
             f"управление перейдёт к {target}."
         )
         if self._notifier is not None:
-            return self._notifier(
-                profile,
-                "Требуется подтверждение передачи игрового ресурса",
-                content,
-            )
+            try:
+                result = self._notifier(
+                    profile,
+                    "Требуется подтверждение передачи игрового ресурса",
+                    content,
+                )
+            except Exception:  # noqa: BLE001 - ошибка границы notification переводит путь в fail-closed режим.
+                return NotificationOutcome.UNAVAILABLE
+            if isinstance(result, NotificationOutcome):
+                return result
+            return NotificationOutcome.ACCEPTED if result is True else NotificationOutcome.FAILED
         from module.notify.notify import notify_webui
 
-        result = notify_webui(
-            profile,
-            title="Требуется подтверждение передачи игрового ресурса",
-            content=content,
-        )
-        return type(result) is bool and result
+        try:
+            result = notify_webui(
+                profile,
+                title="Требуется подтверждение передачи игрового ресурса",
+                content=content,
+            )
+        except Exception:  # noqa: BLE001 - ошибка границы notification переводит путь в fail-closed режим.
+            return NotificationOutcome.UNAVAILABLE
+        # Legacy notify_webui подтверждает только постановку в очередь, а не
+        # доставку уведомления пользователю.
+        return NotificationOutcome.ACCEPTED if result is True else NotificationOutcome.FAILED
+
+    def request_cooperative_quiesce(
+        self,
+        profile: str,
+        operation_id: str,
+        session_id: str | None,
+    ) -> bool:
+        manager = self._manager(profile)
+        request = getattr(manager, "request_cooperative_stop", None)
+        return callable(request) and request(operation_id=operation_id, session_id=session_id) is True
+
+    def wait_worker_stopped(self, profile: str, timeout_seconds: float) -> bool:
+        manager = self._manager(profile)
+        wait = getattr(manager, "wait_for_exit", None)
+        return callable(wait) and wait(timeout_seconds) is True
+
+    def return_to_main(self, profile: str, operation_id: str, session_id: str | None) -> bool:
+        del operation_id, session_id
+        method = getattr(self._application_adapter(), "return_to_main", None)
+        return callable(method) and method(profile) is True
+
+    def is_main_confirmed(self, profile: str) -> bool:
+        method = getattr(self._application_adapter(), "is_in_main", None)
+        return callable(method) and method(profile) is True
 
     @staticmethod
     def _success(
@@ -593,16 +1014,22 @@ class WebUIRuntimeControlOwner:
 
 
 class _OwnerHandoverHooks(HandoverHooks):
-    def __init__(self, owner: WebUIRuntimeControlOwner, profile: str) -> None:
+    def __init__(
+        self,
+        owner: WebUIRuntimeControlOwner,
+        profile: str,
+        *,
+        deadline: datetime | None = None,
+    ) -> None:
         self.owner = owner
         self.profile = profile
+        self.deadline = deadline
 
     def read_state(self, profile: str) -> RuntimeStateSnapshot | None:
         return self.owner.state.read(profile)
 
     def mark_phase(self, profile: str, phase: RuntimePhase, operation_id: str, session_id: str | None) -> None:
         methods = {
-            RuntimePhase.HANDOVER_REQUESTED: self.owner.state.request_handover,
             RuntimePhase.PREEMPTION_NOTICE: self.owner.state.mark_preemption_notice,
             RuntimePhase.GRACE_PERIOD: self.owner.state.mark_grace_period,
             RuntimePhase.QUIESCE_REQUESTED: self.owner.state.request_quiesce,
@@ -624,26 +1051,38 @@ class _OwnerHandoverHooks(HandoverHooks):
             raise RuntimeError(f"Неизвестная handover phase: {phase}")
         method(profile, operation_id=operation_id, session_id=session_id)
 
-    def notify_preemption(self, profile: str, operation_id: str, session_id: str | None) -> bool:
-        return self.owner._notify(profile, operation_id, session_id)
+    def begin_handover(
+        self,
+        profile: str,
+        operation_id: str,
+        session_id: str | None,
+    ) -> RuntimeStateSnapshot | None:
+        return self.owner.begin_handover(
+            profile,
+            operation_id,
+            session_id,
+            deadline=self.deadline,
+        )
+
+    def notify_preemption(
+        self,
+        profile: str,
+        operation_id: str,
+        session_id: str | None,
+    ) -> NotificationOutcome:
+        return self.owner.notify_preemption(profile, operation_id, session_id)
 
     def request_cooperative_quiesce(self, profile: str, operation_id: str, session_id: str | None) -> bool:
-        manager = self.owner._manager(profile)
-        request = getattr(manager, "request_cooperative_stop", None)
-        return callable(request) and request(operation_id=operation_id, session_id=session_id) is True
+        return self.owner.request_cooperative_quiesce(profile, operation_id, session_id)
 
     def wait_worker_stopped(self, profile: str, timeout_seconds: float) -> bool:
-        manager = self.owner._manager(profile)
-        wait = getattr(manager, "wait_for_exit", None)
-        return callable(wait) and wait(timeout_seconds) is True
+        return self.owner.wait_worker_stopped(profile, timeout_seconds)
 
     def return_to_main(self, profile: str, operation_id: str, session_id: str | None) -> bool:
-        method = getattr(self.owner._application_adapter(), "return_to_main", None)
-        return callable(method) and method(profile) is True
+        return self.owner.return_to_main(profile, operation_id, session_id)
 
     def is_main_confirmed(self, profile: str) -> bool:
-        method = getattr(self.owner._application_adapter(), "is_in_main", None)
-        return callable(method) and method(profile) is True
+        return self.owner.is_main_confirmed(profile)
 
 
 __all__ = ["WebUIRuntimeControlOwner"]

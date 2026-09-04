@@ -1280,11 +1280,11 @@ def test_server_cancellation_while_waiting_for_lock_does_not_retry(
     asyncio.run(scenario())
 
 
-def test_adapter_allows_mutations_for_different_profiles_in_parallel(
+def test_adapter_serializes_mutations_for_different_profiles(
     tmp_path: Path,
 ) -> None:
     backend = _backend()
-    both_entered = Event()
+    first_entered = Event()
     release = Event()
     state_lock = Lock()
     active_count = 0
@@ -1296,8 +1296,7 @@ def test_adapter_allows_mutations_for_different_profiles_in_parallel(
             with state_lock:
                 active_count += 1
                 max_active = max(max_active, active_count)
-                if active_count == 2:
-                    both_entered.set()
+                first_entered.set()
             release.wait(5)
             with state_lock:
                 active_count -= 1
@@ -1317,7 +1316,7 @@ def test_adapter_allows_mutations_for_different_profiles_in_parallel(
     for thread in threads:
         thread.start()
     try:
-        assert both_entered.wait(5)
+        assert first_entered.wait(5)
     finally:
         release.set()
         for thread in threads:
@@ -1326,7 +1325,7 @@ def test_adapter_allows_mutations_for_different_profiles_in_parallel(
     assert all(not thread.is_alive() for thread in threads)
     assert len(results) == 2
     assert all(result["code"] == "GAME_PROFILE_STARTED" for result in results)
-    assert max_active == 2
+    assert max_active == 1
 
 
 def test_adapter_rejects_bad_selectors_unknown_profiles_and_unknown_tasks() -> None:

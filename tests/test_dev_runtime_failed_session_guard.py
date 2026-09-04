@@ -6,6 +6,7 @@ from module.dev_runtime import (
     DevResult,
     DevSession,
     DevSessionManager,
+    DevRuntimeMode,
     DevSessionState,
     DevStatusKind,
     DevTarget,
@@ -59,6 +60,7 @@ def test_failed_marker_with_live_owned_process_blocks_second_start(tmp_path: Pat
     manager = DevSessionManager(
         environment,
         process_backend=backend,
+        shared_webui=False,
         storage_probe=lambda _environment: (True, "ready"),
         port_probe=lambda _host, _port: False,
         readiness_probe=lambda _environment, _identity: (True, "ready"),
@@ -76,6 +78,7 @@ def test_failed_marker_with_live_owned_process_blocks_second_start(tmp_path: Pat
             created_at="2026-08-29T00:00:00+00:00",
             updated_at="2026-08-29T00:00:00+00:00",
             process=identity,
+            runtime_mode=DevRuntimeMode.STANDALONE_PROCESS,
         )
     )
 
@@ -120,6 +123,7 @@ def test_failed_live_process_blocks_start_after_stale_preflight(tmp_path: Path) 
     manager = DevSessionManager(
         environment,
         process_backend=backend,
+        shared_webui=False,
         storage_probe=lambda _environment: (True, "ready"),
         port_probe=lambda _host, _port: False,
         readiness_probe=lambda _environment, _identity: (True, "ready"),
@@ -134,6 +138,7 @@ def test_failed_live_process_blocks_start_after_stale_preflight(tmp_path: Path) 
             created_at="2026-08-29T00:00:00+00:00",
             updated_at="2026-08-29T00:00:00+00:00",
             process=identity,
+            runtime_mode=DevRuntimeMode.STANDALONE_PROCESS,
         )
     )
     manager.preflight = _safe_preflight
@@ -169,6 +174,7 @@ def test_stopped_marker_with_live_process_is_not_treated_as_safe(tmp_path: Path)
     manager = DevSessionManager(
         environment,
         process_backend=backend,
+        shared_webui=False,
         storage_probe=lambda _environment: (True, "ready"),
         port_probe=lambda _host, _port: False,
         readiness_probe=lambda _environment, _identity: (True, "ready"),
@@ -186,6 +192,7 @@ def test_stopped_marker_with_live_process_is_not_treated_as_safe(tmp_path: Path)
             created_at="2026-08-29T00:00:00+00:00",
             updated_at="2026-08-29T00:00:00+00:00",
             process=identity,
+            runtime_mode=DevRuntimeMode.STANDALONE_PROCESS,
         )
     )
 

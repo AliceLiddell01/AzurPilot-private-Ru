@@ -43,6 +43,23 @@ class DevDiagnosticsMixin:
     def _shared_runtime_enabled(self) -> bool:
         return bool(getattr(self, "shared_webui", False))
 
+    @staticmethod
+    def _call_readiness(probe: object, *args: object) -> tuple[bool, str]:
+        if not callable(probe):
+            return False, "readiness facade отсутствует"
+        try:
+            result = probe(*args)
+        except Exception as exc:  # noqa: BLE001 - граница readiness работает в режиме fail-closed.
+            return False, f"проверка readiness завершилась ошибкой: {type(exc).__name__}"
+        if (
+            not isinstance(result, tuple)
+            or len(result) != 2
+            or type(result[0]) is not bool
+            or not isinstance(result[1], str)
+        ):
+            return False, "readiness вернула неподдерживаемый результат"
+        return result
+
     def preflight(self) -> DevResult:
         checks: list[dict[str, object]] = []
         blockers: list[str] = []
@@ -264,10 +281,22 @@ class DevDiagnosticsMixin:
                 message="Маркер не содержит подтверждённую идентичность процесса",
                 state=DevStatusKind.STALE,
             )
-        if self._shared_runtime_enabled() and session.runtime_mode is DevRuntimeMode.SHARED_WEBUI:
+        if session.runtime_mode is DevRuntimeMode.SHARED_WEBUI:
+            if not self._shared_runtime_enabled():
+                return self._session_result(
+                    session,
+                    ok=False,
+                    code="DEV_RUNTIME_MODE_MISMATCH",
+                    message="Маркер DevSession требует shared WebUI, но текущий manager его не использует",
+                    state=DevStatusKind.OWNERSHIP_MISMATCH,
+                )
             shared = getattr(self, "shared_lifecycle", None)
             ready = getattr(shared, "matches_session", None)
-            if not callable(ready) or ready(session.session_id, session.profile_name or self.environment.profile_name) is not True:
+            try:
+                matches = ready(session.session_id, session.profile_name or self.environment.profile_name) if callable(ready) else False
+            except Exception:  # noqa: BLE001 - граница ownership работает в режиме fail-closed.
+                matches = False
+            if matches is not True:
                 return self._session_result(
                     session,
                     ok=False,
@@ -275,6 +304,14 @@ class DevDiagnosticsMixin:
                     message="Shared WebUI worker не принадлежит текущей DevSession",
                     state=DevStatusKind.OWNERSHIP_MISMATCH,
                 )
+        elif self._shared_runtime_enabled():
+            return self._session_result(
+                session,
+                ok=False,
+                code="DEV_RUNTIME_MODE_MISMATCH",
+                message="Shared WebUI manager обнаружил marker с неподдерживаемым standalone runtime mode",
+                state=DevStatusKind.OWNERSHIP_MISMATCH,
+            )
         else:
             try:
                 matches = self.process_backend.matches(identity)
@@ -332,13 +369,19 @@ class DevDiagnosticsMixin:
                     state=DevStatusKind.FAILED,
                     details={"error": exc.as_dict()},
                 )
-            if self._shared_runtime_enabled() and session.runtime_mode is DevRuntimeMode.SHARED_WEBUI:
+            if session.runtime_mode is DevRuntimeMode.SHARED_WEBUI:
                 shared = getattr(self, "shared_lifecycle", None)
                 probe = getattr(shared, "ready", None)
-                ready, reason = probe(
-                    session.profile_name or session_environment.profile_name,
-                    session.session_id,
-                ) if callable(probe) else (False, "shared runtime facade отсутствует")
+                if not self._shared_runtime_enabled():
+                    ready, reason = False, "текущий manager не поддерживает shared runtime mode"
+                else:
+                    ready, reason = self._call_readiness(
+                        probe,
+                        session.profile_name or session_environment.profile_name,
+                        session.session_id,
+                    )
+            elif self._shared_runtime_enabled():
+                ready, reason = False, "Shared WebUI manager обнаружил marker с неподдерживаемым standalone runtime mode"
             else:
                 ready, reason = self.readiness_probe(session_environment, identity)
             if not ready:
@@ -379,9 +422,7 @@ class DevDiagnosticsMixin:
         if self._shared_runtime_enabled():
             shared = getattr(self, "shared_lifecycle", None)
             probe = getattr(shared, "ready", None)
-            if not callable(probe):
-                return False, "shared runtime facade отсутствует"
-            return probe(environment.profile_name)
+            return self._call_readiness(probe, environment.profile_name)
         try:
             from module.webui import worker_registry
 

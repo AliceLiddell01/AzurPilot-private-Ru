@@ -11,7 +11,7 @@ import re
 import shutil
 import subprocess
 from collections.abc import Callable, Mapping, Sequence
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime, timedelta
 from io import BytesIO
 from math import isfinite
 from pathlib import Path
@@ -52,7 +52,10 @@ from module.application.runtime_control import (
     SharedWebUIBootstrapper,
     WebUIControlClient,
 )
-from module.application.scheduler_runtime import SchedulerRuntimeStateReader
+from module.application.scheduler_runtime import (
+    SchedulerRuntimeStateReader,
+    scheduler_entry_sort_key,
+)
 
 _MAX_LOG_LINES = 10_000
 _MAX_LOG_BYTES = 2 * 1024 * 1024
@@ -66,7 +69,6 @@ _ADB_PATH_CANDIDATES = (
     Path("bin/adb/adb.exe"),
     Path("bin/adb/adb"),
 )
-_SCHEDULER_FALLBACK_NEXT_RUN = datetime.fromisoformat("2050-01-01")
 _ADB_DEVICE_STATES = frozenset({"device", "offline", "unauthorized"})
 _GAME_PACKAGE_RE = re.compile(
     r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$"
@@ -124,17 +126,9 @@ class _AdbDevice(NamedTuple):
 
 
 def _scheduler_sort_key(entry: SchedulerEntry) -> tuple[int, float, str]:
-    """Упорядочить datetime по абсолютному времени, fallback — по тексту."""
+    """Использовать общий ключ сортировки raw и legacy scheduler readers."""
 
-    value = entry.next_run
-    if isinstance(value, datetime):
-        moment = (
-            value.astimezone(UTC)
-            if value.tzinfo is not None
-            else value.replace(tzinfo=UTC)
-        )
-        return (0, moment.timestamp(), "")
-    return (1, 0.0, str(value))
+    return scheduler_entry_sort_key(entry)
 
 
 def legacy_current_time() -> datetime:
@@ -382,9 +376,15 @@ class LegacyConfigAdapter:
             if not isinstance(raw_task, Mapping):
                 continue
             scheduler = raw_task.get("Scheduler")
-            if not isinstance(scheduler, Mapping) or scheduler.get("Enable") is not True:
+            if not isinstance(scheduler, Mapping):
                 continue
-            next_run = scheduler.get("NextRun", _SCHEDULER_FALLBACK_NEXT_RUN)
+            if "Enable" not in scheduler or type(scheduler["Enable"]) is not bool:
+                raise ValueError(f"Scheduler.Enable задачи {task} отсутствует или имеет неверный тип")
+            if "NextRun" not in scheduler:
+                raise ValueError(f"Scheduler.NextRun задачи {task} отсутствует")
+            if scheduler["Enable"] is not True:
+                continue
+            next_run = scheduler["NextRun"]
             entries.append(SchedulerEntry(task=task, next_run=next_run))
         return tuple(sorted(entries, key=_scheduler_sort_key))
 
@@ -1224,11 +1224,13 @@ class LegacyProcessManagerAdapter:
         function_factory: Callable[[str], str] | None = None,
         repository_root: Path | str | None = None,
         control_client: WebUIControlClient | None = None,
+        operation_id: str | None = None,
         session_id: str | None = None,
     ) -> None:
         self._manager_factory = manager_factory
         self._function_factory = function_factory
         self._repository_root = Path(repository_root or _REPOSITORY_ROOT).resolve()
+        self._operation_id = operation_id
         self._session_id = session_id
         self._control_client = control_client
 
@@ -1264,7 +1266,11 @@ class LegacyProcessManagerAdapter:
         if self._manager_factory is not None:
             manager = self._manager(instance)
             function = self._function_factory(instance) if self._function_factory else self._default_function(instance)
-            manager.start(func=function)  # type: ignore[attr-defined]
+            manager.start(  # type: ignore[attr-defined]
+                func=function,
+                operation_id=self._operation_id or os.environ.get("AZURPILOT_RUNTIME_OPERATION_ID"),
+                session_id=self._session_id or os.environ.get("AZURPILOT_DEV_SESSION_ID"),
+            )
             return self.is_running(instance)
         result = self._control().call(
             RuntimeControlOperation.START_PROFILE,
@@ -1337,7 +1343,11 @@ class LegacyProcessManagerAdapter:
             "RUNTIME_OWNERSHIP_MISMATCH",
         }:
             raise OwnershipAmbiguousError(message)
-        if code in {"RUNTIME_RESOURCE_BUSY", "RUNTIME_OPERATION_BUSY"}:
+        if code in {
+            "RUNTIME_RESOURCE_BUSY",
+            "RUNTIME_OPERATION_BUSY",
+            "RUNTIME_RESOURCE_LEASE_UNAVAILABLE",
+        }:
             from module.application.errors import ResourceBusyError
 
             raise ResourceBusyError(message)
@@ -1352,12 +1362,14 @@ class LegacyProcessManagerAdapter:
             "RUNTIME_HANDOVER_STATE_UNKNOWN",
             "RUNTIME_HANDOVER_STATE_STALE",
             "RUNTIME_STATE_UNKNOWN",
+            "RUNTIME_SESSION_REQUIRED",
+            "RUNTIME_CONTROL_EXPIRED",
         }:
             raise PreconditionFailedError(message)
         if code in {"RUNTIME_POSTCONDITION_FAILED", "RUNTIME_START_UNCONFIRMED", "RUNTIME_STOP_UNCONFIRMED"}:
             raise PostconditionFailedError(message)
         if code.startswith("RUNTIME_"):
-            raise OperationFailedError(f"Не удалось выполнить операцию {operation}: {message}")
+            raise OperationFailedError(f"Не удалось выполнить операцию {operation}: {code}: {message}")
         raise OperationFailedError(f"Не удалось выполнить операцию {operation}: результат не распознан")
 
     def _manager(self, instance: str) -> object:

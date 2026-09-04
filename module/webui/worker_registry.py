@@ -2,6 +2,7 @@
 
 import errno
 import json
+import math
 import os
 import threading
 import time
@@ -362,34 +363,75 @@ def claim_owner(owner_pid: int) -> None:
         _write_registry(_empty_registry(owner_pid, owner_created_at), registry_file)
 
 
-def register_worker(owner_pid: int, config_name: str, pid: int) -> None:
+def register_worker(owner_pid: int, config_name: str, pid: int) -> dict[str, float | int]:
     """登记已启动的 worker，以便父进程在 WebUI 异常退出后回收它。"""
     try:
         pid = int(pid)
     except (TypeError, ValueError) as exc:
         raise RuntimeError(f"Недопустимый PID рабочего процесса: {pid}") from exc
 
+    created_at = _process_created_at(pid)
+    record = {"created_at": created_at, "pid": pid}
     with _locked_registry() as registry_file:
         registry = _read_registry(registry_file)
         _require_current_owner(registry, owner_pid)
-        registry["workers"][config_name] = {
-            "created_at": _process_created_at(pid),
-            "pid": pid,
-        }
+        registry["workers"][config_name] = record
         _write_registry(registry, registry_file)
+    return deepcopy(record)
 
 
-def unregister_worker(owner_pid: int, config_name: str) -> bool:
-    """移除已正常退出的 worker 登记，返回是否仍拥有该登记。"""
+def unregister_worker(
+    owner_pid: int,
+    config_name: str,
+    *,
+    expected_worker: dict | None = None,
+) -> bool:
+    """Удалить запись worker только при совпадении ожидаемой identity."""
     with _locked_registry() as registry_file:
         registry = _read_registry(registry_file)
         try:
             _require_current_owner(registry, owner_pid)
         except WorkerRegistryOwnershipError:
             return False
+        current_worker = registry["workers"].get(config_name)
+        if expected_worker is not None and not _same_worker_identity(
+            current_worker,
+            expected_worker,
+        ):
+            return False
         registry["workers"].pop(config_name, None)
         _write_registry(registry, registry_file)
         return True
+
+
+def _same_worker_identity(left: object, right: object) -> bool:
+    if not isinstance(left, dict) or not isinstance(right, dict):
+        return False
+    try:
+        left_pid = left["pid"]
+        right_pid = right["pid"]
+        left_created_at = left["created_at"]
+        right_created_at = right["created_at"]
+    except KeyError:
+        return False
+    if (
+        isinstance(left_pid, bool)
+        or not isinstance(left_pid, int)
+        or left_pid <= 0
+        or isinstance(right_pid, bool)
+        or not isinstance(right_pid, int)
+        or right_pid <= 0
+        or isinstance(left_created_at, bool)
+        or not isinstance(left_created_at, (int, float))
+        or not math.isfinite(float(left_created_at))
+        or float(left_created_at) <= 0
+        or isinstance(right_created_at, bool)
+        or not isinstance(right_created_at, (int, float))
+        or not math.isfinite(float(right_created_at))
+        or float(right_created_at) <= 0
+    ):
+        return False
+    return left_pid == right_pid and float(left_created_at) == float(right_created_at)
 
 
 def get_workers(owner_pid: int) -> dict[str, dict]:
@@ -406,18 +448,7 @@ def get_worker_read_only(config_name: str) -> dict | None:
     if not isinstance(config_name, str) or not config_name:
         raise ValueError("Имя экземпляра должно быть непустой строкой")
 
-    paths, legacy_registry = _read_only_registry_paths()
-    for registry_file in paths:
-        if not registry_file.is_file():
-            continue
-        if registry_file == LEGACY_WORKER_REGISTRY_FILE and legacy_registry is not None:
-            registry = legacy_registry
-        else:
-            try:
-                registry = _read_registry(registry_file)
-            except RuntimeError:
-                # Повреждённый реестр не должен прерывать чтение остальных путей.
-                continue
+    for registry in _iter_read_only_registries():
         record = registry["workers"].get(config_name)
         if record is None:
             continue
@@ -446,6 +477,24 @@ def _read_only_registry_paths() -> tuple[tuple[Path, ...], dict | None]:
     return (current_file, legacy_file), legacy_registry
 
 
+def _iter_read_only_registries() -> Iterator[dict]:
+    """Перечислить доступные registry без миграции и создания lock-файлов."""
+
+    paths, legacy_registry = _read_only_registry_paths()
+    for registry_file in paths:
+        if not registry_file.is_file():
+            continue
+        if registry_file == LEGACY_WORKER_REGISTRY_FILE and legacy_registry is not None:
+            registry = legacy_registry
+        else:
+            try:
+                registry = _read_registry(registry_file)
+            except RuntimeError:
+                # Повреждённый реестр не должен прерывать чтение остальных путей.
+                continue
+        yield registry
+
+
 def get_owner() -> int | None:
     """返回当前登记文件所有者的 PID。"""
     with _locked_registry() as registry_file:
@@ -461,17 +510,7 @@ def get_owner_record() -> dict | None:
 
 def get_owner_record_read_only() -> dict | None:
     """Прочитать owner без миграции registry и создания lock-файлов."""
-    paths, legacy_registry = _read_only_registry_paths()
-    for registry_file in paths:
-        if not registry_file.is_file():
-            continue
-        if registry_file == LEGACY_WORKER_REGISTRY_FILE and legacy_registry is not None:
-            registry = legacy_registry
-        else:
-            try:
-                registry = _read_registry(registry_file)
-            except RuntimeError:
-                continue
+    for registry in _iter_read_only_registries():
         owner = _owner_record(registry)
         if owner is not None:
             return deepcopy(owner)

@@ -67,6 +67,45 @@ class TestProcessManagerRegistry(unittest.TestCase):
         kill.assert_called_once_with(12345)
         self.assertNotIn("alas", State.process_registry)
 
+    def test_stale_manager_does_not_unregister_replacement_worker(self):
+        State.process_registry["alas"] = 23456
+        manager = ProcessManager.get_manager("alas")
+        old_process = Mock()
+        old_process.pid = 12345
+        old_process.is_alive.return_value = False
+        manager._process = old_process
+
+        with (
+            patch("module.webui.process_manager.is_current_owner", return_value=True),
+            patch(
+                "module.webui.process_manager.get_workers",
+                return_value={"alas": {"pid": 23456, "created_at": 2.0}},
+            ),
+        ):
+            self.assertTrue(manager.stop())
+
+        self.assertEqual(23456, State.process_registry["alas"])
+
+    def test_registration_readback_failure_rolls_back_registered_identity(self):
+        manager = ProcessManager.get_manager("alas")
+        registered_record = {"pid": 12345, "created_at": 10.5}
+
+        with (
+            patch(
+                "module.webui.process_manager.register_worker",
+                return_value=registered_record,
+            ),
+            patch(
+                "module.webui.process_manager.get_workers",
+                side_effect=RuntimeError("readback failed"),
+            ),
+            patch.object(manager, "_unregister_process") as unregister,
+        ):
+            with self.assertRaises(RuntimeError):
+                manager._register_process(12345)
+
+        unregister.assert_called_once_with(expected_worker=registered_record)
+
     def test_stop_uses_local_process_handle_before_tree_kill(self):
         """При живом локальном Process сначала использовать terminate/kill, а не taskkill."""
         State.process_registry["alas"] = 12345

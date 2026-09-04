@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from module.application.runtime_control import (
     RuntimeControlOperation,
     RuntimeOwnerIdentity,
 )
+from module.application.runtime_handover import NotificationOutcome
+from module.application.scheduler_runtime import SchedulerRuntimeStateReader
 from module.application.runtime_state import RuntimePhase
 from module.webui.runtime_control_owner import WebUIRuntimeControlOwner
+
+_EXPIRY = "2099-01-01T00:00:00+00:00"
 
 
 class Manager:
@@ -76,6 +81,7 @@ def test_owner_executes_ap_inside_existing_webui_and_repeats_start_idempotently(
         request_id="request-1",
         idempotency_key="key-1",
         session_id="session-1",
+        expires_at=_EXPIRY,
     )
     repeated = owner.execute(
         RuntimeControlOperation.START_PROFILE,
@@ -83,6 +89,7 @@ def test_owner_executes_ap_inside_existing_webui_and_repeats_start_idempotently(
         request_id="request-2",
         idempotency_key="key-2",
         session_id="session-1",
+        expires_at=_EXPIRY,
     )
 
     assert started.ok is True
@@ -90,7 +97,7 @@ def test_owner_executes_ap_inside_existing_webui_and_repeats_start_idempotently(
     assert repeated.ok is True
     assert repeated.code == "RUNTIME_ALREADY_RUNNING"
     assert manager.calls == [("start", "request-1", "session-1")]
-    assert owner.state.read("ap").phase is RuntimePhase.AP_READY
+    assert owner.state.read("ap").phase is RuntimePhase.RESOURCE_READY
 
     stopped = owner.execute(
         RuntimeControlOperation.STOP_PROFILE,
@@ -98,6 +105,7 @@ def test_owner_executes_ap_inside_existing_webui_and_repeats_start_idempotently(
         request_id="request-3",
         idempotency_key="key-3",
         session_id="session-1",
+        expires_at=_EXPIRY,
     )
     assert stopped.ok is True
     assert stopped.code == "RUNTIME_STOPPED"
@@ -117,6 +125,7 @@ def test_owner_does_not_take_over_development_worker_of_another_session(
         request_id="request-1",
         idempotency_key="key-1",
         session_id="session-1",
+        expires_at=_EXPIRY,
     )
     second = owner.execute(
         RuntimeControlOperation.START_PROFILE,
@@ -124,6 +133,7 @@ def test_owner_does_not_take_over_development_worker_of_another_session(
         request_id="request-2",
         idempotency_key="key-2",
         session_id="session-2",
+        expires_at=_EXPIRY,
     )
 
     assert first.ok is True
@@ -144,7 +154,8 @@ def test_owner_does_not_adopt_running_worker_without_runtime_state(
         "ap",
         request_id="request-unknown-state",
         idempotency_key="key-unknown-state",
-        session_id=None,
+        session_id="dev-session",
+        expires_at=_EXPIRY,
     )
 
     assert result.ok is False
@@ -181,6 +192,7 @@ def test_owner_handover_fails_closed_when_authoritative_state_is_missing(
         request_id="handover-unknown",
         idempotency_key="handover-unknown-key",
         session_id="dev-session",
+        expires_at=_EXPIRY,
     )
 
     assert result.ok is False
@@ -202,12 +214,41 @@ def test_owner_hides_no_profiles_from_ui_but_keeps_machine_catalog_and_rejects_u
         request_id="request-4",
         idempotency_key="key-4",
         session_id=None,
+        expires_at=_EXPIRY,
     )
     assert result.ok is False
     assert result.code == "RUNTIME_PROFILE_INVALID"
 
 
 def test_owner_handover_warns_and_uses_cooperative_stop_before_ap_start(tmp_path: Path) -> None:
+    config = tmp_path / "config"
+    config.mkdir()
+    config_path = config / "alas.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "DailyTask": {
+                    "Scheduler": {
+                        "Enable": False,
+                        "NextRun": "2026-09-05T01:00:00+00:00",
+                    }
+                },
+                "WeeklyTask": {
+                    "Scheduler": {
+                        "Enable": True,
+                        "NextRun": "2026-09-05T00:30:00+00:00",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    scheduler_reader = SchedulerRuntimeStateReader(tmp_path)
+    scheduler_fingerprint = scheduler_reader.semantic_fingerprint(
+        "alas", ("DailyTask", "WeeklyTask")
+    )
+    scheduler_config = config_path.read_bytes()
+
     user = HandoverManager()
     development = Manager()
     managers = {"alas": user, "ap": development}
@@ -225,7 +266,8 @@ def test_owner_handover_warns_and_uses_cooperative_stop_before_ap_start(tmp_path
         worker_record_provider=lambda profile: records[profile] if managers[profile].alive else None,
         function_factory=lambda _profile: "alas",
         application=application,
-        notifier=lambda profile, title, content: notifications.append((profile, title, content)) or True,
+        notifier=lambda profile, title, content: notifications.append((profile, title, content))
+        or NotificationOutcome.DELIVERED,
         deploy_config_provider=lambda: type("DeployConfig", (), {"RuntimeHandoverGraceSeconds": 0})(),
         development_profile_provider=lambda: "ap",
     )
@@ -241,6 +283,7 @@ def test_owner_handover_warns_and_uses_cooperative_stop_before_ap_start(tmp_path
         request_id="handover-1",
         idempotency_key="handover-key",
         session_id="dev-session",
+        expires_at=_EXPIRY,
     )
 
     assert result.ok is True
@@ -256,8 +299,14 @@ def test_owner_handover_warns_and_uses_cooperative_stop_before_ap_start(tmp_path
         "returning_to_main",
         "main_confirmed",
     ]
-    assert handover["details"]["notification"] == {"attempted": True, "confirmed": True}
+    assert handover["details"]["notification"] == {
+        "attempted": True,
+        "outcome": "delivered",
+        "confirmed": True,
+    }
     assert notifications and notifications[0][0] == "alas"
     assert [call[0] for call in user.calls] == ["cooperative_stop", "wait_for_exit"]
     assert application.returned_to_main == 1
     assert development.calls == [("start", "handover-1", "dev-session")]
+    assert scheduler_reader.semantic_fingerprint("alas", ("DailyTask", "WeeklyTask")) == scheduler_fingerprint
+    assert config_path.read_bytes() == scheduler_config
