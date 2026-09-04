@@ -1030,7 +1030,8 @@ def test_adapter_does_not_hold_lifecycle_lock_during_dispatch() -> None:
     finally:
         release.set()
         first_thread.join(timeout=5)
-        second_thread.join(timeout=5)
+        if second_thread.ident is not None:
+            second_thread.join(timeout=5)
 
     assert not first_thread.is_alive()
     assert not second_thread.is_alive()
@@ -1281,10 +1282,12 @@ def test_server_cancellation_while_waiting_for_lock_does_not_retry(
 
 
 def test_adapter_serializes_mutations_for_different_profiles(
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     backend = _backend()
     first_entered = Event()
+    second_requested = Event()
     release = Event()
     state_lock = Lock()
     active_count = 0
@@ -1306,22 +1309,34 @@ def test_adapter_serializes_mutations_for_different_profiles(
     adapter = GameMcpAdapter(lambda: backend, mutation_lock_root=tmp_path)
     results: list[dict[str, object]] = []
 
+    original_lock = game_mcp_adapter.profile_mutation_lock
+
+    def observed_lock(profile: str, **kwargs: object):
+        if profile == "beta":
+            second_requested.set()
+        return original_lock(profile, **kwargs)
+
+    monkeypatch.setattr(game_mcp_adapter, "profile_mutation_lock", observed_lock)
+
     def call_start(profile: str) -> None:
         results.append(adapter.call("game_start_profile", {"profile": profile}))
 
-    threads = [
-        Thread(target=call_start, args=("alpha",)),
-        Thread(target=call_start, args=("beta",)),
-    ]
-    for thread in threads:
-        thread.start()
+    first_thread = Thread(target=call_start, args=("alpha",))
+    second_thread = Thread(target=call_start, args=("beta",))
+    first_thread.start()
     try:
         assert first_entered.wait(5)
+        second_thread.start()
+        assert second_requested.wait(5)
     finally:
         release.set()
-        for thread in threads:
-            thread.join(timeout=5)
+        first_thread.join(timeout=5)
+        second_thread.join(timeout=5)
 
+    threads = [
+        first_thread,
+        second_thread,
+    ]
     assert all(not thread.is_alive() for thread in threads)
     assert len(results) == 2
     assert all(result["code"] == "GAME_PROFILE_STARTED" for result in results)

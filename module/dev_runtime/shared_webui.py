@@ -80,14 +80,7 @@ class SharedWebUIRuntime:
         record = self._worker_record(profile)
         if record is None or not self._process_matches(record):
             return False
-        snapshot = self.state.read(profile)
-        return (
-            snapshot is not None
-            and snapshot.freshness == "fresh"
-            and snapshot.session_id == session_id
-            and snapshot.worker_running is True
-            and self._worker_identity_matches(snapshot, record)
-        )
+        return self._session_state_matches(profile, session_id, record)
 
     def worker_present(self, profile: str | None = None) -> bool | None:
         """Проверить наличие worker без изменения registry или ProcessManager."""
@@ -120,9 +113,24 @@ class SharedWebUIRuntime:
             return False, "worker development target не зарегистрирован"
         if not self._process_matches(record):
             return False, "worker development target не подтверждён"
-        if session_id is not None and not self.matches_session(session_id, profile):
+        if session_id is not None and not self._session_state_matches(profile, session_id, record):
             return False, "worker не принадлежит текущей DevSession"
         return True, "общий WebUI и worker development target готовы"
+
+    def _session_state_matches(
+        self,
+        profile: str,
+        session_id: str,
+        record: dict,
+    ) -> bool:
+        snapshot = self.state.read(profile)
+        return (
+            snapshot is not None
+            and snapshot.freshness == "fresh"
+            and snapshot.session_id == session_id
+            and snapshot.worker_running is True
+            and self._worker_identity_matches(snapshot, record)
+        )
 
     def _client(self) -> WebUIControlClient:
         if self._control_client is None:

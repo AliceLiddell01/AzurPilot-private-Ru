@@ -182,21 +182,29 @@ class TestWorkerRegistry(unittest.TestCase):
                 patch.object(worker_registry, "WORKER_REGISTRY_FILE", registry_file),
                 patch.object(worker_registry, "_process_created_at", return_value=10.5),
             ):
-                with patch.object(worker_registry, "process_matches", return_value=True):
-                    with self.assertRaises(worker_registry.WorkerRegistryOwnershipError):
-                        worker_registry.claim_owner(100)
+                registry_before = registry_file.read_bytes()
+                with (
+                    patch.object(worker_registry, "process_matches", return_value=True),
+                    self.assertRaises(worker_registry.WorkerRegistryOwnershipError),
+                ):
+                    worker_registry.claim_owner(100)
+                self.assertEqual(registry_before, registry_file.read_bytes())
                 self.assertEqual(
                     "alas",
                     next(iter(json.loads(registry_file.read_text(encoding="utf-8"))["workers"])),
                 )
 
-                with patch.object(
-                    worker_registry,
-                    "process_matches",
-                    side_effect=RuntimeError("identity unavailable"),
+                registry_before = registry_file.read_bytes()
+                with (
+                    patch.object(
+                        worker_registry,
+                        "process_matches",
+                        side_effect=RuntimeError("identity unavailable"),
+                    ),
+                    self.assertRaises(worker_registry.WorkerRegistryOwnershipError),
                 ):
-                    with self.assertRaises(worker_registry.WorkerRegistryOwnershipError):
-                        worker_registry.claim_owner(100)
+                    worker_registry.claim_owner(100)
+                self.assertEqual(registry_before, registry_file.read_bytes())
 
     def test_read_only_worker_snapshot_does_not_migrate_or_create_lock(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -213,7 +221,6 @@ class TestWorkerRegistry(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-
             legacy_before = legacy_file.read_bytes()
 
             with (
@@ -262,6 +269,7 @@ class TestWorkerRegistry(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            legacy_before = legacy_file.read_bytes()
 
             with patch.multiple(
                 worker_registry,
@@ -277,6 +285,7 @@ class TestWorkerRegistry(unittest.TestCase):
             locked_file.assert_not_called()
             self.assertFalse(current_file.exists())
             self.assertTrue(legacy_file.exists())
+            self.assertEqual(legacy_before, legacy_file.read_bytes())
             self.assertFalse(
                 worker_registry._registry_lock_file(legacy_file).exists()
             )

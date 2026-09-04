@@ -269,6 +269,7 @@ def test_legacy_screenshot_lifecycle_and_emulator_adapters_use_narrow_owners(mon
         def __init__(self) -> None:
             self.alive = False
             self.calls: list[str] = []
+            self.start_context: list[tuple[str | None, str | None]] = []
 
         def start(
             self,
@@ -278,6 +279,7 @@ def test_legacy_screenshot_lifecycle_and_emulator_adapters_use_narrow_owners(mon
             session_id: str | None = None,
         ) -> None:
             self.calls.append(func)
+            self.start_context.append((operation_id, session_id))
             self.alive = True
 
         def stop(self) -> bool:
@@ -286,6 +288,8 @@ def test_legacy_screenshot_lifecycle_and_emulator_adapters_use_narrow_owners(mon
             return True
 
     manager = Manager()
+    monkeypatch.setenv("AZURPILOT_RUNTIME_OPERATION_ID", "operation-env")
+    monkeypatch.setenv("AZURPILOT_DEV_SESSION_ID", "session-env")
     lifecycle = LegacyProcessManagerAdapter(
         manager_factory=lambda instance: manager,
         function_factory=lambda instance: "Main",
@@ -293,6 +297,7 @@ def test_legacy_screenshot_lifecycle_and_emulator_adapters_use_narrow_owners(mon
     assert lifecycle.start_instance("secondary") is True
     assert lifecycle.stop_instance("secondary") is True
     assert manager.calls == ["Main", "stop"]
+    assert manager.start_context == [("operation-env", "session-env")]
 
     events: list[str] = []
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -184,6 +185,7 @@ def test_control_plane_serializes_concurrent_owner_operations(tmp_path: Path) ->
             thread.start()
         for thread in threads:
             thread.join(timeout=2)
+        assert all(not thread.is_alive() for thread in threads)
     finally:
         server.close()
 
@@ -225,6 +227,7 @@ def test_control_plane_requires_positive_timeout_and_rejects_expired_request(tmp
     results = tmp_path / "config" / "state" / "webui-control" / "results"
     requests.mkdir(parents=True)
     results.mkdir(parents=True)
+    now = datetime.now(UTC)
     request = {
         "schema_version": 2,
         "request_id": "expired-request",
@@ -233,8 +236,8 @@ def test_control_plane_requires_positive_timeout_and_rejects_expired_request(tmp
         "profile": "ap",
         "session_id": None,
         "expected_owner": owner.as_dict(),
-        "created_at": "2026-09-04T00:00:00+00:00",
-        "expires_at": "2026-09-04T00:00:01+00:00",
+        "created_at": (now - timedelta(seconds=2)).isoformat(),
+        "expires_at": (now - timedelta(seconds=1)).isoformat(),
     }
     (requests / "expired-key.json").write_text(json.dumps(request), encoding="utf-8")
 

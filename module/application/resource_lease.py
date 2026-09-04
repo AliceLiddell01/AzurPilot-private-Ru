@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import sys
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -184,11 +185,13 @@ def game_runtime_lease(
         try:
             yield
         finally:
+            body_error = sys.exc_info()
             depths.pop(key, None)
             try:
                 atomic_remove(marker_path)
             except OSError as exc:
-                raise ResourceLeaseError("Не удалось очистить identity игрового lease") from exc
+                if body_error[0] is None:
+                    raise ResourceLeaseError("Не удалось очистить identity игрового lease") from exc
 
 
 __all__ = [

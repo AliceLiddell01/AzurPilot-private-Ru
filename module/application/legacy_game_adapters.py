@@ -1263,25 +1263,27 @@ class LegacyProcessManagerAdapter:
 
     def start_instance(self, instance: str) -> bool:
         instance = _safe_instance_name(instance)
+        session_id = self._session_id_value()
         if self._manager_factory is not None:
             manager = self._manager(instance)
             function = self._function_factory(instance) if self._function_factory else self._default_function(instance)
             manager.start(  # type: ignore[attr-defined]
                 func=function,
                 operation_id=self._operation_id or os.environ.get("AZURPILOT_RUNTIME_OPERATION_ID"),
-                session_id=self._session_id or os.environ.get("AZURPILOT_DEV_SESSION_ID"),
+                session_id=session_id,
             )
             return self.is_running(instance)
         result = self._control().call(
             RuntimeControlOperation.START_PROFILE,
             instance,
-            session_id=self._session_id,
+            session_id=session_id,
         )
         self._raise_for_result(result, operation="запуска")
         return self.is_running(instance)
 
     def stop_instance(self, instance: str) -> bool:
         instance = _safe_instance_name(instance)
+        session_id = self._session_id_value()
         if self._manager_factory is not None:
             manager = self._manager(instance)
             stopped = manager.stop()  # type: ignore[attr-defined]
@@ -1291,10 +1293,13 @@ class LegacyProcessManagerAdapter:
         result = self._control().call(
             RuntimeControlOperation.STOP_PROFILE,
             instance,
-            session_id=self._session_id,
+            session_id=session_id,
         )
         self._raise_for_result(result, operation="остановки")
         return not self.is_running(instance)
+
+    def _session_id_value(self) -> str | None:
+        return self._session_id or os.environ.get("AZURPILOT_DEV_SESSION_ID")
 
     def _control(self) -> WebUIControlClient:
         if self._control_client is None:

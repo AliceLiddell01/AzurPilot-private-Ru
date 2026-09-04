@@ -152,6 +152,36 @@ def test_idle_wait_wakes_immediately_for_pending_manual_command() -> None:
     assert script._manual_scan_wakeup is True
 
 
+def test_idle_wait_aborts_for_handover_before_next_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    script = _script()
+    script.config = SimpleNamespace(start_watching=lambda: None)
+    monkeypatch.setattr(
+        "module.dev_runtime.hooks.handover_requested",
+        lambda _config_name: True,
+    )
+
+    assert not script.wait_until(current_time() + timedelta(hours=4))
+
+
+def test_get_next_task_does_not_read_scheduler_after_handover(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    script = _script()
+    calls: list[str] = []
+    script.config = SimpleNamespace(
+        get_next=lambda: calls.append("get_next")
+    )
+    monkeypatch.setattr(
+        "module.dev_runtime.hooks.handover_requested",
+        lambda _config_name: True,
+    )
+
+    assert script.get_next_task() is None
+    assert calls == []
+
+
 def test_controller_factory_reuses_scheduler_owned_device(monkeypatch) -> None:
     script = _script()
     captured = {}

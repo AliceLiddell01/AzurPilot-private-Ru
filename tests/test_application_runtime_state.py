@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import Event, Thread
 
 import pytest
 
@@ -100,18 +101,69 @@ def test_runtime_state_does_not_claim_a_task_after_handover_request(tmp_path: Pa
     assert snapshot.handover_requested is True
 
 
-def test_runtime_state_begin_handover_atomically_blocks_new_task_boundary(tmp_path: Path) -> None:
+def test_runtime_state_begin_handover_atomically_blocks_concurrent_task_boundary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     store = _store(tmp_path, datetime.now(UTC).isoformat())
     store.mark_worker_started("alas", worker_pid=1004, worker_created_at=2004.0)
 
-    handover = store.begin_handover(
-        "alas",
-        operation_id="handover-atomic",
-        session_id="session-atomic",
-    )
+    begin_read = Event()
+    allow_begin = Event()
+    task_attempted = Event()
+    outcomes: dict[str, object] = {}
+    errors: list[BaseException] = []
+    original_read = store._read_payload
 
+    def paused_read() -> dict[str, object]:
+        payload = original_read()
+        if not begin_read.is_set():
+            begin_read.set()
+            if not allow_begin.wait(5):
+                raise AssertionError("begin_handover не получил разрешение продолжить")
+        return payload
+
+    monkeypatch.setattr(store, "_read_payload", paused_read)
+
+    def begin() -> None:
+        try:
+            outcomes["handover"] = store.begin_handover(
+                "alas",
+                operation_id="handover-atomic",
+                session_id="session-atomic",
+            )
+        except Exception as exc:  # noqa: BLE001 - сохранить исключение из фонового тестового потока.
+            errors.append(exc)
+
+    def start_task() -> None:
+        task_attempted.set()
+        try:
+            outcomes["task_started"] = store.try_mark_task_started(
+                "alas",
+                "DailyTask",
+                operation_id="task-race",
+            )
+        except Exception as exc:  # noqa: BLE001 - сохранить исключение из фонового тестового потока.
+            errors.append(exc)
+
+    begin_thread = Thread(target=begin)
+    task_thread = Thread(target=start_task)
+    begin_thread.start()
+    try:
+        assert begin_read.wait(5)
+        task_thread.start()
+        assert task_attempted.wait(5)
+    finally:
+        allow_begin.set()
+        begin_thread.join(timeout=5)
+        task_thread.join(timeout=5)
+
+    assert not begin_thread.is_alive()
+    assert not task_thread.is_alive()
+    assert errors == []
+    handover = outcomes["handover"]
     assert handover is not None
     assert handover.phase is RuntimePhase.HANDOVER_REQUESTED
     assert handover.handover_requested is True
-    assert store.try_mark_task_started("alas", "DailyTask", operation_id="task-race") is False
+    assert outcomes["task_started"] is False
     assert store.read("alas").current_task is None

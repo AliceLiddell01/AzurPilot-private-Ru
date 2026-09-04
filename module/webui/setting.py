@@ -31,7 +31,17 @@ def _close_runtime_control_server(server: object | None) -> None:
         return
     close = getattr(server, "close", None)
     if callable(close):
-        close()
+        try:
+            close()
+        except Exception as exc:  # noqa: BLE001 - cleanup must continue after close failure.
+            try:
+                from module.logger import logger
+
+                logger.warning(
+                    f"Не удалось закрыть runtime control server во время очистки: {type(exc).__name__}"
+                )
+            except Exception:
+                pass
 
 
 def _ensure_gui_process_lifetime_guard() -> None:

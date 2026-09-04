@@ -561,13 +561,14 @@ class ProcessManager:
         try:
             from module.application.runtime_state import RuntimePhase, RuntimeStateStore
 
+            state_store = RuntimeStateStore(_REPOSITORY_ROOT)
             record = get_workers(os.getpid()).get(self.config_name)
             if not isinstance(record, dict):
                 raise RuntimeError("После регистрации отсутствует запись worker")
             worker_pid = int(record["pid"])
             worker_created_at = float(record["created_at"])
             phase = RuntimePhase.USER_PROFILE_IDLE
-            current = RuntimeStateStore(_REPOSITORY_ROOT).read(self.config_name)
+            current = state_store.read(self.config_name)
             if (
                 current is not None
                 and current.phase is RuntimePhase.RESOURCE_ACQUIRING
@@ -575,7 +576,7 @@ class ProcessManager:
                 and current.session_id == self._runtime_session_id
             ):
                 phase = RuntimePhase.RESOURCE_ACQUIRING
-            RuntimeStateStore(_REPOSITORY_ROOT).mark_worker_started(
+            state_store.mark_worker_started(
                 self.config_name,
                 worker_pid=worker_pid,
                 worker_created_at=worker_created_at,

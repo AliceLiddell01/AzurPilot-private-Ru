@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 import uuid
@@ -8,10 +7,15 @@ from pathlib import Path
 
 import pytest
 
+from module.application import resource_lease
 from module.application.errors import ResourceBusyError
 from module.application.game_control_lock import (
     profile_mutation_lock,
     profile_mutation_lock_path,
+)
+from module.application.resource_lease import (
+    game_runtime_lease,
+    game_runtime_lease_path,
 )
 
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -58,6 +62,8 @@ def _lease_holder() -> subprocess.Popen[str]:
         stderr=subprocess.PIPE,
         text=True,
     )
+
+
 def test_profile_mutation_lock_is_shared_across_processes_and_released(
     tmp_path: Path,
 ) -> None:
@@ -139,3 +145,43 @@ def test_profile_mutation_lock_serializes_checkouts_for_one_adb_endpoint(
             holder.stdin.write("release")
             holder.stdin.flush()
         holder.wait(timeout=5)
+
+
+def test_game_runtime_lease_does_not_serialize_different_adb_endpoints(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first_port = 40000 + (uuid.uuid4().int % 10000)
+    second_port = 40000 + (uuid.uuid4().int % 10000)
+    if second_port == first_port:
+        second_port = 50000
+
+    monkeypatch.setenv("ADB_SERVER_SOCKET", f"tcp:127.0.0.1:{first_port}")
+    first_path = game_runtime_lease_path()
+    with game_runtime_lease(tmp_path, timeout=0.1):
+        monkeypatch.setenv("ADB_SERVER_SOCKET", f"tcp:127.0.0.1:{second_port}")
+        assert game_runtime_lease_path() != first_path
+        with game_runtime_lease(tmp_path, timeout=0.1):
+            pass
+
+
+def test_game_runtime_lease_cleanup_error_does_not_mask_body_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    port = 40000 + (uuid.uuid4().int % 10000)
+    monkeypatch.setenv("ADB_SERVER_SOCKET", f"tcp:127.0.0.1:{port}")
+    lease_path = game_runtime_lease_path()
+    marker_path = lease_path.with_name(f"{lease_path.stem}.owner.json")
+    original_remove = resource_lease.atomic_remove
+
+    def fail_remove(_path: Path) -> None:
+        raise OSError("synthetic cleanup failure")
+
+    monkeypatch.setattr(resource_lease, "atomic_remove", fail_remove)
+    try:
+        with pytest.raises(ValueError, match="body failure"), game_runtime_lease(
+            timeout=0.1
+        ):
+            raise ValueError("body failure")
+    finally:
+        original_remove(marker_path)

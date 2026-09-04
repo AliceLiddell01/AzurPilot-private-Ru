@@ -246,6 +246,12 @@ diagnostic evidence. Scheduler пользовательского профиля
 raw persisted `Scheduler.Enable` читается узким `SchedulerRuntimeStateReader`, без
 нормализации `ConfigUpdater`.
 
+Для busy handover стандартный legacy `notify_webui()` подтверждает только постановку
+сообщения в локальную очередь (`ACCEPTED`), но не доставку пользователю
+(`DELIVERED`). Поэтому production-path без notifier adapter с подтверждением доставки
+намеренно завершается fail-closed; для подтверждённого busy handover owner должен
+получить `NotificationOutcome.DELIVERED` от внедрённого notifier.
+
 Публичная поверхность намеренно состоит из отдельных typed tools:
 `dev_start_game`, `dev_stop_game`, `dev_restart_game`,
 `dev_start_emulator`, `dev_stop_emulator`, `dev_restart_emulator` и

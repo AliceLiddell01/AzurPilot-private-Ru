@@ -2977,7 +2977,13 @@ class DevSessionManager(DevDiagnosticsMixin):
                 code="DEV_OWNERSHIP_LOST",
                 message="Shared WebUI worker не подтвердил принадлежность текущей DevSession",
             )
-        raise RuntimeError("Неожиданное завершение shared WebUI запуска")
+        self._stop_shared_worker(session)
+        return self._shared_start_failure(
+            session,
+            task_plan,
+            code="DEV_SHARED_WEBUI_START_FAILED",
+            message="Shared WebUI запуск завершился без подтверждённого результата",
+        )
 
     def _shared_start_failure(
         self,

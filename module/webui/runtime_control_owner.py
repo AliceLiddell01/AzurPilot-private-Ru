@@ -623,7 +623,7 @@ class WebUIRuntimeControlOwner:
                 owner=owner,
                 details={"stop_returned": stopped if type(stopped) is bool else None},
             )
-        if type(stopped) is not bool or stopped is not True or self._read_alive(manager):
+        if stopped is not True or self._read_alive(manager):
             if self._deadline_expired(deadline):
                 return self._failure(
                     RuntimeControlOperation.STOP_PROFILE,

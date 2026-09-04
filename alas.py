@@ -50,6 +50,16 @@ def _get_task_display_name(task_command):
     return _i18n_task_names.get(task_command, task_command)
 
 
+def _handover_requested(config_name: str) -> bool | None:
+    """Проверить запрос handover, если Dev Runtime доступен в текущей установке."""
+
+    try:
+        from module.dev_runtime.hooks import handover_requested
+    except ImportError:
+        return None
+    return handover_requested(config_name)
+
+
 
 
 class AzurLaneAutoScript:
@@ -1452,6 +1462,12 @@ class AzurLaneAutoScript:
         future = future + timedelta(seconds=1)
         self.config.start_watching()
         while 1:
+            if _handover_requested(self.config_name) is True:
+                logger.info(
+                    f'[{self.config_name}] Ожидание прервано запросом handover; '
+                    'следующая задача не назначается'
+                )
+                return False
             if current_time() > future:
                 return True
             if self.fleet_manual_scan.has_pending(self.config_name):
@@ -1482,9 +1498,16 @@ class AzurLaneAutoScript:
         选择等待策略（关闭游戏 / 前往主页 / 停留原地），然后阻塞等待。
 
         Returns:
-            str: 下一个任务的方法名（如 'Restart'、'Commission'）。
+            str | None: Следующая задача или ``None``, если handover остановил
+                назначение задачи.
         """
         while 1:
+            if _handover_requested(self.config_name) is True:
+                logger.info(
+                    f'[{self.config_name}] Получен запрос на handover; '
+                    'следующая задача не назначается'
+                )
+                return None
             task = self.config.get_next()
             self.config.task = task
             self.config.bind(task)
@@ -1626,15 +1649,6 @@ class AzurLaneAutoScript:
         RESTART_DELAY = 20
         LONG_WAIT = 300
 
-        try:
-            from module.dev_runtime.hooks import handover_requested as _handover_requested
-        except ImportError:
-            def _handover_requested(*_args, **_kwargs):
-                return None
-
-        def is_handover_requested(config_name: str) -> bool | None:
-            return _handover_requested(config_name)
-
         while 1:
             try:
                 # 检查来自 GUI 的通用停止请求
@@ -1645,7 +1659,7 @@ class AzurLaneAutoScript:
                             f"[Alas] [{self.config_name}] Работа завершена. Причина: запрос на остановку"
                         )
                         break
-                if is_handover_requested(self.config_name) is True:
+                if _handover_requested(self.config_name) is True:
                     logger.info('[Alas] Получен запрос на handover; следующая задача не назначается')
                     break
                 # 检查游戏服务器维护
@@ -1684,6 +1698,8 @@ class AzurLaneAutoScript:
 
                 # 获取任务
                 task = self.get_next_task()
+                if task is None:
+                    break
                 # Autoscan проверяется на безопасной границе после возможного ожидания.
                 if not self._prepare_task_boundary(task):
                     continue
@@ -1696,7 +1712,7 @@ class AzurLaneAutoScript:
                 if (
                     self.stop_event is not None
                     and self.stop_event.is_set()
-                ) or is_handover_requested(self.config_name) is True:
+                ) or _handover_requested(self.config_name) is True:
                     record_dev_runtime_task_finished(task)
                     logger.info('[Alas] Запуск задачи отменён запросом cooperative stop')
                     break
@@ -1715,7 +1731,7 @@ class AzurLaneAutoScript:
                 if (
                     self.stop_event is not None
                     and self.stop_event.is_set()
-                ) or is_handover_requested(self.config_name) is True:
+                ) or _handover_requested(self.config_name) is True:
                     logger.info('[Alas] После текущей задачи получен запрос на cooperative stop')
                     break
 

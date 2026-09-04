@@ -446,6 +446,10 @@ def _file_identity(path: Path) -> _FileIdentity:
         stat_result = path.stat()
     except OSError as exc:
         raise EvidenceError("DEV_EVIDENCE_LOG_BOUNDARY_LOST", "Идентификатор файла журнала недоступен") from exc
+    return _file_identity_from_stat(stat_result)
+
+
+def _file_identity_from_stat(stat_result: os.stat_result) -> _FileIdentity:
     return _FileIdentity(
         device=int(stat_result.st_dev),
         inode=int(stat_result.st_ino),
@@ -1658,11 +1662,19 @@ class EvidenceStore:
                 if not log_path.exists():
                     with log_path.open("ab"):
                         pass
-                identity = _file_identity(log_path)
+                try:
+                    stat_result = log_path.stat()
+                except OSError as exc:
+                    raise EvidenceError(
+                        "DEV_EVIDENCE_LOG_BOUNDARY_LOST",
+                        "Идентификатор файла журнала недоступен",
+                    ) from exc
+                identity = _file_identity_from_stat(stat_result)
+                boundary_offset = int(stat_result.st_size)
                 manifest["logs"] = {
                     "source": self.log_source,
                     "available": True,
-                    "boundary_offset": int(log_path.stat().st_size),
+                    "boundary_offset": boundary_offset,
                     "boundary_identity": identity.as_dict(),
                     "end_offset": None,
                     "end_identity": None,
@@ -1670,7 +1682,7 @@ class EvidenceStore:
                     "segments": [
                         {
                             "identity": identity.as_dict(),
-                            "boundary_offset": int(log_path.stat().st_size),
+                            "boundary_offset": boundary_offset,
                             "end_offset": None,
                         }
                     ],
