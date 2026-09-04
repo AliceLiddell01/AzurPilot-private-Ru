@@ -45,6 +45,14 @@ from module.application.host_lock import (
     ensure_host_runtime_root,
     host_scoped_lock_path,
 )
+from module.application.runtime_control import (
+    RuntimeControlOperation,
+    RuntimeControlResult,
+    RuntimeOwnerIdentity,
+    SharedWebUIBootstrapper,
+    WebUIControlClient,
+)
+from module.application.scheduler_runtime import SchedulerRuntimeStateReader
 
 _MAX_LOG_LINES = 10_000
 _MAX_LOG_BYTES = 2 * 1024 * 1024
@@ -322,10 +330,17 @@ class LegacyConfigAdapter:
         *,
         config_factory: Callable[[str], object] | None = None,
         updater_factory: Callable[[], object] | None = None,
+        scheduler_state_reader: SchedulerRuntimeStateReader | None = None,
+        repository_root: Path | None = None,
     ) -> None:
         self._metadata = metadata
         self._config_factory = config_factory
         self._updater_factory = updater_factory
+        self._scheduler_state_reader = scheduler_state_reader or (
+            SchedulerRuntimeStateReader(repository_root or _REPOSITORY_ROOT)
+            if config_factory is None and updater_factory is None
+            else None
+        )
 
     def read_config(
         self,
@@ -354,6 +369,11 @@ class LegacyConfigAdapter:
         instance: str,
         schedulable_tasks: Sequence[str],
     ) -> tuple[SchedulerEntry, ...]:
+        if self._scheduler_state_reader is not None:
+            return self._scheduler_state_reader.read_queue(
+                _safe_instance_name(instance),
+                schedulable_tasks,
+            )
         data = self.read_config(instance)
         entries = []
         for task in schedulable_tasks:
@@ -514,6 +534,7 @@ class LegacyRuntimeLogAdapter:
         date_prefix = current_date.strftime("%Y-%m-%d")
         previous_prefix = (current_date - timedelta(days=1)).strftime("%Y-%m-%d")
         candidates = (
+            self._safe_candidate(f"{instance}.txt"),
             self._safe_candidate(f"{date_prefix}_{instance}.txt"),
             self._safe_candidate(f"{previous_prefix}_{instance}.txt"),
         )
@@ -862,6 +883,97 @@ class LegacyGameApplicationAdapter:
                     if callable(release_resource):
                         release_resource()
 
+    def return_to_main(self, instance: str) -> bool:
+        """Вернуть уже запущенную игру на главный экран через существующий UI flow."""
+
+        instance = _safe_instance_name(instance)
+        device: object | None = None
+        with _adb_host_lock():
+            try:
+                config = self._make_config(instance)
+                device = self._device_factory(config)
+                screenshot = getattr(device, "screenshot", None)
+                if not callable(screenshot):
+                    raise OperationFailedError(
+                        "Device owner не предоставил свежий screenshot для handover."
+                    )
+                screenshot()
+                ui = self._ui_factory(config, device)
+                is_in_main = getattr(ui, "is_in_main", None)
+                goto_main = getattr(ui, "ui_goto_main", None)
+                if not callable(is_in_main) or not callable(goto_main):
+                    raise OperationFailedError(
+                        "UI owner не предоставил существующие ui_goto_main/is_in_main."
+                    )
+                current = is_in_main()
+                if type(current) is not bool:
+                    raise OperationFailedError(
+                        "UI owner вернул некорректное состояние главного экрана."
+                    )
+                if current is not True:
+                    goto_main()
+                    screenshot()
+                confirmed = is_in_main()
+                if type(confirmed) is not bool:
+                    raise OperationFailedError(
+                        "UI owner вернул некорректное состояние главного экрана."
+                    )
+                if confirmed is not True:
+                    raise PostconditionFailedError(
+                        "UI не подтвердил главный экран после handover."
+                    )
+                return True
+            except (OwnershipAmbiguousError, PreconditionFailedError, PostconditionFailedError):
+                raise
+            except Exception:  # noqa: BLE001 - handover boundary fails closed.
+                raise OperationFailedError(
+                    "Не удалось вернуть игру на главный экран через существующий UI flow."
+                ) from None
+            finally:
+                if device is not None:
+                    release_resource = getattr(device, "release_resource", None)
+                    if callable(release_resource):
+                        release_resource()
+
+    def is_in_main(self, instance: str) -> bool:
+        """Получить свежую authoritative проверку текущего главного экрана."""
+
+        instance = _safe_instance_name(instance)
+        device: object | None = None
+        with _adb_host_lock():
+            try:
+                config = self._make_config(instance)
+                device = self._device_factory(config)
+                screenshot = getattr(device, "screenshot", None)
+                if not callable(screenshot):
+                    raise OperationFailedError(
+                        "Device owner не предоставил свежий screenshot для main check."
+                    )
+                screenshot()
+                ui = self._ui_factory(config, device)
+                method = getattr(ui, "is_in_main", None)
+                if not callable(method):
+                    raise OperationFailedError(
+                        "UI owner не предоставил authoritative main check."
+                    )
+                result = method()
+                if type(result) is not bool:
+                    raise OperationFailedError(
+                        "UI owner вернул некорректное состояние главного экрана."
+                    )
+                return result
+            except (OwnershipAmbiguousError, PreconditionFailedError, PostconditionFailedError):
+                raise
+            except Exception:  # noqa: BLE001 - main check fails closed.
+                raise OperationFailedError(
+                    "Не удалось подтвердить главный экран через существующий UI flow."
+                ) from None
+            finally:
+                if device is not None:
+                    release_resource = getattr(device, "release_resource", None)
+                    if callable(release_resource):
+                        release_resource()
+
     def _read_state(self, instance: str) -> GameApplicationState:
         app, package = self._make_app_control(instance, include_package=True)
         foreground: bool | None
@@ -1110,39 +1222,149 @@ class LegacyProcessManagerAdapter:
         *,
         manager_factory: Callable[[str], object] | None = None,
         function_factory: Callable[[str], str] | None = None,
+        repository_root: Path | str | None = None,
+        control_client: WebUIControlClient | None = None,
+        session_id: str | None = None,
     ) -> None:
         self._manager_factory = manager_factory
         self._function_factory = function_factory
+        self._repository_root = Path(repository_root or _REPOSITORY_ROOT).resolve()
+        self._session_id = session_id
+        self._control_client = control_client
 
     def is_running(self, instance: str) -> bool:
-        manager = self._manager(instance)
-        value = manager.alive
-        if type(value) is not bool:
-            raise TypeError("ProcessManager.alive должен быть bool")
-        return value
+        instance = _safe_instance_name(instance)
+        if self._manager_factory is not None:
+            manager = self._manager(instance)
+            value = manager.alive
+            if type(value) is not bool:
+                raise TypeError("ProcessManager.alive должен быть bool")
+            return value
+        from module.webui import worker_registry
+
+        record = worker_registry.get_worker_read_only(instance)
+        if record is None:
+            return False
+        try:
+            matches = worker_registry.process_matches(record)
+        except RuntimeError as exc:
+            raise OwnershipAmbiguousError(
+                "Нельзя подтвердить identity worker без риска PID reuse."
+            ) from exc
+        if matches is None:
+            return False
+        if matches is not True:
+            raise OwnershipAmbiguousError(
+                "Запись worker указывает на другой процесс; lifecycle отклонён."
+            )
+        return True
 
     def start_instance(self, instance: str) -> bool:
         instance = _safe_instance_name(instance)
-        manager = self._manager(instance)
-        function = self._function_factory(instance) if self._function_factory else self._default_function(instance)
-        manager.start(func=function)  # type: ignore[attr-defined]
+        if self._manager_factory is not None:
+            manager = self._manager(instance)
+            function = self._function_factory(instance) if self._function_factory else self._default_function(instance)
+            manager.start(func=function)  # type: ignore[attr-defined]
+            return self.is_running(instance)
+        result = self._control().call(
+            RuntimeControlOperation.START_PROFILE,
+            instance,
+            session_id=self._session_id,
+        )
+        self._raise_for_result(result, operation="запуска")
         return self.is_running(instance)
 
     def stop_instance(self, instance: str) -> bool:
         instance = _safe_instance_name(instance)
-        manager = self._manager(instance)
-        stopped = manager.stop()  # type: ignore[attr-defined]
-        if type(stopped) is not bool:
-            raise TypeError("ProcessManager.stop должен вернуть bool")
-        return stopped and not self.is_running(instance)
+        if self._manager_factory is not None:
+            manager = self._manager(instance)
+            stopped = manager.stop()  # type: ignore[attr-defined]
+            if type(stopped) is not bool:
+                raise TypeError("ProcessManager.stop должен вернуть bool")
+            return stopped and not self.is_running(instance)
+        result = self._control().call(
+            RuntimeControlOperation.STOP_PROFILE,
+            instance,
+            session_id=self._session_id,
+        )
+        self._raise_for_result(result, operation="остановки")
+        return not self.is_running(instance)
+
+    def _control(self) -> WebUIControlClient:
+        if self._control_client is None:
+            owner_reader = self._owner_reader
+            owner_matches = self._owner_matches
+            bootstrapper = SharedWebUIBootstrapper(
+                self._repository_root,
+                owner_reader=owner_reader,
+                owner_matches=owner_matches,
+            )
+            self._control_client = WebUIControlClient(
+                self._repository_root,
+                owner_reader=owner_reader,
+                owner_matches=owner_matches,
+                bootstrapper=bootstrapper,
+            )
+        return self._control_client
+
+    @staticmethod
+    def _owner_reader() -> RuntimeOwnerIdentity | None:
+        from module.webui.worker_registry import get_owner_record_read_only
+
+        record = get_owner_record_read_only()
+        return None if record is None else RuntimeOwnerIdentity.from_value(record)
+
+    @staticmethod
+    def _owner_matches(owner: RuntimeOwnerIdentity) -> bool:
+        from module.webui.worker_registry import process_matches
+
+        try:
+            return process_matches(owner.as_dict()) is True
+        except RuntimeError:
+            return False
+
+    @staticmethod
+    def _raise_for_result(result: RuntimeControlResult, *, operation: str) -> None:
+        if result.ok:
+            return
+        code = result.code
+        message = result.message
+        if code in {
+            "RUNTIME_OWNER_UNAVAILABLE",
+            "RUNTIME_OWNER_STALE",
+            "RUNTIME_OWNER_CHANGED",
+            "RUNTIME_OWNER_UNKNOWN",
+            "RUNTIME_OWNERSHIP_MISMATCH",
+        }:
+            raise OwnershipAmbiguousError(message)
+        if code in {"RUNTIME_RESOURCE_BUSY", "RUNTIME_OPERATION_BUSY"}:
+            from module.application.errors import ResourceBusyError
+
+            raise ResourceBusyError(message)
+        if code in {
+            "RUNTIME_PROFILE_INVALID",
+            "RUNTIME_PRECONDITION_FAILED",
+            "RUNTIME_HANDOVER_NOTIFICATION_FAILED",
+            "RUNTIME_HANDOVER_QUIESCE_FAILED",
+            "RUNTIME_HANDOVER_TIMEOUT",
+            "RUNTIME_HANDOVER_MAIN_FAILED",
+            "RUNTIME_HANDOVER_MAIN_UNCONFIRMED",
+            "RUNTIME_HANDOVER_STATE_UNKNOWN",
+            "RUNTIME_HANDOVER_STATE_STALE",
+            "RUNTIME_STATE_UNKNOWN",
+        }:
+            raise PreconditionFailedError(message)
+        if code in {"RUNTIME_POSTCONDITION_FAILED", "RUNTIME_START_UNCONFIRMED", "RUNTIME_STOP_UNCONFIRMED"}:
+            raise PostconditionFailedError(message)
+        if code.startswith("RUNTIME_"):
+            raise OperationFailedError(f"Не удалось выполнить операцию {operation}: {message}")
+        raise OperationFailedError(f"Не удалось выполнить операцию {operation}: результат не распознан")
 
     def _manager(self, instance: str) -> object:
         instance = _safe_instance_name(instance)
         if self._manager_factory is not None:
             return self._manager_factory(instance)
-        from module.webui.process_manager import ProcessManager
-
-        return ProcessManager.get_manager(instance)
+        raise RuntimeError("Стандартный ProcessManager недоступен вне процесса WebUI owner")
 
     @staticmethod
     def _default_function(instance: str) -> str:

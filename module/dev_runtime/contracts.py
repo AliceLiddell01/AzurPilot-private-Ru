@@ -72,6 +72,11 @@ class DevSessionState(StrEnum):
     STALE = "stale"
 
 
+class DevRuntimeMode(StrEnum):
+    STANDALONE_PROCESS = "standalone_process"
+    SHARED_WEBUI = "shared_webui"
+
+
 class DevTaskMode(StrEnum):
     NONE = "none"
     TASK_AWARE = "task_aware"
@@ -266,6 +271,7 @@ class DevSession:
     task_policy_expected: bool = False
     profile_name: str | None = None
     target_identity: str | None = None
+    runtime_mode: DevRuntimeMode = DevRuntimeMode.STANDALONE_PROCESS
 
     def __post_init__(self) -> None:
         if self.profile_name is None:
@@ -319,6 +325,7 @@ class DevSession:
             "process": self.process.as_dict() if self.process is not None else None,
             "profile_name": self.profile_name,
             "target_identity": self.target_identity,
+            "runtime_mode": self.runtime_mode.value,
             "last_code": self.last_code,
             "last_message": self.last_message,
             "task_mode": self.task_mode.value,
@@ -370,6 +377,12 @@ class DevSession:
         target_identity = payload.get("target_identity")
         if target_identity is not None and not isinstance(target_identity, str):
             raise ValueError("target_identity должен быть строкой или null")
+        try:
+            runtime_mode = DevRuntimeMode(
+                str(payload.get("runtime_mode", DevRuntimeMode.STANDALONE_PROCESS.value))
+            )
+        except ValueError as exc:
+            raise ValueError("маркер содержит некорректный runtime mode") from exc
         try:
             state = DevSessionState(str(payload["state"]))
         except (KeyError, ValueError) as exc:
@@ -424,6 +437,7 @@ class DevSession:
             task_policy_expected=task_policy_expected,
             profile_name=profile_name,
             target_identity=target_identity,
+            runtime_mode=runtime_mode,
         )
 
 

@@ -7,6 +7,7 @@
 import multiprocessing
 import os
 import threading
+from pathlib import Path
 from multiprocessing.managers import SyncManager
 from typing import TYPE_CHECKING, Callable, Generic, TypeVar
 
@@ -134,6 +135,7 @@ class State:
     dependency_sync_event: threading.Event = None
     manager: SyncManager = None
     process_registry = None
+    _runtime_control_server = None
     electron: bool = False
     webui_host: str = None
     theme: str = "default"
@@ -184,6 +186,12 @@ class State:
     def init(cls):
         cls._clearup = False
         cls._restart_requested = False
+        previous_server = cls._runtime_control_server
+        cls._runtime_control_server = None
+        if previous_server is not None:
+            close = getattr(previous_server, "close", None)
+            if callable(close):
+                close()
         manager = multiprocessing.Manager()
         cls.manager = manager
         # Browser sessions may run in separate processes, so workers need a
@@ -195,6 +203,34 @@ class State:
             claim_owner(os.getpid())
         except Exception:
             # 所有者认领失败时不能留下无主的 Manager 子进程。
+            cls.process_registry = None
+            cls.manager = None
+            cls._init = False
+            try:
+                manager.shutdown()
+            except Exception:
+                pass
+            raise
+        server = None
+        try:
+            from module.webui.runtime_control_owner import WebUIRuntimeControlOwner
+
+            owner = WebUIRuntimeControlOwner(Path(__file__).resolve().parents[2])
+            server = owner.start_server()
+            cls._runtime_control_server = server
+        except Exception:
+            # Нельзя оставлять worker registry owner без control server: это
+            # создало бы невидимый и неуправляемый runtime.
+            if server is not None:
+                close = getattr(server, "close", None)
+                if callable(close):
+                    close()
+            try:
+                from module.webui.worker_registry import clear_owner
+
+                clear_owner(os.getpid())
+            except Exception:
+                pass
             cls.process_registry = None
             cls.manager = None
             cls._init = False
@@ -215,6 +251,12 @@ class State:
         if workers:
             raise RuntimeError(f"Остались незавершённые записи рабочих процессов: {list(workers)}")
         cls._clearup = True
+        server = cls._runtime_control_server
+        cls._runtime_control_server = None
+        if server is not None:
+            close = getattr(server, "close", None)
+            if callable(close):
+                close()
         manager = cls.manager
         try:
             if manager is not None:

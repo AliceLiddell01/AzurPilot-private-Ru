@@ -20,6 +20,7 @@ from module.dev_runtime.contracts import (
     DEFAULT_STOP_TIMEOUT,
     DevEnvironment,
     DevResult,
+    DevRuntimeMode,
     DevSession,
     DevSessionState,
     DevStatusKind,
@@ -50,6 +51,7 @@ from module.dev_runtime.evidence import (
     validate_session_id,
 )
 from module.dev_runtime.process import ProcessBackend, _same_path
+from module.dev_runtime.shared_webui import SharedWebUIRuntime
 from module.dev_runtime.target import (
     DevTarget,
     DevTargetError,
@@ -125,9 +127,22 @@ class DevSessionManager(DevDiagnosticsMixin):
         smoke_owner: bool = False,
         game_bridge_factory: Callable[[DevEnvironment], object] | None = None,
         database_diagnostics_factory: Callable[[DevEnvironment], object] | None = None,
+        shared_webui: bool | None = None,
+        shared_lifecycle: object | None = None,
     ):
         self.environment = environment or DevEnvironment.current()
+        # Переданный ProcessBackend сохраняет seam тестов и исторического
+        # standalone-контракта. Публичная сборка без этого seam использует
+        # единственного общего WebUI owner.
+        self.shared_webui = (
+            process_backend is None if shared_webui is None else shared_webui
+        )
         self.process_backend = process_backend or ProcessBackend()
+        self.shared_lifecycle = (
+            shared_lifecycle
+            if shared_lifecycle is not None
+            else (SharedWebUIRuntime(self.environment.repository_root) if self.shared_webui else None)
+        )
         self.storage_probe = storage_probe or _default_storage_probe
         self.port_probe = port_probe or _port_is_listening
         self.readiness_probe = readiness_probe or self._default_readiness_probe
@@ -219,6 +234,15 @@ class DevSessionManager(DevDiagnosticsMixin):
             return self.environment
         return replace(self.environment, dev_target=target)
 
+    def _evidence_log_path(self) -> Path:
+        """Вернуть фактический scoped log target текущего runtime mode."""
+
+        if self.shared_webui and self.shared_lifecycle is not None:
+            candidate = getattr(self.shared_lifecycle, "log_file", None)
+            if isinstance(candidate, (str, os.PathLike)):
+                return Path(candidate)
+        return self.environment.log_file
+
     def _evidence_for_session(
         self,
         session_id: str,
@@ -232,6 +256,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                 session_id,
                 profile_name=profile_name,
                 validate_profile=validate_profile,
+                log_file=self._evidence_log_path(),
             )
         except (EvidenceError, ValueError):
             return None
@@ -269,6 +294,77 @@ class DevSessionManager(DevDiagnosticsMixin):
         except Exception:
             active_store.mark_degraded("timeline_write_failed")
 
+    def _record_handover_evidence(self, result: object) -> None:
+        """Записать подтверждённые переходы handover до terminal finalization."""
+
+        if isinstance(result, Mapping):
+            raw_details = result.get("details")
+        else:
+            raw_details = getattr(result, "details", None)
+        if not isinstance(raw_details, Mapping):
+            return
+        raw_handover = raw_details.get("handover")
+        if not isinstance(raw_handover, Mapping):
+            return
+        profile = raw_handover.get("profile")
+        operation_id = raw_handover.get("operation_id")
+        raw_phases = raw_handover.get("phases")
+        if isinstance(raw_phases, (list, tuple)):
+            for phase in raw_phases:
+                if not isinstance(phase, str):
+                    continue
+                fields: dict[str, object] = {"phase": phase}
+                if isinstance(profile, str):
+                    fields["profile"] = profile
+                if isinstance(operation_id, str):
+                    fields["operation_id"] = operation_id
+                self._evidence_event("handover_transition", fields)
+
+        handover_details = raw_handover.get("details")
+        notification = (
+            handover_details.get("notification")
+            if isinstance(handover_details, Mapping)
+            else None
+        )
+        if not isinstance(notification, Mapping):
+            return
+        attempted = notification.get("attempted")
+        confirmed = notification.get("confirmed")
+        if type(attempted) is not bool or type(confirmed) is not bool:
+            return
+        fields = {
+            "phase": "preemption_notice",
+            "reason": "notification",
+            "attempted": attempted,
+            "confirmed": confirmed,
+        }
+        if isinstance(profile, str):
+            fields["profile"] = profile
+        if isinstance(operation_id, str):
+            fields["operation_id"] = operation_id
+        self._evidence_event("handover_transition", fields)
+
+    def _session_runtime_matches(self, session: DevSession) -> bool | None:
+        """Проверить ownership текущей DevSession через её фактический runtime."""
+
+        if self.shared_webui and session.runtime_mode is DevRuntimeMode.SHARED_WEBUI:
+            matcher = getattr(self.shared_lifecycle, "matches_session", None)
+            if not callable(matcher):
+                return False
+            try:
+                return matcher(
+                    session.session_id,
+                    session.profile_name or self.environment.profile_name,
+                ) is True
+            except Exception:
+                return None
+        if session.process is None:
+            return None
+        try:
+            return self.process_backend.matches(session.process)
+        except RuntimeError:
+            return None
+
     def _evidence_error(
         self,
         exception: BaseException,
@@ -284,26 +380,27 @@ class DevSessionManager(DevDiagnosticsMixin):
         except Exception:
             active_store.mark_degraded("error_record_failed")
 
-    def _finish_failed_evidence(
+    def _finalize_evidence_before_cleanup(
         self,
         session: DevSession,
         *,
         process_started: bool,
         process_stopped: bool,
         cleanup_attempted: bool,
-        cleanup_confirmed: bool,
         reason: str,
-    ) -> None:
-        """Закрыть диагностические данные после неуспешного запуска, не скрывая неопределённость."""
+    ) -> EvidenceStore | None:
+        """Закрыть log boundary до любой очистки task sandbox."""
 
         store = self._evidence_store
+        if store is not None and store.session_id != session.session_id:
+            store = None
         if store is None and session.is_task_aware:
             store = self._evidence_for_session(
                 session.session_id,
                 profile_name=self._session_profile_name(session),
             )
         if store is None:
-            return
+            return None
         if process_started:
             self._evidence_event(
                 "process_stopped",
@@ -312,19 +409,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             )
         if cleanup_attempted:
             self._evidence_event("cleanup_started", {"preserved": False}, store=store)
-            if cleanup_confirmed:
-                self._evidence_event(
-                    "cleanup_completed",
-                    {"confirmed": True, "preserved": False},
-                    store=store,
-                )
-            else:
-                self._evidence_event(
-                    "runtime_warning",
-                    {"code": "DEV_CLEANUP_FAILED", "phase": "cleanup"},
-                    store=store,
-                )
-        if (not process_started or process_stopped) and cleanup_confirmed:
+        if not process_started or process_stopped:
             self._evidence_event(
                 "session_stopped",
                 {"state": session.state.value},
@@ -333,18 +418,34 @@ class DevSessionManager(DevDiagnosticsMixin):
             try:
                 store.finalize(
                     stopped_at=session.updated_at,
-                    cleanup_confirmed=True,
-                )
-            except Exception:
-                store.mark_degraded("timeline_write_failed")
-        elif not process_started or process_stopped:
-            try:
-                store.finalize(
-                    stopped_at=session.updated_at,
                     cleanup_confirmed=False,
                 )
             except Exception:
-                store.mark_degraded("timeline_write_failed")
+                store.mark_degraded("evidence_finalization_failed")
+        return store
+
+    @staticmethod
+    def _record_evidence_cleanup(
+        store: EvidenceStore,
+        session: DevSession,
+        *,
+        cleanup_confirmed: bool,
+        preserved: bool = False,
+    ) -> None:
+        try:
+            store.record_cleanup_result(
+                timestamp=session.updated_at,
+                cleanup_confirmed=cleanup_confirmed,
+                preserved=preserved,
+            )
+            if not cleanup_confirmed:
+                store.append_event(
+                    "runtime_warning",
+                    {"code": "DEV_CLEANUP_FAILED", "phase": "cleanup"},
+                    timestamp=session.updated_at,
+                )
+        except Exception:
+            store.mark_degraded("cleanup_result_write_failed")
 
     def _initialize_evidence(self, session: DevSession, task_plan: TaskPlan) -> None:
         try:
@@ -355,6 +456,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                 excluded_tasks=task_plan.excluded_tasks,
                 timestamp=session.created_at,
                 now=self.now,
+                log_file=self._evidence_log_path(),
             )
             self._evidence_store = store
             self._evidence_event(
@@ -446,10 +548,7 @@ class DevSessionManager(DevDiagnosticsMixin):
         active_owned = False
         if current is not None and current.session_id == store.session_id:
             if current.state is DevSessionState.RUNNING and current.process is not None:
-                try:
-                    active_owned = self.process_backend.matches(current.process) is True
-                except RuntimeError:
-                    active_owned = False
+                active_owned = self._session_runtime_matches(current) is True
         try:
             summary = store.summary(active_owned=active_owned)
         except EvidenceCorrupt as exc:
@@ -528,10 +627,7 @@ class DevSessionManager(DevDiagnosticsMixin):
         active_owned = False
         if current is not None and current.session_id == store.session_id:
             if current.state is DevSessionState.RUNNING and current.process is not None:
-                try:
-                    active_owned = self.process_backend.matches(current.process) is True
-                except RuntimeError:
-                    active_owned = False
+                active_owned = self._session_runtime_matches(current) is True
         try:
             page = store.logs_page(cursor=cursor, limit=limit, active_owned=active_owned)
         except EvidenceCorrupt as exc:
@@ -582,13 +678,23 @@ class DevSessionManager(DevDiagnosticsMixin):
                 )
             )
         try:
-            owned = self.process_backend.matches(session.process)
+            owned = self._session_runtime_matches(session)
         except RuntimeError as exc:
             return EvidenceScreenshot(
                 DevResult(
                     False,
                     "DEV_SCREENSHOT_OWNERSHIP_UNKNOWN",
                     f"Владение DevSession невозможно подтвердить: {exc}",
+                    DevStatusKind.OWNERSHIP_MISMATCH.value,
+                    session.session_id,
+                )
+            )
+        if owned is None:
+            return EvidenceScreenshot(
+                DevResult(
+                    False,
+                    "DEV_SCREENSHOT_OWNERSHIP_UNKNOWN",
+                    "Владение DevSession невозможно подтвердить",
                     DevStatusKind.OWNERSHIP_MISMATCH.value,
                     session.session_id,
                 )
@@ -1089,10 +1195,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             return None
         process_alive = None
         if session.process is not None:
-            try:
-                process_alive = self.process_backend.matches(session.process)
-            except RuntimeError:
-                process_alive = None
+            process_alive = self._session_runtime_matches(session)
         return RuntimeSessionState(session.state.value, process_alive)
 
     def _control_smoke_active(self) -> bool:
@@ -1160,6 +1263,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             return result
         details = dict(result.details)
         if session is not None:
+            details["runtime_mode"] = session.runtime_mode.value
             details["task_lifecycle"] = session.task_lifecycle_as_dict()
         try:
             task_policy_environment = (
@@ -1380,7 +1484,82 @@ class DevSessionManager(DevDiagnosticsMixin):
                 if session is not None and session.is_task_aware
                 else None
             )
-            if session is not None and session.process is not None:
+            shared_session = (
+                session is not None
+                and self.shared_webui
+                and session.runtime_mode is DevRuntimeMode.SHARED_WEBUI
+            )
+            if shared_session:
+                profile = session.profile_name or self.environment.profile_name
+                if session.process is not None:
+                    ownership = self._session_runtime_matches(session)
+                    if ownership is None:
+                        return self._session_result(
+                            session,
+                            ok=False,
+                            code="DEV_OWNERSHIP_UNKNOWN",
+                            message="Владение shared worker невозможно подтвердить; cleanup запрещен",
+                            state=DevStatusKind.OWNERSHIP_MISMATCH,
+                        )
+                    if ownership is True:
+                        return self._session_result(
+                            session,
+                            ok=False,
+                            code="DEV_SESSION_ACTIVE",
+                            message="Сначала безопасно остановите активный shared development worker",
+                            state=DevStatusKind.RUNNING_OWNED,
+                        )
+                    present = getattr(self.shared_lifecycle, "worker_present", None)
+                    if not callable(present):
+                        return self._session_result(
+                            session,
+                            ok=False,
+                            code="DEV_OWNERSHIP_UNKNOWN",
+                            message="Shared facade не предоставляет безопасную проверку worker",
+                            state=DevStatusKind.OWNERSHIP_MISMATCH,
+                        )
+                    try:
+                        worker_present = present(profile)
+                    except Exception as exc:  # noqa: BLE001 - cleanup fails closed.
+                        return self._session_result(
+                            session,
+                            ok=False,
+                            code="DEV_OWNERSHIP_UNKNOWN",
+                            message=f"Нельзя подтвердить состояние shared worker: {type(exc).__name__}",
+                            state=DevStatusKind.OWNERSHIP_MISMATCH,
+                        )
+                    if worker_present is not False:
+                        return self._session_result(
+                            session,
+                            ok=False,
+                            code="DEV_OWNERSHIP_MISMATCH",
+                            message="Shared worker не подтверждён как отсутствующий; cleanup запрещен",
+                            state=DevStatusKind.OWNERSHIP_MISMATCH,
+                        )
+                    session.process = None
+                elif session.state is not DevSessionState.STOPPED:
+                    present = getattr(self.shared_lifecycle, "worker_present", None)
+                    try:
+                        worker_present = present(profile) if callable(present) else None
+                    except Exception:
+                        worker_present = None
+                    if worker_present is None:
+                        return self._session_result(
+                            session,
+                            ok=False,
+                            code="DEV_OWNERSHIP_UNKNOWN",
+                            message="Нельзя подтвердить отсутствие shared worker; cleanup запрещен",
+                            state=DevStatusKind.OWNERSHIP_MISMATCH,
+                        )
+                    if worker_present is True:
+                        return self._session_result(
+                            session,
+                            ok=False,
+                            code="DEV_SESSION_ACTIVE",
+                            message="Найден принадлежащий shared worker; сначала безопасно остановите его",
+                            state=DevStatusKind.RUNNING_OWNED,
+                        )
+            elif session is not None and session.process is not None:
                 try:
                     matches = self.process_backend.matches(session.process)
                 except RuntimeError as exc:
@@ -1437,8 +1616,15 @@ class DevSessionManager(DevDiagnosticsMixin):
                         message="Найден принадлежащий DevSession процесс; сначала безопасно остановите его",
                         state=DevStatusKind.RUNNING_OWNED,
                     )
+            evidence_terminal_store = None
             if session is not None and session.is_task_aware:
-                self._evidence_event("cleanup_started", {"preserved": False}, store=evidence_store)
+                evidence_terminal_store = self._finalize_evidence_before_cleanup(
+                    session,
+                    process_started=False,
+                    process_stopped=True,
+                    cleanup_attempted=True,
+                    reason="DEV_TASK_CLEANUP_REQUESTED",
+                )
             cleanup = self._cleanup_task_state_locked(
                 expected_session_id=session.session_id if session is not None else None,
                 session=session,
@@ -1456,6 +1642,12 @@ class DevSessionManager(DevDiagnosticsMixin):
                         {"code": "DEV_CLEANUP_FAILED", "phase": "cleanup"},
                         store=evidence_store,
                     )
+                    if evidence_terminal_store is not None:
+                        self._record_evidence_cleanup(
+                            evidence_terminal_store,
+                            session,
+                            cleanup_confirmed=False,
+                        )
                     return self._session_result(
                         session,
                         ok=False,
@@ -1473,24 +1665,12 @@ class DevSessionManager(DevDiagnosticsMixin):
             session.last_code = "DEV_TASK_CLEANUP_COMPLETED"
             session.last_message = "Состояние планировщика назначенного development target очищено"
             self._write_session(session)
-            self._evidence_event(
-                "cleanup_completed",
-                {"confirmed": True, "preserved": False},
-                store=evidence_store,
-            )
-            self._evidence_event(
-                "session_stopped",
-                {"state": DevSessionState.STOPPED.value},
-                store=evidence_store,
-            )
-            if evidence_store is not None:
-                try:
-                    evidence_store.finalize(
-                        stopped_at=session.updated_at,
-                        cleanup_confirmed=True,
-                    )
-                except Exception:
-                    evidence_store.mark_degraded("timeline_write_failed")
+            if evidence_terminal_store is not None:
+                self._record_evidence_cleanup(
+                    evidence_terminal_store,
+                    session,
+                    cleanup_confirmed=True,
+                )
             return self._session_result(
                 session,
                 ok=True,
@@ -1684,6 +1864,15 @@ class DevSessionManager(DevDiagnosticsMixin):
                 },
             )
         except (OSError, RuntimeError, TypeError, ValueError) as exc:
+            session.state = DevSessionState.FAILED
+            session.updated_at = self._timestamp()
+            evidence_store = self._finalize_evidence_before_cleanup(
+                session,
+                process_started=False,
+                process_stopped=True,
+                cleanup_attempted=mutation_started,
+                reason="DEV_TASK_PREPARE_FAILED",
+            )
             cleanup = (
                 self._cleanup_task_state_locked(
                     expected_session_id=session.session_id,
@@ -1698,6 +1887,12 @@ class DevSessionManager(DevDiagnosticsMixin):
                     state=DevStatusKind.NO_SESSION.value,
                 )
             )
+            if evidence_store is not None:
+                self._record_evidence_cleanup(
+                    evidence_store,
+                    session,
+                    cleanup_confirmed=cleanup.ok,
+                )
             details = {
                 "error": {
                     "type": type(exc).__name__,
@@ -1984,12 +2179,16 @@ class DevSessionManager(DevDiagnosticsMixin):
         message: str,
         preserve_task_state: bool,
     ) -> DevResult:
+        """Зафиксировать terminal evidence до cleanup development state."""
+
         try:
             cleanup_environment = self._environment_for_session(session)
         except TaskSandboxError as exc:
             return self._task_error(exc)
         was_stopped = session.state is DevSessionState.STOPPED and session.process is None
         evidence_store = self._evidence_store
+        if evidence_store is not None and evidence_store.session_id != session.session_id:
+            evidence_store = None
         if evidence_store is None and session.is_task_aware:
             evidence_store = self._evidence_for_session(
                 session.session_id,
@@ -2005,9 +2204,37 @@ class DevSessionManager(DevDiagnosticsMixin):
                 store=evidence_store,
             )
         if session.is_task_aware and not was_stopped:
-            self._evidence_event("cleanup_started", {"preserved": preserve_task_state}, store=evidence_store)
+            self._evidence_event(
+                "cleanup_started",
+                {"preserved": preserve_task_state},
+                store=evidence_store,
+            )
+            self._evidence_event(
+                "session_stopped",
+                {"state": DevSessionState.STOPPED.value},
+                store=evidence_store,
+            )
         session.state = DevSessionState.STOPPED
         session.process = None
+        session.updated_at = self._timestamp()
+        session.last_code = (
+            "DEV_SESSION_STOPPED_PRESERVED" if preserve_task_state else code
+        )
+        session.last_message = message
+        self._write_session(session)
+
+        evidence_finalized = False
+        if evidence_store is not None and not was_stopped:
+            try:
+                evidence_store.finalize(
+                    stopped_at=session.updated_at,
+                    cleanup_confirmed=False,
+                    preserved=preserve_task_state,
+                )
+                evidence_finalized = True
+            except Exception:
+                evidence_store.mark_degraded("evidence_finalization_failed")
+
         cleanup = self._cleanup_task_state_locked(
             expected_session_id=session.session_id,
             session=session,
@@ -2025,6 +2252,14 @@ class DevSessionManager(DevDiagnosticsMixin):
                 {"code": "DEV_CLEANUP_FAILED", "phase": "cleanup"},
                 store=evidence_store,
             )
+            if evidence_store is not None:
+                try:
+                    evidence_store.record_cleanup_result(
+                        timestamp=session.updated_at,
+                        cleanup_confirmed=False,
+                    )
+                except Exception:
+                    evidence_store.mark_degraded("cleanup_result_write_failed")
             return self._session_result(
                 session,
                 ok=False,
@@ -2033,11 +2268,15 @@ class DevSessionManager(DevDiagnosticsMixin):
                 state=DevStatusKind.FAILED,
                 details=cleanup.details,
             )
-        session.updated_at = self._timestamp()
-        session.last_code = (
-            "DEV_SESSION_STOPPED_PRESERVED" if preserve_task_state else code
-        )
-        session.last_message = message
+        if evidence_store is not None and not was_stopped:
+            try:
+                evidence_store.record_cleanup_result(
+                    timestamp=session.updated_at,
+                    cleanup_confirmed=not preserve_task_state,
+                    preserved=preserve_task_state,
+                )
+            except Exception:
+                evidence_store.mark_degraded("cleanup_result_write_failed")
         self._write_session(session)
         details = dict(cleanup.details)
         details.setdefault("cleanup_confirmed", not preserve_task_state)
@@ -2050,20 +2289,8 @@ class DevSessionManager(DevDiagnosticsMixin):
                 },
                 store=evidence_store,
             )
-            self._evidence_event(
-                "session_stopped",
-                {"state": DevSessionState.STOPPED.value},
-                store=evidence_store,
-            )
-            if evidence_store is not None:
-                try:
-                    evidence_store.finalize(
-                        stopped_at=session.updated_at,
-                        cleanup_confirmed=not preserve_task_state,
-                        preserved=preserve_task_state,
-                    )
-                except Exception:
-                    evidence_store.mark_degraded("timeline_write_failed")
+        if evidence_store is not None and not evidence_finalized and not was_stopped:
+            evidence_store.mark_degraded("evidence_finalization_failed")
         return self._session_result(
             session,
             ok=True,
@@ -2225,10 +2452,15 @@ class DevSessionManager(DevDiagnosticsMixin):
                     ),
                     task_cleanup_required=task_plan is not None,
                     task_policy_expected=task_plan is not None,
+                    runtime_mode=(
+                        DevRuntimeMode.SHARED_WEBUI
+                        if self.shared_webui
+                        else DevRuntimeMode.STANDALONE_PROCESS
+                    ),
                 )
                 self._write_session(session)
-                if task_plan is not None:
-                    self._initialize_evidence(session, task_plan)
+            if task_plan is not None:
+                self._initialize_evidence(session, task_plan)
                 if task_plan is not None:
                     preparation = self._prepare_task_session_locked(task_plan, session)
                     if not preparation.ok:
@@ -2241,16 +2473,6 @@ class DevSessionManager(DevDiagnosticsMixin):
                         session.last_code = preparation.code
                         session.last_message = preparation.message
                         self._write_session(session)
-                        cleanup_details = preparation.details.get("cleanup")
-                        cleanup_confirmed = isinstance(cleanup_details, dict) and cleanup_details.get("ok") is True
-                        self._finish_failed_evidence(
-                            session,
-                            process_started=False,
-                            process_stopped=True,
-                            cleanup_attempted=True,
-                            cleanup_confirmed=cleanup_confirmed,
-                            reason=preparation.code,
-                        )
                         return self._session_result(
                             session,
                             ok=False,
@@ -2268,11 +2490,26 @@ class DevSessionManager(DevDiagnosticsMixin):
                             self._evidence_store.capture_log_boundary()
                     except EvidenceError:
                         pass
-                session.state = DevSessionState.STARTING
-                session.updated_at = self._timestamp()
-                session.last_code = "DEV_SESSION_STARTING"
-                session.last_message = "Запускается штатный gui.py для назначенного development target"
-                self._write_session(session)
+
+            session.state = DevSessionState.STARTING
+            session.updated_at = self._timestamp()
+            session.last_code = "DEV_SESSION_STARTING"
+            session.last_message = "Запускается штатный gui.py для назначенного development target"
+            self._write_session(session)
+
+            if self.shared_webui:
+                if before_process_launch is not None:
+                    try:
+                        before_process_launch(session.session_id)
+                    except Exception as exc:  # noqa: BLE001 - prestart gate fails closed.
+                        self._evidence_error(exc, phase="session_start")
+                        return self._shared_start_failure(
+                            session,
+                            task_plan,
+                            code="DEV_LAUNCH_FAILED",
+                            message=f"Не удалось выполнить pre-execution checkpoint: {type(exc).__name__}",
+                        )
+                return self._start_shared_session(session, task_plan)
 
             pid: int | None = None
             launched_identity: ProcessIdentity | None = None
@@ -2317,6 +2554,17 @@ class DevSessionManager(DevDiagnosticsMixin):
                         else:
                             process_cleanup_confirmed = False
                     failure_code = "DEV_LAUNCH_FAILED"
+                    session.state = DevSessionState.FAILED
+                    session.updated_at = self._timestamp()
+                    session.last_code = failure_code
+                    session.last_message = f"Не удалось запустить DevSession: {type(exc).__name__}"
+                    evidence_store = self._finalize_evidence_before_cleanup(
+                        session,
+                        process_started=pid is not None,
+                        process_stopped=process_cleanup_confirmed,
+                        cleanup_attempted=task_plan is not None,
+                        reason=failure_code,
+                    )
                     failure_details: dict[str, object] = {}
                     if task_plan is not None:
                         task_cleanup = (
@@ -2334,10 +2582,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                         failure_details = {"cleanup": task_cleanup.as_dict()}
                         if not task_cleanup.ok:
                             failure_code = "DEV_CLEANUP_FAILED"
-                    session.state = DevSessionState.FAILED
-                    session.updated_at = self._timestamp()
                     session.last_code = failure_code
-                    session.last_message = f"Не удалось запустить DevSession: {type(exc).__name__}"
                     if failure_code == "DEV_CLEANUP_FAILED":
                         session.last_message += "; состояние планировщика не подтверждено очищенным"
                     self._write_session(session)
@@ -2348,14 +2593,12 @@ class DevSessionManager(DevDiagnosticsMixin):
                             and failure_details["cleanup"].get("ok") is True
                         )
                     )
-                    self._finish_failed_evidence(
-                        session,
-                        process_started=pid is not None,
-                        process_stopped=process_cleanup_confirmed,
-                        cleanup_attempted=task_plan is not None,
-                        cleanup_confirmed=cleanup_confirmed and process_cleanup_confirmed,
-                        reason=failure_code,
-                    )
+                    if evidence_store is not None:
+                        self._record_evidence_cleanup(
+                            evidence_store,
+                            session,
+                            cleanup_confirmed=cleanup_confirmed and process_cleanup_confirmed,
+                        )
                     return self._session_result(
                         session,
                         ok=False,
@@ -2367,6 +2610,7 @@ class DevSessionManager(DevDiagnosticsMixin):
 
         assert session.process is not None
         ready, reason = self._wait_for_readiness(session.process)
+        ownership_lost = False
         with self._locked_state():
             latest = self._read_session()
             if latest is None or latest.session_id != session.session_id:
@@ -2405,6 +2649,13 @@ class DevSessionManager(DevDiagnosticsMixin):
                 latest.last_message = f"DevSession не достигла готовности: {reason}"
                 if cleanup:
                     latest.process = None
+                evidence_store = self._finalize_evidence_before_cleanup(
+                    latest,
+                    process_started=True,
+                    process_stopped=cleanup,
+                    cleanup_attempted=task_plan is not None,
+                    reason=failure_code,
+                )
                 failure_details: dict[str, object] = {"cleanup_confirmed": cleanup}
                 if task_plan is not None:
                     task_cleanup = (
@@ -2435,14 +2686,12 @@ class DevSessionManager(DevDiagnosticsMixin):
                         )
                     )
                 )
-                self._finish_failed_evidence(
-                    latest,
-                    process_started=True,
-                    process_stopped=cleanup,
-                    cleanup_attempted=task_plan is not None,
-                    cleanup_confirmed=cleanup_confirmed,
-                    reason=failure_code,
-                )
+                if evidence_store is not None:
+                    self._record_evidence_cleanup(
+                        evidence_store,
+                        latest,
+                        cleanup_confirmed=cleanup_confirmed,
+                    )
                 return self._session_result(
                     latest,
                     ok=False,
@@ -2496,9 +2745,333 @@ class DevSessionManager(DevDiagnosticsMixin):
                     "host": self.environment.host,
                     "port": self.environment.port,
                     "profile": self.environment.profile_name,
-                    "log": str(self.environment.log_file.relative_to(self.environment.repository_root)),
+                    "log": str(
+                        self.environment.log_file.relative_to(
+                            self.environment.repository_root
+                        )
+                    ),
                 },
             )
+
+    def _start_shared_session(
+        self,
+        session: DevSession,
+        task_plan: TaskPlan | None,
+    ) -> DevResult:
+        """Запустить только target worker через уже существующий WebUI owner."""
+
+        shared = self.shared_lifecycle
+        start = getattr(shared, "start_profile", None)
+        if not callable(start):
+            return self._shared_start_failure(
+                session,
+                task_plan,
+                code="DEV_SHARED_WEBUI_UNAVAILABLE",
+                message="Shared WebUI facade не предоставляет запуск development target",
+            )
+        try:
+            result = start(session_id=session.session_id, idempotency_key=session.session_id)
+        except Exception as exc:  # noqa: BLE001 - manager converts boundary failures to safe result.
+            return self._shared_start_failure(
+                session,
+                task_plan,
+                code="DEV_SHARED_WEBUI_START_FAILED",
+                message=f"Не удалось запустить target через shared WebUI: {type(exc).__name__}",
+            )
+        if getattr(result, "ok", False) is not True:
+            self._record_handover_evidence(result)
+            result_code = getattr(result, "code", "DEV_SHARED_WEBUI_START_FAILED")
+            result_message = getattr(result, "message", "Shared WebUI не подтвердил запуск target")
+            return self._shared_start_failure(
+                session,
+                task_plan,
+                code=str(result_code),
+                message=str(result_message),
+            )
+
+        self._record_handover_evidence(result)
+        try:
+            identity = self._shared_owner_process_identity()
+        except Exception as exc:  # noqa: BLE001 - не оставлять worker без учёта.
+            self._stop_shared_worker(session)
+            return self._shared_start_failure(
+                session,
+                task_plan,
+                code="DEV_SHARED_WEBUI_START_UNCONFIRMED",
+                message=f"Не удалось подтвердить identity общего WebUI: {type(exc).__name__}",
+            )
+        # Shared worker настраивает собственный `log/<profile>.txt` и может
+        # заменить старый файл при старте. Переснимаем границу после запуска,
+        # чтобы manifest не ссылался на устаревший inode/offset.
+        try:
+            if self._evidence_store is not None:
+                self._evidence_store.capture_log_boundary()
+        except EvidenceError:
+            pass
+        with self._locked_state():
+            latest = self._read_session()
+            if latest is None or latest.session_id != session.session_id:
+                state_changed = True
+            else:
+                state_changed = False
+            if not state_changed:
+                latest.process = identity
+                latest.updated_at = self._timestamp()
+                self._write_session(latest)
+                self._evidence_event(
+                    "process_started",
+                    {"state": DevSessionState.STARTING.value, "runtime_mode": DevRuntimeMode.SHARED_WEBUI.value},
+                )
+                session = latest
+
+        if state_changed:
+            self._stop_shared_worker(session)
+            return DevResult(
+                False,
+                "DEV_SESSION_STATE_CHANGED",
+                "Маркер DevSession изменился после запуска shared target",
+                DevStatusKind.OWNERSHIP_MISMATCH.value,
+                session.session_id,
+            )
+
+        ready, reason = self._wait_for_shared_readiness(session)
+        if not ready:
+            stop_result = self._stop_shared_worker(session)
+            with self._locked_state():
+                latest = self._read_session()
+                if latest is None or latest.session_id != session.session_id:
+                    return DevResult(
+                        False,
+                        "DEV_SESSION_STATE_CHANGED",
+                        "Маркер DevSession изменился во время shared readiness",
+                        DevStatusKind.OWNERSHIP_MISMATCH.value,
+                        session.session_id,
+                    )
+                latest.state = DevSessionState.FAILED
+                latest.process = None if stop_result else latest.process
+                latest.updated_at = self._timestamp()
+                latest.last_code = "DEV_READINESS_FAILED"
+                latest.last_message = f"Shared target не достиг готовности: {reason}"
+                self._write_session(latest)
+                self._evidence_event(
+                    "runtime_warning",
+                    {"code": "DEV_READINESS_FAILED", "reason": reason, "phase": "readiness"},
+                )
+                evidence_store = self._finalize_evidence_before_cleanup(
+                    latest,
+                    process_started=True,
+                    process_stopped=stop_result,
+                    cleanup_attempted=task_plan is not None,
+                    reason="DEV_READINESS_FAILED",
+                )
+                details: dict[str, object] = {
+                    "cleanup_confirmed": stop_result,
+                    "runtime_mode": DevRuntimeMode.SHARED_WEBUI.value,
+                }
+                if task_plan is not None:
+                    cleanup = (
+                        self._cleanup_task_state_locked(
+                            expected_session_id=latest.session_id,
+                            catalog=task_plan.catalog,
+                            session=latest,
+                        )
+                        if stop_result
+                        else self._task_cleanup_unconfirmed_locked(
+                            message="После shared readiness failure worker AP не удалось безопасно остановить",
+                            session=latest,
+                        )
+                    )
+                    details["task_cleanup"] = cleanup.as_dict()
+                cleanup_confirmed = stop_result and (
+                    task_plan is None
+                    or isinstance(details.get("task_cleanup"), dict)
+                    and details["task_cleanup"].get("ok") is True
+                )
+                if evidence_store is not None:
+                    self._record_evidence_cleanup(
+                        evidence_store,
+                        latest,
+                        cleanup_confirmed=cleanup_confirmed,
+                    )
+                return self._session_result(
+                    latest,
+                    ok=False,
+                    code="DEV_READINESS_FAILED" if cleanup_confirmed else "DEV_CLEANUP_FAILED",
+                    message=latest.last_message,
+                    state=DevStatusKind.FAILED,
+                    details=details,
+                )
+
+        with self._locked_state():
+            latest = self._read_session()
+            state_changed = latest is None or latest.session_id != session.session_id
+            ownership_lost = False
+            if not state_changed:
+                shared_ready = getattr(shared, "matches_session", None)
+                ownership_lost = (
+                    not callable(shared_ready)
+                    or shared_ready(
+                        latest.session_id,
+                        latest.profile_name or self.environment.profile_name,
+                    )
+                    is not True
+                )
+                if not ownership_lost:
+                    latest.state = DevSessionState.RUNNING
+                    if latest.is_task_aware:
+                        latest.task_phase = DevTaskPhase.RUNNING
+                    latest.updated_at = self._timestamp()
+                    latest.last_code = "DEV_SESSION_READY"
+                    latest.last_message = "Dev-сессия готова в общем WebUI"
+                    self._write_session(latest)
+                    self._evidence_event(
+                        "session_ready",
+                        {
+                            "state": DevSessionState.RUNNING.value,
+                            "profile": self.environment.profile_name,
+                            "runtime_mode": DevRuntimeMode.SHARED_WEBUI.value,
+                        },
+                    )
+                    log_path = self._evidence_log_path()
+                    return self._session_result(
+                        latest,
+                        ok=True,
+                        code="DEV_SESSION_READY",
+                        message="Dev-сессия готова в общем WebUI",
+                        state=DevStatusKind.RUNNING_OWNED,
+                        details={
+                            "runtime_mode": DevRuntimeMode.SHARED_WEBUI.value,
+                            "profile": self.environment.profile_name,
+                            "log": str(log_path.relative_to(self.environment.repository_root))
+                            if log_path is not None
+                            else None,
+                        },
+                    )
+
+        if state_changed:
+            self._stop_shared_worker(session)
+            return DevResult(
+                False,
+                "DEV_SESSION_STATE_CHANGED",
+                "Маркер DevSession изменился во время shared readiness",
+                DevStatusKind.OWNERSHIP_MISMATCH.value,
+                session.session_id,
+            )
+        if ownership_lost:
+            self._stop_shared_worker(session)
+            return self._shared_start_failure(
+                session,
+                task_plan,
+                code="DEV_OWNERSHIP_LOST",
+                message="Shared WebUI worker не подтвердил принадлежность текущей DevSession",
+            )
+        raise RuntimeError("Неожиданное завершение shared WebUI запуска")
+
+    def _shared_start_failure(
+        self,
+        session: DevSession,
+        task_plan: TaskPlan | None,
+        *,
+        code: str,
+        message: str,
+    ) -> DevResult:
+        with self._locked_state():
+            latest = self._read_session()
+            if latest is None or latest.session_id != session.session_id:
+                return DevResult(
+                    ok=False,
+                    code="DEV_SESSION_STATE_CHANGED",
+                    message="Маркер DevSession изменился до фиксации ошибки shared target",
+                    state=DevStatusKind.OWNERSHIP_MISMATCH.value,
+                    session_id=session.session_id,
+                )
+            latest.state = DevSessionState.FAILED
+            latest.process = None
+            latest.updated_at = self._timestamp()
+            latest.last_code = code
+            latest.last_message = message
+            self._write_session(latest)
+            evidence_store = self._finalize_evidence_before_cleanup(
+                latest,
+                process_started=False,
+                process_stopped=True,
+                cleanup_attempted=task_plan is not None,
+                reason=code,
+            )
+            cleanup_details: dict[str, object] = {}
+            cleanup_confirmed = True
+            if task_plan is not None:
+                cleanup = self._cleanup_task_state_locked(
+                    expected_session_id=latest.session_id,
+                    catalog=task_plan.catalog,
+                    session=latest,
+                )
+                cleanup_details = {"task_cleanup": cleanup.as_dict()}
+                cleanup_confirmed = cleanup.ok
+            if evidence_store is not None:
+                self._record_evidence_cleanup(
+                    evidence_store,
+                    latest,
+                    cleanup_confirmed=cleanup_confirmed,
+                )
+            return self._session_result(
+                latest,
+                ok=False,
+                code=code if cleanup_confirmed else "DEV_CLEANUP_FAILED",
+                message=message,
+                state=DevStatusKind.FAILED,
+                details=cleanup_details,
+            )
+
+    def _shared_owner_process_identity(self) -> ProcessIdentity:
+        shared = self.shared_lifecycle
+        owner = getattr(shared, "owner_identity", lambda: None)()
+        if owner is not None:
+            try:
+                captured = self.process_backend.capture(int(owner.pid))
+            except (RuntimeError, OSError, ValueError, TypeError):
+                captured = None
+            if captured is not None:
+                return captured
+            return ProcessIdentity(
+                pid=int(owner.pid),
+                created_at=float(owner.created_at),
+                executable=str(self.environment.python_executable),
+                command_line=("gui.py",),
+                cwd=str(self.environment.repository_root),
+            )
+        raise RuntimeError("Shared WebUI owner identity отсутствует после start")
+
+    def _wait_for_shared_readiness(self, session: DevSession) -> tuple[bool, str]:
+        shared = self.shared_lifecycle
+        probe = getattr(shared, "ready", None)
+        if not callable(probe):
+            return False, "shared runtime facade отсутствует"
+        deadline = time.monotonic() + self.ready_timeout
+        last_reason = "готовность shared target ещё не подтверждена"
+        while True:
+            ready, reason = probe(
+                session.profile_name or self.environment.profile_name,
+                session.session_id,
+            )
+            if ready:
+                return True, reason
+            last_reason = reason
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False, last_reason
+            time.sleep(min(0.25, remaining))
+
+    def _stop_shared_worker(self, session: DevSession) -> bool:
+        shared = self.shared_lifecycle
+        stop = getattr(shared, "stop_profile", None)
+        if not callable(stop):
+            return False
+        try:
+            result = stop(session_id=session.session_id, idempotency_key=f"stop-{session.session_id}")
+        except Exception:
+            return False
+        return getattr(result, "ok", False) is True
 
     def stop(self, *, preserve_task_state: bool = False) -> DevResult:
         try:
@@ -2510,7 +3083,127 @@ class DevSessionManager(DevDiagnosticsMixin):
         except RuntimeCoordinationError as exc:
             return self._coordination_error(exc)
 
+    def _stop_shared_impl(self, *, preserve_task_state: bool = False) -> DevResult:
+        """Остановить только development worker через owner control plane."""
+
+        with self._locked_state():
+            try:
+                session = self._read_session()
+            except ValueError as exc:
+                return DevResult(
+                    ok=False,
+                    code="DEV_STATE_CORRUPT",
+                    message=f"Маркер DevSession повреждён; остановка запрещена: {exc}",
+                    state=DevStatusKind.CORRUPT.value,
+                )
+            if session is None:
+                return DevResult(
+                    ok=True,
+                    code="DEV_STOP_NO_SESSION",
+                    message="Останавливать нечего: DevSession отсутствует",
+                    state=DevStatusKind.NO_SESSION.value,
+                )
+            if session.state is DevSessionState.STOPPED and session.process is None:
+                return self._finish_stopped_locked(
+                    session,
+                    code="DEV_STOP_ALREADY_STOPPED",
+                    message="DevSession уже остановлена",
+                    preserve_task_state=preserve_task_state,
+                )
+            if session.runtime_mode is not DevRuntimeMode.SHARED_WEBUI:
+                return self._session_result(
+                    session,
+                    ok=False,
+                    code="DEV_RUNTIME_MODE_MISMATCH",
+                    message="DevSession не использует shared WebUI lifecycle",
+                    state=DevStatusKind.OWNERSHIP_MISMATCH,
+                )
+            if session.process is None:
+                return self._recover_shared_locked(session)
+            ownership = self._session_runtime_matches(session)
+            if ownership is None:
+                return self._session_result(
+                    session,
+                    ok=False,
+                    code="DEV_OWNERSHIP_UNKNOWN",
+                    message="Владение shared WebUI worker невозможно подтвердить; остановка запрещена",
+                    state=DevStatusKind.OWNERSHIP_MISMATCH,
+                )
+            if ownership is not True:
+                return self._session_result(
+                    session,
+                    ok=False,
+                    code="DEV_OWNERSHIP_MISMATCH",
+                    message="Shared WebUI worker не принадлежит текущей DevSession; остановка запрещена",
+                    state=DevStatusKind.OWNERSHIP_MISMATCH,
+                )
+            session.state = DevSessionState.STOPPING
+            session.updated_at = self._timestamp()
+            session.last_code = "DEV_SESSION_STOPPING"
+            session.last_message = "Останавливается принадлежащий shared WebUI development worker"
+            self._write_session(session)
+            self._evidence_event("stop_requested", {"state": DevSessionState.STOPPING.value})
+
+        stopped = self._stop_shared_worker(session)
+        with self._locked_state():
+            latest = self._read_session()
+            if latest is None or latest.session_id != session.session_id:
+                return DevResult(
+                    ok=False,
+                    code="DEV_SESSION_STATE_CHANGED",
+                    message="Маркер DevSession изменился во время остановки shared worker",
+                    state=DevStatusKind.OWNERSHIP_MISMATCH.value,
+                    session_id=session.session_id,
+                )
+            if stopped:
+                return self._finish_stopped_locked(
+                    latest,
+                    code="DEV_SESSION_STOPPED",
+                    message="Development worker остановлен через общий WebUI; общий WebUI сохранён",
+                    preserve_task_state=preserve_task_state,
+                )
+            latest.state = DevSessionState.STALE
+            if latest.is_task_aware:
+                try:
+                    self._set_task_lifecycle_locked(
+                        latest,
+                        phase=DevTaskPhase.CLEANUP_PENDING,
+                        cleanup_required=True,
+                        policy_expected=True,
+                    )
+                except (OSError, RuntimeError, ValueError):
+                    pass
+            latest.updated_at = self._timestamp()
+            latest.last_code = "DEV_STOP_UNCONFIRMED"
+            latest.last_message = "Shared WebUI не подтвердил остановку development worker"
+            self._write_session(latest)
+            self._evidence_event(
+                "runtime_warning",
+                {"code": "DEV_STOP_UNCONFIRMED", "phase": "stop"},
+                store=self._evidence_store,
+            )
+            return self._session_result(
+                latest,
+                ok=False,
+                code="DEV_STOP_UNCONFIRMED",
+                message=latest.last_message,
+                state=DevStatusKind.STALE,
+            )
+
     def _stop_impl(self, *, preserve_task_state: bool = False) -> DevResult:
+        if self.shared_webui:
+            with self._locked_state():
+                try:
+                    current = self._read_session()
+                except ValueError as exc:
+                    return DevResult(
+                        ok=False,
+                        code="DEV_STATE_CORRUPT",
+                        message=f"Маркер DevSession повреждён; остановка запрещена: {exc}",
+                        state=DevStatusKind.CORRUPT.value,
+                    )
+            if current is not None and current.runtime_mode is DevRuntimeMode.SHARED_WEBUI:
+                return self._stop_shared_impl(preserve_task_state=preserve_task_state)
         with self._locked_state():
             try:
                 session = self._read_session()
@@ -2701,6 +3394,8 @@ class DevSessionManager(DevDiagnosticsMixin):
                 message="DevSession отсутствует",
                 state=DevStatusKind.NO_SESSION.value,
             )
+        if self.shared_webui and session.runtime_mode is DevRuntimeMode.SHARED_WEBUI:
+            return self._recover_shared_locked(session)
         try:
             session_environment = self._environment_for_session(session)
         except TaskSandboxError as exc:
@@ -2791,6 +3486,72 @@ class DevSessionManager(DevDiagnosticsMixin):
                 if session.state is DevSessionState.RUNNING
                 else DevStatusKind.STALE
             ),
+        )
+
+    def _recover_shared_locked(self, session: DevSession) -> DevResult:
+        """Восстановить shared DevSession без поиска или убийства чужих процессов."""
+
+        if session.state is DevSessionState.STOPPED and session.process is None:
+            return self._finish_stopped_locked(
+                session,
+                code="DEV_RECOVERY_NOT_NEEDED",
+                message="DevSession уже находится в безопасном остановленном состоянии",
+                preserve_task_state=False,
+            )
+        if session.process is not None:
+            ownership = self._session_runtime_matches(session)
+            if ownership is None:
+                return self._session_result(
+                    session,
+                    ok=False,
+                    code="DEV_RECOVERY_OWNERSHIP_UNKNOWN",
+                    message="Владение shared worker невозможно подтвердить; восстановление запрещено",
+                    state=DevStatusKind.OWNERSHIP_MISMATCH,
+                )
+            if ownership is True:
+                return self._session_result(
+                    session,
+                    ok=False,
+                    code="DEV_SESSION_ACTIVE",
+                    message="Точно принадлежащий shared worker ещё работает; восстановление не выполняет разрушительную очистку",
+                    state=(
+                        DevStatusKind.RUNNING_OWNED
+                        if session.state is DevSessionState.RUNNING
+                        else DevStatusKind.STALE
+                    ),
+                )
+        present = getattr(self.shared_lifecycle, "worker_present", None)
+        if not callable(present):
+            return self._session_result(
+                session,
+                ok=False,
+                code="DEV_RECOVERY_OWNERSHIP_UNKNOWN",
+                message="Shared facade не предоставляет безопасную проверку отсутствия worker",
+                state=DevStatusKind.OWNERSHIP_MISMATCH,
+            )
+        try:
+            worker_present = present(session.profile_name or self.environment.profile_name)
+        except Exception as exc:  # noqa: BLE001 - recovery fails closed.
+            return self._session_result(
+                session,
+                ok=False,
+                code="DEV_RECOVERY_OWNERSHIP_UNKNOWN",
+                message=f"Нельзя подтвердить отсутствие shared worker: {type(exc).__name__}",
+                state=DevStatusKind.OWNERSHIP_MISMATCH,
+            )
+        if worker_present is not False:
+            return self._session_result(
+                session,
+                ok=False,
+                code="DEV_OWNERSHIP_MISMATCH",
+                message="Shared worker не подтверждён как отсутствующий; восстановление запрещено",
+                state=DevStatusKind.OWNERSHIP_MISMATCH,
+            )
+        return self._finish_stopped_locked(
+            session,
+            code="DEV_STALE_RECOVERED",
+            message="Устаревший shared marker закрыт после подтверждения отсутствия worker",
+            preserve_task_state=False,
         )
 
     def _wait_for_readiness(self, identity: ProcessIdentity) -> tuple[bool, str]:

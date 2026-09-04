@@ -15,7 +15,8 @@ import queue
 import subprocess
 import threading
 import time
-from multiprocessing import Process
+from multiprocessing import Event, Process
+from pathlib import Path
 from typing import Dict, List, Union
 
 import inflection
@@ -49,6 +50,8 @@ from module.webui.worker_registry import (
     unregister_worker,
 )
 
+_REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+
 
 class ProcessManager:
     _processes: Dict[str, "ProcessManager"] = {}
@@ -63,6 +66,9 @@ class ProcessManager:
         self.renderables_max_length = 400
         self.renderables_reduce_length = 80
         self._process: Process | None = None
+        self._stop_event: object | None = None
+        self._runtime_operation_id: str | None = None
+        self._runtime_session_id: str | None = None
         self.thd_log_queue_handler: threading.Thread | None = None
         self._state_override: int | None = None
         self._state_override_deadline: float | None = None
@@ -109,7 +115,14 @@ class ProcessManager:
             return None
         return self._state_override
 
-    def start(self, func: str | None, ev: threading.Event | None = None) -> None:
+    def start(
+        self,
+        func: str | None,
+        ev: object | None = None,
+        *,
+        operation_id: str | None = None,
+        session_id: str | None = None,
+    ) -> None:
         # WebUI 重启事务持有 restart_lock；清理过程持有 cleanup_lock。
         # 请求线程不能在事务期间长期阻塞。
         if not State.restart_lock.acquire(blocking=False):
@@ -138,11 +151,19 @@ class ProcessManager:
                         return
                     if func is None:
                         func = get_config_mod(self.config_name)
+                    if ev is None:
+                        ev = Event()
+                    self._stop_event = ev
+                    self._runtime_operation_id = operation_id
+                    self._runtime_session_id = session_id
                     args = (
                         self.config_name,
                         func,
                         self._renderable_queue,
                         ev,
+                        str(_REPOSITORY_ROOT),
+                        operation_id,
+                        session_id,
                     )
                     process = Process(
                         target=ProcessManager.run_process,
@@ -155,6 +176,9 @@ class ProcessManager:
                     except Exception:
                         self._terminate_unregistered_process(process)
                         self._process = None
+                        self._stop_event = None
+                        self._runtime_operation_id = None
+                        self._runtime_session_id = None
                         raise
                     self.start_log_queue_handler()
             finally:
@@ -239,6 +263,59 @@ class ProcessManager:
         else:
             logger.warning(f"[{self.config_name}] Рабочий процесс остановлен не полностью")
         return stopped
+
+    def request_cooperative_stop(
+        self,
+        *,
+        operation_id: str | None = None,
+        session_id: str | None = None,
+    ) -> bool:
+        """Попросить worker завершить текущий task без terminate/kill."""
+
+        with self._get_lifecycle_lock(self.config_name):
+            if not self.alive:
+                return True
+            event = self._stop_event
+            if event is None or not callable(getattr(event, "set", None)):
+                logger.error(
+                    f"[{self.config_name}] У worker нет локального cooperative stop event"
+                )
+                return False
+            try:
+                event.set()
+            except Exception as exc:  # noqa: BLE001 - граница owner работает fail-closed.
+                logger.error(
+                    f"[{self.config_name}] Не удалось передать cooperative stop request: {exc}"
+                )
+                return False
+            try:
+                from module.application.runtime_state import RuntimeStateStore
+
+                RuntimeStateStore(_REPOSITORY_ROOT).request_quiesce(
+                    self.config_name,
+                    operation_id=operation_id or self._runtime_operation_id or "runtime",
+                    session_id=session_id or self._runtime_session_id,
+                )
+            except Exception as exc:  # noqa: BLE001 - state write is a fail-closed signal.
+                logger.error(
+                    f"[{self.config_name}] Не удалось записать cooperative stop state: {exc}"
+                )
+                return False
+            return True
+
+    def wait_for_exit(self, timeout: float) -> bool:
+        """Дождаться естественного выхода worker без принудительной эскалации."""
+
+        if type(timeout) not in (int, float) or timeout < 0:
+            raise ValueError("timeout должен быть неотрицательным числом")
+        deadline = time.monotonic() + float(timeout)
+        while True:
+            if not self.alive:
+                return True
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            time.sleep(min(0.1, remaining))
 
     @staticmethod
     def _is_process_alive(process: Process | None) -> bool:
@@ -480,6 +557,34 @@ class ProcessManager:
         register_worker(os.getpid(), self.config_name, pid)
         if State.process_registry is not None:
             State.process_registry[self.config_name] = pid
+        try:
+            from module.application.runtime_state import RuntimePhase, RuntimeStateStore
+
+            record = get_workers(os.getpid()).get(self.config_name)
+            if isinstance(record, dict):
+                worker_pid = int(record["pid"])
+                worker_created_at = float(record["created_at"])
+                phase = RuntimePhase.USER_PROFILE_IDLE
+                current = RuntimeStateStore(_REPOSITORY_ROOT).read(self.config_name)
+                if (
+                    current is not None
+                    and current.phase is RuntimePhase.AP_ACQUIRING
+                    and current.operation_id == self._runtime_operation_id
+                    and current.session_id == self._runtime_session_id
+                ):
+                    phase = RuntimePhase.AP_ACQUIRING
+                RuntimeStateStore(_REPOSITORY_ROOT).mark_worker_started(
+                    self.config_name,
+                    worker_pid=worker_pid,
+                    worker_created_at=worker_created_at,
+                    operation_id=self._runtime_operation_id,
+                    session_id=self._runtime_session_id,
+                    phase=phase,
+                )
+        except Exception as exc:  # noqa: BLE001 - registry remains authoritative.
+            logger.warning(
+                f"[{self.config_name}] Не удалось обновить process-shared runtime state: {exc}"
+            )
 
     def _unregister_process(self) -> bool:
         try:
@@ -499,6 +604,21 @@ class ProcessManager:
             return False
         if State.process_registry is not None:
             State.process_registry.pop(self.config_name, None)
+        try:
+            from module.application.runtime_state import RuntimeStateStore
+
+            RuntimeStateStore(_REPOSITORY_ROOT).mark_worker_stopped(
+                self.config_name,
+                operation_id=self._runtime_operation_id,
+                session_id=self._runtime_session_id,
+            )
+        except Exception as exc:  # noqa: BLE001 - registry remains authoritative.
+            logger.warning(
+                f"[{self.config_name}] Не удалось обновить остановленное runtime state: {exc}"
+            )
+        self._stop_event = None
+        self._runtime_operation_id = None
+        self._runtime_session_id = None
         return True
 
     def _thread_log_queue_handler(self) -> None:
@@ -595,7 +715,44 @@ class ProcessManager:
         config_name,
         func: str,
         q: queue.Queue[ConsoleRenderable],
-        e: threading.Event | None = None,
+        e: object | None = None,
+        repository_root: str | None = None,
+        operation_id: str | None = None,
+        session_id: str | None = None,
+    ) -> None:
+        os.environ["AZURPILOT_REPOSITORY_ROOT"] = str(
+            Path(repository_root or _REPOSITORY_ROOT).resolve()
+        )
+        if session_id:
+            os.environ["AZURPILOT_DEV_SESSION_ID"] = session_id
+        else:
+            os.environ.pop("AZURPILOT_DEV_SESSION_ID", None)
+        if operation_id:
+            os.environ["AZURPILOT_RUNTIME_OPERATION_ID"] = operation_id
+        else:
+            os.environ.pop("AZURPILOT_RUNTIME_OPERATION_ID", None)
+        try:
+            ProcessManager._run_process_body(config_name, func, q, e)
+        finally:
+            try:
+                from module.application.runtime_state import RuntimeStateStore
+
+                RuntimeStateStore(repository_root or _REPOSITORY_ROOT).mark_worker_stopped(
+                    config_name,
+                    operation_id=operation_id,
+                    session_id=session_id,
+                )
+            except Exception:
+                # Registry/owner remains the authoritative lifecycle source;
+                # child cleanup cannot change ownership on its own.
+                pass
+
+    @staticmethod
+    def _run_process_body(
+        config_name,
+        func: str,
+        q: queue.Queue[ConsoleRenderable],
+        e: object | None = None,
     ) -> None:
         import sys
 

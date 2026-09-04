@@ -1,21 +1,30 @@
-# Dev Runtime: Task Sandbox
+# Dev Runtime: Task Sandbox поверх общего WebUI
 
-Dev Runtime запускает только штатный `gui.py --run <configured-target>` с фиксированными локальными
-параметрами и точным владением процессом. Development target обычно сохраняется в локальном
-repository-scoped marker после структурной проверки профиля. Если marker отсутствует, registry
-read-only разрешает профиль из tracked `module/dev_runtime/target_policy.json` по умолчанию;
-сейчас это `ap`, если такой профиль проходит структурную проверку. Task Sandbox добавляет API с учётом задач поверх
-этого жизненного цикла, не меняя обычный рабочий планировщик. Для Codex и ChatGPT
-предусмотрены разные transport boundaries поверх одного adapter.
+Dev Runtime создаёт логическую development-сессию поверх единственного штатного
+WebUI owner и его `ProcessManager`. Development target выбирается через локальный
+repository-scoped marker после структурной проверки профиля. Если marker отсутствует,
+read-only registry разрешает профиль из tracked `module/dev_runtime/target_policy.json`
+по умолчанию; сейчас это `ap`, если такой профиль проходит структурную проверку.
+`ap` является обычным canonical profile внутри общего runtime: в пользовательском
+списке WebUI он скрыт, но machine-facing registry и MCP его видят.
+
+Dev Runtime не поднимает второй WebUI и не владеет общим сервером, пользовательскими
+профилями или их scheduler. Запуск и остановка development worker проходят через
+фиксированный локальный typed control plane, исполняемый фактическим WebUI owner.
+Task Sandbox добавляет API с учётом задач поверх этого жизненного цикла, не меняя
+обычный рабочий планировщик. Для Codex и ChatGPT предусмотрены разные transport
+boundaries поверх одного adapter.
 
 ## Dev MCP для Codex
 
 Dev MCP добавляет отдельный адаптер только для разработки без собственного runtime:
 
 ```text
-Codex
-  → локальный stdio Dev MCP
-  → DevSessionManager
+MCP client
+  → Dev MCP / DevSessionManager
+  → shared WebUI runtime facade
+  → локальный typed control plane
+  → фактический WebUI owner / ProcessManager
   → настроенный development target
 ```
 
@@ -109,8 +118,8 @@ capability families и result outcomes. В контракте нет путей,
 задание сообщается только для активной сессии с подтверждённым владением; после `stop` оно равно
 `none`, а последняя задача остаётся в хронологии.
 
-`dev_get_logs` читает только диапазон общего
-`config/state/dev-runtime-gui.log`, зафиксированный при старте сессии с учётом задач
+`dev_get_logs` читает только диапазон фактического профильного журнала
+`log/<development-profile>.txt`, зафиксированный при старте сессии с учётом задач
 `session`, а при подтверждённом завершении — также по конечную границу завершения.
 Предыдущие сессии не выдаются; замена, усечение, отсутствие файла, некорректный UTF-8,
 повреждённая физическая строка и повреждённый `cursor` превращаются в ограниченный
@@ -216,6 +225,26 @@ target. `dev_get_runtime_status` выполняет только read-only probe
 конфигурацию. Ответ содержит только категории состояния эмулятора, ADB и
 приложения, а также состояние DevSession, SmokeRun и control operation; serial,
 package, executable и пользовательские пути наружу не выдаются.
+
+### Shared WebUI profile lifecycle
+
+`game_start_profile` и `dev_start_session` используют общий профильный runtime.
+Если WebUI owner уже подтверждён, запрос передаётся его executor на стороне owner. Если
+owner отсутствует, первый запрос выполняет один canonical bootstrap `gui.py`, после
+чего повторно проверяет owner identity и запускает профиль в том же WebUI. Повторный
+запуск уже работающего профиля идемпотентен; caller никогда не записывает worker
+registry напрямую и не передаёт arbitrary command, path, module или shell.
+
+При передаче game/device runtime от занятого пользовательского профиля сначала
+записываются `HANDOVER_REQUESTED`, `PREEMPTION_NOTICE` и `GRACE_PERIOD`, затем
+отправляется cooperative stop. По истечении bounded ожидания следующий task не
+запускается: worker должен завершиться на безопасной границе, вернуть игру на
+главный экран и подтвердить его через существующий UI flow. Только после этого
+development profile переходит в `AP_ACQUIRING` и `AP_READY`. Ошибка уведомления,
+тайм-аут или неподтверждённый главный экран блокируют запуск `ap` и сохраняют
+diagnostic evidence. Scheduler пользовательского профиля при этом не изменяется;
+raw persisted `Scheduler.Enable` читается узким `SchedulerRuntimeStateReader`, без
+нормализации `ConfigUpdater`.
 
 Публичная поверхность намеренно состоит из отдельных typed tools:
 `dev_start_game`, `dev_stop_game`, `dev_restart_game`,

@@ -16,6 +16,7 @@ from module.dev_runtime.bounded_io import BoundedReadTooLarge, read_bounded_byte
 from module.dev_runtime.contracts import (
     DevEnvironment,
     DevResult,
+    DevRuntimeMode,
     DevSession,
     DevSessionState,
     DevStatusKind,
@@ -38,6 +39,9 @@ _TASK_CLEANUP_RECOVERABLE_CODES = frozenset(
 class DevDiagnosticsMixin:
     def _environment_for_session(self, session: DevSession) -> DevEnvironment:
         raise NotImplementedError("DevDiagnosticsMixin требует разрешения окружения сессии")
+
+    def _shared_runtime_enabled(self) -> bool:
+        return bool(getattr(self, "shared_webui", False))
 
     def preflight(self) -> DevResult:
         checks: list[dict[str, object]] = []
@@ -147,15 +151,23 @@ class DevDiagnosticsMixin:
         registry_ok, registry_message = self._webui_registry_check()
         add("webui_registry", registry_ok, "DEV_WEBUI_CONFLICT", registry_message)
 
-        port_busy = self.port_probe(self.environment.host, self.environment.port)
-        add(
-            "port",
-            not port_busy,
-            "DEV_PORT_IN_USE",
-            f"Порт Dev WebUI {self.environment.port} свободен"
-            if not port_busy
-            else f"Порт Dev WebUI {self.environment.port} уже занят; владение не подтверждено",
-        )
+        if self._shared_runtime_enabled():
+            add(
+                "port",
+                True,
+                "DEV_SHARED_WEBUI_PORT_IGNORED",
+                "Shared WebUI использует собственный canonical endpoint; второй Dev-порт не открывается",
+            )
+        else:
+            port_busy = self.port_probe(self.environment.host, self.environment.port)
+            add(
+                "port",
+                not port_busy,
+                "DEV_PORT_IN_USE",
+                f"Порт Dev WebUI {self.environment.port} свободен"
+                if not port_busy
+                else f"Порт Dev WebUI {self.environment.port} уже занят; владение не подтверждено",
+            )
 
         ok = not blockers
         return DevResult(
@@ -252,32 +264,44 @@ class DevDiagnosticsMixin:
                 message="Маркер не содержит подтверждённую идентичность процесса",
                 state=DevStatusKind.STALE,
             )
-        try:
-            matches = self.process_backend.matches(identity)
-        except RuntimeError as exc:
-            return self._session_result(
-                session,
-                ok=False,
-                code="DEV_OWNERSHIP_UNKNOWN",
-                message=str(exc),
-                state=DevStatusKind.OWNERSHIP_MISMATCH,
-            )
-        if matches is None:
-            return self._session_result(
-                session,
-                ok=False,
-                code="DEV_SESSION_STALE",
-                message="Маркер существует, но процесс DevSession уже завершён",
-                state=DevStatusKind.STALE,
-            )
-        if matches is False:
-            return self._session_result(
-                session,
-                ok=False,
-                code="DEV_OWNERSHIP_MISMATCH",
-                message="PID из маркера принадлежит другому процессу; разрушительная очистка запрещена",
-                state=DevStatusKind.OWNERSHIP_MISMATCH,
-            )
+        if self._shared_runtime_enabled() and session.runtime_mode is DevRuntimeMode.SHARED_WEBUI:
+            shared = getattr(self, "shared_lifecycle", None)
+            ready = getattr(shared, "matches_session", None)
+            if not callable(ready) or ready(session.session_id, session.profile_name or self.environment.profile_name) is not True:
+                return self._session_result(
+                    session,
+                    ok=False,
+                    code="DEV_OWNERSHIP_MISMATCH",
+                    message="Shared WebUI worker не принадлежит текущей DevSession",
+                    state=DevStatusKind.OWNERSHIP_MISMATCH,
+                )
+        else:
+            try:
+                matches = self.process_backend.matches(identity)
+            except RuntimeError as exc:
+                return self._session_result(
+                    session,
+                    ok=False,
+                    code="DEV_OWNERSHIP_UNKNOWN",
+                    message=str(exc),
+                    state=DevStatusKind.OWNERSHIP_MISMATCH,
+                )
+            if matches is None:
+                return self._session_result(
+                    session,
+                    ok=False,
+                    code="DEV_SESSION_STALE",
+                    message="Маркер существует, но процесс DevSession уже завершён",
+                    state=DevStatusKind.STALE,
+                )
+            if matches is False:
+                return self._session_result(
+                    session,
+                    ok=False,
+                    code="DEV_OWNERSHIP_MISMATCH",
+                    message="PID из маркера принадлежит другому процессу; разрушительная очистка запрещена",
+                    state=DevStatusKind.OWNERSHIP_MISMATCH,
+                )
 
         if session.state in {DevSessionState.FAILED, DevSessionState.STOPPED}:
             code = (
@@ -308,7 +332,15 @@ class DevDiagnosticsMixin:
                     state=DevStatusKind.FAILED,
                     details={"error": exc.as_dict()},
                 )
-            ready, reason = self.readiness_probe(session_environment, identity)
+            if self._shared_runtime_enabled() and session.runtime_mode is DevRuntimeMode.SHARED_WEBUI:
+                shared = getattr(self, "shared_lifecycle", None)
+                probe = getattr(shared, "ready", None)
+                ready, reason = probe(
+                    session.profile_name or session_environment.profile_name,
+                    session.session_id,
+                ) if callable(probe) else (False, "shared runtime facade отсутствует")
+            else:
+                ready, reason = self.readiness_probe(session_environment, identity)
             if not ready:
                 return self._session_result(
                     session,
@@ -344,6 +376,12 @@ class DevDiagnosticsMixin:
     def _default_readiness_probe(
         self, environment: DevEnvironment, identity: ProcessIdentity
     ) -> tuple[bool, str]:
+        if self._shared_runtime_enabled():
+            shared = getattr(self, "shared_lifecycle", None)
+            probe = getattr(shared, "ready", None)
+            if not callable(probe):
+                return False, "shared runtime facade отсутствует"
+            return probe(environment.profile_name)
         try:
             from module.webui import worker_registry
 
@@ -414,6 +452,8 @@ class DevDiagnosticsMixin:
             if owner is not None:
                 matches = worker_registry.process_matches(owner)
                 if matches is True:
+                    if self._shared_runtime_enabled():
+                        return True, "Общий WebUI owner подтверждён; Dev Runtime использует существующий процесс"
                     return False, "В этой рабочей копии уже работает WebUI; второй владелец запрещён"
                 if matches is False:
                     owner_message = "PID старого WebUI переиспользован"

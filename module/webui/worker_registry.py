@@ -339,6 +339,25 @@ def claim_owner(owner_pid: int) -> None:
                 raise WorkerRegistryOwnershipError(
                     "У прежней WebUI остались рабочие процессы; сначала родительский процесс должен завершить их очистку"
                 )
+        elif registry["workers"]:
+            # Отсутствующий owner не доказывает отсутствие orphan worker.
+            # Новый WebUI не может безопасно перезаписать их registry, пока
+            # каждая запись не подтверждена как завершённая или переиспользованная.
+            for worker_name, worker_record in registry["workers"].items():
+                if not isinstance(worker_record, dict):
+                    raise WorkerRegistryOwnershipError(
+                        f"Запись orphan worker {worker_name} имеет неподтверждённый формат; перезапись реестра отклонена"
+                    )
+                try:
+                    worker_matches = process_matches(worker_record)
+                except RuntimeError as exc:
+                    raise WorkerRegistryOwnershipError(
+                        f"Нельзя подтвердить отсутствие orphan worker {worker_name}; перезапись реестра отклонена"
+                    ) from exc
+                if worker_matches is True:
+                    raise WorkerRegistryOwnershipError(
+                        f"Orphan worker {worker_name} ещё работает; запуск WebUI отклонён"
+                    )
 
         _write_registry(_empty_registry(owner_pid, owner_created_at), registry_file)
 
@@ -438,6 +457,25 @@ def get_owner_record() -> dict | None:
     with _locked_registry() as registry_file:
         registry = _read_registry(registry_file)
         return _owner_record(registry)
+
+
+def get_owner_record_read_only() -> dict | None:
+    """Прочитать owner без миграции registry и создания lock-файлов."""
+    paths, legacy_registry = _read_only_registry_paths()
+    for registry_file in paths:
+        if not registry_file.is_file():
+            continue
+        if registry_file == LEGACY_WORKER_REGISTRY_FILE and legacy_registry is not None:
+            registry = legacy_registry
+        else:
+            try:
+                registry = _read_registry(registry_file)
+            except RuntimeError:
+                continue
+        owner = _owner_record(registry)
+        if owner is not None:
+            return deepcopy(owner)
+    return None
 
 
 def clear_owner(owner_pid: int) -> bool:

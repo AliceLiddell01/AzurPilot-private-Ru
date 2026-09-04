@@ -23,7 +23,7 @@ from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
 
 from deploy.atomic import file_write, replace_tmp, to_tmp_file
@@ -82,6 +82,7 @@ _MAX_DEPENDENCY_COUNT = 10**12
 _SAFE_EVENT_TYPE = re.compile(r"^[a-z][a-z0-9_]{1,63}$")
 _SAFE_SHA = re.compile(r"^[0-9a-fA-F]{7,128}$")
 _SAFE_SESSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_SAFE_LOG_SOURCE = re.compile(r"^(?:config/state|log)(?:/[A-Za-z0-9_.-]+)+$")
 
 EVIDENCE_EVENT_TYPES = frozenset(
     {
@@ -99,6 +100,7 @@ EVIDENCE_EVENT_TYPES = frozenset(
         "cleanup_started",
         "cleanup_completed",
         "session_stopped",
+        "handover_transition",
     }
 )
 _EVENT_FIELD_NAMES = frozenset(
@@ -109,6 +111,7 @@ _EVENT_FIELD_NAMES = frozenset(
         "dependency_sequence",
         "exception_type",
         "mode",
+        "operation_id",
         "outcome",
         "phase",
         "policy_state",
@@ -118,6 +121,8 @@ _EVENT_FIELD_NAMES = frozenset(
         "reason_code",
         "required_by",
         "root",
+        "runtime_mode",
+        "attempted",
         "source",
         "state",
         "task",
@@ -756,8 +761,27 @@ def _timeline_metadata(events: list[TimelineEvent], *, truncated: bool = False) 
     }
 
 
-def _safe_log_source() -> str:
-    return "config/state/dev-runtime-gui.log"
+def _validate_log_source(value: object) -> str:
+    if (
+        not isinstance(value, str)
+        or len(value) > _MAX_CHANGED_PATH_LENGTH
+        or _SAFE_LOG_SOURCE.fullmatch(value) is None
+        or any(part in {".", ".."} for part in value.split("/"))
+    ):
+        raise EvidenceCorrupt(
+            "DEV_EVIDENCE_CORRUPT",
+            "Манифест журнала содержит небезопасный относительный путь",
+        )
+    return value
+
+
+def _log_source_for_path(path: Path, repository_root: Path) -> str:
+    candidate = _ensure_scoped_path(
+        Path(path), repository_root, label="путь журнала сессии"
+    )
+    relative = candidate.relative_to(Path(os.path.abspath(repository_root)))
+    source = PurePosixPath(*relative.parts).as_posix()
+    return _validate_log_source(source)
 
 
 def _strip_log_line_ending(value: bytes) -> bytes:
@@ -909,7 +933,8 @@ def _validate_log_metadata(value: object) -> dict[str, object]:
     end_offset = value.get("end_offset")
     end_identity = _FileIdentity.from_value(value.get("end_identity"))
     truncated = value.get("truncated")
-    if source != _safe_log_source() or not isinstance(available, bool) or not isinstance(truncated, bool):
+    _validate_log_source(source)
+    if not isinstance(available, bool) or not isinstance(truncated, bool):
         raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Манифест журнала имеет небезопасные поля")
     if boundary_offset is not None and (
         isinstance(boundary_offset, bool) or not isinstance(boundary_offset, int) or boundary_offset < 0
@@ -1318,6 +1343,7 @@ class EvidenceStore:
         now: Callable[[], datetime] | None = None,
         profile_name: str | None = None,
         validate_profile: bool = True,
+        log_file: Path | str | None = None,
     ) -> None:
         self.environment = environment
         self.session_id = validate_session_id(session_id)
@@ -1354,6 +1380,14 @@ class EvidenceStore:
         self.lock_path = _ensure_scoped_path(
             self.root / "evidence.lock", environment.repository_root, label="путь блокировки сессии диагностики"
         )
+        self.log_file = _ensure_scoped_path(
+            Path(environment.log_file if log_file is None else log_file),
+            environment.repository_root,
+            label="путь журнала сессии",
+        )
+        self.log_source = _log_source_for_path(
+            self.log_file, environment.repository_root
+        )
 
     @classmethod
     def create(
@@ -1365,8 +1399,9 @@ class EvidenceStore:
         excluded_tasks: Iterable[str],
         timestamp: str,
         now: Callable[[], datetime] | None = None,
+        log_file: Path | str | None = None,
     ) -> EvidenceStore:
-        store = cls(environment, session_id, now=now)
+        store = cls(environment, session_id, now=now, log_file=log_file)
         roots = sorted({_safe_selector(item) for item in root_tasks})
         excluded = sorted({_safe_selector(item) for item in excluded_tasks})
         if not roots or set(roots) & set(excluded):
@@ -1391,7 +1426,7 @@ class EvidenceStore:
             "evidence_health": health,
             "timeline": _timeline_metadata([]),
             "logs": {
-                "source": _safe_log_source(),
+                "source": store.log_source,
                 "available": False,
                 "boundary_offset": None,
                 "boundary_identity": None,
@@ -1526,12 +1561,21 @@ class EvidenceStore:
         except Exception:
             return
 
+    def _log_path_from_source(self, source: object) -> Path:
+        safe_source = _validate_log_source(source)
+        relative = PurePosixPath(safe_source)
+        return _ensure_scoped_path(
+            self.environment.repository_root.joinpath(*relative.parts),
+            self.environment.repository_root,
+            label="путь журнала сессии",
+        )
+
     def capture_log_boundary(self) -> None:
         """Зафиксировать границу журнала перед запуском корневого процесса gui.py."""
 
         try:
             log_path = _ensure_scoped_path(
-                self.environment.log_file,
+                self.log_file,
                 self.environment.repository_root,
                 label="путь журнала сессии",
             )
@@ -1543,7 +1587,7 @@ class EvidenceStore:
             with _exclusive_lock(self.lock_path, self.environment.repository_root):
                 manifest = self._manifest_locked()
                 manifest["logs"] = {
-                    "source": _safe_log_source(),
+                    "source": self.log_source,
                     "available": True,
                     "boundary_offset": int(log_path.stat().st_size),
                     "boundary_identity": identity.as_dict(),
@@ -1566,7 +1610,7 @@ class EvidenceStore:
         assert boundary_identity is not None
         try:
             log_path = _ensure_scoped_path(
-                self.environment.log_file,
+                self._log_path_from_source(logs["source"]),
                 self.environment.repository_root,
                 label="путь конечной границы журнала",
             )
@@ -1803,6 +1847,34 @@ class EvidenceStore:
                 "confirmed": cleanup_confirmed,
                 "preserved": preserved,
                 "updated_at": timestamp,
+            }
+            self._write_manifest_locked(manifest)
+
+    def record_cleanup_result(
+        self,
+        *,
+        timestamp: str | None,
+        cleanup_confirmed: bool,
+        preserved: bool = False,
+    ) -> None:
+        """Сохранить результат cleanup после закрытия terminal evidence."""
+
+        if type(cleanup_confirmed) is not bool or type(preserved) is not bool:
+            raise EvidenceError(
+                "DEV_EVIDENCE_CLEANUP_INVALID",
+                "Результат cleanup имеет некорректные флаги",
+            )
+        value = timestamp or self.now().astimezone(UTC).isoformat()
+        _utc_timestamp(value)
+        with _exclusive_lock(self.lock_path, self.environment.repository_root):
+            manifest = self._manifest_locked()
+            manifest["cleanup"] = {
+                "status": "preserved"
+                if preserved
+                else ("complete" if cleanup_confirmed else "pending"),
+                "confirmed": cleanup_confirmed,
+                "preserved": preserved,
+                "updated_at": value,
             }
             self._write_manifest_locked(manifest)
 
@@ -2273,7 +2345,7 @@ class EvidenceStore:
                 self._write_manifest_locked(manifest)
                 raise EvidenceError("DEV_EVIDENCE_LOG_BOUNDARY_LOST", "Граница журнала повреждена")
             log_path = _ensure_scoped_path(
-                self.environment.log_file,
+                self._log_path_from_source(logs.get("source")),
                 self.environment.repository_root,
                 label="путь журнала сессии",
             )
@@ -2467,7 +2539,7 @@ class EvidenceStore:
             "timeline": dict(manifest["timeline"]),
             "logs": {
                 "available": bool(logs.get("available")) if isinstance(logs, Mapping) else False,
-                "source": _safe_log_source(),
+                "source": logs.get("source") if isinstance(logs, Mapping) else self.log_source,
                 "truncated": bool(logs.get("truncated")) if isinstance(logs, Mapping) else False,
             },
             "screenshots": {
@@ -2486,12 +2558,14 @@ class EvidenceStore:
         *,
         profile_name: str | None = None,
         validate_profile: bool = True,
+        log_file: Path | str | None = None,
     ) -> EvidenceStore:
         return cls(
             environment,
             validate_session_id(session_id),
             profile_name=profile_name,
             validate_profile=validate_profile,
+            log_file=log_file,
         )
 
     @classmethod

@@ -36,6 +36,7 @@ def test_event_registry_is_public_and_single_source(tmp_path: Path) -> None:
 
     assert "session_ready" in EVIDENCE_EVENT_TYPES
     assert "runtime_error" in EVIDENCE_EVENT_TYPES
+    assert "handover_transition" in EVIDENCE_EVENT_TYPES
     assert not hasattr(evidence_module, "_EVENT_TYPES")
     with pytest.raises(EvidenceError) as error:
         store.append_event("unknown_event", {}, timestamp=_TIME)
@@ -99,6 +100,27 @@ def test_evidence_store_reopens_and_keeps_session_scoped_lifecycle(tmp_path: Pat
     ]
     assert [event["sequence"] for event in timeline["events"]] == [1, 2, 3, 4]
     assert all(event["timestamp"].endswith("+00:00") for event in timeline["events"])
+
+
+def test_evidence_store_records_handover_and_notification_outcome(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+
+    store.append_event(
+        "handover_transition",
+        {
+            "phase": "preemption_notice",
+            "profile": "alas",
+            "operation_id": "handover-1",
+            "reason": "notification",
+            "attempted": True,
+            "confirmed": True,
+        },
+        timestamp=_TIME,
+    )
+
+    event = store.timeline_page(limit=10)["events"][0]
+    assert event["type"] == "handover_transition"
+    assert event["fields"]["confirmed"] is True
 
 
 def test_unbound_evidence_summary_reports_profile_from_manifest(tmp_path: Path) -> None:

@@ -164,6 +164,40 @@ class TestWorkerRegistry(unittest.TestCase):
                     json.loads(registry_file.read_text(encoding="utf-8")),
                 )
 
+    def test_owner_claim_does_not_overwrite_live_or_unknown_orphan_worker(self):
+        with tempfile.TemporaryDirectory() as directory:
+            registry_file = Path(directory) / "workers.json"
+            registry_file.write_text(
+                json.dumps(
+                    {
+                        "owner_created_at": None,
+                        "owner_pid": None,
+                        "workers": {"alas": {"created_at": 11.5, "pid": 200}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with (
+                patch.object(worker_registry, "WORKER_REGISTRY_FILE", registry_file),
+                patch.object(worker_registry, "_process_created_at", return_value=10.5),
+            ):
+                with patch.object(worker_registry, "process_matches", return_value=True):
+                    with self.assertRaises(worker_registry.WorkerRegistryOwnershipError):
+                        worker_registry.claim_owner(100)
+                self.assertEqual(
+                    "alas",
+                    next(iter(json.loads(registry_file.read_text(encoding="utf-8"))["workers"])),
+                )
+
+                with patch.object(
+                    worker_registry,
+                    "process_matches",
+                    side_effect=RuntimeError("identity unavailable"),
+                ):
+                    with self.assertRaises(worker_registry.WorkerRegistryOwnershipError):
+                        worker_registry.claim_owner(100)
+
     def test_read_only_worker_snapshot_does_not_migrate_or_create_lock(self):
         with tempfile.TemporaryDirectory() as directory:
             current_file = Path(directory) / "cache" / "webui-workers.json"
@@ -211,6 +245,40 @@ class TestWorkerRegistry(unittest.TestCase):
             )
             self.assertFalse(
                 worker_registry._registry_lock_file(current_file).exists()
+            )
+
+    def test_read_only_owner_snapshot_does_not_migrate_or_create_lock(self):
+        with tempfile.TemporaryDirectory() as directory:
+            current_file = Path(directory) / "cache" / "webui-workers.json"
+            legacy_file = Path(directory) / "config" / "webui-workers.json"
+            legacy_file.parent.mkdir(parents=True)
+            legacy_file.write_text(
+                json.dumps(
+                    {
+                        "owner_created_at": 10.5,
+                        "owner_pid": 100,
+                        "workers": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with patch.multiple(
+                worker_registry,
+                WORKER_REGISTRY_FILE=current_file,
+                LEGACY_WORKER_REGISTRY_FILE=legacy_file,
+                DEFAULT_WORKER_REGISTRY_FILE=current_file,
+            ), patch.object(worker_registry, "_locked_file") as locked_file:
+                self.assertEqual(
+                    {"created_at": 10.5, "pid": 100},
+                    worker_registry.get_owner_record_read_only(),
+                )
+
+            locked_file.assert_not_called()
+            self.assertFalse(current_file.exists())
+            self.assertTrue(legacy_file.exists())
+            self.assertFalse(
+                worker_registry._registry_lock_file(legacy_file).exists()
             )
 
     def test_malformed_legacy_registry_does_not_block_current_snapshot(self):

@@ -399,25 +399,23 @@ class AzurLaneAutoScript:
 
     def _record_dev_runtime_task_started(self, task):
         """Зафиксировать начало задачи только на канонической границе планировщика."""
-        if not os.environ.get("AZURPILOT_DEV_SESSION_ID"):
-            return
         try:
             from module.dev_runtime.hooks import record_task_started
 
-            record_task_started(self.config_name, task)
+            result = record_task_started(self.config_name, task)
+            return result is not False
         except Exception:
-            return
+            return False
 
     def _record_dev_runtime_task_finished(self, task):
         """Зафиксировать возврат штатного исполнителя задачи без заключения PASS/FAIL."""
-        if not os.environ.get("AZURPILOT_DEV_SESSION_ID"):
-            return
         try:
             from module.dev_runtime.hooks import record_task_finished
 
-            record_task_finished(self.config_name, task)
+            result = record_task_finished(self.config_name, task)
+            return result is not False
         except Exception:
-            return
+            return False
 
     def _try_restart_game(self):
         """Перезапустить только Azur Lane и подтвердить восстановление через login/UI flow."""
@@ -1610,6 +1608,7 @@ class AzurLaneAutoScript:
             "_record_dev_runtime_task_finished",
             lambda *_args, **_kwargs: None,
         )
+        from module.dev_runtime.hooks import handover_requested as is_handover_requested
 
         from module.config.utils import is_oobe_needed
 
@@ -1639,6 +1638,9 @@ class AzurLaneAutoScript:
                             f"[Alas] [{self.config_name}] Работа завершена. Причина: запрос на остановку"
                         )
                         break
+                if is_handover_requested(self.config_name) is True:
+                    logger.info('[Alas] Получен запрос на handover; следующая задача не назначается')
+                    break
                 # 检查游戏服务器维护
                 self.checker.wait_until_available()
                 if self.checker.is_recovered():
@@ -1681,14 +1683,34 @@ class AzurLaneAutoScript:
 
                 # 运行
                 logger.info(f'[Alas] Планировщик: запуск задачи `{task}`')
-                record_dev_runtime_task_started(task)
+                if record_dev_runtime_task_started(task) is False:
+                    logger.error('[Alas] Не удалось подтвердить границу текущей задачи; scheduler остановлен')
+                    break
+                if (
+                    self.stop_event is not None
+                    and self.stop_event.is_set()
+                ) or is_handover_requested(self.config_name) is True:
+                    record_dev_runtime_task_finished(task)
+                    logger.info('[Alas] Запуск задачи отменён запросом cooperative stop')
+                    break
                 self.device.stuck_record_clear()
                 self.device.click_record_clear()
                 logger.hr(task, level=0)
                 success = self.run(inflection.underscore(task))
-                record_dev_runtime_task_finished(task)
+                if record_dev_runtime_task_finished(task) is False:
+                    logger.error('[Alas] Не удалось подтвердить завершение задачи; scheduler остановлен')
+                    break
                 logger.info(f'[Alas] Планировщик: завершение задачи `{task}`')
                 self.is_first_task = False
+
+                # Событие handover разрешает завершить текущую задачу, но
+                # не разрешает scheduler назначить следующую.
+                if (
+                    self.stop_event is not None
+                    and self.stop_event.is_set()
+                ) or is_handover_requested(self.config_name) is True:
+                    logger.info('[Alas] После текущей задачи получен запрос на cooperative stop')
+                    break
 
                 # 每任务推送通知（须在 config_generated 刷新前读取）
                 if success is not None:
