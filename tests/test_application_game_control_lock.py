@@ -184,4 +184,5 @@ def test_game_runtime_lease_cleanup_error_does_not_mask_body_error(
         ):
             raise ValueError("body failure")
     finally:
-        original_remove(marker_path)
+        if marker_path.exists():
+            original_remove(marker_path)

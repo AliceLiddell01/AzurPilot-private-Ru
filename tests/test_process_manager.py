@@ -1,5 +1,7 @@
 import threading
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import Mock, PropertyMock, patch
 
 from module.webui.process_manager import ProcessManager
@@ -341,6 +343,41 @@ class TestProcessManagerRegistry(unittest.TestCase):
         self.assertFalse(stopper.is_alive())
         self.assertFalse(starter.is_alive())
         self.assertTrue(new_process_started.is_set())
+
+    def test_cooperative_stop_persists_state_before_signaling_event(self):
+        from module.application.runtime_state import RuntimeStateStore
+
+        with TemporaryDirectory() as root:
+            root_path = Path(root)
+            RuntimeStateStore(root_path).mark_worker_started(
+                "ap",
+                worker_pid=12345,
+                worker_created_at=1.0,
+            )
+            manager = ProcessManager("ap")
+            observed: list[bool | None] = []
+
+            class Event:
+                def set(self) -> None:
+                    snapshot = RuntimeStateStore(root_path).read("ap")
+                    observed.append(snapshot.stop_requested if snapshot is not None else None)
+
+            manager._stop_event = Event()
+            with (
+                patch("module.webui.process_manager._REPOSITORY_ROOT", root_path),
+                patch.object(ProcessManager, "alive", new_callable=PropertyMock, return_value=True),
+            ):
+                self.assertTrue(
+                    manager.request_cooperative_stop(
+                        operation_id="operation-1",
+                        session_id="session-1",
+                    )
+                )
+
+            self.assertEqual(observed, [True])
+            snapshot = RuntimeStateStore(root_path).read("ap")
+            self.assertIsNotNone(snapshot)
+            self.assertTrue(snapshot.stop_requested)
 
     def test_start_rejects_during_update_transaction(self):
         manager = ProcessManager.get_manager("alas")

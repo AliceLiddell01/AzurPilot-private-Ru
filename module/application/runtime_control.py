@@ -214,6 +214,16 @@ def _parse_utc_timestamp(value: object, *, field: str) -> datetime:
     return parsed
 
 
+def _request_is_expired(payload: object, *, now: datetime) -> bool:
+    if not isinstance(payload, Mapping):
+        return False
+    try:
+        expires_at = _parse_utc_timestamp(payload.get("expires_at"), field="expires_at")
+    except RuntimeControlError:
+        return False
+    return now >= expires_at
+
+
 def _safe_plane_path(repository_root: Path, relative: str) -> Path:
     try:
         return _scoped_path(repository_root, relative)
@@ -544,9 +554,51 @@ class WebUIControlServer:
         self._ensure_directories()
         processed = 0
         try:
-            paths = sorted(self.requests.glob("*.json"), key=lambda path: path.name)[:_MAX_REQUEST_FILES]
+            candidates = sorted(self.requests.glob("*.json"), key=lambda path: path.name)
         except OSError:
             return 0
+        paths: list[Path] = []
+        expired_requests: list[tuple[Path, object]] = []
+        now = datetime.now(UTC)
+        for candidate in candidates:
+            if candidate.suffix != ".json" or re.fullmatch(_SAFE_TOKEN, candidate.stem) is None:
+                continue
+            try:
+                request_path = self._request_path(candidate.stem)
+            except RuntimeControlError:
+                continue
+            try:
+                payload = _read_json(request_path, _MAX_REQUEST_BYTES)
+            except RuntimeControlError:
+                paths.append(request_path)
+                continue
+            if payload is not None and _request_is_expired(payload, now=now):
+                if len(expired_requests) < _MAX_REQUEST_FILES:
+                    expired_requests.append((request_path, payload))
+                continue
+            paths.append(request_path)
+
+        for request_path, payload in expired_requests:
+            if self._stop.is_set():
+                break
+            if isinstance(payload, Mapping):
+                try:
+                    key = _token(payload.get("idempotency_key"), field="idempotency_key")
+                    if self._result_path(key).exists():
+                        self._remove_request(request_path)
+                        continue
+                except (RuntimeControlError, OSError):
+                    pass
+            written = self._write_error_result(
+                payload,
+                code="RUNTIME_CONTROL_EXPIRED",
+                message="Срок действия runtime control request истёк до выполнения operation",
+            )
+            self._remove_request(request_path)
+            if written:
+                processed += 1
+
+        paths = paths[:_MAX_REQUEST_FILES]
         for request_path in paths:
             if self._stop.is_set():
                 break

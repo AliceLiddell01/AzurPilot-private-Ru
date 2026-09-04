@@ -125,6 +125,7 @@ def test_legacy_config_adapter_reads_redacted_data_and_limits_scheduler_mutation
         "Event": {
             "Scheduler": {"Enable": False, "NextRun": datetime(2026, 8, 31, 13, tzinfo=UTC)},
         },
+        "DisabledMissing": {"Scheduler": {"Enable": False}},
         "Other": {"Scheduler": {"Enable": True}},
         "Dashboard": {"Oil": {"Value": 10, "Limit": 100, "Record": datetime(2026, 8, 31, tzinfo=UTC)}},
     }
@@ -145,7 +146,7 @@ def test_legacy_config_adapter_reads_redacted_data_and_limits_scheduler_mutation
     snapshot = adapter.read_config("ap")
     assert snapshot["Main"]["General"]["Secret"] == REDACTED_CONFIG_VALUE  # type: ignore[index]
     assert adapter.read_config("ap", "Main")["General"]["Count"] == 1  # type: ignore[index]
-    queue = adapter.read_scheduler_queue("ap", ("Main", "Event"))
+    queue = adapter.read_scheduler_queue("ap", ("Main", "Event", "DisabledMissing"))
     assert tuple(item.task for item in queue) == ("Main",)
     resources = adapter.read_resources("ap")
     assert resources.items[0].label == "Нефть"

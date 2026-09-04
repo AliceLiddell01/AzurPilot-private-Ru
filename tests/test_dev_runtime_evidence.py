@@ -270,6 +270,44 @@ def test_evidence_logs_keep_replacement_startup_lines_during_active_session(
     ]
 
 
+def test_evidence_log_rotation_fails_closed_at_segment_limit(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    log_path = store.environment.log_file
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_bytes(b"")
+    store.capture_log_boundary()
+
+    manifest = json.loads(store.manifest_path.read_text(encoding="utf-8"))
+    logs = manifest["logs"]
+    assert isinstance(logs, dict)
+    first_segment = logs["segments"][0]
+    assert isinstance(first_segment, dict)
+    segments = [first_segment]
+    segments.extend(
+        {
+            "identity": {"device": 999999, "inode": 1000 + index, "mtime_ns": 1},
+            "boundary_offset": 0,
+            "end_offset": 0,
+        }
+        for index in range(31)
+    )
+    logs["segments"] = segments
+    manifest["logs"] = logs
+    store.manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    replacement = log_path.with_name("rotated-limit.txt")
+    replacement.write_bytes(b"new worker startup\n")
+    replacement.replace(log_path)
+
+    with pytest.raises(EvidenceError) as error:
+        store.logs_page(active_owned=True)
+
+    assert error.value.code == "DEV_EVIDENCE_LOG_BOUNDARY_LOST"
+    persisted = json.loads(store.manifest_path.read_text(encoding="utf-8"))
+    assert len(persisted["logs"]["segments"]) == 32
+    assert "log_boundary_lost" in persisted["evidence_health"]["reasons"]
+
+
 def test_evidence_log_cursor_reset_after_rotation_is_reported_as_truncated(
     tmp_path: Path,
 ) -> None:

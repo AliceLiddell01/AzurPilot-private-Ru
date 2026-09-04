@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from module.application.runtime_control import (
     RuntimeControlOperation,
     RuntimeControlResult,
@@ -141,13 +143,22 @@ def test_shared_runtime_runs_pre_execution_hook_before_owner_start(
 ) -> None:
     manager, shared = _manager(tmp_path)
     events: list[str] = []
+    original_start = shared.start_profile
+
+    def record_start(
+        *, session_id: str, idempotency_key: str | None = None
+    ) -> RuntimeControlResult:
+        events.append("start")
+        return original_start(session_id=session_id, idempotency_key=idempotency_key)
+
+    shared.start_profile = record_start  # type: ignore[method-assign]
 
     started = manager.start_with_pre_execution_hook(
-        before_process_launch=lambda session_id: events.append(session_id),
+        before_process_launch=lambda _session_id: events.append("hook"),
     )
 
     assert started.ok is True
-    assert events == ["shared-session"]
+    assert events == ["hook", "start"]
     assert shared.active is True
     assert manager.stop().ok is True
 
@@ -191,3 +202,33 @@ def test_shared_recovery_does_not_close_marker_while_worker_is_present(tmp_path:
     assert recovered.ok is False
     assert recovered.code == "DEV_OWNERSHIP_MISMATCH"
     assert shared.active is True
+    preserved = manager._read_session()
+    assert preserved is not None
+    assert preserved.state is DevSessionState.FAILED
+    assert preserved.process is None
+
+
+def test_shared_runtime_log_file_translates_target_registry_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from module.dev_runtime import target as target_module
+
+    def fail(_root: Path) -> object:
+        raise target_module.DevTargetError(
+            "DEV_TARGET_INVALID", "синтетическая ошибка registry target"
+        )
+
+    monkeypatch.setattr(target_module.DevTargetRegistry, "load", fail)
+
+    with pytest.raises(RuntimeError, match="log target"):
+        _ = SharedWebUIRuntime(tmp_path).log_file
+
+
+def test_shared_manager_falls_back_to_environment_log_for_outside_target(
+    tmp_path: Path,
+) -> None:
+    manager, shared = _manager(tmp_path)
+    shared.log_file = tmp_path.parent / "outside.log"
+
+    assert manager._evidence_log_path() == manager.environment.log_file

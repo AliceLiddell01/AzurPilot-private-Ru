@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from module.application import runtime_control
 from module.application.runtime_control import (
     RuntimeControlError,
     RuntimeControlOperation,
@@ -247,6 +248,82 @@ def test_control_plane_requires_positive_timeout_and_rejects_expired_request(tmp
     )
     assert result.code == "RUNTIME_CONTROL_EXPIRED"
     assert calls == 0
+
+
+def test_control_plane_expires_requests_before_request_batch_limit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = RuntimeOwnerIdentity(pid=4321, created_at=1234.5)
+    calls: list[str] = []
+
+    def executor(
+        operation: RuntimeControlOperation,
+        profile: str,
+        *,
+        request_id: str,
+        idempotency_key: str,
+        session_id: str | None,
+        expires_at: str,
+    ) -> RuntimeControlResult:
+        calls.append(idempotency_key)
+        return RuntimeControlResult(
+            True,
+            "RUNTIME_STARTED",
+            "Профиль запущен",
+            operation,
+            profile,
+            request_id,
+            idempotency_key,
+            owner=owner,
+        )
+
+    server = WebUIControlServer(
+        tmp_path,
+        owner_reader=lambda: owner.as_dict(),
+        owner_matches=lambda candidate: candidate == owner,
+        executor=executor,
+    )
+    requests = tmp_path / "config" / "state" / "webui-control" / "requests"
+    results = tmp_path / "config" / "state" / "webui-control" / "results"
+    requests.mkdir(parents=True)
+    results.mkdir(parents=True)
+    now = datetime.now(UTC)
+
+    def request(key: str, *, expires_at: datetime) -> dict[str, object]:
+        return {
+            "schema_version": 2,
+            "request_id": f"request-{key}",
+            "idempotency_key": key,
+            "operation": "start_profile",
+            "profile": "ap",
+            "session_id": None,
+            "expected_owner": owner.as_dict(),
+            "created_at": (now - timedelta(seconds=2)).isoformat(),
+            "expires_at": expires_at.isoformat(),
+        }
+
+    (requests / "a-expired.json").write_text(
+        json.dumps(request("expired-key", expires_at=now - timedelta(seconds=1))),
+        encoding="utf-8",
+    )
+    (requests / "z-valid.json").write_text(
+        json.dumps(request("valid-key", expires_at=now + timedelta(seconds=60))),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(runtime_control, "_MAX_REQUEST_FILES", 1)
+
+    assert server.serve_once() == 2
+    expired = RuntimeControlResult.from_dict(
+        json.loads((results / "expired-key.json").read_text(encoding="utf-8"))
+    )
+    valid = RuntimeControlResult.from_dict(
+        json.loads((results / "valid-key.json").read_text(encoding="utf-8"))
+    )
+    assert expired.code == "RUNTIME_CONTROL_EXPIRED"
+    assert valid.code == "RUNTIME_STARTED"
+    assert calls == ["valid-key"]
+    assert not list(requests.glob("*.json"))
 
 
 def test_control_plane_rejects_executor_result_from_different_owner(tmp_path: Path) -> None:

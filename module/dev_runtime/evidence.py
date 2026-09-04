@@ -66,6 +66,7 @@ _LOCK_RETRY_INTERVAL = 0.05
 _MAX_LOG_LINE_BYTES = 4096
 _MAX_LOG_PAGE_BYTES = 64 * 1024
 _MAX_LOG_PAGE_LINES = 200
+_MAX_LOG_SEGMENTS = 32
 _MAX_CURSOR_LENGTH = 2048
 _MAX_IMAGE_WIDTH = 4096
 _MAX_IMAGE_HEIGHT = 4096
@@ -979,7 +980,7 @@ def _validate_log_metadata(value: object) -> dict[str, object]:
         ):
             raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Конечная граница журнала относится к другому файлу")
     else:
-        if not isinstance(raw_segments, list) or len(raw_segments) > 32 or (available and not raw_segments) or (not available and raw_segments):
+        if not isinstance(raw_segments, list) or len(raw_segments) > _MAX_LOG_SEGMENTS or (available and not raw_segments) or (not available and raw_segments):
             raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Сегменты журнала имеют неверное количество")
         segments = []
         seen_identities: set[tuple[int, int]] = set()
@@ -1712,6 +1713,9 @@ class EvidenceStore:
             if manifest.get("stopped_at") is not None:
                 self._set_health_locked(manifest, "log_boundary_lost")
                 return
+            if len(segments) >= _MAX_LOG_SEGMENTS:
+                self._set_health_locked(manifest, "log_boundary_lost")
+                return
             # Старый inode уже недоступен; закрываем его на исходной границе и
             # продолжаем чтение с нулевого смещения нового сегмента.
             last["end_offset"] = last["boundary_offset"]
@@ -2419,7 +2423,7 @@ class EvidenceStore:
         if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
             raise EvidenceError("DEV_EVIDENCE_CURSOR_INVALID", "Смещение курсора журнала некорректно")
         segment = payload.get("segment", 0)
-        if isinstance(segment, bool) or not isinstance(segment, int) or not 0 <= segment < 32:
+        if isinstance(segment, bool) or not isinstance(segment, int) or not 0 <= segment < _MAX_LOG_SEGMENTS:
             raise EvidenceError("DEV_EVIDENCE_CURSOR_INVALID", "Сегмент курсора журнала некорректен")
         try:
             identity = _FileIdentity.from_value(payload.get("identity"))
@@ -2484,6 +2488,13 @@ class EvidenceStore:
                     raise EvidenceError(
                         "DEV_EVIDENCE_LOG_BOUNDARY_LOST",
                         "Файл журнала был заменён после завершения сессии",
+                    )
+                if len(segments) >= _MAX_LOG_SEGMENTS:
+                    self._set_health_locked(manifest, "log_boundary_lost")
+                    self._write_manifest_locked(manifest)
+                    raise EvidenceError(
+                        "DEV_EVIDENCE_LOG_BOUNDARY_LOST",
+                        "Достигнут безопасный лимит сегментов журнала",
                     )
                 # Ротация во время активной сессии создаёт новый сегмент. Его
                 # нулевая граница содержит startup lines нового worker, а

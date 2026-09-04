@@ -97,6 +97,8 @@ class SchedulerRuntimeStateReader:
                     "SCHEDULER_STATE_INVALID", f"Scheduler.Enable задачи {task} не является boolean"
                 )
             if "NextRun" not in scheduler:
+                if enabled is not True:
+                    continue
                 raise SchedulerRuntimeStateError(
                     "SCHEDULER_STATE_MISSING", f"Scheduler.NextRun задачи {task} отсутствует"
                 )

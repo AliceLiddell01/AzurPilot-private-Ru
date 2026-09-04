@@ -88,6 +88,24 @@ def test_scheduler_reader_accepts_registered_unicode_and_spaced_names(tmp_path: 
     assert [entry.task for entry in queue] == [task]
 
 
+def test_scheduler_reader_skips_disabled_task_without_next_run(tmp_path: Path) -> None:
+    config = tmp_path / "config"
+    config.mkdir()
+    (config / "alas.json").write_text(
+        json.dumps(
+            {
+                "DisabledTask": {"Scheduler": {"Enable": False}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    reader = SchedulerRuntimeStateReader(tmp_path)
+
+    assert reader.read_state("alas", ("DisabledTask",)) == {}
+    assert reader.read_queue("alas", ("DisabledTask",)) == ()
+
+
 @pytest.mark.parametrize(
     "scheduler",
     (

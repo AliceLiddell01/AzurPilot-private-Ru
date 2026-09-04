@@ -17,7 +17,7 @@ from math import isfinite
 from pathlib import Path
 from threading import Lock
 from time import monotonic, sleep
-from typing import NamedTuple
+from typing import NamedTuple, NoReturn
 
 from module.application.errors import (
     OperationFailedError,
@@ -381,9 +381,12 @@ class LegacyConfigAdapter:
                 continue
             if "Enable" not in scheduler or type(scheduler["Enable"]) is not bool:
                 raise ValueError(f"Scheduler.Enable задачи {task} отсутствует или имеет неверный тип")
+            enabled = scheduler["Enable"]
             if "NextRun" not in scheduler:
+                if enabled is not True:
+                    continue
                 raise ValueError(f"Scheduler.NextRun задачи {task} отсутствует")
-            if scheduler["Enable"] is not True:
+            if enabled is not True:
                 continue
             next_run = scheduler["NextRun"]
             entries.append(SchedulerEntry(task=task, next_run=next_run))
@@ -1348,7 +1351,7 @@ class LegacyProcessManagerAdapter:
         LegacyProcessManagerAdapter._raise_for_code(result.code, result.message, operation=operation)
 
     @staticmethod
-    def _raise_for_code(code: str, message: str, *, operation: str) -> None:
+    def _raise_for_code(code: str, message: str, *, operation: str) -> NoReturn:
         if code in {
             "RUNTIME_OWNER_UNAVAILABLE",
             "RUNTIME_OWNER_STALE",

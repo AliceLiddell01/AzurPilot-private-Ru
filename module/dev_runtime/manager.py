@@ -236,10 +236,32 @@ class DevSessionManager(DevDiagnosticsMixin):
         """Вернуть фактический scoped log target текущего runtime mode."""
 
         if self.shared_webui and self.shared_lifecycle is not None:
-            candidate = getattr(self.shared_lifecycle, "log_file", None)
+            try:
+                candidate = getattr(self.shared_lifecycle, "log_file", None)
+            except (DevTargetError, OSError, RuntimeError):
+                return self.environment.log_file
             if isinstance(candidate, (str, os.PathLike)):
-                return Path(candidate)
+                try:
+                    candidate_path = Path(candidate)
+                    candidate_path.resolve().relative_to(
+                        self.environment.repository_root.resolve()
+                    )
+                except (OSError, RuntimeError, TypeError, ValueError):
+                    return self.environment.log_file
+                return candidate_path
         return self.environment.log_file
+
+    def _relative_log_text(self, log_path: Path | None) -> str | None:
+        if log_path is None:
+            return None
+        try:
+            return str(
+                Path(log_path).resolve().relative_to(
+                    self.environment.repository_root.resolve()
+                )
+            )
+        except (OSError, RuntimeError, ValueError):
+            return str(log_path)
 
     def _evidence_for_session(
         self,
@@ -2760,11 +2782,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                     "host": self.environment.host,
                     "port": self.environment.port,
                     "profile": self.environment.profile_name,
-                    "log": str(
-                        self.environment.log_file.relative_to(
-                            self.environment.repository_root
-                        )
-                    ),
+                    "log": self._relative_log_text(self._evidence_log_path()),
                 },
             )
 
@@ -2954,9 +2972,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                         details={
                             "runtime_mode": DevRuntimeMode.SHARED_WEBUI.value,
                             "profile": self.environment.profile_name,
-                            "log": str(log_path.relative_to(self.environment.repository_root))
-                            if log_path is not None
-                            else None,
+                            "log": self._relative_log_text(log_path),
                         },
                     )
 

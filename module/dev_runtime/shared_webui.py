@@ -13,6 +13,7 @@ from module.application.runtime_control import (
     WebUIControlClient,
 )
 from module.application.runtime_state import RuntimeStateStore
+from module.dev_runtime.target import DevTargetError
 
 
 class SharedWebUIRuntime:
@@ -42,7 +43,13 @@ class SharedWebUIRuntime:
         # ``set_file_logger`` использует стабильный профильный путь; Evidence
         # должен читать именно его, а не создавать искусственную границу с
         # датой, которая может не совпадать с журналом worker.
-        return self.repository_root / "log" / f"{self.profile_name}.txt"
+        try:
+            profile_name = self.profile_name
+        except DevTargetError as exc:
+            raise RuntimeError(
+                "Нельзя определить log target общего WebUI из-за ошибки development target registry"
+            ) from exc
+        return self.repository_root / "log" / f"{profile_name}.txt"
 
     def ensure_webui(self) -> RuntimeOwnerIdentity:
         return self._client().ensure_owner()
