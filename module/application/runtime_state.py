@@ -271,7 +271,7 @@ def _freshness(updated_at: str) -> str:
         age = datetime.now(UTC).timestamp() - datetime.fromisoformat(updated_at).timestamp()
     except (TypeError, ValueError, OverflowError, OSError):
         return "unknown"
-    if age < 0 or age <= _FRESHNESS_SECONDS:
+    if -_FRESHNESS_SECONDS <= age <= _FRESHNESS_SECONDS:
         return "fresh"
     return "stale"
 

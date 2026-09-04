@@ -158,7 +158,7 @@ def test_idle_wait_aborts_for_handover_before_next_task(
     script = _script()
     script.config = SimpleNamespace(start_watching=lambda: None)
     monkeypatch.setattr(
-        "module.dev_runtime.hooks.handover_requested",
+        "alas._handover_requested",
         lambda _config_name: True,
     )
 
@@ -174,7 +174,7 @@ def test_get_next_task_does_not_read_scheduler_after_handover(
         get_next=lambda: calls.append("get_next")
     )
     monkeypatch.setattr(
-        "module.dev_runtime.hooks.handover_requested",
+        "alas._handover_requested",
         lambda _config_name: True,
     )
 

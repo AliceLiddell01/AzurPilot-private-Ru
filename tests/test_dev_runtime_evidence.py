@@ -270,6 +270,51 @@ def test_evidence_logs_keep_replacement_startup_lines_during_active_session(
     ]
 
 
+def test_evidence_log_cursor_reset_after_rotation_is_reported_as_truncated(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    log_path = store.environment.log_file
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_bytes(b"before session\n")
+    store.capture_log_boundary()
+    with log_path.open("ab") as handle:
+        handle.write(b"old worker first\nold worker second\n")
+
+    first = store.logs_page(limit=1)
+    cursor = first["next_cursor"]
+    assert isinstance(cursor, str)
+
+    replacement = log_path.with_name("rotated-cursor.txt")
+    replacement.write_bytes(b"new worker startup\n")
+    replacement.replace(log_path)
+
+    page = store.logs_page(cursor=cursor, limit=10, active_owned=True)
+    assert [item["text"] for item in page["items"]] == ["new worker startup"]
+    assert page["truncated"] is True
+
+
+def test_evidence_rejects_non_adjacent_reused_log_identity(tmp_path: Path) -> None:
+    first = evidence_module._FileIdentity(device=1, inode=10, mtime_ns=1)
+    second = evidence_module._FileIdentity(device=1, inode=11, mtime_ns=2)
+    metadata = {
+        "source": "log/2026-08-30_ap.txt",
+        "available": True,
+        "boundary_offset": 0,
+        "boundary_identity": first.as_dict(),
+        "end_offset": None,
+        "end_identity": None,
+        "truncated": False,
+        "segments": [
+            {"identity": identity.as_dict(), "boundary_offset": 0, "end_offset": None}
+            for identity in (first, second, first)
+        ],
+    }
+
+    with pytest.raises(EvidenceCorrupt, match="inode"):
+        evidence_module._validate_log_metadata(metadata)
+
+
 def test_evidence_logs_respect_hard_page_byte_bound(tmp_path: Path) -> None:
     store = _store(tmp_path)
     store.environment.log_file.parent.mkdir(parents=True, exist_ok=True)
@@ -878,6 +923,21 @@ def test_hooks_are_noop_without_active_dev_session(monkeypatch) -> None:
         timestamp=_TIME,
     )
     hooks.serve_pending_screenshot(np.zeros((1, 1), dtype=np.uint8))
+
+
+def test_hooks_repository_root_does_not_depend_on_process_cwd(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from module.dev_runtime import hooks
+
+    monkeypatch.delenv("AZURPILOT_REPOSITORY_ROOT", raising=False)
+    monkeypatch.chdir(tmp_path)
+    assert hooks._repository_root() == Path(hooks.__file__).resolve().parents[2]
+
+    configured_root = tmp_path / "configured-root"
+    monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(configured_root))
+    assert hooks._repository_root() == configured_root.resolve()
 
 
 def test_old_session_without_evidence_is_reported_as_unavailable(tmp_path: Path) -> None:

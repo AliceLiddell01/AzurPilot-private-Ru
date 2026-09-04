@@ -88,7 +88,7 @@ class SharedLifecycle:
 def _manager(tmp_path: Path) -> tuple[DevSessionManager, SharedLifecycle]:
     root = tmp_path.resolve()
     (root / "module").mkdir(parents=True)
-    (root / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
+    (root / "gui.py").write_text("# синтетический gui\n", encoding="utf-8")
     environment = DevEnvironment(
         repository_root=root,
         python_executable=root / ".venv" / "Scripts" / "python.exe",

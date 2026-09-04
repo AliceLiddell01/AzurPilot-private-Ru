@@ -143,11 +143,7 @@ def game_runtime_lease(
             try:
                 yield
             finally:
-                remaining = depth
-                if remaining:
-                    depths[key] = remaining
-                else:
-                    depths.pop(key, None)
+                depths[key] = depth
             return
 
         marker = _read_marker(marker_path)

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import math
-import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -15,7 +14,6 @@ from module.application.game_validation import INVALID_NAME_CHARS, MAX_NAME_LENG
 
 _MAX_BYTES = 1024 * 1024
 _MAX_TASKS = 256
-_SAFE_SEGMENT = re.compile(r"^.{1,128}$", re.DOTALL)
 
 
 class SchedulerRuntimeStateError(RuntimeError):
@@ -181,7 +179,7 @@ class SchedulerRuntimeStateReader:
     def _safe_segment(value: object, *, field: str) -> str:
         if (
             not isinstance(value, str)
-            or _SAFE_SEGMENT.fullmatch(value) is None
+            or not value
             or value != value.strip()
             or value in {".", ".."}
             or any(char in INVALID_NAME_CHARS or ord(char) < 32 or ord(char) == 127 for char in value)

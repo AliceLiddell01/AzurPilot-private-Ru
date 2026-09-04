@@ -982,7 +982,7 @@ def _validate_log_metadata(value: object) -> dict[str, object]:
         if not isinstance(raw_segments, list) or len(raw_segments) > 32 or (available and not raw_segments) or (not available and raw_segments):
             raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Сегменты журнала имеют неверное количество")
         segments = []
-        previous_identity: _FileIdentity | None = None
+        seen_identities: set[tuple[int, int]] = set()
         for raw_segment in raw_segments:
             if not isinstance(raw_segment, Mapping) or set(raw_segment) != {
                 "identity",
@@ -1008,9 +1008,10 @@ def _validate_log_metadata(value: object) -> dict[str, object]:
                 )
             ):
                 raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Сегмент журнала имеет неверные границы")
-            if previous_identity is not None and segment_identity.same_file(previous_identity):
+            identity_key = (segment_identity.device, segment_identity.inode)
+            if identity_key in seen_identities:
                 raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Сегменты журнала не должны повторять inode")
-            previous_identity = segment_identity
+            seen_identities.add(identity_key)
             segments.append(
                 {
                     "identity": segment_identity.as_dict(),
@@ -1697,11 +1698,7 @@ class EvidenceStore:
         if not logs["available"]:
             return
         try:
-            log_path = _ensure_scoped_path(
-                self._log_path_from_source(logs["source"]),
-                self.environment.repository_root,
-                label="путь конечной границы журнала",
-            )
+            log_path = self._log_path_from_source(logs["source"])
             end_identity = _file_identity(log_path)
             end_offset = int(log_path.stat().st_size)
         except (EvidenceError, OSError):
@@ -2540,11 +2537,13 @@ class EvidenceStore:
                 )
             else:
                 read_end = current_size
+            cursor_reset = False
             offset = boundary_offset
             if cursor is not None:
                 cursor_segment, offset, cursor_identity = self._decode_cursor(cursor)
                 if cursor_segment < current_segment_index:
                     offset = boundary_offset
+                    cursor_reset = True
                 elif cursor_segment != current_segment_index:
                     raise EvidenceError("DEV_EVIDENCE_CURSOR_INVALID", "Курсор журнала выходит за границу сессии")
                 elif (
@@ -2556,7 +2555,7 @@ class EvidenceStore:
 
             items: list[dict[str, object]] = []
             page_bytes = 0
-            truncated = False
+            truncated = cursor_reset
             try:
                 with log_path.open("rb") as handle:
                     if not _log_offset_is_line_boundary(

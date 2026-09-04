@@ -46,6 +46,7 @@ from module.application.host_lock import (
     host_scoped_lock_path,
 )
 from module.application.runtime_control import (
+    RuntimeControlError,
     RuntimeControlOperation,
     RuntimeControlResult,
     RuntimeOwnerIdentity,
@@ -1273,11 +1274,14 @@ class LegacyProcessManagerAdapter:
                 session_id=session_id,
             )
             return self.is_running(instance)
-        result = self._control().call(
-            RuntimeControlOperation.START_PROFILE,
-            instance,
-            session_id=session_id,
-        )
+        try:
+            result = self._control().call(
+                RuntimeControlOperation.START_PROFILE,
+                instance,
+                session_id=session_id,
+            )
+        except RuntimeControlError as exc:
+            self._raise_for_code(exc.code, str(exc), operation="запуска")
         self._raise_for_result(result, operation="запуска")
         return self.is_running(instance)
 
@@ -1290,11 +1294,14 @@ class LegacyProcessManagerAdapter:
             if type(stopped) is not bool:
                 raise TypeError("ProcessManager.stop должен вернуть bool")
             return stopped and not self.is_running(instance)
-        result = self._control().call(
-            RuntimeControlOperation.STOP_PROFILE,
-            instance,
-            session_id=session_id,
-        )
+        try:
+            result = self._control().call(
+                RuntimeControlOperation.STOP_PROFILE,
+                instance,
+                session_id=session_id,
+            )
+        except RuntimeControlError as exc:
+            self._raise_for_code(exc.code, str(exc), operation="остановки")
         self._raise_for_result(result, operation="остановки")
         return not self.is_running(instance)
 
@@ -1338,8 +1345,10 @@ class LegacyProcessManagerAdapter:
     def _raise_for_result(result: RuntimeControlResult, *, operation: str) -> None:
         if result.ok:
             return
-        code = result.code
-        message = result.message
+        LegacyProcessManagerAdapter._raise_for_code(result.code, result.message, operation=operation)
+
+    @staticmethod
+    def _raise_for_code(code: str, message: str, *, operation: str) -> None:
         if code in {
             "RUNTIME_OWNER_UNAVAILABLE",
             "RUNTIME_OWNER_STALE",
@@ -1379,9 +1388,10 @@ class LegacyProcessManagerAdapter:
 
     def _manager(self, instance: str) -> object:
         instance = _safe_instance_name(instance)
-        if self._manager_factory is not None:
-            return self._manager_factory(instance)
-        raise RuntimeError("Стандартный ProcessManager недоступен вне процесса WebUI owner")
+        manager_factory = self._manager_factory
+        if manager_factory is None:
+            raise RuntimeError("Стандартный ProcessManager недоступен вне процесса WebUI owner")
+        return manager_factory(instance)
 
     @staticmethod
     def _default_function(instance: str) -> str:

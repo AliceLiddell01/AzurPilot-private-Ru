@@ -21,6 +21,7 @@ from module.application import (
 )
 from module.application.game_models import MediaFrame
 from module.application.legacy_adapters import GeneratedTaskCatalogAdapter
+from module.application.runtime_control import RuntimeControlError
 from module.application.legacy_game_adapters import (
     LegacyAdbAdapter,
     LegacyConfigAdapter,
@@ -325,6 +326,17 @@ def test_legacy_screenshot_lifecycle_and_emulator_adapters_use_narrow_owners(mon
         is True
     )
     assert events == ["stop", "start"]
+
+
+def test_legacy_process_manager_translates_direct_control_errors() -> None:
+    class FailingControl:
+        def call(self, *args: object, **kwargs: object) -> object:
+            raise RuntimeControlError("RUNTIME_OWNER_UNAVAILABLE", "owner недоступен")
+
+    for method_name in ("start_instance", "stop_instance"):
+        lifecycle = LegacyProcessManagerAdapter(control_client=FailingControl())
+        with pytest.raises(OwnershipAmbiguousError, match="owner недоступен"):
+            getattr(lifecycle, method_name)("secondary")
 
 
 def test_typed_emulator_failures_distinguish_ownership_operation_and_postcondition(

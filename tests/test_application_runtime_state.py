@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Event, Thread
 
@@ -77,6 +77,20 @@ def test_runtime_state_rejects_mismatched_profile_keys_and_reports_stale_state(
     with pytest.raises(RuntimeStateError) as error:
         store.read_all()
     assert error.value.code == "RUNTIME_STATE_CORRUPT"
+
+
+def test_runtime_state_rejects_far_future_timestamp_as_stale(tmp_path: Path) -> None:
+    store = _store(tmp_path, datetime.now(UTC).isoformat())
+    store.mark_worker_started("ap", worker_pid=1005, worker_created_at=2005.0)
+    payload = json.loads(store.path.read_text(encoding="utf-8"))
+    payload["profiles"]["ap"]["updated_at"] = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
+    store.path.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert store.read("ap").freshness == "stale"
+    with pytest.raises(RuntimeStateError) as error:
+        store.begin_handover("ap", operation_id="future-handover")
+    assert error.value.code == "RUNTIME_HANDOVER_STATE_STALE"
+    assert store.try_mark_task_started("ap", "DailyTask", operation_id="future-task") is False
 
 
 def test_runtime_state_rejects_unsafe_profile_and_worker_timestamp(tmp_path: Path) -> None:

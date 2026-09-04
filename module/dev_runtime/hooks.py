@@ -15,7 +15,10 @@ def _enabled() -> bool:
 
 
 def _repository_root() -> Path:
-    return Path(os.environ.get(_REPOSITORY_ENV) or Path.cwd())
+    configured = os.environ.get(_REPOSITORY_ENV)
+    if configured:
+        return Path(configured).resolve()
+    return Path(__file__).resolve().parents[2]
 
 
 def record_task_started(config_name: object, task: object) -> bool:
