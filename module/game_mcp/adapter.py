@@ -8,7 +8,7 @@ import logging
 import math
 import re
 from collections.abc import Callable, Collection, Mapping, Sequence
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -1371,7 +1371,19 @@ class GameMcpAdapter:
         self,
         profile: str,
         backend: object,
+        *,
+        tool: str,
     ) -> AbstractContextManager[None]:
+        if tool in {"game_start_profile", "game_stop_profile"}:
+            control = _control_service(backend)
+            if (
+                getattr(control, "lifecycle_mutation_lock_owned_externally", False)
+                is True
+            ):
+                # Lifecycle mutation передаётся общему WebUI owner.
+                # Удержание того же межпроцессного lease во время ожидания
+                # owner привело бы к взаимной блокировке handover.
+                return nullcontext()
         root = getattr(backend, "mutation_lock_root", None)
         if root is None:
             root = self._mutation_lock_root
@@ -1682,7 +1694,11 @@ class GameMcpAdapter:
                 if tool_name in GAME_MCP_CONTROL_TOOL_NAMES:
                     profile = self._profile_from(parsed)
                     self._known_profile(backend, profile)
-                    with self._acquire_mutation_lock(profile, backend):
+                    with self._acquire_mutation_lock(
+                        profile,
+                        backend,
+                        tool=tool_name,
+                    ):
                         # Повторная проверка после lock закрывает TOCTOU-окно.
                         result = self._dispatch(
                             tool_name,

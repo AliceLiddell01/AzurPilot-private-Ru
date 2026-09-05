@@ -1196,6 +1196,30 @@ def test_independent_adapters_share_mutation_lock_for_one_profile(
     assert all(result["code"] == "GAME_PROFILE_STARTED" for result in results)
 
 
+def test_adapter_does_not_hold_lock_while_external_lifecycle_owner_runs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    backend = _backend()
+
+    class _ExternalControl(_Control):
+        lifecycle_mutation_lock_owned_externally = True
+
+    backend.control = _ExternalControl()
+
+    def fail_lock(*args: object, **kwargs: object) -> object:
+        raise AssertionError("внешний lifecycle owner не должен ждать profile lock")
+
+    monkeypatch.setattr(game_mcp_adapter, "profile_mutation_lock", fail_lock)
+
+    result = GameMcpAdapter(
+        lambda: backend,
+        mutation_lock_root=tmp_path,
+    ).call("game_start_profile", {"profile": "alpha"})
+
+    assert result["code"] == "GAME_PROFILE_STARTED"
+
+
 def test_adapter_returns_busy_when_mutation_lock_times_out(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

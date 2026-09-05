@@ -1313,6 +1313,12 @@ class LegacyProcessManagerAdapter:
     def _session_id_value(self) -> str | None:
         return self._session_id or os.environ.get("AZURPILOT_DEV_SESSION_ID")
 
+    @property
+    def lifecycle_mutation_lock_owned_externally(self) -> bool:
+        """Вернуть, передаёт ли lifecycle mutation внешнему WebUI owner."""
+
+        return self._manager_factory is None
+
     def _control(self) -> WebUIControlClient:
         if self._control_client is None:
             owner_reader = self._owner_reader
