@@ -84,6 +84,25 @@ def test_local_env_installs_metadata_and_passfile_without_secret_environment(
     assert "AZURPILOT_POSTGRES_MIGRATOR_PASSWORD" not in environment
 
 
+def test_local_env_ignores_reserved_observability_namespace(tmp_path: Path):
+    path = tmp_path / ".env"
+    _write_env(
+        path,
+        _document()
+        + "AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_USER=admin\n"
+        + "AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD=observability-secret\n",
+    )
+    environment: dict[str, str] = {}
+
+    local = load_local_postgres_environment(path, environment=environment)
+
+    assert local is not None
+    assert not any(key.startswith("AZURPILOT_OBSERVABILITY_") for key in local.values)
+    assert not any(
+        key.startswith("AZURPILOT_OBSERVABILITY_") for key in environment
+    )
+
+
 def test_local_env_can_select_migrator_without_exporting_secret(tmp_path: Path):
     path = tmp_path / ".env"
     _write_env(path, _document())
@@ -111,6 +130,15 @@ def test_local_env_rejects_unknown_or_duplicate_contract_key(tmp_path: Path):
         load_local_postgres_environment(path, environment={})
 
     _write_env(path, _document() + "AZURPILOT_POSTGRES_HOST=localhost\n")
+    with pytest.raises(StorageConfigurationError, match="Ключ"):
+        load_local_postgres_environment(path, environment={})
+
+    _write_env(
+        path,
+        _document()
+        + "AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_USER=admin\n"
+        + "AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_USER=duplicate\n",
+    )
     with pytest.raises(StorageConfigurationError, match="Ключ"):
         load_local_postgres_environment(path, environment={})
 

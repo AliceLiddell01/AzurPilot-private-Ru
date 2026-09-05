@@ -89,6 +89,87 @@ def test_env_document_contains_full_contract_without_pgpassword(tmp_path: Path):
         )
 
 
+def test_env_reader_rejects_symlink_and_non_file(tmp_path: Path, monkeypatch):
+    missing = tmp_path / "missing.env"
+    assert postgresql_credentials._read_env_document(missing) is None
+
+    regular = tmp_path / "regular.env"
+    regular.write_bytes(b"KEY=value\n")
+    assert postgresql_credentials._read_env_document(regular) == b"KEY=value\n"
+
+    directory = tmp_path / "directory.env"
+    directory.mkdir()
+    with pytest.raises(RuntimeError, match="небезопасен"):
+        postgresql_credentials._read_env_document(directory)
+
+    original_is_symlink = Path.is_symlink
+    monkeypatch.setattr(
+        Path,
+        "is_symlink",
+        lambda candidate: True
+        if candidate == regular
+        else original_is_symlink(candidate),
+    )
+    with pytest.raises(RuntimeError, match="небезопасен"):
+        postgresql_credentials._read_env_document(regular)
+
+
+def test_env_merge_preserves_unrelated_namespace_and_replaces_postgres(
+    tmp_path: Path,
+):
+    generated = postgresql_credentials._env_document(
+        tmp_path,
+        tmp_path / "pgpass.conf",
+        "/etc/azurpilot/pgpass",
+        "archlinux",
+        "azurpilot",
+        "new-app",
+        "new-migrator",
+    )
+    previous = (
+        b"# shared local env\n"
+        b"AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_USER=admin\n"
+        b"AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD=keep-secret\n"
+        b"AZURPILOT_POSTGRES_HOST=old-host\n"
+        b"AZURPILOT_WSL_DISTRO=old-distro\n"
+    )
+
+    merged = postgresql_credentials._merge_env_document(previous, generated).decode()
+
+    assert "# shared local env" in merged
+    assert "AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_USER=admin" in merged
+    assert "AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD=keep-secret" in merged
+    assert "AZURPILOT_POSTGRES_HOST=127.0.0.1" in merged
+    assert "AZURPILOT_WSL_DISTRO=archlinux" in merged
+    assert "old-host" not in merged
+    assert "old-distro" not in merged
+
+
+def test_env_merge_rejects_duplicate_and_unknown_owned_keys(tmp_path: Path):
+    generated = postgresql_credentials._env_document(
+        tmp_path,
+        tmp_path / "pgpass.conf",
+        "/etc/azurpilot/pgpass",
+        "archlinux",
+        "azurpilot",
+        "new-app",
+        "new-migrator",
+    )
+
+    with pytest.raises(RuntimeError, match="дублирующийся"):
+        postgresql_credentials._merge_env_document(
+            b"SHARED_KEY=one\nSHARED_KEY=two\n",
+            generated,
+        )
+
+    for key in ("AZURPILOT_POSTGRES_UNUSED", "AZURPILOT_WSL_UNUSED"):
+        with pytest.raises(RuntimeError, match="PostgreSQL/WSL"):
+            postgresql_credentials._merge_env_document(
+                f"{key}=value\n".encode(),
+                generated,
+            )
+
+
 def test_sql_secret_escapes_quotes_and_rejects_line_breaks():
     assert postgresql_credentials._sql_secret("value'quoted") == "value''quoted"
     with pytest.raises(RuntimeError):
