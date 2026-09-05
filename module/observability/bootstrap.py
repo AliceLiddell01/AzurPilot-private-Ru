@@ -16,17 +16,26 @@ import sys
 import threading
 import time
 import traceback
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from module.logging_context import get_logging_context, get_task_context
 from module.logging_core import (
     REMOTE_LOG_TEXT_LIMIT,
     is_sensitive_name,
     sanitize_log_text,
+    sanitize_traceback_text,
+)
+from module.observability.metrics import (
+    MetricsConfig,
+    MetricsRuntime,
+    activate_metrics_runtime,
+    build_metrics_runtime,
+    deactivate_metrics_runtime,
+    reset_metrics_runtime_after_fork,
 )
 
 _TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
@@ -43,9 +52,16 @@ _DEFAULT_MAX_EXPORT_BATCH_SIZE = 128
 _MAX_EXPORT_BATCH_SIZE = 512
 _DEFAULT_PROCESSOR_TIMEOUT_MILLIS = 1_000
 _MAX_PROCESSOR_TIMEOUT_MILLIS = 5_000
+_DEFAULT_METRIC_EXPORT_INTERVAL_MILLIS = 60_000
+_MAX_METRIC_EXPORT_INTERVAL_MILLIS = 3_600_000
+_DEFAULT_METRIC_EXPORT_TIMEOUT_MILLIS = 30_000
+_MAX_METRIC_EXPORT_TIMEOUT_MILLIS = 30_000
 _REMOTE_ATTRIBUTE_LIMIT = 8 * 1024
 _REMOTE_STACKTRACE_LIMIT = 32 * 1024
 _MAX_MESSAGE_MAPPING_ITEMS = 64
+_MAX_EXCEPTION_ARGUMENTS = 64
+_MAX_EXCEPTION_CHAIN_DEPTH = 32
+_MAX_EXCEPTION_FRAMES = 128
 _SHUTDOWN_TIMEOUT_MILLIS = 1_000
 _FAILURE_REPORT_INTERVAL = 60.0
 _HANDLER_MARKER = "_azurpilot_observability_handler"
@@ -53,6 +69,7 @@ _EXPORTER_INTERNAL = ContextVar("azurpilot_observability_exporter", default=Fals
 _OTEL_INTERNAL_LOGGERS = (
     "opentelemetry.exporter.otlp",
     "opentelemetry.sdk._logs",
+    "opentelemetry.sdk.metrics",
     "opentelemetry.instrumentation.logging",
 )
 
@@ -75,7 +92,7 @@ _STANDARD_RECORD_FIELDS = frozenset(
 
 @dataclass(frozen=True)
 class _ObservabilityConfig:
-    """Проверенный bounded contract одного OTLP logging exporter."""
+    """Проверенный bounded contract OTLP signal-ов приложения."""
 
     signal_endpoint: str | None
     handler_level: int
@@ -84,13 +101,17 @@ class _ObservabilityConfig:
     max_queue_size: int
     max_export_batch_size: int
     processor_timeout_millis: int
+    logs_enabled: bool = False
+    metrics: MetricsConfig | None = None
 
 
 @dataclass
 class _Runtime:
     target: logging.Logger
-    provider: Any
-    handler: "_SanitizedOTelHandler"
+    provider: Any | None
+    handler: _SanitizedOTelHandler | None
+    metrics: MetricsRuntime | None = None
+    config: _ObservabilityConfig | None = None
 
 
 class _FailureReporter:
@@ -189,13 +210,140 @@ def _safe_message(record: logging.LogRecord) -> str:
 def _safe_exception_message(value: BaseException | None) -> str:
     if value is None:
         return ""
-    args = getattr(value, "args", ())
+    try:
+        args = getattr(value, "args", ())
+    except Exception:
+        args = ()
+    if not isinstance(args, tuple):
+        try:
+            args = tuple(args) if args else ()
+        except Exception:
+            args = ()
+    args = args[:_MAX_EXCEPTION_ARGUMENTS]
+    scalar_args = bool(args) and all(
+        isinstance(item, (str, int, float, bool)) or item is None
+        for item in args
+    )
+    if scalar_args:
+        try:
+            text = str(value)
+        except Exception:
+            text = ""
+        if text:
+            return sanitize_log_text(text, _REMOTE_ATTRIBUTE_LIMIT)
     if args:
-        first = args[0]
-        if isinstance(first, (str, int, float, bool)) or first is None:
-            return sanitize_log_text(first, _REMOTE_ATTRIBUTE_LIMIT)
-        return f"<объект {type(first).__name__}>"
+        parts = []
+        for item in args:
+            safe_item = _safe_message_argument(item)
+            if safe_item is None:
+                parts.append("None")
+            elif isinstance(safe_item, (str, int, float, bool)):
+                parts.append(str(safe_item))
+            else:
+                parts.append(f"<объект {type(item).__name__}>")
+        return sanitize_log_text(", ".join(parts), _REMOTE_ATTRIBUTE_LIMIT)
+    try:
+        text = str(value)
+    except Exception:
+        text = ""
+    if text:
+        return sanitize_log_text(text, _REMOTE_ATTRIBUTE_LIMIT)
     return f"<исключение {type(value).__name__}>"
+
+
+def _exception_type_name(exception_type: object, value: BaseException | None) -> str:
+    try:
+        name = getattr(exception_type, "__name__", None)
+    except Exception:
+        name = None
+    if not isinstance(name, str) and value is not None:
+        name = type(value).__name__
+    return _safe_context_value(name or "Exception", limit=256) or "Exception"
+
+
+def _format_exception_fragment(
+    value: BaseException,
+    traceback_object: object,
+) -> str:
+    type_name = _exception_type_name(type(value), value)
+    message = _safe_exception_message(value)
+    try:
+        frames = (
+            traceback.format_tb(traceback_object, limit=_MAX_EXCEPTION_FRAMES)
+            if traceback_object
+            else ()
+        )
+    except Exception:
+        frames = ()
+    return "".join(frames) + f"{type_name}: {message}\n"
+
+
+def _format_exception_chain(
+    value: BaseException | None,
+    traceback_object: object,
+    seen: set[int] | None = None,
+    depth: int = 0,
+) -> str:
+    """Сформировать chain без locals и без произвольного repr сложных args."""
+    if value is None:
+        return ""
+    if seen is None:
+        seen = set()
+    if id(value) in seen or depth >= _MAX_EXCEPTION_CHAIN_DEPTH:
+        return _format_exception_fragment(value, traceback_object)
+    seen.add(id(value))
+    try:
+        cause = getattr(value, "__cause__", None)
+    except Exception:
+        cause = None
+    try:
+        suppress_context = bool(getattr(value, "__suppress_context__", False))
+    except Exception:
+        suppress_context = False
+    try:
+        context = getattr(value, "__context__", None)
+    except Exception:
+        context = None
+
+    previous = None
+    marker = None
+    if isinstance(cause, BaseException) and id(cause) not in seen:
+        previous = _format_exception_chain(
+            cause,
+            getattr(cause, "__traceback__", None),
+            seen,
+            depth + 1,
+        )
+        marker = "Предыдущее исключение является непосредственной причиной следующего исключения:"
+    elif (
+        isinstance(context, BaseException)
+        and not suppress_context
+        and id(context) not in seen
+    ):
+        previous = _format_exception_chain(
+            context,
+            getattr(context, "__traceback__", None),
+            seen,
+            depth + 1,
+        )
+        marker = "При обработке предыдущего исключения возникло другое исключение:"
+
+    current = _format_exception_fragment(value, traceback_object)
+    if previous and marker:
+        return f"{previous}\n{marker}\n\n{current}"
+    return current
+
+
+def _bounded_exception_stacktrace(value: object) -> str:
+    """Очистить stacktrace и сохранить начало и конец при обрезке."""
+    sanitized = sanitize_traceback_text(value)
+    if len(sanitized) <= _REMOTE_STACKTRACE_LIMIT:
+        return sanitize_log_text(sanitized, _REMOTE_STACKTRACE_LIMIT)
+    marker = "\n...[трассировка обрезана по ограничению удалённого журнала]\n"
+    available = max(0, _REMOTE_STACKTRACE_LIMIT - len(marker))
+    head = available // 2
+    tail = available - head
+    return sanitized[:head] + marker + sanitized[-tail:]
 
 
 def _exception_attributes(record: logging.LogRecord) -> dict[str, str]:
@@ -203,38 +351,27 @@ def _exception_attributes(record: logging.LogRecord) -> dict[str, str]:
         return {}
     try:
         exception_type, exception_value, traceback_object = record.exc_info
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return {}
 
-    type_name = (
-        _safe_context_value(
-            getattr(exception_type, "__name__", "Exception"),
-            limit=256,
-        )
-        or "Exception"
-    )
+    type_name = _exception_type_name(exception_type, exception_value)
     message = _safe_exception_message(exception_value)
     attributes = {
         "exception.type": type_name,
         "exception.message": message,
     }
     try:
-        frames = traceback.extract_tb(traceback_object) if traceback_object else ()
-        stacktrace = "".join(traceback.format_list(frames))
-        stacktrace += f"{type_name}: {message}"
+        stacktrace = _format_exception_chain(exception_value, traceback_object)
     except Exception:
         stacktrace = f"{type_name}: {message}"
-    attributes["exception.stacktrace"] = sanitize_log_text(
-        stacktrace,
-        _REMOTE_STACKTRACE_LIMIT,
-    )
+    attributes["exception.stacktrace"] = _bounded_exception_stacktrace(stacktrace)
     return attributes
 
 
 def _safe_process_command(record: logging.LogRecord) -> str:
     try:
         command = Path(sys.argv[0]).name
-    except OSError, RuntimeError, TypeError:
+    except (OSError, RuntimeError, TypeError):
         command = ""
     if not command:
         command = getattr(record, "processName", "")
@@ -450,72 +587,139 @@ def _handler_level() -> int:
     return _DEFAULT_HANDLER_LEVEL
 
 
+def _read_signal_config(
+    *,
+    endpoint_name: str,
+    protocol_name: str,
+    generic_endpoint: str,
+    generic_protocol: str,
+    signal_name: str,
+) -> tuple[bool, str | None]:
+    signal_endpoint = os.environ.get(endpoint_name, "").strip()
+    endpoint = signal_endpoint or generic_endpoint
+    if not endpoint:
+        return False, None
+    if not endpoint.lower().startswith(("http://", "https://")):
+        _failure_reporter.report(
+            f"OTLP {signal_name} endpoint имеет неподдержанный URL; сигнал отключён"
+        )
+        return False, None
+
+    protocol = (
+        os.environ.get(protocol_name) or generic_protocol or _SUPPORTED_PROTOCOL
+    ).strip().lower()
+    if protocol != _SUPPORTED_PROTOCOL:
+        _failure_reporter.report(
+            f"Для application {signal_name} поддерживается только OTLP/HTTP protobuf; сигнал отключён"
+        )
+        return False, None
+    return True, signal_endpoint or None
+
+
 def _read_config() -> _ObservabilityConfig | None:
     if _is_true(os.environ.get("OTEL_SDK_DISABLED")):
         return None
-    signal_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "").strip()
     generic_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "").strip()
-    endpoint = signal_endpoint or generic_endpoint
-    if not endpoint:
+    generic_protocol = (
+        os.environ.get("OTEL_EXPORTER_OTLP_PROTOCOL") or _SUPPORTED_PROTOCOL
+    )
+    logs_enabled, logs_endpoint = _read_signal_config(
+        endpoint_name="OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+        protocol_name="OTEL_EXPORTER_OTLP_LOGS_PROTOCOL",
+        generic_endpoint=generic_endpoint,
+        generic_protocol=generic_protocol,
+        signal_name="logs",
+    )
+    metrics_enabled, metrics_endpoint = _read_signal_config(
+        endpoint_name="OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+        protocol_name="OTEL_EXPORTER_OTLP_METRICS_PROTOCOL",
+        generic_endpoint=generic_endpoint,
+        generic_protocol=generic_protocol,
+        signal_name="metrics",
+    )
+    if metrics_enabled:
+        temporality = os.environ.get(
+            "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE",
+            "",
+        ).strip().lower()
+        if temporality and temporality != "cumulative":
+            _failure_reporter.report(
+                "Для текущего Alloy metrics path поддерживается только cumulative temporality; metrics отключены"
+            )
+            metrics_enabled = False
+
+    if not logs_enabled and not metrics_enabled:
         # Явный endpoint является opt-in и сохраняет обычный запуск offline.
         return None
-    if not endpoint.lower().startswith(("http://", "https://")):
-        _failure_reporter.report(
-            "OTLP logs endpoint имеет неподдержанный URL; удалённый журнал отключён"
-        )
-        return None
 
-    protocol = (
-        (
-            os.environ.get("OTEL_EXPORTER_OTLP_LOGS_PROTOCOL")
-            or os.environ.get("OTEL_EXPORTER_OTLP_PROTOCOL")
-            or _SUPPORTED_PROTOCOL
-        )
-        .strip()
-        .lower()
-    )
-    if protocol != _SUPPORTED_PROTOCOL:
-        _failure_reporter.report(
-            "Для application logs поддерживается только OTLP/HTTP protobuf; удалённый журнал отключён"
-        )
-        return None
-
-    max_queue_size = _bounded_int(
-        "OTEL_BLRP_MAX_QUEUE_SIZE",
-        _DEFAULT_MAX_QUEUE_SIZE,
-        _MAX_QUEUE_SIZE,
-    )
-    max_export_batch_size = min(
+    max_queue_size = (
         _bounded_int(
-            "OTEL_BLRP_MAX_EXPORT_BATCH_SIZE",
-            _DEFAULT_MAX_EXPORT_BATCH_SIZE,
-            _MAX_EXPORT_BATCH_SIZE,
-        ),
-        max_queue_size,
+            "OTEL_BLRP_MAX_QUEUE_SIZE",
+            _DEFAULT_MAX_QUEUE_SIZE,
+            _MAX_QUEUE_SIZE,
+        )
+        if logs_enabled
+        else _DEFAULT_MAX_QUEUE_SIZE
+    )
+    max_export_batch_size = (
+        min(
+            _bounded_int(
+                "OTEL_BLRP_MAX_EXPORT_BATCH_SIZE",
+                _DEFAULT_MAX_EXPORT_BATCH_SIZE,
+                _MAX_EXPORT_BATCH_SIZE,
+            ),
+            max_queue_size,
+        )
+        if logs_enabled
+        else _DEFAULT_MAX_EXPORT_BATCH_SIZE
     )
     return _ObservabilityConfig(
         # Для signal-specific endpoint путь /v1/logs задаётся пользователем.
         # При общем endpoint передаём None в официальный exporter, чтобы он
         # сам применил стандартное добавление /v1/logs.
-        signal_endpoint=signal_endpoint or None,
-        handler_level=_handler_level(),
+        signal_endpoint=logs_endpoint,
+        handler_level=_handler_level() if logs_enabled else _DEFAULT_HANDLER_LEVEL,
         timeout_millis=_bounded_int(
             "OTEL_EXPORTER_OTLP_LOGS_TIMEOUT",
             _DEFAULT_EXPORT_TIMEOUT_MILLIS,
             _MAX_EXPORT_TIMEOUT_MILLIS,
             fallback_name="OTEL_EXPORTER_OTLP_TIMEOUT",
-        ),
+        ) if logs_enabled else _DEFAULT_EXPORT_TIMEOUT_MILLIS,
         schedule_delay_millis=_bounded_int(
             "OTEL_BLRP_SCHEDULE_DELAY",
             _DEFAULT_SCHEDULE_DELAY_MILLIS,
             _MAX_SCHEDULE_DELAY_MILLIS,
-        ),
+        ) if logs_enabled else _DEFAULT_SCHEDULE_DELAY_MILLIS,
         max_queue_size=max_queue_size,
         max_export_batch_size=max_export_batch_size,
         processor_timeout_millis=_bounded_int(
             "OTEL_BLRP_EXPORT_TIMEOUT",
             _DEFAULT_PROCESSOR_TIMEOUT_MILLIS,
             _MAX_PROCESSOR_TIMEOUT_MILLIS,
+        ) if logs_enabled else _DEFAULT_PROCESSOR_TIMEOUT_MILLIS,
+        logs_enabled=logs_enabled,
+        metrics=(
+            MetricsConfig(
+                endpoint=metrics_endpoint,
+                timeout_millis=_bounded_int(
+                    "OTEL_EXPORTER_OTLP_METRICS_TIMEOUT",
+                    _DEFAULT_EXPORT_TIMEOUT_MILLIS,
+                    _MAX_EXPORT_TIMEOUT_MILLIS,
+                    fallback_name="OTEL_EXPORTER_OTLP_TIMEOUT",
+                ),
+                export_interval_millis=_bounded_int(
+                    "OTEL_METRIC_EXPORT_INTERVAL",
+                    _DEFAULT_METRIC_EXPORT_INTERVAL_MILLIS,
+                    _MAX_METRIC_EXPORT_INTERVAL_MILLIS,
+                ),
+                export_timeout_millis=_bounded_int(
+                    "OTEL_METRIC_EXPORT_TIMEOUT",
+                    _DEFAULT_METRIC_EXPORT_TIMEOUT_MILLIS,
+                    _MAX_METRIC_EXPORT_TIMEOUT_MILLIS,
+                ),
+            )
+            if metrics_enabled
+            else None
         ),
     )
 
@@ -554,55 +758,111 @@ def _build_runtime(
     default_profile: object,
     default_component: object,
     exporter_factory: Callable[[int], Any] | None = None,
+    metrics_exporter_factory: Callable[[int], Any] | None = None,
+    metrics_reader_factory: Callable[[Any, int, int], Any] | None = None,
 ) -> _Runtime:
-    components = _load_otel_components()
     _silence_otel_transport_loggers()
-    provider = components.logger_provider(
-        resource=components.resource(_resource_attributes())
+    resource_attributes = _resource_attributes()
+    log_components = _load_otel_components() if config.logs_enabled else None
+    if log_components is not None:
+        resource_type = log_components.resource
+    else:
+        from opentelemetry.sdk.resources import Resource
+
+        resource_type = Resource
+    resource = resource_type(resource_attributes)
+
+    provider = None
+    handler = None
+    if config.logs_enabled and log_components is not None:
+        try:
+            provider = log_components.logger_provider(resource=resource)
+            exporter = (
+                exporter_factory(config.timeout_millis)
+                if exporter_factory is not None
+                else log_components.log_exporter(
+                    endpoint=config.signal_endpoint,
+                    timeout=config.timeout_millis / 1000,
+                )
+            )
+            wrapped_exporter = _FailOpenExporter(exporter, _failure_reporter)
+            processor = log_components.batch_processor(
+                wrapped_exporter,
+                schedule_delay_millis=config.schedule_delay_millis,
+                max_export_batch_size=config.max_export_batch_size,
+                export_timeout_millis=config.processor_timeout_millis,
+                max_queue_size=config.max_queue_size,
+            )
+            provider.add_log_record_processor(processor)
+            delegate = log_components.logging_handler(
+                level=config.handler_level,
+                logger_provider=provider,
+                log_code_attributes=False,
+            )
+            handler = _SanitizedOTelHandler(
+                delegate,
+                provider,
+                default_profile=default_profile,
+                default_component=default_component,
+                reporter=_failure_reporter,
+            )
+            handler.setLevel(config.handler_level)
+        except Exception as exc:
+            if provider is not None:
+                try:
+                    provider.shutdown()
+                except Exception:
+                    pass
+            provider = None
+            handler = None
+            _failure_reporter.report(
+                "Не удалось инициализировать application logs; metrics продолжат работу",
+                exc,
+            )
+
+    metrics_runtime = None
+    if config.metrics is not None:
+        try:
+            metrics_runtime = build_metrics_runtime(
+                config.metrics,
+                resource=resource,
+                reporter=_failure_reporter,
+                exporter_factory=metrics_exporter_factory,
+                reader_factory=metrics_reader_factory,
+            )
+            activate_metrics_runtime(metrics_runtime)
+        except Exception as exc:
+            _failure_reporter.report(
+                "Не удалось инициализировать application metrics; logs продолжат работу",
+                exc,
+            )
+
+    if provider is None and metrics_runtime is None:
+        raise RuntimeError("Не удалось создать ни одного application observability signal")
+    return _Runtime(
+        target=target,
+        provider=provider,
+        handler=handler,
+        metrics=metrics_runtime,
+        config=config,
     )
-    exporter = (
-        exporter_factory(config.timeout_millis)
-        if exporter_factory is not None
-        else components.log_exporter(
-            endpoint=config.signal_endpoint,
-            timeout=config.timeout_millis / 1000,
-        )
-    )
-    wrapped_exporter = _FailOpenExporter(exporter, _failure_reporter)
-    processor = components.batch_processor(
-        wrapped_exporter,
-        schedule_delay_millis=config.schedule_delay_millis,
-        max_export_batch_size=config.max_export_batch_size,
-        export_timeout_millis=config.processor_timeout_millis,
-        max_queue_size=config.max_queue_size,
-    )
-    provider.add_log_record_processor(processor)
-    delegate = components.logging_handler(
-        level=config.handler_level,
-        logger_provider=provider,
-        log_code_attributes=False,
-    )
-    handler = _SanitizedOTelHandler(
-        delegate,
-        provider,
-        default_profile=default_profile,
-        default_component=default_component,
-        reporter=_failure_reporter,
-    )
-    handler.setLevel(config.handler_level)
-    return _Runtime(target=target, provider=provider, handler=handler)
 
 
 def _after_fork() -> None:
     global _state_lock
     _state_lock = threading.RLock()
+    reset_metrics_runtime_after_fork()
     inherited = list(_runtimes.values())
     _runtimes.clear()
     # Не оставлять в дочернем процессе handler/provider с worker thread
     # родителя: новый process должен выполнить собственный explicit bootstrap.
     for runtime in inherited:
+        deactivate_metrics_runtime(runtime.metrics)
+        if runtime.metrics is not None:
+            runtime.metrics.after_fork()
         try:
-            runtime.target.removeHandler(runtime.handler)
+            if runtime.handler is not None:
+                runtime.target.removeHandler(runtime.handler)
         except Exception:
             pass
 
@@ -625,8 +885,10 @@ def configure_application_observability(
     default_profile: object = None,
     default_component: object = None,
     _exporter_factory: Callable[[int], Any] | None = None,
+    _metrics_exporter_factory: Callable[[int], Any] | None = None,
+    _metrics_reader_factory: Callable[[Any, int, int], Any] | None = None,
 ) -> bool:
-    """Идемпотентно включить OTLP logging для одного process-local logger."""
+    """Идемпотентно включить независимые OTLP logs и metrics signal-ы."""
     if not isinstance(target, logging.Logger):
         return False
     process_id = os.getpid()
@@ -636,29 +898,45 @@ def configure_application_observability(
                 continue
             if getattr(handler, "owner_pid", process_id) != process_id:
                 target.removeHandler(handler)
-                _runtimes.pop(id(target), None)
+                inherited_runtime = _runtimes.pop(id(target), None)
+                if inherited_runtime is not None:
+                    deactivate_metrics_runtime(inherited_runtime.metrics)
+                    if inherited_runtime.metrics is not None:
+                        inherited_runtime.metrics.after_fork()
 
         config = _read_config()
-        existing = next(
-            (
-                handler
-                for handler in target.handlers
-                if getattr(handler, _HANDLER_MARKER, False)
-                and getattr(handler, "owner_pid", process_id) == process_id
-            ),
-            None,
-        )
+        runtime = _runtimes.get(id(target))
         if config is None:
-            if existing is not None:
-                target.removeHandler(existing)
-                runtime = _runtimes.pop(id(target), None)
-                if runtime is not None:
-                    _shutdown_runtime(runtime, _SHUTDOWN_TIMEOUT_MILLIS)
+            if runtime is not None:
+                _runtimes.pop(id(target), None)
+                deactivate_metrics_runtime(runtime.metrics)
+                if runtime.handler is not None:
+                    target.removeHandler(runtime.handler)
+                _shutdown_runtime(runtime, _SHUTDOWN_TIMEOUT_MILLIS)
+            for handler in list(target.handlers):
+                if getattr(handler, _HANDLER_MARKER, False):
+                    target.removeHandler(handler)
             return False
-        if existing is not None:
-            existing.set_default_profile(default_profile)
-            existing.set_default_component(default_component)
+
+        if runtime is not None and runtime.config == config:
+            if runtime.handler is not None:
+                runtime.handler.set_default_profile(default_profile)
+                runtime.handler.set_default_component(default_component)
+            if runtime.metrics is not None:
+                activate_metrics_runtime(runtime.metrics)
             return True
+
+        if runtime is not None:
+            _runtimes.pop(id(target), None)
+            deactivate_metrics_runtime(runtime.metrics)
+            if runtime.handler is not None:
+                target.removeHandler(runtime.handler)
+            _shutdown_runtime(runtime, _SHUTDOWN_TIMEOUT_MILLIS)
+
+        # Удалить оставшийся marker без известного runtime, чтобы не создавать duplicate handler.
+        for handler in list(target.handlers):
+            if getattr(handler, _HANDLER_MARKER, False):
+                target.removeHandler(handler)
         try:
             runtime = _build_runtime(
                 target,
@@ -666,14 +944,17 @@ def configure_application_observability(
                 default_profile=default_profile,
                 default_component=default_component,
                 exporter_factory=_exporter_factory,
+                metrics_exporter_factory=_metrics_exporter_factory,
+                metrics_reader_factory=_metrics_reader_factory,
             )
         except Exception as exc:
             _failure_reporter.report(
-                "Не удалось инициализировать OTLP logging; локальный журнал продолжит работу",
+                "Не удалось инициализировать application observability; локальный журнал продолжит работу",
                 exc,
             )
             return False
-        target.addHandler(runtime.handler)
+        if runtime.handler is not None:
+            target.addHandler(runtime.handler)
         _runtimes[id(target)] = runtime
         _register_atexit()
         return True
@@ -681,16 +962,31 @@ def configure_application_observability(
 
 def _shutdown_runtime(runtime: _Runtime, timeout_millis: int) -> bool:
     finished = threading.Event()
+    deadline = time.monotonic() + max(0, timeout_millis) / 1000
+
+    def remaining_timeout_millis() -> int:
+        return max(0, int((deadline - time.monotonic()) * 1000))
 
     def close_provider() -> None:
         try:
-            runtime.provider.force_flush(timeout_millis=timeout_millis)
-        except Exception as exc:
-            _failure_reporter.report("Не удалось сбросить буфер OTLP logging", exc)
-        try:
-            runtime.provider.shutdown()
-        except Exception as exc:
-            _failure_reporter.report("Не удалось завершить OTLP logging provider", exc)
+            if runtime.provider is not None:
+                try:
+                    runtime.provider.force_flush(
+                        timeout_millis=remaining_timeout_millis()
+                    )
+                except Exception as exc:
+                    _failure_reporter.report("Не удалось сбросить буфер OTLP logging", exc)
+                try:
+                    try:
+                        runtime.provider.shutdown(
+                            timeout_millis=remaining_timeout_millis()
+                        )
+                    except TypeError:
+                        runtime.provider.shutdown()
+                except Exception as exc:
+                    _failure_reporter.report("Не удалось завершить OTLP logging provider", exc)
+            if runtime.metrics is not None:
+                runtime.metrics.shutdown(remaining_timeout_millis())
         finally:
             finished.set()
 
@@ -700,13 +996,14 @@ def _shutdown_runtime(runtime: _Runtime, timeout_millis: int) -> bool:
         daemon=True,
     )
     worker.start()
-    completed = finished.wait(max(0, timeout_millis) / 1000)
+    completed = finished.wait(max(0, deadline - time.monotonic()))
     if not completed:
         _failure_reporter.report(
-            "Завершение OTLP logging остановлено по bounded timeout"
+            "Завершение application observability остановлено по bounded timeout"
         )
     try:
-        runtime.handler.close()
+        if runtime.handler is not None:
+            runtime.handler.close()
     except Exception:
         pass
     return completed
@@ -726,7 +1023,8 @@ def shutdown_application_observability(
             runtime = _runtimes.pop(id(target), None)
             runtimes = [runtime] if runtime is not None else []
         for runtime in runtimes:
-            if runtime.handler in runtime.target.handlers:
+            deactivate_metrics_runtime(runtime.metrics)
+            if runtime.handler is not None and runtime.handler in runtime.target.handlers:
                 runtime.target.removeHandler(runtime.handler)
 
     completed = True
