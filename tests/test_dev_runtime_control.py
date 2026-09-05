@@ -170,6 +170,30 @@ class _FakeRuntimeBackend:
         self.pending = None
 
 
+class _BoundedPlatform:
+    def __init__(self) -> None:
+        self.emulator_instance = object()
+        self.calls: list[str] = []
+
+    def _emulator_function_wrapper(self, func):
+        self.calls.append(func.__name__)
+        return func(self.emulator_instance)
+
+    def _emulator_start(self, _instance):
+        self.calls.append("start_request")
+        return None
+
+    def _emulator_stop(self, _instance):
+        self.calls.append("stop_request")
+        return None
+
+    def emulator_start(self):
+        raise AssertionError("control plane не должен вызывать high-level emulator_start")
+
+    def emulator_stop(self):
+        raise AssertionError("control plane не должен вызывать high-level emulator_stop")
+
+
 @pytest.fixture
 def supervisor_identity(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(control_module, "_process_created_at", lambda _pid: 123.0)
@@ -397,6 +421,25 @@ def test_emulator_start_waits_for_ready_and_persists_completion(
     assert result.details["control_operation"]["transitions"][-1]["state"] == "FINISHED"
     assert backend.calls == ["start_emulator"]
     assert sleeps
+
+
+def test_configured_backend_uses_single_emulator_request_for_bounded_control(
+    tmp_path: Path,
+) -> None:
+    environment = _environment(tmp_path)
+    backend = control_module.ConfiguredRuntimeBackend(environment)
+    backend._configuration()
+    platform = _BoundedPlatform()
+    backend._platform = platform
+
+    assert backend.start_emulator() is None
+    assert backend.stop_emulator() is None
+    assert platform.calls == [
+        "_emulator_start",
+        "start_request",
+        "_emulator_stop",
+        "stop_request",
+    ]
 
 
 def test_emulator_stop_and_restart_use_state_predicates(

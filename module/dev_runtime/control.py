@@ -795,6 +795,27 @@ class ConfiguredRuntimeBackend:
             self._platform = Platform(config, connect=False)
         return self._platform
 
+    def _emulator_request(self, operation: str) -> object:
+        """Отправить один запрос эмулятору; ожидание выполняет control plane."""
+
+        platform = self._platform_for_mutation()
+        wrapper = getattr(platform, "_emulator_function_wrapper", None)
+        request = getattr(platform, f"_emulator_{operation}", None)
+        instance = getattr(platform, "emulator_instance", None)
+        if not callable(wrapper) or not callable(request) or instance is None:
+            raise RuntimeControlError(
+                "DEV_CONTROL_EMULATOR_REQUEST_UNSUPPORTED",
+                "Platform не предоставляет ограниченный запрос к эмулятору",
+                outcome=ControlOutcome.PRECONDITION_FAILED,
+            )
+        result = wrapper(request)
+        if result is False:
+            raise RuntimeControlError(
+                "DEV_CONTROL_EMULATOR_REQUEST_FAILED",
+                f"Platform не выполнила запрос {operation} эмулятору",
+            )
+        return result
+
     def _app_controller(self) -> object:
         self._configuration()
         if self._app is None:
@@ -820,16 +841,10 @@ class ConfiguredRuntimeBackend:
         return self._app
 
     def start_emulator(self) -> object:
-        result = self._platform_for_mutation().emulator_start()
-        if result is False:
-            raise RuntimeControlError("DEV_CONTROL_EMULATOR_START_FAILED", "Platform не подтвердила запуск эмулятора")
-        return result
+        return self._emulator_request("start")
 
     def stop_emulator(self) -> object:
-        result = self._platform_for_mutation().emulator_stop()
-        if result is False:
-            raise RuntimeControlError("DEV_CONTROL_EMULATOR_STOP_FAILED", "Platform не подтвердила остановку эмулятора")
-        return result
+        return self._emulator_request("stop")
 
     def start_game(self) -> object:
         result = self._app_controller().app_start_adb()
