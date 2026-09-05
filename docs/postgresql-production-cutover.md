@@ -65,8 +65,14 @@ passfiles. Migrator выбирается только maintenance-команда
 
 ## Lifecycle
 
-- `Start-AzurPilot.ps1` будит только exact Archlinux, запускает уже
-  подготовленную службу, проверяет marker, app auth и head до GUI.
+- `Start-AzurPilot.ps1` будит только exact Archlinux и выполняет PostgreSQL
+  preflight только после подтверждения, что текущий Start действительно будет
+  запускать backend. Уже активная до запуска служба считается внешней и не
+  останавливается. Если текущий Start поднял подготовленную службу из
+  `inactive`/`failed`, он останавливает её после завершения backend и до
+  освобождения lifecycle ownership. Повторный Start, который только открывает
+  существующий WebUI, PostgreSQL не трогает. Marker, app auth и head проверяются
+  до запуска GUI.
 - `Update-AzurPilot.ps1` после graceful stop создаёт новый `pg_dump -Fc`, затем
   применяет reviewed Alembic код отдельным migrator и проверяет app health.
   Ошибка backup блокирует update; автоматического pruning нет.

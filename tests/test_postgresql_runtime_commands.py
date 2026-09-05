@@ -279,14 +279,49 @@ def test_start_preflight_uses_prepare_for_schema_reconciliation() -> None:
         postgresql_runtime._REPOSITORY_ROOT / "scripts" / "Start-AzurPilot.ps1"
     ).read_text(encoding="utf-8-sig")
 
-    assert (
-        "Arguments = @('-X', 'utf8', '-m', 'dev_tools.postgresql_runtime', 'prepare')"
-        in script
-    )
-    assert "TimeoutMilliseconds = 210000" in script
+    assert "dev_tools.postgresql_runtime" in script
+    assert "'prepare'" in script
+    assert "TimeoutMilliseconds 210000" in script
     assert (
         "Production PostgreSQL не прошёл подготовку marker, schema upgrade или app-health."
         in script
+    )
+
+
+def test_start_preflight_runs_only_after_backend_ownership_is_resolved() -> None:
+    script = (
+        postgresql_runtime._REPOSITORY_ROOT / "scripts" / "Start-AzurPilot.ps1"
+    ).read_text(encoding="utf-8-sig")
+
+    concurrent_branch = script.index("if (-not $mutexData.Owned)")
+    ownership_probe = script.index(
+        "$initialOwnership = Get-AzurPilotPortOwnershipState @initialOwnershipParameters"
+    )
+    preflight_call = script.index(
+        "Invoke-PostgreSqlStartPreflight -PythonPath $projectPythonPath -WorkingDirectory $resolvedRepositoryPath"
+    )
+    backend_start = script.index(
+        "$script:StartedProcessData = Invoke-AzurPilotBackendStart @backendStartParameters"
+    )
+
+    assert concurrent_branch < ownership_probe < preflight_call < backend_start
+
+
+def test_start_owns_only_postgresql_service_started_by_current_launcher() -> None:
+    script = (
+        postgresql_runtime._REPOSITORY_ROOT / "scripts" / "Start-AzurPilot.ps1"
+    ).read_text(encoding="utf-8-sig")
+
+    assert "--property=ActiveState" in script
+    assert "$script:PostgreSqlOwned = $true" in script
+    assert (
+        "PostgreSQL 18 уже работал до текущего Start; эта сессия не будет останавливать службу."
+        in script
+    )
+    assert "function Stop-OwnedPostgreSql" in script
+    assert "'stop'\n            'postgresql'" in script
+    assert script.index("if ($script:PostgreSqlOwned)") < script.index(
+        "if ($null -ne $script:StopEvent)"
     )
 
 

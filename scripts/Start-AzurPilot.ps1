@@ -52,6 +52,9 @@ $script:IntentionalStopRequested = $false
 $script:StartedProcess = $null
 $script:StartedProcessData = $null
 $script:BackendReady = $false
+$script:PostgreSqlOwned = $false
+$script:PostgreSqlWslExecutable = $null
+$script:PostgreSqlWorkingDirectory = $null
 
 function Protect-SensitiveText {
     [CmdletBinding()]
@@ -457,6 +460,104 @@ function Invoke-PythonHealthCheck {
     }
 }
 
+function Invoke-PostgreSqlProcess {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [ValidateNotNullOrEmpty()]
+        [string]$Executable,
+
+        [Parameter(Mandatory)]
+        [ValidateNotNull()]
+        [string[]]$Arguments,
+
+        [Parameter(Mandatory)]
+        [ValidateNotNullOrEmpty()]
+        [string]$WorkingDirectory,
+
+        [Parameter(Mandatory)]
+        [ValidateRange(1000, 300000)]
+        [int]$TimeoutMilliseconds,
+
+        [Parameter(Mandatory)]
+        [ValidateNotNullOrEmpty()]
+        [string]$Failure
+    )
+
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $utf8Encoding = [System.Text.UTF8Encoding]::new($false)
+    $startInfo.FileName = $Executable
+    $startInfo.WorkingDirectory = $WorkingDirectory
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $startInfo.StandardOutputEncoding = $utf8Encoding
+    $startInfo.StandardErrorEncoding = $utf8Encoding
+
+    foreach ($variableName in @(
+        'PYTHONHOME',
+        'pythonhome',
+        'PYTHONPATH',
+        'pythonpath',
+        'VIRTUAL_ENV',
+        'virtual_env',
+        '__PYVENV_LAUNCHER__'
+    )) {
+        [void]$startInfo.Environment.Remove($variableName)
+    }
+
+    $startInfo.Environment['PYTHONUTF8'] = '1'
+
+    foreach ($argument in $Arguments) {
+        [void]$startInfo.ArgumentList.Add($argument)
+    }
+
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+
+    try {
+        if (-not $process.Start()) {
+            throw $Failure
+        }
+
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+
+        if (-not $process.WaitForExit($TimeoutMilliseconds)) {
+            try {
+                $process.Kill($true)
+            } catch {
+                Write-StartLog -Level 'WARN' -Message 'Не удалось остановить зависшую операцию PostgreSQL.'
+            }
+
+            throw $Failure
+        }
+
+        $standardOutput = $stdoutTask.GetAwaiter().GetResult()
+        $standardError = $stderrTask.GetAwaiter().GetResult()
+
+        if ($process.ExitCode -ne 0) {
+            if (-not [string]::IsNullOrWhiteSpace($standardOutput)) {
+                Write-StartLog -Level 'WARN' -Message ('Диагностика PostgreSQL: {0}' -f $standardOutput.Trim())
+            }
+
+            if (-not [string]::IsNullOrWhiteSpace($standardError)) {
+                Write-StartLog -Level 'WARN' -Message ('Ошибка диагностики PostgreSQL: {0}' -f $standardError.Trim())
+            }
+
+            throw ('{0} Код завершения: {1}.' -f $Failure, $process.ExitCode)
+        }
+
+        return [pscustomobject]@{
+            StandardOutput = $standardOutput
+            StandardError = $standardError
+        }
+    } finally {
+        $process.Dispose()
+    }
+}
+
 function Invoke-PostgreSqlStartPreflight {
     [CmdletBinding()]
     param(
@@ -474,102 +575,154 @@ function Invoke-PostgreSqlStartPreflight {
         Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message 'WSL недоступен; PostgreSQL нельзя запустить.'
     }
 
-    $operations = @(
-        [pscustomobject]@{
-            Executable = $wslCommand.Path
-            Arguments = @(
-                '--distribution'
-                'Archlinux'
-                '--user'
-                'root'
-                '--exec'
-                'systemctl'
-                'start'
-                'postgresql'
-            )
-            TimeoutMilliseconds = 30000
-            Failure = 'Не удалось запустить PostgreSQL 18 в WSL Archlinux.'
-        }
-        [pscustomobject]@{
-            Executable = $wslCommand.Path
-            Arguments = @('--distribution', 'Archlinux', '--exec', 'pg_isready', '--host', '127.0.0.1', '--port', '5432', '--timeout', '5')
-            TimeoutMilliseconds = 10000
-            Failure = 'PostgreSQL 18 в WSL Archlinux не принимает loopback-подключения.'
-        }
-        [pscustomobject]@{
-            Executable = $PythonPath
-            Arguments = @('-X', 'utf8', '-m', 'dev_tools.postgresql_runtime', 'prepare')
-            TimeoutMilliseconds = 210000
-            Failure = 'Production PostgreSQL не прошёл подготовку marker, schema upgrade или app-health.'
-        }
-    )
+    $script:PostgreSqlWslExecutable = $wslCommand.Path
+    $script:PostgreSqlWorkingDirectory = $WorkingDirectory
 
-    foreach ($operation in $operations) {
-        $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
-        $utf8Encoding = [System.Text.UTF8Encoding]::new($false)
-        $startInfo.FileName = $operation.Executable
-        $startInfo.WorkingDirectory = $WorkingDirectory
-        $startInfo.UseShellExecute = $false
-        $startInfo.CreateNoWindow = $true
-        $startInfo.RedirectStandardOutput = $true
-        $startInfo.RedirectStandardError = $true
-        $startInfo.StandardOutputEncoding = $utf8Encoding
-        $startInfo.StandardErrorEncoding = $utf8Encoding
-        foreach ($variableName in @('PYTHONHOME', 'PYTHONPATH', 'VIRTUAL_ENV', '__PYVENV_LAUNCHER__')) {
-            [void]$startInfo.Environment.Remove($variableName)
-        }
-        $startInfo.Environment['PYTHONUTF8'] = '1'
+    try {
+        $stateResult = Invoke-PostgreSqlProcess -Executable $wslCommand.Path -Arguments @(
+            '--distribution'
+            'Archlinux'
+            '--user'
+            'root'
+            '--exec'
+            'systemctl'
+            'show'
+            '--property=ActiveState'
+            '--value'
+            'postgresql'
+        ) -WorkingDirectory $WorkingDirectory -TimeoutMilliseconds 15000 -Failure 'Не удалось определить состояние PostgreSQL 18 в WSL Archlinux.'
 
-        foreach ($argument in $operation.Arguments) {
-            [void]$startInfo.ArgumentList.Add($argument)
-        }
+        $serviceState = $stateResult.StandardOutput.Trim().ToLowerInvariant()
 
-        $process = [System.Diagnostics.Process]::new()
-        $process.StartInfo = $startInfo
-
-        try {
-            if (-not $process.Start()) {
-                Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message $operation.Failure
+        switch ($serviceState) {
+            'active' {
+                Write-StartLog -Level 'INFO' -Message 'PostgreSQL 18 уже работал до текущего Start; эта сессия не будет останавливать службу.'
             }
 
-            $stdoutTask = $process.StandardOutput.ReadToEndAsync()
-            $stderrTask = $process.StandardError.ReadToEndAsync()
-
-            if (-not $process.WaitForExit($operation.TimeoutMilliseconds)) {
-                try {
-                    $process.Kill($true)
-                }
-                catch {
-                    Write-StartLog -Level 'WARN' -Message 'Не удалось остановить зависшую проверку PostgreSQL.'
-                }
-
-                Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message $operation.Failure
+            'inactive' {
+                [void](Invoke-PostgreSqlProcess -Executable $wslCommand.Path -Arguments @(
+                    '--distribution'
+                    'Archlinux'
+                    '--user'
+                    'root'
+                    '--exec'
+                    'systemctl'
+                    'start'
+                    'postgresql'
+                ) -WorkingDirectory $WorkingDirectory -TimeoutMilliseconds 30000 -Failure 'Не удалось запустить PostgreSQL 18 в WSL Archlinux.')
+                $script:PostgreSqlOwned = $true
+                Write-StartLog -Level 'INFO' -Message 'PostgreSQL 18 запущен текущим Start и будет остановлен после завершения backend.'
             }
 
-            $standardOutput = $stdoutTask.GetAwaiter().GetResult()
-            $standardError = $stderrTask.GetAwaiter().GetResult()
+            'failed' {
+                [void](Invoke-PostgreSqlProcess -Executable $wslCommand.Path -Arguments @(
+                    '--distribution'
+                    'Archlinux'
+                    '--user'
+                    'root'
+                    '--exec'
+                    'systemctl'
+                    'start'
+                    'postgresql'
+                ) -WorkingDirectory $WorkingDirectory -TimeoutMilliseconds 30000 -Failure 'Не удалось запустить PostgreSQL 18 в WSL Archlinux.')
+                $script:PostgreSqlOwned = $true
+                Write-StartLog -Level 'INFO' -Message 'PostgreSQL 18 восстановлен текущим Start из failed-state и будет остановлен после завершения backend.'
+            }
 
-            if ($process.ExitCode -ne 0) {
-                if (-not [string]::IsNullOrWhiteSpace($standardOutput)) {
-                    Write-StartLog -Level 'WARN' -Message ('Диагностика PostgreSQL: {0}' -f $standardOutput.Trim())
-                }
-                if (-not [string]::IsNullOrWhiteSpace($standardError)) {
-                    Write-StartLog -Level 'WARN' -Message ('Ошибка диагностики PostgreSQL: {0}' -f $standardError.Trim())
-                }
-                Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message $operation.Failure
+            default {
+                throw ('PostgreSQL 18 находится в неподдерживаемом переходном состоянии: {0}.' -f $serviceState)
             }
         }
-        catch {
-            Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message (
-                '{0} Ошибка запуска процесса: {1}' -f $operation.Failure, $_.Exception.Message
-            )
-        }
-        finally {
-            $process.Dispose()
-        }
+
+        [void](Invoke-PostgreSqlProcess -Executable $wslCommand.Path -Arguments @(
+            '--distribution'
+            'Archlinux'
+            '--exec'
+            'pg_isready'
+            '--host'
+            '127.0.0.1'
+            '--port'
+            '5432'
+            '--timeout'
+            '5'
+        ) -WorkingDirectory $WorkingDirectory -TimeoutMilliseconds 10000 -Failure 'PostgreSQL 18 в WSL Archlinux не принимает loopback-подключения.')
+
+        [void](Invoke-PostgreSqlProcess -Executable $PythonPath -Arguments @(
+            '-X'
+            'utf8'
+            '-m'
+            'dev_tools.postgresql_runtime'
+            'prepare'
+        ) -WorkingDirectory $WorkingDirectory -TimeoutMilliseconds 210000 -Failure 'Production PostgreSQL не прошёл подготовку marker, schema upgrade или app-health.')
+    } catch {
+        Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message (
+            'PostgreSQL preflight завершился ошибкой. {0}' -f $_.Exception.Message
+        )
     }
 
-    Write-StartLog -Level 'INFO' -Message 'PostgreSQL 18 запущен; marker, schema upgrade и app-health подготовлены.'
+    Write-StartLog -Level 'INFO' -Message 'PostgreSQL 18 готов; marker, schema upgrade и app-health подготовлены.'
+}
+
+function Stop-OwnedPostgreSql {
+    [CmdletBinding()]
+    param()
+
+    if (-not $script:PostgreSqlOwned) {
+        return $true
+    }
+
+    if (
+        [string]::IsNullOrWhiteSpace($script:PostgreSqlWslExecutable) -or
+        [string]::IsNullOrWhiteSpace($script:PostgreSqlWorkingDirectory)
+    ) {
+        Write-StartLog -Level 'WARN' -Message 'PostgreSQL принадлежит текущему Start, но данные для штатной остановки утрачены.'
+        return $false
+    }
+
+    try {
+        [void](Invoke-PostgreSqlProcess -Executable $script:PostgreSqlWslExecutable -Arguments @(
+            '--distribution'
+            'Archlinux'
+            '--user'
+            'root'
+            '--exec'
+            'systemctl'
+            'stop'
+            'postgresql'
+        ) -WorkingDirectory $script:PostgreSqlWorkingDirectory -TimeoutMilliseconds 30000 -Failure 'Не удалось остановить PostgreSQL 18 в WSL Archlinux.')
+
+        $stateResult = Invoke-PostgreSqlProcess -Executable $script:PostgreSqlWslExecutable -Arguments @(
+            '--distribution'
+            'Archlinux'
+            '--user'
+            'root'
+            '--exec'
+            'systemctl'
+            'show'
+            '--property=ActiveState'
+            '--value'
+            'postgresql'
+        ) -WorkingDirectory $script:PostgreSqlWorkingDirectory -TimeoutMilliseconds 15000 -Failure 'Не удалось проверить состояние PostgreSQL 18 после остановки.'
+
+        $serviceState = $stateResult.StandardOutput.Trim().ToLowerInvariant()
+
+        if ($serviceState -notin @(
+            'inactive',
+            'failed'
+        )) {
+            throw ('После остановки PostgreSQL 18 имеет состояние {0}.' -f $serviceState)
+        }
+
+        $script:PostgreSqlOwned = $false
+        Write-StartLog -Level 'INFO' -Message 'PostgreSQL 18, запущенный текущим Start, остановлен.'
+        return $true
+    } catch {
+        Write-StartLog -Level 'WARN' -Message (
+            'Не удалось завершить принадлежащий текущему Start PostgreSQL 18: {0}' -f
+            $_.Exception.Message
+        )
+        return $false
+    }
 }
 
 function Enter-RepositoryMutex {
@@ -1391,14 +1544,6 @@ function Invoke-AzurPilotStart {
             return $script:ExitCodeSuccess
         }
 
-        Invoke-PostgreSqlStartPreflight -PythonPath $projectPythonPath -WorkingDirectory $resolvedRepositoryPath
-
-        if (Test-AzurPilotStopRequested -StopEvent $script:StopEvent) {
-            $script:IntentionalStopRequested = $true
-            Write-StartLog -Level 'INFO' -Message 'Запуск отменён координированным запросом остановки после preflight.'
-            return $script:ExitCodeSuccess
-        }
-
         $webUiConfiguration = Get-WebUiConfiguration -DeployConfigPath $deployConfigPath
         $browserUri = $webUiConfiguration.BrowserUri
 
@@ -1478,6 +1623,20 @@ function Invoke-AzurPilotStart {
                 return $script:ExitCodeBrowserFailure
             }
 
+            return $script:ExitCodeSuccess
+        }
+
+        if (Test-AzurPilotStopRequested -StopEvent $script:StopEvent) {
+            $script:IntentionalStopRequested = $true
+            Write-StartLog -Level 'INFO' -Message 'Запуск отменён координированным запросом остановки до PostgreSQL preflight.'
+            return $script:ExitCodeSuccess
+        }
+
+        Invoke-PostgreSqlStartPreflight -PythonPath $projectPythonPath -WorkingDirectory $resolvedRepositoryPath
+
+        if (Test-AzurPilotStopRequested -StopEvent $script:StopEvent) {
+            $script:IntentionalStopRequested = $true
+            Write-StartLog -Level 'INFO' -Message 'Запуск отменён координированным запросом остановки после PostgreSQL preflight.'
             return $script:ExitCodeSuccess
         }
 
@@ -1591,6 +1750,10 @@ function Invoke-AzurPilotStart {
             }
 
             $script:StartedProcess.Dispose()
+        }
+
+        if ($script:PostgreSqlOwned) {
+            [void](Stop-OwnedPostgreSql)
         }
 
         if ($null -ne $script:StopEvent) {
