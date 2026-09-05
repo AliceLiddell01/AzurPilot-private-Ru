@@ -65,6 +65,100 @@ def test_runtime_state_records_busy_handover_and_clears_stale_worker_identity(
     assert stopped.handover_requested is True
 
 
+def test_runtime_state_handover_keeps_source_worker_session_ownership(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path, datetime.now(UTC).isoformat())
+    store.mark_worker_started(
+        "alas",
+        worker_pid=1010,
+        worker_created_at=2010.0,
+        operation_id="user-start",
+    )
+    initial = store.begin_handover(
+        "alas",
+        operation_id="handover-ownership",
+        session_id="dev-session",
+    )
+    assert initial is not None
+    assert initial.session_id is None
+
+    phase = store.mark_preemption_notice(
+        "alas",
+        operation_id="handover-ownership",
+        session_id="dev-session",
+    )
+    assert phase.session_id is None
+
+    quiesce = store.request_quiesce(
+        "alas",
+        operation_id="handover-ownership",
+        session_id="dev-session",
+    )
+    assert quiesce.session_id is None
+
+    failed = store.mark_failed(
+        "alas",
+        operation_id="handover-ownership",
+        session_id="dev-session",
+        terminal_state="handover_failed",
+    )
+    assert failed.session_id is None
+    assert failed.worker_running is True
+    assert failed.handover_requested is False
+
+
+def test_runtime_state_reconciles_stale_user_session_ownership_from_worker_identity(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    store.mark_worker_started(
+        "alas",
+        worker_pid=1011,
+        worker_created_at=2011.0,
+        operation_id="stale-handover",
+        session_id="stale-dev-session",
+    )
+
+    reconciled = store.reconcile_profile_ownership(
+        {"alas": {"pid": 1011, "created_at": 2011.0}},
+        session_owner_profile="ap",
+    )
+
+    assert reconciled == ("alas",)
+    snapshot = store.read("alas")
+    assert snapshot is not None
+    assert snapshot.session_id is None
+    assert snapshot.worker_pid == 1011
+    assert snapshot.provenance == "runtime_reconciliation"
+
+
+def test_runtime_state_does_not_reconcile_user_ownership_during_active_handover(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path, datetime.now(UTC).isoformat())
+    store.mark_worker_started(
+        "alas",
+        worker_pid=1012,
+        worker_created_at=2012.0,
+        operation_id="user-start",
+        session_id="stale-dev-session",
+    )
+    store.request_handover(
+        "alas",
+        operation_id="handover-active",
+        session_id="target-session",
+    )
+
+    with pytest.raises(RuntimeStateError) as error:
+        store.reconcile_profile_ownership(
+            {"alas": {"pid": 1012, "created_at": 2012.0}},
+            session_owner_profile="ap",
+        )
+
+    assert error.value.code == "RUNTIME_STATE_RECONCILIATION_REQUIRED"
+
+
 def test_runtime_state_reconciles_old_persisted_schema_from_empty_worker_registry(
     tmp_path: Path,
 ) -> None:

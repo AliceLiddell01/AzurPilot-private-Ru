@@ -78,6 +78,13 @@ class WebUIRuntimeControlOwner:
 
             workers = get_workers(os.getpid())
             recovered = self.state.reconcile_with_authoritative_workers(workers)
+            development_profile = self._development_profile()
+            ownership_reconciled = ()
+            if development_profile is not None:
+                ownership_reconciled = self.state.reconcile_profile_ownership(
+                    workers,
+                    session_owner_profile=development_profile,
+                )
         except RuntimeStateError as exc:
             self._runtime_state_recovery_error = exc
             logger.error(
@@ -100,6 +107,11 @@ class WebUIRuntimeControlOwner:
         if recovered:
             logger.warning(
                 "Несовместимый эфемерный runtime state атомарно восстановлен из пустого worker registry"
+            )
+        if ownership_reconciled:
+            logger.warning(
+                "Runtime state восстановил session ownership профилей: %s",
+                ", ".join(ownership_reconciled),
             )
 
     @staticmethod

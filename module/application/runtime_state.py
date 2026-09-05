@@ -416,6 +416,77 @@ class RuntimeStateStore:
                 return True
         return False
 
+    def reconcile_profile_ownership(
+        self,
+        authoritative_workers: Mapping[str, Mapping[str, object]],
+        *,
+        session_owner_profile: str,
+    ) -> tuple[str, ...]:
+        """Устранить подтверждённый остаток session ownership у worker.
+
+        ``session_id`` относится только к worker назначенного owner profile.
+        Для остальных профилей authoritative registry подтверждает identity
+        процесса, но не переносит на него session ownership. Это позволяет
+        безопасно восстановить старый failed handover, не угадывая task, phase
+        или scheduler state.
+        """
+
+        session_owner_profile = _profile(session_owner_profile)
+        workers = self._normalize_authoritative_workers(authoritative_workers)
+        reconciled: list[str] = []
+        with application_host_lock(self.lock_path):
+            payload = self._read_payload()
+            records = dict(payload["profiles"])
+            for raw_profile, record in records.items():
+                profile = _profile(raw_profile)
+                snapshot = RuntimeStateSnapshot.from_dict(record)
+                if snapshot.profile != profile or profile == session_owner_profile:
+                    continue
+                if snapshot.session_id is None:
+                    continue
+                if (
+                    snapshot.handover_requested
+                    or snapshot.draining
+                    or snapshot.stop_requested
+                ):
+                    raise RuntimeStateError(
+                        "RUNTIME_STATE_RECONCILIATION_REQUIRED",
+                        "Нельзя восстановить ownership профиля во время handover",
+                        details={
+                            "profile": profile,
+                            "reason": "handover_in_progress",
+                        },
+                    )
+                if snapshot.worker_running:
+                    worker = workers.get(profile)
+                    if worker is None or (
+                        snapshot.worker_pid != worker["pid"]
+                        or snapshot.worker_created_at != worker["created_at"]
+                    ):
+                        raise RuntimeStateError(
+                            "RUNTIME_STATE_RECONCILIATION_REQUIRED",
+                            "Нельзя восстановить ownership без совпадающей identity worker",
+                            details={
+                                "profile": profile,
+                                "reason": "worker_identity_mismatch",
+                            },
+                        )
+                current = dict(snapshot.as_dict())
+                current.update(
+                    {
+                        "session_id": None,
+                        "provenance": "runtime_reconciliation",
+                        "updated_at": self._now(),
+                        "freshness": "fresh",
+                    }
+                )
+                reconciled_snapshot = RuntimeStateSnapshot.from_dict(current)
+                records[profile] = reconciled_snapshot.as_dict()
+                reconciled.append(profile)
+            if reconciled:
+                _atomic_state_write(self.path, records)
+        return tuple(reconciled)
+
     def mark_worker_started(
         self,
         profile: str,
@@ -566,7 +637,7 @@ class RuntimeStateStore:
 
         profile = _profile(profile)
         operation_id = _token(operation_id, field="Идентификатор runtime operation")
-        session_id = _optional_token(session_id)
+        _optional_token(session_id)
         if (
             type(timeout_seconds) not in (int, float)
             or not math.isfinite(float(timeout_seconds))
@@ -603,7 +674,6 @@ class RuntimeStateStore:
                 {
                     "phase": RuntimePhase.HANDOVER_REQUESTED.value,
                     "operation_id": operation_id,
-                    "session_id": session_id,
                     "handover_requested": True,
                     "updated_at": self._now(),
                     "freshness": "fresh",
@@ -732,7 +802,21 @@ class RuntimeStateStore:
             ):
                 for key in ("handover_requested", "draining", "stop_requested", "operation_id", "session_id"):
                     changes[key] = current[key]
+            handover_active = (
+                current["handover_requested"]
+                or current["draining"]
+                or current["stop_requested"]
+            )
+            source_session_id = current["session_id"]
             current.update(changes)
+            # Handover operation_id описывает запрос передачи, а session_id
+            # остаётся ownership текущего source worker. Target session будет
+            # записан только после подтверждённого запуска development worker.
+            if (
+                handover_active
+                and changes.get("operation_id") == current["operation_id"]
+            ):
+                current["session_id"] = source_session_id
             current["profile"] = profile
             current["schema_version"] = _STATE_SCHEMA_VERSION
             current["updated_at"] = self._now()
