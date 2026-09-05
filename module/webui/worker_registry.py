@@ -351,7 +351,7 @@ def claim_owner(owner_pid: int) -> None:
                     )
                 try:
                     worker_matches = _record_is_alive(worker_record)
-                except (KeyError, RuntimeError) as exc:
+                except (KeyError, RuntimeError, TypeError, ValueError) as exc:
                     raise WorkerRegistryOwnershipError(
                         f"Нельзя подтвердить отсутствие orphan worker {worker_name}; перезапись реестра отклонена"
                     ) from exc

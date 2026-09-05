@@ -15,6 +15,7 @@ from module.application.game_control_lock import (
     profile_mutation_lock_path,
 )
 from module.application.resource_lease import (
+    ResourceLeaseError,
     game_runtime_lease,
     game_runtime_lease_path,
 )
@@ -197,6 +198,38 @@ def test_game_runtime_lease_cleanup_error_does_not_mask_body_error(
     finally:
         if marker_path.exists():
             original_remove(marker_path)
+
+
+def test_game_runtime_lease_recovers_after_own_marker_cleanup_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    port = 40000 + (uuid.uuid4().int % 10000)
+    runtime_root = tmp_path / "host-runtime"
+    monkeypatch.setattr(host_lock, "host_runtime_root", lambda: runtime_root)
+    monkeypatch.setenv("ADB_SERVER_SOCKET", f"tcp:127.0.0.1:{port}")
+    lease_path = game_runtime_lease_path(tmp_path)
+    marker_path = lease_path.with_name(f"{lease_path.stem}.owner.json")
+    original_remove = resource_lease.atomic_remove
+    remaining_failures = 1
+
+    def fail_once(path: Path) -> None:
+        nonlocal remaining_failures
+        if remaining_failures:
+            remaining_failures -= 1
+            raise OSError("synthetic cleanup failure")
+        original_remove(path)
+
+    monkeypatch.setattr(resource_lease, "atomic_remove", fail_once)
+
+    with pytest.raises(ResourceLeaseError):
+        with game_runtime_lease(tmp_path, timeout=0.1):
+            pass
+    assert marker_path.exists()
+
+    with game_runtime_lease(tmp_path, timeout=0.1):
+        pass
+    assert not marker_path.exists()
 
 
 def test_game_runtime_lease_does_not_probe_pid_without_process_identity(

@@ -76,7 +76,7 @@ class SharedWebUIRuntime:
             return None
         try:
             return RuntimeOwnerIdentity.from_value(raw)
-        except Exception:  # noqa: BLE001 - invalid owner is unavailable.
+        except Exception:  # noqa: BLE001 - недействительный owner считается недоступным.
             return None
 
     def matches_session(self, session_id: str, profile: str | None = None) -> bool:

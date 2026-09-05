@@ -209,6 +209,17 @@ def test_legacy_config_adapter_sorts_scheduler_datetimes_by_timestamp():
     assert tuple(item.task for item in queue) == ("Main", "Event")
 
 
+def test_legacy_config_adapter_rejects_non_mapping_scheduler_state():
+    data = {"Main": {"Scheduler": []}}
+    adapter = LegacyConfigAdapter(
+        GeneratedTaskCatalogAdapter(ARGS, I18N),
+        updater_factory=lambda: _Updater(data),
+    )
+
+    with pytest.raises(ValueError, match="Scheduler state"):
+        adapter.read_scheduler_queue("ap", ("Main",))
+
+
 def test_legacy_log_adapter_is_bounded_and_root_safe(tmp_path: Path):
     log_root = tmp_path / "log"
     log_root.mkdir()

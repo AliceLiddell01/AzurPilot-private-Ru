@@ -33,7 +33,7 @@ def _close_runtime_control_server(server: object | None) -> None:
     if callable(close):
         try:
             close()
-        except Exception as exc:  # noqa: BLE001 - cleanup must continue after close failure.
+        except Exception as exc:  # noqa: BLE001 - очистка должна продолжиться после ошибки закрытия.
             try:
                 from module.logger import logger
 

@@ -138,6 +138,42 @@ def test_dev_runtime_uses_existing_shared_webui_and_never_owns_server(tmp_path: 
     assert not (tmp_path / "config" / "state" / "dev-runtime-gui.log").exists()
 
 
+def test_shared_failure_preserves_worker_identity_when_stop_is_unconfirmed(
+    tmp_path: Path,
+) -> None:
+    manager, shared = _manager(tmp_path)
+
+    def lost_ownership(_session_id: str, _profile: str = "ap") -> bool:
+        return False
+
+    def failed_stop(
+        *, session_id: str, idempotency_key: str | None = None
+    ) -> RuntimeControlResult:
+        return RuntimeControlResult(
+            False,
+            "RUNTIME_STOP_UNCONFIRMED",
+            "Профиль не подтвердил остановку",
+            RuntimeControlOperation.STOP_PROFILE,
+            "ap",
+            session_id,
+            idempotency_key or session_id,
+            owner=shared.owner,
+        )
+
+    shared.matches_session = lost_ownership  # type: ignore[method-assign]
+    shared.stop_profile = failed_stop  # type: ignore[method-assign]
+
+    failed = manager.start()
+
+    assert failed.ok is False
+    assert failed.code == "DEV_CLEANUP_FAILED"
+    assert shared.active is True
+    persisted = manager._read_session()
+    assert persisted is not None
+    assert persisted.process is not None
+    assert persisted.last_code == "DEV_CLEANUP_FAILED"
+
+
 def test_shared_manager_uses_new_stop_idempotency_key_for_each_attempt(
     tmp_path: Path,
 ) -> None:

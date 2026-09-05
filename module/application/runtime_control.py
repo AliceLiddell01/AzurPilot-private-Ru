@@ -897,10 +897,10 @@ class SharedWebUIBootstrapper:
         ):
             raise ValueError("timeout bootstrap должен быть в диапазоне (0, 120] секунд")
         self.repository_root = Path(repository_root).resolve()
-        self.gui_path = _scoped_path(self.repository_root, "gui.py")
+        self.gui_path = _safe_plane_path(self.repository_root, "gui.py")
         default_python = self.repository_root / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
         self.python_executable = Path(python_executable or default_python).resolve()
-        self.lock_path = _scoped_path(self.repository_root, "config/state/webui-bootstrap.lock")
+        self.lock_path = _safe_plane_path(self.repository_root, "config/state/webui-bootstrap.lock")
         self.owner_reader = owner_reader
         self.owner_matches = owner_matches
         self.timeout = float(timeout)
@@ -919,6 +919,7 @@ class SharedWebUIBootstrapper:
                 if existing is not None:
                     return existing
                 try:
+                    self._process = None
                     try:
                         self._process = subprocess.Popen(
                             [str(self.python_executable), str(self.gui_path)],

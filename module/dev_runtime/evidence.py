@@ -1973,8 +1973,8 @@ class EvidenceStore:
         _utc_timestamp(timestamp)
         with _exclusive_lock(self.lock_path, self.environment.repository_root):
             manifest = self._manifest_locked()
-            manifest["stopped_at"] = timestamp
             self._capture_log_end_boundary_locked(manifest)
+            manifest["stopped_at"] = timestamp
             manifest["current_task"] = None
             manifest["cleanup"] = {
                 "status": "preserved" if preserved else ("complete" if cleanup_confirmed else "pending"),

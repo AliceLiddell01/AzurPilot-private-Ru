@@ -377,8 +377,10 @@ class LegacyConfigAdapter:
             if not isinstance(raw_task, Mapping):
                 continue
             scheduler = raw_task.get("Scheduler")
-            if not isinstance(scheduler, Mapping):
+            if scheduler is None:
                 continue
+            if not isinstance(scheduler, Mapping):
+                raise ValueError(f"Scheduler state задачи {task} имеет неверный тип")
             if "Enable" not in scheduler or type(scheduler["Enable"]) is not bool:
                 raise ValueError(f"Scheduler.Enable задачи {task} отсутствует или имеет неверный тип")
             enabled = scheduler["Enable"]

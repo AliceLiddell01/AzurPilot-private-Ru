@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from itertools import chain, repeat
 from pathlib import Path
 from threading import Event, Thread
 from types import SimpleNamespace
@@ -141,6 +142,29 @@ def test_prepare_boundary_skips_manual_command_after_handover(
     assert script.device.config is None
 
 
+def test_server_availability_wait_aborts_when_handover_arrives(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    script = AzurLaneAutoScript.__new__(AzurLaneAutoScript)
+    script.config_name = "ap"
+    script.stop_event = None
+    script.checker = SimpleNamespace(is_available=lambda: False)
+    sleep_calls = 0
+
+    def interruptible_sleep(_seconds: float) -> None:
+        nonlocal sleep_calls
+        sleep_calls += 1
+
+    monkeypatch.setattr("alas.time.sleep", interruptible_sleep)
+    monkeypatch.setattr(
+        "alas._handover_requested",
+        lambda _config_name: sleep_calls > 0,
+    )
+
+    assert script._wait_for_server_availability() is False
+    assert sleep_calls == 1
+
+
 def test_loop_does_not_finish_task_cancelled_before_runtime_start(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -164,10 +188,10 @@ def test_loop_does_not_finish_task_cancelled_before_runtime_start(
     )
 
     def fail_run(_command: str) -> object:
-        raise AssertionError("Запуск задачи не должен выполняться")
+        pytest.fail("Запуск задачи не должен выполняться")
 
     script.run = fail_run
-    handover_values = iter((False, False, True))
+    handover_values = chain((False, False), repeat(True))
     monkeypatch.setattr(
         "alas._handover_requested",
         lambda _config_name: next(handover_values),

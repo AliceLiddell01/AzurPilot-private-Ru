@@ -2544,6 +2544,8 @@ class DevSessionManager(DevDiagnosticsMixin):
                         return self._shared_start_failure(
                             session,
                             task_plan,
+                            process_started=False,
+                            worker_stopped=True,
                             code="DEV_LAUNCH_FAILED",
                             message=f"Не удалось выполнить pre-execution checkpoint: {type(exc).__name__}",
                         )
@@ -2799,15 +2801,20 @@ class DevSessionManager(DevDiagnosticsMixin):
             return self._shared_start_failure(
                 session,
                 task_plan,
+                process_started=False,
+                worker_stopped=True,
                 code="DEV_SHARED_WEBUI_UNAVAILABLE",
                 message="Shared WebUI facade не предоставляет запуск development target",
             )
         try:
             result = start(session_id=session.session_id, idempotency_key=session.session_id)
-        except Exception as exc:  # noqa: BLE001 - manager converts boundary failures to safe result.
+        except Exception as exc:  # noqa: BLE001 - manager преобразует ошибку границы в безопасный результат.
+            worker_stopped = self._stop_shared_worker(session)
             return self._shared_start_failure(
                 session,
                 task_plan,
+                process_started=True,
+                worker_stopped=worker_stopped,
                 code="DEV_SHARED_WEBUI_START_FAILED",
                 message=f"Не удалось запустить target через shared WebUI: {type(exc).__name__}",
             )
@@ -2815,9 +2822,12 @@ class DevSessionManager(DevDiagnosticsMixin):
             self._record_handover_evidence(result)
             result_code = getattr(result, "code", "DEV_SHARED_WEBUI_START_FAILED")
             result_message = getattr(result, "message", "Shared WebUI не подтвердил запуск target")
+            worker_stopped = self._stop_shared_worker(session)
             return self._shared_start_failure(
                 session,
                 task_plan,
+                process_started=True,
+                worker_stopped=worker_stopped,
                 code=str(result_code),
                 message=str(result_message),
             )
@@ -2826,10 +2836,12 @@ class DevSessionManager(DevDiagnosticsMixin):
         try:
             identity = self._shared_owner_process_identity()
         except Exception as exc:  # noqa: BLE001 - не оставлять worker без учёта.
-            self._stop_shared_worker(session)
+            worker_stopped = self._stop_shared_worker(session)
             return self._shared_start_failure(
                 session,
                 task_plan,
+                process_started=True,
+                worker_stopped=worker_stopped,
                 code="DEV_SHARED_WEBUI_START_UNCONFIRMED",
                 message=f"Не удалось подтвердить identity общего WebUI: {type(exc).__name__}",
             )
@@ -2912,6 +2924,10 @@ class DevSessionManager(DevDiagnosticsMixin):
                     or isinstance(details.get("task_cleanup"), dict)
                     and details["task_cleanup"].get("ok") is True
                 )
+                if not cleanup_confirmed:
+                    latest.last_code = "DEV_CLEANUP_FAILED"
+                    latest.last_message += "; безопасная очистка не подтверждена"
+                    self._write_session(latest)
                 if evidence_store is not None:
                     self._record_evidence_cleanup(
                         evidence_store,
@@ -2986,17 +3002,21 @@ class DevSessionManager(DevDiagnosticsMixin):
                 session.session_id,
             )
         if ownership_lost:
-            self._stop_shared_worker(session)
+            worker_stopped = self._stop_shared_worker(session)
             return self._shared_start_failure(
                 session,
                 task_plan,
+                process_started=True,
+                worker_stopped=worker_stopped,
                 code="DEV_OWNERSHIP_LOST",
                 message="Shared WebUI worker не подтвердил принадлежность текущей DevSession",
             )
-        self._stop_shared_worker(session)
+        worker_stopped = self._stop_shared_worker(session)
         return self._shared_start_failure(
             session,
             task_plan,
+            process_started=True,
+            worker_stopped=worker_stopped,
             code="DEV_SHARED_WEBUI_START_FAILED",
             message="Shared WebUI запуск завершился без подтверждённого результата",
         )
@@ -3006,6 +3026,8 @@ class DevSessionManager(DevDiagnosticsMixin):
         session: DevSession,
         task_plan: TaskPlan | None,
         *,
+        process_started: bool,
+        worker_stopped: bool,
         code: str,
         message: str,
     ) -> DevResult:
@@ -3020,28 +3042,40 @@ class DevSessionManager(DevDiagnosticsMixin):
                     session_id=session.session_id,
                 )
             latest.state = DevSessionState.FAILED
-            latest.process = None
+            if worker_stopped:
+                latest.process = None
             latest.updated_at = self._timestamp()
             latest.last_code = code
             latest.last_message = message
             self._write_session(latest)
             evidence_store = self._finalize_evidence_before_cleanup(
                 latest,
-                process_started=False,
-                process_stopped=True,
+                process_started=process_started,
+                process_stopped=worker_stopped,
                 cleanup_attempted=task_plan is not None,
                 reason=code,
             )
             cleanup_details: dict[str, object] = {}
-            cleanup_confirmed = True
+            cleanup_confirmed = worker_stopped
             if task_plan is not None:
-                cleanup = self._cleanup_task_state_locked(
-                    expected_session_id=latest.session_id,
-                    catalog=task_plan.catalog,
-                    session=latest,
+                cleanup = (
+                    self._cleanup_task_state_locked(
+                        expected_session_id=latest.session_id,
+                        catalog=task_plan.catalog,
+                        session=latest,
+                    )
+                    if worker_stopped
+                    else self._task_cleanup_unconfirmed_locked(
+                        message="После ошибки shared target worker не удалось безопасно остановить",
+                        session=latest,
+                    )
                 )
                 cleanup_details = {"task_cleanup": cleanup.as_dict()}
-                cleanup_confirmed = cleanup.ok
+                cleanup_confirmed = worker_stopped and cleanup.ok
+            if not cleanup_confirmed:
+                latest.last_code = "DEV_CLEANUP_FAILED"
+                latest.last_message = f"{message}; безопасная очистка не подтверждена"
+                self._write_session(latest)
             if evidence_store is not None:
                 self._record_evidence_cleanup(
                     evidence_store,
@@ -3052,7 +3086,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                 latest,
                 ok=False,
                 code=code if cleanup_confirmed else "DEV_CLEANUP_FAILED",
-                message=message,
+                message=latest.last_message,
                 state=DevStatusKind.FAILED,
                 details=cleanup_details,
             )

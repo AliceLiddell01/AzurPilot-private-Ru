@@ -600,3 +600,46 @@ def test_bootstrap_stops_owned_process_when_owner_read_fails(
 
     assert error.value.code == "RUNTIME_OWNER_INVALID"
     assert process.terminated is True
+
+
+def test_bootstrap_does_not_stop_previous_process_on_new_launch_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (tmp_path / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
+    python_executable = tmp_path / "python.exe"
+    python_executable.write_bytes(b"synthetic")
+
+    class PreviousProcess:
+        terminated = False
+
+        def poll(self) -> None:
+            return None
+
+        def terminate(self) -> None:
+            self.terminated = True
+
+        def wait(self, *, timeout: float) -> None:
+            del timeout
+
+    previous = PreviousProcess()
+
+    def fail_launch(*_args: object, **_kwargs: object) -> object:
+        raise OSError("synthetic launch failure")
+
+    monkeypatch.setattr(runtime_control.subprocess, "Popen", fail_launch)
+    bootstrapper = SharedWebUIBootstrapper(
+        tmp_path,
+        owner_reader=lambda: None,
+        owner_matches=lambda _owner: True,
+        python_executable=python_executable,
+        timeout=0.2,
+        poll_interval=0.001,
+    )
+    bootstrapper._process = previous  # type: ignore[assignment]
+
+    with pytest.raises(RuntimeControlError) as error:
+        bootstrapper.ensure()
+
+    assert error.value.code == "RUNTIME_BOOTSTRAP_FAILED"
+    assert previous.terminated is False

@@ -31,6 +31,9 @@ from module.persistence.runtime import bootstrap_runtime_storage
 
 # 缓存 i18n 任务名查找
 _i18n_task_names = None
+_SERVER_AVAILABILITY_POLL_SECONDS = 0.25
+
+
 def _get_task_display_name(task_command):
     """从 i18n 获取任务的本地化显示名，找不到则返回英文名"""
     global _i18n_task_names
@@ -659,7 +662,12 @@ class AzurLaneAutoScript:
                 )
                 exit(1)
             else:
-                self.checker.wait_until_available()
+                wait_for_server = getattr(self, "_wait_for_server_availability", None)
+                if callable(wait_for_server):
+                    if not wait_for_server():
+                        return False
+                else:
+                    self.checker.wait_until_available()
                 return False
         except ScriptError as e:
             record_dev_runtime_error(e, phase="task", task=command)
@@ -1621,6 +1629,27 @@ class AzurLaneAutoScript:
             return False
         return True
 
+    def _wait_for_server_availability(self) -> bool:
+        """Ждать доступности сервера с cooperative stop-проверками."""
+
+        def stop_requested() -> bool:
+            return (
+                self.stop_event is not None
+                and self.stop_event.is_set()
+            ) or _handover_requested(self.config_name) is True
+
+        if stop_requested():
+            return False
+        is_available = getattr(self.checker, "is_available", None)
+        if not callable(is_available):
+            self.checker.wait_until_available()
+            return not stop_requested()
+        while not is_available():
+            if stop_requested():
+                return False
+            time.sleep(_SERVER_AVAILABILITY_POLL_SECONDS)
+        return not stop_requested()
+
     def loop(self):
         logger.set_file_logger(self.config_name)
         logger.info(f'[Alas] Запуск цикла планировщика: {self.config_name}')
@@ -1671,7 +1700,12 @@ class AzurLaneAutoScript:
                     logger.info('[Alas] Получен запрос на handover; следующая задача не назначается')
                     break
                 # 检查游戏服务器维护
-                self.checker.wait_until_available()
+                wait_for_server = getattr(self, "_wait_for_server_availability", None)
+                if callable(wait_for_server) and not wait_for_server():
+                    logger.info('[Alas] Ожидание сервера прервано запросом cooperative stop')
+                    break
+                if not callable(wait_for_server):
+                    self.checker.wait_until_available()
                 if self.checker.is_recovered():
                     # 服务器恢复后强制刷新配置，修复阻塞期间配置未更新的问题
                     del_cached_property(self, 'config')

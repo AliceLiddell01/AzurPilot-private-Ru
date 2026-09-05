@@ -155,8 +155,7 @@ def _record_runtime_state(config_name: object, *, task: object, started: bool) -
         )
         return True
     except Exception:
-        # Runtime state — это диагностические и координационные метаданные;
-        # они не должны превращать штатный результат задачи в исключение.
+        # При наличии runtime state неподтверждённая граница задачи запрещает запуск.
         return False
 
 

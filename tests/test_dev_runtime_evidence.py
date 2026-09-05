@@ -286,14 +286,11 @@ def test_evidence_finalize_marks_unread_rotated_segment_as_truncated(
     replacement.replace(log_path)
 
     store.finalize(stopped_at=_TIME, cleanup_confirmed=True)
-    manifest = json.loads(store.manifest_path.read_text(encoding="utf-8"))
+    finished = store.logs_page(active_owned=False)
 
-    assert manifest["stopped_at"] == _TIME
-    assert len(manifest["logs"]["segments"]) == 1
-    assert "log_boundary_lost" in manifest["evidence_health"]["reasons"]
-    with pytest.raises(EvidenceError) as error:
-        store.logs_page(active_owned=False)
-    assert error.value.code == "DEV_EVIDENCE_LOG_BOUNDARY_LOST"
+    assert [item["text"] for item in finished["items"]] == ["new worker startup"]
+    assert finished["truncated"] is True
+    assert "log_boundary_lost" in finished["health"]["reasons"]
 
 
 def test_evidence_log_rotation_fails_closed_at_segment_limit(tmp_path: Path) -> None:

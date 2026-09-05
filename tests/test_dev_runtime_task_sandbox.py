@@ -755,6 +755,9 @@ def test_readiness_failure_with_unconfirmed_stop_marks_policy_pending(tmp_path: 
     pending = TaskPolicyStore(environment).read()
     assert pending is not None
     assert pending.state == "cleanup_pending"
+    persisted = manager._read_session()
+    assert persisted is not None
+    assert persisted.last_code == "DEV_CLEANUP_FAILED"
     evidence = EvidenceStore.for_session(environment, failed.session_id).summary()
     assert evidence["lifecycle"]["stopped_at"] is None
     assert evidence["cleanup"]["status"] == "pending"
