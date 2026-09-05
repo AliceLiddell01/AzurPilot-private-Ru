@@ -59,6 +59,8 @@ repository не распознан или review уходит в free allowance 
 постоянного clone с literal `--base-commit <base-sha>`, без передачи
 многострочного stdin-скрипта через `wsl.exe`: CRLF может попасть в аргумент SHA
 и сломать `git diff`.
+Для отчёта используй формулу: «Запускаю canonical command напрямую из
+постоянного clone с literal SHA, без stdin-скрипта».
 
 ## Обязательные границы
 
