@@ -69,6 +69,7 @@ class AzurLaneAutoScript:
     stop_event: threading.Event = None
 
     def __init__(self, config_name=DEFAULT_CONFIG_NAME):
+        logger.set_file_logger(config_name)
         logger.hr('Запуск', level=0)
         bootstrap_runtime_storage(require_ready=True)
         logger.info('[Хранилище] PostgreSQL готов к работе')

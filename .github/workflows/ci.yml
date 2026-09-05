@@ -1182,6 +1182,7 @@ jobs:
 
           gitleaks="${RUNNER_TEMP}/gitleaks/gitleaks"
           artifact_dir="${RUNNER_TEMP}/azurpilot-ci-security"
+          tracked_scan_dir="${RUNNER_TEMP}/azurpilot-gitleaks-tracked"
           scan_paths=(
             .github
             .codex
@@ -1201,14 +1202,21 @@ jobs:
             uv.lock
           )
 
+          mkdir -p "$tracked_scan_dir"
+          git ls-files -z \
+            | tar --null --verbatim-files-from --files-from=- --create --file=- \
+            | tar --extract --file=- --directory="$tracked_scan_dir"
+          echo 'Gitleaks dir сканирует только tracked-файлы; локальные ignored-артефакты исключены из source-scan.'
+
           for scan_path in "${scan_paths[@]}"; do
-            if [[ -e "$scan_path" ]]; then
+            tracked_scan_path="${tracked_scan_dir}/${scan_path}"
+            if [[ -e "$tracked_scan_path" ]]; then
               scan_name="${scan_path//\//_}"
               python tools/ci_heartbeat.py \
                 --label "Gitleaks: ${scan_path}" \
                 --heartbeat-seconds 60 \
                 --log-file "${artifact_dir}/gitleaks-dir-${scan_name}.log" \
-                -- "$gitleaks" dir --redact --no-banner --verbose "$scan_path"
+                -- "$gitleaks" dir --redact --no-banner --verbose "$tracked_scan_path"
             fi
           done
 
