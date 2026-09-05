@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import sys
+from types import ModuleType
 from pathlib import Path
 
 from module.application.runtime_control import (
@@ -160,6 +162,23 @@ def test_owner_start_server_runs_runtime_state_upgrade_recovery(
         assert owner._runtime_state_recovery_error is None
     finally:
         server.close()
+
+
+def test_owner_loads_real_pil_before_legacy_handover_adapter(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    fake_pil = ModuleType("PIL")
+    fake_pil.Image = ModuleType("PIL.Image")
+    monkeypatch.setitem(sys.modules, "PIL", fake_pil)
+    monkeypatch.setitem(sys.modules, "PIL.Image", fake_pil.Image)
+
+    owner = WebUIRuntimeControlOwner(tmp_path)
+
+    adapter = owner._application_adapter()
+
+    assert adapter.__class__.__name__ == "LegacyGameApplicationAdapter"
+    assert "PIL" not in sys.modules
 
 
 def test_owner_executes_ap_inside_existing_webui_and_repeats_start_idempotently(

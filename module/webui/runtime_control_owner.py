@@ -1030,6 +1030,14 @@ class WebUIRuntimeControlOwner:
 
     def _application_adapter(self) -> object:
         if self._application is None:
+            import sys
+
+            from module.webui.fake_pil_module import remove_fake_pil_module
+
+            # Runtime control создаёт настоящий Device в owner-процессе; ему
+            # нужен реальный PIL, а не startup-заглушка WebUI.
+            if not hasattr(sys.modules.get("PIL"), "__path__"):
+                remove_fake_pil_module()
             from module.application.legacy_game_adapters import (
                 LegacyGameApplicationAdapter,
             )
