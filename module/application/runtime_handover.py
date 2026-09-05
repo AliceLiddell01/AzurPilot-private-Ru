@@ -9,6 +9,7 @@ from enum import StrEnum
 from time import monotonic, sleep
 from typing import Protocol
 
+from module.application.errors import ApplicationError
 from module.application.runtime_state import (
     RuntimePhase,
     RuntimeStateError,
@@ -618,9 +619,37 @@ class ProfileHandoverCoordinator:
         if isinstance(exception, RuntimeStateError):
             code = exception.code
             message = str(exception)
+        elif isinstance(exception, ApplicationError):
+            raw_code = getattr(exception, "code", "application_error")
+            normalized = str(raw_code).upper()
+            code = (
+                normalized
+                if normalized.startswith("RUNTIME_")
+                else f"RUNTIME_HANDOVER_{normalized}"
+            )
+            message = str(exception)
         else:
             code = "RUNTIME_HANDOVER_HOOK_FAILED"
             message = "Handover hook завершился без подтверждённого результата"
+        details: dict[str, object] = {
+            "failed_phase": phase_name,
+            "hook_error": type(exception).__name__,
+        }
+        for attribute, key in (
+            ("handover_step", "handover_step"),
+            ("cause_type", "cause_type"),
+            ("cause_code", "cause_code"),
+            ("cause_message", "cause_message"),
+        ):
+            value = getattr(exception, attribute, None)
+            if isinstance(value, str) and value and len(value) <= 512:
+                details[key] = value
+        if isinstance(exception, ApplicationError):
+            details["cause"] = {
+                "type": type(exception).__name__,
+                "code": str(getattr(exception, "code", "application_error")),
+                "message": message,
+            }
         return ProfileHandoverCoordinator._fail(
             hooks,
             profile,
@@ -629,10 +658,7 @@ class ProfileHandoverCoordinator:
             phases,
             code,
             message,
-            details={
-                "failed_phase": phase_name,
-                "hook_error": type(exception).__name__,
-            },
+            details=details,
         )
 
     @staticmethod

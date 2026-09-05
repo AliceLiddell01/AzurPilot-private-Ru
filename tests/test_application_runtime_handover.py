@@ -4,6 +4,7 @@ from collections import deque
 
 import pytest
 
+from module.application.errors import OperationFailedError
 from module.application.runtime_handover import (
     HandoverHooks,
     HandoverPolicy,
@@ -307,6 +308,41 @@ def test_handover_converts_unexpected_hook_errors_to_fail_closed_result(
     assert result.details["failed_phase"] == failed_phase
     assert result.details["hook_error"] == "RuntimeError"
     assert result.phases[-1] == "failed"
+
+
+def test_handover_preserves_typed_application_hook_cause() -> None:
+    hooks = Hooks([_snapshot(busy=False)])
+
+    def fail_return_to_main(*_args: object, **_kwargs: object) -> object:
+        error = OperationFailedError("Не удалось подтвердить главный экран")
+        error.handover_step = "main_check_before_navigation"
+        error.cause_type = "PostconditionFailedError"
+        error.cause_code = "postcondition_failed"
+        error.cause_message = "UI не подтвердил главный экран"
+        raise error
+
+    hooks.return_to_main = fail_return_to_main  # type: ignore[method-assign]
+
+    result = _coordinator().run(
+        "alas",
+        operation_id="handover-typed-hook-error",
+        session_id="session-1",
+        hooks=hooks,
+    )
+
+    assert result.ok is False
+    assert result.code == "RUNTIME_HANDOVER_OPERATION_FAILED"
+    assert result.message == "Не удалось подтвердить главный экран"
+    assert result.details["failed_phase"] == "returning_to_main"
+    assert result.details["handover_step"] == "main_check_before_navigation"
+    assert result.details["cause_type"] == "PostconditionFailedError"
+    assert result.details["cause_code"] == "postcondition_failed"
+    assert result.details["cause_message"] == "UI не подтвердил главный экран"
+    assert result.details["cause"] == {
+        "type": "OperationFailedError",
+        "code": "operation_failed",
+        "message": "Не удалось подтвердить главный экран",
+    }
 
 
 def test_handover_converts_unexpected_begin_hook_error_to_fail_closed_result() -> None:

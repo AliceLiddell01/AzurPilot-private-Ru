@@ -20,6 +20,7 @@ from time import monotonic, sleep
 from typing import NamedTuple, NoReturn
 
 from module.application.errors import (
+    ApplicationError,
     OperationFailedError,
     OwnershipAmbiguousError,
     PostconditionFailedError,
@@ -107,6 +108,23 @@ _TASK_LOG_PATTERNS = (
     re.compile(r"调度器: 开始任务\s*[`'\" ](.*?)[`'\" ]"),
     re.compile(r"<<<\s*Run task\s*(.*?)\s*>>>")
 )
+
+
+def _handover_operation_failure(
+    message: str,
+    cause: BaseException,
+    *,
+    step: str,
+) -> OperationFailedError:
+    """Сохранить bounded cause generic handover failure для control-plane."""
+
+    error = OperationFailedError(message)
+    error.handover_step = step
+    error.cause_type = type(cause).__name__
+    if isinstance(cause, ApplicationError):
+        error.cause_code = str(getattr(cause, "code", "application_error"))
+        error.cause_message = str(cause)
+    return error
 
 
 def _adb_host_lock(server_identity: str | None = None):
@@ -894,16 +912,20 @@ class LegacyGameApplicationAdapter:
 
         instance = _safe_instance_name(instance)
         device: object | None = None
+        step = "config"
         with _adb_host_lock():
             try:
                 config = self._make_config(instance)
+                step = "device"
                 device = self._device_factory(config)
+                step = "initial_screenshot"
                 screenshot = getattr(device, "screenshot", None)
                 if not callable(screenshot):
                     raise OperationFailedError(
                         "Device owner не предоставил свежий screenshot для handover."
                     )
                 screenshot()
+                step = "ui"
                 ui = self._ui_factory(config, device)
                 is_in_main = getattr(ui, "is_in_main", None)
                 goto_main = getattr(ui, "ui_goto_main", None)
@@ -911,14 +933,18 @@ class LegacyGameApplicationAdapter:
                     raise OperationFailedError(
                         "UI owner не предоставил существующие ui_goto_main/is_in_main."
                     )
+                step = "main_check_before_navigation"
                 current = is_in_main()
                 if type(current) is not bool:
                     raise OperationFailedError(
                         "UI owner вернул некорректное состояние главного экрана."
                     )
                 if current is not True:
+                    step = "goto_main"
                     goto_main()
+                    step = "post_navigation_screenshot"
                     screenshot()
+                step = "main_check_after_navigation"
                 confirmed = is_in_main()
                 if type(confirmed) is not bool:
                     raise OperationFailedError(
@@ -929,11 +955,14 @@ class LegacyGameApplicationAdapter:
                         "UI не подтвердил главный экран после handover."
                     )
                 return True
-            except (OwnershipAmbiguousError, PreconditionFailedError, PostconditionFailedError):
+            except ApplicationError as exc:
+                exc.handover_step = step
                 raise
-            except Exception:  # noqa: BLE001 - handover boundary fails closed.
-                raise OperationFailedError(
-                    "Не удалось вернуть игру на главный экран через существующий UI flow."
+            except Exception as exc:  # noqa: BLE001 - handover boundary fails closed.
+                raise _handover_operation_failure(
+                    "Не удалось вернуть игру на главный экран через существующий UI flow.",
+                    exc,
+                    step=step,
                 ) from None
             finally:
                 if device is not None:
@@ -946,33 +975,41 @@ class LegacyGameApplicationAdapter:
 
         instance = _safe_instance_name(instance)
         device: object | None = None
+        step = "config"
         with _adb_host_lock():
             try:
                 config = self._make_config(instance)
+                step = "device"
                 device = self._device_factory(config)
+                step = "screenshot"
                 screenshot = getattr(device, "screenshot", None)
                 if not callable(screenshot):
                     raise OperationFailedError(
                         "Device owner не предоставил свежий screenshot для main check."
                     )
                 screenshot()
+                step = "ui"
                 ui = self._ui_factory(config, device)
                 method = getattr(ui, "is_in_main", None)
                 if not callable(method):
                     raise OperationFailedError(
                         "UI owner не предоставил authoritative main check."
                     )
+                step = "main_check"
                 result = method()
                 if type(result) is not bool:
                     raise OperationFailedError(
                         "UI owner вернул некорректное состояние главного экрана."
                     )
                 return result
-            except (OwnershipAmbiguousError, PreconditionFailedError, PostconditionFailedError):
+            except ApplicationError as exc:
+                exc.handover_step = step
                 raise
-            except Exception:  # noqa: BLE001 - main check fails closed.
-                raise OperationFailedError(
-                    "Не удалось подтвердить главный экран через существующий UI flow."
+            except Exception as exc:  # noqa: BLE001 - main check fails closed.
+                raise _handover_operation_failure(
+                    "Не удалось подтвердить главный экран через существующий UI flow.",
+                    exc,
+                    step=step,
                 ) from None
             finally:
                 if device is not None:
