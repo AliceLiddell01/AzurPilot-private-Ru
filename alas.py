@@ -63,6 +63,20 @@ def _handover_requested(config_name: str) -> bool | None:
     return handover_requested(config_name)
 
 
+def _scheduler_task_registry(config: object) -> tuple[str, ...]:
+    """Получить существующий generated registry scheduler-команд fail-open."""
+
+    try:
+        from module.config.task_priority import get_scheduler_tasks
+
+        args = getattr(config, "args", None)
+        if not isinstance(args, dict):
+            return ()
+        return tuple(get_scheduler_tasks(args))
+    except Exception:
+        return ()
+
+
 
 
 class AzurLaneAutoScript:
@@ -460,22 +474,24 @@ class AzurLaneAutoScript:
     @task_logging_context
     def run(self, command, skip_first_screenshot=False):
         """
-        执行指定任务命令，捕获异常并决定后续行为。
+        Выполнить указанную команду задачи, обработать исключения и определить результат.
 
-        根据异常类型自动判断：重启游戏、重启模拟器、请求人工介入或直接终止。
-        敏感任务出错时直接停止，不做任何重启。
+        По типу исключения автоматически выбрать перезапуск игры, перезапуск эмулятора,
+        запрос вмешательства пользователя или немедленное завершение.
+        При ошибке чувствительной задачи сразу остановиться без перезапусков.
 
-        任务执行前会进行一次截图（除非 skip_first_screenshot=True）。
+        Перед выполнением задачи сделать снимок экрана, если
+        ``skip_first_screenshot`` не равен ``True``.
 
         Args:
-            command (str): 任务方法名（驼峰转下划线后的形式）。
-            skip_first_screenshot (bool): 是否跳过执行前的首次截图。
+            command (str): Имя метода задачи в формате ``snake_case``.
+            skip_first_screenshot (bool): Пропустить ли первый снимок экрана.
 
         Returns:
             bool | str:
-                True — 任务成功完成。
-                False — 不可恢复的失败，计入连续失败限制。
-                'recoverable' — 可恢复的失败，不计入连续失败限制。
+                True — задача успешно завершена.
+                False — невосстановимая ошибка, учитываемая в последовательном лимите.
+                'recoverable' — восстановимая ошибка, не учитываемая в последовательном лимите.
         """
         record_dev_runtime_error = getattr(
             self,
@@ -494,7 +510,7 @@ class AzurLaneAutoScript:
             return True
         except GameNotRunningError as e:
             record_dev_runtime_error(e, phase="task", task=command)
-            # 游戏未运行，调度 Restart 任务自动恢复
+            # Игра не запущена; scheduler назначит задачу Restart для восстановления.
             logger.error_context(
                 title='Игровой процесс не запущен',
                 reason='Перед выполнением задачи процесс Azur Lane не обнаружен.',
@@ -502,7 +518,8 @@ class AzurLaneAutoScript:
                 action='Обычно действие не требуется. При повторении проверьте имя пакета игры, состояние эмулятора и процедуру входа.',
                 exc=e,
                 level=30,
-                # 预期恢复路径仅保留异常摘要，避免堆栈淹没后续重启日志。
+                # Ожидаемый recovery path сохраняет только краткое описание,
+                # чтобы stacktrace не скрывал последующие логи перезапуска.
                 with_traceback=False,
             )
             self._check_sensitive_exit(command, e)
@@ -615,7 +632,7 @@ class AzurLaneAutoScript:
             return False
         except GameBugError as e:
             record_dev_runtime_error(e, phase="task", task=command)
-            # 游戏客户端 bug，重启游戏修复
+            # Ошибка игрового клиента устраняется перезапуском игры.
             logger.error_context(
                 title='Ошибка игрового клиента',
                 reason='Обнаружено некорректное состояние клиента Azur Lane.',
@@ -694,7 +711,7 @@ class AzurLaneAutoScript:
             raise
         except EmulatorNotRunningError as e:
             record_dev_runtime_error(e, phase="task", task=command)
-            # 模拟器离线或死机，尝试自动重启
+            # Эмулятор отключён или завис; попытаться автоматически перезапустить его.
             logger.error_context(
                 title='Соединение с эмулятором потеряно',
                 reason='Во время выполнения задачи эмулятор или устройство ADB стали недоступны.',
@@ -705,7 +722,7 @@ class AzurLaneAutoScript:
             self.save_error_log()
             self._check_sensitive_exit(command, e)
             if self._try_restart_emulator(reason='adb_offline'):
-                # 重启成功，调度 Restart 任务恢复游戏
+                # После успешного перезапуска назначить задачу Restart для восстановления игры.
                 self.config.task_call('Restart')
                 handle_notify(
                     self.config.Error_OnePushConfig,
@@ -719,7 +736,7 @@ class AzurLaneAutoScript:
                 )
                 return 'recoverable'
             else:
-                # 重启失败或未启用自动重启，终止程序
+                # Перезапуск не удался или отключён; завершить программу.
                 logger.error_context(
                     title='Автоматическое восстановление эмулятора невозможно',
                     reason='Перезапуск отключён, завершился ошибкой либо достиг предела попыток.',
@@ -1654,6 +1671,28 @@ class AzurLaneAutoScript:
             time.sleep(_SERVER_AVAILABILITY_POLL_SECONDS)
         return not stop_requested()
 
+    def _run_scheduler_task(self, task: str):
+        """Выполнить одну выбранную scheduler task на canonical metrics boundary."""
+
+        try:
+            from module.observability import scheduler_task_run
+            from module.observability.metrics import get_active_metrics_runtime
+
+            if get_active_metrics_runtime() is None:
+                return self.run(inflection.underscore(task))
+            config = self.config
+            metrics_run = scheduler_task_run(
+                profile=self.config_name,
+                task=getattr(config, "task", None),
+                registry=_scheduler_task_registry(config),
+            )
+        except Exception:
+            return self.run(inflection.underscore(task))
+        with metrics_run:
+            result = self.run(inflection.underscore(task))
+            metrics_run.finish(result)
+            return result
+
     def loop(self):
         logger.set_file_logger(self.config_name)
         logger.info(f'[Alas] Запуск цикла планировщика: {self.config_name}')
@@ -1779,7 +1818,7 @@ class AzurLaneAutoScript:
                     break
                 task_outcome = 'returned'
                 try:
-                    success = self.run(inflection.underscore(task))
+                    success = self._run_scheduler_task(task)
                 except Exception:
                     task_outcome = 'failed'
                     raise

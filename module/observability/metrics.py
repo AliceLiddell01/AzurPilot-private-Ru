@@ -7,7 +7,7 @@ import os
 import re
 import threading
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass
 from types import TracebackType
@@ -42,6 +42,13 @@ class MetricsConfig:
     export_timeout_millis: int
 
 
+@dataclass(frozen=True, slots=True)
+class _CanonicalTaskIdentity:
+    """Проверенная identity задачи из внешнего scheduler registry."""
+
+    name: str
+
+
 def _metric_label(value: object) -> str:
     """Оставить только bounded canonical label или вернуть общий sentinel."""
     if not isinstance(value, str):
@@ -57,9 +64,35 @@ def _metric_label(value: object) -> str:
     return value
 
 
+def _canonical_task_identity(
+    task: object,
+    registry: Iterable[object] | None,
+) -> _CanonicalTaskIdentity | None:
+    """Получить task label только из уже существующего scheduler registry."""
+    try:
+        command = getattr(task, "command", None)
+    except Exception:
+        return None
+    if not isinstance(command, str) or isinstance(registry, (str, bytes)):
+        return None
+    try:
+        for candidate in registry or ():
+            if not isinstance(candidate, str):
+                continue
+            if candidate.casefold() != command.casefold():
+                continue
+            canonical = _metric_label(candidate)
+            if canonical != "unknown":
+                return _CanonicalTaskIdentity(canonical)
+            return None
+    except Exception:
+        return None
+    return None
+
+
 def _metric_attributes(
     profile: object,
-    task: object,
+    task: _CanonicalTaskIdentity | None,
     outcome: object,
 ) -> Mapping[str, str]:
     try:
@@ -70,7 +103,7 @@ def _metric_attributes(
         normalized_outcome = "unknown"
     return {
         "azurpilot.profile": _metric_label(profile),
-        "azurpilot.task": _metric_label(task),
+        "azurpilot.task": task.name if task is not None else "unknown",
         "azurpilot.task.outcome": normalized_outcome,
     }
 
@@ -100,8 +133,13 @@ def _outcome_from_result(result: object) -> str:
 
 
 def _outcome_from_exception(exception: BaseException) -> str:
-    if isinstance(exception, (KeyboardInterrupt, SystemExit)):
+    if isinstance(exception, KeyboardInterrupt):
         return "stopped"
+    if isinstance(exception, SystemExit):
+        try:
+            return "stopped" if exception.code is None or exception.code == 0 else "failure"
+        except Exception:
+            return "failure"
     return "failure"
 
 
@@ -116,11 +154,11 @@ class MetricsRuntime:
     reporter: Any
     active: bool = True
 
-    def record_task_run(
+    def _record_task_run(
         self,
         *,
         profile: object,
-        task: object,
+        task: _CanonicalTaskIdentity | None,
         outcome: object,
         duration_seconds: object,
     ) -> None:
@@ -288,31 +326,17 @@ def get_active_metrics_runtime() -> MetricsRuntime | None:
     return runtime
 
 
-def record_task_run(
-    *,
-    profile: object,
-    task: object,
-    outcome: object,
-    duration_seconds: object,
-) -> None:
-    """Записать bounded task run без исключений в application code."""
-    runtime = get_active_metrics_runtime()
-    if runtime is None:
-        return
-    runtime.record_task_run(
-        profile=profile,
-        task=task,
-        outcome=outcome,
-        duration_seconds=duration_seconds,
-    )
-
-
 class TaskRun:
     """Контекст одной внешней task boundary без дублирования nested calls."""
 
-    def __init__(self, *, profile: object, task: object) -> None:
+    def __init__(
+        self,
+        *,
+        profile: object,
+        task: _CanonicalTaskIdentity | None,
+    ) -> None:
         self._profile = profile
-        self._task = task
+        self._task = task if isinstance(task, _CanonicalTaskIdentity) else None
         self._runtime: MetricsRuntime | None = None
         self._started_at = 0.0
         self._depth_token: Any = None
@@ -355,7 +379,7 @@ class TaskRun:
                 outcome = _task_outcome.get() or (
                     self._result_outcome if self._finished else "unknown"
                 )
-            self._runtime.record_task_run(
+            self._runtime._record_task_run(
                 profile=self._profile,
                 task=self._task,
                 outcome=outcome,
@@ -372,9 +396,22 @@ class TaskRun:
         return False
 
 
-def task_run(*, profile: object, task: object) -> TaskRun:
-    """Вернуть контекст canonical task boundary."""
+def _task_run(*, profile: object, task: _CanonicalTaskIdentity | None) -> TaskRun:
+    """Вернуть внутренний контекст уже проверенной task boundary."""
     return TaskRun(profile=profile, task=task)
+
+
+def scheduler_task_run(
+    *,
+    profile: object,
+    task: object,
+    registry: Iterable[object] | None = None,
+) -> TaskRun:
+    """Создать metrics boundary для выбранной scheduler task."""
+    return _task_run(
+        profile=profile,
+        task=_canonical_task_identity(task, registry),
+    )
 
 
 def mark_task_stopped() -> None:
@@ -391,7 +428,6 @@ __all__ = (
     "deactivate_metrics_runtime",
     "get_active_metrics_runtime",
     "mark_task_stopped",
-    "record_task_run",
     "reset_metrics_runtime_after_fork",
-    "task_run",
+    "scheduler_task_run",
 )

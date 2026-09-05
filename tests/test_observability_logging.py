@@ -322,13 +322,13 @@ def test_exception_metadata_preserves_multi_args_and_sanitizes_chained_traceback
         chained = records[0].attributes["exception.stacktrace"]
         assert "ValueError: cause" in chained
         assert "RuntimeError: outer" in chained
-        assert "direct cause" in chained
+        assert "непосредственной причиной" in chained
         assert "locals" not in chained
 
         implicit = records[1].attributes["exception.stacktrace"]
         assert "KeyError: 'implicit inner'" in implicit
         assert "RuntimeError: implicit outer" in implicit
-        assert "During handling" in implicit
+        assert "При обработке предыдущего исключения" in implicit
 
         multi_argument = records[2].attributes["exception.message"]
         assert "first" in multi_argument

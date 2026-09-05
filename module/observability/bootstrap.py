@@ -314,7 +314,7 @@ def _format_exception_chain(
             seen,
             depth + 1,
         )
-        marker = "The above exception was the direct cause of the following exception:"
+        marker = "Предыдущее исключение является непосредственной причиной следующего исключения:"
     elif (
         isinstance(context, BaseException)
         and not suppress_context
@@ -326,7 +326,7 @@ def _format_exception_chain(
             seen,
             depth + 1,
         )
-        marker = "During handling of the above exception, another exception occurred:"
+        marker = "При обработке предыдущего исключения возникло другое исключение:"
 
     current = _format_exception_fragment(value, traceback_object)
     if previous and marker:

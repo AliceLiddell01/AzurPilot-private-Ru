@@ -1,10 +1,15 @@
 """Регрессии bounded application metrics и их lifecycle-контракта."""
 
 import logging
+import json
+import os
+import sys
+import time
+from types import SimpleNamespace
 
 import pytest
 from alas import AzurLaneAutoScript
-from module.config.config import TaskEnd
+from module.config.config import Function, TaskEnd
 from opentelemetry.sdk.metrics.export import (
     AggregationTemporality,
     InMemoryMetricReader,
@@ -25,8 +30,7 @@ from module.observability.metrics import (
     build_metrics_runtime,
     deactivate_metrics_runtime,
     get_active_metrics_runtime,
-    record_task_run,
-    task_run,
+    scheduler_task_run,
 )
 
 
@@ -72,6 +76,32 @@ def _metric_by_name(reader: InMemoryMetricReader, name: str):
                 if metric.name == name:
                     return metric
     raise AssertionError(f"metric {name!r} was not collected")
+
+
+def _metric_points(reader: InMemoryMetricReader, name: str):
+    try:
+        data = reader.get_metrics_data()
+        if data is None:
+            return []
+        for resource_metrics in data.resource_metrics:
+            for scope_metrics in resource_metrics.scope_metrics:
+                for metric in scope_metrics.metrics:
+                    if metric.name == name:
+                        return list(metric.data.data_points)
+        return []
+    except AssertionError:
+        return []
+
+
+def _configured_task(command: str) -> Function:
+    return Function({"Scheduler": {"Command": command}})
+
+
+def _scheduler_args(*commands: str) -> dict[str, object]:
+    return {
+        command: {"Scheduler": {"Command": {"value": command}}}
+        for command in commands
+    }
 
 
 def _build_in_memory_runtime():
@@ -209,27 +239,52 @@ def test_task_boundary_records_one_cumulative_counter_and_duration_histogram():
                 return True
 
         assert Probe().run("research") is True
+        assert _metric_points(reader, "azurpilot.task.run") == []
 
-        with task_run(profile="profile_a", task="outer") as outer:
-            with task_run(profile="profile_a", task="inner") as inner:
+        registry = ("Research", "Outer", "Inner")
+        with scheduler_task_run(
+            profile="profile_a",
+            task=_configured_task("Outer"),
+            registry=registry,
+        ) as outer:
+            with scheduler_task_run(
+                profile="profile_a",
+                task=_configured_task("Inner"),
+                registry=registry,
+            ) as inner:
                 inner.finish(False)
             outer.finish("recoverable")
 
         script = AzurLaneAutoScript.__new__(AzurLaneAutoScript)
         script.config_name = "profile_a"
+        script.__dict__["config"] = SimpleNamespace(
+            task=_configured_task("Research"),
+            args=_scheduler_args("Research"),
+        )
+        script.__dict__["device"] = SimpleNamespace(screenshot=lambda: None)
+
+        script.__dict__["goto_main"] = lambda: None
+        assert script.run("goto_main", skip_first_screenshot=True) is True
+        assert all(
+            point.attributes["azurpilot.task"] != "GotoMain"
+            for point in _metric_points(reader, "azurpilot.task.run")
+        )
+
+        script.__dict__["research"] = lambda: None
+        assert script._run_scheduler_task("Research") is True
 
         def stop_task():
             raise TaskEnd("normal task stop")
 
         script.__dict__["research"] = stop_task
-        assert script.run("research", skip_first_screenshot=True) is True
+        assert script._run_scheduler_task("Research") is True
 
-        record_task_run(
+        with scheduler_task_run(
             profile="unsafe profile",
-            task="unsafe/task",
-            outcome="not-allowed",
-            duration_seconds=0,
-        )
+            task=_configured_task("NonexistentTask123"),
+            registry=("Research",),
+        ) as unknown_run:
+            unknown_run.finish(None)
 
         counter = _metric_by_name(reader, "azurpilot.task.run")
         histogram = _metric_by_name(reader, "azurpilot.task.duration")
@@ -252,7 +307,7 @@ def test_task_boundary_records_one_cumulative_counter_and_duration_histogram():
         assert counter_points[
             (
                 ("azurpilot.profile", "profile_a"),
-                ("azurpilot.task", "outer"),
+                ("azurpilot.task", "Outer"),
                 ("azurpilot.task.outcome", "recoverable"),
             )
         ] == 1
@@ -270,6 +325,10 @@ def test_task_boundary_records_one_cumulative_counter_and_duration_histogram():
                 ("azurpilot.task.outcome", "unknown"),
             )
         ] == 1
+        assert "NonexistentTask123" not in {
+            point.attributes["azurpilot.task"]
+            for point in counter.data.data_points
+        }
         assert all(point.count == 1 for point in histogram.data.data_points)
         assert all(point.sum > 0 for point in histogram.data.data_points)
     finally:
@@ -281,12 +340,68 @@ def test_task_boundary_records_failure_for_exception():
     runtime, reader = _build_in_memory_runtime()
     try:
         with pytest.raises(RuntimeError, match="synthetic"):
-            with task_run(profile="profile_a", task="research"):
+            with scheduler_task_run(
+                profile="profile_a",
+                task=_configured_task("Research"),
+                registry=("Research",),
+            ):
                 raise RuntimeError("synthetic")
 
         counter = _metric_by_name(reader, "azurpilot.task.run")
         point = counter.data.data_points[0]
         assert point.attributes["azurpilot.task.outcome"] == "failure"
+    finally:
+        deactivate_metrics_runtime(runtime)
+        assert runtime.shutdown(1000)
+
+
+@pytest.mark.parametrize(
+    ("result", "expected"),
+    [
+        (True, "success"),
+        ("recoverable", "recoverable"),
+        (False, "failure"),
+    ],
+)
+def test_task_boundary_maps_terminal_results(result, expected):
+    runtime, reader = _build_in_memory_runtime()
+    try:
+        with scheduler_task_run(
+            profile="profile_a",
+            task=_configured_task("Research"),
+            registry=("Research",),
+        ) as task:
+            task.finish(result)
+
+        counter = _metric_by_name(reader, "azurpilot.task.run")
+        assert counter.data.data_points[0].attributes["azurpilot.task.outcome"] == expected
+    finally:
+        deactivate_metrics_runtime(runtime)
+        assert runtime.shutdown(1000)
+
+
+@pytest.mark.parametrize(
+    ("exception", "expected"),
+    [
+        (SystemExit(None), "stopped"),
+        (SystemExit(0), "stopped"),
+        (SystemExit(1), "failure"),
+        (RuntimeError("synthetic"), "failure"),
+    ],
+)
+def test_task_boundary_maps_exception_outcomes(exception, expected):
+    runtime, reader = _build_in_memory_runtime()
+    try:
+        with pytest.raises(type(exception)):
+            with scheduler_task_run(
+                profile="profile_a",
+                task=_configured_task("Research"),
+                registry=("Research",),
+            ):
+                raise exception
+
+        counter = _metric_by_name(reader, "azurpilot.task.run")
+        assert counter.data.data_points[0].attributes["azurpilot.task.outcome"] == expected
     finally:
         deactivate_metrics_runtime(runtime)
         assert runtime.shutdown(1000)
@@ -311,7 +426,11 @@ def test_metrics_failure_does_not_mask_task_exception():
     )()
     try:
         with pytest.raises(RuntimeError, match="task failure"):
-            with task_run(profile="profile_a", task="research"):
+            with scheduler_task_run(
+                profile="profile_a",
+                task=_configured_task("Research"),
+                registry=("Research",),
+            ):
                 raise RuntimeError("task failure")
         assert reports
     finally:
@@ -356,12 +475,12 @@ def test_metrics_provider_is_process_local_and_configure_is_idempotent(monkeypat
             for handler in target.handlers
             if getattr(handler, "_azurpilot_observability_handler", False)
         ] == []
-        record_task_run(
+        with scheduler_task_run(
             profile="profile_a",
-            task="research",
-            outcome=True,
-            duration_seconds=0.1,
-        )
+            task=_configured_task("Research"),
+            registry=("Research",),
+        ) as task:
+            task.finish(True)
         assert _metric_by_name(reader, "azurpilot.task.run").data.data_points[0].value == 1
     finally:
         assert shutdown_application_observability(target, timeout_millis=1000)
@@ -399,17 +518,149 @@ def test_after_fork_discards_inherited_metrics_runtime_before_child_bootstrap(mo
         child_runtime = _runtimes[id(target)].metrics
         assert child_runtime is not None
         assert child_runtime is not parent_runtime
-        record_task_run(
+        with scheduler_task_run(
             profile="profile_a",
-            task="research",
-            outcome=True,
-            duration_seconds=0.1,
-        )
+            task=_configured_task("Research"),
+            registry=("Research",),
+        ) as task:
+            task.finish(True)
         assert _metric_by_name(child_reader, "azurpilot.task.run").data.data_points[0].value == 1
     finally:
         shutdown_application_observability(target, timeout_millis=1000)
         if "parent_runtime" in locals():
             assert parent_runtime.shutdown(1000)
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux fork lifecycle contract")
+def test_linux_fork_uses_fresh_production_periodic_reader(monkeypatch):
+    from opentelemetry.sdk.metrics.export import MetricExportResult, MetricExporter
+
+    _clear_environment(monkeypatch)
+    monkeypatch.setenv(
+        "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+        "http://collector:4318/v1/metrics",
+    )
+    monkeypatch.setenv("OTEL_METRIC_EXPORT_INTERVAL", "10")
+    target = _new_logger("observability-metrics-production-fork")
+
+    class RecordingExporter(MetricExporter):
+        def __init__(self):
+            super().__init__()
+            self.export_pids = []
+            self.force_flush_pids = []
+            self.shutdown_pids = []
+
+        def export(self, _metrics_data, timeout_millis=10_000, **_kwargs):
+            del timeout_millis
+            self.export_pids.append(os.getpid())
+            return MetricExportResult.SUCCESS
+
+        def force_flush(self, timeout_millis=10_000):
+            del timeout_millis
+            self.force_flush_pids.append(os.getpid())
+            return True
+
+        def shutdown(self, timeout_millis=30_000, **_kwargs):
+            del timeout_millis
+            self.shutdown_pids.append(os.getpid())
+
+    parent_pid = os.getpid()
+    parent_exporter = RecordingExporter()
+    read_fd, write_fd = os.pipe()
+
+    try:
+        assert configure_application_observability(
+            target,
+            _metrics_exporter_factory=lambda _timeout: parent_exporter,
+        )
+        parent_runtime = _runtimes[id(target)].metrics
+        assert parent_runtime is not None
+        assert parent_runtime.provider.force_flush(timeout_millis=3000)
+        parent_export_count_before_fork = len(parent_exporter.export_pids)
+
+        child_pid = os.fork()
+        if child_pid == 0:
+            os.close(read_fd)
+            try:
+                # Если унаследованный production reader запустит thread после fork,
+                # он успеет обратиться к parent_exporter до child bootstrap.
+                time.sleep(0.15)
+                child_exporter = RecordingExporter()
+                child_factory_calls = []
+
+                def child_exporter_factory(_timeout):
+                    child_factory_calls.append(True)
+                    return child_exporter
+
+                configured = configure_application_observability(
+                    target,
+                    _metrics_exporter_factory=child_exporter_factory,
+                )
+                child_runtime = _runtimes[id(target)].metrics
+                if child_runtime is None:
+                    raise AssertionError("child metrics runtime was not bootstrapped")
+                with scheduler_task_run(
+                    profile="profile_a",
+                    task=_configured_task("Research"),
+                    registry=("Research",),
+                ) as task:
+                    task.finish(True)
+                shutdown_ok = shutdown_application_observability(
+                    target,
+                    timeout_millis=3000,
+                )
+                payload = {
+                    "pid": os.getpid(),
+                    "configured": configured,
+                    "runtime_owner_pid": child_runtime.owner_pid,
+                    "factory_calls": len(child_factory_calls),
+                    "child_export_pids": child_exporter.export_pids,
+                    "child_force_flush_pids": child_exporter.force_flush_pids,
+                    "child_shutdown_pids": child_exporter.shutdown_pids,
+                    "inherited_parent_export_pids": parent_exporter.export_pids,
+                    "shutdown_ok": shutdown_ok,
+                }
+                os.write(write_fd, json.dumps(payload).encode("utf-8"))
+                os._exit(0)
+            except BaseException as exc:
+                payload = {"error": f"{type(exc).__name__}: {exc}"}
+                os.write(write_fd, json.dumps(payload).encode("utf-8"))
+                os._exit(1)
+
+        _, status = os.waitpid(child_pid, 0)
+        os.close(write_fd)
+        payload = json.loads(os.read(read_fd, 64 * 1024).decode("utf-8"))
+        assert os.waitstatus_to_exitcode(status) == 0, payload
+        assert payload["configured"] is True
+        assert payload["runtime_owner_pid"] == payload["pid"]
+        assert payload["factory_calls"] == 1
+        assert payload["shutdown_ok"] is True
+        assert payload["child_export_pids"]
+        assert set(payload["child_export_pids"]) == {payload["pid"]}
+        assert set(payload["child_force_flush_pids"]) == {payload["pid"]}
+        assert set(payload["child_shutdown_pids"]) == {payload["pid"]}
+        assert len(payload["inherited_parent_export_pids"]) == parent_export_count_before_fork
+        assert set(payload["inherited_parent_export_pids"]) <= {parent_pid}
+
+        assert get_active_metrics_runtime() is parent_runtime
+        with scheduler_task_run(
+            profile="profile_a",
+            task=_configured_task("Research"),
+            registry=("Research",),
+        ) as task:
+            task.finish(True)
+        assert parent_runtime.provider.force_flush(timeout_millis=3000)
+        assert parent_exporter.export_pids
+        assert set(parent_exporter.export_pids) == {parent_pid}
+    finally:
+        try:
+            os.close(read_fd)
+        except OSError:
+            pass
+        try:
+            shutdown_application_observability(target, timeout_millis=3000)
+        except Exception:
+            pass
 
 
 def test_metrics_initialization_failure_does_not_disable_logs(monkeypatch):

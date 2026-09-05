@@ -39,12 +39,6 @@ AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD; новые секреты это
 архитектуры нужно добавлять туда же. Пароль начального администратора Grafana
 передаётся через Compose secret и не попадает в репозиторий.
 
-Корневой .env одновременно используется production PostgreSQL loader. Он
-проверяет свой полный contract, а namespace AZURPILOT_OBSERVABILITY_ оставляет
-Compose и синтаксически проверяет без включения этих ключей в PostgreSQL
-environment; поэтому observability-переменные безопасно могут находиться в том
-же защищённом файле.
-
 Если переменных ещё нет, добавьте их в корневой .env. Для ротации уже
 добавленного пароля используйте PowerShell-команду ниже: она сохраняет новое
 значение напрямую в .env и ничего не выводит в stdout.
@@ -152,7 +146,7 @@ Signal-specific endpoint передаётся exporter-у как полный UR
 собственные traces для exemplars этим контуром не создаются.
 
 В текущей конфигурации отправляются два инструмента на одной canonical task
-boundary `Alas.run`:
+boundary scheduler-а в `Alas.loop`:
 
 | OTel name | Type | Unit | Attributes |
 | --- | --- | --- | --- |

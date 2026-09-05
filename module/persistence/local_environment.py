@@ -20,7 +20,6 @@ DEFAULT_LOCAL_ENV_PATH = Path(".env")
 _KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 _APP_PREFIX = "AZURPILOT_POSTGRES_"
 _MIGRATOR_PREFIX = "AZURPILOT_POSTGRES_MIGRATOR_"
-_OBSERVABILITY_PREFIX = "AZURPILOT_OBSERVABILITY_"
 _CONNECTION_FIELDS = (
     "HOST",
     "PORT",
@@ -263,7 +262,6 @@ def read_local_postgres_environment(
         ) from exc
 
     values: dict[str, str] = {}
-    seen_keys: set[str] = set()
     for line_number, raw_line in enumerate(lines, start=1):
         line = raw_line.strip()
         if not line or line.startswith("#"):
@@ -274,24 +272,11 @@ def read_local_postgres_environment(
             )
         key, raw_value = line.split("=", 1)
         key = key.strip()
-        if not _KEY_RE.fullmatch(key) or key in seen_keys:
+        if not _KEY_RE.fullmatch(key) or key not in _ALLOWED_KEYS or key in values:
             raise StorageConfigurationError(
                 f"Ключ локального PostgreSQL env в строке {line_number} некорректен."
             )
-        seen_keys.add(key)
-        if key in _ALLOWED_KEYS:
-            values[key] = _parse_value(raw_value, line_number)
-        elif key.startswith(_OBSERVABILITY_PREFIX) and len(key) > len(
-            _OBSERVABILITY_PREFIX
-        ):
-            # Compose и production PostgreSQL используют один защищённый local
-            # env. Чужой observability namespace валидируем синтаксически, но
-            # не включаем в PostgreSQL contract и не экспортируем приложению.
-            _parse_value(raw_value, line_number)
-        else:
-            raise StorageConfigurationError(
-                f"Ключ локального PostgreSQL env в строке {line_number} некорректен."
-            )
+        values[key] = _parse_value(raw_value, line_number)
 
     if _ALLOWED_KEYS.difference(values):
         raise StorageConfigurationError(
