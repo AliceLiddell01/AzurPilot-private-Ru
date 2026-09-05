@@ -565,7 +565,12 @@ class ProfileHandoverCoordinator:
 
     @staticmethod
     def _deadline_expired(deadline_check: Callable[[], bool] | None) -> bool:
-        """Считать срок истёкшим при отсутствии или сбое внешней проверки."""
+        """Считать срок истёкшим при сбое внешней проверки.
+
+        При отсутствии ``deadline_check`` внешний срок не задан и возвращается
+        ``False``; исключение во внешней проверке переводит handover в
+        fail-closed состояние и возвращает ``True``.
+        """
 
         if deadline_check is None:
             return False

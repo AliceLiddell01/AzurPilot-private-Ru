@@ -11,6 +11,7 @@ from module.application.runtime_state import (
     RuntimePhase,
     RuntimeStateError,
     RuntimeStateStore,
+    _scoped_path,
 )
 
 
@@ -102,6 +103,47 @@ def test_runtime_state_rejects_unsafe_profile_and_worker_timestamp(tmp_path: Pat
     with pytest.raises(RuntimeStateError) as timestamp_error:
         store.mark_worker_started("ap", worker_pid=1, worker_created_at=float("nan"))
     assert timestamp_error.value.code == "RUNTIME_WORKER_ID_INVALID"
+
+
+def test_runtime_state_rejects_parent_directory_in_scoped_path(tmp_path: Path) -> None:
+    with pytest.raises(RuntimeStateError) as error:
+        _scoped_path(tmp_path, "config/../outside")
+
+    assert error.value.code == "RUNTIME_STATE_PATH_INVALID"
+
+
+@pytest.mark.parametrize("stop_kind", ["current_task", "worker"])
+def test_runtime_state_task_finish_does_not_resurrect_stopped_worker(
+    tmp_path: Path,
+    stop_kind: str,
+) -> None:
+    store = _store(tmp_path)
+    store.mark_worker_started(
+        "alas",
+        worker_pid=1007,
+        worker_created_at=2007.0,
+        operation_id="runtime-1",
+    )
+    store.mark_task_started("alas", "DailyTask", operation_id="runtime-1")
+    if stop_kind == "current_task":
+        store.request_handover("alas", operation_id="handover-1")
+        stopped = store.mark_current_task_stopped("alas", operation_id="handover-1")
+    else:
+        stopped = store.mark_worker_stopped(
+            "alas",
+            expected_worker_pid=1007,
+            expected_worker_created_at=2007.0,
+            operation_id="runtime-1",
+        )
+
+    finished = store.mark_task_finished("alas", operation_id="runtime-1")
+
+    assert stopped.worker_running is False
+    assert finished.worker_running is False
+    assert finished.busy is False
+    assert finished.current_task is None
+    assert finished.worker_pid is None
+    assert finished.worker_created_at is None
 
 
 def test_runtime_state_does_not_claim_a_task_after_handover_request(tmp_path: Path) -> None:

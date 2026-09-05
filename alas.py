@@ -435,20 +435,6 @@ class AzurLaneAutoScript:
         except Exception:
             return False
 
-    def _record_dev_runtime_task_cancelled(self, task):
-        """Зафиксировать отмену задачи после уже подтверждённой границы запуска."""
-        try:
-            from module.dev_runtime.hooks import record_task_finished
-
-            result = record_task_finished(
-                self.config_name,
-                task,
-                outcome='cancelled',
-            )
-            return result is not False
-        except Exception:
-            return False
-
     def _try_restart_game(self):
         """Перезапустить только Azur Lane и подтвердить восстановление через login/UI flow."""
         from module.handler.login import LoginHandler
@@ -1682,11 +1668,6 @@ class AzurLaneAutoScript:
             "_record_dev_runtime_task_finished",
             lambda *_args, **_kwargs: None,
         )
-        record_dev_runtime_task_cancelled = getattr(
-            self,
-            "_record_dev_runtime_task_cancelled",
-            record_dev_runtime_task_finished,
-        )
         from module.config.utils import is_oobe_needed
 
         if is_oobe_needed():
@@ -1778,20 +1759,20 @@ class AzurLaneAutoScript:
 
                 # Запустить задачу.
                 logger.info(f'[Alas] Планировщик: запуск задачи `{task}`')
-                if record_dev_runtime_task_started(task) is False:
-                    logger.error('[Alas] Не удалось подтвердить границу текущей задачи; scheduler остановлен')
-                    break
                 if (
-                    self.stop_event is not None
-                    and self.stop_event.is_set()
+                    self.stop_event is not None and self.stop_event.is_set()
                 ) or _handover_requested(self.config_name) is True:
-                    logger.info('[Alas] Запуск задачи отменён запросом cooperative stop после фиксации границы')
-                    if record_dev_runtime_task_cancelled(task) is False:
-                        logger.error('[Alas] Не удалось подтвердить terminal cancellation задачи; scheduler остановлен')
+                    logger.info('[Alas] Запуск задачи отменён запросом cooperative stop')
                     break
                 self.device.stuck_record_clear()
                 self.device.click_record_clear()
                 logger.hr(task, level=0)
+                # Атомарный переход runtime state в busy является границей
+                # запуска: handover до неё блокирует задачу, после неё
+                # дожидается завершения уже принятой текущей задачи.
+                if record_dev_runtime_task_started(task) is False:
+                    logger.error('[Alas] Не удалось подтвердить границу текущей задачи; scheduler остановлен')
+                    break
                 success = self.run(inflection.underscore(task))
                 if record_dev_runtime_task_finished(task) is False:
                     logger.error('[Alas] Не удалось подтвердить завершение задачи; scheduler остановлен')

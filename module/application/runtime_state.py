@@ -278,7 +278,18 @@ def _freshness(updated_at: str) -> str:
 
 def _scoped_path(root: Path, relative: str) -> Path:
     root = Path(root).resolve()
-    candidate = (root / relative).absolute()
+    if not isinstance(relative, str):
+        raise RuntimeStateError(
+            "RUNTIME_STATE_PATH_INVALID",
+            "Runtime state path должен быть относительной строкой",
+        )
+    relative_path = Path(relative)
+    if relative_path.is_absolute() or ".." in relative_path.parts:
+        raise RuntimeStateError(
+            "RUNTIME_STATE_PATH_INVALID",
+            "Runtime state path не должен содержать абсолютный путь или переход к родительскому каталогу",
+        )
+    candidate = (root / relative_path).absolute()
     try:
         candidate.relative_to(root)
     except ValueError as exc:
@@ -481,7 +492,6 @@ class RuntimeStateStore:
         return self._update(
             profile,
             phase=RuntimePhase.USER_PROFILE_IDLE,
-            worker_running=True,
             busy=False,
             current_task=None,
             operation_id=operation_id,

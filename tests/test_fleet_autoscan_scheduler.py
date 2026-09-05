@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from alas import AzurLaneAutoScript
+from module.application.runtime_state import RuntimeStateStore
 from module.config.time_source import now as current_time
 from module.persistence import runtime as persistence_runtime
 
@@ -207,6 +208,7 @@ def test_loop_does_not_finish_task_cancelled_before_runtime_start(
         SimpleNamespace(
             set_file_logger=lambda *_args, **_kwargs: None,
             info=lambda *_args, **_kwargs: None,
+            hr=lambda *_args, **_kwargs: None,
         ),
     )
     monkeypatch.setattr("module.config.utils.is_oobe_needed", lambda: False)
@@ -218,7 +220,7 @@ def test_loop_does_not_finish_task_cancelled_before_runtime_start(
     assert boundary_calls == ["Commission"]
 
 
-def test_loop_does_not_enter_task_when_handover_arrives_after_started_boundary(
+def test_loop_runs_task_when_handover_arrives_after_started_boundary(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     script = _script()
@@ -235,6 +237,7 @@ def test_loop_does_not_enter_task_when_handover_arrives_after_started_boundary(
     allow_boundary_return = Event()
     handover_accepted = Event()
     started: list[str] = []
+    finished: list[str] = []
 
     def record_started(task: str) -> bool:
         started.append(task)
@@ -243,12 +246,12 @@ def test_loop_does_not_enter_task_when_handover_arrives_after_started_boundary(
         return True
 
     script._record_dev_runtime_task_started = record_started
-    script._record_dev_runtime_task_finished = lambda _task: True
-    cancelled: list[str] = []
-    script._record_dev_runtime_task_cancelled = (
-        lambda task: cancelled.append(task) or True
+    script._record_dev_runtime_task_finished = (
+        lambda task: finished.append(task) or True
     )
-    script.run = lambda _command: pytest.fail("Запуск задачи не должен выполняться")
+    script.run = lambda command: command == "commission" or pytest.fail(
+        "Неожиданная команда задачи"
+    )
 
     def accept_handover() -> None:
         assert boundary_entered.wait(5)
@@ -266,6 +269,7 @@ def test_loop_does_not_enter_task_when_handover_arrives_after_started_boundary(
         SimpleNamespace(
             set_file_logger=lambda *_args, **_kwargs: None,
             info=lambda *_args, **_kwargs: None,
+            hr=lambda *_args, **_kwargs: None,
         ),
     )
     monkeypatch.setattr("module.config.utils.is_oobe_needed", lambda: False)
@@ -278,7 +282,60 @@ def test_loop_does_not_enter_task_when_handover_arrives_after_started_boundary(
 
     assert not handover_thread.is_alive()
     assert started == ["Commission"]
-    assert cancelled == ["Commission"]
+    assert finished == ["Commission"]
+
+
+def test_loop_does_not_run_when_handover_wins_atomic_task_start(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
+    (tmp_path / "module").mkdir()
+    monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(tmp_path))
+    store = RuntimeStateStore(tmp_path)
+    store.mark_worker_started("alas", worker_pid=1008, worker_created_at=2008.0)
+
+    script = _script()
+    script.config_name = "alas"
+    script.config.EmulatorManagement_ScheduledEmulatorRestart = False
+    script.checker = SimpleNamespace(
+        wait_until_available=lambda: None,
+        is_available=lambda: True,
+        is_recovered=lambda: False,
+    )
+    script.failure_record = {}
+    script._emulator_recovery_transport_lost = False
+    script.get_next_task = lambda: "Commission"
+    script._prepare_task_boundary = lambda _task: True
+
+    def accept_handover_during_setup() -> None:
+        store.begin_handover("alas", operation_id="handover-race")
+
+    script.device.stuck_record_clear = accept_handover_during_setup
+    script.device.click_record_clear = lambda: None
+
+    def fail_run(_command: str) -> object:
+        pytest.fail("Запуск задачи не должен выполняться")
+
+    script.run = fail_run
+    monkeypatch.setattr(
+        "alas.logger",
+        SimpleNamespace(
+            set_file_logger=lambda *_args, **_kwargs: None,
+            info=lambda *_args, **_kwargs: None,
+            hr=lambda *_args, **_kwargs: None,
+            error=lambda *_args, **_kwargs: None,
+        ),
+    )
+    monkeypatch.setattr("module.config.utils.is_oobe_needed", lambda: False)
+
+    script.loop()
+
+    snapshot = store.read("alas")
+    assert snapshot is not None
+    assert snapshot.handover_requested is True
+    assert snapshot.busy is False
+    assert snapshot.current_task is None
 
 
 def test_long_wait_manual_wakeup_does_not_run_future_normal_task_early() -> None:
