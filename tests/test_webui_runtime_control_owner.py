@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import sys
 from types import ModuleType
 from pathlib import Path
@@ -179,6 +181,41 @@ def test_owner_loads_real_pil_before_legacy_handover_adapter(
 
     assert adapter.__class__.__name__ == "LegacyGameApplicationAdapter"
     assert "PIL" not in sys.modules
+
+
+def test_shared_handover_loads_ui_asset_from_non_repository_cwd(
+    tmp_path: Path,
+) -> None:
+    repository_root = Path(__file__).resolve().parents[1]
+    script = "\n".join(
+        (
+            "import sys",
+            "from pathlib import Path",
+            "repository_root = Path(sys.argv[1]).resolve()",
+            "assert Path.cwd().resolve() != repository_root",
+            "sys.path.insert(0, str(repository_root))",
+            "import module.webui.app_dependencies",
+            "from module.webui.runtime_control_owner import WebUIRuntimeControlOwner",
+            "owner = WebUIRuntimeControlOwner(repository_root)",
+            "owner._application_adapter()",
+            "from module.ui.assets import MAIN_GOTO_FLEET",
+            "MAIN_GOTO_FLEET.ensure_template()",
+            "assert MAIN_GOTO_FLEET.image.shape == (26, 143, 3)",
+        )
+    )
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = str(repository_root)
+
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(repository_root)],
+        cwd=tmp_path,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, f"stdout={result.stdout}\nstderr={result.stderr}"
 
 
 def test_owner_executes_ap_inside_existing_webui_and_repeats_start_idempotently(
