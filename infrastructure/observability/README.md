@@ -39,15 +39,21 @@ AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD; новые секреты это
 архитектуры нужно добавлять туда же. Пароль начального администратора Grafana
 передаётся через Compose secret и не попадает в репозиторий.
 
-Если переменных ещё нет, добавьте их в корневой .env. Пароль задайте новым
-случайным значением, например сгенерированным в PowerShell:
+Если переменных ещё нет, добавьте их в корневой .env. Для ротации уже
+добавленного пароля используйте PowerShell-команду ниже: она сохраняет новое
+значение напрямую в .env и ничего не выводит в stdout.
 
     AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_USER=admin
     AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD=<случайный_секрет>
 
+    $envFile = Resolve-Path ..\..\.env
     $bytes = [byte[]]::new(32)
     [System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
-    [Convert]::ToHexString($bytes).ToLowerInvariant()
+    $password = [Convert]::ToHexString($bytes).ToLowerInvariant()
+    $lines = Get-Content -LiteralPath $envFile
+    $lines -replace '^AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD=.*$', "AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD=$password" |
+        Set-Content -LiteralPath $envFile -Encoding utf8NoBOM
+    Remove-Variable password
 
 ## Запуск и обслуживание
 
