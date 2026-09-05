@@ -499,6 +499,18 @@ def rotate(arguments: argparse.Namespace) -> None:
     ):
         raise RuntimeError("Генератор PostgreSQL secrets вернул совпадение.")
     new_passfile = _passfile(arguments.database, app_secret, migrator_secret)
+    new_env = _merge_env_document(
+        old_env,
+        _env_document(
+            repository,
+            windows_passfile,
+            arguments.wsl_passfile,
+            arguments.distro,
+            arguments.database,
+            app_secret,
+            migrator_secret,
+        ),
+    )
     try:
         _alter_roles(arguments.distro, app_secret, migrator_secret)
         _write_wsl_file(
@@ -510,21 +522,7 @@ def rotate(arguments: argparse.Namespace) -> None:
                 old_windows, arguments.database, app_secret, migrator_secret
             ),
         )
-        _write_windows_file(
-            env_path,
-            _merge_env_document(
-                old_env,
-                _env_document(
-                    repository,
-                    windows_passfile,
-                    arguments.wsl_passfile,
-                    arguments.distro,
-                    arguments.database,
-                    app_secret,
-                    migrator_secret,
-                ),
-            ),
-        )
+        _write_windows_file(env_path, new_env)
         _auth(
             arguments.distro,
             arguments.wsl_passfile,
