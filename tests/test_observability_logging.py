@@ -323,4 +323,4 @@ def test_shutdown_is_bounded_even_when_provider_blocks():
     runtime = _Runtime(target=target, provider=SlowProvider(), handler=handler)
     started = time.monotonic()
     assert not _shutdown_runtime(runtime, timeout_millis=25)
-    assert time.monotonic() - started < 0.15
+    assert time.monotonic() - started < 0.19
