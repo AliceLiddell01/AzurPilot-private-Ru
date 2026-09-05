@@ -115,6 +115,34 @@ def test_runtime_state_does_not_claim_a_task_after_handover_request(tmp_path: Pa
     assert snapshot.handover_requested is True
 
 
+def test_runtime_state_rejects_stale_worker_cleanup_for_another_operation(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    store.mark_worker_started(
+        "alas",
+        worker_pid=1006,
+        worker_created_at=2006.0,
+        operation_id="start-1",
+        session_id="session-1",
+    )
+
+    with pytest.raises(RuntimeStateError) as error:
+        store.mark_worker_stopped(
+            "alas",
+            expected_worker_pid=1006,
+            expected_worker_created_at=2006.0,
+            operation_id="start-2",
+            session_id="session-2",
+        )
+
+    assert error.value.code == "RUNTIME_STATE_STALE_WRITE"
+    snapshot = store.read("alas")
+    assert snapshot.worker_running is True
+    assert snapshot.operation_id == "start-1"
+    assert snapshot.session_id == "session-1"
+
+
 def test_runtime_state_begin_handover_atomically_blocks_concurrent_task_boundary(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

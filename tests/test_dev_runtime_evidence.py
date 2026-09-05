@@ -7,7 +7,7 @@ import os
 import subprocess
 import threading
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
@@ -15,6 +15,7 @@ import pytest
 
 from module.dev_runtime import evidence as evidence_module
 from module.dev_runtime.bounded_io import BoundedReadTooLarge, read_bounded_bytes
+from module.dev_runtime.contracts import DevEnvironment
 from module.dev_runtime.evidence import (
     EVIDENCE_EVENT_TYPES,
     EvidenceCorrupt,
@@ -24,7 +25,6 @@ from module.dev_runtime.evidence import (
     capture_git_snapshot,
     validate_session_id,
 )
-from module.dev_runtime.contracts import DevEnvironment
 from module.dev_runtime.target import DevTarget
 
 
@@ -1039,6 +1039,63 @@ def test_runtime_error_hook_does_not_create_missing_runtime_state(
     hooks.record_runtime_error("ap", RuntimeError("ошибка worker"), phase="task")
 
     assert not (tmp_path / "config" / "state" / "webui-runtime-state.json").exists()
+
+
+def test_runtime_error_hook_preserves_active_handover_coordination(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from module.application.runtime_state import RuntimePhase, RuntimeStateStore
+    from module.dev_runtime import hooks
+
+    store = RuntimeStateStore(tmp_path)
+    store.mark_worker_started(
+        "ap",
+        worker_pid=1001,
+        worker_created_at=2001.0,
+        operation_id="start-1",
+    )
+    store.request_handover("ap", operation_id="handover-1", session_id="session-1")
+    store.request_quiesce("ap", operation_id="handover-1", session_id="session-1")
+    store.mark_draining("ap", operation_id="handover-1", session_id="session-1")
+    monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(tmp_path))
+    monkeypatch.setenv("AZURPILOT_DEV_SESSION_ID", "session-1")
+    monkeypatch.setenv("AZURPILOT_RUNTIME_OPERATION_ID", "handover-1")
+
+    hooks.record_runtime_error("ap", RuntimeError("ошибка worker"), phase="task")
+
+    snapshot = store.read("ap")
+    assert snapshot.phase is RuntimePhase.FAILED
+    assert snapshot.terminal_state == "runtime_error"
+    assert snapshot.handover_requested is True
+    assert snapshot.draining is True
+    assert snapshot.stop_requested is True
+    assert snapshot.operation_id == "handover-1"
+    assert snapshot.session_id == "session-1"
+
+
+def test_finished_hook_writes_evidence_even_when_state_boundary_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from module.dev_runtime import hooks
+
+    recorded: list[tuple[object, object, object]] = []
+    monkeypatch.setenv("AZURPILOT_DEV_SESSION_ID", "session-1")
+    monkeypatch.setattr(
+        hooks,
+        "_record_runtime_state",
+        lambda *_args, **_kwargs: False,
+    )
+    monkeypatch.setattr(
+        evidence_module,
+        "record_task_finished",
+        lambda config_name, task, outcome: recorded.append(
+            (config_name, task, outcome)
+        ),
+    )
+
+    assert hooks.record_task_finished("ap", "RootTask") is False
+    assert recorded == [("ap", "RootTask", "returned")]
 
 
 def test_hooks_repository_root_does_not_depend_on_process_cwd(

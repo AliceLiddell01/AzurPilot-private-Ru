@@ -37,8 +37,6 @@ def record_task_started(config_name: object, task: object) -> bool:
 
 def record_task_finished(config_name: object, task: object) -> bool:
     state_ok = _record_runtime_state(config_name, task=task, started=False)
-    if not state_ok:
-        return False
     if _enabled():
         try:
             from module.dev_runtime.evidence import record_task_finished as record
@@ -61,12 +59,14 @@ def record_runtime_error(
 
         profile = str(config_name)
         store = RuntimeStateStore(_repository_root())
-        if store.read(profile) is not None:
+        snapshot = store.read(profile)
+        if snapshot is not None:
             store.mark_failed(
                 profile,
                 operation_id=os.environ.get(_OPERATION_ENV),
                 session_id=os.environ.get(_SESSION_ENV),
                 terminal_state="runtime_error",
+                preserve_handover_flags=True,
             )
     except Exception:
         pass

@@ -8,8 +8,8 @@ from module.application.runtime_control import (
     RuntimeOwnerIdentity,
 )
 from module.application.runtime_handover import NotificationOutcome
-from module.application.scheduler_runtime import SchedulerRuntimeStateReader
 from module.application.runtime_state import RuntimePhase
+from module.application.scheduler_runtime import SchedulerRuntimeStateReader
 from module.webui.runtime_control_owner import WebUIRuntimeControlOwner
 
 _EXPIRY = "2099-01-01T00:00:00+00:00"
@@ -20,7 +20,14 @@ class Manager:
         self.alive = False
         self.calls: list[tuple[str, str | None, str | None]] = []
 
-    def start(self, *, func: str, operation_id: str | None, session_id: str | None) -> None:
+    def start(
+        self,
+        func: str | None,
+        ev: object | None = None,
+        *,
+        operation_id: str | None = None,
+        session_id: str | None = None,
+    ) -> None:
         self.calls.append(("start", operation_id, session_id))
         self.alive = True
 
@@ -111,6 +118,62 @@ def test_owner_executes_ap_inside_existing_webui_and_repeats_start_idempotently(
     assert stopped.code == "RUNTIME_STOPPED"
     assert manager.calls[-1][0] == "stop"
     assert owner.state.read("ap").phase is RuntimePhase.STOPPED
+
+
+def test_owner_rejects_development_start_without_session_before_manager_lookup(
+    tmp_path: Path,
+) -> None:
+    manager_lookups: list[str] = []
+    owner = WebUIRuntimeControlOwner(
+        tmp_path,
+        manager_factory=lambda profile: manager_lookups.append(profile) or Manager(),
+        profile_provider=lambda: ("ap",),
+        development_profile_provider=lambda: "ap",
+    )
+    owner_identity = RuntimeOwnerIdentity(pid=100, created_at=200.0)
+    owner.owner_identity = lambda: owner_identity  # type: ignore[method-assign]
+    owner.owner_matches = lambda _owner: True  # type: ignore[method-assign]
+
+    result = owner.execute(
+        RuntimeControlOperation.START_PROFILE,
+        "ap",
+        request_id="missing-session",
+        idempotency_key="missing-session-key",
+        session_id=None,
+        expires_at=_EXPIRY,
+    )
+
+    assert result.ok is False
+    assert result.code == "RUNTIME_SESSION_REQUIRED"
+    assert manager_lookups == []
+
+
+def test_owner_rejects_development_stop_without_session_before_manager_lookup(
+    tmp_path: Path,
+) -> None:
+    manager_lookups: list[str] = []
+    owner = WebUIRuntimeControlOwner(
+        tmp_path,
+        manager_factory=lambda profile: manager_lookups.append(profile) or Manager(),
+        profile_provider=lambda: ("ap",),
+        development_profile_provider=lambda: "ap",
+    )
+    owner_identity = RuntimeOwnerIdentity(pid=100, created_at=200.0)
+    owner.owner_identity = lambda: owner_identity  # type: ignore[method-assign]
+    owner.owner_matches = lambda _owner: True  # type: ignore[method-assign]
+
+    result = owner.execute(
+        RuntimeControlOperation.STOP_PROFILE,
+        "ap",
+        request_id="missing-stop-session",
+        idempotency_key="missing-stop-session-key",
+        session_id=None,
+        expires_at=_EXPIRY,
+    )
+
+    assert result.ok is False
+    assert result.code == "RUNTIME_SESSION_REQUIRED"
+    assert manager_lookups == []
 
 
 def test_owner_does_not_take_over_development_worker_of_another_session(
@@ -239,7 +302,7 @@ def test_owner_handover_fails_closed_when_authoritative_state_is_missing(
     assert development.calls == []
 
 
-def test_owner_hides_no_profiles_from_ui_but_keeps_machine_catalog_and_rejects_unknown_profile(
+def test_owner_keeps_machine_catalog_and_rejects_unknown_profile(
     tmp_path: Path,
 ) -> None:
     manager = Manager()

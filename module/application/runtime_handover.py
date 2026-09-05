@@ -157,6 +157,16 @@ class ProfileHandoverCoordinator:
                 tuple(phases),
                 {"busy": None},
             )
+        except Exception as exc:  # noqa: BLE001 - ошибка hook не должна оставить handover в неопределённом состоянии.
+            return self._hook_failure(
+                hooks,
+                profile,
+                operation_id,
+                session_id,
+                phases,
+                phase="begin_handover",
+                exception=exc,
+            )
         if initial is None:
             return HandoverResult(
                 False,
@@ -218,7 +228,17 @@ class ProfileHandoverCoordinator:
                     "Срок действия runtime control request истёк до уведомления",
                     details=handover_details,
                 )
-            notification = hooks.notify_preemption(profile, operation_id, session_id)
+            notification, hook_failure = self._invoke_hook(
+                hooks,
+                lambda: hooks.notify_preemption(profile, operation_id, session_id),
+                profile=profile,
+                operation_id=operation_id,
+                session_id=session_id,
+                phases=phases,
+                phase=RuntimePhase.PREEMPTION_NOTICE,
+            )
+            if hook_failure is not None:
+                return hook_failure
             if deadline_check is not None and deadline_check() is not True:
                 return self._fail(
                     hooks,
@@ -259,7 +279,16 @@ class ProfileHandoverCoordinator:
             )
             if mark_failure is not None:
                 return mark_failure
-            busy_state = self._wait_until_not_busy(profile, hooks, deadline_check=deadline_check)
+            busy_state = self._wait_until_not_busy(
+                profile,
+                hooks,
+                operation_id=operation_id,
+                session_id=session_id,
+                phases=phases,
+                deadline_check=deadline_check,
+            )
+            if isinstance(busy_state, HandoverResult):
+                return busy_state
             if busy_state == "expired":
                 return self._fail(
                     hooks,
@@ -300,7 +329,18 @@ class ProfileHandoverCoordinator:
         )
         if mark_failure is not None:
             return mark_failure
-        if hooks.request_cooperative_quiesce(profile, operation_id, session_id) is not True:
+        quiesce_result, hook_failure = self._invoke_hook(
+            hooks,
+            lambda: hooks.request_cooperative_quiesce(profile, operation_id, session_id),
+            profile=profile,
+            operation_id=operation_id,
+            session_id=session_id,
+            phases=phases,
+            phase=RuntimePhase.QUIESCE_REQUESTED,
+        )
+        if hook_failure is not None:
+            return hook_failure
+        if quiesce_result is not True:
             return self._fail(
                 hooks,
                 profile,
@@ -345,7 +385,18 @@ class ProfileHandoverCoordinator:
                     details=handover_details,
                 )
             wait_timeout = min(wait_timeout, remaining)
-        if hooks.wait_worker_stopped(profile, wait_timeout) is not True:
+        wait_result, hook_failure = self._invoke_hook(
+            hooks,
+            lambda: hooks.wait_worker_stopped(profile, wait_timeout),
+            profile=profile,
+            operation_id=operation_id,
+            session_id=session_id,
+            phases=phases,
+            phase=RuntimePhase.CURRENT_TASK_DRAINING,
+        )
+        if hook_failure is not None:
+            return hook_failure
+        if wait_result is not True:
             return self._fail(
                 hooks,
                 profile,
@@ -388,7 +439,18 @@ class ProfileHandoverCoordinator:
                 "Срок действия runtime control request истёк до подтверждения главного экрана",
                 details=handover_details,
             )
-        if hooks.return_to_main(profile, operation_id, session_id) is not True:
+        return_result, hook_failure = self._invoke_hook(
+            hooks,
+            lambda: hooks.return_to_main(profile, operation_id, session_id),
+            profile=profile,
+            operation_id=operation_id,
+            session_id=session_id,
+            phases=phases,
+            phase=RuntimePhase.RETURNING_TO_MAIN,
+        )
+        if hook_failure is not None:
+            return hook_failure
+        if return_result is not True:
             return self._fail(
                 hooks,
                 profile,
@@ -410,7 +472,18 @@ class ProfileHandoverCoordinator:
                 "Срок действия runtime control request истёк после возврата на главный экран",
                 details=handover_details,
             )
-        if hooks.is_main_confirmed(profile) is not True:
+        main_confirmed, hook_failure = self._invoke_hook(
+            hooks,
+            lambda: hooks.is_main_confirmed(profile),
+            profile=profile,
+            operation_id=operation_id,
+            session_id=session_id,
+            phases=phases,
+            phase=RuntimePhase.MAIN_CONFIRMED,
+        )
+        if hook_failure is not None:
+            return hook_failure
+        if main_confirmed is not True:
             return self._fail(
                 hooks,
                 profile,
@@ -452,13 +525,27 @@ class ProfileHandoverCoordinator:
         profile: str,
         hooks: HandoverHooks,
         *,
+        operation_id: str,
+        session_id: str | None,
+        phases: list[str],
         deadline_check: Callable[[], bool] | None = None,
-    ) -> bool | None | str:
+    ) -> bool | None | str | HandoverResult:
         deadline = self._monotonic() + self.policy.grace_period_seconds
         while True:
             if deadline_check is not None and deadline_check() is not True:
                 return "expired"
-            state = hooks.read_state(profile)
+            try:
+                state = hooks.read_state(profile)
+            except Exception as exc:  # noqa: BLE001 - ошибка чтения state должна завершить handover.
+                return self._hook_failure(
+                    hooks,
+                    profile,
+                    operation_id,
+                    session_id,
+                    phases,
+                    phase=RuntimePhase.GRACE_PERIOD,
+                    exception=exc,
+                )
             if state is None:
                 return None
             if state.freshness != "fresh":
@@ -469,6 +556,62 @@ class ProfileHandoverCoordinator:
             if remaining <= 0:
                 return False
             self._sleep(min(self.policy.poll_seconds, remaining))
+
+    def _invoke_hook(
+        self,
+        hooks: HandoverHooks,
+        callback: Callable[[], object],
+        *,
+        profile: str,
+        operation_id: str,
+        session_id: str | None,
+        phases: list[str],
+        phase: RuntimePhase,
+    ) -> tuple[object | None, HandoverResult | None]:
+        try:
+            return callback(), None
+        except Exception as exc:  # noqa: BLE001 - любой не подтверждённый hook result останавливает handover.
+            return None, self._hook_failure(
+                hooks,
+                profile,
+                operation_id,
+                session_id,
+                phases,
+                phase=phase,
+                exception=exc,
+            )
+
+    @staticmethod
+    def _hook_failure(
+        hooks: HandoverHooks,
+        profile: str,
+        operation_id: str,
+        session_id: str | None,
+        phases: list[str],
+        *,
+        phase: RuntimePhase | str,
+        exception: BaseException,
+    ) -> HandoverResult:
+        phase_name = phase.value if isinstance(phase, RuntimePhase) else phase
+        if isinstance(exception, RuntimeStateError):
+            code = exception.code
+            message = str(exception)
+        else:
+            code = "RUNTIME_HANDOVER_HOOK_FAILED"
+            message = "Handover hook завершился без подтверждённого результата"
+        return ProfileHandoverCoordinator._fail(
+            hooks,
+            profile,
+            operation_id,
+            session_id,
+            phases,
+            code,
+            message,
+            details={
+                "failed_phase": phase_name,
+                "hook_error": type(exception).__name__,
+            },
+        )
 
     @staticmethod
     def _mark(
@@ -492,6 +635,16 @@ class ProfileHandoverCoordinator:
                 str(exc),
                 details={"failed_phase": phase.value},
             )
+        except Exception as exc:  # noqa: BLE001 - ошибка записи фазы завершает handover fail-closed.
+            return ProfileHandoverCoordinator._hook_failure(
+                hooks,
+                profile,
+                operation_id,
+                session_id,
+                phases,
+                phase=phase,
+                exception=exc,
+            )
         phases.append(phase.value)
         return None
 
@@ -510,7 +663,7 @@ class ProfileHandoverCoordinator:
         try:
             hooks.mark_phase(profile, RuntimePhase.FAILED, operation_id, session_id)
             phases.append(RuntimePhase.FAILED.value)
-        except Exception as exc:  # noqa: BLE001, S110 - терминальная ошибка остаётся в fail-closed режиме.
+        except Exception as exc:  # noqa: BLE001 - терминальная ошибка остаётся в fail-closed режиме.
             # Исходная ошибка остаётся результатом проверки; best-effort запись
             # состояния не может превратить fail-closed операцию в успех.
             failure_details["failure_phase_recorded"] = False

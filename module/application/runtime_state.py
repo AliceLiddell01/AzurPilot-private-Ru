@@ -418,6 +418,9 @@ class RuntimeStateStore:
             _expected_worker=(expected_worker_pid, expected_worker_created_at)
             if expected_worker_pid is not None and expected_worker_created_at is not None
             else None,
+            _expected_runtime=(operation_id, session_id)
+            if expected_worker_pid is not None and expected_worker_created_at is not None
+            else None,
         )
 
     def mark_task_started(self, profile: str, task: str, *, operation_id: str | None = None, session_id: str | None = None) -> RuntimeStateSnapshot:
@@ -580,16 +583,37 @@ class RuntimeStateStore:
         self._validate_worker(worker_pid, worker_created_at)
         return self._update(profile, phase=RuntimePhase.RESOURCE_READY, worker_running=True, busy=False, current_task=None, operation_id=operation_id, session_id=session_id, handover_requested=False, draining=False, stop_requested=False, terminal_state="ready", worker_pid=worker_pid, worker_created_at=float(worker_created_at), provenance="dev_runtime")
 
-    def mark_failed(self, profile: str, *, operation_id: str | None = None, session_id: str | None = None, terminal_state: str = "failed") -> RuntimeStateSnapshot:
+    def mark_failed(
+        self,
+        profile: str,
+        *,
+        operation_id: str | None = None,
+        session_id: str | None = None,
+        terminal_state: str = "failed",
+        preserve_handover_flags: bool = False,
+    ) -> RuntimeStateSnapshot:
         terminal_state = _optional_text(terminal_state, maximum=_MAX_TEXT)
         if terminal_state is None:
             raise RuntimeStateError("RUNTIME_STATE_TEXT_INVALID", "Текстовое поле runtime state не может быть пустым")
-        return self._update(profile, phase=RuntimePhase.FAILED, operation_id=operation_id, session_id=session_id, handover_requested=False, draining=False, stop_requested=False, terminal_state=terminal_state, provenance="runtime_control")
+        return self._update(
+            profile,
+            phase=RuntimePhase.FAILED,
+            operation_id=operation_id,
+            session_id=session_id,
+            handover_requested=False,
+            draining=False,
+            stop_requested=False,
+            terminal_state=terminal_state,
+            provenance="runtime_control",
+            _preserve_handover_flags=preserve_handover_flags,
+        )
 
     def _update(self, profile: str, **changes: object) -> RuntimeStateSnapshot:
         profile = _profile(profile)
         preserve_handover = changes.pop("_preserve_handover", False) is True
+        preserve_handover_flags = changes.pop("_preserve_handover_flags", False) is True
         expected_worker = changes.pop("_expected_worker", None)
+        expected_runtime = changes.pop("_expected_runtime", None)
         with application_host_lock(self.lock_path):
             payload = self._read_payload()
             records = dict(payload["profiles"])
@@ -615,6 +639,16 @@ class RuntimeStateStore:
                             "RUNTIME_STATE_STALE_WRITE",
                             "Попытка старого worker изменить snapshot нового worker отклонена",
                         )
+                    if expected_runtime is not None:
+                        expected_operation_id, expected_session_id = expected_runtime
+                        if (
+                            existing_snapshot.operation_id != expected_operation_id
+                            or existing_snapshot.session_id != expected_session_id
+                        ):
+                            raise RuntimeStateError(
+                                "RUNTIME_STATE_STALE_WRITE",
+                                "Попытка устаревшего worker изменить snapshot другой runtime operation отклонена",
+                            )
             elif expected_worker is not None:
                 raise RuntimeStateError(
                     "RUNTIME_STATE_STALE_WRITE",
@@ -628,6 +662,13 @@ class RuntimeStateStore:
                         changes[key] = current[key]
                 if current["handover_requested"]:
                     changes["phase"] = current["phase"]
+            elif preserve_handover_flags and (
+                current["handover_requested"]
+                or current["draining"]
+                or current["stop_requested"]
+            ):
+                for key in ("handover_requested", "draining", "stop_requested", "operation_id", "session_id"):
+                    changes[key] = current[key]
             current.update(changes)
             current["profile"] = profile
             current["schema_version"] = _STATE_SCHEMA_VERSION

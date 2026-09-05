@@ -394,10 +394,9 @@ def unregister_worker(
         except WorkerRegistryOwnershipError:
             return False
         current_worker = registry["workers"].get(config_name)
-        if expected_worker is not None and not _same_worker_identity(
-            current_worker,
-            expected_worker,
-        ):
+        if expected_worker is None:
+            return False
+        if not _same_worker_identity(current_worker, expected_worker):
             return False
         registry["workers"].pop(config_name, None)
         _write_registry(registry, registry_file)

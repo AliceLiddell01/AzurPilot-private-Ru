@@ -227,7 +227,6 @@ class WebUIRuntimeControlOwner:
                 "Срок действия runtime control request истёк до чтения source ownership",
                 owner=owner,
             )
-        manager = self._manager(profile)
         if profile == development_profile and session_id is None:
             return self._failure(
                 RuntimeControlOperation.START_PROFILE,
@@ -238,6 +237,7 @@ class WebUIRuntimeControlOwner:
                 "Для управления development profile требуется session_id",
                 owner=owner,
             )
+        manager = self._manager(profile)
         if self._read_alive(manager):
             snapshot = self.state.read(profile)
             if snapshot is None:
@@ -737,7 +737,7 @@ class WebUIRuntimeControlOwner:
             session_id=session_id,
         )
 
-    def _cooperative_stop_unconfirmed(
+    def _confirm_cooperative_cleanup(
         self,
         manager: object,
         *,
@@ -776,7 +776,7 @@ class WebUIRuntimeControlOwner:
         extra_details: dict[str, object] | None = None,
     ) -> RuntimeControlResult:
         details = dict(extra_details or {})
-        details["cleanup_confirmed"] = self._cooperative_stop_unconfirmed(
+        details["cleanup_confirmed"] = self._confirm_cooperative_cleanup(
             manager,
             request_id=request_id,
             session_id=session_id,

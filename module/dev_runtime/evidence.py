@@ -980,8 +980,14 @@ def _validate_log_metadata(value: object) -> dict[str, object]:
         ):
             raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Конечная граница журнала относится к другому файлу")
     else:
-        if not isinstance(raw_segments, list) or len(raw_segments) > _MAX_LOG_SEGMENTS or (available and not raw_segments) or (not available and raw_segments):
-            raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Сегменты журнала имеют неверное количество")
+        if not isinstance(raw_segments, list):
+            raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Сегменты журнала имеют неверный тип")
+        if len(raw_segments) > _MAX_LOG_SEGMENTS:
+            raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Число сегментов журнала превышает предел")
+        if available and not raw_segments:
+            raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Доступный журнал должен содержать сегмент")
+        if not available and raw_segments:
+            raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Недоступный журнал не должен содержать сегменты")
         segments = []
         seen_identities: set[tuple[int, int]] = set()
         for raw_segment in raw_segments:

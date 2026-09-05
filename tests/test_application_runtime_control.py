@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 from datetime import UTC, datetime, timedelta
@@ -293,6 +294,78 @@ def test_control_plane_requires_positive_timeout_and_rejects_expired_request(tmp
     )
     assert result.code == "RUNTIME_CONTROL_EXPIRED"
     assert calls == 0
+
+
+def test_control_plane_keeps_timed_out_client_request_until_server_rejects_it(
+    tmp_path: Path,
+) -> None:
+    owner = RuntimeOwnerIdentity(pid=4321, created_at=1234.5)
+    calls = 0
+
+    def executor(*args: object, **kwargs: object) -> RuntimeControlResult:
+        nonlocal calls
+        calls += 1
+        raise AssertionError("просроченный request не должен достигать executor")
+
+    server = WebUIControlServer(
+        tmp_path,
+        owner_reader=lambda: owner.as_dict(),
+        owner_matches=lambda candidate: candidate == owner,
+        executor=executor,
+    )
+    client = WebUIControlClient(
+        tmp_path,
+        owner_reader=lambda: owner.as_dict(),
+        owner_matches=lambda candidate: candidate == owner,
+        timeout=0.01,
+        poll_interval=0.001,
+    )
+
+    with pytest.raises(RuntimeControlError) as error:
+        client.call(
+            RuntimeControlOperation.START_PROFILE,
+            "ap",
+            idempotency_key="client-timeout",
+        )
+
+    assert error.value.code == "RUNTIME_CONTROL_TIMEOUT"
+    requests = tmp_path / "config" / "state" / "webui-control" / "requests"
+    results = tmp_path / "config" / "state" / "webui-control" / "results"
+    assert (requests / "client-timeout.json").exists()
+    assert server.serve_once() == 1
+    result = RuntimeControlResult.from_dict(
+        json.loads((results / "client-timeout.json").read_text(encoding="utf-8"))
+    )
+    assert result.code == "RUNTIME_CONTROL_EXPIRED"
+    assert calls == 0
+
+
+def test_control_plane_retains_recent_results_for_possible_client_reads(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = RuntimeOwnerIdentity(pid=4321, created_at=1234.5)
+    server = WebUIControlServer(
+        tmp_path,
+        owner_reader=lambda: owner.as_dict(),
+        owner_matches=lambda candidate: candidate == owner,
+        executor=lambda *args, **kwargs: pytest.fail("executor не должен быть вызван"),
+    )
+    results = tmp_path / "config" / "state" / "webui-control" / "results"
+    results.mkdir(parents=True)
+    old_result = results / "old-result.json"
+    recent_result = results / "recent-result.json"
+    old_result.write_text("{}", encoding="utf-8")
+    recent_result.write_text("{}", encoding="utf-8")
+    now = time.time()
+    os.utime(old_result, (now - 121, now - 121))
+    os.utime(recent_result, (now - 1, now - 1))
+    monkeypatch.setattr(runtime_control, "_MAX_RESULT_FILES", 0)
+
+    server._prune_results()
+
+    assert not old_result.exists()
+    assert recent_result.exists()
 
 
 def test_control_plane_expires_requests_before_request_batch_limit(

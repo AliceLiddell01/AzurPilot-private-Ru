@@ -26,6 +26,7 @@ _MAX_REQUEST_BYTES = 32 * 1024
 _MAX_RESULT_BYTES = 128 * 1024
 _MAX_REQUEST_FILES = 128
 _MAX_RESULT_FILES = 128
+_MAX_CONTROL_TIMEOUT_SECONDS = 120.0
 _MAX_TEXT = 512
 _SAFE_TOKEN = r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}"
 _SAFE_CODE = r"[A-Z][A-Z0-9_]{1,96}"
@@ -251,8 +252,6 @@ def _read_bounded(path: Path, maximum: int) -> bytes:
             time.sleep(0.01 * (2**attempt))
         except OSError as exc:
             raise RuntimeControlError("RUNTIME_CONTROL_READ_FAILED", "Файл control plane невозможно прочитать") from exc
-    else:
-        raise RuntimeControlError("RUNTIME_CONTROL_READ_FAILED", "Файл control plane невозможно прочитать")
     if len(raw) > maximum:
         raise RuntimeControlError("RUNTIME_CONTROL_TOO_LARGE", "Файл control plane превышает допустимый размер")
     return raw
@@ -296,7 +295,11 @@ class WebUIControlClient:
         timeout: float = 15.0,
         poll_interval: float = 0.05,
     ) -> None:
-        if type(timeout) not in (int, float) or not math.isfinite(float(timeout)) or not 0 < float(timeout) <= 120:
+        if (
+            type(timeout) not in (int, float)
+            or not math.isfinite(float(timeout))
+            or not 0 < float(timeout) <= _MAX_CONTROL_TIMEOUT_SECONDS
+        ):
             raise ValueError("timeout control plane должен быть в диапазоне (0, 120] секунд")
         if type(poll_interval) not in (int, float) or not 0 < float(poll_interval) <= 1:
             raise ValueError("poll_interval control plane должен быть в диапазоне (0, 1]")
@@ -816,8 +819,11 @@ class WebUIControlServer:
             )
         except (OSError, RuntimeControlError):
             return
+        retention_cutoff = time.time() - _MAX_CONTROL_TIMEOUT_SECONDS
         for path in paths[_MAX_RESULT_FILES:]:
             try:
+                if path.stat().st_mtime > retention_cutoff:
+                    continue
                 path.unlink()
             except OSError:
                 pass
@@ -881,7 +887,7 @@ class SharedWebUIBootstrapper:
         if (
             type(timeout) not in (int, float)
             or not math.isfinite(float(timeout))
-            or not 0 < float(timeout) <= 120
+            or not 0 < float(timeout) <= _MAX_CONTROL_TIMEOUT_SECONDS
         ):
             raise ValueError("timeout bootstrap должен быть в диапазоне (0, 120] секунд")
         self.repository_root = Path(repository_root).resolve()

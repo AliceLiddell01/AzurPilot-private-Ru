@@ -164,6 +164,20 @@ class TestWorkerRegistry(unittest.TestCase):
                     json.loads(registry_file.read_text(encoding="utf-8")),
                 )
 
+    def test_unregister_worker_requires_expected_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            registry_file = Path(directory) / "workers.json"
+            with patch.object(worker_registry, "WORKER_REGISTRY_FILE", registry_file):
+                with patch.object(worker_registry, "_process_created_at", return_value=10.5):
+                    worker_registry.claim_owner(100)
+                    worker_registry.register_worker(100, "alas", 200)
+
+                self.assertFalse(worker_registry.unregister_worker(100, "alas"))
+                self.assertEqual(
+                    {"alas": {"created_at": 10.5, "pid": 200}},
+                    worker_registry.get_workers(100),
+                )
+
     def test_owner_claim_does_not_overwrite_live_or_unknown_orphan_worker(self):
         with tempfile.TemporaryDirectory() as directory:
             registry_file = Path(directory) / "workers.json"

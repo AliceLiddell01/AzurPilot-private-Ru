@@ -2,12 +2,18 @@ from __future__ import annotations
 
 from collections import deque
 
+import pytest
+
 from module.application.runtime_handover import (
     HandoverPolicy,
     NotificationOutcome,
     ProfileHandoverCoordinator,
 )
-from module.application.runtime_state import RuntimePhase, RuntimeStateError, RuntimeStateSnapshot
+from module.application.runtime_state import (
+    RuntimePhase,
+    RuntimeStateError,
+    RuntimeStateSnapshot,
+)
 
 
 def _snapshot(*, busy: bool, worker_running: bool = True) -> RuntimeStateSnapshot:
@@ -225,3 +231,86 @@ def test_handover_requires_confirmed_notification_delivery() -> None:
         "outcome": "accepted",
         "confirmed": False,
     }
+
+
+def _raise_unexpected_hook_error(*_args: object, **_kwargs: object) -> object:
+    raise RuntimeError("синтетическая ошибка handover hook")
+
+
+@pytest.mark.parametrize(
+    ("hook_name", "busy", "failed_phase"),
+    (
+        ("notify_preemption", True, "preemption_notice"),
+        ("read_state", True, "grace_period"),
+        ("request_cooperative_quiesce", False, "quiesce_requested"),
+        ("wait_worker_stopped", False, "current_task_draining"),
+        ("return_to_main", False, "returning_to_main"),
+        ("is_main_confirmed", False, "main_confirmed"),
+    ),
+)
+def test_handover_converts_unexpected_hook_errors_to_fail_closed_result(
+    hook_name: str,
+    busy: bool,
+    failed_phase: str,
+) -> None:
+    hooks = Hooks([_snapshot(busy=busy)])
+    setattr(hooks, hook_name, _raise_unexpected_hook_error)
+
+    result = _coordinator().run(
+        "alas",
+        operation_id="handover-hook-error",
+        session_id="session-1",
+        hooks=hooks,
+    )
+
+    assert result.ok is False
+    assert result.code == "RUNTIME_HANDOVER_HOOK_FAILED"
+    assert result.details["failed_phase"] == failed_phase
+    assert result.details["hook_error"] == "RuntimeError"
+    assert result.phases[-1] == "failed"
+
+
+def test_handover_converts_unexpected_begin_hook_error_to_fail_closed_result() -> None:
+    hooks = Hooks([_snapshot(busy=False)])
+    hooks.begin_handover = _raise_unexpected_hook_error  # type: ignore[method-assign]
+
+    result = _coordinator().run(
+        "alas",
+        operation_id="handover-begin-error",
+        session_id="session-1",
+        hooks=hooks,
+    )
+
+    assert result.ok is False
+    assert result.code == "RUNTIME_HANDOVER_HOOK_FAILED"
+    assert result.details["failed_phase"] == "begin_handover"
+    assert result.phases[-1] == "failed"
+
+
+def test_handover_records_failed_phase_when_phase_hook_raises() -> None:
+    hooks = Hooks([_snapshot(busy=False)])
+    original_mark = hooks.mark_phase
+
+    def fail_non_terminal_phase(
+        profile: str,
+        phase: RuntimePhase,
+        operation_id: str,
+        session_id: str | None,
+    ) -> None:
+        if phase is not RuntimePhase.FAILED:
+            raise RuntimeError("синтетическая ошибка записи фазы")
+        original_mark(profile, phase, operation_id, session_id)
+
+    hooks.mark_phase = fail_non_terminal_phase  # type: ignore[method-assign]
+
+    result = _coordinator().run(
+        "alas",
+        operation_id="handover-phase-error",
+        session_id="session-1",
+        hooks=hooks,
+    )
+
+    assert result.ok is False
+    assert result.code == "RUNTIME_HANDOVER_HOOK_FAILED"
+    assert result.details["failed_phase"] == "quiesce_requested"
+    assert result.phases[-1] == "failed"
