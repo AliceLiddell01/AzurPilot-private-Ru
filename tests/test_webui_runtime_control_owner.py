@@ -79,6 +79,12 @@ class FailedStartManager(Manager):
         return False
 
 
+class FailedStopManager(Manager):
+    def stop(self) -> bool:
+        self.calls.append(("stop", None, None))
+        raise RuntimeError("synthetic stop failure")
+
+
 class Application:
     def __init__(self) -> None:
         self.returned_to_main = 0
@@ -149,6 +155,38 @@ def test_owner_executes_ap_inside_existing_webui_and_repeats_start_idempotently(
     assert stopped.code == "RUNTIME_STOPPED"
     assert manager.calls[-1][0] == "stop"
     assert owner.state.read("ap").phase is RuntimePhase.STOPPED
+
+
+def test_owner_records_unconfirmed_stop_when_manager_stop_raises(tmp_path: Path) -> None:
+    manager = FailedStopManager()
+    owner = _owner(tmp_path, manager)
+
+    started = owner.execute(
+        RuntimeControlOperation.START_PROFILE,
+        "ap",
+        request_id="start-before-stop-failure",
+        idempotency_key="start-before-stop-failure-key",
+        session_id="session-1",
+        expires_at=_EXPIRY,
+    )
+    result = owner.execute(
+        RuntimeControlOperation.STOP_PROFILE,
+        "ap",
+        request_id="stop-failure",
+        idempotency_key="stop-failure-key",
+        session_id="session-1",
+        expires_at=_EXPIRY,
+    )
+
+    assert started.ok is True
+    assert result.ok is False
+    assert result.code == "RUNTIME_STOP_UNCONFIRMED"
+    assert result.details == {"stop_returned": None, "error": "RuntimeError"}
+    snapshot = owner.state.read("ap")
+    assert snapshot is not None
+    assert snapshot.phase is RuntimePhase.FAILED
+    assert snapshot.terminal_state == "stop_unconfirmed"
+    assert snapshot.worker_running is True
 
 
 def test_owner_rejects_development_start_without_session_before_manager_lookup(

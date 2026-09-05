@@ -615,7 +615,33 @@ class WebUIRuntimeControlOwner:
                 "Срок действия runtime control request истёк до остановки worker",
                 owner=owner,
             )
-        stopped = manager.stop()
+        try:
+            stopped = manager.stop()
+        except Exception as exc:  # noqa: BLE001 - остановка без подтверждения фиксируется в runtime state.
+            details: dict[str, object] = {
+                "stop_returned": None,
+                "error": type(exc).__name__,
+            }
+            try:
+                self.state.mark_failed(
+                    profile,
+                    operation_id=request_id,
+                    session_id=session_id,
+                    terminal_state="stop_unconfirmed",
+                )
+            except Exception as state_exc:  # noqa: BLE001 - неизвестное состояние не должно скрывать исходную ошибку.
+                details["runtime_state_recorded"] = False
+                details["runtime_state_error"] = type(state_exc).__name__
+            return self._failure(
+                RuntimeControlOperation.STOP_PROFILE,
+                profile,
+                request_id,
+                idempotency_key,
+                "RUNTIME_STOP_UNCONFIRMED",
+                "WebUI-owned ProcessManager не подтвердил остановку worker",
+                owner=owner,
+                details=details,
+            )
         if self._deadline_expired(deadline):
             return self._failure(
                 RuntimeControlOperation.STOP_PROFILE,

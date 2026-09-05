@@ -9,8 +9,9 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from alas import AzurLaneAutoScript
-from module.application.runtime_state import RuntimeStateStore
+from module.application.runtime_state import RuntimePhase, RuntimeStateStore
 from module.config.time_source import now as current_time
+from module.exception import ScriptError
 from module.persistence import runtime as persistence_runtime
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -336,6 +337,61 @@ def test_loop_does_not_run_when_handover_wins_atomic_task_start(
     assert snapshot.handover_requested is True
     assert snapshot.busy is False
     assert snapshot.current_task is None
+
+
+def test_loop_finishes_runtime_task_boundary_when_task_raises(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
+    (tmp_path / "module").mkdir()
+    monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(tmp_path))
+    store = RuntimeStateStore(tmp_path)
+    store.mark_worker_started("alas", worker_pid=1009, worker_created_at=2009.0)
+
+    script = _script()
+    script.config_name = "alas"
+    script.config.EmulatorManagement_ScheduledEmulatorRestart = False
+    script.config.Error_LlmAnalysis = False
+    script.config.task_call = lambda _task: None
+    script.checker = SimpleNamespace(
+        wait_until_available=lambda: None,
+        is_available=lambda: True,
+        is_recovered=lambda: False,
+    )
+    script.failure_record = {}
+    script._emulator_recovery_transport_lost = False
+    tasks = iter(("Commission", None))
+    script.get_next_task = lambda: next(tasks)
+    script._prepare_task_boundary = lambda _task: True
+
+    def fail_run(_command: str) -> object:
+        raise ScriptError("synthetic task failure")
+
+    script.run = fail_run
+    monkeypatch.setattr("alas.del_cached_property", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("alas.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        "alas.logger",
+        SimpleNamespace(
+            set_file_logger=lambda *_args, **_kwargs: None,
+            info=lambda *_args, **_kwargs: None,
+            warning=lambda *_args, **_kwargs: None,
+            error=lambda *_args, **_kwargs: None,
+            hr=lambda *_args, **_kwargs: None,
+            exception_context=lambda *_args, **_kwargs: None,
+        ),
+    )
+    monkeypatch.setattr("module.config.utils.is_oobe_needed", lambda: False)
+
+    script.loop()
+
+    snapshot = store.read("alas")
+    assert snapshot is not None
+    assert snapshot.worker_running is True
+    assert snapshot.busy is False
+    assert snapshot.current_task is None
+    assert snapshot.phase is RuntimePhase.USER_PROFILE_IDLE
 
 
 def test_long_wait_manual_wakeup_does_not_run_future_normal_task_early() -> None:

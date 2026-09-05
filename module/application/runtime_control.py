@@ -846,10 +846,9 @@ class WebUIControlServer:
         except (OSError, RuntimeControlError):
             return
         retention_cutoff = time.time() - _MAX_CONTROL_TIMEOUT_SECONDS
-        emergency_limit = paths[2 * _MAX_RESULT_FILES :]
-        for path in paths[_MAX_RESULT_FILES:]:
+        for index, path in enumerate(paths[_MAX_RESULT_FILES:], start=_MAX_RESULT_FILES):
             try:
-                if path not in emergency_limit and path.stat().st_mtime > retention_cutoff:
+                if index < 2 * _MAX_RESULT_FILES and path.stat().st_mtime > retention_cutoff:
                     continue
                 path.unlink()
             except OSError:

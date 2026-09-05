@@ -34,6 +34,7 @@ def record_task_started(config_name: object, task: object) -> bool:
     state_ok = _record_runtime_state(config_name, task=task, started=True)
     if not state_ok:
         return False
+    # Evidence записывается только после подтверждённой state boundary.
     if _enabled():
         try:
             from module.dev_runtime.evidence import record_task_started as record

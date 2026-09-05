@@ -1074,6 +1074,8 @@ def test_runtime_error_hook_does_not_create_missing_runtime_state(
 ) -> None:
     from module.dev_runtime import hooks
 
+    (tmp_path / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
+    (tmp_path / "module").mkdir()
     monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(tmp_path))
     monkeypatch.delenv("AZURPILOT_DEV_SESSION_ID", raising=False)
 

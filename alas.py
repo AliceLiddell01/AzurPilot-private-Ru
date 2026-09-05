@@ -1773,8 +1773,19 @@ class AzurLaneAutoScript:
                 if record_dev_runtime_task_started(task) is False:
                     logger.error('[Alas] Не удалось подтвердить границу текущей задачи; scheduler остановлен')
                     break
-                success = self.run(inflection.underscore(task))
-                if record_dev_runtime_task_finished(task) is False:
+                task_outcome = 'returned'
+                try:
+                    success = self.run(inflection.underscore(task))
+                except Exception:
+                    task_outcome = 'failed'
+                    raise
+                finally:
+                    task_finished = (
+                        record_dev_runtime_task_finished(task, outcome=task_outcome)
+                        if task_outcome == 'failed'
+                        else record_dev_runtime_task_finished(task)
+                    )
+                if task_finished is False:
                     logger.error('[Alas] Не удалось подтвердить завершение задачи; scheduler остановлен')
                     break
                 logger.info(f'[Alas] Планировщик: завершение задачи `{task}`')
