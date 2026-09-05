@@ -15,7 +15,7 @@ CONFIRMATION = "ROTATE-AZURPILOT-POSTGRESQL-CREDENTIALS"
 _SAFE_NAME = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 _SAFE_WSL_PASSFILE = re.compile(r"^/etc/azurpilot/[A-Za-z0-9._-]+$")
 _ENV_KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
-_POSTGRES_ENV_PREFIX = "AZURPILOT_POSTGRES_"
+_OWNED_ENV_PREFIXES = ("AZURPILOT_POSTGRES_", "AZURPILOT_WSL_")
 _ROLE_CONTRACT = {
     "azurpilot_app": (True, False, False, False),
     "azurpilot_migrator": (True, False, False, False),
@@ -365,6 +365,12 @@ def _env_key(raw_line: str) -> str | None:
     return key
 
 
+def _read_env_document(path: Path) -> bytes | None:
+    if path.is_symlink() or (path.exists() and not path.is_file()):
+        raise RuntimeError("Локальный env отсутствует или небезопасен.")
+    return path.read_bytes() if path.is_file() else None
+
+
 def _merge_env_document(previous: bytes | None, generated: bytes) -> bytes:
     if previous is None:
         return generated
@@ -393,8 +399,10 @@ def _merge_env_document(previous: bytes | None, generated: bytes) -> bytes:
         seen_keys.add(key)
         if key in generated_keys:
             continue
-        if key.startswith(_POSTGRES_ENV_PREFIX):
-            raise RuntimeError("Локальный env содержит неподдерживаемый PostgreSQL ключ.")
+        if key.startswith(_OWNED_ENV_PREFIXES):
+            raise RuntimeError(
+                "Локальный env содержит неподдерживаемый ключ PostgreSQL/WSL."
+            )
         preserved.append(raw_line)
 
     while preserved and not preserved[-1].strip():
@@ -489,7 +497,7 @@ def rotate(arguments: argparse.Namespace) -> None:
         raise RuntimeError("Windows passfile отсутствует или небезопасен.")
     windows_existed = windows_passfile.is_file()
     old_windows = windows_passfile.read_bytes() if windows_existed else b""
-    old_env = env_path.read_bytes() if env_path.is_file() else None
+    old_env = _read_env_document(env_path)
     app_secret = secrets.token_urlsafe(48)
     migrator_secret = secrets.token_urlsafe(48)
     if (
