@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
@@ -352,6 +352,23 @@ def test_shared_runtime_log_file_translates_target_registry_error(
 
     with pytest.raises(RuntimeError, match="log target"):
         _ = SharedWebUIRuntime(tmp_path).log_file
+
+
+def test_shared_runtime_uses_current_rotating_worker_log_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from module.dev_runtime import target as target_module
+
+    monkeypatch.setattr(
+        target_module.DevTargetRegistry,
+        "load",
+        lambda _root: DevTarget("ap"),
+    )
+
+    assert SharedWebUIRuntime(tmp_path).log_file == (
+        tmp_path / "log" / f"{date.today().isoformat()}_ap.txt"
+    )
 
 
 def test_shared_manager_falls_back_to_environment_log_for_outside_target(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from datetime import date
 from pathlib import Path
 
 from module.application.runtime_control import (
@@ -40,16 +41,17 @@ class SharedWebUIRuntime:
 
     @property
     def log_file(self) -> Path:
-        # ``set_file_logger`` использует стабильный профильный путь; Evidence
-        # должен читать именно его, а не создавать искусственную границу с
-        # датой, которая может не совпадать с журналом worker.
+        # ``RichTimedRotatingHandler`` переводит базовый путь профиля в
+        # текущий датированный файл после начальной ротации. Evidence должен
+        # открыть именно этот canonical файл worker, иначе граница будет
+        # создана для несуществующего ``log/<profile>.txt``.
         try:
             profile_name = self.profile_name
         except DevTargetError as exc:
             raise RuntimeError(
                 "Нельзя определить log target общего WebUI из-за ошибки development target registry"
             ) from exc
-        return self.repository_root / "log" / f"{profile_name}.txt"
+        return self.repository_root / "log" / f"{date.today().isoformat()}_{profile_name}.txt"
 
     def ensure_webui(self) -> RuntimeOwnerIdentity:
         return self._client().ensure_owner()
