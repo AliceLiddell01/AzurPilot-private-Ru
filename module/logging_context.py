@@ -54,18 +54,8 @@ def get_logging_context() -> LoggingContext:
     return _logging_context.get() or LoggingContext()
 
 
-def _normalize_context_value(value: object) -> str | None:
-    if value is None:
-        return None
-    if isinstance(value, bytes):
-        normalized = f"<байтовое значение, размер={len(value)}>"
-    elif isinstance(value, (str, int, float, bool)):
-        normalized = str(value).strip()
-    else:
-        normalized = f"<объект {type(value).__name__}>"
-    if not normalized:
-        return None
-    return normalized[:_TASK_NAME_LIMIT]
+# Profile/component/run metadata использует тот же bounded contract, что и task.
+_normalize_context_value = _normalize_task_name
 
 
 @contextmanager
@@ -79,9 +69,7 @@ def logging_context(
     previous = get_logging_context()
     current = LoggingContext(
         profile=(
-            previous.profile
-            if profile is _UNSET
-            else _normalize_context_value(profile)
+            previous.profile if profile is _UNSET else _normalize_context_value(profile)
         ),
         component=(
             previous.component
@@ -89,9 +77,7 @@ def logging_context(
             else _normalize_context_value(component)
         ),
         run_id=(
-            previous.run_id
-            if run_id is _UNSET
-            else _normalize_context_value(run_id)
+            previous.run_id if run_id is _UNSET else _normalize_context_value(run_id)
         ),
     )
     token = _logging_context.set(current)
@@ -132,6 +118,7 @@ def install_task_context_filter(target: logging.Logger) -> TaskContextFilter:
 
 def task_logging_context(func):
     """Оборачивать ``Alas.run(command, ...)`` task context без изменения return/exception semantics."""
+
     @wraps(func)
     def wrapped(self, command, *args, **kwargs):
         from module.logger import logger
