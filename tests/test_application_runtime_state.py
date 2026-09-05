@@ -209,6 +209,67 @@ def test_runtime_state_keeps_live_orphan_fail_closed(
     assert error.value.code == "RUNTIME_STATE_RECONCILIATION_REQUIRED"
 
 
+def test_runtime_state_heartbeat_refreshes_stale_worker_without_changing_task_state(
+    tmp_path: Path,
+) -> None:
+    now = datetime.now(UTC)
+    timestamps = iter(
+        [
+            (now - timedelta(seconds=180)).isoformat(),
+            now.isoformat(),
+        ]
+    )
+    store = RuntimeStateStore(tmp_path, now=lambda: next(timestamps))
+    store.mark_worker_started(
+        "alas",
+        worker_pid=1015,
+        worker_created_at=2015.0,
+        operation_id="worker-start",
+    )
+
+    stale = store.read("alas")
+    assert stale is not None
+    assert stale.freshness == "stale"
+
+    refreshed = store.refresh_worker_heartbeat(
+        "alas",
+        worker_pid=1015,
+        worker_created_at=2015.0,
+        operation_id="worker-start",
+    )
+
+    assert refreshed is not None
+    assert refreshed.freshness == "fresh"
+    assert refreshed.phase is RuntimePhase.USER_PROFILE_IDLE
+    assert refreshed.worker_running is True
+    assert refreshed.busy is False
+    assert refreshed.current_task is None
+    assert refreshed.worker_pid == 1015
+    assert refreshed.worker_created_at == 2015.0
+
+
+def test_runtime_state_heartbeat_rejects_reused_worker_identity(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path, datetime.now(UTC).isoformat())
+    store.mark_worker_started(
+        "alas",
+        worker_pid=1016,
+        worker_created_at=2016.0,
+        operation_id="worker-start",
+    )
+
+    with pytest.raises(RuntimeStateError) as error:
+        store.refresh_worker_heartbeat(
+            "alas",
+            worker_pid=2016,
+            worker_created_at=3016.0,
+            operation_id="worker-start",
+        )
+
+    assert error.value.code == "RUNTIME_STATE_STALE_WRITE"
+
+
 def test_runtime_state_reconciles_old_persisted_schema_from_empty_worker_registry(
     tmp_path: Path,
 ) -> None:

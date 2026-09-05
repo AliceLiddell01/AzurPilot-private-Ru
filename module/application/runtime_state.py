@@ -575,6 +575,64 @@ class RuntimeStateStore:
             provenance=provenance,
         )
 
+    def refresh_worker_heartbeat(
+        self,
+        profile: str,
+        *,
+        worker_pid: int,
+        worker_created_at: float,
+        operation_id: str | None = None,
+        session_id: str | None = None,
+    ) -> RuntimeStateSnapshot | None:
+        """Освежить liveness worker без изменения task или handover phase.
+
+        Heartbeat подтверждает только ту же identity worker и ту же runtime
+        ownership. Он не может восстановить неизвестный snapshot, изменить
+        текущую задачу или переписать активный handover.
+        """
+
+        self._validate_worker(worker_pid, worker_created_at)
+        profile = _profile(profile)
+        _optional_token(operation_id)
+        _optional_token(session_id)
+        with application_host_lock(self.lock_path):
+            payload = self._read_payload()
+            records = payload["profiles"]
+            existing = records.get(profile)
+            if existing is None:
+                return None
+            snapshot = RuntimeStateSnapshot.from_dict(existing)
+            if snapshot.profile != profile:
+                raise RuntimeStateError(
+                    "RUNTIME_STATE_CORRUPT",
+                    "Ключ runtime-профиля не совпадает с записью snapshot",
+                )
+            if snapshot.worker_running is not True:
+                return snapshot
+            if (
+                snapshot.worker_pid != worker_pid
+                or snapshot.worker_created_at != float(worker_created_at)
+            ):
+                raise RuntimeStateError(
+                    "RUNTIME_STATE_STALE_WRITE",
+                    "Heartbeat устаревшего worker отклонён",
+                )
+            if snapshot.handover_requested or snapshot.draining or snapshot.stop_requested:
+                return snapshot
+            if snapshot.operation_id != operation_id or snapshot.session_id != session_id:
+                raise RuntimeStateError(
+                    "RUNTIME_STATE_STALE_WRITE",
+                    "Heartbeat worker с другой runtime ownership отклонён",
+                )
+            current = dict(snapshot.as_dict())
+            current["updated_at"] = self._now()
+            current["freshness"] = "fresh"
+            refreshed = RuntimeStateSnapshot.from_dict(current)
+            records = dict(records)
+            records[profile] = refreshed.as_dict()
+            _atomic_state_write(self.path, records)
+            return refreshed
+
     def mark_worker_stopped(
         self,
         profile: str,

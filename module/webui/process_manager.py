@@ -51,6 +51,8 @@ from module.webui.worker_registry import (
 )
 
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+_RUNTIME_STATE_HEARTBEAT_SECONDS = 15.0
+_RUNTIME_STATE_HEARTBEAT_JOIN_SECONDS = 2.0
 
 
 class ProcessManager:
@@ -770,6 +772,57 @@ class ProcessManager:
             cls._processes.pop(config_name, None)
 
     @staticmethod
+    def _runtime_state_heartbeat(
+        config_name: str,
+        repository_root: str | None,
+        operation_id: str | None,
+        session_id: str | None,
+        stop_event: threading.Event,
+    ) -> None:
+        """Поддерживать свежесть runtime state только для текущего worker."""
+
+        try:
+            import psutil
+
+            from module.application.runtime_state import (
+                RuntimeStateError,
+                RuntimeStateStore,
+            )
+
+            process = psutil.Process(os.getpid())
+            worker_created_at = float(process.create_time())
+            state_store = RuntimeStateStore(repository_root or _REPOSITORY_ROOT)
+        except Exception as exc:  # noqa: BLE001 - heartbeat не должен менять worker lifecycle.
+            logger.warning(
+                f"[{config_name}] Не удалось подготовить heartbeat runtime state: {type(exc).__name__}"
+            )
+            return
+
+        while not stop_event.wait(_RUNTIME_STATE_HEARTBEAT_SECONDS):
+            try:
+                snapshot = state_store.refresh_worker_heartbeat(
+                    config_name,
+                    worker_pid=os.getpid(),
+                    worker_created_at=worker_created_at,
+                    operation_id=operation_id,
+                    session_id=session_id,
+                )
+            except RuntimeStateError as exc:
+                if exc.code == "RUNTIME_STATE_STALE_WRITE":
+                    return
+                logger.warning(
+                    f"[{config_name}] Heartbeat runtime state остановлен: {exc.code}"
+                )
+                return
+            except Exception as exc:  # noqa: BLE001 - неизвестное состояние требует fail-closed read.
+                logger.warning(
+                    f"[{config_name}] Heartbeat runtime state не подтверждён: {type(exc).__name__}"
+                )
+                continue
+            if snapshot is None or snapshot.worker_running is not True:
+                return
+
+    @staticmethod
     def run_process(
         config_name,
         func: str,
@@ -790,12 +843,29 @@ class ProcessManager:
             os.environ["AZURPILOT_RUNTIME_OPERATION_ID"] = operation_id
         else:
             os.environ.pop("AZURPILOT_RUNTIME_OPERATION_ID", None)
+        heartbeat_stop = threading.Event()
+        heartbeat = threading.Thread(
+            target=ProcessManager._runtime_state_heartbeat,
+            args=(
+                config_name,
+                repository_root,
+                operation_id,
+                session_id,
+                heartbeat_stop,
+            ),
+            name=f"AzurPilot-runtime-heartbeat-{config_name}",
+            daemon=True,
+        )
+        heartbeat.start()
         try:
             ProcessManager._run_process_body(config_name, func, q, e)
         finally:
+            heartbeat_stop.set()
+            heartbeat.join(timeout=_RUNTIME_STATE_HEARTBEAT_JOIN_SECONDS)
             try:
-                from module.application.runtime_state import RuntimeStateStore
                 import psutil
+
+                from module.application.runtime_state import RuntimeStateStore
 
                 created_at = float(psutil.Process(os.getpid()).create_time())
                 RuntimeStateStore(repository_root or _REPOSITORY_ROOT).mark_worker_stopped(
