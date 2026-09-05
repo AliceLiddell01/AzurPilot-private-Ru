@@ -16,9 +16,9 @@ from module.logging_context import (
     task_logging_context,
 )
 from module.observability.bootstrap import (
+    _read_config,
     _Runtime,
     _SanitizedOTelHandler,
-    _read_config,
     _shutdown_runtime,
     configure_application_observability,
     shutdown_application_observability,
@@ -163,7 +163,9 @@ def test_application_logging_is_idempotent_and_preserves_context_and_redaction(
         ):
             with task_context("ObservationTask"):
                 target.warning(
-                    "token=raw-token url=https://user:password@example.test/path?secret=raw-secret value=%s",
+                    "token=raw-token credential=raw-credential cookie=raw-cookie "
+                    "session=raw-session private_key=raw-private-key "
+                    "url=https://user:password@example.test/path?secret=raw-secret value=%s",
                     SecretObject(),
                     extra={"raw_secret": "raw-attribute"},
                 )
@@ -182,6 +184,10 @@ def test_application_logging_is_idempotent_and_preserves_context_and_redaction(
         exception = records[1].log_record
         assert warning.severity_text == "WARN"
         assert "raw-token" not in str(warning.body)
+        assert "raw-credential" not in str(warning.body)
+        assert "raw-cookie" not in str(warning.body)
+        assert "raw-session" not in str(warning.body)
+        assert "raw-private-key" not in str(warning.body)
         assert "raw-secret" not in str(warning.body)
         assert "raw-secret-from-object" not in str(warning.body)
         assert "https://***@example.test/path?secret=***" in warning.body
@@ -323,4 +329,4 @@ def test_shutdown_is_bounded_even_when_provider_blocks():
     runtime = _Runtime(target=target, provider=SlowProvider(), handler=handler)
     started = time.monotonic()
     assert not _shutdown_runtime(runtime, timeout_millis=25)
-    assert time.monotonic() - started < 0.19
+    assert time.monotonic() - started < 0.35

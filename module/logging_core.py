@@ -26,7 +26,8 @@ _SENSITIVE_QUERY_RE = re.compile(
     r"(?i)([?&](?:access[_-]?token|api[_-]?key|token|password|passwd|secret)=)[^&#\s]+"
 )
 _SENSITIVE_ASSIGNMENT_RE = re.compile(
-    r"(?i)\b(authorization|access[_-]?token|api[_-]?key|token|password|passwd|secret)"
+    r"(?i)\b(authorization|credential|access[_-]?token|api[_-]?key|token|password|"
+    r"passwd|secret|cookie|session|private[_-]?key)"
     r"\s*([:=])\s*(?:bearer\s+)?[^\s,;]+"
 )
 _ANSI_ESCAPE_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
