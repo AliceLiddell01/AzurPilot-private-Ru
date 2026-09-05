@@ -370,6 +370,39 @@ def test_control_plane_keeps_timed_out_client_request_until_server_rejects_it(
     assert calls == 0
 
 
+def test_control_plane_keeps_expired_request_when_error_result_write_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = RuntimeOwnerIdentity(pid=4321, created_at=1234.5)
+    server = WebUIControlServer(
+        tmp_path,
+        owner_reader=lambda: owner.as_dict(),
+        owner_matches=lambda candidate: candidate == owner,
+        executor=lambda *args, **kwargs: pytest.fail("executor не должен быть вызван"),
+    )
+    requests = tmp_path / "config" / "state" / "webui-control" / "requests"
+    requests.mkdir(parents=True)
+    now = datetime.now(UTC)
+    request = {
+        "schema_version": 2,
+        "request_id": "expired-request",
+        "idempotency_key": "expired-key",
+        "operation": "start_profile",
+        "profile": "ap",
+        "session_id": None,
+        "expected_owner": owner.as_dict(),
+        "created_at": (now - timedelta(seconds=2)).isoformat(),
+        "expires_at": (now - timedelta(seconds=1)).isoformat(),
+    }
+    request_path = requests / "expired-key.json"
+    request_path.write_text(json.dumps(request), encoding="utf-8")
+    monkeypatch.setattr(server, "_write_error_result", lambda *args, **kwargs: False)
+
+    assert server.serve_once() == 0
+    assert request_path.exists()
+
+
 def test_control_plane_retains_recent_results_for_possible_client_reads(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

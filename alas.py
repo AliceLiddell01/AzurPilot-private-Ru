@@ -425,12 +425,26 @@ class AzurLaneAutoScript:
         except Exception:
             return False
 
-    def _record_dev_runtime_task_finished(self, task):
-        """Зафиксировать возврат штатного исполнителя задачи без заключения PASS/FAIL."""
+    def _record_dev_runtime_task_finished(self, task, *, outcome='returned'):
+        """Зафиксировать конечный исход задачи без заключения PASS/FAIL."""
         try:
             from module.dev_runtime.hooks import record_task_finished
 
-            result = record_task_finished(self.config_name, task)
+            result = record_task_finished(self.config_name, task, outcome=outcome)
+            return result is not False
+        except Exception:
+            return False
+
+    def _record_dev_runtime_task_cancelled(self, task):
+        """Зафиксировать отмену задачи после уже подтверждённой границы запуска."""
+        try:
+            from module.dev_runtime.hooks import record_task_finished
+
+            result = record_task_finished(
+                self.config_name,
+                task,
+                outcome='cancelled',
+            )
             return result is not False
         except Exception:
             return False
@@ -1668,6 +1682,11 @@ class AzurLaneAutoScript:
             "_record_dev_runtime_task_finished",
             lambda *_args, **_kwargs: None,
         )
+        record_dev_runtime_task_cancelled = getattr(
+            self,
+            "_record_dev_runtime_task_cancelled",
+            record_dev_runtime_task_finished,
+        )
         from module.config.utils import is_oobe_needed
 
         if is_oobe_needed():
@@ -1680,7 +1699,7 @@ class AzurLaneAutoScript:
             )
             exit(1)
 
-        # 全局异常连续失败计数与阈值
+        # Счётчик последовательных глобальных сбоев и порог.
         consecutive_global_failures = 0
         MAX_GLOBAL_FAILURES = 3
         RESTART_DELAY = 20
@@ -1688,7 +1707,7 @@ class AzurLaneAutoScript:
 
         while 1:
             try:
-                # 检查来自 GUI 的通用停止请求
+                # Проверить общий запрос остановки от GUI.
                 if self.stop_event is not None:
                     if self.stop_event.is_set():
                         logger.info('[Alas] Получен запрос на остановку')
@@ -1699,7 +1718,7 @@ class AzurLaneAutoScript:
                 if _handover_requested(self.config_name) is True:
                     logger.info('[Alas] Получен запрос на handover; следующая задача не назначается')
                     break
-                # 检查游戏服务器维护
+                # Проверить техническое обслуживание игрового сервера.
                 wait_for_server = getattr(self, "_wait_for_server_availability", None)
                 if callable(wait_for_server) and not wait_for_server():
                     logger.info('[Alas] Ожидание сервера прервано запросом cooperative stop')
@@ -1707,11 +1726,12 @@ class AzurLaneAutoScript:
                 if not callable(wait_for_server):
                     self.checker.wait_until_available()
                 if self.checker.is_recovered():
-                    # 服务器恢复后强制刷新配置，修复阻塞期间配置未更新的问题
+                    # После восстановления сервера принудительно обновить конфигурацию,
+                    # чтобы применить изменения, сделанные во время ожидания.
                     del_cached_property(self, 'config')
                     logger.info('[Alas] Сервер или сеть восстановлены; выполняется перезапуск игрового клиента')
                     self.config.task_call('Restart')
-                # 检查计划的模拟器重启（在任务之间，不会中断正在运行的任务）
+                # Проверить плановый перезапуск эмулятора между задачами.
                 if self.config.EmulatorManagement_ScheduledEmulatorRestart:
                     elapsed_hours = (time.monotonic() - self.last_emulator_restart_time) / 3600
                     interval = self.config.EmulatorManagement_RestartIntervalHours
@@ -1738,7 +1758,7 @@ class AzurLaneAutoScript:
                                 break
                             logger.warning('[Alas] Плановый перезапуск эмулятора не выполнен; обычная работа продолжается')
 
-                # 获取任务
+                # Получить следующую задачу.
                 task = self.get_next_task()
                 if task is None:
                     break
@@ -1756,7 +1776,7 @@ class AzurLaneAutoScript:
                     logger.info('[Alas] Запуск задачи отменён запросом cooperative stop')
                     break
 
-                # 运行
+                # Запустить задачу.
                 logger.info(f'[Alas] Планировщик: запуск задачи `{task}`')
                 if record_dev_runtime_task_started(task) is False:
                     logger.error('[Alas] Не удалось подтвердить границу текущей задачи; scheduler остановлен')
@@ -1766,6 +1786,8 @@ class AzurLaneAutoScript:
                     and self.stop_event.is_set()
                 ) or _handover_requested(self.config_name) is True:
                     logger.info('[Alas] Запуск задачи отменён запросом cooperative stop после фиксации границы')
+                    if record_dev_runtime_task_cancelled(task) is False:
+                        logger.error('[Alas] Не удалось подтвердить terminal cancellation задачи; scheduler остановлен')
                     break
                 self.device.stuck_record_clear()
                 self.device.click_record_clear()

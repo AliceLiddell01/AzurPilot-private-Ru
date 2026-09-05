@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import copy
 import json
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import Event, Thread
 
 import pytest
 
@@ -581,6 +583,75 @@ def test_legacy_stage1_marker_without_task_fields_remains_compatible(tmp_path: P
     assert restored.task_cleanup_required is False
     assert restored.task_policy_expected is False
     assert restored.runtime_mode is DevRuntimeMode.STANDALONE_PROCESS
+
+
+def test_new_session_default_matches_legacy_runtime_mode(tmp_path: Path) -> None:
+    environment = _environment(tmp_path)
+    session = DevSession(
+        session_id="default-mode-session",
+        state=DevSessionState.STOPPED,
+        repository_root=str(environment.repository_root),
+        created_at="2026-08-29T00:00:00+00:00",
+        updated_at="2026-08-29T00:00:00+00:00",
+    )
+
+    assert session.runtime_mode is DevRuntimeMode.STANDALONE_PROCESS
+
+
+def test_task_plan_and_starting_transition_are_published_under_runtime_lock(
+    tmp_path: Path,
+) -> None:
+    environment = _environment(tmp_path)
+    manager = _manager(environment, _Backend())
+    preparation_entered = Event()
+    release_preparation = Event()
+    start_results: list[object] = []
+    lock_active = Event()
+    preparation_lock_observations: list[bool] = []
+    starting_lock_observations: list[bool] = []
+    original_prepare = manager._prepare_task_session_locked
+    original_locked_state = manager._locked_state
+    original_write_session = manager._write_session
+
+    @contextmanager
+    def tracked_locked_state():
+        with original_locked_state():
+            lock_active.set()
+            try:
+                yield
+            finally:
+                lock_active.clear()
+
+    manager._locked_state = tracked_locked_state  # type: ignore[method-assign]
+
+    def tracked_write_session(session: DevSession) -> None:
+        if session.state is DevSessionState.STARTING:
+            starting_lock_observations.append(lock_active.is_set())
+        original_write_session(session)
+
+    def paused_prepare(task_plan: TaskPlan, session: DevSession):
+        preparation_entered.set()
+        preparation_lock_observations.append(lock_active.is_set())
+        if not release_preparation.wait(timeout=2):
+            raise RuntimeError("подготовка task plan не была освобождена")
+        return original_prepare(task_plan, session)
+
+    manager._write_session = tracked_write_session  # type: ignore[method-assign]
+    manager._prepare_task_session_locked = paused_prepare  # type: ignore[method-assign]
+    start_thread = Thread(
+        target=lambda: start_results.append(manager.start(root_tasks=["RootTask"]))
+    )
+    start_thread.start()
+    assert preparation_entered.wait(timeout=2)
+
+    release_preparation.set()
+    start_thread.join(timeout=3)
+
+    assert not start_thread.is_alive()
+    assert start_results[0].ok is True
+    assert preparation_lock_observations == [True]
+    assert starting_lock_observations
+    assert all(starting_lock_observations)
 
 
 def test_preflight_blocks_corrupt_task_policy_without_task_session(tmp_path: Path) -> None:

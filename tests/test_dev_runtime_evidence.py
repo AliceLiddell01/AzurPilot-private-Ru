@@ -438,6 +438,26 @@ def test_evidence_rejects_terminal_boundary_for_multiple_log_segments() -> None:
         evidence_module._validate_log_metadata(metadata)
 
 
+def test_evidence_rejects_single_segment_with_foreign_terminal_identity() -> None:
+    first = evidence_module._FileIdentity(device=1, inode=10, mtime_ns=1)
+    foreign = evidence_module._FileIdentity(device=1, inode=11, mtime_ns=2)
+    metadata = {
+        "source": "log/2026-08-30_ap.txt",
+        "available": True,
+        "boundary_offset": 0,
+        "boundary_identity": first.as_dict(),
+        "end_offset": 4,
+        "end_identity": foreign.as_dict(),
+        "truncated": False,
+        "segments": [
+            {"identity": first.as_dict(), "boundary_offset": 0, "end_offset": 4}
+        ],
+    }
+
+    with pytest.raises(EvidenceCorrupt, match="другому файлу"):
+        evidence_module._validate_log_metadata(metadata)
+
+
 def test_evidence_logs_respect_hard_page_byte_bound(tmp_path: Path) -> None:
     store = _store(tmp_path)
     store.environment.log_file.parent.mkdir(parents=True, exist_ok=True)
@@ -1069,6 +1089,8 @@ def test_runtime_error_hook_preserves_active_handover_coordination(
     from module.application.runtime_state import RuntimePhase, RuntimeStateStore
     from module.dev_runtime import hooks
 
+    (tmp_path / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
+    (tmp_path / "module").mkdir()
     store = RuntimeStateStore(tmp_path)
     store.mark_worker_started(
         "ap",
@@ -1118,6 +1140,9 @@ def test_finished_hook_writes_evidence_even_when_state_boundary_fails(
     assert hooks.record_task_finished("ap", "RootTask") is False
     assert recorded == [("ap", "RootTask", "returned")]
 
+    assert hooks.record_task_finished("ap", "RootTask", outcome="cancelled") is False
+    assert recorded[-1] == ("ap", "RootTask", "cancelled")
+
 
 def test_hooks_repository_root_does_not_depend_on_process_cwd(
     tmp_path: Path,
@@ -1125,13 +1150,22 @@ def test_hooks_repository_root_does_not_depend_on_process_cwd(
 ) -> None:
     from module.dev_runtime import hooks
 
+    expected_root = Path(__file__).resolve().parents[1]
     monkeypatch.delenv("AZURPILOT_REPOSITORY_ROOT", raising=False)
     monkeypatch.chdir(tmp_path)
-    assert hooks._repository_root() == Path(hooks.__file__).resolve().parents[2]
+    assert hooks._repository_root() == expected_root
 
     configured_root = tmp_path / "configured-root"
+    configured_root.mkdir()
+    (configured_root / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
+    (configured_root / "module").mkdir()
     monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(configured_root))
     assert hooks._repository_root() == configured_root.resolve()
+
+    invalid_root = tmp_path / "invalid-root"
+    invalid_root.mkdir()
+    monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(invalid_root))
+    assert hooks._repository_root() == expected_root
 
 
 def test_old_session_without_evidence_is_reported_as_unavailable(tmp_path: Path) -> None:

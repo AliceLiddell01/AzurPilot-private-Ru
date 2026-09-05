@@ -294,9 +294,16 @@ class DevDiagnosticsMixin:
                     state=DevStatusKind.OWNERSHIP_MISMATCH,
                 )
             shared = self.shared_lifecycle
-            ready = getattr(shared, "matches_session", None)
+            matches_session = getattr(shared, "matches_session", None)
             try:
-                matches = ready(session.session_id, session.profile_name or self.environment.profile_name) if callable(ready) else False
+                matches = (
+                    matches_session(
+                        session.session_id,
+                        session.profile_name or self.environment.profile_name,
+                    )
+                    if callable(matches_session)
+                    else False
+                )
             except Exception:  # noqa: BLE001 - граница ownership работает в режиме fail-closed.
                 matches = False
             if matches is not True:

@@ -237,6 +237,10 @@ def test_loop_does_not_enter_task_when_handover_arrives_after_started_boundary(
 
     script._record_dev_runtime_task_started = record_started
     script._record_dev_runtime_task_finished = lambda _task: True
+    cancelled: list[str] = []
+    script._record_dev_runtime_task_cancelled = (
+        lambda task: cancelled.append(task) or True
+    )
     script.run = lambda _command: pytest.fail("Запуск задачи не должен выполняться")
 
     def accept_handover() -> None:
@@ -267,6 +271,7 @@ def test_loop_does_not_enter_task_when_handover_arrives_after_started_boundary(
 
     assert not handover_thread.is_alive()
     assert started == ["Commission"]
+    assert cancelled == ["Commission"]
 
 
 def test_long_wait_manual_wakeup_does_not_run_future_normal_task_early() -> None:

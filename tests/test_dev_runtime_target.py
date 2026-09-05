@@ -380,6 +380,37 @@ def test_long_lived_manager_refreshes_target_before_new_read_only_call(
     assert manager.environment.profile_name == "profile-b"
 
 
+def test_long_lived_shared_manager_rebinds_owned_lifecycle_after_target_switch(
+    tmp_path: Path,
+) -> None:
+    _write_profile(tmp_path, "profile-a")
+    _write_profile(tmp_path, "profile-b")
+    target_a = DevTargetRegistry.configure(
+        tmp_path,
+        profile_name="profile-a",
+        explicit_consent=True,
+    )
+    manager = DevSessionManager(
+        DevEnvironment(tmp_path, Path("python"), target_a),
+        storage_probe=lambda _environment: (True, "ready"),
+        port_probe=lambda _host, _port: False,
+    )
+    old_lifecycle = manager.shared_lifecycle
+
+    DevTargetRegistry.configure(
+        tmp_path,
+        profile_name="profile-b",
+        explicit_consent=True,
+    )
+
+    result = manager.list_tasks()
+
+    assert result.ok is True
+    assert manager.shared_lifecycle is not old_lifecycle
+    assert manager.shared_lifecycle is not None
+    assert manager.shared_lifecycle.profile_name == "profile-b"
+
+
 def test_long_lived_manager_reports_target_registry_error_as_result(
     tmp_path: Path,
 ) -> None:

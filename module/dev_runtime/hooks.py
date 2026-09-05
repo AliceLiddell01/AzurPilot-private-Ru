@@ -17,7 +17,16 @@ def _enabled() -> bool:
 def _repository_root() -> Path:
     configured = os.environ.get(_REPOSITORY_ENV)
     if configured:
-        return Path(configured).resolve()
+        try:
+            candidate = Path(configured).resolve()
+        except (OSError, RuntimeError):
+            candidate = None
+        if (
+            candidate is not None
+            and (candidate / "gui.py").is_file()
+            and (candidate / "module").is_dir()
+        ):
+            return candidate
     return Path(__file__).resolve().parents[2]
 
 
@@ -35,13 +44,20 @@ def record_task_started(config_name: object, task: object) -> bool:
     return state_ok
 
 
-def record_task_finished(config_name: object, task: object) -> bool:
+def record_task_finished(
+    config_name: object,
+    task: object,
+    *,
+    outcome: str = "returned",
+) -> bool:
+    """Закрыть task boundary и записать evidence даже при сбое state boundary."""
+
     state_ok = _record_runtime_state(config_name, task=task, started=False)
     if _enabled():
         try:
             from module.dev_runtime.evidence import record_task_finished as record
 
-            record(config_name, task, "returned")
+            record(config_name, task, outcome)
         except Exception:
             pass
     return state_ok

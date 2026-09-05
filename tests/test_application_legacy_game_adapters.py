@@ -16,6 +16,7 @@ from module.application import (
     OperationFailedError,
     OwnershipAmbiguousError,
     PostconditionFailedError,
+    PreconditionFailedError,
     host_lock,
     legacy_game_adapters,
 )
@@ -349,6 +350,22 @@ def test_legacy_process_manager_translates_direct_control_errors() -> None:
         lifecycle = LegacyProcessManagerAdapter(control_client=FailingControl())
         with pytest.raises(OwnershipAmbiguousError, match="owner недоступен"):
             getattr(lifecycle, method_name)("secondary")
+
+
+def test_legacy_process_manager_requires_owner_manager_for_direct_adapter() -> None:
+    lifecycle = LegacyProcessManagerAdapter(manager_factory=None)
+
+    with pytest.raises(PreconditionFailedError, match="ProcessManager недоступен"):
+        lifecycle._manager("secondary")
+
+
+def test_legacy_process_manager_translates_unknown_control_code_to_operation_error() -> None:
+    with pytest.raises(OperationFailedError, match="результат не распознан"):
+        LegacyProcessManagerAdapter._raise_for_code(
+            "FUTURE_CONTROL_CODE",
+            "future control result",
+            operation="запуска",
+        )
 
 
 def test_typed_emulator_failures_distinguish_ownership_operation_and_postcondition(

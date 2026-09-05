@@ -135,6 +135,7 @@ class DevSessionManager(DevDiagnosticsMixin):
         # owner. Standalone backend разрешён только при явном выборе тестового
         # seam через shared_webui=False.
         self.shared_webui = True if shared_webui is None else shared_webui
+        self._owns_shared_lifecycle = shared_lifecycle is None and self.shared_webui
         self.process_backend = process_backend or ProcessBackend()
         self.shared_lifecycle = (
             shared_lifecycle
@@ -177,6 +178,8 @@ class DevSessionManager(DevDiagnosticsMixin):
         if current_target == self.environment.dev_target:
             return
         self.environment = replace(self.environment, dev_target=current_target)
+        if self._owns_shared_lifecycle:
+            self.shared_lifecycle = SharedWebUIRuntime(self.environment.repository_root)
         # Эти фасады держат environment внутри себя; после смены registry они
         # не должны продолжать новые операции с прежним target.
         self._evidence_store = None
@@ -2497,9 +2500,8 @@ class DevSessionManager(DevDiagnosticsMixin):
                     ),
                 )
                 self._write_session(session)
-            if task_plan is not None:
-                self._initialize_evidence(session, task_plan)
                 if task_plan is not None:
+                    self._initialize_evidence(session, task_plan)
                     preparation = self._prepare_task_session_locked(task_plan, session)
                     if not preparation.ok:
                         self._evidence_event(
@@ -2529,11 +2531,11 @@ class DevSessionManager(DevDiagnosticsMixin):
                     except EvidenceError:
                         pass
 
-            session.state = DevSessionState.STARTING
-            session.updated_at = self._timestamp()
-            session.last_code = "DEV_SESSION_STARTING"
-            session.last_message = "Запускается штатный gui.py для назначенного development target"
-            self._write_session(session)
+                session.state = DevSessionState.STARTING
+                session.updated_at = self._timestamp()
+                session.last_code = "DEV_SESSION_STARTING"
+                session.last_message = "Запускается штатный gui.py для назначенного development target"
+                self._write_session(session)
 
             if self.shared_webui:
                 if before_process_launch is not None:

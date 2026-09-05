@@ -107,14 +107,6 @@ def _marker_is_active(marker: tuple[int, float]) -> bool | None:
     return abs(current - created_at) < 0.01
 
 
-def _marker_belongs_to_current_process(marker: tuple[int, float]) -> bool:
-    pid, created_at = marker
-    if pid != os.getpid():
-        return False
-    current = _process_created_at(pid)
-    return current is not None and abs(current - created_at) < 0.01
-
-
 @contextmanager
 def game_runtime_lease(
     repository_root: Path | str | None = None,
@@ -154,9 +146,8 @@ def game_runtime_lease(
             active = _marker_is_active(marker)
             if active is None:
                 raise ResourceLeaseError("Невозможно подтвердить владельца занятого игрового lease")
-            if active:
-                if not _marker_belongs_to_current_process(marker):
-                    raise ResourceLeaseError("Игровой runtime уже занят другим процессом")
+            if active and marker[0] != os.getpid():
+                raise ResourceLeaseError("Игровой runtime уже занят другим процессом")
             try:
                 atomic_remove(marker_path)
             except OSError as exc:

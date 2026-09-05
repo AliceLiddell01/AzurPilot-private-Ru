@@ -225,6 +225,20 @@ def _request_is_expired(payload: object, *, now: datetime) -> bool:
     return now >= expires_at
 
 
+def _error_result_identity_is_valid(payload: object) -> bool:
+    """Проверить, можно ли повторить запись keyed error result после сбоя I/O."""
+
+    if not isinstance(payload, Mapping):
+        return False
+    try:
+        _token(payload.get("request_id"), field="request_id")
+        _token(payload.get("idempotency_key"), field="idempotency_key")
+        _profile(payload.get("profile"))
+    except RuntimeControlError:
+        return False
+    return True
+
+
 def _safe_plane_path(repository_root: Path, relative: str) -> Path:
     try:
         return _scoped_path(repository_root, relative)
@@ -420,8 +434,8 @@ class WebUIControlClient:
                         "Идентичность общего WebUI owner невозможно проверить",
                     ) from exc
                 if matches is not True:
-                    # Canonical gui.py сам атомарно перепроверит старую запись
-                    # и не сможет перезаписать живого owner или orphan worker.
+                    # Штатный gui.py сам атомарно перепроверит старую запись
+                    # и не сможет перезаписать живого owner или осиротевший worker.
                     self.bootstrapper.ensure()
             raw = self.owner_reader()
         if raw is None:
@@ -611,9 +625,11 @@ class WebUIControlServer:
                 code="RUNTIME_CONTROL_EXPIRED",
                 message="Срок действия runtime control request истёк до выполнения operation",
             )
-            self._remove_request(request_path)
             if written:
+                self._remove_request(request_path)
                 processed += 1
+            elif not _error_result_identity_is_valid(payload):
+                self._remove_request(request_path)
 
         paths = paths[:_MAX_REQUEST_FILES]
         for request_path in paths:
@@ -645,18 +661,22 @@ class WebUIControlServer:
                     code=exc.code if exc.code.startswith("RUNTIME_") else "RUNTIME_REQUEST_INVALID",
                     message=str(exc),
                 )
-                self._remove_request(request_path)
                 if written:
+                    self._remove_request(request_path)
                     processed += 1
+                elif not _error_result_identity_is_valid(payload):
+                    self._remove_request(request_path)
             except Exception:  # noqa: BLE001 - сервер должен продолжать обслуживать остальные запросы.
                 written = self._write_error_result(
                     payload,
                     code="RUNTIME_EXECUTION_FAILED",
                     message="Операция владельца runtime завершилась ошибкой",
                 )
-                self._remove_request(request_path)
                 if written:
+                    self._remove_request(request_path)
                     processed += 1
+                elif not _error_result_identity_is_valid(payload):
+                    self._remove_request(request_path)
         self._prune_results()
         return processed
 
@@ -975,8 +995,8 @@ class SharedWebUIBootstrapper:
                 process.terminate()
                 process.wait(timeout=3)
         except (OSError, subprocess.TimeoutExpired):
-            # При ошибке bootstrap не используется taskkill: registry owner
-            # остаётся источником истины для последующего восстановления.
+            # При ошибке bootstrap не используется принудительный taskkill:
+            # registry owner остаётся источником истины для последующего восстановления.
             pass
 
 

@@ -25,6 +25,12 @@ class NotificationOutcome(StrEnum):
     UNAVAILABLE = "unavailable"
 
 
+class _WaitOutcome(StrEnum):
+    """Типизированные результаты ожидания, не являющиеся состоянием worker."""
+
+    EXPIRED = "expired"
+
+
 @dataclass(frozen=True, slots=True)
 class HandoverPolicy:
     """Ограниченная policy без task-specific значений в coordinator."""
@@ -289,7 +295,7 @@ class ProfileHandoverCoordinator:
             )
             if isinstance(busy_state, HandoverResult):
                 return busy_state
-            if busy_state == "expired":
+            if busy_state is _WaitOutcome.EXPIRED:
                 return self._fail(
                     hooks,
                     profile,
@@ -529,11 +535,11 @@ class ProfileHandoverCoordinator:
         session_id: str | None,
         phases: list[str],
         deadline_check: Callable[[], bool] | None = None,
-    ) -> bool | None | str | HandoverResult:
+    ) -> bool | None | _WaitOutcome | HandoverResult:
         deadline = self._monotonic() + self.policy.grace_period_seconds
         while True:
             if deadline_check is not None and deadline_check() is not True:
-                return "expired"
+                return _WaitOutcome.EXPIRED
             try:
                 state = hooks.read_state(profile)
             except Exception as exc:  # noqa: BLE001 - ошибка чтения state должна завершить handover.

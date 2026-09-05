@@ -1395,7 +1395,9 @@ class LegacyProcessManagerAdapter:
         instance = _safe_instance_name(instance)
         manager_factory = self._manager_factory
         if manager_factory is None:
-            raise RuntimeError("Стандартный ProcessManager недоступен вне процесса WebUI owner")
+            raise PreconditionFailedError(
+                "Стандартный ProcessManager недоступен вне процесса WebUI owner"
+            )
         return manager_factory(instance)
 
     @staticmethod

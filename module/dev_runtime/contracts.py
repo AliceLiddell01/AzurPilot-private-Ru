@@ -271,7 +271,9 @@ class DevSession:
     task_policy_expected: bool = False
     profile_name: str | None = None
     target_identity: str | None = None
-    runtime_mode: DevRuntimeMode = DevRuntimeMode.SHARED_WEBUI
+    # Отсутствие поля в маркере означает прежний жизненный цикл отдельного
+    # процесса; рабочий менеджер явно передаёт режим shared.
+    runtime_mode: DevRuntimeMode = DevRuntimeMode.STANDALONE_PROCESS
 
     def __post_init__(self) -> None:
         if self.profile_name is None:

@@ -1038,6 +1038,12 @@ def _validate_log_metadata(value: object) -> dict[str, object]:
                 raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Исходная граница журнала не совпадает с первым сегментом")
             if len(segments) == 1 and end_offset != segments[0]["end_offset"]:
                 raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Конечная граница журнала не совпадает с сегментом")
+            if (
+                len(segments) == 1
+                and end_identity is not None
+                and not end_identity.same_file(first_identity)
+            ):
+                raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Конечная граница журнала относится к другому файлу")
             if len(segments) > 1 and (end_offset is not None or end_identity is not None):
                 raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Многосегментный журнал не должен содержать общую конечную границу")
     if not available and (
@@ -1175,6 +1181,35 @@ def _validate_cleanup(value: object) -> dict[str, object]:
         "confirmed": confirmed,
         "preserved": preserved,
         "updated_at": updated_at,
+    }
+
+
+def _cleanup_manifest_value(
+    *,
+    timestamp: str | None,
+    cleanup_confirmed: bool,
+    preserved: bool,
+    now: Callable[[], datetime],
+) -> dict[str, object]:
+    """Сформировать согласованный фрагмент конечной очистки манифеста."""
+
+    if type(cleanup_confirmed) is not bool or type(preserved) is not bool:
+        raise EvidenceError(
+            "DEV_EVIDENCE_CLEANUP_INVALID",
+            "Результат cleanup имеет некорректные флаги",
+        )
+    if cleanup_confirmed and preserved:
+        raise EvidenceError(
+            "DEV_EVIDENCE_CLEANUP_INVALID",
+            "Результат cleanup не может быть одновременно подтверждённым и сохранённым",
+        )
+    value = timestamp or now().astimezone(UTC).isoformat()
+    value = _utc_timestamp(value)
+    return {
+        "status": "preserved" if preserved else ("complete" if cleanup_confirmed else "pending"),
+        "confirmed": cleanup_confirmed,
+        "preserved": preserved,
+        "updated_at": value,
     }
 
 
@@ -1959,29 +1994,20 @@ class EvidenceStore:
         cleanup_confirmed: bool,
         preserved: bool = False,
     ) -> None:
-        if type(cleanup_confirmed) is not bool or type(preserved) is not bool:
-            raise EvidenceError(
-                "DEV_EVIDENCE_CLEANUP_INVALID",
-                "Результат cleanup имеет некорректные флаги",
-            )
-        if cleanup_confirmed and preserved:
-            raise EvidenceError(
-                "DEV_EVIDENCE_CLEANUP_INVALID",
-                "Результат cleanup не может быть одновременно подтверждённым и сохранённым",
-            )
-        timestamp = stopped_at or self.now().astimezone(UTC).isoformat()
-        _utc_timestamp(timestamp)
+        cleanup = _cleanup_manifest_value(
+            timestamp=stopped_at,
+            cleanup_confirmed=cleanup_confirmed,
+            preserved=preserved,
+            now=self.now,
+        )
         with _exclusive_lock(self.lock_path, self.environment.repository_root):
             manifest = self._manifest_locked()
             self._capture_log_end_boundary_locked(manifest)
+            timestamp = cleanup["updated_at"]
+            assert isinstance(timestamp, str)
             manifest["stopped_at"] = timestamp
             manifest["current_task"] = None
-            manifest["cleanup"] = {
-                "status": "preserved" if preserved else ("complete" if cleanup_confirmed else "pending"),
-                "confirmed": cleanup_confirmed,
-                "preserved": preserved,
-                "updated_at": timestamp,
-            }
+            manifest["cleanup"] = cleanup
             self._write_manifest_locked(manifest)
 
     def record_cleanup_result(
@@ -1993,28 +2019,15 @@ class EvidenceStore:
     ) -> None:
         """Сохранить результат cleanup после закрытия terminal evidence."""
 
-        if type(cleanup_confirmed) is not bool or type(preserved) is not bool:
-            raise EvidenceError(
-                "DEV_EVIDENCE_CLEANUP_INVALID",
-                "Результат cleanup имеет некорректные флаги",
-            )
-        if cleanup_confirmed and preserved:
-            raise EvidenceError(
-                "DEV_EVIDENCE_CLEANUP_INVALID",
-                "Результат cleanup не может быть одновременно подтверждённым и сохранённым",
-            )
-        value = timestamp or self.now().astimezone(UTC).isoformat()
-        _utc_timestamp(value)
+        cleanup = _cleanup_manifest_value(
+            timestamp=timestamp,
+            cleanup_confirmed=cleanup_confirmed,
+            preserved=preserved,
+            now=self.now,
+        )
         with _exclusive_lock(self.lock_path, self.environment.repository_root):
             manifest = self._manifest_locked()
-            manifest["cleanup"] = {
-                "status": "preserved"
-                if preserved
-                else ("complete" if cleanup_confirmed else "pending"),
-                "confirmed": cleanup_confirmed,
-                "preserved": preserved,
-                "updated_at": value,
-            }
+            manifest["cleanup"] = cleanup
             self._write_manifest_locked(manifest)
 
     def _read_screenshot_metadata_locked(self, screenshot_id: str) -> tuple[dict[str, object], bytes]:
