@@ -1818,7 +1818,12 @@ class AzurLaneAutoScript:
                     break
                 task_outcome = 'returned'
                 try:
-                    success = self._run_scheduler_task(task)
+                    run_scheduler_task = getattr(self, '_run_scheduler_task', None)
+                    success = (
+                        run_scheduler_task(task)
+                        if callable(run_scheduler_task)
+                        else self.run(inflection.underscore(task))
+                    )
                 except Exception:
                     task_outcome = 'failed'
                     raise
