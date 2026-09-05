@@ -72,6 +72,11 @@ from module.application.errors import GameRuntimePhaseError
 from module.application.game_control_lock import profile_mutation_lock
 from module.application.game_validation import UNKNOWN_TASK
 from module.application.instance_identity import runtime_instance_identity
+from module.application.legacy_game_adapters import LegacyProcessManagerAdapter
+from module.application.runtime_control import (
+    RuntimeControlOperation,
+    RuntimeControlResult,
+)
 from module.application.storage_models import InstanceIdentity
 from module.formation.model import (
     FleetSelection,
@@ -546,9 +551,10 @@ def test_output_schemas_are_scoped_to_their_tool_details() -> None:
         "game_get_config": {"config", "profile", "task", "tool"},
         "game_get_recent_logs": {"lines", "profile", "tool", "truncated"},
         "game_get_screenshot": {"profile", "screenshot", "tool"},
-        "game_start_profile": {"outcome", "profile", "tool"},
-        "game_stop_profile": {"outcome", "profile", "tool"},
+        "game_start_profile": {"cause", "outcome", "profile", "tool"},
+        "game_stop_profile": {"cause", "outcome", "profile", "tool"},
         "game_trigger_task": {
+            "cause",
             "profile",
             "scheduled_at",
             "task",
@@ -556,6 +562,7 @@ def test_output_schemas_are_scoped_to_their_tool_details() -> None:
             "verified",
         },
         "game_clear_scheduler_queue": {
+            "cause",
             "cleared_count",
             "cleared_tasks",
             "profile",
@@ -564,15 +571,17 @@ def test_output_schemas_are_scoped_to_their_tool_details() -> None:
         },
         "game_update_config": {
             "argument",
+            "cause",
             "group",
             "profile",
             "task",
             "tool",
             "verified",
         },
-        "game_restart_emulator": {"profile", "tool", "verified"},
+        "game_restart_emulator": {"cause", "profile", "tool", "verified"},
         "game_restart_runtime": {
             "adb_ready",
+            "cause",
             "emulator_verified",
             "game_foreground",
             "game_running",
@@ -583,6 +592,7 @@ def test_output_schemas_are_scoped_to_their_tool_details() -> None:
         },
         "game_login_runtime": {
             "adb_ready",
+            "cause",
             "game_foreground",
             "game_running",
             "logged_in",
@@ -592,7 +602,7 @@ def test_output_schemas_are_scoped_to_their_tool_details() -> None:
             "tool",
             "verified",
         },
-        "game_restart_adb": {"profile", "tool", "verified"},
+        "game_restart_adb": {"cause", "profile", "tool", "verified"},
     }
     actual = {
         tool.name: set(tool.output_schema["properties"]["details"]["properties"])
@@ -773,6 +783,51 @@ def test_adapter_hides_backend_factory_failures() -> None:
     assert result["code"] == "GAME_SERVICE_UNAVAILABLE"
     assert result["details"] == {"tool": "game_list_profiles"}
     assert "private backend path" not in json.dumps(result, ensure_ascii=False)
+
+
+def test_game_control_result_preserves_runtime_state_cause() -> None:
+    backend = _backend()
+
+    class FailingControl:
+        def start_instance(self, profile: str) -> LifecycleResult:
+            result = RuntimeControlResult(
+                ok=False,
+                code="RUNTIME_CONTROL_EXPIRED",
+                message="Срок действия runtime control request истёк после выполнения operation",
+                operation=RuntimeControlOperation.START_PROFILE,
+                profile=profile,
+                request_id="request-game-cause",
+                idempotency_key="key-game-cause",
+                details={
+                    "cause": {
+                        "code": "RUNTIME_STATE_SCHEMA_MISMATCH",
+                        "message": "Runtime state сохранён в несовместимой schema version",
+                    }
+                },
+            )
+            LegacyProcessManagerAdapter._raise_for_result(result, operation="запуска")
+            raise AssertionError("control result должен завершить операцию ошибкой")
+
+        def stop_instance(self, profile: str) -> LifecycleResult:
+            raise AssertionError("stop не должен вызываться")
+
+    backend.control = FailingControl()
+    result = GameMcpAdapter(lambda: backend).call(
+        "game_start_profile",
+        {"profile": "alpha"},
+    )
+
+    assert result["code"] == "GAME_PRECONDITION_FAILED"
+    assert result["details"]["cause"] == {
+        "code": "RUNTIME_CONTROL_EXPIRED",
+        "message": "Срок действия runtime control request истёк после выполнения operation",
+        "details": {
+            "cause": {
+                "code": "RUNTIME_STATE_SCHEMA_MISMATCH",
+                "message": "Runtime state сохранён в несовместимой schema version",
+            }
+        },
+    }
 
 
 def test_control_scope_is_checked_before_backend_factory_and_arguments() -> None:

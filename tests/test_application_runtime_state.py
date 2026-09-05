@@ -65,6 +65,79 @@ def test_runtime_state_records_busy_handover_and_clears_stale_worker_identity(
     assert stopped.handover_requested is True
 
 
+def test_runtime_state_reconciles_old_persisted_schema_from_empty_worker_registry(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    store.path.parent.mkdir(parents=True, exist_ok=True)
+    store.path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "profiles": {
+                    "alas": {
+                        "schema_version": 1,
+                        "phase": "stopped",
+                        "worker_running": False,
+                    },
+                    "ap": {
+                        "schema_version": 1,
+                        "phase": "failed",
+                        "worker_running": True,
+                        "worker_pid": None,
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeStateError) as error:
+        store.read_all()
+    assert error.value.code == "RUNTIME_STATE_SCHEMA_MISMATCH"
+
+    assert store.reconcile_with_authoritative_workers({}) is True
+    assert json.loads(store.path.read_text(encoding="utf-8")) == {
+        "schema_version": 2,
+        "profiles": {},
+    }
+    assert store.read_all() == {}
+
+    recovered = store.mark_worker_started(
+        "ap",
+        worker_pid=1234,
+        worker_created_at=5678.0,
+        operation_id="upgrade-start",
+    )
+    assert recovered.worker_running is True
+    assert recovered.phase is RuntimePhase.USER_PROFILE_IDLE
+
+
+def test_runtime_state_does_not_discard_incompatible_state_with_authoritative_worker(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    store.path.parent.mkdir(parents=True, exist_ok=True)
+    store.path.write_text(
+        json.dumps({"schema_version": 1, "profiles": {"alas": {}}}),
+        encoding="utf-8",
+    )
+    before = store.path.read_bytes()
+
+    with pytest.raises(RuntimeStateError) as error:
+        store.reconcile_with_authoritative_workers(
+            {"alas": {"pid": 1234, "created_at": 5678.0}}
+        )
+
+    assert error.value.code == "RUNTIME_STATE_SCHEMA_MISMATCH"
+    assert error.value.details == {
+        "recovery": "blocked",
+        "authoritative_worker_profiles": ["alas"],
+        "cause_code": "RUNTIME_STATE_SCHEMA_MISMATCH",
+    }
+    assert store.path.read_bytes() == before
+
+
 def test_runtime_state_rejects_mismatched_profile_keys_and_reports_stale_state(
     tmp_path: Path,
 ) -> None:

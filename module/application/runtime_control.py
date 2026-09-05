@@ -296,6 +296,20 @@ def _owner_equal(left: RuntimeOwnerIdentity, right: RuntimeOwnerIdentity) -> boo
     return left.pid == right.pid and left.created_at == right.created_at
 
 
+def _failure_cause_details(result: object) -> dict[str, object]:
+    """Сохранить typed cause, если executor завершился отказом до deadline."""
+
+    if not isinstance(result, RuntimeControlResult) or result.ok:
+        return {}
+    cause: dict[str, object] = {
+        "code": result.code,
+        "message": result.message,
+    }
+    if result.details:
+        cause["details"] = dict(result.details)
+    return {"cause": cause}
+
+
 class WebUIControlClient:
     """Клиент, который может только отправить фиксированную typed operation."""
 
@@ -747,6 +761,7 @@ class WebUIControlServer:
                 profile,
                 request_id,
                 key,
+                details=_failure_cause_details(result),
                 owner=owner,
             )
         if isinstance(result, RuntimeControlResult):

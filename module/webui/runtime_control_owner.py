@@ -57,8 +57,10 @@ class WebUIRuntimeControlOwner:
         self._deploy_config_provider = deploy_config_provider
         self._development_profile_provider = development_profile_provider
         self.state = RuntimeStateStore(self.repository_root)
+        self._runtime_state_recovery_error: RuntimeStateError | None = None
 
     def start_server(self) -> WebUIControlServer:
+        self._reconcile_runtime_state()
         server = WebUIControlServer(
             self.repository_root,
             owner_reader=self.owner_identity,
@@ -67,6 +69,38 @@ class WebUIRuntimeControlOwner:
         )
         server.start()
         return server
+
+    def _reconcile_runtime_state(self) -> None:
+        """Согласовать эфемерный snapshot с registry до первой mutation."""
+
+        try:
+            from module.webui.worker_registry import get_workers
+
+            workers = get_workers(os.getpid())
+            recovered = self.state.reconcile_with_authoritative_workers(workers)
+        except RuntimeStateError as exc:
+            self._runtime_state_recovery_error = exc
+            logger.error(
+                "Runtime state не прошёл upgrade/recovery path: %s (%s)",
+                exc.code,
+                exc,
+            )
+            return
+        except Exception as exc:  # noqa: BLE001 - registry boundary must fail closed.
+            self._runtime_state_recovery_error = RuntimeStateError(
+                "RUNTIME_STATE_RECONCILIATION_REQUIRED",
+                "Authoritative worker registry невозможно подтвердить",
+                details={"error": type(exc).__name__},
+            )
+            logger.error(
+                "Authoritative worker registry невозможно подтвердить: %s",
+                type(exc).__name__,
+            )
+            return
+        if recovered:
+            logger.warning(
+                "Несовместимый эфемерный runtime state атомарно восстановлен из пустого worker registry"
+            )
 
     @staticmethod
     def owner_identity() -> RuntimeOwnerIdentity | None:
@@ -108,6 +142,18 @@ class WebUIRuntimeControlOwner:
                 owner=owner,
             )
         try:
+            if self._runtime_state_recovery_error is not None:
+                error = self._runtime_state_recovery_error
+                return self._failure(
+                    operation,
+                    profile,
+                    request_id,
+                    idempotency_key,
+                    error.code,
+                    str(error),
+                    owner=owner,
+                    details={"recovery": "blocked", **error.details},
+                )
             if owner is None or self.owner_matches(owner) is not True:
                 return self._failure(
                     operation,
@@ -195,6 +241,17 @@ class WebUIRuntimeControlOwner:
                 code,
                 message,
                 owner=owner,
+            )
+        except RuntimeStateError as exc:
+            return self._failure(
+                operation,
+                profile,
+                request_id,
+                idempotency_key,
+                exc.code,
+                str(exc),
+                owner=owner,
+                details=exc.details,
             )
         except Exception:  # noqa: BLE001 - ошибка границы owner переводит путь в fail-closed режим.
             return self._failure(
@@ -382,6 +439,20 @@ class WebUIRuntimeControlOwner:
             self.state.mark_resource_acquiring(profile, operation_id=request_id, session_id=session_id)
         try:
             self._start_manager(manager, profile, request_id, session_id)
+        except RuntimeStateError as exc:
+            return self._start_failure_after_launch(
+                profile,
+                manager,
+                request_id=request_id,
+                idempotency_key=idempotency_key,
+                session_id=session_id,
+                owner=owner,
+                deadline=deadline,
+                code=exc.code,
+                message=str(exc),
+                terminal_state="runtime_state_rejected",
+                extra_details={"error": type(exc).__name__, **exc.details},
+            )
         except Exception as exc:  # noqa: BLE001 - запущенный worker должен быть согласован с registry.
             return self._start_failure_after_launch(
                 profile,

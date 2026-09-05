@@ -367,6 +367,32 @@ def _invalid(tool: str) -> dict[str, object]:
     )
 
 
+def _operation_failure_details(error: OperationFailedError) -> dict[str, object]:
+    """Вернуть bounded typed cause от application/runtime control boundary."""
+
+    code = getattr(error, "runtime_code", None)
+    message = getattr(error, "runtime_message", None)
+    if (
+        not isinstance(code, str)
+        or not re.fullmatch(r"[A-Z][A-Z0-9_]{1,96}", code)
+        or not isinstance(message, str)
+    ):
+        return {}
+    try:
+        details = _safe_value(getattr(error, "runtime_details", {}))
+    except (TypeError, ValueError, _ResultLimitExceeded):
+        details = {}
+    if not isinstance(details, dict):
+        details = {}
+    return {
+        "cause": {
+            "code": code,
+            "message": _safe_text(message),
+            "details": details,
+        }
+    }
+
+
 def _unknown_tool(tool: object) -> dict[str, object]:
     return _error(
         "GAME_MCP_UNKNOWN_TOOL",
@@ -1695,35 +1721,40 @@ class GameMcpAdapter:
                 return _error(
                     "GAME_UNKNOWN_PROFILE", "Профиль не найден.", tool=tool_name
                 )
-            except PostconditionFailedError:
+            except PostconditionFailedError as error:
                 return _error(
                     "GAME_POSTCONDITION_FAILED",
                     "Изменение не подтверждено ожидаемым состоянием.",
                     tool=tool_name,
+                    details=_operation_failure_details(error),
                 )
-            except ResourceBusyError:
+            except ResourceBusyError as error:
                 return _error(
                     "GAME_RESOURCE_BUSY",
                     "Профиль занят другой control-операцией.",
                     tool=tool_name,
+                    details=_operation_failure_details(error),
                 )
-            except OwnershipAmbiguousError:
+            except OwnershipAmbiguousError as error:
                 return _error(
                     "GAME_OWNERSHIP_AMBIGUOUS",
                     "Ownership целевого Game ресурса не подтвержден.",
                     tool=tool_name,
+                    details=_operation_failure_details(error),
                 )
-            except PreconditionFailedError:
+            except PreconditionFailedError as error:
                 return _error(
                     "GAME_PRECONDITION_FAILED",
                     "Безопасное условие Game операции не выполнено.",
                     tool=tool_name,
+                    details=_operation_failure_details(error),
                 )
-            except OperationFailedError:
+            except OperationFailedError as error:
                 return _error(
                     "GAME_OPERATION_FAILED",
                     "Операция Game MCP не подтверждена.",
                     tool=tool_name,
+                    details=_operation_failure_details(error),
                 )
             except (
                 StorageConfigurationError,

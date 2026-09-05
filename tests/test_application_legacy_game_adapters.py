@@ -22,7 +22,6 @@ from module.application import (
 )
 from module.application.game_models import MediaFrame
 from module.application.legacy_adapters import GeneratedTaskCatalogAdapter
-from module.application.runtime_control import RuntimeControlError
 from module.application.legacy_game_adapters import (
     LegacyAdbAdapter,
     LegacyConfigAdapter,
@@ -30,6 +29,11 @@ from module.application.legacy_game_adapters import (
     LegacyProcessManagerAdapter,
     LegacyRuntimeLogAdapter,
     LegacyScreenshotAdapter,
+)
+from module.application.runtime_control import (
+    RuntimeControlError,
+    RuntimeControlOperation,
+    RuntimeControlResult,
 )
 
 ARGS = {
@@ -366,6 +370,31 @@ def test_legacy_process_manager_translates_unknown_control_code_to_operation_err
             "future control result",
             operation="запуска",
         )
+
+
+def test_legacy_process_manager_preserves_typed_runtime_control_cause() -> None:
+    result = RuntimeControlResult(
+        ok=False,
+        code="RUNTIME_CONTROL_EXPIRED",
+        message="Срок действия runtime control request истёк после выполнения operation",
+        operation=RuntimeControlOperation.START_PROFILE,
+        profile="ap",
+        request_id="request-runtime-cause",
+        idempotency_key="key-runtime-cause",
+        details={
+            "cause": {
+                "code": "RUNTIME_STATE_SCHEMA_MISMATCH",
+                "message": "Runtime state сохранён в несовместимой schema version",
+            }
+        },
+    )
+
+    with pytest.raises(PreconditionFailedError) as error:
+        LegacyProcessManagerAdapter._raise_for_result(result, operation="запуска")
+
+    assert error.value.runtime_code == "RUNTIME_CONTROL_EXPIRED"
+    assert error.value.runtime_message == result.message
+    assert error.value.runtime_details == result.details
 
 
 def test_typed_emulator_failures_distinguish_ownership_operation_and_postcondition(

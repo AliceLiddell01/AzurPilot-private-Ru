@@ -37,9 +37,16 @@ _SAFE_PHASE = re.compile(r"^[a-z_]{1,64}$")
 class RuntimeStateError(RuntimeError):
     """Безопасная ошибка чтения или записи process-shared runtime state."""
 
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        details: Mapping[str, object] | None = None,
+    ) -> None:
         super().__init__(message)
         self.code = code
+        self.details = dict(details or {})
 
 
 class RuntimePhase(StrEnum):
@@ -362,6 +369,52 @@ class RuntimeStateStore:
                 )
             result[profile] = replace(snapshot, freshness=_freshness(snapshot.updated_at))
         return result
+
+    def reconcile_with_authoritative_workers(
+        self,
+        authoritative_workers: Mapping[str, Mapping[str, object]],
+    ) -> bool:
+        """Восстановить эфемерный snapshot после несовместимого обновления.
+
+        Runtime state не является источником scheduler/config данных. Единственным
+        источником текущей identity worker является owner-specific registry, который
+        передаётся вызывающей стороной. Поэтому несовместимый или структурно
+        повреждённый snapshot можно атомарно сбросить только когда registry
+        подтверждает отсутствие worker'ов. При наличии worker'ов сохранение старого
+        файла и fail-closed безопаснее попытки угадать их phase/session.
+        """
+
+        workers = self._normalize_authoritative_workers(authoritative_workers)
+        with application_host_lock(self.lock_path):
+            try:
+                payload = self._read_payload()
+                for profile, record in payload["profiles"].items():
+                    profile = _profile(profile)
+                    snapshot = RuntimeStateSnapshot.from_dict(record)
+                    if snapshot.profile != profile:
+                        raise RuntimeStateError(
+                            "RUNTIME_STATE_CORRUPT",
+                            "Ключ runtime-профиля не совпадает с записью snapshot",
+                        )
+            except RuntimeStateError as error:
+                if error.code not in {
+                    "RUNTIME_STATE_SCHEMA_MISMATCH",
+                    "RUNTIME_STATE_CORRUPT",
+                }:
+                    raise
+                if workers:
+                    raise RuntimeStateError(
+                        error.code,
+                        "Несовместимый runtime state нельзя безопасно восстановить при работающих worker",
+                        details={
+                            "recovery": "blocked",
+                            "authoritative_worker_profiles": sorted(workers),
+                            "cause_code": error.code,
+                        },
+                    ) from error
+                _atomic_state_write(self.path, {})
+                return True
+        return False
 
     def mark_worker_started(
         self,
@@ -709,7 +762,19 @@ class RuntimeStateStore:
             payload = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
             raise RuntimeStateError("RUNTIME_STATE_CORRUPT", "Runtime state содержит некорректный JSON") from exc
-        if not isinstance(payload, dict) or set(payload) != {"schema_version", "profiles"} or payload.get("schema_version") != _STATE_SCHEMA_VERSION:
+        if not isinstance(payload, dict):
+            raise RuntimeStateError("RUNTIME_STATE_CORRUPT", "Runtime state имеет неизвестную структуру")
+        if payload.get("schema_version") != _STATE_SCHEMA_VERSION:
+            if isinstance(payload.get("schema_version"), int) and not isinstance(
+                payload.get("schema_version"), bool
+            ):
+                raise RuntimeStateError(
+                    "RUNTIME_STATE_SCHEMA_MISMATCH",
+                    "Runtime state сохранён в несовместимой schema version",
+                    details={"persisted_schema_version": payload.get("schema_version")},
+                )
+            raise RuntimeStateError("RUNTIME_STATE_CORRUPT", "Runtime state имеет неизвестную структуру")
+        if set(payload) != {"schema_version", "profiles"}:
             raise RuntimeStateError("RUNTIME_STATE_CORRUPT", "Runtime state имеет неизвестную структуру")
         profiles = payload.get("profiles")
         if not isinstance(profiles, dict) or len(profiles) > _MAX_PROFILES:
@@ -722,6 +787,47 @@ class RuntimeStateStore:
             raise RuntimeStateError("RUNTIME_WORKER_ID_INVALID", "worker_pid должен быть положительным int")
         if isinstance(worker_created_at, bool) or not isinstance(worker_created_at, (int, float)) or not math.isfinite(float(worker_created_at)) or float(worker_created_at) <= 0:
             raise RuntimeStateError("RUNTIME_WORKER_ID_INVALID", "worker_created_at должен быть положительным числом")
+
+    @classmethod
+    def _normalize_authoritative_workers(
+        cls,
+        workers: Mapping[str, Mapping[str, object]],
+    ) -> dict[str, dict[str, object]]:
+        if not isinstance(workers, Mapping):
+            raise RuntimeStateError(
+                "RUNTIME_STATE_RECONCILIATION_REQUIRED",
+                "Authoritative worker registry имеет неподдерживаемый формат",
+            )
+        normalized: dict[str, dict[str, object]] = {}
+        for raw_profile, raw_record in workers.items():
+            profile = _profile(raw_profile)
+            if not isinstance(raw_record, Mapping):
+                raise RuntimeStateError(
+                    "RUNTIME_STATE_RECONCILIATION_REQUIRED",
+                    "Authoritative worker registry содержит неподтверждённую identity",
+                    details={"profile": profile},
+                )
+            if set(raw_record) != {"pid", "created_at"}:
+                raise RuntimeStateError(
+                    "RUNTIME_STATE_RECONCILIATION_REQUIRED",
+                    "Authoritative worker registry содержит неизвестные поля identity",
+                    details={"profile": profile},
+                )
+            pid = raw_record.get("pid")
+            created_at = raw_record.get("created_at")
+            try:
+                cls._validate_worker(pid, created_at)
+            except RuntimeStateError as error:
+                raise RuntimeStateError(
+                    "RUNTIME_STATE_RECONCILIATION_REQUIRED",
+                    "Authoritative worker registry содержит некорректную identity",
+                    details={"profile": profile, "cause_code": error.code},
+                ) from error
+            normalized[profile] = {
+                "pid": pid,
+                "created_at": float(created_at),
+            }
+        return normalized
 
 
 def _atomic_state_write(path: Path, records: Mapping[str, object]) -> None:

@@ -135,6 +135,33 @@ def _owner(tmp_path: Path, manager: Manager) -> WebUIRuntimeControlOwner:
     return instance_owner
 
 
+def test_owner_start_server_runs_runtime_state_upgrade_recovery(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    state_path = tmp_path / "config" / "state" / "webui-runtime-state.json"
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        json.dumps({"schema_version": 1, "profiles": {"ap": {"phase": "failed"}}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "module.webui.worker_registry.get_workers",
+        lambda _owner_pid: {},
+    )
+    owner = WebUIRuntimeControlOwner(tmp_path)
+
+    server = owner.start_server()
+    try:
+        assert json.loads(state_path.read_text(encoding="utf-8")) == {
+            "schema_version": 2,
+            "profiles": {},
+        }
+        assert owner._runtime_state_recovery_error is None
+    finally:
+        server.close()
+
+
 def test_owner_executes_ap_inside_existing_webui_and_repeats_start_idempotently(
     tmp_path: Path,
 ) -> None:

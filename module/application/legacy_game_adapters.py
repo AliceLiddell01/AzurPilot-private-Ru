@@ -1350,7 +1350,20 @@ class LegacyProcessManagerAdapter:
     def _raise_for_result(result: RuntimeControlResult, *, operation: str) -> None:
         if result.ok:
             return
-        LegacyProcessManagerAdapter._raise_for_code(result.code, result.message, operation=operation)
+        try:
+            LegacyProcessManagerAdapter._raise_for_code(
+                result.code,
+                result.message,
+                operation=operation,
+            )
+        except OperationFailedError as error:
+            # Сохранить typed control-plane cause до public Game MCP boundary.
+            # Transport adapter решит, какие из этих bounded details можно
+            # показать оператору.
+            error.runtime_code = result.code
+            error.runtime_message = result.message
+            error.runtime_details = dict(result.details)
+            raise
 
     @staticmethod
     def _raise_for_code(code: str, message: str, *, operation: str) -> NoReturn:
@@ -1381,6 +1394,11 @@ class LegacyProcessManagerAdapter:
             "RUNTIME_HANDOVER_STATE_UNKNOWN",
             "RUNTIME_HANDOVER_STATE_STALE",
             "RUNTIME_STATE_UNKNOWN",
+            "RUNTIME_STATE_SCHEMA_MISMATCH",
+            "RUNTIME_STATE_CORRUPT",
+            "RUNTIME_STATE_RECONCILIATION_REQUIRED",
+            "RUNTIME_STATE_UNREADABLE",
+            "RUNTIME_STATE_TOO_LARGE",
             "RUNTIME_SESSION_REQUIRED",
             "RUNTIME_CONTROL_EXPIRED",
         }:
