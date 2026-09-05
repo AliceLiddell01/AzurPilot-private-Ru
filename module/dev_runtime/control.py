@@ -816,6 +816,29 @@ class ConfiguredRuntimeBackend:
             )
         return result
 
+    def _connect_emulator_for_readiness(
+        self,
+        *,
+        prepared: _RuntimeConfigSnapshot,
+        timeout: float | None = None,
+    ) -> None:
+        """Поддерживать ADB-соединение target во время mutating wait-loop."""
+
+        serial, _package = self._configuration(prepared=prepared)
+        client = self._adb_client()
+        try:
+            message = str(client.connect(serial, timeout=timeout))
+        except Exception:  # noqa: BLE001
+            # Отказ соединения во время загрузки эмулятора является
+            # промежуточным состоянием; итогом останется bounded timeout.
+            return
+        if "bad port" in message.casefold():
+            raise RuntimeControlError(
+                "DEV_CONTROL_ADB_ENDPOINT_INVALID",
+                "ADB endpoint development target имеет некорректный формат",
+                outcome=ControlOutcome.PRECONDITION_FAILED,
+            )
+
     def _app_controller(self) -> object:
         self._configuration()
         if self._app is None:
@@ -1444,7 +1467,14 @@ class RuntimeControlManager:
             return backend.snapshot(prepared=prepared)
         return backend.snapshot()
 
-    def _wait_for(self, operation: DevRuntimeControlOperation, backend: RuntimeBackend, predicate: Callable[[RuntimeSnapshot], bool]) -> tuple[DevRuntimeControlOperation, RuntimeSnapshot]:
+    def _wait_for(
+        self,
+        operation: DevRuntimeControlOperation,
+        backend: RuntimeBackend,
+        predicate: Callable[[RuntimeSnapshot], bool],
+        *,
+        connect_emulator: bool = False,
+    ) -> tuple[DevRuntimeControlOperation, RuntimeSnapshot]:
         operation = self._transition(operation, ControlState.WAITING_READY, "DEV_CONTROL_WAITING_READY")
         prepared: _RuntimeConfigSnapshot | None = None
         binding_checked = False
@@ -1458,6 +1488,23 @@ class RuntimeControlManager:
                 )
                 binding_checked = True
                 next_binding_check = now + CONTROL_BINDING_RECHECK_SECONDS
+            if connect_emulator and isinstance(backend, ConfiguredRuntimeBackend):
+                if prepared is None:
+                    raise RuntimeControlError(
+                        "DEV_CONTROL_CONFIG_UNAVAILABLE",
+                        "Критическую конфигурацию development target невозможно безопасно подтвердить",
+                        outcome=ControlOutcome.PRECONDITION_FAILED,
+                    )
+                remaining = None
+                if self._execution_deadline is not None:
+                    remaining = self._execution_deadline - self.monotonic()
+                    if remaining <= 0:
+                        break
+                    remaining = min(5.0, remaining)
+                backend._connect_emulator_for_readiness(
+                    prepared=prepared,
+                    timeout=remaining,
+                )
             snapshot = self._backend_snapshot(backend, prepared)
             if predicate(snapshot):
                 return operation, snapshot
@@ -1493,13 +1540,23 @@ class RuntimeControlManager:
             if snapshot.emulator_running is True and snapshot.emulator_ready is True:
                 return self._finish(operation, outcome=ControlOutcome.PASS, code="DEV_CONTROL_ALREADY_READY")
             if snapshot.emulator_running is True:
-                operation, _ = self._wait_for(operation, backend, lambda item: item.emulator_running is True and item.emulator_ready is True)
+                operation, _ = self._wait_for(
+                    operation,
+                    backend,
+                    lambda item: item.emulator_running is True and item.emulator_ready is True,
+                    connect_emulator=True,
+                )
                 return self._finish(operation, outcome=ControlOutcome.PASS, code="DEV_CONTROL_READY")
             if snapshot.emulator_running is None:
                 raise _ControlFailure("DEV_CONTROL_EMULATOR_STATE_UNKNOWN", "Нельзя безопасно подтвердить, что эмулятор остановлен", outcome=ControlOutcome.PRECONDITION_FAILED)
             self._assert_operation_binding(operation)
             self._call(backend.start_emulator(), "DEV_CONTROL_EMULATOR_START_FAILED", "Platform не запустила эмулятор")
-            operation, _ = self._wait_for(operation, backend, lambda item: item.emulator_running is True and item.emulator_ready is True)
+            operation, _ = self._wait_for(
+                operation,
+                backend,
+                lambda item: item.emulator_running is True and item.emulator_ready is True,
+                connect_emulator=True,
+            )
             return self._finish(operation, outcome=ControlOutcome.PASS, code="DEV_CONTROL_READY")
         if action is ControlAction.STOP_EMULATOR:
             if snapshot.emulator_running is False and snapshot.emulator_detected is False:
@@ -1516,7 +1573,12 @@ class RuntimeControlManager:
             operation, _ = self._wait_for(operation, backend, lambda item: item.emulator_running is False and item.emulator_detected is False)
             self._assert_operation_binding(operation)
             self._call(backend.start_emulator(), "DEV_CONTROL_EMULATOR_START_FAILED", "Platform не запустила эмулятор")
-            operation, _ = self._wait_for(operation, backend, lambda item: item.emulator_running is True and item.emulator_ready is True)
+            operation, _ = self._wait_for(
+                operation,
+                backend,
+                lambda item: item.emulator_running is True and item.emulator_ready is True,
+                connect_emulator=True,
+            )
             return self._finish(operation, outcome=ControlOutcome.PASS, code="DEV_CONTROL_RESTARTED")
         if action in {
             ControlAction.START_GAME,

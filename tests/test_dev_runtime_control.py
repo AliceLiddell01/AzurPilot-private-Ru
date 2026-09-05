@@ -194,6 +194,15 @@ class _BoundedPlatform:
         raise AssertionError("control plane не должен вызывать high-level emulator_stop")
 
 
+class _AdbConnectionProbe:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, float | None]] = []
+
+    def connect(self, serial: str, *, timeout: float | None = None) -> str:
+        self.calls.append((serial, timeout))
+        return f"connected to {serial}"
+
+
 @pytest.fixture
 def supervisor_identity(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(control_module, "_process_created_at", lambda _pid: 123.0)
@@ -440,6 +449,92 @@ def test_configured_backend_uses_single_emulator_request_for_bounded_control(
         "_emulator_stop",
         "stop_request",
     ]
+
+
+def test_configured_backend_connects_target_during_bounded_emulator_wait(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    environment = _environment(tmp_path)
+    backend = ConfiguredRuntimeBackend(environment)
+    backend._configuration()
+    probe = _AdbConnectionProbe()
+    monkeypatch.setattr(
+        control_module.ConfiguredRuntimeBackend,
+        "_adb_client",
+        staticmethod(lambda: probe),
+    )
+
+    backend._connect_emulator_for_readiness(
+        prepared=control_module._runtime_config_snapshot(environment),
+        timeout=4.5,
+    )
+
+    assert probe.calls == [("127.0.0.1:5555", 4.5)]
+
+
+def test_emulator_wait_connects_target_before_readiness_probe(
+    tmp_path: Path,
+    supervisor_identity: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    environment = _environment(tmp_path)
+    backend = ConfiguredRuntimeBackend(environment)
+    snapshots = [
+        RuntimeSnapshot(
+            target_configured=True,
+            emulator_detected=False,
+            emulator_running=False,
+            emulator_ready=False,
+            adb_reachable=False,
+            adb_state="unavailable",
+            game_reachable=False,
+            game_foreground=False,
+            game_running=None,
+        ),
+        RuntimeSnapshot(
+            target_configured=True,
+            emulator_detected=True,
+            emulator_running=True,
+            emulator_ready=True,
+            adb_reachable=True,
+            adb_state="device",
+            game_reachable=True,
+            game_foreground=False,
+            game_running=False,
+        ),
+    ]
+    connection_calls: list[tuple[object, object]] = []
+    snapshot_calls = 0
+
+    def snapshot(*, prepared=None) -> RuntimeSnapshot:
+        nonlocal snapshot_calls
+        snapshot_calls += 1
+        if snapshot_calls > 1:
+            assert connection_calls
+        return snapshots.pop(0)
+
+    def connect(*, prepared, timeout) -> None:
+        connection_calls.append((prepared, timeout))
+
+    monkeypatch.setattr(backend, "snapshot", snapshot)
+    monkeypatch.setattr(backend, "start_emulator", lambda: True)
+    monkeypatch.setattr(backend, "_connect_emulator_for_readiness", connect)
+    manager = RuntimeControlManager(
+        environment,
+        backend_factory=lambda _environment: backend,
+        session_state_provider=lambda: None,
+        smoke_active_provider=lambda: False,
+        supervisor_launcher=lambda _environment, _control_id: SimpleNamespace(pid=os.getpid()),
+        now=lambda: _NOW,
+        sleep=lambda _seconds: None,
+        action_timeouts={action: 5.0 for action in ControlAction},
+    )
+
+    result = _finish(manager, _accepted(manager, ControlAction.START_EMULATOR))
+
+    assert result.ok is True
+    assert len(connection_calls) == 1
 
 
 def test_emulator_stop_and_restart_use_state_predicates(
