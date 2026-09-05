@@ -5,6 +5,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from unittest.mock import patch
 
 from opentelemetry.sdk._logs.export import InMemoryLogRecordExporter
 
@@ -15,6 +16,7 @@ from module.logging_context import (
     task_context,
     task_logging_context,
 )
+from module.logging_core import sanitize_log_text
 from module.observability.bootstrap import (
     _read_config,
     _Runtime,
@@ -213,6 +215,112 @@ def test_application_logging_is_idempotent_and_preserves_context_and_redaction(
         target.removeHandler(local_handler)
         local_handler.close()
         shutdown_application_observability(target)
+
+
+def test_mapping_and_quoted_redaction_covers_body_and_exception_metadata(monkeypatch):
+    _configure_test_environment(monkeypatch)
+    target = _new_logger("observability-mapping-redaction")
+    exporter = InMemoryLogRecordExporter()
+    local_records = []
+    local_handler = logging.Handler()
+    local_handler.emit = local_records.append
+    target.addHandler(local_handler)
+    try:
+        assert configure_application_observability(
+            target,
+            _exporter_factory=lambda _timeout: exporter,
+        )
+        target.info("token=raw-assignment")
+        target.info('{"token":"raw-json"}')
+        target.info("{'token': 'raw-dict'}")
+        target.info('"authorization": "Bearer raw-authorization"')
+        target.info("%(token)s", {"token": "raw-mapping"})
+        try:
+            raise ValueError('{"token":"raw-exception"}')
+        except ValueError:
+            target.exception("Ошибка с секретом")
+
+        assert shutdown_application_observability(target, timeout_millis=3000)
+        records = exporter.get_finished_logs()
+        assert len(records) == 6
+        for exported in records:
+            log_record = exported.log_record
+            payload = "\n".join(
+                [
+                    str(log_record.body),
+                    str(log_record.attributes.get("exception.message", "")),
+                    str(log_record.attributes.get("exception.stacktrace", "")),
+                ]
+            )
+            for secret in (
+                "raw-assignment",
+                "raw-json",
+                "raw-dict",
+                "raw-authorization",
+                "raw-mapping",
+                "raw-exception",
+            ):
+                assert secret not in payload
+
+        assert local_records[4].getMessage() == "raw-mapping"
+        assert sanitize_log_text('{"token":"raw-json"}') == '{"token":***}'
+    finally:
+        target.removeHandler(local_handler)
+        local_handler.close()
+        shutdown_application_observability(target)
+
+
+def test_process_role_component_does_not_create_fake_profile(monkeypatch):
+    _configure_test_environment(monkeypatch)
+    target = _new_logger("observability-process-role")
+    exporter = InMemoryLogRecordExporter()
+    try:
+        assert configure_application_observability(
+            target,
+            default_component="gui",
+            _exporter_factory=lambda _timeout: exporter,
+        )
+        target.info("запуск GUI")
+        assert shutdown_application_observability(target, timeout_millis=3000)
+        attributes = exporter.get_finished_logs()[0].log_record.attributes
+        assert attributes["azurpilot.component"] == "gui"
+        assert "azurpilot.profile" not in attributes
+    finally:
+        shutdown_application_observability(target)
+
+
+def test_set_file_logger_keeps_canonical_profile_separate_from_filename(tmp_path):
+    from module import observability
+    import module.logger as logger_module
+
+    handlers_before = list(logger_module.logger.handlers)
+    log_file_before = logger_module.logger.log_file
+    diagnostic_log_file_before = logger_module.logger.diagnostic_log_file
+    failure_target_before = logger_module.diagnostic_hdlr._failure_target
+    try:
+        with patch.object(
+            logger_module.multiprocessing,
+            "current_process",
+            return_value=type("Process", (), {"name": "LoggingTestProcess"})(),
+        ), patch.object(
+            observability, "configure_application_observability"
+        ) as configure:
+            logger_module.set_file_logger(name="farm_main", log_dir=tmp_path)
+
+        configure.assert_called_once_with(
+            logger_module.logger,
+            default_profile="farm_main",
+            default_component=None,
+        )
+    finally:
+        for handler in list(logger_module.logger.handlers):
+            if handler not in handlers_before:
+                logger_module.logger.removeHandler(handler)
+                handler.close()
+        logger_module.logger.handlers[:] = handlers_before
+        logger_module.logger.log_file = log_file_before
+        logger_module.logger.diagnostic_log_file = diagnostic_log_file_before
+        logger_module.diagnostic_hdlr.configure_failure_target(failure_target_before)
 
 
 def test_logging_context_restores_nested_values_and_isolates_async_tasks():

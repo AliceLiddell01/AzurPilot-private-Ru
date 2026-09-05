@@ -30,6 +30,8 @@ def set_file_logger(
     name: str = pyw_name,
     *,
     log_dir: str | Path = "./log",
+    observability_profile: str | None = None,
+    observability_component: str | None = None,
 ) -> None: ...
 def set_func_logger(
     func: Callable[[ConsoleRenderable], None],
@@ -82,6 +84,8 @@ class __logger(logging.Logger):
         name: str = pyw_name,
         *,
         log_dir: str | Path = "./log",
+        observability_profile: str | None = None,
+        observability_component: str | None = None,
     ) -> None: ...
     def set_func_logger(
         self,

@@ -26,9 +26,18 @@ _SENSITIVE_QUERY_RE = re.compile(
     r"(?i)([?&](?:access[_-]?token|api[_-]?key|token|password|passwd|secret)=)[^&#\s]+"
 )
 _SENSITIVE_ASSIGNMENT_RE = re.compile(
-    r"(?i)\b(authorization|credential|access[_-]?token|api[_-]?key|token|password|"
-    r"passwd|secret|cookie|session|private[_-]?key)"
-    r"\s*([:=])\s*(?:bearer\s+)?[^\s,;]+"
+    r"""(?ix)
+    (?<![\w-])
+    (?P<key>[\"']?(?:authorization|credential|access[_-]?token|api[_-]?key|token|password|
+    passwd|secret|cookie|session|private[_-]?key)[\"']?)
+    \s*(?P<separator>[:=])\s*
+    (?:bearer\s+)?
+    (?P<value>
+        \"(?:\\.|[^\"\\])*\"
+        |'(?:\\.|[^'\\])*'
+        |[^\s,;}\]]+
+    )
+    """
 )
 _ANSI_ESCAPE_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
 _UNSAFE_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
@@ -82,6 +91,14 @@ def sanitize_log_text(value, limit: int = REMOTE_LOG_TEXT_LIMIT) -> str:
     if len(marker) >= limit:
         return text[:limit]
     return text[: limit - len(marker)] + marker
+
+
+def is_sensitive_name(value: object) -> bool:
+    """Проверить, обозначает ли имя поля потенциально секретное значение."""
+    try:
+        return bool(_SENSITIVE_NAME_RE.search(str(value)[:_TASK_METADATA_LIMIT]))
+    except Exception:
+        return False
 
 
 @dataclass(frozen=True)

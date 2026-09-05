@@ -16,6 +16,7 @@ import sys
 import threading
 import time
 import traceback
+from collections.abc import Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,6 +25,7 @@ from typing import Any, Callable
 from module.logging_context import get_logging_context, get_task_context
 from module.logging_core import (
     REMOTE_LOG_TEXT_LIMIT,
+    is_sensitive_name,
     sanitize_log_text,
 )
 
@@ -43,6 +45,7 @@ _DEFAULT_PROCESSOR_TIMEOUT_MILLIS = 1_000
 _MAX_PROCESSOR_TIMEOUT_MILLIS = 5_000
 _REMOTE_ATTRIBUTE_LIMIT = 8 * 1024
 _REMOTE_STACKTRACE_LIMIT = 32 * 1024
+_MAX_MESSAGE_MAPPING_ITEMS = 64
 _SHUTDOWN_TIMEOUT_MILLIS = 1_000
 _FAILURE_REPORT_INTERVAL = 60.0
 _HANDLER_MARKER = "_azurpilot_observability_handler"
@@ -144,6 +147,16 @@ def _safe_message_argument(value: object) -> object:
     return f"<объект {type(value).__name__}>"
 
 
+def _safe_message_mapping(args: Mapping[object, object]) -> dict[object, object]:
+    """Ограниченно скопировать mapping-аргументы с маскированием секретных полей."""
+    safe_args: dict[object, object] = {}
+    for index, (key, value) in enumerate(args.items()):
+        if index >= _MAX_MESSAGE_MAPPING_ITEMS:
+            break
+        safe_args[key] = "***" if is_sensitive_name(key) else _safe_message_argument(value)
+    return safe_args
+
+
 def _safe_message(record: logging.LogRecord) -> str:
     try:
         if isinstance(record.msg, str):
@@ -151,13 +164,8 @@ def _safe_message(record: logging.LogRecord) -> str:
             args = record.args
             if isinstance(args, tuple):
                 safe_record.args = tuple(_safe_message_argument(item) for item in args)
-            elif isinstance(args, dict):
-                safe_record.args = {
-                    _safe_context_value(key, limit=256) or "": _safe_message_argument(
-                        value
-                    )
-                    for key, value in args.items()
-                }
+            elif isinstance(args, Mapping):
+                safe_record.args = _safe_message_mapping(args)
             elif args:
                 safe_record.args = _safe_message_argument(args)
             text = safe_record.getMessage()
@@ -236,6 +244,7 @@ def _safe_process_command(record: logging.LogRecord) -> str:
 def _attributes_for_record(
     record: logging.LogRecord,
     default_profile: str | None,
+    default_component: str | None,
 ) -> dict[str, object]:
     context = get_logging_context()
     profile = context.profile or default_profile
@@ -243,7 +252,7 @@ def _attributes_for_record(
     for key, value in (
         ("azurpilot.profile", profile),
         ("azurpilot.task", get_task_context()),
-        ("azurpilot.component", context.component or record.name),
+        ("azurpilot.component", context.component or default_component or record.name),
         ("azurpilot.run.id", context.run_id),
     ):
         safe_value = _safe_context_value(value)
@@ -260,6 +269,7 @@ def _attributes_for_record(
 def _safe_record(
     record: logging.LogRecord,
     default_profile: str | None,
+    default_component: str | None,
 ) -> logging.LogRecord:
     safe_record = copy.copy(record)
     safe_record.msg = _safe_message(record)
@@ -270,7 +280,7 @@ def _safe_record(
     for key in list(vars(safe_record)):
         if key not in _STANDARD_RECORD_FIELDS:
             delattr(safe_record, key)
-    for key, value in _attributes_for_record(record, default_profile).items():
+    for key, value in _attributes_for_record(record, default_profile, default_component).items():
         setattr(safe_record, key, value)
     return safe_record
 
@@ -322,12 +332,14 @@ class _SanitizedOTelHandler(logging.Handler):
         provider: Any,
         *,
         default_profile: object = None,
+        default_component: object = None,
         reporter: _FailureReporter,
     ) -> None:
         super().__init__(level=logging.INFO)
         self._delegate = delegate
         self._provider = provider
         self._default_profile = _safe_context_value(default_profile)
+        self._default_component = _safe_context_value(default_component)
         self._owner_pid = os.getpid()
         self._reporter = reporter
         setattr(self, _HANDLER_MARKER, True)
@@ -343,11 +355,16 @@ class _SanitizedOTelHandler(logging.Handler):
     def set_default_profile(self, value: object) -> None:
         self._default_profile = _safe_context_value(value)
 
+    def set_default_component(self, value: object) -> None:
+        self._default_component = _safe_context_value(value)
+
     def emit(self, record: logging.LogRecord) -> None:
         if self._owner_pid != os.getpid() or _EXPORTER_INTERNAL.get():
             return
         try:
-            self._delegate.emit(_safe_record(record, self._default_profile))
+            self._delegate.emit(
+                _safe_record(record, self._default_profile, self._default_component)
+            )
         except Exception as exc:
             self._reporter.report(
                 "Ошибка подготовки записи для OTLP; локальный журнал продолжит работу",
@@ -535,6 +552,7 @@ def _build_runtime(
     config: _ObservabilityConfig,
     *,
     default_profile: object,
+    default_component: object,
     exporter_factory: Callable[[int], Any] | None = None,
 ) -> _Runtime:
     components = _load_otel_components()
@@ -568,6 +586,7 @@ def _build_runtime(
         delegate,
         provider,
         default_profile=default_profile,
+        default_component=default_component,
         reporter=_failure_reporter,
     )
     handler.setLevel(config.handler_level)
@@ -604,6 +623,7 @@ def configure_application_observability(
     target: logging.Logger,
     *,
     default_profile: object = None,
+    default_component: object = None,
     _exporter_factory: Callable[[int], Any] | None = None,
 ) -> bool:
     """Идемпотентно включить OTLP logging для одного process-local logger."""
@@ -637,12 +657,14 @@ def configure_application_observability(
             return False
         if existing is not None:
             existing.set_default_profile(default_profile)
+            existing.set_default_component(default_component)
             return True
         try:
             runtime = _build_runtime(
                 target,
                 config,
                 default_profile=default_profile,
+                default_component=default_component,
                 exporter_factory=_exporter_factory,
             )
         except Exception as exc:

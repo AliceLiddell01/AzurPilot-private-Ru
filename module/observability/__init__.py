@@ -1,4 +1,4 @@
-"""Application observability boundary AzurPilot."""
+"""Граница наблюдаемости журналов приложения AzurPilot."""
 
 from module.observability.bootstrap import (
     configure_application_observability,

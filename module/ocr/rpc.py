@@ -249,12 +249,22 @@ class ModelProxyFactory:
         ModelProxy.close()
 
 
+def _configure_ocr_logging() -> None:
+    """Настроить локальный и удалённый журнал для OCR RPC-процесса."""
+    logger.set_file_logger(
+        name="ocr-rpc",
+        observability_profile=None,
+        observability_component="ocr-rpc",
+    )
+
+
 def start_ocr_server(port=22268):
     """启动只监听 loopback 的 OCR RPC 服务器。
 
     Args:
         port: 服务器监听端口，默认 22268。
     """
+    _configure_ocr_logging()
     import zerorpc
     import zmq
 
@@ -364,6 +374,7 @@ def alive() -> bool:
 
 
 if __name__ == "__main__":
+    _configure_ocr_logging()
     parser = argparse.ArgumentParser(description="Локальный сервис OCR AzurPilot")
     parser.add_argument(
         "--port",

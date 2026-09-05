@@ -469,12 +469,16 @@ def _set_file_logger(name=pyw_name, log_dir='./log'):
     logger.log_file = str(log_file)
 
 
-def _configure_application_observability(profile):
+def _configure_application_observability(profile, *, component=None):
     """Явно подключить удалённое логирование после настройки runtime logger."""
     try:
         from module.observability import configure_application_observability
 
-        configure_application_observability(logger, default_profile=profile)
+        configure_application_observability(
+            logger,
+            default_profile=profile,
+            default_component=component,
+        )
     except Exception as exc:
         # Ошибка необязательной телеметрии не должна менять поведение игрового logger.
         try:
@@ -486,9 +490,17 @@ def _configure_application_observability(profile):
             pass
 
 
-def set_file_logger(name=pyw_name, *, log_dir='./log'):
-    if "_" in name:
-        name = name.split("_", 1)[0]
+def set_file_logger(
+    name=pyw_name,
+    *,
+    log_dir='./log',
+    observability_profile=None,
+    observability_component=None,
+):
+    canonical_name = name
+    local_name = name.split("_", 1)[0] if "_" in name else name
+    if observability_profile is None and observability_component is None:
+        observability_profile = canonical_name
     # В Windows возможны процессы ``SyncManager-N:N``, ``MainProcess``,
     # ``Process-N`` и ``gui``; в Linux отдельного SyncManager обычно нет.
     if os.name == "nt":
@@ -497,16 +509,22 @@ def set_file_logger(name=pyw_name, *, log_dir='./log'):
         pname = multiprocessing.current_process().name.replace(":", "_")
         # Каждый процесс должен настраивать файловый logger не более одного раза.
         if any(isinstance(hdlr, RichTimedRotatingHandler) for hdlr in logger.handlers):
-            _configure_application_observability(name)
+            _configure_application_observability(
+                observability_profile,
+                component=observability_component,
+            )
             return
     else:
         processes = []
-        pname = name
+        pname = local_name
         for hdlr in logger.handlers:
             if isinstance(hdlr, RichTimedRotatingHandler):
                 # Каждый процесс должен настраивать файловый logger не более одного раза.
-                if hdlr.pname == name:
-                    _configure_application_observability(name)
+                if hdlr.pname == local_name:
+                    _configure_application_observability(
+                        observability_profile,
+                        component=observability_component,
+                    )
                     return
                 else:
                     logger.handlers = [h for h in logger.handlers if not isinstance(
@@ -514,13 +532,15 @@ def set_file_logger(name=pyw_name, *, log_dir='./log'):
     
     log_dir = Path(log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir.joinpath(f"{pname}.txt" if name == "gui" else f"{name}.txt")
+    log_file = log_dir.joinpath(
+        f"{pname}.txt" if local_name == "gui" else f"{local_name}.txt"
+    )
     if any(p in log_file.name for p in processes):
         return
 
-    _configure_diagnostic_logger(pname if name == "gui" else name, log_dir)
+    _configure_diagnostic_logger(pname if local_name == "gui" else local_name, log_dir)
     hdlr = RichTimedRotatingHandler(
-        pname=name,
+        pname=local_name,
         filename=str(log_file),
         when="midnight",
         interval=1,
@@ -536,7 +556,10 @@ def set_file_logger(name=pyw_name, *, log_dir='./log'):
             log_file.unlink()
     except Exception:
         pass
-    _configure_application_observability(name)
+    _configure_application_observability(
+        observability_profile,
+        component=observability_component,
+    )
 
 
 
