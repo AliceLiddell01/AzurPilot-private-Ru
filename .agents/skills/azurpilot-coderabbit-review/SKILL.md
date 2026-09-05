@@ -21,6 +21,13 @@ CodeRabbit — независимый reviewer, а не источник ист�
 
 ## Предварительные условия CLI и remote
 
+Для review используй подготовленный постоянный обычный WSL2 Arch clone
+`/home/kykla/AzurPilotWSL`; повторно создавать clone или linked worktree не
+нужно. Перед очередным review достаточно сделать `fetch` (при необходимости
+`pull`) нужной ветки и checkout exact head. Запускай все WSL-команды от
+пользователя `kykla`, не от `root`; перед разрешением CLI проверь `id -un` и
+`HOME=/home/kykla`.
+
 До первого вызова review в WSL2 Arch явно разреши исполняемый файл CodeRabbit.
 Не ищи и не создавай shell alias, не используй Windows `.cmd`-обёртку и не
 вызывай голое имя `coderabbit`: alias может существовать только в
@@ -46,6 +53,11 @@ credentials и любой не-hosted URL. Установи только уже 
 repository не распознан или review уходит в free allowance из-за remote, такой
 запуск не считай review: исправь remote, перепроверь его и повтори не более
 одного раза.
+
+После проверки remote и exact refs запускай canonical command напрямую из
+постоянного clone с literal `--base-commit <base-sha>`, без передачи
+многострочного stdin-скрипта через `wsl.exe`: CRLF может попасть в аргумент SHA
+и сломать `git diff`.
 
 ## Обязательные границы
 
