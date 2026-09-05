@@ -1389,7 +1389,7 @@ class LegacyProcessManagerAdapter:
             raise PostconditionFailedError(message)
         if code.startswith("RUNTIME_"):
             raise OperationFailedError(f"Не удалось выполнить операцию {operation}: {code}: {message}")
-        raise OperationFailedError(f"Не удалось выполнить операцию {operation}: результат не распознан")
+        raise OperationFailedError(f"Не удалось выполнить операцию {operation}: {code}: {message}")
 
     def _manager(self, instance: str) -> object:
         instance = _safe_instance_name(instance)

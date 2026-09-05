@@ -360,7 +360,7 @@ def test_legacy_process_manager_requires_owner_manager_for_direct_adapter() -> N
 
 
 def test_legacy_process_manager_translates_unknown_control_code_to_operation_error() -> None:
-    with pytest.raises(OperationFailedError, match="результат не распознан"):
+    with pytest.raises(OperationFailedError, match="FUTURE_CONTROL_CODE: future control result"):
         LegacyProcessManagerAdapter._raise_for_code(
             "FUTURE_CONTROL_CODE",
             "future control result",
