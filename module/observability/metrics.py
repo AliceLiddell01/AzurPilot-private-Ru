@@ -1,0 +1,397 @@
+"""Fail-open application metrics через официальный OpenTelemetry SDK."""
+
+from __future__ import annotations
+
+import math
+import os
+import re
+import threading
+import time
+from collections.abc import Callable, Mapping
+from contextvars import ContextVar
+from dataclasses import dataclass
+from types import TracebackType
+from typing import Any, Self
+
+_METRIC_SCOPE_NAME = "azurpilot.observability"
+_TASK_RUN_NAME = "azurpilot.task.run"
+_TASK_DURATION_NAME = "azurpilot.task.duration"
+_TASK_RUN_UNIT = "{run}"
+_TASK_DURATION_UNIT = "s"
+_MIN_DURATION_SECONDS = 1e-9
+_METRIC_LABEL_LIMIT = 64
+_METRIC_LABEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
+_OUTCOMES = frozenset({"success", "recoverable", "failure", "stopped", "unknown"})
+
+_runtime_lock = threading.RLock()
+_active_runtime: MetricsRuntime | None = None
+_task_depth: ContextVar[int] = ContextVar("azurpilot_metrics_task_depth", default=0)
+_task_outcome: ContextVar[str | None] = ContextVar(
+    "azurpilot_metrics_task_outcome",
+    default=None,
+)
+
+
+@dataclass(frozen=True)
+class MetricsConfig:
+    """Проверенный bounded contract metrics exporter-а."""
+
+    endpoint: str | None
+    timeout_millis: int
+    export_interval_millis: int
+    export_timeout_millis: int
+
+
+def _metric_label(value: object) -> str:
+    """Оставить только bounded canonical label или вернуть общий sentinel."""
+    if not isinstance(value, str):
+        return "unknown"
+    try:
+        value = value.strip()
+        if not value or len(value) > _METRIC_LABEL_LIMIT:
+            return "unknown"
+        if _METRIC_LABEL_RE.fullmatch(value) is None:
+            return "unknown"
+    except Exception:
+        return "unknown"
+    return value
+
+
+def _metric_attributes(
+    profile: object,
+    task: object,
+    outcome: object,
+) -> Mapping[str, str]:
+    try:
+        normalized_outcome = (
+            outcome if isinstance(outcome, str) and outcome in _OUTCOMES else "unknown"
+        )
+    except Exception:
+        normalized_outcome = "unknown"
+    return {
+        "azurpilot.profile": _metric_label(profile),
+        "azurpilot.task": _metric_label(task),
+        "azurpilot.task.outcome": normalized_outcome,
+    }
+
+
+def _duration_seconds(value: object) -> float:
+    try:
+        duration = float(value)
+    except Exception:
+        return _MIN_DURATION_SECONDS
+    if not math.isfinite(duration) or duration <= 0:
+        return _MIN_DURATION_SECONDS
+    return duration
+
+
+def _outcome_from_result(result: object) -> str:
+    if result is True:
+        return "success"
+    if result is False:
+        return "failure"
+    if isinstance(result, str):
+        try:
+            if result == "recoverable":
+                return "recoverable"
+        except Exception:
+            return "unknown"
+    return "unknown"
+
+
+def _outcome_from_exception(exception: BaseException) -> str:
+    if isinstance(exception, (KeyboardInterrupt, SystemExit)):
+        return "stopped"
+    return "failure"
+
+
+@dataclass
+class MetricsRuntime:
+    """Process-local provider и переиспользуемые task instruments."""
+
+    provider: Any
+    task_run_counter: Any
+    task_duration_histogram: Any
+    owner_pid: int
+    reporter: Any
+    active: bool = True
+
+    def record_task_run(
+        self,
+        *,
+        profile: object,
+        task: object,
+        outcome: object,
+        duration_seconds: object,
+    ) -> None:
+        if not self.active or self.owner_pid != os.getpid():
+            return
+        try:
+            attributes = _metric_attributes(profile, task, outcome)
+            duration = _duration_seconds(duration_seconds)
+            self.task_run_counter.add(1, attributes=attributes)
+            self.task_duration_histogram.record(duration, attributes=attributes)
+        except Exception as exc:
+            try:
+                self.reporter.report(
+                    "Ошибка записи application metrics; основная операция продолжит работу",
+                    exc,
+                )
+            except Exception:
+                pass
+
+    def after_fork(self) -> None:
+        """Отключить унаследованный provider до явного child bootstrap."""
+        self.active = False
+
+    def shutdown(self, timeout_millis: int) -> bool:
+        self.active = False
+        completed = True
+        try:
+            completed = bool(
+                self.provider.force_flush(timeout_millis=timeout_millis)
+            ) and completed
+        except Exception as exc:
+            completed = False
+            try:
+                self.reporter.report("Не удалось сбросить буфер application metrics", exc)
+            except Exception:
+                pass
+        try:
+            self.provider.shutdown(timeout_millis=timeout_millis)
+        except TypeError:
+            try:
+                self.provider.shutdown()
+            except Exception as exc:
+                completed = False
+                try:
+                    self.reporter.report(
+                        "Не удалось завершить metrics provider",
+                        exc,
+                    )
+                except Exception:
+                    pass
+        except Exception as exc:
+            completed = False
+            try:
+                self.reporter.report("Не удалось завершить metrics provider", exc)
+            except Exception:
+                pass
+        return completed
+
+
+def build_metrics_runtime(
+    config: MetricsConfig,
+    *,
+    resource: Any,
+    reporter: Any,
+    exporter_factory: Callable[[int], Any] | None = None,
+    reader_factory: Callable[[Any, int, int], Any] | None = None,
+) -> MetricsRuntime:
+    """Создать один metrics provider и два переиспользуемых instruments."""
+    from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
+        OTLPMetricExporter,
+    )
+    from opentelemetry.sdk.metrics import MeterProvider
+    from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+
+    class _ProcessLocalPeriodicExportingMetricReader(PeriodicExportingMetricReader):
+        """Не создавать унаследованный reader thread после fork."""
+
+        def _at_fork_reinit(self) -> None:
+            return None
+
+    provider = None
+    try:
+        exporter = (
+            exporter_factory(config.timeout_millis)
+            if exporter_factory is not None
+            else OTLPMetricExporter(
+                endpoint=config.endpoint,
+                timeout=config.timeout_millis / 1000,
+            )
+        )
+        reader = (
+            reader_factory(
+                exporter,
+                config.export_interval_millis,
+                config.export_timeout_millis,
+            )
+            if reader_factory is not None
+            else _ProcessLocalPeriodicExportingMetricReader(
+                exporter,
+                export_interval_millis=config.export_interval_millis,
+                export_timeout_millis=config.export_timeout_millis,
+            )
+        )
+        # MeterProvider сам применяет стандартный OTEL_METRICS_EXEMPLAR_FILTER.
+        provider = MeterProvider(
+            metric_readers=(reader,),
+            resource=resource,
+            shutdown_on_exit=False,
+        )
+        meter = provider.get_meter(_METRIC_SCOPE_NAME)
+        return MetricsRuntime(
+            provider=provider,
+            task_run_counter=meter.create_counter(
+                _TASK_RUN_NAME,
+                unit=_TASK_RUN_UNIT,
+                description="Количество завершённых запусков canonical task",
+            ),
+            task_duration_histogram=meter.create_histogram(
+                _TASK_DURATION_NAME,
+                unit=_TASK_DURATION_UNIT,
+                description="Длительность завершённых запусков canonical task",
+            ),
+            owner_pid=os.getpid(),
+            reporter=reporter,
+        )
+    except Exception:
+        if provider is not None:
+            try:
+                provider.shutdown()
+            except Exception:
+                pass
+        raise
+
+
+def activate_metrics_runtime(runtime: MetricsRuntime) -> None:
+    global _active_runtime
+    with _runtime_lock:
+        _active_runtime = runtime
+
+
+def deactivate_metrics_runtime(runtime: MetricsRuntime | None) -> None:
+    global _active_runtime
+    with _runtime_lock:
+        if runtime is None or _active_runtime is runtime:
+            _active_runtime = None
+
+
+def reset_metrics_runtime_after_fork() -> None:
+    """Сбросить process-local registry в child без захвата унаследованного lock."""
+    global _runtime_lock, _active_runtime
+    _runtime_lock = threading.RLock()
+    runtime = _active_runtime
+    _active_runtime = None
+    _task_depth.set(0)
+    _task_outcome.set(None)
+    if runtime is not None:
+        runtime.after_fork()
+
+
+def get_active_metrics_runtime() -> MetricsRuntime | None:
+    with _runtime_lock:
+        runtime = _active_runtime
+    if runtime is None or not runtime.active or runtime.owner_pid != os.getpid():
+        return None
+    return runtime
+
+
+def record_task_run(
+    *,
+    profile: object,
+    task: object,
+    outcome: object,
+    duration_seconds: object,
+) -> None:
+    """Записать bounded task run без исключений в application code."""
+    runtime = get_active_metrics_runtime()
+    if runtime is None:
+        return
+    runtime.record_task_run(
+        profile=profile,
+        task=task,
+        outcome=outcome,
+        duration_seconds=duration_seconds,
+    )
+
+
+class TaskRun:
+    """Контекст одной внешней task boundary без дублирования nested calls."""
+
+    def __init__(self, *, profile: object, task: object) -> None:
+        self._profile = profile
+        self._task = task
+        self._runtime: MetricsRuntime | None = None
+        self._started_at = 0.0
+        self._depth_token: Any = None
+        self._outcome_token: Any = None
+        self._nested = False
+        self._finished = False
+        self._result_outcome: str | None = None
+
+    def __enter__(self) -> Self:
+        if _task_depth.get() > 0:
+            self._nested = True
+            return self
+        self._runtime = get_active_metrics_runtime()
+        if self._runtime is None:
+            return self
+        self._depth_token = _task_depth.set(1)
+        self._outcome_token = _task_outcome.set(None)
+        self._started_at = time.monotonic()
+        return self
+
+    def finish(self, result: object) -> None:
+        if self._nested or self._runtime is None:
+            return
+        self._result_outcome = _outcome_from_result(result)
+        self._finished = True
+
+    def __exit__(
+        self,
+        exception_type: type[BaseException] | None,
+        exception: BaseException | None,
+        traceback_object: TracebackType | None,
+    ) -> bool:
+        del traceback_object
+        if self._nested or self._runtime is None:
+            return False
+        try:
+            if exception is not None:
+                outcome = _outcome_from_exception(exception)
+            else:
+                outcome = _task_outcome.get() or (
+                    self._result_outcome if self._finished else "unknown"
+                )
+            self._runtime.record_task_run(
+                profile=self._profile,
+                task=self._task,
+                outcome=outcome,
+                duration_seconds=max(
+                    time.monotonic() - self._started_at,
+                    _MIN_DURATION_SECONDS,
+                ),
+            )
+        finally:
+            if self._outcome_token is not None:
+                _task_outcome.reset(self._outcome_token)
+            if self._depth_token is not None:
+                _task_depth.reset(self._depth_token)
+        return False
+
+
+def task_run(*, profile: object, task: object) -> TaskRun:
+    """Вернуть контекст canonical task boundary."""
+    return TaskRun(profile=profile, task=task)
+
+
+def mark_task_stopped() -> None:
+    """Отметить normal ``TaskEnd`` как stopped, не меняя его control flow."""
+    if _task_depth.get() > 0:
+        _task_outcome.set("stopped")
+
+
+__all__ = (
+    "MetricsConfig",
+    "MetricsRuntime",
+    "activate_metrics_runtime",
+    "build_metrics_runtime",
+    "deactivate_metrics_runtime",
+    "get_active_metrics_runtime",
+    "mark_task_stopped",
+    "record_task_run",
+    "reset_metrics_runtime_after_fork",
+    "task_run",
+)

@@ -488,6 +488,9 @@ class AzurLaneAutoScript:
             self.__getattribute__(command)()
             return True
         except TaskEnd:
+            from module.observability import mark_task_stopped
+
+            mark_task_stopped()
             return True
         except GameNotRunningError as e:
             record_dev_runtime_error(e, phase="task", task=command)

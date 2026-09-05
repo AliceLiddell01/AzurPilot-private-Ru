@@ -122,6 +122,70 @@ Rich markup, секретов и локальных абсолютных пут�
 structured metadata. Ошибка exporter, его недоступность или bounded shutdown не
 останавливают gameplay, WebUI, console и локальный file fallback.
 
+## Подключение application metrics
+
+Application metrics подключаются независимо от logs. В процессе используется один
+process-local `MeterProvider` с официальным `PeriodicExportingMetricReader` и
+OTLP/HTTP protobuf exporter. Без metrics endpoint приложение не создаёт metrics
+provider и не выполняет сетевых запросов.
+
+Для локального Compose-контура перед запуском AzurPilot задайте:
+
+    $env:OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = 'http://127.0.0.1:4318/v1/metrics'
+    $env:OTEL_EXPORTER_OTLP_METRICS_PROTOCOL = 'http/protobuf'
+    $env:OTEL_METRIC_EXPORT_INTERVAL = '60000'
+    $env:OTEL_METRIC_EXPORT_TIMEOUT = '30000'
+
+Signal-specific endpoint передаётся exporter-у как полный URL. При использовании
+общего `OTEL_EXPORTER_OTLP_ENDPOINT` официальный exporter добавляет стандартный
+путь `/v1/metrics`; `OTEL_EXPORTER_OTLP_METRICS_TIMEOUT` имеет приоритет над
+общим `OTEL_EXPORTER_OTLP_TIMEOUT`. Поддерживается только `http/protobuf`.
+`OTEL_SDK_DISABLED=true` отключает оба application signal-а.
+
+Стандартный `OTEL_METRICS_EXEMPLAR_FILTER` остаётся под управлением OTel SDK;
+собственные traces для exemplars этим контуром не создаются.
+
+В текущей конфигурации отправляются два инструмента на одной canonical task
+boundary `Alas.run`:
+
+| OTel name | Type | Unit | Attributes |
+| --- | --- | --- | --- |
+| `azurpilot.task.run` | Counter | `{run}` | `azurpilot.profile`, `azurpilot.task`, `azurpilot.task.outcome` |
+| `azurpilot.task.duration` | Histogram | `s` | `azurpilot.profile`, `azurpilot.task`, `azurpilot.task.outcome` |
+
+`azurpilot.task.outcome` ограничен значениями `success`, `recoverable`,
+`failure`, `stopped` и `unknown`. Значения profile/task нормализуются к
+bounded label contract; неизвестные или небезопасные значения становятся
+`unknown`. Scheduler queue gauge намеренно не добавляется: у scheduler нет
+единственного authoritative queue snapshot для корректного значения.
+
+SDK использует cumulative temporality, совместимую с текущим Alloy metrics
+path. При явном отличном от `cumulative` значении
+`OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE` application metrics
+отключаются fail-open, потому что downstream Prometheus path не принимает
+delta series.
+
+Alloy переносит только `service.name` и `deployment.environment.name` из
+resource attributes в datapoint attributes. `resource_to_telemetry_conversion`
+остаётся выключенным; `target_info`, `otel_scope_info` и scope labels также не
+создаются, поэтому произвольные resource attributes не превращаются в
+Prometheus labels. Logs и traces проходят по прежним маршрутам. Application
+traces пока не instrumented; Tempo остаётся готовым инфраструктурным
+приёмником. Prometheus не является прямой application dependency.
+
+Пример bounded PromQL для числа запусков по outcome:
+
+    sum by (azurpilot_task_outcome) (rate(azurpilot_task_run_total[5m]))
+
+Для безопасной локальной проверки без публикации Prometheus на host выполните
+запрос из существующего Compose network:
+
+    docker compose --env-file ../../.env exec -T prometheus wget -qO- 'http://127.0.0.1:9090/api/v1/query?query=azurpilot_task_run_total'
+
+Недоступность metrics exporter, ошибка записи и bounded shutdown не меняют
+результат задачи и не останавливают scheduler. Локальные logs продолжают
+работать, даже если metrics signal не удалось инициализировать или отправить.
+
 Исторические `log/`-артефакты не импортируются и не удаляются. `log/error/`
 остаётся локальным incident store со скриншотами и `log.txt`, диагностические и
 архивные каталоги сохраняются, CSV/JSON относятся к data/export или legacy

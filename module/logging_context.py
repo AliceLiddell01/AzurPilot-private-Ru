@@ -122,13 +122,17 @@ def task_logging_context(func):
     @wraps(func)
     def wrapped(self, command, *args, **kwargs):
         from module.logger import logger
+        from module.observability import task_run
 
         install_task_context_filter(logger)
         task_value = _normalize_task_name(command)
         task_name = inflection.camelize(task_value or "UnknownTask")
         profile = getattr(self, "config_name", _UNSET)
-        with logging_context(profile=profile):
-            with task_context(task_name):
-                return func(self, command, *args, **kwargs)
+        with task_run(profile=profile, task=task_name) as metrics_run:
+            with logging_context(profile=profile):
+                with task_context(task_name):
+                    result = func(self, command, *args, **kwargs)
+            metrics_run.finish(result)
+            return result
 
     return wrapped
