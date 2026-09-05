@@ -615,33 +615,57 @@ class WebUIRuntimeControlOwner:
                 "Срок действия runtime control request истёк до остановки worker",
                 owner=owner,
             )
-        try:
-            stopped = manager.stop()
-        except Exception as exc:  # noqa: BLE001 - остановка без подтверждения фиксируется в runtime state.
-            details: dict[str, object] = {
-                "stop_returned": None,
-                "error": type(exc).__name__,
-            }
+        cooperative_confirmed = self._confirm_cooperative_cleanup(
+            manager,
+            request_id=request_id,
+            session_id=session_id,
+            deadline=deadline,
+        )
+        if cooperative_confirmed:
             try:
-                self.state.mark_failed(
+                cooperative_confirmed = self._read_alive(manager) is not True
+            except Exception:
+                cooperative_confirmed = False
+        if cooperative_confirmed:
+            stopped = True
+        else:
+            if self._deadline_expired(deadline):
+                return self._failure(
+                    RuntimeControlOperation.STOP_PROFILE,
                     profile,
-                    operation_id=request_id,
-                    session_id=session_id,
-                    terminal_state="stop_unconfirmed",
+                    request_id,
+                    idempotency_key,
+                    "RUNTIME_CONTROL_EXPIRED",
+                    "Срок действия runtime control request истёк до эскалации остановки worker",
+                    owner=owner,
                 )
-            except Exception as state_exc:  # noqa: BLE001 - неизвестное состояние не должно скрывать исходную ошибку.
-                details["runtime_state_recorded"] = False
-                details["runtime_state_error"] = type(state_exc).__name__
-            return self._failure(
-                RuntimeControlOperation.STOP_PROFILE,
-                profile,
-                request_id,
-                idempotency_key,
-                "RUNTIME_STOP_UNCONFIRMED",
-                "WebUI-owned ProcessManager не подтвердил остановку worker",
-                owner=owner,
-                details=details,
-            )
+            try:
+                stopped = manager.stop()
+            except Exception as exc:  # noqa: BLE001 - остановка без подтверждения фиксируется в runtime state.
+                details: dict[str, object] = {
+                    "stop_returned": None,
+                    "error": type(exc).__name__,
+                }
+                try:
+                    self.state.mark_failed(
+                        profile,
+                        operation_id=request_id,
+                        session_id=session_id,
+                        terminal_state="stop_unconfirmed",
+                    )
+                except Exception as state_exc:  # noqa: BLE001 - неизвестное состояние не должно скрывать исходную ошибку.
+                    details["runtime_state_recorded"] = False
+                    details["runtime_state_error"] = type(state_exc).__name__
+                return self._failure(
+                    RuntimeControlOperation.STOP_PROFILE,
+                    profile,
+                    request_id,
+                    idempotency_key,
+                    "RUNTIME_STOP_UNCONFIRMED",
+                    "WebUI-owned ProcessManager не подтвердил остановку worker",
+                    owner=owner,
+                    details=details,
+                )
         if self._deadline_expired(deadline):
             return self._failure(
                 RuntimeControlOperation.STOP_PROFILE,
@@ -664,12 +688,17 @@ class WebUIRuntimeControlOwner:
                     "Срок действия runtime control request истёк при подтверждении остановки worker",
                     owner=owner,
                 )
-            self.state.mark_failed(
-                profile,
-                operation_id=request_id,
-                session_id=session_id,
-                terminal_state="stop_unconfirmed",
-            )
+            details: dict[str, object] = {}
+            try:
+                self.state.mark_failed(
+                    profile,
+                    operation_id=request_id,
+                    session_id=session_id,
+                    terminal_state="stop_unconfirmed",
+                )
+            except Exception as exc:  # noqa: BLE001 - ошибка записи не должна менять точный stop failure code.
+                details["runtime_state_recorded"] = False
+                details["runtime_state_error"] = type(exc).__name__
             return self._failure(
                 RuntimeControlOperation.STOP_PROFILE,
                 profile,
@@ -678,6 +707,7 @@ class WebUIRuntimeControlOwner:
                 "RUNTIME_STOP_UNCONFIRMED",
                 "WebUI-owned ProcessManager не подтвердил остановку worker",
                 owner=owner,
+                details=details or None,
             )
         if self._deadline_expired(deadline):
             return self._failure(

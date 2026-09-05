@@ -366,7 +366,7 @@ class TestProcessManagerRegistry(unittest.TestCase):
         self.assertFalse(starter.is_alive())
         self.assertTrue(new_process_started.is_set())
 
-    def test_cooperative_stop_signals_event_before_persisting_state(self):
+    def test_cooperative_stop_persists_state_before_signaling_event(self):
         from module.application.runtime_state import RuntimeStateStore
 
         with TemporaryDirectory() as root:
@@ -396,10 +396,33 @@ class TestProcessManagerRegistry(unittest.TestCase):
                     )
                 )
 
-            self.assertEqual(observed, [False])
+            self.assertEqual(observed, [True])
             snapshot = RuntimeStateStore(root_path).read("ap")
             self.assertIsNotNone(snapshot)
             self.assertTrue(snapshot.stop_requested)
+
+    def test_cooperative_stop_does_not_signal_when_state_persistence_fails(self):
+        from module.application.runtime_state import RuntimeStateStore
+
+        manager = ProcessManager("ap")
+        stop_event = Mock()
+        manager._stop_event = stop_event
+        with (
+            patch.object(ProcessManager, "alive", new_callable=PropertyMock, return_value=True),
+            patch.object(
+                RuntimeStateStore,
+                "request_quiesce",
+                side_effect=RuntimeError("synthetic state failure"),
+            ),
+        ):
+            self.assertFalse(
+                manager.request_cooperative_stop(
+                    operation_id="operation-1",
+                    session_id="session-1",
+                )
+            )
+
+        stop_event.set.assert_not_called()
 
     def test_unregister_without_expected_worker_rejects_existing_registry_record(self):
         manager = ProcessManager("alas")

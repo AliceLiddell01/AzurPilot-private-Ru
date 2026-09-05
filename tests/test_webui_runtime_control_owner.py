@@ -85,6 +85,28 @@ class FailedStopManager(Manager):
         raise RuntimeError("synthetic stop failure")
 
 
+class CooperativeStopManager(Manager):
+    def request_cooperative_stop(
+        self,
+        *,
+        operation_id: str,
+        session_id: str | None,
+    ) -> bool:
+        self.calls.append(("cooperative_stop", operation_id, session_id))
+        return True
+
+    def wait_for_exit(self, timeout_seconds: float) -> bool:
+        self.calls.append(("wait_for_exit", str(timeout_seconds), None))
+        self.alive = False
+        return True
+
+
+class UnconfirmedCooperativeStopManager(CooperativeStopManager):
+    def wait_for_exit(self, timeout_seconds: float) -> bool:
+        self.calls.append(("wait_for_exit", str(timeout_seconds), None))
+        return False
+
+
 class Application:
     def __init__(self) -> None:
         self.returned_to_main = 0
@@ -187,6 +209,106 @@ def test_owner_records_unconfirmed_stop_when_manager_stop_raises(tmp_path: Path)
     assert snapshot.phase is RuntimePhase.FAILED
     assert snapshot.terminal_state == "stop_unconfirmed"
     assert snapshot.worker_running is True
+
+
+def test_owner_stops_cooperatively_before_hard_stop(tmp_path: Path) -> None:
+    manager = CooperativeStopManager()
+    owner = _owner(tmp_path, manager)
+
+    assert owner.execute(
+        RuntimeControlOperation.START_PROFILE,
+        "ap",
+        request_id="start-before-cooperative-stop",
+        idempotency_key="start-before-cooperative-stop-key",
+        session_id="session-1",
+        expires_at=_EXPIRY,
+    ).ok is True
+
+    result = owner.execute(
+        RuntimeControlOperation.STOP_PROFILE,
+        "ap",
+        request_id="cooperative-stop",
+        idempotency_key="cooperative-stop-key",
+        session_id="session-1",
+        expires_at=_EXPIRY,
+    )
+
+    assert result.ok is True
+    assert result.code == "RUNTIME_STOPPED"
+    assert [call[0] for call in manager.calls] == [
+        "start",
+        "cooperative_stop",
+        "wait_for_exit",
+    ]
+
+
+def test_owner_escalates_when_cooperative_stop_is_not_confirmed(tmp_path: Path) -> None:
+    manager = UnconfirmedCooperativeStopManager()
+    owner = _owner(tmp_path, manager)
+
+    assert owner.execute(
+        RuntimeControlOperation.START_PROFILE,
+        "ap",
+        request_id="start-before-escalation",
+        idempotency_key="start-before-escalation-key",
+        session_id="session-1",
+        expires_at=_EXPIRY,
+    ).ok is True
+
+    result = owner.execute(
+        RuntimeControlOperation.STOP_PROFILE,
+        "ap",
+        request_id="escalated-stop",
+        idempotency_key="escalated-stop-key",
+        session_id="session-1",
+        expires_at=_EXPIRY,
+    )
+
+    assert result.ok is True
+    assert result.code == "RUNTIME_STOPPED"
+    assert [call[0] for call in manager.calls] == [
+        "start",
+        "cooperative_stop",
+        "wait_for_exit",
+        "stop",
+    ]
+
+
+def test_owner_keeps_stop_failure_code_when_runtime_state_failure_is_unconfirmed(
+    tmp_path: Path,
+) -> None:
+    manager = UnconfirmedCooperativeStopManager()
+    owner = _owner(tmp_path, manager)
+    assert owner.execute(
+        RuntimeControlOperation.START_PROFILE,
+        "ap",
+        request_id="start-before-state-failure",
+        idempotency_key="start-before-state-failure-key",
+        session_id="session-1",
+        expires_at=_EXPIRY,
+    ).ok is True
+    manager.stop = lambda: False  # type: ignore[method-assign]
+
+    def fail_mark_failed(_profile: str, **_kwargs: object) -> None:
+        raise RuntimeError("synthetic state failure")
+
+    owner.state.mark_failed = fail_mark_failed  # type: ignore[method-assign]
+
+    result = owner.execute(
+        RuntimeControlOperation.STOP_PROFILE,
+        "ap",
+        request_id="state-failure-stop",
+        idempotency_key="state-failure-stop-key",
+        session_id="session-1",
+        expires_at=_EXPIRY,
+    )
+
+    assert result.ok is False
+    assert result.code == "RUNTIME_STOP_UNCONFIRMED"
+    assert result.details == {
+        "runtime_state_recorded": False,
+        "runtime_state_error": "RuntimeError",
+    }
 
 
 def test_owner_rejects_development_start_without_session_before_manager_lookup(

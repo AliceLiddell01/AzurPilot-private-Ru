@@ -295,13 +295,6 @@ class ProcessManager:
                 )
                 return False
             try:
-                event.set()
-            except Exception as exc:  # noqa: BLE001 - сигнал остановки работает в fail-closed режиме.
-                logger.error(
-                    f"[{self.config_name}] Не удалось передать cooperative stop request: {exc}"
-                )
-                return False
-            try:
                 from module.application.runtime_state import RuntimeStateStore
 
                 RuntimeStateStore(_REPOSITORY_ROOT).request_quiesce(
@@ -312,6 +305,13 @@ class ProcessManager:
             except Exception as exc:  # noqa: BLE001 - граница owner работает fail-closed.
                 logger.error(
                     f"[{self.config_name}] Не удалось записать cooperative stop state: {exc}"
+                )
+                return False
+            try:
+                event.set()
+            except Exception as exc:  # noqa: BLE001 - сигнал остановки работает в fail-closed режиме.
+                logger.error(
+                    f"[{self.config_name}] Не удалось передать cooperative stop request: {exc}"
                 )
                 return False
             return True
