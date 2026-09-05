@@ -342,6 +342,9 @@ class SchedulerCoreRuntimeMessages(unittest.TestCase):
                 def run(self, command):
                     return False
 
+                def _run_scheduler_task(self, task):
+                    return self.run(task)
+
             with self.assertRaises(SystemExit) as raised:
                 loop(Failure())
             self.assertEqual(raised.exception.code, 1)

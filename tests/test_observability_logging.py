@@ -18,9 +18,12 @@ from module.logging_context import (
 )
 from module.logging_core import sanitize_log_text
 from module.observability.bootstrap import (
+    _bounded_exception_stacktrace,
     _read_config,
     _Runtime,
     _SanitizedOTelHandler,
+    _safe_exception_message,
+    _safe_record,
     _shutdown_runtime,
     configure_application_observability,
     shutdown_application_observability,
@@ -29,14 +32,21 @@ from module.observability.bootstrap import (
 _ROOT = Path(__file__).resolve().parents[1]
 _OTEL_ENVIRONMENT_KEYS = (
     "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
     "OTEL_EXPORTER_OTLP_ENDPOINT",
     "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL",
+    "OTEL_EXPORTER_OTLP_METRICS_PROTOCOL",
     "OTEL_EXPORTER_OTLP_PROTOCOL",
     "OTEL_SDK_DISABLED",
     "OTEL_RESOURCE_ATTRIBUTES",
     "OTEL_PYTHON_LOG_HANDLER_LEVEL",
     "OTEL_EXPORTER_OTLP_LOGS_TIMEOUT",
+    "OTEL_EXPORTER_OTLP_METRICS_TIMEOUT",
     "OTEL_EXPORTER_OTLP_TIMEOUT",
+    "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE",
+    "OTEL_METRICS_EXEMPLAR_FILTER",
+    "OTEL_METRIC_EXPORT_INTERVAL",
+    "OTEL_METRIC_EXPORT_TIMEOUT",
     "OTEL_BLRP_SCHEDULE_DELAY",
     "OTEL_BLRP_MAX_QUEUE_SIZE",
     "OTEL_BLRP_MAX_EXPORT_BATCH_SIZE",
@@ -270,6 +280,109 @@ def test_mapping_and_quoted_redaction_covers_body_and_exception_metadata(monkeyp
         shutdown_application_observability(target)
 
 
+def test_exception_metadata_preserves_multi_args_and_sanitizes_chained_traceback(
+    monkeypatch,
+):
+    _configure_test_environment(monkeypatch)
+    target = _new_logger("observability-exception-chain")
+    exporter = InMemoryLogRecordExporter()
+
+    class BrokenString:
+        def __str__(self):
+            raise RuntimeError("string conversion failed")
+
+    try:
+        assert configure_application_observability(
+            target,
+            _exporter_factory=lambda _timeout: exporter,
+        )
+        try:
+            raise ValueError("cause")
+        except ValueError as cause:
+            try:
+                raise RuntimeError("outer") from cause
+            except RuntimeError:
+                target.exception("chained exception")
+        try:
+            raise KeyError("implicit inner")
+        except KeyError:
+            try:
+                raise RuntimeError("implicit outer")
+            except RuntimeError:
+                target.exception("implicit chained exception")
+        try:
+            raise ValueError("first", "second", BrokenString())
+        except ValueError:
+            target.exception("multi-argument exception")
+
+        assert shutdown_application_observability(target, timeout_millis=3000)
+        records = [item.log_record for item in exporter.get_finished_logs()]
+        assert len(records) == 3
+
+        chained = records[0].attributes["exception.stacktrace"]
+        assert "ValueError: cause" in chained
+        assert "RuntimeError: outer" in chained
+        assert "непосредственной причиной" in chained
+        assert "locals" not in chained
+
+        implicit = records[1].attributes["exception.stacktrace"]
+        assert "KeyError: 'implicit inner'" in implicit
+        assert "RuntimeError: implicit outer" in implicit
+        assert "При обработке предыдущего исключения" in implicit
+
+        multi_argument = records[2].attributes["exception.message"]
+        assert "first" in multi_argument
+        assert "second" in multi_argument
+        assert "BrokenString" in multi_argument
+    finally:
+        shutdown_application_observability(target)
+
+
+def test_exception_serialization_is_bounded_and_does_not_mutate_log_record():
+    class BrokenString:
+        def __str__(self):
+            raise RuntimeError("conversion failed")
+
+    exception = ValueError("first", BrokenString(), "last")
+    message = _safe_exception_message(exception)
+    assert "first" in message
+    assert "last" in message
+    assert "BrokenString" in message
+    assert _safe_exception_message(RuntimeError("boom")) == "boom"
+    os_error_message = _safe_exception_message(OSError(2, "No such file", "raw-path"))
+    assert "No such file" in os_error_message
+    assert "raw-path" in os_error_message
+
+    class BrokenException(Exception):
+        def __str__(self):
+            raise RuntimeError("conversion failed")
+
+    assert "safe" in _safe_exception_message(BrokenException("safe"))
+
+    bounded = _bounded_exception_stacktrace("head\n" + "x" * 40_000 + "\ntail")
+    assert len(bounded) <= 32 * 1024
+    assert "трассировка обрезана" in bounded
+    assert bounded.endswith("tail")
+
+    record = logging.LogRecord(
+        name="observability",
+        level=logging.ERROR,
+        pathname="test.py",
+        lineno=1,
+        msg="value=%s",
+        args=("raw",),
+        exc_info=None,
+        func="test",
+        sinfo=None,
+    )
+    original_msg = record.msg
+    original_args = record.args
+    safe_record = _safe_record(record, None, None)
+    assert record.msg == original_msg
+    assert record.args == original_args
+    assert safe_record.args == ()
+
+
 def test_process_role_component_does_not_create_fake_profile(monkeypatch):
     _configure_test_environment(monkeypatch)
     target = _new_logger("observability-process-role")
@@ -374,6 +487,7 @@ def test_task_boundary_adds_profile_without_replacing_canonical_task_context():
 def test_importing_logger_does_not_create_file_handler_or_remote_bootstrap():
     code = """
 import module.logger as logger_module
+import module.observability
 print(logger_module.logger.log_file)
 print(sum(isinstance(handler, logger_module.RichTimedRotatingHandler) for handler in logger_module.logger.handlers))
 print(any(name.startswith("opentelemetry") for name in __import__("sys").modules))
