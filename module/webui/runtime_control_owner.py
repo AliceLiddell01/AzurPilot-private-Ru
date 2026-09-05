@@ -74,7 +74,7 @@ class WebUIRuntimeControlOwner:
         """Согласовать эфемерный snapshot с registry до первой mutation."""
 
         try:
-            from module.webui.worker_registry import get_workers
+            from module.webui.worker_registry import get_workers, process_matches
 
             workers = get_workers(os.getpid())
             recovered = self.state.reconcile_with_authoritative_workers(workers)
@@ -84,6 +84,9 @@ class WebUIRuntimeControlOwner:
                 ownership_reconciled = self.state.reconcile_profile_ownership(
                     workers,
                     session_owner_profile=development_profile,
+                    worker_identity_checker=lambda pid, created_at: process_matches(
+                        {"pid": pid, "created_at": created_at}
+                    ),
                 )
         except RuntimeStateError as exc:
             self._runtime_state_recovery_error = exc

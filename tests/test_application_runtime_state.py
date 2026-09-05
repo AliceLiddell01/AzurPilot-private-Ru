@@ -159,6 +159,56 @@ def test_runtime_state_does_not_reconcile_user_ownership_during_active_handover(
     assert error.value.code == "RUNTIME_STATE_RECONCILIATION_REQUIRED"
 
 
+def test_runtime_state_reconciles_dead_orphan_worker_to_canonical_stopped(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    store.mark_worker_started(
+        "alas",
+        worker_pid=1013,
+        worker_created_at=2013.0,
+        operation_id="orphan-start",
+        session_id="orphan-session",
+    )
+
+    reconciled = store.reconcile_profile_ownership(
+        {},
+        session_owner_profile="ap",
+        worker_identity_checker=lambda _pid, _created_at: None,
+    )
+
+    assert reconciled == ("alas",)
+    snapshot = store.read("alas")
+    assert snapshot is not None
+    assert snapshot.phase is RuntimePhase.STOPPED
+    assert snapshot.worker_running is False
+    assert snapshot.current_task is None
+    assert snapshot.session_id is None
+    assert snapshot.worker_pid is None
+
+
+def test_runtime_state_keeps_live_orphan_fail_closed(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    store.mark_worker_started(
+        "alas",
+        worker_pid=1014,
+        worker_created_at=2014.0,
+        operation_id="orphan-start",
+        session_id="orphan-session",
+    )
+
+    with pytest.raises(RuntimeStateError) as error:
+        store.reconcile_profile_ownership(
+            {},
+            session_owner_profile="ap",
+            worker_identity_checker=lambda _pid, _created_at: True,
+        )
+
+    assert error.value.code == "RUNTIME_STATE_RECONCILIATION_REQUIRED"
+
+
 def test_runtime_state_reconciles_old_persisted_schema_from_empty_worker_registry(
     tmp_path: Path,
 ) -> None:

@@ -421,6 +421,7 @@ class RuntimeStateStore:
         authoritative_workers: Mapping[str, Mapping[str, object]],
         *,
         session_owner_profile: str,
+        worker_identity_checker: Callable[[int, float], bool | None] | None = None,
     ) -> tuple[str, ...]:
         """Устранить подтверждённый остаток session ownership у worker.
 
@@ -459,7 +460,7 @@ class RuntimeStateStore:
                     )
                 if snapshot.worker_running:
                     worker = workers.get(profile)
-                    if worker is None or (
+                    if worker is not None and (
                         snapshot.worker_pid != worker["pid"]
                         or snapshot.worker_created_at != worker["created_at"]
                     ):
@@ -471,6 +472,64 @@ class RuntimeStateStore:
                                 "reason": "worker_identity_mismatch",
                             },
                         )
+                    if worker is None:
+                        if worker_identity_checker is None:
+                            raise RuntimeStateError(
+                                "RUNTIME_STATE_RECONCILIATION_REQUIRED",
+                                "Нельзя восстановить ownership без проверки orphan worker",
+                                details={
+                                    "profile": profile,
+                                    "reason": "orphan_identity_unchecked",
+                                },
+                            )
+                        try:
+                            worker_matches = worker_identity_checker(
+                                snapshot.worker_pid,
+                                snapshot.worker_created_at,
+                            )
+                        except Exception as exc:  # noqa: BLE001 - unknown identity fails closed.
+                            raise RuntimeStateError(
+                                "RUNTIME_STATE_RECONCILIATION_REQUIRED",
+                                "Identity orphan worker невозможно подтвердить",
+                                details={
+                                    "profile": profile,
+                                    "reason": "orphan_identity_unavailable",
+                                    "error": type(exc).__name__,
+                                },
+                            ) from exc
+                        if worker_matches is not None:
+                            raise RuntimeStateError(
+                                "RUNTIME_STATE_RECONCILIATION_REQUIRED",
+                                "Orphan worker ещё нельзя безопасно списать",
+                                details={
+                                    "profile": profile,
+                                    "reason": "orphan_identity_present",
+                                },
+                            )
+                        current = dict(snapshot.as_dict())
+                        current.update(
+                            {
+                                "phase": RuntimePhase.STOPPED.value,
+                                "worker_running": False,
+                                "busy": False,
+                                "current_task": None,
+                                "operation_id": None,
+                                "session_id": None,
+                                "handover_requested": False,
+                                "draining": False,
+                                "stop_requested": False,
+                                "terminal_state": "stopped",
+                                "worker_pid": None,
+                                "worker_created_at": None,
+                                "provenance": "runtime_reconciliation",
+                                "updated_at": self._now(),
+                                "freshness": "fresh",
+                            }
+                        )
+                        reconciled_snapshot = RuntimeStateSnapshot.from_dict(current)
+                        records[profile] = reconciled_snapshot.as_dict()
+                        reconciled.append(profile)
+                        continue
                 current = dict(snapshot.as_dict())
                 current.update(
                     {
