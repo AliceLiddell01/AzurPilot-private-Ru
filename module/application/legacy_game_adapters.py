@@ -116,14 +116,19 @@ def _handover_operation_failure(
     *,
     step: str,
 ) -> OperationFailedError:
-    """Сохранить bounded cause generic handover failure для control-plane."""
+    """Сохранить ограниченную причину generic handover failure для control-plane."""
 
     error = OperationFailedError(message)
     error.handover_step = step
     error.cause_type = type(cause).__name__
+    try:
+        cause_message = str(cause).strip()
+    except Exception:  # noqa: BLE001 - диагностический текст не должен менять fail-closed путь.
+        cause_message = ""
+    if cause_message:
+        error.cause_message = cause_message[:512]
     if isinstance(cause, ApplicationError):
         error.cause_code = str(getattr(cause, "code", "application_error"))
-        error.cause_message = str(cause)
     return error
 
 

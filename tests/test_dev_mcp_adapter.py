@@ -665,6 +665,65 @@ def test_serializer_preserves_smoke_result_and_active_conflict_state() -> None:
     }
 
 
+def test_serializer_preserves_bounded_handover_failure_cause() -> None:
+    result = serialize_dev_result(
+        {
+            "ok": False,
+            "code": "DEV_CLEANUP_FAILED",
+            "message": "handover failed",
+            "state": "failed",
+            "session_id": "session-1",
+            "details": {
+                "handover": {
+                    "ok": False,
+                    "code": "RUNTIME_HANDOVER_OPERATION_FAILED",
+                    "message": "Не удалось вернуть игру на главный экран",
+                    "profile": "alas",
+                    "operation_id": "operation-1",
+                    "phases": ["returning_to_main", "failed"],
+                    "details": {
+                        "failed_phase": "returning_to_main",
+                        "handover_step": "device",
+                        "hook_error": "OperationFailedError",
+                        "cause_type": "ImportError",
+                        "cause_code": "operation_failed",
+                        "cause_message": "cannot import C:\\private\\secret.py",
+                        "cause": {
+                            "type": "OperationFailedError",
+                            "code": "operation_failed",
+                            "message": "Не удалось вернуть игру",
+                        },
+                        "unexpected": "drop-me",
+                    },
+                    "unexpected": "drop-me",
+                }
+            },
+        }
+    )
+
+    assert result["details"]["handover"] == {
+        "ok": False,
+        "code": "RUNTIME_HANDOVER_OPERATION_FAILED",
+        "message": "Не удалось вернуть игру на главный экран",
+        "profile": "alas",
+        "operation_id": "operation-1",
+        "phases": ["returning_to_main", "failed"],
+        "details": {
+            "failed_phase": "returning_to_main",
+            "handover_step": "device",
+            "hook_error": "OperationFailedError",
+            "cause_type": "ImportError",
+            "cause_code": "operation_failed",
+            "cause_message": "cannot import [путь скрыт]",
+            "cause": {
+                "type": "OperationFailedError",
+                "code": "operation_failed",
+                "message": "Не удалось вернуть игру",
+            },
+        },
+    }
+
+
 def test_serializer_preserves_event_capability_schema() -> None:
     result = serialize_dev_result(
         {

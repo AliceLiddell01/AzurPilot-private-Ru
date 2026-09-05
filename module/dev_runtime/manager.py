@@ -2824,6 +2824,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             self._record_handover_evidence(result)
             result_code = getattr(result, "code", "DEV_SHARED_WEBUI_START_FAILED")
             result_message = getattr(result, "message", "Shared WebUI не подтвердил запуск target")
+            result_details = getattr(result, "details", {})
             worker_stopped = self._stop_shared_worker(session)
             return self._shared_start_failure(
                 session,
@@ -2832,6 +2833,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                 worker_stopped=worker_stopped,
                 code=str(result_code),
                 message=str(result_message),
+                details=result_details if isinstance(result_details, Mapping) else None,
             )
 
         self._record_handover_evidence(result)
@@ -3032,6 +3034,7 @@ class DevSessionManager(DevDiagnosticsMixin):
         worker_stopped: bool,
         code: str,
         message: str,
+        details: Mapping[str, object] | None = None,
     ) -> DevResult:
         with self._locked_state():
             latest = self._read_session()
@@ -3057,7 +3060,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                 cleanup_attempted=task_plan is not None,
                 reason=code,
             )
-            cleanup_details: dict[str, object] = {}
+            cleanup_details: dict[str, object] = dict(details or {})
             cleanup_confirmed = worker_stopped
             if task_plan is not None:
                 cleanup = (

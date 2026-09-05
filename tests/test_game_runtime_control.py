@@ -476,7 +476,7 @@ def test_application_adapter_preserves_handover_failure_step_and_cause() -> None
 
     assert failure.value.handover_step == "device"
     assert failure.value.cause_type == "RuntimeError"
-    assert not hasattr(failure.value, "cause_message")
+    assert failure.value.cause_message == "synthetic device failure"
 
 
 class _LoginDevice:

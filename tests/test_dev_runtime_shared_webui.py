@@ -188,6 +188,59 @@ def test_shared_failure_preserves_worker_identity_when_stop_is_unconfirmed(
     assert persisted.last_code == "DEV_CLEANUP_FAILED"
 
 
+def test_shared_failure_preserves_handover_details(tmp_path: Path) -> None:
+    manager, shared = _manager(tmp_path)
+
+    def failed_start(
+        *, session_id: str, idempotency_key: str | None = None
+    ) -> RuntimeControlResult:
+        shared.active = True
+        shared.session_id = session_id
+        return RuntimeControlResult(
+            False,
+            "RUNTIME_HANDOVER_OPERATION_FAILED",
+            "Handover не подтверждён",
+            RuntimeControlOperation.START_PROFILE,
+            "ap",
+            session_id,
+            idempotency_key or session_id,
+            owner=shared.owner,
+            details={
+                "handover": {
+                    "ok": False,
+                    "code": "RUNTIME_HANDOVER_OPERATION_FAILED",
+                    "operation_id": "handover-1",
+                    "phases": ["returning_to_main", "failed"],
+                    "details": {
+                        "failed_phase": "returning_to_main",
+                        "handover_step": "device",
+                        "cause_type": "ImportError",
+                        "cause_message": "synthetic import failure",
+                    },
+                }
+            },
+        )
+
+    shared.start_profile = failed_start  # type: ignore[method-assign]
+
+    failed = manager.start()
+
+    assert failed.ok is False
+    assert failed.code == "RUNTIME_HANDOVER_OPERATION_FAILED"
+    assert failed.details["handover"] == {
+        "ok": False,
+        "code": "RUNTIME_HANDOVER_OPERATION_FAILED",
+        "operation_id": "handover-1",
+        "phases": ["returning_to_main", "failed"],
+        "details": {
+            "failed_phase": "returning_to_main",
+            "handover_step": "device",
+            "cause_type": "ImportError",
+            "cause_message": "synthetic import failure",
+        },
+    }
+
+
 def test_shared_manager_uses_new_stop_idempotency_key_for_each_attempt(
     tmp_path: Path,
 ) -> None:
