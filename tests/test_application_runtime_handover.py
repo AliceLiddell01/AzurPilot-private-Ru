@@ -7,7 +7,7 @@ from module.application.runtime_handover import (
     NotificationOutcome,
     ProfileHandoverCoordinator,
 )
-from module.application.runtime_state import RuntimePhase, RuntimeStateSnapshot
+from module.application.runtime_state import RuntimePhase, RuntimeStateError, RuntimeStateSnapshot
 
 
 def _snapshot(*, busy: bool, worker_running: bool = True) -> RuntimeStateSnapshot:
@@ -116,6 +116,37 @@ def test_idle_handover_uses_cooperative_stop_and_confirms_main() -> None:
         "main_confirmed",
     ]
     assert result.phases[0] == "handover_requested"
+
+
+def test_handover_converts_phase_mark_failure_to_fail_closed_result() -> None:
+    hooks = Hooks([_snapshot(busy=False)])
+    original_mark = hooks.mark_phase
+
+    def fail_mark(
+        profile: str,
+        phase: RuntimePhase,
+        operation_id: str,
+        session_id: str | None,
+    ) -> None:
+        if phase is RuntimePhase.QUIESCE_REQUESTED:
+            raise RuntimeStateError("RUNTIME_STATE_WRITE_FAILED", "синтетическая ошибка записи фазы")
+        original_mark(profile, phase, operation_id, session_id)
+
+    hooks.mark_phase = fail_mark  # type: ignore[method-assign]
+
+    result = _coordinator().run(
+        "alas",
+        operation_id="handover-mark-failure",
+        session_id="session-1",
+        hooks=hooks,
+    )
+
+    assert result.ok is False
+    assert result.code == "RUNTIME_STATE_WRITE_FAILED"
+    assert result.message == "синтетическая ошибка записи фазы"
+    assert result.details["failed_phase"] == "quiesce_requested"
+    assert result.phases[-1] == "failed"
+    assert hooks.phases[-1] == "failed"
 
 
 def test_busy_handover_warns_before_grace_and_does_not_use_hard_stop() -> None:

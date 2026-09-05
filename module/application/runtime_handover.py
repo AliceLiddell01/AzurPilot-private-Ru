@@ -202,7 +202,11 @@ class ProfileHandoverCoordinator:
                     "Срок действия runtime control request истёк во время handover",
                     details=handover_details,
                 )
-            self._mark(hooks, profile, RuntimePhase.PREEMPTION_NOTICE, operation_id, session_id, phases)
+            mark_failure = self._mark(
+                hooks, profile, RuntimePhase.PREEMPTION_NOTICE, operation_id, session_id, phases
+            )
+            if mark_failure is not None:
+                return mark_failure
             if deadline_check is not None and deadline_check() is not True:
                 return self._fail(
                     hooks,
@@ -250,7 +254,11 @@ class ProfileHandoverCoordinator:
                 "outcome": NotificationOutcome.DELIVERED.value,
                 "confirmed": True,
             }
-            self._mark(hooks, profile, RuntimePhase.GRACE_PERIOD, operation_id, session_id, phases)
+            mark_failure = self._mark(
+                hooks, profile, RuntimePhase.GRACE_PERIOD, operation_id, session_id, phases
+            )
+            if mark_failure is not None:
+                return mark_failure
             busy_state = self._wait_until_not_busy(profile, hooks, deadline_check=deadline_check)
             if busy_state == "expired":
                 return self._fail(
@@ -287,7 +295,11 @@ class ProfileHandoverCoordinator:
                 "Срок действия runtime control request истёк до cooperative quiesce",
                 details=handover_details,
             )
-        self._mark(hooks, profile, RuntimePhase.QUIESCE_REQUESTED, operation_id, session_id, phases)
+        mark_failure = self._mark(
+            hooks, profile, RuntimePhase.QUIESCE_REQUESTED, operation_id, session_id, phases
+        )
+        if mark_failure is not None:
+            return mark_failure
         if hooks.request_cooperative_quiesce(profile, operation_id, session_id) is not True:
             return self._fail(
                 hooks,
@@ -310,7 +322,11 @@ class ProfileHandoverCoordinator:
                 "Срок действия runtime control request истёк во время quiesce",
                 details=handover_details,
             )
-        self._mark(hooks, profile, RuntimePhase.CURRENT_TASK_DRAINING, operation_id, session_id, phases)
+        mark_failure = self._mark(
+            hooks, profile, RuntimePhase.CURRENT_TASK_DRAINING, operation_id, session_id, phases
+        )
+        if mark_failure is not None:
+            return mark_failure
         wait_timeout = self.policy.quiesce_timeout_seconds
         if deadline_remaining is not None:
             try:
@@ -351,8 +367,16 @@ class ProfileHandoverCoordinator:
                 "Срок действия runtime control request истёк после остановки worker",
                 details=handover_details,
             )
-        self._mark(hooks, profile, RuntimePhase.CURRENT_TASK_STOPPED, operation_id, session_id, phases)
-        self._mark(hooks, profile, RuntimePhase.RETURNING_TO_MAIN, operation_id, session_id, phases)
+        mark_failure = self._mark(
+            hooks, profile, RuntimePhase.CURRENT_TASK_STOPPED, operation_id, session_id, phases
+        )
+        if mark_failure is not None:
+            return mark_failure
+        mark_failure = self._mark(
+            hooks, profile, RuntimePhase.RETURNING_TO_MAIN, operation_id, session_id, phases
+        )
+        if mark_failure is not None:
+            return mark_failure
         if deadline_check is not None and deadline_check() is not True:
             return self._fail(
                 hooks,
@@ -408,7 +432,11 @@ class ProfileHandoverCoordinator:
                 "Срок действия runtime control request истёк до фиксации главного экрана",
                 details=handover_details,
             )
-        self._mark(hooks, profile, RuntimePhase.MAIN_CONFIRMED, operation_id, session_id, phases)
+        mark_failure = self._mark(
+            hooks, profile, RuntimePhase.MAIN_CONFIRMED, operation_id, session_id, phases
+        )
+        if mark_failure is not None:
+            return mark_failure
         return HandoverResult(
             True,
             "RUNTIME_HANDOVER_READY",
@@ -450,9 +478,22 @@ class ProfileHandoverCoordinator:
         operation_id: str,
         session_id: str | None,
         phases: list[str],
-    ) -> None:
-        hooks.mark_phase(profile, phase, operation_id, session_id)
+    ) -> HandoverResult | None:
+        try:
+            hooks.mark_phase(profile, phase, operation_id, session_id)
+        except RuntimeStateError as exc:
+            return ProfileHandoverCoordinator._fail(
+                hooks,
+                profile,
+                operation_id,
+                session_id,
+                phases,
+                exc.code,
+                str(exc),
+                details={"failed_phase": phase.value},
+            )
         phases.append(phase.value)
+        return None
 
     @staticmethod
     def _fail(

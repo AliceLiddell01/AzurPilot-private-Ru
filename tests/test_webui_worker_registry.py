@@ -206,6 +206,29 @@ class TestWorkerRegistry(unittest.TestCase):
                     worker_registry.claim_owner(100)
                 self.assertEqual(registry_before, registry_file.read_bytes())
 
+    def test_owner_claim_can_replace_dead_orphan_worker_without_created_at(self):
+        with tempfile.TemporaryDirectory() as directory:
+            registry_file = Path(directory) / "workers.json"
+            registry_file.write_text(
+                json.dumps(
+                    {
+                        "owner_created_at": None,
+                        "owner_pid": None,
+                        "workers": {"alas": {"pid": 200}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with (
+                patch.object(worker_registry, "WORKER_REGISTRY_FILE", registry_file),
+                patch.object(worker_registry, "_process_created_at", return_value=10.5),
+                patch.object(worker_registry, "_pid_exists", return_value=False),
+            ):
+                worker_registry.claim_owner(100)
+                self.assertEqual(100, worker_registry.get_owner())
+                self.assertEqual({}, worker_registry.get_workers(100))
+
     def test_read_only_worker_snapshot_does_not_migrate_or_create_lock(self):
         with tempfile.TemporaryDirectory() as directory:
             current_file = Path(directory) / "cache" / "webui-workers.json"

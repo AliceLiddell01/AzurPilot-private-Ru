@@ -244,7 +244,10 @@ def _read_bounded(path: Path, maximum: int) -> bytes:
             raise
         except PermissionError:
             if os.name != "nt" or attempt == 4:
-                raise
+                raise RuntimeControlError(
+                    "RUNTIME_CONTROL_READ_FAILED",
+                    "Файл control plane невозможно прочитать",
+                ) from None
             time.sleep(0.01 * (2**attempt))
         except OSError as exc:
             raise RuntimeControlError("RUNTIME_CONTROL_READ_FAILED", "Файл control plane невозможно прочитать") from exc
@@ -445,12 +448,17 @@ class WebUIControlClient:
             result.operation is not operation
             or result.profile != profile
             or result.idempotency_key != idempotency_key
-            or result.owner is None
-            or not _owner_equal(result.owner, owner)
         ):
             raise RuntimeControlError(
                 "RUNTIME_RESULT_CONFLICT",
                 "Результат control operation связан с другой operation",
+            )
+        if result.ok and (
+            result.owner is None or not _owner_equal(result.owner, owner)
+        ):
+            raise RuntimeControlError(
+                "RUNTIME_RESULT_CONFLICT",
+                "Результат успешной control operation связан с другим owner",
             )
 
 

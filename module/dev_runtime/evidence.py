@@ -1696,6 +1696,9 @@ class EvidenceStore:
 
     def _capture_log_end_boundary_locked(self, manifest: dict[str, object]) -> None:
         logs = _validate_log_metadata(manifest["logs"])
+        if logs["source"] != self.log_source:
+            self._set_health_locked(manifest, "log_boundary_lost")
+            return
         if not logs["available"]:
             return
         try:
@@ -1946,6 +1949,16 @@ class EvidenceStore:
         cleanup_confirmed: bool,
         preserved: bool = False,
     ) -> None:
+        if type(cleanup_confirmed) is not bool or type(preserved) is not bool:
+            raise EvidenceError(
+                "DEV_EVIDENCE_CLEANUP_INVALID",
+                "Результат cleanup имеет некорректные флаги",
+            )
+        if cleanup_confirmed and preserved:
+            raise EvidenceError(
+                "DEV_EVIDENCE_CLEANUP_INVALID",
+                "Результат cleanup не может быть одновременно подтверждённым и сохранённым",
+            )
         timestamp = stopped_at or self.now().astimezone(UTC).isoformat()
         _utc_timestamp(timestamp)
         with _exclusive_lock(self.lock_path, self.environment.repository_root):
@@ -1974,6 +1987,11 @@ class EvidenceStore:
             raise EvidenceError(
                 "DEV_EVIDENCE_CLEANUP_INVALID",
                 "Результат cleanup имеет некорректные флаги",
+            )
+        if cleanup_confirmed and preserved:
+            raise EvidenceError(
+                "DEV_EVIDENCE_CLEANUP_INVALID",
+                "Результат cleanup не может быть одновременно подтверждённым и сохранённым",
             )
         value = timestamp or self.now().astimezone(UTC).isoformat()
         _utc_timestamp(value)
@@ -2445,6 +2463,13 @@ class EvidenceStore:
         with _exclusive_lock(self.lock_path, self.environment.repository_root):
             manifest = self._manifest_locked()
             logs = _validate_log_metadata(manifest["logs"])
+            if logs["source"] != self.log_source:
+                self._set_health_locked(manifest, "log_boundary_lost")
+                self._write_manifest_locked(manifest)
+                raise EvidenceError(
+                    "DEV_EVIDENCE_LOG_BOUNDARY_LOST",
+                    "Источник журнала в манифесте не совпадает с текущей сессией",
+                )
             if not logs["available"]:
                 self._set_health_locked(manifest, "log_boundary_lost")
                 self._write_manifest_locked(manifest)

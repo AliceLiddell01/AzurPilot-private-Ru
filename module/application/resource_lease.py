@@ -102,12 +102,6 @@ def _marker_is_active(marker: tuple[int, float]) -> bool | None:
     pid, created_at = marker
     current = _process_created_at(pid)
     if current is None:
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return False
-        except OSError:
-            return None
         return None
     return abs(current - created_at) < 0.01
 

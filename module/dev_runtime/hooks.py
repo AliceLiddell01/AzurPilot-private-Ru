@@ -60,12 +60,14 @@ def record_runtime_error(
         from module.application.runtime_state import RuntimeStateStore
 
         profile = str(config_name)
-        RuntimeStateStore(_repository_root()).mark_failed(
-            profile,
-            operation_id=os.environ.get(_OPERATION_ENV),
-            session_id=os.environ.get(_SESSION_ENV),
-            terminal_state="runtime_error",
-        )
+        store = RuntimeStateStore(_repository_root())
+        if store.read(profile) is not None:
+            store.mark_failed(
+                profile,
+                operation_id=os.environ.get(_OPERATION_ENV),
+                session_id=os.environ.get(_SESSION_ENV),
+                terminal_state="runtime_error",
+            )
     except Exception:
         pass
     if not _enabled():

@@ -308,6 +308,47 @@ def test_evidence_log_rotation_fails_closed_at_segment_limit(tmp_path: Path) -> 
     assert "log_boundary_lost" in persisted["evidence_health"]["reasons"]
 
 
+def test_evidence_rejects_manifest_log_source_mismatch(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    log_path = store.environment.log_file
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_bytes(b"")
+    store.capture_log_boundary()
+
+    manifest = json.loads(store.manifest_path.read_text(encoding="utf-8"))
+    manifest["logs"]["source"] = "log/another-profile.txt"
+    store.manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(EvidenceError) as error:
+        store.logs_page(active_owned=True)
+
+    assert error.value.code == "DEV_EVIDENCE_LOG_BOUNDARY_LOST"
+    persisted = json.loads(store.manifest_path.read_text(encoding="utf-8"))
+    assert "log_boundary_lost" in persisted["evidence_health"]["reasons"]
+
+
+def test_evidence_rejects_confirmed_and_preserved_cleanup_together(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+
+    with pytest.raises(EvidenceError) as finalize_error:
+        store.finalize(
+            stopped_at=_TIME,
+            cleanup_confirmed=True,
+            preserved=True,
+        )
+    assert finalize_error.value.code == "DEV_EVIDENCE_CLEANUP_INVALID"
+
+    with pytest.raises(EvidenceError) as record_error:
+        store.record_cleanup_result(
+            timestamp=_TIME,
+            cleanup_confirmed=True,
+            preserved=True,
+        )
+    assert record_error.value.code == "DEV_EVIDENCE_CLEANUP_INVALID"
+
+
 def test_evidence_log_cursor_reset_after_rotation_is_reported_as_truncated(
     tmp_path: Path,
 ) -> None:
@@ -961,6 +1002,20 @@ def test_hooks_are_noop_without_active_dev_session(monkeypatch) -> None:
         timestamp=_TIME,
     )
     hooks.serve_pending_screenshot(np.zeros((1, 1), dtype=np.uint8))
+
+
+def test_runtime_error_hook_does_not_create_missing_runtime_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from module.dev_runtime import hooks
+
+    monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(tmp_path))
+    monkeypatch.delenv("AZURPILOT_DEV_SESSION_ID", raising=False)
+
+    hooks.record_runtime_error("ap", RuntimeError("ошибка worker"), phase="task")
+
+    assert not (tmp_path / "config" / "state" / "webui-runtime-state.json").exists()
 
 
 def test_hooks_repository_root_does_not_depend_on_process_cwd(

@@ -186,3 +186,19 @@ def test_game_runtime_lease_cleanup_error_does_not_mask_body_error(
     finally:
         if marker_path.exists():
             original_remove(marker_path)
+
+
+def test_game_runtime_lease_does_not_probe_pid_without_process_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    kill_calls: list[tuple[object, ...]] = []
+
+    monkeypatch.setattr(resource_lease, "_process_created_at", lambda _pid: None)
+    monkeypatch.setattr(
+        resource_lease.os,
+        "kill",
+        lambda *args: kill_calls.append(args),
+    )
+
+    assert resource_lease._marker_is_active((12345, 1.0)) is None
+    assert kill_calls == []

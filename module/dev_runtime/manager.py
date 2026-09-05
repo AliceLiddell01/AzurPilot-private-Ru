@@ -3113,7 +3113,10 @@ class DevSessionManager(DevDiagnosticsMixin):
         if not callable(stop):
             return False
         try:
-            result = stop(session_id=session.session_id, idempotency_key=f"stop-{session.session_id}")
+            result = stop(
+                session_id=session.session_id,
+                idempotency_key=f"stop-{uuid.uuid4().hex}",
+            )
         except Exception:
             return False
         return getattr(result, "ok", False) is True

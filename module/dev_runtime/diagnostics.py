@@ -37,11 +37,14 @@ _TASK_CLEANUP_RECOVERABLE_CODES = frozenset(
 
 
 class DevDiagnosticsMixin:
+    shared_webui: bool
+    shared_lifecycle: object | None
+
     def _environment_for_session(self, session: DevSession) -> DevEnvironment:
         raise NotImplementedError("DevDiagnosticsMixin требует разрешения окружения сессии")
 
     def _shared_runtime_enabled(self) -> bool:
-        return bool(getattr(self, "shared_webui", False))
+        return self.shared_webui
 
     @staticmethod
     def _call_readiness(probe: object, *args: object) -> tuple[bool, str]:
@@ -290,7 +293,7 @@ class DevDiagnosticsMixin:
                     message="Маркер DevSession требует shared WebUI, но текущий manager его не использует",
                     state=DevStatusKind.OWNERSHIP_MISMATCH,
                 )
-            shared = getattr(self, "shared_lifecycle", None)
+            shared = self.shared_lifecycle
             ready = getattr(shared, "matches_session", None)
             try:
                 matches = ready(session.session_id, session.profile_name or self.environment.profile_name) if callable(ready) else False
@@ -370,7 +373,7 @@ class DevDiagnosticsMixin:
                     details={"error": exc.as_dict()},
                 )
             if session.runtime_mode is DevRuntimeMode.SHARED_WEBUI:
-                shared = getattr(self, "shared_lifecycle", None)
+                shared = self.shared_lifecycle
                 probe = getattr(shared, "ready", None)
                 if not self._shared_runtime_enabled():
                     ready, reason = False, "текущий manager не поддерживает shared runtime mode"
@@ -420,7 +423,7 @@ class DevDiagnosticsMixin:
         self, environment: DevEnvironment, identity: ProcessIdentity
     ) -> tuple[bool, str]:
         if self._shared_runtime_enabled():
-            shared = getattr(self, "shared_lifecycle", None)
+            shared = self.shared_lifecycle
             probe = getattr(shared, "ready", None)
             return self._call_readiness(probe, environment.profile_name)
         try:

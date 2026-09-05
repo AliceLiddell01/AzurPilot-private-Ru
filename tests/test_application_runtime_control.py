@@ -201,6 +201,44 @@ def test_runtime_control_rejects_nonfinite_owner_identity() -> None:
     assert error.value.code == "RUNTIME_OWNER_INVALID"
 
 
+def test_control_client_accepts_ownerless_failure_result() -> None:
+    owner = RuntimeOwnerIdentity(pid=4321, created_at=1234.5)
+    result = RuntimeControlResult(
+        False,
+        "RUNTIME_OWNER_UNAVAILABLE",
+        "Общий WebUI owner завершил работу",
+        RuntimeControlOperation.START_PROFILE,
+        "ap",
+        "request-1",
+        "key-1",
+        owner=None,
+    )
+
+    WebUIControlClient._validate_result(
+        result,
+        RuntimeControlOperation.START_PROFILE,
+        "ap",
+        "key-1",
+        owner=owner,
+    )
+
+
+def test_control_plane_wraps_permission_read_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def deny(_path: Path) -> bytes:
+        raise PermissionError("синтетическая ошибка доступа")
+
+    monkeypatch.setattr(Path, "read_bytes", deny)
+    monkeypatch.setattr(runtime_control.time, "sleep", lambda _seconds: None)
+
+    with pytest.raises(RuntimeControlError) as error:
+        runtime_control._read_bounded(tmp_path / "request.json", 1024)
+
+    assert error.value.code == "RUNTIME_CONTROL_READ_FAILED"
+
+
 def test_control_plane_requires_positive_timeout_and_rejects_expired_request(tmp_path: Path) -> None:
     owner = RuntimeOwnerIdentity(pid=4321, created_at=1234.5)
     with pytest.raises(ValueError):

@@ -138,6 +138,32 @@ def test_dev_runtime_uses_existing_shared_webui_and_never_owns_server(tmp_path: 
     assert not (tmp_path / "config" / "state" / "dev-runtime-gui.log").exists()
 
 
+def test_shared_manager_uses_new_stop_idempotency_key_for_each_attempt(
+    tmp_path: Path,
+) -> None:
+    manager, shared = _manager(tmp_path)
+    started = manager.start()
+    assert started.ok is True
+    session = manager._read_session()
+    assert session is not None
+    keys: list[str | None] = []
+    original_stop = shared.stop_profile
+
+    def record_stop(
+        *, session_id: str, idempotency_key: str | None = None
+    ) -> RuntimeControlResult:
+        keys.append(idempotency_key)
+        return original_stop(session_id=session_id, idempotency_key=idempotency_key)
+
+    shared.stop_profile = record_stop  # type: ignore[method-assign]
+
+    assert manager._stop_shared_worker(session) is True
+    assert manager._stop_shared_worker(session) is True
+    assert len(keys) == 2
+    assert keys[0] is not None
+    assert keys[0] != keys[1]
+
+
 def test_shared_runtime_runs_pre_execution_hook_before_owner_start(
     tmp_path: Path,
 ) -> None:

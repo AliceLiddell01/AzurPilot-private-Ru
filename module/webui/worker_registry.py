@@ -350,8 +350,8 @@ def claim_owner(owner_pid: int) -> None:
                         f"Запись orphan worker {worker_name} имеет неподтверждённый формат; перезапись реестра отклонена"
                     )
                 try:
-                    worker_matches = process_matches(worker_record)
-                except RuntimeError as exc:
+                    worker_matches = _record_is_alive(worker_record)
+                except (KeyError, RuntimeError) as exc:
                     raise WorkerRegistryOwnershipError(
                         f"Нельзя подтвердить отсутствие orphan worker {worker_name}; перезапись реестра отклонена"
                     ) from exc

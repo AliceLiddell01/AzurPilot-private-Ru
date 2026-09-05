@@ -69,7 +69,7 @@ class TestProcessManagerRegistry(unittest.TestCase):
         kill.assert_called_once_with(12345)
         self.assertNotIn("alas", State.process_registry)
 
-    def test_stale_manager_does_not_unregister_replacement_worker(self):
+    def test_stale_manager_does_not_report_success_or_unregister_replacement_worker(self):
         State.process_registry["alas"] = 23456
         manager = ProcessManager.get_manager("alas")
         old_process = Mock()
@@ -84,7 +84,7 @@ class TestProcessManagerRegistry(unittest.TestCase):
                 return_value={"alas": {"pid": 23456, "created_at": 2.0}},
             ),
         ):
-            self.assertTrue(manager.stop())
+            self.assertFalse(manager.stop())
 
         self.assertEqual(23456, State.process_registry["alas"])
 
@@ -378,6 +378,21 @@ class TestProcessManagerRegistry(unittest.TestCase):
             snapshot = RuntimeStateStore(root_path).read("ap")
             self.assertIsNotNone(snapshot)
             self.assertTrue(snapshot.stop_requested)
+
+    def test_unregister_without_expected_worker_rejects_existing_registry_record(self):
+        manager = ProcessManager("alas")
+        manager._stop_event = Mock()
+
+        with (
+            patch("module.webui.process_manager.is_current_owner", return_value=True),
+            patch(
+                "module.webui.process_manager.get_workers",
+                return_value={"alas": {"pid": 12345, "created_at": 1.0}},
+            ),
+        ):
+            self.assertFalse(manager._unregister_process())
+
+        self.assertIsNotNone(manager._stop_event)
 
     def test_start_rejects_during_update_transaction(self):
         manager = ProcessManager.get_manager("alas")

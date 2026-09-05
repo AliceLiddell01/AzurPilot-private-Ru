@@ -69,6 +69,7 @@ class ProcessManager:
         self._stop_event: object | None = None
         self._runtime_operation_id: str | None = None
         self._runtime_session_id: str | None = None
+        self._registry_cleanup_confirmed = False
         self.thd_log_queue_handler: threading.Thread | None = None
         self._state_override: int | None = None
         self._state_override_deadline: float | None = None
@@ -198,6 +199,7 @@ class ProcessManager:
     def stop(self) -> bool:
         """停止 worker 进程树，并返回是否确认全部结束。"""
         with self._get_lifecycle_lock(self.config_name):
+            self._registry_cleanup_confirmed = False
             process = self._process
             local_process_alive = self._is_process_alive(process)
 
@@ -244,7 +246,18 @@ class ProcessManager:
                         stopped = not self._is_process_alive(process)
             if stopped:
                 self._process = None
-                stopped = self._unregister_process(expected_worker=record)
+                if self._registry_cleanup_confirmed and record is None:
+                    self._stop_event = None
+                    self._runtime_operation_id = None
+                    self._runtime_session_id = None
+                elif record is None and pid is not None and not pid_verified:
+                    # Реестр уже содержит другой worker или не подтверждает
+                    # прежнюю identity; повторная проверка не должна удалить
+                    # чужую запись или сообщить об успешной остановке.
+                    stopped = self._unregister_process(expected_worker=None)
+                else:
+                    stopped = self._unregister_process(expected_worker=record)
+                self._registry_cleanup_confirmed = False
                 if stopped and pid is not None:
                     self.renderables.append(
                         Text(f"[{self.config_name}] exited. Reason: Manual stop\n")
@@ -296,7 +309,7 @@ class ProcessManager:
                 return False
             try:
                 event.set()
-            except Exception as exc:  # noqa: BLE001 - state write is a fail-closed signal.
+            except Exception as exc:  # noqa: BLE001 - сигнал остановки работает в fail-closed режиме.
                 logger.error(
                     f"[{self.config_name}] Не удалось передать cooperative stop request: {exc}"
                 )
@@ -526,6 +539,8 @@ class ProcessManager:
             logger.info(f"[{self.config_name}] Рабочий процесс PID {pid} завершён; устаревшая запись удалена")
 
         unregistered = self._unregister_process(expected_worker=record)
+        if unregistered:
+            self._registry_cleanup_confirmed = True
         if expected_pid is not None:
             # process_matches 已确认进程死亡（返回 None）或 PID 已复用
             # （返回 False），本地句柄可能是未 join 的僵尸。
@@ -607,8 +622,19 @@ class ProcessManager:
         if expected_worker is None:
             # Отсутствие ожидаемой identity означает, что этот manager больше
             # не имеет права очищать запись, которая могла уже принадлежать
-            # новому worker того же profile.
+            # новому worker того же профиля.
             if not is_current_owner(os.getpid()):
+                return False
+            try:
+                if get_workers(os.getpid()).get(self.config_name) is not None:
+                    logger.error(
+                        f"[{self.config_name}] Запись worker существует без подтверждённой identity; очистка отклонена"
+                    )
+                    return False
+            except Exception as exc:  # noqa: BLE001 - отсутствие подтверждённого registry блокирует очистку.
+                logger.error(
+                    f"[{self.config_name}] Не удалось подтвердить отсутствие записи worker: {exc}"
+                )
                 return False
             self._stop_event = None
             self._runtime_operation_id = None
