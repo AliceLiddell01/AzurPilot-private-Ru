@@ -504,9 +504,13 @@ class AzurLaneAutoScript:
             self.__getattribute__(command)()
             return True
         except TaskEnd:
-            from module.observability import mark_task_stopped
+            try:
+                from module.observability import mark_task_stopped
 
-            mark_task_stopped()
+                mark_task_stopped()
+            except Exception:
+                # Метрики не должны менять штатный результат TaskEnd.
+                pass
             return True
         except GameNotRunningError as e:
             record_dev_runtime_error(e, phase="task", task=command)
@@ -1818,12 +1822,7 @@ class AzurLaneAutoScript:
                     break
                 task_outcome = 'returned'
                 try:
-                    run_scheduler_task = getattr(self, '_run_scheduler_task', None)
-                    success = (
-                        run_scheduler_task(task)
-                        if callable(run_scheduler_task)
-                        else self.run(inflection.underscore(task))
-                    )
+                    success = self._run_scheduler_task(task)
                 except Exception:
                     task_outcome = 'failed'
                     raise

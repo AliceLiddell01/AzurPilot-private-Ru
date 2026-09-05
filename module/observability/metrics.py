@@ -185,9 +185,16 @@ class MetricsRuntime:
     def shutdown(self, timeout_millis: int) -> bool:
         self.active = False
         completed = True
+        deadline = time.monotonic() + max(0, timeout_millis) / 1000
+
+        def remaining_timeout_millis() -> int:
+            return max(0, int((deadline - time.monotonic()) * 1000))
+
         try:
             completed = bool(
-                self.provider.force_flush(timeout_millis=timeout_millis)
+                self.provider.force_flush(
+                    timeout_millis=remaining_timeout_millis()
+                )
             ) and completed
         except Exception as exc:
             completed = False
@@ -196,7 +203,7 @@ class MetricsRuntime:
             except Exception:
                 pass
         try:
-            self.provider.shutdown(timeout_millis=timeout_millis)
+            self.provider.shutdown(timeout_millis=remaining_timeout_millis())
         except TypeError:
             try:
                 self.provider.shutdown()
@@ -240,6 +247,7 @@ def build_metrics_runtime(
             return None
 
     provider = None
+    reader = None
     try:
         exporter = (
             exporter_factory(config.timeout_millis)
@@ -288,6 +296,11 @@ def build_metrics_runtime(
         if provider is not None:
             try:
                 provider.shutdown()
+            except Exception:
+                pass
+        elif reader is not None:
+            try:
+                reader.shutdown()
             except Exception:
                 pass
         raise

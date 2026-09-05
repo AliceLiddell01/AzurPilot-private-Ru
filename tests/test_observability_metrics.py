@@ -438,6 +438,38 @@ def test_metrics_failure_does_not_mask_task_exception():
         assert runtime.shutdown(1000)
 
 
+def test_metrics_runtime_closes_reader_when_provider_creation_fails(monkeypatch):
+    from opentelemetry.sdk import metrics as sdk_metrics
+
+    class Reader:
+        def __init__(self):
+            self.shutdown_calls = 0
+
+        def shutdown(self):
+            self.shutdown_calls += 1
+
+    class FailingProvider:
+        def __init__(self, **_kwargs):
+            raise RuntimeError("provider creation failed")
+
+    reader = Reader()
+    monkeypatch.setattr(sdk_metrics, "MeterProvider", FailingProvider)
+    with pytest.raises(RuntimeError, match="provider creation failed"):
+        build_metrics_runtime(
+            MetricsConfig(
+                endpoint=None,
+                timeout_millis=1000,
+                export_interval_millis=60_000,
+                export_timeout_millis=30_000,
+            ),
+            resource=Resource.create({"service.name": "azurpilot"}),
+            reporter=type("Reporter", (), {"report": lambda *_args, **_kwargs: None})(),
+            exporter_factory=lambda _timeout: object(),
+            reader_factory=lambda _exporter, _interval, _timeout: reader,
+        )
+    assert reader.shutdown_calls == 1
+
+
 def test_metrics_provider_is_process_local_and_configure_is_idempotent(monkeypatch):
     _clear_environment(monkeypatch)
     monkeypatch.setenv(
@@ -627,9 +659,15 @@ def test_linux_fork_uses_fresh_production_periodic_reader(monkeypatch):
                 os.write(write_fd, json.dumps(payload).encode("utf-8"))
                 os._exit(1)
 
-        _, status = os.waitpid(child_pid, 0)
         os.close(write_fd)
-        payload = json.loads(os.read(read_fd, 64 * 1024).decode("utf-8"))
+        chunks = []
+        while True:
+            chunk = os.read(read_fd, 64 * 1024)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        _, status = os.waitpid(child_pid, 0)
+        payload = json.loads(b"".join(chunks).decode("utf-8"))
         assert os.waitstatus_to_exitcode(status) == 0, payload
         assert payload["configured"] is True
         assert payload["runtime_owner_pid"] == payload["pid"]

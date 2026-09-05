@@ -962,20 +962,31 @@ def configure_application_observability(
 
 def _shutdown_runtime(runtime: _Runtime, timeout_millis: int) -> bool:
     finished = threading.Event()
+    deadline = time.monotonic() + max(0, timeout_millis) / 1000
+
+    def remaining_timeout_millis() -> int:
+        return max(0, int((deadline - time.monotonic()) * 1000))
 
     def close_provider() -> None:
         try:
             if runtime.provider is not None:
                 try:
-                    runtime.provider.force_flush(timeout_millis=timeout_millis)
+                    runtime.provider.force_flush(
+                        timeout_millis=remaining_timeout_millis()
+                    )
                 except Exception as exc:
                     _failure_reporter.report("Не удалось сбросить буфер OTLP logging", exc)
                 try:
-                    runtime.provider.shutdown()
+                    try:
+                        runtime.provider.shutdown(
+                            timeout_millis=remaining_timeout_millis()
+                        )
+                    except TypeError:
+                        runtime.provider.shutdown()
                 except Exception as exc:
                     _failure_reporter.report("Не удалось завершить OTLP logging provider", exc)
             if runtime.metrics is not None:
-                runtime.metrics.shutdown(timeout_millis)
+                runtime.metrics.shutdown(remaining_timeout_millis())
         finally:
             finished.set()
 
@@ -985,7 +996,7 @@ def _shutdown_runtime(runtime: _Runtime, timeout_millis: int) -> bool:
         daemon=True,
     )
     worker.start()
-    completed = finished.wait(max(0, timeout_millis) / 1000)
+    completed = finished.wait(max(0, deadline - time.monotonic()))
     if not completed:
         _failure_reporter.report(
             "Завершение application observability остановлено по bounded timeout"
