@@ -8,10 +8,11 @@
    scope. Отсутствие PR само по себе не блокирует branch/commit review. Не
    смешивай пользовательские изменения.
 2. Используй подготовленный постоянный обычный WSL2 Arch clone
-   `\home\kykla\AzurPilotWSL`. Повторно создавать clone или linked worktree не
-   нужно; перед очередным review достаточно сделать `fetch` (при необходимости
-   `pull`) нужной ветки и checkout exact head. Другую среду для CodeRabbit review
-   не используй.
+   `$HOME/AzurPilotWSL`; при проверенном `id -un=kykla` это подготовленный clone
+   пользователя `kykla`. Повторно создавать clone или linked worktree не нужно;
+   перед очередным review достаточно сделать `fetch` (при необходимости `pull`)
+   нужной ветки и checkout exact head. Другую среду для CodeRabbit review не
+   используй.
 3. Выполняй команды в WSL от пользователя `kykla`, не от `root`; проверь
    `id -un` и что `HOME` относится к этому пользователю. Получи exact branch/head и base без копирования
    локальных secrets/config. Перед запуском в WSL2 Arch разреши реальный

@@ -22,7 +22,8 @@ CodeRabbit — независимый reviewer, а не источник ист�
 ## Предварительные условия CLI и remote
 
 Для review используй подготовленный постоянный обычный WSL2 Arch clone
-`\home\kykla\AzurPilotWSL`; повторно создавать clone или linked worktree не
+`$HOME/AzurPilotWSL`; при проверенном `id -un=kykla` это подготовленный clone
+пользователя `kykla`. Повторно создавать clone или linked worktree не
 нужно. Перед очередным review достаточно сделать `fetch` (при необходимости
 `pull`) нужной ветки и checkout exact head. Запускай все WSL-команды от
 пользователя `kykla`, не от `root`; перед разрешением CLI проверь `id -un` и
