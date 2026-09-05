@@ -1152,47 +1152,17 @@ class RuntimeControlManager:
         try:
             operation = self._reserve_operation(action)
             try:
-                handle = self.supervisor_launcher(self.environment, operation.control_id)
-                pid = getattr(handle, "pid", None)
-                if isinstance(pid, int) and pid > 0:
-                    supervisor_created_at = _process_created_at(pid)
-                    with self.store.lock():
-                        current = self.store.read()
-                        if current is not None and current.control_id == operation.control_id:
-                            if current.state is ControlState.FINISHED:
-                                operation = current
-                            elif current.supervisor_pid is not None:
-                                # Дочерний процесс может зарегистрировать операцию
-                                # до того, как запускающий процесс увидит его PID.
-                                # Не перезаписываем эту регистрацию PID родителя.
-                                operation = current
-                            elif supervisor_created_at is not None:
-                                operation = replace(
-                                    current,
-                                    supervisor_pid=pid,
-                                    supervisor_created_at=supervisor_created_at,
-                                )
-                                self.store.write(operation)
-                            else:
-                                operation = self._finish(
-                                    current,
-                                    outcome=ControlOutcome.ABORTED,
-                                    code="DEV_CONTROL_SUPERVISOR_IDENTITY_UNAVAILABLE",
-                                )
-                                self.store.write(operation)
-                else:
-                    with self.store.lock():
-                        current = self.store.read()
-                        if current is not None and current.control_id == operation.control_id:
-                            if current.state is ControlState.FINISHED or current.supervisor_pid is not None:
-                                operation = current
-                            else:
-                                operation = self._finish(
-                                    current,
-                                    outcome=ControlOutcome.ABORTED,
-                                    code="DEV_CONTROL_SUPERVISOR_IDENTITY_UNAVAILABLE",
-                                )
-                                self.store.write(operation)
+                self.supervisor_launcher(self.environment, operation.control_id)
+                # Не записываем PID, возвращённый launcher-ом. На Windows
+                # .venv\Scripts\python.exe является redirector и возвращает
+                # PID родительского процесса, тогда как control supervisor
+                # должен claim-ить собственный PID. Иначе родительская запись
+                # блокирует claim дочернего процесса и после выхода redirector-а
+                # operation ошибочно закрывается как аварийная.
+                with self.store.lock():
+                    current = self.store.read()
+                    if current is not None and current.control_id == operation.control_id:
+                        operation = current
             except Exception:  # noqa: BLE001
                 with self.store.lock():
                     current = self.store.read()

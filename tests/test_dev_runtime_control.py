@@ -210,6 +210,13 @@ def _accepted(manager: RuntimeControlManager, action: ControlAction) -> str:
     return control_id
 
 
+def _mark_supervisor_claimed(manager: RuntimeControlManager, control_id: str) -> None:
+    operation = manager.store.read()
+    assert operation is not None
+    assert operation.control_id == control_id
+    manager.store.write(replace(operation, supervisor_pid=4242, supervisor_created_at=123.0))
+
+
 def _finish(manager: RuntimeControlManager, control_id: str):
     result = manager.execute(control_id)
     assert result.details["control_operation"]["state"] == "FINISHED"
@@ -285,7 +292,7 @@ def test_runtime_status_does_not_persist_orphan_reconciliation(
 ) -> None:
     environment = _environment(tmp_path)
     manager = _manager(environment, _FakeRuntimeBackend())
-    _accepted(manager, ControlAction.START_GAME)
+    _mark_supervisor_claimed(manager, _accepted(manager, ControlAction.START_GAME))
     before = manager.store.operation_path.read_bytes()
     monkeypatch.setattr(control_module, "_process_matches", lambda _pid, _created_at: False)
 
@@ -318,6 +325,36 @@ def test_created_control_operation_survives_supervisor_launch_grace(
     assert after_grace.details["control_operation"]["outcome"] == ControlOutcome.ABORTED.value
 
 
+def test_supervisor_launcher_pid_is_not_persisted_before_child_claim(
+    tmp_path: Path,
+    supervisor_identity: None,
+) -> None:
+    environment = _environment(tmp_path)
+    backend = _FakeRuntimeBackend()
+    manager = RuntimeControlManager(
+        environment,
+        backend_factory=lambda _environment: backend,
+        session_state_provider=lambda: None,
+        smoke_active_provider=lambda: False,
+        supervisor_launcher=lambda _environment, _control_id: SimpleNamespace(pid=4242),
+        now=lambda: _NOW,
+        sleep=lambda _seconds: backend.settle(),
+        action_timeouts={action: 5.0 for action in ControlAction},
+    )
+
+    accepted = manager.start(ControlAction.START_GAME)
+    assert accepted.ok is True
+    operation = manager.store.read()
+    assert operation is not None
+    assert operation.supervisor_pid is None
+    assert operation.supervisor_created_at is None
+
+    control_id = accepted.details["control_operation"]["control_id"]
+    finished = manager.execute(control_id)
+    assert finished.ok is True
+    assert finished.details["control_operation"]["outcome"] == ControlOutcome.PASS.value
+
+
 def test_new_control_request_reconciles_crashed_previous_supervisor(
     tmp_path: Path,
     supervisor_identity: None,
@@ -326,7 +363,7 @@ def test_new_control_request_reconciles_crashed_previous_supervisor(
     environment = _environment(tmp_path)
     backend = _FakeRuntimeBackend()
     first_manager = _manager(environment, backend)
-    _accepted(first_manager, ControlAction.START_GAME)
+    _mark_supervisor_claimed(first_manager, _accepted(first_manager, ControlAction.START_GAME))
 
     monkeypatch.setattr(control_module, "_process_matches", lambda _pid, _created_at: False)
     second_manager = _manager(environment, backend)
@@ -744,6 +781,7 @@ def test_supervisor_crash_is_reconciled_as_aborted(
     environment = _environment(tmp_path)
     manager = _manager(environment, _FakeRuntimeBackend())
     control_id = _accepted(manager, ControlAction.START_GAME)
+    _mark_supervisor_claimed(manager, control_id)
     monkeypatch.setattr(control_module, "_process_matches", lambda _pid, _created_at: False)
 
     result = manager.get_operation(control_id)
