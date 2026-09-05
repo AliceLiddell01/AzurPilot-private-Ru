@@ -259,10 +259,10 @@ def _configure_ocr_logging() -> None:
 
 
 def start_ocr_server(port=22268):
-    """启动只监听 loopback 的 OCR RPC 服务器。
+    """Запустить OCR RPC-сервер, который слушает только loopback.
 
     Args:
-        port: 服务器监听端口，默认 22268。
+        port: порт прослушивания, по умолчанию 22268.
     """
     _configure_ocr_logging()
     import zerorpc
