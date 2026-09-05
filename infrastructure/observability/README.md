@@ -87,13 +87,46 @@ Retention ограничен 7 днями для Loki и Tempo и 15 днями 
 Эти настройки предназначены для локального контура и могут быть заменены
 deployment-specific override без изменения service topology.
 
-## Граница AzurPilot и перенос на VPS
+## Подключение application logs
 
-AzurPilot пока не подключён к этому контуру: здесь нет OpenTelemetry SDK,
-переноса существующей файловой системы логов, application metrics, tracing,
-dashboards или Grafana MCP. Будущая интеграция приложения должна использовать
-только OTLP endpoint Alloy; прямые зависимости AzurPilot от Loki, Prometheus,
-Tempo или Grafana не требуются.
+AzurPilot подключает application logs явно после настройки штатного локального
+logger-а через `set_file_logger()`. Подключение не выполняется при импорте
+модулей: пока endpoint не задан, приложение работает в обычном offline-режиме
+только с console/WebUI/file handlers. После opt-in приложение использует
+официальные OpenTelemetry Logs bridge и OTLP/HTTP protobuf BatchLogRecordProcessor;
+прямых зависимостей от Loki, Prometheus, Tempo или Grafana в application code
+нет.
+
+Для локального Compose-контура перед запуском AzurPilot передайте процессу
+стандартные `OTEL_*` переменные:
+
+    $env:OTEL_EXPORTER_OTLP_LOGS_ENDPOINT = 'http://127.0.0.1:4318/v1/logs'
+    $env:OTEL_EXPORTER_OTLP_LOGS_PROTOCOL = 'http/protobuf'
+    $env:OTEL_RESOURCE_ATTRIBUTES = 'deployment.environment.name=local'
+    $env:OTEL_PYTHON_LOG_HANDLER_LEVEL = 'INFO'
+
+Допустим также общий `OTEL_EXPORTER_OTLP_ENDPOINT`; для logs используется
+`http/protobuf`. Таймауты и bounded batch-параметры читаются из стандартных
+`OTEL_EXPORTER_OTLP_LOGS_TIMEOUT`, `OTEL_BLRP_SCHEDULE_DELAY`,
+`OTEL_BLRP_MAX_QUEUE_SIZE`, `OTEL_BLRP_MAX_EXPORT_BATCH_SIZE` и
+`OTEL_BLRP_EXPORT_TIMEOUT`. `OTEL_SDK_DISABLED=true` отключает application
+exporter независимо от endpoint. `.env` Compose автоматически не загружается
+в процесс AzurPilot: это намеренно отдельные границы конфигурации.
+
+В удалённую запись попадают стабильный `service.name=azurpilot`, окружение,
+`profile`, canonical task context, component, run id, process id/command и
+структурированные exception attributes. Человеческое body очищается от ANSI,
+Rich markup, секретов и локальных абсолютных путей; локальный `LogRecord` не
+изменяется. В Loki только `service.name` и
+`deployment.environment.name` являются index labels, остальные metadata остаются
+structured metadata. Ошибка exporter, его недоступность или bounded shutdown не
+останавливают gameplay, WebUI, console и локальный file fallback.
+
+Исторические `log/`-артефакты не импортируются и не удаляются. `log/error/`
+остаётся локальным incident store со скриншотами и `log.txt`, диагностические и
+архивные каталоги сохраняются, CSV/JSON относятся к data/export или legacy
+storage и не считаются application logs. Скриншоты и object-store слой в этот
+контур не отправляются.
 
 Portable base Compose не содержит Windows drive letters, WSL paths,
 host.docker.internal, захардкоженные IP, host networking или публичные

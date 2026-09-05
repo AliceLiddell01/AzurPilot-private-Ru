@@ -1,5 +1,6 @@
 import logging
 from collections.abc import Callable, Hashable
+from pathlib import Path
 from typing import Any
 
 from rich.console import Console, ConsoleRenderable
@@ -27,6 +28,8 @@ diagnostic_hdlr: DiagnosticContextHandler
 
 def set_file_logger(
     name: str = pyw_name,
+    *,
+    log_dir: str | Path = "./log",
 ) -> None: ...
 def set_func_logger(
     func: Callable[[ConsoleRenderable], None],
@@ -45,8 +48,8 @@ def get_diagnostic_context(*, last_failure: bool = False) -> tuple[str, ...]: ..
 def reset_diagnostic_context() -> None: ...
 
 class __logger(logging.Logger):
-    log_file: str
-    diagnostic_log_file: str
+    log_file: str | None
+    diagnostic_log_file: str | None
 
     def rule(
         self,
@@ -77,6 +80,8 @@ class __logger(logging.Logger):
     def set_file_logger(
         self,
         name: str = pyw_name,
+        *,
+        log_dir: str | Path = "./log",
     ) -> None: ...
     def set_func_logger(
         self,

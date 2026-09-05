@@ -22,7 +22,6 @@ import json
 import logging
 import multiprocessing
 import os
-import re
 import shutil
 import sys
 import tarfile
@@ -42,7 +41,12 @@ from rich.style import Style
 from rich.theme import Theme
 from rich.traceback import Traceback
 
-from module.logging_core import DiagnosticContextHandler, RepeatedEventSuppressor
+from module.logging_core import (
+    DiagnosticContextHandler,
+    RepeatedEventSuppressor,
+    _SENSITIVE_NAME_RE,
+    sanitize_traceback_text,
+)
 
 sys.stdout.reconfigure(encoding='utf-8')
 sys.stderr.reconfigure(encoding='utf-8')
@@ -59,57 +63,6 @@ logging.raiseExceptions = True  # Позволяет увидеть ошибки
 
 # Убираем HTTP-ключевые слова (GET, POST и т. п.), чтобы не подсвечивать их ошибочно.
 RichHandler.KEYWORDS = []
-
-_SENSITIVE_NAME_RE = re.compile(
-    r"(?i)(?:authorization|credential|access[_-]?token|api[_-]?key|token|password|passwd|secret|cookie|session|private[_-]?key)"
-)
-_URL_USERINFO_RE = re.compile(
-    r"(?P<scheme>\b[a-z][a-z0-9+.-]*://)[^/\s@]+@", re.IGNORECASE
-)
-_SENSITIVE_QUERY_RE = re.compile(
-    r"(?i)([?&](?:access[_-]?token|api[_-]?key|token|password|passwd|secret)=)[^&#\s]+"
-)
-_SENSITIVE_ASSIGNMENT_RE = re.compile(
-    r"(?i)\b(authorization|access[_-]?token|api[_-]?key|token|password|passwd|secret)"
-    r"\s*([:=])\s*(?:bearer\s+)?[^\s,;]+"
-)
-_ANSI_ESCAPE_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
-_UNSAFE_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
-_BIDI_CONTROL_RE = re.compile(r"[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]")
-
-
-def _build_traceback_path_aliases():
-    """Безопасно вычислить локальные path-aliases, не рискуя импортом logger."""
-    aliases = []
-    for resolver, alias in (
-        (lambda: Path(__file__).resolve().parent.parent, "<PROJECT_ROOT>"),
-        (lambda: Path.home().resolve(), "<USER_HOME>"),
-    ):
-        try:
-            local_path = str(resolver())
-        except (OSError, RuntimeError):
-            continue
-        if local_path:
-            aliases.append((re.compile(re.escape(local_path), re.IGNORECASE), alias))
-    return tuple(aliases)
-
-
-_TRACEBACK_PATH_ALIASES = _build_traceback_path_aliases()
-
-
-def sanitize_traceback_text(value) -> str:
-    """Скрыть типовые секреты и управляющие последовательности в traceback."""
-    text = str(value or "")
-    text = _ANSI_ESCAPE_RE.sub("", text)
-    text = _UNSAFE_CONTROL_RE.sub("", text)
-    text = _BIDI_CONTROL_RE.sub("", text)
-    text = _URL_USERINFO_RE.sub(r"\g<scheme>***@", text)
-    text = _SENSITIVE_QUERY_RE.sub(r"\1***", text)
-    text = _SENSITIVE_ASSIGNMENT_RE.sub(r"\1\2***", text)
-    for path_pattern, alias in _TRACEBACK_PATH_ALIASES:
-        text = path_pattern.sub(alias, text)
-    return text
-
 
 def _redact_rich_node(node: Node) -> None:
     node.key_repr = sanitize_traceback_text(node.key_repr)
@@ -384,6 +337,18 @@ class RichTimedRotatingHandler(TimedRotatingFileHandler):
     def print(self, *objects: ConsoleRenderable, **kwargs) -> None:
         Console.print(self.console, *objects, **kwargs)
 
+    def close(self) -> None:
+        """Закрыть Rich-поток ротационного файла вместе с logging handler."""
+        try:
+            # ``Console.file`` возвращает stdout при ``_file is None``;
+            # повторный close не должен закрывать процессный stdout.
+            stream = getattr(self.richd.console, "_file", None)
+            if stream is not None:
+                stream.close()
+                self.richd.console.file = None
+        finally:
+            super().close()
+
     def emit(self, record: logging.LogRecord) -> None:
         try:
             if self.shouldRollover(record):
@@ -474,23 +439,25 @@ os.chdir(os.path.join(os.path.dirname(__file__), '../'))
 pyw_name = os.path.splitext(os.path.basename(sys.argv[0]))[0]
 
 
-def _configure_diagnostic_logger(name):
-    diagnostic_file = Path('./log/diagnostic').joinpath(
+def _configure_diagnostic_logger(name, log_dir='./log'):
+    diagnostic_file = Path(log_dir).joinpath('diagnostic').joinpath(
         f'{datetime.date.today()}_{name}.txt'
     )
     diagnostic_hdlr.configure_output(diagnostic_file, file_formatter)
     logger.diagnostic_log_file = str(diagnostic_file.resolve())
 
 
-def _set_file_logger(name=pyw_name):
+def _set_file_logger(name=pyw_name, log_dir='./log'):
     if '_' in name:
         name = name.split('_', 1)[0]
-    _configure_diagnostic_logger(name)
-    log_file = f'./log/{datetime.date.today()}_{name}.txt'
+    log_dir = Path(log_dir)
+    log_dir.mkdir(parents=True, exist_ok=True)
+    _configure_diagnostic_logger(name, log_dir)
+    log_file = log_dir.joinpath(f'{datetime.date.today()}_{name}.txt')
     try:
         file = logging.FileHandler(log_file, encoding='utf-8')
     except FileNotFoundError:
-        os.mkdir('./log')
+        log_dir.mkdir(parents=True, exist_ok=True)
         file = logging.FileHandler(log_file, encoding='utf-8')
     file.setLevel(logging.DEBUG if logger_debug else logging.INFO)
     file.setFormatter(file_formatter)
@@ -499,10 +466,27 @@ def _set_file_logger(name=pyw_name):
         h, (logging.FileHandler, RichFileHandler))]
     logger.addHandler(file)
     diagnostic_hdlr.configure_failure_target(file)
-    logger.log_file = log_file
+    logger.log_file = str(log_file)
 
 
-def set_file_logger(name=pyw_name):
+def _configure_application_observability(profile):
+    """Явно подключить удалённое логирование после настройки runtime logger."""
+    try:
+        from module.observability import configure_application_observability
+
+        configure_application_observability(logger, default_profile=profile)
+    except Exception as exc:
+        # Ошибка необязательной телеметрии не должна менять поведение игрового logger.
+        try:
+            sys.stderr.write(
+                '[AzurPilot] Не удалось подключить удалённый журнал; '
+                f'локальный контур продолжит работу ({type(exc).__name__}).\n'
+            )
+        except Exception:
+            pass
+
+
+def set_file_logger(name=pyw_name, *, log_dir='./log'):
     if "_" in name:
         name = name.split("_", 1)[0]
     # В Windows возможны процессы ``SyncManager-N:N``, ``MainProcess``,
@@ -513,6 +497,7 @@ def set_file_logger(name=pyw_name):
         pname = multiprocessing.current_process().name.replace(":", "_")
         # Каждый процесс должен настраивать файловый logger не более одного раза.
         if any(isinstance(hdlr, RichTimedRotatingHandler) for hdlr in logger.handlers):
+            _configure_application_observability(name)
             return
     else:
         processes = []
@@ -521,18 +506,19 @@ def set_file_logger(name=pyw_name):
             if isinstance(hdlr, RichTimedRotatingHandler):
                 # Каждый процесс должен настраивать файловый logger не более одного раза.
                 if hdlr.pname == name:
+                    _configure_application_observability(name)
                     return
                 else:
                     logger.handlers = [h for h in logger.handlers if not isinstance(
                         h, (logging.FileHandler, RichTimedRotatingHandler, RichFileHandler))]
     
-    log_dir = Path("./log")
+    log_dir = Path(log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir.joinpath(f"{pname}.txt" if name == "gui" else f"{name}.txt")
     if any(p in log_file.name for p in processes):
         return
 
-    _configure_diagnostic_logger(pname if name == "gui" else name)
+    _configure_diagnostic_logger(pname if name == "gui" else name, log_dir)
     hdlr = RichTimedRotatingHandler(
         pname=name,
         filename=str(log_file),
@@ -550,6 +536,7 @@ def set_file_logger(name=pyw_name):
             log_file.unlink()
     except Exception:
         pass
+    _configure_application_observability(name)
 
 
 
@@ -773,8 +760,5 @@ logger.finish_suppressed = finish_suppressed
 logger.reset_suppression = reset_suppression
 logger.get_diagnostic_context = get_diagnostic_context
 logger.reset_diagnostic_context = reset_diagnostic_context
-logger.log_file: str
-logger.diagnostic_log_file: str
-
-logger.set_file_logger()
-logger.hr('Запуск', level=0)
+logger.log_file: str | None = None
+logger.diagnostic_log_file: str | None = None

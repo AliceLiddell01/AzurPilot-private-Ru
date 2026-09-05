@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import re
 import threading
 import time
 from collections import OrderedDict, deque
@@ -13,6 +14,73 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 _TASK_METADATA_LIMIT = 128
+REMOTE_LOG_TEXT_LIMIT = 32 * 1024
+
+_SENSITIVE_NAME_RE = re.compile(
+    r"(?i)(?:authorization|credential|access[_-]?token|api[_-]?key|token|password|passwd|secret|cookie|session|private[_-]?key)"
+)
+_URL_USERINFO_RE = re.compile(
+    r"(?P<scheme>\b[a-z][a-z0-9+.-]*://)[^/\s@]+@", re.IGNORECASE
+)
+_SENSITIVE_QUERY_RE = re.compile(
+    r"(?i)([?&](?:access[_-]?token|api[_-]?key|token|password|passwd|secret)=)[^&#\s]+"
+)
+_SENSITIVE_ASSIGNMENT_RE = re.compile(
+    r"(?i)\b(authorization|access[_-]?token|api[_-]?key|token|password|passwd|secret)"
+    r"\s*([:=])\s*(?:bearer\s+)?[^\s,;]+"
+)
+_ANSI_ESCAPE_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
+_UNSAFE_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+_BIDI_CONTROL_RE = re.compile(r"[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]")
+
+
+def _build_traceback_path_aliases():
+    """Безопасно вычислить локальные path-aliases для удалённого журнала."""
+    aliases = []
+    for resolver, alias in (
+        (lambda: Path(__file__).resolve().parent.parent, "<PROJECT_ROOT>"),
+        (lambda: Path.home().resolve(), "<USER_HOME>"),
+    ):
+        try:
+            local_path = str(resolver())
+        except (OSError, RuntimeError):
+            continue
+        if local_path:
+            aliases.append((re.compile(re.escape(local_path), re.IGNORECASE), alias))
+    return tuple(aliases)
+
+
+_TRACEBACK_PATH_ALIASES = _build_traceback_path_aliases()
+
+
+def sanitize_traceback_text(value) -> str:
+    """Скрыть типовые секреты, локальные пути и управляющие последовательности."""
+    try:
+        text = str("" if value is None else value)
+    except Exception:
+        text = "<значение не удалось безопасно преобразовать>"
+    text = _ANSI_ESCAPE_RE.sub("", text)
+    text = _UNSAFE_CONTROL_RE.sub("", text)
+    text = _BIDI_CONTROL_RE.sub("", text)
+    text = _URL_USERINFO_RE.sub(r"\g<scheme>***@", text)
+    text = _SENSITIVE_QUERY_RE.sub(r"\1***", text)
+    text = _SENSITIVE_ASSIGNMENT_RE.sub(r"\1\2***", text)
+    for path_pattern, alias in _TRACEBACK_PATH_ALIASES:
+        text = path_pattern.sub(alias, text)
+    return text
+
+
+def sanitize_log_text(value, limit: int = REMOTE_LOG_TEXT_LIMIT) -> str:
+    """Очистить и ограничить текст перед сохранением за пределами процесса."""
+    if limit <= 0:
+        return ""
+    text = sanitize_traceback_text(value)
+    if len(text) <= limit:
+        return text
+    marker = "\n...[текст обрезан по ограничению удалённого журнала]"
+    if len(marker) >= limit:
+        return text[:limit]
+    return text[: limit - len(marker)] + marker
 
 
 @dataclass(frozen=True)

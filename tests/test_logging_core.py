@@ -4,6 +4,7 @@ import threading
 import unittest
 from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import module.logger as logger_module
@@ -11,6 +12,38 @@ from module.logging_core import DiagnosticContextHandler, RepeatedEventSuppresso
 
 
 class TestLoggingRouting(unittest.TestCase):
+    def setUp(self):
+        self._handlers_before = list(logger_module.logger.handlers)
+        self._failure_target_before = logger_module.diagnostic_hdlr._failure_target
+        self._log_file_before = logger_module.logger.log_file
+        self._diagnostic_log_file_before = logger_module.logger.diagnostic_log_file
+        self._temp_dir = tempfile.TemporaryDirectory()
+        # Production policy Windows намеренно пропускает файловые обработчики
+        # служебных процессов; тест создаёт изолированный обычный обработчик.
+        with patch.object(
+            logger_module.multiprocessing,
+            "current_process",
+            return_value=SimpleNamespace(name="LoggingTestProcess"),
+        ):
+            logger_module.set_file_logger(
+                name="logging-test",
+                log_dir=Path(self._temp_dir.name),
+            )
+
+    def tearDown(self):
+        for handler in list(logger_module.logger.handlers):
+            if handler not in self._handlers_before:
+                logger_module.logger.removeHandler(handler)
+                handler.close()
+        logger_module.logger.handlers[:] = self._handlers_before
+        logger_module.logger.log_file = self._log_file_before
+        logger_module.logger.diagnostic_log_file = self._diagnostic_log_file_before
+        logger_module.diagnostic_hdlr.configure_failure_target(
+            self._failure_target_before
+        )
+        logger_module.reset_diagnostic_context()
+        self._temp_dir.cleanup()
+
     def test_logger_accepts_debug_but_normal_handlers_start_at_info(self):
         self.assertFalse(
             logger_module.logger_debug,
