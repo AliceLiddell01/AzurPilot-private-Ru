@@ -4,8 +4,18 @@ from unittest.mock import patch
 
 import module.logger as logger_module
 
+_OTEL_ENDPOINT_ENVIRONMENT_KEYS = (
+    "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL",
+    "OTEL_EXPORTER_OTLP_PROTOCOL",
+    "OTEL_SDK_DISABLED",
+)
 
-def test_configured_rich_handlers_hide_traceback_locals(tmp_path):
+
+def test_configured_rich_handlers_hide_traceback_locals(tmp_path, monkeypatch):
+    for key in _OTEL_ENDPOINT_ENVIRONMENT_KEYS:
+        monkeypatch.delenv(key, raising=False)
     handlers_before = list(logger_module.logger.handlers)
     log_file_before = logger_module.logger.log_file
     diagnostic_log_file_before = logger_module.logger.diagnostic_log_file

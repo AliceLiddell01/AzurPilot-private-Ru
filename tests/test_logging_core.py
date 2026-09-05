@@ -1,4 +1,5 @@
 import logging
+import os
 import tempfile
 import threading
 import unittest
@@ -10,6 +11,14 @@ from unittest.mock import patch
 import module.logger as logger_module
 from module.logging_core import DiagnosticContextHandler, RepeatedEventSuppressor
 
+_OTEL_ENDPOINT_ENVIRONMENT_KEYS = (
+    "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL",
+    "OTEL_EXPORTER_OTLP_PROTOCOL",
+    "OTEL_SDK_DISABLED",
+)
+
 
 class TestLoggingRouting(unittest.TestCase):
     def setUp(self):
@@ -17,6 +26,11 @@ class TestLoggingRouting(unittest.TestCase):
         self._failure_target_before = logger_module.diagnostic_hdlr._failure_target
         self._log_file_before = logger_module.logger.log_file
         self._diagnostic_log_file_before = logger_module.logger.diagnostic_log_file
+        self._otel_environment_before = {
+            key: os.environ.get(key) for key in _OTEL_ENDPOINT_ENVIRONMENT_KEYS
+        }
+        for key in _OTEL_ENDPOINT_ENVIRONMENT_KEYS:
+            os.environ.pop(key, None)
         self._temp_dir = tempfile.TemporaryDirectory()
         # Production policy Windows намеренно пропускает файловые обработчики
         # служебных процессов; тест создаёт изолированный обычный обработчик.
@@ -42,6 +56,11 @@ class TestLoggingRouting(unittest.TestCase):
             self._failure_target_before
         )
         logger_module.reset_diagnostic_context()
+        for key, value in self._otel_environment_before.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
         self._temp_dir.cleanup()
 
     def test_logger_accepts_debug_but_normal_handlers_start_at_info(self):
