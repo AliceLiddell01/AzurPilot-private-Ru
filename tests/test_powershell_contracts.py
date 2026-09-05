@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import os
@@ -201,15 +200,15 @@ class PowerShellContractTests(unittest.TestCase):
         self.assertIsNotNone(csc, "Системный C# compiler нужен для disposable wsl.exe probe")
 
         start_source = self.sources["scripts/Start-AzurPilot.ps1"]
+        self.assertIn("'dev_tools.postgresql_runtime'", start_source)
+        self.assertIn("'prepare'", start_source)
+        self.assertIn("-TimeoutMilliseconds 210000", start_source)
         self.assertIn(
-            "Arguments = @('-X', 'utf8', '-m', 'dev_tools.postgresql_runtime', 'prepare')",
+            "Production PostgreSQL не прошёл подготовку marker, schema upgrade или app-health.",
             start_source,
         )
-        self.assertIn("TimeoutMilliseconds = 210000", start_source)
-        self.assertIn(
-            "Failure = 'Production PostgreSQL не прошёл подготовку marker, schema upgrade или app-health.'",
-            start_source,
-        )
+        self.assertIn("--property=ActiveState", start_source)
+        self.assertIn("function Stop-OwnedPostgreSql", start_source)
 
         with tempfile.TemporaryDirectory(prefix="azurpilot-start-smoke-") as temporary:
             test_root = Path(temporary)
@@ -225,12 +224,29 @@ class PowerShellContractTests(unittest.TestCase):
                 "{\n"
                 "    public static int Main(string[] args)\n"
                 "    {\n"
-                "        string path = Environment.GetEnvironmentVariable(\"AZURPILOT_START_WSL_LOG\");\n"
-                "        if (String.IsNullOrWhiteSpace(path))\n"
+                "        string logPath = Environment.GetEnvironmentVariable(\"AZURPILOT_START_WSL_LOG\");\n"
+                "        string statePath = Environment.GetEnvironmentVariable(\"AZURPILOT_START_WSL_STATE\");\n"
+                "        if (String.IsNullOrWhiteSpace(logPath) || String.IsNullOrWhiteSpace(statePath))\n"
                 "        {\n"
                 "            return 97;\n"
                 "        }\n"
-                "        File.AppendAllText(path, String.Join(\"\\u001f\", args) + Environment.NewLine);\n"
+                "        File.AppendAllText(logPath, String.Join(\"\\u001f\", args) + Environment.NewLine);\n"
+                "        int systemctl = Array.IndexOf(args, \"systemctl\");\n"
+                "        if (systemctl >= 0 && Array.IndexOf(args, \"show\") >= 0)\n"
+                "        {\n"
+                "            Console.WriteLine(File.ReadAllText(statePath).Trim());\n"
+                "            return 0;\n"
+                "        }\n"
+                "        if (systemctl >= 0 && Array.IndexOf(args, \"start\") >= 0)\n"
+                "        {\n"
+                "            File.WriteAllText(statePath, \"active\");\n"
+                "            return 0;\n"
+                "        }\n"
+                "        if (systemctl >= 0 && Array.IndexOf(args, \"stop\") >= 0)\n"
+                "        {\n"
+                "            File.WriteAllText(statePath, \"inactive\");\n"
+                "            return 0;\n"
+                "        }\n"
                 "        return 0;\n"
                 "    }\n"
                 "}\n",
@@ -258,7 +274,7 @@ class PowerShellContractTests(unittest.TestCase):
             )
             self.assertTrue(wsl_executable.is_file())
 
-            def run_start(mode: str, case_name: str):
+            def run_start(mode: str, case_name: str, initial_service_state: str):
                 repository = test_root / case_name / "Repository With Spaces"
                 config_path = repository / "config" / "deploy.yaml"
                 dev_tools_path = repository / "dev_tools"
@@ -266,9 +282,11 @@ class PowerShellContractTests(unittest.TestCase):
                 prepare_log = test_root / f"{case_name}-prepare.log"
                 gui_log = test_root / f"{case_name}-gui.log"
                 wsl_log = test_root / f"{case_name}-wsl.log"
+                wsl_state = test_root / f"{case_name}-wsl-state.txt"
 
                 config_path.parent.mkdir(parents=True)
                 dev_tools_path.mkdir(parents=True)
+                wsl_state.write_text(initial_service_state, encoding="utf-8")
                 venv_result = subprocess.run(
                     [
                         sys.executable,
@@ -331,6 +349,7 @@ class PowerShellContractTests(unittest.TestCase):
                 environment["AZURPILOT_START_PROBE_MODE"] = mode
                 environment["AZURPILOT_START_GUI_LOG"] = str(gui_log)
                 environment["AZURPILOT_START_WSL_LOG"] = str(wsl_log)
+                environment["AZURPILOT_START_WSL_STATE"] = str(wsl_state)
 
                 result = subprocess.run(
                     [
@@ -359,10 +378,10 @@ class PowerShellContractTests(unittest.TestCase):
                     tuple(line.split("\x1f"))
                     for line in wsl_log.read_text(encoding="utf-8").splitlines()
                 )
-                return result, prepare_log, gui_log, wsl_calls
+                return result, prepare_log, gui_log, wsl_calls, wsl_state
 
-            success_result, success_prepare_log, success_gui_log, success_wsl_calls = (
-                run_start("normal", "success")
+            success_result, success_prepare_log, success_gui_log, success_wsl_calls, success_wsl_state = (
+                run_start("normal", "success", "inactive")
             )
             self.assertEqual(
                 EXPECTED_EXIT_CODES["scripts/Start-AzurPilot.ps1"]["BackendFailure"],
@@ -371,6 +390,18 @@ class PowerShellContractTests(unittest.TestCase):
             )
             self.assertEqual(
                 (
+                    (
+                        "--distribution",
+                        "Archlinux",
+                        "--user",
+                        "root",
+                        "--exec",
+                        "systemctl",
+                        "show",
+                        "--property=ActiveState",
+                        "--value",
+                        "postgresql",
+                    ),
                     (
                         "--distribution",
                         "Archlinux",
@@ -393,9 +424,32 @@ class PowerShellContractTests(unittest.TestCase):
                         "--timeout",
                         "5",
                     ),
+                    (
+                        "--distribution",
+                        "Archlinux",
+                        "--user",
+                        "root",
+                        "--exec",
+                        "systemctl",
+                        "stop",
+                        "postgresql",
+                    ),
+                    (
+                        "--distribution",
+                        "Archlinux",
+                        "--user",
+                        "root",
+                        "--exec",
+                        "systemctl",
+                        "show",
+                        "--property=ActiveState",
+                        "--value",
+                        "postgresql",
+                    ),
                 ),
                 success_wsl_calls,
             )
+            self.assertEqual("inactive", success_wsl_state.read_text(encoding="utf-8"))
             self.assertEqual(
                 "prepare\n",
                 success_prepare_log.read_text(encoding="utf-8"),
@@ -405,12 +459,16 @@ class PowerShellContractTests(unittest.TestCase):
                 success_gui_log.read_text(encoding="utf-8"),
             )
             self.assertIn(
-                "PostgreSQL 18 запущен; marker, schema upgrade и app-health подготовлены.",
+                "PostgreSQL 18 запущен текущим Start и будет остановлен после завершения backend.",
+                success_result.stdout + success_result.stderr,
+            )
+            self.assertIn(
+                "PostgreSQL 18, запущенный текущим Start, остановлен.",
                 success_result.stdout + success_result.stderr,
             )
 
-            failed_result, failed_prepare_log, failed_gui_log, failed_wsl_calls = (
-                run_start("fail-prepare", "prepare-failure")
+            failed_result, failed_prepare_log, failed_gui_log, failed_wsl_calls, failed_wsl_state = (
+                run_start("fail-prepare", "prepare-failure", "inactive")
             )
             self.assertEqual(
                 EXPECTED_EXIT_CODES["scripts/Start-AzurPilot.ps1"]["EnvironmentFailure"],
@@ -418,6 +476,7 @@ class PowerShellContractTests(unittest.TestCase):
                 failed_result.stdout + failed_result.stderr,
             )
             self.assertEqual(success_wsl_calls, failed_wsl_calls)
+            self.assertEqual("inactive", failed_wsl_state.read_text(encoding="utf-8"))
             self.assertEqual(
                 "prepare\n",
                 failed_prepare_log.read_text(encoding="utf-8"),
@@ -426,6 +485,35 @@ class PowerShellContractTests(unittest.TestCase):
             self.assertIn(
                 "Production PostgreSQL не прошёл подготовку marker, schema upgrade или app-health.",
                 failed_result.stdout + failed_result.stderr,
+            )
+
+            external_result, external_prepare_log, external_gui_log, external_wsl_calls, external_wsl_state = (
+                run_start("normal", "external-active", "active")
+            )
+            self.assertEqual(
+                EXPECTED_EXIT_CODES["scripts/Start-AzurPilot.ps1"]["BackendFailure"],
+                external_result.returncode,
+                external_result.stdout + external_result.stderr,
+            )
+            self.assertEqual(
+                (
+                    success_wsl_calls[0],
+                    success_wsl_calls[2],
+                ),
+                external_wsl_calls,
+            )
+            self.assertEqual("active", external_wsl_state.read_text(encoding="utf-8"))
+            self.assertEqual(
+                "prepare\n",
+                external_prepare_log.read_text(encoding="utf-8"),
+            )
+            self.assertEqual(
+                "запущено\n",
+                external_gui_log.read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "PostgreSQL 18 уже работал до текущего Start; эта сессия не будет останавливать службу.",
+                external_result.stdout + external_result.stderr,
             )
 
     def test_utf8_text_has_no_mojibake(self) -> None:
