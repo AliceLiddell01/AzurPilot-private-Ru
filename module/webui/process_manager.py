@@ -570,8 +570,6 @@ class ProcessManager:
         if pid is None:
             return
         registered_record = register_worker(os.getpid(), self.config_name, pid)
-        if State.process_registry is not None:
-            State.process_registry[self.config_name] = pid
         record: dict | None = None
         try:
             from module.application.runtime_state import RuntimePhase, RuntimeStateStore
@@ -599,6 +597,8 @@ class ProcessManager:
                 session_id=self._runtime_session_id,
                 phase=phase,
             )
+            if State.process_registry is not None:
+                State.process_registry[self.config_name] = pid
         except Exception as exc:  # noqa: BLE001 - при ошибке worker не должен остаться без учёта.
             logger.warning(
                 f"[{self.config_name}] Не удалось обновить process-shared runtime state: {exc}"

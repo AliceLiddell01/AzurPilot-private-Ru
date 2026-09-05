@@ -1038,6 +1038,8 @@ def _validate_log_metadata(value: object) -> dict[str, object]:
                 raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Исходная граница журнала не совпадает с первым сегментом")
             if len(segments) == 1 and end_offset != segments[0]["end_offset"]:
                 raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Конечная граница журнала не совпадает с сегментом")
+            if len(segments) > 1 and (end_offset is not None or end_identity is not None):
+                raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Многосегментный журнал не должен содержать общую конечную границу")
     if not available and (
         boundary_offset is not None
         or boundary_identity is not None
@@ -1971,8 +1973,8 @@ class EvidenceStore:
         _utc_timestamp(timestamp)
         with _exclusive_lock(self.lock_path, self.environment.repository_root):
             manifest = self._manifest_locked()
-            self._capture_log_end_boundary_locked(manifest)
             manifest["stopped_at"] = timestamp
+            self._capture_log_end_boundary_locked(manifest)
             manifest["current_task"] = None
             manifest["cleanup"] = {
                 "status": "preserved" if preserved else ("complete" if cleanup_confirmed else "pending"),

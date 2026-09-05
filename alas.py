@@ -1727,6 +1727,12 @@ class AzurLaneAutoScript:
                 if record_dev_runtime_task_started(task) is False:
                     logger.error('[Alas] Не удалось подтвердить границу текущей задачи; scheduler остановлен')
                     break
+                if (
+                    self.stop_event is not None
+                    and self.stop_event.is_set()
+                ) or _handover_requested(self.config_name) is True:
+                    logger.info('[Alas] Запуск задачи отменён запросом cooperative stop после фиксации границы')
+                    break
                 self.device.stuck_record_clear()
                 self.device.click_record_clear()
                 logger.hr(task, level=0)

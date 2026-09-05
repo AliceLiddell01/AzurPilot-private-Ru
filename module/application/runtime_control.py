@@ -357,28 +357,34 @@ class WebUIControlClient:
             return existing
 
         request_path = self._request_path(key)
-        with application_host_lock(self.lock_path):
-            existing = self._read_result(result_path)
-            if existing is not None:
-                self._validate_result(existing, operation, profile, key, owner=owner)
-                return existing
-            request = _read_json(request_path, _MAX_REQUEST_BYTES)
-            if request is not None:
-                request_id = _validate_request(request, operation=operation, profile=profile, session_id=session_id, idempotency_key=key)
-            else:
-                request_id = str(uuid.uuid4())
-                payload = {
-                    "schema_version": _SCHEMA_VERSION,
-                    "request_id": request_id,
-                    "idempotency_key": key,
-                    "operation": operation.value,
-                    "profile": profile,
-                    "session_id": session_id,
-                    "expected_owner": owner.as_dict(),
-                    "created_at": _timestamp(),
-                    "expires_at": _expires_at(self.timeout),
-                }
-                _write_json(request_path, payload, _MAX_REQUEST_BYTES)
+        try:
+            with application_host_lock(self.lock_path):
+                existing = self._read_result(result_path)
+                if existing is not None:
+                    self._validate_result(existing, operation, profile, key, owner=owner)
+                    return existing
+                request = _read_json(request_path, _MAX_REQUEST_BYTES)
+                if request is not None:
+                    request_id = _validate_request(request, operation=operation, profile=profile, session_id=session_id, idempotency_key=key)
+                else:
+                    request_id = str(uuid.uuid4())
+                    payload = {
+                        "schema_version": _SCHEMA_VERSION,
+                        "request_id": request_id,
+                        "idempotency_key": key,
+                        "operation": operation.value,
+                        "profile": profile,
+                        "session_id": session_id,
+                        "expected_owner": owner.as_dict(),
+                        "created_at": _timestamp(),
+                        "expires_at": _expires_at(self.timeout),
+                    }
+                    _write_json(request_path, payload, _MAX_REQUEST_BYTES)
+        except TimeoutError as exc:
+            raise RuntimeControlError(
+                "RUNTIME_CONTROL_TIMEOUT",
+                "Не удалось получить lock control plane в ограниченный срок",
+            ) from exc
 
         deadline = time.monotonic() + self.timeout
         while True:
@@ -913,30 +919,33 @@ class SharedWebUIBootstrapper:
                 if existing is not None:
                     return existing
                 try:
-                    self._process = subprocess.Popen(
-                        [str(self.python_executable), str(self.gui_path)],
-                        cwd=str(self.repository_root),
-                        stdin=subprocess.DEVNULL,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        shell=False,
-                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                        start_new_session=os.name != "nt",
-                    )
-                except OSError as exc:
-                    raise RuntimeControlError("RUNTIME_BOOTSTRAP_FAILED", "Не удалось запустить общий WebUI") from exc
-                deadline = time.monotonic() + self.timeout
-                while True:
-                    owner = self._read_valid_owner()
-                    if owner is not None:
-                        return owner
-                    if self._process.poll() is not None:
-                        raise RuntimeControlError("RUNTIME_BOOTSTRAP_FAILED", "Общий WebUI завершился до регистрации owner")
-                    remaining = deadline - time.monotonic()
-                    if remaining <= 0:
-                        self._stop_owned_process()
-                        raise RuntimeControlError("RUNTIME_BOOTSTRAP_TIMEOUT", "Общий WebUI не зарегистрировал owner в ограниченный срок")
-                    time.sleep(min(self.poll_interval, remaining))
+                    try:
+                        self._process = subprocess.Popen(
+                            [str(self.python_executable), str(self.gui_path)],
+                            cwd=str(self.repository_root),
+                            stdin=subprocess.DEVNULL,
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            shell=False,
+                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                            start_new_session=os.name != "nt",
+                        )
+                    except OSError as exc:
+                        raise RuntimeControlError("RUNTIME_BOOTSTRAP_FAILED", "Не удалось запустить общий WebUI") from exc
+                    deadline = time.monotonic() + self.timeout
+                    while True:
+                        owner = self._read_valid_owner()
+                        if owner is not None:
+                            return owner
+                        if self._process.poll() is not None:
+                            raise RuntimeControlError("RUNTIME_BOOTSTRAP_FAILED", "Общий WebUI завершился до регистрации owner")
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            raise RuntimeControlError("RUNTIME_BOOTSTRAP_TIMEOUT", "Общий WebUI не зарегистрировал owner в ограниченный срок")
+                        time.sleep(min(self.poll_interval, remaining))
+                except BaseException:
+                    self._stop_owned_process()
+                    raise
         except TimeoutError as exc:
             raise RuntimeControlError(
                 "RUNTIME_BOOTSTRAP_TIMEOUT",

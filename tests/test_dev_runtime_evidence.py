@@ -286,11 +286,14 @@ def test_evidence_finalize_marks_unread_rotated_segment_as_truncated(
     replacement.replace(log_path)
 
     store.finalize(stopped_at=_TIME, cleanup_confirmed=True)
-    finished = store.logs_page(active_owned=False)
+    manifest = json.loads(store.manifest_path.read_text(encoding="utf-8"))
 
-    assert [item["text"] for item in finished["items"]] == ["new worker startup"]
-    assert finished["truncated"] is True
-    assert "log_boundary_lost" in finished["health"]["reasons"]
+    assert manifest["stopped_at"] == _TIME
+    assert len(manifest["logs"]["segments"]) == 1
+    assert "log_boundary_lost" in manifest["evidence_health"]["reasons"]
+    with pytest.raises(EvidenceError) as error:
+        store.logs_page(active_owned=False)
+    assert error.value.code == "DEV_EVIDENCE_LOG_BOUNDARY_LOST"
 
 
 def test_evidence_log_rotation_fails_closed_at_segment_limit(tmp_path: Path) -> None:
@@ -414,6 +417,27 @@ def test_evidence_rejects_non_adjacent_reused_log_identity(tmp_path: Path) -> No
     }
 
     with pytest.raises(EvidenceCorrupt, match="inode"):
+        evidence_module._validate_log_metadata(metadata)
+
+
+def test_evidence_rejects_terminal_boundary_for_multiple_log_segments() -> None:
+    first = evidence_module._FileIdentity(device=1, inode=10, mtime_ns=1)
+    second = evidence_module._FileIdentity(device=1, inode=11, mtime_ns=2)
+    metadata = {
+        "source": "log/2026-08-30_ap.txt",
+        "available": True,
+        "boundary_offset": 0,
+        "boundary_identity": first.as_dict(),
+        "end_offset": 0,
+        "end_identity": second.as_dict(),
+        "truncated": True,
+        "segments": [
+            {"identity": first.as_dict(), "boundary_offset": 0, "end_offset": 0},
+            {"identity": second.as_dict(), "boundary_offset": 0, "end_offset": None},
+        ],
+    }
+
+    with pytest.raises(EvidenceCorrupt, match="общую конечную границу"):
         evidence_module._validate_log_metadata(metadata)
 
 

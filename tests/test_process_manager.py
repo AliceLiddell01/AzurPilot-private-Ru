@@ -108,6 +108,28 @@ class TestProcessManagerRegistry(unittest.TestCase):
 
         unregister.assert_called_once_with(expected_worker=registered_record)
 
+    def test_local_registry_is_published_after_runtime_state_confirmation(self):
+        manager = ProcessManager.get_manager("alas")
+        registered_record = {"pid": 12345, "created_at": 10.5}
+        observed_registry: list[dict[str, int]] = []
+        state_store = Mock()
+        state_store.read.return_value = None
+
+        def mark_worker_started(*_args: object, **_kwargs: object) -> None:
+            observed_registry.append(dict(State.process_registry))
+
+        state_store.mark_worker_started.side_effect = mark_worker_started
+
+        with (
+            patch("module.webui.process_manager.register_worker", return_value=registered_record),
+            patch("module.webui.process_manager.get_workers", return_value={"alas": registered_record}),
+            patch("module.application.runtime_state.RuntimeStateStore", return_value=state_store),
+        ):
+            manager._register_process(12345)
+
+        self.assertEqual(observed_registry, [{}])
+        self.assertEqual(State.process_registry["alas"], 12345)
+
     def test_stop_uses_local_process_handle_before_tree_kill(self):
         """При живом локальном Process сначала использовать terminate/kill, а не taskkill."""
         State.process_registry["alas"] = 12345

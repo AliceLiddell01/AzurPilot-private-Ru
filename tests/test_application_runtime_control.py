@@ -240,6 +240,36 @@ def test_control_plane_wraps_permission_read_failure(
     assert error.value.code == "RUNTIME_CONTROL_READ_FAILED"
 
 
+def test_control_client_wraps_plane_lock_timeout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = RuntimeOwnerIdentity(pid=4321, created_at=1234.5)
+
+    class BlockedLock:
+        def __enter__(self) -> None:
+            raise TimeoutError("synthetic control plane lock timeout")
+
+        def __exit__(self, *_args: object) -> bool:
+            return False
+
+    def blocked_lock(*_args: object, **_kwargs: object) -> BlockedLock:
+        return BlockedLock()
+
+    monkeypatch.setattr(runtime_control, "application_host_lock", blocked_lock)
+    client = WebUIControlClient(
+        tmp_path,
+        owner_reader=lambda: owner.as_dict(),
+        owner_matches=lambda candidate: candidate == owner,
+        timeout=1.0,
+    )
+
+    with pytest.raises(RuntimeControlError) as error:
+        client.call(RuntimeControlOperation.START_PROFILE, "ap")
+
+    assert error.value.code == "RUNTIME_CONTROL_TIMEOUT"
+
+
 def test_control_plane_requires_positive_timeout_and_rejects_expired_request(tmp_path: Path) -> None:
     owner = RuntimeOwnerIdentity(pid=4321, created_at=1234.5)
     with pytest.raises(ValueError):
@@ -528,3 +558,45 @@ def test_bootstrap_replaces_stale_owner_only_through_canonical_gui(
     )
 
     assert bootstrapper.ensure() == fresh
+
+
+def test_bootstrap_stops_owned_process_when_owner_read_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (tmp_path / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
+    python_executable = tmp_path / "python.exe"
+    python_executable.write_bytes(b"synthetic")
+    owner_reads = iter(
+        (None, None, RuntimeControlError("RUNTIME_OWNER_INVALID", "invalid owner"))
+    )
+
+    class FakeProcess:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            self.terminated = False
+
+        def poll(self) -> None:
+            return None
+
+        def terminate(self) -> None:
+            self.terminated = True
+
+        def wait(self, *, timeout: float) -> None:
+            del timeout
+
+    process = FakeProcess()
+    monkeypatch.setattr(runtime_control.subprocess, "Popen", lambda *_args, **_kwargs: process)
+    bootstrapper = SharedWebUIBootstrapper(
+        tmp_path,
+        owner_reader=lambda: next(owner_reads),
+        owner_matches=lambda _owner: True,
+        python_executable=python_executable,
+        timeout=0.2,
+        poll_interval=0.001,
+    )
+
+    with pytest.raises(RuntimeControlError) as error:
+        bootstrapper.ensure()
+
+    assert error.value.code == "RUNTIME_OWNER_INVALID"
+    assert process.terminated is True

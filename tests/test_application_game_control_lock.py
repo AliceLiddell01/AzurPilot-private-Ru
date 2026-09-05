@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from module.application import host_lock
 from module.application import resource_lease
 from module.application.errors import ResourceBusyError
 from module.application.game_control_lock import (
@@ -44,18 +45,21 @@ def _lock_holder(path: Path, *, crash: bool = False) -> subprocess.Popen[str]:
     )
 
 
-def _lease_holder() -> subprocess.Popen[str]:
+def _lease_holder(runtime_root: Path) -> subprocess.Popen[str]:
     script = "\n".join(
         (
             "import sys",
+            "from pathlib import Path",
+            "from module.application import host_lock",
             "from module.application.resource_lease import game_runtime_lease",
-            "with game_runtime_lease(timeout=5):",
+            "host_lock.host_runtime_root = lambda: Path(sys.argv[1])",
+            "with game_runtime_lease(Path(sys.argv[1]), timeout=5):",
             "    print('ready', flush=True)",
             "    sys.stdin.read(1)",
         )
     )
     return subprocess.Popen(
-        [sys.executable, "-c", script],
+        [sys.executable, "-c", script, str(runtime_root)],
         cwd=str(_REPOSITORY_ROOT),
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
@@ -130,7 +134,9 @@ def test_profile_mutation_lock_serializes_checkouts_for_one_adb_endpoint(
 ) -> None:
     port = 40000 + (uuid.uuid4().int % 10000)
     monkeypatch.setenv("ADB_SERVER_SOCKET", f"tcp:127.0.0.1:{port}")
-    holder = _lease_holder()
+    runtime_root = tmp_path / "host-runtime"
+    monkeypatch.setattr(host_lock, "host_runtime_root", lambda: runtime_root)
+    holder = _lease_holder(runtime_root)
     try:
         assert holder.stdout is not None
         assert holder.stdout.readline().strip() == "ready"
@@ -156,21 +162,26 @@ def test_game_runtime_lease_does_not_serialize_different_adb_endpoints(
     if second_port == first_port:
         second_port = 50000
 
+    runtime_root = tmp_path / "host-runtime"
+    monkeypatch.setattr(host_lock, "host_runtime_root", lambda: runtime_root)
     monkeypatch.setenv("ADB_SERVER_SOCKET", f"tcp:127.0.0.1:{first_port}")
-    first_path = game_runtime_lease_path()
+    first_path = game_runtime_lease_path(tmp_path)
     with game_runtime_lease(tmp_path, timeout=0.1):
         monkeypatch.setenv("ADB_SERVER_SOCKET", f"tcp:127.0.0.1:{second_port}")
-        assert game_runtime_lease_path() != first_path
+        assert game_runtime_lease_path(tmp_path) != first_path
         with game_runtime_lease(tmp_path, timeout=0.1):
             pass
 
 
 def test_game_runtime_lease_cleanup_error_does_not_mask_body_error(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     port = 40000 + (uuid.uuid4().int % 10000)
+    runtime_root = tmp_path / "host-runtime"
+    monkeypatch.setattr(host_lock, "host_runtime_root", lambda: runtime_root)
     monkeypatch.setenv("ADB_SERVER_SOCKET", f"tcp:127.0.0.1:{port}")
-    lease_path = game_runtime_lease_path()
+    lease_path = game_runtime_lease_path(tmp_path)
     marker_path = lease_path.with_name(f"{lease_path.stem}.owner.json")
     original_remove = resource_lease.atomic_remove
 
@@ -180,7 +191,7 @@ def test_game_runtime_lease_cleanup_error_does_not_mask_body_error(
     monkeypatch.setattr(resource_lease, "atomic_remove", fail_remove)
     try:
         with pytest.raises(ValueError, match="body failure"), game_runtime_lease(
-            timeout=0.1
+            tmp_path, timeout=0.1
         ):
             raise ValueError("body failure")
     finally:

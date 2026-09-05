@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 from pathlib import Path
+from threading import Event, Thread
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
@@ -184,6 +185,64 @@ def test_loop_does_not_finish_task_cancelled_before_runtime_start(
 
     assert started == []
     assert finished == []
+
+
+def test_loop_does_not_enter_task_when_handover_arrives_after_started_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    script = _script()
+    script.config.EmulatorManagement_ScheduledEmulatorRestart = False
+    script.checker = SimpleNamespace(
+        wait_until_available=lambda: None,
+        is_recovered=lambda: False,
+    )
+    script.failure_record = {}
+    script._emulator_recovery_transport_lost = False
+    script.get_next_task = lambda: "Commission"
+    script._prepare_task_boundary = lambda _task: True
+    boundary_entered = Event()
+    allow_boundary_return = Event()
+    handover_accepted = Event()
+    started: list[str] = []
+
+    def record_started(task: str) -> bool:
+        started.append(task)
+        boundary_entered.set()
+        assert allow_boundary_return.wait(5)
+        return True
+
+    script._record_dev_runtime_task_started = record_started
+    script._record_dev_runtime_task_finished = lambda _task: True
+    script.run = lambda _command: pytest.fail("Запуск задачи не должен выполняться")
+
+    def accept_handover() -> None:
+        assert boundary_entered.wait(5)
+        handover_accepted.set()
+        allow_boundary_return.set()
+
+    handover_thread = Thread(target=accept_handover)
+    handover_thread.start()
+    monkeypatch.setattr(
+        "alas._handover_requested",
+        lambda _config_name: handover_accepted.is_set(),
+    )
+    monkeypatch.setattr(
+        "alas.logger",
+        SimpleNamespace(
+            set_file_logger=lambda *_args, **_kwargs: None,
+            info=lambda *_args, **_kwargs: None,
+        ),
+    )
+    monkeypatch.setattr("module.config.utils.is_oobe_needed", lambda: False)
+
+    try:
+        script.loop()
+    finally:
+        allow_boundary_return.set()
+        handover_thread.join(timeout=5)
+
+    assert not handover_thread.is_alive()
+    assert started == ["Commission"]
 
 
 def test_long_wait_manual_wakeup_does_not_run_future_normal_task_early() -> None:

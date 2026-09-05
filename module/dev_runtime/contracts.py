@@ -379,7 +379,7 @@ class DevSession:
             raise ValueError("target_identity должен быть строкой или null")
         try:
             runtime_mode = DevRuntimeMode(
-                str(payload.get("runtime_mode", DevRuntimeMode.SHARED_WEBUI.value))
+                str(payload.get("runtime_mode", DevRuntimeMode.STANDALONE_PROCESS.value))
             )
         except ValueError as exc:
             raise ValueError("маркер содержит некорректный runtime mode") from exc

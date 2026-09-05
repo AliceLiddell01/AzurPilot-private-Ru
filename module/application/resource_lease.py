@@ -39,9 +39,10 @@ def _adb_server_identity() -> str:
     return f"tcp:{address or '127.0.0.1'}:{port or '5037'}"
 
 
-def game_runtime_lease_path() -> Path:
+def game_runtime_lease_path(repository_root: Path | str | None = None) -> Path:
     """Вернуть host-scoped lock path общего игрового runtime."""
 
+    del repository_root
     return host_scoped_lock_path(_LEASE_RESOURCE, _adb_server_identity())
 
 

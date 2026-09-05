@@ -31,7 +31,7 @@ class SchedulerRuntimeEntry:
     next_run: datetime
 
     def as_dict(self) -> dict[str, object]:
-        return {"task": self.task, "enabled": self.enabled, "next_run": self.next_run}
+        return {"task": self.task, "enabled": self.enabled, "next_run": self.next_run.isoformat()}
 
 
 class SchedulerRuntimeStateReader:

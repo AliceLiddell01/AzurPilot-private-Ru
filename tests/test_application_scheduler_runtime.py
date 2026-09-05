@@ -45,6 +45,8 @@ def test_scheduler_reader_uses_persisted_enable_value_without_normalizing_it(tmp
     )
     assert [entry.task for entry in queue] == ["WeeklyTask"]
     assert queue[0].next_run.isoformat() == "2026-09-04T00:30:00+00:00"
+    state = reader.read_state("alas", ("DailyTask", "WeeklyTask"))
+    assert state["WeeklyTask"].as_dict()["next_run"] == "2026-09-04T00:30:00+00:00"
 
 
 def test_scheduler_reader_rejects_unsafe_paths_and_malformed_persisted_state(tmp_path: Path) -> None:

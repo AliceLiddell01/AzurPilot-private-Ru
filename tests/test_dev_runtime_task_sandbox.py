@@ -13,6 +13,7 @@ from module.dev_runtime import (
     EvidenceStore,
     DevSession,
     DevSessionManager,
+    DevRuntimeMode,
     DevSessionState,
     DevTaskMode,
     DevTaskPhase,
@@ -565,6 +566,7 @@ def test_legacy_stage1_marker_without_task_fields_remains_compatible(tmp_path: P
         updated_at="2026-08-29T00:00:00+00:00",
     ).as_dict()
     for field in (
+        "runtime_mode",
         "task_mode",
         "task_phase",
         "task_cleanup_required",
@@ -578,6 +580,7 @@ def test_legacy_stage1_marker_without_task_fields_remains_compatible(tmp_path: P
     assert restored.task_phase is DevTaskPhase.NONE
     assert restored.task_cleanup_required is False
     assert restored.task_policy_expected is False
+    assert restored.runtime_mode is DevRuntimeMode.STANDALONE_PROCESS
 
 
 def test_preflight_blocks_corrupt_task_policy_without_task_session(tmp_path: Path) -> None:
