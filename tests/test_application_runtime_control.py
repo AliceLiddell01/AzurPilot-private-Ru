@@ -423,12 +423,40 @@ def test_control_plane_retains_recent_results_for_possible_client_reads(
     now = time.time()
     os.utime(old_result, (now - 121, now - 121))
     os.utime(recent_result, (now - 1, now - 1))
-    monkeypatch.setattr(runtime_control, "_MAX_RESULT_FILES", 0)
+    monkeypatch.setattr(runtime_control, "_MAX_RESULT_FILES", 1)
 
     server._prune_results()
 
     assert not old_result.exists()
     assert recent_result.exists()
+
+
+def test_control_plane_enforces_emergency_result_file_limit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = RuntimeOwnerIdentity(pid=4321, created_at=1234.5)
+    server = WebUIControlServer(
+        tmp_path,
+        owner_reader=lambda: owner.as_dict(),
+        owner_matches=lambda candidate: candidate == owner,
+        executor=lambda *args, **kwargs: pytest.fail("executor не должен быть вызван"),
+    )
+    results = tmp_path / "config" / "state" / "webui-control" / "results"
+    results.mkdir(parents=True)
+    files = [results / f"recent-{index}.json" for index in range(3)]
+    for path in files:
+        path.write_text("{}", encoding="utf-8")
+    now = time.time()
+    for index, path in enumerate(files):
+        os.utime(path, (now - index, now - index))
+    monkeypatch.setattr(runtime_control, "_MAX_RESULT_FILES", 1)
+
+    server._prune_results()
+
+    assert files[0].exists()
+    assert files[1].exists()
+    assert not files[2].exists()
 
 
 def test_control_plane_expires_requests_before_request_batch_limit(
@@ -600,6 +628,8 @@ def test_bootstrap_stops_owned_process_when_owner_read_fails(
     (tmp_path / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
     python_executable = tmp_path / "python.exe"
     python_executable.write_bytes(b"synthetic")
+    # RuntimeControlError должен вернуться как результат чтения owner, а не
+    # быть ошибочно принят за исключение от самого bootstrap процесса.
     owner_reads = iter(
         (None, None, RuntimeControlError("RUNTIME_OWNER_INVALID", "invalid owner"))
     )

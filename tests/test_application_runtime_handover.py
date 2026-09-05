@@ -5,6 +5,7 @@ from collections import deque
 import pytest
 
 from module.application.runtime_handover import (
+    HandoverHooks,
     HandoverPolicy,
     NotificationOutcome,
     ProfileHandoverCoordinator,
@@ -37,7 +38,7 @@ def _snapshot(*, busy: bool, worker_running: bool = True) -> RuntimeStateSnapsho
     )
 
 
-class Hooks:
+class Hooks(HandoverHooks):
     def __init__(self, states: list[RuntimeStateSnapshot | None]) -> None:
         self.begin_states = deque(states[:1])
         self.read_states = deque(states[1:])
@@ -210,6 +211,44 @@ def test_handover_requires_an_authoritative_initial_state() -> None:
     )
     assert result.ok is False
     assert result.code == "RUNTIME_HANDOVER_STATE_UNKNOWN"
+
+
+def test_handover_fails_closed_when_deadline_check_raises() -> None:
+    hooks = Hooks([_snapshot(busy=False)])
+
+    def broken_deadline() -> bool:
+        raise RuntimeError("synthetic deadline failure")
+
+    result = _coordinator().run(
+        "alas",
+        operation_id="handover-deadline-error",
+        session_id="session-1",
+        hooks=hooks,
+        deadline_check=broken_deadline,
+    )
+
+    assert result.ok is False
+    assert result.code == "RUNTIME_CONTROL_EXPIRED"
+    assert hooks.begin_calls == 0
+
+
+def test_handover_fails_closed_when_deadline_remaining_raises() -> None:
+    hooks = Hooks([_snapshot(busy=False)])
+
+    def broken_remaining() -> float:
+        raise RuntimeError("synthetic deadline remaining failure")
+
+    result = _coordinator().run(
+        "alas",
+        operation_id="handover-deadline-remaining-error",
+        session_id="session-1",
+        hooks=hooks,
+        deadline_remaining=broken_remaining,
+    )
+
+    assert result.ok is False
+    assert result.code == "RUNTIME_CONTROL_EXPIRED"
+    assert hooks.wait_calls == []
 
 
 def test_handover_requires_confirmed_notification_delivery() -> None:

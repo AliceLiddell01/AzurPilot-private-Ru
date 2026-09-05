@@ -84,7 +84,9 @@ class SharedLifecycle:
         return self.active and profile == "ap"
 
     def ready(self, profile: str = "ap", session_id: str | None = None) -> tuple[bool, str]:
-        return self.active and profile == "ap" and (session_id is None or session_id == self.session_id), "shared ready"
+        return bool(
+            self.active and profile == "ap" and (session_id is None or session_id == self.session_id)
+        ), "shared ready"
 
 
 def _manager(tmp_path: Path) -> tuple[DevSessionManager, SharedLifecycle]:
@@ -136,6 +138,18 @@ def test_dev_runtime_uses_existing_shared_webui_and_never_owns_server(tmp_path: 
     assert stopped.state == "stopped"
     assert shared.active is False
     assert not (tmp_path / "config" / "state" / "dev-runtime-gui.log").exists()
+
+
+def test_shared_status_distinguishes_missing_lifecycle_matcher(tmp_path: Path) -> None:
+    manager, shared = _manager(tmp_path)
+    assert manager.start().ok is True
+
+    shared.matches_session = None  # type: ignore[method-assign]
+
+    status = manager.status()
+
+    assert status.ok is False
+    assert status.code == "DEV_RUNTIME_MODE_MISMATCH"
 
 
 def test_shared_failure_preserves_worker_identity_when_stop_is_unconfirmed(

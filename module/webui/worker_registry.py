@@ -145,7 +145,7 @@ def _legacy_registry_enabled() -> bool:
     return WORKER_REGISTRY_FILE == DEFAULT_WORKER_REGISTRY_FILE
 
 
-def _record_is_alive(record: dict | None) -> bool:
+def _record_is_alive(record: dict | None) -> bool | None:
     """保守判断登记的进程是否仍在运行。"""
     if record is None:
         return False
@@ -154,8 +154,10 @@ def _record_is_alive(record: dict | None) -> bool:
     try:
         return process_matches(record) is True
     except RuntimeError:
-        # 无法确认旧进程状态时不能覆盖其登记，避免启动第二个 WebUI。
-        return True
+        # При невозможности подтвердить состояние вернуть неопределённый
+        # результат; вызывающий код должен отклонить перезапись, не выдавая его
+        # за живой процесс.
+        return None
 
 
 def _migrate_legacy_registry() -> Path:
@@ -165,7 +167,7 @@ def _migrate_legacy_registry() -> Path:
 
     legacy_registry = _read_registry(LEGACY_WORKER_REGISTRY_FILE)
     legacy_owner = _owner_record(legacy_registry)
-    if _record_is_alive(legacy_owner):
+    if _record_is_alive(legacy_owner) is not False:
         if WORKER_REGISTRY_FILE.exists():
             current_registry = _read_registry(WORKER_REGISTRY_FILE)
             if current_registry != legacy_registry:
@@ -355,6 +357,10 @@ def claim_owner(owner_pid: int) -> None:
                     raise WorkerRegistryOwnershipError(
                         f"Нельзя подтвердить отсутствие orphan worker {worker_name}; перезапись реестра отклонена"
                     ) from exc
+                if worker_matches is None:
+                    raise WorkerRegistryOwnershipError(
+                        f"Нельзя подтвердить состояние orphan worker {worker_name}; перезапись реестра отклонена"
+                    )
                 if worker_matches is True:
                     raise WorkerRegistryOwnershipError(
                         f"Orphan worker {worker_name} ещё работает; запуск WebUI отклонён"
@@ -384,7 +390,7 @@ def unregister_worker(
     owner_pid: int,
     config_name: str,
     *,
-    expected_worker: dict | None = None,
+    expected_worker: dict | None,
 ) -> bool:
     """Удалить запись worker только при совпадении ожидаемой identity."""
     with _locked_registry() as registry_file:
@@ -471,7 +477,7 @@ def _read_only_registry_paths() -> tuple[tuple[Path, ...], dict | None]:
     except RuntimeError:
         # Повреждённый устаревший реестр не должен блокировать чтение текущего.
         return (current_file,), None
-    if _record_is_alive(_owner_record(legacy_registry)):
+    if _record_is_alive(_owner_record(legacy_registry)) is not False:
         return (legacy_file, current_file), legacy_registry
     return (current_file, legacy_file), legacy_registry
 

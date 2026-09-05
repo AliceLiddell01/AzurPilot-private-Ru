@@ -167,6 +167,9 @@ def test_runtime_state_begin_handover_atomically_blocks_concurrent_task_boundary
 
     monkeypatch.setattr(store, "_read_payload", paused_read)
 
+    # begin_handover удерживает ту же блокировку при чтении и записи; поэтому
+    # try_mark_task_started должен дождаться завершения этой транзакции.
+
     def begin() -> None:
         try:
             outcomes["handover"] = store.begin_handover(

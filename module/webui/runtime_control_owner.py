@@ -28,6 +28,7 @@ from module.application.runtime_state import (
     RuntimeStateSnapshot,
     RuntimeStateStore,
 )
+from module.logger import logger
 
 
 class WebUIRuntimeControlOwner:
@@ -776,12 +777,26 @@ class WebUIRuntimeControlOwner:
         extra_details: dict[str, object] | None = None,
     ) -> RuntimeControlResult:
         details = dict(extra_details or {})
-        details["cleanup_confirmed"] = self._confirm_cooperative_cleanup(
+        cleanup_confirmed = self._confirm_cooperative_cleanup(
             manager,
             request_id=request_id,
             session_id=session_id,
             deadline=deadline,
         )
+        if not cleanup_confirmed:
+            stop = getattr(manager, "stop", None)
+            details["cleanup_escalation_attempted"] = callable(stop)
+            if callable(stop):
+                try:
+                    stop_result = stop()
+                    details["cleanup_escalation_result"] = stop_result is True
+                    cleanup_confirmed = (
+                        stop_result is True and self._read_alive(manager) is not True
+                    )
+                except Exception as exc:  # noqa: BLE001 - не подтверждать cleanup после ошибки escalation.
+                    details["cleanup_escalation_result"] = False
+                    details["cleanup_escalation_error"] = type(exc).__name__
+        details["cleanup_confirmed"] = cleanup_confirmed
         try:
             self.state.mark_failed(
                 profile,
@@ -853,9 +868,15 @@ class WebUIRuntimeControlOwner:
         try:
             value = float(self._deploy_config().RuntimeHandoverGraceSeconds)
         except (AttributeError, TypeError, ValueError):
+            logger.warning(
+                "RuntimeHandoverGraceSeconds имеет некорректный формат; используется значение 30 секунд"
+            )
             value = 30.0
         if not 0 <= value <= 300:
-            raise RuntimeError("RuntimeHandoverGraceSeconds выходит за допустимые границы")
+            logger.warning(
+                "RuntimeHandoverGraceSeconds выходит за допустимые границы; используется значение 30 секунд"
+            )
+            return 30.0
         return value
 
     def _deploy_config(self) -> object:

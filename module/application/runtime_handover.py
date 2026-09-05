@@ -129,7 +129,7 @@ class ProfileHandoverCoordinator:
         deadline_remaining: Callable[[], float] | None = None,
     ) -> HandoverResult:
         phases: list[str] = []
-        if deadline_check is not None and deadline_check() is not True:
+        if self._deadline_expired(deadline_check):
             return HandoverResult(
                 False,
                 "RUNTIME_CONTROL_EXPIRED",
@@ -155,7 +155,7 @@ class ProfileHandoverCoordinator:
             return HandoverResult(
                 False,
                 "RUNTIME_CONTROL_EXPIRED"
-                if deadline_check is not None and deadline_check() is not True
+                if self._deadline_expired(deadline_check)
                 else "RUNTIME_HANDOVER_STATE_UNKNOWN",
                 "Не удалось получить bounded handover state в ограниченный срок",
                 profile,
@@ -207,7 +207,7 @@ class ProfileHandoverCoordinator:
         handover_details: dict[str, object] = {"busy": initial.busy}
         phases.append(RuntimePhase.HANDOVER_REQUESTED.value)
         if initial.busy:
-            if deadline_check is not None and deadline_check() is not True:
+            if self._deadline_expired(deadline_check):
                 return self._fail(
                     hooks,
                     profile,
@@ -223,7 +223,7 @@ class ProfileHandoverCoordinator:
             )
             if mark_failure is not None:
                 return mark_failure
-            if deadline_check is not None and deadline_check() is not True:
+            if self._deadline_expired(deadline_check):
                 return self._fail(
                     hooks,
                     profile,
@@ -245,7 +245,7 @@ class ProfileHandoverCoordinator:
             )
             if hook_failure is not None:
                 return hook_failure
-            if deadline_check is not None and deadline_check() is not True:
+            if self._deadline_expired(deadline_check):
                 return self._fail(
                     hooks,
                     profile,
@@ -319,7 +319,7 @@ class ProfileHandoverCoordinator:
                 )
             handover_details["grace_period"] = {"expired": busy_state is False}
 
-        if deadline_check is not None and deadline_check() is not True:
+        if self._deadline_expired(deadline_check):
             return self._fail(
                 hooks,
                 profile,
@@ -357,7 +357,7 @@ class ProfileHandoverCoordinator:
                 "Профиль не принял cooperative quiesce; handover остановлен",
                 details=handover_details,
             )
-        if deadline_check is not None and deadline_check() is not True:
+        if self._deadline_expired(deadline_check):
             return self._fail(
                 hooks,
                 profile,
@@ -377,7 +377,7 @@ class ProfileHandoverCoordinator:
         if deadline_remaining is not None:
             try:
                 remaining = float(deadline_remaining())
-            except (TypeError, ValueError, OverflowError):
+            except Exception:  # noqa: BLE001 - сбой внешней проверки переводит handover в fail-closed.
                 remaining = 0.0
             if not math.isfinite(remaining) or remaining <= 0:
                 return self._fail(
@@ -413,7 +413,7 @@ class ProfileHandoverCoordinator:
                 "Профиль не завершил текущий task в ограниченный quiesce timeout; development profile не запускается",
                 details=handover_details,
             )
-        if deadline_check is not None and deadline_check() is not True:
+        if self._deadline_expired(deadline_check):
             return self._fail(
                 hooks,
                 profile,
@@ -434,7 +434,7 @@ class ProfileHandoverCoordinator:
         )
         if mark_failure is not None:
             return mark_failure
-        if deadline_check is not None and deadline_check() is not True:
+        if self._deadline_expired(deadline_check):
             return self._fail(
                 hooks,
                 profile,
@@ -467,7 +467,7 @@ class ProfileHandoverCoordinator:
                 "Возврат пользовательского профиля на главный экран не подтверждён; development profile не запускается",
                 details=handover_details,
             )
-        if deadline_check is not None and deadline_check() is not True:
+        if self._deadline_expired(deadline_check):
             return self._fail(
                 hooks,
                 profile,
@@ -500,7 +500,7 @@ class ProfileHandoverCoordinator:
                 "Главный экран пользовательского профиля не подтверждён; development profile не запускается",
                 details=handover_details,
             )
-        if deadline_check is not None and deadline_check() is not True:
+        if self._deadline_expired(deadline_check):
             return self._fail(
                 hooks,
                 profile,
@@ -538,7 +538,7 @@ class ProfileHandoverCoordinator:
     ) -> bool | None | _WaitOutcome | HandoverResult:
         deadline = self._monotonic() + self.policy.grace_period_seconds
         while True:
-            if deadline_check is not None and deadline_check() is not True:
+            if self._deadline_expired(deadline_check):
                 return _WaitOutcome.EXPIRED
             try:
                 state = hooks.read_state(profile)
@@ -562,6 +562,17 @@ class ProfileHandoverCoordinator:
             if remaining <= 0:
                 return False
             self._sleep(min(self.policy.poll_seconds, remaining))
+
+    @staticmethod
+    def _deadline_expired(deadline_check: Callable[[], bool] | None) -> bool:
+        """Считать срок истёкшим при отсутствии или сбое внешней проверки."""
+
+        if deadline_check is None:
+            return False
+        try:
+            return deadline_check() is not True
+        except Exception:
+            return True
 
     def _invoke_hook(
         self,

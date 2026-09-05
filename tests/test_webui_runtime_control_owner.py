@@ -48,6 +48,37 @@ class HandoverManager(Manager):
         return True
 
 
+class FailedStartManager(Manager):
+    def start(
+        self,
+        func: str | None,
+        ev: object | None = None,
+        *,
+        operation_id: str | None = None,
+        session_id: str | None = None,
+    ) -> None:
+        super().start(
+            func,
+            ev,
+            operation_id=operation_id,
+            session_id=session_id,
+        )
+        raise RuntimeError("synthetic start failure after worker launch")
+
+    def request_cooperative_stop(
+        self,
+        *,
+        operation_id: str,
+        session_id: str | None,
+    ) -> bool:
+        self.calls.append(("cooperative_stop", operation_id, session_id))
+        return True
+
+    def wait_for_exit(self, timeout_seconds: float) -> bool:
+        self.calls.append(("wait_for_exit", str(timeout_seconds), None))
+        return False
+
+
 class Application:
     def __init__(self) -> None:
         self.returned_to_main = 0
@@ -148,6 +179,33 @@ def test_owner_rejects_development_start_without_session_before_manager_lookup(
     assert manager_lookups == []
 
 
+def test_owner_rejects_expired_start_before_manager_lookup(tmp_path: Path) -> None:
+    manager = Manager()
+    owner = _owner(tmp_path, manager)
+
+    result = owner.execute(
+        RuntimeControlOperation.START_PROFILE,
+        "ap",
+        request_id="expired-start",
+        idempotency_key="expired-start-key",
+        session_id="session-1",
+        expires_at="2000-01-01T00:00:00+00:00",
+    )
+
+    assert result.ok is False
+    assert result.code == "RUNTIME_CONTROL_EXPIRED"
+    assert manager.calls == []
+
+
+def test_owner_uses_bounded_default_for_invalid_handover_grace(tmp_path: Path) -> None:
+    owner = _owner(tmp_path, Manager())
+    owner._deploy_config_provider = lambda: type(
+        "DeployConfig", (), {"RuntimeHandoverGraceSeconds": -1}
+    )()
+
+    assert owner._grace_seconds() == 30.0
+
+
 def test_owner_rejects_development_stop_without_session_before_manager_lookup(
     tmp_path: Path,
 ) -> None:
@@ -174,6 +232,35 @@ def test_owner_rejects_development_stop_without_session_before_manager_lookup(
     assert result.ok is False
     assert result.code == "RUNTIME_SESSION_REQUIRED"
     assert manager_lookups == []
+
+
+def test_owner_escalates_after_cooperative_start_cleanup_timeout(tmp_path: Path) -> None:
+    manager = FailedStartManager()
+    owner = _owner(tmp_path, manager)
+    owner._deploy_config_provider = lambda: type(
+        "DeployConfig", (), {"RuntimeHandoverGraceSeconds": 30}
+    )()
+
+    result = owner.execute(
+        RuntimeControlOperation.START_PROFILE,
+        "ap",
+        request_id="start-failure",
+        idempotency_key="start-failure-key",
+        session_id="session-1",
+        expires_at=_EXPIRY,
+    )
+
+    assert result.ok is False
+    assert result.code == "RUNTIME_START_UNCONFIRMED"
+    assert result.details["cleanup_confirmed"] is True
+    assert result.details["cleanup_escalation_attempted"] is True
+    assert [call[0] for call in manager.calls] == [
+        "start",
+        "cooperative_stop",
+        "wait_for_exit",
+        "stop",
+    ]
+    assert manager.alive is False
 
 
 def test_owner_does_not_take_over_development_worker_of_another_session(

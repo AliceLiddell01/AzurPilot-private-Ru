@@ -295,14 +295,18 @@ class DevDiagnosticsMixin:
                 )
             shared = self.shared_lifecycle
             matches_session = getattr(shared, "matches_session", None)
+            if not callable(matches_session):
+                return self._session_result(
+                    session,
+                    ok=False,
+                    code="DEV_RUNTIME_MODE_MISMATCH",
+                    message="Shared WebUI manager не предоставил службу проверки принадлежности сессии",
+                    state=DevStatusKind.OWNERSHIP_MISMATCH,
+                )
             try:
-                matches = (
-                    matches_session(
-                        session.session_id,
-                        session.profile_name or self.environment.profile_name,
-                    )
-                    if callable(matches_session)
-                    else False
+                matches = matches_session(
+                    session.session_id,
+                    session.profile_name or self.environment.profile_name,
                 )
             except Exception:  # noqa: BLE001 - граница ownership работает в режиме fail-closed.
                 matches = False

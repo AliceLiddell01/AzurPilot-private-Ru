@@ -366,7 +366,7 @@ class TestProcessManagerRegistry(unittest.TestCase):
         self.assertFalse(starter.is_alive())
         self.assertTrue(new_process_started.is_set())
 
-    def test_cooperative_stop_persists_state_before_signaling_event(self):
+    def test_cooperative_stop_signals_event_before_persisting_state(self):
         from module.application.runtime_state import RuntimeStateStore
 
         with TemporaryDirectory() as root:
@@ -396,14 +396,15 @@ class TestProcessManagerRegistry(unittest.TestCase):
                     )
                 )
 
-            self.assertEqual(observed, [True])
+            self.assertEqual(observed, [False])
             snapshot = RuntimeStateStore(root_path).read("ap")
             self.assertIsNotNone(snapshot)
             self.assertTrue(snapshot.stop_requested)
 
     def test_unregister_without_expected_worker_rejects_existing_registry_record(self):
         manager = ProcessManager("alas")
-        manager._stop_event = Mock()
+        stop_event = Mock()
+        manager._stop_event = stop_event
 
         with (
             patch("module.webui.process_manager.is_current_owner", return_value=True),
@@ -415,6 +416,7 @@ class TestProcessManagerRegistry(unittest.TestCase):
             self.assertFalse(manager._unregister_process())
 
         self.assertIsNotNone(manager._stop_event)
+        self.assertIs(stop_event, manager._stop_event)
 
     def test_start_rejects_during_update_transaction(self):
         manager = ProcessManager.get_manager("alas")

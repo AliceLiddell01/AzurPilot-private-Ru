@@ -172,7 +172,13 @@ class TestWorkerRegistry(unittest.TestCase):
                     worker_registry.claim_owner(100)
                     worker_registry.register_worker(100, "alas", 200)
 
-                self.assertFalse(worker_registry.unregister_worker(100, "alas"))
+                self.assertFalse(
+                    worker_registry.unregister_worker(
+                        100,
+                        "alas",
+                        expected_worker=None,
+                    )
+                )
                 self.assertEqual(
                     {"alas": {"created_at": 10.5, "pid": 200}},
                     worker_registry.get_workers(100),
@@ -215,7 +221,10 @@ class TestWorkerRegistry(unittest.TestCase):
                         "process_matches",
                         side_effect=RuntimeError("identity unavailable"),
                     ),
-                    self.assertRaises(worker_registry.WorkerRegistryOwnershipError),
+                    self.assertRaisesRegex(
+                        worker_registry.WorkerRegistryOwnershipError,
+                        "Нельзя подтвердить состояние orphan worker",
+                    ),
                 ):
                     worker_registry.claim_owner(100)
                 self.assertEqual(registry_before, registry_file.read_bytes())

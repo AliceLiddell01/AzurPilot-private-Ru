@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from itertools import chain, repeat
 from pathlib import Path
 from threading import Event, Thread
 from types import SimpleNamespace
@@ -177,7 +176,15 @@ def test_loop_does_not_finish_task_cancelled_before_runtime_start(
     script.failure_record = {}
     script._emulator_recovery_transport_lost = False
     script.get_next_task = lambda: "Commission"
-    script._prepare_task_boundary = lambda _task: True
+    boundary_calls: list[str] = []
+    handover_accepted = Event()
+
+    def prepare_boundary(task: str) -> bool:
+        boundary_calls.append(task)
+        handover_accepted.set()
+        return True
+
+    script._prepare_task_boundary = prepare_boundary
     started: list[str] = []
     finished: list[str] = []
     script._record_dev_runtime_task_started = (
@@ -191,10 +198,9 @@ def test_loop_does_not_finish_task_cancelled_before_runtime_start(
         pytest.fail("Запуск задачи не должен выполняться")
 
     script.run = fail_run
-    handover_values = chain((False, False), repeat(True))
     monkeypatch.setattr(
         "alas._handover_requested",
-        lambda _config_name: next(handover_values),
+        lambda _config_name: handover_accepted.is_set(),
     )
     monkeypatch.setattr(
         "alas.logger",
@@ -209,6 +215,7 @@ def test_loop_does_not_finish_task_cancelled_before_runtime_start(
 
     assert started == []
     assert finished == []
+    assert boundary_calls == ["Commission"]
 
 
 def test_loop_does_not_enter_task_when_handover_arrives_after_started_boundary(

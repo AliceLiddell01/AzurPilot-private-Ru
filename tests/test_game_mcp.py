@@ -1328,6 +1328,8 @@ def test_adapter_serializes_mutations_for_different_profiles(
         assert first_entered.wait(5)
         second_thread.start()
         assert second_requested.wait(5)
+        with state_lock:
+            assert active_count == 1
     finally:
         release.set()
         first_thread.join(timeout=5)
