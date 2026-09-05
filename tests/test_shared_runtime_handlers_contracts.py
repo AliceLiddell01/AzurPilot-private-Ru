@@ -37,7 +37,7 @@ def test_gui_keeps_process_socket_contract():
 
 
 def test_logger_security_redaction_and_rendering_contract_is_intact():
-    source = _source("module/logger.py")
+    source = _source("module/logger.py") + _source("module/logging_core.py")
     for token in (
         "_SENSITIVE_NAME_RE = re.compile(",
         "_URL_USERINFO_RE = re.compile(",
