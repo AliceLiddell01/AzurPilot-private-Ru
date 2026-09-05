@@ -163,6 +163,44 @@ def test_owner_does_not_adopt_running_worker_without_runtime_state(
     assert manager.calls == []
 
 
+def test_owner_rejects_session_mismatch_for_running_non_development_worker(
+    tmp_path: Path,
+) -> None:
+    manager = Manager()
+    manager.alive = True
+    owner_identity = RuntimeOwnerIdentity(pid=100, created_at=200.0)
+    record = {"pid": 101, "created_at": 201.0}
+    owner = WebUIRuntimeControlOwner(
+        tmp_path,
+        manager_factory=lambda _profile: manager,
+        profile_provider=lambda: ("user", "ap"),
+        worker_record_provider=lambda _profile: record if manager.alive else None,
+        function_factory=lambda _profile: "alas",
+        development_profile_provider=lambda: "ap",
+    )
+    owner.owner_identity = lambda: owner_identity  # type: ignore[method-assign]
+    owner.owner_matches = lambda _owner: True  # type: ignore[method-assign]
+    owner.state.mark_worker_started(
+        "user",
+        worker_pid=201,
+        worker_created_at=301.0,
+        session_id="session-1",
+    )
+
+    result = owner.execute(
+        RuntimeControlOperation.START_PROFILE,
+        "user",
+        request_id="request-session-mismatch",
+        idempotency_key="key-session-mismatch",
+        session_id="session-2",
+        expires_at=_EXPIRY,
+    )
+
+    assert result.ok is False
+    assert result.code == "RUNTIME_OWNERSHIP_MISMATCH"
+    assert manager.calls == []
+
+
 def test_owner_handover_fails_closed_when_authoritative_state_is_missing(
     tmp_path: Path,
 ) -> None:

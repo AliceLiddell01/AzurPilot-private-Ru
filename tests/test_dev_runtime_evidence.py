@@ -259,6 +259,8 @@ def test_evidence_logs_keep_replacement_startup_lines_during_active_session(
     active = store.logs_page(active_owned=True)
     assert [item["text"] for item in active["items"]] == ["new worker startup"]
     assert "before session" not in json.dumps(active, ensure_ascii=False)
+    assert active["truncated"] is True
+    assert "log_boundary_lost" in active["health"]["reasons"]
 
     with log_path.open("ab") as handle:
         handle.write(b"new worker body\n")
@@ -268,6 +270,27 @@ def test_evidence_logs_keep_replacement_startup_lines_during_active_session(
         "new worker startup",
         "new worker body",
     ]
+
+
+def test_evidence_finalize_marks_unread_rotated_segment_as_truncated(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    log_path = store.environment.log_file
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_bytes(b"before session\n")
+    store.capture_log_boundary()
+
+    replacement = log_path.with_name("rotated-before-finalize.txt")
+    replacement.write_bytes(b"new worker startup\n")
+    replacement.replace(log_path)
+
+    store.finalize(stopped_at=_TIME, cleanup_confirmed=True)
+    finished = store.logs_page(active_owned=False)
+
+    assert [item["text"] for item in finished["items"]] == ["new worker startup"]
+    assert finished["truncated"] is True
+    assert "log_boundary_lost" in finished["health"]["reasons"]
 
 
 def test_evidence_log_rotation_fails_closed_at_segment_limit(tmp_path: Path) -> None:

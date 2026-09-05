@@ -878,8 +878,12 @@ class SharedWebUIBootstrapper:
         timeout: float = 30.0,
         poll_interval: float = 0.1,
     ) -> None:
-        if type(timeout) not in (int, float) or not 0 <= float(timeout) <= 120:
-            raise ValueError("timeout bootstrap должен быть в диапазоне 0..120 секунд")
+        if (
+            type(timeout) not in (int, float)
+            or not math.isfinite(float(timeout))
+            or not 0 < float(timeout) <= 120
+        ):
+            raise ValueError("timeout bootstrap должен быть в диапазоне (0, 120] секунд")
         self.repository_root = Path(repository_root).resolve()
         self.gui_path = _scoped_path(self.repository_root, "gui.py")
         default_python = self.repository_root / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
@@ -898,7 +902,7 @@ class SharedWebUIBootstrapper:
         if not self.gui_path.is_file() or not self.python_executable.is_file():
             raise RuntimeControlError("RUNTIME_BOOTSTRAP_UNAVAILABLE", "Canonical gui.py или project Python отсутствует")
         try:
-            with application_host_lock(self.lock_path, timeout=min(30.0, self.timeout or 30.0)):
+            with application_host_lock(self.lock_path, timeout=min(30.0, self.timeout)):
                 existing = self._read_valid_owner()
                 if existing is not None:
                     return existing

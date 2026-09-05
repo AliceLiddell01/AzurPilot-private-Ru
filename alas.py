@@ -327,6 +327,11 @@ class AzurLaneAutoScript:
         return context.coordinator
 
     def _run_fleet_manual_scan_if_pending(self):
+        if _handover_requested(self.config_name) is True:
+            logger.info(
+                '[Alas] Ожидающая ручная команда пропущена: получен запрос на handover'
+            )
+            return None
         execution = self.fleet_manual_scan.process_next(self.config_name)
         if execution is None:
             return None
@@ -1590,6 +1595,9 @@ class AzurLaneAutoScript:
     def _prepare_task_boundary(self, task):
         """Обработать durable manual scan только между обычными задачами."""
 
+        if _handover_requested(self.config_name) is True:
+            logger.info('[Alas] Граница задачи пропущена: получен запрос на handover')
+            return False
         _ = self.device
         self.device.config = self.config
         woke_for_manual = bool(getattr(self, '_manual_scan_wakeup', False))
@@ -1700,21 +1708,24 @@ class AzurLaneAutoScript:
                 task = self.get_next_task()
                 if task is None:
                     break
+                if _handover_requested(self.config_name) is True:
+                    logger.info('[Alas] После выбора задачи получен запрос на handover')
+                    break
                 # Autoscan проверяется на безопасной границе после возможного ожидания.
                 if not self._prepare_task_boundary(task):
                     continue
+
+                if (
+                    self.stop_event is not None
+                    and self.stop_event.is_set()
+                ) or _handover_requested(self.config_name) is True:
+                    logger.info('[Alas] Запуск задачи отменён запросом cooperative stop')
+                    break
 
                 # 运行
                 logger.info(f'[Alas] Планировщик: запуск задачи `{task}`')
                 if record_dev_runtime_task_started(task) is False:
                     logger.error('[Alas] Не удалось подтвердить границу текущей задачи; scheduler остановлен')
-                    break
-                if (
-                    self.stop_event is not None
-                    and self.stop_event.is_set()
-                ) or _handover_requested(self.config_name) is True:
-                    record_dev_runtime_task_finished(task)
-                    logger.info('[Alas] Запуск задачи отменён запросом cooperative stop')
                     break
                 self.device.stuck_record_clear()
                 self.device.click_record_clear()

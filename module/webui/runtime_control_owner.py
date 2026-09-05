@@ -250,9 +250,8 @@ class WebUIRuntimeControlOwner:
                     "Работающий профиль не имеет подтверждённого runtime state; start отклонён",
                     owner=owner,
                 )
-            if (
-                profile == development_profile
-                and snapshot.session_id != session_id
+            if session_id is not None and (
+                snapshot.profile != profile or snapshot.session_id != session_id
             ):
                 return self._failure(
                     RuntimeControlOperation.START_PROFILE,
@@ -260,7 +259,11 @@ class WebUIRuntimeControlOwner:
                     request_id,
                     idempotency_key,
                     "RUNTIME_OWNERSHIP_MISMATCH",
-                    "Уже работающий development worker принадлежит другой DevSession",
+                    (
+                        "Уже работающий development worker принадлежит другой DevSession"
+                        if profile == development_profile
+                        else "Уже работающий worker принадлежит другой DevSession"
+                    ),
                     owner=owner,
                     details={"active_session_id": snapshot.session_id},
                 )

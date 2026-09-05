@@ -248,6 +248,13 @@ def test_control_plane_requires_positive_timeout_and_rejects_expired_request(tmp
             owner_matches=lambda candidate: candidate == owner,
             timeout=0,
         )
+    with pytest.raises(ValueError):
+        SharedWebUIBootstrapper(
+            tmp_path,
+            owner_reader=lambda: owner.as_dict(),
+            owner_matches=lambda candidate: candidate == owner,
+            timeout=0,
+        )
 
     calls = 0
 

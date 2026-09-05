@@ -126,6 +126,66 @@ def test_prepare_boundary_only_processes_manual_command() -> None:
     assert script.device.config is script.config
 
 
+def test_prepare_boundary_skips_manual_command_after_handover(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events = []
+    script = _script()
+    script.device = _Device(events)
+    script.fleet_manual_scan = _ManualCoordinator(events)
+    monkeypatch.setattr("alas._handover_requested", lambda _config_name: True)
+
+    assert not script._prepare_task_boundary("Commission")
+    assert events == []
+    assert script.device.config is None
+
+
+def test_loop_does_not_finish_task_cancelled_before_runtime_start(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    script = _script()
+    script.config.EmulatorManagement_ScheduledEmulatorRestart = False
+    script.checker = SimpleNamespace(
+        wait_until_available=lambda: None,
+        is_recovered=lambda: False,
+    )
+    script.failure_record = {}
+    script._emulator_recovery_transport_lost = False
+    script.get_next_task = lambda: "Commission"
+    script._prepare_task_boundary = lambda _task: True
+    started: list[str] = []
+    finished: list[str] = []
+    script._record_dev_runtime_task_started = (
+        lambda task: started.append(task) or True
+    )
+    script._record_dev_runtime_task_finished = (
+        lambda task: finished.append(task) or True
+    )
+
+    def fail_run(_command: str) -> object:
+        raise AssertionError("Запуск задачи не должен выполняться")
+
+    script.run = fail_run
+    handover_values = iter((False, False, True))
+    monkeypatch.setattr(
+        "alas._handover_requested",
+        lambda _config_name: next(handover_values),
+    )
+    monkeypatch.setattr(
+        "alas.logger",
+        SimpleNamespace(
+            set_file_logger=lambda *_args, **_kwargs: None,
+            info=lambda *_args, **_kwargs: None,
+        ),
+    )
+    monkeypatch.setattr("module.config.utils.is_oobe_needed", lambda: False)
+
+    script.loop()
+
+    assert started == []
+    assert finished == []
+
+
 def test_long_wait_manual_wakeup_does_not_run_future_normal_task_early() -> None:
     script = _script()
     script._manual_scan_wakeup = True

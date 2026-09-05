@@ -37,8 +37,8 @@ _TASK_CLEANUP_RECOVERABLE_CODES = frozenset(
 
 
 class DevDiagnosticsMixin:
-    shared_webui: bool
-    shared_lifecycle: object | None
+    shared_webui: bool = False
+    shared_lifecycle: object | None = None
 
     def _environment_for_session(self, session: DevSession) -> DevEnvironment:
         raise NotImplementedError("DevDiagnosticsMixin требует разрешения окружения сессии")

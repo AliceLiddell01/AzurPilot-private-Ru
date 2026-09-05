@@ -1729,6 +1729,8 @@ class EvidenceStore:
                     "end_offset": end_offset,
                 }
             )
+            logs = {**logs, "truncated": True}
+            self._set_health_locked(manifest, "log_boundary_lost")
         elif end_offset < int(last["boundary_offset"]):
             self._set_health_locked(manifest, "log_boundary_lost")
             return
@@ -2537,7 +2539,9 @@ class EvidenceStore:
                     "segments": segments,
                     "end_offset": None,
                     "end_identity": None,
+                    "truncated": True,
                 }
+                self._set_health_locked(manifest, "log_boundary_lost")
                 manifest["logs"] = logs
                 self._write_manifest_locked(manifest)
             current_segment_index = len(segments) - 1
