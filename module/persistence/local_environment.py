@@ -284,9 +284,10 @@ def read_local_postgres_environment(
         elif key.startswith(_OBSERVABILITY_PREFIX) and len(key) > len(
             _OBSERVABILITY_PREFIX
         ):
-            # Compose и production PostgreSQL используют один защищённый local
-            # env. Чужой observability namespace валидируем синтаксически, но
-            # не включаем в PostgreSQL contract и не экспортируем приложению.
+            # Compose и боевой PostgreSQL используют один защищённый локальный
+            # файл окружения. Пространство имён наблюдаемости проверяем
+            # синтаксически, но не включаем в контракт PostgreSQL и не
+            # экспортируем приложению.
             _parse_value(raw_value, line_number)
         else:
             raise StorageConfigurationError(
