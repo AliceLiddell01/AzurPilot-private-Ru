@@ -32,6 +32,7 @@ from module.application import (
 )
 from module.application.game_validation import validate_config_value
 from module.application.ports import RuntimeSnapshot
+from module.application.resource_lease import game_runtime_lease
 
 
 class _Instances:
@@ -458,6 +459,30 @@ def test_control_service_validates_config_scheduler_and_lifecycle_postconditions
         "status",
         "status",
     ]
+
+
+def test_control_service_releases_game_lock_before_external_lifecycle_owner(
+    tmp_path: Path,
+) -> None:
+    class _ExternalLifecycle(_Lifecycle):
+        lifecycle_mutation_lock_owned_externally = True
+
+        def start_instance(self, instance: str) -> bool:
+            with game_runtime_lease(tmp_path, timeout=1):
+                self.calls.append("start")
+                self.running = True
+                return True
+
+    lifecycle = _ExternalLifecycle()
+    service, _config, _ = _control_service(
+        lifecycle=lifecycle,
+        mutation_lock_root=tmp_path,
+    )
+
+    result = service.start_instance("ap")
+
+    assert result.outcome is LifecycleOutcome.STARTED
+    assert lifecycle.calls == ["status", "start", "status"]
 
 
 def test_independent_control_services_share_profile_mutation_lock(

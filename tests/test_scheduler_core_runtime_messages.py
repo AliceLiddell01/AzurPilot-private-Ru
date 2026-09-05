@@ -303,6 +303,7 @@ class SchedulerCoreRuntimeMessages(unittest.TestCase):
             "del_cached_property": lambda obj, name: None,
             "inflection": types.SimpleNamespace(underscore=lambda _: "synthetic"),
             "_get_task_display_name": lambda task: task,
+            "_handover_requested": lambda _config_name: None,
             "time": types.SimpleNamespace(monotonic=lambda: 0, sleep=lambda _: None),
         })
         with mock.patch.dict(sys.modules, modules):

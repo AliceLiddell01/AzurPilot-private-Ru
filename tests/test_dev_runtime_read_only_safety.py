@@ -11,6 +11,7 @@ from module.dev_runtime import (
     DevResult,
     DevSession,
     DevSessionManager,
+    DevRuntimeMode,
     DevSessionState,
     DevStatusKind,
     DevTarget,
@@ -83,6 +84,7 @@ def _manager(
     manager = DevSessionManager(
         _environment(tmp_path),
         process_backend=backend or _Backend(),
+        shared_webui=False,
         storage_probe=lambda _environment: (True, "storage ready"),
         port_probe=lambda _host, _port: False,
         now=lambda: datetime(2026, 8, 29, tzinfo=UTC),
@@ -188,6 +190,7 @@ def test_readiness_uses_read_only_registry_snapshot(
     manager = DevSessionManager(
         environment,
         process_backend=_Backend(identity),
+        shared_webui=False,
         storage_probe=lambda _environment: (True, "ready"),
         port_probe=lambda _host, _port: False,
     )
@@ -229,6 +232,7 @@ def test_failed_live_process_remains_blocked_after_preflight_race(
     manager = DevSessionManager(
         environment,
         process_backend=backend,
+        shared_webui=False,
         storage_probe=lambda _environment: (True, "ready"),
         port_probe=lambda _host, _port: False,
         now=lambda: datetime(2026, 8, 29, tzinfo=UTC),
@@ -241,6 +245,7 @@ def test_failed_live_process_remains_blocked_after_preflight_race(
             created_at="2026-08-29T00:00:00+00:00",
             updated_at="2026-08-29T00:00:00+00:00",
             process=identity,
+            runtime_mode=DevRuntimeMode.STANDALONE_PROCESS,
         )
     )
     manager.preflight = lambda: DevResult(
@@ -297,6 +302,7 @@ def test_readiness_rejects_ap_worker_outside_devsession_tree(
     manager = DevSessionManager(
         environment,
         process_backend=TreeBackend(),
+        shared_webui=False,
         storage_probe=lambda _environment: (True, "ready"),
         port_probe=lambda _host, _port: False,
     )

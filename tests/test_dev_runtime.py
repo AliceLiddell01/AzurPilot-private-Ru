@@ -19,6 +19,7 @@ from module.dev_runtime import (
     DevResult,
     DevSession,
     DevSessionManager,
+    DevRuntimeMode,
     DevSessionState,
     DevStatusKind,
     DevTarget,
@@ -127,6 +128,7 @@ def _manager(
     manager = DevSessionManager(
         environment,
         process_backend=process_backend,
+        shared_webui=False,
         storage_probe=lambda _environment: (True, "storage ready"),
         port_probe=port_probe or (lambda _host, _port: False),
         readiness_probe=readiness or (lambda _environment, _identity: (True, "ready")),
@@ -155,6 +157,7 @@ def _session(
         created_at="2026-08-29T00:00:00+00:00",
         updated_at="2026-08-29T00:00:00+00:00",
         process=process,
+        runtime_mode=DevRuntimeMode.STANDALONE_PROCESS,
     )
 
 

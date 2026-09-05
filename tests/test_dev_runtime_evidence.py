@@ -7,7 +7,7 @@ import os
 import subprocess
 import threading
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
@@ -15,6 +15,7 @@ import pytest
 
 from module.dev_runtime import evidence as evidence_module
 from module.dev_runtime.bounded_io import BoundedReadTooLarge, read_bounded_bytes
+from module.dev_runtime.contracts import DevEnvironment
 from module.dev_runtime.evidence import (
     EVIDENCE_EVENT_TYPES,
     EvidenceCorrupt,
@@ -24,7 +25,6 @@ from module.dev_runtime.evidence import (
     capture_git_snapshot,
     validate_session_id,
 )
-from module.dev_runtime.contracts import DevEnvironment
 from module.dev_runtime.target import DevTarget
 
 
@@ -36,6 +36,7 @@ def test_event_registry_is_public_and_single_source(tmp_path: Path) -> None:
 
     assert "session_ready" in EVIDENCE_EVENT_TYPES
     assert "runtime_error" in EVIDENCE_EVENT_TYPES
+    assert "handover_transition" in EVIDENCE_EVENT_TYPES
     assert not hasattr(evidence_module, "_EVENT_TYPES")
     with pytest.raises(EvidenceError) as error:
         store.append_event("unknown_event", {}, timestamp=_TIME)
@@ -99,6 +100,27 @@ def test_evidence_store_reopens_and_keeps_session_scoped_lifecycle(tmp_path: Pat
     ]
     assert [event["sequence"] for event in timeline["events"]] == [1, 2, 3, 4]
     assert all(event["timestamp"].endswith("+00:00") for event in timeline["events"])
+
+
+def test_evidence_store_records_handover_and_notification_outcome(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+
+    store.append_event(
+        "handover_transition",
+        {
+            "phase": "preemption_notice",
+            "profile": "alas",
+            "operation_id": "handover-1",
+            "reason": "notification",
+            "attempted": True,
+            "confirmed": True,
+        },
+        timestamp=_TIME,
+    )
+
+    event = store.timeline_page(limit=10)["events"][0]
+    assert event["type"] == "handover_transition"
+    assert event["fields"]["confirmed"] is True
 
 
 def test_unbound_evidence_summary_reports_profile_from_manifest(tmp_path: Path) -> None:
@@ -219,6 +241,221 @@ def test_evidence_logs_use_boundary_cursor_and_sanitization(tmp_path: Path) -> N
     with pytest.raises(EvidenceError) as error:
         store.logs_page(limit=1)
     assert error.value.code == "DEV_EVIDENCE_LOG_BOUNDARY_LOST"
+
+
+def test_evidence_logs_keep_replacement_startup_lines_during_active_session(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    log_path = store.environment.log_file
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_bytes(b"before session\n")
+    store.capture_log_boundary()
+
+    replacement = log_path.with_name("rotated-startup.txt")
+    replacement.write_bytes(b"new worker startup\n")
+    replacement.replace(log_path)
+
+    active = store.logs_page(active_owned=True)
+    assert [item["text"] for item in active["items"]] == ["new worker startup"]
+    assert "before session" not in json.dumps(active, ensure_ascii=False)
+    assert active["truncated"] is True
+    assert "log_boundary_lost" in active["health"]["reasons"]
+
+    with log_path.open("ab") as handle:
+        handle.write(b"new worker body\n")
+    store.finalize(stopped_at=_TIME, cleanup_confirmed=True)
+    finished = store.logs_page(active_owned=False)
+    assert [item["text"] for item in finished["items"]] == [
+        "new worker startup",
+        "new worker body",
+    ]
+
+
+def test_evidence_finalize_marks_unread_rotated_segment_as_truncated(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    log_path = store.environment.log_file
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_bytes(b"before session\n")
+    store.capture_log_boundary()
+
+    replacement = log_path.with_name("rotated-before-finalize.txt")
+    replacement.write_bytes(b"new worker startup\n")
+    replacement.replace(log_path)
+
+    store.finalize(stopped_at=_TIME, cleanup_confirmed=True)
+    finished = store.logs_page(active_owned=False)
+
+    assert [item["text"] for item in finished["items"]] == ["new worker startup"]
+    assert finished["truncated"] is True
+    assert "log_boundary_lost" in finished["health"]["reasons"]
+
+
+def test_evidence_log_rotation_fails_closed_at_segment_limit(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    log_path = store.environment.log_file
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_bytes(b"")
+    store.capture_log_boundary()
+
+    manifest = json.loads(store.manifest_path.read_text(encoding="utf-8"))
+    logs = manifest["logs"]
+    assert isinstance(logs, dict)
+    first_segment = logs["segments"][0]
+    assert isinstance(first_segment, dict)
+    segments = [first_segment]
+    segments.extend(
+        {
+            "identity": {"device": 999999, "inode": 1000 + index, "mtime_ns": 1},
+            "boundary_offset": 0,
+            "end_offset": 0,
+        }
+        for index in range(31)
+    )
+    logs["segments"] = segments
+    manifest["logs"] = logs
+    store.manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    replacement = log_path.with_name("rotated-limit.txt")
+    replacement.write_bytes(b"new worker startup\n")
+    replacement.replace(log_path)
+
+    with pytest.raises(EvidenceError) as error:
+        store.logs_page(active_owned=True)
+
+    assert error.value.code == "DEV_EVIDENCE_LOG_BOUNDARY_LOST"
+    persisted = json.loads(store.manifest_path.read_text(encoding="utf-8"))
+    assert len(persisted["logs"]["segments"]) == 32
+    assert "log_boundary_lost" in persisted["evidence_health"]["reasons"]
+
+
+def test_evidence_rejects_manifest_log_source_mismatch(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    log_path = store.environment.log_file
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_bytes(b"")
+    store.capture_log_boundary()
+
+    manifest = json.loads(store.manifest_path.read_text(encoding="utf-8"))
+    manifest["logs"]["source"] = "log/another-profile.txt"
+    store.manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(EvidenceError) as error:
+        store.logs_page(active_owned=True)
+
+    assert error.value.code == "DEV_EVIDENCE_LOG_BOUNDARY_LOST"
+    persisted = json.loads(store.manifest_path.read_text(encoding="utf-8"))
+    assert "log_boundary_lost" in persisted["evidence_health"]["reasons"]
+
+
+def test_evidence_rejects_confirmed_and_preserved_cleanup_together(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+
+    with pytest.raises(EvidenceError) as finalize_error:
+        store.finalize(
+            stopped_at=_TIME,
+            cleanup_confirmed=True,
+            preserved=True,
+        )
+    assert finalize_error.value.code == "DEV_EVIDENCE_CLEANUP_INVALID"
+
+    with pytest.raises(EvidenceError) as record_error:
+        store.record_cleanup_result(
+            timestamp=_TIME,
+            cleanup_confirmed=True,
+            preserved=True,
+        )
+    assert record_error.value.code == "DEV_EVIDENCE_CLEANUP_INVALID"
+
+
+def test_evidence_log_cursor_reset_after_rotation_is_reported_as_truncated(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    log_path = store.environment.log_file
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_bytes(b"before session\n")
+    store.capture_log_boundary()
+    with log_path.open("ab") as handle:
+        handle.write(b"old worker first\nold worker second\n")
+
+    first = store.logs_page(limit=1)
+    cursor = first["next_cursor"]
+    assert isinstance(cursor, str)
+
+    replacement = log_path.with_name("rotated-cursor.txt")
+    replacement.write_bytes(b"new worker startup\n")
+    replacement.replace(log_path)
+
+    page = store.logs_page(cursor=cursor, limit=10, active_owned=True)
+    assert [item["text"] for item in page["items"]] == ["new worker startup"]
+    assert page["truncated"] is True
+
+
+def test_evidence_rejects_non_adjacent_reused_log_identity(tmp_path: Path) -> None:
+    first = evidence_module._FileIdentity(device=1, inode=10, mtime_ns=1)
+    second = evidence_module._FileIdentity(device=1, inode=11, mtime_ns=2)
+    metadata = {
+        "source": "log/2026-08-30_ap.txt",
+        "available": True,
+        "boundary_offset": 0,
+        "boundary_identity": first.as_dict(),
+        "end_offset": None,
+        "end_identity": None,
+        "truncated": False,
+        "segments": [
+            {"identity": identity.as_dict(), "boundary_offset": 0, "end_offset": None}
+            for identity in (first, second, first)
+        ],
+    }
+
+    with pytest.raises(EvidenceCorrupt, match="inode"):
+        evidence_module._validate_log_metadata(metadata)
+
+
+def test_evidence_rejects_terminal_boundary_for_multiple_log_segments() -> None:
+    first = evidence_module._FileIdentity(device=1, inode=10, mtime_ns=1)
+    second = evidence_module._FileIdentity(device=1, inode=11, mtime_ns=2)
+    metadata = {
+        "source": "log/2026-08-30_ap.txt",
+        "available": True,
+        "boundary_offset": 0,
+        "boundary_identity": first.as_dict(),
+        "end_offset": 0,
+        "end_identity": second.as_dict(),
+        "truncated": True,
+        "segments": [
+            {"identity": first.as_dict(), "boundary_offset": 0, "end_offset": 0},
+            {"identity": second.as_dict(), "boundary_offset": 0, "end_offset": None},
+        ],
+    }
+
+    with pytest.raises(EvidenceCorrupt, match="общую конечную границу"):
+        evidence_module._validate_log_metadata(metadata)
+
+
+def test_evidence_rejects_single_segment_with_foreign_terminal_identity() -> None:
+    first = evidence_module._FileIdentity(device=1, inode=10, mtime_ns=1)
+    foreign = evidence_module._FileIdentity(device=1, inode=11, mtime_ns=2)
+    metadata = {
+        "source": "log/2026-08-30_ap.txt",
+        "available": True,
+        "boundary_offset": 0,
+        "boundary_identity": first.as_dict(),
+        "end_offset": 4,
+        "end_identity": foreign.as_dict(),
+        "truncated": False,
+        "segments": [
+            {"identity": first.as_dict(), "boundary_offset": 0, "end_offset": 4}
+        ],
+    }
+
+    with pytest.raises(EvidenceCorrupt, match="другому файлу"):
+        evidence_module._validate_log_metadata(metadata)
 
 
 def test_evidence_logs_respect_hard_page_byte_bound(tmp_path: Path) -> None:
@@ -829,6 +1066,108 @@ def test_hooks_are_noop_without_active_dev_session(monkeypatch) -> None:
         timestamp=_TIME,
     )
     hooks.serve_pending_screenshot(np.zeros((1, 1), dtype=np.uint8))
+
+
+def test_runtime_error_hook_does_not_create_missing_runtime_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from module.dev_runtime import hooks
+
+    (tmp_path / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
+    (tmp_path / "module").mkdir()
+    monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(tmp_path))
+    monkeypatch.delenv("AZURPILOT_DEV_SESSION_ID", raising=False)
+
+    hooks.record_runtime_error("ap", RuntimeError("ошибка worker"), phase="task")
+
+    assert not (tmp_path / "config" / "state" / "webui-runtime-state.json").exists()
+
+
+def test_runtime_error_hook_preserves_active_handover_coordination(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from module.application.runtime_state import RuntimePhase, RuntimeStateStore
+    from module.dev_runtime import hooks
+
+    (tmp_path / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
+    (tmp_path / "module").mkdir()
+    store = RuntimeStateStore(tmp_path)
+    store.mark_worker_started(
+        "ap",
+        worker_pid=1001,
+        worker_created_at=2001.0,
+        operation_id="start-1",
+    )
+    store.request_handover("ap", operation_id="handover-1", session_id="session-1")
+    store.request_quiesce("ap", operation_id="handover-1", session_id="session-1")
+    store.mark_draining("ap", operation_id="handover-1", session_id="session-1")
+    monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(tmp_path))
+    monkeypatch.setenv("AZURPILOT_DEV_SESSION_ID", "session-1")
+    monkeypatch.setenv("AZURPILOT_RUNTIME_OPERATION_ID", "handover-1")
+
+    hooks.record_runtime_error("ap", RuntimeError("ошибка worker"), phase="task")
+
+    snapshot = store.read("ap")
+    assert snapshot.phase is RuntimePhase.FAILED
+    assert snapshot.terminal_state == "runtime_error"
+    assert snapshot.handover_requested is True
+    assert snapshot.draining is True
+    assert snapshot.stop_requested is True
+    assert snapshot.operation_id == "handover-1"
+    assert snapshot.session_id == "session-1"
+
+
+def test_finished_hook_writes_evidence_even_when_state_boundary_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from module.dev_runtime import hooks
+
+    recorded: list[tuple[object, object, object]] = []
+    monkeypatch.setenv("AZURPILOT_DEV_SESSION_ID", "session-1")
+    monkeypatch.setattr(
+        hooks,
+        "_record_runtime_state",
+        lambda *_args, **_kwargs: False,
+    )
+    monkeypatch.setattr(
+        evidence_module,
+        "record_task_finished",
+        lambda config_name, task, outcome: recorded.append(
+            (config_name, task, outcome)
+        ),
+    )
+
+    assert hooks.record_task_finished("ap", "RootTask") is False
+    assert recorded == [("ap", "RootTask", "returned")]
+
+    assert hooks.record_task_finished("ap", "RootTask", outcome="cancelled") is False
+    assert recorded[-1] == ("ap", "RootTask", "cancelled")
+
+
+def test_hooks_repository_root_does_not_depend_on_process_cwd(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from module.dev_runtime import hooks
+
+    expected_root = Path(__file__).resolve().parents[1]
+    monkeypatch.delenv("AZURPILOT_REPOSITORY_ROOT", raising=False)
+    monkeypatch.chdir(tmp_path)
+    assert hooks._repository_root() == expected_root
+
+    configured_root = tmp_path / "configured-root"
+    configured_root.mkdir()
+    (configured_root / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
+    (configured_root / "module").mkdir()
+    monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(configured_root))
+    assert hooks._repository_root() == configured_root.resolve()
+
+    invalid_root = tmp_path / "invalid-root"
+    invalid_root.mkdir()
+    monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(invalid_root))
+    assert hooks._repository_root() == expected_root
 
 
 def test_old_session_without_evidence_is_reported_as_unavailable(tmp_path: Path) -> None:

@@ -551,6 +551,20 @@ _REQUEST_CONTEXT_OUTPUT = {
     "additionalProperties": False,
 }
 _DETAILS_COMMON_OUTPUT = {"tool": {"type": "string", "maxLength": 128}}
+_FAILURE_CAUSE_OUTPUT = {
+    "type": "object",
+    "properties": {
+        "code": {"type": "string", "maxLength": 128},
+        "message": {"type": "string", "maxLength": 4096},
+        "details": {
+            "type": "object",
+            "maxProperties": 32,
+            "additionalProperties": _JSON_VALUE,
+        },
+    },
+    "required": ["code", "message", "details"],
+    "additionalProperties": False,
+}
 _PROFILE_DETAILS_OUTPUT = {
     "profile": {"type": "string", "minLength": 1, "maxLength": MAX_NAME_LENGTH},
 }
@@ -606,12 +620,24 @@ _COMMON_OUTPUT_PROPERTIES = {
 }
 
 
-def _output_schema(details: dict[str, Any]) -> dict[str, Any]:
+def _output_schema(
+    details: dict[str, Any],
+    *,
+    include_failure_cause: bool = False,
+) -> dict[str, Any]:
+    common_details = dict(_DETAILS_COMMON_OUTPUT)
+    if include_failure_cause:
+        common_details["cause"] = _FAILURE_CAUSE_OUTPUT
     return {
         "type": "object",
         "properties": {
             **_COMMON_OUTPUT_PROPERTIES,
-            "details": _details_output(details),
+            "details": {
+                "type": "object",
+                "properties": {**common_details, **details},
+                "maxProperties": 32,
+                "additionalProperties": False,
+            },
         },
         "required": ["ok", "code", "message", "state", "details"],
         "additionalProperties": False,
@@ -726,7 +752,8 @@ _OUTPUT_SCHEMAS = {
                 "type": "string",
                 "enum": ["started", "already_running"],
             },
-        }
+        },
+        include_failure_cause=True,
     ),
     "game_stop_profile": _output_schema(
         {
@@ -735,7 +762,8 @@ _OUTPUT_SCHEMAS = {
                 "type": "string",
                 "enum": ["stopped", "already_stopped"],
             },
-        }
+        },
+        include_failure_cause=True,
     ),
     "game_trigger_task": _output_schema(
         {
@@ -743,7 +771,8 @@ _OUTPUT_SCHEMAS = {
             "task": {"type": "string", "maxLength": MAX_NAME_LENGTH},
             "scheduled_at": {"type": "string", "maxLength": 128},
             "verified": {"type": "boolean", "const": True},
-        }
+        },
+        include_failure_cause=True,
     ),
     "game_clear_scheduler_queue": _output_schema(
         {
@@ -755,7 +784,8 @@ _OUTPUT_SCHEMAS = {
             },
             "cleared_count": {"type": "integer", "minimum": 0, "maximum": 512},
             "verified": {"type": "boolean", "const": True},
-        }
+        },
+        include_failure_cause=True,
     ),
     "game_update_config": _output_schema(
         {
@@ -764,13 +794,15 @@ _OUTPUT_SCHEMAS = {
             "group": {"type": "string", "maxLength": MAX_NAME_LENGTH},
             "argument": {"type": "string", "maxLength": MAX_NAME_LENGTH},
             "verified": {"type": "boolean", "const": True},
-        }
+        },
+        include_failure_cause=True,
     ),
     "game_restart_emulator": _output_schema(
         {
             **_PROFILE_DETAILS_OUTPUT,
             "verified": {"type": "boolean", "const": True},
-        }
+        },
+        include_failure_cause=True,
     ),
     "game_restart_runtime": _output_schema(
         {
@@ -784,7 +816,8 @@ _OUTPUT_SCHEMAS = {
                 "type": "string",
                 "enum": ["emulator_restart", "game_start"],
             },
-        }
+        },
+        include_failure_cause=True,
     ),
     "game_login_runtime": _output_schema(
         {
@@ -796,13 +829,15 @@ _OUTPUT_SCHEMAS = {
             "logged_in": {"type": "boolean", "const": True},
             "main": {"type": "boolean", "const": True},
             "phase": {"type": "string", "enum": ["login"]},
-        }
+        },
+        include_failure_cause=True,
     ),
     "game_restart_adb": _output_schema(
         {
             **_PROFILE_DETAILS_OUTPUT,
             "verified": {"type": "boolean", "const": True},
-        }
+        },
+        include_failure_cause=True,
     ),
 }
 _READ_ONLY = ToolAnnotations(

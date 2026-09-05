@@ -48,15 +48,19 @@ class GameMcpBackend:
         persistence_factory: Callable[[GameMcpEnvironment], object] | None = None,
         repository_root: Path | None = None,
     ) -> None:
+        resolved_repository_root = (repository_root or _REPOSITORY_ROOT).resolve()
         if instance_reader is None:
             instance_reader = LegacyInstanceRuntimeAdapter()
         if task_catalog is None:
             task_catalog = GeneratedTaskCatalogAdapter.from_generated_sources()
         if config_reader is None:
-            config_reader = LegacyConfigAdapter(task_catalog)  # type: ignore[arg-type]
+            config_reader = LegacyConfigAdapter(
+                task_catalog,
+                repository_root=resolved_repository_root,
+            )  # type: ignore[arg-type]
         if log_reader is None:
             log_reader = LegacyRuntimeLogAdapter(
-                (repository_root or _REPOSITORY_ROOT) / "log"
+                resolved_repository_root / "log"
             )
         if screenshot_reader is None:
             screenshot_reader = LegacyScreenshotAdapter()
@@ -77,7 +81,7 @@ class GameMcpBackend:
         self._morale = morale_reader
         self._control: object | None = None
         self._persistence_factory = persistence_factory or _default_persistence
-        self._repository_root = (repository_root or _REPOSITORY_ROOT).resolve()
+        self._repository_root = resolved_repository_root
         self._persistence: object | None = None
         self._closed = False
         self._service_lock = Lock()
@@ -128,7 +132,9 @@ class GameMcpBackend:
                     config_schema=self._task_catalog,  # type: ignore[arg-type]
                     config_writer=self._config_reader,  # type: ignore[arg-type]
                     scheduler_tasks=self._task_catalog,  # type: ignore[arg-type]
-                    lifecycle=LegacyProcessManagerAdapter(),
+                    lifecycle=LegacyProcessManagerAdapter(
+                        repository_root=self._repository_root,
+                    ),
                     emulator=LegacyEmulatorAdapter(typed_failures=True),
                     adb=LegacyAdbAdapter(typed_failures=True),
                     application=LegacyGameApplicationAdapter(),

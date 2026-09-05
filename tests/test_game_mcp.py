@@ -72,6 +72,11 @@ from module.application.errors import GameRuntimePhaseError
 from module.application.game_control_lock import profile_mutation_lock
 from module.application.game_validation import UNKNOWN_TASK
 from module.application.instance_identity import runtime_instance_identity
+from module.application.legacy_game_adapters import LegacyProcessManagerAdapter
+from module.application.runtime_control import (
+    RuntimeControlOperation,
+    RuntimeControlResult,
+)
 from module.application.storage_models import InstanceIdentity
 from module.formation.model import (
     FleetSelection,
@@ -546,9 +551,10 @@ def test_output_schemas_are_scoped_to_their_tool_details() -> None:
         "game_get_config": {"config", "profile", "task", "tool"},
         "game_get_recent_logs": {"lines", "profile", "tool", "truncated"},
         "game_get_screenshot": {"profile", "screenshot", "tool"},
-        "game_start_profile": {"outcome", "profile", "tool"},
-        "game_stop_profile": {"outcome", "profile", "tool"},
+        "game_start_profile": {"cause", "outcome", "profile", "tool"},
+        "game_stop_profile": {"cause", "outcome", "profile", "tool"},
         "game_trigger_task": {
+            "cause",
             "profile",
             "scheduled_at",
             "task",
@@ -556,6 +562,7 @@ def test_output_schemas_are_scoped_to_their_tool_details() -> None:
             "verified",
         },
         "game_clear_scheduler_queue": {
+            "cause",
             "cleared_count",
             "cleared_tasks",
             "profile",
@@ -564,15 +571,17 @@ def test_output_schemas_are_scoped_to_their_tool_details() -> None:
         },
         "game_update_config": {
             "argument",
+            "cause",
             "group",
             "profile",
             "task",
             "tool",
             "verified",
         },
-        "game_restart_emulator": {"profile", "tool", "verified"},
+        "game_restart_emulator": {"cause", "profile", "tool", "verified"},
         "game_restart_runtime": {
             "adb_ready",
+            "cause",
             "emulator_verified",
             "game_foreground",
             "game_running",
@@ -583,6 +592,7 @@ def test_output_schemas_are_scoped_to_their_tool_details() -> None:
         },
         "game_login_runtime": {
             "adb_ready",
+            "cause",
             "game_foreground",
             "game_running",
             "logged_in",
@@ -592,7 +602,7 @@ def test_output_schemas_are_scoped_to_their_tool_details() -> None:
             "tool",
             "verified",
         },
-        "game_restart_adb": {"profile", "tool", "verified"},
+        "game_restart_adb": {"cause", "profile", "tool", "verified"},
     }
     actual = {
         tool.name: set(tool.output_schema["properties"]["details"]["properties"])
@@ -773,6 +783,51 @@ def test_adapter_hides_backend_factory_failures() -> None:
     assert result["code"] == "GAME_SERVICE_UNAVAILABLE"
     assert result["details"] == {"tool": "game_list_profiles"}
     assert "private backend path" not in json.dumps(result, ensure_ascii=False)
+
+
+def test_game_control_result_preserves_runtime_state_cause() -> None:
+    backend = _backend()
+
+    class FailingControl:
+        def start_instance(self, profile: str) -> LifecycleResult:
+            result = RuntimeControlResult(
+                ok=False,
+                code="RUNTIME_CONTROL_EXPIRED",
+                message="Срок действия runtime control request истёк после выполнения operation",
+                operation=RuntimeControlOperation.START_PROFILE,
+                profile=profile,
+                request_id="request-game-cause",
+                idempotency_key="key-game-cause",
+                details={
+                    "cause": {
+                        "code": "RUNTIME_STATE_SCHEMA_MISMATCH",
+                        "message": "Runtime state сохранён в несовместимой schema version",
+                    }
+                },
+            )
+            LegacyProcessManagerAdapter._raise_for_result(result, operation="запуска")
+            raise AssertionError("control result должен завершить операцию ошибкой")
+
+        def stop_instance(self, profile: str) -> LifecycleResult:
+            raise AssertionError("stop не должен вызываться")
+
+    backend.control = FailingControl()
+    result = GameMcpAdapter(lambda: backend).call(
+        "game_start_profile",
+        {"profile": "alpha"},
+    )
+
+    assert result["code"] == "GAME_PRECONDITION_FAILED"
+    assert result["details"]["cause"] == {
+        "code": "RUNTIME_CONTROL_EXPIRED",
+        "message": "Срок действия runtime control request истёк после выполнения operation",
+        "details": {
+            "cause": {
+                "code": "RUNTIME_STATE_SCHEMA_MISMATCH",
+                "message": "Runtime state сохранён в несовместимой schema version",
+            }
+        },
+    }
 
 
 def test_control_scope_is_checked_before_backend_factory_and_arguments() -> None:
@@ -1030,7 +1085,8 @@ def test_adapter_does_not_hold_lifecycle_lock_during_dispatch() -> None:
     finally:
         release.set()
         first_thread.join(timeout=5)
-        second_thread.join(timeout=5)
+        if second_thread.ident is not None:
+            second_thread.join(timeout=5)
 
     assert not first_thread.is_alive()
     assert not second_thread.is_alive()
@@ -1138,6 +1194,30 @@ def test_independent_adapters_share_mutation_lock_for_one_profile(
     assert not second_thread.is_alive()
     assert len(results) == 2
     assert all(result["code"] == "GAME_PROFILE_STARTED" for result in results)
+
+
+def test_adapter_does_not_hold_lock_while_external_lifecycle_owner_runs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    backend = _backend()
+
+    class _ExternalControl(_Control):
+        lifecycle_mutation_lock_owned_externally = True
+
+    backend.control = _ExternalControl()
+
+    def fail_lock(*args: object, **kwargs: object) -> object:
+        raise AssertionError("внешний lifecycle owner не должен ждать profile lock")
+
+    monkeypatch.setattr(game_mcp_adapter, "profile_mutation_lock", fail_lock)
+
+    result = GameMcpAdapter(
+        lambda: backend,
+        mutation_lock_root=tmp_path,
+    ).call("game_start_profile", {"profile": "alpha"})
+
+    assert result["code"] == "GAME_PROFILE_STARTED"
 
 
 def test_adapter_returns_busy_when_mutation_lock_times_out(
@@ -1280,11 +1360,13 @@ def test_server_cancellation_while_waiting_for_lock_does_not_retry(
     asyncio.run(scenario())
 
 
-def test_adapter_allows_mutations_for_different_profiles_in_parallel(
+def test_adapter_serializes_mutations_for_different_profiles(
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     backend = _backend()
-    both_entered = Event()
+    first_entered = Event()
+    second_requested = Event()
     release = Event()
     state_lock = Lock()
     active_count = 0
@@ -1296,8 +1378,7 @@ def test_adapter_allows_mutations_for_different_profiles_in_parallel(
             with state_lock:
                 active_count += 1
                 max_active = max(max_active, active_count)
-                if active_count == 2:
-                    both_entered.set()
+                first_entered.set()
             release.wait(5)
             with state_lock:
                 active_count -= 1
@@ -1307,26 +1388,40 @@ def test_adapter_allows_mutations_for_different_profiles_in_parallel(
     adapter = GameMcpAdapter(lambda: backend, mutation_lock_root=tmp_path)
     results: list[dict[str, object]] = []
 
+    original_lock = game_mcp_adapter.profile_mutation_lock
+
+    def observed_lock(profile: str, **kwargs: object):
+        if profile == "beta":
+            second_requested.set()
+        return original_lock(profile, **kwargs)
+
+    monkeypatch.setattr(game_mcp_adapter, "profile_mutation_lock", observed_lock)
+
     def call_start(profile: str) -> None:
         results.append(adapter.call("game_start_profile", {"profile": profile}))
 
-    threads = [
-        Thread(target=call_start, args=("alpha",)),
-        Thread(target=call_start, args=("beta",)),
-    ]
-    for thread in threads:
-        thread.start()
+    first_thread = Thread(target=call_start, args=("alpha",))
+    second_thread = Thread(target=call_start, args=("beta",))
+    first_thread.start()
     try:
-        assert both_entered.wait(5)
+        assert first_entered.wait(5)
+        second_thread.start()
+        assert second_requested.wait(5)
+        with state_lock:
+            assert active_count == 1
     finally:
         release.set()
-        for thread in threads:
-            thread.join(timeout=5)
+        first_thread.join(timeout=5)
+        second_thread.join(timeout=5)
 
+    threads = [
+        first_thread,
+        second_thread,
+    ]
     assert all(not thread.is_alive() for thread in threads)
     assert len(results) == 2
     assert all(result["code"] == "GAME_PROFILE_STARTED" for result in results)
-    assert max_active == 2
+    assert max_active == 1
 
 
 def test_adapter_rejects_bad_selectors_unknown_profiles_and_unknown_tasks() -> None:

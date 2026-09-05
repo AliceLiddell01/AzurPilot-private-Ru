@@ -8,6 +8,7 @@ from module.dev_runtime import (
     DevResult,
     DevSession,
     DevSessionManager,
+    DevRuntimeMode,
     DevSessionState,
     DevStatusKind,
     DevTarget,
@@ -70,6 +71,7 @@ def test_failed_session_rechecks_orphan_under_start_lock(tmp_path: Path) -> None
     manager = DevSessionManager(
         environment,
         process_backend=backend,
+        shared_webui=False,
         session_id_factory=lambda: "must-not-start",
         now=lambda: datetime(2026, 8, 29, tzinfo=timezone.utc),
     )
@@ -87,6 +89,7 @@ def test_failed_session_rechecks_orphan_under_start_lock(tmp_path: Path) -> None
             created_at="2026-08-29T00:00:00+00:00",
             updated_at="2026-08-29T00:00:00+00:00",
             process=None,
+            runtime_mode=DevRuntimeMode.STANDALONE_PROCESS,
         )
     )
 

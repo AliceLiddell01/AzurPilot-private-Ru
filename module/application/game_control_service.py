@@ -94,7 +94,10 @@ def _profile_mutation[**ControlParameters, ControlReturn](
     ) -> ControlReturn:
         value = args[0] if args else kwargs.get("request", kwargs.get("instance"))
         profile = _control_profile(value)
-        if profile is None:
+        if profile is None or (
+            method.__name__ in {"start_instance", "stop_instance"}
+            and self.lifecycle_mutation_lock_owned_externally
+        ):
             return method(self, *args, **kwargs)
         with profile_mutation_lock(
             profile,
@@ -142,6 +145,10 @@ class GameControlService:
         self._config_writer = config_writer
         self._scheduler_tasks = scheduler_tasks
         self._lifecycle = lifecycle
+        self._lifecycle_mutation_lock_owned_externally = (
+            getattr(lifecycle, "lifecycle_mutation_lock_owned_externally", False)
+            is True
+        )
         self._emulator = emulator
         self._adb = adb
         self._application = application
@@ -180,6 +187,12 @@ class GameControlService:
         self._game_login_timeout_seconds = game_login_timeout_seconds
         self._monotonic = monotonic_clock or monotonic
         self._sleep = sleep_fn or sleep
+
+    @property
+    def lifecycle_mutation_lock_owned_externally(self) -> bool:
+        """Вернуть, владеет ли внешний lifecycle owner profile mutation lock."""
+
+        return self._lifecycle_mutation_lock_owned_externally
 
     @_profile_mutation
     def update_config(self, request: ConfigUpdateRequest) -> ConfigUpdateResult:

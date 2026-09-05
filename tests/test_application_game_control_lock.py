@@ -2,14 +2,22 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 
 import pytest
 
+from module.application import host_lock
+from module.application import resource_lease
 from module.application.errors import ResourceBusyError
 from module.application.game_control_lock import (
     profile_mutation_lock,
     profile_mutation_lock_path,
+)
+from module.application.resource_lease import (
+    ResourceLeaseError,
+    game_runtime_lease,
+    game_runtime_lease_path,
 )
 
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -30,6 +38,29 @@ def _lock_holder(path: Path, *, crash: bool = False) -> subprocess.Popen[str]:
     )
     return subprocess.Popen(
         [sys.executable, "-c", script, str(path)],
+        cwd=str(_REPOSITORY_ROOT),
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+
+def _lease_holder(runtime_root: Path) -> subprocess.Popen[str]:
+    script = "\n".join(
+        (
+            "import sys",
+            "from pathlib import Path",
+            "from module.application import host_lock",
+            "from module.application.resource_lease import game_runtime_lease",
+            "host_lock.host_runtime_root = lambda: Path(sys.argv[1])",
+            "with game_runtime_lease(Path(sys.argv[1]), timeout=5):",
+            "    print('ready', flush=True)",
+            "    sys.stdin.read(1)",
+        )
+    )
+    return subprocess.Popen(
+        [sys.executable, "-c", script, str(runtime_root)],
         cwd=str(_REPOSITORY_ROOT),
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
@@ -96,3 +127,122 @@ def test_profile_mutation_lock_path_is_stable_and_rejects_empty_profile(
     )
     with pytest.raises(ValueError):
         profile_mutation_lock_path("", repository_root=tmp_path)
+
+
+def test_profile_mutation_lock_serializes_checkouts_for_one_adb_endpoint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    port = 40000 + (uuid.uuid4().int % 10000)
+    monkeypatch.setenv("ADB_SERVER_SOCKET", f"tcp:127.0.0.1:{port}")
+    runtime_root = tmp_path / "host-runtime"
+    monkeypatch.setattr(host_lock, "host_runtime_root", lambda: runtime_root)
+    holder = _lease_holder(runtime_root)
+    try:
+        assert holder.stdout is not None
+        assert holder.stdout.readline().strip() == "ready"
+        with pytest.raises(ResourceBusyError), profile_mutation_lock(
+            "alpha", repository_root=tmp_path, timeout=0.1
+        ):
+            pass
+        assert holder.poll() is None
+    finally:
+        if holder.poll() is None:
+            assert holder.stdin is not None
+            holder.stdin.write("release")
+            holder.stdin.flush()
+        holder.wait(timeout=5)
+
+
+def test_game_runtime_lease_does_not_serialize_different_adb_endpoints(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first_port = 40000 + (uuid.uuid4().int % 10000)
+    second_port = 40000 + (uuid.uuid4().int % 10000)
+    if second_port == first_port:
+        second_port = 50000
+
+    runtime_root = tmp_path / "host-runtime"
+    monkeypatch.setattr(host_lock, "host_runtime_root", lambda: runtime_root)
+    monkeypatch.setenv("ADB_SERVER_SOCKET", f"tcp:127.0.0.1:{first_port}")
+    first_path = game_runtime_lease_path(tmp_path)
+    with game_runtime_lease(tmp_path, timeout=0.1):
+        monkeypatch.setenv("ADB_SERVER_SOCKET", f"tcp:127.0.0.1:{second_port}")
+        assert game_runtime_lease_path(tmp_path) != first_path
+        with game_runtime_lease(tmp_path, timeout=0.1):
+            pass
+
+
+def test_game_runtime_lease_cleanup_error_does_not_mask_body_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    port = 40000 + (uuid.uuid4().int % 10000)
+    runtime_root = tmp_path / "host-runtime"
+    monkeypatch.setattr(host_lock, "host_runtime_root", lambda: runtime_root)
+    monkeypatch.setenv("ADB_SERVER_SOCKET", f"tcp:127.0.0.1:{port}")
+    lease_path = game_runtime_lease_path(tmp_path)
+    marker_path = lease_path.with_name(f"{lease_path.stem}.owner.json")
+    original_remove = resource_lease.atomic_remove
+
+    def fail_remove(_path: Path) -> None:
+        raise OSError("synthetic cleanup failure")
+
+    monkeypatch.setattr(resource_lease, "atomic_remove", fail_remove)
+    try:
+        with pytest.raises(ValueError, match="body failure"), game_runtime_lease(
+            tmp_path, timeout=0.1
+        ):
+            raise ValueError("body failure")
+    finally:
+        if marker_path.exists():
+            original_remove(marker_path)
+
+
+def test_game_runtime_lease_recovers_after_own_marker_cleanup_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    port = 40000 + (uuid.uuid4().int % 10000)
+    runtime_root = tmp_path / "host-runtime"
+    monkeypatch.setattr(host_lock, "host_runtime_root", lambda: runtime_root)
+    monkeypatch.setenv("ADB_SERVER_SOCKET", f"tcp:127.0.0.1:{port}")
+    lease_path = game_runtime_lease_path(tmp_path)
+    marker_path = lease_path.with_name(f"{lease_path.stem}.owner.json")
+    original_remove = resource_lease.atomic_remove
+    remaining_failures = 1
+
+    def fail_once(path: Path) -> None:
+        nonlocal remaining_failures
+        if remaining_failures:
+            remaining_failures -= 1
+            raise OSError("synthetic cleanup failure")
+        original_remove(path)
+
+    monkeypatch.setattr(resource_lease, "atomic_remove", fail_once)
+
+    with pytest.raises(ResourceLeaseError):
+        with game_runtime_lease(tmp_path, timeout=0.1):
+            pass
+    assert marker_path.exists()
+
+    with game_runtime_lease(tmp_path, timeout=0.1):
+        pass
+    assert not marker_path.exists()
+
+
+def test_game_runtime_lease_does_not_probe_pid_without_process_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    kill_calls: list[tuple[object, ...]] = []
+
+    monkeypatch.setattr(resource_lease, "_process_created_at", lambda _pid: None)
+    monkeypatch.setattr(
+        resource_lease.os,
+        "kill",
+        lambda *args: kill_calls.append(args),
+    )
+
+    assert resource_lease._marker_is_active((12345, 1.0)) is None
+    assert kill_calls == []

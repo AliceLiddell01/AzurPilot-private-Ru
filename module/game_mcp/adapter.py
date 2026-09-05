@@ -8,7 +8,7 @@ import logging
 import math
 import re
 from collections.abc import Callable, Collection, Mapping, Sequence
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -365,6 +365,32 @@ def _invalid(tool: str) -> dict[str, object]:
         "Аргументы Game MCP не прошли строгую проверку",
         tool=tool,
     )
+
+
+def _operation_failure_details(error: OperationFailedError) -> dict[str, object]:
+    """Вернуть bounded typed cause от application/runtime control boundary."""
+
+    code = getattr(error, "runtime_code", None)
+    message = getattr(error, "runtime_message", None)
+    if (
+        not isinstance(code, str)
+        or not re.fullmatch(r"[A-Z][A-Z0-9_]{1,96}", code)
+        or not isinstance(message, str)
+    ):
+        return {}
+    try:
+        details = _safe_value(getattr(error, "runtime_details", {}))
+    except (TypeError, ValueError, _ResultLimitExceeded):
+        details = {}
+    if not isinstance(details, dict):
+        details = {}
+    return {
+        "cause": {
+            "code": code,
+            "message": _safe_text(message),
+            "details": details,
+        }
+    }
 
 
 def _unknown_tool(tool: object) -> dict[str, object]:
@@ -1345,7 +1371,19 @@ class GameMcpAdapter:
         self,
         profile: str,
         backend: object,
+        *,
+        tool: str,
     ) -> AbstractContextManager[None]:
+        if tool in {"game_start_profile", "game_stop_profile"}:
+            control = _control_service(backend)
+            if (
+                getattr(control, "lifecycle_mutation_lock_owned_externally", False)
+                is True
+            ):
+                # Lifecycle mutation передаётся общему WebUI owner.
+                # Удержание того же межпроцессного lease во время ожидания
+                # owner привело бы к взаимной блокировке handover.
+                return nullcontext()
         root = getattr(backend, "mutation_lock_root", None)
         if root is None:
             root = self._mutation_lock_root
@@ -1656,7 +1694,11 @@ class GameMcpAdapter:
                 if tool_name in GAME_MCP_CONTROL_TOOL_NAMES:
                     profile = self._profile_from(parsed)
                     self._known_profile(backend, profile)
-                    with self._acquire_mutation_lock(profile, backend):
+                    with self._acquire_mutation_lock(
+                        profile,
+                        backend,
+                        tool=tool_name,
+                    ):
                         # Повторная проверка после lock закрывает TOCTOU-окно.
                         result = self._dispatch(
                             tool_name,
@@ -1695,35 +1737,40 @@ class GameMcpAdapter:
                 return _error(
                     "GAME_UNKNOWN_PROFILE", "Профиль не найден.", tool=tool_name
                 )
-            except PostconditionFailedError:
+            except PostconditionFailedError as error:
                 return _error(
                     "GAME_POSTCONDITION_FAILED",
                     "Изменение не подтверждено ожидаемым состоянием.",
                     tool=tool_name,
+                    details=_operation_failure_details(error),
                 )
-            except ResourceBusyError:
+            except ResourceBusyError as error:
                 return _error(
                     "GAME_RESOURCE_BUSY",
                     "Профиль занят другой control-операцией.",
                     tool=tool_name,
+                    details=_operation_failure_details(error),
                 )
-            except OwnershipAmbiguousError:
+            except OwnershipAmbiguousError as error:
                 return _error(
                     "GAME_OWNERSHIP_AMBIGUOUS",
                     "Ownership целевого Game ресурса не подтвержден.",
                     tool=tool_name,
+                    details=_operation_failure_details(error),
                 )
-            except PreconditionFailedError:
+            except PreconditionFailedError as error:
                 return _error(
                     "GAME_PRECONDITION_FAILED",
                     "Безопасное условие Game операции не выполнено.",
                     tool=tool_name,
+                    details=_operation_failure_details(error),
                 )
-            except OperationFailedError:
+            except OperationFailedError as error:
                 return _error(
                     "GAME_OPERATION_FAILED",
                     "Операция Game MCP не подтверждена.",
                     tool=tool_name,
+                    details=_operation_failure_details(error),
                 )
             except (
                 StorageConfigurationError,

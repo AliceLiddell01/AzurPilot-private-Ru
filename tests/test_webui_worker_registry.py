@@ -164,6 +164,94 @@ class TestWorkerRegistry(unittest.TestCase):
                     json.loads(registry_file.read_text(encoding="utf-8")),
                 )
 
+    def test_unregister_worker_requires_expected_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            registry_file = Path(directory) / "workers.json"
+            with patch.object(worker_registry, "WORKER_REGISTRY_FILE", registry_file):
+                with patch.object(worker_registry, "_process_created_at", return_value=10.5):
+                    worker_registry.claim_owner(100)
+                    worker_registry.register_worker(100, "alas", 200)
+
+                self.assertFalse(
+                    worker_registry.unregister_worker(
+                        100,
+                        "alas",
+                        expected_worker=None,
+                    )
+                )
+                self.assertEqual(
+                    {"alas": {"created_at": 10.5, "pid": 200}},
+                    worker_registry.get_workers(100),
+                )
+
+    def test_owner_claim_does_not_overwrite_live_or_unknown_orphan_worker(self):
+        with tempfile.TemporaryDirectory() as directory:
+            registry_file = Path(directory) / "workers.json"
+            registry_file.write_text(
+                json.dumps(
+                    {
+                        "owner_created_at": None,
+                        "owner_pid": None,
+                        "workers": {"alas": {"created_at": 11.5, "pid": 200}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with (
+                patch.object(worker_registry, "WORKER_REGISTRY_FILE", registry_file),
+                patch.object(worker_registry, "_process_created_at", return_value=10.5),
+            ):
+                registry_before = registry_file.read_bytes()
+                with (
+                    patch.object(worker_registry, "process_matches", return_value=True),
+                    self.assertRaises(worker_registry.WorkerRegistryOwnershipError),
+                ):
+                    worker_registry.claim_owner(100)
+                self.assertEqual(registry_before, registry_file.read_bytes())
+                self.assertEqual(
+                    "alas",
+                    next(iter(json.loads(registry_file.read_text(encoding="utf-8"))["workers"])),
+                )
+
+                registry_before = registry_file.read_bytes()
+                with (
+                    patch.object(
+                        worker_registry,
+                        "process_matches",
+                        side_effect=RuntimeError("identity unavailable"),
+                    ),
+                    self.assertRaisesRegex(
+                        worker_registry.WorkerRegistryOwnershipError,
+                        "Нельзя подтвердить состояние orphan worker",
+                    ),
+                ):
+                    worker_registry.claim_owner(100)
+                self.assertEqual(registry_before, registry_file.read_bytes())
+
+    def test_owner_claim_can_replace_dead_orphan_worker_without_created_at(self):
+        with tempfile.TemporaryDirectory() as directory:
+            registry_file = Path(directory) / "workers.json"
+            registry_file.write_text(
+                json.dumps(
+                    {
+                        "owner_created_at": None,
+                        "owner_pid": None,
+                        "workers": {"alas": {"pid": 200}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with (
+                patch.object(worker_registry, "WORKER_REGISTRY_FILE", registry_file),
+                patch.object(worker_registry, "_process_created_at", return_value=10.5),
+                patch.object(worker_registry, "_pid_exists", return_value=False),
+            ):
+                worker_registry.claim_owner(100)
+                self.assertEqual(100, worker_registry.get_owner())
+                self.assertEqual({}, worker_registry.get_workers(100))
+
     def test_read_only_worker_snapshot_does_not_migrate_or_create_lock(self):
         with tempfile.TemporaryDirectory() as directory:
             current_file = Path(directory) / "cache" / "webui-workers.json"
@@ -179,7 +267,6 @@ class TestWorkerRegistry(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-
             legacy_before = legacy_file.read_bytes()
 
             with (
@@ -211,6 +298,42 @@ class TestWorkerRegistry(unittest.TestCase):
             )
             self.assertFalse(
                 worker_registry._registry_lock_file(current_file).exists()
+            )
+
+    def test_read_only_owner_snapshot_does_not_migrate_or_create_lock(self):
+        with tempfile.TemporaryDirectory() as directory:
+            current_file = Path(directory) / "cache" / "webui-workers.json"
+            legacy_file = Path(directory) / "config" / "webui-workers.json"
+            legacy_file.parent.mkdir(parents=True)
+            legacy_file.write_text(
+                json.dumps(
+                    {
+                        "owner_created_at": 10.5,
+                        "owner_pid": 100,
+                        "workers": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            legacy_before = legacy_file.read_bytes()
+
+            with patch.multiple(
+                worker_registry,
+                WORKER_REGISTRY_FILE=current_file,
+                LEGACY_WORKER_REGISTRY_FILE=legacy_file,
+                DEFAULT_WORKER_REGISTRY_FILE=current_file,
+            ), patch.object(worker_registry, "_locked_file") as locked_file:
+                self.assertEqual(
+                    {"created_at": 10.5, "pid": 100},
+                    worker_registry.get_owner_record_read_only(),
+                )
+
+            locked_file.assert_not_called()
+            self.assertFalse(current_file.exists())
+            self.assertTrue(legacy_file.exists())
+            self.assertEqual(legacy_before, legacy_file.read_bytes())
+            self.assertFalse(
+                worker_registry._registry_lock_file(legacy_file).exists()
             )
 
     def test_malformed_legacy_registry_does_not_block_current_snapshot(self):

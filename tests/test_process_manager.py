@@ -1,5 +1,7 @@
 import threading
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import Mock, PropertyMock, patch
 
 from module.webui.process_manager import ProcessManager
@@ -66,6 +68,67 @@ class TestProcessManagerRegistry(unittest.TestCase):
 
         kill.assert_called_once_with(12345)
         self.assertNotIn("alas", State.process_registry)
+
+    def test_stale_manager_does_not_report_success_or_unregister_replacement_worker(self):
+        State.process_registry["alas"] = 23456
+        manager = ProcessManager.get_manager("alas")
+        old_process = Mock()
+        old_process.pid = 12345
+        old_process.is_alive.return_value = False
+        manager._process = old_process
+
+        with (
+            patch("module.webui.process_manager.is_current_owner", return_value=True),
+            patch(
+                "module.webui.process_manager.get_workers",
+                return_value={"alas": {"pid": 23456, "created_at": 2.0}},
+            ),
+        ):
+            self.assertFalse(manager.stop())
+
+        self.assertEqual(23456, State.process_registry["alas"])
+
+    def test_registration_readback_failure_rolls_back_registered_identity(self):
+        manager = ProcessManager.get_manager("alas")
+        registered_record = {"pid": 12345, "created_at": 10.5}
+
+        with (
+            patch(
+                "module.webui.process_manager.register_worker",
+                return_value=registered_record,
+            ),
+            patch(
+                "module.webui.process_manager.get_workers",
+                side_effect=RuntimeError("readback failed"),
+            ),
+            patch.object(manager, "_unregister_process") as unregister,
+        ):
+            with self.assertRaises(RuntimeError):
+                manager._register_process(12345)
+
+        unregister.assert_called_once_with(expected_worker=registered_record)
+
+    def test_local_registry_is_published_after_runtime_state_confirmation(self):
+        manager = ProcessManager.get_manager("alas")
+        registered_record = {"pid": 12345, "created_at": 10.5}
+        observed_registry: list[dict[str, int]] = []
+        state_store = Mock()
+        state_store.read.return_value = None
+
+        def mark_worker_started(*_args: object, **_kwargs: object) -> None:
+            observed_registry.append(dict(State.process_registry))
+
+        state_store.mark_worker_started.side_effect = mark_worker_started
+
+        with (
+            patch("module.webui.process_manager.register_worker", return_value=registered_record),
+            patch("module.webui.process_manager.get_workers", return_value={"alas": registered_record}),
+            patch("module.application.runtime_state.RuntimeStateStore", return_value=state_store),
+        ):
+            manager._register_process(12345)
+
+        self.assertEqual(observed_registry, [{}])
+        self.assertEqual(State.process_registry["alas"], 12345)
 
     def test_stop_uses_local_process_handle_before_tree_kill(self):
         """При живом локальном Process сначала использовать terminate/kill, а не taskkill."""
@@ -302,6 +365,81 @@ class TestProcessManagerRegistry(unittest.TestCase):
         self.assertFalse(stopper.is_alive())
         self.assertFalse(starter.is_alive())
         self.assertTrue(new_process_started.is_set())
+
+    def test_cooperative_stop_persists_state_before_signaling_event(self):
+        from module.application.runtime_state import RuntimeStateStore
+
+        with TemporaryDirectory() as root:
+            root_path = Path(root)
+            RuntimeStateStore(root_path).mark_worker_started(
+                "ap",
+                worker_pid=12345,
+                worker_created_at=1.0,
+            )
+            manager = ProcessManager("ap")
+            observed: list[bool | None] = []
+
+            class Event:
+                def set(self) -> None:
+                    snapshot = RuntimeStateStore(root_path).read("ap")
+                    observed.append(snapshot.stop_requested if snapshot is not None else None)
+
+            manager._stop_event = Event()
+            with (
+                patch("module.webui.process_manager._REPOSITORY_ROOT", root_path),
+                patch.object(ProcessManager, "alive", new_callable=PropertyMock, return_value=True),
+            ):
+                self.assertTrue(
+                    manager.request_cooperative_stop(
+                        operation_id="operation-1",
+                        session_id="session-1",
+                    )
+                )
+
+            self.assertEqual(observed, [True])
+            snapshot = RuntimeStateStore(root_path).read("ap")
+            self.assertIsNotNone(snapshot)
+            self.assertTrue(snapshot.stop_requested)
+
+    def test_cooperative_stop_does_not_signal_when_state_persistence_fails(self):
+        from module.application.runtime_state import RuntimeStateStore
+
+        manager = ProcessManager("ap")
+        stop_event = Mock()
+        manager._stop_event = stop_event
+        with (
+            patch.object(ProcessManager, "alive", new_callable=PropertyMock, return_value=True),
+            patch.object(
+                RuntimeStateStore,
+                "request_quiesce",
+                side_effect=RuntimeError("synthetic state failure"),
+            ),
+        ):
+            self.assertFalse(
+                manager.request_cooperative_stop(
+                    operation_id="operation-1",
+                    session_id="session-1",
+                )
+            )
+
+        stop_event.set.assert_not_called()
+
+    def test_unregister_without_expected_worker_rejects_existing_registry_record(self):
+        manager = ProcessManager("alas")
+        stop_event = Mock()
+        manager._stop_event = stop_event
+
+        with (
+            patch("module.webui.process_manager.is_current_owner", return_value=True),
+            patch(
+                "module.webui.process_manager.get_workers",
+                return_value={"alas": {"pid": 12345, "created_at": 1.0}},
+            ),
+        ):
+            self.assertFalse(manager._unregister_process())
+
+        self.assertIsNotNone(manager._stop_event)
+        self.assertIs(stop_event, manager._stop_event)
 
     def test_start_rejects_during_update_transaction(self):
         manager = ProcessManager.get_manager("alas")

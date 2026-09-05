@@ -2,13 +2,16 @@ from __future__ import annotations
 
 from datetime import timedelta
 from pathlib import Path
+from threading import Event, Thread
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
 
 from alas import AzurLaneAutoScript
+from module.application.runtime_state import RuntimePhase, RuntimeStateStore
 from module.config.time_source import now as current_time
+from module.exception import ScriptError
 from module.persistence import runtime as persistence_runtime
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -126,6 +129,271 @@ def test_prepare_boundary_only_processes_manual_command() -> None:
     assert script.device.config is script.config
 
 
+def test_prepare_boundary_skips_manual_command_after_handover(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events = []
+    script = _script()
+    script.device = _Device(events)
+    script.fleet_manual_scan = _ManualCoordinator(events)
+    monkeypatch.setattr("alas._handover_requested", lambda _config_name: True)
+
+    assert not script._prepare_task_boundary("Commission")
+    assert events == []
+    assert script.device.config is None
+
+
+def test_server_availability_wait_aborts_when_handover_arrives(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    script = AzurLaneAutoScript.__new__(AzurLaneAutoScript)
+    script.config_name = "ap"
+    script.stop_event = None
+    script.checker = SimpleNamespace(is_available=lambda: False)
+    sleep_calls = 0
+
+    def interruptible_sleep(_seconds: float) -> None:
+        nonlocal sleep_calls
+        sleep_calls += 1
+
+    monkeypatch.setattr("alas.time.sleep", interruptible_sleep)
+    monkeypatch.setattr(
+        "alas._handover_requested",
+        lambda _config_name: sleep_calls > 0,
+    )
+
+    assert script._wait_for_server_availability() is False
+    assert sleep_calls == 1
+
+
+def test_loop_does_not_finish_task_cancelled_before_runtime_start(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    script = _script()
+    script.config.EmulatorManagement_ScheduledEmulatorRestart = False
+    script.checker = SimpleNamespace(
+        wait_until_available=lambda: None,
+        is_recovered=lambda: False,
+    )
+    script.failure_record = {}
+    script._emulator_recovery_transport_lost = False
+    script.get_next_task = lambda: "Commission"
+    boundary_calls: list[str] = []
+    handover_accepted = Event()
+
+    def prepare_boundary(task: str) -> bool:
+        boundary_calls.append(task)
+        handover_accepted.set()
+        return True
+
+    script._prepare_task_boundary = prepare_boundary
+    started: list[str] = []
+    finished: list[str] = []
+    script._record_dev_runtime_task_started = (
+        lambda task: started.append(task) or True
+    )
+    script._record_dev_runtime_task_finished = (
+        lambda task: finished.append(task) or True
+    )
+
+    def fail_run(_command: str) -> object:
+        pytest.fail("Запуск задачи не должен выполняться")
+
+    script.run = fail_run
+    monkeypatch.setattr(
+        "alas._handover_requested",
+        lambda _config_name: handover_accepted.is_set(),
+    )
+    monkeypatch.setattr(
+        "alas.logger",
+        SimpleNamespace(
+            set_file_logger=lambda *_args, **_kwargs: None,
+            info=lambda *_args, **_kwargs: None,
+            hr=lambda *_args, **_kwargs: None,
+        ),
+    )
+    monkeypatch.setattr("module.config.utils.is_oobe_needed", lambda: False)
+
+    script.loop()
+
+    assert started == []
+    assert finished == []
+    assert boundary_calls == ["Commission"]
+
+
+def test_loop_runs_task_when_handover_arrives_after_started_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    script = _script()
+    script.config.EmulatorManagement_ScheduledEmulatorRestart = False
+    script.checker = SimpleNamespace(
+        wait_until_available=lambda: None,
+        is_recovered=lambda: False,
+    )
+    script.failure_record = {}
+    script._emulator_recovery_transport_lost = False
+    script.get_next_task = lambda: "Commission"
+    script._prepare_task_boundary = lambda _task: True
+    boundary_entered = Event()
+    allow_boundary_return = Event()
+    handover_accepted = Event()
+    started: list[str] = []
+    finished: list[str] = []
+
+    def record_started(task: str) -> bool:
+        started.append(task)
+        boundary_entered.set()
+        assert allow_boundary_return.wait(5)
+        return True
+
+    script._record_dev_runtime_task_started = record_started
+    script._record_dev_runtime_task_finished = (
+        lambda task: finished.append(task) or True
+    )
+    script.run = lambda command: command == "commission" or pytest.fail(
+        "Неожиданная команда задачи"
+    )
+
+    def accept_handover() -> None:
+        assert boundary_entered.wait(5)
+        handover_accepted.set()
+        allow_boundary_return.set()
+
+    handover_thread = Thread(target=accept_handover)
+    handover_thread.start()
+    monkeypatch.setattr(
+        "alas._handover_requested",
+        lambda _config_name: handover_accepted.is_set(),
+    )
+    monkeypatch.setattr(
+        "alas.logger",
+        SimpleNamespace(
+            set_file_logger=lambda *_args, **_kwargs: None,
+            info=lambda *_args, **_kwargs: None,
+            hr=lambda *_args, **_kwargs: None,
+        ),
+    )
+    monkeypatch.setattr("module.config.utils.is_oobe_needed", lambda: False)
+
+    try:
+        script.loop()
+    finally:
+        allow_boundary_return.set()
+        handover_thread.join(timeout=5)
+
+    assert not handover_thread.is_alive()
+    assert started == ["Commission"]
+    assert finished == ["Commission"]
+
+
+def test_loop_does_not_run_when_handover_wins_atomic_task_start(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
+    (tmp_path / "module").mkdir()
+    monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(tmp_path))
+    store = RuntimeStateStore(tmp_path)
+    store.mark_worker_started("alas", worker_pid=1008, worker_created_at=2008.0)
+
+    script = _script()
+    script.config_name = "alas"
+    script.config.EmulatorManagement_ScheduledEmulatorRestart = False
+    script.checker = SimpleNamespace(
+        wait_until_available=lambda: None,
+        is_available=lambda: True,
+        is_recovered=lambda: False,
+    )
+    script.failure_record = {}
+    script._emulator_recovery_transport_lost = False
+    script.get_next_task = lambda: "Commission"
+    script._prepare_task_boundary = lambda _task: True
+
+    def accept_handover_during_setup() -> None:
+        store.begin_handover("alas", operation_id="handover-race")
+
+    script.device.stuck_record_clear = accept_handover_during_setup
+    script.device.click_record_clear = lambda: None
+
+    def fail_run(_command: str) -> object:
+        pytest.fail("Запуск задачи не должен выполняться")
+
+    script.run = fail_run
+    monkeypatch.setattr(
+        "alas.logger",
+        SimpleNamespace(
+            set_file_logger=lambda *_args, **_kwargs: None,
+            info=lambda *_args, **_kwargs: None,
+            hr=lambda *_args, **_kwargs: None,
+            error=lambda *_args, **_kwargs: None,
+        ),
+    )
+    monkeypatch.setattr("module.config.utils.is_oobe_needed", lambda: False)
+
+    script.loop()
+
+    snapshot = store.read("alas")
+    assert snapshot is not None
+    assert snapshot.handover_requested is True
+    assert snapshot.busy is False
+    assert snapshot.current_task is None
+
+
+def test_loop_finishes_runtime_task_boundary_when_task_raises(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
+    (tmp_path / "module").mkdir()
+    monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(tmp_path))
+    store = RuntimeStateStore(tmp_path)
+    store.mark_worker_started("alas", worker_pid=1009, worker_created_at=2009.0)
+
+    script = _script()
+    script.config_name = "alas"
+    script.config.EmulatorManagement_ScheduledEmulatorRestart = False
+    script.config.Error_LlmAnalysis = False
+    script.config.task_call = lambda _task: None
+    script.checker = SimpleNamespace(
+        wait_until_available=lambda: None,
+        is_available=lambda: True,
+        is_recovered=lambda: False,
+    )
+    script.failure_record = {}
+    script._emulator_recovery_transport_lost = False
+    tasks = iter(("Commission", None))
+    script.get_next_task = lambda: next(tasks)
+    script._prepare_task_boundary = lambda _task: True
+
+    def fail_run(_command: str) -> object:
+        raise ScriptError("synthetic task failure")
+
+    script.run = fail_run
+    monkeypatch.setattr("alas.del_cached_property", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("alas.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        "alas.logger",
+        SimpleNamespace(
+            set_file_logger=lambda *_args, **_kwargs: None,
+            info=lambda *_args, **_kwargs: None,
+            warning=lambda *_args, **_kwargs: None,
+            error=lambda *_args, **_kwargs: None,
+            hr=lambda *_args, **_kwargs: None,
+            exception_context=lambda *_args, **_kwargs: None,
+        ),
+    )
+    monkeypatch.setattr("module.config.utils.is_oobe_needed", lambda: False)
+
+    script.loop()
+
+    snapshot = store.read("alas")
+    assert snapshot is not None
+    assert snapshot.worker_running is True
+    assert snapshot.busy is False
+    assert snapshot.current_task is None
+    assert snapshot.phase is RuntimePhase.USER_PROFILE_IDLE
+
+
 def test_long_wait_manual_wakeup_does_not_run_future_normal_task_early() -> None:
     script = _script()
     script._manual_scan_wakeup = True
@@ -150,6 +418,36 @@ def test_idle_wait_wakes_immediately_for_pending_manual_command() -> None:
 
     assert script.wait_until(current_time() + timedelta(hours=4))
     assert script._manual_scan_wakeup is True
+
+
+def test_idle_wait_aborts_for_handover_before_next_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    script = _script()
+    script.config = SimpleNamespace(start_watching=lambda: None)
+    monkeypatch.setattr(
+        "alas._handover_requested",
+        lambda _config_name: True,
+    )
+
+    assert not script.wait_until(current_time() + timedelta(hours=4))
+
+
+def test_get_next_task_does_not_read_scheduler_after_handover(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    script = _script()
+    calls: list[str] = []
+    script.config = SimpleNamespace(
+        get_next=lambda: calls.append("get_next")
+    )
+    monkeypatch.setattr(
+        "alas._handover_requested",
+        lambda _config_name: True,
+    )
+
+    assert script.get_next_task() is None
+    assert calls == []
 
 
 def test_controller_factory_reuses_scheduler_owned_device(monkeypatch) -> None:
