@@ -464,7 +464,8 @@ smoke/evidence state.
 образ, профиль, read-only config bind и persistent `/data`/`/config` volumes
 описаны в `infrastructure/observability/compose.yaml`. Не создавай вторую
 копию Caddyfile и не запускай host `caddy.exe`. В корневом защищённом `.env`
-задай non-secret host и actual public DNS record:
+задай non-secret host. Создай публичные DNS-записи для `<public-host>` и
+`game.<public-host>` типа A, AAAA или CNAME, указывающие на публичный адрес:
 
 ```text
 AZURPILOT_CADDY_HOST=<public-host>
@@ -472,24 +473,25 @@ AZURPILOT_DEV_MCP_PUBLIC_URL=https://<public-host>/mcp
 AZURPILOT_GAME_MCP_PUBLIC_URL=https://game.<public-host>/mcp
 ```
 
-Проверь конфигурацию host-side backends:
+Проверь конфигурацию backend-процессов на стороне host:
 
 ```text
 uv run --locked --no-sync python -m module.dev_mcp.remote doctor
 uv run --locked --no-sync python -m module.game_mcp.remote doctor
 ```
 
-Для ручного запуска backend выполни `serve` в отдельных persistent terminals
-или services: обе команды блокируют текущий terminal. В текущем Windows
-deployment эти процессы уже принадлежат scheduled supervisor, поэтому при его
-работе не запускай второй экземпляр.
+Для ручного запуска backend выполни `serve` в отдельных постоянных терминалах
+или службах: обе команды блокируют текущий терминал. В текущем Windows-
+развёртывании этими процессами уже владеет scheduled supervisor, поэтому при
+его работе не запускай второй экземпляр.
 
 ```text
 uv run --locked --no-sync python -m module.dev_mcp.remote serve
 uv run --locked --no-sync python -m module.game_mcp.remote serve
 ```
 
-После готовности host-side owner включи Caddy profile из отдельного terminal:
+После готовности владельца backend-процессов на стороне host включи Caddy profile
+из отдельного терминала:
 
 ```text
 docker compose --env-file .env --file infrastructure/observability/compose.yaml --profile remote-ingress config --quiet

@@ -42,7 +42,7 @@ uv run --locked --no-sync python -m module.dev_mcp.remote doctor
 uv run --locked --no-sync python -m module.game_mcp.remote doctor
 ```
 
-Для ручного запуска backend используй отдельный persistent terminal/service
+Для ручного запуска backend используй отдельный постоянный терминал или службу
 для каждого процесса:
 
 ```text
@@ -53,11 +53,12 @@ uv run --locked --no-sync python -m module.dev_mcp.remote serve
 uv run --locked --no-sync python -m module.game_mcp.remote serve
 ```
 
-Обе команды блокируют свой terminal. В текущем Windows deployment host-side
-Dev/Game MCP уже принадлежат scheduled supervisor, поэтому второй экземпляр
-запускать не нужно.
+Обе команды блокируют свой терминал. В текущем Windows-развёртывании
+процессами Dev/Game MCP на стороне host уже владеет scheduled supervisor,
+поэтому второй экземпляр запускать не нужно.
 
-После готовности host-side owner выполни Compose-проверки в отдельном terminal:
+После готовности владельца backend-процессов на стороне host выполни
+Compose-проверки в отдельном терминале:
 
 ```text
 docker compose --env-file .env --file infrastructure/observability/compose.yaml --profile remote-ingress config --quiet
@@ -68,7 +69,9 @@ uv run --locked --no-sync python -m dev_tools.infrastructure_doctor --repository
 ```
 
 В подключённом ChatGPT-приложении укажи `https://<public-host>/mcp` в URL mode и
-выбери OAuth. Backend принимает только loopback, а наружу должны быть доступны
+выбери OAuth. До подключения создай также DNS-запись `game.<public-host>` типа
+A, AAAA или CNAME на тот же публичный адрес для Game MCP. Backend принимает только
+loopback, а наружу должны быть доступны
 только 443 и, для ACME/redirect, 80; его внутренний порт, Caddy admin, WebUI,
 PostgreSQL, ADB и emulator не публикуются. Обязательные переменные и Caddy
 конфигурация описаны в `docs/dev-runtime.md` и
