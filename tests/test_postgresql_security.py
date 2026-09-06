@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -8,6 +9,7 @@ import pytest
 from dev_tools.postgresql_security import (
     SecurityPosture,
     SecurityPostureError,
+    _docker_port_is_loopback,
     _read_posture,
     validate_posture,
 )
@@ -18,6 +20,7 @@ def _posture() -> SecurityPosture:
         listener="localhost",
         password_encryption="scram-sha-256",
         hba_is_active=True,
+        deployment="wsl",
         rules=(
             {
                 "type": "local",
@@ -61,6 +64,39 @@ def _posture() -> SecurityPosture:
 
 def test_security_posture_accepts_loopback_scram_contract():
     validate_posture(_posture())
+
+
+def test_security_posture_accepts_docker_wildcard_listener_with_loopback_publish():
+    docker_rules = tuple(
+        rule
+        | (
+            {"address": "0.0.0.0", "netmask": "0.0.0.0"}
+            if rule.get("address") == "127.0.0.1"
+            else {"address": "::", "netmask": "::"}
+        )
+        for rule in _posture().rules
+        if rule.get("type") != "local"
+    )
+    validate_posture(
+        replace(
+            _posture(),
+            listener="*",
+            deployment="docker",
+            rules=_posture().rules[:2] + docker_rules,
+        )
+    )
+
+
+def test_security_posture_rejects_docker_non_loopback_publish():
+    with pytest.raises(SecurityPostureError, match="HOST_BINDING_NOT_LOOPBACK_ONLY"):
+        validate_posture(
+            replace(
+                _posture(),
+                listener="*",
+                deployment="docker",
+                host_binding_loopback=False,
+            )
+        )
 
 
 @pytest.mark.parametrize(
@@ -178,4 +214,79 @@ def test_security_posture_rejects_non_object_rule(monkeypatch):
     )
 
     with pytest.raises(SecurityPostureError, match="POSTURE_RESPONSE_INVALID"):
-        _read_posture("Archlinux")
+        _read_posture("Archlinux", deployment="wsl")
+
+
+@pytest.mark.parametrize(
+    ("output", "expected"),
+    (("127.0.0.1:5432\n", True), ("[::1]:5432\n", True), ("0.0.0.0:5432\n", False)),
+)
+def test_docker_port_loopback_accepts_bracketed_ipv6(
+    output: str, expected: bool
+):
+    assert _docker_port_is_loopback(output) is expected
+
+
+def test_docker_posture_rejects_unavailable_service(tmp_path, monkeypatch):
+    compose_file = tmp_path / "infrastructure" / "observability" / "compose.yaml"
+    compose_file.parent.mkdir(parents=True)
+    compose_file.write_text("name: test\n", encoding="utf-8")
+    (tmp_path / ".env").write_text("KEY=value\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "dev_tools.postgresql_security.shutil.which", lambda _name: "docker.exe"
+    )
+    monkeypatch.setattr(
+        "dev_tools.postgresql_security.subprocess.run",
+        lambda *_args, **_kwargs: SimpleNamespace(returncode=1, stdout="", stderr=""),
+    )
+
+    with pytest.raises(SecurityPostureError, match="DOCKER_SERVICE_UNAVAILABLE"):
+        _read_posture(
+            deployment="docker", compose_file=compose_file, service="postgres"
+        )
+
+
+def test_docker_posture_reads_loopback_compose_binding(tmp_path, monkeypatch):
+    compose_file = tmp_path / "infrastructure" / "observability" / "compose.yaml"
+    compose_file.parent.mkdir(parents=True)
+    compose_file.write_text("name: test\n", encoding="utf-8")
+    (tmp_path / ".env").write_text("KEY=value\n", encoding="utf-8")
+    docker_rules = tuple(
+        rule
+        | (
+            {"address": "0.0.0.0", "netmask": "0.0.0.0"}
+            if rule.get("address") == "127.0.0.1"
+            else {"address": "::", "netmask": "::"}
+        )
+        for rule in _posture().rules[2:]
+    )
+    payload = {
+        "listener": "*",
+        "password_encryption": "scram-sha-256",
+        "hba_is_active": True,
+        "rules": list(_posture().rules[:2] + docker_rules),
+    }
+    responses = iter(
+        [
+            SimpleNamespace(returncode=0, stdout="127.0.0.1:5432\n", stderr=""),
+            SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps(payload),
+                stderr="",
+            ),
+        ]
+    )
+    monkeypatch.setattr(
+        "dev_tools.postgresql_security.shutil.which", lambda _name: "docker.exe"
+    )
+    monkeypatch.setattr(
+        "dev_tools.postgresql_security.subprocess.run",
+        lambda *_args, **_kwargs: next(responses),
+    )
+
+    posture = _read_posture(
+        deployment="docker", compose_file=compose_file, service="postgres"
+    )
+
+    assert posture.deployment == "docker"
+    assert posture.host_binding_loopback is True

@@ -2,7 +2,7 @@
 
 ## Граница владения
 
-Stage 2 создал исполняемую основу, а Stage 4 подключил её к production runtime:
+Исполняемая persistence foundation подключена к production runtime:
 
 ```text
 game / WebUI / MCP / future migration tooling
@@ -17,7 +17,7 @@ SQLAlchemy Core → Psycopg sync driver → PostgreSQL
 `module/application/` не импортирует SQLAlchemy, Psycopg или Alembic.
 Основные `module/persistence/` adapters не импортируют SQLite и не открывают
 соединение при импорте. Узкое исключение — `module.persistence.legacy`: это
-strictly read-only offline adapter Stage 3, который не импортируется production
+strictly read-only offline adapter, который не импортируется production
 consumers. Production consumers используют application services. SQLite
 сохранён только в offline legacy importer; silent fallback между backend
 запрещён.
@@ -93,8 +93,8 @@ append-only Dorm scan provenance и сопоставляет его с Fleet Sta
 Partial scan отсутствие не доказывает. Неоднозначные identity/form и stale Fleet
 State fail closed.
 
-Stage 2 не подключает core к `module/combat/emotion.py`, Scheduler или Fleet
-WebUI. Legacy Combat остаётся production path до отдельного этапа.
+Persistence foundation не подключает core к `module/combat/emotion.py`,
+Scheduler или Fleet WebUI. Legacy Combat остаётся отдельным production path.
 
 Опциональный Fleet AutoScan запускается планировщиком на безопасной границе
 перед обычной задачей и использует тот же `Device`, `LazyEngine` и
@@ -133,7 +133,7 @@ Integration-тесты дополнительно требуют явный test
 `HOST`, `PORT`, `DATABASE` и `USER` с отдельными переменными подтверждения
 `AZURPILOT_POSTGRES_DISPOSABLE_HOST`, `_PORT`, `_DATABASE` и `_USER`.
 
-Downgrade запрещено применять к пользовательской БД. Stage 2 CI выполняет цикл
+Downgrade запрещено применять к пользовательской БД. CI выполняет этот цикл
 только в одноразовом PostgreSQL 18 service container.
 
 ## Конфигурация и секреты
@@ -153,6 +153,7 @@ AZURPILOT_POSTGRES_MIGRATOR_HOST / PORT / DATABASE / USER
 AZURPILOT_POSTGRES_MIGRATOR_PASSWORD / SSLMODE / RUNTIME_TIMEZONE / PGPASSFILE
 AZURPILOT_WSL_DISTRO
 AZURPILOT_WSL_PGPASSFILE
+AZURPILOT_POSTGRES_DOCKER_BOOTSTRAP_PASSWORD  # только initial Docker Compose bootstrap
 AZURPILOT_POSTGRES_DISPOSABLE          # только для test-only destructive runs
 AZURPILOT_POSTGRES_DISPOSABLE_HOST     # точное подтверждение target
 AZURPILOT_POSTGRES_DISPOSABLE_PORT
@@ -160,10 +161,19 @@ AZURPILOT_POSTGRES_DISPOSABLE_DATABASE
 AZURPILOT_POSTGRES_DISPOSABLE_USER
 ```
 
-В production эти значения хранятся в gitignored `.env`. Owner-loader не
+В production эти значения хранятся в gitignored `.env`. Для Docker Compose
+`AZURPILOT_POSTGRES_DOCKER_BOOTSTRAP_PASSWORD` используется только при
+первичном bootstrap нового PostgreSQL volume и не заменяет app/migrator
+credentials. Owner-loader не
 публикует `*_PASSWORD` в process environment: libpq consumers используют
 защищённые `PGPASSFILE`, а maintenance-команды отдельно выбирают migrator
 contract. `PGPASSWORD` не является постоянным credential transport.
+
+Общий loader и credentials tooling используют единый точный registry локального
+`.env`. В infrastructure scope явно разрешены только bootstrap secret,
+Grafana credentials, pgAdmin email/password/pgpass и
+`AZURPILOT_OBSERVABILITY_PGADMIN_PORT`; неизвестные ключи и опечатки внутри
+этих namespace отклоняются fail-closed.
 
 Если `SSLMODE` не задан, foundation проверяет TLS-сертификат и имя сервера
 (`verify-full`); режим `require` и более слабые режимы доступны только через
@@ -176,7 +186,7 @@ typed ошибки без DSN, SQL и внутренних DBAPI сообщен�
 
 ## Production cutover
 
-Stage 3 read-only parsers, importer и reconciliation остаются offline-only.
-Production marker, роли, backup/restore, lifecycle и forward-fix policy описаны
-в `postgresql-production-cutover.md`. Runtime не создаёт role/database, не
+Read-only parsers, importer и reconciliation остаются offline-only.
+Production marker, роли, backup/restore, Docker Compose lifecycle и forward-fix
+policy описаны в `postgresql-production-cutover.md`. Runtime не создаёт role/database, не
 выполняет DDL и не меняет HBA.

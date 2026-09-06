@@ -130,6 +130,9 @@ def test_env_merge_preserves_unrelated_namespace_and_replaces_postgres(
         b"# shared local env\n"
         b"AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_USER=admin\n"
         b"AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD=keep-secret\n"
+        b"AZURPILOT_OBSERVABILITY_PGADMIN_ADMIN_EMAIL=operator@example.test\n"
+        b"AZURPILOT_OBSERVABILITY_PGADMIN_PORT=5051\n"
+        b"AZURPILOT_POSTGRES_DOCKER_BOOTSTRAP_PASSWORD=keep-bootstrap\n"
         b"AZURPILOT_POSTGRES_HOST=old-host\n"
         b"AZURPILOT_WSL_DISTRO=old-distro\n"
     )
@@ -139,6 +142,9 @@ def test_env_merge_preserves_unrelated_namespace_and_replaces_postgres(
     assert "# shared local env" in merged
     assert "AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_USER=admin" in merged
     assert "AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD=keep-secret" in merged
+    assert "AZURPILOT_OBSERVABILITY_PGADMIN_ADMIN_EMAIL=operator@example.test" in merged
+    assert "AZURPILOT_OBSERVABILITY_PGADMIN_PORT=5051" in merged
+    assert "AZURPILOT_POSTGRES_DOCKER_BOOTSTRAP_PASSWORD=keep-bootstrap" in merged
     assert "AZURPILOT_POSTGRES_HOST=127.0.0.1" in merged
     assert "AZURPILOT_WSL_DISTRO=archlinux" in merged
     assert "old-host" not in merged
@@ -163,7 +169,17 @@ def test_env_merge_rejects_duplicate_and_unknown_owned_keys(tmp_path: Path):
         )
 
     for key in ("AZURPILOT_POSTGRES_UNUSED", "AZURPILOT_WSL_UNUSED"):
-        with pytest.raises(RuntimeError, match="PostgreSQL/WSL"):
+        with pytest.raises(RuntimeError, match="неизвестный"):
+            postgresql_credentials._merge_env_document(
+                f"{key}=value\n".encode(),
+                generated,
+            )
+
+    for key in (
+        "AZURPILOT_POSTGRES_DOCKER_BOOTSTRP_PASSWORD",
+        "AZURPILOT_OBSERVABILITY_PGADMIN_PORTX",
+    ):
+        with pytest.raises(RuntimeError, match="неизвестный"):
             postgresql_credentials._merge_env_document(
                 f"{key}=value\n".encode(),
                 generated,
