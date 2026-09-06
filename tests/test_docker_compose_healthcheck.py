@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -30,31 +32,35 @@ def test_postgres_18_is_part_of_observability_compose_with_named_volume():
     bootstrap_script = (
         ROOT / "infrastructure/observability/postgres/bootstrap/01-bootstrap.sh"
     ).read_text(encoding="utf-8")
-    postgres_block = compose.split("  postgres:\n", 1)[1].split(
-        "  postgres-bootstrap:\n", 1
-    )[0]
-    bootstrap_block = compose.split("  postgres-bootstrap:\n", 1)[1].split(
-        "  alloy:\n", 1
-    )[0]
+    compose_data = yaml.safe_load(compose)
+    services = compose_data["services"]
+    postgres_block = services["postgres"]
+    bootstrap_block = services["postgres-bootstrap"]
 
-    assert "name: azurpilot-infrastructure" in compose
-    assert "postgres:18@sha256:" in compose
-    assert "target: /var/lib/postgresql" in compose
-    assert "PGDATA: /var/lib/postgresql/18/docker" in compose
-    assert '"127.0.0.1:${AZURPILOT_POSTGRES_PORT:-5432}:5432"' in compose
-    assert "external: true" in compose
-    assert "no-new-privileges:true" in compose
-    assert "name: azurpilot-postgres-data" in compose
-    assert "name: azurpilot-observability_alloy-data" in compose
-    assert "name: azurpilot-observability_grafana-data" in compose
-    assert "restart: unless-stopped" in compose
-    assert "gosu postgres pg_isready -U postgres -d $${POSTGRES_DB}" in compose
-    assert "postgres_bootstrap_password" in postgres_block
-    assert "postgres_app_password" not in postgres_block
-    assert "postgres_migrator_password" not in postgres_block
-    assert "postgres_app_password" in bootstrap_block
-    assert "postgres_migrator_password" in bootstrap_block
-    assert "profiles:\n      - bootstrap" in bootstrap_block
+    assert compose_data["name"] == "azurpilot-infrastructure"
+    assert postgres_block["image"].startswith("postgres:18@sha256:")
+    assert any(
+        volume["target"] == "/var/lib/postgresql" for volume in postgres_block["volumes"]
+    )
+    assert postgres_block["environment"]["PGDATA"] == "/var/lib/postgresql/18/docker"
+    assert postgres_block["ports"] == [
+        "127.0.0.1:${AZURPILOT_POSTGRES_PORT:-5432}:5432"
+    ]
+    assert postgres_block["security_opt"] == ["no-new-privileges:true"]
+    assert postgres_block["restart"] == "unless-stopped"
+    assert postgres_block["healthcheck"]["test"] == [
+        "CMD-SHELL",
+        "gosu postgres pg_isready -U postgres -d $${POSTGRES_DB}",
+    ]
+    assert "postgres_bootstrap_password" in postgres_block["secrets"]
+    assert "postgres_app_password" not in postgres_block["secrets"]
+    assert "postgres_migrator_password" not in postgres_block["secrets"]
+    assert "postgres_app_password" in bootstrap_block["secrets"]
+    assert "postgres_migrator_password" in bootstrap_block["secrets"]
+    assert bootstrap_block["profiles"] == ["bootstrap"]
+    assert compose_data["volumes"]["postgres-data"]["name"] == "azurpilot-postgres-data"
+    assert compose_data["volumes"]["alloy-data"]["name"] == "azurpilot-observability_alloy-data"
+    assert compose_data["volumes"]["grafana-data"]["name"] == "azurpilot-observability_grafana-data"
     assert "CREATE ROLE azurpilot_app" in bootstrap_script
     assert "CREATE ROLE azurpilot_migrator" in bootstrap_script
     assert "local all postgres peer" in init_script
@@ -81,22 +87,27 @@ def test_pgadmin_is_loopback_only_and_preconfigured_for_postgres():
             encoding="utf-8"
         )
     )
-    pgadmin_block = compose.split("  pgadmin:\n", 1)[1].split("  alloy:\n", 1)[0]
+    pgadmin_block = yaml.safe_load(compose)["services"]["pgadmin"]
     server = servers["Servers"]["1"]
 
-    assert "dpage/pgadmin4:9.17@sha256:" in pgadmin_block
-    assert '"127.0.0.1:${AZURPILOT_PGADMIN_PORT:-5050}:8080"' in pgadmin_block
-    assert "PGADMIN_DEFAULT_PASSWORD_FILE: /run/secrets/pgadmin_admin_password" in pgadmin_block
-    assert "PGADMIN_DISABLE_POSTFIX: \"1\"" in pgadmin_block
-    assert "PGADMIN_LISTEN_PORT: \"8080\"" in pgadmin_block
-    assert "PGADMIN_CONFIG_ENHANCED_COOKIE_PROTECTION: \"True\"" in pgadmin_block
-    assert "PGPASS_FILE: /run/secrets/pgadmin_pgpass" in pgadmin_block
-    assert "no-new-privileges:true" in pgadmin_block
-    assert "postgres_bootstrap_password" not in pgadmin_block
-    assert "postgres_migrator_password" not in pgadmin_block
-    assert "name: azurpilot-pgadmin-data" in compose
-    assert "pgadmin_admin_password" in pgadmin_block
-    assert "pgadmin_pgpass" in pgadmin_block
+    assert pgadmin_block["image"].startswith("dpage/pgadmin4:9.17@sha256:")
+    assert pgadmin_block["ports"] == [
+        "127.0.0.1:${AZURPILOT_PGADMIN_PORT:-5050}:8080"
+    ]
+    assert pgadmin_block["environment"] == {
+        "PGADMIN_DEFAULT_EMAIL": "${AZURPILOT_OBSERVABILITY_PGADMIN_ADMIN_EMAIL:-admin@azurpilot.dev}",
+        "PGADMIN_DEFAULT_PASSWORD_FILE": "/run/secrets/pgadmin_admin_password",
+        "PGADMIN_DISABLE_POSTFIX": "1",
+        "PGADMIN_LISTEN_ADDRESS": "0.0.0.0",
+        "PGADMIN_LISTEN_PORT": "8080",
+        "PGADMIN_CONFIG_ENHANCED_COOKIE_PROTECTION": "True",
+        "PGPASS_FILE": "/run/secrets/pgadmin_pgpass",
+    }
+    assert pgadmin_block["security_opt"] == ["no-new-privileges:true"]
+    assert "postgres_bootstrap_password" not in pgadmin_block["secrets"]
+    assert "postgres_migrator_password" not in pgadmin_block["secrets"]
+    assert pgadmin_block["secrets"] == ["pgadmin_admin_password", "pgadmin_pgpass"]
+    assert yaml.safe_load(compose)["volumes"]["pgadmin-data"]["name"] == "azurpilot-pgadmin-data"
     assert server == {
         "Name": "AzurPilot PostgreSQL",
         "Group": "AzurPilot",

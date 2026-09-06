@@ -507,8 +507,7 @@ def test_lifecycle_scripts_encode_postgresql_ownership():
     assert "dev_tools.postgresql_runtime" not in build
     assert "Get-Command -Name 'docker.exe'" in start
     assert "foreach ($dockerName in @('docker.exe', 'docker'))" in repair
-    assert "--deployment" in repair
-    assert "'docker'" in repair
+    assert "'--deployment'\n            'docker'" in repair
     assert "Select-Object -First 1" in start
     assert "Select-Object -First 1" in repair
     assert "-TimeoutMilliseconds 30000" in repair

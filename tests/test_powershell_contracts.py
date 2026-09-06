@@ -372,6 +372,10 @@ class PowerShellContractTests(unittest.TestCase):
                     timeout=30,
                     check=False,
                 )
+                self.assertTrue(
+                    docker_log.is_file(),
+                    result.stdout + result.stderr,
+                )
                 docker_calls = tuple(
                     tuple(line.split("\x1f"))
                     for line in docker_log.read_text(encoding="utf-8").splitlines()

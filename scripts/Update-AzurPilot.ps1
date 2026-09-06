@@ -1820,7 +1820,7 @@ function Invoke-ProductionPostgreSqlSchemaUpgrade {
         'Остановите AzurPilot. Проверенный внешний дамп: {0}. ' +
         'Запустите совместимый PostgreSQL на именованном target volume и восстановите этот logical dump через pg_restore; ' +
         'не копируйте dump или raw PGDATA в каталог PGDATA. ' +
-        'затем повторите проверку Docker Compose, marker, schema head и app health.'
+        'Затем повторите проверку Docker Compose, marker, schema head и app health.'
     ) -f $BackupPath
     Invoke-PostgreSqlOperation -Arguments @('upgrade') -Operation 'Alembic upgrade применён от имени migrator' -FailureGuidance $guidance
     Invoke-PostgreSqlOperation -Arguments @('health') -Operation 'schema head и доступ app-роли проверены' -FailureGuidance $guidance
