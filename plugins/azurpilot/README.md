@@ -39,8 +39,27 @@ credentials — вне него. Сначала проверь
 
 ```text
 uv run --locked --no-sync python -m module.dev_mcp.remote doctor
-uv run --locked --no-sync python -m module.dev_mcp.remote
 uv run --locked --no-sync python -m module.game_mcp.remote doctor
+```
+
+Для ручного запуска backend используй отдельный persistent terminal/service
+для каждого процесса:
+
+```text
+uv run --locked --no-sync python -m module.dev_mcp.remote serve
+```
+
+```text
+uv run --locked --no-sync python -m module.game_mcp.remote serve
+```
+
+Обе команды блокируют свой terminal. В текущем Windows deployment host-side
+Dev/Game MCP уже принадлежат scheduled supervisor, поэтому второй экземпляр
+запускать не нужно.
+
+После готовности host-side owner выполни Compose-проверки в отдельном terminal:
+
+```text
 docker compose --env-file .env --file infrastructure/observability/compose.yaml --profile remote-ingress config --quiet
 docker compose --env-file .env --file infrastructure/observability/compose.yaml --profile remote-ingress up --detach --wait caddy
 docker compose --env-file .env --file infrastructure/observability/compose.yaml --profile remote-ingress exec caddy caddy validate

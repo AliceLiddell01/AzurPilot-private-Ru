@@ -472,12 +472,26 @@ AZURPILOT_DEV_MCP_PUBLIC_URL=https://<public-host>/mcp
 AZURPILOT_GAME_MCP_PUBLIC_URL=https://game.<public-host>/mcp
 ```
 
-Запусти host-side backends отдельно и затем включи Caddy profile:
+Проверь конфигурацию host-side backends:
 
 ```text
 uv run --locked --no-sync python -m module.dev_mcp.remote doctor
-uv run --locked --no-sync python -m module.dev_mcp.remote
 uv run --locked --no-sync python -m module.game_mcp.remote doctor
+```
+
+Для ручного запуска backend выполни `serve` в отдельных persistent terminals
+или services: обе команды блокируют текущий terminal. В текущем Windows
+deployment эти процессы уже принадлежат scheduled supervisor, поэтому при его
+работе не запускай второй экземпляр.
+
+```text
+uv run --locked --no-sync python -m module.dev_mcp.remote serve
+uv run --locked --no-sync python -m module.game_mcp.remote serve
+```
+
+После готовности host-side owner включи Caddy profile из отдельного terminal:
+
+```text
 docker compose --env-file .env --file infrastructure/observability/compose.yaml --profile remote-ingress config --quiet
 docker compose --env-file .env --file infrastructure/observability/compose.yaml --profile remote-ingress up --detach --wait caddy
 docker compose --env-file .env --file infrastructure/observability/compose.yaml --profile remote-ingress exec caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
