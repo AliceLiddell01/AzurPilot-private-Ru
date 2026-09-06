@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import threading
 import time
 from collections.abc import Iterator, Mapping
@@ -12,7 +13,7 @@ from dataclasses import dataclass
 from types import TracebackType
 from typing import Any, Self
 
-from module.logging_core import sanitize_log_text
+from module.logging_core import is_sensitive_name, sanitize_log_text
 from module.observability._shared import (
     _OUTCOMES,
     _bounded_exception_stacktrace,
@@ -33,6 +34,10 @@ _SCREENSHOT_OPERATION_NAME = "azurpilot.device.screenshot"
 _MAX_OPERATION_ATTRIBUTES = 8
 _MAX_OPERATION_ATTRIBUTE_KEY = 64
 _MAX_OPERATION_ATTRIBUTE_VALUE = 256
+_OPERATION_NAME_RE = re.compile(
+    r"[a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*)+",
+    re.ASCII,
+)
 
 _runtime_lock = threading.RLock()
 _active_runtime: TracingRuntime | None = None
@@ -79,7 +84,11 @@ def _safe_operation_name(value: object) -> str | None:
         value = value.strip()
     except Exception:
         return None
-    if not value or len(value) > _MAX_OPERATION_ATTRIBUTE_KEY:
+    if (
+        not value
+        or len(value) > _MAX_OPERATION_ATTRIBUTE_KEY
+        or _OPERATION_NAME_RE.fullmatch(value) is None
+    ):
         return None
     return value
 
@@ -106,6 +115,9 @@ def _safe_operation_attributes(
                 for char in normalized_key
             )
         ):
+            continue
+        if is_sensitive_name(normalized_key):
+            attributes[normalized_key] = "***"
             continue
         if isinstance(item, (bool, int, float)):
             attributes[normalized_key] = item

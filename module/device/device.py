@@ -278,10 +278,10 @@ class Device(Screenshot, Control, AppControl, Input):
 
     def screenshot(self):
         """
-        截取屏幕截图，包含卡死检测和夜间委托处理。
+        Сделать снимок экрана с проверкой зависания и ночной комиссией.
 
         Returns:
-            截图图像，numpy 数组格式。
+            Изображение экрана в формате массива numpy.
         """
         from module.observability.tracing import trace_operation
 

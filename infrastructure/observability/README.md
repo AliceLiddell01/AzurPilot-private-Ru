@@ -370,11 +370,14 @@ WebUI, gameplay или остальные signals. Logs получают correla
 OTel context через штатный logging bridge: `trace_id` и `span_id` доступны в
 структурированном log record и не становятся Loki index labels.
 
-В span attributes, log body и exception events не передаются raw OCR/UI data,
-абсолютные пути, credentials, токены, cookies или необработанные exception
-objects. Ошибки записываются только в bounded sanitized форме. Trace IDs не
-используются как metric labels; связь metric exemplar с активным span зависит
-от фактически поддержанного SDK reader и проверяется измерением.
+Новая tracing-инструментация не добавляет raw OCR/UI data в span names,
+span attributes или exception events. Абсолютные пути, credentials, токены,
+cookies и необработанные exception objects в trace payload не передаются;
+ошибки записываются только в bounded sanitized форме. Это не изменяет
+существующую локальную OCR-диагностику: при `SHOW_LOG` её debug-сообщение
+может содержать распознанный результат и не является частью tracing payload.
+Trace IDs не используются как metric labels; связь metric exemplar с активным
+span зависит от фактически поддержанного SDK reader и проверяется измерением.
 
 Проверка локального пути выполняется через существующий Compose project:
 `docker compose --env-file ../../.env config --quiet` и `ps` должны быть

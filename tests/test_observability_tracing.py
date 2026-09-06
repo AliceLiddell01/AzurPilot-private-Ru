@@ -743,6 +743,83 @@ def test_nested_child_restores_parent_context_and_bounds_attributes(monkeypatch)
         shutdown_application_observability(target)
 
 
+@pytest.mark.parametrize("key", ("token", "password", "authorization"))
+def test_sensitive_operation_attributes_are_redacted(monkeypatch, key):
+    _enable_traces(monkeypatch)
+    target = _new_logger(f"observability-trace-sensitive-{key}")
+    exporter = InMemorySpanExporter()
+    try:
+        assert configure_application_observability(
+            target,
+            _traces_exporter_factory=lambda _timeout: exporter,
+        )
+        with scheduler_task_run(
+            profile="profile-a",
+            task=_task(),
+            registry=("Research",),
+        ) as task:
+            with trace_operation(
+                "azurpilot.ui.wait",
+                attributes={key: "raw-secret"},
+            ):
+                pass
+            task.finish(True)
+        assert shutdown_application_observability(target, timeout_millis=3000)
+        child = next(
+            span
+            for span in exporter.get_finished_spans()
+            if span.name == "azurpilot.ui.wait"
+        )
+        assert child.attributes[key] == "***"
+        assert "raw-secret" not in repr(child.attributes)
+        assert "raw-secret" not in repr(child.events)
+    finally:
+        shutdown_application_observability(target)
+
+
+def test_operation_name_requires_bounded_technical_namespace(monkeypatch):
+    _enable_traces(monkeypatch)
+    target = _new_logger("observability-trace-operation-name-contract")
+    exporter = InMemorySpanExporter()
+    valid_names = (
+        "azurpilot.device.screenshot",
+        "azurpilot.ocr.process",
+        "azurpilot.ui.wait",
+    )
+    invalid_names = (
+        "x" * 65,
+        "azurpilot.ui.wait/C:\\Users\\KykLa\\secret.txt",
+        "OCR result: Лексингтон",
+        "azurpilot.ui.wait\nraw-ui-text",
+    )
+    try:
+        assert configure_application_observability(
+            target,
+            _traces_exporter_factory=lambda _timeout: exporter,
+        )
+        with scheduler_task_run(
+            profile="profile-a",
+            task=_task(),
+            registry=("Research",),
+        ) as task:
+            for name in valid_names:
+                with trace_operation(name) as child:
+                    assert child is not None
+            for name in invalid_names:
+                with trace_operation(name) as child:
+                    assert child is None
+            task.finish(True)
+        assert shutdown_application_observability(target, timeout_millis=3000)
+        children = [
+            span
+            for span in exporter.get_finished_spans()
+            if span.name != "azurpilot.task.run"
+        ]
+        assert [span.name for span in children] == list(valid_names)
+    finally:
+        shutdown_application_observability(target)
+
+
 def test_screenshot_spans_leave_budget_for_other_operations(monkeypatch):
     _enable_traces(monkeypatch)
     target = _new_logger("observability-trace-screenshot-budget")
