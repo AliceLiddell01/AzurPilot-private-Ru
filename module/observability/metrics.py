@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import math
 import os
-import re
 import threading
 import time
 from collections.abc import Callable, Iterable, Mapping
@@ -13,8 +12,13 @@ from dataclasses import dataclass
 from types import TracebackType
 from typing import Any, Self
 
-from module.config.profile import profile_identity_from_filename
-from module.logging_context import CONTEXT_VALUE_LIMIT
+from module.observability._shared import (
+    _OUTCOMES,
+    _metric_label,
+    _outcome_from_exception,
+    _outcome_from_result,
+    _profile_label,
+)
 
 _METRIC_SCOPE_NAME = "azurpilot.observability"
 _TASK_RUN_NAME = "azurpilot.task.run"
@@ -22,10 +26,6 @@ _TASK_DURATION_NAME = "azurpilot.task.duration"
 _TASK_RUN_UNIT = "{run}"
 _TASK_DURATION_UNIT = "s"
 _MIN_DURATION_SECONDS = 1e-9
-_METRIC_LABEL_LIMIT = 64
-_METRIC_LABEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
-_OUTCOMES = frozenset({"success", "recoverable", "failure", "stopped", "unknown"})
-
 _runtime_lock = threading.RLock()
 _active_runtime: MetricsRuntime | None = None
 _task_depth: ContextVar[int] = ContextVar("azurpilot_metrics_task_depth", default=0)
@@ -50,36 +50,6 @@ class _CanonicalTaskIdentity:
     """Проверенная identity задачи из внешнего scheduler registry."""
 
     name: str
-
-
-def _metric_label(value: object) -> str:
-    """Оставить только bounded ASCII task label или вернуть sentinel."""
-    if not isinstance(value, str):
-        return "unknown"
-    try:
-        value = value.strip()
-        if not value or len(value) > _METRIC_LABEL_LIMIT:
-            return "unknown"
-        if _METRIC_LABEL_RE.fullmatch(value) is None:
-            return "unknown"
-    except Exception:
-        return "unknown"
-    return value
-
-
-def _profile_label(value: object) -> str:
-    """Сохранить canonical profile identity без task-only ASCII ограничения."""
-    if not isinstance(value, str):
-        return "unknown"
-    try:
-        normalized = value.strip()
-        if not normalized or len(normalized) > CONTEXT_VALUE_LIMIT:
-            return "unknown"
-        if profile_identity_from_filename(f"{normalized}.json") is None:
-            return "unknown"
-    except Exception:
-        return "unknown"
-    return normalized
 
 
 def _canonical_task_identity(
@@ -134,38 +104,6 @@ def _duration_seconds(value: object) -> float:
     if not math.isfinite(duration) or duration <= 0:
         return _MIN_DURATION_SECONDS
     return duration
-
-
-def _outcome_from_result(result: object) -> str:
-    if result is True:
-        return "success"
-    if result is False:
-        return "failure"
-    if isinstance(result, str):
-        try:
-            if result == "recoverable":
-                return "recoverable"
-        except Exception:
-            return "unknown"
-    return "unknown"
-
-
-def _outcome_from_exception(exception: BaseException) -> str:
-    try:
-        from module.config.config import TaskEnd
-
-        if isinstance(exception, TaskEnd):
-            return "stopped"
-    except Exception:
-        pass
-    if isinstance(exception, KeyboardInterrupt):
-        return "stopped"
-    if isinstance(exception, SystemExit):
-        try:
-            return "stopped" if exception.code is None or exception.code == 0 else "failure"
-        except Exception:
-            return "failure"
-    return "failure"
 
 
 @dataclass

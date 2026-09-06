@@ -31,7 +31,11 @@ class SchedulerTaskRun:
 
     def __enter__(self) -> Self:
         self._metrics.__enter__()
-        self._tracing.__enter__()
+        try:
+            self._tracing.__enter__()
+        except BaseException as exc:
+            self._metrics.__exit__(type(exc), exc, exc.__traceback__)
+            raise
         return self
 
     def finish(self, result: object) -> None:
@@ -46,7 +50,7 @@ class SchedulerTaskRun:
     ) -> bool:
         metrics_result = False
         try:
-            # Metrics are recorded while the root span is still current.
+            # Метрики записываются, пока корневой span ещё остаётся текущим.
             metrics_result = self._metrics.__exit__(
                 exception_type,
                 exception,

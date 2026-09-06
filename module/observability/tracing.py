@@ -13,17 +13,23 @@ from types import TracebackType
 from typing import Any, Self
 
 from module.logging_core import sanitize_log_text
-from module.observability.metrics import (
+from module.observability._shared import (
+    _OUTCOMES,
+    _bounded_exception_stacktrace,
+    _exception_type_name,
+    _format_exception_chain,
     _metric_label,
     _outcome_from_exception,
     _outcome_from_result,
     _profile_label,
+    _safe_exception_message,
 )
 
 _TRACE_SCOPE_NAME = "azurpilot.observability"
 _TASK_SPAN_NAME = "azurpilot.task.run"
-_OUTCOMES = frozenset({"success", "recoverable", "failure", "stopped", "unknown"})
 _MAX_CHILD_SPANS_PER_TASK = 128
+_MAX_SCREENSHOT_SPANS_PER_TASK = 64
+_SCREENSHOT_OPERATION_NAME = "azurpilot.device.screenshot"
 _MAX_OPERATION_ATTRIBUTES = 8
 _MAX_OPERATION_ATTRIBUTE_KEY = 64
 _MAX_OPERATION_ATTRIBUTE_VALUE = 256
@@ -37,6 +43,10 @@ _task_outcome: ContextVar[str | None] = ContextVar(
 )
 _child_span_count: ContextVar[int] = ContextVar(
     "azurpilot_tracing_child_span_count",
+    default=0,
+)
+_screenshot_span_count: ContextVar[int] = ContextVar(
+    "azurpilot_tracing_screenshot_span_count",
     default=0,
 )
 
@@ -122,13 +132,6 @@ def _record_sanitized_exception(
 ) -> None:
     """Записать bounded exception event через уже существующую policy logs."""
     try:
-        from module.observability.bootstrap import (
-            _bounded_exception_stacktrace,
-            _exception_type_name,
-            _format_exception_chain,
-            _safe_exception_message,
-        )
-
         type_name = _exception_type_name(type(exception), exception)
         message = _safe_exception_message(exception)
         stacktrace = _bounded_exception_stacktrace(
@@ -263,6 +266,7 @@ def reset_tracing_runtime_after_fork() -> None:
     _task_depth.set(0)
     _task_outcome.set(None)
     _child_span_count.set(0)
+    _screenshot_span_count.set(0)
     if runtime is not None:
         runtime.after_fork()
 
@@ -328,12 +332,16 @@ def build_tracing_runtime(
                 provider.shutdown()
             except Exception:
                 pass
-        elif processor is not None and not processor_added:
+        if processor is not None and not processor_added:
             try:
                 processor.shutdown()
             except Exception:
-                pass
-        elif exporter is not None:
+                if exporter is not None:
+                    try:
+                        exporter.shutdown()
+                    except Exception:
+                        pass
+        elif exporter is not None and processor is None:
             try:
                 exporter.shutdown()
             except Exception:
@@ -353,6 +361,7 @@ class TraceTaskRun:
         self._depth_token: Any = None
         self._outcome_token: Any = None
         self._child_count_token: Any = None
+        self._screenshot_count_token: Any = None
         self._nested = False
         self._finished = False
         self._result_outcome: str | None = None
@@ -368,6 +377,7 @@ class TraceTaskRun:
         self._depth_token = _task_depth.set(1)
         self._outcome_token = _task_outcome.set(None)
         self._child_count_token = _child_span_count.set(0)
+        self._screenshot_count_token = _screenshot_span_count.set(0)
         try:
             self._span_context = runtime.tracer.start_as_current_span(
                 _TASK_SPAN_NAME,
@@ -390,6 +400,8 @@ class TraceTaskRun:
             self._runtime = None
             if self._child_count_token is not None:
                 _child_span_count.reset(self._child_count_token)
+            if self._screenshot_count_token is not None:
+                _screenshot_span_count.reset(self._screenshot_count_token)
             if self._outcome_token is not None:
                 _task_outcome.reset(self._outcome_token)
             if self._depth_token is not None:
@@ -434,7 +446,7 @@ class TraceTaskRun:
         finally:
             if self._span_context is not None:
                 try:
-                    # Raw exception recording is deliberately disabled above.
+                    # Запись необработанного исключения намеренно отключена выше.
                     self._span_context.__exit__(None, None, None)
                 except Exception as exc:
                     _report(
@@ -444,6 +456,8 @@ class TraceTaskRun:
                     )
             if self._child_count_token is not None:
                 _child_span_count.reset(self._child_count_token)
+            if self._screenshot_count_token is not None:
+                _screenshot_span_count.reset(self._screenshot_count_token)
             if self._outcome_token is not None:
                 _task_outcome.reset(self._outcome_token)
             if self._depth_token is not None:
@@ -471,11 +485,16 @@ def trace_operation(
     """Создать bounded child span только внутри canonical task root."""
     runtime = get_active_tracing_runtime()
     operation_name = _safe_operation_name(name)
+    screenshot_budget_exhausted = (
+        operation_name == _SCREENSHOT_OPERATION_NAME
+        and _screenshot_span_count.get() >= _MAX_SCREENSHOT_SPANS_PER_TASK
+    )
     if (
         runtime is None
         or _task_depth.get() <= 0
         or operation_name is None
         or _child_span_count.get() >= _MAX_CHILD_SPANS_PER_TASK
+        or screenshot_budget_exhausted
     ):
         yield None
         return
@@ -498,6 +517,8 @@ def trace_operation(
         return
 
     _child_span_count.set(_child_span_count.get() + 1)
+    if operation_name == _SCREENSHOT_OPERATION_NAME:
+        _screenshot_span_count.set(_screenshot_span_count.get() + 1)
     try:
         try:
             yield span
