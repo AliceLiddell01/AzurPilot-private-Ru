@@ -441,6 +441,44 @@ Loki derived field по label/structured-metadata key `trace_id` открыва�
 индексными labels Loki; это сохраняет bounded label cardinality и оставляет
 корреляцию декларативной в Grafana.
 
+## Операторский UX Grafana
+
+Grafana `13.2.1` получает постоянное состояние только из репозитория:
+`grafana/provisioning/dashboards/providers.yaml` подключает JSON dashboards из
+`grafana/dashboards/`, а `grafana/provisioning/alerting/alert-rules.yaml`
+подключает generic alert rules. Dashboard provider запрещает UI updates и не
+удаляет dashboard при временном отсутствии файла; ручное состояние volume не
+является источником истины.
+
+`AzurPilot Overview` содержит task runs, отдельные success / failure /
+recoverable / stopped counters, success rate, достоверный `prometheus_ready`, outcome
+breakdown, p50/p95 task duration, разбивку по profile/task/outcome, последние
+ошибки Loki, последние traces и текущие alerts. `AzurPilot Errors / Incidents`
+содержит bounded error log view, ошибочные и медленные traces, а также
+доступные `azurpilot.device.screenshot` / `azurpilot.ocr.process` spans. В
+Grafana не добавляется выдуманный общий runtime-health signal: для Prometheus
+показывается только его собственный `prometheus_ready`, а недоступность
+остальных backend-ов определяется по фактической ошибке datasource/query.
+
+Alerts ограничены двумя источниками с достоверным контрактом: ненулевой
+поток failure task за 15 минут и p95 task duration выше пяти минут. Нет
+отдельного alert «нет запусков», потому что scheduler не публикует
+authoritative expected-run schedule; alert не привязан к конкретному
+profile/task/event.
+
+Exemplars не используются как workaround. Для текущей цепочки
+OTel → Alloy → Prometheus remote-write проверяется именно наличие application
+exemplar в Prometheus TSDB; текущий synthetic check не обнаружил exemplars для
+`azurpilot_task_run_total`. `trace_id` не добавляется в metric labels, поэтому
+связь metrics с traces выполняется только через Grafana correlations Loki/Tempo
+и TraceQL, без ложного обещания clickable exemplar.
+
+После изменения provisioning нужно перезапустить Grafana или выполнить
+поддержанный Admin API reload, затем автоматически проверить dashboard UIDs,
+alert provenance, datasource UID и каждую panel query через Grafana API.
+Чистый `docker compose down` без удаления named volumes и последующий `up`
+должны восстановить тот же operator UX.
+
 Исторические `log/`-артефакты не импортируются и не удаляются. `log/error/`
 остаётся локальным incident store со скриншотами и `log.txt`, диагностические и
 архивные каталоги сохраняются, CSV/JSON относятся к data/export или legacy
