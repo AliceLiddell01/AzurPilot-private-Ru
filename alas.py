@@ -814,41 +814,57 @@ class AzurLaneAutoScript:
 
     def keep_last_errlog(self, folder_path, n: int = 30):
         """
-        清理旧的错误日志文件夹，只保留最近的 n 个。
+        Очистить старые каталоги ошибок и оставить последние ``n`` каталогов.
 
         Args:
-            folder_path (str): 错误日志根目录路径。
-            n (int): 保留的文件夹数量，<=0 时不清理。
+            folder_path (str): корень каталогов ошибок.
+            n (int): количество сохраняемых каталогов; при ``n <= 0`` очистка не выполняется.
         """
         if n <= 0:
             return
-        folders = [
-            os.path.join(folder_path, f)
-            for f in os.listdir(folder_path)
-            if os.path.isdir(os.path.join(folder_path, f))
-        ]
+        folders = sorted(
+            [
+                os.path.join(folder_path, f)
+                for f in os.listdir(folder_path)
+                if os.path.isdir(os.path.join(folder_path, f))
+            ],
+            key=lambda folder: tuple(
+                (0, int(part)) if part.isdigit() else (1, part.casefold())
+                for part in re.split(r"(\d+)", os.path.basename(folder))
+            ),
+        )
         for folder in folders[:-n]:
             shutil.rmtree(folder)
 
     def save_error_log(self):
         """
-        保存错误现场：最近截图和日志文件到 ./log/error/<config-name>/<timestamp>/。
+        Сохранить incident: последние снимки, журнал и metadata в ``log/error``.
 
-        同时触发 LLM 错误分析（如果启用）。
+        При включённой настройке также запустить LLM-анализ ошибки.
         """
         import pathlib
-        from module.base.utils import save_image
-        from module.handler.sensitive_info import (handle_sensitive_image,
-                                                   handle_sensitive_logs)
+        import sys
 
-        # LLM 错误分析放在最前面，避免后续截图保存时二次崩溃导致分析未执行
+        from module.base.utils import save_image
+        from module.handler.sensitive_info import (
+            handle_sensitive_image,
+            handle_sensitive_logs,
+        )
+        from module.observability.incident import (
+            build_incident_metadata,
+            create_incident_directory,
+            write_incident_metadata,
+        )
+
+        current_exception = sys.exc_info()[1]
+
+        # LLM-анализ выполняется первым, чтобы последующий сбой сохранения снимка
+        # не лишил ошибку уже запрошенного анализа.
         try:
             if hasattr(self, 'config') and getattr(self.config, 'Error_LlmAnalysis', False):
                 from module.llm import analyze_exception
-                import sys
-                _, exc_value, _ = sys.exc_info()
-                if exc_value is not None:
-                    analyze_exception(self.config, exc_value)
+                if current_exception is not None:
+                    analyze_exception(self.config, current_exception)
         except Exception as e:
             logger.exception_context(
                 title='Не удалось выполнить LLM-анализ ошибки',
@@ -859,13 +875,31 @@ class AzurLaneAutoScript:
             )
 
         if getattr(self.config, 'Error_SaveError', False):
-            config_folder = pathlib.Path(f"./log/error/{self.config_name}")
-            folder = config_folder.joinpath(str(int(time.time() * 1000)))
-            folder.mkdir(parents=True, exist_ok=True)
-            logger.warning(f'[Alas] Сохранение журнала ошибки: {folder}')
+            try:
+                folder, incident_time = create_incident_directory(
+                    pathlib.Path('./log/error'),
+                    profile=self.config_name,
+                    exception=current_exception,
+                )
+                config_folder = folder.parent
+                logger.warning(f'[Alas] Сохранение журнала ошибки: {folder}')
+            except Exception as e:
+                logger.error(f'[Alas] Не удалось создать каталог incident-а: {e}')
+                return
 
             try:
-                # 只在已经初始化了设备时才尝试保存截图，避免按需初始化时二次崩溃
+                metadata = build_incident_metadata(
+                    profile=self.config_name,
+                    exception=current_exception,
+                    timestamp=incident_time,
+                )
+                write_incident_metadata(folder, metadata)
+            except Exception as e:
+                logger.error(f'[Alas] Не удалось сохранить metadata incident-а: {e}')
+
+            try:
+                # Сохранять снимки только после инициализации устройства, чтобы
+                # не запустить повторный сбой при диагностике ошибки.
                 if 'device' in self.__dict__:
                     for data in self.device.screenshot_deque:
                         image_time = datetime.strftime(data['time'], '%Y-%m-%d_%H-%M-%S-%f')
@@ -889,7 +923,13 @@ class AzurLaneAutoScript:
             except Exception as e:
                 logger.error(f"[Alas] Не удалось сохранить журнал ошибки: {e}")
 
-            self.keep_last_errlog(config_folder, getattr(self.config, 'Error_SaveErrorCount', 0))
+            try:
+                self.keep_last_errlog(
+                    config_folder,
+                    getattr(self.config, 'Error_SaveErrorCount', 0),
+                )
+            except Exception as e:
+                logger.error(f'[Alas] Не удалось очистить старые incidents: {e}')
 
     def restart(self):
         from module.handler.login import LoginHandler

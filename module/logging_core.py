@@ -42,6 +42,34 @@ _SENSITIVE_ASSIGNMENT_RE = re.compile(
 _ANSI_ESCAPE_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
 _UNSAFE_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
 _BIDI_CONTROL_RE = re.compile(r"[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]")
+_PATH_COMPONENT = r'''[^\\/\s"'<>|,;:!?()\[\]{}]+'''
+_PATH_WITH_SPACES_FRAGMENT = r'''[^"'<>|,;:!?()\[\]{}\r\n]*?'''
+_PATH_FILE_EXTENSION = r'''\.[A-Za-z0-9]{1,32}'''
+_PATH_END = r'''(?=$|[\s,;:!?()\[\]{}<>"'])'''
+_WINDOWS_ABSOLUTE_PATH_WITH_SPACES_RE = re.compile(
+    rf"(?<![A-Za-z0-9_/:?])[A-Za-z]:[\\/]"
+    rf"{_PATH_WITH_SPACES_FRAGMENT}{_PATH_FILE_EXTENSION}{_PATH_END}",
+    re.IGNORECASE,
+)
+_WINDOWS_ABSOLUTE_PATH_RE = re.compile(
+    rf"(?<![A-Za-z0-9_/:?])[A-Za-z]:[\\/](?:{_PATH_COMPONENT}[\\/])*{_PATH_COMPONENT}",
+    re.IGNORECASE,
+)
+_UNC_ABSOLUTE_PATH_WITH_SPACES_RE = re.compile(
+    rf"""(?<![A-Za-z0-9_/:?])\\\\(?=[^\"'<>|,;:!?()\[\]{{}}\r\n]*\\)"""
+    rf"{_PATH_WITH_SPACES_FRAGMENT}{_PATH_FILE_EXTENSION}{_PATH_END}",
+)
+_UNC_ABSOLUTE_PATH_RE = re.compile(
+    rf"(?<![A-Za-z0-9_/:?])\\\\{_PATH_COMPONENT}(?:\\{_PATH_COMPONENT})+",
+)
+_POSIX_ABSOLUTE_PATH_WITH_SPACES_RE = re.compile(
+    rf"""(?<![/:A-Za-z0-9_<])/(?=[^\"'<>|,;:!?()\[\]{{}}\r\n]*?/)"""
+    rf"{_PATH_WITH_SPACES_FRAGMENT}{_PATH_FILE_EXTENSION}{_PATH_END}"
+)
+_POSIX_ABSOLUTE_PATH_RE = re.compile(
+    rf"(?<![/:A-Za-z0-9_<])/(?:{_PATH_COMPONENT}/)*{_PATH_COMPONENT}",
+)
+_ABSOLUTE_PATH_PLACEHOLDER = "<ABSOLUTE_PATH>"
 
 
 def _build_traceback_path_aliases():
@@ -64,7 +92,7 @@ _TRACEBACK_PATH_ALIASES = _build_traceback_path_aliases()
 
 
 def sanitize_traceback_text(value) -> str:
-    """Скрыть типовые секреты, локальные пути и управляющие последовательности."""
+    """Скрыть секреты, абсолютные пути и управляющие последовательности."""
     try:
         text = str("" if value is None else value)
     except Exception:
@@ -77,6 +105,15 @@ def sanitize_traceback_text(value) -> str:
     text = _SENSITIVE_ASSIGNMENT_RE.sub(r"\1\2***", text)
     for path_pattern, alias in _TRACEBACK_PATH_ALIASES:
         text = path_pattern.sub(alias, text)
+    for path_pattern in (
+        _WINDOWS_ABSOLUTE_PATH_WITH_SPACES_RE,
+        _UNC_ABSOLUTE_PATH_WITH_SPACES_RE,
+        _POSIX_ABSOLUTE_PATH_WITH_SPACES_RE,
+        _WINDOWS_ABSOLUTE_PATH_RE,
+        _UNC_ABSOLUTE_PATH_RE,
+        _POSIX_ABSOLUTE_PATH_RE,
+    ):
+        text = path_pattern.sub(_ABSOLUTE_PATH_PLACEHOLDER, text)
     return text
 
 

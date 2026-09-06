@@ -68,6 +68,14 @@ class TracingConfig:
     processor_timeout_millis: int
 
 
+@dataclass(frozen=True, slots=True)
+class TraceCorrelation:
+    """Сериализуемый correlation context активного OTel span."""
+
+    trace_id: str
+    span_id: str
+
+
 def _report(
     reporter: Any, message: str, exception: BaseException | None = None
 ) -> None:
@@ -303,6 +311,26 @@ def get_active_tracing_runtime() -> TracingRuntime | None:
     if runtime is None or not runtime.active or runtime.owner_pid != os.getpid():
         return None
     return runtime
+
+
+def get_current_trace_context() -> TraceCorrelation | None:
+    """Безопасно прочитать валидные IDs текущего span без создания нового span."""
+    try:
+        from opentelemetry import trace
+
+        context = trace.get_current_span().get_span_context()
+        if not context.is_valid:
+            return None
+        trace_id = getattr(context, "trace_id", None)
+        span_id = getattr(context, "span_id", None)
+        if not isinstance(trace_id, int) or not isinstance(span_id, int):
+            return None
+        return TraceCorrelation(
+            trace_id=f"{trace_id:032x}",
+            span_id=f"{span_id:016x}",
+        )
+    except Exception:
+        return None
 
 
 def build_tracing_runtime(
@@ -571,6 +599,7 @@ def trace_operation(
 
 
 __all__ = (
+    "TraceCorrelation",
     "TraceTaskRun",
     "TracingConfig",
     "TracingRuntime",
@@ -578,6 +607,7 @@ __all__ = (
     "build_tracing_runtime",
     "deactivate_tracing_runtime",
     "get_active_tracing_runtime",
+    "get_current_trace_context",
     "mark_task_stopped",
     "reset_tracing_runtime_after_fork",
     "scheduler_task_span",

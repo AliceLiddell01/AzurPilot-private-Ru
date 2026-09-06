@@ -6,7 +6,6 @@ import re
 import traceback
 
 from module.config.profile import profile_identity_from_filename
-from module.logging_context import CONTEXT_VALUE_LIMIT
 from module.logging_core import sanitize_log_text, sanitize_traceback_text
 
 _METRIC_LABEL_LIMIT = 64
@@ -39,14 +38,11 @@ def _profile_label(value: object) -> str:
     if not isinstance(value, str):
         return "unknown"
     try:
-        normalized = value.strip()
-        if not normalized or len(normalized) > CONTEXT_VALUE_LIMIT:
-            return "unknown"
-        if profile_identity_from_filename(f"{normalized}.json") is None:
+        if profile_identity_from_filename(f"{value}.json") is None:
             return "unknown"
     except Exception:
         return "unknown"
-    return normalized
+    return value
 
 
 def _outcome_from_result(result: object) -> str:

@@ -422,6 +422,25 @@ span зависит от фактически поддержанного SDK rea
 успешны, приложение отправляет OTLP только на loopback Alloy, а запросы к
 Loki, Prometheus и Tempo выполняются из соответствующего Compose network.
 
+## Корреляция incidents
+
+При `Error_SaveError=true` scheduler сохраняет локальный incident bundle в
+`log/error/<canonical-profile>/`. Новый каталог получает UTC timestamp,
+безопасный тип исключения и collision-safe суффикс. Внутри остаются прежние
+локальные `log.txt` и снимки, а `incident.json` содержит только версию схемы,
+UTC timestamp, canonical profile/task, bounded exception type и текущие
+валидные OTel `trace_id`/`span_id`; при отключённом tracing оба ID равны `null`.
+Сообщение исключения, stacktrace, raw exception object и снимки в telemetry или
+`incident.json` не копируются. Сбой записи metadata не маскирует исходную
+ошибку; старые каталоги не мигрируются.
+
+Grafana provisioning связывает стабильные data source UID `loki` и `tempo`:
+Loki derived field по label/structured-metadata key `trace_id` открывает Tempo,
+а Tempo `tracesToLogsV2` ищет Loki по trace ID и сопоставляет
+`service.name` с Loki key `service_name`. `trace_id` и `span_id` не являются
+индексными labels Loki; это сохраняет bounded label cardinality и оставляет
+корреляцию декларативной в Grafana.
+
 Исторические `log/`-артефакты не импортируются и не удаляются. `log/error/`
 остаётся локальным incident store со скриншотами и `log.txt`, диагностические и
 архивные каталоги сохраняются, CSV/JSON относятся к data/export или legacy

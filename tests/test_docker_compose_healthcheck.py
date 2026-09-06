@@ -165,3 +165,40 @@ def test_pgadmin_is_loopback_only_and_preconfigured_for_postgres():
         "Shared": False,
         "Comment": "Локальный Docker PostgreSQL; application database выбирается отдельно.",
     }
+
+
+def test_grafana_datasources_provision_loki_tempo_incident_correlation():
+    datasource_path = (
+        ROOT
+        / "infrastructure/observability/grafana/provisioning/datasources/datasources.yaml"
+    )
+    data = yaml.safe_load(datasource_path.read_text(encoding="utf-8"))
+    datasources = {item["uid"]: item for item in data["datasources"]}
+
+    assert set(datasources) == {"prometheus", "loki", "tempo"}
+    loki = datasources["loki"]
+    derived_field = loki["jsonData"]["derivedFields"][0]
+    assert derived_field == {
+        "datasourceUid": "tempo",
+        "matcherRegex": "trace_id",
+        "matcherType": "label",
+        "name": "trace_id",
+        "url": "$${__value.raw}",
+        "urlDisplayLabel": "Открыть trace",
+    }
+
+    tempo = datasources["tempo"]
+    assert tempo["jsonData"]["tracesToLogsV2"] == {
+        "datasourceUid": "loki",
+        "filterBySpanID": False,
+        "filterByTraceID": True,
+        "spanEndTimeShift": "1m",
+        "spanStartTimeShift": "-1m",
+        "tags": [{"key": "service.name", "value": "service_name"}],
+    }
+
+    loki_config = (
+        ROOT / "infrastructure/observability/loki/config.yaml"
+    ).read_text(encoding="utf-8")
+    assert "trace_id" not in loki_config
+    assert "span_id" not in loki_config
