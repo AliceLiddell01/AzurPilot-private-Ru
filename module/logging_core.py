@@ -42,6 +42,29 @@ _SENSITIVE_ASSIGNMENT_RE = re.compile(
 _ANSI_ESCAPE_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
 _UNSAFE_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
 _BIDI_CONTROL_RE = re.compile(r"[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]")
+_ABSOLUTE_PATH_PLACEHOLDER = "<ABSOLUTE_PATH>"
+_PATH_HARD_BOUNDARY = frozenset(",;:!?()[]{}<>|\"'\r\n")
+_PATH_FIELD_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]*\s*[:=]")
+_PATH_URL_RE = re.compile(r"(?:https?|file)://", re.IGNORECASE)
+_FILE_URI_RE = re.compile(
+    r"""(?<![A-Za-z0-9+.-])file://[^\r\n\"'<>|]*?(?=$|[,\r\n\"'<>|]|\s+(?=[A-Za-z_][A-Za-z0-9_.-]*\s*[:=])|\s+(?=(?:https?|file)://))""",
+    re.IGNORECASE,
+)
+_WINDOWS_ABSOLUTE_PATH_START_RE = re.compile(
+    r"(?<![A-Za-z0-9_/:?])[A-Za-z]:[\\/]",
+    re.IGNORECASE,
+)
+_UNC_ABSOLUTE_PATH_START_RE = re.compile(
+    r"(?<![A-Za-z0-9_/:?])\\\\",
+)
+_POSIX_ABSOLUTE_PATH_START_RE = re.compile(
+    r"(?<![/:A-Za-z0-9_<])/",
+)
+_ABSOLUTE_PATH_STARTS = (
+    ("windows", _WINDOWS_ABSOLUTE_PATH_START_RE),
+    ("unc", _UNC_ABSOLUTE_PATH_START_RE),
+    ("posix", _POSIX_ABSOLUTE_PATH_START_RE),
+)
 
 
 def _build_traceback_path_aliases():
@@ -63,8 +86,72 @@ def _build_traceback_path_aliases():
 _TRACEBACK_PATH_ALIASES = _build_traceback_path_aliases()
 
 
+def _is_absolute_path_start(text: str, index: int) -> bool:
+    return any(pattern.match(text, index) for _, pattern in _ABSOLUTE_PATH_STARTS)
+
+
+def _path_continuation_is_boundary(text: str, index: int) -> bool:
+    probe = index
+    while probe < len(text) and text[probe] in " \t":
+        probe += 1
+    return (
+        probe != index
+        and (
+            probe >= len(text)
+            or _PATH_FIELD_RE.match(text, probe) is not None
+            or _PATH_URL_RE.match(text, probe) is not None
+            or _is_absolute_path_start(text, probe)
+        )
+    )
+
+
+def _consume_absolute_path(text: str, start: int, kind: str) -> int | None:
+    index = start
+    while index < len(text):
+        character = text[index]
+        if character in _PATH_HARD_BOUNDARY:
+            break
+        if character in " \t" and _path_continuation_is_boundary(text, index):
+            break
+        index += 1
+
+    end = index
+    while end > start and text[end - 1] in " \t":
+        end -= 1
+    if kind == "unc":
+        components = text[start:end].split("\\")
+        if len(components) < 2 or not all(component.strip() for component in components[:2]):
+            return None
+    return end
+
+
+def _redact_absolute_paths(text: str) -> str:
+    fragments: list[str] = []
+    cursor = 0
+    while cursor < len(text):
+        candidates = [
+            (match.start(), match.end(), kind)
+            for kind, pattern in _ABSOLUTE_PATH_STARTS
+            for match in [pattern.search(text, cursor)]
+            if match is not None
+        ]
+        if not candidates:
+            fragments.append(text[cursor:])
+            break
+        start, prefix_end, kind = min(candidates)
+        end = _consume_absolute_path(text, prefix_end, kind)
+        if end is None:
+            fragments.append(text[cursor:prefix_end])
+            cursor = prefix_end
+            continue
+        fragments.append(text[cursor:start])
+        fragments.append(_ABSOLUTE_PATH_PLACEHOLDER)
+        cursor = end
+    return "".join(fragments)
+
+
 def sanitize_traceback_text(value) -> str:
-    """Скрыть типовые секреты, локальные пути и управляющие последовательности."""
+    """Скрыть секреты, абсолютные пути и управляющие последовательности."""
     try:
         text = str("" if value is None else value)
     except Exception:
@@ -72,12 +159,13 @@ def sanitize_traceback_text(value) -> str:
     text = _ANSI_ESCAPE_RE.sub("", text)
     text = _UNSAFE_CONTROL_RE.sub("", text)
     text = _BIDI_CONTROL_RE.sub("", text)
+    text = _FILE_URI_RE.sub(_ABSOLUTE_PATH_PLACEHOLDER, text)
     text = _URL_USERINFO_RE.sub(r"\g<scheme>***@", text)
     text = _SENSITIVE_QUERY_RE.sub(r"\1***", text)
     text = _SENSITIVE_ASSIGNMENT_RE.sub(r"\1\2***", text)
     for path_pattern, alias in _TRACEBACK_PATH_ALIASES:
         text = path_pattern.sub(alias, text)
-    return text
+    return _redact_absolute_paths(text)
 
 
 def sanitize_log_text(value, limit: int = REMOTE_LOG_TEXT_LIMIT) -> str:
