@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -103,6 +103,11 @@ def test_wsl_backup_formats_rollback_restore_path(
     output = tmp_path / "backups" / "rollback.dump"
     calls: list[tuple[list[str], dict[str, str] | None]] = []
     monkeypatch.setenv("AZURPILOT_WSL_PGPASSFILE", "/etc/azurpilot/pgpass")
+    monkeypatch.setattr(
+        postgresql_runtime,
+        "_wsl_path",
+        lambda _path: "/mnt/c/temporary/rollback.dump",
+    )
 
     def run_hidden(
         arguments: list[str],
@@ -137,11 +142,18 @@ def test_wsl_backup_formats_rollback_restore_path(
     assert calls[1][0][0:4] == ["wsl.exe", "--distribution", "Archlinux", "--exec"]
     assert calls[0][0][calls[0][0].index("--username") + 1] == "azurpilot_migrator"
     assert calls[1][0][-2] == "--list"
-    assert calls[1][0][-1].startswith("/mnt/")
+    assert calls[1][0][-1] == "/mnt/c/temporary/rollback.dump"
     assert "temporary-wsl" not in calls[1][0][-1]
     assert calls[0][1] is not None
     assert calls[1][1] is calls[0][1]
     assert "PGPASSWORD" not in calls[0][1]
+
+
+def test_wsl_path_converts_windows_path():
+    assert (
+        postgresql_runtime._wsl_path(PureWindowsPath("C:/temporary/backup.dump"))
+        == "/mnt/c/temporary/backup.dump"
+    )
 
 
 def test_native_backup_does_not_fall_back_to_wsl(

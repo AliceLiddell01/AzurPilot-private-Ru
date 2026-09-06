@@ -268,11 +268,11 @@ def _backup(
                     environment=environment,
                 )
         else:
+            format_arguments = {"temporary": str(temporary)}
+            if transport == "wsl":
+                format_arguments["temporary_wsl"] = _wsl_path(temporary)
             restore_arguments = [
-                argument.format(
-                    temporary=str(temporary),
-                    temporary_wsl=_wsl_path(temporary),
-                )
+                argument.format(**format_arguments)
                 for argument in restore_arguments
             ]
             _run_hidden(restore_arguments, environment=environment)
