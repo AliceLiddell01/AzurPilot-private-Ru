@@ -70,7 +70,7 @@ class TracingConfig:
 
 @dataclass(frozen=True, slots=True)
 class TraceCorrelation:
-    """Сериализуемый correlation context активного OTel span."""
+    """Сериализуемый контекст корреляции активного OTel span."""
 
     trace_id: str
     span_id: str

@@ -1,4 +1,4 @@
-"""Регрессии локального incident store и application correlation contract."""
+"""Регрессии локального хранилища инцидентов и контракта корреляции приложения."""
 
 import json
 from datetime import UTC, datetime

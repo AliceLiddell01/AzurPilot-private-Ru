@@ -51,7 +51,7 @@
                 "value": null
               },
               {
-                "color": "red",
+                "color": "green",
                 "value": 1
               }
             ]
@@ -147,7 +147,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "100 * (sum(rate(azurpilot_task_run_total{azurpilot_task_outcome=\"success\"}[$__rate_interval])) or vector(0)) / clamp_min((sum(rate(azurpilot_task_run_total[$__rate_interval])) or vector(0)), 1e-9)",
+          "expr": "100 * (sum(rate(azurpilot_task_run_total{azurpilot_task_outcome=\"success\"}[$__rate_interval])) or vector(0)) / (sum(rate(azurpilot_task_run_total[$__rate_interval])) or vector(0))",
           "format": "time_series",
           "instant": true,
           "legendFormat": "Доля success",
@@ -177,7 +177,7 @@
                 "value": null
               },
               {
-                "color": "red",
+                "color": "green",
                 "value": 1
               }
             ]

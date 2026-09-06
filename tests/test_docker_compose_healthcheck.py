@@ -290,6 +290,7 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
     assert "azurpilot_task_duration_seconds_bucket" in overview_text
     assert "detected_level = \\\"error\\\"" in overview_text
     assert "with (most_recent=true)" in overview_text
+    assert "clamp_min" not in overview_text
 
     alerting_path = (
         ROOT

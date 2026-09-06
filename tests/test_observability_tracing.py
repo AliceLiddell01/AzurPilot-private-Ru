@@ -252,6 +252,46 @@ def test_scheduler_boundary_closes_metrics_when_tracing_enter_fails(monkeypatch)
     ]
 
 
+def test_scheduler_boundary_resets_task_context_when_tracing_exit_fails(monkeypatch):
+    class RecordingMetrics:
+        task_name = "Research"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    class FailingTracing:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            raise RuntimeError("trace exit failed")
+
+    monkeypatch.setattr(
+        scheduler_module,
+        "metrics_task_run",
+        lambda **_kwargs: RecordingMetrics(),
+    )
+    monkeypatch.setattr(
+        scheduler_module,
+        "scheduler_task_span",
+        lambda **_kwargs: FailingTracing(),
+    )
+
+    run = scheduler_module.scheduler_task_run(
+        profile="profile-a",
+        task=_task(),
+        registry=("Research",),
+    )
+    run.__enter__()
+    assert scheduler_module.get_current_task_name() == "Research"
+    with pytest.raises(RuntimeError, match="trace exit failed"):
+        run.__exit__(None, None, None)
+    assert scheduler_module.get_current_task_name() is None
+
+
 def test_trace_exporter_uses_standard_endpoint_precedence_without_duplicate_path(
     monkeypatch,
 ):

@@ -1,4 +1,4 @@
-"""Общая scheduler boundary для application metrics и tracing."""
+"""Общая граница scheduler для метрик и tracing."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ def get_current_task_name() -> str | None:
 
 
 class SchedulerTaskRun:
-    """Оркестрировать один task lifecycle и закрыть metrics до root span."""
+    """Оркестрировать жизненный цикл task и закрыть метрики до корневого span."""
 
     def __init__(
         self,
@@ -79,14 +79,16 @@ class SchedulerTaskRun:
                 traceback_object,
             )
         finally:
-            self._tracing.__exit__(
-                exception_type,
-                exception,
-                traceback_object,
-            )
-            if self._task_name_token is not None:
-                _current_task_name.reset(self._task_name_token)
-                self._task_name_token = None
+            try:
+                self._tracing.__exit__(
+                    exception_type,
+                    exception,
+                    traceback_object,
+                )
+            finally:
+                if self._task_name_token is not None:
+                    _current_task_name.reset(self._task_name_token)
+                    self._task_name_token = None
         return metrics_result
 
 
