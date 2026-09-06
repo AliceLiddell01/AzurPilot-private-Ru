@@ -85,6 +85,8 @@ def test_backup_is_verified_and_published_create_only(
     assert "PGPASSWORD" not in calls[0][1]
     assert calls[0][1]["PGPASSFILE"] == "C:/secure/pgpass.conf"
     assert calls[1][0][:2] == ["pg_restore", "--list"]
+    assert calls[1][1] is not None
+    assert "PGPASSWORD" not in calls[1][1]
     assert not tuple(output.parent.glob("*.tmp"))
 
     with pytest.raises(RuntimeError, match="уже существует"):
@@ -99,7 +101,7 @@ def test_wsl_backup_formats_rollback_restore_path(
     repository = tmp_path / "repository"
     repository.mkdir()
     output = tmp_path / "backups" / "rollback.dump"
-    calls: list[list[str]] = []
+    calls: list[tuple[list[str], dict[str, str] | None]] = []
     monkeypatch.setenv("AZURPILOT_WSL_PGPASSFILE", "/etc/azurpilot/pgpass")
 
     def run_hidden(
@@ -109,8 +111,8 @@ def test_wsl_backup_formats_rollback_restore_path(
         stdout: object = None,
         environment: dict[str, str] | None = None,
     ) -> None:
-        del stdin, environment
-        calls.append(arguments)
+        del stdin
+        calls.append((arguments, environment))
         if hasattr(stdout, "write"):
             stdout.write(b"x" * 2048)
 
@@ -131,11 +133,15 @@ def test_wsl_backup_formats_rollback_restore_path(
         )
 
     assert output.stat().st_size == 2048
-    assert calls[0][0:4] == ["wsl.exe", "--distribution", "Archlinux", "--exec"]
-    assert calls[1][0:4] == ["wsl.exe", "--distribution", "Archlinux", "--exec"]
-    assert calls[1][-2] == "--list"
-    assert calls[1][-1].startswith("/mnt/")
-    assert "temporary-wsl" not in calls[1][-1]
+    assert calls[0][0][0:4] == ["wsl.exe", "--distribution", "Archlinux", "--exec"]
+    assert calls[1][0][0:4] == ["wsl.exe", "--distribution", "Archlinux", "--exec"]
+    assert calls[0][0][calls[0][0].index("--username") + 1] == "azurpilot_migrator"
+    assert calls[1][0][-2] == "--list"
+    assert calls[1][0][-1].startswith("/mnt/")
+    assert "temporary-wsl" not in calls[1][0][-1]
+    assert calls[0][1] is not None
+    assert calls[1][1] is calls[0][1]
+    assert "PGPASSWORD" not in calls[0][1]
 
 
 def test_native_backup_does_not_fall_back_to_wsl(

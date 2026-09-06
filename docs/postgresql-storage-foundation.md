@@ -153,6 +153,7 @@ AZURPILOT_POSTGRES_MIGRATOR_HOST / PORT / DATABASE / USER
 AZURPILOT_POSTGRES_MIGRATOR_PASSWORD / SSLMODE / RUNTIME_TIMEZONE / PGPASSFILE
 AZURPILOT_WSL_DISTRO
 AZURPILOT_WSL_PGPASSFILE
+AZURPILOT_POSTGRES_DOCKER_BOOTSTRAP_PASSWORD  # только initial Docker Compose bootstrap
 AZURPILOT_POSTGRES_DISPOSABLE          # только для test-only destructive runs
 AZURPILOT_POSTGRES_DISPOSABLE_HOST     # точное подтверждение target
 AZURPILOT_POSTGRES_DISPOSABLE_PORT
@@ -160,7 +161,10 @@ AZURPILOT_POSTGRES_DISPOSABLE_DATABASE
 AZURPILOT_POSTGRES_DISPOSABLE_USER
 ```
 
-В production эти значения хранятся в gitignored `.env`. Owner-loader не
+В production эти значения хранятся в gitignored `.env`. Для Docker Compose
+`AZURPILOT_POSTGRES_DOCKER_BOOTSTRAP_PASSWORD` используется только при
+первичном bootstrap нового PostgreSQL volume и не заменяет app/migrator
+credentials. Owner-loader не
 публикует `*_PASSWORD` в process environment: libpq consumers используют
 защищённые `PGPASSFILE`, а maintenance-команды отдельно выбирают migrator
 contract. `PGPASSWORD` не является постоянным credential transport.

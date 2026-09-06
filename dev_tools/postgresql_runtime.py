@@ -263,7 +263,11 @@ def _backup(
             raise RuntimeError("Резервная копия PostgreSQL неожиданно мала.")
         if transport == "docker":
             with temporary.open("rb") as stream:
-                _run_hidden(restore_arguments, stdin=stream)
+                _run_hidden(
+                    restore_arguments,
+                    stdin=stream,
+                    environment=environment,
+                )
         else:
             restore_arguments = [
                 argument.format(
@@ -272,7 +276,7 @@ def _backup(
                 )
                 for argument in restore_arguments
             ]
-            _run_hidden(restore_arguments)
+            _run_hidden(restore_arguments, environment=environment)
         os.link(temporary, output)
     finally:
         temporary.unlink(missing_ok=True)
