@@ -16,7 +16,7 @@ from module.logging_context import (
     task_context,
     task_logging_context,
 )
-from module.logging_core import sanitize_log_text
+from module.logging_core import sanitize_log_text, sanitize_traceback_text
 from module.observability.bootstrap import (
     _bounded_exception_stacktrace,
     _read_config,
@@ -287,6 +287,34 @@ def test_mapping_and_quoted_redaction_covers_body_and_exception_metadata(monkeyp
         target.removeHandler(local_handler)
         local_handler.close()
         shutdown_application_observability(target)
+
+
+def test_traceback_sanitizer_redacts_absolute_paths_without_breaking_urls():
+    text = (
+        "visible text "
+        "win=C:\\Users\\test-user\\demo\\config.json "
+        "unc=\\\\server\\share\\incident.log "
+        "posix=/var/lib/azurpilot/incident.log "
+        "spaced-win=C:\\Program Files\\AzulPilot\\private.txt "
+        "spaced-unc=\\\\server\\share name\\private data.txt "
+        "spaced-posix=/home/other user/private.txt "
+        "url=https://example.test/path/to/resource "
+        "file-url=file:///C:/Program%20Files/AzurPilot/log.txt"
+    )
+
+    sanitized = sanitize_traceback_text(text)
+
+    assert "visible text" in sanitized
+    assert "C:\\Users\\test-user\\demo" not in sanitized
+    assert "\\\\server\\share\\incident.log" not in sanitized
+    assert "/var/lib/azurpilot/incident.log" not in sanitized
+    assert "C:\\Program Files\\AzulPilot" not in sanitized
+    assert "\\\\server\\share name\\private data.txt" not in sanitized
+    assert "/home/other user/private.txt" not in sanitized
+    assert sanitized.count("<ABSOLUTE_PATH>") == 6
+    assert "visible text" in sanitized
+    assert "https://example.test/path/to/resource" in sanitized
+    assert "file:///C:/Program%20Files/AzurPilot/log.txt" in sanitized
 
 
 def test_exception_metadata_preserves_multi_args_and_sanitizes_chained_traceback(

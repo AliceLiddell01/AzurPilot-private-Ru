@@ -11,13 +11,14 @@ from types import SimpleNamespace
 import pytest
 from alas import AzurLaneAutoScript
 from module.config.config import Function, TaskEnd
+from module.config.profile import profile_identity_from_filename
 from opentelemetry.sdk.metrics.export import (
     AggregationTemporality,
     InMemoryMetricReader,
 )
 from opentelemetry.sdk.resources import Resource
 
-from module.logging_context import CONTEXT_VALUE_LIMIT, task_logging_context
+from module.logging_context import task_logging_context
 from module.observability.bootstrap import (
     _after_fork,
     _runtimes,
@@ -371,7 +372,8 @@ def test_profile_metric_identity_uses_project_contract_and_keeps_unicode_distinc
         "profile-a",
         "Профиль А",
         "Профиль с пробелом",
-        "p" * CONTEXT_VALUE_LIMIT,
+        "p" * 129,
+        "q" * 130,
     )
     try:
         for profile in profiles:
@@ -381,12 +383,6 @@ def test_profile_metric_identity_uses_project_contract_and_keeps_unicode_distinc
                 registry=("Research",),
             ) as task:
                 task.finish(True)
-        with scheduler_task_run(
-            profile="p" * (CONTEXT_VALUE_LIMIT + 1),
-            task=_configured_task("Research"),
-            registry=("Research",),
-        ) as task:
-            task.finish(True)
         with scheduler_task_run(
             profile="invalid/profile",
             task=_configured_task("Research"),
@@ -398,11 +394,16 @@ def test_profile_metric_identity_uses_project_contract_and_keeps_unicode_distinc
         profile_counts = Counter(point.attributes["azurpilot.profile"] for point in points)
         assert set(profiles) <= set(profile_counts)
         assert all(profile_counts[profile] == 1 for profile in profiles)
+        assert all(
+            profile_identity_from_filename(f"{profile}.json").name == profile
+            for profile in profiles
+        )
+        assert profile_identity_from_filename("invalid/profile.json") is None
         unknown_points = [
             point for point in points if point.attributes["azurpilot.profile"] == "unknown"
         ]
         assert len(unknown_points) == 1
-        assert unknown_points[0].value == 2
+        assert unknown_points[0].value == 1
     finally:
         deactivate_metrics_runtime(runtime)
         assert runtime.shutdown(1000)

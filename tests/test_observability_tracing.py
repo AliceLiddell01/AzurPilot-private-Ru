@@ -26,10 +26,12 @@ from module.observability.bootstrap import (
     configure_application_observability,
     shutdown_application_observability,
 )
+from module.observability.incident import build_incident_metadata
 from module.observability.tracing import (
     TracingConfig,
     build_tracing_runtime,
     get_active_tracing_runtime,
+    get_current_trace_context,
     trace_operation,
 )
 
@@ -250,6 +252,46 @@ def test_scheduler_boundary_closes_metrics_when_tracing_enter_fails(monkeypatch)
     ]
 
 
+def test_scheduler_boundary_resets_task_context_when_tracing_exit_fails(monkeypatch):
+    class RecordingMetrics:
+        task_name = "Research"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    class FailingTracing:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            raise RuntimeError("trace exit failed")
+
+    monkeypatch.setattr(
+        scheduler_module,
+        "metrics_task_run",
+        lambda **_kwargs: RecordingMetrics(),
+    )
+    monkeypatch.setattr(
+        scheduler_module,
+        "scheduler_task_span",
+        lambda **_kwargs: FailingTracing(),
+    )
+
+    run = scheduler_module.scheduler_task_run(
+        profile="profile-a",
+        task=_task(),
+        registry=("Research",),
+    )
+    run.__enter__()
+    assert scheduler_module.get_current_task_name() == "Research"
+    with pytest.raises(RuntimeError, match="trace exit failed"):
+        run.__exit__(None, None, None)
+    assert scheduler_module.get_current_task_name() is None
+
+
 def test_trace_exporter_uses_standard_endpoint_precedence_without_duplicate_path(
     monkeypatch,
 ):
@@ -412,6 +454,34 @@ def test_trace_root_is_once_at_scheduler_boundary_and_ignores_fake_roots(monkeyp
         shutdown_application_observability(target)
 
 
+def test_trace_profile_identity_keeps_distinct_long_profiles(monkeypatch):
+    _enable_traces(monkeypatch)
+    target = _new_logger("observability-trace-long-profiles")
+    exporter = InMemorySpanExporter()
+    profiles = ("x" * 129, "y" * 130)
+    try:
+        assert configure_application_observability(
+            target,
+            _traces_exporter_factory=lambda _timeout: exporter,
+        )
+        for profile in profiles:
+            with scheduler_task_run(
+                profile=profile,
+                task=_task(),
+                registry=("Research",),
+            ) as task:
+                task.finish(True)
+        assert shutdown_application_observability(target, timeout_millis=3000)
+        roots = [
+            span
+            for span in exporter.get_finished_spans()
+            if span.name == "azurpilot.task.run"
+        ]
+        assert {span.attributes["azurpilot.profile"] for span in roots} == set(profiles)
+    finally:
+        shutdown_application_observability(target)
+
+
 def test_trace_operation_is_nested_under_active_root(monkeypatch):
     _enable_traces(monkeypatch)
     target = _new_logger("observability-trace-child")
@@ -500,7 +570,10 @@ def test_task_end_is_stopped_and_exception_trace_is_sanitized(monkeypatch):
             registry=("Research",),
         ):
             raise RuntimeError(
-                "password=sentinel-value path=C:\\Users\\test-user\\demo\\config.json"
+                "password=sentinel-value visible text "
+                "win=C:\\Users\\test-user\\demo\\config.json "
+                "unc=\\\\server\\share\\incident.log "
+                "posix=/var/lib/azurpilot/incident.log"
             )
 
         assert shutdown_application_observability(target, timeout_millis=3000)
@@ -519,15 +592,60 @@ def test_task_end_is_stopped_and_exception_trace_is_sanitized(monkeypatch):
         assert stopped[0].status.status_code.name != "ERROR"
         assert len(failed) == 1
         assert failed[0].status.status_code.name == "ERROR"
-        event_text = " ".join(
-            (
-                str(failed[0].events),
-                str(failed[0].status.description),
-                str(failed[0].attributes),
-            )
+        event = failed[0].events[0]
+        message = event.attributes["exception.message"]
+        stacktrace = event.attributes["exception.stacktrace"]
+        assert "sentinel-value" not in message
+        assert "C:\\Users\\test-user\\demo" not in message
+        assert "\\\\server\\share\\incident.log" not in message
+        assert "/var/lib/azurpilot/incident.log" not in message
+        assert "visible text" in message
+        assert "password=***" in message
+        assert "sentinel-value" not in stacktrace
+        assert "C:\\Users\\test-user\\demo" not in stacktrace
+        assert "\\\\server\\share\\incident.log" not in stacktrace
+        assert "/var/lib/azurpilot/incident.log" not in stacktrace
+    finally:
+        shutdown_application_observability(target)
+
+
+def test_trace_correlation_is_current_span_scoped_and_fail_open(monkeypatch):
+    _enable_traces(monkeypatch)
+    target = _new_logger("observability-trace-correlation")
+    exporter = InMemorySpanExporter()
+    try:
+        assert configure_application_observability(
+            target,
+            _traces_exporter_factory=lambda _timeout: exporter,
         )
-        assert "sentinel-value" not in event_text
-        assert "C:\\Users\\test-user\\demo" not in event_text
+        assert get_current_trace_context() is None
+        with scheduler_task_run(
+            profile="profile-a",
+            task=_task(),
+            registry=("Research",),
+        ) as task:
+            root_correlation = get_current_trace_context()
+            assert root_correlation is not None
+            with trace_operation("azurpilot.ui.wait"):
+                child_correlation = get_current_trace_context()
+                assert child_correlation is not None
+                assert child_correlation.trace_id == root_correlation.trace_id
+                assert child_correlation.span_id != root_correlation.span_id
+                child_metadata = build_incident_metadata(
+                    profile="profile-a",
+                    exception=RuntimeError("synthetic"),
+                )
+                assert child_metadata.trace_id == child_correlation.trace_id
+                assert child_metadata.span_id == child_correlation.span_id
+            assert get_current_trace_context() == root_correlation
+            root_metadata = build_incident_metadata(
+                profile="profile-a",
+                exception=RuntimeError("synthetic"),
+            )
+            assert root_metadata.trace_id == root_correlation.trace_id
+            assert root_metadata.span_id == root_correlation.span_id
+            task.finish(True)
+        assert get_current_trace_context() is None
     finally:
         shutdown_application_observability(target)
 

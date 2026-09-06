@@ -260,6 +260,18 @@ services:
         source: ./grafana/provisioning/datasources
         target: /etc/grafana/provisioning/datasources
         read_only: true
+      - type: bind
+        source: ./grafana/provisioning/dashboards
+        target: /etc/grafana/provisioning/dashboards
+        read_only: true
+      - type: bind
+        source: ./grafana/provisioning/alerting
+        target: /etc/grafana/provisioning/alerting
+        read_only: true
+      - type: bind
+        source: ./grafana/dashboards
+        target: /var/lib/grafana/dashboards
+        read_only: true
       - type: volume
         source: grafana-data
         target: /var/lib/grafana

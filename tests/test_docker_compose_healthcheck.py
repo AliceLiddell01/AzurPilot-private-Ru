@@ -165,3 +165,152 @@ def test_pgadmin_is_loopback_only_and_preconfigured_for_postgres():
         "Shared": False,
         "Comment": "Локальный Docker PostgreSQL; application database выбирается отдельно.",
     }
+
+
+def test_grafana_datasources_provision_loki_tempo_incident_correlation():
+    datasource_path = (
+        ROOT
+        / "infrastructure/observability/grafana/provisioning/datasources/datasources.yaml"
+    )
+    data = yaml.safe_load(datasource_path.read_text(encoding="utf-8"))
+    datasources = {item["uid"]: item for item in data["datasources"]}
+
+    assert set(datasources) == {"prometheus", "loki", "tempo"}
+    loki = datasources["loki"]
+    derived_field = loki["jsonData"]["derivedFields"][0]
+    assert derived_field == {
+        "datasourceUid": "tempo",
+        "matcherRegex": "trace_id",
+        "matcherType": "label",
+        "name": "trace_id",
+        "url": "$${__value.raw}",
+        "urlDisplayLabel": "Открыть trace",
+    }
+
+    tempo = datasources["tempo"]
+    assert tempo["jsonData"]["tracesToLogsV2"] == {
+        "datasourceUid": "loki",
+        "filterBySpanID": False,
+        "filterByTraceID": True,
+        "spanEndTimeShift": "1m",
+        "spanStartTimeShift": "-1m",
+        "tags": [{"key": "service.name", "value": "service_name"}],
+    }
+
+    loki_config = (
+        ROOT / "infrastructure/observability/loki/config.yaml"
+    ).read_text(encoding="utf-8")
+    assert "trace_id" not in loki_config
+    assert "span_id" not in loki_config
+
+
+def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
+    compose_path = ROOT / "infrastructure/observability/compose.yaml"
+    compose_data = yaml.safe_load(compose_path.read_text(encoding="utf-8"))
+    grafana_volumes = compose_data["services"]["grafana"]["volumes"]
+    mounted_targets = {
+        (volume["source"], volume["target"], volume.get("read_only"))
+        for volume in grafana_volumes
+        if volume["type"] == "bind"
+    }
+    assert (
+        "./grafana/dashboards",
+        "/var/lib/grafana/dashboards",
+        True,
+    ) in mounted_targets
+    assert (
+        "./grafana/provisioning/dashboards",
+        "/etc/grafana/provisioning/dashboards",
+        True,
+    ) in mounted_targets
+    assert (
+        "./grafana/provisioning/alerting",
+        "/etc/grafana/provisioning/alerting",
+        True,
+    ) in mounted_targets
+
+    provider_path = (
+        ROOT
+        / "infrastructure/observability/grafana/provisioning/dashboards/providers.yaml"
+    )
+    provider = yaml.safe_load(provider_path.read_text(encoding="utf-8"))
+    assert provider == {
+        "apiVersion": 1,
+        "providers": [
+            {
+                "name": "AzurPilot",
+                "orgId": 1,
+                "folder": "AzurPilot",
+                "folderUid": "azurpilot",
+                "type": "file",
+                "disableDeletion": True,
+                "updateIntervalSeconds": 30,
+                "allowUiUpdates": False,
+                "options": {
+                    "path": "/var/lib/grafana/dashboards",
+                    "foldersFromFilesStructure": False,
+                },
+            }
+        ],
+    }
+
+    dashboard_root = ROOT / "infrastructure/observability/grafana/dashboards"
+    dashboards = {
+        path.stem: json.loads(path.read_text(encoding="utf-8"))
+        for path in sorted(dashboard_root.glob("*.json"))
+    }
+    assert set(dashboards) == {"azurpilot-overview", "azurpilot-errors"}
+    assert dashboards["azurpilot-overview"]["uid"] == "azurpilot-overview"
+    assert dashboards["azurpilot-overview"]["title"] == "AzurPilot Overview"
+    assert any(
+        panel["title"] == "Успешные запуски"
+        for panel in dashboards["azurpilot-overview"]["panels"]
+    )
+    assert dashboards["azurpilot-errors"]["uid"] == "azurpilot-errors"
+    assert dashboards["azurpilot-errors"]["title"] == "AzurPilot Errors / Incidents"
+
+    allowed_datasources = {"prometheus", "loki", "tempo"}
+    for dashboard in dashboards.values():
+        panel_ids = [panel["id"] for panel in dashboard["panels"]]
+        assert len(panel_ids) == len(set(panel_ids))
+        for panel in dashboard["panels"]:
+            datasource = panel.get("datasource")
+            if datasource is not None:
+                assert datasource["uid"] in allowed_datasources
+            for target in panel.get("targets", []):
+                target_datasource = target.get("datasource")
+                if target_datasource is not None:
+                    assert target_datasource["uid"] in allowed_datasources
+        dashboard_text = json.dumps(dashboard, ensure_ascii=False)
+        assert "task_run_id" not in dashboard_text
+        assert "trace_id" not in dashboard_text
+
+    overview_text = json.dumps(dashboards["azurpilot-overview"], ensure_ascii=False)
+    assert "azurpilot_task_run_total" in overview_text
+    assert "azurpilot_task_duration_seconds_bucket" in overview_text
+    assert "detected_level = \\\"error\\\"" in overview_text
+    assert "with (most_recent=true)" in overview_text
+    assert "clamp_min" not in overview_text
+
+    alerting_path = (
+        ROOT
+        / "infrastructure/observability/grafana/provisioning/alerting/alert-rules.yaml"
+    )
+    alerting = yaml.safe_load(alerting_path.read_text(encoding="utf-8"))
+    assert alerting["apiVersion"] == 1
+    rules = alerting["groups"][0]["rules"]
+    assert {rule["uid"] for rule in rules} == {
+        "azurpilot-task-failures",
+        "azurpilot-task-duration-p95",
+    }
+    alerting_text = alerting_path.read_text(encoding="utf-8")
+    assert "azurpilot_task=" not in alerting_text
+    assert "azurpilot_profile=" not in alerting_text
+    for rule in rules:
+        assert rule["condition"] == "C"
+        assert rule["isPaused"] is False
+        assert rule["noDataState"] == "OK"
+        assert {item["datasourceUid"] for item in rule["data"]} == {
+            "prometheus",
+            "__expr__",
+        }
