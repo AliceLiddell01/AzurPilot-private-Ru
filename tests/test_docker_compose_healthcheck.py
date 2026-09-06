@@ -38,7 +38,7 @@ def test_postgres_18_is_part_of_observability_compose_with_named_volume():
     assert "name: azurpilot-observability_alloy-data" in compose
     assert "name: azurpilot-observability_grafana-data" in compose
     assert "restart: unless-stopped" in compose
-    assert "pg_isready -U postgres -d $${POSTGRES_DB}" in compose
+    assert "gosu postgres pg_isready -U postgres -d $${POSTGRES_DB}" in compose
     assert "postgres_bootstrap_password" in compose
     assert "CREATE ROLE azurpilot_app" in init_script
     assert "CREATE ROLE azurpilot_migrator" in init_script
