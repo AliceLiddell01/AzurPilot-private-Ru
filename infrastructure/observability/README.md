@@ -335,13 +335,14 @@ Application traces подключаются независимо от logs и me
 
     $env:OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = 'http://127.0.0.1:4318/v1/traces'
     $env:OTEL_EXPORTER_OTLP_TRACES_PROTOCOL = 'http/protobuf'
-    $env:OTEL_EXPORTER_OTLP_TRACES_TIMEOUT = '30000'
+    $env:OTEL_EXPORTER_OTLP_TRACES_TIMEOUT = '5000'
     $env:OTEL_TRACES_SAMPLER = 'parentbased_always_on'
 
 Допустим общий `OTEL_EXPORTER_OTLP_ENDPOINT`; signal-specific endpoint имеет
 приоритет над ним. Для traces также поддерживаются общий
 `OTEL_EXPORTER_OTLP_PROTOCOL` и `OTEL_EXPORTER_OTLP_TIMEOUT`, а
 `OTEL_EXPORTER_OTLP_TRACES_TIMEOUT` имеет приоритет над общим таймаутом.
+Значения выше локального предела 5 000 мс ограничиваются этим пределом.
 Поддерживается только `http/protobuf`. При signal-specific endpoint полный
 путь используется как задан; при общем endpoint SDK добавляет ровно
 `/v1/traces`, поэтому дублирование этого пути не допускается. Параметры

@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import time
+from collections import Counter
 from types import SimpleNamespace
 
 import pytest
@@ -394,10 +395,14 @@ def test_profile_metric_identity_uses_project_contract_and_keeps_unicode_distinc
             task.finish(True)
 
         points = _metric_by_name(reader, "azurpilot.task.run").data.data_points
-        profile_values = {point.attributes["azurpilot.profile"] for point in points}
-        assert set(profiles) <= profile_values
-        assert "unknown" in profile_values
-        assert len(set(profiles) & profile_values) == len(profiles)
+        profile_counts = Counter(point.attributes["azurpilot.profile"] for point in points)
+        assert set(profiles) <= set(profile_counts)
+        assert all(profile_counts[profile] == 1 for profile in profiles)
+        unknown_points = [
+            point for point in points if point.attributes["azurpilot.profile"] == "unknown"
+        ]
+        assert len(unknown_points) == 1
+        assert unknown_points[0].value == 2
     finally:
         deactivate_metrics_runtime(runtime)
         assert runtime.shutdown(1000)

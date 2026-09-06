@@ -507,6 +507,10 @@ def trace_operation(
     attributes: Mapping[object, object] | None = None,
 ) -> Iterator[Any]:
     """Создать bounded child span только внутри canonical task root."""
+    if _task_depth.get() <= 0:
+        yield None
+        return
+
     runtime = get_active_tracing_runtime()
     operation_name = _safe_operation_name(name)
     screenshot_budget_exhausted = (
@@ -515,7 +519,6 @@ def trace_operation(
     )
     if (
         runtime is None
-        or _task_depth.get() <= 0
         or operation_name is None
         or _child_span_count.get() >= _MAX_CHILD_SPANS_PER_TASK
         or screenshot_budget_exhausted
