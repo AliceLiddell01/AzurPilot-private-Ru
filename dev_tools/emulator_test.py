@@ -3,12 +3,7 @@ import time
 
 import numpy as np
 
-# os.chdir('../')
-print(os.getcwd())
-import module.config.server as server
-
-server.server = 'cn'  # Don't need to edit, it's used to avoid error.
-
+from module.config import server
 from module.config.config import AzurLaneConfig
 from module.device.device import Device
 
@@ -39,12 +34,19 @@ class Config:
     # SERIAL = 'emulator-5554'
     # SERIAL = '127.0.0.1:21503'
 
-    # Speed: aScreenCap >> uiautomator2 > ADB
+    # Скорость: aScreenCap >> uiautomator2 > ADB
     DEVICE_SCREENSHOT_METHOD = 'aScreenCap'  # ADB, uiautomator2, aScreenCap
 
-    # Speed: uiautomator2 >> ADB
+    # Скорость: uiautomator2 >> ADB
     DEVICE_CONTROL_METHOD = 'uiautomator2'  # ADB, uiautomator2
 
 
-az = EmulatorChecker(AzurLaneConfig('template').merge(Config()))
-az.stress_test()
+def main():
+    print(os.getcwd())
+    server.server = 'cn'  # Изменять не требуется: значение предотвращает ошибку.
+    az = EmulatorChecker(AzurLaneConfig('template').merge(Config()))
+    az.stress_test()
+
+
+if __name__ == '__main__':
+    main()

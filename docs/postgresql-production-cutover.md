@@ -3,7 +3,8 @@
 ## Единственный runtime backend
 
 Для доменов schema v1 единственным production-хранилищем является PostgreSQL
-18 в WSL Archlinux. `module.application.runtime_storage` определяет DTO,
+18 в Docker Compose project `azurpilot-infrastructure`, service `postgres`.
+`module.application.runtime_storage` определяет DTO,
 команды, запросы и типизированные ошибки. `module.persistence.runtime` —
 единственная process-safe точка сборки ленивого per-PID engine, Unit of Work и
 сервиса. Игровые модули, статистика и WebUI не импортируют SQLAlchemy, Psycopg
@@ -39,7 +40,7 @@ namespace игровых профилей `config/*.json`.
 OCR, ADB, UI, sleep и network wait не входят в DB transaction. Все новые
 timestamps записываются как aware UTC; календарные месяцы и операторские
 периоды вычисляются в timezone marker. Identity сначала разрешается по точному
-digest alias Stage 3, затем сверяется со стабильным UUID provenance.
+digest alias legacy source, затем сверяется со стабильным UUID provenance.
 
 ## Роли, сеть и credentials
 
@@ -65,15 +66,20 @@ passfiles. Migrator выбирается только maintenance-команда
 
 ## Lifecycle
 
-- `Start-AzurPilot.ps1` будит только exact Archlinux, запускает уже
-  подготовленную службу, проверяет marker, app auth и head до GUI.
-- `Update-AzurPilot.ps1` после graceful stop создаёт новый `pg_dump -Fc`, затем
+- `Start-AzurPilot.ps1` проверяет Docker Compose и поднимает только service
+  `postgres` с ожиданием health, затем проверяет marker, app auth и head до GUI.
+- `Update-AzurPilot.ps1` после graceful stop создаёт новый Docker `pg_dump -Fc`, затем
   применяет reviewed Alembic код отдельным migrator и проверяет app health.
   Ошибка backup блокирует update; автоматического pruning нет.
-- `Repair-AzurPilot.ps1` диагностирует WSL/service/auth/head, loopback listener,
-  SCRAM и разобранные HBA rules; он не меняет HBA, роли, database или пароль.
+- `Repair-AzurPilot.ps1` диагностирует Docker Compose service/auth/head,
+  loopback binding, SCRAM и разобранные HBA rules; он не меняет HBA, роли,
+  database или пароль.
 - `Build-AzurPilot.ps1` готовит checkout и зависимости, но не provision и не
   мигрирует production data.
+
+Arch WSL2 оставлен только как аварийный rollback-контур: его package и data
+directory не удаляются этой процедурой, а штатный AzurPilot lifecycle его не
+запускает.
 
 `dev_tools.postgresql_runtime` содержит только bounded health, backup и upgrade.
 Финальный production import использует `postgresql_migration full-cutover` с
@@ -113,7 +119,7 @@ evidence и никогда не является live backend.
 Backup имеет create-only timestamped имя вне repository, custom format,
 ограниченный ACL и bounded timeout. Проверка включает `pg_restore --list` и
 фактический restore в отдельную scratch database. PITR/WAL archiving и
-автоматическое удаление backup находятся вне scope.
+автоматическое удаление backup не поддерживаются текущим recovery contract.
 
 WebUI отклоняет любой `.db` до чтения содержимого. Legacy SQLite разрешён только
 offline importer из `module.persistence.legacy` при остановленных writers.

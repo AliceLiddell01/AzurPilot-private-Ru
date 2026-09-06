@@ -1745,8 +1745,8 @@ function Backup-ProductionPostgreSql {
         'backup'
         '--output'
         $backupPath
-        '--distro'
-        'Archlinux'
+        '--transport'
+        'docker'
     ) -Operation 'резервная копия перед обновлением создана и проверена'
 
     if (-not (Test-Path -LiteralPath $backupPath -PathType Leaf)) {
@@ -1817,9 +1817,10 @@ function Invoke-ProductionPostgreSqlSchemaUpgrade {
     )
 
     $guidance = (
-        'Остановите AzurPilot. Проверенный дамп: {0}. ' +
-        'Получите WSL-путь через wsl.exe --distribution Archlinux --exec wslpath -a <путь>, ' +
-        'затем выполните pg_restore --clean --if-exists --no-owner --no-acl --dbname azurpilot <WSL-путь>.'
+        'Остановите AzurPilot. Проверенный внешний дамп: {0}. ' +
+        'Запустите совместимый PostgreSQL на именованном target volume и восстановите этот logical dump через pg_restore; ' +
+        'не копируйте dump или raw PGDATA в каталог PGDATA. ' +
+        'Затем повторите проверку Docker Compose, marker, schema head и app health.'
     ) -f $BackupPath
     Invoke-PostgreSqlOperation -Arguments @('upgrade') -Operation 'Alembic upgrade применён от имени migrator' -FailureGuidance $guidance
     Invoke-PostgreSqlOperation -Arguments @('health') -Operation 'schema head и доступ app-роли проверены' -FailureGuidance $guidance

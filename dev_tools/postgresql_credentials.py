@@ -11,11 +11,19 @@ import sys
 import tempfile
 from pathlib import Path
 
+from module.persistence.local_environment_schema import (
+    INFRASTRUCTURE_ENVIRONMENT_KEYS,
+    LOCAL_ENVIRONMENT_KEYS,
+    POSTGRES_ENVIRONMENT_KEYS,
+    WSL_ENVIRONMENT_KEYS,
+)
+
 CONFIRMATION = "ROTATE-AZURPILOT-POSTGRESQL-CREDENTIALS"
 _SAFE_NAME = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 _SAFE_WSL_PASSFILE = re.compile(r"^/etc/azurpilot/[A-Za-z0-9._-]+$")
 _ENV_KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
-_OWNED_ENV_PREFIXES = ("AZURPILOT_POSTGRES_", "AZURPILOT_WSL_")
+_OWNED_ENV_KEYS = POSTGRES_ENVIRONMENT_KEYS | WSL_ENVIRONMENT_KEYS
+_PRESERVED_ENV_KEYS = INFRASTRUCTURE_ENVIRONMENT_KEYS
 _ROLE_CONTRACT = {
     "azurpilot_app": (True, False, False, False),
     "azurpilot_migrator": (True, False, False, False),
@@ -399,9 +407,16 @@ def _merge_env_document(previous: bytes | None, generated: bytes) -> bytes:
         seen_keys.add(key)
         if key in generated_keys:
             continue
-        if key.startswith(_OWNED_ENV_PREFIXES):
+        if key in _PRESERVED_ENV_KEYS:
+            preserved.append(raw_line)
+            continue
+        if key in _OWNED_ENV_KEYS:
             raise RuntimeError(
                 "Локальный env содержит неподдерживаемый ключ PostgreSQL/WSL."
+            )
+        if key.startswith("AZURPILOT_") and key not in LOCAL_ENVIRONMENT_KEYS:
+            raise RuntimeError(
+                "Локальный env содержит неизвестный ключ AzurPilot environment."
             )
         preserved.append(raw_line)
 

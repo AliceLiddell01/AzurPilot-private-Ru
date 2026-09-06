@@ -16,29 +16,25 @@ from module.persistence.local_environment import (
 
 
 def _document() -> str:
-    return "\n".join(
-        [
-            "AZURPILOT_POSTGRES_HOST=127.0.0.1",
-            "AZURPILOT_POSTGRES_PORT=5432",
-            "AZURPILOT_POSTGRES_DATABASE=azurpilot",
-            "AZURPILOT_POSTGRES_USER=azurpilot_app",
-            "AZURPILOT_POSTGRES_PASSWORD=app-secret",
-            "AZURPILOT_POSTGRES_SSLMODE=disable",
-            "AZURPILOT_POSTGRES_RUNTIME_TIMEZONE=Asia/Novosibirsk",
-            "AZURPILOT_POSTGRES_PGPASSFILE=C:/secure/pgpass.conf",
-            "AZURPILOT_POSTGRES_MIGRATOR_HOST=127.0.0.1",
-            "AZURPILOT_POSTGRES_MIGRATOR_PORT=5432",
-            "AZURPILOT_POSTGRES_MIGRATOR_DATABASE=azurpilot",
-            "AZURPILOT_POSTGRES_MIGRATOR_USER=azurpilot_migrator",
-            "AZURPILOT_POSTGRES_MIGRATOR_PASSWORD=migrator-secret",
-            "AZURPILOT_POSTGRES_MIGRATOR_SSLMODE=disable",
-            "AZURPILOT_POSTGRES_MIGRATOR_RUNTIME_TIMEZONE=Asia/Novosibirsk",
-            "AZURPILOT_POSTGRES_MIGRATOR_PGPASSFILE=C:/secure/pgpass.conf",
-            "AZURPILOT_WSL_DISTRO=archlinux",
-            "AZURPILOT_WSL_PGPASSFILE=/etc/azurpilot/pgpass",
-            "",
-        ]
-    )
+    return """AZURPILOT_POSTGRES_HOST=127.0.0.1
+AZURPILOT_POSTGRES_PORT=5432
+AZURPILOT_POSTGRES_DATABASE=azurpilot
+AZURPILOT_POSTGRES_USER=azurpilot_app
+AZURPILOT_POSTGRES_PASSWORD=app-secret
+AZURPILOT_POSTGRES_SSLMODE=disable
+AZURPILOT_POSTGRES_RUNTIME_TIMEZONE=Asia/Novosibirsk
+AZURPILOT_POSTGRES_PGPASSFILE=C:/secure/pgpass.conf
+AZURPILOT_POSTGRES_MIGRATOR_HOST=127.0.0.1
+AZURPILOT_POSTGRES_MIGRATOR_PORT=5432
+AZURPILOT_POSTGRES_MIGRATOR_DATABASE=azurpilot
+AZURPILOT_POSTGRES_MIGRATOR_USER=azurpilot_migrator
+AZURPILOT_POSTGRES_MIGRATOR_PASSWORD=migrator-secret
+AZURPILOT_POSTGRES_MIGRATOR_SSLMODE=disable
+AZURPILOT_POSTGRES_MIGRATOR_RUNTIME_TIMEZONE=Asia/Novosibirsk
+AZURPILOT_POSTGRES_MIGRATOR_PGPASSFILE=C:/secure/pgpass.conf
+AZURPILOT_WSL_DISTRO=archlinux
+AZURPILOT_WSL_PGPASSFILE=/etc/azurpilot/pgpass
+"""
 
 
 def _write_env(path: Path, document: str) -> None:
@@ -101,6 +97,61 @@ def test_local_env_ignores_reserved_observability_namespace(tmp_path: Path):
     assert not any(
         key.startswith("AZURPILOT_OBSERVABILITY_") for key in environment
     )
+
+
+def test_local_env_ignores_reserved_docker_namespace(tmp_path: Path):
+    path = tmp_path / ".env"
+    _write_env(
+        path,
+        _document() + "AZURPILOT_POSTGRES_DOCKER_BOOTSTRAP_PASSWORD=docker-secret\n",
+    )
+    environment: dict[str, str] = {}
+
+    local = load_local_postgres_environment(path, environment=environment)
+
+    assert local is not None
+    assert "AZURPILOT_POSTGRES_DOCKER_BOOTSTRAP_PASSWORD" not in local.values
+    assert "AZURPILOT_POSTGRES_DOCKER_BOOTSTRAP_PASSWORD" not in environment
+
+
+def test_local_env_accepts_exact_infrastructure_registry_keys(tmp_path: Path):
+    path = tmp_path / ".env"
+    _write_env(
+        path,
+        _document()
+        + "AZURPILOT_POSTGRES_DOCKER_BOOTSTRAP_PASSWORD=docker-secret\n"
+        + "AZURPILOT_OBSERVABILITY_PGADMIN_ADMIN_EMAIL=operator@example.test\n"
+        + "AZURPILOT_OBSERVABILITY_PGADMIN_PORT=5051\n",
+    )
+
+    local = load_local_postgres_environment(path, environment={})
+
+    assert local is not None
+
+
+def test_local_env_rejects_bare_docker_namespace_key(tmp_path: Path):
+    path = tmp_path / ".env"
+    _write_env(path, _document() + "AZURPILOT_POSTGRES_DOCKER_=value\n")
+
+    with pytest.raises(StorageConfigurationError, match="Ключ"):
+        load_local_postgres_environment(path, environment={})
+
+
+@pytest.mark.parametrize(
+    "key",
+    (
+        "AZURPILOT_POSTGRES_DOCKER_BOOTSTRP_PASSWORD",
+        "AZURPILOT_OBSERVABILITY_PGADMIN_PORTX",
+    ),
+)
+def test_local_env_rejects_typo_inside_infrastructure_namespace(
+    tmp_path: Path, key: str
+):
+    path = tmp_path / ".env"
+    _write_env(path, _document() + f"{key}=value\n")
+
+    with pytest.raises(StorageConfigurationError, match="Ключ"):
+        load_local_postgres_environment(path, environment={})
 
 
 def test_local_env_can_select_migrator_without_exporting_secret(tmp_path: Path):
