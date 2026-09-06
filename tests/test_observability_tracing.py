@@ -681,9 +681,10 @@ def test_metrics_record_exemplars_from_active_root_without_trace_labels(monkeypa
         assert len(points) == 1
         assert "trace_id" not in points[0].attributes
         assert "span_id" not in points[0].attributes
-        if points[0].exemplars:
-            assert points[0].exemplars[0].trace_id == root.context.trace_id
-            assert points[0].exemplars[0].span_id == root.context.span_id
+        if not points[0].exemplars:
+            pytest.skip("текущий SDK или metrics reader не экспортирует exemplars")
+        assert points[0].exemplars[0].trace_id == root.context.trace_id
+        assert points[0].exemplars[0].span_id == root.context.span_id
     finally:
         shutdown_application_observability(target)
 
@@ -809,6 +810,7 @@ def test_trace_runtime_is_discarded_after_fork_boundary(monkeypatch):
     target = _new_logger("observability-trace-fork")
     parent_exporter = InMemorySpanExporter()
     child_exporter = InMemorySpanExporter()
+    parent_runtime = None
     try:
         assert configure_application_observability(
             target,
@@ -837,5 +839,5 @@ def test_trace_runtime_is_discarded_after_fork_boundary(monkeypatch):
         assert len(child_exporter.get_finished_spans()) == 1
     finally:
         shutdown_application_observability(target)
-        if "parent_runtime" in locals():
+        if parent_runtime is not None:
             parent_runtime.shutdown(1000)
