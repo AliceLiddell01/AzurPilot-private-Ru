@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import UTC, datetime
@@ -494,9 +495,9 @@ def test_lifecycle_scripts_encode_postgresql_ownership():
     repair = (ROOT / "scripts" / "Repair-AzurPilot.ps1").read_text(encoding="utf-8")
     build = (ROOT / "scripts" / "Build-AzurPilot.ps1").read_text(encoding="utf-8")
 
-    assert "'compose'\n                '--env-file'" in start
-    assert "'config'\n                '--quiet'" in start
-    assert "'up'\n                '--detach'\n                '--wait'\n                'postgres'" in start
+    assert re.search(r"'compose'\s+'--env-file'", start)
+    assert re.search(r"'config'\s+'--quiet'", start)
+    assert re.search(r"'up'\s+'--detach'\s+'--wait'\s+'postgres'", start)
     assert "dev_tools.postgresql_runtime" in start
     backup_call = update.index("\n        $postgresqlBackupPath = Backup-ProductionPostgreSql\n")
     merge_call = update.index("'merge'", backup_call)
@@ -507,7 +508,7 @@ def test_lifecycle_scripts_encode_postgresql_ownership():
     assert "dev_tools.postgresql_runtime" not in build
     assert "Get-Command -Name 'docker.exe'" in start
     assert "foreach ($dockerName in @('docker.exe', 'docker'))" in repair
-    assert "'--deployment'\n            'docker'" in repair
+    assert re.search(r"'--deployment'\s+'docker'", repair)
     assert "Select-Object -First 1" in start
     assert "Select-Object -First 1" in repair
     assert "-TimeoutMilliseconds 30000" in repair

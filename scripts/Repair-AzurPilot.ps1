@@ -401,6 +401,9 @@ function Invoke-NativeCommand {
             $startInfo.CreateNoWindow = $true
             $startInfo.RedirectStandardOutput = $true
             $startInfo.RedirectStandardError = $true
+            $utf8Encoding = [System.Text.UTF8Encoding]::new($false)
+            $startInfo.StandardOutputEncoding = $utf8Encoding
+            $startInfo.StandardErrorEncoding = $utf8Encoding
             foreach ($argument in $Arguments) {
                 [void]$startInfo.ArgumentList.Add($argument)
             }

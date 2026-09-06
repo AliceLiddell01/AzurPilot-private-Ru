@@ -113,10 +113,10 @@ def test_pgadmin_is_loopback_only_and_preconfigured_for_postgres():
         "Group": "AzurPilot",
         "Host": "postgres",
         "Port": 5432,
-        "MaintenanceDB": "azurpilot",
+        "MaintenanceDB": "postgres",
         "Username": "azurpilot_migrator",
         "SSLMode": "prefer",
         "ConnectionParameters": {"sslmode": "prefer", "connect_timeout": 10},
         "Shared": False,
-        "Comment": "Локальный Docker PostgreSQL с ролью azurpilot_migrator.",
+        "Comment": "Локальный Docker PostgreSQL; application database выбирается отдельно.",
     }

@@ -47,8 +47,8 @@ Compose project не должно создавать второй набор д�
 engine-level именами. Это намеренная fail-closed граница миграции: при
 отсутствии ресурса Compose остановится вместо того, чтобы молча создать пустой
 volume с тем же логическим ключом. PostgreSQL volume имеет явное имя, но
-остаётся Compose-managed, чтобы новый host мог создать его до проверенного
-logical restore.
+остаётся Compose-managed; Compose создаёт его при запуске подготовленного
+target service, а не отдельной ручной командой создания пустого volume.
 PgAdmin volume также остаётся Compose-managed: он создаётся автоматически при
 первом запуске и хранит configuration database, users и импортированные server
 definitions.
@@ -110,11 +110,12 @@ Grafana и pgAdmin передаётся через Compose secret и не поп
 Из этой папки:
 
 На новом Docker host сначала проверьте или явно создайте exact external
-volumes. Для PostgreSQL выполняйте это только в рамках подготовленного
-logical restore; пустой volume не является заменой backup:
+volumes. `postgres-data` и `pgadmin-data` являются Compose-managed и создаются
+самим Compose; не создавайте их вручную пустыми перед запуском. Для PostgreSQL
+выполняйте это только в рамках подготовленного logical restore; пустой volume
+не является заменой backup:
 
     $volumeNames = @(
-        'azurpilot-postgres-data'
         'azurpilot-observability_alloy-data'
         'azurpilot-observability_loki-data'
         'azurpilot-observability_prometheus-data'
@@ -158,7 +159,10 @@ logical restore; пустой volume не является заменой backup
 При первом запуске pgAdmin автоматически импортирует сервер
 `AzurPilot PostgreSQL` из `pgadmin/servers.json`. Подключение идёт через
 Compose DNS `postgres`, а не через опубликованный host-порт PostgreSQL, и
-использует роль `azurpilot_migrator` с правами владельца схемы. Пароль роли
+начинает работу со стабильной служебной БД `postgres`. Для данных AzurPilot
+выберите в pgAdmin application database из `AZURPILOT_POSTGRES_DATABASE`
+(по умолчанию `azurpilot`); подключение использует роль
+`azurpilot_migrator` с правами владельца схемы. Пароль роли
 передаётся через `PGPASS_FILE` из Compose secret
 `AZURPILOT_OBSERVABILITY_PGADMIN_PGPASS`; он также остаётся только в `.env`.
 Файл серверов импортируется только при инициализации нового

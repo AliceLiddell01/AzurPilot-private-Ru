@@ -16,29 +16,25 @@ from module.persistence.local_environment import (
 
 
 def _document() -> str:
-    return "\n".join(
-        [
-            "AZURPILOT_POSTGRES_HOST=127.0.0.1",
-            "AZURPILOT_POSTGRES_PORT=5432",
-            "AZURPILOT_POSTGRES_DATABASE=azurpilot",
-            "AZURPILOT_POSTGRES_USER=azurpilot_app",
-            "AZURPILOT_POSTGRES_PASSWORD=app-secret",
-            "AZURPILOT_POSTGRES_SSLMODE=disable",
-            "AZURPILOT_POSTGRES_RUNTIME_TIMEZONE=Asia/Novosibirsk",
-            "AZURPILOT_POSTGRES_PGPASSFILE=C:/secure/pgpass.conf",
-            "AZURPILOT_POSTGRES_MIGRATOR_HOST=127.0.0.1",
-            "AZURPILOT_POSTGRES_MIGRATOR_PORT=5432",
-            "AZURPILOT_POSTGRES_MIGRATOR_DATABASE=azurpilot",
-            "AZURPILOT_POSTGRES_MIGRATOR_USER=azurpilot_migrator",
-            "AZURPILOT_POSTGRES_MIGRATOR_PASSWORD=migrator-secret",
-            "AZURPILOT_POSTGRES_MIGRATOR_SSLMODE=disable",
-            "AZURPILOT_POSTGRES_MIGRATOR_RUNTIME_TIMEZONE=Asia/Novosibirsk",
-            "AZURPILOT_POSTGRES_MIGRATOR_PGPASSFILE=C:/secure/pgpass.conf",
-            "AZURPILOT_WSL_DISTRO=archlinux",
-            "AZURPILOT_WSL_PGPASSFILE=/etc/azurpilot/pgpass",
-            "",
-        ]
-    )
+    return """AZURPILOT_POSTGRES_HOST=127.0.0.1
+AZURPILOT_POSTGRES_PORT=5432
+AZURPILOT_POSTGRES_DATABASE=azurpilot
+AZURPILOT_POSTGRES_USER=azurpilot_app
+AZURPILOT_POSTGRES_PASSWORD=app-secret
+AZURPILOT_POSTGRES_SSLMODE=disable
+AZURPILOT_POSTGRES_RUNTIME_TIMEZONE=Asia/Novosibirsk
+AZURPILOT_POSTGRES_PGPASSFILE=C:/secure/pgpass.conf
+AZURPILOT_POSTGRES_MIGRATOR_HOST=127.0.0.1
+AZURPILOT_POSTGRES_MIGRATOR_PORT=5432
+AZURPILOT_POSTGRES_MIGRATOR_DATABASE=azurpilot
+AZURPILOT_POSTGRES_MIGRATOR_USER=azurpilot_migrator
+AZURPILOT_POSTGRES_MIGRATOR_PASSWORD=migrator-secret
+AZURPILOT_POSTGRES_MIGRATOR_SSLMODE=disable
+AZURPILOT_POSTGRES_MIGRATOR_RUNTIME_TIMEZONE=Asia/Novosibirsk
+AZURPILOT_POSTGRES_MIGRATOR_PGPASSFILE=C:/secure/pgpass.conf
+AZURPILOT_WSL_DISTRO=archlinux
+AZURPILOT_WSL_PGPASSFILE=/etc/azurpilot/pgpass
+"""
 
 
 def _write_env(path: Path, document: str) -> None:
@@ -116,6 +112,14 @@ def test_local_env_ignores_reserved_docker_namespace(tmp_path: Path):
     assert local is not None
     assert "AZURPILOT_POSTGRES_DOCKER_BOOTSTRAP_PASSWORD" not in local.values
     assert "AZURPILOT_POSTGRES_DOCKER_BOOTSTRAP_PASSWORD" not in environment
+
+
+def test_local_env_rejects_bare_docker_namespace_key(tmp_path: Path):
+    path = tmp_path / ".env"
+    _write_env(path, _document() + "AZURPILOT_POSTGRES_DOCKER_=value\n")
+
+    with pytest.raises(StorageConfigurationError, match="Ключ"):
+        load_local_postgres_environment(path, environment={})
 
 
 def test_local_env_can_select_migrator_without_exporting_secret(tmp_path: Path):
