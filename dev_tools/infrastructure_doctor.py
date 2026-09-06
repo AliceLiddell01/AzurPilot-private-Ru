@@ -271,12 +271,20 @@ def doctor(repository_root: Path = Path(".")) -> dict[str, object]:
 
     try:
         root = repository_root.resolve(strict=True)
+    except OSError:
+        return _payload(False, "CADDY_CONFIG_UNAVAILABLE")
+
+    try:
         env_file = root / ENV_RELATIVE_PATH
         caddyfile = root / CADDYFILE_RELATIVE_PATH
         if not env_file.is_file() or not caddyfile.is_file():
             return _payload(False, "CADDY_CONFIG_UNAVAILABLE")
         if not _caddy_host_is_configured(env_file):
             return _payload(False, "CADDY_CONFIG_INVALID")
+    except OSError:
+        return _payload(False, "CADDY_CONFIG_UNAVAILABLE")
+
+    try:
         _docker_executable()
     except FileNotFoundError, OSError:
         return _payload(False, "DOCKER_UNAVAILABLE")

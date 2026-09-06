@@ -160,8 +160,8 @@ Caddy не используется:
 
     docker compose --env-file ../../.env --profile remote-ingress exec caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
     docker compose --env-file ../../.env --profile remote-ingress exec caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
-    uv run --locked --no-sync python -m dev_tools.infrastructure_doctor --repository-root . doctor
-    uv run --locked --no-sync python -m dev_tools.infrastructure_doctor --repository-root . probe
+    uv run --locked --no-sync python -m dev_tools.infrastructure_doctor --repository-root ../.. doctor
+    uv run --locked --no-sync python -m dev_tools.infrastructure_doctor --repository-root ../.. probe
 
 Диагностика разделена: `infrastructure_doctor` сообщает состояние Docker
 Caddy/container/healthcheck и опубликованных портов, а

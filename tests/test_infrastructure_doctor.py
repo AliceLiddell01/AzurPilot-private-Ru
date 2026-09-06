@@ -51,6 +51,19 @@ def test_doctor_distinguishes_absent_caddy_container(
     }
 
 
+def test_doctor_reports_missing_repository_as_config_unavailable(
+    tmp_path: Path,
+) -> None:
+    payload = infrastructure_doctor.doctor(tmp_path / "missing-repository")
+
+    assert payload == {
+        "ok": False,
+        "code": "CADDY_CONFIG_UNAVAILABLE",
+        "project": "azurpilot-infrastructure",
+        "service": "caddy",
+    }
+
+
 def test_doctor_reports_ready_only_with_expected_published_ports(
     tmp_path: Path, monkeypatch
 ) -> None:
