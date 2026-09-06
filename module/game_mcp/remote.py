@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
 import sys
 import time
 from collections.abc import Callable
@@ -34,6 +33,7 @@ from module.mcp_shared.remote import (
     RequestBodyLimitMiddleware,
     RequestTimeoutMiddleware,
     StrictHostOriginMiddleware,
+    remote_doctor_payload,
 )
 from module.mcp_shared.remote import (
     OAuthBearerMiddleware as _OAuthBearerMiddleware,
@@ -154,22 +154,14 @@ def doctor() -> int:
             )
         )
         return 1
-    caddy_available = shutil.which("caddy") is not None
+    payload = remote_doctor_payload(config)
     print(
         json.dumps(
-            {
-                "ok": caddy_available,
-                "code": "REMOTE_CONFIG_READY"
-                if caddy_available
-                else "CADDY_NOT_AVAILABLE",
-                "bind_host_loopback": config.bind_host == "127.0.0.1",
-                "public_https_path": config.public_url.endswith(MCP_PATH),
-                "caddy_available": caddy_available,
-            },
+            payload,
             ensure_ascii=False,
         )
     )
-    return 0 if caddy_available else 1
+    return 0 if payload["ok"] else 1
 
 
 def main() -> None:

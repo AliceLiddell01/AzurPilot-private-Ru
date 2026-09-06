@@ -30,6 +30,7 @@ from module.game_mcp.remote import (
     RemoteConfig,
     RemoteConfigError,
     create_remote_app,
+    doctor,
     run_remote_server,
 )
 from module.game_mcp.server import tool_definitions
@@ -155,6 +156,30 @@ def test_game_remote_config_is_independent_and_loopback_only(
     with pytest.raises(RemoteConfigError, match="127.0.0.1"):
         _config(bind_host="0.0.0.0")
     assert GAME_MCP_REQUIRED_SCOPE != "azurpilot:dev"
+
+
+def test_game_remote_doctor_does_not_require_host_caddy(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    values = {
+        "AZURPILOT_GAME_MCP_PUBLIC_URL": _AUDIENCE,
+        "AZURPILOT_GAME_MCP_OAUTH_ISSUER": _ISSUER,
+        "AZURPILOT_GAME_MCP_OAUTH_AUDIENCE": _AUDIENCE,
+        "AZURPILOT_GAME_MCP_OAUTH_JWKS_URL": _JWKS_URL,
+        "AZURPILOT_GAME_MCP_OAUTH_SUBJECT": "user-1",
+    }
+    for name, value in values.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("PATH", "")
+
+    assert doctor() == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == {
+        "ok": True,
+        "code": "REMOTE_CONFIG_READY",
+        "bind_host_loopback": True,
+        "public_https_path": True,
+    }
 
 
 def test_game_remote_is_stateless_modern_and_scope_separated() -> None:

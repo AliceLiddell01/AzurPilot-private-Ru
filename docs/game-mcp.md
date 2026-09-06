@@ -42,6 +42,15 @@ azurpilot:game.read
 azurpilot:game.control
 ```
 
+В каноническом локальном deployment reverse proxy — сервис `caddy` профиля
+`remote-ingress` в Compose project `azurpilot-infrastructure`. Он использует
+`host.docker.internal:8766` как host-side upstream и публикует Game endpoint на
+`https://<AZURPILOT_GAME_MCP_PUBLIC_HOST>/mcp`; backend и порт `8766` остаются
+loopback-only. Значение host должно совпадать с host-компонентом
+`AZURPILOT_GAME_MCP_PUBLIC_URL`. Конфигурация находится в
+`infrastructure/caddy/Caddyfile`, а проверка выполняется через Compose и
+`dev_tools.infrastructure_doctor`.
+
 Долгоживущие authenticated `GET /mcp` streams используют отдельный bounded
 limiter и не занимают capacity для обычных `POST /mcp` запросов.
 

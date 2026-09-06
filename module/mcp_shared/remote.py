@@ -282,6 +282,20 @@ class RemoteConfig:
         )
 
 
+def remote_doctor_payload(config: RemoteConfig) -> dict[str, object]:
+    """Вернуть backend/config readiness без сведений о reverse proxy."""
+
+    bind_host_loopback = config.bind_host == "127.0.0.1"
+    public_https_path = config.public_url.endswith(MCP_PATH)
+    ready = bind_host_loopback and public_https_path
+    return {
+        "ok": ready,
+        "code": "REMOTE_CONFIG_READY" if ready else "REMOTE_CONFIG_INVALID",
+        "bind_host_loopback": bind_host_loopback,
+        "public_https_path": public_https_path,
+    }
+
+
 class OIDCTokenVerifier:
     """Проверить подписанный OAuth/OIDC access token для одного resource."""
 
@@ -853,4 +867,5 @@ __all__ = (
     "RequestTimeoutMiddleware",
     "StrictHostOriginMiddleware",
     "create_remote_app",
+    "remote_doctor_payload",
 )

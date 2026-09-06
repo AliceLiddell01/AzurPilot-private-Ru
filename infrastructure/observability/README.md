@@ -8,6 +8,7 @@
 
 | Сервис | Назначение | Образ |
 | --- | --- | --- |
+| caddy | публичный HTTPS reverse proxy для host-side Dev/Game MCP | caddy:2.11.4-alpine |
 | alloy | loopback OTLP endpoint и маршрутизация telemetry | grafana/alloy:v1.19.2 |
 | postgres | каноническое production-хранилище AzurPilot | postgres:18 |
 | postgres-bootstrap | одноразовое создание app/migrator ролей и прав | postgres:18 |
@@ -25,6 +26,13 @@ Grafana доступна по 127.0.0.1:3000. Loki, Prometheus и Tempo не п�
 на host: Alloy и Grafana обращаются к ним через стандартную Compose network и
 service DNS.
 pgAdmin доступен только по 127.0.0.1:5050.
+Caddy включается отдельным профилем `remote-ingress`, потому что публичный
+endpoint является opt-in конфигурацией. Он работает в том же Compose project,
+использует read-only bind `infrastructure/caddy` и обращается к host-side
+backend через `host.docker.internal`; Dev и Game процессы по-прежнему слушают
+только `127.0.0.1:8765` и `127.0.0.1:8766`. На host публикуются только TCP
+`80`, TCP `443` и UDP `443`, используемый текущим HTTP/3 deployment. Admin API
+`2019`, backend-порты, PostgreSQL, WebUI и telemetry ports не публикуются.
 
 ## Данные и секрет
 
@@ -36,7 +44,9 @@ pgAdmin доступен только по 127.0.0.1:5050.
 - azurpilot-observability_prometheus-data;
 - azurpilot-observability_tempo-data;
 - azurpilot-observability_grafana-data;
-- azurpilot-pgadmin-data.
+- azurpilot-pgadmin-data;
+- azurpilot-caddy-data;
+- azurpilot-caddy-config.
 
 Имена observability volumes намеренно сохранены с прежним префиксом
 `azurpilot-observability`: это существующие внешние volumes, и переименование
@@ -63,7 +73,9 @@ AZURPILOT_OBSERVABILITY_PGADMIN_ADMIN_PASSWORD и
 AZURPILOT_OBSERVABILITY_PGADMIN_PGPASS. Пароль начального администратора
 Grafana и pgAdmin передаётся через Compose secret и не попадает в репозиторий.
 Порт pgAdmin задаётся через `AZURPILOT_OBSERVABILITY_PGADMIN_PORT`; по умолчанию
-используется `5050`.
+используется `5050`. Публичные Dev/Game hosts задаются не секретными ключами
+`AZURPILOT_CADDY_HOST` и `AZURPILOT_GAME_MCP_PUBLIC_HOST`; OAuth-переменные Dev/Game остаются в том же защищённом
+локальном `.env` и не записываются в Git.
 
 Если переменных ещё нет, добавьте их в корневой .env. Для ротации уже
 добавленного пароля используйте PowerShell-команду ниже: она сохраняет новое
@@ -136,6 +148,27 @@ volumes; PostgreSQL и pgAdmin остаются Compose-managed.
     docker compose --env-file ../../.env ps
     docker compose --env-file ../../.env logs --tail=100 postgres alloy loki prometheus tempo grafana pgadmin
 
+Для включённого public HTTPS ingress используйте тот же Compose project и
+профиль `remote-ingress`:
+
+    docker compose --env-file ../../.env --profile remote-ingress config --quiet
+    docker compose --env-file ../../.env --profile remote-ingress up --detach --wait caddy
+    docker compose --env-file ../../.env --profile remote-ingress ps
+
+Проверка и reload выполняются внутри Compose Caddy; отдельный host-side запуск
+Caddy не используется:
+
+    docker compose --env-file ../../.env --profile remote-ingress exec caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+    docker compose --env-file ../../.env --profile remote-ingress exec caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+    uv run --locked --no-sync python -m dev_tools.infrastructure_doctor --repository-root ../.. doctor
+    uv run --locked --no-sync python -m dev_tools.infrastructure_doctor --repository-root ../.. probe
+
+Диагностика разделена: `infrastructure_doctor` сообщает состояние Docker
+Caddy/container/healthcheck и опубликованных портов, а
+`module.dev_mcp.remote doctor` и `module.game_mcp.remote doctor` проверяют только
+собственную loopback-конфигурацию. Команда `probe` дополнительно проверяет OAuth
+metadata, DNS/TLS и read-only MCP contract через публичные endpoints.
+
 Для штатного старта только базы используйте:
 
     docker compose --env-file ../../.env up --detach --wait postgres
@@ -145,6 +178,10 @@ volumes; PostgreSQL и pgAdmin остаются Compose-managed.
 повторный запуск идемпотентен.
 Владелец lifecycle — Docker Compose/Docker Desktop; Arch WSL2 сохраняется только
 как rollback safety и не требует `systemctl start postgresql`.
+Для восстановления Caddy после входа в Windows в Docker Desktop должна быть
+включена настройка General → Start Docker Desktop when you sign in. Скрипт
+`Start-AzurPilot.ps1` не изменяет эту пользовательскую настройку; после её
+включения перезагрузка проверяет Docker Desktop → Compose project → Caddy.
 
 ### pgAdmin
 
