@@ -795,6 +795,50 @@ class ConfiguredRuntimeBackend:
             self._platform = Platform(config, connect=False)
         return self._platform
 
+    def _emulator_request(self, operation: str) -> object:
+        """Отправить один запрос эмулятору; ожидание выполняет control plane."""
+
+        platform = self._platform_for_mutation()
+        wrapper = getattr(platform, "_emulator_function_wrapper", None)
+        request = getattr(platform, f"_emulator_{operation}", None)
+        instance = getattr(platform, "emulator_instance", None)
+        if not callable(wrapper) or not callable(request) or instance is None:
+            raise RuntimeControlError(
+                "DEV_CONTROL_EMULATOR_REQUEST_UNSUPPORTED",
+                "Platform не предоставляет ограниченный запрос к эмулятору",
+                outcome=ControlOutcome.PRECONDITION_FAILED,
+            )
+        result = wrapper(request)
+        if result is False:
+            raise RuntimeControlError(
+                "DEV_CONTROL_EMULATOR_REQUEST_FAILED",
+                f"Platform не выполнила запрос {operation} эмулятору",
+            )
+        return result
+
+    def _connect_emulator_for_readiness(
+        self,
+        *,
+        prepared: _RuntimeConfigSnapshot,
+        timeout: float | None = None,
+    ) -> None:
+        """Поддерживать ADB-соединение target во время mutating wait-loop."""
+
+        serial, _package = self._configuration(prepared=prepared)
+        client = self._adb_client()
+        try:
+            message = str(client.connect(serial, timeout=timeout))
+        except Exception:  # noqa: BLE001
+            # Отказ соединения во время загрузки эмулятора является
+            # промежуточным состоянием; итогом останется bounded timeout.
+            return
+        if "bad port" in message.casefold():
+            raise RuntimeControlError(
+                "DEV_CONTROL_ADB_ENDPOINT_INVALID",
+                "ADB endpoint development target имеет некорректный формат",
+                outcome=ControlOutcome.PRECONDITION_FAILED,
+            )
+
     def _app_controller(self) -> object:
         self._configuration()
         if self._app is None:
@@ -820,16 +864,10 @@ class ConfiguredRuntimeBackend:
         return self._app
 
     def start_emulator(self) -> object:
-        result = self._platform_for_mutation().emulator_start()
-        if result is False:
-            raise RuntimeControlError("DEV_CONTROL_EMULATOR_START_FAILED", "Platform не подтвердила запуск эмулятора")
-        return result
+        return self._emulator_request("start")
 
     def stop_emulator(self) -> object:
-        result = self._platform_for_mutation().emulator_stop()
-        if result is False:
-            raise RuntimeControlError("DEV_CONTROL_EMULATOR_STOP_FAILED", "Platform не подтвердила остановку эмулятора")
-        return result
+        return self._emulator_request("stop")
 
     def start_game(self) -> object:
         result = self._app_controller().app_start_adb()
@@ -1152,47 +1190,17 @@ class RuntimeControlManager:
         try:
             operation = self._reserve_operation(action)
             try:
-                handle = self.supervisor_launcher(self.environment, operation.control_id)
-                pid = getattr(handle, "pid", None)
-                if isinstance(pid, int) and pid > 0:
-                    supervisor_created_at = _process_created_at(pid)
-                    with self.store.lock():
-                        current = self.store.read()
-                        if current is not None and current.control_id == operation.control_id:
-                            if current.state is ControlState.FINISHED:
-                                operation = current
-                            elif current.supervisor_pid is not None:
-                                # Дочерний процесс может зарегистрировать операцию
-                                # до того, как запускающий процесс увидит его PID.
-                                # Не перезаписываем эту регистрацию PID родителя.
-                                operation = current
-                            elif supervisor_created_at is not None:
-                                operation = replace(
-                                    current,
-                                    supervisor_pid=pid,
-                                    supervisor_created_at=supervisor_created_at,
-                                )
-                                self.store.write(operation)
-                            else:
-                                operation = self._finish(
-                                    current,
-                                    outcome=ControlOutcome.ABORTED,
-                                    code="DEV_CONTROL_SUPERVISOR_IDENTITY_UNAVAILABLE",
-                                )
-                                self.store.write(operation)
-                else:
-                    with self.store.lock():
-                        current = self.store.read()
-                        if current is not None and current.control_id == operation.control_id:
-                            if current.state is ControlState.FINISHED or current.supervisor_pid is not None:
-                                operation = current
-                            else:
-                                operation = self._finish(
-                                    current,
-                                    outcome=ControlOutcome.ABORTED,
-                                    code="DEV_CONTROL_SUPERVISOR_IDENTITY_UNAVAILABLE",
-                                )
-                                self.store.write(operation)
+                self.supervisor_launcher(self.environment, operation.control_id)
+                # Не записываем PID, возвращённый launcher-ом. На Windows
+                # .venv\Scripts\python.exe является redirector и возвращает
+                # PID родительского процесса, тогда как control supervisor
+                # должен claim-ить собственный PID. Иначе родительская запись
+                # блокирует claim дочернего процесса и после выхода redirector-а
+                # operation ошибочно закрывается как аварийная.
+                with self.store.lock():
+                    current = self.store.read()
+                    if current is not None and current.control_id == operation.control_id:
+                        operation = current
             except Exception:  # noqa: BLE001
                 with self.store.lock():
                     current = self.store.read()
@@ -1459,7 +1467,14 @@ class RuntimeControlManager:
             return backend.snapshot(prepared=prepared)
         return backend.snapshot()
 
-    def _wait_for(self, operation: DevRuntimeControlOperation, backend: RuntimeBackend, predicate: Callable[[RuntimeSnapshot], bool]) -> tuple[DevRuntimeControlOperation, RuntimeSnapshot]:
+    def _wait_for(
+        self,
+        operation: DevRuntimeControlOperation,
+        backend: RuntimeBackend,
+        predicate: Callable[[RuntimeSnapshot], bool],
+        *,
+        connect_emulator: bool = False,
+    ) -> tuple[DevRuntimeControlOperation, RuntimeSnapshot]:
         operation = self._transition(operation, ControlState.WAITING_READY, "DEV_CONTROL_WAITING_READY")
         prepared: _RuntimeConfigSnapshot | None = None
         binding_checked = False
@@ -1473,6 +1488,23 @@ class RuntimeControlManager:
                 )
                 binding_checked = True
                 next_binding_check = now + CONTROL_BINDING_RECHECK_SECONDS
+            if connect_emulator and isinstance(backend, ConfiguredRuntimeBackend):
+                if prepared is None:
+                    raise RuntimeControlError(
+                        "DEV_CONTROL_CONFIG_UNAVAILABLE",
+                        "Критическую конфигурацию development target невозможно безопасно подтвердить",
+                        outcome=ControlOutcome.PRECONDITION_FAILED,
+                    )
+                remaining = None
+                if self._execution_deadline is not None:
+                    remaining = self._execution_deadline - self.monotonic()
+                    if remaining <= 0:
+                        break
+                    remaining = min(5.0, remaining)
+                backend._connect_emulator_for_readiness(
+                    prepared=prepared,
+                    timeout=remaining,
+                )
             snapshot = self._backend_snapshot(backend, prepared)
             if predicate(snapshot):
                 return operation, snapshot
@@ -1508,13 +1540,23 @@ class RuntimeControlManager:
             if snapshot.emulator_running is True and snapshot.emulator_ready is True:
                 return self._finish(operation, outcome=ControlOutcome.PASS, code="DEV_CONTROL_ALREADY_READY")
             if snapshot.emulator_running is True:
-                operation, _ = self._wait_for(operation, backend, lambda item: item.emulator_running is True and item.emulator_ready is True)
+                operation, _ = self._wait_for(
+                    operation,
+                    backend,
+                    lambda item: item.emulator_running is True and item.emulator_ready is True,
+                    connect_emulator=True,
+                )
                 return self._finish(operation, outcome=ControlOutcome.PASS, code="DEV_CONTROL_READY")
             if snapshot.emulator_running is None:
                 raise _ControlFailure("DEV_CONTROL_EMULATOR_STATE_UNKNOWN", "Нельзя безопасно подтвердить, что эмулятор остановлен", outcome=ControlOutcome.PRECONDITION_FAILED)
             self._assert_operation_binding(operation)
             self._call(backend.start_emulator(), "DEV_CONTROL_EMULATOR_START_FAILED", "Platform не запустила эмулятор")
-            operation, _ = self._wait_for(operation, backend, lambda item: item.emulator_running is True and item.emulator_ready is True)
+            operation, _ = self._wait_for(
+                operation,
+                backend,
+                lambda item: item.emulator_running is True and item.emulator_ready is True,
+                connect_emulator=True,
+            )
             return self._finish(operation, outcome=ControlOutcome.PASS, code="DEV_CONTROL_READY")
         if action is ControlAction.STOP_EMULATOR:
             if snapshot.emulator_running is False and snapshot.emulator_detected is False:
@@ -1531,7 +1573,12 @@ class RuntimeControlManager:
             operation, _ = self._wait_for(operation, backend, lambda item: item.emulator_running is False and item.emulator_detected is False)
             self._assert_operation_binding(operation)
             self._call(backend.start_emulator(), "DEV_CONTROL_EMULATOR_START_FAILED", "Platform не запустила эмулятор")
-            operation, _ = self._wait_for(operation, backend, lambda item: item.emulator_running is True and item.emulator_ready is True)
+            operation, _ = self._wait_for(
+                operation,
+                backend,
+                lambda item: item.emulator_running is True and item.emulator_ready is True,
+                connect_emulator=True,
+            )
             return self._finish(operation, outcome=ControlOutcome.PASS, code="DEV_CONTROL_RESTARTED")
         if action in {
             ControlAction.START_GAME,

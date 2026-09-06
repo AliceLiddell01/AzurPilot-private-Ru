@@ -42,6 +42,15 @@ DEPENDENCY_SYNC_START_RETRY_LIMIT = 3
 DEPENDENCY_SYNC_RESPONSE_TIMEOUT = DEPENDENCY_SYNC_TIMEOUT + 60
 
 
+def _configure_gui_logging() -> None:
+    """Настроить локальный и удалённый журнал для GUI-процесса."""
+    logger.set_file_logger(
+        name="gui",
+        observability_profile=None,
+        observability_component="gui",
+    )
+
+
 def _is_ipv6_unavailable_error(exc: OSError) -> bool:
     """判断 IPv6 地址族在当前系统中是否不可用。"""
     errno_values = {
@@ -134,6 +143,8 @@ def func(
         dependency_sync_event: 请求父进程同步依赖的事件
         ready_event: Uvicorn 完成监听后通知父进程的事件
     """
+    _configure_gui_logging()
+
     import argparse
     import asyncio
     import uvicorn
@@ -837,6 +848,7 @@ def _prepare_dependency_sync_before_webui_start(
 
 def run_webui_supervisor() -> None:
     """监督热重载 WebUI 子进程及其独立依赖同步服务。"""
+    _configure_gui_logging()
     should_exit = False
     process = None
     service = None
@@ -1020,6 +1032,7 @@ def run_webui_supervisor() -> None:
 
 def _run_webui_without_reload() -> bool:
     """Восстановить orphaned worker-процессы перед прямым запуском WebUI."""
+    _configure_gui_logging()
     if not _recover_orphaned_workers():
         return False
     func(None, None)
@@ -1027,6 +1040,7 @@ def _run_webui_without_reload() -> bool:
 
 
 if __name__ == "__main__":
+    _configure_gui_logging()
     # 设置multiprocessing启动方式为spawn（macOS兼容性要求）
     try:
         set_start_method("spawn", force=True)

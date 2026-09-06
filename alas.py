@@ -4,6 +4,7 @@ import re
 import shutil
 import threading
 import time
+from contextlib import ExitStack
 from datetime import datetime, timedelta
 
 import inflection
@@ -31,6 +32,9 @@ from module.persistence.runtime import bootstrap_runtime_storage
 
 # 缓存 i18n 任务名查找
 _i18n_task_names = None
+_SERVER_AVAILABILITY_POLL_SECONDS = 0.25
+
+
 def _get_task_display_name(task_command):
     """从 i18n 获取任务的本地化显示名，找不到则返回英文名"""
     global _i18n_task_names
@@ -50,12 +54,37 @@ def _get_task_display_name(task_command):
     return _i18n_task_names.get(task_command, task_command)
 
 
+def _handover_requested(config_name: str) -> bool | None:
+    """Проверить запрос handover, если Dev Runtime доступен в текущей установке."""
+
+    try:
+        from module.dev_runtime.hooks import handover_requested
+    except ImportError:
+        return None
+    return handover_requested(config_name)
+
+
+def _scheduler_task_registry(config: object) -> tuple[str, ...]:
+    """Получить существующий generated registry scheduler-команд fail-open."""
+
+    try:
+        from module.config.task_priority import get_scheduler_tasks
+
+        args = getattr(config, "args", None)
+        if not isinstance(args, dict):
+            return ()
+        return tuple(get_scheduler_tasks(args))
+    except Exception:
+        return ()
+
+
 
 
 class AzurLaneAutoScript:
     stop_event: threading.Event = None
 
     def __init__(self, config_name=DEFAULT_CONFIG_NAME):
+        logger.set_file_logger(config_name)
         logger.hr('Запуск', level=0)
         bootstrap_runtime_storage(require_ready=True)
         logger.info('[Хранилище] PostgreSQL готов к работе')
@@ -317,6 +346,11 @@ class AzurLaneAutoScript:
         return context.coordinator
 
     def _run_fleet_manual_scan_if_pending(self):
+        if _handover_requested(self.config_name) is True:
+            logger.info(
+                '[Alas] Ожидающая ручная команда пропущена: получен запрос на handover'
+            )
+            return None
         execution = self.fleet_manual_scan.process_next(self.config_name)
         if execution is None:
             return None
@@ -399,25 +433,23 @@ class AzurLaneAutoScript:
 
     def _record_dev_runtime_task_started(self, task):
         """Зафиксировать начало задачи только на канонической границе планировщика."""
-        if not os.environ.get("AZURPILOT_DEV_SESSION_ID"):
-            return
         try:
             from module.dev_runtime.hooks import record_task_started
 
-            record_task_started(self.config_name, task)
+            result = record_task_started(self.config_name, task)
+            return result is not False
         except Exception:
-            return
+            return False
 
-    def _record_dev_runtime_task_finished(self, task):
-        """Зафиксировать возврат штатного исполнителя задачи без заключения PASS/FAIL."""
-        if not os.environ.get("AZURPILOT_DEV_SESSION_ID"):
-            return
+    def _record_dev_runtime_task_finished(self, task, *, outcome='returned'):
+        """Зафиксировать конечный исход задачи без заключения PASS/FAIL."""
         try:
             from module.dev_runtime.hooks import record_task_finished
 
-            record_task_finished(self.config_name, task)
+            result = record_task_finished(self.config_name, task, outcome=outcome)
+            return result is not False
         except Exception:
-            return
+            return False
 
     def _try_restart_game(self):
         """Перезапустить только Azur Lane и подтвердить восстановление через login/UI flow."""
@@ -443,22 +475,24 @@ class AzurLaneAutoScript:
     @task_logging_context
     def run(self, command, skip_first_screenshot=False):
         """
-        执行指定任务命令，捕获异常并决定后续行为。
+        Выполнить указанную команду задачи, обработать исключения и определить результат.
 
-        根据异常类型自动判断：重启游戏、重启模拟器、请求人工介入或直接终止。
-        敏感任务出错时直接停止，不做任何重启。
+        По типу исключения автоматически выбрать перезапуск игры, перезапуск эмулятора,
+        запрос вмешательства пользователя или немедленное завершение.
+        При ошибке чувствительной задачи сразу остановиться без перезапусков.
 
-        任务执行前会进行一次截图（除非 skip_first_screenshot=True）。
+        Перед выполнением задачи сделать снимок экрана, если
+        ``skip_first_screenshot`` не равен ``True``.
 
         Args:
-            command (str): 任务方法名（驼峰转下划线后的形式）。
-            skip_first_screenshot (bool): 是否跳过执行前的首次截图。
+            command (str): Имя метода задачи в формате ``snake_case``.
+            skip_first_screenshot (bool): Пропустить ли первый снимок экрана.
 
         Returns:
             bool | str:
-                True — 任务成功完成。
-                False — 不可恢复的失败，计入连续失败限制。
-                'recoverable' — 可恢复的失败，不计入连续失败限制。
+                True — задача успешно завершена.
+                False — невосстановимая ошибка, учитываемая в последовательном лимите.
+                'recoverable' — восстановимая ошибка, не учитываемая в последовательном лимите.
         """
         record_dev_runtime_error = getattr(
             self,
@@ -471,10 +505,17 @@ class AzurLaneAutoScript:
             self.__getattribute__(command)()
             return True
         except TaskEnd:
+            try:
+                from module.observability import mark_task_stopped
+
+                mark_task_stopped()
+            except Exception:
+                # Метрики не должны менять штатный результат TaskEnd.
+                pass
             return True
         except GameNotRunningError as e:
             record_dev_runtime_error(e, phase="task", task=command)
-            # 游戏未运行，调度 Restart 任务自动恢复
+            # Игра не запущена; scheduler назначит задачу Restart для восстановления.
             logger.error_context(
                 title='Игровой процесс не запущен',
                 reason='Перед выполнением задачи процесс Azur Lane не обнаружен.',
@@ -482,7 +523,8 @@ class AzurLaneAutoScript:
                 action='Обычно действие не требуется. При повторении проверьте имя пакета игры, состояние эмулятора и процедуру входа.',
                 exc=e,
                 level=30,
-                # 预期恢复路径仅保留异常摘要，避免堆栈淹没后续重启日志。
+                # Ожидаемый recovery path сохраняет только краткое описание,
+                # чтобы stacktrace не скрывал последующие логи перезапуска.
                 with_traceback=False,
             )
             self._check_sensitive_exit(command, e)
@@ -595,7 +637,7 @@ class AzurLaneAutoScript:
             return False
         except GameBugError as e:
             record_dev_runtime_error(e, phase="task", task=command)
-            # 游戏客户端 bug，重启游戏修复
+            # Ошибка игрового клиента устраняется перезапуском игры.
             logger.error_context(
                 title='Ошибка игрового клиента',
                 reason='Обнаружено некорректное состояние клиента Azur Lane.',
@@ -646,7 +688,12 @@ class AzurLaneAutoScript:
                 )
                 exit(1)
             else:
-                self.checker.wait_until_available()
+                wait_for_server = getattr(self, "_wait_for_server_availability", None)
+                if callable(wait_for_server):
+                    if not wait_for_server():
+                        return False
+                else:
+                    self.checker.wait_until_available()
                 return False
         except ScriptError as e:
             record_dev_runtime_error(e, phase="task", task=command)
@@ -669,7 +716,7 @@ class AzurLaneAutoScript:
             raise
         except EmulatorNotRunningError as e:
             record_dev_runtime_error(e, phase="task", task=command)
-            # 模拟器离线或死机，尝试自动重启
+            # Эмулятор отключён или завис; попытаться автоматически перезапустить его.
             logger.error_context(
                 title='Соединение с эмулятором потеряно',
                 reason='Во время выполнения задачи эмулятор или устройство ADB стали недоступны.',
@@ -680,7 +727,7 @@ class AzurLaneAutoScript:
             self.save_error_log()
             self._check_sensitive_exit(command, e)
             if self._try_restart_emulator(reason='adb_offline'):
-                # 重启成功，调度 Restart 任务恢复游戏
+                # После успешного перезапуска назначить задачу Restart для восстановления игры.
                 self.config.task_call('Restart')
                 handle_notify(
                     self.config.Error_OnePushConfig,
@@ -694,7 +741,7 @@ class AzurLaneAutoScript:
                 )
                 return 'recoverable'
             else:
-                # 重启失败或未启用自动重启，终止程序
+                # Перезапуск не удался или отключён; завершить программу.
                 logger.error_context(
                     title='Автоматическое восстановление эмулятора невозможно',
                     reason='Перезапуск отключён, завершился ошибкой либо достиг предела попыток.',
@@ -1454,6 +1501,12 @@ class AzurLaneAutoScript:
         future = future + timedelta(seconds=1)
         self.config.start_watching()
         while 1:
+            if _handover_requested(self.config_name) is True:
+                logger.info(
+                    f'[{self.config_name}] Ожидание прервано запросом handover; '
+                    'следующая задача не назначается'
+                )
+                return False
             if current_time() > future:
                 return True
             if self.fleet_manual_scan.has_pending(self.config_name):
@@ -1484,9 +1537,16 @@ class AzurLaneAutoScript:
         选择等待策略（关闭游戏 / 前往主页 / 停留原地），然后阻塞等待。
 
         Returns:
-            str: 下一个任务的方法名（如 'Restart'、'Commission'）。
+            str | None: Следующая задача или ``None``, если handover остановил
+                назначение задачи.
         """
         while 1:
+            if _handover_requested(self.config_name) is True:
+                logger.info(
+                    f'[{self.config_name}] Получен запрос на handover; '
+                    'следующая задача не назначается'
+                )
+                return None
             task = self.config.get_next()
             self.config.task = task
             self.config.bind(task)
@@ -1569,6 +1629,9 @@ class AzurLaneAutoScript:
     def _prepare_task_boundary(self, task):
         """Обработать durable manual scan только между обычными задачами."""
 
+        if _handover_requested(self.config_name) is True:
+            logger.info('[Alas] Граница задачи пропущена: получен запрос на handover')
+            return False
         _ = self.device
         self.device.config = self.config
         woke_for_manual = bool(getattr(self, '_manual_scan_wakeup', False))
@@ -1592,6 +1655,51 @@ class AzurLaneAutoScript:
             return False
         return True
 
+    def _wait_for_server_availability(self) -> bool:
+        """Ждать доступности сервера с cooperative stop-проверками."""
+
+        def stop_requested() -> bool:
+            return (
+                self.stop_event is not None
+                and self.stop_event.is_set()
+            ) or _handover_requested(self.config_name) is True
+
+        if stop_requested():
+            return False
+        is_available = getattr(self.checker, "is_available", None)
+        if not callable(is_available):
+            self.checker.wait_until_available()
+            return not stop_requested()
+        while not is_available():
+            if stop_requested():
+                return False
+            time.sleep(_SERVER_AVAILABILITY_POLL_SECONDS)
+        return not stop_requested()
+
+    def _run_scheduler_task(self, task: str):
+        """Выполнить одну выбранную scheduler task на общей observability boundary."""
+
+        try:
+            from module.observability import scheduler_task_run
+            config = self.config
+            observability_run = scheduler_task_run(
+                profile=self.config_name,
+                task=getattr(config, "task", None),
+                registry=_scheduler_task_registry(config),
+            )
+        except Exception:
+            return self.run(inflection.underscore(task))
+        try:
+            entered = observability_run.__enter__()
+        except Exception:
+            return self.run(inflection.underscore(task))
+        with ExitStack() as stack:
+            stack.push(observability_run)
+            del entered
+            result = self.run(inflection.underscore(task))
+            observability_run.finish(result)
+            return result
+
     def loop(self):
         logger.set_file_logger(self.config_name)
         logger.info(f'[Alas] Запуск цикла планировщика: {self.config_name}')
@@ -1610,7 +1718,6 @@ class AzurLaneAutoScript:
             "_record_dev_runtime_task_finished",
             lambda *_args, **_kwargs: None,
         )
-
         from module.config.utils import is_oobe_needed
 
         if is_oobe_needed():
@@ -1623,7 +1730,7 @@ class AzurLaneAutoScript:
             )
             exit(1)
 
-        # 全局异常连续失败计数与阈值
+        # Счётчик последовательных глобальных сбоев и порог.
         consecutive_global_failures = 0
         MAX_GLOBAL_FAILURES = 3
         RESTART_DELAY = 20
@@ -1631,7 +1738,7 @@ class AzurLaneAutoScript:
 
         while 1:
             try:
-                # 检查来自 GUI 的通用停止请求
+                # Проверить общий запрос остановки от GUI.
                 if self.stop_event is not None:
                     if self.stop_event.is_set():
                         logger.info('[Alas] Получен запрос на остановку')
@@ -1639,14 +1746,23 @@ class AzurLaneAutoScript:
                             f"[Alas] [{self.config_name}] Работа завершена. Причина: запрос на остановку"
                         )
                         break
-                # 检查游戏服务器维护
-                self.checker.wait_until_available()
+                if _handover_requested(self.config_name) is True:
+                    logger.info('[Alas] Получен запрос на handover; следующая задача не назначается')
+                    break
+                # Проверить техническое обслуживание игрового сервера.
+                wait_for_server = getattr(self, "_wait_for_server_availability", None)
+                if callable(wait_for_server) and not wait_for_server():
+                    logger.info('[Alas] Ожидание сервера прервано запросом cooperative stop')
+                    break
+                if not callable(wait_for_server):
+                    self.checker.wait_until_available()
                 if self.checker.is_recovered():
-                    # 服务器恢复后强制刷新配置，修复阻塞期间配置未更新的问题
+                    # После восстановления сервера принудительно обновить конфигурацию,
+                    # чтобы применить изменения, сделанные во время ожидания.
                     del_cached_property(self, 'config')
                     logger.info('[Alas] Сервер или сеть восстановлены; выполняется перезапуск игрового клиента')
                     self.config.task_call('Restart')
-                # 检查计划的模拟器重启（在任务之间，不会中断正在运行的任务）
+                # Проверить плановый перезапуск эмулятора между задачами.
                 if self.config.EmulatorManagement_ScheduledEmulatorRestart:
                     elapsed_hours = (time.monotonic() - self.last_emulator_restart_time) / 3600
                     interval = self.config.EmulatorManagement_RestartIntervalHours
@@ -1673,22 +1789,66 @@ class AzurLaneAutoScript:
                                 break
                             logger.warning('[Alas] Плановый перезапуск эмулятора не выполнен; обычная работа продолжается')
 
-                # 获取任务
+                # Получить следующую задачу.
                 task = self.get_next_task()
+                if task is None:
+                    break
+                if _handover_requested(self.config_name) is True:
+                    logger.info('[Alas] После выбора задачи получен запрос на handover')
+                    break
                 # Autoscan проверяется на безопасной границе после возможного ожидания.
                 if not self._prepare_task_boundary(task):
                     continue
 
-                # 运行
+                if (
+                    self.stop_event is not None
+                    and self.stop_event.is_set()
+                ) or _handover_requested(self.config_name) is True:
+                    logger.info('[Alas] Запуск задачи отменён запросом cooperative stop')
+                    break
+
+                # Запустить задачу.
                 logger.info(f'[Alas] Планировщик: запуск задачи `{task}`')
-                record_dev_runtime_task_started(task)
+                if (
+                    self.stop_event is not None and self.stop_event.is_set()
+                ) or _handover_requested(self.config_name) is True:
+                    logger.info('[Alas] Запуск задачи отменён запросом cooperative stop')
+                    break
                 self.device.stuck_record_clear()
                 self.device.click_record_clear()
                 logger.hr(task, level=0)
-                success = self.run(inflection.underscore(task))
-                record_dev_runtime_task_finished(task)
+                # Атомарный переход runtime state в busy является границей
+                # запуска: handover до неё блокирует задачу, после неё
+                # дожидается завершения уже принятой текущей задачи.
+                if record_dev_runtime_task_started(task) is False:
+                    logger.error('[Alas] Не удалось подтвердить границу текущей задачи; scheduler остановлен')
+                    break
+                task_outcome = 'returned'
+                try:
+                    success = self._run_scheduler_task(task)
+                except Exception:
+                    task_outcome = 'failed'
+                    raise
+                finally:
+                    task_finished = (
+                        record_dev_runtime_task_finished(task, outcome=task_outcome)
+                        if task_outcome == 'failed'
+                        else record_dev_runtime_task_finished(task)
+                    )
+                if task_finished is False:
+                    logger.error('[Alas] Не удалось подтвердить завершение задачи; scheduler остановлен')
+                    break
                 logger.info(f'[Alas] Планировщик: завершение задачи `{task}`')
                 self.is_first_task = False
+
+                # Событие handover разрешает завершить текущую задачу, но
+                # не разрешает scheduler назначить следующую.
+                if (
+                    self.stop_event is not None
+                    and self.stop_event.is_set()
+                ) or _handover_requested(self.config_name) is True:
+                    logger.info('[Alas] После текущей задачи получен запрос на cooperative stop')
+                    break
 
                 # 每任务推送通知（须在 config_generated 刷新前读取）
                 if success is not None:

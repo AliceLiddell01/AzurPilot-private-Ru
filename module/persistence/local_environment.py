@@ -15,6 +15,11 @@ from pathlib import Path
 
 from module.application.errors import StorageConfigurationError
 from module.persistence.config import DatabaseSettings
+from module.persistence.local_environment_schema import (
+    INFRASTRUCTURE_ENVIRONMENT_KEYS,
+    POSTGRES_ENVIRONMENT_KEYS,
+    SECRET_ENVIRONMENT_KEYS,
+)
 
 DEFAULT_LOCAL_ENV_PATH = Path(".env")
 _KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
@@ -30,22 +35,15 @@ _CONNECTION_FIELDS = (
     "RUNTIME_TIMEZONE",
     "PGPASSFILE",
 )
-_ALLOWED_KEYS = frozenset(
+_ALLOWED_KEYS = POSTGRES_ENVIRONMENT_KEYS | frozenset(
     {
-        *(f"{_APP_PREFIX}{name}" for name in _CONNECTION_FIELDS),
-        *(f"{_MIGRATOR_PREFIX}{name}" for name in _CONNECTION_FIELDS),
         "AZURPILOT_WSL_DISTRO",
         "AZURPILOT_WSL_PGPASSFILE",
     }
 )
 # Приложенный recovery contract требует оба секрета в защищённом local source;
 # loader валидирует их различие, но никогда не экспортирует в process environment.
-_SECRET_KEYS = frozenset(
-    {
-        f"{_APP_PREFIX}PASSWORD",
-        f"{_MIGRATOR_PREFIX}PASSWORD",
-    }
-)
+_SECRET_KEYS = SECRET_ENVIRONMENT_KEYS & _ALLOWED_KEYS
 
 
 @dataclass(frozen=True, slots=True)
@@ -262,6 +260,7 @@ def read_local_postgres_environment(
         ) from exc
 
     values: dict[str, str] = {}
+    seen_keys: set[str] = set()
     for line_number, raw_line in enumerate(lines, start=1):
         line = raw_line.strip()
         if not line or line.startswith("#"):
@@ -272,11 +271,22 @@ def read_local_postgres_environment(
             )
         key, raw_value = line.split("=", 1)
         key = key.strip()
-        if not _KEY_RE.fullmatch(key) or key not in _ALLOWED_KEYS or key in values:
+        if not _KEY_RE.fullmatch(key) or key in seen_keys:
             raise StorageConfigurationError(
                 f"Ключ локального PostgreSQL env в строке {line_number} некорректен."
             )
-        values[key] = _parse_value(raw_value, line_number)
+        seen_keys.add(key)
+        if key in _ALLOWED_KEYS:
+            values[key] = _parse_value(raw_value, line_number)
+        elif key in INFRASTRUCTURE_ENVIRONMENT_KEYS:
+            # Compose и боевой PostgreSQL используют один защищённый локальный
+            # файл окружения. Registry перечисляет инфраструктурные ключи
+            # явно: опечатка внутри namespace не должна пройти незамеченной.
+            _parse_value(raw_value, line_number)
+        else:
+            raise StorageConfigurationError(
+                f"Ключ локального PostgreSQL env в строке {line_number} некорректен."
+            )
 
     if _ALLOWED_KEYS.difference(values):
         raise StorageConfigurationError(

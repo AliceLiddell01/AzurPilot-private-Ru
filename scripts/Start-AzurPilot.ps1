@@ -457,44 +457,146 @@ function Invoke-PythonHealthCheck {
     }
 }
 
-function Invoke-PostgreSqlStartPreflight {
+function Invoke-InfrastructureStartPreflight {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
         [string]$PythonPath,
 
         [Parameter(Mandatory)]
-        [string]$WorkingDirectory
+        [string]$WorkingDirectory,
+
+        [Parameter()]
+        [AllowNull()]
+        [System.Threading.EventWaitHandle]$StopEvent
     )
 
-    $wslCommand = Get-Command -Name 'wsl.exe' -CommandType Application -ErrorAction SilentlyContinue |
+    $dockerCommand = Get-Command -Name 'docker.exe' -CommandType Application -ErrorAction SilentlyContinue |
         Select-Object -First 1
 
-    if ($null -eq $wslCommand) {
-        Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message 'WSL недоступен; PostgreSQL нельзя запустить.'
+    if ($null -eq $dockerCommand) {
+        $dockerCommand = Get-Command -Name 'docker' -CommandType Application -ErrorAction SilentlyContinue |
+            Select-Object -First 1
     }
 
-    $operations = @(
-        [pscustomobject]@{
-            Executable = $wslCommand.Path
+    if ($null -eq $dockerCommand) {
+        Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message 'Docker CLI недоступен; инфраструктуру нельзя запустить.'
+    }
+
+    $composeFile = Join-Path -Path $WorkingDirectory -ChildPath 'infrastructure\observability\compose.yaml'
+    $envFile = Join-Path -Path $WorkingDirectory -ChildPath '.env'
+    if (-not (Test-Path -LiteralPath $composeFile -PathType Leaf) -or -not (Test-Path -LiteralPath $envFile -PathType Leaf)) {
+        Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message 'Канонический Docker Compose или локальный .env недоступен.'
+    }
+
+    $caddyHostEntries = @(Get-Content -LiteralPath $envFile -Encoding utf8 | Where-Object {
+            $_ -match '^\s*AZURPILOT_CADDY_HOST\s*='
+        })
+    $gameHostEntries = @(Get-Content -LiteralPath $envFile -Encoding utf8 | Where-Object {
+            $_ -match '^\s*AZURPILOT_GAME_MCP_PUBLIC_HOST\s*='
+        })
+    if ($caddyHostEntries.Count -gt 1) {
+        Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message 'Локальный .env содержит несколько значений AZURPILOT_CADDY_HOST.'
+    }
+    if ($gameHostEntries.Count -gt 1) {
+        Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message 'Локальный .env содержит несколько значений AZURPILOT_GAME_MCP_PUBLIC_HOST.'
+    }
+    $caddyConfigured = $false
+    if ($caddyHostEntries.Count -eq 1) {
+        $caddyHostValue = ($caddyHostEntries[0] -split '=', 2)[1].Trim()
+        if ([string]::IsNullOrWhiteSpace($caddyHostValue)) {
+            Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message 'AZURPILOT_CADDY_HOST задан пустым значением.'
+        }
+        if ($gameHostEntries.Count -ne 1) {
+            Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message 'Для Caddy требуется ровно одно значение AZURPILOT_GAME_MCP_PUBLIC_HOST.'
+        }
+        $gameHostValue = ($gameHostEntries[0] -split '=', 2)[1].Trim()
+        if ([string]::IsNullOrWhiteSpace($gameHostValue)) {
+            Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message 'AZURPILOT_GAME_MCP_PUBLIC_HOST задан пустым значением.'
+        }
+        $caddyConfigured = $true
+    }
+
+    $operations = @()
+    if (-not $caddyConfigured) {
+        $operations += [pscustomobject]@{
+            Executable = $dockerCommand.Path
             Arguments = @(
-                '--distribution'
-                'Archlinux'
-                '--user'
-                'root'
-                '--exec'
-                'systemctl'
-                'start'
-                'postgresql'
+                'compose'
+                '--env-file'
+                $envFile
+                '--file'
+                $composeFile
+                '--profile'
+                'remote-ingress'
+                'stop'
+                'caddy'
             )
             TimeoutMilliseconds = 30000
-            Failure = 'Не удалось запустить PostgreSQL 18 в WSL Archlinux.'
+            Failure = 'Не удалось остановить принадлежащий проекту Docker Compose Caddy без настроенного публичного host.'
+        }
+    }
+
+    $operations += @(
+        [pscustomobject]@{
+            Executable = $PythonPath
+            Arguments = @(
+                '-X'
+                'utf8'
+                '-m'
+                'dev_tools.observability_compose_migration'
+                '--repository-root'
+                $WorkingDirectory
+                'migrate'
+            )
+            TimeoutMilliseconds = 390000
+            Failure = 'Безопасная миграция старого Docker Compose project observability не выполнена.'
         }
         [pscustomobject]@{
-            Executable = $wslCommand.Path
-            Arguments = @('--distribution', 'Archlinux', '--exec', 'pg_isready', '--host', '127.0.0.1', '--port', '5432', '--timeout', '5')
-            TimeoutMilliseconds = 10000
-            Failure = 'PostgreSQL 18 в WSL Archlinux не принимает loopback-подключения.'
+            Executable = $dockerCommand.Path
+            Arguments = @(
+                'compose'
+                '--env-file'
+                $envFile
+                '--file'
+                $composeFile
+                'config'
+                '--quiet'
+            )
+            TimeoutMilliseconds = 30000
+            Failure = 'Docker Compose PostgreSQL не прошёл проверку конфигурации.'
+        }
+        [pscustomobject]@{
+            Executable = $dockerCommand.Path
+            Arguments = @(
+                'compose'
+                '--env-file'
+                $envFile
+                '--file'
+                $composeFile
+                'up'
+                '--detach'
+                '--wait'
+                'postgres'
+            )
+            TimeoutMilliseconds = 210000
+            Failure = 'PostgreSQL 18 в Docker Compose не достиг состояния готовности.'
+        }
+        [pscustomobject]@{
+            Executable = $dockerCommand.Path
+            Arguments = @(
+                'compose'
+                '--env-file'
+                $envFile
+                '--file'
+                $composeFile
+                'run'
+                '--rm'
+                '--no-deps'
+                'postgres-bootstrap'
+            )
+            TimeoutMilliseconds = 210000
+            Failure = 'Роли и права PostgreSQL не прошли одноразовый bootstrap.'
         }
         [pscustomobject]@{
             Executable = $PythonPath
@@ -504,7 +606,52 @@ function Invoke-PostgreSqlStartPreflight {
         }
     )
 
+    if ($caddyConfigured) {
+        $operations += @(
+            [pscustomobject]@{
+                Executable = $dockerCommand.Path
+                Arguments = @(
+                    'compose'
+                    '--env-file'
+                    $envFile
+                    '--file'
+                    $composeFile
+                    '--profile'
+                    'remote-ingress'
+                    'config'
+                    '--quiet'
+                )
+                TimeoutMilliseconds = 30000
+                Failure = 'Docker Compose Caddy не прошёл проверку конфигурации.'
+            }
+            [pscustomobject]@{
+                Executable = $dockerCommand.Path
+                Arguments = @(
+                    'compose'
+                    '--env-file'
+                    $envFile
+                    '--file'
+                    $composeFile
+                    '--profile'
+                    'remote-ingress'
+                    'up'
+                    '--detach'
+                    '--wait'
+                    'caddy'
+                )
+                TimeoutMilliseconds = 210000
+                Failure = 'Caddy в Docker Compose не достиг состояния готовности.'
+            }
+        )
+    }
+
     foreach ($operation in $operations) {
+        if (Test-AzurPilotStopRequested -StopEvent $StopEvent) {
+            $script:IntentionalStopRequested = $true
+            Write-StartLog -Level 'INFO' -Message 'Инфраструктурный preflight отменён координированным запросом остановки.'
+            return $false
+        }
+
         $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
         $utf8Encoding = [System.Text.UTF8Encoding]::new($false)
         $startInfo.FileName = $operation.Executable
@@ -535,12 +682,38 @@ function Invoke-PostgreSqlStartPreflight {
             $stdoutTask = $process.StandardOutput.ReadToEndAsync()
             $stderrTask = $process.StandardError.ReadToEndAsync()
 
-            if (-not $process.WaitForExit($operation.TimeoutMilliseconds)) {
+            $deadline = [DateTimeOffset]::UtcNow.AddMilliseconds($operation.TimeoutMilliseconds)
+            while (-not $process.HasExited) {
+                if (Test-AzurPilotStopRequested -StopEvent $StopEvent) {
+                    try {
+                        $process.Kill($true)
+                    }
+                    catch {
+                        Write-StartLog -Level 'WARN' -Message 'Не удалось остановить инфраструктурный preflight после запроса остановки.'
+                    }
+
+                    [void]$process.WaitForExit(5000)
+                    $script:IntentionalStopRequested = $true
+                    Write-StartLog -Level 'INFO' -Message 'Инфраструктурный preflight отменён; дальнейшие Docker Compose операции не выполняются.'
+                    return $false
+                }
+
+                $remainingMilliseconds = [int][Math]::Ceiling(
+                    ($deadline - [DateTimeOffset]::UtcNow).TotalMilliseconds
+                )
+                if ($remainingMilliseconds -le 0) {
+                    break
+                }
+
+                [void]$process.WaitForExit([Math]::Min(250, $remainingMilliseconds))
+            }
+
+            if (-not $process.HasExited) {
                 try {
                     $process.Kill($true)
                 }
                 catch {
-                    Write-StartLog -Level 'WARN' -Message 'Не удалось остановить зависшую проверку PostgreSQL.'
+                    Write-StartLog -Level 'WARN' -Message 'Не удалось остановить зависшую инфраструктурную проверку.'
                 }
 
                 Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message $operation.Failure
@@ -551,10 +724,10 @@ function Invoke-PostgreSqlStartPreflight {
 
             if ($process.ExitCode -ne 0) {
                 if (-not [string]::IsNullOrWhiteSpace($standardOutput)) {
-                    Write-StartLog -Level 'WARN' -Message ('Диагностика PostgreSQL: {0}' -f $standardOutput.Trim())
+                    Write-StartLog -Level 'WARN' -Message ('Диагностика инфраструктуры: {0}' -f $standardOutput.Trim())
                 }
                 if (-not [string]::IsNullOrWhiteSpace($standardError)) {
-                    Write-StartLog -Level 'WARN' -Message ('Ошибка диагностики PostgreSQL: {0}' -f $standardError.Trim())
+                    Write-StartLog -Level 'WARN' -Message ('Ошибка диагностики инфраструктуры: {0}' -f $standardError.Trim())
                 }
                 Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message $operation.Failure
             }
@@ -569,7 +742,12 @@ function Invoke-PostgreSqlStartPreflight {
         }
     }
 
-    Write-StartLog -Level 'INFO' -Message 'PostgreSQL 18 запущен; marker, schema upgrade и app-health подготовлены.'
+    if ($caddyConfigured) {
+        Write-StartLog -Level 'INFO' -Message 'Инфраструктурный Docker Compose запущен; PostgreSQL подготовлен, Caddy достиг состояния готовности.'
+    } else {
+        Write-StartLog -Level 'INFO' -Message 'Инфраструктурный Docker Compose запущен; PostgreSQL подготовлен, Caddy остановлен, так как AZURPILOT_CADDY_HOST не задан.'
+    }
+    return $true
 }
 
 function Enter-RepositoryMutex {
@@ -1391,14 +1569,6 @@ function Invoke-AzurPilotStart {
             return $script:ExitCodeSuccess
         }
 
-        Invoke-PostgreSqlStartPreflight -PythonPath $projectPythonPath -WorkingDirectory $resolvedRepositoryPath
-
-        if (Test-AzurPilotStopRequested -StopEvent $script:StopEvent) {
-            $script:IntentionalStopRequested = $true
-            Write-StartLog -Level 'INFO' -Message 'Запуск отменён координированным запросом остановки после preflight.'
-            return $script:ExitCodeSuccess
-        }
-
         $webUiConfiguration = Get-WebUiConfiguration -DeployConfigPath $deployConfigPath
         $browserUri = $webUiConfiguration.BrowserUri
 
@@ -1478,6 +1648,25 @@ function Invoke-AzurPilotStart {
                 return $script:ExitCodeBrowserFailure
             }
 
+            return $script:ExitCodeSuccess
+        }
+
+        if (Test-AzurPilotStopRequested -StopEvent $script:StopEvent) {
+            $script:IntentionalStopRequested = $true
+            Write-StartLog -Level 'INFO' -Message 'Запуск отменён координированным запросом остановки до инфраструктурного preflight.'
+            return $script:ExitCodeSuccess
+        }
+
+        $preflightParameters = @{
+            PythonPath = $projectPythonPath
+            WorkingDirectory = $resolvedRepositoryPath
+            StopEvent = $script:StopEvent
+        }
+        $preflightCompleted = Invoke-InfrastructureStartPreflight @preflightParameters
+
+        if (-not $preflightCompleted -or (Test-AzurPilotStopRequested -StopEvent $script:StopEvent)) {
+            $script:IntentionalStopRequested = $true
+            Write-StartLog -Level 'INFO' -Message 'Запуск отменён координированным запросом остановки после preflight.'
             return $script:ExitCodeSuccess
         }
 

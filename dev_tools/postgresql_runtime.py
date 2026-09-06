@@ -35,6 +35,7 @@ _REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 def _run_hidden(
     arguments: list[str],
     *,
+    stdin: object = subprocess.DEVNULL,
     stdout: object = subprocess.DEVNULL,
     environment: dict[str, str] | None = None,
 ) -> None:
@@ -44,7 +45,7 @@ def _run_hidden(
     result = subprocess.run(
         arguments,
         env=environment,
-        stdin=subprocess.DEVNULL,
+        stdin=stdin,
         stdout=stdout,
         stderr=subprocess.DEVNULL,
         check=False,
@@ -78,6 +79,82 @@ def _wsl_path(path: Path) -> str:
     return f"/mnt/{drive}{suffix}"
 
 
+def _docker_executable() -> str:
+    executable = shutil.which("docker.exe") or shutil.which("docker")
+    if executable is None:
+        raise RuntimeError("Docker CLI недоступен для PostgreSQL backup.")
+    return executable
+
+
+def _compose_arguments(repository_root: Path, *arguments: str) -> list[str]:
+    repository_root = repository_root.resolve(strict=True)
+    env_file = repository_root / ".env"
+    compose_file = repository_root / "infrastructure/observability/compose.yaml"
+    if not env_file.is_file() or not compose_file.is_file():
+        raise RuntimeError("Канонический Docker Compose PostgreSQL недоступен.")
+    return [
+        _docker_executable(),
+        "compose",
+        "--env-file",
+        str(env_file),
+        "--file",
+        str(compose_file),
+        *arguments,
+    ]
+
+
+def _maintenance_settings(marker_settings: DatabaseSettings) -> DatabaseSettings:
+    settings = DatabaseSettings.from_environment(
+        prefix="AZURPILOT_POSTGRES_MIGRATOR_"
+    )
+    _require_upgrade_endpoint_match(marker_settings, settings)
+    return settings
+
+
+def _require_docker_endpoint(
+    marker_settings: DatabaseSettings,
+    repository_root: Path,
+) -> None:
+    if marker_settings.host not in {"127.0.0.1", "localhost", "::1"}:
+        raise StorageConfigurationError(
+            "Docker PostgreSQL endpoint marker не ограничен loopback."
+        )
+    options: dict[str, object] = {}
+    if os.name == "nt":
+        options["creationflags"] = subprocess.CREATE_NO_WINDOW
+    result = subprocess.run(
+        _compose_arguments(repository_root, "port", "postgres", "5432"),
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=20,
+        **options,
+    )
+    if result.returncode != 0:
+        raise RuntimeError("Docker Compose PostgreSQL endpoint недоступен.")
+    bindings = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    if not bindings:
+        raise RuntimeError("Docker Compose PostgreSQL endpoint не опубликован.")
+    for binding in bindings:
+        host_port = binding.rsplit(":", 1)
+        if len(host_port) != 2:
+            raise StorageConfigurationError(
+                "Docker PostgreSQL endpoint не совпадает с production marker."
+            )
+        host = host_port[0].strip("[]")
+        try:
+            port = int(host_port[1])
+        except ValueError as exc:
+            raise StorageConfigurationError(
+                "Docker PostgreSQL endpoint содержит некорректный port."
+            ) from exc
+        if host not in {"127.0.0.1", "localhost", "::1"} or port != marker_settings.port:
+            raise StorageConfigurationError(
+                "Docker PostgreSQL endpoint не совпадает с production marker."
+            )
+
+
 def _validate_external_output(output: Path, repository_root: Path) -> Path:
     output = output.resolve()
     repository_root = repository_root.resolve(strict=True)
@@ -98,31 +175,81 @@ def _backup(
     output: Path,
     distro: str,
     repository_root: Path,
+    *,
+    transport: str = "docker",
 ) -> None:
     output = _validate_external_output(output, repository_root)
-    native = shutil.which("pg_dump")
     environment = os.environ.copy()
     environment.pop("PGPASSWORD", None)
-    if native:
-        passfile = environment.get("PGPASSFILE") or environment.get(
-            "AZURPILOT_POSTGRES_PGPASSFILE"
-        )
-        if passfile:
-            environment["PGPASSFILE"] = passfile
-    arguments = (
-        [native, *_pg_dump_arguments(settings)]
-        if native
-        else [
-            "wsl.exe",
-            "--distribution",
-            distro,
-            "--exec",
-            "env",
-            f"PGPASSFILE={os.environ.get('AZURPILOT_WSL_PGPASSFILE', '/etc/azurpilot/pgpass')}",
+    environment.pop("AZURPILOT_POSTGRES_PASSWORD", None)
+    environment.pop("AZURPILOT_POSTGRES_MIGRATOR_PASSWORD", None)
+
+    if transport == "docker":
+        _require_docker_endpoint(settings, repository_root)
+        arguments = _compose_arguments(
+            repository_root,
+            "exec",
+            "-T",
+            "--user",
+            "postgres",
+            "postgres",
             "pg_dump",
-            *_pg_dump_arguments(settings),
-        ]
-    )
+            "--username",
+            "postgres",
+            "--format=custom",
+            "--no-owner",
+            "--no-acl",
+            settings.database,
+        )
+        restore_arguments = _compose_arguments(
+            repository_root,
+            "exec",
+            "-T",
+            "--user",
+            "postgres",
+            "postgres",
+            "pg_restore",
+            "--list",
+        )
+    elif transport in {"native", "wsl"}:
+        maintenance = _maintenance_settings(settings)
+        if transport == "native":
+            native = shutil.which("pg_dump")
+            if native is None:
+                raise RuntimeError("Native pg_dump недоступен для PostgreSQL backup.")
+            passfile = environment.get(
+                "AZURPILOT_POSTGRES_MIGRATOR_PGPASSFILE"
+            ) or environment.get("AZURPILOT_POSTGRES_PGPASSFILE")
+            if passfile:
+                environment["PGPASSFILE"] = passfile
+            arguments = [native, *_pg_dump_arguments(maintenance)]
+            restore = shutil.which("pg_restore")
+            if restore is None:
+                raise RuntimeError("Native pg_restore недоступен для PostgreSQL backup.")
+            restore_arguments = [restore, "--list", "{temporary}"]
+        else:
+            arguments = [
+                "wsl.exe",
+                "--distribution",
+                distro,
+                "--exec",
+                "env",
+                f"PGPASSFILE={os.environ.get('AZURPILOT_WSL_PGPASSFILE', '/etc/azurpilot/pgpass')}",
+                "pg_dump",
+                *_pg_dump_arguments(maintenance),
+            ]
+            restore_arguments = [
+                "wsl.exe",
+                "--distribution",
+                distro,
+                "--exec",
+                "pg_restore",
+                "--list",
+                "{temporary_wsl}",
+            ]
+    else:
+        raise ValueError("Транспорт PostgreSQL backup не поддерживается.")
+
     descriptor, temporary_name = tempfile.mkstemp(
         prefix=output.name + ".", suffix=".tmp", dir=output.parent
     )
@@ -133,21 +260,22 @@ def _backup(
             _run_hidden(arguments, stdout=stream, environment=environment)
         if temporary.stat().st_size < 1024:
             raise RuntimeError("Резервная копия PostgreSQL неожиданно мала.")
-        restore = shutil.which("pg_restore")
-        restore_arguments = (
-            [restore, "--list", str(temporary)]
-            if restore
-            else [
-                "wsl.exe",
-                "--distribution",
-                distro,
-                "--exec",
-                "pg_restore",
-                "--list",
-                _wsl_path(temporary),
+        if transport == "docker":
+            with temporary.open("rb") as stream:
+                _run_hidden(
+                    restore_arguments,
+                    stdin=stream,
+                    environment=environment,
+                )
+        else:
+            format_arguments = {"temporary": str(temporary)}
+            if transport == "wsl":
+                format_arguments["temporary_wsl"] = _wsl_path(temporary)
+            restore_arguments = [
+                argument.format(**format_arguments)
+                for argument in restore_arguments
             ]
-        )
-        _run_hidden(restore_arguments)
+            _run_hidden(restore_arguments, environment=environment)
         os.link(temporary, output)
     finally:
         temporary.unlink(missing_ok=True)
@@ -296,8 +424,7 @@ def _run_schema_upgrade_process(marker: Path) -> None:
             cwd=_REPOSITORY_ROOT,
             env=environment,
             stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             check=False,
             timeout=180,
             text=True,
@@ -358,6 +485,12 @@ def _parser() -> argparse.ArgumentParser:
     backup.add_argument("--marker", default=str(DEFAULT_BACKEND_MARKER_PATH))
     backup.add_argument("--output", required=True)
     backup.add_argument("--distro", default="Archlinux")
+    backup.add_argument(
+        "--transport",
+        choices=("docker", "native", "wsl"),
+        default="docker",
+        help="Источник pg_dump: Docker Compose по умолчанию или rollback-транспорт.",
+    )
     backup.add_argument("--repository-root", default=".")
 
     upgrade = subparsers.add_parser(
@@ -387,6 +520,7 @@ def main(argv: list[str] | None = None) -> int:
                 Path(arguments.output),
                 arguments.distro,
                 Path(arguments.repository_root),
+                transport=arguments.transport,
             )
         elif arguments.command == "upgrade":
             _upgrade(_resolve_marker(arguments.marker))

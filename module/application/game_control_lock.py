@@ -10,6 +10,10 @@ from pathlib import Path
 
 from module.application.errors import ResourceBusyError
 from module.application.host_lock import application_host_lock
+from module.application.resource_lease import (
+    ResourceLeaseError,
+    game_runtime_lease,
+)
 
 GAME_CONTROL_LOCK_TIMEOUT_SECONDS = 30.0
 GAME_CONTROL_LOCK_RETRY_INTERVAL_SECONDS = 0.05
@@ -42,15 +46,17 @@ def profile_mutation_lock(
 ) -> Iterator[None]:
     """Захватить bounded cross-process lock для одной profile mutation."""
 
-    manager = application_host_lock(
-        profile_mutation_lock_path(profile, repository_root=repository_root),
-        timeout=timeout,
-        retry_interval=GAME_CONTROL_LOCK_RETRY_INTERVAL_SECONDS,
-    )
     with ExitStack() as stack:
         try:
-            stack.enter_context(manager)
-        except TimeoutError:
+            stack.enter_context(game_runtime_lease(repository_root, timeout=timeout))
+            stack.enter_context(
+                application_host_lock(
+                    profile_mutation_lock_path(profile, repository_root=repository_root),
+                    timeout=timeout,
+                    retry_interval=GAME_CONTROL_LOCK_RETRY_INTERVAL_SECONDS,
+                )
+            )
+        except (ResourceLeaseError, TimeoutError):
             raise ResourceBusyError("Профиль занят другой control-операцией.") from None
         yield
 
@@ -58,6 +64,8 @@ def profile_mutation_lock(
 __all__ = (
     "GAME_CONTROL_LOCK_RETRY_INTERVAL_SECONDS",
     "GAME_CONTROL_LOCK_TIMEOUT_SECONDS",
+    "ResourceLeaseError",
+    "game_runtime_lease",
     "profile_mutation_lock",
     "profile_mutation_lock_path",
 )

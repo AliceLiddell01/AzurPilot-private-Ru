@@ -11,7 +11,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATHS = (
     Path("scripts/Start-AzurPilot.ps1"),
@@ -198,7 +197,7 @@ class PowerShellContractTests(unittest.TestCase):
             ),
             None,
         )
-        self.assertIsNotNone(csc, "Системный C# compiler нужен для disposable wsl.exe probe")
+        self.assertIsNotNone(csc, "Системный C# compiler нужен для disposable docker.exe probe")
 
         start_source = self.sources["scripts/Start-AzurPilot.ps1"]
         self.assertIn(
@@ -210,22 +209,32 @@ class PowerShellContractTests(unittest.TestCase):
             "Failure = 'Production PostgreSQL не прошёл подготовку marker, schema upgrade или app-health.'",
             start_source,
         )
+        self.assertLess(
+            start_source.index("if (-not $mutexData.Owned)"),
+            start_source.index("Invoke-InfrastructureStartPreflight @preflightParameters"),
+        )
+        self.assertLess(
+            start_source.index("$initialOwnership = Get-AzurPilotPortOwnershipState"),
+            start_source.index("Invoke-InfrastructureStartPreflight @preflightParameters"),
+        )
+        self.assertIn("StopEvent = $script:StopEvent", start_source)
+        self.assertIn("$process.WaitForExit([Math]::Min(250, $remainingMilliseconds))", start_source)
 
         with tempfile.TemporaryDirectory(prefix="azurpilot-start-smoke-") as temporary:
             test_root = Path(temporary)
             shim_directory = test_root / "shim"
             shim_directory.mkdir()
-            wsl_source = test_root / "wsl-probe.cs"
-            wsl_executable = shim_directory / "wsl.exe"
-            wsl_source.write_text(
+            docker_source = test_root / "docker-probe.cs"
+            docker_executable = shim_directory / "docker.exe"
+            docker_source.write_text(
                 "using System;\n"
                 "using System.IO;\n"
                 "\n"
-                "public static class WslProbe\n"
+                "public static class DockerProbe\n"
                 "{\n"
                 "    public static int Main(string[] args)\n"
                 "    {\n"
-                "        string path = Environment.GetEnvironmentVariable(\"AZURPILOT_START_WSL_LOG\");\n"
+                "        string path = Environment.GetEnvironmentVariable(\"AZURPILOT_START_DOCKER_LOG\");\n"
                 "        if (String.IsNullOrWhiteSpace(path))\n"
                 "        {\n"
                 "            return 97;\n"
@@ -240,8 +249,8 @@ class PowerShellContractTests(unittest.TestCase):
                 [
                     str(csc),
                     "/nologo",
-                    f"/out:{wsl_executable}",
-                    str(wsl_source),
+                    f"/out:{docker_executable}",
+                    str(docker_source),
                 ],
                 cwd=test_root,
                 capture_output=True,
@@ -256,18 +265,27 @@ class PowerShellContractTests(unittest.TestCase):
                 compile_result.returncode,
                 compile_result.stdout + compile_result.stderr,
             )
-            self.assertTrue(wsl_executable.is_file())
+            self.assertTrue(docker_executable.is_file())
 
-            def run_start(mode: str, case_name: str):
+            def run_start(mode: str, case_name: str, caddy_host: str | None = None):
                 repository = test_root / case_name / "Repository With Spaces"
                 config_path = repository / "config" / "deploy.yaml"
+                env_path = repository / ".env"
+                compose_path = repository / "infrastructure" / "observability" / "compose.yaml"
                 dev_tools_path = repository / "dev_tools"
                 gui_path = repository / "gui.py"
                 prepare_log = test_root / f"{case_name}-prepare.log"
                 gui_log = test_root / f"{case_name}-gui.log"
-                wsl_log = test_root / f"{case_name}-wsl.log"
+                docker_log = test_root / f"{case_name}-docker.log"
 
                 config_path.parent.mkdir(parents=True)
+                env_contents = "AZURPILOT_POSTGRES_DOCKER_BOOTSTRAP_PASSWORD=test\n"
+                if caddy_host is not None:
+                    env_contents += f"AZURPILOT_CADDY_HOST={caddy_host}\n"
+                    env_contents += f"AZURPILOT_GAME_MCP_PUBLIC_HOST=game.{caddy_host}\n"
+                env_path.write_text(env_contents, encoding="utf-8")
+                compose_path.parent.mkdir(parents=True)
+                compose_path.write_text("name: test\n", encoding="utf-8")
                 dev_tools_path.mkdir(parents=True)
                 venv_result = subprocess.run(
                     [
@@ -308,6 +326,15 @@ class PowerShellContractTests(unittest.TestCase):
                     "    raise SystemExit(43)\n",
                     encoding="utf-8",
                 )
+                (dev_tools_path / "observability_compose_migration.py").write_text(
+                    "from pathlib import Path\n"
+                    "import os\n"
+                    "with Path(os.environ['AZURPILOT_START_PROBE_LOG']).open(\n"
+                    "    'a', encoding='utf-8'\n"
+                    ") as stream:\n"
+                    "    stream.write('migration\\n')\n",
+                    encoding="utf-8",
+                )
                 gui_path.write_text(
                     "from pathlib import Path\n"
                     "import os\n"
@@ -330,7 +357,7 @@ class PowerShellContractTests(unittest.TestCase):
                 environment["AZURPILOT_START_PROBE_LOG"] = str(prepare_log)
                 environment["AZURPILOT_START_PROBE_MODE"] = mode
                 environment["AZURPILOT_START_GUI_LOG"] = str(gui_log)
-                environment["AZURPILOT_START_WSL_LOG"] = str(wsl_log)
+                environment["AZURPILOT_START_DOCKER_LOG"] = str(docker_log)
 
                 result = subprocess.run(
                     [
@@ -355,13 +382,17 @@ class PowerShellContractTests(unittest.TestCase):
                     timeout=30,
                     check=False,
                 )
-                wsl_calls = tuple(
-                    tuple(line.split("\x1f"))
-                    for line in wsl_log.read_text(encoding="utf-8").splitlines()
+                self.assertTrue(
+                    docker_log.is_file(),
+                    result.stdout + result.stderr,
                 )
-                return result, prepare_log, gui_log, wsl_calls
+                docker_calls = tuple(
+                    tuple(line.split("\x1f"))
+                    for line in docker_log.read_text(encoding="utf-8").splitlines()
+                )
+                return result, prepare_log, gui_log, docker_calls, env_path, compose_path
 
-            success_result, success_prepare_log, success_gui_log, success_wsl_calls = (
+            success_result, success_prepare_log, success_gui_log, success_docker_calls, env_path, compose_path = (
                 run_start("normal", "success")
             )
             self.assertEqual(
@@ -372,32 +403,52 @@ class PowerShellContractTests(unittest.TestCase):
             self.assertEqual(
                 (
                     (
-                        "--distribution",
-                        "Archlinux",
-                        "--user",
-                        "root",
-                        "--exec",
-                        "systemctl",
-                        "start",
-                        "postgresql",
+                        "compose",
+                        "--env-file",
+                        str(env_path),
+                        "--file",
+                        str(compose_path),
+                        "--profile",
+                        "remote-ingress",
+                        "stop",
+                        "caddy",
                     ),
                     (
-                        "--distribution",
-                        "Archlinux",
-                        "--exec",
-                        "pg_isready",
-                        "--host",
-                        "127.0.0.1",
-                        "--port",
-                        "5432",
-                        "--timeout",
-                        "5",
+                        "compose",
+                        "--env-file",
+                        str(env_path),
+                        "--file",
+                        str(compose_path),
+                        "config",
+                        "--quiet",
+                    ),
+                    (
+                        "compose",
+                        "--env-file",
+                        str(env_path),
+                        "--file",
+                        str(compose_path),
+                        "up",
+                        "--detach",
+                        "--wait",
+                        "postgres",
+                    ),
+                    (
+                        "compose",
+                        "--env-file",
+                        str(env_path),
+                        "--file",
+                        str(compose_path),
+                        "run",
+                        "--rm",
+                        "--no-deps",
+                        "postgres-bootstrap",
                     ),
                 ),
-                success_wsl_calls,
+                success_docker_calls,
             )
             self.assertEqual(
-                "prepare\n",
+                "migration\nprepare\n",
                 success_prepare_log.read_text(encoding="utf-8"),
             )
             self.assertEqual(
@@ -405,11 +456,38 @@ class PowerShellContractTests(unittest.TestCase):
                 success_gui_log.read_text(encoding="utf-8"),
             )
             self.assertIn(
-                "PostgreSQL 18 запущен; marker, schema upgrade и app-health подготовлены.",
+                "Инфраструктурный Docker Compose запущен; PostgreSQL подготовлен, Caddy остановлен, так как AZURPILOT_CADDY_HOST не задан.",
                 success_result.stdout + success_result.stderr,
             )
 
-            failed_result, failed_prepare_log, failed_gui_log, failed_wsl_calls = (
+            caddy_result, _caddy_prepare_log, _caddy_gui_log, caddy_docker_calls, _caddy_env_path, _caddy_compose_path = (
+                run_start("normal", "caddy-success", caddy_host="mcp.example.test")
+            )
+            self.assertEqual(
+                EXPECTED_EXIT_CODES["scripts/Start-AzurPilot.ps1"]["BackendFailure"],
+                caddy_result.returncode,
+                caddy_result.stdout + caddy_result.stderr,
+            )
+            self.assertEqual(
+                tuple(
+                    (call[0], call[1], call[3], *call[5:])
+                    for call in success_docker_calls[1:]
+                )
+                + (
+                    ("compose", "--env-file", "--file", "--profile", "remote-ingress", "config", "--quiet"),
+                    ("compose", "--env-file", "--file", "--profile", "remote-ingress", "up", "--detach", "--wait", "caddy"),
+                ),
+                tuple(
+                    (call[0], call[1], call[3], *call[5:])
+                    for call in caddy_docker_calls
+                ),
+            )
+            self.assertIn(
+                "Инфраструктурный Docker Compose запущен; PostgreSQL подготовлен, Caddy достиг состояния готовности.",
+                caddy_result.stdout + caddy_result.stderr,
+            )
+
+            failed_result, failed_prepare_log, failed_gui_log, failed_docker_calls, _failed_env_path, _failed_compose_path = (
                 run_start("fail-prepare", "prepare-failure")
             )
             self.assertEqual(
@@ -417,9 +495,19 @@ class PowerShellContractTests(unittest.TestCase):
                 failed_result.returncode,
                 failed_result.stdout + failed_result.stderr,
             )
-            self.assertEqual(success_wsl_calls, failed_wsl_calls)
+
+            def docker_call_shape(calls):
+                return tuple(
+                    (call[0], call[1], call[3], *call[5:])
+                    for call in calls
+                )
+
             self.assertEqual(
-                "prepare\n",
+                docker_call_shape(success_docker_calls),
+                docker_call_shape(failed_docker_calls),
+            )
+            self.assertEqual(
+                "migration\nprepare\n",
                 failed_prepare_log.read_text(encoding="utf-8"),
             )
             self.assertFalse(failed_gui_log.exists())

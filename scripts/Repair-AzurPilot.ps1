@@ -378,7 +378,11 @@ function Invoke-NativeCommand {
         [string[]]$Arguments,
 
         [Parameter()]
-        [string]$WorkingDirectory = ''
+        [string]$WorkingDirectory = '',
+
+        [Parameter()]
+        [ValidateRange(1, 600000)]
+        [int]$TimeoutMilliseconds = 0
     )
 
     $locationChanged = $false
@@ -389,6 +393,76 @@ function Invoke-NativeCommand {
     }
 
     try {
+        if ($TimeoutMilliseconds -gt 0) {
+            $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+            $startInfo.FileName = $Executable
+            $startInfo.WorkingDirectory = (Get-Location).Path
+            $startInfo.UseShellExecute = $false
+            $startInfo.CreateNoWindow = $true
+            $startInfo.RedirectStandardOutput = $true
+            $startInfo.RedirectStandardError = $true
+            $utf8Encoding = [System.Text.UTF8Encoding]::new($false)
+            $startInfo.StandardOutputEncoding = $utf8Encoding
+            $startInfo.StandardErrorEncoding = $utf8Encoding
+            foreach ($argument in $Arguments) {
+                [void]$startInfo.ArgumentList.Add($argument)
+            }
+
+            $process = [System.Diagnostics.Process]::new()
+            $process.StartInfo = $startInfo
+            try {
+                if (-not $process.Start()) {
+                    return [pscustomobject]@{
+                        ExitCode = 1
+                        Output = [string[]]@('Не удалось запустить нативную команду.')
+                    }
+                }
+
+                $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+                $stderrTask = $process.StandardError.ReadToEndAsync()
+                if (-not $process.WaitForExit($TimeoutMilliseconds)) {
+                    try {
+                        $process.Kill($true)
+                    }
+                    catch {
+                        Write-RepairLog -Level 'WARN' -Message 'Не удалось остановить зависшую диагностическую команду Docker.'
+                    }
+                    [void]$process.WaitForExit(5000)
+                    $timeoutOutput = @(
+                        'Диагностическая команда Docker превысила заданный таймаут.'
+                    )
+                    if ($stdoutTask.IsCompleted) {
+                        $timeoutOutput += $stdoutTask.GetAwaiter().GetResult() -split '\r?\n'
+                    }
+                    if ($stderrTask.IsCompleted) {
+                        $timeoutOutput += $stderrTask.GetAwaiter().GetResult() -split '\r?\n'
+                    }
+                    return [pscustomobject]@{
+                        ExitCode = 124
+                        Output = [string[]]$timeoutOutput
+                    }
+                }
+
+                $nativeOutput = @()
+                $stdout = $stdoutTask.GetAwaiter().GetResult()
+                $stderr = $stderrTask.GetAwaiter().GetResult()
+                if (-not [string]::IsNullOrEmpty($stdout)) {
+                    $nativeOutput += $stdout -split '\r?\n'
+                }
+                if (-not [string]::IsNullOrEmpty($stderr)) {
+                    $nativeOutput += $stderr -split '\r?\n'
+                }
+
+                return [pscustomobject]@{
+                    ExitCode = $process.ExitCode
+                    Output = [string[]]$nativeOutput
+                }
+            }
+            finally {
+                $process.Dispose()
+            }
+        }
+
         $nativeOutput = & $Executable @Arguments 2>&1
         $nativeExitCode = $LASTEXITCODE
         $nativeOutput = @($nativeOutput)
@@ -1287,25 +1361,36 @@ function Get-EnvironmentDiagnostic {
 
     if ($pythonHealth.Success) {
         $postgresqlCheckPerformed = $true
-        $wslCommand = Get-Command -Name 'wsl.exe' -CommandType Application -ErrorAction SilentlyContinue |
-            Select-Object -First 1
+        $dockerCommand = $null
+        foreach ($dockerName in @('docker.exe', 'docker')) {
+            $dockerCommand = Get-Command -Name $dockerName -CommandType Application -ErrorAction SilentlyContinue |
+                Select-Object -First 1
 
-        if ($null -eq $wslCommand) {
-            $wslState = [pscustomobject]@{
+            if ($null -ne $dockerCommand) {
+                break
+            }
+        }
+
+        $composeFile = Join-Path -Path $script:ResolvedRepositoryPath -ChildPath 'infrastructure\observability\compose.yaml'
+        $envFile = Join-Path -Path $script:ResolvedRepositoryPath -ChildPath '.env'
+        if ($null -eq $dockerCommand -or -not (Test-Path -LiteralPath $composeFile -PathType Leaf) -or -not (Test-Path -LiteralPath $envFile -PathType Leaf)) {
+            $dockerState = [pscustomobject]@{
                 ExitCode = 1
-                Output = [string[]]@('WSL недоступен; состояние PostgreSQL не проверено.')
+                Output = [string[]]@('Docker Compose или локальный .env недоступен; состояние PostgreSQL не проверено.')
             }
         }
         else {
-            $wslState = Invoke-NativeCommand -Executable $wslCommand.Path -Arguments @(
-                '--distribution'
-                'Archlinux'
-                '--exec'
-                'systemctl'
-                'is-active'
-                '--quiet'
-                'postgresql'
-            ) -WorkingDirectory $script:ResolvedRepositoryPath
+            $dockerState = Invoke-NativeCommand -Executable $dockerCommand.Path -Arguments @(
+                'compose'
+                '--env-file'
+                $envFile
+                '--file'
+                $composeFile
+                'ps'
+                '--status'
+                'running'
+                '--services'
+            ) -WorkingDirectory $script:ResolvedRepositoryPath -TimeoutMilliseconds 30000
         }
 
         $postgresqlHealth = Invoke-NativeCommand -Executable $pythonPath -Arguments @(
@@ -1321,21 +1406,28 @@ function Get-EnvironmentDiagnostic {
             'utf8'
             '-m'
             'dev_tools.postgresql_security'
+            '--deployment'
+            'docker'
+            '--compose-file'
+            $composeFile
+            '--service'
+            'postgres'
         ) -WorkingDirectory $script:ResolvedRepositoryPath
 
         $postgresqlHealthy = (
-            $wslState.ExitCode -eq 0 -and
+            $dockerState.ExitCode -eq 0 -and
+            @($dockerState.Output) -contains 'postgres' -and
             $postgresqlHealth.ExitCode -eq 0 -and
             $postgresqlSecurity.ExitCode -eq 0
         )
 
         if (-not $postgresqlHealthy) {
-            foreach ($diagnostic in @($wslState, $postgresqlHealth, $postgresqlSecurity)) {
+            foreach ($diagnostic in @($dockerState, $postgresqlHealth, $postgresqlSecurity)) {
                 if ($diagnostic.ExitCode -ne 0) {
                     Write-NativeOutput -Result $diagnostic -Level 'WARN' -Prefix '[PostgreSQL]'
                 }
             }
-            $warnings.Add('Production PostgreSQL не прошёл диагностику: проверьте WSL Archlinux, marker, app-доступ, schema head, loopback listener, SCRAM и HBA. Repair не изменяет БД.')
+            $warnings.Add('Production PostgreSQL не прошёл диагностику: проверьте Docker Compose, marker, app-доступ, schema head, loopback binding, SCRAM и HBA. Repair не изменяет БД.')
         }
     }
 

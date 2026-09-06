@@ -7,6 +7,7 @@
 import multiprocessing
 import os
 import threading
+from pathlib import Path
 from multiprocessing.managers import SyncManager
 from typing import TYPE_CHECKING, Callable, Generic, TypeVar
 
@@ -21,6 +22,26 @@ T = TypeVar("T")
 
 # 代码更新后，父监督器必须先完成独立环境同步，才能创建新的 WebUI 子进程。
 DEPENDENCY_SYNC_PENDING_FILE = "./config/webui-dependency-sync-pending"
+
+
+def _close_runtime_control_server(server: object | None) -> None:
+    """Закрыть control server, если объект предоставляет штатный lifecycle hook."""
+
+    if server is None:
+        return
+    close = getattr(server, "close", None)
+    if callable(close):
+        try:
+            close()
+        except Exception as exc:  # noqa: BLE001 - очистка должна продолжиться после ошибки закрытия.
+            try:
+                from module.logger import logger
+
+                logger.warning(
+                    f"Не удалось закрыть runtime control server во время очистки: {type(exc).__name__}"
+                )
+            except Exception:
+                pass
 
 
 def _ensure_gui_process_lifetime_guard() -> None:
@@ -134,6 +155,7 @@ class State:
     dependency_sync_event: threading.Event = None
     manager: SyncManager = None
     process_registry = None
+    _runtime_control_server = None
     electron: bool = False
     webui_host: str = None
     theme: str = "default"
@@ -184,6 +206,9 @@ class State:
     def init(cls):
         cls._clearup = False
         cls._restart_requested = False
+        previous_server = cls._runtime_control_server
+        cls._runtime_control_server = None
+        _close_runtime_control_server(previous_server)
         manager = multiprocessing.Manager()
         cls.manager = manager
         # Browser sessions may run in separate processes, so workers need a
@@ -195,6 +220,39 @@ class State:
             claim_owner(os.getpid())
         except Exception:
             # 所有者认领失败时不能留下无主的 Manager 子进程。
+            cls.process_registry = None
+            cls.manager = None
+            cls._init = False
+            try:
+                manager.shutdown()
+            except Exception:
+                pass
+            raise
+        server = None
+        try:
+            from module.webui.runtime_control_owner import WebUIRuntimeControlOwner
+
+            owner = WebUIRuntimeControlOwner(Path(__file__).resolve().parents[2])
+            server = owner.start_server()
+            cls._runtime_control_server = server
+        except Exception:
+            # Нельзя оставлять worker registry owner без control server: это
+            # создало бы невидимый и неуправляемый runtime.
+            _close_runtime_control_server(server)
+            try:
+                from module.webui.worker_registry import clear_owner
+
+                clear_owner(os.getpid())
+            except Exception as exc:  # noqa: BLE001 - ошибку rollback необходимо отразить в журнале.
+                from module.logger import logger
+
+                logger.exception_context(
+                    title="Не удалось откатить регистрацию WebUI owner",
+                    exc=exc,
+                    impact="В registry могла остаться запись owner без control server.",
+                    action="Проверьте состояние registry и выполните безопасное восстановление WebUI.",
+                    level=40,
+                )
             cls.process_registry = None
             cls.manager = None
             cls._init = False
@@ -215,6 +273,9 @@ class State:
         if workers:
             raise RuntimeError(f"Остались незавершённые записи рабочих процессов: {list(workers)}")
         cls._clearup = True
+        server = cls._runtime_control_server
+        cls._runtime_control_server = None
+        _close_runtime_control_server(server)
         manager = cls.manager
         try:
             if manager is not None:

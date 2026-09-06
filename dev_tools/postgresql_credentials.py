@@ -11,9 +11,19 @@ import sys
 import tempfile
 from pathlib import Path
 
+from module.persistence.local_environment_schema import (
+    INFRASTRUCTURE_ENVIRONMENT_KEYS,
+    LOCAL_ENVIRONMENT_KEYS,
+    POSTGRES_ENVIRONMENT_KEYS,
+    WSL_ENVIRONMENT_KEYS,
+)
+
 CONFIRMATION = "ROTATE-AZURPILOT-POSTGRESQL-CREDENTIALS"
 _SAFE_NAME = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 _SAFE_WSL_PASSFILE = re.compile(r"^/etc/azurpilot/[A-Za-z0-9._-]+$")
+_ENV_KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
+_OWNED_ENV_KEYS = POSTGRES_ENVIRONMENT_KEYS | WSL_ENVIRONMENT_KEYS
+_PRESERVED_ENV_KEYS = INFRASTRUCTURE_ENVIRONMENT_KEYS
 _ROLE_CONTRACT = {
     "azurpilot_app": (True, False, False, False),
     "azurpilot_migrator": (True, False, False, False),
@@ -350,6 +360,76 @@ def _env_document(
     return ("".join(f"{key}={value}\n" for key, value in values.items())).encode()
 
 
+def _env_key(raw_line: str) -> str | None:
+    line = raw_line.strip()
+    if not line or line.startswith("#"):
+        return None
+    if "=" not in line:
+        raise RuntimeError("Локальный env содержит некорректную строку.")
+    key, _raw_value = line.split("=", 1)
+    key = key.strip()
+    if not _ENV_KEY_RE.fullmatch(key):
+        raise RuntimeError("Локальный env содержит некорректный ключ.")
+    return key
+
+
+def _read_env_document(path: Path) -> bytes | None:
+    if path.is_symlink() or (path.exists() and not path.is_file()):
+        raise RuntimeError("Локальный env отсутствует или небезопасен.")
+    return path.read_bytes() if path.is_file() else None
+
+
+def _merge_env_document(previous: bytes | None, generated: bytes) -> bytes:
+    if previous is None:
+        return generated
+    try:
+        previous_text = previous.decode("utf-8")
+        generated_text = generated.decode("utf-8")
+    except UnicodeError as exc:
+        raise RuntimeError("Локальный env невозможно прочитать как UTF-8.") from exc
+
+    generated_keys: set[str] = set()
+    for raw_line in generated_text.splitlines():
+        key = _env_key(raw_line)
+        if key is None or key in generated_keys:
+            raise RuntimeError("Сгенерированный PostgreSQL env некорректен.")
+        generated_keys.add(key)
+
+    preserved: list[str] = []
+    seen_keys: set[str] = set()
+    for raw_line in previous_text.splitlines():
+        key = _env_key(raw_line)
+        if key is None:
+            preserved.append(raw_line)
+            continue
+        if key in seen_keys:
+            raise RuntimeError("Локальный env содержит дублирующийся ключ.")
+        seen_keys.add(key)
+        if key in generated_keys:
+            continue
+        if key in _PRESERVED_ENV_KEYS:
+            preserved.append(raw_line)
+            continue
+        if key in _OWNED_ENV_KEYS:
+            raise RuntimeError(
+                "Локальный env содержит неподдерживаемый ключ PostgreSQL/WSL."
+            )
+        if key.startswith("AZURPILOT_") and key not in LOCAL_ENVIRONMENT_KEYS:
+            raise RuntimeError(
+                "Локальный env содержит неизвестный ключ AzurPilot environment."
+            )
+        preserved.append(raw_line)
+
+    while preserved and not preserved[-1].strip():
+        preserved.pop()
+    prefix = "\n".join(preserved)
+    if prefix:
+        prefix += "\n"
+    if not generated_text.endswith("\n"):
+        generated_text += "\n"
+    return (prefix + generated_text).encode("utf-8")
+
+
 def _auth(
     distro: str,
     passfile: str,
@@ -432,7 +512,7 @@ def rotate(arguments: argparse.Namespace) -> None:
         raise RuntimeError("Windows passfile отсутствует или небезопасен.")
     windows_existed = windows_passfile.is_file()
     old_windows = windows_passfile.read_bytes() if windows_existed else b""
-    old_env = env_path.read_bytes() if env_path.is_file() else None
+    old_env = _read_env_document(env_path)
     app_secret = secrets.token_urlsafe(48)
     migrator_secret = secrets.token_urlsafe(48)
     if (
@@ -442,6 +522,18 @@ def rotate(arguments: argparse.Namespace) -> None:
     ):
         raise RuntimeError("Генератор PostgreSQL secrets вернул совпадение.")
     new_passfile = _passfile(arguments.database, app_secret, migrator_secret)
+    new_env = _merge_env_document(
+        old_env,
+        _env_document(
+            repository,
+            windows_passfile,
+            arguments.wsl_passfile,
+            arguments.distro,
+            arguments.database,
+            app_secret,
+            migrator_secret,
+        ),
+    )
     try:
         _alter_roles(arguments.distro, app_secret, migrator_secret)
         _write_wsl_file(
@@ -453,18 +545,7 @@ def rotate(arguments: argparse.Namespace) -> None:
                 old_windows, arguments.database, app_secret, migrator_secret
             ),
         )
-        _write_windows_file(
-            env_path,
-            _env_document(
-                repository,
-                windows_passfile,
-                arguments.wsl_passfile,
-                arguments.distro,
-                arguments.database,
-                app_secret,
-                migrator_secret,
-            ),
-        )
+        _write_windows_file(env_path, new_env)
         _auth(
             arguments.distro,
             arguments.wsl_passfile,

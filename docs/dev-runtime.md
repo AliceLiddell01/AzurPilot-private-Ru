@@ -1,21 +1,30 @@
-# Dev Runtime: Task Sandbox
+# Dev Runtime: Task Sandbox поверх общего WebUI
 
-Dev Runtime запускает только штатный `gui.py --run <configured-target>` с фиксированными локальными
-параметрами и точным владением процессом. Development target обычно сохраняется в локальном
-repository-scoped marker после структурной проверки профиля. Если marker отсутствует, registry
-read-only разрешает профиль из tracked `module/dev_runtime/target_policy.json` по умолчанию;
-сейчас это `ap`, если такой профиль проходит структурную проверку. Task Sandbox добавляет API с учётом задач поверх
-этого жизненного цикла, не меняя обычный рабочий планировщик. Для Codex и ChatGPT
-предусмотрены разные transport boundaries поверх одного adapter.
+Dev Runtime создаёт логическую development-сессию поверх единственного штатного
+WebUI owner и его `ProcessManager`. Development target выбирается через локальный
+repository-scoped marker после структурной проверки профиля. Если marker отсутствует,
+read-only registry разрешает профиль из tracked `module/dev_runtime/target_policy.json`
+по умолчанию; сейчас это `ap`, если такой профиль проходит структурную проверку.
+`ap` является обычным canonical profile внутри общего runtime: в пользовательском
+списке WebUI он скрыт, но machine-facing registry и MCP его видят.
+
+Dev Runtime не поднимает второй WebUI и не владеет общим сервером, пользовательскими
+профилями или их scheduler. Запуск и остановка development worker проходят через
+фиксированный локальный typed control plane, исполняемый фактическим WebUI owner.
+Task Sandbox добавляет API с учётом задач поверх этого жизненного цикла, не меняя
+обычный рабочий планировщик. Для Codex и ChatGPT предусмотрены разные transport
+boundaries поверх одного adapter.
 
 ## Dev MCP для Codex
 
 Dev MCP добавляет отдельный адаптер только для разработки без собственного runtime:
 
 ```text
-Codex
-  → локальный stdio Dev MCP
-  → DevSessionManager
+MCP client
+  → Dev MCP / DevSessionManager
+  → shared WebUI runtime facade
+  → локальный typed control plane
+  → фактический WebUI owner / ProcessManager
   → настроенный development target
 ```
 
@@ -109,8 +118,8 @@ capability families и result outcomes. В контракте нет путей,
 задание сообщается только для активной сессии с подтверждённым владением; после `stop` оно равно
 `none`, а последняя задача остаётся в хронологии.
 
-`dev_get_logs` читает только диапазон общего
-`config/state/dev-runtime-gui.log`, зафиксированный при старте сессии с учётом задач
+`dev_get_logs` читает только диапазон фактического профильного журнала
+`log/<development-profile>.txt`, зафиксированный при старте сессии с учётом задач
 `session`, а при подтверждённом завершении — также по конечную границу завершения.
 Предыдущие сессии не выдаются; замена, усечение, отсутствие файла, некорректный UTF-8,
 повреждённая физическая строка и повреждённый `cursor` превращаются в ограниченный
@@ -216,6 +225,32 @@ target. `dev_get_runtime_status` выполняет только read-only probe
 конфигурацию. Ответ содержит только категории состояния эмулятора, ADB и
 приложения, а также состояние DevSession, SmokeRun и control operation; serial,
 package, executable и пользовательские пути наружу не выдаются.
+
+### Shared WebUI profile lifecycle
+
+`game_start_profile` и `dev_start_session` используют общий профильный runtime.
+Если WebUI owner уже подтверждён, запрос передаётся его executor на стороне owner. Если
+owner отсутствует, первый запрос выполняет один canonical bootstrap `gui.py`, после
+чего повторно проверяет owner identity и запускает профиль в том же WebUI. Повторный
+запуск уже работающего профиля идемпотентен; caller никогда не записывает worker
+registry напрямую и не передаёт arbitrary command, path, module или shell.
+
+При передаче game/device runtime от занятого пользовательского профиля сначала
+записываются `HANDOVER_REQUESTED`, `PREEMPTION_NOTICE` и `GRACE_PERIOD`, затем
+отправляется cooperative stop. По истечении bounded ожидания следующий task не
+запускается: worker должен завершиться на безопасной границе, вернуть игру на
+главный экран и подтвердить его через существующий UI flow. Только после этого
+development profile переходит в `AP_ACQUIRING` и `AP_READY`. Ошибка уведомления,
+тайм-аут или неподтверждённый главный экран блокируют запуск `ap` и сохраняют
+diagnostic evidence. Scheduler пользовательского профиля при этом не изменяется;
+raw persisted `Scheduler.Enable` читается узким `SchedulerRuntimeStateReader`, без
+нормализации `ConfigUpdater`.
+
+Для busy handover стандартный legacy `notify_webui()` подтверждает только постановку
+сообщения в локальную очередь (`ACCEPTED`), но не доставку пользователю
+(`DELIVERED`). Поэтому production-path без notifier adapter с подтверждением доставки
+намеренно завершается fail-closed; для подтверждённого busy handover owner должен
+получить `NotificationOutcome.DELIVERED` от внедрённого notifier.
 
 Публичная поверхность намеренно состоит из отдельных typed tools:
 `dev_start_game`, `dev_stop_game`, `dev_restart_game`,
@@ -372,14 +407,15 @@ Tunnel:
 ```text
 подключённое ChatGPT-приложение
   → HTTPS :443 /mcp
-  → Caddy с автоматическим сертификатом
+  → Caddy в Docker Compose с автоматическим сертификатом
   → 127.0.0.1:8765 remote Dev MCP
   → тот же DevMcpAdapter и настроенный development target
 ```
 
 Backend намеренно принимает только `127.0.0.1` и не должен публиковаться через
 firewall/router. Наружу разрешаются только TCP `443` и, при необходимости для
-ACME/redirect Caddy, TCP `80`. Порты `8765`, `8766`, `2019`, `5432`,
+ACME/redirect Caddy, TCP `80`; текущая конфигурация также использует UDP `443`
+для HTTP/3. Порты `8765`, `8766`, `2019`, `5432`,
 ADB/emulator и production WebUI наружу не пробрасываются.
 
 Внешний OAuth/OIDC provider является authorization server; AzurPilot не
@@ -401,7 +437,9 @@ HTTPS Origin и заменяет набор по умолчанию `https://cha
 
 OAuth scope `azurpilot:dev` является стабильным протокольным инвариантом и не
 задаётся через окружение. Backend remote MCP всегда слушает фиксированный
-loopback-порт `8765`; Caddy должен проксировать на `127.0.0.1:8765`.
+loopback-порт `8765`; Compose Caddy проксирует на
+`host.docker.internal:8765`, сохраняя исходный public `Host` для strict origin
+проверки backend.
 
 Issuer должен публиковать OAuth/OIDC discovery, authorization-code flow с PKCE
 S256 и выдавать короткоживущий подписанный access token с `iss`, `aud`, `exp`,
@@ -421,33 +459,73 @@ worker может завершить уже начатую mutating operation. �
 а перед следующей мутацией сначала читает `dev_status` или соответствующий
 smoke/evidence state.
 
-Подготовь Caddy по шаблону
-[`docs/dev-mcp/Caddyfile.example`](dev-mcp/Caddyfile.example), замени только
-placeholder host на собственное DNS-имя, сохрани локальную копию как
-`docs/dev-mcp/Caddyfile` и направь его A/AAAA record на машину. Эта локальная
-копия явно исключена из Git правилом `.gitignore`; не добавляй её через `git
-add -f`.
-Запусти backend отдельно:
+Канонический Caddyfile находится в
+[`infrastructure/caddy/Caddyfile`](../infrastructure/caddy/Caddyfile), а его
+образ, профиль, read-only config bind и persistent `/data`/`/config` volumes
+описаны в `infrastructure/observability/compose.yaml`. Не создавай вторую
+копию Caddyfile и не запускай host `caddy.exe`. В корневом защищённом `.env`
+задай отдельные non-secret hosts для Dev и Game. Создай для обоих публичные
+DNS-записи типа A, AAAA или CNAME:
+`AZURPILOT_GAME_MCP_PUBLIC_HOST` должен иметь DNS-запись типа A, AAAA или CNAME
+на публичный адрес и совпадать с host-компонентом
+`AZURPILOT_GAME_MCP_PUBLIC_URL` host-side Game MCP:
+
+```text
+AZURPILOT_CADDY_HOST=<dev-public-host>
+AZURPILOT_GAME_MCP_PUBLIC_HOST=<game-public-host>
+AZURPILOT_DEV_MCP_PUBLIC_URL=https://<dev-public-host>/mcp
+AZURPILOT_GAME_MCP_PUBLIC_URL=https://<game-public-host>/mcp
+```
+
+Проверь конфигурацию backend-процессов на стороне host:
 
 ```text
 uv run --locked --no-sync python -m module.dev_mcp.remote doctor
-uv run --locked --no-sync python -m module.dev_mcp.remote
-caddy validate --config docs/dev-mcp/Caddyfile
-caddy run --config docs/dev-mcp/Caddyfile
+uv run --locked --no-sync python -m module.game_mcp.remote doctor
 ```
+
+Для ручного запуска backend выполни `serve` в отдельных постоянных терминалах
+или службах: обе команды блокируют текущий терминал. В текущем Windows-
+развёртывании этими процессами уже владеет scheduled supervisor, поэтому при
+его работе не запускай второй экземпляр.
+
+```text
+uv run --locked --no-sync python -m module.dev_mcp.remote serve
+uv run --locked --no-sync python -m module.game_mcp.remote serve
+```
+
+После готовности владельца backend-процессов на стороне host включи Caddy profile
+из отдельного терминала:
+
+```text
+docker compose --env-file .env --file infrastructure/observability/compose.yaml --profile remote-ingress config --quiet
+docker compose --env-file .env --file infrastructure/observability/compose.yaml --profile remote-ingress up --detach --wait caddy
+docker compose --env-file .env --file infrastructure/observability/compose.yaml --profile remote-ingress exec caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+uv run --locked --no-sync python -m dev_tools.infrastructure_doctor --repository-root . doctor
+uv run --locked --no-sync python -m dev_tools.infrastructure_doctor --repository-root . probe
+```
+
+Если `AZURPILOT_CADDY_HOST` удалён из `.env`, следующий запуск через
+`Start-AzurPilot.ps1` останавливает только принадлежащий этому Compose project
+service `caddy`. Named volumes и остальные инфраструктурные services не трогаются;
+при ошибке остановки startup завершается с ошибкой.
 
 Первые команды выполняются с OAuth-переменными в защищённом окружении; значения
 не записываются в Git. Перед подключением проверь без секрета: `GET
-https://<public-host>/.well-known/oauth-protected-resource/mcp` возвращает
-metadata, а `POST https://<public-host>/mcp` без auth возвращает `401` с
+https://<dev-public-host>/.well-known/oauth-protected-resource/mcp` возвращает
+metadata, а `POST https://<dev-public-host>/mcp` без auth возвращает `401` с
 `WWW-Authenticate` и ссылкой на metadata. В подключённом ChatGPT-приложении
-используй URL mode `https://<public-host>/mcp` и OAuth, затем обнови app после
+используй URL mode `https://<dev-public-host>/mcp` и OAuth, затем обнови app после
 изменения tool descriptors. Сначала выполняются только read-only
 `dev_get_contract`, `dev_preflight` и `dev_list_smoke_capabilities`.
 
-Безопасный rollback: остановить remote backend, остановить Caddy, удалить только
-созданное для этого endpoint правило firewall/router, отозвать или ротировать
-OAuth credentials и отключить app в ChatGPT. Системный network reset не нужен.
+Безопасный rollback: остановить только Compose service `caddy`, не выполнять
+`down -v`, не удалять `azurpilot-caddy-data`/`azurpilot-caddy-config` и не
+останавливать host-side Dev/Game MCP без отдельной причины. Для возврата к
+старой host-конфигурации сначала проверь backup и отсутствие Docker listeners,
+затем включи прежнего host owner; старое состояние Caddy не удаляй до
+подтверждённого reboot acceptance. OAuth credentials отзываются или ротируются
+отдельно при необходимости.
 
 ## Canonical Plugin AzurPilot
 
@@ -463,7 +541,8 @@ transport не добавляются.
 Codex использует project-scoped `azurpilot-dev` через local stdio Dev MCP, а
 обычные игровые операции выполняются через существующий Game MCP. ChatGPT
 использует соответствующее подключённое приложение через authenticated public
-HTTPS `/mcp`; OAuth/OIDC provider, Caddy config и credentials хранятся вне Git.
+HTTPS `/mcp`; канонический Caddyfile хранится в Git, а OAuth/OIDC provider,
+Caddy runtime state и credentials — вне Git.
 
 Основной workflow skill: `dev_get_contract` →
 `dev_list_smoke_capabilities` → строгий `SmokeSpec` → `dev_validate_smoke` →

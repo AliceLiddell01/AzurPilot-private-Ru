@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from alas import AzurLaneAutoScript
+from module.config.config import TaskEnd
 from module.exception import (
     EmulatorNotRunningError,
     GameNotRunningError,
@@ -59,6 +60,19 @@ class TestGameNotRunningErrorHandling(unittest.TestCase):
             level=30,
             with_traceback=False,
         )
+
+    def test_task_end_stays_success_when_metrics_hook_fails(self):
+        script = AzurLaneAutoScript.__new__(AzurLaneAutoScript)
+        script.config_name = "test"
+        script.__dict__["commission"] = Mock(side_effect=TaskEnd("normal stop"))
+
+        with patch(
+            "module.observability.mark_task_stopped",
+            side_effect=RuntimeError("metrics hook failed"),
+        ):
+            result = script.run("commission", skip_first_screenshot=True)
+
+        self.assertTrue(result)
 
 
 class TestGameStuckRecovery(unittest.TestCase):
