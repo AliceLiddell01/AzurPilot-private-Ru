@@ -209,6 +209,10 @@ class PowerShellContractTests(unittest.TestCase):
             "Failure = 'Production PostgreSQL не прошёл подготовку marker, schema upgrade или app-health.'",
             start_source,
         )
+        self.assertLess(
+            start_source.index("if (-not $mutexData.Owned)"),
+            start_source.index("Invoke-PostgreSqlStartPreflight -PythonPath"),
+        )
 
         with tempfile.TemporaryDirectory(prefix="azurpilot-start-smoke-") as temporary:
             test_root = Path(temporary)
@@ -397,6 +401,17 @@ class PowerShellContractTests(unittest.TestCase):
                         "--detach",
                         "--wait",
                         "postgres",
+                    ),
+                    (
+                        "compose",
+                        "--env-file",
+                        str(env_path),
+                        "--file",
+                        str(compose_path),
+                        "run",
+                        "--rm",
+                        "--no-deps",
+                        "postgres-bootstrap",
                     ),
                 ),
                 success_docker_calls,

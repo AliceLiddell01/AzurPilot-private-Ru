@@ -10,6 +10,7 @@
 | --- | --- | --- |
 | alloy | loopback OTLP endpoint и маршрутизация telemetry | grafana/alloy:v1.19.2 |
 | postgres | каноническое production-хранилище AzurPilot | postgres:18 |
+| postgres-bootstrap | одноразовое создание app/migrator ролей и прав | postgres:18 |
 | loki | хранение logs | grafana/loki:3.7.4 |
 | prometheus | хранение metrics и remote-write receiver | prom/prometheus:v3.14.0 |
 | tempo | хранение traces и OTLP receiver | grafana/tempo:2.10.5 |
@@ -71,8 +72,9 @@ AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD; новые секреты это
 
 Для Docker PostgreSQL дополнительно требуется локальный bootstrap secret
 `AZURPILOT_POSTGRES_DOCKER_BOOTSTRAP_PASSWORD`. Он нужен только Compose для
-первичного создания superuser; app и migrator продолжают использовать
-существующие отдельные роли и passfile. Secret генерируется локально и не
+первичного создания superuser. App и migrator secrets монтируются только в
+одноразовый `postgres-bootstrap`, который создаёт или обновляет роли и права;
+в долгоживший `postgres` они не попадают. Secret генерируется локально и не
 добавляется в Git:
 
     $bytes = [byte[]]::new(32)
@@ -108,8 +110,13 @@ logical restore; пустой volume не является заменой backup
         'azurpilot-observability_grafana-data'
     )
     foreach ($volumeName in $volumeNames) {
-        if (-not (docker volume inspect $volumeName 2>$null)) {
+        $volumeInspection = docker volume inspect $volumeName 2>$null
+        $volumeInspectionExitCode = $LASTEXITCODE
+        if ($volumeInspectionExitCode -ne 0) {
             docker volume create $volumeName | Out-Null
+            if ($LASTEXITCODE -ne 0) {
+                throw "Не удалось создать Docker volume: $volumeName"
+            }
         }
     }
 
@@ -119,7 +126,13 @@ logical restore; пустой volume не является заменой backup
     docker compose --env-file ../../.env ps
     docker compose --env-file ../../.env logs --tail=100 postgres alloy loki prometheus tempo grafana
 
-Для штатного старта только базы используйте `up --detach --wait postgres`.
+Для штатного старта только базы используйте:
+
+    docker compose --env-file ../../.env up --detach --wait postgres
+    docker compose --env-file ../../.env run --rm --no-deps postgres-bootstrap
+
+`postgres-bootstrap` — одноразовый шаг выдачи app/migrator ролей и прав;
+повторный запуск идемпотентен.
 Владелец lifecycle — Docker Compose/Docker Desktop; Arch WSL2 сохраняется только
 как rollback safety и не требует `systemctl start postgresql`.
 

@@ -26,6 +26,15 @@ def test_postgres_18_is_part_of_observability_compose_with_named_volume():
     init_script = (
         ROOT / "infrastructure/observability/postgres/init/01-bootstrap.sh"
     ).read_text(encoding="utf-8")
+    bootstrap_script = (
+        ROOT / "infrastructure/observability/postgres/bootstrap/01-bootstrap.sh"
+    ).read_text(encoding="utf-8")
+    postgres_block = compose.split("  postgres:\n", 1)[1].split(
+        "  postgres-bootstrap:\n", 1
+    )[0]
+    bootstrap_block = compose.split("  postgres-bootstrap:\n", 1)[1].split(
+        "  alloy:\n", 1
+    )[0]
 
     assert "name: azurpilot-infrastructure" in compose
     assert "postgres:18@sha256:" in compose
@@ -39,12 +48,17 @@ def test_postgres_18_is_part_of_observability_compose_with_named_volume():
     assert "name: azurpilot-observability_grafana-data" in compose
     assert "restart: unless-stopped" in compose
     assert "gosu postgres pg_isready -U postgres -d $${POSTGRES_DB}" in compose
-    assert "postgres_bootstrap_password" in compose
-    assert "CREATE ROLE azurpilot_app" in init_script
-    assert "CREATE ROLE azurpilot_migrator" in init_script
+    assert "postgres_bootstrap_password" in postgres_block
+    assert "postgres_app_password" not in postgres_block
+    assert "postgres_migrator_password" not in postgres_block
+    assert "postgres_app_password" in bootstrap_block
+    assert "postgres_migrator_password" in bootstrap_block
+    assert "profiles:\n      - bootstrap" in bootstrap_block
+    assert "CREATE ROLE azurpilot_app" in bootstrap_script
+    assert "CREATE ROLE azurpilot_migrator" in bootstrap_script
     assert "local all postgres peer" in init_script
     assert "local all all scram-sha-256" in init_script
-    assert "SET log_statement = 'none';" in init_script
+    assert "SET log_statement = 'none';" in bootstrap_script
     assert "chmod --reference=\"$hba_file\"" in init_script
     assert "\\set ON_ERROR_STOP on" in (
         ROOT / "infrastructure/observability/postgres/grant-app.sql"

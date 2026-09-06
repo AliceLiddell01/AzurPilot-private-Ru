@@ -517,6 +517,22 @@ function Invoke-PostgreSqlStartPreflight {
             Failure = 'PostgreSQL 18 в Docker Compose не достиг состояния готовности.'
         }
         [pscustomobject]@{
+            Executable = $dockerCommand.Path
+            Arguments = @(
+                'compose'
+                '--env-file'
+                $envFile
+                '--file'
+                $composeFile
+                'run'
+                '--rm'
+                '--no-deps'
+                'postgres-bootstrap'
+            )
+            TimeoutMilliseconds = 210000
+            Failure = 'Роли и права PostgreSQL не прошли одноразовый bootstrap.'
+        }
+        [pscustomobject]@{
             Executable = $PythonPath
             Arguments = @('-X', 'utf8', '-m', 'dev_tools.postgresql_runtime', 'prepare')
             TimeoutMilliseconds = 210000
@@ -1411,14 +1427,6 @@ function Invoke-AzurPilotStart {
             return $script:ExitCodeSuccess
         }
 
-        Invoke-PostgreSqlStartPreflight -PythonPath $projectPythonPath -WorkingDirectory $resolvedRepositoryPath
-
-        if (Test-AzurPilotStopRequested -StopEvent $script:StopEvent) {
-            $script:IntentionalStopRequested = $true
-            Write-StartLog -Level 'INFO' -Message 'Запуск отменён координированным запросом остановки после preflight.'
-            return $script:ExitCodeSuccess
-        }
-
         $webUiConfiguration = Get-WebUiConfiguration -DeployConfigPath $deployConfigPath
         $browserUri = $webUiConfiguration.BrowserUri
 
@@ -1456,6 +1464,20 @@ function Invoke-AzurPilotStart {
                 return $script:ExitCodeBrowserFailure
             }
 
+            return $script:ExitCodeSuccess
+        }
+
+        if (Test-AzurPilotStopRequested -StopEvent $script:StopEvent) {
+            $script:IntentionalStopRequested = $true
+            Write-StartLog -Level 'INFO' -Message 'Запуск отменён координированным запросом остановки до PostgreSQL preflight.'
+            return $script:ExitCodeSuccess
+        }
+
+        Invoke-PostgreSqlStartPreflight -PythonPath $projectPythonPath -WorkingDirectory $resolvedRepositoryPath
+
+        if (Test-AzurPilotStopRequested -StopEvent $script:StopEvent) {
+            $script:IntentionalStopRequested = $true
+            Write-StartLog -Level 'INFO' -Message 'Запуск отменён координированным запросом остановки после preflight.'
             return $script:ExitCodeSuccess
         }
 
