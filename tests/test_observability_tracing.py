@@ -866,7 +866,7 @@ def test_screenshot_spans_leave_budget_for_other_operations(monkeypatch):
             with trace_operation("azurpilot.ocr.process") as ocr:
                 assert ocr is not None
             task.finish(True)
-        shutdown_application_observability(target, timeout_millis=3000)
+        assert shutdown_application_observability(target, timeout_millis=3000)
         spans = exporter.get_finished_spans()
         assert sum(span.name == "azurpilot.device.screenshot" for span in spans) == 64
         assert sum(span.name == "azurpilot.ocr.process" for span in spans) == 1
