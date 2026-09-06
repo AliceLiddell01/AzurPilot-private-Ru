@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import math
 import os
-import re
 import threading
 import time
 from collections.abc import Callable, Iterable, Mapping
@@ -13,16 +12,20 @@ from dataclasses import dataclass
 from types import TracebackType
 from typing import Any, Self
 
+from module.observability._shared import (
+    _OUTCOMES,
+    _metric_label,
+    _outcome_from_exception,
+    _outcome_from_result,
+    _profile_label,
+)
+
 _METRIC_SCOPE_NAME = "azurpilot.observability"
 _TASK_RUN_NAME = "azurpilot.task.run"
 _TASK_DURATION_NAME = "azurpilot.task.duration"
 _TASK_RUN_UNIT = "{run}"
 _TASK_DURATION_UNIT = "s"
 _MIN_DURATION_SECONDS = 1e-9
-_METRIC_LABEL_LIMIT = 64
-_METRIC_LABEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
-_OUTCOMES = frozenset({"success", "recoverable", "failure", "stopped", "unknown"})
-
 _runtime_lock = threading.RLock()
 _active_runtime: MetricsRuntime | None = None
 _task_depth: ContextVar[int] = ContextVar("azurpilot_metrics_task_depth", default=0)
@@ -47,21 +50,6 @@ class _CanonicalTaskIdentity:
     """Проверенная identity задачи из внешнего scheduler registry."""
 
     name: str
-
-
-def _metric_label(value: object) -> str:
-    """Оставить только bounded canonical label или вернуть общий sentinel."""
-    if not isinstance(value, str):
-        return "unknown"
-    try:
-        value = value.strip()
-        if not value or len(value) > _METRIC_LABEL_LIMIT:
-            return "unknown"
-        if _METRIC_LABEL_RE.fullmatch(value) is None:
-            return "unknown"
-    except Exception:
-        return "unknown"
-    return value
 
 
 def _canonical_task_identity(
@@ -102,7 +90,7 @@ def _metric_attributes(
     except Exception:
         normalized_outcome = "unknown"
     return {
-        "azurpilot.profile": _metric_label(profile),
+        "azurpilot.profile": _profile_label(profile),
         "azurpilot.task": task.name if task is not None else "unknown",
         "azurpilot.task.outcome": normalized_outcome,
     }
@@ -116,31 +104,6 @@ def _duration_seconds(value: object) -> float:
     if not math.isfinite(duration) or duration <= 0:
         return _MIN_DURATION_SECONDS
     return duration
-
-
-def _outcome_from_result(result: object) -> str:
-    if result is True:
-        return "success"
-    if result is False:
-        return "failure"
-    if isinstance(result, str):
-        try:
-            if result == "recoverable":
-                return "recoverable"
-        except Exception:
-            return "unknown"
-    return "unknown"
-
-
-def _outcome_from_exception(exception: BaseException) -> str:
-    if isinstance(exception, KeyboardInterrupt):
-        return "stopped"
-    if isinstance(exception, SystemExit):
-        try:
-            return "stopped" if exception.code is None or exception.code == 0 else "failure"
-        except Exception:
-            return "failure"
-    return "failure"
 
 
 @dataclass
@@ -246,8 +209,9 @@ def build_metrics_runtime(
         def _at_fork_reinit(self) -> None:
             return None
 
-    provider = None
+    exporter = None
     reader = None
+    provider = None
     try:
         exporter = (
             exporter_factory(config.timeout_millis)
@@ -301,6 +265,11 @@ def build_metrics_runtime(
         elif reader is not None:
             try:
                 reader.shutdown()
+            except Exception:
+                pass
+        elif exporter is not None:
+            try:
+                exporter.shutdown()
             except Exception:
                 pass
         raise
@@ -369,6 +338,11 @@ class TaskRun:
         self._outcome_token = _task_outcome.set(None)
         self._started_at = time.monotonic()
         return self
+
+    @property
+    def task_name(self) -> str:
+        """Вернуть уже проверенное имя task для общей scheduler boundary."""
+        return self._task.name if self._task is not None else "unknown"
 
     def finish(self, result: object) -> None:
         if self._nested or self._runtime is None:

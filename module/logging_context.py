@@ -11,6 +11,7 @@ from functools import wraps
 import inflection
 
 _TASK_NAME_LIMIT = 128
+CONTEXT_VALUE_LIMIT = _TASK_NAME_LIMIT
 _task_name: ContextVar[str | None] = ContextVar("alas_logging_task", default=None)
 
 
@@ -41,7 +42,7 @@ def _normalize_task_name(task: object) -> str | None:
         value = f"<объект {type(task).__name__}>"
     if not value:
         return None
-    return value[:_TASK_NAME_LIMIT]
+    return value[:CONTEXT_VALUE_LIMIT]
 
 
 def get_task_context() -> str | None:

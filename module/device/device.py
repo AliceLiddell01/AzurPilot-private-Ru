@@ -278,32 +278,35 @@ class Device(Screenshot, Control, AppControl, Input):
 
     def screenshot(self):
         """
-        截取屏幕截图，包含卡死检测和夜间委托处理。
+        Сделать снимок экрана с проверкой зависания и ночной комиссией.
 
         Returns:
-            截图图像，numpy 数组格式。
+            Изображение экрана в формате массива numpy.
         """
-        self.stuck_record_check()
+        from module.observability.tracing import trace_operation
 
-        try:
-            super().screenshot()
-        except RequestHumanTakeover:
-            if not self.ascreencap_available:
-                logger.error('[Устройство — снимок] aScreenCap недоступен на текущем устройстве; выполняется возврат к auto')
-                self.run_simple_screenshot_benchmark()
+        with trace_operation("azurpilot.device.screenshot"):
+            self.stuck_record_check()
+
+            try:
                 super().screenshot()
-            else:
-                raise
+            except RequestHumanTakeover:
+                if not self.ascreencap_available:
+                    logger.error('[Устройство — снимок] aScreenCap недоступен на текущем устройстве; выполняется возврат к auto')
+                    self.run_simple_screenshot_benchmark()
+                    super().screenshot()
+                else:
+                    raise
 
-        if self.handle_night_commission():
-            super().screenshot()
+            if self.handle_night_commission():
+                super().screenshot()
 
-        self._check_image_stuck()
-        if os.environ.get("AZURPILOT_DEV_SESSION_ID"):
-            from module.dev_runtime.hooks import serve_pending_screenshot
+            self._check_image_stuck()
+            if os.environ.get("AZURPILOT_DEV_SESSION_ID"):
+                from module.dev_runtime.hooks import serve_pending_screenshot
 
-            serve_pending_screenshot(self.image)
-        return self.image
+                serve_pending_screenshot(self.image)
+            return self.image
 
     def dump_hierarchy(self) -> etree._Element:
         self.stuck_record_check()

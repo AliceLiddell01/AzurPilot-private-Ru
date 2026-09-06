@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import time
+from collections import Counter
 from types import SimpleNamespace
 
 import pytest
@@ -16,7 +17,7 @@ from opentelemetry.sdk.metrics.export import (
 )
 from opentelemetry.sdk.resources import Resource
 
-from module.logging_context import task_logging_context
+from module.logging_context import CONTEXT_VALUE_LIMIT, task_logging_context
 from module.observability.bootstrap import (
     _after_fork,
     _runtimes,
@@ -48,6 +49,15 @@ _OTEL_ENVIRONMENT_KEYS = (
     "OTEL_METRICS_EXEMPLAR_FILTER",
     "OTEL_METRIC_EXPORT_INTERVAL",
     "OTEL_METRIC_EXPORT_TIMEOUT",
+    "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL",
+    "OTEL_EXPORTER_OTLP_TRACES_TIMEOUT",
+    "OTEL_BSP_SCHEDULE_DELAY",
+    "OTEL_BSP_MAX_QUEUE_SIZE",
+    "OTEL_BSP_MAX_EXPORT_BATCH_SIZE",
+    "OTEL_BSP_EXPORT_TIMEOUT",
+    "OTEL_TRACES_SAMPLER",
+    "OTEL_TRACES_SAMPLER_ARG",
     "OTEL_SDK_DISABLED",
 )
 
@@ -280,7 +290,7 @@ def test_task_boundary_records_one_cumulative_counter_and_duration_histogram():
         assert script._run_scheduler_task("Research") is True
 
         with scheduler_task_run(
-            profile="unsafe profile",
+            profile="unsafe/profile",
             task=_configured_task("NonexistentTask123"),
             registry=("Research",),
         ) as unknown_run:
@@ -350,6 +360,49 @@ def test_task_boundary_records_failure_for_exception():
         counter = _metric_by_name(reader, "azurpilot.task.run")
         point = counter.data.data_points[0]
         assert point.attributes["azurpilot.task.outcome"] == "failure"
+    finally:
+        deactivate_metrics_runtime(runtime)
+        assert runtime.shutdown(1000)
+
+
+def test_profile_metric_identity_uses_project_contract_and_keeps_unicode_distinct():
+    runtime, reader = _build_in_memory_runtime()
+    profiles = (
+        "profile-a",
+        "Профиль А",
+        "Профиль с пробелом",
+        "p" * CONTEXT_VALUE_LIMIT,
+    )
+    try:
+        for profile in profiles:
+            with scheduler_task_run(
+                profile=profile,
+                task=_configured_task("Research"),
+                registry=("Research",),
+            ) as task:
+                task.finish(True)
+        with scheduler_task_run(
+            profile="p" * (CONTEXT_VALUE_LIMIT + 1),
+            task=_configured_task("Research"),
+            registry=("Research",),
+        ) as task:
+            task.finish(True)
+        with scheduler_task_run(
+            profile="invalid/profile",
+            task=_configured_task("Research"),
+            registry=("Research",),
+        ) as task:
+            task.finish(True)
+
+        points = _metric_by_name(reader, "azurpilot.task.run").data.data_points
+        profile_counts = Counter(point.attributes["azurpilot.profile"] for point in points)
+        assert set(profiles) <= set(profile_counts)
+        assert all(profile_counts[profile] == 1 for profile in profiles)
+        unknown_points = [
+            point for point in points if point.attributes["azurpilot.profile"] == "unknown"
+        ]
+        assert len(unknown_points) == 1
+        assert unknown_points[0].value == 2
     finally:
         deactivate_metrics_runtime(runtime)
         assert runtime.shutdown(1000)
@@ -468,6 +521,79 @@ def test_metrics_runtime_closes_reader_when_provider_creation_fails(monkeypatch)
             reader_factory=lambda _exporter, _interval, _timeout: reader,
         )
     assert reader.shutdown_calls == 1
+
+
+def test_metrics_runtime_closes_exporter_once_when_reader_creation_fails():
+    class Exporter:
+        def __init__(self):
+            self.shutdown_calls = 0
+
+        def shutdown(self):
+            self.shutdown_calls += 1
+
+    exporter = Exporter()
+
+    def reader_factory(_exporter, _interval, _timeout):
+        raise RuntimeError("reader creation failed")
+
+    with pytest.raises(RuntimeError, match="reader creation failed"):
+        build_metrics_runtime(
+            MetricsConfig(
+                endpoint=None,
+                timeout_millis=1000,
+                export_interval_millis=60_000,
+                export_timeout_millis=30_000,
+            ),
+            resource=Resource.create({"service.name": "azurpilot"}),
+            reporter=type("Reporter", (), {"report": lambda *_args, **_kwargs: None})(),
+            exporter_factory=lambda _timeout: exporter,
+            reader_factory=reader_factory,
+        )
+    assert exporter.shutdown_calls == 1
+
+
+def test_metrics_reader_failure_keeps_application_logs_working(monkeypatch):
+    from opentelemetry.sdk._logs.export import InMemoryLogRecordExporter
+
+    _clear_environment(monkeypatch)
+    monkeypatch.setenv(
+        "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+        "http://collector:4318/v1/logs",
+    )
+    monkeypatch.setenv(
+        "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+        "http://collector:4318/v1/metrics",
+    )
+    target = _new_logger("observability-reader-failure")
+    log_exporter = InMemoryLogRecordExporter()
+
+    class Exporter:
+        def __init__(self):
+            self.shutdown_calls = 0
+
+        def shutdown(self):
+            self.shutdown_calls += 1
+
+    metric_exporter = Exporter()
+
+    def reader_factory(_exporter, _interval, _timeout):
+        raise RuntimeError("reader creation failed")
+
+    try:
+        assert configure_application_observability(
+            target,
+            _exporter_factory=lambda _timeout: log_exporter,
+            _metrics_exporter_factory=lambda _timeout: metric_exporter,
+            _metrics_reader_factory=reader_factory,
+        )
+        target.info("logs remain available")
+        assert shutdown_application_observability(target, timeout_millis=3000)
+        assert metric_exporter.shutdown_calls == 1
+        assert [item.log_record.body for item in log_exporter.get_finished_logs()] == [
+            "logs remain available"
+        ]
+    finally:
+        shutdown_application_observability(target)
 
 
 def test_metrics_provider_is_process_local_and_configure_is_idempotent(monkeypatch):

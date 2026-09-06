@@ -15,7 +15,6 @@ import os
 import sys
 import threading
 import time
-import traceback
 from collections.abc import Callable, Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -27,7 +26,14 @@ from module.logging_core import (
     REMOTE_LOG_TEXT_LIMIT,
     is_sensitive_name,
     sanitize_log_text,
-    sanitize_traceback_text,
+)
+from module.observability._shared import (
+    _bounded_exception_stacktrace,
+    _exception_type_name,
+    _format_exception_chain,
+    _safe_context_value,
+    _safe_exception_message,
+    _safe_message_argument,
 )
 from module.observability.metrics import (
     MetricsConfig,
@@ -36,6 +42,14 @@ from module.observability.metrics import (
     build_metrics_runtime,
     deactivate_metrics_runtime,
     reset_metrics_runtime_after_fork,
+)
+from module.observability.tracing import (
+    TracingConfig,
+    TracingRuntime,
+    activate_tracing_runtime,
+    build_tracing_runtime,
+    deactivate_tracing_runtime,
+    reset_tracing_runtime_after_fork,
 )
 
 _TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
@@ -56,12 +70,7 @@ _DEFAULT_METRIC_EXPORT_INTERVAL_MILLIS = 60_000
 _MAX_METRIC_EXPORT_INTERVAL_MILLIS = 3_600_000
 _DEFAULT_METRIC_EXPORT_TIMEOUT_MILLIS = 30_000
 _MAX_METRIC_EXPORT_TIMEOUT_MILLIS = 30_000
-_REMOTE_ATTRIBUTE_LIMIT = 8 * 1024
-_REMOTE_STACKTRACE_LIMIT = 32 * 1024
 _MAX_MESSAGE_MAPPING_ITEMS = 64
-_MAX_EXCEPTION_ARGUMENTS = 64
-_MAX_EXCEPTION_CHAIN_DEPTH = 32
-_MAX_EXCEPTION_FRAMES = 128
 _SHUTDOWN_TIMEOUT_MILLIS = 1_000
 _FAILURE_REPORT_INTERVAL = 60.0
 _HANDLER_MARKER = "_azurpilot_observability_handler"
@@ -103,6 +112,7 @@ class _ObservabilityConfig:
     processor_timeout_millis: int
     logs_enabled: bool = False
     metrics: MetricsConfig | None = None
+    traces: TracingConfig | None = None
 
 
 @dataclass
@@ -111,6 +121,7 @@ class _Runtime:
     provider: Any | None
     handler: _SanitizedOTelHandler | None
     metrics: MetricsRuntime | None = None
+    traces: TracingRuntime | None = None
     config: _ObservabilityConfig | None = None
 
 
@@ -142,30 +153,6 @@ _atexit_registered = False
 
 def _is_true(value: str | None) -> bool:
     return (value or "").strip().lower() in _TRUE_VALUES
-
-
-def _safe_context_value(
-    value: object, *, limit: int = _REMOTE_ATTRIBUTE_LIMIT
-) -> str | None:
-    if value is None:
-        return None
-    if isinstance(value, bytes):
-        value = f"<байтовое значение, размер={len(value)}>"
-    elif not isinstance(value, (str, int, float, bool)):
-        value = f"<объект {type(value).__name__}>"
-    try:
-        normalized = sanitize_log_text(value, limit)
-    except Exception:
-        return None
-    return normalized or None
-
-
-def _safe_message_argument(value: object) -> object:
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    if isinstance(value, bytes):
-        return f"<байтовое значение, размер={len(value)}>"
-    return f"<объект {type(value).__name__}>"
 
 
 def _safe_message_mapping(args: Mapping[object, object]) -> dict[object, object]:
@@ -205,145 +192,6 @@ def _safe_message(record: logging.LogRecord) -> str:
         except Exception:
             pass
     return sanitize_log_text(text, REMOTE_LOG_TEXT_LIMIT)
-
-
-def _safe_exception_message(value: BaseException | None) -> str:
-    if value is None:
-        return ""
-    try:
-        args = getattr(value, "args", ())
-    except Exception:
-        args = ()
-    if not isinstance(args, tuple):
-        try:
-            args = tuple(args) if args else ()
-        except Exception:
-            args = ()
-    args = args[:_MAX_EXCEPTION_ARGUMENTS]
-    scalar_args = bool(args) and all(
-        isinstance(item, (str, int, float, bool)) or item is None
-        for item in args
-    )
-    if scalar_args:
-        try:
-            text = str(value)
-        except Exception:
-            text = ""
-        if text:
-            return sanitize_log_text(text, _REMOTE_ATTRIBUTE_LIMIT)
-    if args:
-        parts = []
-        for item in args:
-            safe_item = _safe_message_argument(item)
-            if safe_item is None:
-                parts.append("None")
-            elif isinstance(safe_item, (str, int, float, bool)):
-                parts.append(str(safe_item))
-            else:
-                parts.append(f"<объект {type(item).__name__}>")
-        return sanitize_log_text(", ".join(parts), _REMOTE_ATTRIBUTE_LIMIT)
-    try:
-        text = str(value)
-    except Exception:
-        text = ""
-    if text:
-        return sanitize_log_text(text, _REMOTE_ATTRIBUTE_LIMIT)
-    return f"<исключение {type(value).__name__}>"
-
-
-def _exception_type_name(exception_type: object, value: BaseException | None) -> str:
-    try:
-        name = getattr(exception_type, "__name__", None)
-    except Exception:
-        name = None
-    if not isinstance(name, str) and value is not None:
-        name = type(value).__name__
-    return _safe_context_value(name or "Exception", limit=256) or "Exception"
-
-
-def _format_exception_fragment(
-    value: BaseException,
-    traceback_object: object,
-) -> str:
-    type_name = _exception_type_name(type(value), value)
-    message = _safe_exception_message(value)
-    try:
-        frames = (
-            traceback.format_tb(traceback_object, limit=_MAX_EXCEPTION_FRAMES)
-            if traceback_object
-            else ()
-        )
-    except Exception:
-        frames = ()
-    return "".join(frames) + f"{type_name}: {message}\n"
-
-
-def _format_exception_chain(
-    value: BaseException | None,
-    traceback_object: object,
-    seen: set[int] | None = None,
-    depth: int = 0,
-) -> str:
-    """Сформировать chain без locals и без произвольного repr сложных args."""
-    if value is None:
-        return ""
-    if seen is None:
-        seen = set()
-    if id(value) in seen or depth >= _MAX_EXCEPTION_CHAIN_DEPTH:
-        return _format_exception_fragment(value, traceback_object)
-    seen.add(id(value))
-    try:
-        cause = getattr(value, "__cause__", None)
-    except Exception:
-        cause = None
-    try:
-        suppress_context = bool(getattr(value, "__suppress_context__", False))
-    except Exception:
-        suppress_context = False
-    try:
-        context = getattr(value, "__context__", None)
-    except Exception:
-        context = None
-
-    previous = None
-    marker = None
-    if isinstance(cause, BaseException) and id(cause) not in seen:
-        previous = _format_exception_chain(
-            cause,
-            getattr(cause, "__traceback__", None),
-            seen,
-            depth + 1,
-        )
-        marker = "Предыдущее исключение является непосредственной причиной следующего исключения:"
-    elif (
-        isinstance(context, BaseException)
-        and not suppress_context
-        and id(context) not in seen
-    ):
-        previous = _format_exception_chain(
-            context,
-            getattr(context, "__traceback__", None),
-            seen,
-            depth + 1,
-        )
-        marker = "При обработке предыдущего исключения возникло другое исключение:"
-
-    current = _format_exception_fragment(value, traceback_object)
-    if previous and marker:
-        return f"{previous}\n{marker}\n\n{current}"
-    return current
-
-
-def _bounded_exception_stacktrace(value: object) -> str:
-    """Очистить stacktrace и сохранить начало и конец при обрезке."""
-    sanitized = sanitize_traceback_text(value)
-    if len(sanitized) <= _REMOTE_STACKTRACE_LIMIT:
-        return sanitize_log_text(sanitized, _REMOTE_STACKTRACE_LIMIT)
-    marker = "\n...[трассировка обрезана по ограничению удалённого журнала]\n"
-    available = max(0, _REMOTE_STACKTRACE_LIMIT - len(marker))
-    head = available // 2
-    tail = available - head
-    return sanitized[:head] + marker + sanitized[-tail:]
 
 
 def _exception_attributes(record: logging.LogRecord) -> dict[str, str]:
@@ -648,7 +496,15 @@ def _read_config() -> _ObservabilityConfig | None:
             )
             metrics_enabled = False
 
-    if not logs_enabled and not metrics_enabled:
+    traces_enabled, traces_endpoint = _read_signal_config(
+        endpoint_name="OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+        protocol_name="OTEL_EXPORTER_OTLP_TRACES_PROTOCOL",
+        generic_endpoint=generic_endpoint,
+        generic_protocol=generic_protocol,
+        signal_name="traces",
+    )
+
+    if not logs_enabled and not metrics_enabled and not traces_enabled:
         # Явный endpoint является opt-in и сохраняет обычный запуск offline.
         return None
 
@@ -671,6 +527,27 @@ def _read_config() -> _ObservabilityConfig | None:
             max_queue_size,
         )
         if logs_enabled
+        else _DEFAULT_MAX_EXPORT_BATCH_SIZE
+    )
+    traces_max_queue_size = (
+        _bounded_int(
+            "OTEL_BSP_MAX_QUEUE_SIZE",
+            _DEFAULT_MAX_QUEUE_SIZE,
+            _MAX_QUEUE_SIZE,
+        )
+        if traces_enabled
+        else _DEFAULT_MAX_QUEUE_SIZE
+    )
+    traces_max_export_batch_size = (
+        min(
+            _bounded_int(
+                "OTEL_BSP_MAX_EXPORT_BATCH_SIZE",
+                _DEFAULT_MAX_EXPORT_BATCH_SIZE,
+                _MAX_EXPORT_BATCH_SIZE,
+            ),
+            traces_max_queue_size,
+        )
+        if traces_enabled
         else _DEFAULT_MAX_EXPORT_BATCH_SIZE
     )
     return _ObservabilityConfig(
@@ -721,6 +598,31 @@ def _read_config() -> _ObservabilityConfig | None:
             if metrics_enabled
             else None
         ),
+        traces=(
+            TracingConfig(
+                endpoint=traces_endpoint,
+                timeout_millis=_bounded_int(
+                    "OTEL_EXPORTER_OTLP_TRACES_TIMEOUT",
+                    _DEFAULT_EXPORT_TIMEOUT_MILLIS,
+                    _MAX_EXPORT_TIMEOUT_MILLIS,
+                    fallback_name="OTEL_EXPORTER_OTLP_TIMEOUT",
+                ),
+                schedule_delay_millis=_bounded_int(
+                    "OTEL_BSP_SCHEDULE_DELAY",
+                    _DEFAULT_SCHEDULE_DELAY_MILLIS,
+                    _MAX_SCHEDULE_DELAY_MILLIS,
+                ),
+                max_queue_size=traces_max_queue_size,
+                max_export_batch_size=traces_max_export_batch_size,
+                processor_timeout_millis=_bounded_int(
+                    "OTEL_BSP_EXPORT_TIMEOUT",
+                    _DEFAULT_PROCESSOR_TIMEOUT_MILLIS,
+                    _MAX_PROCESSOR_TIMEOUT_MILLIS,
+                ),
+            )
+            if traces_enabled
+            else None
+        ),
     )
 
 
@@ -760,6 +662,7 @@ def _build_runtime(
     exporter_factory: Callable[[int], Any] | None = None,
     metrics_exporter_factory: Callable[[int], Any] | None = None,
     metrics_reader_factory: Callable[[Any, int, int], Any] | None = None,
+    traces_exporter_factory: Callable[[int], Any] | None = None,
 ) -> _Runtime:
     _silence_otel_transport_loggers()
     resource_attributes = _resource_attributes()
@@ -837,13 +740,30 @@ def _build_runtime(
                 exc,
             )
 
-    if provider is None and metrics_runtime is None:
+    traces_runtime = None
+    if config.traces is not None:
+        try:
+            traces_runtime = build_tracing_runtime(
+                config.traces,
+                resource=resource,
+                reporter=_failure_reporter,
+                exporter_factory=traces_exporter_factory,
+            )
+            activate_tracing_runtime(traces_runtime)
+        except Exception as exc:
+            _failure_reporter.report(
+                "Не удалось инициализировать application traces; остальные сигналы продолжат работу",
+                exc,
+            )
+
+    if provider is None and metrics_runtime is None and traces_runtime is None:
         raise RuntimeError("Не удалось создать ни одного application observability signal")
     return _Runtime(
         target=target,
         provider=provider,
         handler=handler,
         metrics=metrics_runtime,
+        traces=traces_runtime,
         config=config,
     )
 
@@ -852,6 +772,7 @@ def _after_fork() -> None:
     global _state_lock
     _state_lock = threading.RLock()
     reset_metrics_runtime_after_fork()
+    reset_tracing_runtime_after_fork()
     inherited = list(_runtimes.values())
     _runtimes.clear()
     # Не оставлять в дочернем процессе handler/provider с worker thread
@@ -860,6 +781,9 @@ def _after_fork() -> None:
         deactivate_metrics_runtime(runtime.metrics)
         if runtime.metrics is not None:
             runtime.metrics.after_fork()
+        deactivate_tracing_runtime(runtime.traces)
+        if runtime.traces is not None:
+            runtime.traces.after_fork()
         try:
             if runtime.handler is not None:
                 runtime.target.removeHandler(runtime.handler)
@@ -887,8 +811,9 @@ def configure_application_observability(
     _exporter_factory: Callable[[int], Any] | None = None,
     _metrics_exporter_factory: Callable[[int], Any] | None = None,
     _metrics_reader_factory: Callable[[Any, int, int], Any] | None = None,
+    _traces_exporter_factory: Callable[[int], Any] | None = None,
 ) -> bool:
-    """Идемпотентно включить независимые OTLP logs и metrics signal-ы."""
+    """Идемпотентно включить независимые OTLP logs, metrics и traces."""
     if not isinstance(target, logging.Logger):
         return False
     process_id = os.getpid()
@@ -903,6 +828,9 @@ def configure_application_observability(
                     deactivate_metrics_runtime(inherited_runtime.metrics)
                     if inherited_runtime.metrics is not None:
                         inherited_runtime.metrics.after_fork()
+                    deactivate_tracing_runtime(inherited_runtime.traces)
+                    if inherited_runtime.traces is not None:
+                        inherited_runtime.traces.after_fork()
 
         config = _read_config()
         runtime = _runtimes.get(id(target))
@@ -910,6 +838,7 @@ def configure_application_observability(
             if runtime is not None:
                 _runtimes.pop(id(target), None)
                 deactivate_metrics_runtime(runtime.metrics)
+                deactivate_tracing_runtime(runtime.traces)
                 if runtime.handler is not None:
                     target.removeHandler(runtime.handler)
                 _shutdown_runtime(runtime, _SHUTDOWN_TIMEOUT_MILLIS)
@@ -924,11 +853,14 @@ def configure_application_observability(
                 runtime.handler.set_default_component(default_component)
             if runtime.metrics is not None:
                 activate_metrics_runtime(runtime.metrics)
+            if runtime.traces is not None:
+                activate_tracing_runtime(runtime.traces)
             return True
 
         if runtime is not None:
             _runtimes.pop(id(target), None)
             deactivate_metrics_runtime(runtime.metrics)
+            deactivate_tracing_runtime(runtime.traces)
             if runtime.handler is not None:
                 target.removeHandler(runtime.handler)
             _shutdown_runtime(runtime, _SHUTDOWN_TIMEOUT_MILLIS)
@@ -946,6 +878,7 @@ def configure_application_observability(
                 exporter_factory=_exporter_factory,
                 metrics_exporter_factory=_metrics_exporter_factory,
                 metrics_reader_factory=_metrics_reader_factory,
+                traces_exporter_factory=_traces_exporter_factory,
             )
         except Exception as exc:
             _failure_reporter.report(
@@ -987,6 +920,8 @@ def _shutdown_runtime(runtime: _Runtime, timeout_millis: int) -> bool:
                     _failure_reporter.report("Не удалось завершить OTLP logging provider", exc)
             if runtime.metrics is not None:
                 runtime.metrics.shutdown(remaining_timeout_millis())
+            if runtime.traces is not None:
+                runtime.traces.shutdown(remaining_timeout_millis())
         finally:
             finished.set()
 
@@ -1024,6 +959,7 @@ def shutdown_application_observability(
             runtimes = [runtime] if runtime is not None else []
         for runtime in runtimes:
             deactivate_metrics_runtime(runtime.metrics)
+            deactivate_tracing_runtime(runtime.traces)
             if runtime.handler is not None and runtime.handler in runtime.target.handlers:
                 runtime.target.removeHandler(runtime.handler)
 
