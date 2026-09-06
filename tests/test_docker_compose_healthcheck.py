@@ -243,7 +243,7 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
                 "folder": "AzurPilot",
                 "folderUid": "azurpilot",
                 "type": "file",
-                "disableDeletion": True,
+                "disableDeletion": False,
                 "updateIntervalSeconds": 30,
                 "allowUiUpdates": False,
                 "options": {
@@ -298,11 +298,11 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
     )
     alerting = yaml.safe_load(alerting_path.read_text(encoding="utf-8"))
     assert alerting["apiVersion"] == 1
+    assert alerting["deleteRules"] == [
+        {"orgId": 1, "uid": "azurpilot-task-duration-p95"}
+    ]
     rules = alerting["groups"][0]["rules"]
-    assert {rule["uid"] for rule in rules} == {
-        "azurpilot-task-failures",
-        "azurpilot-task-duration-p95",
-    }
+    assert {rule["uid"] for rule in rules} == {"azurpilot-task-failures"}
     alerting_text = alerting_path.read_text(encoding="utf-8")
     assert "azurpilot_task=" not in alerting_text
     assert "azurpilot_profile=" not in alerting_text

@@ -20,6 +20,11 @@ def get_current_task_name() -> str | None:
     return _current_task_name.get()
 
 
+def reset_scheduler_state_after_fork() -> None:
+    """Сбросить process-local task context в дочернем процессе."""
+    _current_task_name.set(None)
+
+
 class SchedulerTaskRun:
     """Оркестрировать жизненный цикл task и закрыть метрики до корневого span."""
 
@@ -102,4 +107,9 @@ def scheduler_task_run(
     return SchedulerTaskRun(profile=profile, task=task, registry=registry)
 
 
-__all__ = ("SchedulerTaskRun", "get_current_task_name", "scheduler_task_run")
+__all__ = (
+    "SchedulerTaskRun",
+    "get_current_task_name",
+    "reset_scheduler_state_after_fork",
+    "scheduler_task_run",
+)

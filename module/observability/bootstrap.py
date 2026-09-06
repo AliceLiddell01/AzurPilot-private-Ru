@@ -51,6 +51,7 @@ from module.observability.tracing import (
     deactivate_tracing_runtime,
     reset_tracing_runtime_after_fork,
 )
+from module.observability.scheduler import reset_scheduler_state_after_fork
 
 _TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 _SUPPORTED_PROTOCOL = "http/protobuf"
@@ -772,6 +773,7 @@ def _after_fork() -> None:
     global _state_lock
     _state_lock = threading.RLock()
     reset_metrics_runtime_after_fork()
+    reset_scheduler_state_after_fork()
     reset_tracing_runtime_after_fork()
     inherited = list(_runtimes.values())
     _runtimes.clear()

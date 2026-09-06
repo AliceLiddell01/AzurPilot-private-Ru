@@ -571,9 +571,14 @@ def test_task_end_is_stopped_and_exception_trace_is_sanitized(monkeypatch):
         ):
             raise RuntimeError(
                 "password=sentinel-value visible text "
-                "win=C:\\Users\\test-user\\demo\\config.json "
-                "unc=\\\\server\\share\\incident.log "
-                "posix=/var/lib/azurpilot/incident.log"
+                "win=C:\\Users\\operator\\private "
+                "win-space=C:\\Program Files\\Private Folder\\secret "
+                "unc=\\\\server\\share\\private "
+                "unc-space=\\\\server\\share name\\private data "
+                "posix=/var/lib/azurpilot/private "
+                "posix-space=/home/other user/private "
+                "file-url=file:///C:/Program%20Files/AzurPilot/log.txt "
+                "url=https://example.test/path/to/resource"
             )
 
         assert shutdown_application_observability(target, timeout_millis=3000)
@@ -596,15 +601,22 @@ def test_task_end_is_stopped_and_exception_trace_is_sanitized(monkeypatch):
         message = event.attributes["exception.message"]
         stacktrace = event.attributes["exception.stacktrace"]
         assert "sentinel-value" not in message
-        assert "C:\\Users\\test-user\\demo" not in message
-        assert "\\\\server\\share\\incident.log" not in message
-        assert "/var/lib/azurpilot/incident.log" not in message
+        assert "sentinel-value" not in stacktrace
+        raw_values = (
+            r"C:\Users\operator\private",
+            r"C:\Program Files\Private Folder\secret",
+            r"\\server\share\private",
+            r"\\server\share name\private data",
+            r"/var/lib/azurpilot/private",
+            r"/home/other user/private",
+            r"file:///C:/Program%20Files/AzurPilot/log.txt",
+        )
+        for raw_value in raw_values:
+            assert raw_value not in message
+            assert raw_value not in stacktrace
         assert "visible text" in message
         assert "password=***" in message
-        assert "sentinel-value" not in stacktrace
-        assert "C:\\Users\\test-user\\demo" not in stacktrace
-        assert "\\\\server\\share\\incident.log" not in stacktrace
-        assert "/var/lib/azurpilot/incident.log" not in stacktrace
+        assert "https://example.test/path/to/resource" in message
     finally:
         shutdown_application_observability(target)
 
@@ -647,6 +659,107 @@ def test_trace_correlation_is_current_span_scoped_and_fail_open(monkeypatch):
             task.finish(True)
         assert get_current_trace_context() is None
     finally:
+        shutdown_application_observability(target)
+
+
+def test_external_current_span_is_not_azurpilot_correlation(monkeypatch):
+    _enable_traces(monkeypatch)
+    target = _new_logger("observability-external-span")
+    exporter = InMemorySpanExporter()
+    from opentelemetry.sdk.trace import TracerProvider
+
+    external_provider = TracerProvider()
+    external_tracer = external_provider.get_tracer("external.library")
+    try:
+        assert configure_application_observability(
+            target,
+            _traces_exporter_factory=lambda _timeout: exporter,
+        )
+        with external_tracer.start_as_current_span("external.operation"):
+            assert get_current_trace_context() is None
+            outside_metadata = build_incident_metadata(
+                profile="profile-a",
+                exception=RuntimeError("synthetic"),
+            )
+            assert outside_metadata.task is None
+            assert outside_metadata.trace_id is None
+            assert outside_metadata.span_id is None
+
+        with scheduler_task_run(
+            profile="profile-a",
+            task=_task(),
+            registry=("Research",),
+        ) as task:
+            with external_tracer.start_as_current_span("external.operation"):
+                assert get_current_trace_context() is None
+                nested_metadata = build_incident_metadata(
+                    profile="profile-a",
+                    exception=RuntimeError("synthetic"),
+                )
+                assert nested_metadata.task == "Research"
+                assert nested_metadata.trace_id is None
+                assert nested_metadata.span_id is None
+            task.finish(True)
+    finally:
+        external_provider.shutdown()
+        shutdown_application_observability(target)
+
+
+def test_incident_correlation_is_empty_when_tracing_is_disabled(monkeypatch):
+    _clear_environment(monkeypatch)
+    target = _new_logger("observability-disabled-correlation")
+    try:
+        assert not configure_application_observability(target)
+        with scheduler_task_run(
+            profile="profile-a",
+            task=_task(),
+            registry=("Research",),
+        ) as task:
+            metadata = build_incident_metadata(
+                profile="profile-a",
+                exception=RuntimeError("synthetic"),
+            )
+            assert metadata.task == "Research"
+            assert metadata.trace_id is None
+            assert metadata.span_id is None
+            task.finish(True)
+    finally:
+        shutdown_application_observability(target)
+
+
+def test_after_fork_resets_scheduler_and_incident_correlation(monkeypatch):
+    _enable_traces(monkeypatch)
+    target = _new_logger("observability-fork-context")
+    exporter = InMemorySpanExporter()
+    run = None
+    try:
+        assert configure_application_observability(
+            target,
+            _traces_exporter_factory=lambda _timeout: exporter,
+        )
+        run = scheduler_task_run(
+            profile="profile-a",
+            task=_task(),
+            registry=("Research",),
+        )
+        run.__enter__()
+        assert scheduler_module.get_current_task_name() == "Research"
+        assert get_current_trace_context() is not None
+
+        _after_fork()
+
+        assert scheduler_module.get_current_task_name() is None
+        assert get_current_trace_context() is None
+        metadata = build_incident_metadata(
+            profile="profile-a",
+            exception=RuntimeError("synthetic"),
+        )
+        assert metadata.task is None
+        assert metadata.trace_id is None
+        assert metadata.span_id is None
+    finally:
+        if run is not None:
+            run.__exit__(None, None, None)
         shutdown_application_observability(target)
 
 

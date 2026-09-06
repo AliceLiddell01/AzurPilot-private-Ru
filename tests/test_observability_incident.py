@@ -97,7 +97,26 @@ def test_incident_directory_is_readable_collision_safe_and_profile_scoped(tmp_pa
     assert "message" not in first.name
 
 
-def test_error_retention_uses_natural_incident_directory_order(tmp_path):
+def test_error_retention_keeps_mixed_format_incidents_by_actual_time(tmp_path):
+    script = AzurLaneAutoScript.__new__(AzurLaneAutoScript)
+    names = (
+        "1757000000000",
+        "1757000100000",
+        "2026-09-07_00-34-12.123_RuntimeError",
+        "unknown-bundle",
+    )
+    for name in names:
+        (tmp_path / name).mkdir()
+
+    script.keep_last_errlog(str(tmp_path), n=2)
+
+    assert not (tmp_path / "1757000000000").exists()
+    assert (tmp_path / "1757000100000").is_dir()
+    assert (tmp_path / "2026-09-07_00-34-12.123_RuntimeError").is_dir()
+    assert (tmp_path / "unknown-bundle").is_dir()
+
+
+def test_error_retention_orders_legacy_epoch_directories_naturally(tmp_path):
     script = AzurLaneAutoScript.__new__(AzurLaneAutoScript)
     for name in ("2", "10", "100"):
         (tmp_path / name).mkdir()
@@ -107,6 +126,35 @@ def test_error_retention_uses_natural_incident_directory_order(tmp_path):
     assert not (tmp_path / "2").exists()
     assert (tmp_path / "10").is_dir()
     assert (tmp_path / "100").is_dir()
+
+
+def test_error_retention_preserves_current_timestamp_collision_order(tmp_path):
+    script = AzurLaneAutoScript.__new__(AzurLaneAutoScript)
+    names = (
+        "2026-09-07_00-34-12.123_RuntimeError",
+        "2026-09-07_00-34-12.123_RuntimeError_001",
+        "2026-09-07_00-34-12.123_RuntimeError_002",
+    )
+    for name in names:
+        (tmp_path / name).mkdir()
+
+    script.keep_last_errlog(str(tmp_path), n=2)
+
+    assert not (tmp_path / names[0]).exists()
+    assert (tmp_path / names[1]).is_dir()
+    assert (tmp_path / names[2]).is_dir()
+
+
+def test_error_retention_does_nothing_for_non_positive_limit(tmp_path):
+    script = AzurLaneAutoScript.__new__(AzurLaneAutoScript)
+    names = ("1757000000000", "2026-09-07_00-34-12.123_RuntimeError", "unknown")
+    for name in names:
+        (tmp_path / name).mkdir()
+
+    script.keep_last_errlog(str(tmp_path), n=0)
+    script.keep_last_errlog(str(tmp_path), n=-1)
+
+    assert all((tmp_path / name).is_dir() for name in names)
 
 
 def test_incident_metadata_write_is_atomic_and_contains_no_exception_payload(tmp_path):

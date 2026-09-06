@@ -446,9 +446,9 @@ Loki derived field по label/structured-metadata key `trace_id` открыва�
 Grafana `13.2.1` получает постоянное состояние только из репозитория:
 `grafana/provisioning/dashboards/providers.yaml` подключает JSON dashboards из
 `grafana/dashboards/`, а `grafana/provisioning/alerting/alert-rules.yaml`
-подключает generic alert rules. Dashboard provider запрещает UI updates и не
-удаляет dashboard при временном отсутствии файла; ручное состояние volume не
-является источником истины.
+подключает generic alert rules. Dashboard provider запрещает UI updates и
+удаляет из Grafana DB dashboard, исчезнувший из provisioning source; ручное
+состояние volume не является источником истины.
 
 `AzurPilot Overview` содержит task runs, отдельные success / failure /
 recoverable / stopped counters, success rate, достоверный `prometheus_ready`, outcome
@@ -460,11 +460,14 @@ Grafana не добавляется выдуманный общий runtime-heal
 показывается только его собственный `prometheus_ready`, а недоступность
 остальных backend-ов определяется по фактической ошибке datasource/query.
 
-Alerts ограничены двумя источниками с достоверным контрактом: ненулевой
-поток failure task за 15 минут и p95 task duration выше пяти минут. Нет
-отдельного alert «нет запусков», потому что scheduler не публикует
-authoritative expected-run schedule; alert не привязан к конкретному
-profile/task/event.
+Alerts ограничены одним источником с достоверным generic-контрактом:
+ненулевой поток failure task за 15 минут, сохраняющийся пять минут. Alert не
+привязан к конкретному profile/task/event. Отдельный alert по p95 task duration
+не добавляется: текущая schema не содержит authoritative per-task SLA, а
+агрегация всех task в один global p95 не позволяет отличить штатную долгую
+задачу от деградации без noisy false positives. p50/p95 остаются доступными в
+dashboard для операторской диагностики. Нет отдельного alert «нет запусков»,
+потому что scheduler не публикует authoritative expected-run schedule.
 
 Exemplars не используются как workaround. Для текущей цепочки
 OTel → Alloy → Prometheus remote-write проверяется именно наличие application

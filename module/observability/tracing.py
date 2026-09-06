@@ -50,6 +50,10 @@ _child_span_count: ContextVar[int] = ContextVar(
     "azurpilot_tracing_child_span_count",
     default=0,
 )
+_current_application_span: ContextVar[Any | None] = ContextVar(
+    "azurpilot_tracing_current_application_span",
+    default=None,
+)
 _screenshot_span_count: ContextVar[int] = ContextVar(
     "azurpilot_tracing_screenshot_span_count",
     default=0,
@@ -300,6 +304,7 @@ def reset_tracing_runtime_after_fork() -> None:
     _task_depth.set(0)
     _task_outcome.set(None)
     _child_span_count.set(0)
+    _current_application_span.set(None)
     _screenshot_span_count.set(0)
     if runtime is not None:
         runtime.after_fork()
@@ -314,11 +319,18 @@ def get_active_tracing_runtime() -> TracingRuntime | None:
 
 
 def get_current_trace_context() -> TraceCorrelation | None:
-    """Безопасно прочитать валидные IDs текущего span без создания нового span."""
+    """Прочитать IDs текущего AzurPilot span в активной task boundary."""
     try:
+        if _task_depth.get() <= 0 or _current_application_span.get() is None:
+            return None
+        if get_active_tracing_runtime() is None:
+            return None
         from opentelemetry import trace
 
-        context = trace.get_current_span().get_span_context()
+        current_span = trace.get_current_span()
+        if current_span is not _current_application_span.get():
+            return None
+        context = current_span.get_span_context()
         if not context.is_valid:
             return None
         trace_id = getattr(context, "trace_id", None)
@@ -415,6 +427,7 @@ class TraceTaskRun:
         self._depth_token: Any = None
         self._outcome_token: Any = None
         self._child_count_token: Any = None
+        self._application_span_token: Any = None
         self._screenshot_count_token: Any = None
         self._nested = False
         self._finished = False
@@ -443,6 +456,7 @@ class TraceTaskRun:
                 set_status_on_exception=False,
             )
             self._span = self._span_context.__enter__()
+            self._application_span_token = _current_application_span.set(self._span)
         except Exception as exc:
             _report(
                 runtime.reporter,
@@ -456,6 +470,8 @@ class TraceTaskRun:
                 _child_span_count.reset(self._child_count_token)
             if self._screenshot_count_token is not None:
                 _screenshot_span_count.reset(self._screenshot_count_token)
+            if self._application_span_token is not None:
+                _current_application_span.reset(self._application_span_token)
             if self._outcome_token is not None:
                 _task_outcome.reset(self._outcome_token)
             if self._depth_token is not None:
@@ -508,6 +524,8 @@ class TraceTaskRun:
                         "Не удалось завершить application trace span",
                         exc,
                     )
+            if self._application_span_token is not None:
+                _current_application_span.reset(self._application_span_token)
             if self._child_count_token is not None:
                 _child_span_count.reset(self._child_count_token)
             if self._screenshot_count_token is not None:
@@ -573,6 +591,7 @@ def trace_operation(
         yield None
         return
 
+    application_span_token = _current_application_span.set(span)
     _child_span_count.set(_child_span_count.get() + 1)
     if operation_name == _SCREENSHOT_OPERATION_NAME:
         _screenshot_span_count.set(_screenshot_span_count.get() + 1)
@@ -596,6 +615,8 @@ def trace_operation(
             _report(
                 runtime.reporter, "Не удалось завершить application child span", exc
             )
+        finally:
+            _current_application_span.reset(application_span_token)
 
 
 __all__ = (

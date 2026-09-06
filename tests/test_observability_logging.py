@@ -290,31 +290,87 @@ def test_mapping_and_quoted_redaction_covers_body_and_exception_metadata(monkeyp
 
 
 def test_traceback_sanitizer_redacts_absolute_paths_without_breaking_urls():
-    text = (
-        "visible text "
-        "win=C:\\Users\\test-user\\demo\\config.json "
-        "unc=\\\\server\\share\\incident.log "
-        "posix=/var/lib/azurpilot/incident.log "
-        "spaced-win=C:\\Program Files\\AzulPilot\\private.txt "
-        "spaced-unc=\\\\server\\share name\\private data.txt "
-        "spaced-posix=/home/other user/private.txt "
-        "url=https://example.test/path/to/resource "
-        "file-url=file:///C:/Program%20Files/AzurPilot/log.txt"
+    paths = (
+        r"C:\Users\operator\private",
+        r"C:\Program Files\Private Folder",
+        r"C:\Program Files\Private Folder\secret",
+        r"\\server\share\private",
+        r"\\server\share name\private data",
+        r"/var/lib/azurpilot/private",
+        r"/home/other user/private",
+        r"file:///C:/Program%20Files/AzurPilot/log.txt",
+        r"file:///home/other%20user/private",
+    )
+    text = "visible text " + " ".join(
+        f"path-{index}={path}" for index, path in enumerate(paths)
+    )
+    text += (
+        " url=https://example.test/path/to/resource"
+        " local=http://localhost:3000/d/azurpilot-overview"
+        " relative=foo/bar"
     )
 
     sanitized = sanitize_traceback_text(text)
 
     assert "visible text" in sanitized
-    assert "C:\\Users\\test-user\\demo" not in sanitized
-    assert "\\\\server\\share\\incident.log" not in sanitized
-    assert "/var/lib/azurpilot/incident.log" not in sanitized
-    assert "C:\\Program Files\\AzulPilot" not in sanitized
-    assert "\\\\server\\share name\\private data.txt" not in sanitized
-    assert "/home/other user/private.txt" not in sanitized
-    assert sanitized.count("<ABSOLUTE_PATH>") == 6
+    assert all(path not in sanitized for path in paths)
+    assert sanitized.count("<ABSOLUTE_PATH>") == len(paths)
     assert "visible text" in sanitized
     assert "https://example.test/path/to/resource" in sanitized
-    assert "file:///C:/Program%20Files/AzurPilot/log.txt" in sanitized
+    assert "http://localhost:3000/d/azurpilot-overview" in sanitized
+    assert "foo/bar" in sanitized
+
+
+def test_exported_log_payload_redacts_paths_and_credentials(monkeypatch):
+    _configure_test_environment(monkeypatch)
+    target = _new_logger("observability-exported-paths")
+    exporter = InMemoryLogRecordExporter()
+    paths = (
+        r"C:\Program Files\Private Folder",
+        r"C:\Program Files\Private Folder\secret",
+        r"\\server\share name\private data",
+        r"/home/other user/private",
+        r"file:///C:/Program%20Files/AzurPilot/log.txt",
+    )
+    path_text = " ".join(
+        f"path-{index}={path}" for index, path in enumerate(paths)
+    )
+    exception_text = (
+        f"password=raw-secret {path_text} "
+        "url=https://example.test/path/to/resource"
+    )
+
+    try:
+        assert configure_application_observability(
+            target,
+            _exporter_factory=lambda _timeout: exporter,
+        )
+        target.error("log payload %s", exception_text)
+        try:
+            raise RuntimeError(exception_text)
+        except RuntimeError:
+            target.exception("Ошибка с path и credential")
+
+        assert shutdown_application_observability(target, timeout_millis=3000)
+        records = [item.log_record for item in exporter.get_finished_logs()]
+        assert len(records) == 2
+        exported_payloads = [
+            "\n".join(
+                [
+                    str(record.body),
+                    str(record.attributes.get("exception.message", "")),
+                    str(record.attributes.get("exception.stacktrace", "")),
+                ]
+            )
+            for record in records
+        ]
+        for payload in exported_payloads:
+            assert all(path not in payload for path in paths)
+            assert "raw-secret" not in payload
+            assert "password=***" in payload
+            assert "https://example.test/path/to/resource" in payload
+    finally:
+        shutdown_application_observability(target)
 
 
 def test_exception_metadata_preserves_multi_args_and_sanitizes_chained_traceback(

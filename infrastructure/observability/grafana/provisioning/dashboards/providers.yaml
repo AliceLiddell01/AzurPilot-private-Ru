@@ -6,7 +6,7 @@ providers:
     folder: AzurPilot
     folderUid: azurpilot
     type: file
-    disableDeletion: true
+    disableDeletion: false
     updateIntervalSeconds: 30
     allowUiUpdates: false
     options:
