@@ -4,6 +4,7 @@ import re
 import shutil
 import threading
 import time
+from contextlib import ExitStack
 from datetime import datetime, timedelta
 
 import inflection
@@ -1688,7 +1689,13 @@ class AzurLaneAutoScript:
             )
         except Exception:
             return self.run(inflection.underscore(task))
-        with observability_run:
+        try:
+            entered = observability_run.__enter__()
+        except Exception:
+            return self.run(inflection.underscore(task))
+        with ExitStack() as stack:
+            stack.push(observability_run)
+            del entered
             result = self.run(inflection.underscore(task))
             observability_run.finish(result)
             return result

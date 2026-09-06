@@ -100,8 +100,10 @@ def _safe_operation_attributes(
         return {}
     attributes: dict[str, object] = {}
     for key, item in value.items():
-        if len(attributes) >= _MAX_OPERATION_ATTRIBUTES or not isinstance(key, str):
+        if len(attributes) >= _MAX_OPERATION_ATTRIBUTES:
             break
+        if not isinstance(key, str):
+            continue
         try:
             normalized_key = key.strip()
         except Exception:

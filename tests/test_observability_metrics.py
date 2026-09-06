@@ -575,14 +575,16 @@ def test_metrics_reader_failure_keeps_application_logs_working(monkeypatch):
             self.shutdown_calls += 1
 
     metric_exporter = Exporter()
+
+    def reader_factory(_exporter, _interval, _timeout):
+        raise RuntimeError("reader creation failed")
+
     try:
         assert configure_application_observability(
             target,
             _exporter_factory=lambda _timeout: log_exporter,
             _metrics_exporter_factory=lambda _timeout: metric_exporter,
-            _metrics_reader_factory=lambda *_args: (_ for _ in ()).throw(
-                RuntimeError("reader creation failed")
-            ),
+            _metrics_reader_factory=reader_factory,
         )
         target.info("logs remain available")
         assert shutdown_application_observability(target, timeout_millis=3000)

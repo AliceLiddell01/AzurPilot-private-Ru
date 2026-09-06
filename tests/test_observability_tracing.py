@@ -301,12 +301,10 @@ def test_build_tracing_runtime_closes_partial_resources(monkeypatch):
     class Processor:
         def __init__(self, exporter, **_kwargs):
             processor_instances.append(self)
-            self.exporter = exporter
             self.shutdown_calls = 0
 
         def shutdown(self):
             self.shutdown_calls += 1
-            self.exporter.shutdown()
 
     exporter = Exporter()
     provider = None
@@ -346,7 +344,32 @@ def test_build_tracing_runtime_closes_partial_resources(monkeypatch):
     assert processor is not None
     assert provider.shutdown_calls == 1
     assert processor.shutdown_calls == 1
-    assert exporter.shutdown_calls == 1
+
+
+def test_scheduler_task_runs_when_observability_entry_fails(monkeypatch):
+    script = AzurLaneAutoScript.__new__(AzurLaneAutoScript)
+    script.config_name = "profile-a"
+    script.__dict__["config"] = SimpleNamespace(
+        task=_task(),
+        args={"Research": {"Scheduler": {"Command": {"value": "Research"}}}},
+    )
+    calls = []
+    script.__dict__["run"] = lambda command: calls.append(command) or "result"
+
+    class BrokenBoundary:
+        def __enter__(self):
+            raise RuntimeError("synthetic observability entry failure")
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setattr(
+        "module.observability.scheduler_task_run",
+        lambda **_kwargs: BrokenBoundary(),
+    )
+
+    assert script._run_scheduler_task("Research") == "result"
+    assert calls == ["research"]
 
 
 def test_trace_root_is_once_at_scheduler_boundary_and_ignores_fake_roots(monkeypatch):
@@ -404,7 +427,7 @@ def test_trace_operation_is_nested_under_active_root(monkeypatch):
             registry=("Research",),
         ) as task, trace_operation("azurpilot.ui.wait", attributes={"phase": "main"}):
             task.finish(True)
-        shutdown_application_observability(target, timeout_millis=3000)
+        assert shutdown_application_observability(target, timeout_millis=3000)
         spans = exporter.get_finished_spans()
         root = next(span for span in spans if span.name == "azurpilot.task.run")
         child = next(span for span in spans if span.name == "azurpilot.ui.wait")
@@ -433,7 +456,7 @@ def test_active_span_context_is_preserved_in_exported_log_record(monkeypatch):
         ) as task:
             target.info("message remains free of trace identifiers")
             task.finish(True)
-        shutdown_application_observability(target, timeout_millis=3000)
+        assert shutdown_application_observability(target, timeout_millis=3000)
         span = next(
             span
             for span in trace_exporter.get_finished_spans()
@@ -477,10 +500,10 @@ def test_task_end_is_stopped_and_exception_trace_is_sanitized(monkeypatch):
             registry=("Research",),
         ):
             raise RuntimeError(
-                "password=raw-secret path=C:\\Users\\KykLa\\private\\config.json"
+                "password=sentinel-value path=C:\\Users\\test-user\\demo\\config.json"
             )
 
-        shutdown_application_observability(target, timeout_millis=3000)
+        assert shutdown_application_observability(target, timeout_millis=3000)
         spans = exporter.get_finished_spans()
         stopped = [
             span
@@ -503,8 +526,8 @@ def test_task_end_is_stopped_and_exception_trace_is_sanitized(monkeypatch):
                 str(failed[0].attributes),
             )
         )
-        assert "raw-secret" not in event_text
-        assert "C:\\Users\\KykLa\\private" not in event_text
+        assert "sentinel-value" not in event_text
+        assert "C:\\Users\\test-user\\demo" not in event_text
     finally:
         shutdown_application_observability(target)
 
@@ -694,8 +717,7 @@ def test_metrics_record_exemplars_from_active_root_without_trace_labels(monkeypa
         assert len(points) == 1
         assert "trace_id" not in points[0].attributes
         assert "span_id" not in points[0].attributes
-        if not points[0].exemplars:
-            pytest.skip("текущий SDK или metrics reader не экспортирует exemplars")
+        assert points[0].exemplars
         assert points[0].exemplars[0].trace_id == root.context.trace_id
         assert points[0].exemplars[0].span_id == root.context.span_id
     finally:
@@ -721,6 +743,7 @@ def test_nested_child_restores_parent_context_and_bounds_attributes(monkeypatch)
             with trace_operation(
                 "azurpilot.ui.wait",
                 attributes={
+                    1: "ignored",
                     "phase": "password=raw-secret",
                     "oversized": "v" * 1000,
                 },
@@ -734,6 +757,7 @@ def test_nested_child_restores_parent_context_and_bounds_attributes(monkeypatch)
                 assert child.parent.span_id == root_span_id
                 assert child.attributes["phase"] == "password=***"
                 assert len(child.attributes["oversized"]) <= 256
+                assert "ignored" not in child.attributes.values()
             assert get_current_span().get_span_context().span_id == root_span_id
             with trace_operation("x" * 65) as oversized_name:
                 assert oversized_name is None
