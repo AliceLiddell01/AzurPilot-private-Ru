@@ -67,9 +67,10 @@ passfiles. Migrator выбирается только maintenance-команда
 ## Lifecycle
 
 - `Start-AzurPilot.ps1` проверяет Docker Compose и поднимает service `postgres`
-  с ожиданием health; при заданном `AZURPILOT_CADDY_HOST` он также поднимает
-  Caddy profile `remote-ingress`. Затем проверяются marker, app auth и head до
-  GUI.
+  с ожиданием health; при заданных `AZURPILOT_CADDY_HOST` и
+  `AZURPILOT_GAME_MCP_PUBLIC_HOST` он также поднимает Caddy profile
+  `remote-ingress`. Если Dev host удалён, он останавливает только Caddy этого
+  Compose project. Затем проверяются marker, app auth и head до GUI.
 - `Update-AzurPilot.ps1` после graceful stop создаёт новый Docker `pg_dump -Fc`, затем
   применяет reviewed Alembic код отдельным migrator и проверяет app health.
   Ошибка backup блокирует update; автоматического pruning нет.

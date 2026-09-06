@@ -22,8 +22,8 @@
 	}
 }
 
-# Публичный Game MCP использует отдельный host и отдельный loopback backend.
-game.{$AZURPILOT_CADDY_HOST} {
+# Публичный Game MCP использует отдельный настроенный host и loopback backend.
+{$AZURPILOT_GAME_MCP_PUBLIC_HOST} {
 	encode gzip
 	header Cache-Control "no-store"
 
@@ -32,7 +32,7 @@ game.{$AZURPILOT_CADDY_HOST} {
 	}
 
 	reverse_proxy host.docker.internal:8766 {
-		header_up Host game.{$AZURPILOT_CADDY_HOST}
+		header_up Host {$AZURPILOT_GAME_MCP_PUBLIC_HOST}
 		transport http {
 			dial_timeout 3s
 			response_header_timeout 195s

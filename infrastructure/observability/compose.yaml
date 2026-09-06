@@ -10,6 +10,7 @@ services:
       - no-new-privileges:true
     environment:
       AZURPILOT_CADDY_HOST: ${AZURPILOT_CADDY_HOST:-}
+      AZURPILOT_GAME_MCP_PUBLIC_HOST: ${AZURPILOT_GAME_MCP_PUBLIC_HOST:-}
     ports:
       - "80:80/tcp"
       - "443:443/tcp"

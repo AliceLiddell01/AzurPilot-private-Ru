@@ -94,7 +94,10 @@ def test_caddy_is_pinned_profiled_and_keeps_mcp_backends_host_side():
     assert caddy["restart"] == "unless-stopped"
     assert caddy["security_opt"] == ["no-new-privileges:true"]
     assert caddy["ports"] == ["80:80/tcp", "443:443/tcp", "443:443/udp"]
-    assert caddy["environment"] == {"AZURPILOT_CADDY_HOST": "${AZURPILOT_CADDY_HOST:-}"}
+    assert caddy["environment"] == {
+        "AZURPILOT_CADDY_HOST": "${AZURPILOT_CADDY_HOST:-}",
+        "AZURPILOT_GAME_MCP_PUBLIC_HOST": "${AZURPILOT_GAME_MCP_PUBLIC_HOST:-}",
+    }
     assert {
         (volume["type"], volume["source"], volume["target"], volume.get("read_only"))
         for volume in caddy["volumes"]

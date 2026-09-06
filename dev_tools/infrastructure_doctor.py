@@ -10,9 +10,13 @@ import re
 import shutil
 import ssl
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
+
+from module.dev_mcp.contract import DEV_MCP_REQUIRED_SCOPE
+from module.game_mcp.contract import GAME_MCP_READ_SCOPE, GAME_MCP_SCOPES
 
 CANONICAL_PROJECT = "azurpilot-infrastructure"
 CADDY_SERVICE = "caddy"
@@ -22,9 +26,32 @@ CADDYFILE_RELATIVE_PATH = Path("infrastructure/caddy/Caddyfile")
 ENV_RELATIVE_PATH = Path(".env")
 _ENV_KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 _CADDY_HOST_KEY = "AZURPILOT_CADDY_HOST"
+_GAME_HOST_KEY = "AZURPILOT_GAME_MCP_PUBLIC_HOST"
 _EXPECTED_PUBLISHED_PORTS = frozenset({"80/tcp", "443/tcp", "443/udp"})
-_DEV_SCOPE = "azurpilot:dev"
-_GAME_SCOPE = "azurpilot:game.read"
+
+
+@dataclass(frozen=True, slots=True)
+class _PublicEndpoint:
+    name: str
+    host_key: str
+    required_scope: str
+    accepted_scopes: tuple[str, ...]
+
+
+_PUBLIC_ENDPOINTS = (
+    _PublicEndpoint(
+        "dev",
+        _CADDY_HOST_KEY,
+        DEV_MCP_REQUIRED_SCOPE,
+        (DEV_MCP_REQUIRED_SCOPE,),
+    ),
+    _PublicEndpoint(
+        "game",
+        _GAME_HOST_KEY,
+        GAME_MCP_READ_SCOPE,
+        GAME_MCP_SCOPES,
+    ),
+)
 
 
 def _docker_executable() -> str:
@@ -79,45 +106,66 @@ def _parse_env_value(raw_value: str) -> str:
     return value
 
 
-def _configured_caddy_host(env_file: Path) -> str | None:
+def _configured_host_values(
+    env_file: Path, keys: tuple[str, ...]
+) -> dict[str, str] | None:
     try:
         lines = env_file.read_text(encoding="utf-8").splitlines()
     except OSError, UnicodeError:
         return None
 
-    values: list[str] = []
+    values: dict[str, list[str]] = {key: [] for key in keys}
     for raw_line in lines:
         line = raw_line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, raw_value = line.split("=", 1)
         key = key.strip()
-        if not _ENV_KEY_RE.fullmatch(key) or key != _CADDY_HOST_KEY:
+        if not _ENV_KEY_RE.fullmatch(key) or key not in values:
             continue
-        values.append(_parse_env_value(raw_value))
-    if len(values) != 1 or not values[0] or any(char.isspace() for char in values[0]):
+        values[key].append(_parse_env_value(raw_value))
+
+    configured: dict[str, str] = {}
+    for key, entries in values.items():
+        if len(entries) != 1 or not entries[0] or any(
+            char.isspace() for char in entries[0]
+        ):
+            return None
+        value = entries[0]
+        try:
+            parsed = urlsplit(f"https://{value}")
+            port = parsed.port
+        except ValueError:
+            return None
+        if not (
+            parsed.hostname is not None
+            and parsed.username is None
+            and parsed.password is None
+            and parsed.path == ""
+            and not parsed.query
+            and not parsed.fragment
+            and port is None
+            and "*" not in value
+        ):
+            return None
+        configured[key] = value
+    return configured
+
+
+def _configured_endpoint_hosts(env_file: Path) -> dict[str, str] | None:
+    configured = _configured_host_values(
+        env_file, tuple(endpoint.host_key for endpoint in _PUBLIC_ENDPOINTS)
+    )
+    if configured is None:
         return None
-    try:
-        parsed = urlsplit(f"https://{values[0]}")
-        port = parsed.port
-    except ValueError:
-        return None
-    if not (
-        parsed.hostname is not None
-        and parsed.username is None
-        and parsed.password is None
-        and parsed.path == ""
-        and not parsed.query
-        and not parsed.fragment
-        and port is None
-        and "*" not in values[0]
-    ):
-        return None
-    return values[0]
+    return {
+        endpoint.name: configured[endpoint.host_key]
+        for endpoint in _PUBLIC_ENDPOINTS
+    }
 
 
 def _caddy_host_is_configured(env_file: Path) -> bool:
-    return _configured_caddy_host(env_file) is not None
+    return _configured_endpoint_hosts(env_file) is not None
 
 
 def _json_lines(raw: str) -> list[dict[str, Any]] | None:
@@ -160,10 +208,13 @@ def _published_ports(container_id: str) -> tuple[bool, dict[str, object]]:
         return False, {}
     if not isinstance(ports, dict):
         return False, {}
-    observed = {str(key) for key in ports}
+    published = {
+        str(key): bindings for key, bindings in ports.items() if bindings is not None
+    }
+    observed = set(published)
     if observed != _EXPECTED_PUBLISHED_PORTS:
         return False, {"published_port_keys": sorted(observed)}
-    for key, bindings in ports.items():
+    for key, bindings in published.items():
         if not isinstance(bindings, list) or not bindings:
             return False, {"published_port_keys": sorted(observed)}
         expected_host_port = str(key).split("/", 1)[0]
@@ -199,8 +250,12 @@ class _PublicProbeError(RuntimeError):
         self.code = code
 
 
-def _probe_public_endpoint(host: str, *, scope: str) -> dict[str, int]:
+def _probe_public_endpoint(
+    host: str, *, required_scope: str, accepted_scopes: tuple[str, ...]
+) -> dict[str, int]:
     metadata_path = "/.well-known/oauth-protected-resource/mcp"
+    expected_resource = f"https://{host}/mcp"
+    expected_metadata_url = f"https://{host}{metadata_path}"
     try:
         metadata_status, _, metadata_body = _https_request(host, metadata_path)
     except OSError, http.client.HTTPException:
@@ -217,7 +272,7 @@ def _probe_public_endpoint(host: str, *, scope: str) -> dict[str, int]:
     )
     if (
         not isinstance(metadata, dict)
-        or metadata.get("resource") != f"https://{host}/mcp"
+        or metadata.get("resource") != expected_resource
         or not isinstance(authorization_servers, list)
         or not authorization_servers
         or any(
@@ -225,7 +280,7 @@ def _probe_public_endpoint(host: str, *, scope: str) -> dict[str, int]:
             for server in authorization_servers
         )
         or not isinstance(scopes, list)
-        or scope not in scopes
+        or any(scope not in scopes for scope in accepted_scopes)
     ):
         raise _PublicProbeError("CADDY_PUBLIC_ENDPOINT_INVALID")
 
@@ -234,12 +289,19 @@ def _probe_public_endpoint(host: str, *, scope: str) -> dict[str, int]:
     except OSError, http.client.HTTPException:
         raise _PublicProbeError("CADDY_BACKEND_UNAVAILABLE") from None
     challenge = headers.get("www-authenticate", "")
+    resource_match = re.search(
+        r'(?i)\bresource_metadata="([^"]+)"', challenge
+    )
+    scope_match = re.search(r'(?i)\bscope="([^"]+)"', challenge)
     if mcp_status in {502, 503, 504}:
         raise _PublicProbeError("CADDY_BACKEND_UNAVAILABLE")
     if (
         mcp_status != 401
-        or "bearer" not in challenge.casefold()
-        or "resource_metadata=" not in challenge.casefold()
+        or not challenge.casefold().startswith("bearer ")
+        or resource_match is None
+        or resource_match.group(1) != expected_metadata_url
+        or scope_match is None
+        or required_scope not in scope_match.group(1).split()
     ):
         raise _PublicProbeError("CADDY_MCP_CONTRACT_INVALID")
     return {"metadata_status": metadata_status, "mcp_status": mcp_status}
@@ -250,16 +312,20 @@ def probe(repository_root: Path = Path(".")) -> dict[str, object]:
 
     try:
         root = repository_root.resolve(strict=True)
-        host = _configured_caddy_host(root / ENV_RELATIVE_PATH)
-        if host is None or not (root / CADDYFILE_RELATIVE_PATH).is_file():
+        hosts = _configured_endpoint_hosts(root / ENV_RELATIVE_PATH)
+        if hosts is None or not (root / CADDYFILE_RELATIVE_PATH).is_file():
             return _payload(False, "CADDY_CONFIG_INVALID")
     except OSError:
         return _payload(False, "CADDY_CONFIG_UNAVAILABLE")
 
     try:
         endpoints = {
-            "dev": _probe_public_endpoint(host, scope=_DEV_SCOPE),
-            "game": _probe_public_endpoint(f"game.{host}", scope=_GAME_SCOPE),
+            endpoint.name: _probe_public_endpoint(
+                hosts[endpoint.name],
+                required_scope=endpoint.required_scope,
+                accepted_scopes=endpoint.accepted_scopes,
+            )
+            for endpoint in _PUBLIC_ENDPOINTS
         }
     except _PublicProbeError as exc:
         return _payload(False, exc.code)

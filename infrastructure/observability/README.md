@@ -73,8 +73,8 @@ AZURPILOT_OBSERVABILITY_PGADMIN_ADMIN_PASSWORD и
 AZURPILOT_OBSERVABILITY_PGADMIN_PGPASS. Пароль начального администратора
 Grafana и pgAdmin передаётся через Compose secret и не попадает в репозиторий.
 Порт pgAdmin задаётся через `AZURPILOT_OBSERVABILITY_PGADMIN_PORT`; по умолчанию
-используется `5050`. Публичный Caddy host задаётся не секретным ключом
-`AZURPILOT_CADDY_HOST`; OAuth-переменные Dev/Game остаются в том же защищённом
+используется `5050`. Публичные Dev/Game hosts задаются не секретными ключами
+`AZURPILOT_CADDY_HOST` и `AZURPILOT_GAME_MCP_PUBLIC_HOST`; OAuth-переменные Dev/Game остаются в том же защищённом
 локальном `.env` и не записываются в Git.
 
 Если переменных ещё нет, добавьте их в корневой .env. Для ротации уже

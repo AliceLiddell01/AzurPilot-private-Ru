@@ -122,7 +122,8 @@ def test_local_env_accepts_exact_infrastructure_registry_keys(tmp_path: Path):
         + "AZURPILOT_POSTGRES_DOCKER_BOOTSTRAP_PASSWORD=docker-secret\n"
         + "AZURPILOT_OBSERVABILITY_PGADMIN_ADMIN_EMAIL=operator@example.test\n"
         + "AZURPILOT_OBSERVABILITY_PGADMIN_PORT=5051\n"
-        + "AZURPILOT_CADDY_HOST=mcp.example.test\n",
+        + "AZURPILOT_CADDY_HOST=mcp.example.test\n"
+        + "AZURPILOT_GAME_MCP_PUBLIC_HOST=game.mcp.example.test\n",
     )
 
     local = load_local_postgres_environment(path, environment={})
@@ -144,6 +145,7 @@ def test_local_env_rejects_bare_docker_namespace_key(tmp_path: Path):
         "AZURPILOT_POSTGRES_DOCKER_BOOTSTRP_PASSWORD",
         "AZURPILOT_OBSERVABILITY_PGADMIN_PORTX",
         "AZURPILOT_CADDY_HOSTX",
+        "AZURPILOT_GAME_MCP_PUBLIC_HOSTX",
     ),
 )
 def test_local_env_rejects_typo_inside_infrastructure_namespace(

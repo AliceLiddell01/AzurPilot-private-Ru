@@ -13,6 +13,7 @@ from module.dev_runtime.smoke import (
 CONTRACT_SCHEMA_VERSION = 1
 DEV_MCP_API_VERSION = 2
 PRODUCT_FAMILY = "AzurPilot"
+DEV_MCP_REQUIRED_SCOPE = "azurpilot:dev"
 
 DEV_MCP_FEATURE_FLAGS = {
     "task_sandbox": True,
@@ -119,6 +120,7 @@ def contract_compatibility_issues(
 __all__ = [
     "CONTRACT_SCHEMA_VERSION",
     "DEV_MCP_API_VERSION",
+    "DEV_MCP_REQUIRED_SCOPE",
     "DEV_MCP_CAPABILITY_FAMILIES",
     "DEV_MCP_FEATURE_FLAGS",
     "DEV_MCP_RESULT_OUTCOMES",

@@ -31,10 +31,12 @@ _TROUBLESHOOTING_MATRIX_PATH = (
 )
 _ABSOLUTE_LOCAL_PATH = re.compile(r"(?<![A-Za-z0-9])(?:[A-Za-z]:[\\/]|\\\\|(?<![A-Za-z0-9/:.`])/(?!/))")
 _URL = re.compile(r"\b[A-Za-z][A-Za-z0-9+.-]*://[^\s`]+")
+_SAFE_CONTAINER_PATH = re.compile(r"(?<![A-Za-z0-9])(/etc/caddy/Caddyfile)(?![A-Za-z0-9])")
 
 
 def _find_absolute_local_path(value: str) -> re.Match[str] | None:
-    return _ABSOLUTE_LOCAL_PATH.search(_URL.sub("", value))
+    value_without_urls = _URL.sub("", value)
+    return _ABSOLUTE_LOCAL_PATH.search(_SAFE_CONTAINER_PATH.sub("", value_without_urls))
 
 
 def _markdown_subsection(content: str, heading: str) -> str:

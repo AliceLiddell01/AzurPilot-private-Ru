@@ -282,6 +282,7 @@ class PowerShellContractTests(unittest.TestCase):
                 env_contents = "AZURPILOT_POSTGRES_DOCKER_BOOTSTRAP_PASSWORD=test\n"
                 if caddy_host is not None:
                     env_contents += f"AZURPILOT_CADDY_HOST={caddy_host}\n"
+                    env_contents += f"AZURPILOT_GAME_MCP_PUBLIC_HOST=game.{caddy_host}\n"
                 env_path.write_text(env_contents, encoding="utf-8")
                 compose_path.parent.mkdir(parents=True)
                 compose_path.write_text("name: test\n", encoding="utf-8")
@@ -407,6 +408,17 @@ class PowerShellContractTests(unittest.TestCase):
                         str(env_path),
                         "--file",
                         str(compose_path),
+                        "--profile",
+                        "remote-ingress",
+                        "stop",
+                        "caddy",
+                    ),
+                    (
+                        "compose",
+                        "--env-file",
+                        str(env_path),
+                        "--file",
+                        str(compose_path),
                         "config",
                         "--quiet",
                     ),
@@ -444,7 +456,7 @@ class PowerShellContractTests(unittest.TestCase):
                 success_gui_log.read_text(encoding="utf-8"),
             )
             self.assertIn(
-                "Infrastructure Compose запущен; PostgreSQL подготовлен, Caddy не включён без AZURPILOT_CADDY_HOST.",
+                "Инфраструктурный Docker Compose запущен; PostgreSQL подготовлен, Caddy остановлен, так как AZURPILOT_CADDY_HOST не задан.",
                 success_result.stdout + success_result.stderr,
             )
 
@@ -459,7 +471,7 @@ class PowerShellContractTests(unittest.TestCase):
             self.assertEqual(
                 tuple(
                     (call[0], call[1], call[3], *call[5:])
-                    for call in success_docker_calls
+                    for call in success_docker_calls[1:]
                 )
                 + (
                     ("compose", "--env-file", "--file", "--profile", "remote-ingress", "config", "--quiet"),
@@ -471,7 +483,7 @@ class PowerShellContractTests(unittest.TestCase):
                 ),
             )
             self.assertIn(
-                "Infrastructure Compose запущен; PostgreSQL подготовлен, Caddy достиг состояния готовности.",
+                "Инфраструктурный Docker Compose запущен; PostgreSQL подготовлен, Caddy достиг состояния готовности.",
                 caddy_result.stdout + caddy_result.stderr,
             )
 

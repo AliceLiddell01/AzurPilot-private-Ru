@@ -464,13 +464,17 @@ smoke/evidence state.
 образ, профиль, read-only config bind и persistent `/data`/`/config` volumes
 описаны в `infrastructure/observability/compose.yaml`. Не создавай вторую
 копию Caddyfile и не запускай host `caddy.exe`. В корневом защищённом `.env`
-задай non-secret host. Создай публичные DNS-записи для `<public-host>` и
-`game.<public-host>` типа A, AAAA или CNAME, указывающие на публичный адрес:
+задай отдельные non-secret hosts для Dev и Game. Создай для обоих публичные
+DNS-записи типа A, AAAA или CNAME:
+`AZURPILOT_GAME_MCP_PUBLIC_HOST` должен иметь DNS-запись типа A, AAAA или CNAME
+на публичный адрес и совпадать с host-компонентом
+`AZURPILOT_GAME_MCP_PUBLIC_URL` host-side Game MCP:
 
 ```text
-AZURPILOT_CADDY_HOST=<public-host>
-AZURPILOT_DEV_MCP_PUBLIC_URL=https://<public-host>/mcp
-AZURPILOT_GAME_MCP_PUBLIC_URL=https://game.<public-host>/mcp
+AZURPILOT_CADDY_HOST=<dev-public-host>
+AZURPILOT_GAME_MCP_PUBLIC_HOST=<game-public-host>
+AZURPILOT_DEV_MCP_PUBLIC_URL=https://<dev-public-host>/mcp
+AZURPILOT_GAME_MCP_PUBLIC_URL=https://<game-public-host>/mcp
 ```
 
 Проверь конфигурацию backend-процессов на стороне host:
@@ -501,12 +505,17 @@ uv run --locked --no-sync python -m dev_tools.infrastructure_doctor --repository
 uv run --locked --no-sync python -m dev_tools.infrastructure_doctor --repository-root . probe
 ```
 
+Если `AZURPILOT_CADDY_HOST` удалён из `.env`, следующий запуск через
+`Start-AzurPilot.ps1` останавливает только принадлежащий этому Compose project
+service `caddy`. Named volumes и остальные инфраструктурные services не трогаются;
+при ошибке остановки startup завершается с ошибкой.
+
 Первые команды выполняются с OAuth-переменными в защищённом окружении; значения
 не записываются в Git. Перед подключением проверь без секрета: `GET
-https://<public-host>/.well-known/oauth-protected-resource/mcp` возвращает
-metadata, а `POST https://<public-host>/mcp` без auth возвращает `401` с
+https://<dev-public-host>/.well-known/oauth-protected-resource/mcp` возвращает
+metadata, а `POST https://<dev-public-host>/mcp` без auth возвращает `401` с
 `WWW-Authenticate` и ссылкой на metadata. В подключённом ChatGPT-приложении
-используй URL mode `https://<public-host>/mcp` и OAuth, затем обнови app после
+используй URL mode `https://<dev-public-host>/mcp` и OAuth, затем обнови app после
 изменения tool descriptors. Сначала выполняются только read-only
 `dev_get_contract`, `dev_preflight` и `dev_list_smoke_capabilities`.
 

@@ -492,8 +492,14 @@ function Invoke-InfrastructureStartPreflight {
     $caddyHostEntries = @(Get-Content -LiteralPath $envFile -Encoding utf8 | Where-Object {
             $_ -match '^\s*AZURPILOT_CADDY_HOST\s*='
         })
+    $gameHostEntries = @(Get-Content -LiteralPath $envFile -Encoding utf8 | Where-Object {
+            $_ -match '^\s*AZURPILOT_GAME_MCP_PUBLIC_HOST\s*='
+        })
     if ($caddyHostEntries.Count -gt 1) {
         Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message 'Локальный .env содержит несколько значений AZURPILOT_CADDY_HOST.'
+    }
+    if ($gameHostEntries.Count -gt 1) {
+        Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message 'Локальный .env содержит несколько значений AZURPILOT_GAME_MCP_PUBLIC_HOST.'
     }
     $caddyConfigured = $false
     if ($caddyHostEntries.Count -eq 1) {
@@ -501,10 +507,37 @@ function Invoke-InfrastructureStartPreflight {
         if ([string]::IsNullOrWhiteSpace($caddyHostValue)) {
             Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message 'AZURPILOT_CADDY_HOST задан пустым значением.'
         }
+        if ($gameHostEntries.Count -ne 1) {
+            Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message 'Для Caddy требуется ровно одно значение AZURPILOT_GAME_MCP_PUBLIC_HOST.'
+        }
+        $gameHostValue = ($gameHostEntries[0] -split '=', 2)[1].Trim()
+        if ([string]::IsNullOrWhiteSpace($gameHostValue)) {
+            Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message 'AZURPILOT_GAME_MCP_PUBLIC_HOST задан пустым значением.'
+        }
         $caddyConfigured = $true
     }
 
-    $operations = @(
+    $operations = @()
+    if (-not $caddyConfigured) {
+        $operations += [pscustomobject]@{
+            Executable = $dockerCommand.Path
+            Arguments = @(
+                'compose'
+                '--env-file'
+                $envFile
+                '--file'
+                $composeFile
+                '--profile'
+                'remote-ingress'
+                'stop'
+                'caddy'
+            )
+            TimeoutMilliseconds = 30000
+            Failure = 'Не удалось остановить принадлежащий проекту Docker Compose Caddy без настроенного публичного host.'
+        }
+    }
+
+    $operations += @(
         [pscustomobject]@{
             Executable = $PythonPath
             Arguments = @(
@@ -710,9 +743,9 @@ function Invoke-InfrastructureStartPreflight {
     }
 
     if ($caddyConfigured) {
-        Write-StartLog -Level 'INFO' -Message 'Infrastructure Compose запущен; PostgreSQL подготовлен, Caddy достиг состояния готовности.'
+        Write-StartLog -Level 'INFO' -Message 'Инфраструктурный Docker Compose запущен; PostgreSQL подготовлен, Caddy достиг состояния готовности.'
     } else {
-        Write-StartLog -Level 'INFO' -Message 'Infrastructure Compose запущен; PostgreSQL подготовлен, Caddy не включён без AZURPILOT_CADDY_HOST.'
+        Write-StartLog -Level 'INFO' -Message 'Инфраструктурный Docker Compose запущен; PostgreSQL подготовлен, Caddy остановлен, так как AZURPILOT_CADDY_HOST не задан.'
     }
     return $true
 }

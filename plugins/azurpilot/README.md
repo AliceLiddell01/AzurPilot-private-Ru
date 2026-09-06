@@ -63,20 +63,21 @@ Compose-проверки в отдельном терминале:
 ```text
 docker compose --env-file .env --file infrastructure/observability/compose.yaml --profile remote-ingress config --quiet
 docker compose --env-file .env --file infrastructure/observability/compose.yaml --profile remote-ingress up --detach --wait caddy
-docker compose --env-file .env --file infrastructure/observability/compose.yaml --profile remote-ingress exec caddy caddy validate
+docker compose --env-file .env --file infrastructure/observability/compose.yaml --profile remote-ingress exec caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 uv run --locked --no-sync python -m dev_tools.infrastructure_doctor --repository-root . doctor
 uv run --locked --no-sync python -m dev_tools.infrastructure_doctor --repository-root . probe
 ```
 
-В подключённом ChatGPT-приложении укажи `https://<public-host>/mcp` в URL mode и
-выбери OAuth. До подключения создай также DNS-запись `game.<public-host>` типа
-A, AAAA или CNAME на тот же публичный адрес для Game MCP. Backend принимает только
+В подключённом ChatGPT-приложении укажи `https://<dev-public-host>/mcp` в URL mode и
+выбери OAuth. Для Game MCP укажи отдельный `https://<game-public-host>/mcp` и
+создай DNS-запись для `<game-public-host>` типа A, AAAA или CNAME на его публичный
+адрес. Backend принимает только
 loopback, а наружу должны быть доступны
 только 443 и, для ACME/redirect, 80; его внутренний порт, Caddy admin, WebUI,
 PostgreSQL, ADB и emulator не публикуются. Обязательные переменные и Caddy
 конфигурация описаны в `docs/dev-runtime.md` и
-`infrastructure/caddy/Caddyfile`. Задай `AZURPILOT_CADDY_HOST` в локальном
-`.env`; host-side Dev/Game MCP сохраняют loopback binding, а Caddy работает
+`infrastructure/caddy/Caddyfile`. Задай `AZURPILOT_CADDY_HOST` и
+`AZURPILOT_GAME_MCP_PUBLIC_HOST` в локальном `.env`; host-side Dev/Game MCP сохраняют loopback binding, а Caddy работает
 только как Compose service профиля `remote-ingress`.
 
 Если write tools недоступны по плану или политике продукта, это не повод
