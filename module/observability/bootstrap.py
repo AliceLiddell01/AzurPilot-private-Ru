@@ -44,6 +44,7 @@ from module.observability.metrics import (
     reset_metrics_runtime_after_fork,
 )
 from module.observability.tracing import (
+    TracingConfig,
     TracingRuntime,
     activate_tracing_runtime,
     build_tracing_runtime,
@@ -112,18 +113,6 @@ class _ObservabilityConfig:
     logs_enabled: bool = False
     metrics: MetricsConfig | None = None
     traces: TracingConfig | None = None
-
-
-@dataclass(frozen=True)
-class TracingConfig:
-    """Проверенный bounded contract traces exporter-а."""
-
-    endpoint: str | None
-    timeout_millis: int
-    schedule_delay_millis: int
-    max_queue_size: int
-    max_export_batch_size: int
-    processor_timeout_millis: int
 
 
 @dataclass

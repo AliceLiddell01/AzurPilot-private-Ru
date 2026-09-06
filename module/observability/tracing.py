@@ -51,6 +51,18 @@ _screenshot_span_count: ContextVar[int] = ContextVar(
 )
 
 
+@dataclass(frozen=True)
+class TracingConfig:
+    """Проверенный bounded contract traces exporter-а."""
+
+    endpoint: str | None
+    timeout_millis: int
+    schedule_delay_millis: int
+    max_queue_size: int
+    max_export_batch_size: int
+    processor_timeout_millis: int
+
+
 def _report(
     reporter: Any, message: str, exception: BaseException | None = None
 ) -> None:
@@ -280,7 +292,7 @@ def get_active_tracing_runtime() -> TracingRuntime | None:
 
 
 def build_tracing_runtime(
-    config: Any,
+    config: TracingConfig,
     *,
     resource: Any,
     reporter: Any,
@@ -543,6 +555,7 @@ def trace_operation(
 
 __all__ = (
     "TraceTaskRun",
+    "TracingConfig",
     "TracingRuntime",
     "activate_tracing_runtime",
     "build_tracing_runtime",

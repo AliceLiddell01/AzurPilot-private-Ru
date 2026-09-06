@@ -20,12 +20,14 @@ from module.config.config import Function, TaskEnd
 from module.observability import scheduler_task_run
 from module.observability.bootstrap import (
     _after_fork,
+    _FailureReporter,
     _read_config,
     _runtimes,
     configure_application_observability,
     shutdown_application_observability,
 )
 from module.observability.tracing import (
+    TracingConfig,
     build_tracing_runtime,
     get_active_tracing_runtime,
     trace_operation,
@@ -241,6 +243,11 @@ def test_scheduler_boundary_closes_metrics_when_tracing_enter_fails(monkeypatch)
     assert events[2][0] == "metrics-exit"
     assert events[2][1] is RuntimeError
     assert isinstance(events[2][2], RuntimeError)
+    assert [event if isinstance(event, str) else event[0] for event in events] == [
+        "metrics-enter",
+        "tracing-enter",
+        "metrics-exit",
+    ]
 
 
 def test_trace_exporter_uses_standard_endpoint_precedence_without_duplicate_path(
@@ -317,7 +324,7 @@ def test_build_tracing_runtime_closes_partial_resources(monkeypatch):
         lambda **_kwargs: exporter,
     )
 
-    config = SimpleNamespace(
+    config = TracingConfig(
         endpoint="http://collector:4318/v1/traces",
         timeout_millis=1000,
         schedule_delay_millis=1000,
@@ -325,7 +332,7 @@ def test_build_tracing_runtime_closes_partial_resources(monkeypatch):
         max_export_batch_size=4,
         processor_timeout_millis=1000,
     )
-    reporter = SimpleNamespace(report=lambda *_args, **_kwargs: None)
+    reporter = _FailureReporter()
 
     with pytest.raises(RuntimeError, match="processor registration failed"):
         build_tracing_runtime(
@@ -366,7 +373,7 @@ def test_trace_root_is_once_at_scheduler_boundary_and_ignores_fake_roots(monkeyp
             pass
         assert script.run("goto_main", skip_first_screenshot=True) is True
 
-        shutdown_application_observability(target, timeout_millis=3000)
+        assert shutdown_application_observability(target, timeout_millis=3000)
         spans = exporter.get_finished_spans()
         roots = [span for span in spans if span.name == "azurpilot.task.run"]
         children = [span for span in spans if span.name == "azurpilot.ui.wait"]
@@ -489,7 +496,13 @@ def test_task_end_is_stopped_and_exception_trace_is_sanitized(monkeypatch):
         assert stopped[0].status.status_code.name != "ERROR"
         assert len(failed) == 1
         assert failed[0].status.status_code.name == "ERROR"
-        event_text = str(failed[0].events)
+        event_text = " ".join(
+            (
+                str(failed[0].events),
+                str(failed[0].status.description),
+                str(failed[0].attributes),
+            )
+        )
         assert "raw-secret" not in event_text
         assert "C:\\Users\\KykLa\\private" not in event_text
     finally:
@@ -660,7 +673,7 @@ def test_metrics_record_exemplars_from_active_root_without_trace_labels(monkeypa
         ) as task:
             task.finish(True)
         metrics_data = metric_reader.get_metrics_data()
-        shutdown_application_observability(target, timeout_millis=3000)
+        assert shutdown_application_observability(target, timeout_millis=3000)
         root = next(
             span
             for span in trace_exporter.get_finished_spans()
