@@ -130,28 +130,31 @@ class Ocr:
         return normalize_ocr_text(getattr(self, "lang", "azur_lane"), result)
 
     def ocr(self, image, direct_ocr=False):
-        start_time = time.time()
+        from module.observability.tracing import trace_operation
 
-        if direct_ocr:
-            image_list = [self.pre_process(i) for i in image]
-        else:
-            image_list = [self.pre_process(crop(image, area)) for area in self.buttons]
+        with trace_operation("azurpilot.ocr.process"):
+            start_time = time.time()
 
-        image_list = [crop_to_text(i) for i in image_list]
+            if direct_ocr:
+                image_list = [self.pre_process(i) for i in image]
+            else:
+                image_list = [self.pre_process(crop(image, area)) for area in self.buttons]
 
-        result_list = self.cnocr.atomic_ocr_for_single_lines(image_list, self.alphabet)
-        result_list = ["".join(result) for result in result_list]
-        result_list = [self.after_process(result) for result in result_list]
+            image_list = [crop_to_text(i) for i in image_list]
 
-        if len(self.buttons) == 1:
-            result_list = result_list[0]
-        if self.SHOW_LOG:
-            logger.debug(
-                "[OCR — диагностика] %s: время %s с, результат=%s"
-                % (self.name, float2str(time.time() - start_time), str(result_list))
-            )
+            result_list = self.cnocr.atomic_ocr_for_single_lines(image_list, self.alphabet)
+            result_list = ["".join(result) for result in result_list]
+            result_list = [self.after_process(result) for result in result_list]
 
-        return result_list
+            if len(self.buttons) == 1:
+                result_list = result_list[0]
+            if self.SHOW_LOG:
+                logger.debug(
+                    "[OCR — диагностика] %s: время %s с, результат=%s"
+                    % (self.name, float2str(time.time() - start_time), str(result_list))
+                )
+
+            return result_list
 
 
 class OcrYuv(Ocr):

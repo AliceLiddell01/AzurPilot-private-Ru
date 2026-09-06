@@ -13,6 +13,9 @@ from dataclasses import dataclass
 from types import TracebackType
 from typing import Any, Self
 
+from module.config.profile import profile_identity_from_filename
+from module.logging_context import CONTEXT_VALUE_LIMIT
+
 _METRIC_SCOPE_NAME = "azurpilot.observability"
 _TASK_RUN_NAME = "azurpilot.task.run"
 _TASK_DURATION_NAME = "azurpilot.task.duration"
@@ -50,7 +53,7 @@ class _CanonicalTaskIdentity:
 
 
 def _metric_label(value: object) -> str:
-    """Оставить только bounded canonical label или вернуть общий sentinel."""
+    """Оставить только bounded ASCII task label или вернуть sentinel."""
     if not isinstance(value, str):
         return "unknown"
     try:
@@ -62,6 +65,21 @@ def _metric_label(value: object) -> str:
     except Exception:
         return "unknown"
     return value
+
+
+def _profile_label(value: object) -> str:
+    """Сохранить canonical profile identity без task-only ASCII ограничения."""
+    if not isinstance(value, str):
+        return "unknown"
+    try:
+        normalized = value.strip()
+        if not normalized or len(normalized) > CONTEXT_VALUE_LIMIT:
+            return "unknown"
+        if profile_identity_from_filename(f"{normalized}.json") is None:
+            return "unknown"
+    except Exception:
+        return "unknown"
+    return normalized
 
 
 def _canonical_task_identity(
@@ -102,7 +120,7 @@ def _metric_attributes(
     except Exception:
         normalized_outcome = "unknown"
     return {
-        "azurpilot.profile": _metric_label(profile),
+        "azurpilot.profile": _profile_label(profile),
         "azurpilot.task": task.name if task is not None else "unknown",
         "azurpilot.task.outcome": normalized_outcome,
     }
@@ -133,6 +151,13 @@ def _outcome_from_result(result: object) -> str:
 
 
 def _outcome_from_exception(exception: BaseException) -> str:
+    try:
+        from module.config.config import TaskEnd
+
+        if isinstance(exception, TaskEnd):
+            return "stopped"
+    except Exception:
+        pass
     if isinstance(exception, KeyboardInterrupt):
         return "stopped"
     if isinstance(exception, SystemExit):
@@ -246,8 +271,9 @@ def build_metrics_runtime(
         def _at_fork_reinit(self) -> None:
             return None
 
-    provider = None
+    exporter = None
     reader = None
+    provider = None
     try:
         exporter = (
             exporter_factory(config.timeout_millis)
@@ -301,6 +327,11 @@ def build_metrics_runtime(
         elif reader is not None:
             try:
                 reader.shutdown()
+            except Exception:
+                pass
+        elif exporter is not None:
+            try:
+                exporter.shutdown()
             except Exception:
                 pass
         raise
@@ -369,6 +400,11 @@ class TaskRun:
         self._outcome_token = _task_outcome.set(None)
         self._started_at = time.monotonic()
         return self
+
+    @property
+    def task_name(self) -> str:
+        """Вернуть уже проверенное имя task для общей scheduler boundary."""
+        return self._task.name if self._task is not None else "unknown"
 
     def finish(self, result: object) -> None:
         if self._nested or self._runtime is None:

@@ -37,6 +37,13 @@ from module.observability.metrics import (
     deactivate_metrics_runtime,
     reset_metrics_runtime_after_fork,
 )
+from module.observability.tracing import (
+    TracingRuntime,
+    activate_tracing_runtime,
+    build_tracing_runtime,
+    deactivate_tracing_runtime,
+    reset_tracing_runtime_after_fork,
+)
 
 _TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 _SUPPORTED_PROTOCOL = "http/protobuf"
@@ -103,6 +110,19 @@ class _ObservabilityConfig:
     processor_timeout_millis: int
     logs_enabled: bool = False
     metrics: MetricsConfig | None = None
+    traces: TracingConfig | None = None
+
+
+@dataclass(frozen=True)
+class TracingConfig:
+    """Проверенный bounded contract traces exporter-а."""
+
+    endpoint: str | None
+    timeout_millis: int
+    schedule_delay_millis: int
+    max_queue_size: int
+    max_export_batch_size: int
+    processor_timeout_millis: int
 
 
 @dataclass
@@ -111,6 +131,7 @@ class _Runtime:
     provider: Any | None
     handler: _SanitizedOTelHandler | None
     metrics: MetricsRuntime | None = None
+    traces: TracingRuntime | None = None
     config: _ObservabilityConfig | None = None
 
 
@@ -648,7 +669,15 @@ def _read_config() -> _ObservabilityConfig | None:
             )
             metrics_enabled = False
 
-    if not logs_enabled and not metrics_enabled:
+    traces_enabled, traces_endpoint = _read_signal_config(
+        endpoint_name="OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+        protocol_name="OTEL_EXPORTER_OTLP_TRACES_PROTOCOL",
+        generic_endpoint=generic_endpoint,
+        generic_protocol=generic_protocol,
+        signal_name="traces",
+    )
+
+    if not logs_enabled and not metrics_enabled and not traces_enabled:
         # Явный endpoint является opt-in и сохраняет обычный запуск offline.
         return None
 
@@ -671,6 +700,27 @@ def _read_config() -> _ObservabilityConfig | None:
             max_queue_size,
         )
         if logs_enabled
+        else _DEFAULT_MAX_EXPORT_BATCH_SIZE
+    )
+    traces_max_queue_size = (
+        _bounded_int(
+            "OTEL_BSP_MAX_QUEUE_SIZE",
+            _DEFAULT_MAX_QUEUE_SIZE,
+            _MAX_QUEUE_SIZE,
+        )
+        if traces_enabled
+        else _DEFAULT_MAX_QUEUE_SIZE
+    )
+    traces_max_export_batch_size = (
+        min(
+            _bounded_int(
+                "OTEL_BSP_MAX_EXPORT_BATCH_SIZE",
+                _DEFAULT_MAX_EXPORT_BATCH_SIZE,
+                _MAX_EXPORT_BATCH_SIZE,
+            ),
+            traces_max_queue_size,
+        )
+        if traces_enabled
         else _DEFAULT_MAX_EXPORT_BATCH_SIZE
     )
     return _ObservabilityConfig(
@@ -721,6 +771,31 @@ def _read_config() -> _ObservabilityConfig | None:
             if metrics_enabled
             else None
         ),
+        traces=(
+            TracingConfig(
+                endpoint=traces_endpoint,
+                timeout_millis=_bounded_int(
+                    "OTEL_EXPORTER_OTLP_TRACES_TIMEOUT",
+                    _DEFAULT_EXPORT_TIMEOUT_MILLIS,
+                    _MAX_EXPORT_TIMEOUT_MILLIS,
+                    fallback_name="OTEL_EXPORTER_OTLP_TIMEOUT",
+                ),
+                schedule_delay_millis=_bounded_int(
+                    "OTEL_BSP_SCHEDULE_DELAY",
+                    _DEFAULT_SCHEDULE_DELAY_MILLIS,
+                    _MAX_SCHEDULE_DELAY_MILLIS,
+                ),
+                max_queue_size=traces_max_queue_size,
+                max_export_batch_size=traces_max_export_batch_size,
+                processor_timeout_millis=_bounded_int(
+                    "OTEL_BSP_EXPORT_TIMEOUT",
+                    _DEFAULT_PROCESSOR_TIMEOUT_MILLIS,
+                    _MAX_PROCESSOR_TIMEOUT_MILLIS,
+                ),
+            )
+            if traces_enabled
+            else None
+        ),
     )
 
 
@@ -760,6 +835,7 @@ def _build_runtime(
     exporter_factory: Callable[[int], Any] | None = None,
     metrics_exporter_factory: Callable[[int], Any] | None = None,
     metrics_reader_factory: Callable[[Any, int, int], Any] | None = None,
+    traces_exporter_factory: Callable[[int], Any] | None = None,
 ) -> _Runtime:
     _silence_otel_transport_loggers()
     resource_attributes = _resource_attributes()
@@ -837,13 +913,30 @@ def _build_runtime(
                 exc,
             )
 
-    if provider is None and metrics_runtime is None:
+    traces_runtime = None
+    if config.traces is not None:
+        try:
+            traces_runtime = build_tracing_runtime(
+                config.traces,
+                resource=resource,
+                reporter=_failure_reporter,
+                exporter_factory=traces_exporter_factory,
+            )
+            activate_tracing_runtime(traces_runtime)
+        except Exception as exc:
+            _failure_reporter.report(
+                "Не удалось инициализировать application traces; остальные сигналы продолжат работу",
+                exc,
+            )
+
+    if provider is None and metrics_runtime is None and traces_runtime is None:
         raise RuntimeError("Не удалось создать ни одного application observability signal")
     return _Runtime(
         target=target,
         provider=provider,
         handler=handler,
         metrics=metrics_runtime,
+        traces=traces_runtime,
         config=config,
     )
 
@@ -852,6 +945,7 @@ def _after_fork() -> None:
     global _state_lock
     _state_lock = threading.RLock()
     reset_metrics_runtime_after_fork()
+    reset_tracing_runtime_after_fork()
     inherited = list(_runtimes.values())
     _runtimes.clear()
     # Не оставлять в дочернем процессе handler/provider с worker thread
@@ -860,6 +954,9 @@ def _after_fork() -> None:
         deactivate_metrics_runtime(runtime.metrics)
         if runtime.metrics is not None:
             runtime.metrics.after_fork()
+        deactivate_tracing_runtime(runtime.traces)
+        if runtime.traces is not None:
+            runtime.traces.after_fork()
         try:
             if runtime.handler is not None:
                 runtime.target.removeHandler(runtime.handler)
@@ -887,8 +984,9 @@ def configure_application_observability(
     _exporter_factory: Callable[[int], Any] | None = None,
     _metrics_exporter_factory: Callable[[int], Any] | None = None,
     _metrics_reader_factory: Callable[[Any, int, int], Any] | None = None,
+    _traces_exporter_factory: Callable[[int], Any] | None = None,
 ) -> bool:
-    """Идемпотентно включить независимые OTLP logs и metrics signal-ы."""
+    """Идемпотентно включить независимые OTLP logs, metrics и traces."""
     if not isinstance(target, logging.Logger):
         return False
     process_id = os.getpid()
@@ -903,6 +1001,9 @@ def configure_application_observability(
                     deactivate_metrics_runtime(inherited_runtime.metrics)
                     if inherited_runtime.metrics is not None:
                         inherited_runtime.metrics.after_fork()
+                    deactivate_tracing_runtime(inherited_runtime.traces)
+                    if inherited_runtime.traces is not None:
+                        inherited_runtime.traces.after_fork()
 
         config = _read_config()
         runtime = _runtimes.get(id(target))
@@ -910,6 +1011,7 @@ def configure_application_observability(
             if runtime is not None:
                 _runtimes.pop(id(target), None)
                 deactivate_metrics_runtime(runtime.metrics)
+                deactivate_tracing_runtime(runtime.traces)
                 if runtime.handler is not None:
                     target.removeHandler(runtime.handler)
                 _shutdown_runtime(runtime, _SHUTDOWN_TIMEOUT_MILLIS)
@@ -924,11 +1026,14 @@ def configure_application_observability(
                 runtime.handler.set_default_component(default_component)
             if runtime.metrics is not None:
                 activate_metrics_runtime(runtime.metrics)
+            if runtime.traces is not None:
+                activate_tracing_runtime(runtime.traces)
             return True
 
         if runtime is not None:
             _runtimes.pop(id(target), None)
             deactivate_metrics_runtime(runtime.metrics)
+            deactivate_tracing_runtime(runtime.traces)
             if runtime.handler is not None:
                 target.removeHandler(runtime.handler)
             _shutdown_runtime(runtime, _SHUTDOWN_TIMEOUT_MILLIS)
@@ -946,6 +1051,7 @@ def configure_application_observability(
                 exporter_factory=_exporter_factory,
                 metrics_exporter_factory=_metrics_exporter_factory,
                 metrics_reader_factory=_metrics_reader_factory,
+                traces_exporter_factory=_traces_exporter_factory,
             )
         except Exception as exc:
             _failure_reporter.report(
@@ -987,6 +1093,8 @@ def _shutdown_runtime(runtime: _Runtime, timeout_millis: int) -> bool:
                     _failure_reporter.report("Не удалось завершить OTLP logging provider", exc)
             if runtime.metrics is not None:
                 runtime.metrics.shutdown(remaining_timeout_millis())
+            if runtime.traces is not None:
+                runtime.traces.shutdown(remaining_timeout_millis())
         finally:
             finished.set()
 
@@ -1024,6 +1132,7 @@ def shutdown_application_observability(
             runtimes = [runtime] if runtime is not None else []
         for runtime in runtimes:
             deactivate_metrics_runtime(runtime.metrics)
+            deactivate_tracing_runtime(runtime.traces)
             if runtime.handler is not None and runtime.handler in runtime.target.handlers:
                 runtime.target.removeHandler(runtime.handler)
 

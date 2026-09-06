@@ -1676,25 +1676,21 @@ class AzurLaneAutoScript:
         return not stop_requested()
 
     def _run_scheduler_task(self, task: str):
-        """Выполнить одну выбранную scheduler task на canonical metrics boundary."""
+        """Выполнить одну выбранную scheduler task на общей observability boundary."""
 
         try:
             from module.observability import scheduler_task_run
-            from module.observability.metrics import get_active_metrics_runtime
-
-            if get_active_metrics_runtime() is None:
-                return self.run(inflection.underscore(task))
             config = self.config
-            metrics_run = scheduler_task_run(
+            observability_run = scheduler_task_run(
                 profile=self.config_name,
                 task=getattr(config, "task", None),
                 registry=_scheduler_task_registry(config),
             )
         except Exception:
             return self.run(inflection.underscore(task))
-        with metrics_run:
+        with observability_run:
             result = self.run(inflection.underscore(task))
-            metrics_run.finish(result)
+            observability_run.finish(result)
             return result
 
     def loop(self):

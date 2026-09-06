@@ -109,8 +109,8 @@ logger-а через `set_file_logger()`. Подключение не выпол
 `http/protobuf`. Таймауты и bounded batch-параметры читаются из стандартных
 `OTEL_EXPORTER_OTLP_LOGS_TIMEOUT`, `OTEL_BLRP_SCHEDULE_DELAY`,
 `OTEL_BLRP_MAX_QUEUE_SIZE`, `OTEL_BLRP_MAX_EXPORT_BATCH_SIZE` и
-`OTEL_BLRP_EXPORT_TIMEOUT`. `OTEL_SDK_DISABLED=true` отключает application
-exporter независимо от endpoint. `.env` Compose автоматически не загружается
+`OTEL_BLRP_EXPORT_TIMEOUT`. `OTEL_SDK_DISABLED=true` отключает все application
+signals независимо от endpoint. `.env` Compose автоматически не загружается
 в процесс AzurPilot: это намеренно отдельные границы конфигурации.
 
 В удалённую запись попадают стабильный `service.name=azurpilot`, окружение,
@@ -140,10 +140,13 @@ Signal-specific endpoint передаётся exporter-у как полный UR
 общего `OTEL_EXPORTER_OTLP_ENDPOINT` официальный exporter добавляет стандартный
 путь `/v1/metrics`; `OTEL_EXPORTER_OTLP_METRICS_TIMEOUT` имеет приоритет над
 общим `OTEL_EXPORTER_OTLP_TIMEOUT`. Поддерживается только `http/protobuf`.
-`OTEL_SDK_DISABLED=true` отключает оба application signal-а.
+`OTEL_SDK_DISABLED=true` отключает все application signals.
 
-Стандартный `OTEL_METRICS_EXEMPLAR_FILTER` остаётся под управлением OTel SDK;
-собственные traces для exemplars этим контуром не создаются.
+Стандартный `OTEL_METRICS_EXEMPLAR_FILTER` остаётся под управлением OTel SDK.
+При активной scheduler task SDK может связать exemplar с текущим application
+trace; application code не добавляет trace/span IDs в metric labels. Наличие
+exemplar проверяется только по фактически собранному SDK reader, а не по
+предположению о downstream storage.
 
 В текущей конфигурации отправляются два инструмента на одной canonical task
 boundary scheduler-а в `Alas.loop`:
@@ -154,10 +157,12 @@ boundary scheduler-а в `Alas.loop`:
 | `azurpilot.task.duration` | Histogram | `s` | `azurpilot.profile`, `azurpilot.task`, `azurpilot.task.outcome` |
 
 `azurpilot.task.outcome` ограничен значениями `success`, `recoverable`,
-`failure`, `stopped` и `unknown`. Значения profile/task нормализуются к
-bounded label contract; неизвестные или небезопасные значения становятся
-`unknown`. Scheduler queue gauge намеренно не добавляется: у scheduler нет
-единственного authoritative queue snapshot для корректного значения.
+`failure`, `stopped` и `unknown`. Значение profile проверяется через canonical
+project identity и допускает Unicode и внутренние пробелы, а task принимает
+только bounded ASCII-имя из registry. Неизвестные или небезопасные значения
+становятся `unknown`; новый произвольный task не создаёт новую metric series.
+Scheduler queue gauge намеренно не добавляется: у scheduler нет единственного
+authoritative queue snapshot для корректного значения.
 
 SDK использует cumulative temporality, совместимую с текущим Alloy metrics
 path. При явном отличном от `cumulative` значении
@@ -169,9 +174,8 @@ Alloy переносит только `service.name` и `deployment.environment.
 resource attributes в datapoint attributes. `resource_to_telemetry_conversion`
 остаётся выключенным; `target_info`, `otel_scope_info` и scope labels также не
 создаются, поэтому произвольные resource attributes не превращаются в
-Prometheus labels. Logs и traces проходят по прежним маршрутам. Application
-traces пока не instrumented; Tempo остаётся готовым инфраструктурным
-приёмником. Prometheus не является прямой application dependency.
+Prometheus labels. Logs и traces проходят по прежним маршрутам. Prometheus не
+является прямой application dependency.
 
 Пример bounded PromQL для числа запусков по outcome:
 
@@ -185,6 +189,64 @@ traces пока не instrumented; Tempo остаётся готовым инф�
 Недоступность metrics exporter, ошибка записи и bounded shutdown не меняют
 результат задачи и не останавливают scheduler. Локальные logs продолжают
 работать, даже если metrics signal не удалось инициализировать или отправить.
+
+## Подключение application traces
+
+Application traces подключаются независимо от logs и metrics. Включение
+происходит только после явного endpoint opt-in; без trace endpoint приложение не
+импортирует OTel SDK, не запускает worker и не выполняет сетевых запросов.
+Используется официальный OTLP/HTTP protobuf exporter через существующий Alloy,
+без прямых зависимостей application code от Tempo.
+
+Для локального Compose-контура перед запуском AzurPilot задайте:
+
+    $env:OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = 'http://127.0.0.1:4318/v1/traces'
+    $env:OTEL_EXPORTER_OTLP_TRACES_PROTOCOL = 'http/protobuf'
+    $env:OTEL_EXPORTER_OTLP_TRACES_TIMEOUT = '30000'
+    $env:OTEL_TRACES_SAMPLER = 'parentbased_always_on'
+
+Допустим общий `OTEL_EXPORTER_OTLP_ENDPOINT`; signal-specific endpoint имеет
+приоритет над ним. Для traces также поддерживаются общий
+`OTEL_EXPORTER_OTLP_PROTOCOL` и `OTEL_EXPORTER_OTLP_TIMEOUT`, а
+`OTEL_EXPORTER_OTLP_TRACES_TIMEOUT` имеет приоритет над общим таймаутом.
+Поддерживается только `http/protobuf`. При signal-specific endpoint полный
+путь используется как задан; при общем endpoint SDK добавляет ровно
+`/v1/traces`, поэтому дублирование этого пути не допускается. Параметры
+`OTEL_BSP_SCHEDULE_DELAY`, `OTEL_BSP_MAX_QUEUE_SIZE`,
+`OTEL_BSP_MAX_EXPORT_BATCH_SIZE` и `OTEL_BSP_EXPORT_TIMEOUT` ограничиваются
+локальным bounded contract. `OTEL_TRACES_SAMPLER` и
+`OTEL_TRACES_SAMPLER_ARG` передаются стандартному SDK. `OTEL_SDK_DISABLED=true`
+отключает traces вместе с logs и metrics.
+
+Корневой span создаётся один раз на фактическую scheduler task в границе
+`Alas._run_scheduler_task` с именем `azurpilot.task.run`. В нём находятся
+только bounded canonical `azurpilot.profile`, `azurpilot.task` и исход
+`azurpilot.task.outcome`; `success`, `stopped` и `recoverable` не получают
+ошибочный статус, а `failure` и необработанное исключение получают `ERROR`.
+Внутри этой границы допускаются только значимые стабильные операции, например
+`azurpilot.device.screenshot`, `azurpilot.ocr.process` и
+`azurpilot.ui.wait`; generic `Alas.run("goto_main")` отдельный task root не
+создаёт. Root и child spans используют `BatchSpanProcessor`; они не создаются
+для каждого клика или события.
+
+Trace runtime process-local, идемпотентен и fail-open. После fork унаследованный
+provider отключается и child process требует свежего bootstrap; network и
+OTel worker не стартуют при импорте. Shutdown выполняет bounded flush и
+закрытие provider, а ошибка exporter или timeout не останавливает scheduler,
+WebUI, gameplay или остальные signals. Logs получают correlation из текущего
+OTel context через штатный logging bridge: `trace_id` и `span_id` доступны в
+структурированном log record и не становятся Loki index labels.
+
+В span attributes, log body и exception events не передаются raw OCR/UI data,
+абсолютные пути, credentials, токены, cookies или необработанные exception
+objects. Ошибки записываются только в bounded sanitized форме. Trace IDs не
+используются как metric labels; связь metric exemplar с активным span зависит
+от фактически поддержанного SDK reader и проверяется измерением.
+
+Проверка локального пути выполняется через существующий Compose project:
+`docker compose --env-file ../../.env config --quiet` и `ps` должны быть
+успешны, приложение отправляет OTLP только на loopback Alloy, а запросы к
+Loki, Prometheus и Tempo выполняются из соответствующего Compose network.
 
 Исторические `log/`-артефакты не импортируются и не удаляются. `log/error/`
 остаётся локальным incident store со скриншотами и `log.txt`, диагностические и
