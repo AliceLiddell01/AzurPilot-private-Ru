@@ -56,6 +56,49 @@ services:
         source: ./postgres/bootstrap
         target: /bootstrap
         read_only: true
+  pgadmin:
+    image: dpage/pgadmin4:9.17@sha256:2f4ce946ddf8360680d7eff4eaba1d91859eb6b4003e6623bad5c63a322c2f4d
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "127.0.0.1:${AZURPILOT_PGADMIN_PORT:-5050}:8080"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${AZURPILOT_OBSERVABILITY_PGADMIN_ADMIN_EMAIL:-admin@azurpilot.dev}
+      PGADMIN_DEFAULT_PASSWORD_FILE: /run/secrets/pgadmin_admin_password
+      PGADMIN_DISABLE_POSTFIX: "1"
+      PGADMIN_LISTEN_ADDRESS: 0.0.0.0
+      PGADMIN_LISTEN_PORT: "8080"
+      PGADMIN_CONFIG_ENHANCED_COOKIE_PROTECTION: "True"
+      PGPASS_FILE: /run/secrets/pgadmin_pgpass
+    secrets:
+      - pgadmin_admin_password
+      - pgadmin_pgpass
+    volumes:
+      - type: bind
+        source: ./pgadmin/servers.json
+        target: /pgadmin4/servers.json
+        read_only: true
+      - type: volume
+        source: pgadmin-data
+        target: /var/lib/pgadmin
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://127.0.0.1:8080/misc/ping",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
   alloy:
     image: grafana/alloy:v1.19.2@sha256:b8ec653c44235fbe910879145dac3597d66b0aaecf60bcbbe82580767771a839
     command:
@@ -207,6 +250,8 @@ services:
 volumes:
   postgres-data:
     name: azurpilot-postgres-data
+  pgadmin-data:
+    name: azurpilot-pgadmin-data
   alloy-data:
     external: true
     name: azurpilot-observability_alloy-data
@@ -232,3 +277,7 @@ secrets:
     environment: AZURPILOT_POSTGRES_MIGRATOR_PASSWORD
   grafana_admin_password:
     environment: AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD
+  pgadmin_admin_password:
+    environment: AZURPILOT_OBSERVABILITY_PGADMIN_ADMIN_PASSWORD
+  pgadmin_pgpass:
+    environment: AZURPILOT_OBSERVABILITY_PGADMIN_PGPASS

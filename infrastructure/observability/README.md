@@ -15,6 +15,7 @@
 | prometheus | хранение metrics и remote-write receiver | prom/prometheus:v3.14.0 |
 | tempo | хранение traces и OTLP receiver | grafana/tempo:2.10.5 |
 | grafana | локальная визуализация подключённых data sources | grafana/grafana:13.2.1 |
+| pgadmin | веб-администрирование PostgreSQL | dpage/pgadmin4:9.17 |
 
 В compose.yaml для каждого образа зафиксированы version tag и digest.
 Образы являются официальными образами соответствующих проектов.
@@ -23,6 +24,7 @@ Alloy принимает OTLP по 127.0.0.1:4317 (gRPC) и 127.0.0.1:4318 (HTTP
 Grafana доступна по 127.0.0.1:3000. Loki, Prometheus и Tempo не публикуются
 на host: Alloy и Grafana обращаются к ним через стандартную Compose network и
 service DNS.
+pgAdmin доступен только по 127.0.0.1:5050.
 
 ## Данные и секрет
 
@@ -33,7 +35,8 @@ service DNS.
 - azurpilot-observability_loki-data;
 - azurpilot-observability_prometheus-data;
 - azurpilot-observability_tempo-data;
-- azurpilot-observability_grafana-data.
+- azurpilot-observability_grafana-data;
+- azurpilot-pgadmin-data.
 
 Имена observability volumes намеренно сохранены с прежним префиксом
 `azurpilot-observability`: это существующие внешние volumes, и переименование
@@ -46,13 +49,19 @@ engine-level именами. Это намеренная fail-closed грани�
 volume с тем же логическим ключом. PostgreSQL volume имеет явное имя, но
 остаётся Compose-managed, чтобы новый host мог создать его до проверенного
 logical restore.
+PgAdmin volume также остаётся Compose-managed: он создаётся автоматически при
+первом запуске и хранит configuration database, users и импортированные server
+definitions.
 
 Все секреты этого контура хранятся в общем локальном .env, игнорируемом Git,
 в корне репозитория. Сейчас используются переменные
 AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_USER и
 AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD; новые секреты этой
-архитектуры нужно добавлять туда же. Пароль начального администратора Grafana
-передаётся через Compose secret и не попадает в репозиторий.
+архитектуры нужно добавлять туда же. Для pgAdmin используются
+AZURPILOT_OBSERVABILITY_PGADMIN_ADMIN_EMAIL,
+AZURPILOT_OBSERVABILITY_PGADMIN_ADMIN_PASSWORD и
+AZURPILOT_OBSERVABILITY_PGADMIN_PGPASS. Пароль начального администратора
+Grafana и pgAdmin передаётся через Compose secret и не попадает в репозиторий.
 
 Если переменных ещё нет, добавьте их в корневой .env. Для ротации уже
 добавленного пароля используйте PowerShell-команду ниже: она сохраняет новое
@@ -60,6 +69,9 @@ AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD; новые секреты это
 
     AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_USER=admin
     AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD=<случайный_секрет>
+    AZURPILOT_OBSERVABILITY_PGADMIN_ADMIN_EMAIL=admin@azurpilot.dev
+    AZURPILOT_OBSERVABILITY_PGADMIN_ADMIN_PASSWORD=<случайный_секрет>
+    AZURPILOT_OBSERVABILITY_PGADMIN_PGPASS=postgres:5432:*:azurpilot_migrator:<пароль_azurpilot_migrator>
 
     $envFile = Resolve-Path ..\..\.env
     $bytes = [byte[]]::new(32)
@@ -124,7 +136,7 @@ logical restore; пустой volume не является заменой backup
     docker compose --env-file ../../.env pull
     docker compose --env-file ../../.env up -d
     docker compose --env-file ../../.env ps
-    docker compose --env-file ../../.env logs --tail=100 postgres alloy loki prometheus tempo grafana
+    docker compose --env-file ../../.env logs --tail=100 postgres alloy loki prometheus tempo grafana pgadmin
 
 Для штатного старта только базы используйте:
 
@@ -135,6 +147,28 @@ logical restore; пустой volume не является заменой backup
 повторный запуск идемпотентен.
 Владелец lifecycle — Docker Compose/Docker Desktop; Arch WSL2 сохраняется только
 как rollback safety и не требует `systemctl start postgresql`.
+
+### pgAdmin
+
+Откройте [http://127.0.0.1:5050](http://127.0.0.1:5050) и войдите под email из
+`AZURPILOT_OBSERVABILITY_PGADMIN_ADMIN_EMAIL` и паролем из
+`AZURPILOT_OBSERVABILITY_PGADMIN_ADMIN_PASSWORD`. По умолчанию email —
+`admin@azurpilot.dev`; пароль хранится только в локальном `.env`.
+
+При первом запуске pgAdmin автоматически импортирует сервер
+`AzurPilot PostgreSQL` из `pgadmin/servers.json`. Подключение идёт через
+Compose DNS `postgres`, а не через опубликованный host-порт PostgreSQL, и
+использует роль `azurpilot_migrator` с правами владельца схемы. Пароль роли
+передаётся через `PGPASS_FILE` из Compose secret
+`AZURPILOT_OBSERVABILITY_PGADMIN_PGPASS`; он также остаётся только в `.env`.
+Файл серверов импортируется только при инициализации нового
+`azurpilot-pgadmin-data`, поэтому пользовательские подключения после первого
+запуска не перезаписываются.
+
+Если pgAdmin volume уже существует, добавьте или обновите подключение через
+веб-интерфейс либо создайте отдельный disposable volume для повторного
+импорта. Не добавляйте пароли в `servers.json`: pgAdmin не импортирует password
+fields из этого файла.
 
 Проверка базы и внешняя резервная копия:
 

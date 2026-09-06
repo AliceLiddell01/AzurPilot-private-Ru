@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -63,3 +64,42 @@ def test_postgres_18_is_part_of_observability_compose_with_named_volume():
     assert "\\set ON_ERROR_STOP on" in (
         ROOT / "infrastructure/observability/postgres/grant-app.sql"
     ).read_text(encoding="utf-8")
+
+
+def test_pgadmin_is_loopback_only_and_preconfigured_for_postgres():
+    compose = (ROOT / "infrastructure/observability/compose.yaml").read_text(
+        encoding="utf-8"
+    )
+    servers = json.loads(
+        (ROOT / "infrastructure/observability/pgadmin/servers.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    pgadmin_block = compose.split("  pgadmin:\n", 1)[1].split("  alloy:\n", 1)[0]
+    server = servers["Servers"]["1"]
+
+    assert "dpage/pgadmin4:9.17@sha256:" in pgadmin_block
+    assert '"127.0.0.1:${AZURPILOT_PGADMIN_PORT:-5050}:8080"' in pgadmin_block
+    assert "PGADMIN_DEFAULT_PASSWORD_FILE: /run/secrets/pgadmin_admin_password" in pgadmin_block
+    assert "PGADMIN_DISABLE_POSTFIX: \"1\"" in pgadmin_block
+    assert "PGADMIN_LISTEN_PORT: \"8080\"" in pgadmin_block
+    assert "PGADMIN_CONFIG_ENHANCED_COOKIE_PROTECTION: \"True\"" in pgadmin_block
+    assert "PGPASS_FILE: /run/secrets/pgadmin_pgpass" in pgadmin_block
+    assert "no-new-privileges:true" in pgadmin_block
+    assert "postgres_bootstrap_password" not in pgadmin_block
+    assert "postgres_migrator_password" not in pgadmin_block
+    assert "name: azurpilot-pgadmin-data" in compose
+    assert "pgadmin_admin_password" in pgadmin_block
+    assert "pgadmin_pgpass" in pgadmin_block
+    assert server == {
+        "Name": "AzurPilot PostgreSQL",
+        "Group": "AzurPilot",
+        "Host": "postgres",
+        "Port": 5432,
+        "MaintenanceDB": "azurpilot",
+        "Username": "azurpilot_migrator",
+        "SSLMode": "prefer",
+        "ConnectionParameters": {"sslmode": "prefer", "connect_timeout": 10},
+        "Shared": False,
+        "Comment": "Локальный Docker PostgreSQL с ролью azurpilot_migrator.",
+    }
