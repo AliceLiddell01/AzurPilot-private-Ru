@@ -16,6 +16,7 @@ _SAFE_NAME = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 _SAFE_WSL_PASSFILE = re.compile(r"^/etc/azurpilot/[A-Za-z0-9._-]+$")
 _ENV_KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 _OWNED_ENV_PREFIXES = ("AZURPILOT_POSTGRES_", "AZURPILOT_WSL_")
+_PRESERVED_ENV_PREFIXES = ("AZURPILOT_POSTGRES_DOCKER_",)
 _ROLE_CONTRACT = {
     "azurpilot_app": (True, False, False, False),
     "azurpilot_migrator": (True, False, False, False),
@@ -398,6 +399,9 @@ def _merge_env_document(previous: bytes | None, generated: bytes) -> bytes:
             raise RuntimeError("Локальный env содержит дублирующийся ключ.")
         seen_keys.add(key)
         if key in generated_keys:
+            continue
+        if key.startswith(_PRESERVED_ENV_PREFIXES):
+            preserved.append(raw_line)
             continue
         if key.startswith(_OWNED_ENV_PREFIXES):
             raise RuntimeError(

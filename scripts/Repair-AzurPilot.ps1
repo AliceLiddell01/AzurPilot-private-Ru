@@ -1287,24 +1287,33 @@ function Get-EnvironmentDiagnostic {
 
     if ($pythonHealth.Success) {
         $postgresqlCheckPerformed = $true
-        $wslCommand = Get-Command -Name 'wsl.exe' -CommandType Application -ErrorAction SilentlyContinue |
+        $dockerCommand = Get-Command -Name 'docker.exe' -CommandType Application -ErrorAction SilentlyContinue |
             Select-Object -First 1
 
-        if ($null -eq $wslCommand) {
-            $wslState = [pscustomobject]@{
+        if ($null -eq $dockerCommand) {
+            $dockerCommand = Get-Command -Name 'docker' -CommandType Application -ErrorAction SilentlyContinue |
+                Select-Object -First 1
+        }
+
+        $composeFile = Join-Path -Path $script:ResolvedRepositoryPath -ChildPath 'infrastructure\observability\compose.yaml'
+        $envFile = Join-Path -Path $script:ResolvedRepositoryPath -ChildPath '.env'
+        if ($null -eq $dockerCommand -or -not (Test-Path -LiteralPath $composeFile -PathType Leaf) -or -not (Test-Path -LiteralPath $envFile -PathType Leaf)) {
+            $dockerState = [pscustomobject]@{
                 ExitCode = 1
-                Output = [string[]]@('WSL недоступен; состояние PostgreSQL не проверено.')
+                Output = [string[]]@('Docker Compose или локальный .env недоступен; состояние PostgreSQL не проверено.')
             }
         }
         else {
-            $wslState = Invoke-NativeCommand -Executable $wslCommand.Path -Arguments @(
-                '--distribution'
-                'Archlinux'
-                '--exec'
-                'systemctl'
-                'is-active'
-                '--quiet'
-                'postgresql'
+            $dockerState = Invoke-NativeCommand -Executable $dockerCommand.Path -Arguments @(
+                'compose'
+                '--env-file'
+                $envFile
+                '--file'
+                $composeFile
+                'ps'
+                '--status'
+                'running'
+                '--services'
             ) -WorkingDirectory $script:ResolvedRepositoryPath
         }
 
@@ -1321,21 +1330,28 @@ function Get-EnvironmentDiagnostic {
             'utf8'
             '-m'
             'dev_tools.postgresql_security'
+            '--deployment'
+            'docker'
+            '--compose-file'
+            $composeFile
+            '--service'
+            'postgres'
         ) -WorkingDirectory $script:ResolvedRepositoryPath
 
         $postgresqlHealthy = (
-            $wslState.ExitCode -eq 0 -and
+            $dockerState.ExitCode -eq 0 -and
+            @($dockerState.Output) -contains 'postgres' -and
             $postgresqlHealth.ExitCode -eq 0 -and
             $postgresqlSecurity.ExitCode -eq 0
         )
 
         if (-not $postgresqlHealthy) {
-            foreach ($diagnostic in @($wslState, $postgresqlHealth, $postgresqlSecurity)) {
+            foreach ($diagnostic in @($dockerState, $postgresqlHealth, $postgresqlSecurity)) {
                 if ($diagnostic.ExitCode -ne 0) {
                     Write-NativeOutput -Result $diagnostic -Level 'WARN' -Prefix '[PostgreSQL]'
                 }
             }
-            $warnings.Add('Production PostgreSQL не прошёл диагностику: проверьте WSL Archlinux, marker, app-доступ, schema head, loopback listener, SCRAM и HBA. Repair не изменяет БД.')
+            $warnings.Add('Production PostgreSQL не прошёл диагностику: проверьте Docker Compose, marker, app-доступ, schema head, loopback binding, SCRAM и HBA. Repair не изменяет БД.')
         }
     }
 

@@ -20,6 +20,7 @@ DEFAULT_LOCAL_ENV_PATH = Path(".env")
 _KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 _APP_PREFIX = "AZURPILOT_POSTGRES_"
 _MIGRATOR_PREFIX = "AZURPILOT_POSTGRES_MIGRATOR_"
+_DOCKER_PREFIX = "AZURPILOT_POSTGRES_DOCKER_"
 _OBSERVABILITY_PREFIX = "AZURPILOT_OBSERVABILITY_"
 _CONNECTION_FIELDS = (
     "HOST",
@@ -281,11 +282,12 @@ def read_local_postgres_environment(
         seen_keys.add(key)
         if key in _ALLOWED_KEYS:
             values[key] = _parse_value(raw_value, line_number)
-        elif key.startswith(_OBSERVABILITY_PREFIX) and len(key) > len(
-            _OBSERVABILITY_PREFIX
+        elif any(
+            key.startswith(prefix) and len(key) > len(prefix)
+            for prefix in (_DOCKER_PREFIX, _OBSERVABILITY_PREFIX)
         ):
             # Compose и боевой PostgreSQL используют один защищённый локальный
-            # файл окружения. Пространство имён наблюдаемости проверяем
+            # файл окружения. Инфраструктурные пространства имён проверяем
             # синтаксически, но не включаем в контракт PostgreSQL и не
             # экспортируем приложению.
             _parse_value(raw_value, line_number)

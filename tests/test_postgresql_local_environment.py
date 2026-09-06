@@ -103,6 +103,21 @@ def test_local_env_ignores_reserved_observability_namespace(tmp_path: Path):
     )
 
 
+def test_local_env_ignores_reserved_docker_namespace(tmp_path: Path):
+    path = tmp_path / ".env"
+    _write_env(
+        path,
+        _document() + "AZURPILOT_POSTGRES_DOCKER_BOOTSTRAP_PASSWORD=docker-secret\n",
+    )
+    environment: dict[str, str] = {}
+
+    local = load_local_postgres_environment(path, environment=environment)
+
+    assert local is not None
+    assert "AZURPILOT_POSTGRES_DOCKER_BOOTSTRAP_PASSWORD" not in local.values
+    assert "AZURPILOT_POSTGRES_DOCKER_BOOTSTRAP_PASSWORD" not in environment
+
+
 def test_local_env_can_select_migrator_without_exporting_secret(tmp_path: Path):
     path = tmp_path / ".env"
     _write_env(path, _document())

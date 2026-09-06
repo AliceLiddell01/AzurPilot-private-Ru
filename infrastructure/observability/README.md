@@ -2,13 +2,14 @@
 
 Эта папка содержит переносимый Docker Compose-контур для приёма OTLP и
 локального хранения logs, metrics и traces. Compose project имеет постоянное
-имя azurpilot-observability.
+имя azurpilot-infrastructure.
 
 ## Состав
 
 | Сервис | Назначение | Образ |
 | --- | --- | --- |
 | alloy | loopback OTLP endpoint и маршрутизация telemetry | grafana/alloy:v1.19.2 |
+| postgres | каноническое production-хранилище AzurPilot | postgres:18 |
 | loki | хранение logs | grafana/loki:3.7.4 |
 | prometheus | хранение metrics и remote-write receiver | prom/prometheus:v3.14.0 |
 | tempo | хранение traces и OTLP receiver | grafana/tempo:2.10.5 |
@@ -26,11 +27,17 @@ service DNS.
 
 Состояние хранится в именованных volumes:
 
+- azurpilot-postgres-data;
 - azurpilot-observability_alloy-data;
 - azurpilot-observability_loki-data;
 - azurpilot-observability_prometheus-data;
 - azurpilot-observability_tempo-data;
 - azurpilot-observability_grafana-data.
+
+Имена observability volumes намеренно сохранены с прежним префиксом
+`azurpilot-observability`: это существующие внешние volumes, и переименование
+Compose project не должно создавать второй набор данных или терять накопленное
+состояние.
 
 Все секреты этого контура хранятся в общем локальном .env, игнорируемом Git,
 в корне репозитория. Сейчас используются переменные
@@ -55,6 +62,18 @@ AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD; новые секреты это
         Set-Content -LiteralPath $envFile -Encoding utf8NoBOM
     Remove-Variable password
 
+Для Docker PostgreSQL дополнительно требуется локальный bootstrap secret
+`AZURPILOT_POSTGRES_DOCKER_BOOTSTRAP_PASSWORD`. Он нужен только Compose для
+первичного создания superuser; app и migrator продолжают использовать
+существующие отдельные роли и passfile. Secret генерируется локально и не
+добавляется в Git:
+
+    $bytes = [byte[]]::new(32)
+    [System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+    $password = [Convert]::ToHexString($bytes).ToLowerInvariant()
+    Add-Content -LiteralPath (Resolve-Path ..\..\.env) -Value "AZURPILOT_POSTGRES_DOCKER_BOOTSTRAP_PASSWORD=$password" -Encoding utf8NoBOM
+    Remove-Variable password
+
 ## Запуск и обслуживание
 
 Из этой папки:
@@ -63,7 +82,30 @@ AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD; новые секреты это
     docker compose --env-file ../../.env pull
     docker compose --env-file ../../.env up -d
     docker compose --env-file ../../.env ps
-    docker compose --env-file ../../.env logs --tail=100 alloy loki prometheus tempo grafana
+    docker compose --env-file ../../.env logs --tail=100 postgres alloy loki prometheus tempo grafana
+
+Для штатного старта только базы используйте `up --detach --wait postgres`.
+Владелец lifecycle — Docker Compose/Docker Desktop; Arch WSL2 сохраняется только
+как rollback safety и не требует `systemctl start postgresql`.
+
+Проверка базы и внешняя резервная копия:
+
+    docker compose --env-file ../../.env exec -T --user postgres postgres pg_isready -U postgres -d azurpilot
+    docker volume inspect azurpilot-postgres-data
+    uv run --locked --no-sync python -m dev_tools.postgresql_runtime backup --transport docker --output <внешний-путь>.dump
+
+Backup создаётся в custom format вне репозитория и проверяется через
+`pg_restore --list` внутри контейнера. Для restore остановите consumers, сделайте
+новый внешний backup, остановите только target service и восстановите дамп в
+Docker volume штатным `pg_restore` через локальный peer-admin с
+`--no-owner --no-acl`; после restore примените
+`postgres/grant-app.sql`, затем выполните `runtime health`, Alembic и app checks.
+Старый WSL data directory не удаляйте. Rollback: остановите Docker PostgreSQL,
+верните прежний endpoint при необходимости и запустите Arch service только как
+аварийный rollback-контур.
+
+Не используйте `docker compose --env-file ../../.env down -v`,
+`docker volume prune`, `docker system prune` или копирование raw PGDATA.
 
 docker compose --env-file ../../.env config проверяет итоговую топологию и отсутствие
 неожиданного host binding. pull загружает зафиксированные образы после чистого

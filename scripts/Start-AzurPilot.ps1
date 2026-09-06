@@ -467,34 +467,54 @@ function Invoke-PostgreSqlStartPreflight {
         [string]$WorkingDirectory
     )
 
-    $wslCommand = Get-Command -Name 'wsl.exe' -CommandType Application -ErrorAction SilentlyContinue |
+    $dockerCommand = Get-Command -Name 'docker.exe' -CommandType Application -ErrorAction SilentlyContinue |
         Select-Object -First 1
 
-    if ($null -eq $wslCommand) {
-        Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message 'WSL недоступен; PostgreSQL нельзя запустить.'
+    if ($null -eq $dockerCommand) {
+        $dockerCommand = Get-Command -Name 'docker' -CommandType Application -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+    }
+
+    if ($null -eq $dockerCommand) {
+        Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message 'Docker CLI недоступен; PostgreSQL нельзя запустить.'
+    }
+
+    $composeFile = Join-Path -Path $WorkingDirectory -ChildPath 'infrastructure\observability\compose.yaml'
+    $envFile = Join-Path -Path $WorkingDirectory -ChildPath '.env'
+    if (-not (Test-Path -LiteralPath $composeFile -PathType Leaf) -or -not (Test-Path -LiteralPath $envFile -PathType Leaf)) {
+        Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message 'Канонический Docker Compose PostgreSQL или локальный .env недоступен.'
     }
 
     $operations = @(
         [pscustomobject]@{
-            Executable = $wslCommand.Path
+            Executable = $dockerCommand.Path
             Arguments = @(
-                '--distribution'
-                'Archlinux'
-                '--user'
-                'root'
-                '--exec'
-                'systemctl'
-                'start'
-                'postgresql'
+                'compose'
+                '--env-file'
+                $envFile
+                '--file'
+                $composeFile
+                'config'
+                '--quiet'
             )
             TimeoutMilliseconds = 30000
-            Failure = 'Не удалось запустить PostgreSQL 18 в WSL Archlinux.'
+            Failure = 'Docker Compose PostgreSQL не прошёл проверку конфигурации.'
         }
         [pscustomobject]@{
-            Executable = $wslCommand.Path
-            Arguments = @('--distribution', 'Archlinux', '--exec', 'pg_isready', '--host', '127.0.0.1', '--port', '5432', '--timeout', '5')
-            TimeoutMilliseconds = 10000
-            Failure = 'PostgreSQL 18 в WSL Archlinux не принимает loopback-подключения.'
+            Executable = $dockerCommand.Path
+            Arguments = @(
+                'compose'
+                '--env-file'
+                $envFile
+                '--file'
+                $composeFile
+                'up'
+                '--detach'
+                '--wait'
+                'postgres'
+            )
+            TimeoutMilliseconds = 210000
+            Failure = 'PostgreSQL 18 в Docker Compose не достиг состояния готовности.'
         }
         [pscustomobject]@{
             Executable = $PythonPath
@@ -569,7 +589,7 @@ function Invoke-PostgreSqlStartPreflight {
         }
     }
 
-    Write-StartLog -Level 'INFO' -Message 'PostgreSQL 18 запущен; marker, schema upgrade и app-health подготовлены.'
+    Write-StartLog -Level 'INFO' -Message 'PostgreSQL 18 в Docker Compose запущен; marker, schema upgrade и app-health подготовлены.'
 }
 
 function Enter-RepositoryMutex {

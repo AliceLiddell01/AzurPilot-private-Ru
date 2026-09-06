@@ -63,6 +63,39 @@ def test_security_posture_accepts_loopback_scram_contract():
     validate_posture(_posture())
 
 
+def test_security_posture_accepts_docker_wildcard_listener_with_loopback_publish():
+    docker_rules = tuple(
+        rule
+        | (
+            {"address": "0.0.0.0", "netmask": "0.0.0.0"}
+            if rule.get("address") == "127.0.0.1"
+            else {"address": "::", "netmask": "::"}
+        )
+        for rule in _posture().rules
+        if rule.get("type") != "local"
+    )
+    validate_posture(
+        replace(
+            _posture(),
+            listener="*",
+            deployment="docker",
+            rules=_posture().rules[:2] + docker_rules,
+        )
+    )
+
+
+def test_security_posture_rejects_docker_non_loopback_publish():
+    with pytest.raises(SecurityPostureError, match="HOST_BINDING_NOT_LOOPBACK_ONLY"):
+        validate_posture(
+            replace(
+                _posture(),
+                listener="*",
+                deployment="docker",
+                host_binding_loopback=False,
+            )
+        )
+
+
 @pytest.mark.parametrize(
     ("posture", "reason"),
     (
@@ -179,3 +212,56 @@ def test_security_posture_rejects_non_object_rule(monkeypatch):
 
     with pytest.raises(SecurityPostureError, match="POSTURE_RESPONSE_INVALID"):
         _read_posture("Archlinux")
+
+
+def test_docker_posture_reads_loopback_compose_binding(tmp_path, monkeypatch):
+    compose_file = tmp_path / "infrastructure" / "observability" / "compose.yaml"
+    compose_file.parent.mkdir(parents=True)
+    compose_file.write_text("name: test\n", encoding="utf-8")
+    (tmp_path / ".env").write_text("KEY=value\n", encoding="utf-8")
+    payload = {
+        "listener": "*",
+        "password_encryption": "scram-sha-256",
+        "hba_is_active": True,
+        "rules": list(
+            replace(
+                _posture(),
+                listener="*",
+                deployment="docker",
+                rules=_posture().rules[:2]
+                + tuple(
+                    rule
+                    | (
+                        {"address": "0.0.0.0", "netmask": "0.0.0.0"}
+                        if rule.get("address") == "127.0.0.1"
+                        else {"address": "::", "netmask": "::"}
+                    )
+                    for rule in _posture().rules[2:]
+                ),
+            ).rules
+        ),
+    }
+    responses = iter(
+        [
+            SimpleNamespace(returncode=0, stdout="127.0.0.1:5432\n", stderr=""),
+            SimpleNamespace(
+                returncode=0,
+                stdout=__import__("json").dumps(payload),
+                stderr="",
+            ),
+        ]
+    )
+    monkeypatch.setattr(
+        "dev_tools.postgresql_security.shutil.which", lambda _name: "docker.exe"
+    )
+    monkeypatch.setattr(
+        "dev_tools.postgresql_security.subprocess.run",
+        lambda *_args, **_kwargs: next(responses),
+    )
+
+    posture = _read_posture(
+        deployment="docker", compose_file=compose_file, service="postgres"
+    )
+
+    assert posture.deployment == "docker"
+    assert posture.host_binding_loopback is True

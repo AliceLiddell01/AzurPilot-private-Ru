@@ -64,14 +64,24 @@ def test_backup_is_verified_and_published_create_only(
 
     with (
         patch.object(postgresql_runtime.shutil, "which", side_effect=["pg_dump", "pg_restore"]),
+        patch.object(
+            postgresql_runtime.DatabaseSettings,
+            "from_environment",
+            return_value=_settings("migrator-password", user="azurpilot_migrator"),
+        ),
         patch.object(postgresql_runtime, "_run_hidden", side_effect=run_hidden),
     ):
         postgresql_runtime._backup(
-            _settings("test-password"), output, "Archlinux", repository
+            _settings("test-password"),
+            output,
+            "Archlinux",
+            repository,
+            transport="native",
         )
 
     assert output.stat().st_size == 2048
     assert calls[0][0][0] == "pg_dump"
+    assert "azurpilot_migrator" in calls[0][0]
     assert "PGPASSWORD" not in calls[0][1]
     assert calls[0][1]["PGPASSFILE"] == "C:/secure/pgpass.conf"
     assert calls[1][0][:2] == ["pg_restore", "--list"]
@@ -79,7 +89,7 @@ def test_backup_is_verified_and_published_create_only(
 
     with pytest.raises(RuntimeError, match="уже существует"):
         postgresql_runtime._backup(
-            _settings(), output, "Archlinux", repository
+            _settings(), output, "Archlinux", repository, transport="native"
         )
 
 

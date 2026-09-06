@@ -177,6 +177,6 @@ typed ошибки без DSN, SQL и внутренних DBAPI сообщен�
 ## Production cutover
 
 Stage 3 read-only parsers, importer и reconciliation остаются offline-only.
-Production marker, роли, backup/restore, lifecycle и forward-fix policy описаны
-в `postgresql-production-cutover.md`. Runtime не создаёт role/database, не
+Production marker, роли, backup/restore, Docker Compose lifecycle и forward-fix
+policy описаны в `postgresql-production-cutover.md`. Runtime не создаёт role/database, не
 выполняет DDL и не меняет HBA.

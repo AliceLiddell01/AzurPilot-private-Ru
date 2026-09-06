@@ -1,6 +1,35 @@
-name: azurpilot-observability
+name: azurpilot-infrastructure
 
 services:
+  postgres:
+    image: postgres:18@sha256:06cad38a5d9f5d24b4d83d86def30795d5e4b757fedbf5281172b576dedcd941
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${AZURPILOT_POSTGRES_DATABASE:-azurpilot}
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_bootstrap_password
+      POSTGRES_INITDB_ARGS: --auth-local=peer --auth-host=scram-sha-256
+      PGDATA: /var/lib/postgresql/18/docker
+    ports:
+      - "127.0.0.1:${AZURPILOT_POSTGRES_PORT:-5432}:5432"
+    secrets:
+      - postgres_bootstrap_password
+      - postgres_app_password
+      - postgres_migrator_password
+    volumes:
+      - type: bind
+        source: ./postgres/init
+        target: /docker-entrypoint-initdb.d
+        read_only: true
+      - type: volume
+        source: postgres-data
+        target: /var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
   alloy:
     image: grafana/alloy:v1.19.2@sha256:b8ec653c44235fbe910879145dac3597d66b0aaecf60bcbbe82580767771a839
     command:
@@ -150,12 +179,31 @@ services:
       start_period: 30s
 
 volumes:
+  postgres-data:
+    external: true
+    name: azurpilot-postgres-data
   alloy-data:
+    external: true
+    name: azurpilot-observability_alloy-data
   loki-data:
+    external: true
+    name: azurpilot-observability_loki-data
   prometheus-data:
+    external: true
+    name: azurpilot-observability_prometheus-data
   tempo-data:
+    external: true
+    name: azurpilot-observability_tempo-data
   grafana-data:
+    external: true
+    name: azurpilot-observability_grafana-data
 
 secrets:
+  postgres_bootstrap_password:
+    environment: AZURPILOT_POSTGRES_DOCKER_BOOTSTRAP_PASSWORD
+  postgres_app_password:
+    environment: AZURPILOT_POSTGRES_PASSWORD
+  postgres_migrator_password:
+    environment: AZURPILOT_POSTGRES_MIGRATOR_PASSWORD
   grafana_admin_password:
     environment: AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD
