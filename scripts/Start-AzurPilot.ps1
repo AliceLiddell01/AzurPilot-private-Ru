@@ -457,7 +457,7 @@ function Invoke-PythonHealthCheck {
     }
 }
 
-function Invoke-PostgreSqlStartPreflight {
+function Invoke-InfrastructureStartPreflight {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -480,13 +480,28 @@ function Invoke-PostgreSqlStartPreflight {
     }
 
     if ($null -eq $dockerCommand) {
-        Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message 'Docker CLI недоступен; PostgreSQL нельзя запустить.'
+        Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message 'Docker CLI недоступен; инфраструктуру нельзя запустить.'
     }
 
     $composeFile = Join-Path -Path $WorkingDirectory -ChildPath 'infrastructure\observability\compose.yaml'
     $envFile = Join-Path -Path $WorkingDirectory -ChildPath '.env'
     if (-not (Test-Path -LiteralPath $composeFile -PathType Leaf) -or -not (Test-Path -LiteralPath $envFile -PathType Leaf)) {
-        Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message 'Канонический Docker Compose PostgreSQL или локальный .env недоступен.'
+        Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message 'Канонический Docker Compose или локальный .env недоступен.'
+    }
+
+    $caddyHostEntries = @(Get-Content -LiteralPath $envFile -Encoding utf8 | Where-Object {
+            $_ -match '^\s*AZURPILOT_CADDY_HOST\s*='
+        })
+    if ($caddyHostEntries.Count -gt 1) {
+        Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message 'Локальный .env содержит несколько значений AZURPILOT_CADDY_HOST.'
+    }
+    $caddyConfigured = $false
+    if ($caddyHostEntries.Count -eq 1) {
+        $caddyHostValue = ($caddyHostEntries[0] -split '=', 2)[1].Trim()
+        if ([string]::IsNullOrWhiteSpace($caddyHostValue)) {
+            Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message 'AZURPILOT_CADDY_HOST задан пустым значением.'
+        }
+        $caddyConfigured = $true
     }
 
     $operations = @(
@@ -558,10 +573,49 @@ function Invoke-PostgreSqlStartPreflight {
         }
     )
 
+    if ($caddyConfigured) {
+        $operations += @(
+            [pscustomobject]@{
+                Executable = $dockerCommand.Path
+                Arguments = @(
+                    'compose'
+                    '--env-file'
+                    $envFile
+                    '--file'
+                    $composeFile
+                    '--profile'
+                    'remote-ingress'
+                    'config'
+                    '--quiet'
+                )
+                TimeoutMilliseconds = 30000
+                Failure = 'Docker Compose Caddy не прошёл проверку конфигурации.'
+            }
+            [pscustomobject]@{
+                Executable = $dockerCommand.Path
+                Arguments = @(
+                    'compose'
+                    '--env-file'
+                    $envFile
+                    '--file'
+                    $composeFile
+                    '--profile'
+                    'remote-ingress'
+                    'up'
+                    '--detach'
+                    '--wait'
+                    'caddy'
+                )
+                TimeoutMilliseconds = 210000
+                Failure = 'Caddy в Docker Compose не достиг состояния готовности.'
+            }
+        )
+    }
+
     foreach ($operation in $operations) {
         if (Test-AzurPilotStopRequested -StopEvent $StopEvent) {
             $script:IntentionalStopRequested = $true
-            Write-StartLog -Level 'INFO' -Message 'PostgreSQL preflight отменён координированным запросом остановки.'
+            Write-StartLog -Level 'INFO' -Message 'Инфраструктурный preflight отменён координированным запросом остановки.'
             return $false
         }
 
@@ -602,12 +656,12 @@ function Invoke-PostgreSqlStartPreflight {
                         $process.Kill($true)
                     }
                     catch {
-                        Write-StartLog -Level 'WARN' -Message 'Не удалось остановить PostgreSQL preflight после запроса остановки.'
+                        Write-StartLog -Level 'WARN' -Message 'Не удалось остановить инфраструктурный preflight после запроса остановки.'
                     }
 
                     [void]$process.WaitForExit(5000)
                     $script:IntentionalStopRequested = $true
-                    Write-StartLog -Level 'INFO' -Message 'PostgreSQL preflight отменён; дальнейшие Docker Compose операции не выполняются.'
+                    Write-StartLog -Level 'INFO' -Message 'Инфраструктурный preflight отменён; дальнейшие Docker Compose операции не выполняются.'
                     return $false
                 }
 
@@ -626,7 +680,7 @@ function Invoke-PostgreSqlStartPreflight {
                     $process.Kill($true)
                 }
                 catch {
-                    Write-StartLog -Level 'WARN' -Message 'Не удалось остановить зависшую проверку PostgreSQL.'
+                    Write-StartLog -Level 'WARN' -Message 'Не удалось остановить зависшую инфраструктурную проверку.'
                 }
 
                 Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message $operation.Failure
@@ -637,10 +691,10 @@ function Invoke-PostgreSqlStartPreflight {
 
             if ($process.ExitCode -ne 0) {
                 if (-not [string]::IsNullOrWhiteSpace($standardOutput)) {
-                    Write-StartLog -Level 'WARN' -Message ('Диагностика PostgreSQL: {0}' -f $standardOutput.Trim())
+                    Write-StartLog -Level 'WARN' -Message ('Диагностика инфраструктуры: {0}' -f $standardOutput.Trim())
                 }
                 if (-not [string]::IsNullOrWhiteSpace($standardError)) {
-                    Write-StartLog -Level 'WARN' -Message ('Ошибка диагностики PostgreSQL: {0}' -f $standardError.Trim())
+                    Write-StartLog -Level 'WARN' -Message ('Ошибка диагностики инфраструктуры: {0}' -f $standardError.Trim())
                 }
                 Complete-StartFailure -Code $script:ExitCodeEnvironmentFailure -Message $operation.Failure
             }
@@ -655,7 +709,11 @@ function Invoke-PostgreSqlStartPreflight {
         }
     }
 
-    Write-StartLog -Level 'INFO' -Message 'PostgreSQL 18 в Docker Compose запущен; marker, schema upgrade и app-health подготовлены.'
+    if ($caddyConfigured) {
+        Write-StartLog -Level 'INFO' -Message 'Infrastructure Compose запущен; PostgreSQL подготовлен, Caddy достиг состояния готовности.'
+    } else {
+        Write-StartLog -Level 'INFO' -Message 'Infrastructure Compose запущен; PostgreSQL подготовлен, Caddy не включён без AZURPILOT_CADDY_HOST.'
+    }
     return $true
 }
 
@@ -1562,7 +1620,7 @@ function Invoke-AzurPilotStart {
 
         if (Test-AzurPilotStopRequested -StopEvent $script:StopEvent) {
             $script:IntentionalStopRequested = $true
-            Write-StartLog -Level 'INFO' -Message 'Запуск отменён координированным запросом остановки до PostgreSQL preflight.'
+            Write-StartLog -Level 'INFO' -Message 'Запуск отменён координированным запросом остановки до инфраструктурного preflight.'
             return $script:ExitCodeSuccess
         }
 
@@ -1571,7 +1629,7 @@ function Invoke-AzurPilotStart {
             WorkingDirectory = $resolvedRepositoryPath
             StopEvent = $script:StopEvent
         }
-        $preflightCompleted = Invoke-PostgreSqlStartPreflight @preflightParameters
+        $preflightCompleted = Invoke-InfrastructureStartPreflight @preflightParameters
 
         if (-not $preflightCompleted -or (Test-AzurPilotStopRequested -StopEvent $script:StopEvent)) {
             $script:IntentionalStopRequested = $true

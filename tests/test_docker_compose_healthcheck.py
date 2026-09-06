@@ -78,6 +78,48 @@ def test_postgres_18_is_part_of_observability_compose_with_named_volume():
     ).read_text(encoding="utf-8")
 
 
+def test_caddy_is_pinned_profiled_and_keeps_mcp_backends_host_side():
+    compose = (ROOT / "infrastructure/observability/compose.yaml").read_text(
+        encoding="utf-8"
+    )
+    caddyfile = (ROOT / "infrastructure/caddy/Caddyfile").read_text(encoding="utf-8")
+    compose_data = yaml.safe_load(compose)
+    caddy = compose_data["services"]["caddy"]
+
+    assert caddy["image"] == (
+        "caddy:2.11.4-alpine@sha256:"
+        "5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648"
+    )
+    assert caddy["profiles"] == ["remote-ingress"]
+    assert caddy["restart"] == "unless-stopped"
+    assert caddy["security_opt"] == ["no-new-privileges:true"]
+    assert caddy["ports"] == ["80:80/tcp", "443:443/tcp", "443:443/udp"]
+    assert caddy["environment"] == {"AZURPILOT_CADDY_HOST": "${AZURPILOT_CADDY_HOST:-}"}
+    assert {
+        (volume["type"], volume["source"], volume["target"], volume.get("read_only"))
+        for volume in caddy["volumes"]
+    } == {
+        ("bind", "../caddy", "/etc/caddy", True),
+        ("volume", "caddy-data", "/data", None),
+        ("volume", "caddy-config", "/config", None),
+    }
+    assert caddy["healthcheck"]["test"] == [
+        "CMD",
+        "caddy",
+        "validate",
+        "--config",
+        "/etc/caddy/Caddyfile",
+        "--adapter",
+        "caddyfile",
+    ]
+    assert "host.docker.internal:8765" in caddyfile
+    assert "host.docker.internal:8766" in caddyfile
+    assert "reverse_proxy 127.0.0.1:8765" not in caddyfile
+    assert "reverse_proxy 127.0.0.1:8766" not in caddyfile
+    assert compose_data["volumes"]["caddy-data"] == {"name": "azurpilot-caddy-data"}
+    assert compose_data["volumes"]["caddy-config"] == {"name": "azurpilot-caddy-config"}
+
+
 def test_pgadmin_is_loopback_only_and_preconfigured_for_postgres():
     compose = (ROOT / "infrastructure/observability/compose.yaml").read_text(
         encoding="utf-8"

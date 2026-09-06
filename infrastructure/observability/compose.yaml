@@ -1,6 +1,36 @@
 name: azurpilot-infrastructure
 
 services:
+  caddy:
+    image: caddy:2.11.4-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
+    profiles:
+      - remote-ingress
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      AZURPILOT_CADDY_HOST: ${AZURPILOT_CADDY_HOST:-}
+    ports:
+      - "80:80/tcp"
+      - "443:443/tcp"
+      - "443:443/udp"
+    volumes:
+      - type: bind
+        source: ../caddy
+        target: /etc/caddy
+        read_only: true
+      - type: volume
+        source: caddy-data
+        target: /data
+      - type: volume
+        source: caddy-config
+        target: /config
+    healthcheck:
+      test: ["CMD", "caddy", "validate", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
   postgres:
     image: postgres:18@sha256:06cad38a5d9f5d24b4d83d86def30795d5e4b757fedbf5281172b576dedcd941
     restart: unless-stopped
@@ -267,6 +297,10 @@ volumes:
   grafana-data:
     external: true
     name: azurpilot-observability_grafana-data
+  caddy-data:
+    name: azurpilot-caddy-data
+  caddy-config:
+    name: azurpilot-caddy-config
 
 secrets:
   postgres_bootstrap_password:

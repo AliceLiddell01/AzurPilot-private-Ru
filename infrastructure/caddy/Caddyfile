@@ -1,0 +1,41 @@
+{
+	# Admin API доступен только внутри контейнера и не публикуется на Windows host.
+	admin 127.0.0.1:2019
+}
+
+# Публичный Dev MCP. Backend остаётся host-side и слушает только 127.0.0.1:8765.
+{$AZURPILOT_CADDY_HOST} {
+	encode gzip
+	header Cache-Control "no-store"
+
+	# Access log отключён, чтобы Authorization не попадал в журналы reverse proxy.
+	log {
+		output discard
+	}
+
+	reverse_proxy host.docker.internal:8765 {
+		header_up Host {$AZURPILOT_CADDY_HOST}
+		transport http {
+			dial_timeout 3s
+			response_header_timeout 195s
+		}
+	}
+}
+
+# Публичный Game MCP использует отдельный host и отдельный loopback backend.
+game.{$AZURPILOT_CADDY_HOST} {
+	encode gzip
+	header Cache-Control "no-store"
+
+	log {
+		output discard
+	}
+
+	reverse_proxy host.docker.internal:8766 {
+		header_up Host game.{$AZURPILOT_CADDY_HOST}
+		transport http {
+			dial_timeout 3s
+			response_header_timeout 195s
+		}
+	}
+}

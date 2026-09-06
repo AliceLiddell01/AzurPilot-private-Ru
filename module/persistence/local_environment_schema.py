@@ -71,6 +71,7 @@ LOCAL_ENVIRONMENT_REGISTRY = (
         secret=True,
     ),
     LocalEnvironmentKey("AZURPILOT_OBSERVABILITY_PGADMIN_PORT", "infrastructure"),
+    LocalEnvironmentKey("AZURPILOT_CADDY_HOST", "infrastructure"),
 )
 
 _REGISTRY_BY_NAME = {entry.name: entry for entry in LOCAL_ENVIRONMENT_REGISTRY}

@@ -407,14 +407,15 @@ Tunnel:
 ```text
 подключённое ChatGPT-приложение
   → HTTPS :443 /mcp
-  → Caddy с автоматическим сертификатом
+  → Caddy в Docker Compose с автоматическим сертификатом
   → 127.0.0.1:8765 remote Dev MCP
   → тот же DevMcpAdapter и настроенный development target
 ```
 
 Backend намеренно принимает только `127.0.0.1` и не должен публиковаться через
 firewall/router. Наружу разрешаются только TCP `443` и, при необходимости для
-ACME/redirect Caddy, TCP `80`. Порты `8765`, `8766`, `2019`, `5432`,
+ACME/redirect Caddy, TCP `80`; текущая конфигурация также использует UDP `443`
+для HTTP/3. Порты `8765`, `8766`, `2019`, `5432`,
 ADB/emulator и production WebUI наружу не пробрасываются.
 
 Внешний OAuth/OIDC provider является authorization server; AzurPilot не
@@ -436,7 +437,9 @@ HTTPS Origin и заменяет набор по умолчанию `https://cha
 
 OAuth scope `azurpilot:dev` является стабильным протокольным инвариантом и не
 задаётся через окружение. Backend remote MCP всегда слушает фиксированный
-loopback-порт `8765`; Caddy должен проксировать на `127.0.0.1:8765`.
+loopback-порт `8765`; Compose Caddy проксирует на
+`host.docker.internal:8765`, сохраняя исходный public `Host` для strict origin
+проверки backend.
 
 Issuer должен публиковать OAuth/OIDC discovery, authorization-code flow с PKCE
 S256 и выдавать короткоживущий подписанный access token с `iss`, `aud`, `exp`,
@@ -456,19 +459,30 @@ worker может завершить уже начатую mutating operation. �
 а перед следующей мутацией сначала читает `dev_status` или соответствующий
 smoke/evidence state.
 
-Подготовь Caddy по шаблону
-[`docs/dev-mcp/Caddyfile.example`](dev-mcp/Caddyfile.example), замени только
-placeholder host на собственное DNS-имя, сохрани локальную копию как
-`docs/dev-mcp/Caddyfile` и направь его A/AAAA record на машину. Эта локальная
-копия явно исключена из Git правилом `.gitignore`; не добавляй её через `git
-add -f`.
-Запусти backend отдельно:
+Канонический Caddyfile находится в
+[`infrastructure/caddy/Caddyfile`](../infrastructure/caddy/Caddyfile), а его
+образ, профиль, read-only config bind и persistent `/data`/`/config` volumes
+описаны в `infrastructure/observability/compose.yaml`. Не создавай вторую
+копию Caddyfile и не запускай host `caddy.exe`. В корневом защищённом `.env`
+задай non-secret host и actual public DNS record:
+
+```text
+AZURPILOT_CADDY_HOST=<public-host>
+AZURPILOT_DEV_MCP_PUBLIC_URL=https://<public-host>/mcp
+AZURPILOT_GAME_MCP_PUBLIC_URL=https://game.<public-host>/mcp
+```
+
+Запусти host-side backends отдельно и затем включи Caddy profile:
 
 ```text
 uv run --locked --no-sync python -m module.dev_mcp.remote doctor
 uv run --locked --no-sync python -m module.dev_mcp.remote
-caddy validate --config docs/dev-mcp/Caddyfile
-caddy run --config docs/dev-mcp/Caddyfile
+uv run --locked --no-sync python -m module.game_mcp.remote doctor
+docker compose --env-file .env --file infrastructure/observability/compose.yaml --profile remote-ingress config --quiet
+docker compose --env-file .env --file infrastructure/observability/compose.yaml --profile remote-ingress up --detach --wait caddy
+docker compose --env-file .env --file infrastructure/observability/compose.yaml --profile remote-ingress exec caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+uv run --locked --no-sync python -m dev_tools.infrastructure_doctor --repository-root . doctor
+uv run --locked --no-sync python -m dev_tools.infrastructure_doctor --repository-root . probe
 ```
 
 Первые команды выполняются с OAuth-переменными в защищённом окружении; значения
@@ -480,9 +494,13 @@ metadata, а `POST https://<public-host>/mcp` без auth возвращает `
 изменения tool descriptors. Сначала выполняются только read-only
 `dev_get_contract`, `dev_preflight` и `dev_list_smoke_capabilities`.
 
-Безопасный rollback: остановить remote backend, остановить Caddy, удалить только
-созданное для этого endpoint правило firewall/router, отозвать или ротировать
-OAuth credentials и отключить app в ChatGPT. Системный network reset не нужен.
+Безопасный rollback: остановить только Compose service `caddy`, не выполнять
+`down -v`, не удалять `azurpilot-caddy-data`/`azurpilot-caddy-config` и не
+останавливать host-side Dev/Game MCP без отдельной причины. Для возврата к
+старой host-конфигурации сначала проверь backup и отсутствие Docker listeners,
+затем включи прежнего host owner; старое состояние Caddy не удаляй до
+подтверждённого reboot acceptance. OAuth credentials отзываются или ротируются
+отдельно при необходимости.
 
 ## Canonical Plugin AzurPilot
 
@@ -498,7 +516,8 @@ transport не добавляются.
 Codex использует project-scoped `azurpilot-dev` через local stdio Dev MCP, а
 обычные игровые операции выполняются через существующий Game MCP. ChatGPT
 использует соответствующее подключённое приложение через authenticated public
-HTTPS `/mcp`; OAuth/OIDC provider, Caddy config и credentials хранятся вне Git.
+HTTPS `/mcp`; канонический Caddyfile хранится в Git, а OAuth/OIDC provider,
+Caddy runtime state и credentials — вне Git.
 
 Основной workflow skill: `dev_get_contract` →
 `dev_list_smoke_capabilities` → строгий `SmokeSpec` → `dev_validate_smoke` →

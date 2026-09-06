@@ -70,8 +70,10 @@ archives или runtime cache и не регистрирует второй MCP 
 
 Codex использует project-scoped `azurpilot-dev` через прямой local stdio и
 `module.dev_mcp`. ChatGPT использует подключённое приложение с
-authenticated public URL `https://<public-host>/mcp`, Caddy reverse proxy и
-внешним OAuth/OIDC provider; custom authorization server и Secure MCP Tunnel
+authenticated public URL `https://<public-host>/mcp`, Caddy reverse proxy в
+Docker Compose profile `remote-ingress` и внешним OAuth/OIDC provider; Caddy
+обращается к host-side loopback backend через `host.docker.internal`, custom
+authorization server и Secure MCP Tunnel
 для этого пути не требуются. `module.dev_mcp.contract` публикует read-only boundary с
 версиями API/Smoke schemas, required feature flags, capability families и
 result outcomes. Runtime status/control не раскрывают serial, package, пути или
