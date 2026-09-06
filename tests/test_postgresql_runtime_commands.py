@@ -197,6 +197,64 @@ def test_docker_backup_requires_marker_endpoint(tmp_path: Path, monkeypatch):
         postgresql_runtime._require_docker_endpoint(_settings(), repository)
 
 
+def test_docker_backup_uses_container_postgres_without_migrator_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    output = tmp_path / "backups" / "docker.dump"
+    calls: list[tuple[list[str], dict[str, str] | None]] = []
+
+    monkeypatch.setattr(
+        postgresql_runtime,
+        "_compose_arguments",
+        lambda _repository, *arguments: ["docker", "compose", *arguments],
+    )
+    monkeypatch.setattr(
+        postgresql_runtime.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            returncode=0, stdout="127.0.0.1:5432\n", stderr=""
+        ),
+    )
+
+    def run_hidden(
+        arguments: list[str],
+        *,
+        stdin: object = None,
+        stdout: object = None,
+        environment: dict[str, str] | None = None,
+    ) -> None:
+        del stdin
+        calls.append((arguments, environment))
+        if hasattr(stdout, "write"):
+            stdout.write(b"x" * 2048)
+
+    with (
+        patch.object(
+            postgresql_runtime.DatabaseSettings,
+            "from_environment",
+            side_effect=AssertionError("Docker backup не должен читать migrator settings"),
+        ),
+        patch.object(postgresql_runtime, "_run_hidden", side_effect=run_hidden),
+    ):
+        postgresql_runtime._backup(
+            _settings("test-password"),
+            output,
+            "Archlinux",
+            repository,
+            transport="docker",
+        )
+
+    assert output.stat().st_size == 2048
+    assert calls[0][0][0:3] == ["docker", "compose", "exec"]
+    assert "--user" in calls[0][0]
+    assert calls[0][0][calls[0][0].index("--user") + 1] == "postgres"
+    assert "--username" in calls[0][0]
+    assert calls[0][0][calls[0][0].index("--username") + 1] == "postgres"
+    assert not tuple(output.parent.glob("*.tmp"))
+
+
 def test_upgrade_removes_application_password_for_passwordless_migrator(monkeypatch):
     for key, value in {
         "AZURPILOT_POSTGRES_HOST": "test-original-host",

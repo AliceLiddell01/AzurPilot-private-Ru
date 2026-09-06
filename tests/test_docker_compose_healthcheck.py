@@ -61,6 +61,12 @@ def test_postgres_18_is_part_of_observability_compose_with_named_volume():
     assert "local all all scram-sha-256" in init_script
     assert "SET log_statement = 'none';" in bootstrap_script
     assert "chmod --reference=\"$hba_file\"" in init_script
+    assert "trap cleanup EXIT" in init_script
+    assert "umask 077" in bootstrap_script
+    assert "unset bootstrap_password app_password migrator_password app_sql migrator_sql" in bootstrap_script
+    assert "to_regclass('public.alembic_version') IS NOT NULL" in (
+        ROOT / "infrastructure/observability/postgres/grant-app.sql"
+    ).read_text(encoding="utf-8")
     assert "\\set ON_ERROR_STOP on" in (
         ROOT / "infrastructure/observability/postgres/grant-app.sql"
     ).read_text(encoding="utf-8")

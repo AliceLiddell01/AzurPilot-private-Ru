@@ -26,6 +26,7 @@ app_password="$(read_secret /run/secrets/postgres_app_password)"
 migrator_password="$(read_secret /run/secrets/postgres_migrator_password)"
 app_sql="$(printf '%s' "$app_password" | sed "s/'/''/g")"
 migrator_sql="$(printf '%s' "$migrator_password" | sed "s/'/''/g")"
+umask 077
 pgpass_file="$(mktemp)"
 
 cleanup() {
@@ -102,4 +103,4 @@ SELECT format(
 ) \gexec
 SQL
 
-unset bootstrap_password app_password migrator_password app_sql migrator_sql pgpass_file
+unset bootstrap_password app_password migrator_password app_sql migrator_sql

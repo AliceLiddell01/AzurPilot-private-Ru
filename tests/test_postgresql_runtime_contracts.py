@@ -472,10 +472,10 @@ def test_production_modules_do_not_import_sqlite_or_legacy_database():
                 continue
             names = imports_for_path(ROOT, path)
             if any(
-                name == "sqlite3"
-                or name.startswith("sqlite3.")
-                or name == "module.statistics.cl1_database"
-                or name.startswith("module.statistics.cl1_database.")
+                name in {"sqlite3", "module.statistics.cl1_database"}
+                or name.startswith(
+                    ("sqlite3.", "module.statistics.cl1_database.")
+                )
                 for name in names
             ):
                 violations.append(str(path.relative_to(ROOT)))
@@ -506,11 +506,12 @@ def test_lifecycle_scripts_encode_postgresql_ownership():
     assert "dev_tools.postgresql_security" in repair
     assert "dev_tools.postgresql_runtime" not in build
     assert "Get-Command -Name 'docker.exe'" in start
-    assert "Get-Command -Name 'docker.exe'" in repair
+    assert "foreach ($dockerName in @('docker.exe', 'docker'))" in repair
     assert "--deployment" in repair
     assert "'docker'" in repair
     assert "Select-Object -First 1" in start
     assert "Select-Object -First 1" in repair
+    assert "-TimeoutMilliseconds 30000" in repair
 
 
 def test_webui_rejects_database_upload_before_read():

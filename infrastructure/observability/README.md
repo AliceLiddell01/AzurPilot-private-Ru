@@ -122,7 +122,7 @@ logical restore; пустой volume не является заменой backup
         'azurpilot-observability_grafana-data'
     )
     foreach ($volumeName in $volumeNames) {
-        $volumeInspection = docker volume inspect $volumeName 2>$null
+        docker volume inspect $volumeName 2>$null | Out-Null
         $volumeInspectionExitCode = $LASTEXITCODE
         if ($volumeInspectionExitCode -ne 0) {
             docker volume create $volumeName | Out-Null
@@ -172,7 +172,7 @@ fields из этого файла.
 
 Проверка базы и внешняя резервная копия:
 
-    docker compose --env-file ../../.env exec -T --user postgres postgres pg_isready -U postgres -d azurpilot
+    docker compose --env-file ../../.env exec -T --user postgres postgres sh -c 'pg_isready -U postgres -d "$POSTGRES_DB"'
     docker volume inspect azurpilot-postgres-data
     uv run --locked --no-sync python -m dev_tools.postgresql_runtime backup --transport docker --output <внешний-путь>.dump
 

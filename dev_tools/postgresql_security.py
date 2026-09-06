@@ -18,7 +18,7 @@ class SecurityPosture:
     password_encryption: str
     hba_is_active: bool
     rules: tuple[dict[str, object], ...]
-    deployment: str = "wsl"
+    deployment: str = "docker"
     host_binding_loopback: bool = True
 
 
@@ -140,7 +140,10 @@ def _docker_compose_arguments(compose_file: Path, *arguments: str) -> list[str]:
     if executable is None:
         raise SecurityPostureError("DOCKER_CLI_UNAVAILABLE")
     compose_file = compose_file.resolve(strict=True)
-    repository_root = compose_file.parents[2]
+    parents = compose_file.parents
+    if len(parents) < 3:
+        raise SecurityPostureError("DOCKER_COMPOSE_LAYOUT_UNSUPPORTED")
+    repository_root = parents[2]
     env_file = repository_root / ".env"
     if not env_file.is_file():
         raise SecurityPostureError("DOCKER_ENV_UNAVAILABLE")
@@ -172,7 +175,7 @@ def _docker_port_is_loopback(output: str) -> bool:
 def _read_posture(
     distro: str = "Archlinux",
     *,
-    deployment: str = "wsl",
+    deployment: str = "docker",
     compose_file: str | Path = _DEFAULT_COMPOSE_FILE,
     service: str = "postgres",
 ) -> SecurityPosture:

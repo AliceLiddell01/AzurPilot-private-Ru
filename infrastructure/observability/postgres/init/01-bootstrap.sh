@@ -14,6 +14,13 @@ hba_file="$("${psql[@]}" --tuples-only --no-align --quiet --command 'SHOW hba_fi
 hba_file="$(printf '%s' "$hba_file" | tr -d '\r\n')"
 hba_temporary="${hba_file}.azurpilot.tmp"
 
+cleanup() {
+    if [[ -n "${hba_temporary:-}" ]]; then
+        rm -f -- "$hba_temporary"
+    fi
+}
+trap cleanup EXIT
+
 awk '
     BEGIN { replaced = 0 }
     /^[[:space:]]*local[[:space:]]+/ {
@@ -36,4 +43,4 @@ chmod --reference="$hba_file" -- "$hba_temporary"
 mv -- "$hba_temporary" "$hba_file"
 "${psql[@]}" --command 'SELECT pg_reload_conf()' >/dev/null
 
-unset hba_file hba_temporary
+unset hba_file

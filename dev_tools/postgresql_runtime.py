@@ -185,7 +185,6 @@ def _backup(
     environment.pop("AZURPILOT_POSTGRES_MIGRATOR_PASSWORD", None)
 
     if transport == "docker":
-        _maintenance_settings(settings)
         _require_docker_endpoint(settings, repository_root)
         arguments = _compose_arguments(
             repository_root,

@@ -211,8 +211,14 @@ class PowerShellContractTests(unittest.TestCase):
         )
         self.assertLess(
             start_source.index("if (-not $mutexData.Owned)"),
-            start_source.index("Invoke-PostgreSqlStartPreflight -PythonPath"),
+            start_source.index("Invoke-PostgreSqlStartPreflight @preflightParameters"),
         )
+        self.assertLess(
+            start_source.index("$initialOwnership = Get-AzurPilotPortOwnershipState"),
+            start_source.index("Invoke-PostgreSqlStartPreflight @preflightParameters"),
+        )
+        self.assertIn("StopEvent = $script:StopEvent", start_source)
+        self.assertIn("$process.WaitForExit([Math]::Min(250, $remainingMilliseconds))", start_source)
 
         with tempfile.TemporaryDirectory(prefix="azurpilot-start-smoke-") as temporary:
             test_root = Path(temporary)

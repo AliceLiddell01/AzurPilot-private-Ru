@@ -19,6 +19,7 @@ def _posture() -> SecurityPosture:
         listener="localhost",
         password_encryption="scram-sha-256",
         hba_is_active=True,
+        deployment="wsl",
         rules=(
             {
                 "type": "local",
@@ -212,7 +213,7 @@ def test_security_posture_rejects_non_object_rule(monkeypatch):
     )
 
     with pytest.raises(SecurityPostureError, match="POSTURE_RESPONSE_INVALID"):
-        _read_posture("Archlinux")
+        _read_posture("Archlinux", deployment="wsl")
 
 
 @pytest.mark.parametrize(
