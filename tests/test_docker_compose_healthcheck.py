@@ -33,6 +33,7 @@ def test_postgres_18_is_part_of_observability_compose_with_named_volume():
     assert "PGDATA: /var/lib/postgresql/18/docker" in compose
     assert '"127.0.0.1:${AZURPILOT_POSTGRES_PORT:-5432}:5432"' in compose
     assert "external: true" in compose
+    assert "no-new-privileges:true" in compose
     assert "name: azurpilot-postgres-data" in compose
     assert "name: azurpilot-observability_alloy-data" in compose
     assert "name: azurpilot-observability_grafana-data" in compose
@@ -44,6 +45,7 @@ def test_postgres_18_is_part_of_observability_compose_with_named_volume():
     assert "local all postgres peer" in init_script
     assert "local all all scram-sha-256" in init_script
     assert "SET log_statement = 'none';" in init_script
+    assert "chmod --reference=\"$hba_file\"" in init_script
     assert "\\set ON_ERROR_STOP on" in (
         ROOT / "infrastructure/observability/postgres/grant-app.sql"
     ).read_text(encoding="utf-8")

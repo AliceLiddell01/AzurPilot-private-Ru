@@ -111,6 +111,50 @@ def _maintenance_settings(marker_settings: DatabaseSettings) -> DatabaseSettings
     return settings
 
 
+def _require_docker_endpoint(
+    marker_settings: DatabaseSettings,
+    repository_root: Path,
+) -> None:
+    if marker_settings.host not in {"127.0.0.1", "localhost", "::1"}:
+        raise StorageConfigurationError(
+            "Docker PostgreSQL endpoint marker не ограничен loopback."
+        )
+    options: dict[str, object] = {}
+    if os.name == "nt":
+        options["creationflags"] = subprocess.CREATE_NO_WINDOW
+    result = subprocess.run(
+        _compose_arguments(repository_root, "port", "postgres", "5432"),
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=20,
+        **options,
+    )
+    if result.returncode != 0:
+        raise RuntimeError("Docker Compose PostgreSQL endpoint недоступен.")
+    bindings = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    if not bindings:
+        raise RuntimeError("Docker Compose PostgreSQL endpoint не опубликован.")
+    for binding in bindings:
+        host_port = binding.rsplit(":", 1)
+        if len(host_port) != 2:
+            raise StorageConfigurationError(
+                "Docker PostgreSQL endpoint не совпадает с production marker."
+            )
+        host = host_port[0].strip("[]")
+        try:
+            port = int(host_port[1])
+        except ValueError as exc:
+            raise StorageConfigurationError(
+                "Docker PostgreSQL endpoint содержит некорректный port."
+            ) from exc
+        if host not in {"127.0.0.1", "localhost", "::1"} or port != marker_settings.port:
+            raise StorageConfigurationError(
+                "Docker PostgreSQL endpoint не совпадает с production marker."
+            )
+
+
 def _validate_external_output(output: Path, repository_root: Path) -> Path:
     output = output.resolve()
     repository_root = repository_root.resolve(strict=True)
@@ -141,6 +185,8 @@ def _backup(
     environment.pop("AZURPILOT_POSTGRES_MIGRATOR_PASSWORD", None)
 
     if transport == "docker":
+        _maintenance_settings(settings)
+        _require_docker_endpoint(settings, repository_root)
         arguments = _compose_arguments(
             repository_root,
             "exec",
@@ -168,14 +214,20 @@ def _backup(
         )
     elif transport in {"native", "wsl"}:
         maintenance = _maintenance_settings(settings)
-        native = shutil.which("pg_dump") if transport == "native" else None
-        if native:
+        if transport == "native":
+            native = shutil.which("pg_dump")
+            if native is None:
+                raise RuntimeError("Native pg_dump недоступен для PostgreSQL backup.")
             passfile = environment.get(
                 "AZURPILOT_POSTGRES_MIGRATOR_PGPASSFILE"
             ) or environment.get("AZURPILOT_POSTGRES_PGPASSFILE")
             if passfile:
                 environment["PGPASSFILE"] = passfile
             arguments = [native, *_pg_dump_arguments(maintenance)]
+            restore = shutil.which("pg_restore")
+            if restore is None:
+                raise RuntimeError("Native pg_restore недоступен для PostgreSQL backup.")
+            restore_arguments = [restore, "--list", "{temporary}"]
         else:
             arguments = [
                 "wsl.exe",
@@ -187,11 +239,7 @@ def _backup(
                 "pg_dump",
                 *_pg_dump_arguments(maintenance),
             ]
-        restore = shutil.which("pg_restore") if native else None
-        restore_arguments = (
-            [restore, "--list", "{temporary}"]
-            if restore
-            else [
+            restore_arguments = [
                 "wsl.exe",
                 "--distribution",
                 distro,
@@ -200,7 +248,6 @@ def _backup(
                 "--list",
                 "{temporary_wsl}",
             ]
-        )
     else:
         raise ValueError("Транспорт PostgreSQL backup не поддерживается.")
 

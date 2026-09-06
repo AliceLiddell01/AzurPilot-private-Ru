@@ -138,6 +138,59 @@ def test_wsl_backup_formats_rollback_restore_path(
     assert "temporary-wsl" not in calls[1][-1]
 
 
+def test_native_backup_does_not_fall_back_to_wsl(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    output = tmp_path / "backups" / "native.dump"
+    with (
+        patch.object(
+            postgresql_runtime.DatabaseSettings,
+            "from_environment",
+            return_value=_settings("migrator-password", user="azurpilot_migrator"),
+        ),
+        patch.object(postgresql_runtime.shutil, "which", return_value=None),
+        pytest.raises(RuntimeError, match="Native pg_dump"),
+    ):
+        postgresql_runtime._backup(
+            _settings("test-password"),
+            output,
+            "Archlinux",
+            repository,
+            transport="native",
+        )
+
+
+def test_docker_backup_requires_marker_endpoint(tmp_path: Path, monkeypatch):
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    monkeypatch.setattr(
+        postgresql_runtime,
+        "_compose_arguments",
+        lambda *_arguments: ["docker", "compose", "port"],
+    )
+    monkeypatch.setattr(
+        postgresql_runtime.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            returncode=0, stdout="127.0.0.1:5432\n", stderr=""
+        ),
+    )
+
+    postgresql_runtime._require_docker_endpoint(_settings(), repository)
+
+    monkeypatch.setattr(
+        postgresql_runtime.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            returncode=0, stdout="127.0.0.1:6543\n", stderr=""
+        ),
+    )
+    with pytest.raises(StorageConfigurationError, match="endpoint"):
+        postgresql_runtime._require_docker_endpoint(_settings(), repository)
+
+
 def test_upgrade_removes_application_password_for_passwordless_migrator(monkeypatch):
     for key, value in {
         "AZURPILOT_POSTGRES_HOST": "test-original-host",

@@ -39,10 +39,12 @@ service DNS.
 Compose project не должно создавать второй набор данных или терять накопленное
 состояние.
 
-Все перечисленные volumes объявлены как `external` с явными engine-level
-именами. Это намеренная fail-closed граница миграции: при отсутствии ресурса
-Compose остановится вместо того, чтобы молча создать пустой volume с тем же
-логическим ключом.
+Существующие observability volumes объявлены как `external` с явными
+engine-level именами. Это намеренная fail-closed граница миграции: при
+отсутствии ресурса Compose остановится вместо того, чтобы молча создать пустой
+volume с тем же логическим ключом. PostgreSQL volume имеет явное имя, но
+остаётся Compose-managed, чтобы новый host мог создать его до проверенного
+logical restore.
 
 Все секреты этого контура хранятся в общем локальном .env, игнорируемом Git,
 в корне репозитория. Сейчас используются переменные
@@ -76,12 +78,40 @@ AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD; новые секреты это
     $bytes = [byte[]]::new(32)
     [System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
     $password = [Convert]::ToHexString($bytes).ToLowerInvariant()
-    Add-Content -LiteralPath (Resolve-Path ..\..\.env) -Value "AZURPILOT_POSTGRES_DOCKER_BOOTSTRAP_PASSWORD=$password" -Encoding utf8NoBOM
+    $envFile = Resolve-Path ..\..\.env
+    $key = 'AZURPILOT_POSTGRES_DOCKER_BOOTSTRAP_PASSWORD'
+    $lines = @(Get-Content -LiteralPath $envFile)
+    $bootstrapLines = @($lines | Where-Object { $_ -match "^$key=" })
+    if ($bootstrapLines.Count -gt 1) { throw "В .env найден дублированный bootstrap key." }
+    if ($bootstrapLines.Count -eq 1) {
+        $lines = $lines -replace "^$key=.*$", "$key=$password"
+    } else {
+        $lines += "$key=$password"
+    }
+    Set-Content -LiteralPath $envFile -Value $lines -Encoding utf8NoBOM
     Remove-Variable password
 
 ## Запуск и обслуживание
 
 Из этой папки:
+
+На новом Docker host сначала проверьте или явно создайте exact external
+volumes. Для PostgreSQL выполняйте это только в рамках подготовленного
+logical restore; пустой volume не является заменой backup:
+
+    $volumeNames = @(
+        'azurpilot-postgres-data'
+        'azurpilot-observability_alloy-data'
+        'azurpilot-observability_loki-data'
+        'azurpilot-observability_prometheus-data'
+        'azurpilot-observability_tempo-data'
+        'azurpilot-observability_grafana-data'
+    )
+    foreach ($volumeName in $volumeNames) {
+        if (-not (docker volume inspect $volumeName 2>$null)) {
+            docker volume create $volumeName | Out-Null
+        }
+    }
 
     docker compose --env-file ../../.env config
     docker compose --env-file ../../.env pull

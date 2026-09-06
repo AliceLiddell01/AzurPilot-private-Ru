@@ -135,7 +135,7 @@ _DEFAULT_COMPOSE_FILE = (
 )
 
 
-def _docker_compose_arguments(compose_file: Path, service: str, *arguments: str) -> list[str]:
+def _docker_compose_arguments(compose_file: Path, *arguments: str) -> list[str]:
     executable = shutil.which("docker.exe") or shutil.which("docker")
     if executable is None:
         raise SecurityPostureError("DOCKER_CLI_UNAVAILABLE")
@@ -204,7 +204,6 @@ SELECT json_build_object(
         compose_path = Path(compose_file)
         arguments = _docker_compose_arguments(
             compose_path,
-            service,
             "exec",
             "-T",
             "--user",
@@ -224,7 +223,6 @@ SELECT json_build_object(
         port_result = subprocess.run(
             _docker_compose_arguments(
                 compose_path,
-                service,
                 "port",
                 service,
                 "5432",
@@ -236,9 +234,10 @@ SELECT json_build_object(
             timeout=20,
             **options,
         )
-        if port_result.returncode != 0 or not _docker_port_is_loopback(
-            port_result.stdout
-        ):
+        if port_result.returncode != 0:
+            raise SecurityPostureError("DOCKER_SERVICE_UNAVAILABLE")
+        host_binding_loopback = _docker_port_is_loopback(port_result.stdout)
+        if not host_binding_loopback:
             raise SecurityPostureError("HOST_BINDING_NOT_LOOPBACK_ONLY")
     elif deployment == "wsl":
         arguments = [

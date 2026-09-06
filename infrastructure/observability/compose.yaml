@@ -4,6 +4,8 @@ services:
   postgres:
     image: postgres:18@sha256:06cad38a5d9f5d24b4d83d86def30795d5e4b757fedbf5281172b576dedcd941
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     environment:
       POSTGRES_DB: ${AZURPILOT_POSTGRES_DATABASE:-azurpilot}
       POSTGRES_USER: postgres
@@ -180,7 +182,6 @@ services:
 
 volumes:
   postgres-data:
-    external: true
     name: azurpilot-postgres-data
   alloy-data:
     external: true

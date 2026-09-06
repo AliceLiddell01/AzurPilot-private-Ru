@@ -101,6 +101,7 @@ awk '
         }
     }
 ' "$hba_file" > "$hba_temporary"
+chmod --reference="$hba_file" -- "$hba_temporary"
 mv -- "$hba_temporary" "$hba_file"
 "${psql[@]}" --command 'SELECT pg_reload_conf()' >/dev/null
 

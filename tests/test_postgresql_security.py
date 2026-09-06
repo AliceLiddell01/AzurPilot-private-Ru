@@ -225,6 +225,25 @@ def test_docker_port_loopback_accepts_bracketed_ipv6(
     assert _docker_port_is_loopback(output) is expected
 
 
+def test_docker_posture_rejects_unavailable_service(tmp_path, monkeypatch):
+    compose_file = tmp_path / "infrastructure" / "observability" / "compose.yaml"
+    compose_file.parent.mkdir(parents=True)
+    compose_file.write_text("name: test\n", encoding="utf-8")
+    (tmp_path / ".env").write_text("KEY=value\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "dev_tools.postgresql_security.shutil.which", lambda _name: "docker.exe"
+    )
+    monkeypatch.setattr(
+        "dev_tools.postgresql_security.subprocess.run",
+        lambda *_args, **_kwargs: SimpleNamespace(returncode=1, stdout="", stderr=""),
+    )
+
+    with pytest.raises(SecurityPostureError, match="DOCKER_SERVICE_UNAVAILABLE"):
+        _read_posture(
+            deployment="docker", compose_file=compose_file, service="postgres"
+        )
+
+
 def test_docker_posture_reads_loopback_compose_binding(tmp_path, monkeypatch):
     compose_file = tmp_path / "infrastructure" / "observability" / "compose.yaml"
     compose_file.parent.mkdir(parents=True)
