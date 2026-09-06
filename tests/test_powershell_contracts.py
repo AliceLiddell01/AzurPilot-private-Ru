@@ -325,6 +325,15 @@ class PowerShellContractTests(unittest.TestCase):
                     "    raise SystemExit(43)\n",
                     encoding="utf-8",
                 )
+                (dev_tools_path / "observability_compose_migration.py").write_text(
+                    "from pathlib import Path\n"
+                    "import os\n"
+                    "with Path(os.environ['AZURPILOT_START_PROBE_LOG']).open(\n"
+                    "    'a', encoding='utf-8'\n"
+                    ") as stream:\n"
+                    "    stream.write('migration\\n')\n",
+                    encoding="utf-8",
+                )
                 gui_path.write_text(
                     "from pathlib import Path\n"
                     "import os\n"
@@ -427,7 +436,7 @@ class PowerShellContractTests(unittest.TestCase):
                 success_docker_calls,
             )
             self.assertEqual(
-                "prepare\n",
+                "migration\nprepare\n",
                 success_prepare_log.read_text(encoding="utf-8"),
             )
             self.assertEqual(
@@ -459,7 +468,7 @@ class PowerShellContractTests(unittest.TestCase):
                 docker_call_shape(failed_docker_calls),
             )
             self.assertEqual(
-                "prepare\n",
+                "migration\nprepare\n",
                 failed_prepare_log.read_text(encoding="utf-8"),
             )
             self.assertFalse(failed_gui_log.exists())

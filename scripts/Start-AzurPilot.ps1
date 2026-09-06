@@ -491,6 +491,20 @@ function Invoke-PostgreSqlStartPreflight {
 
     $operations = @(
         [pscustomobject]@{
+            Executable = $PythonPath
+            Arguments = @(
+                '-X'
+                'utf8'
+                '-m'
+                'dev_tools.observability_compose_migration'
+                '--repository-root'
+                $WorkingDirectory
+                'migrate'
+            )
+            TimeoutMilliseconds = 390000
+            Failure = 'Безопасная миграция старого Docker Compose project observability не выполнена.'
+        }
+        [pscustomobject]@{
             Executable = $dockerCommand.Path
             Arguments = @(
                 'compose'

@@ -40,7 +40,7 @@ namespace игровых профилей `config/*.json`.
 OCR, ADB, UI, sleep и network wait не входят в DB transaction. Все новые
 timestamps записываются как aware UTC; календарные месяцы и операторские
 периоды вычисляются в timezone marker. Identity сначала разрешается по точному
-digest alias Stage 3, затем сверяется со стабильным UUID provenance.
+digest alias legacy source, затем сверяется со стабильным UUID provenance.
 
 ## Роли, сеть и credentials
 
@@ -119,7 +119,7 @@ evidence и никогда не является live backend.
 Backup имеет create-only timestamped имя вне repository, custom format,
 ограниченный ACL и bounded timeout. Проверка включает `pg_restore --list` и
 фактический restore в отдельную scratch database. PITR/WAL archiving и
-автоматическое удаление backup находятся вне scope.
+автоматическое удаление backup не поддерживаются текущим recovery contract.
 
 WebUI отклоняет любой `.db` до чтения содержимого. Legacy SQLite разрешён только
 offline importer из `module.persistence.legacy` при остановленных writers.

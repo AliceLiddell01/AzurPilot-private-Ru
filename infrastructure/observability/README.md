@@ -62,6 +62,8 @@ AZURPILOT_OBSERVABILITY_PGADMIN_ADMIN_EMAIL,
 AZURPILOT_OBSERVABILITY_PGADMIN_ADMIN_PASSWORD и
 AZURPILOT_OBSERVABILITY_PGADMIN_PGPASS. Пароль начального администратора
 Grafana и pgAdmin передаётся через Compose secret и не попадает в репозиторий.
+Порт pgAdmin задаётся через `AZURPILOT_OBSERVABILITY_PGADMIN_PORT`; по умолчанию
+используется `5050`.
 
 Если переменных ещё нет, добавьте их в корневой .env. Для ротации уже
 добавленного пароля используйте PowerShell-команду ниже: она сохраняет новое
@@ -70,6 +72,7 @@ Grafana и pgAdmin передаётся через Compose secret и не поп
     AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_USER=admin
     AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD=<случайный_секрет>
     AZURPILOT_OBSERVABILITY_PGADMIN_ADMIN_EMAIL=admin@azurpilot.dev
+    AZURPILOT_OBSERVABILITY_PGADMIN_PORT=5050
     AZURPILOT_OBSERVABILITY_PGADMIN_ADMIN_PASSWORD=<случайный_секрет>
     AZURPILOT_OBSERVABILITY_PGADMIN_PGPASS=postgres:5432:*:azurpilot_migrator:<пароль_azurpilot_migrator>
 
@@ -109,29 +112,23 @@ Grafana и pgAdmin передаётся через Compose secret и не поп
 
 Из этой папки:
 
-На новом Docker host сначала проверьте или явно создайте exact external
-volumes. `postgres-data` и `pgadmin-data` являются Compose-managed и создаются
-самим Compose; не создавайте их вручную пустыми перед запуском. Для PostgreSQL
-выполняйте это только в рамках подготовленного logical restore; пустой volume
-не является заменой backup:
+Перед первым запуском или обновлением выполните из корня репозитория
+каноническую проверку и миграцию Compose project:
 
-    $volumeNames = @(
-        'azurpilot-observability_alloy-data'
-        'azurpilot-observability_loki-data'
-        'azurpilot-observability_prometheus-data'
-        'azurpilot-observability_tempo-data'
-        'azurpilot-observability_grafana-data'
-    )
-    foreach ($volumeName in $volumeNames) {
-        docker volume inspect $volumeName 2>$null | Out-Null
-        $volumeInspectionExitCode = $LASTEXITCODE
-        if ($volumeInspectionExitCode -ne 0) {
-            docker volume create $volumeName | Out-Null
-            if ($LASTEXITCODE -ne 0) {
-                throw "Не удалось создать Docker volume: $volumeName"
-            }
-        }
-    }
+    uv run --locked --no-sync python -m dev_tools.observability_compose_migration --repository-root . inventory
+    uv run --locked --no-sync python -m dev_tools.observability_compose_migration --repository-root . migrate
+
+Команда читает Docker labels/state, поэтому отличает fresh install от уже
+существующей установки. На существующей установке она требует все пять
+ожидаемых observability volumes, останавливает и удаляет только контейнеры и
+сеть проекта `azurpilot-observability`, не удаляя volumes, поднимает
+`azurpilot-infrastructure` и проверяет health/state и привязку прежних volumes
+к Alloy/Grafana/Loki/Prometheus/Tempo. Отсутствующий volume в этом режиме
+останавливает миграцию вместо создания пустой замены. На действительно fresh
+install создаются только пять явно перечисленных external observability
+volumes; PostgreSQL и pgAdmin остаются Compose-managed.
+
+Обычные команды после успешной миграции:
 
     docker compose --env-file ../../.env config
     docker compose --env-file ../../.env pull
@@ -183,9 +180,17 @@ fields из этого файла.
 Backup создаётся в custom format вне репозитория и проверяется через
 `pg_restore --list` внутри контейнера. Для restore остановите consumers, сделайте
 новый внешний backup, остановите только target service и восстановите дамп в
-Docker volume штатным `pg_restore` через локальный peer-admin с
-`--no-owner --no-acl`; после restore примените
-`postgres/grant-app.sql`, затем выполните `runtime health`, Alembic и app checks.
+Docker database штатным `pg_restore` от роли `azurpilot_migrator` с явным
+переключением на `azurpilot_owner`:
+
+    pg_restore --username azurpilot_migrator --exit-on-error --clean --if-exists --no-owner --no-acl --role azurpilot_owner --dbname <target-database> <backup.dump>
+
+После restore примените `postgres/grant-app.sql` от того же migrator-контракта.
+Канонический `dev_tools.postgresql_migration` дополнительно проверяет owner
+database/schema, owners tables/sequences/functions, role membership, app
+grants, extension `plpgsql` и Alembic head, после чего выполняйте `runtime
+health`, Alembic и app checks. Не восстанавливайте custom dump под случайным
+superuser без явного `--role azurpilot_owner`.
 Старый WSL data directory не удаляйте. Rollback: остановите Docker PostgreSQL,
 верните прежний endpoint при необходимости и запустите Arch service только как
 аварийный rollback-контур.

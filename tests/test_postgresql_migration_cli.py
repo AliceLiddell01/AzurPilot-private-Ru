@@ -174,7 +174,7 @@ def test_dump_restore_cleans_existing_scratch_schema(monkeypatch, tmp_path):
         host="127.0.0.1",
         port=5432,
         database="ci_source",
-        user="ci_user",
+        user="azurpilot_migrator",
         password="disposable-test-value",
         sslmode="disable",
     )
@@ -184,15 +184,25 @@ def test_dump_restore_cleans_existing_scratch_schema(monkeypatch, tmp_path):
         "_run_pg",
         lambda executable, arguments: calls.append((executable, arguments)),
     )
+    monkeypatch.setattr(
+        postgresql_migration,
+        "_run_pg_capture",
+        lambda executable, arguments: "|".join("true" for _ in range(15)),
+    )
 
     restored = postgresql_migration._dump_restore(
         settings, "ci_restore", tmp_path / "migration-rehearsal.dump"
     )
 
-    restore_arguments = calls[-1][1]
-    assert calls[-1][0] == "pg_restore"
+    restore_arguments = next(
+        arguments
+        for executable, arguments in calls
+        if executable == "pg_restore" and "--clean" in arguments
+    )
+    assert "psql" in {executable for executable, _arguments in calls}
     assert "--clean" in restore_arguments
     assert "--if-exists" in restore_arguments
+    assert restore_arguments[restore_arguments.index("--role") + 1] == "azurpilot_owner"
     assert restore_arguments.index("--clean") < restore_arguments.index("--dbname")
     assert restored.database == "ci_restore"
 

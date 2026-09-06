@@ -92,7 +92,7 @@ def test_pgadmin_is_loopback_only_and_preconfigured_for_postgres():
 
     assert pgadmin_block["image"].startswith("dpage/pgadmin4:9.17@sha256:")
     assert pgadmin_block["ports"] == [
-        "127.0.0.1:${AZURPILOT_PGADMIN_PORT:-5050}:8080"
+        "127.0.0.1:${AZURPILOT_OBSERVABILITY_PGADMIN_PORT:-5050}:8080"
     ]
     assert pgadmin_block["environment"] == {
         "PGADMIN_DEFAULT_EMAIL": "${AZURPILOT_OBSERVABILITY_PGADMIN_ADMIN_EMAIL:-admin@azurpilot.dev}",

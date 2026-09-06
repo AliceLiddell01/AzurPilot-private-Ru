@@ -497,6 +497,8 @@ def test_lifecycle_scripts_encode_postgresql_ownership():
 
     assert re.search(r"'compose'\s+'--env-file'", start)
     assert re.search(r"'config'\s+'--quiet'", start)
+    assert "dev_tools.observability_compose_migration" in start
+    assert "'migrate'" in start
     assert re.search(r"'up'\s+'--detach'\s+'--wait'\s+'postgres'", start)
     assert "dev_tools.postgresql_runtime" in start
     backup_call = update.index("\n        $postgresqlBackupPath = Backup-ProductionPostgreSql\n")
