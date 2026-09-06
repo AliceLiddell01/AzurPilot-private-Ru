@@ -93,6 +93,51 @@ def test_backup_is_verified_and_published_create_only(
         )
 
 
+def test_wsl_backup_formats_rollback_restore_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    output = tmp_path / "backups" / "rollback.dump"
+    calls: list[list[str]] = []
+    monkeypatch.setenv("AZURPILOT_WSL_PGPASSFILE", "/etc/azurpilot/pgpass")
+
+    def run_hidden(
+        arguments: list[str],
+        *,
+        stdin: object = None,
+        stdout: object = None,
+        environment: dict[str, str] | None = None,
+    ) -> None:
+        del stdin, environment
+        calls.append(arguments)
+        if hasattr(stdout, "write"):
+            stdout.write(b"x" * 2048)
+
+    with (
+        patch.object(
+            postgresql_runtime.DatabaseSettings,
+            "from_environment",
+            return_value=_settings("migrator-password", user="azurpilot_migrator"),
+        ),
+        patch.object(postgresql_runtime, "_run_hidden", side_effect=run_hidden),
+    ):
+        postgresql_runtime._backup(
+            _settings("test-password"),
+            output,
+            "Archlinux",
+            repository,
+            transport="wsl",
+        )
+
+    assert output.stat().st_size == 2048
+    assert calls[0][0:4] == ["wsl.exe", "--distribution", "Archlinux", "--exec"]
+    assert calls[1][0:4] == ["wsl.exe", "--distribution", "Archlinux", "--exec"]
+    assert calls[1][-2] == "--list"
+    assert calls[1][-1].startswith("/mnt/")
+    assert "temporary-wsl" not in calls[1][-1]
+
+
 def test_upgrade_removes_application_password_for_passwordless_migrator(monkeypatch):
     for key, value in {
         "AZURPILOT_POSTGRES_HOST": "test-original-host",

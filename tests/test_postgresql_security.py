@@ -8,6 +8,7 @@ import pytest
 from dev_tools.postgresql_security import (
     SecurityPosture,
     SecurityPostureError,
+    _docker_port_is_loopback,
     _read_posture,
     validate_posture,
 )
@@ -212,6 +213,16 @@ def test_security_posture_rejects_non_object_rule(monkeypatch):
 
     with pytest.raises(SecurityPostureError, match="POSTURE_RESPONSE_INVALID"):
         _read_posture("Archlinux")
+
+
+@pytest.mark.parametrize(
+    ("output", "expected"),
+    (("127.0.0.1:5432\n", True), ("[::1]:5432\n", True), ("0.0.0.0:5432\n", False)),
+)
+def test_docker_port_loopback_accepts_bracketed_ipv6(
+    output: str, expected: bool
+):
+    assert _docker_port_is_loopback(output) is expected
 
 
 def test_docker_posture_reads_loopback_compose_binding(tmp_path, monkeypatch):

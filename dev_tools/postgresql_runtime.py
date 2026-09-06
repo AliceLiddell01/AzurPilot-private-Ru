@@ -198,7 +198,7 @@ def _backup(
                 "--exec",
                 "pg_restore",
                 "--list",
-                "{temporary-wsl}",
+                "{temporary_wsl}",
             ]
         )
     else:

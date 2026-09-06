@@ -1,3 +1,4 @@
+\set ON_ERROR_STOP on
 SET ROLE azurpilot_owner;
 BEGIN;
 

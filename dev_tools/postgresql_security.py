@@ -161,7 +161,10 @@ def _docker_port_is_loopback(output: str) -> bool:
         return False
     for line in lines:
         host_port = line.rsplit(":", 1)
-        if len(host_port) != 2 or host_port[0] not in {"127.0.0.1", "::1"}:
+        if len(host_port) != 2:
+            return False
+        host = host_port[0].strip("[]")
+        if host not in {"127.0.0.1", "::1"}:
             return False
     return True
 

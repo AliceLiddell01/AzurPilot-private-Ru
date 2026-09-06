@@ -51,6 +51,7 @@ BEGIN
 END
 \$\$;
 
+SET log_statement = 'none';
 ALTER ROLE azurpilot_app
     LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
     INHERIT NOREPLICATION NOBYPASSRLS
@@ -59,6 +60,7 @@ ALTER ROLE azurpilot_migrator
     LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
     INHERIT NOREPLICATION NOBYPASSRLS
     PASSWORD '${migrator_sql}';
+RESET log_statement;
 GRANT azurpilot_owner TO azurpilot_migrator;
 SELECT format('ALTER DATABASE %I OWNER TO azurpilot_owner', current_database()) \gexec
 CREATE SCHEMA IF NOT EXISTS azurpilot AUTHORIZATION azurpilot_owner;
