@@ -11,6 +11,7 @@ import pytest
 from alas import AzurLaneAutoScript
 from module.application.runtime_state import RuntimePhase, RuntimeStateStore
 from module.config.time_source import now as current_time
+from module.dev_runtime.hooks import _worker_identity
 from module.exception import ScriptError
 from module.persistence import runtime as persistence_runtime
 
@@ -105,7 +106,13 @@ def test_nested_task_delay_does_not_finish_authoritative_execution(
     (tmp_path / "module").mkdir()
     monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(tmp_path))
     store = RuntimeStateStore(tmp_path)
-    store.mark_worker_started("alas", worker_pid=1108, worker_created_at=2108.0)
+    worker_identity = _worker_identity()
+    assert worker_identity is not None
+    store.mark_worker_started(
+        "alas",
+        worker_pid=worker_identity[0],
+        worker_created_at=worker_identity[1],
+    )
     store.mark_task_started("alas", "SyntheticTask", operation_id="task-1")
 
     script = _script()

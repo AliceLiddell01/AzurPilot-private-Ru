@@ -664,7 +664,7 @@ def test_runtime_state_rejects_inconsistent_phase_aggregate(
 def test_runtime_state_rejects_duplicate_task_start_without_overwriting_task(
     tmp_path: Path,
 ) -> None:
-    store = _store(tmp_path)
+    store = _store(tmp_path, datetime.now(UTC).isoformat())
     store.mark_worker_started("alas", worker_pid=1103, worker_created_at=2103.0)
     store.mark_task_started("alas", "FirstTask", operation_id="first")
 
