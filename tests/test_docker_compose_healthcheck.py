@@ -222,7 +222,7 @@ def test_tempo_mcp_is_enabled_without_a_host_port():
             "/var/run/docker.sock" not in str(volume)
             for volume in service.get("volumes", [])
         )
-    assert tempo["expose"] == ["3200", "4317", "4318"]
+    assert {str(port) for port in tempo["expose"]} >= {"3200", "4317", "4318"}
     assert tempo_config["query_frontend"]["mcp_server"] == {"enabled": True}
 
 

@@ -55,6 +55,17 @@ class _FakeGrafanaApi:
         self.calls.append(("delete-token", account_id, token_id))
 
 
+class _EmptyResponse:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        return False
+
+    def read(self):
+        return b""
+
+
 def _account(*, role="Viewer", disabled=False, account_id=1):
     return {
         "id": account_id,
@@ -80,7 +91,9 @@ def test_identity_reuses_valid_gateway_secret_without_creating_token(
     api = _FakeGrafanaApi(accounts=[_account()], tokens=[])
     probes = iter([target.GatewayProbe(True, False, "MCP_GATEWAY_READY")])
     monkeypatch.setattr(target, "_GrafanaApi", lambda *_args, **_kwargs: api)
-    monkeypatch.setattr(target, "ensure_dynamic_tools_disabled", lambda apply: "disabled")
+    monkeypatch.setattr(
+        target, "ensure_dynamic_tools_disabled", lambda apply: "disabled"
+    )
     monkeypatch.setattr(target, "_gateway_probe", lambda: next(probes))
     monkeypatch.setattr(target, "_checked_docker", lambda *args, **kwargs: None)
 
@@ -122,7 +135,9 @@ def test_identity_uses_environment_without_env_file_and_reads_it_once(
     monkeypatch.delenv("AZURPILOT_OBSERVABILITY_GRAFANA_URL", raising=False)
     monkeypatch.setattr(target, "_load_env_file", load_env_file)
     monkeypatch.setattr(target, "_GrafanaApi", build_api)
-    monkeypatch.setattr(target, "ensure_dynamic_tools_disabled", lambda apply: "disabled")
+    monkeypatch.setattr(
+        target, "ensure_dynamic_tools_disabled", lambda apply: "disabled"
+    )
     monkeypatch.setattr(target, "_gateway_probe", lambda: next(probes))
     monkeypatch.setattr(target, "_checked_docker", lambda *args, **kwargs: None)
 
@@ -181,6 +196,104 @@ def test_identity_stores_new_token_before_reclaiming_obsolete_token(
     assert events == ["store", "delete"]
     assert ("verify-token", "fixture-value") in api.calls
     assert ("delete-token", 1, 1) in api.calls
+
+
+def test_identity_reclaims_new_token_when_gateway_probe_fails(
+    monkeypatch, tmp_path
+):
+    api = _FakeGrafanaApi(accounts=[_account()], tokens=[])
+    probes = iter(
+        [
+            target.GatewayProbe(False, True, "MCP_GATEWAY_AUTH_INVALID"),
+            target.GatewayProbe(False, False, "MCP_GATEWAY_TOOL_ERROR"),
+        ]
+    )
+    stored = []
+    monkeypatch.setattr(target, "_GrafanaApi", lambda *_args, **_kwargs: api)
+    monkeypatch.setattr(target, "ensure_dynamic_tools_disabled", lambda apply: "disabled")
+    monkeypatch.setattr(target, "_gateway_probe", lambda: next(probes))
+    monkeypatch.setattr(target, "_store_secret", stored.append)
+    monkeypatch.setattr(target, "_checked_docker", lambda *args, **kwargs: None)
+
+    with pytest.raises(
+        target.ObservabilityMcpError,
+        match="MCP_GATEWAY_AUTH_AFTER_TOKEN_STORE_FAILED",
+    ):
+        target.ensure_identity(
+            repository_root=ROOT,
+            env_file=_env_file(tmp_path),
+            import_profile=False,
+        )
+
+    assert stored == ["fixture-value"]
+    assert ("delete-token", 1, 2) in api.calls
+
+
+def test_identity_preserves_original_failure_when_token_reclaim_fails(
+    monkeypatch, tmp_path
+):
+    api = _FakeGrafanaApi(accounts=[_account()], tokens=[])
+    probes = iter(
+        [
+            target.GatewayProbe(False, True, "MCP_GATEWAY_AUTH_INVALID"),
+            target.GatewayProbe(False, False, "MCP_GATEWAY_TOOL_ERROR"),
+        ]
+    )
+
+    def fail_delete(account_id, token_id):
+        raise target.ObservabilityMcpError("MCP_GRAFANA_TOKEN_DELETE_FAILED")
+
+    api.delete_token = fail_delete
+    monkeypatch.setattr(target, "_GrafanaApi", lambda *_args, **_kwargs: api)
+    monkeypatch.setattr(target, "ensure_dynamic_tools_disabled", lambda apply: "disabled")
+    monkeypatch.setattr(target, "_gateway_probe", lambda: next(probes))
+    monkeypatch.setattr(target, "_store_secret", lambda token: None)
+    monkeypatch.setattr(target, "_checked_docker", lambda *args, **kwargs: None)
+
+    with pytest.raises(
+        target.ObservabilityMcpError,
+        match="MCP_GATEWAY_AUTH_AFTER_TOKEN_STORE_FAILED",
+    ):
+        target.ensure_identity(
+            repository_root=ROOT,
+            env_file=_env_file(tmp_path),
+            import_profile=False,
+        )
+
+
+def test_grafana_api_accepts_empty_delete_response():
+    api = target._GrafanaApi(
+        target.DEFAULT_GRAFANA_URL,
+        admin_user="admin",
+        admin_password="fixture-password",
+        opener=lambda *_args, **_kwargs: _EmptyResponse(),
+    )
+
+    api.delete_token(1, 2)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://127.0.0.1:3000",
+        "http://localhost:3000",
+        "http://[::1]:3000",
+    ],
+)
+def test_grafana_url_accepts_only_loopback_hosts(url):
+    assert target._grafana_url(url) == url
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://grafana.example:3000",
+        "https://192.168.1.20:3000",
+    ],
+)
+def test_grafana_url_rejects_non_loopback_hosts(url):
+    with pytest.raises(target.ObservabilityMcpError, match="MCP_GRAFANA_URL_INVALID"):
+        target._grafana_url(url)
 
 
 def test_identity_fails_closed_on_duplicate_canonical_accounts(monkeypatch, tmp_path):

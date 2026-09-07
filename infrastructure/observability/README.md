@@ -616,7 +616,9 @@ uv run --locked --no-sync python -m dev_tools.observability_mcp ensure-identity
 `/api/serviceaccounts/*`; secret value не сохраняется в repository, environment,
 CLI arguments, logs, traceback или artifact. При rotation новый token сначала
 проверяется напрямую и через Gateway, затем старые tokens с canonical name
-отзываются по metadata. При неуспешной проверке старый token не отзывается.
+отзываются по metadata. При неуспешной проверке replacement token отзывается,
+а старый token не отзывается. Admin API bootstrap принимает только loopback
+Grafana URL (`127.0.0.1`, `localhost` или `::1`).
 
 Если Docker Secrets Engine недоступен, bootstrap завершается с ошибкой и не
 создаёт новый token. Исправлять нужно именно credential transport, а не

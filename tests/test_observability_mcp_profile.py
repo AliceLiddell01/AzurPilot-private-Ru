@@ -75,15 +75,26 @@ def test_grafana_mcp_profile_has_a_bounded_read_allowlist():
 
 
 @pytest.mark.parametrize(
-    "runtime_tools",
+    ("runtime_tools", "error_code"),
     [
-        list(EXPECTED_PROFILE_TOOLS) + ["mcp-add"],
-        list(EXPECTED_PROFILE_TOOLS) + ["code-mode"],
-        list(EXPECTED_PROFILE_TOOLS[:-1]) + ["mcp-exec"],
+        (
+            list(EXPECTED_PROFILE_TOOLS) + ["mcp-add"],
+            "MCP_RUNTIME_DYNAMIC_TOOL_PRESENT",
+        ),
+        (
+            list(EXPECTED_PROFILE_TOOLS) + ["code-mode"],
+            "MCP_RUNTIME_DYNAMIC_TOOL_PRESENT",
+        ),
+        (
+            list(EXPECTED_PROFILE_TOOLS[:-1]) + ["mcp-exec"],
+            "MCP_RUNTIME_DYNAMIC_TOOL_PRESENT",
+        ),
     ],
 )
-def test_runtime_catalog_rejects_dynamic_or_unbounded_tools(runtime_tools):
-    with pytest.raises(ObservabilityMcpError):
+def test_runtime_catalog_rejects_dynamic_or_unbounded_tools(
+    runtime_tools, error_code
+):
+    with pytest.raises(ObservabilityMcpError, match=error_code):
         _runtime_tool_names_from_payload(
             [{"name": name} for name in runtime_tools]
         )

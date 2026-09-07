@@ -262,12 +262,12 @@ def _runtime_tool_names_from_payload(payload: object) -> tuple[str, ...]:
     if len(names) != len(set(names)):
         raise ObservabilityMcpError("MCP_RUNTIME_TOOL_DUPLICATE")
     actual = set(names)
-    if actual != EXPECTED_PROFILE_TOOL_SET:
-        raise ObservabilityMcpError("MCP_RUNTIME_ALLOWLIST_MISMATCH")
     if actual.intersection(_DYNAMIC_TOOL_NAMES) or any(
         name.startswith("mcp-") or name == "code-mode" for name in actual
     ):
         raise ObservabilityMcpError("MCP_RUNTIME_DYNAMIC_TOOL_PRESENT")
+    if actual != EXPECTED_PROFILE_TOOL_SET:
+        raise ObservabilityMcpError("MCP_RUNTIME_ALLOWLIST_MISMATCH")
     return tuple(sorted(names))
 
 
@@ -363,8 +363,14 @@ def _setting(name: str, env_values: dict[str, str]) -> str | None:
 
 def _grafana_url(value: str | None) -> str:
     url = value or DEFAULT_GRAFANA_URL
-    parsed = urlsplit(url)
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+    try:
+        parsed = urlsplit(url)
+        hostname = parsed.hostname
+    except ValueError as exc:
+        raise ObservabilityMcpError("MCP_GRAFANA_URL_INVALID") from exc
+    if parsed.scheme not in {"http", "https"} or not hostname:
+        raise ObservabilityMcpError("MCP_GRAFANA_URL_INVALID")
+    if hostname.casefold() not in {"127.0.0.1", "::1", "localhost"}:
         raise ObservabilityMcpError("MCP_GRAFANA_URL_INVALID")
     if parsed.username or parsed.password or parsed.query or parsed.fragment:
         raise ObservabilityMcpError("MCP_GRAFANA_URL_INVALID")
@@ -425,6 +431,8 @@ class _GrafanaApi:
             raise ObservabilityMcpError(f"{error_code}_HTTP") from exc
         except (OSError, URLError, TimeoutError) as exc:
             raise ObservabilityMcpError(f"{error_code}_UNAVAILABLE") from exc
+        if not raw.strip():
+            return None
         try:
             return json.loads(raw)
         except (UnicodeError, json.JSONDecodeError) as exc:
@@ -638,12 +646,18 @@ def ensure_identity(
     try:
         api.verify_token(token)
         _store_secret(token)
+        probe = _gateway_probe()
+        if not probe.ok:
+            raise ObservabilityMcpError("MCP_GATEWAY_AUTH_AFTER_TOKEN_STORE_FAILED")
+    except BaseException:
+        try:
+            api.delete_token(account.account_id, token_id)
+        except BaseException:
+            pass
+        raise
     finally:
         del token
 
-    probe = _gateway_probe()
-    if not probe.ok:
-        raise ObservabilityMcpError("MCP_GATEWAY_AUTH_AFTER_TOKEN_STORE_FAILED")
     old_tokens = [
         item
         for item in tokens
