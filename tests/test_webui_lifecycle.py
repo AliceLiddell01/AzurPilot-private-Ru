@@ -7,9 +7,8 @@ from module.webui.fake_pil_module import remove_fake_pil_module
 
 remove_fake_pil_module()
 
-from module.webui import app_lifecycle
-from module.webui import setting
-from module.webui.setting import State
+from module.webui import app_lifecycle, setting
+from module.webui.setting import State, _close_runtime_control_server
 
 
 class TestWebUILifecycle(unittest.TestCase):
@@ -72,9 +71,14 @@ class TestWebUIState(unittest.TestCase):
         self.original_clearup = State._clearup
         self.original_manager = State.manager
         self.original_registry = State.process_registry
+        self.original_runtime_control_server = State._runtime_control_server
         State._clearup = False
 
     def tearDown(self):
+        current_server = State._runtime_control_server
+        if current_server is not self.original_runtime_control_server:
+            _close_runtime_control_server(current_server)
+        State._runtime_control_server = self.original_runtime_control_server
         State._clearup = self.original_clearup
         State.manager = self.original_manager
         State.process_registry = self.original_registry
