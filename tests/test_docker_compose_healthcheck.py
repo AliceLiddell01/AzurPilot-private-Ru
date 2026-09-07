@@ -204,6 +204,28 @@ def test_grafana_datasources_provision_loki_tempo_incident_correlation():
     assert "span_id" not in loki_config
 
 
+def test_tempo_mcp_is_enabled_without_a_host_port():
+    compose_path = ROOT / "infrastructure/observability/compose.yaml"
+    compose_data = yaml.safe_load(compose_path.read_text(encoding="utf-8"))
+    tempo = compose_data["services"]["tempo"]
+    tempo_config = yaml.safe_load(
+        (ROOT / "infrastructure/observability/tempo/config.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert "ports" not in tempo
+    for service_name in ("loki", "prometheus", "tempo"):
+        service = compose_data["services"][service_name]
+        assert "ports" not in service
+        assert all(
+            "/var/run/docker.sock" not in str(volume)
+            for volume in service.get("volumes", [])
+        )
+    assert {str(port) for port in tempo["expose"]} >= {"3200", "4317", "4318"}
+    assert tempo_config["query_frontend"]["mcp_server"] == {"enabled": True}
+
+
 def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
     compose_path = ROOT / "infrastructure/observability/compose.yaml"
     compose_data = yaml.safe_load(compose_path.read_text(encoding="utf-8"))

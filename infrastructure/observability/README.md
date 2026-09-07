@@ -72,6 +72,13 @@ AZURPILOT_OBSERVABILITY_PGADMIN_ADMIN_EMAIL,
 AZURPILOT_OBSERVABILITY_PGADMIN_ADMIN_PASSWORD и
 AZURPILOT_OBSERVABILITY_PGADMIN_PGPASS. Пароль начального администратора
 Grafana и pgAdmin передаётся через Compose secret и не попадает в репозиторий.
+Для Grafana это именно initial admin secret: `GF_SECURITY_ADMIN_PASSWORD__FILE`
+читается при первом создании admin state в `/var/lib/grafana`. После появления
+внешнего `azurpilot-observability_grafana-data` пароль администратора хранится
+как persisted credential в Grafana DB; изменение `.env` или Compose secret само
+по себе его не синхронизирует. `GF_SECURITY_ADMIN_USER` также относится к
+первичному созданию; для уже существующего volume canonical admin user должен
+совпадать с persisted login.
 Порт pgAdmin задаётся через `AZURPILOT_OBSERVABILITY_PGADMIN_PORT`; по умолчанию
 используется `5050`. Публичные Dev/Game hosts задаются не секретными ключами
 `AZURPILOT_CADDY_HOST` и `AZURPILOT_GAME_MCP_PUBLIC_HOST`; OAuth-переменные Dev/Game остаются в том же защищённом
@@ -96,6 +103,30 @@ Grafana и pgAdmin передаётся через Compose secret и не поп
     $lines -replace '^AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD=.*$', "AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD=$password" |
         Set-Content -LiteralPath $envFile -Encoding utf8NoBOM
     Remove-Variable password
+
+Если `.env` уже содержит новый canonical Grafana admin password, а существующий
+volume был создан со старым password, выполните отдельное явное recovery из
+корня checkout:
+
+    uv run --locked --no-sync python -m dev_tools.observability_mcp recover-admin
+
+Recovery не является побочным эффектом `ensure-identity`. Команда проверяет
+canonical Compose и наличие именно `azurpilot-observability_grafana-data`,
+останавливает только основной `grafana`, запускает официальный
+`grafana cli admin reset-admin-password --password-from-stdin --user-id 1` в
+одноразовом контейнере с теми же Compose mounts/config/secrets, затем штатно
+поднимает Grafana с healthcheck. Пароль передаётся только через stdin и не
+попадает в CLI arguments, logs, traceback или временный plaintext-файл. Volume
+не удаляется и не пересоздаётся.
+
+После reset recovery проверяет Grafana Admin API, запускает обычный
+`ensure-identity` и отдельно выполняет Gateway probe. `ensure-identity` всегда
+проверяет Admin API, canonical service account
+`azurpilot-observability-mcp`, его роль `Viewer` и enabled state; успешный
+Viewer/Gateway token не используется как обход этой проверки. HTTP 401 означает
+`MCP_GRAFANA_ADMIN_CREDENTIALS_REJECTED` — текущие admin credentials отклонены;
+это само по себе не доказывает stale volume и может означать другой неверный
+user/password.
 
 Для Docker PostgreSQL дополнительно требуется локальный bootstrap secret
 `AZURPILOT_POSTGRES_DOCKER_BOOTSTRAP_PASSWORD`. Он нужен только Compose для
@@ -495,3 +526,211 @@ repository-relative paths, а persistent state отделён named volumes. П�
 тот же base contract можно перенести на VPS с отдельными secrets, host
 bindings и внешним endpoint в deployment-specific настройках, не меняя
 топологию сервисов.
+
+## MCP-профиль наблюдаемости
+
+`azurpilot-observability` — отдельный Docker MCP Toolkit profile для
+диагностики observability. Он не управляет AzurPilot, игровыми профилями,
+эмулятором или Docker-инфраструктурой: Development MCP и Game MCP остаются
+самостоятельными поверхностями, а Docker CLI для намеренных outage/recovery
+действий относится к отдельному эксплуатационному workflow.
+
+Единственный version-controlled источник определения profile —
+`.docker/azurpilot-observability-profile.json`. Он одновременно является
+portable export и canonical server definition; отдельная вручную поддерживаемая
+копия Grafana MCP server не используется.
+
+Profile содержит только один pinned image `mcp/grafana` и не содержит volume,
+Docker socket, host port или произвольный host filesystem bind. Grafana MCP
+запускается с `--disable-write` и `--max-loki-log-limit=50`. Profile export
+не содержит token: credential подставляется только из отдельного secret store.
+
+### Восстановление profile и подключение Codex
+
+Из корня checkout canonical profile сначала проверяется и импортируется без
+повторения GUI-действий:
+
+```powershell
+uv run --locked --no-sync python -m dev_tools.observability_mcp profile --import
+```
+
+После импорта нужно установить bounded static boundary. Dynamic MCP является
+global feature Docker MCP Toolkit, а не свойством одного profile. Встроенные
+`mcp-*`, `mcp-exec` и `code-mode` tools поэтому должны быть отключены до
+подключения client:
+
+```powershell
+uv run --locked --no-sync python -m dev_tools.observability_mcp ensure-boundary
+uv run --locked --no-sync python -m dev_tools.observability_mcp runtime-tools
+```
+
+В repository Development/Game surfaces используют собственные local stdio или
+authenticated MCP entrypoints и не зависят от Docker Dynamic MCP. Глобальное
+отключение feature меняет только Docker MCP Toolkit; оно не добавляет и не
+удаляет `azurpilot-dev` или Game MCP configuration.
+
+Адрес Grafana внутри MCP container —
+`http://host.docker.internal:3000`; сама Grafana остаётся доступной только на
+`127.0.0.1:3000`. Для подключения глобального Codex client используется
+фактический CLI contract Docker MCP Toolkit:
+
+```powershell
+docker mcp client connect codex --profile azurpilot-observability --global
+```
+
+Команда должна сохранить существующий `azurpilot-dev` и добавить отдельный
+`MCP_DOCKER` с тем же profile. После изменения глобальной конфигурации Codex
+может потребовать перезапуск клиента.
+
+### Доступные MCP tools
+
+Allowlist берётся из canonical profile и включает только read-only Grafana и
+Tempo proxied tools:
+
+```text
+check_datasources_health
+get_dashboard_panel_queries
+get_dashboard_property
+get_dashboard_summary
+get_datasource
+list_datasources
+list_loki_label_names
+list_loki_label_values
+list_prometheus_label_names
+list_prometheus_label_values
+list_prometheus_metric_metadata
+list_prometheus_metric_names
+query_loki_logs
+query_prometheus
+query_prometheus_histogram
+search_dashboards
+generate_deeplink
+alerting_manage_rules
+tempo_docs-traceql
+tempo_get-attribute-names
+tempo_get-attribute-values
+tempo_get-trace
+tempo_traceql-metrics-instant
+tempo_traceql-metrics-range
+tempo_traceql-search
+```
+
+`alerting_manage_rules` оставлен только вместе с backend-флагом `--disable-write`:
+текущая реализация Grafana MCP объединяет чтение и управление rules в одном
+catalog tool, а write operations должны быть отброшены самим server mode.
+Dashboard create/update/delete, snapshots, plugin/admin/OnCall/Sift/Pyroscope,
+generic API и Docker-control tools в profile отсутствуют.
+
+### Service account и token
+
+Для MCP используется отдельный Grafana service account
+`azurpilot-observability-mcp` с ролью `Viewer`; Grafana admin password,
+PostgreSQL credentials и пользовательские credentials для MCP не передаются.
+Значение service account token не хранится в Git, `.env`, profile export,
+README, аргументах команд или временном plaintext-файле. Стабильное имя secret
+в Docker MCP contract — `grafana.api_key`, а pinned server передаёт его через
+`GRAFANA_SERVICE_ACCOUNT_TOKEN`.
+
+Идемпотентный bootstrap выполняется из корня checkout. Он использует
+Grafana admin credentials из локального `.env`, проверяет или создаёт ровно
+один canonical service account, приводит его к роли `Viewer`, проверяет
+существующий Gateway secret и создаёт replacement token только при
+authentication failure. Token передаётся в Docker secret store через stdin
+в bounded process и никогда не печатается:
+
+```powershell
+uv run --locked --no-sync python -m dev_tools.observability_mcp ensure-identity
+```
+
+Команда использует официальный service-account API pinned Grafana 13.2.1:
+поиск, создание/обновление account и создание token выполняются через
+`/api/serviceaccounts/*`; secret value не сохраняется в repository, environment,
+CLI arguments, logs, traceback или artifact. При rotation новый token сначала
+проверяется напрямую и через Gateway, затем старые tokens с canonical name
+отзываются по metadata. При неуспешной проверке replacement token отзывается,
+а старый token не отзывается. Admin API bootstrap принимает только loopback
+Grafana URL (`127.0.0.1`, `localhost` или `::1`).
+
+Если Docker Secrets Engine недоступен, bootstrap завершается с ошибкой и не
+создаёт новый token. Исправлять нужно именно credential transport, а не
+обходить его plaintext-файлом или переменной в profile.
+
+### Question-driven diagnostic workflow
+
+Начинай с discovery и узких запросов, затем связывай один фактически
+существующий AzurPilot task run между сигналами:
+
+1. `list_datasources`, `check_datasources_health`, `search_dashboards` и
+   `get_dashboard_summary` подтверждают identity и доступные источники.
+2. `query_prometheus` ищет `azurpilot_task_run_total`, а
+   `query_prometheus_histogram` — базу
+   `azurpilot_task_duration_seconds`; для воспроизводимого bounded запроса
+   передавай явные `startTime`, `endTime` и `stepSeconds`, а range и labels
+   ограничивай нужным окном времени и profile/task.
+3. `query_loki_logs` использует bounded LogQL с `service_name="azurpilot"`
+   и, при необходимости, `trace_id` в structured metadata; не запрашивай весь
+   retention window.
+4. `get_dashboard_property` и `get_dashboard_panel_queries` показывают, какая
+   panel и query визуализируют найденный run; для перехода используй
+   `generate_deeplink`.
+5. Через Gateway выполняются TraceQL search с RFC3339 `start`/`end`, attribute
+   discovery и `tempo_get-trace` для trace ID, извлечённого из того же task run;
+   прямой второй Tempo MCP connection не создаётся.
+
+Tempo MCP включён в `tempo/config.yaml` через
+`query_frontend.mcp_server.enabled: true`. Tempo `3200` не опубликован на
+host: Grafana обращается к нему через Compose network и datasource proxy.
+Если `tempo_*` tools не появились, проверь `tempo` logs и `/api/mcp` из
+Grafana container, затем перезапусти именно Grafana MCP Gateway после
+перезапуска Tempo. Не расширяй profile и не добавляй второй Tempo server как
+обходной путь.
+
+Отсутствие application metric, log или trace — это `INCOMPLETE`, а не PASS.
+Нельзя писать synthetic records напрямую в Prometheus, Loki или Tempo только
+ради acceptance. Полный результат требует цепочку `task metric → task/profile
+→ log → trace_id → tempo_get-trace`; результат MCP для выбранных metric,
+dashboard, alert и trace по возможности сверяется независимым Grafana/backend
+API.
+
+### Проверка безопасности и восстановление Docker Desktop
+
+Перед live query проверь только несекретные свойства:
+
+```powershell
+uv run --locked --no-sync python -m dev_tools.observability_mcp preflight
+uv run --locked --no-sync python -m dev_tools.observability_mcp runtime-tools
+```
+
+На Windows Docker Desktop `docker mcp secret ls` и Gateway могут завершаться
+ошибкой вида:
+
+```text
+secrets engine is not available: unavailable: dial unix ...docker-secrets-engine...engine.sock: connect: An invalid argument was supplied
+```
+
+Сначала убедись, что Docker Desktop запущен, а доступные WSL distributions
+имеют рабочее состояние через `wsl --list --verbose`; имя конкретной
+distribution не является контрактом AzurPilot. Если после аварийного
+завершения Docker родительский каталог `docker-secrets-engine` содержит только
+нерабочий reparse-point socket, допустима recoverable-процедура: остановить
+Docker Desktop, переименовать ровно этот каталог в backup с timestamp, запустить
+Docker Desktop и проверить появление нового socket. Backup не удаляется
+автоматически; не используй `Remove-Item`, `git clean` или broad recursive
+delete.
+
+Отдельная ошибка `docker mcp secret ls` может быть диагностическим warning, но
+она не оправдывает обход secret store. Успешность определяется реальными
+`initialize`, `tools/list` и read-only calls через тот же Gateway; `EOF` или
+`0 tools` означают `BLOCKED`.
+
+Переключение Docker Desktop с WSL2 backend на Hyper-V/VM не является заменой
+secret-store recovery. Такой режим имеет смысл проверять только если сама WSL
+integration не запускается; переход не должен ослаблять loopback bindings,
+secret policy или allowlist.
+
+Одного созданного profile или прямого Grafana API недостаточно для Gateway/MCP
+acceptance. Required evidence — exact runtime allowlist, положительные reads
+через сам Gateway для datasources, Prometheus, Loki, dashboards, alert read и
+Tempo, отрицательная проверка Grafana write, а также завершённая cross-signal
+цепочка для одного реального task run. Если trace ID не найден, acceptance
+остаётся незавершённой и не маскируется независимыми backend pings.
