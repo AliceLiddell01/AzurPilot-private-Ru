@@ -582,8 +582,8 @@ generic API и Docker-control tools в profile отсутствуют.
 PostgreSQL credentials и пользовательские credentials для MCP не передаются.
 Значение service account token не хранится в Git, `.env`, profile export,
 README, аргументах команд или временном plaintext-файле. Стабильное имя secret
-в Docker MCP contract — `grafana.api_key`, хотя по смыслу это именно service
-account token.
+в Docker MCP contract — `grafana.api_key`, а pinned server передаёт его через
+`GRAFANA_SERVICE_ACCOUNT_TOKEN`.
 
 Стандартная bootstrap/rotation-команда читает значение из интерактивного
 stdin и не должна получать его через аргумент командной строки:
@@ -651,13 +651,32 @@ Desktop, переименовать ровно этот каталог в backup
 Desktop и проверить появление нового socket. Backup не удаляется автоматически;
 не используй `Remove-Item`, `git clean` или broad recursive delete.
 
+На проверенном Windows-хосте одного Desktop restart с пересозданием socket
+оказалось недостаточно: после создания нового socket потребовалась полная
+перезагрузка Windows, после которой прежний Gateway blocker (`EOF` и `0 tools`)
+исчез, а secret resolution через Gateway восстановился. После перезагрузки
+сначала проверь `docker mcp secret ls`, затем повтори Gateway `tools/list` и
+read-only calls. Это последний host-side recovery step, а не Docker
+VMM/Hyper-V workaround.
+
+В текущем диагностическом сеансе `docker mcp secret ls` продолжает отдельно
+возвращать `WSAEINVAL`, хотя namespaced keychain entry сохраняется, Gateway
+разрешает тот же `se://` reference и все фактические calls проходят. Это
+фиксируется как residual host-side warning: token не ротируется, provider не
+меняется, а успешность Gateway acceptance определяется реальными
+`tools/list` и read-only calls. Gateway `EOF` или `0 tools` по-прежнему означают
+BLOCKED.
+
 Переключение Docker Desktop с WSL2 backend на Hyper-V/VM не является заменой
 secret-store recovery: показанная ошибка возникает в host-side Secrets Engine
 client и может сохраниться при смене backend. Такой режим имеет смысл проверять
 только если сам WSL integration не запускается; переход не должен ослаблять
 loopback bindings, secret policy или allowlist.
 
-До устранения этой ошибки нельзя считать Gateway/MCP acceptance успешным по
-одному созданному profile или по прямому Grafana API. Required evidence —
-успешные `tools/list` и tool calls через сам Docker MCP Gateway, включая
-Prometheus, Loki, dashboards, alert read и proxied Tempo.
+Одного созданного profile или прямого Grafana API недостаточно для Gateway/MCP
+acceptance. `docker mcp secret ls` остаётся обязательной диагностической
+проверкой и при ошибке должен быть зафиксирован вместе с точным кодом, но
+наблюдаемое расхождение между этой CLI-командой и рабочим Gateway не скрывает
+ошибки транспорта. Required evidence — успешные `tools/list` и tool calls
+через сам Docker MCP Gateway, включая Prometheus, Loki, dashboards, alert read
+и proxied Tempo.

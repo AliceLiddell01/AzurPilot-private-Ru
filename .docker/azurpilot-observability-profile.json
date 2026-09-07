@@ -48,7 +48,7 @@
           "secrets": [
             {
               "name": "grafana.api_key",
-              "env": "GRAFANA_API_KEY"
+              "env": "GRAFANA_SERVICE_ACCOUNT_TOKEN"
             }
           ],
           "env": [

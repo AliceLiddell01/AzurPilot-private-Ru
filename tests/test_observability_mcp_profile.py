@@ -23,7 +23,7 @@ def test_grafana_mcp_server_definition_is_pinned_and_read_only():
         "--max-loki-log-limit=50",
     ]
     assert server["secrets"] == [
-        {"name": "grafana.api_key", "env": "GRAFANA_API_KEY"}
+        {"name": "grafana.api_key", "env": "GRAFANA_SERVICE_ACCOUNT_TOKEN"}
     ]
     assert server["env"] == [
         {"name": "GRAFANA_URL", "value": "{{grafana.url}}"}
