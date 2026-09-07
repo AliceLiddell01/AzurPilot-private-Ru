@@ -96,6 +96,7 @@ GAME_MCP_NO_ARGUMENT_TOOLS = frozenset(
 GAME_MCP_RESULT_STATES = (
     "ready",
     "running",
+    "idle",
     "stopped",
     "warning",
     "updating",

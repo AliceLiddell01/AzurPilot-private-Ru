@@ -76,6 +76,7 @@ from module.application.game_models import (
     ConfigUpdateRequest,
     ConfigUpdateResult,
     CurrentTaskSnapshot,
+    CurrentTaskState,
     DashboardResource,
     DashboardResources,
     EmulatorRestartResult,
@@ -94,10 +95,7 @@ from module.application.game_models import (
     ScheduleTaskResult,
 )
 from module.application.game_read_service import GameReadService
-from module.application.game_validation import (
-    MAX_RECENT_LOG_LINES,
-    UNKNOWN_TASK,
-)
+from module.application.game_validation import MAX_RECENT_LOG_LINES
 from module.application.migration_service import MigrationService, finalize_rehearsal
 from module.application.models import (
     InstanceReference,
@@ -165,6 +163,7 @@ __all__ = (
     "ConfigUpdateRequest",
     "ConfigUpdateResult",
     "CurrentTaskSnapshot",
+    "CurrentTaskState",
     "DATABASE_DIAGNOSTICS_SCHEMA_VERSION",
     "DatabaseCheckDescriptor",
     "DatabaseCheckResult",
@@ -267,7 +266,6 @@ __all__ = (
     "TaskMetadata",
     "TaskOption",
     "TaskSummary",
-    "UNKNOWN_TASK",
     "finalize_rehearsal",
     "project_morale",
 )

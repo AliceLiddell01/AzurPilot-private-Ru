@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
 from threading import Event, Thread
+from unittest.mock import patch
 
 import pytest
 
@@ -29,12 +30,14 @@ from module.application.legacy_game_adapters import (
     LegacyProcessManagerAdapter,
     LegacyRuntimeLogAdapter,
     LegacyScreenshotAdapter,
+    LegacyWorkerIdentityReader,
 )
 from module.application.runtime_control import (
     RuntimeControlError,
     RuntimeControlOperation,
     RuntimeControlResult,
 )
+from module.application.runtime_execution import WorkerIdentityStatus
 
 ARGS = {
     "Main": {
@@ -237,8 +240,6 @@ def test_legacy_log_adapter_is_bounded_and_root_safe(tmp_path: Path):
 
     assert adapter.read_tail("ap", 2) == ("new\n", "<<< Run task Event >>>\n")
     assert adapter.read_tail("ap", 0) == ()
-    assert adapter.read_current_task("ap") == "Event"
-    assert adapter.read_current_task("secondary") == "Unknown"
     log_file.write_bytes(b"x" * (2 * 1024 * 1024) + b"\nlast\n")
     assert adapter.read_tail("ap", 1) == ("last\n",)
     with pytest.raises(ValueError):
@@ -257,7 +258,61 @@ def test_legacy_log_adapter_falls_back_to_previous_calendar_date(tmp_path: Path)
         date_provider=lambda: date(2026, 8, 31),
     )
 
-    assert adapter.read_current_task("ap") == "Main"
+    assert adapter.read_tail("ap", 1) == ("<<< Run task Main >>>\n",)
+
+
+@pytest.mark.parametrize(
+    "created_at",
+    [True, float("nan"), float("inf"), float("-inf"), 0, -1],
+)
+def test_legacy_worker_identity_rejects_invalid_created_at(created_at):
+    from module.webui import worker_registry
+
+    reader = LegacyWorkerIdentityReader()
+    with (
+        patch.object(
+            worker_registry,
+            "get_worker_read_only",
+            return_value={"pid": 123, "created_at": created_at},
+        ),
+        patch.object(worker_registry, "process_matches", return_value=True),
+    ):
+        evidence = reader.read_worker_identity("ap")
+
+    assert evidence.status is WorkerIdentityStatus.UNKNOWN
+
+
+@pytest.mark.parametrize("pid", [True, 0, -1])
+def test_legacy_worker_identity_rejects_invalid_pid(pid: object):
+    from module.webui import worker_registry
+
+    reader = LegacyWorkerIdentityReader()
+    with (
+        patch.object(
+            worker_registry,
+            "get_worker_read_only",
+            return_value={"pid": pid, "created_at": 123.0},
+        ),
+        patch.object(worker_registry, "process_matches", return_value=True),
+    ):
+        evidence = reader.read_worker_identity("ap")
+
+    assert evidence.status is WorkerIdentityStatus.UNKNOWN
+
+
+def test_legacy_worker_identity_does_not_treat_corrupt_registry_as_absent():
+    from module.webui import worker_registry
+
+    reader = LegacyWorkerIdentityReader()
+
+    with patch.object(
+        worker_registry,
+        "get_worker_read_only",
+        side_effect=RuntimeError("registry unavailable"),
+    ):
+        evidence = reader.read_worker_identity("ap")
+
+    assert evidence.status is WorkerIdentityStatus.UNKNOWN
 
 
 def test_legacy_screenshot_lifecycle_and_emulator_adapters_use_narrow_owners(monkeypatch):

@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import traceback
 
-from module.config.profile import profile_identity_from_filename
+from module.config.profile import profile_identity_from_name
 from module.logging_core import sanitize_log_text, sanitize_traceback_text
 
 _METRIC_LABEL_LIMIT = 64
@@ -38,7 +38,7 @@ def _profile_label(value: object) -> str:
     if not isinstance(value, str):
         return "unknown"
     try:
-        if profile_identity_from_filename(f"{value}.json") is None:
+        if profile_identity_from_name(value) is None:
             return "unknown"
     except Exception:
         return "unknown"

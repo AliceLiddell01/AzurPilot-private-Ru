@@ -705,7 +705,13 @@ def test_owner_handover_warns_and_uses_cooperative_stop_before_ap_start(tmp_path
     owner.owner_identity = lambda: owner_identity  # type: ignore[method-assign]
     owner.owner_matches = lambda _owner: True  # type: ignore[method-assign]
     owner.state.mark_worker_started("alas", worker_pid=201, worker_created_at=301.0)
-    owner.state.mark_task_started("alas", "DailyTask", operation_id="user-task")
+    owner.state.mark_task_started(
+        "alas",
+        "DailyTask",
+        expected_worker_pid=201,
+        expected_worker_created_at=301.0,
+        operation_id="user-task",
+    )
     user.alive = True
 
     result = owner.execute(

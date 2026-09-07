@@ -41,6 +41,7 @@ from pydantic import (
     model_validator,
 )
 
+from module.config.profile import profile_identity_from_name
 from module.dev_runtime.bounded_io import BoundedReadTooLarge, read_bounded_bytes
 from module.dev_runtime.contracts import (
     DevEnvironment,
@@ -207,6 +208,12 @@ def _identifier(value: str, *, field_name: str) -> str:
     value = _text(value, field_name=field_name, maximum=128)
     if not _SAFE_ID.fullmatch(value):
         raise ValueError(f"{field_name} имеет небезопасный формат")
+    return value
+
+
+def _profile_identifier(value: str, *, field_name: str) -> str:
+    if profile_identity_from_name(value) is None:
+        raise ValueError(f"{field_name} имеет недопустимый формат профиля")
     return value
 
 
@@ -1082,7 +1089,7 @@ class SmokeRunRecord(_StrictModel):
     @field_validator("target_profile")
     @classmethod
     def validate_target_profile(cls, value: str | None) -> str | None:
-        return None if value is None else _identifier(value, field_name="target_profile")
+        return None if value is None else _profile_identifier(value, field_name="target_profile")
 
     @field_validator("target_identity")
     @classmethod
@@ -1162,7 +1169,7 @@ class SmokeResult(_StrictModel):
     @field_validator("target_profile")
     @classmethod
     def validate_target_profile(cls, value: str | None) -> str | None:
-        return None if value is None else _identifier(value, field_name="result.target_profile")
+        return None if value is None else _profile_identifier(value, field_name="result.target_profile")
 
     @field_validator("target_identity")
     @classmethod

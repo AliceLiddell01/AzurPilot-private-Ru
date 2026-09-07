@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol
 
+from module.config.profile import profile_identity_from_name
+
 DATABASE_DIAGNOSTICS_SCHEMA_VERSION = 1
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _SAFE_TEXT = re.compile(r"^[^\x00-\x1f\x7f]{1,512}$")
@@ -102,7 +104,10 @@ class DatabaseStatusSnapshot:
     schema_version: int = DATABASE_DIAGNOSTICS_SCHEMA_VERSION
 
     def __post_init__(self) -> None:
-        _identifier(self.target_profile, field="target_profile")
+        identity = profile_identity_from_name(self.target_profile)
+        if identity is None:
+            raise ValueError("target_profile имеет недопустимый формат")
+        object.__setattr__(self, "target_profile", identity.name)
         _identifier(self.expected_schema_head, field="expected_schema_head")
         if self.current_schema_head is not None:
             _identifier(self.current_schema_head, field="current_schema_head")

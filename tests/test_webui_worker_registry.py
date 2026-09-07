@@ -300,6 +300,163 @@ class TestWorkerRegistry(unittest.TestCase):
                 worker_registry._registry_lock_file(current_file).exists()
             )
 
+    def test_typed_read_only_worker_snapshot_distinguishes_absent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            registry_file = Path(directory) / "workers.json"
+            legacy_file = Path(directory) / "legacy.json"
+            with patch.multiple(
+                worker_registry,
+                WORKER_REGISTRY_FILE=registry_file,
+                LEGACY_WORKER_REGISTRY_FILE=legacy_file,
+                DEFAULT_WORKER_REGISTRY_FILE=registry_file,
+            ):
+                result = worker_registry.read_worker_read_only("alas")
+
+            self.assertEqual(
+                worker_registry.ReadOnlyWorkerStatus.ABSENT,
+                result.status,
+            )
+            self.assertIsNone(result.record)
+
+    def test_typed_read_only_worker_snapshot_distinguishes_corrupt_registry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            registry_file = Path(directory) / "workers.json"
+            registry_file.write_text("{not-json", encoding="utf-8")
+            legacy_file = Path(directory) / "legacy.json"
+
+            with patch.multiple(
+                worker_registry,
+                WORKER_REGISTRY_FILE=registry_file,
+                LEGACY_WORKER_REGISTRY_FILE=legacy_file,
+                DEFAULT_WORKER_REGISTRY_FILE=registry_file,
+            ):
+                result = worker_registry.read_worker_read_only("alas")
+
+            self.assertEqual(
+                worker_registry.ReadOnlyWorkerStatus.UNKNOWN,
+                result.status,
+            )
+            self.assertIsNone(result.record)
+            with patch.multiple(
+                worker_registry,
+                WORKER_REGISTRY_FILE=registry_file,
+                LEGACY_WORKER_REGISTRY_FILE=legacy_file,
+                DEFAULT_WORKER_REGISTRY_FILE=registry_file,
+            ):
+                with self.assertRaises(RuntimeError):
+                    worker_registry.get_worker_read_only("alas")
+
+    def test_corrupt_current_registry_with_clean_legacy_without_worker_is_unknown(self):
+        with tempfile.TemporaryDirectory() as directory:
+            current_file = Path(directory) / "cache" / "webui-workers.json"
+            legacy_file = Path(directory) / "config" / "webui-workers.json"
+            current_file.parent.mkdir(parents=True)
+            legacy_file.parent.mkdir(parents=True)
+            current_file.write_text("{not-json", encoding="utf-8")
+            legacy_file.write_text(
+                json.dumps(
+                    {
+                        "owner_created_at": None,
+                        "owner_pid": None,
+                        "workers": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with patch.multiple(
+                worker_registry,
+                WORKER_REGISTRY_FILE=current_file,
+                LEGACY_WORKER_REGISTRY_FILE=legacy_file,
+                DEFAULT_WORKER_REGISTRY_FILE=current_file,
+            ):
+                result = worker_registry.read_worker_read_only("alas")
+
+            self.assertEqual(
+                worker_registry.ReadOnlyWorkerStatus.UNKNOWN,
+                result.status,
+            )
+            self.assertIsNone(result.record)
+
+    def test_typed_read_only_worker_snapshot_rejects_non_object_registry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            registry_file = Path(directory) / "workers.json"
+            registry_file.write_text("[]", encoding="utf-8")
+            legacy_file = Path(directory) / "legacy.json"
+
+            with patch.multiple(
+                worker_registry,
+                WORKER_REGISTRY_FILE=registry_file,
+                LEGACY_WORKER_REGISTRY_FILE=legacy_file,
+                DEFAULT_WORKER_REGISTRY_FILE=registry_file,
+            ):
+                result = worker_registry.read_worker_read_only("alas")
+
+            self.assertEqual(
+                worker_registry.ReadOnlyWorkerStatus.UNKNOWN,
+                result.status,
+            )
+            self.assertIsNone(result.record)
+
+    def test_typed_read_only_worker_snapshot_rejects_invalid_record(self):
+        with tempfile.TemporaryDirectory() as directory:
+            registry_file = Path(directory) / "workers.json"
+            registry_file.write_text(
+                json.dumps(
+                    {
+                        "owner_created_at": None,
+                        "owner_pid": None,
+                        "workers": {"alas": {"pid": 200, "created_at": "not-a-number"}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            legacy_file = Path(directory) / "legacy.json"
+
+            with patch.multiple(
+                worker_registry,
+                WORKER_REGISTRY_FILE=registry_file,
+                LEGACY_WORKER_REGISTRY_FILE=legacy_file,
+                DEFAULT_WORKER_REGISTRY_FILE=registry_file,
+            ):
+                result = worker_registry.read_worker_read_only("alas")
+
+            self.assertEqual(
+                worker_registry.ReadOnlyWorkerStatus.UNKNOWN,
+                result.status,
+            )
+            self.assertIsNone(result.record)
+
+    def test_typed_read_only_worker_snapshot_rejects_nonpositive_identity(self):
+        for pid, created_at in ((0, 10.5), (-1, 10.5), (200, 0), (200, -1)):
+            with self.subTest(pid=pid, created_at=created_at), tempfile.TemporaryDirectory() as directory:
+                registry_file = Path(directory) / "workers.json"
+                registry_file.write_text(
+                    json.dumps(
+                        {
+                            "owner_created_at": None,
+                            "owner_pid": None,
+                            "workers": {"alas": {"pid": pid, "created_at": created_at}},
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                legacy_file = Path(directory) / "legacy.json"
+
+                with patch.multiple(
+                    worker_registry,
+                    WORKER_REGISTRY_FILE=registry_file,
+                    LEGACY_WORKER_REGISTRY_FILE=legacy_file,
+                    DEFAULT_WORKER_REGISTRY_FILE=registry_file,
+                ):
+                    result = worker_registry.read_worker_read_only("alas")
+
+                self.assertEqual(
+                    worker_registry.ReadOnlyWorkerStatus.UNKNOWN,
+                    result.status,
+                )
+                self.assertIsNone(result.record)
+
     def test_read_only_owner_snapshot_does_not_migrate_or_create_lock(self):
         with tempfile.TemporaryDirectory() as directory:
             current_file = Path(directory) / "cache" / "webui-workers.json"

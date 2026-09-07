@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -22,16 +23,23 @@ from module.application.host_lock import (
     HOST_LOCK_TIMEOUT_SECONDS,
     application_host_lock,
 )
+from module.config.profile import (
+    MAX_PROFILE_CONFIG_CANDIDATES,
+    profile_identity_from_name,
+)
 
 _STATE_SCHEMA_VERSION = 2
 _MAX_STATE_BYTES = 256 * 1024
-_MAX_PROFILES = 128
+# Число остановленных snapshot ограничено тем же пределом кандидатов, что и discovery;
+# независимый байтовый предел защищает сам repository-scoped state file.
+_MAX_PROFILES = MAX_PROFILE_CONFIG_CANDIDATES
 _MAX_TEXT = 256
 _MAX_TASK = 256
 _FRESHNESS_SECONDS = 120.0
-_SAFE_PROFILE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _SAFE_TOKEN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 _SAFE_PHASE = re.compile(r"^[a-z_]{1,64}$")
+WORKER_STARTUP_TIMEOUT_SECONDS = 10.0
+WORKER_STARTUP_POLL_SECONDS = 0.05
 
 
 class RuntimeStateError(RuntimeError):
@@ -66,6 +74,50 @@ class RuntimePhase(StrEnum):
     FAILED = "failed"
 
 
+_HANDOVER_PHASES = frozenset(
+    {
+        RuntimePhase.HANDOVER_REQUESTED,
+        RuntimePhase.PREEMPTION_NOTICE,
+        RuntimePhase.GRACE_PERIOD,
+        RuntimePhase.QUIESCE_REQUESTED,
+        RuntimePhase.CURRENT_TASK_DRAINING,
+        RuntimePhase.CURRENT_TASK_STOPPED,
+        RuntimePhase.RETURNING_TO_MAIN,
+        RuntimePhase.MAIN_CONFIRMED,
+    }
+)
+_HANDOVER_PHASE_ORDER = {
+    RuntimePhase.HANDOVER_REQUESTED: 0,
+    RuntimePhase.PREEMPTION_NOTICE: 1,
+    RuntimePhase.GRACE_PERIOD: 2,
+    RuntimePhase.QUIESCE_REQUESTED: 3,
+    RuntimePhase.CURRENT_TASK_DRAINING: 4,
+    RuntimePhase.CURRENT_TASK_STOPPED: 5,
+    RuntimePhase.RETURNING_TO_MAIN: 6,
+    RuntimePhase.MAIN_CONFIRMED: 7,
+}
+_RUNNING_PHASES = frozenset(
+    {
+        RuntimePhase.USER_PROFILE_IDLE,
+        RuntimePhase.USER_PROFILE_BUSY,
+        RuntimePhase.HANDOVER_REQUESTED,
+        RuntimePhase.PREEMPTION_NOTICE,
+        RuntimePhase.GRACE_PERIOD,
+        RuntimePhase.QUIESCE_REQUESTED,
+        RuntimePhase.CURRENT_TASK_DRAINING,
+        RuntimePhase.RESOURCE_READY,
+    }
+)
+_STOPPED_PHASES = frozenset(
+    {
+        RuntimePhase.STOPPED,
+        RuntimePhase.CURRENT_TASK_STOPPED,
+        RuntimePhase.RETURNING_TO_MAIN,
+        RuntimePhase.MAIN_CONFIRMED,
+    }
+)
+
+
 @dataclass(frozen=True, slots=True)
 class RuntimeStateSnapshot:
     profile: str
@@ -84,6 +136,17 @@ class RuntimeStateSnapshot:
     updated_at: str
     freshness: str
     provenance: str
+
+    def __post_init__(self) -> None:
+        _validate_snapshot_invariants(
+            phase=self.phase,
+            worker_running=self.worker_running,
+            busy=self.busy,
+            current_task=self.current_task,
+            handover_requested=self.handover_requested,
+            draining=self.draining,
+            stop_requested=self.stop_requested,
+        )
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -193,6 +256,15 @@ class RuntimeStateSnapshot:
                 "RUNTIME_STATE_CORRUPT",
                 "Свободный worker не должен иметь текущую задачу",
             )
+        _validate_snapshot_invariants(
+            phase=phase,
+            worker_running=bool(payload["worker_running"]),
+            busy=bool(payload["busy"]),
+            current_task=current_task,
+            handover_requested=bool(payload["handover_requested"]),
+            draining=bool(payload["draining"]),
+            stop_requested=bool(payload["stop_requested"]),
+        )
         updated_at = payload.get("updated_at")
         _timestamp(updated_at)
         freshness = payload.get("freshness")
@@ -221,10 +293,114 @@ class RuntimeStateSnapshot:
         )
 
 
+def _validate_snapshot_invariants(
+    *,
+    phase: RuntimePhase,
+    worker_running: bool,
+    busy: bool,
+    current_task: str | None,
+    handover_requested: bool,
+    draining: bool,
+    stop_requested: bool,
+) -> None:
+    """Проверить согласованность одного наблюдаемого runtime aggregate."""
+
+    if busy != (current_task is not None):
+        raise RuntimeStateError(
+            "RUNTIME_STATE_CORRUPT",
+            "Флаги busy и current_task runtime state противоречат друг другу",
+        )
+    if phase is RuntimePhase.USER_PROFILE_BUSY and not busy:
+        raise RuntimeStateError(
+            "RUNTIME_STATE_CORRUPT",
+            "USER_PROFILE_BUSY требует активную текущую задачу",
+        )
+    if phase in {
+        RuntimePhase.USER_PROFILE_IDLE,
+        RuntimePhase.RESOURCE_READY,
+    } and busy:
+        raise RuntimeStateError(
+            "RUNTIME_STATE_CORRUPT",
+            "Готовая runtime phase не должна содержать активную task",
+        )
+    if phase in {RuntimePhase.FAILED, *_STOPPED_PHASES} and busy:
+        raise RuntimeStateError(
+            "RUNTIME_STATE_CORRUPT",
+            "Терминальная runtime phase не должна содержать активную task",
+        )
+    if phase in _RUNNING_PHASES and not worker_running:
+        raise RuntimeStateError(
+            "RUNTIME_STATE_CORRUPT",
+            "Активная runtime phase требует работающий worker",
+        )
+    if phase in _STOPPED_PHASES and worker_running:
+        raise RuntimeStateError(
+            "RUNTIME_STATE_CORRUPT",
+            "Терминальная runtime phase не должна содержать работающий worker",
+        )
+    if phase in {
+        RuntimePhase.STOPPED,
+        RuntimePhase.USER_PROFILE_IDLE,
+        RuntimePhase.USER_PROFILE_BUSY,
+        RuntimePhase.RESOURCE_ACQUIRING,
+        RuntimePhase.RESOURCE_READY,
+    } and (handover_requested or draining or stop_requested):
+        raise RuntimeStateError(
+            "RUNTIME_STATE_CORRUPT",
+            "Обычная runtime phase не должна содержать handover flags",
+        )
+    if phase in _HANDOVER_PHASES and not handover_requested:
+        raise RuntimeStateError(
+            "RUNTIME_STATE_CORRUPT",
+            "Handover phase требует handover_requested",
+        )
+    if draining and (not handover_requested or not stop_requested):
+        raise RuntimeStateError(
+            "RUNTIME_STATE_CORRUPT",
+            "draining требует активные handover и stop flags",
+        )
+    if stop_requested and not handover_requested:
+        raise RuntimeStateError(
+            "RUNTIME_STATE_CORRUPT",
+            "stop_requested требует handover_requested",
+        )
+    if phase is RuntimePhase.QUIESCE_REQUESTED and (
+        not stop_requested or draining
+    ):
+        raise RuntimeStateError(
+            "RUNTIME_STATE_CORRUPT",
+            "QUIESCE_REQUESTED требует stop без draining",
+        )
+    if phase is RuntimePhase.CURRENT_TASK_DRAINING and not draining:
+        raise RuntimeStateError(
+            "RUNTIME_STATE_CORRUPT",
+            "CURRENT_TASK_DRAINING требует draining",
+        )
+    if phase in {
+        RuntimePhase.HANDOVER_REQUESTED,
+        RuntimePhase.PREEMPTION_NOTICE,
+        RuntimePhase.GRACE_PERIOD,
+    } and (draining or stop_requested):
+        raise RuntimeStateError(
+            "RUNTIME_STATE_CORRUPT",
+            "Ранняя handover phase не должна быть в состоянии draining",
+        )
+    if phase in {
+        RuntimePhase.CURRENT_TASK_STOPPED,
+        RuntimePhase.RETURNING_TO_MAIN,
+        RuntimePhase.MAIN_CONFIRMED,
+    } and (draining or stop_requested):
+        raise RuntimeStateError(
+            "RUNTIME_STATE_CORRUPT",
+            "Завершённая handover phase не должна содержать stop flags",
+        )
+
+
 def _profile(value: object) -> str:
-    if not isinstance(value, str) or _SAFE_PROFILE.fullmatch(value) is None:
+    identity = profile_identity_from_name(value) if isinstance(value, str) else None
+    if identity is None:
         raise RuntimeStateError("RUNTIME_PROFILE_INVALID", "Имя runtime-профиля имеет недопустимый формат")
-    return value
+    return identity.name
 
 
 def _token(value: object, *, field: str) -> str:
@@ -355,6 +531,44 @@ class RuntimeStateStore:
             )
         return replace(snapshot, freshness=_freshness(snapshot.updated_at))
 
+    def wait_for_worker_started(
+        self,
+        profile: str,
+        *,
+        worker_pid: int,
+        worker_created_at: float,
+        timeout_seconds: float = WORKER_STARTUP_TIMEOUT_SECONDS,
+    ) -> bool:
+        """Ожидать bounded подтверждение exact identity зарегистрированного worker."""
+
+        self._validate_worker(worker_pid, worker_created_at)
+        profile = _profile(profile)
+        if (
+            type(timeout_seconds) not in (int, float)
+            or not math.isfinite(float(timeout_seconds))
+            or not 0 <= float(timeout_seconds) <= 30
+        ):
+            raise ValueError("Тайм-аут регистрации worker должен быть в диапазоне [0, 30]")
+
+        deadline = time.monotonic() + float(timeout_seconds)
+        while True:
+            try:
+                snapshot = self.read(profile)
+            except RuntimeStateError:
+                return False
+            if (
+                snapshot is not None
+                and snapshot.freshness == "fresh"
+                and snapshot.worker_running is True
+                and snapshot.worker_pid == worker_pid
+                and snapshot.worker_created_at == float(worker_created_at)
+            ):
+                return True
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            time.sleep(min(WORKER_STARTUP_POLL_SECONDS, remaining))
+
     def read_all(self) -> dict[str, RuntimeStateSnapshot]:
         payload = self._read_payload()
         records = payload.get("profiles", {})
@@ -416,6 +630,81 @@ class RuntimeStateStore:
                 return True
         return False
 
+    def reconcile_stale_workers(
+        self,
+        authoritative_workers: Mapping[str, Mapping[str, object]],
+        *,
+        worker_identity_checker: Callable[[int, float], bool | None] | None = None,
+        requested_profile: str | None = None,
+    ) -> tuple[str, ...]:
+        """Сбросить только worker state с доказанно отсутствующей identity.
+
+        Registry текущего WebUI имеет приоритет над snapshot. Если profile
+        отсутствует в registry, отсутствие именно старого процесса должно
+        быть подтверждено owner-specific checker: ``False`` означает PID
+        reuse, ``None`` — отсутствие процесса, а ``True`` блокирует recovery.
+        Неопределённость никогда не превращается в новый worker или в idle.
+        При указании ``requested_profile`` проверяется только профиль,
+        который собирается запускать текущий owner; остальные orphan
+        snapshot остаются для общего recovery path и не блокируют его запуск.
+        """
+
+        requested_profile = (
+            _profile(requested_profile)
+            if requested_profile is not None
+            else None
+        )
+        if requested_profile is None:
+            workers = self._normalize_authoritative_workers(authoritative_workers)
+        else:
+            if isinstance(authoritative_workers, Mapping):
+                requested_workers: dict[str, Mapping[str, object]] = {}
+                for raw_profile, raw_record in authoritative_workers.items():
+                    try:
+                        profile = _profile(raw_profile)
+                    except RuntimeStateError:
+                        continue
+                    if profile == requested_profile:
+                        requested_workers[profile] = raw_record
+            else:
+                requested_workers = authoritative_workers
+            workers = self._normalize_authoritative_workers(requested_workers)
+        reconciled: list[str] = []
+        state_changed = False
+        with application_host_lock(self.lock_path):
+            payload = self._read_payload()
+            records = dict(payload["profiles"])
+            for raw_profile, record in tuple(records.items()):
+                profile = _profile(raw_profile)
+                if requested_profile is not None and profile != requested_profile:
+                    continue
+                snapshot = RuntimeStateSnapshot.from_dict(record)
+                if snapshot.profile != profile:
+                    raise RuntimeStateError(
+                        "RUNTIME_STATE_CORRUPT",
+                        "Ключ runtime-профиля не совпадает с записью snapshot",
+                        details={"profile": profile},
+                    )
+                if not snapshot.worker_running:
+                    continue
+                if not self._worker_is_stale(
+                    profile,
+                    snapshot,
+                    workers,
+                    worker_identity_checker,
+                    mismatch_message="Нельзя восстановить runtime state при несовпадающей identity worker",
+                    orphan_unchecked_message="Нельзя восстановить orphan worker без проверки identity",
+                    orphan_live_message="Orphan worker ещё работает; runtime state не сбрасывается",
+                ):
+                    continue
+                reconciled_snapshot = self._build_stopped_snapshot(snapshot)
+                records[profile] = reconciled_snapshot.as_dict()
+                reconciled.append(profile)
+                state_changed = True
+            if state_changed:
+                _atomic_state_write(self.path, records)
+        return tuple(reconciled)
+
     def reconcile_profile_ownership(
         self,
         authoritative_workers: Mapping[str, Mapping[str, object]],
@@ -438,10 +727,16 @@ class RuntimeStateStore:
         with application_host_lock(self.lock_path):
             payload = self._read_payload()
             records = dict(payload["profiles"])
-            for raw_profile, record in records.items():
+            for raw_profile, record in tuple(records.items()):
                 profile = _profile(raw_profile)
                 snapshot = RuntimeStateSnapshot.from_dict(record)
-                if snapshot.profile != profile or profile == session_owner_profile:
+                if snapshot.profile != profile:
+                    raise RuntimeStateError(
+                        "RUNTIME_STATE_CORRUPT",
+                        "Ключ runtime-профиля не совпадает с записью snapshot",
+                        details={"profile": profile},
+                    )
+                if profile == session_owner_profile:
                     continue
                 if snapshot.session_id is None:
                     continue
@@ -459,74 +754,16 @@ class RuntimeStateStore:
                         },
                     )
                 if snapshot.worker_running:
-                    worker = workers.get(profile)
-                    if worker is not None and (
-                        snapshot.worker_pid != worker["pid"]
-                        or snapshot.worker_created_at != worker["created_at"]
+                    if self._worker_is_stale(
+                        profile,
+                        snapshot,
+                        workers,
+                        worker_identity_checker,
+                        mismatch_message="Нельзя восстановить ownership без совпадающей identity worker",
+                        orphan_unchecked_message="Нельзя восстановить ownership без проверки orphan worker",
+                        orphan_live_message="Orphan worker ещё нельзя безопасно списать",
                     ):
-                        raise RuntimeStateError(
-                            "RUNTIME_STATE_RECONCILIATION_REQUIRED",
-                            "Нельзя восстановить ownership без совпадающей identity worker",
-                            details={
-                                "profile": profile,
-                                "reason": "worker_identity_mismatch",
-                            },
-                        )
-                    if worker is None:
-                        if worker_identity_checker is None:
-                            raise RuntimeStateError(
-                                "RUNTIME_STATE_RECONCILIATION_REQUIRED",
-                                "Нельзя восстановить ownership без проверки orphan worker",
-                                details={
-                                    "profile": profile,
-                                    "reason": "orphan_identity_unchecked",
-                                },
-                            )
-                        try:
-                            worker_matches = worker_identity_checker(
-                                snapshot.worker_pid,
-                                snapshot.worker_created_at,
-                            )
-                        except Exception as exc:  # noqa: BLE001 - unknown identity fails closed.
-                            raise RuntimeStateError(
-                                "RUNTIME_STATE_RECONCILIATION_REQUIRED",
-                                "Identity orphan worker невозможно подтвердить",
-                                details={
-                                    "profile": profile,
-                                    "reason": "orphan_identity_unavailable",
-                                    "error": type(exc).__name__,
-                                },
-                            ) from exc
-                        if worker_matches is not None:
-                            raise RuntimeStateError(
-                                "RUNTIME_STATE_RECONCILIATION_REQUIRED",
-                                "Orphan worker ещё нельзя безопасно списать",
-                                details={
-                                    "profile": profile,
-                                    "reason": "orphan_identity_present",
-                                },
-                            )
-                        current = dict(snapshot.as_dict())
-                        current.update(
-                            {
-                                "phase": RuntimePhase.STOPPED.value,
-                                "worker_running": False,
-                                "busy": False,
-                                "current_task": None,
-                                "operation_id": None,
-                                "session_id": None,
-                                "handover_requested": False,
-                                "draining": False,
-                                "stop_requested": False,
-                                "terminal_state": "stopped",
-                                "worker_pid": None,
-                                "worker_created_at": None,
-                                "provenance": "runtime_reconciliation",
-                                "updated_at": self._now(),
-                                "freshness": "fresh",
-                            }
-                        )
-                        reconciled_snapshot = RuntimeStateSnapshot.from_dict(current)
+                        reconciled_snapshot = self._build_stopped_snapshot(snapshot)
                         records[profile] = reconciled_snapshot.as_dict()
                         reconciled.append(profile)
                         continue
@@ -558,22 +795,40 @@ class RuntimeStateStore:
         provenance: str = "webui_owner",
     ) -> RuntimeStateSnapshot:
         self._validate_worker(worker_pid, worker_created_at)
-        return self._update(
-            profile,
-            phase=phase,
-            worker_running=True,
-            busy=False,
-            current_task=None,
-            operation_id=operation_id,
-            session_id=session_id,
-            handover_requested=False,
-            draining=False,
-            stop_requested=False,
-            terminal_state=None,
-            worker_pid=worker_pid,
-            worker_created_at=float(worker_created_at),
-            provenance=provenance,
-        )
+        profile = _profile(profile)
+        with application_host_lock(self.lock_path):
+            current = self.read(profile)
+            if current is not None and current.worker_running:
+                if (
+                    current.worker_pid == worker_pid
+                    and current.worker_created_at == float(worker_created_at)
+                ):
+                    # Повторная регистрация того же boot не должна очищать
+                    # текущую task или активный handover.
+                    return self._update(
+                        profile,
+                        _expected_worker=(worker_pid, float(worker_created_at)),
+                    )
+                raise RuntimeStateError(
+                    "RUNTIME_STATE_STALE_WRITE",
+                    "Новый worker не может перезаписать identity работающего worker",
+                )
+            return self._update(
+                profile,
+                phase=phase,
+                worker_running=True,
+                busy=False,
+                current_task=None,
+                operation_id=operation_id,
+                session_id=session_id,
+                handover_requested=False,
+                draining=False,
+                stop_requested=False,
+                terminal_state=None,
+                worker_pid=worker_pid,
+                worker_created_at=float(worker_created_at),
+                provenance=provenance,
+            )
 
     def refresh_worker_heartbeat(
         self,
@@ -645,13 +900,10 @@ class RuntimeStateStore:
         terminal_state: str | None = "stopped",
         provenance: str = "webui_owner",
     ) -> RuntimeStateSnapshot:
-        if (expected_worker_pid is None) != (expected_worker_created_at is None):
-            raise RuntimeStateError(
-                "RUNTIME_WORKER_ID_INVALID",
-                "Ожидаемая identity worker должна содержать PID и created_at",
-            )
-        if expected_worker_pid is not None and expected_worker_created_at is not None:
-            self._validate_worker(expected_worker_pid, expected_worker_created_at)
+        expected_worker = self._normalize_expected_worker(
+            expected_worker_pid,
+            expected_worker_created_at,
+        )
         return self._update(
             profile,
             phase=phase,
@@ -667,39 +919,87 @@ class RuntimeStateStore:
             worker_pid=None,
             worker_created_at=None,
             provenance=provenance,
-            _expected_worker=(expected_worker_pid, expected_worker_created_at)
-            if expected_worker_pid is not None and expected_worker_created_at is not None
-            else None,
+            _expected_worker=expected_worker,
             _expected_runtime=(operation_id, session_id)
-            if expected_worker_pid is not None and expected_worker_created_at is not None
+            if expected_worker is not None
             else None,
         )
 
-    def mark_task_started(self, profile: str, task: str, *, operation_id: str | None = None, session_id: str | None = None) -> RuntimeStateSnapshot:
+    def mark_task_started(
+        self,
+        profile: str,
+        task: str,
+        *,
+        expected_worker_pid: int | None = None,
+        expected_worker_created_at: float | None = None,
+        operation_id: str | None = None,
+        session_id: str | None = None,
+    ) -> RuntimeStateSnapshot:
         task = _optional_text(task, maximum=_MAX_TASK)
         if task is None:
             raise RuntimeStateError("RUNTIME_STATE_TEXT_INVALID", "Текстовое поле runtime state не может быть пустым")
-        return self._update(
-            profile,
-            phase=RuntimePhase.USER_PROFILE_BUSY,
-            worker_running=True,
-            busy=True,
-            current_task=task,
-            operation_id=operation_id,
-            session_id=session_id,
-            handover_requested=False,
-            draining=False,
-            stop_requested=False,
-            terminal_state=None,
-            provenance="task_lifecycle",
-            _preserve_handover=True,
+        expected_worker = self._require_expected_worker(
+            expected_worker_pid,
+            expected_worker_created_at,
         )
+        profile = _profile(profile)
+        with application_host_lock(self.lock_path):
+            current = self.read(profile)
+            if current is None:
+                raise RuntimeStateError(
+                    "RUNTIME_STATE_BOUNDARY_UNAVAILABLE",
+                    "Нельзя подтвердить task без исходного runtime worker state",
+                )
+            if current.worker_running is not True:
+                raise RuntimeStateError(
+                    "RUNTIME_STATE_BOUNDARY_UNAVAILABLE",
+                    "Нельзя начать task у остановленного worker",
+                )
+            if current.busy:
+                raise RuntimeStateError(
+                    "RUNTIME_STATE_TASK_ALREADY_ACTIVE",
+                    "У worker уже есть подтверждённая текущая task",
+                )
+            if (
+                current.handover_requested
+                or current.draining
+                or current.stop_requested
+            ):
+                raise RuntimeStateError(
+                    "RUNTIME_HANDOVER_IN_PROGRESS",
+                    "Нельзя начать task во время handover или cooperative stop",
+                )
+            if (
+                current.worker_pid != expected_worker[0]
+                or current.worker_created_at != expected_worker[1]
+            ):
+                raise RuntimeStateError(
+                    "RUNTIME_STATE_STALE_WRITE",
+                    "Попытка worker с устаревшей identity начать task отклонена",
+                )
+            return self._update(
+                profile,
+                phase=RuntimePhase.USER_PROFILE_BUSY,
+                worker_running=True,
+                busy=True,
+                current_task=task,
+                operation_id=operation_id,
+                session_id=session_id,
+                handover_requested=False,
+                draining=False,
+                stop_requested=False,
+                terminal_state=None,
+                provenance="task_lifecycle",
+                _expected_worker=expected_worker,
+            )
 
     def try_mark_task_started(
         self,
         profile: str,
         task: str,
         *,
+        expected_worker_pid: int | None = None,
+        expected_worker_created_at: float | None = None,
         operation_id: str | None = None,
         session_id: str | None = None,
     ) -> bool:
@@ -708,6 +1008,10 @@ class RuntimeStateStore:
         task = _optional_text(task, maximum=_MAX_TASK)
         if task is None:
             raise RuntimeStateError("RUNTIME_STATE_TEXT_INVALID", "Текстовое поле runtime state не может быть пустым")
+        expected_worker = self._require_expected_worker(
+            expected_worker_pid,
+            expected_worker_created_at,
+        )
         profile = _profile(profile)
         with application_host_lock(self.lock_path):
             current = self.read(profile)
@@ -721,26 +1025,80 @@ class RuntimeStateStore:
                 or current.stop_requested
             ):
                 return False
-            self.mark_task_started(
+            if (
+                current.worker_pid != expected_worker[0]
+                or current.worker_created_at != expected_worker[1]
+            ):
+                raise RuntimeStateError(
+                    "RUNTIME_STATE_STALE_WRITE",
+                    "Попытка worker с устаревшей identity начать task отклонена",
+                )
+            self._update(
                 profile,
-                task,
+                phase=RuntimePhase.USER_PROFILE_BUSY,
+                worker_running=True,
+                busy=True,
+                current_task=task,
                 operation_id=operation_id,
                 session_id=session_id,
+                handover_requested=False,
+                draining=False,
+                stop_requested=False,
+                terminal_state=None,
+                provenance="task_lifecycle",
+                _expected_worker=expected_worker,
             )
             return True
 
-    def mark_task_finished(self, profile: str, *, operation_id: str | None = None, session_id: str | None = None) -> RuntimeStateSnapshot:
-        return self._update(
-            profile,
-            phase=RuntimePhase.USER_PROFILE_IDLE,
-            busy=False,
-            current_task=None,
-            operation_id=operation_id,
-            session_id=session_id,
-            terminal_state=None,
-            provenance="task_lifecycle",
-            _preserve_handover=True,
+    def mark_task_finished(
+        self,
+        profile: str,
+        task: str | None = None,
+        *,
+        expected_worker_pid: int | None = None,
+        expected_worker_created_at: float | None = None,
+        operation_id: str | None = None,
+        session_id: str | None = None,
+    ) -> RuntimeStateSnapshot:
+        task = _optional_text(task, maximum=_MAX_TASK)
+        expected_worker = self._require_expected_worker(
+            expected_worker_pid,
+            expected_worker_created_at,
         )
+        profile = _profile(profile)
+        with application_host_lock(self.lock_path):
+            current = self.read(profile)
+            if current is None:
+                return RuntimeStateSnapshot.from_dict(_default_record(profile))
+            if current.worker_running and (
+                current.worker_pid != expected_worker[0]
+                or current.worker_created_at != expected_worker[1]
+            ):
+                raise RuntimeStateError(
+                    "RUNTIME_STATE_STALE_WRITE",
+                    "Попытка worker с устаревшей identity завершить task отклонена",
+                )
+            if not current.worker_running or not current.busy:
+                # После stop или уже закрытой boundary поздний finish не
+                # должен воскресить worker и не должен переписывать snapshot.
+                return current
+            if task is not None and current.current_task != task:
+                raise RuntimeStateError(
+                    "RUNTIME_STATE_STALE_WRITE",
+                    "Finish другой task не может закрыть текущую execution boundary",
+                )
+            return self._update(
+                profile,
+                phase=RuntimePhase.USER_PROFILE_IDLE,
+                busy=False,
+                current_task=None,
+                operation_id=operation_id,
+                session_id=session_id,
+                terminal_state=None,
+                provenance="task_lifecycle",
+                _preserve_handover=True,
+                _expected_worker=expected_worker,
+            )
 
     def begin_handover(
         self,
@@ -781,11 +1139,15 @@ class RuntimeStateStore:
                 )
             if snapshot.worker_running is not True:
                 return snapshot
-            if snapshot.handover_requested and snapshot.operation_id not in (None, operation_id):
-                raise RuntimeStateError(
-                    "RUNTIME_HANDOVER_IN_PROGRESS",
-                    "Для пользовательского профиля уже выполняется handover",
-                )
+            if snapshot.handover_requested:
+                if snapshot.operation_id not in (None, operation_id):
+                    raise RuntimeStateError(
+                        "RUNTIME_HANDOVER_IN_PROGRESS",
+                        "Для пользовательского профиля уже выполняется handover",
+                    )
+                # Повторный запрос той же operation не должен откатывать
+                # более позднюю handover phase обратно в начало.
+                return snapshot
             current = dict(snapshot.as_dict())
             current.update(
                 {
@@ -803,7 +1165,21 @@ class RuntimeStateStore:
             return updated
 
     def request_handover(self, profile: str, *, operation_id: str, session_id: str | None = None) -> RuntimeStateSnapshot:
-        return self._update(profile, phase=RuntimePhase.HANDOVER_REQUESTED, operation_id=operation_id, session_id=session_id, handover_requested=True)
+        profile = _profile(profile)
+        with application_host_lock(self.lock_path):
+            current = self.read(profile)
+            if current is None or current.worker_running is not True:
+                raise RuntimeStateError(
+                    "RUNTIME_STATE_TRANSITION_INVALID",
+                    "Нельзя запросить handover у остановленного worker",
+                )
+            return self._update(
+                profile,
+                phase=RuntimePhase.HANDOVER_REQUESTED,
+                operation_id=operation_id,
+                session_id=session_id,
+                handover_requested=True,
+            )
 
     def mark_preemption_notice(self, profile: str, *, operation_id: str, session_id: str | None = None) -> RuntimeStateSnapshot:
         return self._update(profile, phase=RuntimePhase.PREEMPTION_NOTICE, operation_id=operation_id, session_id=session_id, handover_requested=True)
@@ -826,17 +1202,86 @@ class RuntimeStateStore:
     def mark_main_confirmed(self, profile: str, *, operation_id: str, session_id: str | None = None) -> RuntimeStateSnapshot:
         return self._update(profile, phase=RuntimePhase.MAIN_CONFIRMED, operation_id=operation_id, session_id=session_id, handover_requested=True, terminal_state="main_confirmed")
 
-    def mark_resource_acquiring(self, profile: str, *, operation_id: str, session_id: str | None = None) -> RuntimeStateSnapshot:
-        return self._update(profile, phase=RuntimePhase.RESOURCE_ACQUIRING, operation_id=operation_id, session_id=session_id, handover_requested=False, terminal_state=None)
+    def mark_resource_acquiring(
+        self,
+        profile: str,
+        *,
+        operation_id: str,
+        session_id: str | None = None,
+    ) -> RuntimeStateSnapshot:
+        profile = _profile(profile)
+        with application_host_lock(self.lock_path):
+            current = self.read(profile)
+            if current is not None and current.worker_running:
+                raise RuntimeStateError(
+                    "RUNTIME_STATE_TRANSITION_INVALID",
+                    "Нельзя начать resource acquisition при работающем worker",
+                )
+            return self._update(
+                profile,
+                phase=RuntimePhase.RESOURCE_ACQUIRING,
+                operation_id=operation_id,
+                session_id=session_id,
+                handover_requested=False,
+                draining=False,
+                stop_requested=False,
+                worker_running=False,
+                busy=False,
+                current_task=None,
+                worker_pid=None,
+                worker_created_at=None,
+                terminal_state=None,
+            )
 
-    def mark_resource_ready(self, profile: str, *, worker_pid: int, worker_created_at: float, operation_id: str, session_id: str | None = None) -> RuntimeStateSnapshot:
+    def mark_resource_ready(
+        self,
+        profile: str,
+        *,
+        worker_pid: int,
+        worker_created_at: float,
+        operation_id: str,
+        session_id: str | None = None,
+    ) -> RuntimeStateSnapshot:
         self._validate_worker(worker_pid, worker_created_at)
-        return self._update(profile, phase=RuntimePhase.RESOURCE_READY, worker_running=True, busy=False, current_task=None, operation_id=operation_id, session_id=session_id, handover_requested=False, draining=False, stop_requested=False, terminal_state="ready", worker_pid=worker_pid, worker_created_at=float(worker_created_at), provenance="dev_runtime")
+        profile = _profile(profile)
+        with application_host_lock(self.lock_path):
+            current = self.read(profile)
+            if current is not None and current.worker_running:
+                if (
+                    current.worker_pid != worker_pid
+                    or current.worker_created_at != float(worker_created_at)
+                ):
+                    raise RuntimeStateError(
+                        "RUNTIME_STATE_STALE_WRITE",
+                        "Новый resource worker не может перезаписать identity работающего worker",
+                    )
+                if current.busy or current.handover_requested:
+                    # Повторный start не должен очищать текущую task или
+                    # снимать уже начатый handover.
+                    return current
+            return self._update(
+                profile,
+                phase=RuntimePhase.RESOURCE_READY,
+                worker_running=True,
+                busy=False,
+                current_task=None,
+                operation_id=operation_id,
+                session_id=session_id,
+                handover_requested=False,
+                draining=False,
+                stop_requested=False,
+                terminal_state="ready",
+                worker_pid=worker_pid,
+                worker_created_at=float(worker_created_at),
+                provenance="dev_runtime",
+            )
 
     def mark_failed(
         self,
         profile: str,
         *,
+        expected_worker_pid: int | None = None,
+        expected_worker_created_at: float | None = None,
         operation_id: str | None = None,
         session_id: str | None = None,
         terminal_state: str = "failed",
@@ -845,9 +1290,15 @@ class RuntimeStateStore:
         terminal_state = _optional_text(terminal_state, maximum=_MAX_TEXT)
         if terminal_state is None:
             raise RuntimeStateError("RUNTIME_STATE_TEXT_INVALID", "Текстовое поле runtime state не может быть пустым")
+        expected_worker = self._normalize_expected_worker(
+            expected_worker_pid,
+            expected_worker_created_at,
+        )
         return self._update(
             profile,
             phase=RuntimePhase.FAILED,
+            busy=False,
+            current_task=None,
             operation_id=operation_id,
             session_id=session_id,
             handover_requested=False,
@@ -856,6 +1307,7 @@ class RuntimeStateStore:
             terminal_state=terminal_state,
             provenance="runtime_control",
             _preserve_handover_flags=preserve_handover_flags,
+            _expected_worker=expected_worker,
         )
 
     def _update(self, profile: str, **changes: object) -> RuntimeStateSnapshot:
@@ -877,6 +1329,30 @@ class RuntimeStateStore:
                         "Ключ runtime-профиля не совпадает с записью snapshot",
                     )
                 current = dict(existing_snapshot.as_dict())
+                requested_phase = changes.get("phase")
+                if (
+                    existing_snapshot.handover_requested
+                    and isinstance(requested_phase, RuntimePhase)
+                    and requested_phase in _HANDOVER_PHASE_ORDER
+                ):
+                    current_phase = RuntimePhase(existing_snapshot.phase)
+                    if existing_snapshot.operation_id not in (
+                        None,
+                        changes.get("operation_id"),
+                    ):
+                        raise RuntimeStateError(
+                            "RUNTIME_HANDOVER_IN_PROGRESS",
+                            "Другая runtime operation уже выполняет handover",
+                        )
+                    if (
+                        current_phase in _HANDOVER_PHASE_ORDER
+                        and _HANDOVER_PHASE_ORDER[current_phase]
+                        >= _HANDOVER_PHASE_ORDER[requested_phase]
+                    ):
+                        return replace(
+                            existing_snapshot,
+                            freshness=_freshness(existing_snapshot.updated_at),
+                        )
                 if expected_worker is not None:
                     expected_pid, expected_created_at = expected_worker
                     if not existing_snapshot.worker_running:
@@ -907,9 +1383,15 @@ class RuntimeStateStore:
             if preserve_handover:
                 for key in ("handover_requested", "draining", "stop_requested"):
                     changes[key] = current[key]
-                for key in ("operation_id", "session_id"):
-                    if changes.get(key) is None:
+                if current["handover_requested"]:
+                    # Finish текущей task принадлежит source worker, но не
+                    # должен перезаписывать operation ownership handover.
+                    for key in ("operation_id", "session_id"):
                         changes[key] = current[key]
+                else:
+                    for key in ("operation_id", "session_id"):
+                        if changes.get(key) is None:
+                            changes[key] = current[key]
                 if current["handover_requested"]:
                     changes["phase"] = current["phase"]
             elif preserve_handover_flags and (
@@ -983,11 +1465,153 @@ class RuntimeStateStore:
         return {"schema_version": _STATE_SCHEMA_VERSION, "profiles": profiles}
 
     @staticmethod
+    def _worker_is_stale(
+        profile: str,
+        snapshot: RuntimeStateSnapshot,
+        workers: Mapping[str, Mapping[str, object]],
+        worker_identity_checker: Callable[[int, float], bool | None] | None,
+        *,
+        mismatch_message: str,
+        orphan_unchecked_message: str,
+        orphan_live_message: str,
+    ) -> bool:
+        """Подтвердить, что snapshot worker безопасно можно списать."""
+
+        worker = workers.get(profile)
+        if worker is not None:
+            if (
+                snapshot.worker_pid != worker["pid"]
+                or snapshot.worker_created_at != worker["created_at"]
+            ):
+                raise RuntimeStateError(
+                    "RUNTIME_STATE_RECONCILIATION_REQUIRED",
+                    mismatch_message,
+                    details={
+                        "profile": profile,
+                        "reason": "worker_identity_mismatch",
+                    },
+                )
+            return False
+        if worker_identity_checker is None:
+            raise RuntimeStateError(
+                "RUNTIME_STATE_RECONCILIATION_REQUIRED",
+                orphan_unchecked_message,
+                details={
+                    "profile": profile,
+                    "reason": "orphan_identity_unchecked",
+                },
+            )
+        if snapshot.worker_pid is None or snapshot.worker_created_at is None:
+            raise RuntimeStateError(
+                "RUNTIME_STATE_RECONCILIATION_REQUIRED",
+                "Snapshot работающего worker не содержит identity",
+                details={
+                    "profile": profile,
+                    "reason": "worker_identity_missing",
+                },
+            )
+        try:
+            worker_matches = worker_identity_checker(
+                snapshot.worker_pid,
+                snapshot.worker_created_at,
+            )
+        except Exception as exc:
+            raise RuntimeStateError(
+                "RUNTIME_STATE_RECONCILIATION_REQUIRED",
+                "Identity orphan worker невозможно подтвердить",
+                details={
+                    "profile": profile,
+                    "reason": "orphan_identity_unavailable",
+                    "error": type(exc).__name__,
+                },
+            ) from exc
+        if worker_matches is not None and type(worker_matches) is not bool:
+            raise RuntimeStateError(
+                "RUNTIME_STATE_RECONCILIATION_REQUIRED",
+                "Проверка orphan worker вернула неподтверждённый результат",
+                details={
+                    "profile": profile,
+                    "reason": "orphan_identity_invalid",
+                },
+            )
+        if worker_matches is True:
+            raise RuntimeStateError(
+                "RUNTIME_STATE_RECONCILIATION_REQUIRED",
+                orphan_live_message,
+                details={
+                    "profile": profile,
+                    "reason": "orphan_identity_present",
+                },
+            )
+        return True
+
+    def _build_stopped_snapshot(
+        self,
+        snapshot: RuntimeStateSnapshot,
+    ) -> RuntimeStateSnapshot:
+        """Построить canonical stopped snapshot после подтверждённого orphan."""
+
+        current = dict(snapshot.as_dict())
+        current.update(
+            {
+                "phase": RuntimePhase.STOPPED.value,
+                "worker_running": False,
+                "busy": False,
+                "current_task": None,
+                "operation_id": None,
+                "session_id": None,
+                "handover_requested": False,
+                "draining": False,
+                "stop_requested": False,
+                "terminal_state": "stopped",
+                "worker_pid": None,
+                "worker_created_at": None,
+                "provenance": "runtime_reconciliation",
+                "updated_at": self._now(),
+                "freshness": "fresh",
+            }
+        )
+        return RuntimeStateSnapshot.from_dict(current)
+
+    @staticmethod
     def _validate_worker(worker_pid: int, worker_created_at: float) -> None:
         if isinstance(worker_pid, bool) or not isinstance(worker_pid, int) or worker_pid <= 0:
             raise RuntimeStateError("RUNTIME_WORKER_ID_INVALID", "worker_pid должен быть положительным int")
         if isinstance(worker_created_at, bool) or not isinstance(worker_created_at, (int, float)) or not math.isfinite(float(worker_created_at)) or float(worker_created_at) <= 0:
             raise RuntimeStateError("RUNTIME_WORKER_ID_INVALID", "worker_created_at должен быть положительным числом")
+
+    @classmethod
+    def _normalize_expected_worker(
+        cls,
+        worker_pid: int | None,
+        worker_created_at: float | None,
+    ) -> tuple[int, float] | None:
+        if (worker_pid is None) != (worker_created_at is None):
+            raise RuntimeStateError(
+                "RUNTIME_WORKER_ID_INVALID",
+                "Ожидаемая identity worker должна содержать PID и created_at",
+            )
+        if worker_pid is None or worker_created_at is None:
+            return None
+        cls._validate_worker(worker_pid, worker_created_at)
+        return worker_pid, float(worker_created_at)
+
+    @classmethod
+    def _require_expected_worker(
+        cls,
+        worker_pid: int | None,
+        worker_created_at: float | None,
+    ) -> tuple[int, float]:
+        expected_worker = cls._normalize_expected_worker(
+            worker_pid,
+            worker_created_at,
+        )
+        if expected_worker is None:
+            raise RuntimeStateError(
+                "RUNTIME_WORKER_ID_REQUIRED",
+                "Для изменения task boundary требуется identity worker",
+            )
+        return expected_worker
 
     @classmethod
     def _normalize_authoritative_workers(

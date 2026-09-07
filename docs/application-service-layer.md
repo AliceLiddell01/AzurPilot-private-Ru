@@ -27,6 +27,11 @@ Canonical task metadata остаются в generated `module/config/argument/ar
 и `module/config/i18n/ru-RU.json`. Новый слой не заменяет генератор и не копирует
 `McpConfigHelper`: адаптер формирует immutable-проекцию из тех же источников.
 
+Идентичность profile на прикладной границе валидируется тем же canonical
+правилом, что и filesystem discovery в `module.config.profile`. Прикладные и
+Game MCP-сервисы не добавляют отдельный лимит длины profile; bounded
+`MAX_NAME_LENGTH` сохраняется для task/group и ключей конфигурации.
+
 Физическое размещение `ProcessManager` в `module.webui` — зафиксированный legacy
 ownership debt. На этой стадии менеджер не переносится и не дублируется.
 Основной default status path использует
@@ -36,7 +41,9 @@ worker registry через `get_worker_read_only` и `process_matches`, не в�
 `manager_factory` сохраняется только для совместимых legacy callers и
 тестов. Read-only registry snapshot сам по себе не проверяет владельца и может
 содержать запись завершившегося процесса; caller обязан отдельно выполнить
-`process_matches`.
+`process_matches`. Повреждённый, нечитаемый или неоднозначный snapshot имеет
+состояние `unknown`, а не `absent`; вызывающий код обязан сохранить
+fail-closed semantics.
 
 ## Production storage wiring
 

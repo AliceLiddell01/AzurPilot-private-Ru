@@ -18,6 +18,8 @@ from module.config.profile import (
     discover_profile_names,
     is_profile_payload,
     parse_profile_config_bytes,
+    profile_identity_from_filename,
+    profile_identity_from_name,
 )
 from module.config.utils import alas_instance, alas_template, is_oobe_needed
 from module.submodule.utils import MOD_CONFIG_DICT, MOD_DICT, get_config_mod
@@ -202,6 +204,23 @@ def test_regular_and_mod_profiles_with_same_name_are_both_rejected(tmp_path):
     assert discover_profile_names(config) == ["unique"]
     with pytest.raises(ProfileDiscoveryError, match="PROFILE_CONFIG_NAME_COLLISION"):
         discover_profile_names(config, strict=True)
+
+
+@pytest.mark.parametrize("profile_name", [" control", "control ", "control\x01name"])
+def test_profile_identity_rejects_edge_whitespace_and_control_characters(
+    profile_name: str,
+) -> None:
+    assert profile_identity_from_name(profile_name) is None
+    assert profile_identity_from_filename(f"{profile_name}.json") is None
+
+
+def test_profile_identity_has_no_arbitrary_runtime_name_length_cap() -> None:
+    profile_name = "a" * 129
+
+    identity = profile_identity_from_name(profile_name)
+
+    assert identity is not None
+    assert identity.name == profile_name
 
 
 def test_upload_parser_accepts_profiles_and_rejects_reports_and_unknown_mods():

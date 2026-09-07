@@ -11,6 +11,7 @@ from pathlib import Path
 
 from module.application.game_models import SchedulerEntry
 from module.application.game_validation import INVALID_NAME_CHARS, MAX_NAME_LENGTH
+from module.config.profile import profile_identity_from_name
 
 _MAX_BYTES = 1024 * 1024
 _MAX_TASKS = 256
@@ -46,7 +47,12 @@ class SchedulerRuntimeStateReader:
         profile: str,
         schedulable_tasks: Sequence[str],
     ) -> dict[str, SchedulerRuntimeEntry]:
-        profile = self._safe_segment(profile, field="profile")
+        identity = profile_identity_from_name(profile)
+        if identity is None:
+            raise SchedulerRuntimeStateError(
+                "SCHEDULER_STATE_PATH_INVALID", "profile имеет небезопасный формат"
+            )
+        profile = identity.name
         tasks = self._tasks(schedulable_tasks)
         path = self.config_root / f"{profile}.json"
         self._validate_path(path)

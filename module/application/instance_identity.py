@@ -8,14 +8,21 @@ from uuid import UUID, uuid5
 from module.application.errors import StorageConfigurationError
 from module.application.storage_models import InstanceIdentity
 from module.application.storage_ports import StorageUnitOfWork
+from module.config.profile import profile_identity_from_name
 
 _IDENTITY_NAMESPACE = UUID("bc6db2da-cb91-4d6e-bc33-bb598d715c13")
 
 
-def runtime_instance_identity(instance: str) -> tuple[str, UUID]:
-    if not isinstance(instance, str) or not instance or len(instance) > 128:
+def _canonical_instance_name(instance: str) -> str:
+    identity = profile_identity_from_name(instance)
+    if identity is None:
         raise StorageConfigurationError("Имя экземпляра хранилища некорректно.")
-    digest = sha256(instance.encode("utf-8")).hexdigest()
+    return identity.name
+
+
+def runtime_instance_identity(instance: str) -> tuple[str, UUID]:
+    canonical_name = _canonical_instance_name(instance)
+    digest = sha256(canonical_name.encode("utf-8")).hexdigest()
     return digest, uuid5(_IDENTITY_NAMESPACE, digest)
 
 
@@ -48,7 +55,8 @@ def _resolve_runtime_instance(
     *,
     register_missing: bool,
 ) -> UUID | None:
-    digest, identity_id = runtime_instance_identity(instance)
+    canonical_name = _canonical_instance_name(instance)
+    digest, identity_id = runtime_instance_identity(canonical_name)
     identity = uow.instances.resolve(
         alias_kind="legacy_instance",
         alias_digest=digest,
@@ -56,7 +64,7 @@ def _resolve_runtime_instance(
     if identity is None:
         if not register_missing:
             return None
-        identity = InstanceIdentity(identity_id, instance)
+        identity = InstanceIdentity(identity_id, canonical_name)
         uow.instances.register(
             identity,
             alias_kind="legacy_instance",

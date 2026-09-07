@@ -45,6 +45,7 @@ from module.application.game_models import (
     ConfigUpdateRequest,
     ConfigUpdateResult,
     CurrentTaskSnapshot,
+    CurrentTaskState,
     DashboardResources,
     EmulatorRestartResult,
     GameLoginResult,
@@ -63,8 +64,8 @@ from module.application.game_models import (
 from module.application.game_validation import (
     INVALID_NAME_CHARS,
     MAX_NAME_LENGTH,
-    UNKNOWN_TASK,
     validate_json_value,
+    validated_profile,
 )
 from module.application.models import (
     InstanceReference,
@@ -440,11 +441,17 @@ def _public_name(value: object, *, resource: str) -> str:
     return value
 
 
+def _public_profile(value: object) -> str:
+    if isinstance(value, str) and value != value.strip():
+        raise InvalidRequestError("Имя профиля должно быть канонической строкой.")
+    return validated_profile(value, resource="профиля")
+
+
 def _profile_arguments(arguments: dict[str, object]) -> str:
     _check_keys(
         arguments, allowed=frozenset({"profile"}), required=frozenset({"profile"})
     )
-    return _public_name(arguments["profile"], resource="профиля")
+    return _public_profile(arguments["profile"])
 
 
 def _task_arguments(arguments: dict[str, object]) -> str:
@@ -1412,14 +1419,14 @@ class GameMcpAdapter:
                 raise ServiceUnavailableError(
                     "Каталог профилей имеет некорректный формат."
                 )
-            names.append(_public_name(item.name, resource="профиля"))
+            names.append(_public_profile(item.name))
         if profile not in names:
             raise ResourceNotFoundError("Профиль не найден.")
         return profile
 
     @staticmethod
     def _profile_from(arguments: dict[str, object]) -> str:
-        return _public_name(arguments["profile"], resource="профиля")
+        return _public_profile(arguments["profile"])
 
     def _dispatch(
         self,
@@ -1445,7 +1452,7 @@ class GameMcpAdapter:
                     "Каталог профилей имеет некорректный формат."
                 )
             profiles = [
-                {"profile": _public_name(item.name, resource="профиля")}
+                {"profile": _public_profile(item.name)}
                 for item in values
             ]
             return _ok(
@@ -1532,15 +1539,25 @@ class GameMcpAdapter:
                 raise ServiceUnavailableError(
                     "Источник вернул некорректную текущую задачу."
                 )
-            task_unknown = result.task == UNKNOWN_TASK
-            return _ok(
-                "GAME_DATA_UNKNOWN" if task_unknown else "GAME_CURRENT_TASK_READY",
-                "Текущая задача неизвестна."
-                if task_unknown
-                else "Текущая задача определена",
-                "unknown" if task_unknown else "running",
-                {"profile": profile, "task": result.task},
-            )
+            if result.state is CurrentTaskState.RUNNING:
+                code = "GAME_CURRENT_TASK_READY"
+                message = "Текущая задача определена"
+                state = "running"
+            elif result.state is CurrentTaskState.IDLE:
+                code = "GAME_CURRENT_TASK_IDLE"
+                message = "Активная задача отсутствует"
+                state = "idle"
+            elif result.state is CurrentTaskState.UNKNOWN:
+                code = "GAME_CURRENT_TASK_UNKNOWN"
+                message = "Состояние текущей задачи не подтверждено."
+                state = "unknown"
+            elif result.state is CurrentTaskState.STOPPED:
+                raise InstanceNotRunningError("Экземпляр не запущен.")
+            else:  # pragma: no cover - CurrentTaskSnapshot validates the enum.
+                raise ServiceUnavailableError(
+                    "Источник вернул неизвестное состояние текущей задачи."
+                )
+            return _ok(code, message, state, {"profile": profile, "task": result.task})
         if tool == "game_get_scheduler_queue":
             result = read.get_scheduler_queue(profile)
             if not isinstance(result, SchedulerQueueSnapshot):

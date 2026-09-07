@@ -14,6 +14,7 @@ from module.application.resource_lease import (
     ResourceLeaseError,
     game_runtime_lease,
 )
+from module.config.profile import profile_identity_from_name
 
 GAME_CONTROL_LOCK_TIMEOUT_SECONDS = 30.0
 GAME_CONTROL_LOCK_RETRY_INTERVAL_SECONDS = 0.05
@@ -26,8 +27,10 @@ def profile_mutation_lock_path(
 ) -> Path:
     """Вернуть lock path для профиля в его repository-scoped runtime state."""
 
-    if not isinstance(profile, str) or not profile:
+    identity = profile_identity_from_name(profile)
+    if identity is None:
         raise ValueError("Имя профиля для mutation lock должно быть непустым")
+    profile = identity.name
     root = Path(repository_root) if repository_root is not None else Path.cwd()
     root = root.resolve(strict=False)
     # На Windows имена config case-insensitive; normcase сохраняет одну identity
