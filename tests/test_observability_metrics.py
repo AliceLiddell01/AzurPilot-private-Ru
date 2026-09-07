@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import time
+import warnings
 from collections import Counter
 from types import SimpleNamespace
 
@@ -737,7 +738,18 @@ def test_linux_fork_uses_fresh_production_periodic_reader(monkeypatch):
         assert parent_runtime.provider.force_flush(timeout_millis=3000)
         parent_export_count_before_fork = len(parent_exporter.export_pids)
 
-        child_pid = os.fork()
+        with warnings.catch_warnings():
+            # Этот fork намеренно проверяет восстановление runtime с активным
+            # потоком; Python 3.14 предупреждает только об этом сценарии.
+            warnings.filterwarnings(
+                "ignore",
+                message=(
+                    r"This process \(pid=\d+\) is multi-threaded, use of "
+                    r"fork\(\) may lead to deadlocks in the child\."
+                ),
+                category=DeprecationWarning,
+            )
+            child_pid = os.fork()
         if child_pid == 0:
             os.close(read_fd)
             try:

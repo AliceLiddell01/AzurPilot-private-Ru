@@ -205,22 +205,23 @@ class Uiautomator2(Connection):
 
     def drag_uiautomator2(self, p1, p2, segments=1, shake=(0, 15), point_random=(-10, -10, 10, 10),
                           shake_random=(-5, -5, 5, 5), swipe_duration=0.25, shake_duration=0.1):
-        """拖拽并抖动，示意如下:
+        r"""Перетащить объект с небольшим встряхиванием; схема:
                      /\
         +-----------+  +  +
                         \/
-        简单的滑动或拖拽效果不佳，因为只有两个点。
-        添加一些路径点使其更像真实滑动。
+        Простого свайпа или перетаскивания недостаточно, потому что оно содержит
+        только две точки.
+        Дополнительные точки делают движение более похожим на реальный свайп.
 
         Args:
-            p1 (tuple): 起始点，(x, y)。
-            p2 (tuple): 终止点，(x, y)。
-            segments (int):
-            shake (tuple): 到达终止点后的抖动。
-            point_random: 为起始点和终止点添加随机偏移。
-            shake_random: 为抖动数组添加随机偏移。
-            swipe_duration: 路径点之间的间隔时间。
-            shake_duration: 抖动点之间的间隔时间。
+            p1 (tuple): Начальная точка (x, y).
+            p2 (tuple): Конечная точка (x, y).
+            segments (int): Число отрезков пути.
+            shake (tuple): Встряхивание после достижения конечной точки.
+            point_random: Случайное смещение начальной и конечной точек.
+            shake_random: Случайное смещение точек встряхивания.
+            swipe_duration: Интервал между точками пути.
+            shake_duration: Интервал между точками встряхивания.
         """
         p1 = np.array(p1) - random_rectangle_point(point_random)
         p2 = np.array(p2) - random_rectangle_point(point_random)
