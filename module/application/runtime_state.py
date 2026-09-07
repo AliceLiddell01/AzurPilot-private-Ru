@@ -609,84 +609,17 @@ class RuntimeStateStore:
                 snapshot = RuntimeStateSnapshot.from_dict(record)
                 if snapshot.profile != profile or not snapshot.worker_running:
                     continue
-                worker = workers.get(profile)
-                if worker is not None:
-                    if (
-                        snapshot.worker_pid != worker["pid"]
-                        or snapshot.worker_created_at != worker["created_at"]
-                    ):
-                        raise RuntimeStateError(
-                            "RUNTIME_STATE_RECONCILIATION_REQUIRED",
-                            "Нельзя восстановить runtime state при несовпадающей identity worker",
-                            details={
-                                "profile": profile,
-                                "reason": "worker_identity_mismatch",
-                            },
-                        )
+                if not self._worker_is_stale(
+                    profile,
+                    snapshot,
+                    workers,
+                    worker_identity_checker,
+                    mismatch_message="Нельзя восстановить runtime state при несовпадающей identity worker",
+                    orphan_unchecked_message="Нельзя восстановить orphan worker без проверки identity",
+                    orphan_live_message="Orphan worker ещё работает; runtime state не сбрасывается",
+                ):
                     continue
-                if worker_identity_checker is None:
-                    raise RuntimeStateError(
-                        "RUNTIME_STATE_RECONCILIATION_REQUIRED",
-                        "Нельзя восстановить orphan worker без проверки identity",
-                        details={
-                            "profile": profile,
-                            "reason": "orphan_identity_unchecked",
-                        },
-                    )
-                try:
-                    worker_matches = worker_identity_checker(
-                        snapshot.worker_pid,
-                        snapshot.worker_created_at,
-                    )
-                except Exception as exc:
-                    raise RuntimeStateError(
-                        "RUNTIME_STATE_RECONCILIATION_REQUIRED",
-                        "Identity orphan worker невозможно подтвердить",
-                        details={
-                            "profile": profile,
-                            "reason": "orphan_identity_unavailable",
-                            "error": type(exc).__name__,
-                        },
-                    ) from exc
-                if worker_matches is True:
-                    raise RuntimeStateError(
-                        "RUNTIME_STATE_RECONCILIATION_REQUIRED",
-                        "Orphan worker ещё работает; runtime state не сбрасывается",
-                        details={
-                            "profile": profile,
-                            "reason": "orphan_identity_present",
-                        },
-                    )
-                if worker_matches is not None and type(worker_matches) is not bool:
-                    raise RuntimeStateError(
-                        "RUNTIME_STATE_RECONCILIATION_REQUIRED",
-                        "Проверка orphan worker вернула неподтверждённый результат",
-                        details={
-                            "profile": profile,
-                            "reason": "orphan_identity_invalid",
-                        },
-                    )
-                current = dict(snapshot.as_dict())
-                current.update(
-                    {
-                        "phase": RuntimePhase.STOPPED.value,
-                        "worker_running": False,
-                        "busy": False,
-                        "current_task": None,
-                        "operation_id": None,
-                        "session_id": None,
-                        "handover_requested": False,
-                        "draining": False,
-                        "stop_requested": False,
-                        "terminal_state": "stopped",
-                        "worker_pid": None,
-                        "worker_created_at": None,
-                        "provenance": "runtime_reconciliation",
-                        "updated_at": self._now(),
-                        "freshness": "fresh",
-                    }
-                )
-                reconciled_snapshot = RuntimeStateSnapshot.from_dict(current)
+                reconciled_snapshot = self._build_stopped_snapshot(snapshot)
                 records[profile] = reconciled_snapshot.as_dict()
                 reconciled.append(profile)
             if reconciled:
@@ -736,83 +669,16 @@ class RuntimeStateStore:
                         },
                     )
                 if snapshot.worker_running:
-                    worker = workers.get(profile)
-                    if worker is not None and (
-                        snapshot.worker_pid != worker["pid"]
-                        or snapshot.worker_created_at != worker["created_at"]
+                    if self._worker_is_stale(
+                        profile,
+                        snapshot,
+                        workers,
+                        worker_identity_checker,
+                        mismatch_message="Нельзя восстановить ownership без совпадающей identity worker",
+                        orphan_unchecked_message="Нельзя восстановить ownership без проверки orphan worker",
+                        orphan_live_message="Orphan worker ещё нельзя безопасно списать",
                     ):
-                        raise RuntimeStateError(
-                            "RUNTIME_STATE_RECONCILIATION_REQUIRED",
-                            "Нельзя восстановить ownership без совпадающей identity worker",
-                            details={
-                                "profile": profile,
-                                "reason": "worker_identity_mismatch",
-                            },
-                        )
-                    if worker is None:
-                        if worker_identity_checker is None:
-                            raise RuntimeStateError(
-                                "RUNTIME_STATE_RECONCILIATION_REQUIRED",
-                                "Нельзя восстановить ownership без проверки orphan worker",
-                                details={
-                                    "profile": profile,
-                                    "reason": "orphan_identity_unchecked",
-                                },
-                            )
-                        try:
-                            worker_matches = worker_identity_checker(
-                                snapshot.worker_pid,
-                                snapshot.worker_created_at,
-                            )
-                        except Exception as exc:
-                            raise RuntimeStateError(
-                                "RUNTIME_STATE_RECONCILIATION_REQUIRED",
-                                "Identity orphan worker невозможно подтвердить",
-                                details={
-                                    "profile": profile,
-                                    "reason": "orphan_identity_unavailable",
-                                    "error": type(exc).__name__,
-                                },
-                            ) from exc
-                        if worker_matches is True:
-                            raise RuntimeStateError(
-                                "RUNTIME_STATE_RECONCILIATION_REQUIRED",
-                                "Orphan worker ещё нельзя безопасно списать",
-                                details={
-                                    "profile": profile,
-                                    "reason": "orphan_identity_present",
-                                },
-                            )
-                        if worker_matches is not None and type(worker_matches) is not bool:
-                            raise RuntimeStateError(
-                                "RUNTIME_STATE_RECONCILIATION_REQUIRED",
-                                "Проверка orphan worker вернула неподтверждённый результат",
-                                details={
-                                    "profile": profile,
-                                    "reason": "orphan_identity_invalid",
-                                },
-                            )
-                        current = dict(snapshot.as_dict())
-                        current.update(
-                            {
-                                "phase": RuntimePhase.STOPPED.value,
-                                "worker_running": False,
-                                "busy": False,
-                                "current_task": None,
-                                "operation_id": None,
-                                "session_id": None,
-                                "handover_requested": False,
-                                "draining": False,
-                                "stop_requested": False,
-                                "terminal_state": "stopped",
-                                "worker_pid": None,
-                                "worker_created_at": None,
-                                "provenance": "runtime_reconciliation",
-                                "updated_at": self._now(),
-                                "freshness": "fresh",
-                            }
-                        )
-                        reconciled_snapshot = RuntimeStateSnapshot.from_dict(current)
+                        reconciled_snapshot = self._build_stopped_snapshot(snapshot)
                         records[profile] = reconciled_snapshot.as_dict()
                         reconciled.append(profile)
                         continue
@@ -1509,6 +1375,115 @@ class RuntimeStateStore:
         if not isinstance(profiles, dict) or len(profiles) > _MAX_PROFILES:
             raise RuntimeStateError("RUNTIME_STATE_CORRUPT", "Runtime state содержит некорректный каталог профилей")
         return {"schema_version": _STATE_SCHEMA_VERSION, "profiles": profiles}
+
+    @staticmethod
+    def _worker_is_stale(
+        profile: str,
+        snapshot: RuntimeStateSnapshot,
+        workers: Mapping[str, Mapping[str, object]],
+        worker_identity_checker: Callable[[int, float], bool | None] | None,
+        *,
+        mismatch_message: str,
+        orphan_unchecked_message: str,
+        orphan_live_message: str,
+    ) -> bool:
+        """Подтвердить, что snapshot worker безопасно можно списать."""
+
+        worker = workers.get(profile)
+        if worker is not None:
+            if (
+                snapshot.worker_pid != worker["pid"]
+                or snapshot.worker_created_at != worker["created_at"]
+            ):
+                raise RuntimeStateError(
+                    "RUNTIME_STATE_RECONCILIATION_REQUIRED",
+                    mismatch_message,
+                    details={
+                        "profile": profile,
+                        "reason": "worker_identity_mismatch",
+                    },
+                )
+            return False
+        if worker_identity_checker is None:
+            raise RuntimeStateError(
+                "RUNTIME_STATE_RECONCILIATION_REQUIRED",
+                orphan_unchecked_message,
+                details={
+                    "profile": profile,
+                    "reason": "orphan_identity_unchecked",
+                },
+            )
+        if snapshot.worker_pid is None or snapshot.worker_created_at is None:
+            raise RuntimeStateError(
+                "RUNTIME_STATE_RECONCILIATION_REQUIRED",
+                "Snapshot работающего worker не содержит identity",
+                details={
+                    "profile": profile,
+                    "reason": "worker_identity_missing",
+                },
+            )
+        try:
+            worker_matches = worker_identity_checker(
+                snapshot.worker_pid,
+                snapshot.worker_created_at,
+            )
+        except Exception as exc:
+            raise RuntimeStateError(
+                "RUNTIME_STATE_RECONCILIATION_REQUIRED",
+                "Identity orphan worker невозможно подтвердить",
+                details={
+                    "profile": profile,
+                    "reason": "orphan_identity_unavailable",
+                    "error": type(exc).__name__,
+                },
+            ) from exc
+        if worker_matches is True:
+            raise RuntimeStateError(
+                "RUNTIME_STATE_RECONCILIATION_REQUIRED",
+                orphan_live_message,
+                details={
+                    "profile": profile,
+                    "reason": "orphan_identity_present",
+                },
+            )
+        if worker_matches is not None and type(worker_matches) is not bool:
+            raise RuntimeStateError(
+                "RUNTIME_STATE_RECONCILIATION_REQUIRED",
+                "Проверка orphan worker вернула неподтверждённый результат",
+                details={
+                    "profile": profile,
+                    "reason": "orphan_identity_invalid",
+                },
+            )
+        return True
+
+    def _build_stopped_snapshot(
+        self,
+        snapshot: RuntimeStateSnapshot,
+    ) -> RuntimeStateSnapshot:
+        """Построить canonical stopped snapshot после подтверждённого orphan."""
+
+        current = dict(snapshot.as_dict())
+        current.update(
+            {
+                "phase": RuntimePhase.STOPPED.value,
+                "worker_running": False,
+                "busy": False,
+                "current_task": None,
+                "operation_id": None,
+                "session_id": None,
+                "handover_requested": False,
+                "draining": False,
+                "stop_requested": False,
+                "terminal_state": "stopped",
+                "worker_pid": None,
+                "worker_created_at": None,
+                "provenance": "runtime_reconciliation",
+                "updated_at": self._now(),
+                "freshness": "fresh",
+            }
+        )
+        return RuntimeStateSnapshot.from_dict(current)
 
     @staticmethod
     def _validate_worker(worker_pid: int, worker_created_at: float) -> None:
