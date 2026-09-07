@@ -86,6 +86,43 @@ def _env_file(tmp_path):
     return env_file
 
 
+def _compose_contract_payload():
+    return {
+        "services": {
+            target.CANONICAL_GRAFANA_SERVICE: {
+                "image": f"{target.GRAFANA_IMAGE_PREFIX}fixture",
+                "environment": {
+                    "GF_SECURITY_ADMIN_PASSWORD__FILE": target.GRAFANA_ADMIN_SECRET_PATH
+                },
+                "secrets": [
+                    {
+                        "source": target.GRAFANA_ADMIN_SECRET_NAME,
+                        "target": target.GRAFANA_ADMIN_SECRET_PATH,
+                    }
+                ],
+                "volumes": [
+                    {
+                        "type": "volume",
+                        "source": "grafana-data",
+                        "target": "/var/lib/grafana",
+                    }
+                ],
+            }
+        },
+        "volumes": {
+            "grafana-data": {
+                "name": target.CANONICAL_GRAFANA_VOLUME,
+                "external": True,
+            }
+        },
+        "secrets": {
+            target.GRAFANA_ADMIN_SECRET_NAME: {
+                "environment": "AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD"
+            }
+        },
+    }
+
+
 def test_identity_reuses_valid_gateway_secret_without_creating_token(
     monkeypatch, tmp_path
 ):
@@ -432,3 +469,226 @@ def test_gateway_tool_arguments_accept_protocol_names_and_reject_shell_like_keys
 
     with pytest.raises(target.ObservabilityMcpError, match="MCP_TOOL_ARGUMENT_INVALID"):
         target._gateway_tool_call("list_datasources", {"bad;key": "value"})
+
+
+def test_admin_api_401_is_credentials_rejected_not_stale_volume():
+    def reject_credentials(*_args, **_kwargs):
+        raise target.HTTPError(
+            target.DEFAULT_GRAFANA_URL,
+            401,
+            "Unauthorized",
+            hdrs=None,
+            fp=None,
+        )
+
+    api = target._GrafanaApi(
+        target.DEFAULT_GRAFANA_URL,
+        admin_user="admin",
+        admin_password="fixture-password",
+        opener=reject_credentials,
+    )
+
+    with pytest.raises(
+        target.ObservabilityMcpError,
+        match="MCP_GRAFANA_ADMIN_CREDENTIALS_REJECTED",
+    ):
+        api.search_service_account()
+
+
+def test_identity_does_not_bypass_admin_api_when_gateway_token_is_valid(
+    monkeypatch, tmp_path
+):
+    class RejectingAdminApi:
+        def search_service_account(self):
+            raise target.ObservabilityMcpError(
+                "MCP_GRAFANA_ADMIN_CREDENTIALS_REJECTED"
+            )
+
+    monkeypatch.setattr(target, "_GrafanaApi", lambda *_args, **_kwargs: RejectingAdminApi())
+    monkeypatch.setattr(target, "ensure_dynamic_tools_disabled", lambda apply: "disabled")
+    monkeypatch.setattr(target, "_checked_docker", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        target,
+        "_gateway_probe",
+        lambda: pytest.fail("Gateway probe must not bypass Admin API"),
+    )
+
+    with pytest.raises(
+        target.ObservabilityMcpError,
+        match="MCP_GRAFANA_ADMIN_CREDENTIALS_REJECTED",
+    ):
+        target.ensure_identity(
+            repository_root=ROOT,
+            env_file=_env_file(tmp_path),
+            import_profile=False,
+        )
+
+
+def test_recover_admin_uses_one_shot_same_volume_and_runs_full_verification(
+    monkeypatch, tmp_path
+):
+    env_file = _env_file(tmp_path)
+    compose_calls = []
+    events = []
+
+    def checked_compose(
+        *,
+        repository_root,
+        env_file,
+        arguments,
+        error_code="MCP_GRAFANA_COMPOSE_COMMAND_FAILED",
+        input_text=None,
+        timeout=120,
+    ):
+        compose_calls.append(
+            {
+                "arguments": list(arguments),
+                "input_text": input_text,
+                "error_code": error_code,
+            }
+        )
+        if arguments == ["config", "--format", "json"]:
+            return target.subprocess.CompletedProcess(
+                arguments, 0, json.dumps(_compose_contract_payload()), ""
+            )
+        return target.subprocess.CompletedProcess(arguments, 0, "", "")
+
+    def run_docker(arguments, *, input_text=None, timeout=120):
+        assert arguments == ["volume", "inspect", target.CANONICAL_GRAFANA_VOLUME]
+        assert input_text is None
+        return target.subprocess.CompletedProcess(
+            arguments,
+            0,
+            json.dumps([{"Name": target.CANONICAL_GRAFANA_VOLUME}]),
+            "",
+        )
+
+    class AdminApi:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def verify_admin_credentials(self):
+            events.append("admin-api")
+
+    monkeypatch.setattr(target, "_checked_compose", checked_compose)
+    monkeypatch.setattr(target, "_run_docker", run_docker)
+    monkeypatch.setattr(target, "_GrafanaApi", AdminApi)
+    monkeypatch.setattr(
+        target,
+        "ensure_identity",
+        lambda **_kwargs: events.append("ensure-identity")
+        or {
+            "ok": True,
+            "account": target.CANONICAL_SERVICE_ACCOUNT,
+            "role": target.CANONICAL_SERVICE_ACCOUNT_ROLE,
+            "token": "reused",
+            "gateway": "MCP_GATEWAY_READY",
+        },
+    )
+    monkeypatch.setattr(
+        target,
+        "_gateway_probe",
+        lambda: events.append("gateway")
+        or target.GatewayProbe(True, False, "MCP_GATEWAY_READY"),
+    )
+
+    result = target.recover_admin_credentials(
+        repository_root=ROOT,
+        env_file=env_file,
+        import_profile=False,
+    )
+
+    assert events == ["admin-api", "ensure-identity", "gateway"]
+    assert result == {
+        "ok": True,
+        "admin_api": "verified",
+        "volume": target.CANONICAL_GRAFANA_VOLUME,
+        "identity": {
+            "ok": True,
+            "account": target.CANONICAL_SERVICE_ACCOUNT,
+            "role": target.CANONICAL_SERVICE_ACCOUNT_ROLE,
+            "token": "reused",
+            "gateway": "MCP_GATEWAY_READY",
+        },
+        "gateway": "MCP_GATEWAY_READY",
+    }
+    assert [call["arguments"][0] for call in compose_calls] == [
+        "config",
+        "stop",
+        "ps",
+        "run",
+        "up",
+    ]
+    reset_call = next(call for call in compose_calls if call["arguments"][0] == "run")
+    assert reset_call["arguments"] == [
+        "run",
+        "--rm",
+        "--no-deps",
+        "-T",
+        "--entrypoint",
+        "/bin/sh",
+        target.CANONICAL_GRAFANA_SERVICE,
+        "-c",
+        "exec grafana cli admin reset-admin-password --password-from-stdin "
+        f"--user-id {target.GRAFANA_ADMIN_USER_ID} < {target.GRAFANA_ADMIN_SECRET_PATH}",
+    ]
+    assert reset_call["input_text"] is None
+    assert "fixture-password" not in " ".join(reset_call["arguments"])
+    assert target.GRAFANA_ADMIN_SECRET_PATH in reset_call["arguments"][-1]
+    assert not any(
+        call["arguments"][:2] in (["volume", "rm"], ["volume", "create"])
+        or "down" in call["arguments"]
+        for call in compose_calls
+    )
+
+
+def test_recover_admin_restarts_grafana_when_reset_fails(monkeypatch, tmp_path):
+    env_file = _env_file(tmp_path)
+    compose_calls = []
+
+    def checked_compose(
+        *,
+        repository_root,
+        env_file,
+        arguments,
+        error_code="MCP_GRAFANA_COMPOSE_COMMAND_FAILED",
+        input_text=None,
+        timeout=120,
+    ):
+        compose_calls.append((list(arguments), input_text, error_code))
+        if arguments == ["config", "--format", "json"]:
+            return target.subprocess.CompletedProcess(
+                arguments, 0, json.dumps(_compose_contract_payload()), ""
+            )
+        if arguments[0] == "run":
+            raise target.ObservabilityMcpError("MCP_GRAFANA_ADMIN_RESET_FAILED")
+        return target.subprocess.CompletedProcess(arguments, 0, "", "")
+
+    monkeypatch.setattr(target, "_checked_compose", checked_compose)
+    monkeypatch.setattr(
+        target,
+        "_run_docker",
+        lambda arguments, **_kwargs: target.subprocess.CompletedProcess(
+            arguments,
+            0,
+            json.dumps([{"Name": target.CANONICAL_GRAFANA_VOLUME}]),
+            "",
+        ),
+    )
+
+    with pytest.raises(
+        target.ObservabilityMcpError, match="MCP_GRAFANA_ADMIN_RESET_FAILED"
+    ):
+        target.recover_admin_credentials(
+            repository_root=ROOT,
+            env_file=env_file,
+            import_profile=False,
+        )
+
+    assert [call[0][0] for call in compose_calls] == [
+        "config",
+        "stop",
+        "ps",
+        "run",
+        "up",
+    ]

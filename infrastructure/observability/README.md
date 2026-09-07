@@ -72,6 +72,13 @@ AZURPILOT_OBSERVABILITY_PGADMIN_ADMIN_EMAIL,
 AZURPILOT_OBSERVABILITY_PGADMIN_ADMIN_PASSWORD и
 AZURPILOT_OBSERVABILITY_PGADMIN_PGPASS. Пароль начального администратора
 Grafana и pgAdmin передаётся через Compose secret и не попадает в репозиторий.
+Для Grafana это именно initial admin secret: `GF_SECURITY_ADMIN_PASSWORD__FILE`
+читается при первом создании admin state в `/var/lib/grafana`. После появления
+внешнего `azurpilot-observability_grafana-data` пароль администратора хранится
+как persisted credential в Grafana DB; изменение `.env` или Compose secret само
+по себе его не синхронизирует. `GF_SECURITY_ADMIN_USER` также относится к
+первичному созданию; для уже существующего volume canonical admin user должен
+совпадать с persisted login.
 Порт pgAdmin задаётся через `AZURPILOT_OBSERVABILITY_PGADMIN_PORT`; по умолчанию
 используется `5050`. Публичные Dev/Game hosts задаются не секретными ключами
 `AZURPILOT_CADDY_HOST` и `AZURPILOT_GAME_MCP_PUBLIC_HOST`; OAuth-переменные Dev/Game остаются в том же защищённом
@@ -96,6 +103,30 @@ Grafana и pgAdmin передаётся через Compose secret и не поп
     $lines -replace '^AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD=.*$', "AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD=$password" |
         Set-Content -LiteralPath $envFile -Encoding utf8NoBOM
     Remove-Variable password
+
+Если `.env` уже содержит новый canonical Grafana admin password, а существующий
+volume был создан со старым password, выполните отдельное явное recovery из
+корня checkout:
+
+    uv run --locked --no-sync python -m dev_tools.observability_mcp recover-admin
+
+Recovery не является побочным эффектом `ensure-identity`. Команда проверяет
+canonical Compose и наличие именно `azurpilot-observability_grafana-data`,
+останавливает только основной `grafana`, запускает официальный
+`grafana cli admin reset-admin-password --password-from-stdin --user-id 1` в
+одноразовом контейнере с теми же Compose mounts/config/secrets, затем штатно
+поднимает Grafana с healthcheck. Пароль передаётся только через stdin и не
+попадает в CLI arguments, logs, traceback или временный plaintext-файл. Volume
+не удаляется и не пересоздаётся.
+
+После reset recovery проверяет Grafana Admin API, запускает обычный
+`ensure-identity` и отдельно выполняет Gateway probe. `ensure-identity` всегда
+проверяет Admin API, canonical service account
+`azurpilot-observability-mcp`, его роль `Viewer` и enabled state; успешный
+Viewer/Gateway token не используется как обход этой проверки. HTTP 401 означает
+`MCP_GRAFANA_ADMIN_CREDENTIALS_REJECTED` — текущие admin credentials отклонены;
+это само по себе не доказывает stale volume и может означать другой неверный
+user/password.
 
 Для Docker PostgreSQL дополнительно требуется локальный bootstrap secret
 `AZURPILOT_POSTGRES_DOCKER_BOOTSTRAP_PASSWORD`. Он нужен только Compose для

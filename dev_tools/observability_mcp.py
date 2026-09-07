@@ -25,6 +25,13 @@ CANONICAL_SERVICE_ACCOUNT_ROLE = "Viewer"
 CANONICAL_SECRET_NAME = "grafana.api_key"
 CANONICAL_TOKEN_NAME = "azurpilot-observability-mcp"
 DEFAULT_GRAFANA_URL = "http://127.0.0.1:3000"
+OBSERVABILITY_COMPOSE_RELATIVE_PATH = Path("infrastructure/observability/compose.yaml")
+CANONICAL_GRAFANA_SERVICE = "grafana"
+CANONICAL_GRAFANA_VOLUME = "azurpilot-observability_grafana-data"
+GRAFANA_IMAGE_PREFIX = "grafana/grafana:13.2.1@sha256:"
+GRAFANA_ADMIN_SECRET_NAME = "grafana_admin_password"
+GRAFANA_ADMIN_SECRET_PATH = f"/run/secrets/{GRAFANA_ADMIN_SECRET_NAME}"
+GRAFANA_ADMIN_USER_ID = "1"
 _DYNAMIC_TOOLS_FEATURE = "dynamic-tools"
 _DYNAMIC_TOOL_NAMES = frozenset(
     {
@@ -137,6 +144,42 @@ def _checked_docker(
     result = _run_docker(arguments, input_text=input_text, timeout=timeout)
     if result.returncode != 0:
         raise ObservabilityMcpError("MCP_DOCKER_COMMAND_FAILED")
+    return result
+
+
+def _compose_arguments(
+    *, repository_root: Path, env_file: Path, arguments: list[str]
+) -> list[str]:
+    compose_file = repository_root / OBSERVABILITY_COMPOSE_RELATIVE_PATH
+    if not compose_file.is_file() or not env_file.is_file():
+        raise ObservabilityMcpError("MCP_GRAFANA_COMPOSE_UNAVAILABLE")
+    return [
+        "compose",
+        "--env-file",
+        str(env_file),
+        "--file",
+        str(compose_file),
+        *arguments,
+    ]
+
+
+def _checked_compose(
+    *,
+    repository_root: Path,
+    env_file: Path,
+    arguments: list[str],
+    error_code: str = "MCP_GRAFANA_COMPOSE_COMMAND_FAILED",
+    input_text: str | None = None,
+    timeout: int = 120,
+) -> subprocess.CompletedProcess[str]:
+    command = _compose_arguments(
+        repository_root=repository_root,
+        env_file=env_file,
+        arguments=arguments,
+    )
+    result = _run_docker(command, input_text=input_text, timeout=timeout)
+    if result.returncode != 0:
+        raise ObservabilityMcpError(error_code)
     return result
 
 
@@ -424,6 +467,10 @@ class _GrafanaApi:
             with self._opener(request, timeout=30) as response:
                 raw = response.read()
         except HTTPError as exc:
+            if exc.code == 401 and bearer is None:
+                raise ObservabilityMcpError(
+                    "MCP_GRAFANA_ADMIN_CREDENTIALS_REJECTED"
+                ) from exc
             if exc.code in {401, 403}:
                 raise ObservabilityMcpError(f"{error_code}_UNAUTHORIZED") from exc
             if exc.code == 404:
@@ -437,6 +484,15 @@ class _GrafanaApi:
             return json.loads(raw)
         except (UnicodeError, json.JSONDecodeError) as exc:
             raise ObservabilityMcpError(f"{error_code}_JSON_INVALID") from exc
+
+    def verify_admin_credentials(self) -> None:
+        payload = self._request(
+            "GET",
+            "/api/user",
+            error_code="MCP_GRAFANA_ADMIN_VERIFY",
+        )
+        if not isinstance(payload, dict) or not payload.get("login"):
+            raise ObservabilityMcpError("MCP_GRAFANA_ADMIN_VERIFY_INVALID")
 
     def search_service_account(self) -> list[dict[str, Any]]:
         query = urlencode(
@@ -698,6 +754,237 @@ def ensure_identity(
     }
 
 
+def _verify_persisted_grafana_volume() -> None:
+    result = _run_docker(
+        ["volume", "inspect", CANONICAL_GRAFANA_VOLUME],
+        timeout=60,
+    )
+    if result.returncode != 0:
+        raise ObservabilityMcpError("MCP_GRAFANA_VOLUME_UNAVAILABLE")
+    try:
+        payload = json.loads(result.stdout)
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise ObservabilityMcpError("MCP_GRAFANA_VOLUME_INSPECTION_INVALID") from exc
+    if not isinstance(payload, list) or len(payload) != 1:
+        raise ObservabilityMcpError("MCP_GRAFANA_VOLUME_INSPECTION_INVALID")
+    volume = payload[0]
+    if not isinstance(volume, dict) or volume.get("Name") != CANONICAL_GRAFANA_VOLUME:
+        raise ObservabilityMcpError("MCP_GRAFANA_VOLUME_IDENTITY_INVALID")
+
+
+def _verify_grafana_compose_contract(
+    *, repository_root: Path, env_file: Path
+) -> None:
+    result = _checked_compose(
+        repository_root=repository_root,
+        env_file=env_file,
+        arguments=["config", "--format", "json"],
+        error_code="MCP_GRAFANA_COMPOSE_CONFIG_INVALID",
+        timeout=60,
+    )
+    try:
+        config = json.loads(result.stdout)
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise ObservabilityMcpError("MCP_GRAFANA_COMPOSE_CONFIG_INVALID") from exc
+    if not isinstance(config, dict):
+        raise ObservabilityMcpError("MCP_GRAFANA_COMPOSE_CONFIG_INVALID")
+
+    services = config.get("services")
+    volumes = config.get("volumes")
+    secrets = config.get("secrets")
+    service = services.get(CANONICAL_GRAFANA_SERVICE) if isinstance(services, dict) else None
+    volume = volumes.get("grafana-data") if isinstance(volumes, dict) else None
+    admin_secret = (
+        secrets.get(GRAFANA_ADMIN_SECRET_NAME) if isinstance(secrets, dict) else None
+    )
+    if not isinstance(service, dict) or not isinstance(volume, dict):
+        raise ObservabilityMcpError("MCP_GRAFANA_COMPOSE_CONTRACT_INVALID")
+    if volume.get("name") != CANONICAL_GRAFANA_VOLUME or volume.get("external") is not True:
+        raise ObservabilityMcpError("MCP_GRAFANA_COMPOSE_CONTRACT_INVALID")
+
+    mounts = service.get("volumes")
+    has_persisted_mount = isinstance(mounts, list) and any(
+        isinstance(mount, dict)
+        and mount.get("type") == "volume"
+        and mount.get("source") == "grafana-data"
+        and mount.get("target") == "/var/lib/grafana"
+        for mount in mounts
+    )
+    service_secrets = service.get("secrets")
+    has_admin_secret = isinstance(service_secrets, list) and any(
+        isinstance(secret, dict)
+        and secret.get("source") == GRAFANA_ADMIN_SECRET_NAME
+        and secret.get("target") == GRAFANA_ADMIN_SECRET_PATH
+        for secret in service_secrets
+    )
+    environment = service.get("environment")
+    has_secret_file_setting = (
+        isinstance(environment, dict)
+        and environment.get("GF_SECURITY_ADMIN_PASSWORD__FILE")
+        == GRAFANA_ADMIN_SECRET_PATH
+    )
+    has_canonical_secret_source = (
+        isinstance(admin_secret, dict)
+        and admin_secret.get("environment")
+        == "AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD"
+    )
+    has_pinned_image = (
+        isinstance(service.get("image"), str)
+        and service["image"].startswith(GRAFANA_IMAGE_PREFIX)
+    )
+    if not (
+        has_pinned_image
+        and has_persisted_mount
+        and has_admin_secret
+        and has_secret_file_setting
+        and has_canonical_secret_source
+    ):
+        raise ObservabilityMcpError("MCP_GRAFANA_COMPOSE_CONTRACT_INVALID")
+
+
+def _running_compose_services(*, repository_root: Path, env_file: Path) -> set[str]:
+    result = _checked_compose(
+        repository_root=repository_root,
+        env_file=env_file,
+        arguments=["ps", "--status", "running", "--services"],
+        timeout=60,
+    )
+    return {
+        line.strip()
+        for line in result.stdout.splitlines()
+        if line.strip()
+    }
+
+
+def _reset_grafana_admin_password(
+    *,
+    repository_root: Path,
+    env_file: Path,
+) -> None:
+    """Запустить официальный reset CLI в одноразовом контейнере без argv secret."""
+
+    _checked_compose(
+        repository_root=repository_root,
+        env_file=env_file,
+        arguments=[
+            "run",
+            "--rm",
+            "--no-deps",
+            "-T",
+            "--entrypoint",
+            "/bin/sh",
+            CANONICAL_GRAFANA_SERVICE,
+            "-c",
+            "exec grafana cli admin reset-admin-password --password-from-stdin "
+            f"--user-id {GRAFANA_ADMIN_USER_ID} < {GRAFANA_ADMIN_SECRET_PATH}",
+        ],
+        error_code="MCP_GRAFANA_ADMIN_RESET_FAILED",
+        timeout=180,
+    )
+
+
+def _start_grafana(*, repository_root: Path, env_file: Path) -> None:
+    _checked_compose(
+        repository_root=repository_root,
+        env_file=env_file,
+        arguments=[
+            "up",
+            "--detach",
+            "--wait",
+            "--no-deps",
+            CANONICAL_GRAFANA_SERVICE,
+        ],
+        error_code="MCP_GRAFANA_RESTART_FAILED",
+        timeout=240,
+    )
+
+
+def recover_admin_credentials(
+    *,
+    repository_root: Path,
+    env_file: Path,
+    grafana_url: str | None = None,
+    import_profile: bool = True,
+) -> dict[str, object]:
+    """Явно восстановить persisted Grafana admin credential и проверить цепочку."""
+
+    profile_path = repository_root / PROFILE_RELATIVE_PATH
+    load_and_validate_profile(profile_path)
+    env_values = _load_env_file(env_file)
+    admin_user = _setting("AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_USER", env_values)
+    admin_password = _setting(
+        "AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD", env_values
+    )
+    if not admin_user or not admin_password:
+        raise ObservabilityMcpError("MCP_GRAFANA_ADMIN_CREDENTIALS_UNAVAILABLE")
+
+    grafana_base_url = _grafana_url(
+        grafana_url or _setting("AZURPILOT_OBSERVABILITY_GRAFANA_URL", env_values)
+    )
+    _verify_grafana_compose_contract(
+        repository_root=repository_root,
+        env_file=env_file,
+    )
+    _verify_persisted_grafana_volume()
+
+    grafana_started = False
+    primary_error: BaseException | None = None
+    try:
+        _checked_compose(
+            repository_root=repository_root,
+            env_file=env_file,
+            arguments=["stop", CANONICAL_GRAFANA_SERVICE],
+            error_code="MCP_GRAFANA_STOP_FAILED",
+            timeout=90,
+        )
+        if CANONICAL_GRAFANA_SERVICE in _running_compose_services(
+            repository_root=repository_root, env_file=env_file
+        ):
+            raise ObservabilityMcpError("MCP_GRAFANA_STOP_NOT_CONFIRMED")
+
+        _reset_grafana_admin_password(
+            repository_root=repository_root,
+            env_file=env_file,
+        )
+        _start_grafana(repository_root=repository_root, env_file=env_file)
+        grafana_started = True
+        _verify_persisted_grafana_volume()
+
+        api = _GrafanaApi(
+            grafana_base_url,
+            admin_user=admin_user,
+            admin_password=admin_password,
+        )
+        api.verify_admin_credentials()
+        identity = ensure_identity(
+            repository_root=repository_root,
+            env_file=env_file,
+            grafana_url=grafana_base_url,
+            import_profile=import_profile,
+        )
+        probe = _gateway_probe()
+        if not probe.ok:
+            raise ObservabilityMcpError(probe.code)
+        return {
+            "ok": True,
+            "admin_api": "verified",
+            "volume": CANONICAL_GRAFANA_VOLUME,
+            "identity": identity,
+            "gateway": probe.code,
+        }
+    except BaseException as exc:
+        primary_error = exc
+        raise
+    finally:
+        if not grafana_started:
+            try:
+                _start_grafana(repository_root=repository_root, env_file=env_file)
+            except BaseException as exc:
+                if primary_error is None:
+                    raise ObservabilityMcpError("MCP_GRAFANA_RESTART_FAILED") from exc
+                primary_error.add_note("MCP_GRAFANA_RESTART_FAILED")
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Bootstrap и bounded acceptance локального Grafana MCP profile."
@@ -737,6 +1024,17 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Не импортировать profile перед bootstrap.",
     )
+    recovery = subparsers.add_parser(
+        "recover-admin",
+        help="Явно синхронизировать persisted Grafana admin credential и проверить identity.",
+    )
+    recovery.add_argument("--env-file", type=Path, default=Path(".env"))
+    recovery.add_argument("--grafana-url", default=None)
+    recovery.add_argument(
+        "--no-import",
+        action="store_true",
+        help="Не импортировать profile перед bootstrap.",
+    )
     return parser
 
 
@@ -769,8 +1067,15 @@ def main(argv: list[str] | None = None) -> int:
                 "profile": profile["id"],
                 "imported": bool(arguments.import_profile),
             }
-        else:
+        elif arguments.command == "ensure-identity":
             result = ensure_identity(
+                repository_root=repository_root,
+                env_file=arguments.env_file.resolve(),
+                grafana_url=arguments.grafana_url,
+                import_profile=not arguments.no_import,
+            )
+        else:
+            result = recover_admin_credentials(
                 repository_root=repository_root,
                 env_file=arguments.env_file.resolve(),
                 grafana_url=arguments.grafana_url,
