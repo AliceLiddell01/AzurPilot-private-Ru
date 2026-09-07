@@ -1124,6 +1124,14 @@ class RuntimeStateStore:
             return updated
 
     def request_handover(self, profile: str, *, operation_id: str, session_id: str | None = None) -> RuntimeStateSnapshot:
+        profile = _profile(profile)
+        with application_host_lock(self.lock_path):
+            current = self.read(profile)
+            if current is None or current.worker_running is not True:
+                raise RuntimeStateError(
+                    "RUNTIME_STATE_TRANSITION_INVALID",
+                    "Нельзя запросить handover у остановленного worker",
+                )
         return self._update(
             profile,
             phase=RuntimePhase.HANDOVER_REQUESTED,
@@ -1476,15 +1484,6 @@ class RuntimeStateStore:
                     "error": type(exc).__name__,
                 },
             ) from exc
-        if worker_matches is True:
-            raise RuntimeStateError(
-                "RUNTIME_STATE_RECONCILIATION_REQUIRED",
-                orphan_live_message,
-                details={
-                    "profile": profile,
-                    "reason": "orphan_identity_present",
-                },
-            )
         if worker_matches is not None and type(worker_matches) is not bool:
             raise RuntimeStateError(
                 "RUNTIME_STATE_RECONCILIATION_REQUIRED",
@@ -1492,6 +1491,15 @@ class RuntimeStateStore:
                 details={
                     "profile": profile,
                     "reason": "orphan_identity_invalid",
+                },
+            )
+        if worker_matches is True:
+            raise RuntimeStateError(
+                "RUNTIME_STATE_RECONCILIATION_REQUIRED",
+                orphan_live_message,
+                details={
+                    "profile": profile,
+                    "reason": "orphan_identity_present",
                 },
             )
         return True

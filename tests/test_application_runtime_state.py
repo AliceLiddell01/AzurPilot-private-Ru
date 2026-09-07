@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Event, Thread
@@ -76,6 +75,30 @@ def test_runtime_state_records_busy_handover_and_clears_stale_worker_identity(
     assert stopped.worker_pid is None
     assert stopped.worker_created_at is None
     assert stopped.handover_requested is True
+
+
+@pytest.mark.parametrize("state", ["missing", "stopped"])
+def test_runtime_state_rejects_handover_request_without_running_worker(
+    tmp_path: Path,
+    state: str,
+) -> None:
+    store = _store(tmp_path)
+    if state == "stopped":
+        store.mark_worker_started(
+            "alas",
+            worker_pid=1002,
+            worker_created_at=2002.0,
+        )
+        store.mark_worker_stopped(
+            "alas",
+            expected_worker_pid=1002,
+            expected_worker_created_at=2002.0,
+        )
+
+    with pytest.raises(RuntimeStateError) as error:
+        store.request_handover("alas", operation_id="handover-1")
+
+    assert error.value.code == "RUNTIME_STATE_TRANSITION_INVALID"
 
 
 def test_runtime_state_handover_keeps_source_worker_session_ownership(
@@ -676,7 +699,6 @@ def test_scheduler_membership_and_next_run_do_not_close_active_execution(
     config.mkdir(exist_ok=True)
     config_path = config / "alas.json"
     reader = SchedulerRuntimeStateReader(tmp_path)
-    template = json.loads((Path(__file__).resolve().parents[1] / "config/template.json").read_text(encoding="utf-8"))
     updater_module = __import__("module.config.config_updater", fromlist=["filepath_config"])
     monkeypatch.setattr(
         updater_module,
@@ -686,9 +708,7 @@ def test_scheduler_membership_and_next_run_do_not_close_active_execution(
     updater = ConfigUpdater()
 
     def write_scheduler(*, enabled: bool, next_run: str) -> dict[str, object]:
-        raw = deepcopy(template)
-        raw[task]["Scheduler"]["Enable"] = enabled
-        raw[task]["Scheduler"]["NextRun"] = next_run
+        raw = {task: {"Scheduler": {"Enable": enabled, "NextRun": next_run}}}
         config_path.write_text(
             json.dumps(raw, ensure_ascii=False),
             encoding="utf-8",
@@ -955,3 +975,18 @@ def test_runtime_state_does_not_reconcile_worker_when_identity_is_live(
     snapshot = store.read("alas")
     assert snapshot is not None
     assert snapshot.worker_running is True
+
+
+def test_runtime_state_rejects_invalid_orphan_identity_checker_result(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    store.mark_worker_started("alas", worker_pid=1108, worker_created_at=2108.0)
+
+    with pytest.raises(RuntimeStateError) as error:
+        store.reconcile_stale_workers(
+            {},
+            worker_identity_checker=lambda _pid, _created_at: 1,  # type: ignore[return-value]
+        )
+
+    assert error.value.code == "RUNTIME_STATE_RECONCILIATION_REQUIRED"

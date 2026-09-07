@@ -591,7 +591,7 @@ class ProcessManager:
             worker = workers.get(self.config_name)
             if isinstance(worker, dict):
                 State.process_registry[self.config_name] = int(worker["pid"])
-            elif self.config_name in reconciled:
+            else:
                 State.process_registry.pop(self.config_name, None)
         if reconciled:
             logger.warning(
@@ -1074,6 +1074,7 @@ class ProcessManager:
             ev: необязательное общее событие остановки, передаваемое перезапускаемым процессам.
         """
         logger.hr("[WebUI-процессы] Перезапуск AzurPilot")
+        from module.application.runtime_state import RuntimeStateError
 
         # Загрузить MOD_CONFIG_DICT.
         list_mod_instance()
@@ -1099,7 +1100,12 @@ class ProcessManager:
 
         for process in _instances:
             logger.info(f"Запускается [{process.config_name}]")
-            process.start(func=get_config_mod(process.config_name), ev=ev)
+            try:
+                process.start(func=get_config_mod(process.config_name), ev=ev)
+            except RuntimeStateError as exc:
+                logger.error(
+                    f"[{process.config_name}] Не удалось запустить worker из-за runtime state: {exc}"
+                )
 
         try:
             os.remove("./config/reloadalas")

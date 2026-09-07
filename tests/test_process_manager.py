@@ -295,8 +295,10 @@ class TestProcessManagerRegistry(unittest.TestCase):
             manager = ProcessManager("alas")
             new_process = Mock()
             new_process.pid = 23456
+            observed_cache: list[int | None] = []
 
             def register_new_worker(_pid: int) -> None:
+                observed_cache.append(State.process_registry.get("alas"))
                 store.mark_worker_started(
                     "alas",
                     worker_pid=23456,
@@ -325,6 +327,7 @@ class TestProcessManagerRegistry(unittest.TestCase):
             self.assertIsNotNone(current)
             self.assertEqual(current.worker_pid, 23456)
             self.assertEqual(State.process_registry["alas"], 23456)
+            self.assertEqual(observed_cache, [None])
 
     def test_start_does_not_reconcile_live_orphan_worker(self):
         from module.application.runtime_state import RuntimeStateError, RuntimeStateStore
@@ -352,6 +355,25 @@ class TestProcessManagerRegistry(unittest.TestCase):
 
             process.assert_not_called()
             self.assertEqual(store.read("alas"), before)
+
+    def test_restart_processes_continues_after_runtime_state_failure(self):
+        from module.application.runtime_state import RuntimeStateError
+
+        failed = ProcessManager("failed")
+        healthy = ProcessManager("healthy")
+        failure = RuntimeStateError("RUNTIME_STATE_RECONCILIATION_REQUIRED", "runtime state недоступен")
+
+        with (
+            patch("module.webui.process_manager.list_mod_instance"),
+            patch("module.webui.process_manager.get_config_mod", return_value="alas"),
+            patch("builtins.open", side_effect=FileNotFoundError),
+            patch.object(failed, "start", side_effect=failure) as failed_start,
+            patch.object(healthy, "start") as healthy_start,
+        ):
+            ProcessManager.restart_processes([failed, healthy])
+
+        failed_start.assert_called_once_with(func="alas", ev=None)
+        healthy_start.assert_called_once_with(func="alas", ev=None)
 
     def test_stop_uses_local_process_handle_before_tree_kill(self):
         """При живом локальном Process сначала использовать terminate/kill, а не taskkill."""
