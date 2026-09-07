@@ -604,7 +604,7 @@ class RuntimeStateStore:
         with application_host_lock(self.lock_path):
             payload = self._read_payload()
             records = dict(payload["profiles"])
-            for raw_profile, record in records.items():
+            for raw_profile, record in tuple(records.items()):
                 profile = _profile(raw_profile)
                 snapshot = RuntimeStateSnapshot.from_dict(record)
                 if snapshot.profile != profile or not snapshot.worker_running:
@@ -648,7 +648,7 @@ class RuntimeStateStore:
         with application_host_lock(self.lock_path):
             payload = self._read_payload()
             records = dict(payload["profiles"])
-            for raw_profile, record in records.items():
+            for raw_profile, record in tuple(records.items()):
                 profile = _profile(raw_profile)
                 snapshot = RuntimeStateSnapshot.from_dict(record)
                 if snapshot.profile != profile or profile == session_owner_profile:
@@ -998,14 +998,6 @@ class RuntimeStateStore:
                 raise RuntimeStateError(
                     "RUNTIME_STATE_STALE_WRITE",
                     "Finish другой task не может закрыть текущую execution boundary",
-                )
-            if expected_worker is not None and (
-                current.worker_pid != expected_worker[0]
-                or current.worker_created_at != expected_worker[1]
-            ):
-                raise RuntimeStateError(
-                    "RUNTIME_STATE_STALE_WRITE",
-                    "Попытка worker с устаревшей identity завершить task отклонена",
                 )
             return self._update(
                 profile,

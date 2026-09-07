@@ -547,11 +547,19 @@ def test_scheduler_membership_and_next_run_do_not_close_active_execution(
         worker_created_at=2101.0,
         operation_id="worker-start",
     )
-    active = store.mark_task_started(
+    store.mark_task_started(
         "alas",
         task,
         operation_id="task-execution",
     )
+
+    def assert_active_execution() -> None:
+        snapshot = store.read("alas")
+        assert snapshot is not None
+        assert snapshot.phase is RuntimePhase.USER_PROFILE_BUSY
+        assert snapshot.busy is True
+        assert snapshot.current_task == task
+
     config = tmp_path / "config"
     config.mkdir(exist_ok=True)
     config_path = config / "alas.json"
@@ -577,7 +585,7 @@ def test_scheduler_membership_and_next_run_do_not_close_active_execution(
     waiting = reader.read_queue("alas", (task,))
     assert [entry.task for entry in waiting] == [task]
     assert waiting[0].next_run > now
-    assert store.read("alas") == active
+    assert_active_execution()
 
     # Сброс NextRun делает следующую scheduler-вызов eligible, но не
     # создаёт второй execution того же worker.
@@ -585,11 +593,11 @@ def test_scheduler_membership_and_next_run_do_not_close_active_execution(
     pending = reader.read_queue("alas", (task,))
     assert [entry.task for entry in pending] == [task]
     assert pending[0].next_run < now
-    assert store.read("alas") == active
+    assert_active_execution()
 
     write_scheduler(enabled=False, next_run=future)
     assert reader.read_queue("alas", (task,)) == ()
-    assert store.read("alas") == active
+    assert_active_execution()
 
     # Последующий task_delay снова меняет только scheduler domain.
     write_scheduler(enabled=True, next_run=future)

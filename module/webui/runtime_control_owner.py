@@ -77,12 +77,13 @@ class WebUIRuntimeControlOwner:
             from module.webui.worker_registry import get_workers, process_matches
 
             workers = get_workers(os.getpid())
+            worker_identity_checker = lambda pid, created_at: process_matches(
+                {"pid": pid, "created_at": created_at}
+            )
             recovered = self.state.reconcile_with_authoritative_workers(workers)
             stale_workers_reconciled = self.state.reconcile_stale_workers(
                 workers,
-                worker_identity_checker=lambda pid, created_at: process_matches(
-                    {"pid": pid, "created_at": created_at}
-                ),
+                worker_identity_checker=worker_identity_checker,
             )
             development_profile = self._development_profile()
             ownership_reconciled = ()
@@ -90,9 +91,7 @@ class WebUIRuntimeControlOwner:
                 ownership_reconciled = self.state.reconcile_profile_ownership(
                     workers,
                     session_owner_profile=development_profile,
-                    worker_identity_checker=lambda pid, created_at: process_matches(
-                        {"pid": pid, "created_at": created_at}
-                    ),
+                    worker_identity_checker=worker_identity_checker,
                 )
         except RuntimeStateError as exc:
             self._runtime_state_recovery_error = exc

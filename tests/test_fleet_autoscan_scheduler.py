@@ -323,8 +323,8 @@ def test_loop_closes_current_boundary_once_for_recoverable_result(
     )
     script.failure_record = {}
     script._emulator_recovery_transport_lost = False
-    tasks = iter(("Commission", None))
-    script.get_next_task = lambda: next(tasks)
+    tasks = iter(("Commission",))
+    script.get_next_task = lambda: next(tasks, None)
     script._prepare_task_boundary = lambda _task: True
     started: list[str] = []
     finished: list[str] = []
