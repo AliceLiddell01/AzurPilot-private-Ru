@@ -91,8 +91,54 @@ def test_identity_reuses_valid_gateway_secret_without_creating_token(
     )
 
     assert result["token"] == "reused"
-    assert "create-token" not in api.calls
+    assert "create-token" not in {
+        call[0] for call in api.calls if isinstance(call, tuple)
+    }
     assert "delete-token" not in {call[0] for call in api.calls if isinstance(call, tuple)}
+
+
+def test_identity_uses_environment_without_env_file_and_reads_it_once(
+    monkeypatch, tmp_path
+):
+    api = _FakeGrafanaApi(accounts=[_account()], tokens=[])
+    probes = iter([target.GatewayProbe(True, False, "MCP_GATEWAY_READY")])
+    env_file = tmp_path / "missing.env"
+    load_calls = []
+    constructed = {}
+    original_load_env_file = target._load_env_file
+
+    def load_env_file(path):
+        load_calls.append(path)
+        return original_load_env_file(path)
+
+    def build_api(base_url, **kwargs):
+        constructed.update(base_url=base_url, **kwargs)
+        return api
+
+    monkeypatch.setenv("AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_USER", "env-admin")
+    monkeypatch.setenv(
+        "AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD", "env-password"
+    )
+    monkeypatch.delenv("AZURPILOT_OBSERVABILITY_GRAFANA_URL", raising=False)
+    monkeypatch.setattr(target, "_load_env_file", load_env_file)
+    monkeypatch.setattr(target, "_GrafanaApi", build_api)
+    monkeypatch.setattr(target, "ensure_dynamic_tools_disabled", lambda apply: "disabled")
+    monkeypatch.setattr(target, "_gateway_probe", lambda: next(probes))
+    monkeypatch.setattr(target, "_checked_docker", lambda *args, **kwargs: None)
+
+    result = target.ensure_identity(
+        repository_root=ROOT,
+        env_file=env_file,
+        import_profile=False,
+    )
+
+    assert result["token"] == "reused"
+    assert load_calls == [env_file]
+    assert constructed == {
+        "base_url": target.DEFAULT_GRAFANA_URL,
+        "admin_user": "env-admin",
+        "admin_password": "env-password",
+    }
 
 
 def test_identity_stores_new_token_before_reclaiming_obsolete_token(

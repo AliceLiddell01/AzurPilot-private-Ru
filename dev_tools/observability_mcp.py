@@ -329,6 +329,8 @@ def _load_env_file(path: Path) -> dict[str, str]:
     values: dict[str, str] = {}
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return values
     except (OSError, UnicodeError) as exc:
         raise ObservabilityMcpError("MCP_ENV_FILE_UNAVAILABLE") from exc
     for raw_line in lines:
@@ -352,11 +354,11 @@ def _load_env_file(path: Path) -> dict[str, str]:
     return values
 
 
-def _setting(name: str, env_file: Path) -> str | None:
+def _setting(name: str, env_values: dict[str, str]) -> str | None:
     value = os.environ.get(name)
     if value:
         return value
-    return _load_env_file(env_file).get(name)
+    return env_values.get(name)
 
 
 def _grafana_url(value: str | None) -> str:
@@ -601,12 +603,18 @@ def ensure_identity(
     if import_profile:
         _checked_docker(["mcp", "profile", "import", str(profile_path)], timeout=60)
 
-    admin_user = _setting("AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_USER", env_file)
-    admin_password = _setting("AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD", env_file)
+    env_values = _load_env_file(env_file)
+    admin_user = _setting("AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_USER", env_values)
+    admin_password = _setting(
+        "AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD", env_values
+    )
     if not admin_user or not admin_password:
         raise ObservabilityMcpError("MCP_GRAFANA_ADMIN_CREDENTIALS_UNAVAILABLE")
     api = _GrafanaApi(
-        _grafana_url(grafana_url or _setting("AZURPILOT_OBSERVABILITY_GRAFANA_URL", env_file)),
+        _grafana_url(
+            grafana_url
+            or _setting("AZURPILOT_OBSERVABILITY_GRAFANA_URL", env_values)
+        ),
         admin_user=admin_user,
         admin_password=admin_password,
     )
