@@ -406,7 +406,7 @@ class TestWorkerRegistry(unittest.TestCase):
                     {
                         "owner_created_at": None,
                         "owner_pid": None,
-                        "workers": {"alas": {"pid": 200, "created_at": float("nan")}},
+                        "workers": {"alas": {"pid": 200, "created_at": "not-a-number"}},
                     }
                 ),
                 encoding="utf-8",

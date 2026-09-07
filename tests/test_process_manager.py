@@ -406,6 +406,32 @@ class TestProcessManagerRegistry(unittest.TestCase):
                 ProcessManager._read_reload_instances(),
             )
 
+    def test_reload_instances_filters_noncanonical_names(self):
+        with patch(
+            "builtins.open",
+            mock_open(read_data="alas\n../unsafe\n alpha \n"),
+        ):
+            self.assertEqual(
+                ("alas", "alpha"),
+                ProcessManager._read_reload_instances(),
+            )
+
+    def test_reload_instances_has_a_bounded_profile_count(self):
+        from module.config.profile import MAX_PROFILE_CONFIG_CANDIDATES
+
+        contents = "".join(
+            f"profile{index}\n" for index in range(MAX_PROFILE_CONFIG_CANDIDATES + 1)
+        )
+        with patch("builtins.open", mock_open(read_data=contents)):
+            instances = ProcessManager._read_reload_instances()
+
+        self.assertEqual(MAX_PROFILE_CONFIG_CANDIDATES, len(instances))
+        self.assertEqual("profile0", instances[0])
+        self.assertEqual(
+            f"profile{MAX_PROFILE_CONFIG_CANDIDATES - 1}",
+            instances[-1],
+        )
+
     def test_start_ignores_live_orphan_worker_from_other_profile(self):
         from module.application.runtime_state import RuntimeStateStore
 

@@ -263,7 +263,7 @@ def test_legacy_log_adapter_falls_back_to_previous_calendar_date(tmp_path: Path)
 
 @pytest.mark.parametrize(
     "created_at",
-    [float("nan"), float("inf"), float("-inf"), 0, -1],
+    [True, float("nan"), float("inf"), float("-inf"), 0, -1],
 )
 def test_legacy_worker_identity_rejects_invalid_created_at(created_at):
     from module.webui import worker_registry
@@ -282,8 +282,8 @@ def test_legacy_worker_identity_rejects_invalid_created_at(created_at):
     assert evidence.status is WorkerIdentityStatus.UNKNOWN
 
 
-@pytest.mark.parametrize("pid", [0, -1])
-def test_legacy_worker_identity_rejects_invalid_pid(pid: int):
+@pytest.mark.parametrize("pid", [True, 0, -1])
+def test_legacy_worker_identity_rejects_invalid_pid(pid: object):
     from module.webui import worker_registry
 
     reader = LegacyWorkerIdentityReader()
@@ -301,10 +301,13 @@ def test_legacy_worker_identity_rejects_invalid_pid(pid: int):
 
 
 def test_legacy_worker_identity_does_not_treat_corrupt_registry_as_absent():
+    from module.webui import worker_registry
+
     reader = LegacyWorkerIdentityReader()
 
-    with patch(
-        "module.webui.worker_registry.get_worker_read_only",
+    with patch.object(
+        worker_registry,
+        "get_worker_read_only",
         side_effect=RuntimeError("registry unavailable"),
     ):
         evidence = reader.read_worker_identity("ap")

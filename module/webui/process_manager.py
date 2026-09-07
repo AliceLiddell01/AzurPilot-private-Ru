@@ -16,6 +16,7 @@ import time
 # Он поддерживает пул процессов для нескольких аккаунтов, отслеживает состояния
 # (работает/остановлен/ошибка) и безопасно обрабатывает межпроцессное взаимодействие.
 from collections.abc import Sequence
+from itertools import islice
 from multiprocessing import Event, Process
 from pathlib import Path
 from typing import Union
@@ -31,6 +32,10 @@ from module.webui.fake_pil_module import *
 
 import_fake_pil_module()
 
+from module.config.profile import (
+    MAX_PROFILE_CONFIG_CANDIDATES,
+    profile_identity_from_name,
+)
 from module.config.utils import DEFAULT_CONFIG_NAME
 from module.logger import logger, set_file_logger, set_func_logger
 from module.submodule.submodule import load_mod
@@ -1118,9 +1123,12 @@ class ProcessManager:
     @staticmethod
     def _read_reload_instances() -> tuple[str, ...]:
         with open("./config/reloadalas", mode="r", encoding="utf-8") as handle:
-            return tuple(
-                stripped for stripped in (line.strip() for line in handle) if stripped
-            )
+            instances: list[str] = []
+            for line in islice(handle, MAX_PROFILE_CONFIG_CANDIDATES):
+                identity = profile_identity_from_name(line.strip())
+                if identity is not None:
+                    instances.append(identity.name)
+            return tuple(instances)
 
     @staticmethod
     def restart_processes(

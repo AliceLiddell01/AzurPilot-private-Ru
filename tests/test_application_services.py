@@ -106,6 +106,7 @@ def test_instance_service_hides_invalid_reader_profile_name():
         InstanceQueryService(InvalidReader()).list_instances()
 
     assert failure.value.code == "service_unavailable"
+    assert "profile/name" not in str(failure.value)
 
 
 def test_instance_service_rejects_unknown_runtime_state_fail_closed():

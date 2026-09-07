@@ -102,7 +102,7 @@ def test_runtime_execution_normalizes_stopped_only_when_worker_is_absent() -> No
     assert result.task is None
 
 
-def test_runtime_execution_does_not_call_corrupt_registry_absence() -> None:
+def test_runtime_execution_does_not_treat_corrupt_registry_as_absence() -> None:
     result = _reader(
         None,
         WorkerIdentityEvidence(WorkerIdentityStatus.UNKNOWN),
@@ -142,6 +142,10 @@ def test_runtime_execution_normalizes_stopped_even_when_stopped_snapshot_is_stal
         (
             _snapshot(worker_running=True, busy=True, current_task="Main"),
             WorkerIdentityEvidence(WorkerIdentityStatus.VERIFIED, 1002, 2001.0),
+        ),
+        (
+            _snapshot(worker_running=True, busy=True, current_task="Main"),
+            WorkerIdentityEvidence(WorkerIdentityStatus.VERIFIED, 1001, 2002.0),
         ),
         (
             _snapshot(worker_running=True, busy=False, current_task=None),
@@ -213,3 +217,11 @@ def test_legacy_runtime_reader_accepts_supplied_state_store_without_root() -> No
 
     assert result.state is CurrentTaskState.IDLE
     assert result.task is None
+
+
+def test_legacy_runtime_reader_rejects_root_and_state_store_together(tmp_path) -> None:
+    with pytest.raises(ValueError, match="нельзя совмещать"):
+        LegacyRuntimeExecutionReader(
+            tmp_path,
+            state_store=_StateReader(None),
+        )

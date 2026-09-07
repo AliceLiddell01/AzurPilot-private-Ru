@@ -644,6 +644,8 @@ class LegacyRuntimeExecutionReader:
     ) -> None:
         if state_store is None and repository_root is None:
             raise ValueError("Требуется repository_root или state_store")
+        if state_store is not None and repository_root is not None:
+            raise ValueError("repository_root нельзя совмещать с state_store")
         self._reader = RuntimeExecutionReader(
             state_store
             if state_store is not None
