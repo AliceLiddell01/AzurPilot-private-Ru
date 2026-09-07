@@ -12,6 +12,8 @@ import warnings
 from pathlib import Path
 from typing import Any
 
+from module.config.profile import profile_identity_from_name
+
 DEFAULT_REPORT = Path("artifacts/acceptance/device.json")
 ADB_CANDIDATES = (
     Path(".venv/Scripts/adb.exe"),
@@ -24,7 +26,6 @@ SERIAL_RE = re.compile(r"^[A-Za-z0-9._:\-\[\]%]+$")
 NETWORK_SERIAL_RE = re.compile(
     r"^(?:\[[0-9A-Fa-f:.%]+\]|[A-Za-z0-9._-]+):(?P<port>\d{1,5})$"
 )
-PROFILE_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 PACKAGE_RE = re.compile(r"^[A-Za-z0-9._]+$")
 ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 PRIVATE_KEY_RE = re.compile(
@@ -259,8 +260,11 @@ def _load_profile(profile: str) -> dict[str, str]:
 
 
 def _validate_profile_name(profile: str) -> None:
-    if not PROFILE_RE.fullmatch(profile):
-        raise AcceptanceFailure("Имя profile содержит недопустимые символы.")
+    if profile_identity_from_name(profile) is None:
+        raise AcceptanceFailure(
+            "Имя профиля не является каноническим: проверьте недопустимые символы "
+            "и пробелы в начале или в конце имени."
+        )
 
 
 def _validate_serial(serial: str) -> None:

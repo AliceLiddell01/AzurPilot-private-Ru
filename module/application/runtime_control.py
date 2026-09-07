@@ -20,6 +20,7 @@ from typing import Protocol
 from deploy.atomic import atomic_write
 from module.application.host_lock import application_host_lock
 from module.application.runtime_state import RuntimeStateError, _scoped_path
+from module.config.profile import profile_identity_from_name
 
 _SCHEMA_VERSION = 2
 _MAX_REQUEST_BYTES = 32 * 1024
@@ -187,7 +188,13 @@ def _token(value: object, *, field: str) -> str:
 
 
 def _profile(value: object) -> str:
-    return _text(value, maximum=64, pattern=r"[A-Za-z0-9_-]{1,64}", field="profile")
+    identity = profile_identity_from_name(value) if isinstance(value, str) else None
+    if identity is None:
+        raise RuntimeControlError(
+            "RUNTIME_CONTROL_FIELD_INVALID",
+            "Поле profile имеет недопустимый формат",
+        )
+    return identity.name
 
 
 def _timestamp() -> str:

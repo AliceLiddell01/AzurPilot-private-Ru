@@ -6,13 +6,14 @@ import math
 import os
 import threading
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
 from copy import deepcopy
+from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
-from typing import Iterator
 
 from deploy.atomic import atomic_remove, atomic_replace, atomic_write
-
 
 DEFAULT_WORKER_REGISTRY_FILE = Path("./cache/webui-workers.json")
 WORKER_REGISTRY_FILE = Path(
@@ -32,6 +33,31 @@ class WorkerRegistryOwnershipError(RuntimeError):
 
 class WorkerRegistryLockError(RuntimeError):
     """无法在限定时间内取得 WebUI worker 登记锁。"""
+
+
+class ReadOnlyWorkerStatus(StrEnum):
+    """Результат bounded read worker registry без lifecycle side effects."""
+
+    VERIFIED = "verified"
+    ABSENT = "absent"
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True, slots=True)
+class ReadOnlyWorkerResult:
+    """Типизированный результат чтения worker registry."""
+
+    status: ReadOnlyWorkerStatus
+    record: dict | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.status, ReadOnlyWorkerStatus):
+            raise TypeError("status должен быть ReadOnlyWorkerStatus")
+        if self.status is ReadOnlyWorkerStatus.VERIFIED:
+            if not isinstance(self.record, dict):
+                raise ValueError("Подтверждённый worker должен содержать запись")
+        elif self.record is not None:
+            raise ValueError("Неподтверждённый результат не должен содержать запись worker")
 
 
 def _empty_registry(
@@ -217,6 +243,8 @@ def _read_registry(registry_file: Path) -> dict:
 
     try:
         registry = json.loads(raw)
+        if not isinstance(registry, dict):
+            raise ValueError("Корень реестра должен быть объектом")
         owner_pid = registry.get("owner_pid")
         owner_created_at = registry.get("owner_created_at")
         workers = registry.get("workers")
@@ -228,7 +256,7 @@ def _read_registry(registry_file: Path) -> dict:
             owner_created_at = None
         if not isinstance(workers, dict):
             raise ValueError("Поле workers должно быть объектом")
-    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+    except (AttributeError, TypeError, ValueError, json.JSONDecodeError) as exc:
         raise RuntimeError(f"Недопустимый формат реестра рабочих процессов: {exc}") from exc
 
     return {
@@ -412,31 +440,35 @@ def unregister_worker(
 def _same_worker_identity(left: object, right: object) -> bool:
     if not isinstance(left, dict) or not isinstance(right, dict):
         return False
+    if not _valid_worker_identity(left) or not _valid_worker_identity(right):
+        return False
+    return left["pid"] == right["pid"] and float(left["created_at"]) == float(
+        right["created_at"]
+    )
+
+
+def _valid_worker_identity(record: object) -> bool:
+    if not isinstance(record, dict):
+        return False
     try:
-        left_pid = left["pid"]
-        right_pid = right["pid"]
-        left_created_at = left["created_at"]
-        right_created_at = right["created_at"]
+        pid = record["pid"]
+        created_at = record["created_at"]
     except KeyError:
         return False
-    if (
-        isinstance(left_pid, bool)
-        or not isinstance(left_pid, int)
-        or left_pid <= 0
-        or isinstance(right_pid, bool)
-        or not isinstance(right_pid, int)
-        or right_pid <= 0
-        or isinstance(left_created_at, bool)
-        or not isinstance(left_created_at, (int, float))
-        or not math.isfinite(float(left_created_at))
-        or float(left_created_at) <= 0
-        or isinstance(right_created_at, bool)
-        or not isinstance(right_created_at, (int, float))
-        or not math.isfinite(float(right_created_at))
-        or float(right_created_at) <= 0
-    ):
+    try:
+        if (
+            isinstance(pid, bool)
+            or not isinstance(pid, int)
+            or pid <= 0
+            or isinstance(created_at, bool)
+            or not isinstance(created_at, (int, float))
+            or not math.isfinite(float(created_at))
+            or float(created_at) <= 0
+        ):
+            return False
+    except (TypeError, ValueError, OverflowError):
         return False
-    return left_pid == right_pid and float(left_created_at) == float(right_created_at)
+    return True
 
 
 def get_workers(owner_pid: int) -> dict[str, dict]:
@@ -450,17 +482,43 @@ def get_workers(owner_pid: int) -> dict[str, dict]:
 
 def get_worker_read_only(config_name: str) -> dict | None:
     """Прочитать worker без миграции и блокировки, не проверяя владельца."""
+    result = read_worker_read_only(config_name)
+    if result.status is ReadOnlyWorkerStatus.UNKNOWN:
+        raise RuntimeError("Не удалось подтвердить состояние реестра рабочих процессов")
+    return deepcopy(result.record) if result.record is not None else None
+
+
+def read_worker_read_only(config_name: str) -> ReadOnlyWorkerResult:
+    """Типизированно прочитать worker без миграции и блокировки."""
     if not isinstance(config_name, str) or not config_name:
         raise ValueError("Имя экземпляра должно быть непустой строкой")
 
-    for registry in _iter_read_only_registries():
-        record = registry["workers"].get(config_name)
-        if record is None:
+    paths, legacy_registry = _read_only_registry_paths()
+    unavailable = False
+    for registry_file in paths:
+        if not registry_file.is_file():
             continue
-        if not isinstance(record, dict):
-            raise RuntimeError("Недопустимая запись рабочего процесса")
-        return deepcopy(record)
-    return None
+        if registry_file == LEGACY_WORKER_REGISTRY_FILE and legacy_registry is not None:
+            registry = legacy_registry
+        else:
+            try:
+                registry = _read_registry(registry_file)
+            except RuntimeError:
+                unavailable = True
+                continue
+        workers = registry["workers"]
+        if config_name not in workers:
+            continue
+        record = workers[config_name]
+        if not _valid_worker_identity(record):
+            return ReadOnlyWorkerResult(ReadOnlyWorkerStatus.UNKNOWN)
+        return ReadOnlyWorkerResult(
+            ReadOnlyWorkerStatus.VERIFIED,
+            record=deepcopy(record),
+        )
+
+    status = ReadOnlyWorkerStatus.UNKNOWN if unavailable else ReadOnlyWorkerStatus.ABSENT
+    return ReadOnlyWorkerResult(status)
 
 
 def _read_only_registry_paths() -> tuple[tuple[Path, ...], dict | None]:

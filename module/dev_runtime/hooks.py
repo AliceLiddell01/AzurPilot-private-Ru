@@ -77,13 +77,21 @@ def record_runtime_error(
         profile = str(config_name)
         store = RuntimeStateStore(_repository_root())
         snapshot = store.read(profile)
-        if snapshot is not None:
+        # Ошибка внутри task ещё не завершает scheduler boundary: loop
+        # подтвердит finish после возврата или terminal exception. Поэтому
+        # не переводить активную task в FAILED посреди recovery.
+        if snapshot is not None and not (phase == "task" and snapshot.busy):
+            identity = _worker_identity()
+            if identity is None:
+                raise RuntimeError("Не удалось подтвердить identity текущего worker")
             store.mark_failed(
                 profile,
                 operation_id=os.environ.get(_OPERATION_ENV),
                 session_id=os.environ.get(_SESSION_ENV),
                 terminal_state="runtime_error",
                 preserve_handover_flags=True,
+                expected_worker_pid=identity[0],
+                expected_worker_created_at=identity[1],
             )
     except Exception:
         pass
@@ -151,22 +159,28 @@ def _record_runtime_state(config_name: object, *, task: object, started: bool) -
         if started and (not isinstance(task, str) or not task.strip()):
             return False
         store = RuntimeStateStore(_repository_root())
-        # Старый/тестовый worker может работать без process-shared snapshot.
-        # Это не доказывает handover и потому сохраняет прежнюю семантику
-        # scheduler; если snapshot существует, граница обязана быть атомарной.
+        # Без подтверждённого runtime worker task boundary не существует.
         if store.read(profile) is None:
-            return True
+            return False
+        identity = _worker_identity()
+        if identity is None:
+            return False
         operation_id = os.environ.get(_OPERATION_ENV)
         session_id = os.environ.get(_SESSION_ENV)
         if started:
             return store.try_mark_task_started(
                 profile,
                 task,
+                expected_worker_pid=identity[0],
+                expected_worker_created_at=identity[1],
                 operation_id=operation_id,
                 session_id=session_id,
             )
         store.mark_task_finished(
             profile,
+            task,
+            expected_worker_pid=identity[0],
+            expected_worker_created_at=identity[1],
             operation_id=operation_id,
             session_id=session_id,
         )
@@ -174,6 +188,21 @@ def _record_runtime_state(config_name: object, *, task: object, started: bool) -
     except Exception:
         # При наличии runtime state неподтверждённая граница задачи запрещает запуск.
         return False
+
+
+def _worker_identity() -> tuple[int, float] | None:
+    """Получить identity текущего процесса для fencing task boundary."""
+
+    try:
+        import psutil
+
+        pid = os.getpid()
+        created_at = float(psutil.Process(pid).create_time())
+        if pid <= 0 or created_at <= 0:
+            return None
+        return pid, created_at
+    except Exception:
+        return None
 
 
 __all__ = [

@@ -9,9 +9,11 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from module.config.profile import discover_profile_names
+from module.config.profile import (
+    discover_profile_names,
+    profile_identity_from_name,
+)
 from module.webui.setting import State
-
 
 THEME_OPTIONS = [
     "default",
@@ -22,7 +24,6 @@ THEME_OPTIONS = [
 ]
 REMOTE_ACCESS_MODE_OPTIONS = ["auto", "webrtc", "ssh"]
 TURN_CREDENTIAL_MODE_OPTIONS = ["static", "ephemeral"]
-INVALID_INSTANCE_CHARS = set(".\\/:*?\"'<>|")
 
 
 @dataclass(frozen=True)
@@ -297,13 +298,16 @@ def _parse_value(field: DeployField, value: Any) -> Any:
 
 
 def _validate_instance_name(instance: str, require_exists: bool) -> str:
-    instance = str(instance or "").strip()
-    if not instance:
+    raw_instance = str(instance or "")
+    normalized_instance = raw_instance.strip()
+    if not normalized_instance:
         raise ValueError("Не указано имя профиля")
-    if set(instance) & INVALID_INSTANCE_CHARS:
-        raise ValueError("Имя профиля содержит недопустимые символы")
-    if instance.lower().startswith("template"):
+    if normalized_instance.lower().startswith("template"):
         raise ValueError("Имя профиля не может начинаться с template")
+    identity = profile_identity_from_name(normalized_instance)
+    if identity is None:
+        raise ValueError("Имя профиля содержит недопустимые символы")
+    instance = identity.name
     if require_exists and instance not in discover_profile_names("./config"):
         raise ValueError(f"Профиль не существует: {instance}")
     return instance

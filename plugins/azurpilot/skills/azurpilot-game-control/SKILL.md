@@ -63,6 +63,19 @@ stopped`, а `game app foreground` не означает `profile running`. `UNK
 `game_get_profile_status` никогда не является доказательством emulator, ADB,
 game process, foreground или login/main state.
 
+`game_get_current_task` использует единый authoritative execution boundary:
+`RuntimeStateStore` плюс exact worker identity из существующего owner registry.
+`running` содержит текущую task, `idle` содержит `task: null`, `stopped`
+сохраняет штатную семантику остановленного профиля. Stale running snapshot,
+corrupt, contradictory или identity-mismatch состояние становится `unknown`;
+stopped snapshot с отсутствующей worker identity сохраняет `stopped`. Scheduler
+queue и logs не подменяют этот read path и не должны использоваться для вывода
+о текущем execution.
+Для остановленного профиля transport-ошибка Game MCP сохраняет существующий
+ответ `GAME_PROFILE_NOT_RUNNING` с top-level `state: "failed"`; значение
+`stopped` относится к подтверждённой domain projection, а не к этому error
+envelope.
+
 ## Нормальный read workflow
 
 1. Зафиксируй пользовательскую цель и `<profile>`.

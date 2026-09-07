@@ -63,6 +63,7 @@ from module.application.game_validation import (
     validated_segment,
 )
 from module.application.ports import InstanceRuntimeReader
+from module.config.profile import profile_identity_from_name
 
 _GAME_START_TIMEOUT_SECONDS = 60.0
 _GAME_START_RETRY_INTERVAL_SECONDS = 0.5
@@ -73,10 +74,9 @@ _GAME_LOGIN_TIMEOUT_SECONDS = 120.0
 def _control_profile(value: object) -> str | None:
     if isinstance(value, (ConfigUpdateRequest, ScheduleTaskRequest)):
         value = value.instance
-    if not isinstance(value, str):
-        return None
-    normalized = value.strip()
-    return normalized or None
+    normalized = value.strip() if isinstance(value, str) else value
+    identity = profile_identity_from_name(normalized) if isinstance(normalized, str) else None
+    return None if identity is None else identity.name
 
 
 def _profile_mutation[**ControlParameters, ControlReturn](

@@ -27,7 +27,6 @@ from module.dev_runtime.evidence import (
 )
 from module.dev_runtime.target import DevTarget
 
-
 _TIME = "2026-08-30T00:00:00+00:00"
 
 
@@ -1068,6 +1067,24 @@ def test_hooks_are_noop_without_active_dev_session(monkeypatch) -> None:
     hooks.serve_pending_screenshot(np.zeros((1, 1), dtype=np.uint8))
 
 
+def test_task_hooks_fail_closed_without_runtime_worker_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from module.dev_runtime import hooks
+
+    (tmp_path / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
+    (tmp_path / "module").mkdir()
+    monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(tmp_path))
+    monkeypatch.setenv("AZURPILOT_DEV_SESSION_ID", "session-1")
+
+    assert hooks.record_task_started("ap", "RootTask") is False
+    assert hooks.record_task_finished("ap", "RootTask") is False
+    from module.application.runtime_state import RuntimeStateStore
+
+    assert not RuntimeStateStore(tmp_path).path.exists()
+
+
 def test_runtime_error_hook_does_not_create_missing_runtime_state(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1081,7 +1098,9 @@ def test_runtime_error_hook_does_not_create_missing_runtime_state(
 
     hooks.record_runtime_error("ap", RuntimeError("ошибка worker"), phase="task")
 
-    assert not (tmp_path / "config" / "state" / "webui-runtime-state.json").exists()
+    from module.application.runtime_state import RuntimeStateStore
+
+    assert not RuntimeStateStore(tmp_path).path.exists()
 
 
 def test_runtime_error_hook_preserves_active_handover_coordination(
@@ -1106,6 +1125,7 @@ def test_runtime_error_hook_preserves_active_handover_coordination(
     monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(tmp_path))
     monkeypatch.setenv("AZURPILOT_DEV_SESSION_ID", "session-1")
     monkeypatch.setenv("AZURPILOT_RUNTIME_OPERATION_ID", "handover-1")
+    monkeypatch.setattr(hooks, "_worker_identity", lambda: (1001, 2001.0))
 
     hooks.record_runtime_error("ap", RuntimeError("ошибка worker"), phase="task")
 
@@ -1117,6 +1137,55 @@ def test_runtime_error_hook_preserves_active_handover_coordination(
     assert snapshot.stop_requested is True
     assert snapshot.operation_id == "handover-1"
     assert snapshot.session_id == "session-1"
+
+
+def test_runtime_error_hook_keeps_active_task_until_scheduler_finish(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from module.application.runtime_state import RuntimePhase, RuntimeStateStore
+    from module.dev_runtime import hooks
+
+    (tmp_path / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
+    (tmp_path / "module").mkdir()
+    store = RuntimeStateStore(tmp_path)
+    store.mark_worker_started(
+        "ap",
+        worker_pid=1002,
+        worker_created_at=2002.0,
+        operation_id="worker-start",
+    )
+    store.mark_task_started(
+        "ap",
+        "SyntheticTask",
+        expected_worker_pid=1002,
+        expected_worker_created_at=2002.0,
+        operation_id="task-1",
+    )
+    monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(tmp_path))
+    monkeypatch.setenv("AZURPILOT_DEV_SESSION_ID", "session-1")
+    monkeypatch.setenv("AZURPILOT_RUNTIME_OPERATION_ID", "task-1")
+    monkeypatch.setattr(hooks, "_worker_identity", lambda: (1002, 2002.0))
+
+    hooks.record_runtime_error(
+        "ap",
+        RuntimeError("восстановимая ошибка"),
+        phase="task",
+        task="SyntheticTask",
+    )
+
+    active = store.read("ap")
+    assert active is not None
+    assert active.phase is RuntimePhase.USER_PROFILE_BUSY
+    assert active.busy is True
+    assert active.current_task == "SyntheticTask"
+
+    assert hooks.record_task_finished("ap", "SyntheticTask") is True
+    finished = store.read("ap")
+    assert finished is not None
+    assert finished.phase is RuntimePhase.USER_PROFILE_IDLE
+    assert finished.busy is False
+    assert finished.current_task is None
 
 
 def test_finished_hook_writes_evidence_even_when_state_boundary_fails(

@@ -86,7 +86,10 @@ class SharedWebUIRuntime:
         owner = self.owner_identity()
         if owner is None or not self._owner_matches(owner):
             return False
-        record = self._worker_record(profile)
+        try:
+            record = self._worker_record(profile)
+        except RuntimeError:
+            return False
         if record is None or not self._process_matches(record):
             return False
         return self._session_state_matches(profile, session_id, record)
@@ -95,7 +98,10 @@ class SharedWebUIRuntime:
         """Проверить наличие worker без изменения registry или ProcessManager."""
 
         profile = profile or self.profile_name
-        record = self._worker_record(profile)
+        try:
+            record = self._worker_record(profile)
+        except RuntimeError:
+            return None
         if record is None:
             snapshot = self.state.read(profile)
             if snapshot is not None and snapshot.phase.value != "stopped":
@@ -117,7 +123,10 @@ class SharedWebUIRuntime:
             return False, "общий WebUI owner не зарегистрирован"
         if not self._owner_matches(owner):
             return False, "идентичность общего WebUI owner не подтверждена"
-        record = self._worker_record(profile)
+        try:
+            record = self._worker_record(profile)
+        except RuntimeError:
+            return False, "состояние worker development target не подтверждено"
         if record is None:
             return False, "worker development target не зарегистрирован"
         if not self._process_matches(record):

@@ -5862,6 +5862,7 @@
       "Pending": "in queue",
       "Waiting": "Waiting",
       "NoTask": "No tasks",
+      "StateUnavailable": "State unavailable",
       "Stat": "Statistics"
     },
     "Dashboard": {

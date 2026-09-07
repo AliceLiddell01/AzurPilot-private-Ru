@@ -8,9 +8,9 @@ import pytest
 
 from module.dev_runtime import (
     DevEnvironment,
+    DevRuntimeMode,
     DevSession,
     DevSessionManager,
-    DevRuntimeMode,
     DevSessionState,
     DevTarget,
     DevTargetError,
@@ -49,6 +49,12 @@ def _write_profile(root: Path, name: str = _TARGET_NAME) -> Path:
 
 def _error_code(error: pytest.ExceptionInfo[DevTargetError]) -> str:
     return error.value.code
+
+
+def test_dev_target_accepts_canonical_profile_without_local_length_cap() -> None:
+    profile = "a" * 129
+
+    assert DevTarget(profile).profile_name == profile
 
 
 def test_configured_target_round_trips_against_one_structural_profile(tmp_path: Path) -> None:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import os
 import shutil
 import struct
 import zlib
@@ -33,6 +34,7 @@ from module.application import (
     ConfigUpdateRequest,
     ConfigUpdateResult,
     CurrentTaskSnapshot,
+    CurrentTaskState,
     DashboardResource,
     DashboardResources,
     EmulatorRestartResult,
@@ -42,6 +44,7 @@ from module.application import (
     FleetStateRequest,
     FleetStateResult,
     GameLoginResult,
+    GameReadService,
     GameRuntimeRestartResult,
     InstanceReference,
     InstanceStatus,
@@ -70,13 +73,16 @@ from module.application import (
 )
 from module.application.errors import GameRuntimePhaseError
 from module.application.game_control_lock import profile_mutation_lock
-from module.application.game_validation import UNKNOWN_TASK
 from module.application.instance_identity import runtime_instance_identity
-from module.application.legacy_game_adapters import LegacyProcessManagerAdapter
+from module.application.legacy_game_adapters import (
+    LegacyProcessManagerAdapter,
+    LegacyRuntimeExecutionReader,
+)
 from module.application.runtime_control import (
     RuntimeControlOperation,
     RuntimeControlResult,
 )
+from module.application.runtime_state import RuntimeStateStore
 from module.application.storage_models import InstanceIdentity
 from module.formation.model import (
     FleetSelection,
@@ -386,6 +392,7 @@ def test_contract_and_tool_catalog_are_game_specific_and_scope_separated() -> No
     assert {
         "ready",
         "running",
+        "idle",
         "stopped",
         "warning",
         "updating",
@@ -707,6 +714,110 @@ def test_profile_selector_allows_internal_spaces_and_rejects_unsafe_edges() -> N
     assert validator.is_valid("alpha beta")
     for unsafe in (" alpha", "alpha ", "alpha/../beta", "alpha\x00beta", "alpha\nbeta"):
         assert not validator.is_valid(unsafe)
+
+
+def test_profile_selector_accepts_canonical_name_without_local_length_cap() -> None:
+    profile = "a" * 129
+    backend = _backend()
+    backend.instances.list_instances = lambda: (InstanceReference(profile),)
+    backend.read.get_current_running_task = lambda _profile: CurrentTaskSnapshot(
+        profile, None, CurrentTaskState.IDLE
+    )
+    adapter = GameMcpAdapter(lambda: backend)
+
+    result = adapter.call("game_get_current_task", {"profile": profile})
+    structured = result.structured if isinstance(result, GameMcpResponse) else result
+    profile_schema = next(
+        tool.input_schema["properties"]["profile"]
+        for tool in tool_definitions()
+        if tool.name == "game_get_current_task"
+    )
+
+    assert structured["code"] == "GAME_CURRENT_TASK_IDLE"
+    assert structured["details"] == {"profile": profile, "task": None}
+    assert Draft202012Validator(profile_schema).is_valid(profile)
+
+
+def test_canonical_profile_reaches_game_mcp_through_authoritative_runtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    profile = "a" * 129
+    worker_registry_file = tmp_path / "cache" / "webui-workers.json"
+    worker_registry_file.parent.mkdir(parents=True)
+    from module.webui import worker_registry
+
+    created_at = worker_registry._process_created_at(os.getpid())
+    worker_registry_file.write_text(
+        json.dumps(
+            {
+                "owner_created_at": None,
+                "owner_pid": None,
+                "workers": {
+                    profile: {
+                        "pid": os.getpid(),
+                        "created_at": created_at,
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(worker_registry, "WORKER_REGISTRY_FILE", worker_registry_file)
+    monkeypatch.setattr(
+        worker_registry,
+        "DEFAULT_WORKER_REGISTRY_FILE",
+        worker_registry_file,
+    )
+    monkeypatch.setattr(
+        worker_registry,
+        "LEGACY_WORKER_REGISTRY_FILE",
+        tmp_path / "config" / "webui-workers.json",
+    )
+
+    RuntimeStateStore(tmp_path).mark_worker_started(
+        profile,
+        worker_pid=os.getpid(),
+        worker_created_at=created_at,
+    )
+    instances = SimpleNamespace(list_instance_names=lambda: (profile,))
+    read_service = GameReadService(
+        instances,
+        object(),
+        object(),
+        object(),
+        object(),
+        runtime_execution_reader=LegacyRuntimeExecutionReader(tmp_path),
+    )
+    backend = _backend()
+    backend.instances.list_instances = lambda: (InstanceReference(profile),)
+    backend.read = read_service
+
+    result = GameMcpAdapter(lambda: backend).call(
+        "game_get_current_task",
+        {"profile": profile},
+    )
+
+    assert result["code"] == "GAME_CURRENT_TASK_IDLE"
+    assert result["details"] == {"profile": profile, "task": None}
+
+
+def test_game_mcp_current_task_ignores_stale_run_task_log() -> None:
+    backend = _backend()
+    backend.read.get_current_running_task = lambda _profile: CurrentTaskSnapshot(
+        "alpha", None, CurrentTaskState.IDLE
+    )
+    backend.read.get_recent_logs = lambda _profile, _limit: RuntimeLogTail(
+        "alpha", ("<<< Run task Event >>>\n",)
+    )
+    adapter = GameMcpAdapter(lambda: backend)
+
+    logs = adapter.call("game_get_recent_logs", {"profile": "alpha", "lines": 1})
+    current = adapter.call("game_get_current_task", {"profile": "alpha"})
+
+    assert logs["details"]["lines"] == ["<<< Run task Event >>>\n"]
+    assert current["code"] == "GAME_CURRENT_TASK_IDLE"
+    assert current["details"] == {"profile": "alpha", "task": None}
 
 
 def test_result_sequence_bounds_preserve_data_or_fail_explicitly() -> None:
@@ -1583,19 +1694,52 @@ def test_adapter_preserves_unknown_morale_state() -> None:
     assert slot["baseline"] is None
 
 
-def test_adapter_preserves_unknown_current_task_state() -> None:
+@pytest.mark.parametrize(
+    ("state", "code", "result_state"),
+    (
+        (
+            CurrentTaskState.IDLE,
+            "GAME_CURRENT_TASK_IDLE",
+            "idle",
+        ),
+        (
+            CurrentTaskState.UNKNOWN,
+            "GAME_CURRENT_TASK_UNKNOWN",
+            "unknown",
+        ),
+    ),
+)
+def test_adapter_preserves_non_running_current_task_state(
+    state: CurrentTaskState,
+    code: str,
+    result_state: str,
+) -> None:
     backend = _backend()
     backend.read.get_current_running_task = lambda _profile: CurrentTaskSnapshot(
-        "alpha", UNKNOWN_TASK
+        "alpha", None, state
     )
     adapter = GameMcpAdapter(lambda: backend)
 
     result = adapter.call("game_get_current_task", {"profile": "alpha"})
 
     assert result["ok"] is True
-    assert result["code"] == "GAME_DATA_UNKNOWN"
-    assert result["state"] == "unknown"
-    assert result["details"] == {"profile": "alpha", "task": UNKNOWN_TASK}
+    assert result["code"] == code
+    assert result["state"] == result_state
+    assert result["details"] == {"profile": "alpha", "task": None}
+
+
+def test_adapter_preserves_stopped_current_task_contract() -> None:
+    backend = _backend()
+    backend.read.get_current_running_task = lambda _profile: CurrentTaskSnapshot(
+        "alpha", None, CurrentTaskState.STOPPED
+    )
+    adapter = GameMcpAdapter(lambda: backend)
+
+    result = adapter.call("game_get_current_task", {"profile": "alpha"})
+
+    assert result["ok"] is False
+    assert result["code"] == "GAME_PROFILE_NOT_RUNNING"
+    assert result["state"] == "failed"
 
 
 def test_adapter_does_not_claim_empty_fleet_snapshots_are_complete() -> None:

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable
 
 from sqlalchemy import Connection, text
@@ -22,6 +21,7 @@ from module.application.errors import (
 )
 from module.application.instance_identity import runtime_instance_identity
 from module.application.storage_models import StorageHealthState
+from module.config.profile import profile_identity_from_name
 from module.persistence.config import BACKEND_MARKER_VERSION
 from module.persistence.database import (
     LazyEngine,
@@ -32,7 +32,6 @@ from module.persistence.repositories import PostgresInstanceIdentityRepository
 from module.persistence.schema import EXPECTED_ALEMBIC_HEAD, SCHEMA_NAME, metadata
 
 _APP_ROLE = "azurpilot_app"
-_SAFE_TARGET = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _REQUIRED_TABLES = tuple(sorted(table.name for table in metadata.sorted_tables))
 _REQUIRED_TABLES_SQL = ", ".join(f":table_{index}" for index in range(len(_REQUIRED_TABLES)))
 
@@ -130,7 +129,7 @@ class PostgresDatabaseDiagnostics:
     def run_check(self, check_id: str, target_profile: str) -> DatabaseCheckResult:
         if not isinstance(check_id, str) or check_id not in _DESCRIPTORS_BY_ID:
             raise ValueError("Неизвестный database diagnostic check")
-        if not isinstance(target_profile, str) or not _SAFE_TARGET.fullmatch(target_profile):
+        if profile_identity_from_name(target_profile) is None:
             raise ValueError("target_profile имеет недопустимый формат")
         return self._run_check(check_id, target_profile)
 
@@ -156,7 +155,7 @@ class PostgresDatabaseDiagnostics:
         return handlers[check_id](target_profile)
 
     def get_status(self, target_profile: str) -> DatabaseStatusSnapshot:
-        if not isinstance(target_profile, str) or not _SAFE_TARGET.fullmatch(target_profile):
+        if profile_identity_from_name(target_profile) is None:
             raise ValueError("target_profile имеет недопустимый формат")
         if self._engine is None:
             checks = tuple(

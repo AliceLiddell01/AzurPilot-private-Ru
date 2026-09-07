@@ -315,6 +315,24 @@ def test_shared_runtime_requires_worker_registry_identity_to_match_runtime_state
     assert shared.matches_session("session-1", "ap") is False
 
 
+def test_shared_runtime_fails_closed_when_worker_registry_is_unknown(
+    tmp_path: Path,
+) -> None:
+    shared = SharedWebUIRuntime(tmp_path)
+    owner = RuntimeOwnerIdentity(pid=7001, created_at=8001.0)
+    shared._owner_reader = lambda: owner  # type: ignore[method-assign]
+    shared._owner_matches = lambda _owner: True  # type: ignore[method-assign]
+
+    def unknown(_profile: str) -> dict | None:
+        raise RuntimeError("registry unavailable")
+
+    shared._worker_record = unknown  # type: ignore[method-assign]
+
+    assert shared.worker_present("ap") is None
+    assert shared.ready("ap")[0] is False
+    assert shared.matches_session("session-1", "ap") is False
+
+
 def test_shared_recovery_does_not_close_marker_while_worker_is_present(tmp_path: Path) -> None:
     manager, shared = _manager(tmp_path)
     started = manager.start()

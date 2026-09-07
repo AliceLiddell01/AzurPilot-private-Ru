@@ -80,7 +80,10 @@ class LegacyInstanceRuntimeAdapter:
     def _default_read_instance_status(name: str) -> RuntimeSnapshot:
         """Проверить worker registry без вызова lifecycle housekeeping."""
         worker_registry = importlib.import_module("module.webui.worker_registry")
-        record = worker_registry.get_worker_read_only(name)
+        try:
+            record = worker_registry.get_worker_read_only(name)
+        except RuntimeError:
+            return RuntimeSnapshot(False, int(RuntimeState.WARNING))
         if record is None:
             return RuntimeSnapshot(False, int(RuntimeState.STOPPED))
         try:

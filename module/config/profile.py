@@ -68,11 +68,23 @@ def profile_identity_from_filename(filename: str) -> ProfileIdentity | None:
 
     if (
         not config_name
+        or config_name != config_name.strip()
         or config_name.casefold().startswith("template")
         or any(char in _INVALID_PROFILE_NAME_CHARS for char in config_name)
+        or any(ord(char) < 32 or ord(char) == 127 for char in config_name)
     ):
         return None
     return ProfileIdentity(config_name, mod_name)
+
+
+def profile_identity_from_name(name: str) -> ProfileIdentity | None:
+    """Распознать имя обычного профиля по тому же canonical правилу."""
+    if not isinstance(name, str):
+        return None
+    identity = profile_identity_from_filename(f"{name}.json")
+    if identity is None or identity.mod_name != "alas" or identity.name != name:
+        return None
+    return identity
 
 
 def _has_scheduler_group(data: Mapping[str, object]) -> bool:
