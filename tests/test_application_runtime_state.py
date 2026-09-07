@@ -4,6 +4,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Event, Thread
+from typing import TypedDict
 
 import pytest
 
@@ -22,7 +23,12 @@ def _store(root: Path, timestamp: str = "2026-09-04T00:00:00+00:00") -> RuntimeS
     return RuntimeStateStore(root, now=lambda: timestamp)
 
 
-def _worker_identity_kwargs(pid: int, created_at: float) -> dict[str, object]:
+class _WorkerIdentityKwargs(TypedDict):
+    expected_worker_pid: int
+    expected_worker_created_at: float
+
+
+def _worker_identity_kwargs(pid: int, created_at: float) -> _WorkerIdentityKwargs:
     return {
         "expected_worker_pid": pid,
         "expected_worker_created_at": created_at,
@@ -1016,19 +1022,20 @@ def test_runtime_state_scoped_reconciliation_ignores_other_profile_orphan(
     assert store.read("alas") == before
 
 
-def test_runtime_state_scoped_reconciliation_fails_closed_on_invalid_profile_keys(
+def test_runtime_state_scoped_reconciliation_scopes_registry_and_rejects_invalid_state_keys(
     tmp_path: Path,
 ) -> None:
     store = _store(tmp_path)
     store.mark_worker_started("alas", worker_pid=1109, worker_created_at=2109.0)
     worker = {"pid": 1109, "created_at": 2109.0}
 
-    with pytest.raises(RuntimeStateError) as worker_error:
+    assert (
         store.reconcile_stale_workers(
             {"alas": worker, "invalid/profile": worker},
             requested_profile="alas",
         )
-    assert worker_error.value.code == "RUNTIME_PROFILE_INVALID"
+        == ()
+    )
 
     payload = json.loads(store.path.read_text(encoding="utf-8"))
     payload["profiles"]["invalid/profile"] = dict(payload["profiles"]["alas"])

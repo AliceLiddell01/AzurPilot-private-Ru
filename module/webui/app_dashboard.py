@@ -144,7 +144,7 @@ class DashboardMixin(WebUIMixinBase):
 
         try:
             group = _event_currency_balance_group(config)
-        except Exception as exc:  # noqa: BLE001 - Dashboard remains bounded on read failure.
+        except Exception as exc:  # noqa: BLE001 - Dashboard остаётся ограниченным при ошибке чтения.
             logger.warning(
                 f"[Dashboard] Не удалось получить текущий баланс валюты ивента: {exc}"
             )
@@ -172,7 +172,7 @@ class DashboardMixin(WebUIMixinBase):
                 self._runtime_execution_reader = reader
             try:
                 runtime_snapshot = reader.read_current_task(instance)
-            except Exception as exc:  # noqa: BLE001 - overview must fail closed.
+            except Exception as exc:  # noqa: BLE001 - overview работает fail-closed.
                 logger.warning(
                     f"[Dashboard] Не удалось прочитать подтверждённое runtime state: {exc}"
                 )

@@ -147,6 +147,7 @@ class TestProcessManagerRegistry(unittest.TestCase):
                 body_called.set()
 
             with (
+                # run_process меняет runtime-переменные; не переносить их между тестами.
                 patch.dict(os.environ, {}, clear=False),
                 patch.object(ProcessManager, "_run_process_body", side_effect=body),
             ):
@@ -440,7 +441,11 @@ class TestProcessManagerRegistry(unittest.TestCase):
         with (
             patch("module.webui.process_manager.list_mod_instance"),
             patch("module.webui.process_manager.get_config_mod", return_value="alas"),
-            patch("builtins.open", side_effect=FileNotFoundError),
+            patch.object(
+                ProcessManager,
+                "_read_reload_instances",
+                side_effect=FileNotFoundError,
+            ),
             patch.object(failed, "start", side_effect=failure) as failed_start,
             patch.object(healthy, "start") as healthy_start,
         ):

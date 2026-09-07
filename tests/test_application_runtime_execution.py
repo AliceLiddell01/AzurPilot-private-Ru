@@ -151,3 +151,19 @@ def test_runtime_execution_fails_closed_on_reader_exception() -> None:
 
     assert result.state is CurrentTaskState.UNKNOWN
     assert result.task is None
+
+
+def test_runtime_execution_fails_closed_on_identity_reader_exception() -> None:
+    class BrokenIdentity:
+        def read_worker_identity(self, profile: str) -> WorkerIdentityEvidence:
+            raise RuntimeError("identity недоступна")
+
+    reader = RuntimeExecutionReader(
+        _StateReader(_snapshot(worker_running=True, busy=True, current_task="Main")),
+        BrokenIdentity(),  # type: ignore[arg-type]
+    )
+
+    result = reader.read_current_task("ap")
+
+    assert result.state is CurrentTaskState.UNKNOWN
+    assert result.task is None

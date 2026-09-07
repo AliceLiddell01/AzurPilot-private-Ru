@@ -835,7 +835,7 @@ class ProcessManager:
                 worker_pid=os.getpid(),
                 worker_created_at=worker_created_at,
             )
-        except Exception as exc:  # noqa: BLE001 - startup gate работает fail-closed.
+        except Exception as exc:  # noqa: BLE001 - startup gate работает в режиме fail-closed.
             logger.error(
                 f"[{config_name}] Не удалось подтвердить регистрацию worker перед запуском: "
                 f"{type(exc).__name__}"
@@ -1070,6 +1070,11 @@ class ProcessManager:
         return [cls.get_manager(name) for name in names if cls.get_manager(name).alive]
 
     @staticmethod
+    def _read_reload_instances() -> tuple[str, ...]:
+        with open("./config/reloadalas", mode="r", encoding="utf-8") as handle:
+            return tuple(line.strip() for line in handle)
+
+    @staticmethod
     def restart_processes(
         instances: Sequence[Union["ProcessManager", str]] | None = None,
         ev: threading.Event | None = None,
@@ -1100,10 +1105,8 @@ class ProcessManager:
                 _instances.add(instance)
 
         try:
-            with open("./config/reloadalas", mode="r", encoding="utf-8") as f:
-                for line in f.readlines():
-                    line = line.strip()
-                    _instances.add(ProcessManager.get_manager(line))
+            for config_name in ProcessManager._read_reload_instances():
+                _instances.add(ProcessManager.get_manager(config_name))
         except FileNotFoundError:
             pass
 

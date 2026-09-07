@@ -665,7 +665,10 @@ class RuntimeStateStore:
             if isinstance(authoritative_workers, Mapping):
                 requested_workers: dict[str, Mapping[str, object]] = {}
                 for raw_profile, raw_record in authoritative_workers.items():
-                    profile = _profile(raw_profile)
+                    try:
+                        profile = _profile(raw_profile)
+                    except RuntimeStateError:
+                        continue
                     if profile == requested_profile:
                         requested_workers[profile] = raw_record
             else:

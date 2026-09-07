@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import importlib
 import os
 import re
 import shutil
@@ -602,7 +601,8 @@ class LegacyWorkerIdentityReader:
 
     def read_worker_identity(self, profile: str) -> WorkerIdentityEvidence:
         try:
-            worker_registry = importlib.import_module("module.webui.worker_registry")
+            from module.webui import worker_registry
+
             record = worker_registry.get_worker_read_only(profile)
         except Exception:  # noqa: BLE001 - runtime reader обязан закрыть ошибку.
             return WorkerIdentityEvidence(WorkerIdentityStatus.UNKNOWN)
@@ -623,6 +623,7 @@ class LegacyWorkerIdentityReader:
                 or isinstance(created_at, bool)
                 or not isinstance(created_at, (int, float))
                 or created_at <= 0
+                or not isfinite(float(created_at))
             ):
                 return WorkerIdentityEvidence(WorkerIdentityStatus.UNKNOWN)
         except (KeyError, TypeError, ValueError, RuntimeError):

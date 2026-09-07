@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
 from threading import Event, Thread
+from unittest.mock import patch
 
 import pytest
 
@@ -29,12 +30,14 @@ from module.application.legacy_game_adapters import (
     LegacyProcessManagerAdapter,
     LegacyRuntimeLogAdapter,
     LegacyScreenshotAdapter,
+    LegacyWorkerIdentityReader,
 )
 from module.application.runtime_control import (
     RuntimeControlError,
     RuntimeControlOperation,
     RuntimeControlResult,
 )
+from module.application.runtime_execution import WorkerIdentityStatus
 
 ARGS = {
     "Main": {
@@ -256,6 +259,24 @@ def test_legacy_log_adapter_falls_back_to_previous_calendar_date(tmp_path: Path)
     )
 
     assert adapter.read_tail("ap", 1) == ("<<< Run task Main >>>\n",)
+
+
+def test_legacy_worker_identity_rejects_nonfinite_created_at():
+    from module.webui import worker_registry
+
+    reader = LegacyWorkerIdentityReader()
+    for created_at in (float("nan"), float("inf"), float("-inf")):
+        with (
+            patch.object(
+                worker_registry,
+                "get_worker_read_only",
+                return_value={"pid": 123, "created_at": created_at},
+            ),
+            patch.object(worker_registry, "process_matches", return_value=True),
+        ):
+            evidence = reader.read_worker_identity("ap")
+
+        assert evidence.status is WorkerIdentityStatus.UNKNOWN
 
 
 def test_legacy_screenshot_lifecycle_and_emulator_adapters_use_narrow_owners(monkeypatch):

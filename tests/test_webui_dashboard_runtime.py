@@ -19,7 +19,7 @@ from module.webui.app_dashboard import (
         (None, None, True),
     ),
 )
-def test_dashboard_projection_distinguishes_running_idle_stopped_and_unknown(
+def test_dashboard_projection_collapses_idle_and_stopped_but_marks_unknown(
     snapshot: CurrentTaskSnapshot | None,
     task: str | None,
     unknown: bool,

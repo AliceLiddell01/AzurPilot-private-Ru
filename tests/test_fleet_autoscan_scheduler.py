@@ -343,12 +343,17 @@ def test_loop_closes_current_boundary_once_for_recoverable_result(
     script._prepare_task_boundary = lambda _task: True
     started: list[str] = []
     finished: list[str] = []
-    script._record_dev_runtime_task_started = (
-        lambda task: started.append(task) or True
-    )
-    script._record_dev_runtime_task_finished = (
-        lambda task: finished.append(task) or True
-    )
+
+    def record_started(task: str) -> bool:
+        started.append(task)
+        return True
+
+    def record_finished(task: str) -> bool:
+        finished.append(task)
+        return True
+
+    script._record_dev_runtime_task_started = record_started
+    script._record_dev_runtime_task_finished = record_finished
     script.run = lambda _command: "recoverable"
     monkeypatch.setattr(
         "alas.logger",
