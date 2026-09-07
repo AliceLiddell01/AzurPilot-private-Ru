@@ -6,6 +6,7 @@ from module.application.game_models import CurrentTaskSnapshot, CurrentTaskState
 from module.webui.app_dashboard import (
     _overview_execution_projection,
     _overview_task_projection,
+    _overview_task_scope,
 )
 
 
@@ -48,3 +49,12 @@ def test_dashboard_keeps_scheduler_pending_and_waiting_separate_from_running() -
         "pending": (("Event", "future"),),
         "waiting": (("Event", "later"),),
     }
+
+
+def test_dashboard_task_scopes_are_unique_across_execution_projections() -> None:
+    assert _overview_task_scope("running", "Event") != _overview_task_scope(
+        "pending", "Event"
+    )
+    assert _overview_task_scope("pending", "Event") != _overview_task_scope(
+        "waiting", "Event"
+    )

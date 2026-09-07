@@ -117,6 +117,12 @@ def _overview_task_projection(
     }
 
 
+def _overview_task_scope(section: str, command: str) -> str:
+    """Сформировать уникальный scope задачи внутри секции обзора."""
+
+    return f"overview-{section}-task_{command}"
+
+
 class DashboardMixin(WebUIMixinBase):
     """Обновлять задачи и ресурсы на обзорной панели WebUI."""
 
@@ -186,8 +192,8 @@ class DashboardMixin(WebUIMixinBase):
             return
         self._overview_snapshot = snapshot
 
-        def put_task(func: Function):
-            with use_scope(f"overview-task_{func.command}"):
+        def put_task(func: Function, section: str):
+            with use_scope(_overview_task_scope(section, func.command)):
                 put_column(
                     [
                         put_text(t(f"Task.{func.command}.name")).style("--arg-title--"),
@@ -202,7 +208,7 @@ class DashboardMixin(WebUIMixinBase):
                 )
 
         def put_running_task(task_name: str):
-            with use_scope(f"overview-task_{task_name}"):
+            with use_scope(_overview_task_scope("running", task_name)):
                 put_column(
                     [put_text(t(f"Task.{task_name}.name")).style("--arg-title--")],
                     size="auto",
@@ -228,13 +234,13 @@ class DashboardMixin(WebUIMixinBase):
         with use_scope("pending_tasks"):
             if pending:
                 for task in pending:
-                    put_task(task)
+                    put_task(task, "pending")
             else:
                 put_text(t("Gui.Overview.NoTask")).style("--overview-notask-text--")
         with use_scope("waiting_tasks"):
             if waiting:
                 for task in waiting:
-                    put_task(task)
+                    put_task(task, "waiting")
             else:
                 put_text(t("Gui.Overview.NoTask")).style("--overview-notask-text--")
 
