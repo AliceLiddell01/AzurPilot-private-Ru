@@ -120,7 +120,7 @@ def _overview_task_projection(
 def _overview_task_scope(section: str, command: str) -> str:
     """Сформировать уникальный scope задачи внутри секции обзора."""
 
-    return f"overview-{section}-task_{command}"
+    return f"overview-task_{section}_{command}"
 
 
 class DashboardMixin(WebUIMixinBase):
