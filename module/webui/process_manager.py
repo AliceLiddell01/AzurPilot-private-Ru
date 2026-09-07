@@ -586,11 +586,20 @@ class ProcessManager:
         reconciled = RuntimeStateStore(_REPOSITORY_ROOT).reconcile_stale_workers(
             workers,
             worker_identity_checker=check_worker,
+            requested_profile=self.config_name,
         )
         if State.process_registry is not None:
             worker = workers.get(self.config_name)
             if isinstance(worker, dict):
-                State.process_registry[self.config_name] = int(worker["pid"])
+                try:
+                    worker_pid = int(worker["pid"])
+                except (KeyError, TypeError, ValueError):
+                    logger.error(
+                        f"[{self.config_name}] Недопустимая запись PID рабочего процесса"
+                    )
+                    State.process_registry.pop(self.config_name, None)
+                else:
+                    State.process_registry[self.config_name] = worker_pid
             else:
                 State.process_registry.pop(self.config_name, None)
         if reconciled:

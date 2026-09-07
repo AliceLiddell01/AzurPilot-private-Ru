@@ -329,6 +329,77 @@ class TestProcessManagerRegistry(unittest.TestCase):
             self.assertEqual(State.process_registry["alas"], 23456)
             self.assertEqual(observed_cache, [None])
 
+    def test_start_reconciliation_clears_invalid_local_registry_pid_cache(self):
+        from module.application.runtime_state import RuntimeStateStore
+
+        with TemporaryDirectory() as root:
+            root_path = Path(root)
+            State.process_registry["alas"] = 12345
+            manager = ProcessManager("alas")
+
+            with (
+                patch("module.webui.process_manager._REPOSITORY_ROOT", root_path),
+                patch(
+                    "module.webui.process_manager.get_workers",
+                    return_value={"alas": {}},
+                ),
+                patch.object(
+                    RuntimeStateStore,
+                    "reconcile_stale_workers",
+                    return_value=(),
+                ),
+            ):
+                manager._reconcile_runtime_state_before_start()
+
+            self.assertNotIn("alas", State.process_registry)
+
+    def test_start_ignores_live_orphan_worker_from_other_profile(self):
+        from module.application.runtime_state import RuntimeStateStore
+
+        with TemporaryDirectory() as root:
+            root_path = Path(root)
+            store = RuntimeStateStore(root_path)
+            store.mark_worker_started(
+                "alas",
+                worker_pid=12345,
+                worker_created_at=54321.0,
+                operation_id="old-start",
+            )
+            before = store.read("alas")
+            manager = ProcessManager("ap")
+            new_process = Mock()
+            new_process.pid = 23456
+
+            def register_new_worker(_pid: int) -> None:
+                store.mark_worker_started(
+                    "ap",
+                    worker_pid=23456,
+                    worker_created_at=65432.0,
+                    operation_id="new-start",
+                )
+
+            with (
+                patch("module.webui.process_manager._REPOSITORY_ROOT", root_path),
+                patch("module.webui.process_manager.get_workers", return_value={}),
+                patch("module.webui.process_manager.process_matches", return_value=True),
+                patch("module.webui.process_manager.Process", return_value=new_process),
+                patch.object(manager, "_register_process", side_effect=register_new_worker),
+                patch.object(manager, "start_log_queue_handler"),
+                patch.object(
+                    ProcessManager,
+                    "alive",
+                    new_callable=PropertyMock,
+                    return_value=False,
+                ),
+            ):
+                manager.start("ap", operation_id="new-start")
+
+            new_process.start.assert_called_once()
+            self.assertEqual(store.read("alas"), before)
+            current = store.read("ap")
+            self.assertIsNotNone(current)
+            self.assertEqual(current.worker_pid, 23456)
+
     def test_start_does_not_reconcile_live_orphan_worker(self):
         from module.application.runtime_state import RuntimeStateError, RuntimeStateStore
 

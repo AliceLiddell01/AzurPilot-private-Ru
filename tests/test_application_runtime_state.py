@@ -493,6 +493,23 @@ def test_runtime_state_rejects_profiles_rejected_by_canonical_identity_rules(
     assert error.value.code == "RUNTIME_PROFILE_INVALID"
 
 
+@pytest.mark.parametrize("profile_name", ["control\x01name", "a" * 129])
+def test_runtime_state_rejects_profile_names_outside_state_boundary(
+    tmp_path: Path,
+    profile_name: str,
+) -> None:
+    from module.config.profile import profile_identity_from_name
+
+    assert profile_identity_from_name(profile_name) is not None
+    with pytest.raises(RuntimeStateError) as error:
+        _store(tmp_path).mark_worker_started(
+            profile_name,
+            worker_pid=1203,
+            worker_created_at=2203.0,
+        )
+    assert error.value.code == "RUNTIME_PROFILE_INVALID"
+
+
 def test_runtime_state_profile_limit_matches_canonical_discovery_bound() -> None:
     from module.application.runtime_state import _MAX_PROFILES
     from module.config.profile import MAX_PROFILE_CONFIG_CANDIDATES
@@ -981,6 +998,24 @@ def test_runtime_state_reconciles_orphan_worker_without_scheduler_guessing(
     assert snapshot.worker_running is False
     assert snapshot.busy is False
     assert snapshot.current_task is None
+
+
+def test_runtime_state_scoped_reconciliation_ignores_other_profile_orphan(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    store.mark_worker_started("alas", worker_pid=1109, worker_created_at=2109.0)
+    before = store.read("alas")
+
+    assert (
+        store.reconcile_stale_workers(
+            {},
+            worker_identity_checker=lambda _pid, _created_at: True,
+            requested_profile="ap",
+        )
+        == ()
+    )
+    assert store.read("alas") == before
 
 
 def test_runtime_state_does_not_reconcile_worker_when_identity_is_live(

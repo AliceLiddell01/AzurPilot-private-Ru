@@ -260,7 +260,10 @@ task также требует той же exact identity; поздний finish
 Каждый обычный повторный `ProcessManager.start()` перед созданием нового процесса
 сверяет runtime snapshots с authoritative worker registry и owner-specific проверкой
 PID. Только доказанно завершённый или заменённый PID можно атомарно перевести в
-`STOPPED`; живой или неопределённый orphan блокирует новый запуск.
+`STOPPED`; живой или неопределённый orphan запрашиваемого профиля блокирует его
+новый запуск. Orphan snapshots других профилей не переписываются и не блокируют
+этот scoped start; общий recovery path владельца по-прежнему проверяет их
+fail-closed.
 
 Для busy handover стандартный legacy `notify_webui()` подтверждает только постановку
 сообщения в локальную очередь (`ACCEPTED`), но не доставку пользователю

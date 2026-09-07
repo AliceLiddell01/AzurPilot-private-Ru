@@ -35,6 +35,7 @@ _MAX_STATE_BYTES = 256 * 1024
 _MAX_PROFILES = MAX_PROFILE_CONFIG_CANDIDATES
 _MAX_TEXT = 256
 _MAX_TASK = 256
+_MAX_PROFILE_NAME_LENGTH = 128
 _FRESHNESS_SECONDS = 120.0
 _SAFE_TOKEN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 _SAFE_PHASE = re.compile(r"^[a-z_]{1,64}$")
@@ -398,7 +399,11 @@ def _validate_snapshot_invariants(
 
 def _profile(value: object) -> str:
     identity = profile_identity_from_name(value) if isinstance(value, str) else None
-    if identity is None:
+    if (
+        identity is None
+        or len(identity.name) > _MAX_PROFILE_NAME_LENGTH
+        or any(ord(char) < 32 or ord(char) == 127 for char in identity.name)
+    ):
         raise RuntimeStateError("RUNTIME_PROFILE_INVALID", "Имя runtime-профиля имеет недопустимый формат")
     return identity.name
 
@@ -635,6 +640,7 @@ class RuntimeStateStore:
         authoritative_workers: Mapping[str, Mapping[str, object]],
         *,
         worker_identity_checker: Callable[[int, float], bool | None] | None = None,
+        requested_profile: str | None = None,
     ) -> tuple[str, ...]:
         """Сбросить только worker state с доказанно отсутствующей identity.
 
@@ -643,14 +649,35 @@ class RuntimeStateStore:
         быть подтверждено owner-specific checker: ``False`` означает PID
         reuse, ``None`` — отсутствие процесса, а ``True`` блокирует recovery.
         Неопределённость никогда не превращается в новый worker или в idle.
+        При указании ``requested_profile`` проверяется только профиль,
+        который собирается запускать текущий owner; остальные orphan
+        snapshot остаются для общего recovery path и не блокируют его запуск.
         """
 
-        workers = self._normalize_authoritative_workers(authoritative_workers)
+        requested_profile = (
+            _profile(requested_profile)
+            if requested_profile is not None
+            else None
+        )
+        if requested_profile is None:
+            workers = self._normalize_authoritative_workers(authoritative_workers)
+        else:
+            if isinstance(authoritative_workers, Mapping):
+                requested_workers = (
+                    {requested_profile: authoritative_workers[requested_profile]}
+                    if requested_profile in authoritative_workers
+                    else {}
+                )
+            else:
+                requested_workers = authoritative_workers
+            workers = self._normalize_authoritative_workers(requested_workers)
         reconciled: list[str] = []
         with application_host_lock(self.lock_path):
             payload = self._read_payload()
             records = dict(payload["profiles"])
             for raw_profile, record in tuple(records.items()):
+                if requested_profile is not None and raw_profile != requested_profile:
+                    continue
                 profile = _profile(raw_profile)
                 snapshot = RuntimeStateSnapshot.from_dict(record)
                 if snapshot.profile != profile or not snapshot.worker_running:
