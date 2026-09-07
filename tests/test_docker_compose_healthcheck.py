@@ -215,6 +215,13 @@ def test_tempo_mcp_is_enabled_without_a_host_port():
     )
 
     assert "ports" not in tempo
+    for service_name in ("loki", "prometheus", "tempo"):
+        service = compose_data["services"][service_name]
+        assert "ports" not in service
+        assert all(
+            "/var/run/docker.sock" not in str(volume)
+            for volume in service.get("volumes", [])
+        )
     assert tempo["expose"] == ["3200", "4317", "4318"]
     assert tempo_config["query_frontend"]["mcp_server"] == {"enabled": True}
 

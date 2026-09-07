@@ -1,31 +1,35 @@
-import json
 from pathlib import Path
 
-import yaml
+import pytest
+
+from dev_tools.observability_mcp import (
+    EXPECTED_PROFILE_TOOL_SET,
+    EXPECTED_PROFILE_TOOLS,
+    ObservabilityMcpError,
+    _runtime_tool_names_from_payload,
+    load_and_validate_profile,
+    validate_profile,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_grafana_mcp_server_definition_is_pinned_and_read_only():
-    server = yaml.safe_load(
-        (ROOT / ".docker/grafana-mcp-server.yaml").read_text(encoding="utf-8")
-    )
+def test_grafana_mcp_profile_is_the_single_pinned_read_only_source():
+    profile_path = ROOT / ".docker/azurpilot-observability-profile.json"
+    profile = load_and_validate_profile(profile_path)
+    server = profile["servers"][0]
+    snapshot = server["snapshot"]["server"]
 
-    assert server["name"] == "grafana"
-    assert server["type"] == "server"
+    assert not (ROOT / ".docker/grafana-mcp-server.yaml").exists()
     assert server["image"] == (
         "mcp/grafana@sha256:"
         "9362bcf6aa0e44e61f645b905cec03fb346a946a34a4dafecd7f3e28d3724014"
     )
-    assert server["command"] == [
-        "--transport=stdio",
-        "--disable-write",
-        "--max-loki-log-limit=50",
-    ]
-    assert server["secrets"] == [
+    assert server["tools"] == list(EXPECTED_PROFILE_TOOLS)
+    assert snapshot["secrets"] == [
         {"name": "grafana.api_key", "env": "GRAFANA_SERVICE_ACCOUNT_TOKEN"}
     ]
-    assert server["env"] == [
+    assert snapshot["env"] == [
         {"name": "GRAFANA_URL", "value": "{{grafana.url}}"}
     ]
     assert "volumes" not in server
@@ -33,16 +37,16 @@ def test_grafana_mcp_server_definition_is_pinned_and_read_only():
 
 
 def test_grafana_mcp_profile_has_a_bounded_read_allowlist():
-    profile = json.loads(
-        (ROOT / ".docker/azurpilot-observability-profile.json").read_text(
-            encoding="utf-8"
-        )
+    profile = load_and_validate_profile(
+        ROOT / ".docker/azurpilot-observability-profile.json"
     )
     server = profile["servers"][0]
     snapshot = server["snapshot"]["server"]
-    tools = set(server["tools"])
+    tools = server["tools"]
+    tool_set = set(tools)
 
     assert profile["id"] == "azurpilot-observability"
+    assert len(profile["servers"]) == 1
     assert server["config"] == {"url": "http://host.docker.internal:3000"}
     assert server["secrets"] == "default"
     assert server["image"] == snapshot["image"]
@@ -52,33 +56,8 @@ def test_grafana_mcp_profile_has_a_bounded_read_allowlist():
         "--max-loki-log-limit=50",
     ]
     assert len(tools) == 25
-    assert {
-        "check_datasources_health",
-        "get_dashboard_panel_queries",
-        "get_dashboard_property",
-        "get_dashboard_summary",
-        "get_datasource",
-        "list_datasources",
-        "list_loki_label_names",
-        "list_loki_label_values",
-        "list_prometheus_label_names",
-        "list_prometheus_label_values",
-        "list_prometheus_metric_metadata",
-        "list_prometheus_metric_names",
-        "query_loki_logs",
-        "query_prometheus",
-        "query_prometheus_histogram",
-        "search_dashboards",
-        "generate_deeplink",
-        "alerting_manage_rules",
-        "tempo_docs-traceql",
-        "tempo_get-attribute-names",
-        "tempo_get-attribute-values",
-        "tempo_get-trace",
-        "tempo_traceql-metrics-instant",
-        "tempo_traceql-metrics-range",
-        "tempo_traceql-search",
-    } == tools
+    assert len(set(tools)) == 25
+    assert set(tools) == EXPECTED_PROFILE_TOOL_SET
     assert {
         "create_annotation",
         "create_datasource",
@@ -91,5 +70,38 @@ def test_grafana_mcp_profile_has_a_bounded_read_allowlist():
         "update_annotation",
         "update_dashboard",
         "update_datasource",
-    }.isdisjoint(tools)
+    }.isdisjoint(tool_set)
     assert profile["secrets"]["default"]["provider"] == "docker-desktop-store"
+
+
+@pytest.mark.parametrize(
+    "runtime_tools",
+    [
+        list(EXPECTED_PROFILE_TOOLS) + ["mcp-add"],
+        list(EXPECTED_PROFILE_TOOLS) + ["code-mode"],
+        list(EXPECTED_PROFILE_TOOLS[:-1]) + ["mcp-exec"],
+    ],
+)
+def test_runtime_catalog_rejects_dynamic_or_unbounded_tools(runtime_tools):
+    with pytest.raises(ObservabilityMcpError):
+        _runtime_tool_names_from_payload(
+            [{"name": name} for name in runtime_tools]
+        )
+
+
+def test_runtime_catalog_accepts_exact_static_allowlist():
+    names = _runtime_tool_names_from_payload(
+        [{"name": name} for name in EXPECTED_PROFILE_TOOLS]
+    )
+
+    assert names == tuple(sorted(EXPECTED_PROFILE_TOOLS))
+
+
+def test_profile_validation_rejects_duplicate_tools():
+    profile = load_and_validate_profile(
+        ROOT / ".docker/azurpilot-observability-profile.json"
+    )
+    profile["servers"][0]["tools"][-1] = profile["servers"][0]["tools"][0]
+
+    with pytest.raises(ObservabilityMcpError, match="MCP_PROFILE_TOOL_DUPLICATE"):
+        validate_profile(profile)
