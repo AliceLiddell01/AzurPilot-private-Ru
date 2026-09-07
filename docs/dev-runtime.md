@@ -252,6 +252,15 @@ raw persisted `Scheduler.Enable` читается узким `SchedulerRuntimeSt
 `Scheduler.NextRun`, `pending_task`, `waiting_task` или `task_delay()`: эти значения
 описывают только следующий запуск. Повторное появление той же команды в очереди,
 пустая очередь и вложенная игровая операция не закрывают активную runtime task.
+Дочерний worker перед запуском task body проходит bounded startup gate и ожидает
+атомарное подтверждение собственной пары `(worker_pid, worker_created_at)` в
+process-shared state. Отсутствующий, устаревший или принадлежащий другому процессу
+snapshot не открывает выполнение. Любая worker-owned запись начала или завершения
+task также требует той же exact identity; поздний finish старого worker отклоняется.
+Каждый обычный повторный `ProcessManager.start()` перед созданием нового процесса
+сверяет runtime snapshots с authoritative worker registry и owner-specific проверкой
+PID. Только доказанно завершённый или заменённый PID можно атомарно перевести в
+`STOPPED`; живой или неопределённый orphan блокирует новый запуск.
 
 Для busy handover стандартный legacy `notify_webui()` подтверждает только постановку
 сообщения в локальную очередь (`ACCEPTED`), но не доставку пользователю

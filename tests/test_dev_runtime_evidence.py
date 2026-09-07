@@ -1068,6 +1068,22 @@ def test_hooks_are_noop_without_active_dev_session(monkeypatch) -> None:
     hooks.serve_pending_screenshot(np.zeros((1, 1), dtype=np.uint8))
 
 
+def test_task_hooks_fail_closed_without_runtime_worker_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from module.dev_runtime import hooks
+
+    (tmp_path / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
+    (tmp_path / "module").mkdir()
+    monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(tmp_path))
+    monkeypatch.setenv("AZURPILOT_DEV_SESSION_ID", "session-1")
+
+    assert hooks.record_task_started("ap", "RootTask") is False
+    assert hooks.record_task_finished("ap", "RootTask") is False
+    assert not (tmp_path / "config" / "state" / "webui-runtime-state.json").exists()
+
+
 def test_runtime_error_hook_does_not_create_missing_runtime_state(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1136,7 +1152,13 @@ def test_runtime_error_hook_keeps_active_task_until_scheduler_finish(
         worker_created_at=2002.0,
         operation_id="worker-start",
     )
-    store.mark_task_started("ap", "SyntheticTask", operation_id="task-1")
+    store.mark_task_started(
+        "ap",
+        "SyntheticTask",
+        expected_worker_pid=1002,
+        expected_worker_created_at=2002.0,
+        operation_id="task-1",
+    )
     monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(tmp_path))
     monkeypatch.setenv("AZURPILOT_DEV_SESSION_ID", "session-1")
     monkeypatch.setenv("AZURPILOT_RUNTIME_OPERATION_ID", "task-1")

@@ -159,11 +159,9 @@ def _record_runtime_state(config_name: object, *, task: object, started: bool) -
         if started and (not isinstance(task, str) or not task.strip()):
             return False
         store = RuntimeStateStore(_repository_root())
-        # Старый/тестовый worker может работать без process-shared snapshot.
-        # Это не доказывает handover и потому сохраняет прежнюю семантику
-        # scheduler; если snapshot существует, граница обязана быть атомарной.
+        # Без подтверждённого runtime worker task boundary не существует.
         if store.read(profile) is None:
-            return True
+            return False
         identity = _worker_identity()
         if identity is None:
             return False

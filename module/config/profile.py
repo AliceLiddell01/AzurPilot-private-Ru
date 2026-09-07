@@ -75,6 +75,16 @@ def profile_identity_from_filename(filename: str) -> ProfileIdentity | None:
     return ProfileIdentity(config_name, mod_name)
 
 
+def profile_identity_from_name(name: str) -> ProfileIdentity | None:
+    """Распознать имя обычного профиля по тому же canonical правилу."""
+    if not isinstance(name, str):
+        return None
+    identity = profile_identity_from_filename(f"{name}.json")
+    if identity is None or identity.mod_name != "alas" or identity.name != name:
+        return None
+    return identity
+
+
 def _has_scheduler_group(data: Mapping[str, object]) -> bool:
     return any(
         isinstance(group, Mapping) and isinstance(group.get("Scheduler"), Mapping)

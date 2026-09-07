@@ -4,12 +4,14 @@ from datetime import timedelta
 from pathlib import Path
 from threading import Event, Thread
 from types import SimpleNamespace
+from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 import pytest
 
 from alas import AzurLaneAutoScript
 from module.application.runtime_state import RuntimePhase, RuntimeStateStore
+from module.config.config import TaskEnd
 from module.config.time_source import now as current_time
 from module.dev_runtime.hooks import _worker_identity
 from module.exception import ScriptError
@@ -113,7 +115,13 @@ def test_nested_task_delay_does_not_finish_authoritative_execution(
         worker_pid=worker_identity[0],
         worker_created_at=worker_identity[1],
     )
-    store.mark_task_started("alas", "SyntheticTask", operation_id="task-1")
+    store.mark_task_started(
+        "alas",
+        "SyntheticTask",
+        expected_worker_pid=worker_identity[0],
+        expected_worker_created_at=worker_identity[1],
+        operation_id="task-1",
+    )
 
     script = _script()
     script.config_name = "alas"
@@ -413,6 +421,50 @@ def test_loop_does_not_run_when_handover_wins_atomic_task_start(
     assert snapshot.current_task is None
 
 
+def test_loop_does_not_run_task_without_authoritative_worker_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
+    (tmp_path / "module").mkdir()
+    monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(tmp_path))
+
+    script = _script()
+    script.config_name = "alas"
+    script.config.EmulatorManagement_ScheduledEmulatorRestart = False
+    script.checker = SimpleNamespace(
+        wait_until_available=lambda: None,
+        is_recovered=lambda: False,
+    )
+    script.failure_record = {}
+    script._emulator_recovery_transport_lost = False
+    tasks = iter(("Commission", None))
+    script.get_next_task = lambda: next(tasks)
+    script._prepare_task_boundary = lambda _task: True
+    body_called = False
+
+    def run_task(_task: str) -> None:
+        nonlocal body_called
+        body_called = True
+
+    script._run_scheduler_task = run_task
+    monkeypatch.setattr(
+        "alas.logger",
+        SimpleNamespace(
+            set_file_logger=lambda *_args, **_kwargs: None,
+            info=lambda *_args, **_kwargs: None,
+            warning=lambda *_args, **_kwargs: None,
+            error=lambda *_args, **_kwargs: None,
+            hr=lambda *_args, **_kwargs: None,
+        ),
+    )
+    monkeypatch.setattr("module.config.utils.is_oobe_needed", lambda: False)
+
+    script.loop()
+
+    assert body_called is False
+
+
 def test_loop_finishes_runtime_task_boundary_when_task_raises(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -466,6 +518,75 @@ def test_loop_finishes_runtime_task_boundary_when_task_raises(
     assert snapshot.busy is False
     assert snapshot.current_task is None
     assert snapshot.phase is RuntimePhase.USER_PROFILE_IDLE
+
+
+def test_loop_treats_task_end_as_success_and_finishes_boundary_once(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
+    (tmp_path / "module").mkdir()
+    monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(tmp_path))
+    store = RuntimeStateStore(tmp_path)
+    worker_identity = _worker_identity()
+    assert worker_identity is not None
+    store.mark_worker_started(
+        "alas",
+        worker_pid=worker_identity[0],
+        worker_created_at=worker_identity[1],
+    )
+
+    script = _script()
+    script.config_name = "alas"
+    script.config.EmulatorManagement_ScheduledEmulatorRestart = False
+    script.config.Scheduler_PushNotification = False
+    script.config.Error_StrictRestart = False
+    script.config.Error_HandleError = False
+    script.checker = SimpleNamespace(
+        wait_until_available=lambda: None,
+        is_recovered=lambda: False,
+    )
+    script.failure_record = {}
+    script._emulator_recovery_transport_lost = False
+    tasks = iter(("Commission", None))
+    script.get_next_task = lambda: next(tasks)
+    script._prepare_task_boundary = lambda _task: True
+    script.commission = lambda: (_ for _ in ()).throw(TaskEnd("normal stop"))
+
+    def run_task(_task: str) -> bool:
+        result = script.run("commission", skip_first_screenshot=True)
+        assert result is True
+        return result
+
+    script._run_scheduler_task = run_task
+
+    from module.dev_runtime import hooks
+
+    with (
+        patch.object(hooks, "record_task_finished", wraps=hooks.record_task_finished) as finished,
+        patch(
+            "alas.logger",
+            SimpleNamespace(
+                set_file_logger=lambda *_args, **_kwargs: None,
+                info=lambda *_args, **_kwargs: None,
+                warning=lambda *_args, **_kwargs: None,
+                error=lambda *_args, **_kwargs: None,
+                exception_context=lambda *_args, **_kwargs: None,
+                hr=lambda *_args, **_kwargs: None,
+            ),
+        ),
+    ):
+        monkeypatch.setattr("module.config.utils.is_oobe_needed", lambda: False)
+        script.loop()
+
+    finished.assert_called_once_with("alas", "Commission", outcome="returned")
+    script_snapshot = store.read("alas")
+    assert script_snapshot is not None
+    assert script_snapshot.worker_running is True
+    assert script_snapshot.phase is RuntimePhase.USER_PROFILE_IDLE
+    assert script_snapshot.busy is False
+    assert script_snapshot.current_task is None
+    assert script_snapshot.terminal_state is None
 
 
 def test_long_wait_manual_wakeup_does_not_run_future_normal_task_early() -> None:

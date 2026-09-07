@@ -1,14 +1,15 @@
 """
-实例进程管理器。
+Менеджер процессов экземпляров.
 
-管理 Alas 多实例运行时的进程生命周期，包括进程池维护、状态追踪
-（运行中/停止/异常）及进程间通信的安全处理逻辑。
+Управляет жизненным циклом процессов экземпляров Alas, включая пул процессов,
+отслеживание состояний (работает/остановлен/ошибка) и безопасное межпроцессное взаимодействие.
 """
 
 import argparse
 
-# 此文件专门用于管理 Alas 运行时各实例进程的生存周期及其子进程。
-# 负责多账号多开时的进程池维护、状态（运行中、停止、异常）追踪及进程间通信的安全处理逻辑。
+# Этот файл управляет жизненным циклом процессов экземпляров Alas и их дочерних процессов.
+# Он поддерживает пул процессов для нескольких аккаунтов, отслеживает состояния
+# (работает/остановлен/ошибка) и безопасно обрабатывает межпроцессное взаимодействие.
 from collections.abc import Sequence
 import os
 import queue
@@ -23,9 +24,9 @@ import inflection
 from rich.console import Console, ConsoleRenderable
 from rich.text import Text
 
-# 由于本文件不在 app.py 的同一进程或子进程中运行，
-# 以下代码需要重复执行。
-# 在导入 pywebio 之前先导入伪造模块，避免加载不必要的 PIL 模块。
+# Этот файл выполняется не в том же процессе или дочернем процессе, что и app.py,
+# поэтому следующие действия требуется повторить.
+# Подменяем модуль до импорта pywebio, чтобы не загружать лишний PIL.
 from module.webui.fake_pil_module import *
 
 import_fake_pil_module()
@@ -78,7 +79,7 @@ class ProcessManager:
 
     @classmethod
     def _get_lifecycle_lock(cls, config_name: str) -> threading.RLock:
-        """返回配置实例共享的生命周期锁。"""
+        """Вернуть общую блокировку жизненного цикла экземпляра конфигурации."""
         with cls._lifecycle_locks_lock:
             try:
                 return cls._lifecycle_locks[config_name]
@@ -89,11 +90,11 @@ class ProcessManager:
 
     def set_state_override(self, state: int, duration: float = 10) -> None:
         """
-        强制设置临时的 UI 状态，用于图标测试。
+        Принудительно установить временное состояние UI для проверки значка.
 
         Args:
-            state: 状态值（1=运行中, 2=停止, 3=错误）
-            duration: 覆盖持续时间（秒），为 0 或 None 时持续生效直到手动清除
+            state: состояние (1=работает, 2=остановлен, 3=ошибка)
+            duration: длительность переопределения в секундах; 0 или None означает ручное снятие
         """
         if state not in (1, 2, 3):
             raise ValueError(f"Недопустимое переопределение состояния: {state}")
@@ -126,8 +127,8 @@ class ProcessManager:
         operation_id: str | None = None,
         session_id: str | None = None,
     ) -> None:
-        # WebUI 重启事务持有 restart_lock；清理过程持有 cleanup_lock。
-        # 请求线程不能在事务期间长期阻塞。
+        # Транзакция перезапуска WebUI удерживает restart_lock, а очистка — cleanup_lock.
+        # Поток запроса не должен надолго блокироваться внутри транзакции.
         if not State.restart_lock.acquire(blocking=False):
             logger.info(f"[{self.config_name}] WebUI перезапускается; запуск рабочего процесса отклонён")
             return
@@ -144,8 +145,11 @@ class ProcessManager:
                         return
                     if self.alive:
                         return
-                    # alive 在登记不可验证时保守返回 False；
-                    # 此处再次确认登记状态，防止在登记不一致时启动重复 worker。
+                    self._reconcile_runtime_state_before_start()
+                    if self.alive:
+                        return
+                    # При неподтверждённой записи alive консервативно возвращает False;
+                    # здесь повторно проверяем registry, чтобы не запустить дублирующий worker.
                     _pid, _, _verified = self._registered_worker()
                     if not _verified and _pid is not None:
                         logger.warning(
@@ -199,7 +203,7 @@ class ProcessManager:
         self.thd_log_queue_handler.start()
 
     def stop(self) -> bool:
-        """停止 worker 进程树，并返回是否确认全部结束。"""
+        """Остановить дерево worker и вернуть признак подтверждённого завершения."""
         with self._get_lifecycle_lock(self.config_name):
             self._registry_cleanup_confirmed = False
             process = self._process
@@ -210,16 +214,16 @@ class ProcessManager:
             else:
                 pid, record, pid_verified = self._registered_worker()
 
-            # _registered_worker 可能已通过 join(0) 回收僵尸句柄，
-            # 或 worker 在此期间自然退出。同步本地活性状态，
-            # 避免因过时的 local_process_alive 误判 stop 失败。
+            # _registered_worker мог вернуть zombie-дескриптор через join(0),
+            # либо worker мог завершиться за это время. Обновляем локальный признак жизни,
+            # чтобы устаревший local_process_alive не дал ложную ошибку stop.
             if local_process_alive and not self._is_process_alive(self._process):
                 local_process_alive = False
 
             stopped = pid is None and not local_process_alive
             if pid is not None and not pid_verified:
-                # _registered_worker 可能已通过 join(0) 回收了僵尸句柄；
-                # 若句柄已被清理说明 worker 已确认退出，视为成功停止。
+                # _registered_worker мог вернуть zombie-дескриптор через join(0);
+                # очищенный дескриптор подтверждает завершение worker.
                 if self._is_process_alive(self._process):
                     logger.error(
                         f"[{self.config_name}] Не удалось подтвердить рабочий процесс PID {pid}; завершение неизвестного процесса отклонено"
@@ -232,11 +236,11 @@ class ProcessManager:
                     stopped = True
             elif pid is not None:
                 if local_process_alive and process is not None:
-                    # 优先使用本地 Process 句柄的 terminate/kill，
-                    # 比 taskkill 更可靠。
+                    # Сначала используем terminate/kill локального Process:
+                    # это надёжнее, чем taskkill.
                     stopped = ProcessManager._stop_local_process(process)
                     if not stopped:
-                        # 本地句柄失败时回退到 taskkill 终止进程树
+                        # При ошибке локального дескриптора переходим к taskkill для дерева процессов.
                         stopped = self._kill_registered_process_tree(pid, record)
                         if stopped:
                             process.join(timeout=3)
@@ -262,7 +266,7 @@ class ProcessManager:
                 self._registry_cleanup_confirmed = False
                 if stopped and pid is not None:
                     self.renderables.append(
-                        Text(f"[{self.config_name}] exited. Reason: Manual stop\n")
+                        Text(f"[{self.config_name}] завершён. Причина: ручная остановка\n")
                     )
             if not stopped:
                 logger.error(f"[{self.config_name}] Не удалось остановить рабочий процесс PID {pid}")
@@ -334,19 +338,19 @@ class ProcessManager:
 
     @staticmethod
     def _is_process_alive(process: Process | None) -> bool:
-        """读取本地进程状态，回收僵尸句柄并将失效句柄视为已退出。
+        """Прочитать локальное состояние процесса, собрать zombie-дескриптор и считать недействительный дескриптор завершённым.
 
-        已退出但未 join 的 multiprocessing.Process 句柄在 join() 之前
-        仍报告 is_alive() == True（僵尸状态）。此方法调用 join(timeout=0)
-        回收僵尸句柄，避免活性检查在整个 stop 流程中误判。
-        join(timeout=0) 对仍在运行的进程完全不阻塞。
+        Завершённый, но ещё не переданный в join дескриптор
+        multiprocessing.Process сообщает is_alive() == True (состояние zombie).
+        Метод вызывает join(timeout=0), чтобы сборка дескриптора не искажала
+        проверки жизни во время stop. join(timeout=0) не блокирует работающий процесс.
         """
         try:
             if process is None:
                 return False
             if not process.is_alive():
                 return False
-            # 尝试 join(0) 回收已退出但未 join 的僵尸进程句柄
+            # Собрать завершённый, но ещё не переданный в join дескриптор.
             process.join(timeout=0)
             return process.is_alive()
         except (OSError, ValueError, AssertionError):
@@ -354,13 +358,12 @@ class ProcessManager:
 
     @staticmethod
     def _stop_local_process(process: Process) -> bool:
-        """使用本地 Process 句柄逐级终止 worker，优先于 taskkill。
+        """Пошагово завершить worker локальным Process, предпочитая его taskkill.
 
-        先 terminate() 等待 5 秒，超时则 kill() 等待 3 秒。
-        taskkill 可能因权限或进程状态问题静默失败；
-        本地句柄的 terminate/kill 更可靠。
-        注意：此方法仅终止根进程，不处理子进程树。
-        调用方应在失败时回退到 _kill_process_tree。
+        Сначала вызвать terminate() и ждать 5 секунд, затем при тайм-ауте вызвать kill()
+        и ждать 3 секунды. taskkill может молча завершиться из-за прав или состояния
+        процесса; локальный дескриптор надёжнее. Метод завершает только корневой процесс,
+        а вызывающая сторона при ошибке должна перейти к _kill_process_tree.
         """
         try:
             process.terminate()
@@ -377,7 +380,7 @@ class ProcessManager:
 
     @classmethod
     def _terminate_unregistered_process(cls, process: Process) -> None:
-        """通过本地进程句柄回滚启动失败的未登记 worker。"""
+        """Откатить незарегистрированный worker после ошибки запуска через локальный Process."""
         if not cls._is_process_alive(process):
             try:
                 process.join(timeout=0)
@@ -386,7 +389,8 @@ class ProcessManager:
             return
 
         try:
-            # Process 句柄绑定创建时的子进程，可避免按已复用 PID 误杀其他进程。
+            # Дескриптор Process привязан к созданному дочернему процессу
+            # и не позволяет ошибочно завершить процесс с повторно использованным PID.
             process.terminate()
             process.join(timeout=3)
             if cls._is_process_alive(process):
@@ -396,7 +400,7 @@ class ProcessManager:
             pass
 
     def _kill_registered_process_tree(self, pid: int, record: dict | None) -> bool:
-        """在 taskkill 前再次校验登记身份，缩小 PID 复用窗口。"""
+        """Повторно проверить identity перед taskkill и уменьшить окно повторного использования PID."""
         if record is None:
             logger.error(f"[{self.config_name}] Для рабочего процесса PID {pid} нет постоянной записи идентичности")
             return False
@@ -419,7 +423,7 @@ class ProcessManager:
 
     @staticmethod
     def _kill_process_tree(pid: int) -> bool:
-        """终止 worker 及其派生进程，避免关闭 WebUI 后任务留在后台。"""
+        """Завершить worker и производные процессы, чтобы задача не осталась после закрытия WebUI."""
         if os.name == "nt":
             try:
                 result = subprocess.run(
@@ -479,7 +483,7 @@ class ProcessManager:
     def _registered_worker(
         self, expected_pid: int | None = None
     ) -> tuple[int | None, dict | None, bool]:
-        """返回已验证的 worker 身份；调用方必须持有生命周期锁。"""
+        """Вернуть подтверждённую identity worker; вызывающая сторона должна держать lifecycle lock."""
         registry = State.process_registry
         cached_pid = None
         if registry is not None:
@@ -544,16 +548,16 @@ class ProcessManager:
         if unregistered:
             self._registry_cleanup_confirmed = True
         if expected_pid is not None:
-            # process_matches 已确认进程死亡（返回 None）或 PID 已复用
-            # （返回 False），本地句柄可能是未 join 的僵尸。
-            # 尝试 join 回收僵尸句柄，避免将已死进程误报为存活。
+            # process_matches подтвердил смерть процесса (None) или повторное использование PID
+            # (False), но локальный дескриптор может оставаться zombie до join.
+            # Собираем его, чтобы не считать завершённый процесс живым.
             try:
                 process = self._process
                 if process is not None and process.pid == expected_pid:
                     process.join(timeout=0)
             except (OSError, ValueError, AssertionError):
                 pass
-            # join 后若句柄不再报告存活，说明已是僵尸，已回收。
+            # Если после join дескриптор больше не сообщает о жизни, zombie собран.
             if not self._is_process_alive(self._process):
                 self._process = None
                 if unregistered:
@@ -564,9 +568,36 @@ class ProcessManager:
         return pid, None, False
 
     def _registered_pid(self) -> tuple[int | None, bool]:
-        """返回登记的 worker PID 及其身份是否已被持久化记录确认。"""
+        """Вернуть зарегистрированный PID и признак подтверждённой identity."""
         pid, _, verified = self._registered_worker()
         return pid, verified
+
+    def _reconcile_runtime_state_before_start(self) -> None:
+        """Перед новым worker списать только доказанно мёртвый runtime state."""
+        from module.application.runtime_state import RuntimeStateStore
+
+        workers = get_workers(os.getpid())
+
+        def check_worker(worker_pid: int, worker_created_at: float) -> bool | None:
+            return process_matches(
+                {"pid": worker_pid, "created_at": worker_created_at}
+            )
+
+        reconciled = RuntimeStateStore(_REPOSITORY_ROOT).reconcile_stale_workers(
+            workers,
+            worker_identity_checker=check_worker,
+        )
+        if State.process_registry is not None:
+            worker = workers.get(self.config_name)
+            if isinstance(worker, dict):
+                State.process_registry[self.config_name] = int(worker["pid"])
+            elif self.config_name in reconciled:
+                State.process_registry.pop(self.config_name, None)
+        if reconciled:
+            logger.warning(
+                f"[{self.config_name}] Перед запуском восстановлены остановленные runtime-профили: "
+                f"{', '.join(reconciled)}"
+            )
 
     def _register_process(self, pid: int | None) -> None:
         if pid is None:
@@ -700,9 +731,10 @@ class ProcessManager:
                 return True
             pid, pid_verified = self._registered_pid()
             if not pid_verified:
-                # 登记验证失败且本地句柄已死时，保守默认已退出，
-                # 避免 alert 属性持续阻塞日志线程和状态展示。
-                # start() 通过额外的 _registered_worker 检查防止重复启动。
+                # При ошибке проверки registry и завершённом локальном дескрипторе
+                # консервативно считаем worker остановленным, чтобы свойства alert
+                # не блокировали поток журналов и отображение состояния.
+                # start() дополнительно проверяет _registered_worker перед повторным запуском.
                 return False
             return pid is not None
 
@@ -724,34 +756,38 @@ class ProcessManager:
                     console.print(renderable)
                 rendered_tail.append(capture.get().strip())
             s = rendered_tail[-1] if rendered_tail else ""
-            if ("Reason: Manual stop" in s) or ("原因: 手动停止" in s):
+            if (
+                "Reason: Manual stop" in s
+                or "Причина: ручная остановка" in s
+                or "\u539f\u56e0: \u624b\u52a8\u505c\u6b62" in s
+            ):
                 return 2
             if (
                 "Reason: Stop request" in s
-                or "原因: 停止请求" in s
                 or "Причина: запрос остановки" in s
+                or "\u539f\u56e0: \u505c\u6b62\u8bf7\u6c42" in s
             ):
                 return 2
             if (
                 "Reason: Finish" in s
-                or "原因: 完成" in s
                 or "Причина: выполнение окончено" in s
+                or "\u539f\u56e0: \u5b8c\u6210" in s
             ):
                 return 2
-            if "此版本为演示用途" in s or "Эта версия предназначена для демонстрации" in s:
+            if "Эта версия предназначена для демонстрации" in s:
                 return 2
             return 3
 
     @classmethod
     def get_manager(cls, config_name: str) -> "ProcessManager":
         """
-        获取指定配置名称的进程管理器，不存在时自动创建。
+        Получить менеджер процессов указанного экземпляра конфигурации и создать его при отсутствии.
 
         Args:
-            config_name: 配置实例名称（如 'alas'）
+            config_name: имя экземпляра конфигурации (например, 'alas')
 
         Returns:
-            对应的 ProcessManager 实例。
+            соответствующий экземпляр ProcessManager.
         """
         with cls._managers_lock:
             if config_name not in cls._processes:
@@ -760,16 +796,47 @@ class ProcessManager:
 
     @classmethod
     def is_running(cls, config_name: str) -> bool:
-        """检查指定配置实例是否正在运行。"""
+        """Проверить, работает ли указанный экземпляр конфигурации."""
         with cls._managers_lock:
             manager = cls._processes.get(config_name)
         return manager is not None and manager.alive
 
     @classmethod
     def remove_manager(cls, config_name: str) -> None:
-        """移除指定配置实例的进程管理器。"""
+        """Удалить менеджер указанного экземпляра конфигурации."""
         with cls._managers_lock:
             cls._processes.pop(config_name, None)
+
+    @staticmethod
+    def _wait_for_runtime_state_registration(
+        config_name: str,
+        repository_root: str | None,
+    ) -> bool:
+        """Не запускать тело worker до bounded регистрации exact process identity."""
+        try:
+            import psutil
+
+            from module.application.runtime_state import RuntimeStateStore
+
+            process = psutil.Process(os.getpid())
+            worker_created_at = float(process.create_time())
+            state_store = RuntimeStateStore(repository_root or _REPOSITORY_ROOT)
+            ready = state_store.wait_for_worker_started(
+                config_name,
+                worker_pid=os.getpid(),
+                worker_created_at=worker_created_at,
+            )
+        except Exception as exc:  # noqa: BLE001 - startup gate работает fail-closed.
+            logger.error(
+                f"[{config_name}] Не удалось подтвердить регистрацию worker перед запуском: "
+                f"{type(exc).__name__}"
+            )
+            return False
+        if not ready:
+            logger.error(
+                f"[{config_name}] Регистрация worker не подтверждена за ограниченное время; тело задачи не запущено"
+            )
+        return ready
 
     @staticmethod
     def _runtime_state_heartbeat(
@@ -843,6 +910,11 @@ class ProcessManager:
             os.environ["AZURPILOT_RUNTIME_OPERATION_ID"] = operation_id
         else:
             os.environ.pop("AZURPILOT_RUNTIME_OPERATION_ID", None)
+        if not ProcessManager._wait_for_runtime_state_registration(
+            config_name,
+            repository_root,
+        ):
+            return
         heartbeat_stop = threading.Event()
         heartbeat = threading.Thread(
             target=ProcessManager._runtime_state_heartbeat,
@@ -910,10 +982,10 @@ class ProcessManager:
         args, _ = parser.parse_known_args()
         State.electron = args.electron
 
-        # 初始化日志器
+        # Инициализировать журнал.
         set_file_logger(name=config_name)
         if State.electron:
-            # 参考 https://github.com/LmeSzinc/AzurLaneAutoScript/issues/2051
+            # См. https://github.com/LmeSzinc/AzurLaneAutoScript/issues/2051.
             logger.info("[WebUI] Обнаружена среда Electron; обработчик стандартного вывода удалён")
             from module.logger import console_hdlr
 
@@ -932,16 +1004,17 @@ class ProcessManager:
 
         from module.config.config import AzurLaneConfig
 
-        # 移除伪造的 PIL 模块，子进程需要使用真正的 PIL
+        # Удалить поддельный модуль PIL: дочернему процессу нужен настоящий PIL.
         remove_fake_pil_module()
 
-        # 设置环境变量，使预加载模块（如 al_ocr.py）可以提前读取配置
+        # Установить переменную окружения, чтобы предварительно загружаемые модули
+        # (например, al_ocr.py) могли заранее прочитать конфигурацию.
         os.environ["ALAS_CONFIG_NAME"] = config_name
 
         if e is not None:
             AzurLaneConfig.stop_event = e
         try:
-            # 运行 AzurPilot
+            # Запустить AzurPilot.
             if func == "alas":
                 from alas import AzurLaneAutoScript
 
@@ -993,15 +1066,16 @@ class ProcessManager:
         ev: threading.Event | None = None,
     ) -> None:
         """
-        WebUI 重载后，重启指定的 AzurPilot 实例。
+        Перезапустить указанные экземпляры AzurPilot после перезагрузки WebUI.
 
         Args:
-            instances: 需要重启的实例列表，元素为 ProcessManager 或配置名称字符串。
-            ev: 可选的通用停止事件，传递给重新启动的子进程。
+            instances: список экземпляров для перезапуска; элементы являются ProcessManager
+                или строками имён конфигурации.
+            ev: необязательное общее событие остановки, передаваемое перезапускаемым процессам.
         """
         logger.hr("[WebUI-процессы] Перезапуск AzurPilot")
 
-        # 加载 MOD_CONFIG_DICT
+        # Загрузить MOD_CONFIG_DICT.
         list_mod_instance()
 
         if instances is None:

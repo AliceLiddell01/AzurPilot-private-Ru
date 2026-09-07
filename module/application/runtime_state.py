@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -22,16 +23,23 @@ from module.application.host_lock import (
     HOST_LOCK_TIMEOUT_SECONDS,
     application_host_lock,
 )
+from module.config.profile import (
+    MAX_PROFILE_CONFIG_CANDIDATES,
+    profile_identity_from_name,
+)
 
 _STATE_SCHEMA_VERSION = 2
 _MAX_STATE_BYTES = 256 * 1024
-_MAX_PROFILES = 128
+# Число остановленных snapshot ограничено тем же пределом кандидатов, что и discovery;
+# независимый байтовый предел защищает сам repository-scoped state file.
+_MAX_PROFILES = MAX_PROFILE_CONFIG_CANDIDATES
 _MAX_TEXT = 256
 _MAX_TASK = 256
 _FRESHNESS_SECONDS = 120.0
-_SAFE_PROFILE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _SAFE_TOKEN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 _SAFE_PHASE = re.compile(r"^[a-z_]{1,64}$")
+WORKER_STARTUP_TIMEOUT_SECONDS = 10.0
+WORKER_STARTUP_POLL_SECONDS = 0.05
 
 
 class RuntimeStateError(RuntimeError):
@@ -390,9 +398,10 @@ def _validate_snapshot_invariants(
 
 
 def _profile(value: object) -> str:
-    if not isinstance(value, str) or _SAFE_PROFILE.fullmatch(value) is None:
+    identity = profile_identity_from_name(value) if isinstance(value, str) else None
+    if identity is None:
         raise RuntimeStateError("RUNTIME_PROFILE_INVALID", "Имя runtime-профиля имеет недопустимый формат")
-    return value
+    return identity.name
 
 
 def _token(value: object, *, field: str) -> str:
@@ -522,6 +531,44 @@ class RuntimeStateStore:
                 "Ключ runtime-профиля не совпадает с записью snapshot",
             )
         return replace(snapshot, freshness=_freshness(snapshot.updated_at))
+
+    def wait_for_worker_started(
+        self,
+        profile: str,
+        *,
+        worker_pid: int,
+        worker_created_at: float,
+        timeout_seconds: float = WORKER_STARTUP_TIMEOUT_SECONDS,
+    ) -> bool:
+        """Ожидать bounded подтверждение exact identity зарегистрированного worker."""
+
+        self._validate_worker(worker_pid, worker_created_at)
+        profile = _profile(profile)
+        if (
+            type(timeout_seconds) not in (int, float)
+            or not math.isfinite(float(timeout_seconds))
+            or not 0 <= float(timeout_seconds) <= 30
+        ):
+            raise ValueError("Тайм-аут регистрации worker должен быть в диапазоне [0, 30]")
+
+        deadline = time.monotonic() + float(timeout_seconds)
+        while True:
+            try:
+                snapshot = self.read(profile)
+            except RuntimeStateError:
+                return False
+            if (
+                snapshot is not None
+                and snapshot.freshness == "fresh"
+                and snapshot.worker_running is True
+                and snapshot.worker_pid == worker_pid
+                and snapshot.worker_created_at == float(worker_created_at)
+            ):
+                return True
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            time.sleep(min(WORKER_STARTUP_POLL_SECONDS, remaining))
 
     def read_all(self) -> dict[str, RuntimeStateSnapshot]:
         payload = self._read_payload()
@@ -850,7 +897,7 @@ class RuntimeStateStore:
         task = _optional_text(task, maximum=_MAX_TASK)
         if task is None:
             raise RuntimeStateError("RUNTIME_STATE_TEXT_INVALID", "Текстовое поле runtime state не может быть пустым")
-        expected_worker = self._normalize_expected_worker(
+        expected_worker = self._require_expected_worker(
             expected_worker_pid,
             expected_worker_created_at,
         )
@@ -881,7 +928,7 @@ class RuntimeStateStore:
                     "RUNTIME_HANDOVER_IN_PROGRESS",
                     "Нельзя начать task во время handover или cooperative stop",
                 )
-            if expected_worker is not None and (
+            if (
                 current.worker_pid != expected_worker[0]
                 or current.worker_created_at != expected_worker[1]
             ):
@@ -920,7 +967,7 @@ class RuntimeStateStore:
         task = _optional_text(task, maximum=_MAX_TASK)
         if task is None:
             raise RuntimeStateError("RUNTIME_STATE_TEXT_INVALID", "Текстовое поле runtime state не может быть пустым")
-        expected_worker = self._normalize_expected_worker(
+        expected_worker = self._require_expected_worker(
             expected_worker_pid,
             expected_worker_created_at,
         )
@@ -937,7 +984,7 @@ class RuntimeStateStore:
                 or current.stop_requested
             ):
                 return False
-            if expected_worker is not None and (
+            if (
                 current.worker_pid != expected_worker[0]
                 or current.worker_created_at != expected_worker[1]
             ):
@@ -973,7 +1020,7 @@ class RuntimeStateStore:
         session_id: str | None = None,
     ) -> RuntimeStateSnapshot:
         task = _optional_text(task, maximum=_MAX_TASK)
-        expected_worker = self._normalize_expected_worker(
+        expected_worker = self._require_expected_worker(
             expected_worker_pid,
             expected_worker_created_at,
         )
@@ -982,7 +1029,7 @@ class RuntimeStateStore:
             current = self.read(profile)
             if current is None:
                 return RuntimeStateSnapshot.from_dict(_default_record(profile))
-            if expected_worker is not None and current.worker_running and (
+            if current.worker_running and (
                 current.worker_pid != expected_worker[0]
                 or current.worker_created_at != expected_worker[1]
             ):
@@ -1499,6 +1546,23 @@ class RuntimeStateStore:
             return None
         cls._validate_worker(worker_pid, worker_created_at)
         return worker_pid, float(worker_created_at)
+
+    @classmethod
+    def _require_expected_worker(
+        cls,
+        worker_pid: int | None,
+        worker_created_at: float | None,
+    ) -> tuple[int, float]:
+        expected_worker = cls._normalize_expected_worker(
+            worker_pid,
+            worker_created_at,
+        )
+        if expected_worker is None:
+            raise RuntimeStateError(
+                "RUNTIME_WORKER_ID_REQUIRED",
+                "Для изменения task boundary требуется identity worker",
+            )
+        return expected_worker
 
     @classmethod
     def _normalize_authoritative_workers(
