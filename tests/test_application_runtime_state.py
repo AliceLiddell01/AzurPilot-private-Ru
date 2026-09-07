@@ -13,6 +13,7 @@ from module.application.runtime_state import (
     RuntimeStateStore,
     _scoped_path,
 )
+from module.application.scheduler_runtime import SchedulerRuntimeStateReader
 
 
 def _store(root: Path, timestamp: str = "2026-09-04T00:00:00+00:00") -> RuntimeStateStore:
@@ -532,3 +533,259 @@ def test_runtime_state_begin_handover_atomically_blocks_concurrent_task_boundary
     assert handover.handover_requested is True
     assert outcomes["task_started"] is False
     assert store.read("alas").current_task is None
+
+
+def test_scheduler_membership_and_next_run_do_not_close_active_execution(
+    tmp_path: Path,
+) -> None:
+    now = datetime.now(UTC).replace(microsecond=0)
+    task = "SyntheticTask"
+    store = RuntimeStateStore(tmp_path, now=lambda: now.isoformat())
+    store.mark_worker_started(
+        "alas",
+        worker_pid=1101,
+        worker_created_at=2101.0,
+        operation_id="worker-start",
+    )
+    active = store.mark_task_started(
+        "alas",
+        task,
+        operation_id="task-execution",
+    )
+    config = tmp_path / "config"
+    config.mkdir(exist_ok=True)
+    config_path = config / "alas.json"
+    reader = SchedulerRuntimeStateReader(tmp_path)
+
+    def write_scheduler(*, enabled: bool, next_run: datetime) -> None:
+        config_path.write_text(
+            json.dumps(
+                {
+                    task: {
+                        "Scheduler": {
+                            "Enable": enabled,
+                            "NextRun": next_run.isoformat(),
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    future = now + timedelta(hours=1)
+    write_scheduler(enabled=True, next_run=future)
+    waiting = reader.read_queue("alas", (task,))
+    assert [entry.task for entry in waiting] == [task]
+    assert waiting[0].next_run > now
+    assert store.read("alas") == active
+
+    # Сброс NextRun делает следующую scheduler-вызов eligible, но не
+    # создаёт второй execution того же worker.
+    write_scheduler(enabled=True, next_run=now - timedelta(seconds=1))
+    pending = reader.read_queue("alas", (task,))
+    assert [entry.task for entry in pending] == [task]
+    assert pending[0].next_run < now
+    assert store.read("alas") == active
+
+    write_scheduler(enabled=False, next_run=future)
+    assert reader.read_queue("alas", (task,)) == ()
+    assert store.read("alas") == active
+
+    # Последующий task_delay снова меняет только scheduler domain.
+    write_scheduler(enabled=True, next_run=future)
+    delayed = reader.read_queue("alas", (task,))
+    assert delayed[0].next_run > now
+    still_active = store.read("alas")
+    assert still_active is not None
+    assert still_active.phase is RuntimePhase.USER_PROFILE_BUSY
+    assert still_active.busy is True
+    assert still_active.current_task == task
+
+    finished = store.mark_task_finished(
+        "alas",
+        task,
+        operation_id="task-execution",
+    )
+    assert finished.phase is RuntimePhase.USER_PROFILE_IDLE
+    assert finished.busy is False
+    assert finished.current_task is None
+
+
+@pytest.mark.parametrize(
+    "changes",
+    (
+        {
+            "phase": RuntimePhase.USER_PROFILE_IDLE.value,
+            "busy": True,
+            "current_task": "SyntheticTask",
+        },
+        {
+            "phase": RuntimePhase.RESOURCE_READY.value,
+            "busy": True,
+            "current_task": "SyntheticTask",
+        },
+        {
+            "phase": RuntimePhase.USER_PROFILE_BUSY.value,
+            "busy": False,
+            "current_task": None,
+        },
+        {
+            "phase": RuntimePhase.QUIESCE_REQUESTED.value,
+            "handover_requested": True,
+            "draining": False,
+            "stop_requested": False,
+        },
+    ),
+)
+def test_runtime_state_rejects_inconsistent_phase_aggregate(
+    tmp_path: Path,
+    changes: dict[str, object],
+) -> None:
+    store = _store(tmp_path)
+    store.mark_worker_started("alas", worker_pid=1102, worker_created_at=2102.0)
+    payload = json.loads(store.path.read_text(encoding="utf-8"))
+    payload["profiles"]["alas"].update(changes)
+    store.path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(RuntimeStateError) as error:
+        store.read("alas")
+
+    assert error.value.code == "RUNTIME_STATE_CORRUPT"
+
+
+def test_runtime_state_rejects_duplicate_task_start_without_overwriting_task(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    store.mark_worker_started("alas", worker_pid=1103, worker_created_at=2103.0)
+    store.mark_task_started("alas", "FirstTask", operation_id="first")
+
+    with pytest.raises(RuntimeStateError) as error:
+        store.mark_task_started("alas", "SecondTask", operation_id="second")
+    assert error.value.code == "RUNTIME_STATE_TASK_ALREADY_ACTIVE"
+    assert store.try_mark_task_started("alas", "SecondTask") is False
+
+    current = store.read("alas")
+    assert current is not None
+    assert current.current_task == "FirstTask"
+    assert current.busy is True
+
+
+def test_runtime_state_preserves_handover_operation_when_source_finishes_task(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path, datetime.now(UTC).isoformat())
+    store.mark_worker_started(
+        "alas",
+        worker_pid=1104,
+        worker_created_at=2104.0,
+        operation_id="source-start",
+    )
+    store.mark_task_started("alas", "FirstTask", operation_id="task-execution")
+    handover = store.begin_handover(
+        "alas",
+        operation_id="handover-operation",
+        session_id="target-session",
+    )
+    assert handover is not None
+    assert handover.session_id is None
+
+    finished = store.mark_task_finished(
+        "alas",
+        "FirstTask",
+        operation_id="task-execution",
+    )
+
+    assert finished.phase is RuntimePhase.HANDOVER_REQUESTED
+    assert finished.handover_requested is True
+    assert finished.operation_id == "handover-operation"
+    assert finished.session_id is None
+    assert finished.busy is False
+    assert finished.current_task is None
+
+
+def test_runtime_state_fences_late_finish_from_old_worker_boot(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    store.mark_worker_started(
+        "alas",
+        worker_pid=1105,
+        worker_created_at=2105.0,
+        operation_id="old-start",
+    )
+    store.mark_task_started("alas", "OldTask", operation_id="old-task")
+    store.mark_worker_stopped(
+        "alas",
+        expected_worker_pid=1105,
+        expected_worker_created_at=2105.0,
+        operation_id="old-task",
+    )
+    store.mark_worker_started(
+        "alas",
+        worker_pid=1205,
+        worker_created_at=2205.0,
+        operation_id="new-start",
+    )
+    store.mark_task_started("alas", "NewTask", operation_id="new-task")
+
+    with pytest.raises(RuntimeStateError) as error:
+        store.mark_task_finished(
+            "alas",
+            "OldTask",
+            expected_worker_pid=1105,
+            expected_worker_created_at=2105.0,
+            operation_id="old-task",
+        )
+
+    assert error.value.code == "RUNTIME_STATE_STALE_WRITE"
+    current = store.read("alas")
+    assert current is not None
+    assert current.worker_pid == 1205
+    assert current.worker_created_at == 2205.0
+    assert current.current_task == "NewTask"
+    assert current.busy is True
+
+
+def test_runtime_state_reconciles_orphan_worker_without_scheduler_guessing(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    store.mark_worker_started(
+        "alas",
+        worker_pid=1106,
+        worker_created_at=2106.0,
+        operation_id="orphan-start",
+    )
+    store.mark_task_started("alas", "OrphanTask", operation_id="orphan-task")
+
+    reconciled = store.reconcile_stale_workers(
+        {},
+        worker_identity_checker=lambda _pid, _created_at: None,
+    )
+
+    assert reconciled == ("alas",)
+    snapshot = store.read("alas")
+    assert snapshot is not None
+    assert snapshot.phase is RuntimePhase.STOPPED
+    assert snapshot.worker_running is False
+    assert snapshot.busy is False
+    assert snapshot.current_task is None
+
+
+def test_runtime_state_does_not_reconcile_worker_when_identity_is_live(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    store.mark_worker_started("alas", worker_pid=1107, worker_created_at=2107.0)
+
+    with pytest.raises(RuntimeStateError) as error:
+        store.reconcile_stale_workers(
+            {},
+            worker_identity_checker=lambda _pid, _created_at: True,
+        )
+
+    assert error.value.code == "RUNTIME_STATE_RECONCILIATION_REQUIRED"
+    snapshot = store.read("alas")
+    assert snapshot is not None
+    assert snapshot.worker_running is True

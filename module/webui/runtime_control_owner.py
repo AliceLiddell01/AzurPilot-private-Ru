@@ -78,6 +78,12 @@ class WebUIRuntimeControlOwner:
 
             workers = get_workers(os.getpid())
             recovered = self.state.reconcile_with_authoritative_workers(workers)
+            stale_workers_reconciled = self.state.reconcile_stale_workers(
+                workers,
+                worker_identity_checker=lambda pid, created_at: process_matches(
+                    {"pid": pid, "created_at": created_at}
+                ),
+            )
             development_profile = self._development_profile()
             ownership_reconciled = ()
             if development_profile is not None:
@@ -110,6 +116,11 @@ class WebUIRuntimeControlOwner:
         if recovered:
             logger.warning(
                 "Несовместимый эфемерный runtime state атомарно восстановлен из пустого worker registry"
+            )
+        if stale_workers_reconciled:
+            logger.warning(
+                "Runtime state сбросил orphan worker profiles: %s",
+                ", ".join(stale_workers_reconciled),
             )
         if ownership_reconciled:
             logger.warning(

@@ -240,11 +240,18 @@ registry напрямую и не передаёт arbitrary command, path, modu
 отправляется cooperative stop. По истечении bounded ожидания следующий task не
 запускается: worker должен завершиться на безопасной границе, вернуть игру на
 главный экран и подтвердить его через существующий UI flow. Только после этого
-development profile переходит в `AP_ACQUIRING` и `AP_READY`. Ошибка уведомления,
+development profile переходит в `RESOURCE_ACQUIRING` и `RESOURCE_READY`. Ошибка уведомления,
 тайм-аут или неподтверждённый главный экран блокируют запуск `ap` и сохраняют
 diagnostic evidence. Scheduler пользовательского профиля при этом не изменяется;
 raw persisted `Scheduler.Enable` читается узким `SchedulerRuntimeStateReader`, без
 нормализации `ConfigUpdater`.
+
+Граница текущей scheduler task фиксируется только существующим
+`RuntimeStateStore` в момент фактического запуска и завершения вызова scheduler.
+Его aggregate (`phase`, `busy`, `current_task` и worker identity) не выводится из
+`Scheduler.NextRun`, `pending_task`, `waiting_task` или `task_delay()`: эти значения
+описывают только следующий запуск. Повторное появление той же команды в очереди,
+пустая очередь и вложенная игровая операция не закрывают активную runtime task.
 
 Для busy handover стандартный legacy `notify_webui()` подтверждает только постановку
 сообщения в локальную очередь (`ACCEPTED`), но не доставку пользователю

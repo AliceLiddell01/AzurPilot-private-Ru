@@ -97,6 +97,29 @@ def test_scheduler_task_runs_selected_fleets_and_delays_to_server_update() -> No
     assert script.config.delay_calls == [{"server_update": True}]
 
 
+def test_nested_task_delay_does_not_finish_authoritative_execution(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
+    (tmp_path / "module").mkdir()
+    monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(tmp_path))
+    store = RuntimeStateStore(tmp_path)
+    store.mark_worker_started("alas", worker_pid=1108, worker_created_at=2108.0)
+    store.mark_task_started("alas", "SyntheticTask", operation_id="task-1")
+
+    script = _script()
+    script.config_name = "alas"
+    script.fleet_auto_scan()
+
+    assert script.config.delay_calls == [{"server_update": True}]
+    active = store.read("alas")
+    assert active is not None
+    assert active.phase is RuntimePhase.USER_PROFILE_BUSY
+    assert active.busy is True
+    assert active.current_task == "SyntheticTask"
+
+
 @pytest.mark.parametrize(
     ("execution", "failed"),
     [
@@ -282,6 +305,50 @@ def test_loop_runs_task_when_handover_arrives_after_started_boundary(
         handover_thread.join(timeout=5)
 
     assert not handover_thread.is_alive()
+    assert started == ["Commission"]
+    assert finished == ["Commission"]
+
+
+def test_loop_closes_current_boundary_once_for_recoverable_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    script = _script()
+    script.config.EmulatorManagement_ScheduledEmulatorRestart = False
+    script.config.Error_StrictRestart = False
+    script.config.Error_HandleError = False
+    script.checker = SimpleNamespace(
+        wait_until_available=lambda: None,
+        is_recovered=lambda: False,
+        check_now=lambda: None,
+    )
+    script.failure_record = {}
+    script._emulator_recovery_transport_lost = False
+    tasks = iter(("Commission", None))
+    script.get_next_task = lambda: next(tasks)
+    script._prepare_task_boundary = lambda _task: True
+    started: list[str] = []
+    finished: list[str] = []
+    script._record_dev_runtime_task_started = (
+        lambda task: started.append(task) or True
+    )
+    script._record_dev_runtime_task_finished = (
+        lambda task: finished.append(task) or True
+    )
+    script.run = lambda _command: "recoverable"
+    monkeypatch.setattr(
+        "alas.logger",
+        SimpleNamespace(
+            set_file_logger=lambda *_args, **_kwargs: None,
+            info=lambda *_args, **_kwargs: None,
+            warning=lambda *_args, **_kwargs: None,
+            error=lambda *_args, **_kwargs: None,
+            hr=lambda *_args, **_kwargs: None,
+        ),
+    )
+    monkeypatch.setattr("module.config.utils.is_oobe_needed", lambda: False)
+
+    script.loop()
+
     assert started == ["Commission"]
     assert finished == ["Commission"]
 
