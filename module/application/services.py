@@ -8,6 +8,7 @@ from module.application.errors import (
     ResourceNotFoundError,
     ServiceUnavailableError,
 )
+from module.application.game_validation import validated_profile
 from module.application.models import (
     InstanceReference,
     InstanceStatus,
@@ -38,7 +39,7 @@ class InstanceQueryService:
         return tuple(self._read_status(name) for name in self._read_names())
 
     def get_status(self, name: str) -> InstanceStatus:
-        validated = _validated_name(name, resource="экземпляра")
+        validated = validated_profile(name, resource="экземпляра")
         if validated not in self._read_names():
             raise ResourceNotFoundError(f"Экземпляр {validated!r} не найден.")
         return self._read_status(validated)
@@ -50,9 +51,7 @@ class InstanceQueryService:
                 raise TypeError("reader должен вернуть tuple")
             if any(not isinstance(name, str) or not name.strip() for name in names):
                 raise TypeError("reader вернул некорректное имя")
-            if any(
-                _validated_name(name, resource="экземпляра") != name for name in names
-            ):
+            if any(validated_profile(name, resource="экземпляра") != name for name in names):
                 raise TypeError("reader вернул неканоническое имя")
             if len(set(names)) != len(names):
                 raise TypeError("reader вернул повторяющиеся имена")

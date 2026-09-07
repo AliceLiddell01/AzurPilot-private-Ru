@@ -481,7 +481,17 @@ def test_runtime_state_uses_canonical_profile_identity_rules(
 
 @pytest.mark.parametrize(
     "profile_name",
-    ["", "../outside", r"C:\outside", "profile/name", "template-copy", "profile.json"],
+    [
+        "",
+        "../outside",
+        r"C:\outside",
+        "profile/name",
+        "template-copy",
+        "profile.json",
+        " control",
+        "control ",
+        "control\x01name",
+    ],
 )
 def test_runtime_state_rejects_profiles_rejected_by_canonical_identity_rules(
     tmp_path: Path,
@@ -499,21 +509,19 @@ def test_runtime_state_rejects_profiles_rejected_by_canonical_identity_rules(
     assert error.value.code == "RUNTIME_PROFILE_INVALID"
 
 
-@pytest.mark.parametrize("profile_name", ["control\x01name", "a" * 129])
-def test_runtime_state_rejects_profile_names_outside_state_boundary(
+def test_runtime_state_accepts_profile_names_beyond_previous_local_boundary(
     tmp_path: Path,
-    profile_name: str,
 ) -> None:
     from module.config.profile import profile_identity_from_name
 
+    profile_name = "a" * 129
     assert profile_identity_from_name(profile_name) is not None
-    with pytest.raises(RuntimeStateError) as error:
-        _store(tmp_path).mark_worker_started(
-            profile_name,
-            worker_pid=1203,
-            worker_created_at=2203.0,
-        )
-    assert error.value.code == "RUNTIME_PROFILE_INVALID"
+    snapshot = _store(tmp_path).mark_worker_started(
+        profile_name,
+        worker_pid=1203,
+        worker_created_at=2203.0,
+    )
+    assert snapshot.profile == profile_name
 
 
 def test_runtime_state_profile_limit_matches_canonical_discovery_bound() -> None:

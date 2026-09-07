@@ -21,6 +21,12 @@ from module.application.runtime_control import (
 )
 
 
+def test_control_plane_accepts_canonical_profile_without_local_length_cap() -> None:
+    profile = "a" * 129
+
+    assert runtime_control._profile(profile) == profile
+
+
 def test_control_plane_executes_owner_operation_once_and_is_idempotent(tmp_path: Path) -> None:
     owner = RuntimeOwnerIdentity(pid=4321, created_at=1234.5)
     calls: list[tuple[RuntimeControlOperation, str]] = []

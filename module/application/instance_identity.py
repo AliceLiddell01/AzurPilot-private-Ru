@@ -8,12 +8,13 @@ from uuid import UUID, uuid5
 from module.application.errors import StorageConfigurationError
 from module.application.storage_models import InstanceIdentity
 from module.application.storage_ports import StorageUnitOfWork
+from module.config.profile import profile_identity_from_name
 
 _IDENTITY_NAMESPACE = UUID("bc6db2da-cb91-4d6e-bc33-bb598d715c13")
 
 
 def runtime_instance_identity(instance: str) -> tuple[str, UUID]:
-    if not isinstance(instance, str) or not instance or len(instance) > 128:
+    if profile_identity_from_name(instance) is None:
         raise StorageConfigurationError("Имя экземпляра хранилища некорректно.")
     digest = sha256(instance.encode("utf-8")).hexdigest()
     return digest, uuid5(_IDENTITY_NAMESPACE, digest)

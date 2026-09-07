@@ -19,6 +19,7 @@ from module.application.errors import (
 from module.application.game_models import ConfigArgumentDefinition, freeze_payload
 from module.application.game_ports import SchedulerTaskReader
 from module.application.ports import InstanceRuntimeReader
+from module.config.profile import profile_identity_from_name
 
 MAX_RECENT_LOG_LINES = 10_000
 MAX_SCHEDULABLE_TASKS = 512
@@ -44,20 +45,27 @@ def validated_name(value: object, *, resource: str) -> str:
     return normalized
 
 
+def validated_profile(value: object, *, resource: str = "профиля") -> str:
+    """Проверить profile identity по canonical discovery contract."""
+    if not isinstance(value, str):
+        raise InvalidRequestError(f"Имя {resource} должно быть строкой.")
+    normalized = value.strip()
+    identity = profile_identity_from_name(normalized)
+    if identity is None:
+        raise InvalidRequestError(f"Имя {resource} содержит недопустимое значение.")
+    return identity.name
+
+
 def validated_segment(value: object, *, resource: str) -> str:
     return validated_name(value, resource=resource)
 
 
 def known_instance(reader: InstanceRuntimeReader, value: object) -> str:
-    instance = validated_name(value, resource="экземпляра")
+    instance = validated_profile(value, resource="экземпляра")
     try:
         names = reader.list_instance_names()
         if not isinstance(names, tuple) or any(
-            not isinstance(name, str)
-            or name != name.strip()
-            or not name
-            or name in {".", ".."}
-            or any(char in INVALID_NAME_CHARS for char in name)
+            validated_profile(name, resource="экземпляра") != name
             for name in names
         ):
             raise TypeError("reader вернул некорректный список экземпляров")
@@ -315,5 +323,6 @@ __all__ = [
     "validate_config_value",
     "validate_json_value",
     "validated_name",
+    "validated_profile",
     "validated_segment",
 ]

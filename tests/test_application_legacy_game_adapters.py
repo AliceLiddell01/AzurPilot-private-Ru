@@ -261,11 +261,11 @@ def test_legacy_log_adapter_falls_back_to_previous_calendar_date(tmp_path: Path)
     assert adapter.read_tail("ap", 1) == ("<<< Run task Main >>>\n",)
 
 
-def test_legacy_worker_identity_rejects_nonfinite_created_at():
+def test_legacy_worker_identity_rejects_invalid_created_at():
     from module.webui import worker_registry
 
     reader = LegacyWorkerIdentityReader()
-    for created_at in (float("nan"), float("inf"), float("-inf")):
+    for created_at in (float("nan"), float("inf"), float("-inf"), 0, -1):
         with (
             patch.object(
                 worker_registry,
@@ -277,6 +277,36 @@ def test_legacy_worker_identity_rejects_nonfinite_created_at():
             evidence = reader.read_worker_identity("ap")
 
         assert evidence.status is WorkerIdentityStatus.UNKNOWN
+
+
+@pytest.mark.parametrize("pid", [0, -1])
+def test_legacy_worker_identity_rejects_invalid_pid(pid: int):
+    from module.webui import worker_registry
+
+    reader = LegacyWorkerIdentityReader()
+    with (
+        patch.object(
+            worker_registry,
+            "get_worker_read_only",
+            return_value={"pid": pid, "created_at": 123.0},
+        ),
+        patch.object(worker_registry, "process_matches", return_value=True),
+    ):
+        evidence = reader.read_worker_identity("ap")
+
+    assert evidence.status is WorkerIdentityStatus.UNKNOWN
+
+
+def test_legacy_worker_identity_does_not_treat_corrupt_registry_as_absent():
+    reader = LegacyWorkerIdentityReader()
+
+    with patch(
+        "module.webui.worker_registry.get_worker_read_only",
+        side_effect=RuntimeError("registry unavailable"),
+    ):
+        evidence = reader.read_worker_identity("ap")
+
+    assert evidence.status is WorkerIdentityStatus.UNKNOWN
 
 
 def test_legacy_screenshot_lifecycle_and_emulator_adapters_use_narrow_owners(monkeypatch):

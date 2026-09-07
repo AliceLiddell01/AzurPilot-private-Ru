@@ -102,6 +102,16 @@ def test_runtime_execution_normalizes_stopped_only_when_worker_is_absent() -> No
     assert result.task is None
 
 
+def test_runtime_execution_does_not_call_corrupt_registry_absence() -> None:
+    result = _reader(
+        None,
+        WorkerIdentityEvidence(WorkerIdentityStatus.UNKNOWN),
+    ).read_current_task("ap")
+
+    assert result.state is CurrentTaskState.UNKNOWN
+    assert result.task is None
+
+
 def test_runtime_execution_normalizes_stopped_even_when_stopped_snapshot_is_stale() -> None:
     result = _reader(
         _snapshot(
@@ -135,6 +145,10 @@ def test_runtime_execution_normalizes_stopped_even_when_stopped_snapshot_is_stal
         ),
         (
             _snapshot(worker_running=True, busy=False, current_task=None),
+            WorkerIdentityEvidence(WorkerIdentityStatus.UNKNOWN),
+        ),
+        (
+            _snapshot(worker_running=True, busy=True, current_task="Main"),
             WorkerIdentityEvidence(WorkerIdentityStatus.UNKNOWN),
         ),
         (

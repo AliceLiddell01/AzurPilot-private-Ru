@@ -379,6 +379,45 @@ def test_read_service_returns_typed_bounded_results_and_canonical_instance():
     assert service.get_screenshot("ap").media_type == "image/jpeg"
 
 
+def test_read_service_accepts_canonical_profile_without_local_length_cap() -> None:
+    profile = "a" * 129
+
+    class LongProfileInstances(_Instances):
+        def list_instance_names(self) -> tuple[str, ...]:
+            return (profile,)
+
+    service = _read_service(
+        LongProfileInstances(),
+        runtime_execution=_RuntimeExecution(
+            CurrentTaskSnapshot(profile, None, CurrentTaskState.IDLE)
+        ),
+    )
+
+    assert service.get_current_running_task(profile) == CurrentTaskSnapshot(
+        profile, None, CurrentTaskState.IDLE
+    )
+
+
+@pytest.mark.parametrize("state", [CurrentTaskState.IDLE, CurrentTaskState.STOPPED])
+def test_read_service_ignores_stale_run_task_log_for_authoritative_state(
+    state: CurrentTaskState,
+) -> None:
+    class StaleLogs(_Logs):
+        def read_tail(self, instance: str, limit: int) -> tuple[str, ...]:
+            return ("<<< Run task Event >>>\n",)
+
+    current_task = None if state is not CurrentTaskState.RUNNING else "Event"
+    runtime_execution = _RuntimeExecution(
+        CurrentTaskSnapshot("ap", current_task, state)
+    )
+    service = _read_service(logs=StaleLogs(), runtime_execution=runtime_execution)
+
+    assert service.get_recent_logs("ap", 1).lines == ("<<< Run task Event >>>\n",)
+    assert service.get_current_running_task("ap") == CurrentTaskSnapshot(
+        "ap", None, state
+    )
+
+
 def test_read_service_rejects_invalid_instances_without_using_profile_status_for_execution():
     service = _read_service(
         _Instances(running=False),

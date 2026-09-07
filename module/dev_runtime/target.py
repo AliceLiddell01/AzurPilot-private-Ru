@@ -6,13 +6,16 @@ import argparse
 import hashlib
 import json
 import os
-import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import NoReturn
 
 from deploy.atomic import file_write, replace_tmp, to_tmp_file
-from module.config.profile import ProfileDiscoveryError, discover_profile_configs
+from module.config.profile import (
+    ProfileDiscoveryError,
+    discover_profile_configs,
+    profile_identity_from_name,
+)
 from module.dev_runtime.bounded_io import BoundedReadTooLarge, read_bounded_bytes
 
 DEV_TARGET_SCHEMA_VERSION = 1
@@ -21,7 +24,6 @@ DEV_TARGET_POLICY_SCHEMA_VERSION = 1
 DEV_TARGET_POLICY_FILE_NAME = "target_policy.json"
 _MAX_TARGET_BYTES = 16 * 1024
 _MAX_TARGET_POLICY_BYTES = 4 * 1024
-_SAFE_PROFILE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 
 
 class DevTargetError(ValueError):
@@ -84,9 +86,7 @@ class DevTargetPolicy:
 
     def __post_init__(self) -> None:
         if (
-            not isinstance(self.default_profile_name, str)
-            or not _SAFE_PROFILE_NAME.fullmatch(self.default_profile_name)
-            or self.default_profile_name.casefold().startswith("template")
+            profile_identity_from_name(self.default_profile_name) is None
         ):
             _raise_policy_invalid("Политика содержит небезопасное имя профиля по умолчанию")
         if self.profile_change_requires_explicit_consent is not True:
@@ -154,9 +154,7 @@ class DevTarget:
 
     def __post_init__(self) -> None:
         if (
-            not isinstance(self.profile_name, str)
-            or not _SAFE_PROFILE_NAME.fullmatch(self.profile_name)
-            or self.profile_name.casefold().startswith("template")
+            profile_identity_from_name(self.profile_name) is None
         ):
             _raise_invalid("Имя development target имеет небезопасный формат")
         if self.mod_name != "alas":

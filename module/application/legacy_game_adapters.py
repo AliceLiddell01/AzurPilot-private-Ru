@@ -63,6 +63,7 @@ from module.application.scheduler_runtime import (
     SchedulerRuntimeStateReader,
     scheduler_entry_sort_key,
 )
+from module.config.profile import profile_identity_from_name
 
 _MAX_LOG_LINES = 10_000
 _MAX_LOG_BYTES = 2 * 1024 * 1024
@@ -164,15 +165,11 @@ def legacy_current_time() -> datetime:
 def _safe_instance_name(value: object) -> str:
     if not isinstance(value, str):
         raise TypeError("instance должен быть строкой")
-    value = value.strip()
-    if (
-        not value
-        or value in {".", ".."}
-        or len(value) > MAX_NAME_LENGTH
-        or any(char in INVALID_NAME_CHARS for char in value)
-    ):
+    normalized = value.strip()
+    identity = profile_identity_from_name(normalized)
+    if identity is None:
         raise ValueError("instance содержит недопустимое значение")
-    return value
+    return identity.name
 
 
 def _safe_segment(value: object) -> str:
@@ -626,7 +623,7 @@ class LegacyWorkerIdentityReader:
                 or not isfinite(float(created_at))
             ):
                 return WorkerIdentityEvidence(WorkerIdentityStatus.UNKNOWN)
-        except (KeyError, TypeError, ValueError, RuntimeError):
+        except (KeyError, TypeError, ValueError, OverflowError, RuntimeError):
             return WorkerIdentityEvidence(WorkerIdentityStatus.UNKNOWN)
         return WorkerIdentityEvidence(
             WorkerIdentityStatus.VERIFIED,
@@ -1339,7 +1336,12 @@ class LegacyProcessManagerAdapter:
             return value
         from module.webui import worker_registry
 
-        record = worker_registry.get_worker_read_only(instance)
+        try:
+            record = worker_registry.get_worker_read_only(instance)
+        except RuntimeError as exc:
+            raise OwnershipAmbiguousError(
+                "Нельзя подтвердить registry worker без риска скрыть неизвестное состояние."
+            ) from exc
         if record is None:
             return False
         try:

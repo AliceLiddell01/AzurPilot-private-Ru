@@ -68,8 +68,10 @@ def profile_identity_from_filename(filename: str) -> ProfileIdentity | None:
 
     if (
         not config_name
+        or config_name != config_name.strip()
         or config_name.casefold().startswith("template")
         or any(char in _INVALID_PROFILE_NAME_CHARS for char in config_name)
+        or any(ord(char) < 32 or ord(char) == 127 for char in config_name)
     ):
         return None
     return ProfileIdentity(config_name, mod_name)

@@ -11,10 +11,16 @@ import pytest
 
 from alas import AzurLaneAutoScript
 from module.application.runtime_state import RuntimePhase, RuntimeStateStore
+from module.campaign.campaign_base import CampaignBase
 from module.config.config import TaskEnd
 from module.config.time_source import now as current_time
-from module.dev_runtime.hooks import _worker_identity
+from module.dev_runtime.hooks import (
+    _worker_identity,
+    record_task_finished,
+    record_task_started,
+)
 from module.exception import ScriptError
+from module.observability import get_current_task_name, scheduler_task_run
 from module.persistence import runtime as persistence_runtime
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -133,6 +139,64 @@ def test_nested_task_delay_does_not_finish_authoritative_execution(
     assert active.phase is RuntimePhase.USER_PROFILE_BUSY
     assert active.busy is True
     assert active.current_task == "SyntheticTask"
+
+
+def test_auto_search_remains_nested_under_parent_scheduler_task(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "gui.py").write_text("# synthetic gui\n", encoding="utf-8")
+    (tmp_path / "module").mkdir()
+    monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(tmp_path))
+    store = RuntimeStateStore(tmp_path)
+    worker_identity = _worker_identity()
+    assert worker_identity is not None
+    store.mark_worker_started(
+        "alas",
+        worker_pid=worker_identity[0],
+        worker_created_at=worker_identity[1],
+    )
+
+    assert record_task_started("alas", "Campaign") is True
+    campaign = object.__new__(CampaignBase)
+    campaign.battle_count = 0
+    campaign.fleet_show_index = 1
+    campaign.__dict__["_map_battle"] = 1
+    nested_calls: list[str] = []
+
+    def auto_search_moving() -> None:
+        nested_calls.append("moving")
+        assert get_current_task_name() == "Campaign"
+        active = store.read("alas")
+        assert active is not None
+        assert active.current_task == "Campaign"
+
+    def auto_search_combat(**_kwargs: object) -> None:
+        nested_calls.append("combat")
+        active = store.read("alas")
+        assert active is not None
+        assert active.current_task == "Campaign"
+
+    campaign.auto_search_moving = auto_search_moving
+    campaign.auto_search_combat = auto_search_combat
+
+    with scheduler_task_run(
+        profile="alas",
+        task=SimpleNamespace(command="Campaign"),
+        registry=("Campaign",),
+    ) as parent_boundary:
+        CampaignBase.auto_search_execute_a_battle(campaign)
+        parent_boundary.finish(True)
+
+    active = store.read("alas")
+    assert nested_calls == ["moving", "combat"]
+    assert active is not None
+    assert active.current_task == "Campaign"
+    assert record_task_finished("alas", "Campaign") is True
+    finished = store.read("alas")
+    assert finished is not None
+    assert finished.current_task is None
+    assert finished.busy is False
 
 
 @pytest.mark.parametrize(

@@ -60,18 +60,24 @@ _SELECTOR_FORBIDDEN = "".join(
 ) + r"\x00-\x1f\x7f"
 _SELECTOR_CHARACTER = rf"[^{_SELECTOR_FORBIDDEN}]"
 _SELECTOR_EDGE = rf"[^\s{_SELECTOR_FORBIDDEN}]"
-_PROFILE_PATTERN = (
+_TASK_PATTERN = (
     rf"^{_SELECTOR_EDGE}"
     rf"(?:{_SELECTOR_CHARACTER}{{0,{MAX_NAME_LENGTH - 2}}}"
     rf"{_SELECTOR_EDGE})?$"
 )
+_PROFILE_FORBIDDEN = "".join(
+    re.escape(char)
+    for char in sorted(INVALID_NAME_CHARS | {"'"})
+) + r"\x00-\x1f\x7f"
+_PROFILE_CHARACTER = rf"[^{_PROFILE_FORBIDDEN}]"
+_PROFILE_EDGE = rf"[^\s{_PROFILE_FORBIDDEN}]"
+_PROFILE_PATTERN = rf"^{_PROFILE_EDGE}(?:{_PROFILE_CHARACTER}*{_PROFILE_EDGE})?$"
 _PROFILE_INPUT = {
     "type": "object",
     "properties": {
         "profile": {
             "type": "string",
             "minLength": 1,
-            "maxLength": MAX_NAME_LENGTH,
             "pattern": _PROFILE_PATTERN,
         }
     },
@@ -85,7 +91,7 @@ _TASK_INPUT = {
             "type": "string",
             "minLength": 1,
             "maxLength": MAX_NAME_LENGTH,
-            "pattern": _PROFILE_PATTERN,
+            "pattern": _TASK_PATTERN,
         }
     },
     "required": ["task"],
@@ -192,7 +198,6 @@ _PROFILE_OUTPUT = {
         "profile": {
             "type": "string",
             "minLength": 1,
-            "maxLength": MAX_NAME_LENGTH,
         }
     },
     "required": ["profile"],
@@ -566,7 +571,7 @@ _FAILURE_CAUSE_OUTPUT = {
     "additionalProperties": False,
 }
 _PROFILE_DETAILS_OUTPUT = {
-    "profile": {"type": "string", "minLength": 1, "maxLength": MAX_NAME_LENGTH},
+    "profile": {"type": "string", "minLength": 1},
 }
 _SELECTION_OUTPUT = {
     "type": "array",

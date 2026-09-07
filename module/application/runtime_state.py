@@ -35,7 +35,6 @@ _MAX_STATE_BYTES = 256 * 1024
 _MAX_PROFILES = MAX_PROFILE_CONFIG_CANDIDATES
 _MAX_TEXT = 256
 _MAX_TASK = 256
-_MAX_PROFILE_NAME_LENGTH = 128
 _FRESHNESS_SECONDS = 120.0
 _SAFE_TOKEN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 _SAFE_PHASE = re.compile(r"^[a-z_]{1,64}$")
@@ -399,11 +398,7 @@ def _validate_snapshot_invariants(
 
 def _profile(value: object) -> str:
     identity = profile_identity_from_name(value) if isinstance(value, str) else None
-    if (
-        identity is None
-        or len(identity.name) > _MAX_PROFILE_NAME_LENGTH
-        or any(ord(char) < 32 or ord(char) == 127 for char in identity.name)
-    ):
+    if identity is None:
         raise RuntimeStateError("RUNTIME_PROFILE_INVALID", "Имя runtime-профиля имеет недопустимый формат")
     return identity.name
 

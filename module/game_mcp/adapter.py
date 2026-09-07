@@ -65,6 +65,7 @@ from module.application.game_validation import (
     INVALID_NAME_CHARS,
     MAX_NAME_LENGTH,
     validate_json_value,
+    validated_profile,
 )
 from module.application.models import (
     InstanceReference,
@@ -440,11 +441,17 @@ def _public_name(value: object, *, resource: str) -> str:
     return value
 
 
+def _public_profile(value: object) -> str:
+    if isinstance(value, str) and value != value.strip():
+        raise InvalidRequestError("Имя профиля должно быть канонической строкой.")
+    return validated_profile(value, resource="профиля")
+
+
 def _profile_arguments(arguments: dict[str, object]) -> str:
     _check_keys(
         arguments, allowed=frozenset({"profile"}), required=frozenset({"profile"})
     )
-    return _public_name(arguments["profile"], resource="профиля")
+    return _public_profile(arguments["profile"])
 
 
 def _task_arguments(arguments: dict[str, object]) -> str:
@@ -1412,14 +1419,14 @@ class GameMcpAdapter:
                 raise ServiceUnavailableError(
                     "Каталог профилей имеет некорректный формат."
                 )
-            names.append(_public_name(item.name, resource="профиля"))
+            names.append(_public_profile(item.name))
         if profile not in names:
             raise ResourceNotFoundError("Профиль не найден.")
         return profile
 
     @staticmethod
     def _profile_from(arguments: dict[str, object]) -> str:
-        return _public_name(arguments["profile"], resource="профиля")
+        return _public_profile(arguments["profile"])
 
     def _dispatch(
         self,
@@ -1445,7 +1452,7 @@ class GameMcpAdapter:
                     "Каталог профилей имеет некорректный формат."
                 )
             profiles = [
-                {"profile": _public_name(item.name, resource="профиля")}
+                {"profile": _public_profile(item.name)}
                 for item in values
             ]
             return _ok(
