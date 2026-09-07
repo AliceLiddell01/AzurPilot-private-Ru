@@ -90,7 +90,7 @@ class RuntimeExecutionReader:
         if not isinstance(snapshot, RuntimeStateSnapshot) or snapshot.profile != profile:
             return self._unknown(profile)
 
-        if snapshot.freshness != "fresh":
+        if snapshot.worker_running and snapshot.freshness != "fresh":
             return self._unknown(profile)
 
         if snapshot.worker_running:
@@ -108,6 +108,8 @@ class RuntimeExecutionReader:
                 )
             if not snapshot.busy and snapshot.current_task is None:
                 return CurrentTaskSnapshot(profile, None, CurrentTaskState.IDLE)
+            # Инварианты snapshot делают ветку недостижимой; сохраняем
+            # fail-closed guard, если внешний reader нарушит typed contract.
             return self._unknown(profile)
 
         if identity.status is WorkerIdentityStatus.ABSENT:

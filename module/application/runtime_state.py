@@ -675,6 +675,7 @@ class RuntimeStateStore:
                 requested_workers = authoritative_workers
             workers = self._normalize_authoritative_workers(requested_workers)
         reconciled: list[str] = []
+        state_changed = False
         with application_host_lock(self.lock_path):
             payload = self._read_payload()
             records = dict(payload["profiles"])
@@ -684,7 +685,14 @@ class RuntimeStateStore:
                     continue
                 snapshot = RuntimeStateSnapshot.from_dict(record)
                 if snapshot.profile != profile or not snapshot.worker_running:
+                    if snapshot.profile == profile and raw_profile != profile:
+                        records.pop(raw_profile, None)
+                        records[profile] = snapshot.as_dict()
+                        state_changed = True
                     continue
+                if raw_profile != profile:
+                    records.pop(raw_profile, None)
+                    state_changed = True
                 if not self._worker_is_stale(
                     profile,
                     snapshot,
@@ -698,7 +706,8 @@ class RuntimeStateStore:
                 reconciled_snapshot = self._build_stopped_snapshot(snapshot)
                 records[profile] = reconciled_snapshot.as_dict()
                 reconciled.append(profile)
-            if reconciled:
+                state_changed = True
+            if state_changed:
                 _atomic_state_write(self.path, records)
         return tuple(reconciled)
 

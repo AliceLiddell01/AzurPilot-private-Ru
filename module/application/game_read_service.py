@@ -98,13 +98,14 @@ class GameReadService:
 
     def get_current_running_task(self, instance: str) -> CurrentTaskSnapshot:
         instance = known_instance(self._instance_reader, instance)
-        if self._runtime_execution_reader is None:
+        runtime_execution_reader = self._runtime_execution_reader
+        if runtime_execution_reader is None:
             raise ServiceUnavailableError(
                 "Reader подтверждённого состояния выполнения недоступен."
             )
         result = safe_read(
             "текущей задачи",
-            lambda: self._runtime_execution_reader.read_current_task(instance),
+            lambda: runtime_execution_reader.read_current_task(instance),
         )
         if not isinstance(result, CurrentTaskSnapshot) or result.instance != instance:
             raise ServiceUnavailableError(

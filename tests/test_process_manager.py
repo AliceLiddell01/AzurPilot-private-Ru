@@ -50,6 +50,22 @@ class TestProcessManagerRegistry(unittest.TestCase):
         ):
             self.assertTrue(manager.alive)
 
+    def test_authoritative_registry_is_used_when_local_registry_is_unavailable(self):
+        State.process_registry = None
+        manager = ProcessManager.get_manager("alas")
+
+        with (
+            patch(
+                "module.webui.process_manager.is_current_owner", return_value=True
+            ),
+            patch(
+                "module.webui.process_manager.get_workers",
+                return_value={"alas": {"pid": 12345, "created_at": 1.0}},
+            ),
+            patch("module.webui.process_manager.process_matches", return_value=True),
+        ):
+            self.assertTrue(manager.alive)
+
     def test_stop_uses_registered_worker_pid_without_local_process(self):
         State.process_registry["alas"] = 12345
         manager = ProcessManager.get_manager("alas")

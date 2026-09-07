@@ -95,8 +95,9 @@ authorization policy совместимо с текущим read contract, по�
 `game_get_current_task` читает только общий `RuntimeStateStore`, нормализованный
 через exact worker identity из существующего WebUI registry. Он возвращает
 `running` с task, `idle` с `task: null`, `stopped` с сохранением семантики
-`GAME_PROFILE_NOT_RUNNING` или `unknown`, если snapshot отсутствует, устарел,
-противоречив либо identity worker не совпадает. Scheduler queue и runtime logs
+`GAME_PROFILE_NOT_RUNNING` или `unknown`, если отсутствует подтверждение
+состояния, свежий running snapshot недоступен, snapshot противоречив либо
+identity worker не совпадает. Scheduler queue и runtime logs
 не являются источником текущего execution и не используются как fallback.
 
 ## Application и persistence

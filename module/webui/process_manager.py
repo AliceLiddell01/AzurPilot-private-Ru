@@ -496,6 +496,32 @@ class ProcessManager:
             except Exception as exc:
                 logger.error(f"[{self.config_name}] Не удалось прочитать запись PID рабочего процесса: {exc}")
                 return expected_pid, None, False
+        else:
+            try:
+                workers = get_workers(os.getpid())
+                if not isinstance(workers, dict):
+                    logger.error(
+                        f"[{self.config_name}] Не удалось прочитать authoritative registry рабочего процесса"
+                    )
+                    return expected_pid, None, False
+                authoritative_record = workers.get(self.config_name)
+                if authoritative_record is not None:
+                    if not isinstance(authoritative_record, dict):
+                        logger.error(
+                            f"[{self.config_name}] Authoritative registry содержит некорректную запись worker"
+                        )
+                        return expected_pid, None, False
+                    cached_pid = int(authoritative_record["pid"])
+            except (KeyError, OverflowError, TypeError, ValueError):
+                logger.error(
+                    f"[{self.config_name}] Authoritative registry содержит недопустимый PID worker"
+                )
+                return expected_pid, None, False
+            except RuntimeError as exc:
+                logger.error(
+                    f"[{self.config_name}] Не удалось проверить authoritative registry: {type(exc).__name__}"
+                )
+                return expected_pid, None, False
 
         try:
             expected_pid = int(expected_pid) if expected_pid is not None else None

@@ -493,7 +493,7 @@ def test_loop_finishes_runtime_task_boundary_when_task_raises(
     script.failure_record = {}
     script._emulator_recovery_transport_lost = False
     tasks = iter(("Commission", None))
-    script.get_next_task = lambda: next(tasks)
+    script.get_next_task = lambda: next(tasks, None)
     script._prepare_task_boundary = lambda _task: True
 
     def fail_run(_command: str) -> object:

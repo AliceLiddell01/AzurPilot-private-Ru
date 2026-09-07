@@ -174,7 +174,8 @@ class DashboardMixin(WebUIMixinBase):
                 runtime_snapshot = reader.read_current_task(instance)
             except Exception as exc:  # noqa: BLE001 - overview работает fail-closed.
                 logger.warning(
-                    f"[Dashboard] Не удалось прочитать подтверждённое runtime state: {exc}"
+                    "[Dashboard] Не удалось прочитать подтверждённое runtime state: "
+                    f"{type(exc).__name__}"
                 )
         pending = tuple(self.alas_config.pending_task or ())
         waiting = tuple(self.alas_config.waiting_task or ())

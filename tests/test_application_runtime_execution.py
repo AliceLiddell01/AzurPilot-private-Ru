@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from module.application.game_models import CurrentTaskState
+from module.application.legacy_game_adapters import LegacyRuntimeExecutionReader
 from module.application.runtime_execution import (
     RuntimeExecutionReader,
     WorkerIdentityEvidence,
@@ -101,6 +102,21 @@ def test_runtime_execution_normalizes_stopped_only_when_worker_is_absent() -> No
     assert result.task is None
 
 
+def test_runtime_execution_normalizes_stopped_even_when_stopped_snapshot_is_stale() -> None:
+    result = _reader(
+        _snapshot(
+            worker_running=False,
+            busy=False,
+            current_task=None,
+            freshness="stale",
+        ),
+        WorkerIdentityEvidence(WorkerIdentityStatus.ABSENT),
+    ).read_current_task("ap")
+
+    assert result.state is CurrentTaskState.STOPPED
+    assert result.task is None
+
+
 @pytest.mark.parametrize(
     ("snapshot", "evidence"),
     (
@@ -166,4 +182,20 @@ def test_runtime_execution_fails_closed_on_identity_reader_exception() -> None:
     result = reader.read_current_task("ap")
 
     assert result.state is CurrentTaskState.UNKNOWN
+    assert result.task is None
+
+
+def test_legacy_runtime_reader_accepts_supplied_state_store_without_root() -> None:
+    reader = LegacyRuntimeExecutionReader(
+        state_store=_StateReader(
+            _snapshot(worker_running=True, busy=False, current_task=None)
+        ),
+        worker_identity_reader=_IdentityReader(
+            WorkerIdentityEvidence(WorkerIdentityStatus.VERIFIED, 1001, 2001.0)
+        ),
+    )
+
+    result = reader.read_current_task("ap")
+
+    assert result.state is CurrentTaskState.IDLE
     assert result.task is None

@@ -640,11 +640,13 @@ class LegacyRuntimeExecutionReader:
 
     def __init__(
         self,
-        repository_root: Path | str,
+        repository_root: Path | str | None = None,
         *,
         state_store: RuntimeStateReader | None = None,
         worker_identity_reader: WorkerIdentityReader | None = None,
     ) -> None:
+        if state_store is None and repository_root is None:
+            raise ValueError("Требуется repository_root или state_store")
         self._reader = RuntimeExecutionReader(
             state_store
             if state_store is not None
