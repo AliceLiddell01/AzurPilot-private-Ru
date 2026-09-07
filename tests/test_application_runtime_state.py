@@ -712,8 +712,8 @@ def test_scheduler_membership_and_next_run_do_not_close_active_execution(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    now = datetime.now().replace(microsecond=0)
-    runtime_now = now.replace(tzinfo=UTC)
+    now = datetime.now(UTC).astimezone().replace(tzinfo=None, microsecond=0)
+    runtime_now = datetime.now(UTC)
     task = "Commission"
     store = RuntimeStateStore(tmp_path, now=lambda: runtime_now.isoformat())
     store.mark_worker_started(
@@ -740,10 +740,8 @@ def test_scheduler_membership_and_next_run_do_not_close_active_execution(
     config.mkdir(exist_ok=True)
     config_path = config / "alas.json"
     reader = SchedulerRuntimeStateReader(tmp_path)
-    updater_module = __import__("module.config.config_updater", fromlist=["filepath_config"])
     monkeypatch.setattr(
-        updater_module,
-        "filepath_config",
+        "module.config.config_updater.filepath_config",
         lambda _config_name, _mod_name="alas": str(config_path),
     )
     updater = ConfigUpdater()
@@ -1016,6 +1014,32 @@ def test_runtime_state_scoped_reconciliation_ignores_other_profile_orphan(
         == ()
     )
     assert store.read("alas") == before
+
+
+def test_runtime_state_scoped_reconciliation_fails_closed_on_invalid_profile_keys(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    store.mark_worker_started("alas", worker_pid=1109, worker_created_at=2109.0)
+    worker = {"pid": 1109, "created_at": 2109.0}
+
+    with pytest.raises(RuntimeStateError) as worker_error:
+        store.reconcile_stale_workers(
+            {"alas": worker, "invalid/profile": worker},
+            requested_profile="alas",
+        )
+    assert worker_error.value.code == "RUNTIME_PROFILE_INVALID"
+
+    payload = json.loads(store.path.read_text(encoding="utf-8"))
+    payload["profiles"]["invalid/profile"] = dict(payload["profiles"]["alas"])
+    store.path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(RuntimeStateError) as state_error:
+        store.reconcile_stale_workers(
+            {"alas": worker},
+            requested_profile="alas",
+        )
+    assert state_error.value.code == "RUNTIME_PROFILE_INVALID"
 
 
 def test_runtime_state_does_not_reconcile_worker_when_identity_is_live(

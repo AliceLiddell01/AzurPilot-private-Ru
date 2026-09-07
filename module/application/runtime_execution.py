@@ -73,7 +73,7 @@ class RuntimeExecutionReader:
 
         try:
             snapshot = self._state_reader.read(profile)
-        except Exception:  # noqa: BLE001 - corrupted state must be unknown.
+        except Exception:  # noqa: BLE001 - повреждённое состояние обязано стать unknown.
             return self._unknown(profile)
 
         try:

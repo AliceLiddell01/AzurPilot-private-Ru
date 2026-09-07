@@ -663,11 +663,11 @@ class RuntimeStateStore:
             workers = self._normalize_authoritative_workers(authoritative_workers)
         else:
             if isinstance(authoritative_workers, Mapping):
-                requested_workers = (
-                    {requested_profile: authoritative_workers[requested_profile]}
-                    if requested_profile in authoritative_workers
-                    else {}
-                )
+                requested_workers: dict[str, Mapping[str, object]] = {}
+                for raw_profile, raw_record in authoritative_workers.items():
+                    profile = _profile(raw_profile)
+                    if profile == requested_profile:
+                        requested_workers[profile] = raw_record
             else:
                 requested_workers = authoritative_workers
             workers = self._normalize_authoritative_workers(requested_workers)
@@ -676,9 +676,9 @@ class RuntimeStateStore:
             payload = self._read_payload()
             records = dict(payload["profiles"])
             for raw_profile, record in tuple(records.items()):
-                if requested_profile is not None and raw_profile != requested_profile:
-                    continue
                 profile = _profile(raw_profile)
+                if requested_profile is not None and profile != requested_profile:
+                    continue
                 snapshot = RuntimeStateSnapshot.from_dict(record)
                 if snapshot.profile != profile or not snapshot.worker_running:
                     continue

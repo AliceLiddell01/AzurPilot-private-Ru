@@ -439,7 +439,7 @@ def test_loop_does_not_run_task_without_authoritative_worker_state(
     script.failure_record = {}
     script._emulator_recovery_transport_lost = False
     tasks = iter(("Commission", None))
-    script.get_next_task = lambda: next(tasks)
+    script.get_next_task = lambda: next(tasks, None)
     script._prepare_task_boundary = lambda _task: True
     body_called = False
 

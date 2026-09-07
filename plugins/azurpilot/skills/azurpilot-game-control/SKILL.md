@@ -70,6 +70,10 @@ game process, foreground или login/main state.
 contradictory или identity-mismatch состояние становится `unknown`. Scheduler
 queue и logs не подменяют этот read path и не должны использоваться для вывода
 о текущем execution.
+Для остановленного профиля transport-ошибка Game MCP сохраняет существующий
+ответ `GAME_PROFILE_NOT_RUNNING` с top-level `state: "failed"`; значение
+`stopped` относится к подтверждённой domain projection, а не к этому error
+envelope.
 
 ## Нормальный read workflow
 

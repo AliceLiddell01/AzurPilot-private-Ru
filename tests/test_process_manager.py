@@ -5,6 +5,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, PropertyMock, patch
 
+from module.application.runtime_state import RuntimeStateError
 from module.webui.process_manager import ProcessManager
 from module.webui.setting import State
 
@@ -160,6 +161,7 @@ class TestProcessManagerRegistry(unittest.TestCase):
                         "operation-1",
                         "session-1",
                     ),
+                    daemon=True,
                 )
                 worker.start()
                 self.assertFalse(body_called.wait(timeout=0.2))
@@ -263,7 +265,7 @@ class TestProcessManagerRegistry(unittest.TestCase):
                 expected_worker_created_at=65432.0,
                 operation_id="new-task",
             )
-            with self.assertRaisesRegex(RuntimeError, "устаревшей identity"):
+            with self.assertRaises(RuntimeStateError) as stale:
                 store.mark_task_finished(
                     "alas",
                     "OldTask",
@@ -271,6 +273,7 @@ class TestProcessManagerRegistry(unittest.TestCase):
                     expected_worker_created_at=54321.0,
                     operation_id="old-task",
                 )
+            self.assertEqual(stale.exception.code, "RUNTIME_STATE_STALE_WRITE")
 
     def test_start_reconciles_runtime_state_with_stale_local_registry_cache(self):
         from module.application.runtime_state import RuntimeStateStore
