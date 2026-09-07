@@ -20,6 +20,10 @@ compactor:
   compaction:
     block_retention: 168h
 
+query_frontend:
+  mcp_server:
+    enabled: true
+
 storage:
   trace:
     backend: local

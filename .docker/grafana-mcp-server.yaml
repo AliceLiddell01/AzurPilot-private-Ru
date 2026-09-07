@@ -1,0 +1,24 @@
+name: grafana
+title: Grafana
+type: server
+image: mcp/grafana@sha256:9362bcf6aa0e44e61f645b905cec03fb346a946a34a4dafecd7f3e28d3724014
+description: MCP-сервер только для чтения для локальной диагностики наблюдаемости AzurPilot.
+secrets:
+  - name: grafana.api_key
+    env: GRAFANA_API_KEY
+env:
+  - name: GRAFANA_URL
+    value: "{{grafana.url}}"
+command:
+  - --transport=stdio
+  - --disable-write
+  - --max-loki-log-limit=50
+config:
+  - name: grafana
+    description: Адрес локального Grafana для MCP gateway.
+    type: object
+    properties:
+      url:
+        type: string
+    required:
+      - url

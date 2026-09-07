@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "id": "azurpilot-observability",
+  "name": "AzurPilot Observability",
+  "servers": [
+    {
+      "type": "image",
+      "config": {
+        "url": "http://host.docker.internal:3000"
+      },
+      "secrets": "default",
+      "tools": [
+        "check_datasources_health",
+        "get_dashboard_panel_queries",
+        "get_dashboard_property",
+        "get_dashboard_summary",
+        "get_datasource",
+        "list_datasources",
+        "list_loki_label_names",
+        "list_loki_label_values",
+        "list_prometheus_label_names",
+        "list_prometheus_label_values",
+        "list_prometheus_metric_metadata",
+        "list_prometheus_metric_names",
+        "query_loki_logs",
+        "query_prometheus",
+        "query_prometheus_histogram",
+        "search_dashboards",
+        "generate_deeplink",
+        "alerting_manage_rules",
+        "tempo_docs-traceql",
+        "tempo_get-attribute-names",
+        "tempo_get-attribute-values",
+        "tempo_get-trace",
+        "tempo_traceql-metrics-instant",
+        "tempo_traceql-metrics-range",
+        "tempo_traceql-search"
+      ],
+      "image": "mcp/grafana@sha256:9362bcf6aa0e44e61f645b905cec03fb346a946a34a4dafecd7f3e28d3724014",
+      "snapshot": {
+        "server": {
+          "name": "grafana",
+          "type": "server",
+          "image": "mcp/grafana@sha256:9362bcf6aa0e44e61f645b905cec03fb346a946a34a4dafecd7f3e28d3724014",
+          "description": "MCP-сервер только для чтения для локальной диагностики наблюдаемости AzurPilot.",
+          "title": "Grafana",
+          "remote": {},
+          "secrets": [
+            {
+              "name": "grafana.api_key",
+              "env": "GRAFANA_API_KEY"
+            }
+          ],
+          "env": [
+            {
+              "name": "GRAFANA_URL",
+              "value": "{{grafana.url}}"
+            }
+          ],
+          "command": [
+            "--transport=stdio",
+            "--disable-write",
+            "--max-loki-log-limit=50"
+          ],
+          "config": [
+            {
+              "description": "Адрес локального Grafana для MCP gateway.",
+              "name": "grafana",
+              "properties": {
+                "url": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "url"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "secrets": {
+    "default": {
+      "provider": "docker-desktop-store"
+    }
+  }
+}
