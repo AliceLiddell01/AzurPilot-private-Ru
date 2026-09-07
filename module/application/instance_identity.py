@@ -14,9 +14,10 @@ _IDENTITY_NAMESPACE = UUID("bc6db2da-cb91-4d6e-bc33-bb598d715c13")
 
 
 def runtime_instance_identity(instance: str) -> tuple[str, UUID]:
-    if profile_identity_from_name(instance) is None:
+    identity = profile_identity_from_name(instance)
+    if identity is None:
         raise StorageConfigurationError("Имя экземпляра хранилища некорректно.")
-    digest = sha256(instance.encode("utf-8")).hexdigest()
+    digest = sha256(identity.name.encode("utf-8")).hexdigest()
     return digest, uuid5(_IDENTITY_NAMESPACE, digest)
 
 

@@ -406,7 +406,7 @@ def test_read_service_ignores_stale_run_task_log_for_authoritative_state(
         def read_tail(self, instance: str, limit: int) -> tuple[str, ...]:
             return ("<<< Run task Event >>>\n",)
 
-    current_task = None if state is not CurrentTaskState.RUNNING else "Event"
+    current_task = None
     runtime_execution = _RuntimeExecution(
         CurrentTaskSnapshot("ap", current_task, state)
     )

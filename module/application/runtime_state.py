@@ -679,15 +679,14 @@ class RuntimeStateStore:
                 if requested_profile is not None and profile != requested_profile:
                     continue
                 snapshot = RuntimeStateSnapshot.from_dict(record)
-                if snapshot.profile != profile or not snapshot.worker_running:
-                    if snapshot.profile == profile and raw_profile != profile:
-                        records.pop(raw_profile, None)
-                        records[profile] = snapshot.as_dict()
-                        state_changed = True
+                if snapshot.profile != profile:
+                    raise RuntimeStateError(
+                        "RUNTIME_STATE_CORRUPT",
+                        "Ключ runtime-профиля не совпадает с записью snapshot",
+                        details={"profile": profile},
+                    )
+                if not snapshot.worker_running:
                     continue
-                if raw_profile != profile:
-                    records.pop(raw_profile, None)
-                    state_changed = True
                 if not self._worker_is_stale(
                     profile,
                     snapshot,
@@ -731,7 +730,13 @@ class RuntimeStateStore:
             for raw_profile, record in tuple(records.items()):
                 profile = _profile(raw_profile)
                 snapshot = RuntimeStateSnapshot.from_dict(record)
-                if snapshot.profile != profile or profile == session_owner_profile:
+                if snapshot.profile != profile:
+                    raise RuntimeStateError(
+                        "RUNTIME_STATE_CORRUPT",
+                        "Ключ runtime-профиля не совпадает с записью snapshot",
+                        details={"profile": profile},
+                    )
+                if profile == session_owner_profile:
                     continue
                 if snapshot.session_id is None:
                     continue

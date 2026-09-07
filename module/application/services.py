@@ -56,6 +56,10 @@ class InstanceQueryService:
             if len(set(names)) != len(names):
                 raise TypeError("reader вернул повторяющиеся имена")
             return names
+        except InvalidRequestError:
+            raise ServiceUnavailableError(
+                "Не удалось получить список экземпляров."
+            ) from None
         except ApplicationError:
             raise
         except Exception:  # noqa: BLE001 - application boundary sanitizes reader failures.

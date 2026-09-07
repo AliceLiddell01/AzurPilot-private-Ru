@@ -600,20 +600,40 @@ class ProcessManager:
 
     def _reconcile_runtime_state_before_start(self) -> None:
         """Перед новым worker списать только доказанно мёртвый runtime state."""
-        from module.application.runtime_state import RuntimeStateStore
-
-        workers = get_workers(os.getpid())
+        from module.application.runtime_state import (
+            RuntimeStateError,
+            RuntimeStateStore,
+        )
 
         def check_worker(worker_pid: int, worker_created_at: float) -> bool | None:
             return process_matches(
                 {"pid": worker_pid, "created_at": worker_created_at}
             )
 
-        reconciled = RuntimeStateStore(_REPOSITORY_ROOT).reconcile_stale_workers(
-            workers,
-            worker_identity_checker=check_worker,
-            requested_profile=self.config_name,
-        )
+        try:
+            workers = get_workers(os.getpid())
+            reconciled = RuntimeStateStore(_REPOSITORY_ROOT).reconcile_stale_workers(
+                workers,
+                worker_identity_checker=check_worker,
+                requested_profile=self.config_name,
+            )
+        except RuntimeStateError as exc:
+            logger.error(
+                f"[{self.config_name}] Запуск worker отклонён: runtime state не подтверждён ({exc.code})"
+            )
+            raise
+        except RuntimeError:
+            logger.error(
+                f"[{self.config_name}] Запуск worker отклонён: authoritative registry не подтверждён"
+            )
+            raise RuntimeStateError(
+                "RUNTIME_STATE_RECONCILIATION_REQUIRED",
+                f"Нельзя запустить профиль {self.config_name!r}: authoritative registry недоступен.",
+                details={
+                    "profile": self.config_name,
+                    "reason": "authoritative_registry_unavailable",
+                },
+            ) from None
         if State.process_registry is not None:
             worker = workers.get(self.config_name)
             if isinstance(worker, dict):

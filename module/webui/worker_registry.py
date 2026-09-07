@@ -440,34 +440,35 @@ def unregister_worker(
 def _same_worker_identity(left: object, right: object) -> bool:
     if not isinstance(left, dict) or not isinstance(right, dict):
         return False
+    if not _valid_worker_identity(left) or not _valid_worker_identity(right):
+        return False
+    return left["pid"] == right["pid"] and float(left["created_at"]) == float(
+        right["created_at"]
+    )
+
+
+def _valid_worker_identity(record: object) -> bool:
+    if not isinstance(record, dict):
+        return False
     try:
-        left_pid = left["pid"]
-        right_pid = right["pid"]
-        left_created_at = left["created_at"]
-        right_created_at = right["created_at"]
+        pid = record["pid"]
+        created_at = record["created_at"]
     except KeyError:
         return False
     try:
         if (
-            isinstance(left_pid, bool)
-            or not isinstance(left_pid, int)
-            or left_pid <= 0
-            or isinstance(right_pid, bool)
-            or not isinstance(right_pid, int)
-            or right_pid <= 0
-            or isinstance(left_created_at, bool)
-            or not isinstance(left_created_at, (int, float))
-            or not math.isfinite(float(left_created_at))
-            or float(left_created_at) <= 0
-            or isinstance(right_created_at, bool)
-            or not isinstance(right_created_at, (int, float))
-            or not math.isfinite(float(right_created_at))
-            or float(right_created_at) <= 0
+            isinstance(pid, bool)
+            or not isinstance(pid, int)
+            or pid <= 0
+            or isinstance(created_at, bool)
+            or not isinstance(created_at, (int, float))
+            or not math.isfinite(float(created_at))
+            or float(created_at) <= 0
         ):
             return False
     except (TypeError, ValueError, OverflowError):
         return False
-    return left_pid == right_pid and float(left_created_at) == float(right_created_at)
+    return True
 
 
 def get_workers(owner_pid: int) -> dict[str, dict]:
@@ -509,7 +510,7 @@ def read_worker_read_only(config_name: str) -> ReadOnlyWorkerResult:
         if config_name not in workers:
             continue
         record = workers[config_name]
-        if not _same_worker_identity(record, record):
+        if not _valid_worker_identity(record):
             return ReadOnlyWorkerResult(ReadOnlyWorkerStatus.UNKNOWN)
         return ReadOnlyWorkerResult(
             ReadOnlyWorkerStatus.VERIFIED,

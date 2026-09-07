@@ -1030,6 +1030,47 @@ def test_runtime_state_scoped_reconciliation_ignores_other_profile_orphan(
     assert store.read("alas") == before
 
 
+def test_runtime_state_reconciliation_rejects_mismatched_snapshot_profile(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    store.mark_worker_started("alas", worker_pid=1110, worker_created_at=2110.0)
+    payload = json.loads(store.path.read_text(encoding="utf-8"))
+    payload["profiles"]["alas"]["profile"] = "ap"
+    store.path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(RuntimeStateError) as error:
+        store.reconcile_stale_workers(
+            {"alas": {"pid": 1110, "created_at": 2110.0}},
+            requested_profile="alas",
+        )
+
+    assert error.value.code == "RUNTIME_STATE_CORRUPT"
+
+
+def test_runtime_state_ownership_reconciliation_rejects_mismatched_snapshot_profile(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    store.mark_worker_started(
+        "alas",
+        worker_pid=1111,
+        worker_created_at=2111.0,
+        session_id="session-1",
+    )
+    payload = json.loads(store.path.read_text(encoding="utf-8"))
+    payload["profiles"]["alas"]["profile"] = "ap"
+    store.path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(RuntimeStateError) as error:
+        store.reconcile_profile_ownership(
+            {"alas": {"pid": 1111, "created_at": 2111.0}},
+            session_owner_profile="ap",
+        )
+
+    assert error.value.code == "RUNTIME_STATE_CORRUPT"
+
+
 def test_runtime_state_scoped_reconciliation_scopes_registry_and_rejects_invalid_state_keys(
     tmp_path: Path,
 ) -> None:

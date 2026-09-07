@@ -373,6 +373,29 @@ class TestProcessManagerRegistry(unittest.TestCase):
 
             self.assertNotIn("alas", State.process_registry)
 
+    def test_start_rejects_unreadable_authoritative_registry(self):
+        manager = ProcessManager("alas")
+
+        with (
+            patch.object(
+                ProcessManager,
+                "alive",
+                new_callable=PropertyMock,
+                return_value=False,
+            ),
+            patch(
+                "module.webui.process_manager.get_workers",
+                side_effect=RuntimeError("registry недоступен"),
+            ),
+            patch("module.webui.process_manager.Process") as process,
+        ):
+            with self.assertRaises(RuntimeStateError) as error:
+                manager.start("alas")
+
+        self.assertEqual(error.exception.code, "RUNTIME_STATE_RECONCILIATION_REQUIRED")
+        self.assertEqual(error.exception.details["profile"], "alas")
+        process.assert_not_called()
+
     def test_start_ignores_live_orphan_worker_from_other_profile(self):
         from module.application.runtime_state import RuntimeStateStore
 

@@ -303,7 +303,13 @@ class TestWorkerRegistry(unittest.TestCase):
     def test_typed_read_only_worker_snapshot_distinguishes_absent(self):
         with tempfile.TemporaryDirectory() as directory:
             registry_file = Path(directory) / "workers.json"
-            with patch.object(worker_registry, "WORKER_REGISTRY_FILE", registry_file):
+            legacy_file = Path(directory) / "legacy.json"
+            with patch.multiple(
+                worker_registry,
+                WORKER_REGISTRY_FILE=registry_file,
+                LEGACY_WORKER_REGISTRY_FILE=legacy_file,
+                DEFAULT_WORKER_REGISTRY_FILE=registry_file,
+            ):
                 result = worker_registry.read_worker_read_only("alas")
 
             self.assertEqual(
@@ -316,8 +322,14 @@ class TestWorkerRegistry(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             registry_file = Path(directory) / "workers.json"
             registry_file.write_text("{not-json", encoding="utf-8")
+            legacy_file = Path(directory) / "legacy.json"
 
-            with patch.object(worker_registry, "WORKER_REGISTRY_FILE", registry_file):
+            with patch.multiple(
+                worker_registry,
+                WORKER_REGISTRY_FILE=registry_file,
+                LEGACY_WORKER_REGISTRY_FILE=legacy_file,
+                DEFAULT_WORKER_REGISTRY_FILE=registry_file,
+            ):
                 result = worker_registry.read_worker_read_only("alas")
 
             self.assertEqual(
@@ -325,7 +337,12 @@ class TestWorkerRegistry(unittest.TestCase):
                 result.status,
             )
             self.assertIsNone(result.record)
-            with patch.object(worker_registry, "WORKER_REGISTRY_FILE", registry_file):
+            with patch.multiple(
+                worker_registry,
+                WORKER_REGISTRY_FILE=registry_file,
+                LEGACY_WORKER_REGISTRY_FILE=legacy_file,
+                DEFAULT_WORKER_REGISTRY_FILE=registry_file,
+            ):
                 with self.assertRaises(RuntimeError):
                     worker_registry.get_worker_read_only("alas")
 
@@ -365,8 +382,14 @@ class TestWorkerRegistry(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             registry_file = Path(directory) / "workers.json"
             registry_file.write_text("[]", encoding="utf-8")
+            legacy_file = Path(directory) / "legacy.json"
 
-            with patch.object(worker_registry, "WORKER_REGISTRY_FILE", registry_file):
+            with patch.multiple(
+                worker_registry,
+                WORKER_REGISTRY_FILE=registry_file,
+                LEGACY_WORKER_REGISTRY_FILE=legacy_file,
+                DEFAULT_WORKER_REGISTRY_FILE=registry_file,
+            ):
                 result = worker_registry.read_worker_read_only("alas")
 
             self.assertEqual(
@@ -388,8 +411,14 @@ class TestWorkerRegistry(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            legacy_file = Path(directory) / "legacy.json"
 
-            with patch.object(worker_registry, "WORKER_REGISTRY_FILE", registry_file):
+            with patch.multiple(
+                worker_registry,
+                WORKER_REGISTRY_FILE=registry_file,
+                LEGACY_WORKER_REGISTRY_FILE=legacy_file,
+                DEFAULT_WORKER_REGISTRY_FILE=registry_file,
+            ):
                 result = worker_registry.read_worker_read_only("alas")
 
             self.assertEqual(
@@ -412,8 +441,14 @@ class TestWorkerRegistry(unittest.TestCase):
                     ),
                     encoding="utf-8",
                 )
+                legacy_file = Path(directory) / "legacy.json"
 
-                with patch.object(worker_registry, "WORKER_REGISTRY_FILE", registry_file):
+                with patch.multiple(
+                    worker_registry,
+                    WORKER_REGISTRY_FILE=registry_file,
+                    LEGACY_WORKER_REGISTRY_FILE=legacy_file,
+                    DEFAULT_WORKER_REGISTRY_FILE=registry_file,
+                ):
                     result = worker_registry.read_worker_read_only("alas")
 
                 self.assertEqual(

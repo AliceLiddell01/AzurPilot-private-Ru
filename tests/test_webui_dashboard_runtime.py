@@ -52,9 +52,9 @@ def test_dashboard_keeps_scheduler_pending_and_waiting_separate_from_running() -
 
 
 def test_dashboard_task_scopes_are_unique_across_execution_projections() -> None:
-    assert _overview_task_scope("running", "Event") != _overview_task_scope(
-        "pending", "Event"
-    )
-    assert _overview_task_scope("pending", "Event") != _overview_task_scope(
-        "waiting", "Event"
-    )
+    scopes = {
+        _overview_task_scope(projection, "Event")
+        for projection in ("running", "pending", "waiting")
+    }
+
+    assert len(scopes) == 3
