@@ -63,6 +63,14 @@ stopped`, а `game app foreground` не означает `profile running`. `UNK
 `game_get_profile_status` никогда не является доказательством emulator, ADB,
 game process, foreground или login/main state.
 
+`game_get_current_task` использует единый authoritative execution boundary:
+`RuntimeStateStore` плюс exact worker identity из существующего owner registry.
+`running` содержит текущую task, `idle` содержит `task: null`, `stopped`
+сохраняет штатную семантику остановленного профиля, а stale, corrupt,
+contradictory или identity-mismatch состояние становится `unknown`. Scheduler
+queue и logs не подменяют этот read path и не должны использоваться для вывода
+о текущем execution.
+
 ## Нормальный read workflow
 
 1. Зафиксируй пользовательскую цель и `<profile>`.

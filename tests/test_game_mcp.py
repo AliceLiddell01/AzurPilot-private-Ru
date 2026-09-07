@@ -33,6 +33,7 @@ from module.application import (
     ConfigUpdateRequest,
     ConfigUpdateResult,
     CurrentTaskSnapshot,
+    CurrentTaskState,
     DashboardResource,
     DashboardResources,
     EmulatorRestartResult,
@@ -70,7 +71,6 @@ from module.application import (
 )
 from module.application.errors import GameRuntimePhaseError
 from module.application.game_control_lock import profile_mutation_lock
-from module.application.game_validation import UNKNOWN_TASK
 from module.application.instance_identity import runtime_instance_identity
 from module.application.legacy_game_adapters import LegacyProcessManagerAdapter
 from module.application.runtime_control import (
@@ -386,6 +386,7 @@ def test_contract_and_tool_catalog_are_game_specific_and_scope_separated() -> No
     assert {
         "ready",
         "running",
+        "idle",
         "stopped",
         "warning",
         "updating",
@@ -1583,19 +1584,52 @@ def test_adapter_preserves_unknown_morale_state() -> None:
     assert slot["baseline"] is None
 
 
-def test_adapter_preserves_unknown_current_task_state() -> None:
+@pytest.mark.parametrize(
+    ("state", "code", "result_state"),
+    (
+        (
+            CurrentTaskState.IDLE,
+            "GAME_CURRENT_TASK_IDLE",
+            "idle",
+        ),
+        (
+            CurrentTaskState.UNKNOWN,
+            "GAME_CURRENT_TASK_UNKNOWN",
+            "unknown",
+        ),
+    ),
+)
+def test_adapter_preserves_non_running_current_task_state(
+    state: CurrentTaskState,
+    code: str,
+    result_state: str,
+) -> None:
     backend = _backend()
     backend.read.get_current_running_task = lambda _profile: CurrentTaskSnapshot(
-        "alpha", UNKNOWN_TASK
+        "alpha", None, state
     )
     adapter = GameMcpAdapter(lambda: backend)
 
     result = adapter.call("game_get_current_task", {"profile": "alpha"})
 
     assert result["ok"] is True
-    assert result["code"] == "GAME_DATA_UNKNOWN"
-    assert result["state"] == "unknown"
-    assert result["details"] == {"profile": "alpha", "task": UNKNOWN_TASK}
+    assert result["code"] == code
+    assert result["state"] == result_state
+    assert result["details"] == {"profile": "alpha", "task": None}
+
+
+def test_adapter_preserves_stopped_current_task_contract() -> None:
+    backend = _backend()
+    backend.read.get_current_running_task = lambda _profile: CurrentTaskSnapshot(
+        "alpha", None, CurrentTaskState.STOPPED
+    )
+    adapter = GameMcpAdapter(lambda: backend)
+
+    result = adapter.call("game_get_current_task", {"profile": "alpha"})
+
+    assert result["ok"] is False
+    assert result["code"] == "GAME_PROFILE_NOT_RUNNING"
+    assert result["state"] == "failed"
 
 
 def test_adapter_does_not_claim_empty_fleet_snapshots_are_complete() -> None:

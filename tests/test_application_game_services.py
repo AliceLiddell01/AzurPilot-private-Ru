@@ -13,11 +13,11 @@ from module.application import (
     ConfigUpdateRequest,
     ConfigurationValidationError,
     CurrentTaskSnapshot,
+    CurrentTaskState,
     DashboardResource,
     DashboardResources,
     GameControlService,
     GameReadService,
-    InstanceNotRunningError,
     InvalidRequestError,
     LifecycleOutcome,
     LifecycleResult,
@@ -230,14 +230,20 @@ class _AuthoritativeConfig(_Config):
 
 
 class _Logs:
-    def __init__(self, *, current: str = "Main") -> None:
-        self.current = current
-
     def read_tail(self, instance: str, limit: int) -> tuple[str, ...]:
         return ("line 1\n", "line 2\n")[-limit:]
 
-    def read_current_task(self, instance: str) -> str:
-        return self.current
+
+class _RuntimeExecution:
+    def __init__(
+        self,
+        snapshot: CurrentTaskSnapshot | None = None,
+    ) -> None:
+        self.snapshot = snapshot or CurrentTaskSnapshot("ap", "Main")
+
+    def read_current_task(self, instance: str) -> CurrentTaskSnapshot:
+        assert instance == self.snapshot.instance
+        return self.snapshot
 
 
 class _Screens:
@@ -286,13 +292,22 @@ def _read_service(
     logs: _Logs | None = None,
     screens: _Screens | None = None,
     metadata: _Metadata | None = None,
+    runtime_execution: _RuntimeExecution | None = None,
 ) -> GameReadService:
     instances = instances or _Instances()
     config = config or _Config()
     logs = logs or _Logs()
     screens = screens or _Screens()
     metadata = metadata or _Metadata()
-    return GameReadService(instances, config, logs, screens, metadata)
+    runtime_execution = runtime_execution or _RuntimeExecution()
+    return GameReadService(
+        instances,
+        config,
+        logs,
+        screens,
+        metadata,
+        runtime_execution_reader=runtime_execution,
+    )
 
 
 def _control_service(
@@ -364,15 +379,21 @@ def test_read_service_returns_typed_bounded_results_and_canonical_instance():
     assert service.get_screenshot("ap").media_type == "image/jpeg"
 
 
-def test_read_service_rejects_invalid_unknown_and_not_running_instances():
-    service = _read_service(_Instances(running=False))
+def test_read_service_rejects_invalid_instances_without_using_profile_status_for_execution():
+    service = _read_service(
+        _Instances(running=False),
+        runtime_execution=_RuntimeExecution(
+            CurrentTaskSnapshot("ap", None, CurrentTaskState.STOPPED)
+        ),
+    )
 
     with pytest.raises(InvalidRequestError):
         service.get_config("../ap")
     with pytest.raises(ResourceNotFoundError):
         service.get_config("missing")
-    with pytest.raises(InstanceNotRunningError):
-        service.get_current_running_task("ap")
+    assert service.get_current_running_task("ap") == CurrentTaskSnapshot(
+        "ap", None, CurrentTaskState.STOPPED
+    )
     with pytest.raises(InvalidRequestError):
         service.get_recent_logs("ap", -1)
     with pytest.raises(InvalidRequestError):

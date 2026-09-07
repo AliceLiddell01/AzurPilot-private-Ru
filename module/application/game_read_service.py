@@ -4,11 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from module.application.errors import (
-    InstanceNotRunningError,
-    InvalidRequestError,
-    ServiceUnavailableError,
-)
+from module.application.errors import InvalidRequestError, ServiceUnavailableError
 from module.application.game_models import (
     ConfigSnapshot,
     CurrentTaskSnapshot,
@@ -20,6 +16,7 @@ from module.application.game_models import (
 )
 from module.application.game_ports import (
     GameConfigReader,
+    RuntimeExecutionStateReader,
     RuntimeLogReader,
     SchedulerTaskReader,
     ScreenshotReader,
@@ -31,9 +28,7 @@ from module.application.game_validation import (
     scheduler_tasks,
     validated_segment,
 )
-from module.application.models import InstanceStatus
 from module.application.ports import InstanceRuntimeReader
-from module.application.services import InstanceQueryService
 
 
 class GameReadService:
@@ -46,13 +41,14 @@ class GameReadService:
         log_reader: RuntimeLogReader,
         screenshot_reader: ScreenshotReader,
         scheduler_tasks: SchedulerTaskReader,
+        runtime_execution_reader: RuntimeExecutionStateReader | None = None,
     ) -> None:
         self._instance_reader = instance_reader
-        self._instance_service = InstanceQueryService(instance_reader)
         self._config_reader = config_reader
         self._log_reader = log_reader
         self._screenshot_reader = screenshot_reader
         self._scheduler_tasks = scheduler_tasks
+        self._runtime_execution_reader = runtime_execution_reader
 
     def get_resources(self, instance: str) -> DashboardResources:
         instance = known_instance(self._instance_reader, instance)
@@ -102,21 +98,19 @@ class GameReadService:
 
     def get_current_running_task(self, instance: str) -> CurrentTaskSnapshot:
         instance = known_instance(self._instance_reader, instance)
-        status = safe_read(
-            "статуса экземпляра",
-            lambda: self._instance_service.get_status(instance),
-        )
-        if not isinstance(status, InstanceStatus):
-            raise ServiceUnavailableError("Адаптер вернул некорректный статус экземпляра.")
-        if not status.running:
-            raise InstanceNotRunningError("Экземпляр не запущен.")
+        if self._runtime_execution_reader is None:
+            raise ServiceUnavailableError(
+                "Reader подтверждённого состояния выполнения недоступен."
+            )
         result = safe_read(
             "текущей задачи",
-            lambda: self._log_reader.read_current_task(instance),
+            lambda: self._runtime_execution_reader.read_current_task(instance),
         )
-        if not isinstance(result, str) or not result:
-            raise ServiceUnavailableError("Адаптер не определил текущую задачу.")
-        return CurrentTaskSnapshot(instance=instance, task=result)
+        if not isinstance(result, CurrentTaskSnapshot) or result.instance != instance:
+            raise ServiceUnavailableError(
+                "Reader подтверждённого runtime вернул некорректное состояние."
+            )
+        return result
 
     def get_scheduler_queue(self, instance: str) -> SchedulerQueueSnapshot:
         instance = known_instance(self._instance_reader, instance)

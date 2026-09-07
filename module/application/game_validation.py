@@ -27,7 +27,6 @@ MAX_CONFIG_VALUE_DEPTH = 8
 MAX_CONFIG_VALUE_ITEMS = 256
 MAX_CONFIG_VALUE_STRING_LENGTH = 4096
 MAX_CONFIG_VALUE_MAGNITUDE = 10**12
-UNKNOWN_TASK = "Unknown"
 INVALID_NAME_CHARS = frozenset("./\\\x00:*?\"<>|")
 
 
@@ -306,7 +305,6 @@ __all__ = [
     "MAX_NAME_LENGTH",
     "MAX_RECENT_LOG_LINES",
     "MAX_SCHEDULABLE_TASKS",
-    "UNKNOWN_TASK",
     "known_instance",
     "require_bool",
     "safe_control",

@@ -930,7 +930,7 @@ def tool_definitions() -> list[Tool]:
         "game_list_profiles": "Перечислить канонические профили AzurPilot без путей и секретов.",
         "game_get_profile_status": "Получить статус выбранного профиля AzurPilot.",
         "game_get_resources": "Получить ограниченный снимок игровых ресурсов выбранного профиля.",
-        "game_get_current_task": "Получить текущую задачу запущенного профиля.",
+        "game_get_current_task": "Получить подтверждённое состояние текущего выполнения профиля.",
         "game_get_scheduler_queue": "Получить read-only очередь scheduler выбранного профиля.",
         "game_list_tasks": "Получить каталог игровых задач и краткую локализованную справку.",
         "game_get_task_help": "Получить bounded metadata и справку одной игровой задачи.",

@@ -1,7 +1,11 @@
 """Обновление обзорной панели WebUI."""
 
+from collections.abc import Sequence
+from pathlib import Path
 from time import monotonic
 
+from module.application.game_models import CurrentTaskSnapshot, CurrentTaskState
+from module.application.legacy_game_adapters import LegacyRuntimeExecutionReader
 from module.webui.app_dependencies import (
     Function,
     LogRes,
@@ -31,6 +35,7 @@ _EVENT_CURRENCY_BALANCE_GROUP = "EventCurrencyBalance"
 _EVENT_PT_TOTAL_LABEL_KEY = "Gui.Dashboard.EventPtTotal"
 _EVENT_CURRENCY_BALANCE_LABEL_KEY = "Gui.Dashboard.EventCurrencyBalance"
 _EVENT_CURRENCY_BALANCE_CACHE_TTL_SECONDS = 5.0
+_REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _empty_event_currency_balance_group():
@@ -84,6 +89,34 @@ def _dashboard_groups_with_event_balance(groups):
     return result
 
 
+def _overview_execution_projection(
+    snapshot: CurrentTaskSnapshot | None,
+) -> tuple[str | None, bool]:
+    """Свести подтверждённое выполнение к running task и флагу unknown."""
+
+    if snapshot is None or snapshot.state is CurrentTaskState.UNKNOWN:
+        return None, True
+    if snapshot.state is CurrentTaskState.RUNNING:
+        return snapshot.task, False
+    return None, False
+
+
+def _overview_task_projection(
+    snapshot: CurrentTaskSnapshot | None,
+    pending: Sequence[Function],
+    waiting: Sequence[Function],
+) -> dict[str, object]:
+    """Разделить текущий execution и будущие scheduler projections."""
+
+    running_task, running_unknown = _overview_execution_projection(snapshot)
+    return {
+        "running": running_task,
+        "running_unknown": running_unknown,
+        "pending": tuple((task.command, task.next_run) for task in pending),
+        "waiting": tuple((task.command, task.next_run) for task in waiting),
+    }
+
+
 class DashboardMixin(WebUIMixinBase):
     """Обновлять задачи и ресурсы на обзорной панели WebUI."""
 
@@ -111,7 +144,7 @@ class DashboardMixin(WebUIMixinBase):
 
         try:
             group = _event_currency_balance_group(config)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - Dashboard remains bounded on read failure.
             logger.warning(
                 f"[Dashboard] Не удалось получить текущий баланс валюты ивента: {exc}"
             )
@@ -130,24 +163,24 @@ class DashboardMixin(WebUIMixinBase):
         self.alas_config.load()
         self.alas_config.get_next_task()
 
-        if len(self.alas_config.pending_task) >= 1:
-            if self.alas.alive:
-                running = self.alas_config.pending_task[:1]
-                pending = self.alas_config.pending_task[1:]
-            else:
-                running = []
-                pending = self.alas_config.pending_task[:]
-        else:
-            running = []
-            pending = []
-        waiting = self.alas_config.waiting_task
-
-        snapshot = {
-            "running": tuple((task.command, task.next_run) for task in running),
-            "pending": tuple((task.command, task.next_run) for task in pending),
-            "waiting": tuple((task.command, task.next_run) for task in waiting),
-            "alive": self.alas.alive,
-        }
+        instance = getattr(self.alas_config, "config_name", None)
+        runtime_snapshot = None
+        if isinstance(instance, str) and instance:
+            reader = getattr(self, "_runtime_execution_reader", None)
+            if reader is None:
+                reader = LegacyRuntimeExecutionReader(_REPOSITORY_ROOT)
+                self._runtime_execution_reader = reader
+            try:
+                runtime_snapshot = reader.read_current_task(instance)
+            except Exception as exc:  # noqa: BLE001 - overview must fail closed.
+                logger.warning(
+                    f"[Dashboard] Не удалось прочитать подтверждённое runtime state: {exc}"
+                )
+        pending = tuple(self.alas_config.pending_task or ())
+        waiting = tuple(self.alas_config.waiting_task or ())
+        snapshot = _overview_task_projection(runtime_snapshot, pending, waiting)
+        running_task = snapshot["running"]
+        running_unknown = snapshot["running_unknown"] is True
         if self._overview_snapshot == snapshot:
             return
         self._overview_snapshot = snapshot
@@ -167,13 +200,28 @@ class DashboardMixin(WebUIMixinBase):
                     color="off",
                 )
 
+        def put_running_task(task_name: str):
+            with use_scope(f"overview-task_{task_name}"):
+                put_column(
+                    [put_text(t(f"Task.{task_name}.name")).style("--arg-title--")],
+                    size="auto",
+                )
+                put_button(
+                    label=t("Gui.Button.Setting"),
+                    onclick=lambda: self.alas_set_group(task_name),
+                    color="off",
+                )
+
         clear("running_tasks")
         clear("pending_tasks")
         clear("waiting_tasks")
         with use_scope("running_tasks"):
-            if running:
-                for task in running:
-                    put_task(task)
+            if isinstance(running_task, str):
+                put_running_task(running_task)
+            elif running_unknown:
+                put_text(t("Gui.Overview.StateUnavailable")).style(
+                    "--overview-notask-text--"
+                )
             else:
                 put_text(t("Gui.Overview.NoTask")).style("--overview-notask-text--")
         with use_scope("pending_tasks"):
@@ -209,9 +257,9 @@ class DashboardMixin(WebUIMixinBase):
 
             value = str(group["Value"])
             value_total = ""
-            if "Limit" in group.keys():
+            if "Limit" in group:
                 value_limit = f" / {group['Limit']}"
-            elif "Total" in group.keys():
+            elif "Total" in group:
                 value_total = f" ({group['Total']})"
                 value_limit = ""
             elif group_name == "Pt":
@@ -250,7 +298,7 @@ class DashboardMixin(WebUIMixinBase):
             else:
                 delta = timedelta_to_text(time_delta(value_time - time_now))
 
-            if group_name not in self._log.last_display_time.keys():
+            if group_name not in self._log.last_display_time:
                 self._log.last_display_time[group_name] = ""
             if (
                 self._log.last_display_time[group_name] == delta

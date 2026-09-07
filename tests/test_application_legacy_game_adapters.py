@@ -237,8 +237,6 @@ def test_legacy_log_adapter_is_bounded_and_root_safe(tmp_path: Path):
 
     assert adapter.read_tail("ap", 2) == ("new\n", "<<< Run task Event >>>\n")
     assert adapter.read_tail("ap", 0) == ()
-    assert adapter.read_current_task("ap") == "Event"
-    assert adapter.read_current_task("secondary") == "Unknown"
     log_file.write_bytes(b"x" * (2 * 1024 * 1024) + b"\nlast\n")
     assert adapter.read_tail("ap", 1) == ("last\n",)
     with pytest.raises(ValueError):
@@ -257,7 +255,7 @@ def test_legacy_log_adapter_falls_back_to_previous_calendar_date(tmp_path: Path)
         date_provider=lambda: date(2026, 8, 31),
     )
 
-    assert adapter.read_current_task("ap") == "Main"
+    assert adapter.read_tail("ap", 1) == ("<<< Run task Main >>>\n",)
 
 
 def test_legacy_screenshot_lifecycle_and_emulator_adapters_use_narrow_owners(monkeypatch):

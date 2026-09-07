@@ -45,6 +45,7 @@ from module.application.game_models import (
     ConfigUpdateRequest,
     ConfigUpdateResult,
     CurrentTaskSnapshot,
+    CurrentTaskState,
     DashboardResources,
     EmulatorRestartResult,
     GameLoginResult,
@@ -63,7 +64,6 @@ from module.application.game_models import (
 from module.application.game_validation import (
     INVALID_NAME_CHARS,
     MAX_NAME_LENGTH,
-    UNKNOWN_TASK,
     validate_json_value,
 )
 from module.application.models import (
@@ -1532,15 +1532,25 @@ class GameMcpAdapter:
                 raise ServiceUnavailableError(
                     "Источник вернул некорректную текущую задачу."
                 )
-            task_unknown = result.task == UNKNOWN_TASK
-            return _ok(
-                "GAME_DATA_UNKNOWN" if task_unknown else "GAME_CURRENT_TASK_READY",
-                "Текущая задача неизвестна."
-                if task_unknown
-                else "Текущая задача определена",
-                "unknown" if task_unknown else "running",
-                {"profile": profile, "task": result.task},
-            )
+            if result.state is CurrentTaskState.RUNNING:
+                code = "GAME_CURRENT_TASK_READY"
+                message = "Текущая задача определена"
+                state = "running"
+            elif result.state is CurrentTaskState.IDLE:
+                code = "GAME_CURRENT_TASK_IDLE"
+                message = "Активная задача отсутствует"
+                state = "idle"
+            elif result.state is CurrentTaskState.UNKNOWN:
+                code = "GAME_CURRENT_TASK_UNKNOWN"
+                message = "Состояние текущей задачи не подтверждено."
+                state = "unknown"
+            elif result.state is CurrentTaskState.STOPPED:
+                raise InstanceNotRunningError("Экземпляр не запущен.")
+            else:  # pragma: no cover - CurrentTaskSnapshot validates the enum.
+                raise ServiceUnavailableError(
+                    "Источник вернул неизвестное состояние текущей задачи."
+                )
+            return _ok(code, message, state, {"profile": profile, "task": result.task})
         if tool == "game_get_scheduler_queue":
             result = read.get_scheduler_queue(profile)
             if not isinstance(result, SchedulerQueueSnapshot):

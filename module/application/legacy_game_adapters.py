@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import importlib
 import os
 import re
 import shutil
@@ -28,6 +29,7 @@ from module.application.errors import (
 )
 from module.application.game_models import (
     ConfigUpdateRequest,
+    CurrentTaskSnapshot,
     DashboardResources,
     GameApplicationState,
     GameLoginState,
@@ -36,11 +38,7 @@ from module.application.game_models import (
     thaw_payload,
 )
 from module.application.game_ports import GameConfigMetadata
-from module.application.game_validation import (
-    INVALID_NAME_CHARS,
-    MAX_NAME_LENGTH,
-    UNKNOWN_TASK,
-)
+from module.application.game_validation import INVALID_NAME_CHARS, MAX_NAME_LENGTH
 from module.application.host_lock import (
     application_host_lock,
     ensure_host_runtime_root,
@@ -54,6 +52,14 @@ from module.application.runtime_control import (
     SharedWebUIBootstrapper,
     WebUIControlClient,
 )
+from module.application.runtime_execution import (
+    RuntimeExecutionReader,
+    RuntimeStateReader,
+    WorkerIdentityEvidence,
+    WorkerIdentityReader,
+    WorkerIdentityStatus,
+)
+from module.application.runtime_state import RuntimeStateStore
 from module.application.scheduler_runtime import (
     SchedulerRuntimeStateReader,
     scheduler_entry_sort_key,
@@ -104,12 +110,6 @@ _ADB_RESTART_READY_MAX_ATTEMPTS = 60
 _EMULATOR_STATE_TIMEOUT_SECONDS = 5.0
 _EMULATOR_STATE_RETRY_INTERVAL_SECONDS = 0.1
 _EMULATOR_STATE_MAX_ATTEMPTS = 60
-_TASK_LOG_PATTERNS = (
-    re.compile(r"调度器: 开始任务\s*[`'\" ](.*?)[`'\" ]"),
-    re.compile(r"<<<\s*Run task\s*(.*?)\s*>>>")
-)
-
-
 def _handover_operation_failure(
     message: str,
     cause: BaseException,
@@ -403,7 +403,9 @@ class LegacyConfigAdapter:
             if scheduler is None:
                 continue
             if not isinstance(scheduler, Mapping):
-                raise ValueError(f"Scheduler state задачи {task} имеет неверный тип")
+                raise ValueError(  # noqa: TRY004 - сохраняем legacy adapter contract.
+                    f"Scheduler state задачи {task} имеет неверный тип"
+                )
             if "Enable" not in scheduler or type(scheduler["Enable"]) is not bool:
                 raise ValueError(f"Scheduler.Enable задачи {task} отсутствует или имеет неверный тип")
             enabled = scheduler["Enable"]
@@ -537,24 +539,6 @@ class LegacyRuntimeLogAdapter:
         path = self._find_log_file(instance)
         return self._read_bounded_tail(path, limit)
 
-    def read_current_task(self, instance: str) -> str:
-        try:
-            for window in (500, _MAX_LOG_LINES):
-                lines = self.read_tail(instance, window)
-                for line in reversed(lines):
-                    for pattern in _TASK_LOG_PATTERNS:
-                        match = pattern.search(line)
-                        if match:
-                            candidate = match.group(1).strip(" `'\"")
-                            if candidate:
-                                return candidate
-                            break
-                if len(lines) < window:
-                    break
-        except FileNotFoundError:
-            return UNKNOWN_TASK
-        return UNKNOWN_TASK
-
     def _find_log_file(self, instance: str) -> Path:
         instance = _safe_instance_name(instance)
         current_date = self._date_provider()
@@ -611,6 +595,66 @@ class LegacyRuntimeLogAdapter:
         if resolved.parent != resolved_root:
             raise ValueError("файл журнала находится вне разрешённого root")
         return candidate
+
+
+class LegacyWorkerIdentityReader:
+    """Проверить точную identity worker через существующий owner registry."""
+
+    def read_worker_identity(self, profile: str) -> WorkerIdentityEvidence:
+        try:
+            worker_registry = importlib.import_module("module.webui.worker_registry")
+            record = worker_registry.get_worker_read_only(profile)
+        except Exception:  # noqa: BLE001 - runtime reader обязан закрыть ошибку.
+            return WorkerIdentityEvidence(WorkerIdentityStatus.UNKNOWN)
+        if record is None:
+            return WorkerIdentityEvidence(WorkerIdentityStatus.ABSENT)
+        if not isinstance(record, dict):
+            return WorkerIdentityEvidence(WorkerIdentityStatus.UNKNOWN)
+        try:
+            matches = worker_registry.process_matches(record)
+            pid = record["pid"]
+            created_at = record["created_at"]
+            if matches is not True:
+                return WorkerIdentityEvidence(WorkerIdentityStatus.UNKNOWN)
+            if (
+                isinstance(pid, bool)
+                or not isinstance(pid, int)
+                or pid <= 0
+                or isinstance(created_at, bool)
+                or not isinstance(created_at, (int, float))
+                or created_at <= 0
+            ):
+                return WorkerIdentityEvidence(WorkerIdentityStatus.UNKNOWN)
+        except (KeyError, TypeError, ValueError, RuntimeError):
+            return WorkerIdentityEvidence(WorkerIdentityStatus.UNKNOWN)
+        return WorkerIdentityEvidence(
+            WorkerIdentityStatus.VERIFIED,
+            pid=pid,
+            created_at=float(created_at),
+        )
+
+
+class LegacyRuntimeExecutionReader:
+    """Собрать reader подтверждённого выполнения из state store и owner registry."""
+
+    def __init__(
+        self,
+        repository_root: Path | str,
+        *,
+        state_store: RuntimeStateReader | None = None,
+        worker_identity_reader: WorkerIdentityReader | None = None,
+    ) -> None:
+        self._reader = RuntimeExecutionReader(
+            state_store
+            if state_store is not None
+            else RuntimeStateStore(repository_root),
+            worker_identity_reader
+            if worker_identity_reader is not None
+            else LegacyWorkerIdentityReader(),
+        )
+
+    def read_current_task(self, profile: str) -> CurrentTaskSnapshot:
+        return self._reader.read_current_task(profile)
 
 
 class LegacyScreenshotAdapter:
@@ -1844,7 +1888,9 @@ __all__ = [
     "LegacyEmulatorAdapter",
     "LegacyGameApplicationAdapter",
     "LegacyProcessManagerAdapter",
+    "LegacyRuntimeExecutionReader",
     "LegacyRuntimeLogAdapter",
     "LegacyScreenshotAdapter",
+    "LegacyWorkerIdentityReader",
     "legacy_current_time",
 ]

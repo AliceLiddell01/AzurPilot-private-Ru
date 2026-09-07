@@ -5862,6 +5862,7 @@
       "Pending": "в очереди",
       "Waiting": "Ожидание",
       "NoTask": "Задач нет",
+      "StateUnavailable": "Состояние недоступно",
       "Stat": "Статистика"
     },
     "Dashboard": {
