@@ -318,7 +318,7 @@ requires-dist = [
     { name = "alembic", specifier = ">=1.19.1,<1.20" },
     { name = "anyio", specifier = "==4.13.0" },
     { name = "chardet", specifier = "==5.1.0" },
-    { name = "imageio", specifier = "==2.26.0" },
+    { name = "imageio", specifier = "==2.37.4" },
     { name = "imageio-ffmpeg", specifier = "==0.6.0" },
     { name = "importlib-metadata", specifier = "==8.0.0" },
     { name = "importlib-resources", specifier = "==6.0.0" },
@@ -354,7 +354,7 @@ requires-dist = [
     { name = "pyzmq", specifier = "==27.1.0" },
     { name = "rapidocr", specifier = "==3.9.0" },
     { name = "retrying", specifier = "==1.3.4" },
-    { name = "rich", specifier = "==11.2.0" },
+    { name = "rich", specifier = "==12.6.0" },
     { name = "scipy", specifier = "==1.18.0" },
     { name = "setuptools", specifier = "==75.8.2" },
     { name = "sqlalchemy", specifier = ">=2.0.52,<2.1" },
@@ -951,15 +951,15 @@ wheels = [
 
 [[package]]
 name = "imageio"
-version = "2.26.0"
+version = "2.37.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
     { name = "pillow" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/3d/60/cd0c52c6f063d70727fd8ee885f87e2d3dff0243142a18eed5e2db969510/imageio-2.26.0.tar.gz", hash = "sha256:169f1642cdb723133fe8fe901887f4f1b39bc036458c4664f1f9d256226ced35", size = 3439222, upload-time = "2023-02-27T02:58:11.331Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/48/62/aa770a9307508d2a2a2c62d536a49347bffe9e55322db27838d3c93d0b07/imageio-2.37.4.tar.gz", hash = "sha256:e45cbc5e83502047fb138f7f585f7f105a136a57eea5f4b3cfc6ce1b52720bd3", size = 390173, upload-time = "2026-07-20T05:26:11.369Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/dc/0b/202efcb00ba89c749bb7b22634c917f29a58bdf052dabe8041f23743974f/imageio-2.26.0-py3-none-any.whl", hash = "sha256:1a4fdb820abc52ba0f08e770ee46293c334908e8d53217808d9d888f993b1df2", size = 3369257, upload-time = "2023-02-27T02:58:08.657Z" },
+    { url = "https://files.pythonhosted.org/packages/3e/2d/ca050652104bab2cf55e569db2a178b1b61cb041fef28307f2db383f6d9f/imageio-2.37.4-py3-none-any.whl", hash = "sha256:1ab2e22c8debf700f24c3ac43e8f95f3b3a8110c83b93411e97b4b0b2cd1c7e6", size = 318000, upload-time = "2026-07-20T05:26:09.874Z" },
 ]
 
 [[package]]
@@ -2312,16 +2312,15 @@ wheels = [
 
 [[package]]
 name = "rich"
-version = "11.2.0"
+version = "12.6.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "colorama" },
     { name = "commonmark" },
     { name = "pygments" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/72/de/b3a53cf1dfdbdc124e8110a60d6c6da8e39d4610c82491fc862383960552/rich-11.2.0.tar.gz", hash = "sha256:1a6266a5738115017bb64a66c59c717e7aa047b3ae49a011ede4abdeffc6536e", size = 200464, upload-time = "2022-02-08T20:12:24.621Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/11/23/814edf09ec6470d52022b9e95c23c1bef77f0bc451761e1504ebd09606d3/rich-12.6.0.tar.gz", hash = "sha256:ba3a3775974105c221d31141f2c116f4fd65c5ceb0698657a11e9f295ec93fd0", size = 220114, upload-time = "2022-10-02T16:27:00.363Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/74/41/6adf6aeb9b3d4a058a82fd053cbb6824432269caa0998574cb766c555287/rich-11.2.0-py3-none-any.whl", hash = "sha256:d5f49ad91fb343efcae45a2b2df04a9755e863e50413623ab8c9e74f05aee52b", size = 217308, upload-time = "2022-02-08T20:12:21.83Z" },
+    { url = "https://files.pythonhosted.org/packages/32/60/81ac2e7d1e3b861ab478a72e3b20fc91c4302acd2274822e493758941829/rich-12.6.0-py3-none-any.whl", hash = "sha256:a4eb26484f2c82589bd9a17c73d32a010b1e29d89f1604cd9bf3a2097b81bb5e", size = 237505, upload-time = "2022-10-02T16:26:58.086Z" },
 ]
 
 [[package]]

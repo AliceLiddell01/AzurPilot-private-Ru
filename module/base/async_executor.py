@@ -1,21 +1,21 @@
-"""异步执行器模块。
+"""Модуль асинхронного исполнителя.
 
-提供单例模式的 AsyncExecutor，内部维护后台线程运行 asyncio 事件循环。
-用于将存储、推送等阻塞操作投递到后台队列，确保主流程不被阻塞。
+Класс AsyncExecutor работает как singleton и поддерживает цикл событий asyncio
+в фоновом потоке.
+Он передаёт блокирующие операции хранения и отправки в фоновую очередь, чтобы
+не блокировать основной поток.
 """
 
 # -*- coding: utf-8 -*-
 import asyncio
+import inspect
 import threading
 from typing import Callable, Any
 
 from module.logger import logger
 
 class AsyncExecutor:
-    """
-    统一的异步执行器，内部维护一个后台线程运行 asyncio event loop。
-    将所有的存储、推送等阻塞操作投递到该后台队列中，以确保主要流程不受阻塞。
-    """
+    """Асинхронный исполнитель с циклом событий в фоновом потоке."""
     _instance = None
     _lock = threading.Lock()
 
@@ -39,16 +39,12 @@ class AsyncExecutor:
             logger.exception(f"Исключение в цикле событий AsyncExecutor: {e}")
 
     def submit(self, func: Callable, *args, **kwargs) -> asyncio.Future:
-        """
-        提交一个同步或异步函数并在队列中执行，返回 future。
-        支持同步调用传入，从而自动被包装并在事件循环中串行/并发执行。
-        因 event loop 在单线程内调度同步 wrapper，默认会串行化所有非 await 的同步操作。
-        """
-        if asyncio.iscoroutinefunction(func):
+        """Поставить синхронную или асинхронную функцию в очередь."""
+        if inspect.iscoroutinefunction(func):
             return asyncio.run_coroutine_threadsafe(func(*args, **kwargs), self._loop)
         else:
-            # 对于普通的同步函数，直接包装为协程跑在loop里
-            # 这样对于 SQLite 的写入来说，就变成了在单线程(event loop 线程)内的串行执行
+            # Обычную функцию запускаем в цикле как coroutine.
+            # Поэтому записи SQLite выполняются последовательно в его потоке.
             async def wrapper():
                 return func(*args, **kwargs)
             return asyncio.run_coroutine_threadsafe(wrapper(), self._loop)
@@ -67,9 +63,8 @@ class AsyncExecutor:
             logger.warning(f"[Асинхронный исполнитель] Ошибка при завершении задач: {e}")
 
 
-# 全局唯一实例
+# Единственный глобальный экземпляр.
 async_executor = AsyncExecutor()
 
 import atexit
 atexit.register(async_executor.flush)
-

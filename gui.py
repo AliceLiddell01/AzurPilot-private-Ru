@@ -146,16 +146,11 @@ def func(
     _configure_gui_logging()
 
     import argparse
-    import asyncio
     import uvicorn
 
-    # 平台特定的asyncio配置
     if sys.platform == "darwin":
-        # macOS: 禁用fork安全检查以避免Mach端口冲突
+        # macOS: отключить проверку безопасности fork, чтобы избежать конфликтов Mach-портов.
         os.environ["OBJC_DISABLE_INITIALIZE_FORK_SAFETY"] = "YES"
-        asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
-    elif sys.platform.startswith("win"):
-        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
     State.restart_event = ev
     State.dependency_sync_event = dependency_sync_event

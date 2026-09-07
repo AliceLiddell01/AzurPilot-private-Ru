@@ -9,9 +9,6 @@ import winreg
 from deploy.logger import logger
 from deploy.utils import cached_property
 
-asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-
-
 class VirtualBoxEmulator:
     UNINSTALL_REG = "SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall"
     UNINSTALL_REG_2 = "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall"
