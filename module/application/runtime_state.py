@@ -805,7 +805,10 @@ class RuntimeStateStore:
                 ):
                     # Повторная регистрация того же boot не должна очищать
                     # текущую task или активный handover.
-                    return current
+                    return self._update(
+                        profile,
+                        _expected_worker=(worker_pid, float(worker_created_at)),
+                    )
                 raise RuntimeStateError(
                     "RUNTIME_STATE_STALE_WRITE",
                     "Новый worker не может перезаписать identity работающего worker",

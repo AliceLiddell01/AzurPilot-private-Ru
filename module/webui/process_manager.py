@@ -6,19 +6,19 @@
 """
 
 import argparse
-
-# Этот файл управляет жизненным циклом процессов экземпляров Alas и их дочерних процессов.
-# Он поддерживает пул процессов для нескольких аккаунтов, отслеживает состояния
-# (работает/остановлен/ошибка) и безопасно обрабатывает межпроцессное взаимодействие.
-from collections.abc import Sequence
 import os
 import queue
 import subprocess
 import threading
 import time
+
+# Этот файл управляет жизненным циклом процессов экземпляров Alas и их дочерних процессов.
+# Он поддерживает пул процессов для нескольких аккаунтов, отслеживает состояния
+# (работает/остановлен/ошибка) и безопасно обрабатывает межпроцессное взаимодействие.
+from collections.abc import Sequence
 from multiprocessing import Event, Process
 from pathlib import Path
-from typing import Dict, List, Union
+from typing import Union
 
 import inflection
 from rich.console import Console, ConsoleRenderable
@@ -31,8 +31,8 @@ from module.webui.fake_pil_module import *
 
 import_fake_pil_module()
 
-from module.logger import logger, set_file_logger, set_func_logger
 from module.config.utils import DEFAULT_CONFIG_NAME
+from module.logger import logger, set_file_logger, set_func_logger
 from module.submodule.submodule import load_mod
 from module.submodule.utils import (
     get_available_func,
@@ -57,15 +57,15 @@ _RUNTIME_STATE_HEARTBEAT_JOIN_SECONDS = 2.0
 
 
 class ProcessManager:
-    _processes: Dict[str, "ProcessManager"] = {}
+    _processes: dict[str, "ProcessManager"] = {}
     _managers_lock = threading.RLock()
-    _lifecycle_locks: Dict[str, threading.RLock] = {}
+    _lifecycle_locks: dict[str, threading.RLock] = {}
     _lifecycle_locks_lock = threading.Lock()
 
     def __init__(self, config_name: str = DEFAULT_CONFIG_NAME) -> None:
         self.config_name = config_name
         self._renderable_queue: queue.Queue[ConsoleRenderable] = State.manager.Queue()
-        self.renderables: List[ConsoleRenderable] = []
+        self.renderables: list[ConsoleRenderable] = []
         self.renderables_max_length = 400
         self.renderables_reduce_length = 80
         self._process: Process | None = None
@@ -1108,7 +1108,7 @@ class ProcessManager:
             logger.exception(f"[{config_name}] Необработанная ошибка рабочего процесса: {ex}")
 
     @classmethod
-    def running_instances(cls) -> List["ProcessManager"]:
+    def running_instances(cls) -> list["ProcessManager"]:
         with cls._managers_lock:
             names = set(cls._processes)
         if State.process_registry is not None:
@@ -1118,7 +1118,9 @@ class ProcessManager:
     @staticmethod
     def _read_reload_instances() -> tuple[str, ...]:
         with open("./config/reloadalas", mode="r", encoding="utf-8") as handle:
-            return tuple(line.strip() for line in handle)
+            return tuple(
+                stripped for stripped in (line.strip() for line in handle) if stripped
+            )
 
     @staticmethod
     def restart_processes(

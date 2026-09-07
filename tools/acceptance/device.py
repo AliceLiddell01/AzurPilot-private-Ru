@@ -261,7 +261,10 @@ def _load_profile(profile: str) -> dict[str, str]:
 
 def _validate_profile_name(profile: str) -> None:
     if profile_identity_from_name(profile) is None:
-        raise AcceptanceFailure("Имя profile содержит недопустимые символы.")
+        raise AcceptanceFailure(
+            "Имя профиля не является каноническим: проверьте недопустимые символы "
+            "и пробелы в начале или в конце имени."
+        )
 
 
 def _validate_serial(serial: str) -> None:

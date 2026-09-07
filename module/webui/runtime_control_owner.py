@@ -77,9 +77,10 @@ class WebUIRuntimeControlOwner:
             from module.webui.worker_registry import get_workers, process_matches
 
             workers = get_workers(os.getpid())
-            worker_identity_checker = lambda pid, created_at: process_matches(
-                {"pid": pid, "created_at": created_at}
-            )
+
+            def worker_identity_checker(pid: int, created_at: float) -> bool | None:
+                return process_matches({"pid": pid, "created_at": created_at})
+
             recovered = self.state.reconcile_with_authoritative_workers(workers)
             stale_workers_reconciled = self.state.reconcile_stale_workers(
                 workers,

@@ -83,6 +83,47 @@ def test_runtime_state_records_busy_handover_and_clears_stale_worker_identity(
     assert stopped.handover_requested is True
 
 
+def test_runtime_state_idempotent_worker_start_refreshes_liveness_without_resetting_state(
+    tmp_path: Path,
+) -> None:
+    timestamps = iter(
+        [
+            "2026-09-04T00:00:00+00:00",
+            "2026-09-04T00:00:01+00:00",
+            "2026-09-04T00:00:02+00:00",
+            "2026-09-04T00:00:03+00:00",
+        ]
+    )
+    store = RuntimeStateStore(tmp_path, now=lambda: next(timestamps))
+    store.mark_worker_started(
+        "alas",
+        worker_pid=1001,
+        worker_created_at=2001.0,
+        operation_id="start-1",
+    )
+    store.mark_task_started(
+        "alas",
+        "DailyTask",
+        **_worker_identity_kwargs(1001, 2001.0),
+        operation_id="task-1",
+    )
+    store.request_handover("alas", operation_id="handover-1", session_id="session-1")
+
+    refreshed = store.mark_worker_started(
+        "alas",
+        worker_pid=1001,
+        worker_created_at=2001.0,
+        operation_id="start-1",
+    )
+
+    assert refreshed.updated_at == "2026-09-04T00:00:03+00:00"
+    assert refreshed.current_task == "DailyTask"
+    assert refreshed.busy is True
+    assert refreshed.handover_requested is True
+    assert refreshed.operation_id == "handover-1"
+    assert refreshed.session_id == "session-1"
+
+
 @pytest.mark.parametrize("state", ["missing", "stopped"])
 def test_runtime_state_rejects_handover_request_without_running_worker(
     tmp_path: Path,

@@ -261,22 +261,25 @@ def test_legacy_log_adapter_falls_back_to_previous_calendar_date(tmp_path: Path)
     assert adapter.read_tail("ap", 1) == ("<<< Run task Main >>>\n",)
 
 
-def test_legacy_worker_identity_rejects_invalid_created_at():
+@pytest.mark.parametrize(
+    "created_at",
+    [float("nan"), float("inf"), float("-inf"), 0, -1],
+)
+def test_legacy_worker_identity_rejects_invalid_created_at(created_at):
     from module.webui import worker_registry
 
     reader = LegacyWorkerIdentityReader()
-    for created_at in (float("nan"), float("inf"), float("-inf"), 0, -1):
-        with (
-            patch.object(
-                worker_registry,
-                "get_worker_read_only",
-                return_value={"pid": 123, "created_at": created_at},
-            ),
-            patch.object(worker_registry, "process_matches", return_value=True),
-        ):
-            evidence = reader.read_worker_identity("ap")
+    with (
+        patch.object(
+            worker_registry,
+            "get_worker_read_only",
+            return_value={"pid": 123, "created_at": created_at},
+        ),
+        patch.object(worker_registry, "process_matches", return_value=True),
+    ):
+        evidence = reader.read_worker_identity("ap")
 
-        assert evidence.status is WorkerIdentityStatus.UNKNOWN
+    assert evidence.status is WorkerIdentityStatus.UNKNOWN
 
 
 @pytest.mark.parametrize("pid", [0, -1])

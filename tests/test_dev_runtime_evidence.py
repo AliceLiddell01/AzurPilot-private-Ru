@@ -27,7 +27,6 @@ from module.dev_runtime.evidence import (
 )
 from module.dev_runtime.target import DevTarget
 
-
 _TIME = "2026-08-30T00:00:00+00:00"
 
 
@@ -1081,7 +1080,9 @@ def test_task_hooks_fail_closed_without_runtime_worker_state(
 
     assert hooks.record_task_started("ap", "RootTask") is False
     assert hooks.record_task_finished("ap", "RootTask") is False
-    assert not (tmp_path / "config" / "state" / "webui-runtime-state.json").exists()
+    from module.application.runtime_state import RuntimeStateStore
+
+    assert not RuntimeStateStore(tmp_path).path.exists()
 
 
 def test_runtime_error_hook_does_not_create_missing_runtime_state(
@@ -1097,7 +1098,9 @@ def test_runtime_error_hook_does_not_create_missing_runtime_state(
 
     hooks.record_runtime_error("ap", RuntimeError("ошибка worker"), phase="task")
 
-    assert not (tmp_path / "config" / "state" / "webui-runtime-state.json").exists()
+    from module.application.runtime_state import RuntimeStateStore
+
+    assert not RuntimeStateStore(tmp_path).path.exists()
 
 
 def test_runtime_error_hook_preserves_active_handover_coordination(

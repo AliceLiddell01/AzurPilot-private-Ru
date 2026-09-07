@@ -104,8 +104,10 @@ class DatabaseStatusSnapshot:
     schema_version: int = DATABASE_DIAGNOSTICS_SCHEMA_VERSION
 
     def __post_init__(self) -> None:
-        if profile_identity_from_name(self.target_profile) is None:
+        identity = profile_identity_from_name(self.target_profile)
+        if identity is None:
             raise ValueError("target_profile имеет недопустимый формат")
+        object.__setattr__(self, "target_profile", identity.name)
         _identifier(self.expected_schema_head, field="expected_schema_head")
         if self.current_schema_head is not None:
             _identifier(self.current_schema_head, field="current_schema_head")

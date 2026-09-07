@@ -101,7 +101,7 @@ class GameReadService:
         runtime_execution_reader = self._runtime_execution_reader
         if runtime_execution_reader is None:
             raise ServiceUnavailableError(
-                "Reader подтверждённого состояния выполнения недоступен."
+                "Источник подтверждённого состояния выполнения недоступен."
             )
         result = safe_read(
             "текущей задачи",
@@ -109,7 +109,7 @@ class GameReadService:
         )
         if not isinstance(result, CurrentTaskSnapshot) or result.instance != instance:
             raise ServiceUnavailableError(
-                "Reader подтверждённого runtime вернул некорректное состояние."
+                "Источник подтверждённого runtime вернул некорректное состояние."
             )
         return result
 

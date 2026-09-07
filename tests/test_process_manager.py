@@ -3,7 +3,7 @@ import threading
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import Mock, PropertyMock, patch
+from unittest.mock import Mock, PropertyMock, mock_open, patch
 
 from module.application.runtime_state import RuntimeStateError
 from module.webui.process_manager import ProcessManager
@@ -396,6 +396,16 @@ class TestProcessManagerRegistry(unittest.TestCase):
         self.assertEqual(error.exception.details["profile"], "alas")
         process.assert_not_called()
 
+    def test_reload_instances_ignores_blank_lines(self):
+        with patch(
+            "builtins.open",
+            mock_open(read_data="alas\n  \n\nap\n"),
+        ):
+            self.assertEqual(
+                ("alas", "ap"),
+                ProcessManager._read_reload_instances(),
+            )
+
     def test_start_ignores_live_orphan_worker_from_other_profile(self):
         from module.application.runtime_state import RuntimeStateStore
 
@@ -444,7 +454,7 @@ class TestProcessManagerRegistry(unittest.TestCase):
             self.assertEqual(current.worker_pid, 23456)
 
     def test_start_does_not_reconcile_live_orphan_worker(self):
-        from module.application.runtime_state import RuntimeStateError, RuntimeStateStore
+        from module.application.runtime_state import RuntimeStateStore
 
         with TemporaryDirectory() as root:
             root_path = Path(root)
