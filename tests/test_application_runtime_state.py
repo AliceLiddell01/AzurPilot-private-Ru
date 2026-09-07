@@ -101,6 +101,30 @@ def test_runtime_state_rejects_handover_request_without_running_worker(
     assert error.value.code == "RUNTIME_STATE_TRANSITION_INVALID"
 
 
+def test_runtime_state_allows_development_worker_registration_during_resource_acquisition(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    acquiring = store.mark_resource_acquiring(
+        "ap",
+        operation_id="resource-operation",
+        session_id="resource-session",
+    )
+    started = store.mark_worker_started(
+        "ap",
+        worker_pid=1003,
+        worker_created_at=2003.0,
+        operation_id="resource-operation",
+        session_id="resource-session",
+        phase=RuntimePhase.RESOURCE_ACQUIRING,
+    )
+
+    assert acquiring.phase is RuntimePhase.RESOURCE_ACQUIRING
+    assert acquiring.worker_running is False
+    assert started.phase is RuntimePhase.RESOURCE_ACQUIRING
+    assert started.worker_running is True
+
+
 def test_runtime_state_handover_keeps_source_worker_session_ownership(
     tmp_path: Path,
 ) -> None:

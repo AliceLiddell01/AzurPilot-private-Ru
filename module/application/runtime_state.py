@@ -114,7 +114,6 @@ _STOPPED_PHASES = frozenset(
         RuntimePhase.CURRENT_TASK_STOPPED,
         RuntimePhase.RETURNING_TO_MAIN,
         RuntimePhase.MAIN_CONFIRMED,
-        RuntimePhase.RESOURCE_ACQUIRING,
     }
 )
 
@@ -1132,13 +1131,13 @@ class RuntimeStateStore:
                     "RUNTIME_STATE_TRANSITION_INVALID",
                     "Нельзя запросить handover у остановленного worker",
                 )
-        return self._update(
-            profile,
-            phase=RuntimePhase.HANDOVER_REQUESTED,
-            operation_id=operation_id,
-            session_id=session_id,
-            handover_requested=True,
-        )
+            return self._update(
+                profile,
+                phase=RuntimePhase.HANDOVER_REQUESTED,
+                operation_id=operation_id,
+                session_id=session_id,
+                handover_requested=True,
+            )
 
     def mark_preemption_notice(self, profile: str, *, operation_id: str, session_id: str | None = None) -> RuntimeStateSnapshot:
         return self._update(profile, phase=RuntimePhase.PREEMPTION_NOTICE, operation_id=operation_id, session_id=session_id, handover_requested=True)
