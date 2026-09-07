@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -175,7 +176,11 @@ def test_identity_stores_new_token_before_reclaiming_obsolete_token(
     monkeypatch.setattr(target, "_GrafanaApi", lambda *_args, **_kwargs: api)
     monkeypatch.setattr(target, "ensure_dynamic_tools_disabled", lambda apply: "disabled")
     monkeypatch.setattr(target, "_gateway_probe", lambda: next(probes))
-    monkeypatch.setattr(target, "_store_secret", lambda token: (stored.append(token), events.append("store")))
+    def store_secret(token):
+        stored.append(token)
+        events.append("store")
+
+    monkeypatch.setattr(target, "_store_secret", store_secret)
     monkeypatch.setattr(target, "_checked_docker", lambda *args, **kwargs: None)
 
     original_delete = api.delete_token
@@ -261,6 +266,31 @@ def test_identity_preserves_original_failure_when_token_reclaim_fails(
         )
 
 
+def test_identity_reclaims_new_token_when_secret_store_fails(monkeypatch, tmp_path):
+    api = _FakeGrafanaApi(accounts=[_account()], tokens=[])
+    probes = iter([target.GatewayProbe(False, True, "MCP_GATEWAY_AUTH_INVALID")])
+
+    def fail_store(token):
+        raise target.ObservabilityMcpError("MCP_SECRET_STORE_FAILED")
+
+    monkeypatch.setattr(target, "_GrafanaApi", lambda *_args, **_kwargs: api)
+    monkeypatch.setattr(
+        target, "ensure_dynamic_tools_disabled", lambda apply: "disabled"
+    )
+    monkeypatch.setattr(target, "_gateway_probe", lambda: next(probes))
+    monkeypatch.setattr(target, "_store_secret", fail_store)
+    monkeypatch.setattr(target, "_checked_docker", lambda *args, **kwargs: None)
+
+    with pytest.raises(target.ObservabilityMcpError, match="MCP_SECRET_STORE_FAILED"):
+        target.ensure_identity(
+            repository_root=ROOT,
+            env_file=_env_file(tmp_path),
+            import_profile=False,
+        )
+
+    assert ("delete-token", 1, 2) in api.calls
+
+
 def test_grafana_api_accepts_empty_delete_response():
     api = target._GrafanaApi(
         target.DEFAULT_GRAFANA_URL,
@@ -270,6 +300,40 @@ def test_grafana_api_accepts_empty_delete_response():
     )
 
     api.delete_token(1, 2)
+
+
+@pytest.mark.parametrize(
+    ("payload", "authentication_failed"),
+    [
+        ({"isError": True, "data": {"status": 401}}, False),
+        (
+            {
+                "isError": True,
+                "content": [{"type": "text", "text": "401 Unauthorized"}],
+            },
+            True,
+        ),
+    ],
+)
+def test_gateway_probe_classifies_only_error_text(
+    monkeypatch, payload, authentication_failed
+):
+    monkeypatch.setattr(
+        target,
+        "_run_docker",
+        lambda *args, **kwargs: target.subprocess.CompletedProcess(
+            args, 0, json.dumps(payload), ""
+        ),
+    )
+
+    result = target._gateway_probe()
+
+    assert result.authentication_failed is authentication_failed
+    assert result.code == (
+        "MCP_GATEWAY_AUTH_INVALID"
+        if authentication_failed
+        else "MCP_GATEWAY_TOOL_ERROR"
+    )
 
 
 @pytest.mark.parametrize(

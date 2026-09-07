@@ -571,10 +571,31 @@ def _gateway_probe() -> GatewayProbe:
     except ObservabilityMcpError:
         return GatewayProbe(False, False, "MCP_GATEWAY_JSON_INVALID")
     if isinstance(payload, dict) and payload.get("isError") is True:
-        text = json.dumps(payload, ensure_ascii=False).casefold()
+        text_parts: list[str] = []
+        for key in ("error", "message", "detail", "reason"):
+            value = payload.get(key)
+            if isinstance(value, str):
+                text_parts.append(value)
+        content = payload.get("content")
+        if isinstance(content, list):
+            for item in content:
+                if not isinstance(item, dict):
+                    continue
+                for key in ("text", "message"):
+                    value = item.get(key)
+                    if isinstance(value, str):
+                        text_parts.append(value)
+        text = " ".join(text_parts).casefold()
         authentication_failed = any(
             marker in text
-            for marker in ("401", "403", "unauthorized", "authentication", "invalid token")
+            for marker in (
+                "401",
+                "403",
+                "unauthorized",
+                "forbidden",
+                "authentication",
+                "invalid token",
+            )
         )
         return GatewayProbe(
             False,
