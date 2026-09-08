@@ -716,14 +716,15 @@ README, аргументах команд или временном plaintext-ф
 доказательством identity. При наличии доступного credential `ensure-identity`
 проверяет его тем же bearer token через официальный Grafana read-only endpoint
 `/api/access-control/user/permissions` и обязательный заголовок
-`X-Grafana-Identity-Id: service-account:<id>`; при отсутствии этого endpoint
-используется только read-only fallback `/api/datasources` с тем же identity
-header. Отсутствующий или foreign header, malformed permissions, invalid или
-более широкая роль приводят к fail-closed/rotation. После записи нового token в
-secret store identity проверяется повторно; obsolete tokens удаляются только у
-canonical account. Если pinned Gateway не предоставляет `user_info`, а
-credential нельзя получить официальным способом для identity-проверки, команда
-завершается диагностируемой ошибкой и не объявляет token canonical.
+`X-Grafana-Identity-Id: service-account:<id>`. Отсутствующий endpoint не заменяется
+проверкой доступа к datasource: identity verification завершается
+`MCP_GRAFANA_TOKEN_IDENTITY_UNAVAILABLE`. Отсутствующий или foreign header,
+malformed permissions, invalid или более широкая роль приводят к
+fail-closed/rotation. После записи нового token в secret store identity
+проверяется повторно; obsolete tokens удаляются только у canonical account. Если
+pinned Gateway не предоставляет `user_info`, а credential нельзя получить
+официальным способом для identity-проверки, команда завершается диагностируемой
+ошибкой и не объявляет token canonical.
 
 Идемпотентный bootstrap выполняется из корня checkout. Он использует
 Grafana admin credentials из локального `.env`, проверяет или создаёт ровно

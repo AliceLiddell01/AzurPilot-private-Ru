@@ -66,7 +66,6 @@ class _FakeGrafanaApi:
             return result
         return target.GrafanaIdentity(
             account_id=account_id,
-            role=target.CANONICAL_SERVICE_ACCOUNT_ROLE,
         )
 
     def delete_token(self, account_id, token_id):
@@ -241,11 +240,11 @@ def test_grafana_api_identity_proof_accepts_canonical_header_and_permissions():
 
     identity = api.verify_token_identity("fixture-value", 7)
 
-    assert identity == target.GrafanaIdentity(7, target.CANONICAL_SERVICE_ACCOUNT_ROLE)
+    assert identity == target.GrafanaIdentity(7)
     assert requests[0].get_header("Authorization") == "Bearer fixture-value"
 
 
-def test_grafana_api_identity_proof_uses_read_only_fallback_when_endpoint_missing():
+def test_grafana_api_identity_proof_fails_closed_when_endpoint_missing():
     calls = []
 
     def opener(request, **_kwargs):
@@ -264,12 +263,13 @@ def test_grafana_api_identity_proof_uses_read_only_fallback_when_endpoint_missin
         opener=opener,
     )
 
-    identity = api.verify_token_identity("fixture-value", 7)
-
-    assert identity == target.GrafanaIdentity(7, target.CANONICAL_SERVICE_ACCOUNT_ROLE)
+    with pytest.raises(
+        target.ObservabilityMcpError,
+        match="MCP_GRAFANA_TOKEN_IDENTITY_UNAVAILABLE",
+    ):
+        api.verify_token_identity("fixture-value", 7)
     assert calls == [
         f"{target.DEFAULT_GRAFANA_URL}/api/access-control/user/permissions",
-        f"{target.DEFAULT_GRAFANA_URL}/api/datasources",
     ]
 
 
@@ -554,7 +554,7 @@ def test_post_store_noncanonical_identity_deletes_only_new_token(
         accounts=[_account()],
         tokens=[{"id": 1, "name": target.CANONICAL_TOKEN_NAME}],
         identity_results=[
-            target.GrafanaIdentity(1, target.CANONICAL_SERVICE_ACCOUNT_ROLE),
+            target.GrafanaIdentity(1),
             target.ObservabilityMcpError("MCP_GRAFANA_TOKEN_IDENTITY_FOREIGN"),
         ],
     )

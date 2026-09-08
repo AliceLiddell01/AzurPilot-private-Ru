@@ -35,7 +35,7 @@ _LEGACY_INCIDENT_DIRECTORY_RE = re.compile(r"\d+")
 _CURRENT_INCIDENT_TIMESTAMP_RE = re.compile(
     r"^(?P<timestamp>\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.\d{3})(?:_|$)"
 )
-_INCIDENT_COLLISION_SUFFIX_RE = re.compile(r"_(?P<collision>\d{3})$")
+_INCIDENT_COLLISION_SUFFIX_RE = re.compile(r"_(?P<collision>\d+)$")
 
 
 @dataclass(frozen=True, slots=True)

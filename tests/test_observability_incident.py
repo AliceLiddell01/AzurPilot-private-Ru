@@ -5,6 +5,8 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
 from alas import AzurLaneAutoScript
 from module.config.config import Function
 from module.logger import logger
@@ -17,6 +19,14 @@ from module.observability.incident import (
 )
 from module.observability.scheduler import get_current_task_name
 from module.observability.tracing import TraceCorrelation
+
+
+@pytest.fixture(autouse=True)
+def _diagnostic_context():
+    """Изолировать диагностический контекст логгера между тестами."""
+    logger.reset_diagnostic_context()
+    yield
+    logger.reset_diagnostic_context()
 
 
 def _task(command: str = "Research") -> Function:
@@ -134,7 +144,7 @@ def test_error_retention_preserves_current_timestamp_collision_order(tmp_path):
     names = (
         "2026-09-07_00-34-12.123_RuntimeError",
         "2026-09-07_00-34-12.123_RuntimeError_001",
-        "2026-09-07_00-34-12.123_RuntimeError_002",
+        "2026-09-07_00-34-12.123_RuntimeError_1000",
     )
     for name in names:
         (tmp_path / name).mkdir()
@@ -248,8 +258,6 @@ def test_save_error_log_keeps_original_error_and_writes_incident_bundle(
     monkeypatch,
 ):
     monkeypatch.chdir(tmp_path)
-    logger.reset_diagnostic_context()
-
     script = AzurLaneAutoScript.__new__(AzurLaneAutoScript)
     script.config_name = "profile-a"
     script.__dict__["config"] = SimpleNamespace(
@@ -283,8 +291,6 @@ def test_save_error_log_does_not_mask_original_when_metadata_write_fails(
     monkeypatch,
 ):
     monkeypatch.chdir(tmp_path)
-    logger.reset_diagnostic_context()
-
     script = AzurLaneAutoScript.__new__(AzurLaneAutoScript)
     script.config_name = "profile-a"
     script.__dict__["config"] = SimpleNamespace(

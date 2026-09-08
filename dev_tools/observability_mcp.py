@@ -108,7 +108,6 @@ class GrafanaIdentity:
     """Идентификатор, который Grafana привязала к bearer credential."""
 
     account_id: int
-    role: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,7 +123,6 @@ _ROTATE_IDENTITY_ERRORS = frozenset(
         "MCP_GRAFANA_TOKEN_IDENTITY_FOREIGN",
         "MCP_GRAFANA_TOKEN_EFFECTIVE_ROLE_INVALID",
         "MCP_GRAFANA_TOKEN_IDENTITY_UNAUTHORIZED",
-        "MCP_GRAFANA_TOKEN_IDENTITY_NOT_FOUND",
     }
 )
 
@@ -649,34 +647,15 @@ class _GrafanaApi:
                 include_headers=True,
             )
         except ObservabilityMcpError as exc:
-            if exc.code != "MCP_GRAFANA_TOKEN_IDENTITY_NOT_FOUND":
-                raise
-            try:
-                payload, response_headers = self._request(
-                    "GET",
-                    "/api/datasources",
-                    bearer=token,
-                    error_code="MCP_GRAFANA_TOKEN_IDENTITY_FALLBACK",
-                    include_headers=True,
-                )
-            except ObservabilityMcpError as fallback_exc:
-                if fallback_exc.code.endswith("_UNAUTHORIZED"):
-                    raise ObservabilityMcpError(
-                        "MCP_GRAFANA_TOKEN_IDENTITY_UNAUTHORIZED"
-                    ) from fallback_exc
-                raise
-            self._require_identity_header(response_headers, account_id)
-            if not isinstance(payload, list) or any(
-                not isinstance(item, dict) for item in payload
-            ):
-                raise ObservabilityMcpError("MCP_GRAFANA_TOKEN_IDENTITY_INVALID")
-            return GrafanaIdentity(
-                account_id=account_id, role=CANONICAL_SERVICE_ACCOUNT_ROLE
-            )
+            if exc.code == "MCP_GRAFANA_TOKEN_IDENTITY_NOT_FOUND":
+                raise ObservabilityMcpError(
+                    "MCP_GRAFANA_TOKEN_IDENTITY_UNAVAILABLE"
+                ) from exc
+            raise
 
         self._require_identity_header(response_headers, account_id)
         self._validate_permissions(payload)
-        return GrafanaIdentity(account_id=account_id, role=CANONICAL_SERVICE_ACCOUNT_ROLE)
+        return GrafanaIdentity(account_id=account_id)
 
     def delete_token(self, account_id: int, token_id: int) -> None:
         self._request(
@@ -805,7 +784,7 @@ def _gateway_identity_probe() -> IdentityProbe:
             else exc.code
         )
         return IdentityProbe(False, False, code)
-    # Exact runtime allowlist intentionally exposes no Gateway identity tool.
+    # Точный runtime allowlist намеренно не содержит Gateway identity tool.
     return IdentityProbe(False, False, "MCP_GATEWAY_IDENTITY_UNAVAILABLE")
 
 
@@ -857,8 +836,6 @@ def ensure_identity(
                 if exc.code not in _ROTATE_IDENTITY_ERRORS:
                     raise
             else:
-                if identity.role != CANONICAL_SERVICE_ACCOUNT_ROLE:
-                    raise ObservabilityMcpError("MCP_GRAFANA_TOKEN_EFFECTIVE_ROLE_INVALID")
                 return {
                     "ok": True,
                     "account": CANONICAL_SERVICE_ACCOUNT,

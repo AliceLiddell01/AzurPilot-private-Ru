@@ -477,7 +477,7 @@ def test_observability_doctor_distinguishes_probe_helper_failure(
     monkeypatch.setattr(
         observability_reliability,
         "docker",
-        lambda *arguments, **_kwargs: "" if arguments[:2] == ("volume", "inspect") else "",
+        lambda *_arguments, **_kwargs: "",
     )
 
     payload = infrastructure_doctor.observability_doctor()
