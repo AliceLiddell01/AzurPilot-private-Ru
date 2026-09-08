@@ -14,6 +14,24 @@ from dev_tools import observability_reliability as target
 ROOT = Path(__file__).resolve().parents[1]
 
 
+@pytest.mark.parametrize(
+    ("count", "failures", "expected"),
+    [
+        (1, 0, [True]),
+        (4, 1, [False, True, True, True]),
+        (4, 4, [False, False, False, False]),
+    ],
+)
+def test_synthetic_emission_outcomes_are_deterministic(count, failures, expected):
+    assert target._emission_outcomes(count, failures) == expected
+
+
+@pytest.mark.parametrize("count, failures", [(0, 0), (257, 0), (2, -1), (2, 3)])
+def test_synthetic_emission_outcomes_reject_invalid_limits(count, failures):
+    with pytest.raises(target.ReliabilityError, match="OBSERVABILITY_EMISSION_LIMIT"):
+        target._emission_outcomes(count, failures)
+
+
 @pytest.fixture
 def docker_state(monkeypatch):
     state = {

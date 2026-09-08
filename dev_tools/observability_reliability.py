@@ -205,7 +205,7 @@ def wait_ready(timeout: float = 90) -> None:
     raise ReliabilityError("OBSERVABILITY_RECOVERY_NOT_READY")
 
 
-def subprocess_emit(output: Path, count: int = 1) -> dict:
+def subprocess_emit(output: Path, count: int = 1, failures: int = 1) -> dict:
     """Изолировать переменные SDK и ограниченное завершение процесса."""
     environment = {k: v for k, v in os.environ.items() if not k.startswith("OTEL_")}
     options = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
@@ -220,6 +220,8 @@ def subprocess_emit(output: Path, count: int = 1) -> dict:
                 str(output),
                 "--count",
                 str(count),
+                "--failures",
+                str(failures),
             ],
             env=environment,
             capture_output=True,
@@ -459,7 +461,14 @@ def internal_metrics() -> list[str]:
     return result
 
 
-def emit(output: Path, *, count: int = 1) -> dict:
+def _emission_outcomes(count: int, failures: int) -> list[bool]:
+    """Вернуть детерминированный план synthetic task outcomes."""
+    if not 1 <= count <= 256 or not 0 <= failures <= count:
+        raise ReliabilityError("OBSERVABILITY_EMISSION_LIMIT")
+    return [index >= failures for index in range(count)]
+
+
+def emit(output: Path, *, count: int = 1, failures: int = 1) -> dict:
     """Пройти настоящий bootstrap и общую границу scheduler telemetry без игры."""
     from collections import deque
     from datetime import datetime, timezone
@@ -476,8 +485,7 @@ def emit(output: Path, *, count: int = 1) -> dict:
     from alas import AzurLaneAutoScript
     import numpy as np
 
-    if not 1 <= count <= 256:
-        raise ReliabilityError("OBSERVABILITY_EMISSION_LIMIT")
+    outcomes = _emission_outcomes(count, failures)
     marker = uuid.uuid4().hex
     output.mkdir(parents=True, exist_ok=False)
     # Уникальный resource отделяет synthetic series; игровой profile не изменяется.
@@ -521,37 +529,40 @@ def emit(output: Path, *, count: int = 1) -> dict:
             logger, default_component="acceptance"
         ):
             raise ReliabilityError("OBSERVABILITY_BOOTSTRAP_FAILED")
-        with logging_context(
-            profile="acceptance", component="acceptance", run_id=marker
-        ):
-            with scheduler_task_run(
-                profile="acceptance",
-                task=SimpleNamespace(command="TelemetryProbe"),
-                registry=("TelemetryProbe",),
-            ) as task:
-                context = get_current_trace_context()
-                if context is None:
-                    raise ReliabilityError("OBSERVABILITY_TRACE_CONTEXT_MISSING")
-                correlations.append(context.trace_id)
-                logger.info(
-                    "Синтетический контекст password=synthetic-secret marker=%s",
-                    marker,
-                )
-                for index in range(count):
+        for index, success in enumerate(outcomes):
+            with logging_context(
+                profile="acceptance", component="acceptance", run_id=marker
+            ):
+                with scheduler_task_run(
+                    profile="acceptance",
+                    task=SimpleNamespace(command="TelemetryProbe"),
+                    registry=("TelemetryProbe",),
+                ) as task:
+                    context = get_current_trace_context()
+                    if context is None:
+                        raise ReliabilityError("OBSERVABILITY_TRACE_CONTEXT_MISSING")
+                    correlations.append(context.trace_id)
+                    logger.info(
+                        "Синтетический контекст password=synthetic-secret marker=%s",
+                        marker,
+                    )
                     with trace_operation("azurpilot.acceptance.probe"):
                         logger.info(
                             "Проверка observability marker=%s index=%s", marker, index
                         )
-                try:
-                    raise RuntimeError(
-                        f"Синтетический incident marker={marker} password=synthetic-secret"
-                    )
-                except RuntimeError:
-                    logger.error(
-                        "Контролируемая ошибка synthetic incident marker=%s", marker
-                    )
-                    script.save_error_log(error_root=output / "log" / "error")
-                task.finish(True)
+                    if not success:
+                        try:
+                            raise RuntimeError(
+                                f"Синтетический incident marker={marker} "
+                                "password=synthetic-secret"
+                            )
+                        except RuntimeError:
+                            logger.error(
+                                "Контролируемая ошибка synthetic incident marker=%s",
+                                marker,
+                            )
+                            script.save_error_log(error_root=output / "log" / "error")
+                    task.finish(success)
         action_seconds = time.monotonic() - started
     finally:
         shutdown_started = time.monotonic()
@@ -576,6 +587,10 @@ def emit(output: Path, *, count: int = 1) -> dict:
         "environment": f"probe-{marker}",
         "trace_ids": correlations,
         "count": count,
+        "expected_outcomes": {
+            "success": outcomes.count(True),
+            "failure": outcomes.count(False),
+        },
         "action_seconds": action_seconds,
         "shutdown_seconds": shutdown_seconds,
         "flush_completed": flushed,
@@ -1013,6 +1028,7 @@ def main() -> int:
     )
     parser.add_argument("--output", type=Path)
     parser.add_argument("--count", type=int, default=1)
+    parser.add_argument("--failures", type=int, default=1)
     parser.add_argument("--services", nargs="+", choices=SERVICES)
     parser.add_argument("--hold-seconds", type=int, default=15)
     args = parser.parse_args()
@@ -1024,7 +1040,7 @@ def main() -> int:
         elif args.output is None:
             parser.error("Для emit/query/outage требуется --output")
         elif args.command == "emit":
-            result = emit(args.output, count=args.count)
+            result = emit(args.output, count=args.count, failures=args.failures)
         elif args.command == "outage":
             result = run_scenario(
                 tuple(args.services or ()), args.output, args.hold_seconds

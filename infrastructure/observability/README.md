@@ -550,12 +550,29 @@ Grafana `13.2.1` получает постоянное состояние тол
 `AzurPilot Overview` содержит task runs, отдельные success / failure /
 recoverable / stopped counters, success rate, достоверный `prometheus_ready`, outcome
 breakdown, p50/p95 task duration, разбивку по profile/task/outcome, последние
-ошибки Loki, последние traces и текущие alerts. `AzurPilot Errors / Incidents`
-содержит bounded error log view, ошибочные и медленные traces, а также
-доступные `azurpilot.device.screenshot` / `azurpilot.ocr.process` spans. В
-Grafana не добавляется выдуманный общий runtime-health signal: для Prometheus
-показывается только его собственный `prometheus_ready`, а недоступность
-остальных backend-ов определяется по фактической ошибке datasource/query.
+ошибки Loki, последние traces и текущие alerts. Точные counters, outcome graph и
+aggregate table считают только канонические root spans `azurpilot.task.run`
+через Tempo TraceQL metrics; они не используют `increase()` или округление
+Prometheus rate. Для duration остаётся Prometheus histogram, сгруппированный по
+`azurpilot_task`, поэтому p50/p95 разных task не смешиваются.
+
+Оба dashboard имеют общий semantic selector `Environment` по
+`deployment.environment.name`, а также bounded selectors `Profile` и `Task`.
+Эти selectors применяются одинаково к TraceQL, PromQL и LogQL и позволяют
+отделить synthetic reliability run от normal telemetry без task-specific
+hardcode. `AzurPilot Errors / Incidents` содержит bounded error log view,
+ошибочные и медленные traces, а также доступные
+`azurpilot.device.screenshot` / `azurpilot.ocr.process` spans. В Grafana не
+добавляется выдуманный общий runtime-health signal: для Prometheus показывается
+только его собственный `prometheus_ready`, а недоступность остальных backend-ов
+определяется по фактической ошибке datasource/query.
+
+Tempo metrics-generator использует `local-blocks` с persistent generator WAL и
+trace WAL; `query_frontend.metrics.max_duration` покрывает bounded operator
+window. Grafana instant query используется для exact counters, а bounded range
+query с reduce — для aggregate table и событийного outcome graph. При отсутствии
+событий counters показывают нулевое значение, а success share остаётся `нет
+данных`, без `0/0` и NaN.
 
 Alerts ограничены одним источником с достоверным generic-контрактом:
 ненулевой поток failure task за 15 минут, сохраняющийся пять минут. Alert не
@@ -566,12 +583,12 @@ Alerts ограничены одним источником с достовер�
 dashboard для операторской диагностики. Нет отдельного alert «нет запусков»,
 потому что scheduler не публикует authoritative expected-run schedule.
 
-Exemplars не используются как workaround. Для текущей цепочки
-OTel → Alloy → Prometheus remote-write проверяется именно наличие application
-exemplar в Prometheus TSDB; текущий synthetic check не обнаружил exemplars для
-`azurpilot_task_run_total`. `trace_id` не добавляется в metric labels, поэтому
-связь metrics с traces выполняется только через Grafana correlations Loki/Tempo
-и TraceQL, без ложного обещания clickable exemplar.
+Prometheus exemplars не используются как workaround для exact counters:
+`trace_id` не добавляется в metric labels, а Prometheus `increase()` не является
+источником истины для числа run-ов. Tempo TraceQL metrics может вернуть
+exemplar trace ID от того же canonical root span для корреляции с trace, но
+корректность counters не зависит от наличия exemplar и остаётся проверяемой по
+root-span count и grouped outcome.
 
 После изменения provisioning нужно перезапустить Grafana или выполнить
 поддержанный Admin API reload, затем автоматически проверить dashboard UIDs,
