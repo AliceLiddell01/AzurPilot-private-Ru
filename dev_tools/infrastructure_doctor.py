@@ -487,13 +487,17 @@ def observability_doctor() -> dict[str, object]:
         ):
             warnings.append("EXPORT_QUEUE_PRESSURE")
         # Свободное место общей файловой системы Docker; не заменяет quota volume.
-        disk = docker(
-            "exec", containers["pgadmin"]["id"], "df", "-Pk", "/var/lib/pgadmin"
-        )
-        fields = disk.splitlines()[-1].split()
-        available_percent = 100 - int(fields[-2].rstrip("%"))
-        if available_percent < 20:
-            warnings.append("DOCKER_DISK_HEADROOM_LOW")
+        available_percent = None
+        try:
+            disk = docker(
+                "exec", containers["pgadmin"]["id"], "df", "-Pk", "/var/lib/pgadmin"
+            )
+            fields = disk.splitlines()[-1].split()
+            available_percent = 100 - int(fields[-2].rstrip("%"))
+            if available_percent < 20:
+                warnings.append("DOCKER_DISK_HEADROOM_LOW")
+        except ReliabilityError, OSError, TypeError, ValueError, KeyError, IndexError:
+            warnings.append("DOCKER_DISK_CHECK_UNAVAILABLE")
         return {
             "ok": not warnings,
             "code": "OBSERVABILITY_READY" if not warnings else "OBSERVABILITY_DEGRADED",

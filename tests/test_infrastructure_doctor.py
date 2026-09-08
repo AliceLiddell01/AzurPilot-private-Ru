@@ -30,6 +30,20 @@ def _result(arguments: list[str], *, output: str = "", code: int = 0):
     return subprocess.CompletedProcess(arguments, code, output, "")
 
 
+def _observability_state() -> dict:
+    from dev_tools import observability_reliability
+
+    return {
+        service: {
+            "id": service,
+            "status": "running",
+            "health": "healthy",
+            "volumes": {"/data": service},
+        }
+        for service in (*observability_reliability.SERVICES, "pgadmin")
+    }
+
+
 def test_doctor_distinguishes_absent_caddy_container(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -276,15 +290,7 @@ def test_probe_requires_all_scopes_from_game_contract(
 def test_observability_doctor_reports_missing_queue_metrics(monkeypatch) -> None:
     from dev_tools import observability_reliability
 
-    state = {
-        service: {
-            "id": service,
-            "status": "running",
-            "health": "healthy",
-            "volumes": {"/data": service},
-        }
-        for service in (*observability_reliability.SERVICES, "pgadmin")
-    }
+    state = _observability_state()
     monkeypatch.setattr(observability_reliability, "inventory", lambda: state)
     monkeypatch.setattr(
         observability_reliability,
@@ -314,3 +320,88 @@ def test_observability_doctor_reports_missing_queue_metrics(monkeypatch) -> None
     assert payload["ok"] is False
     assert payload["code"] == "OBSERVABILITY_DEGRADED"
     assert payload["warnings"] == ["EXPORT_QUEUE_METRICS_UNAVAILABLE"]
+
+
+def test_observability_doctor_reports_pressure_pending_volume_and_disk_warnings(
+    monkeypatch,
+) -> None:
+    from dev_tools import observability_reliability
+
+    state = _observability_state()
+    monkeypatch.setattr(observability_reliability, "inventory", lambda: state)
+    monkeypatch.setattr(
+        observability_reliability,
+        "ready",
+        lambda _state: dict.fromkeys(observability_reliability.SERVICES, True),
+    )
+    monkeypatch.setattr(
+        observability_reliability,
+        "internal_metrics",
+        lambda: [
+            'otelcol_exporter_queue_capacity{exporter="loki"} 100',
+            'otelcol_exporter_queue_size{exporter="loki"} 80',
+            'prometheus_remote_storage_samples_pending{queue="local"} 1',
+        ],
+    )
+
+    def failing_docker(*arguments: str, **_kwargs: object) -> str:
+        if arguments[:2] == ("volume", "inspect"):
+            raise observability_reliability.ReliabilityError("volume")
+        if arguments[:2] == ("exec", state["pgadmin"]["id"]):
+            return (
+                "Filesystem 1024-blocks Used Available Capacity Mounted on\n"
+                "/dev/root 100 90 10 90% /var/lib/pgadmin\n"
+            )
+        raise AssertionError(arguments)
+
+    monkeypatch.setattr(observability_reliability, "docker", failing_docker)
+
+    payload = infrastructure_doctor.observability_doctor()
+
+    assert payload["ok"] is False
+    assert "EXPORT_QUEUE_PRESSURE" in payload["warnings"]
+    assert "REMOTE_WRITE_PENDING" in payload["warnings"]
+    assert "DOCKER_DISK_HEADROOM_LOW" in payload["warnings"]
+    assert all(
+        warning.startswith("PERSISTENT_VOLUME_UNAVAILABLE:")
+        for warning in payload["warnings"]
+        if warning.startswith("PERSISTENT_VOLUME_UNAVAILABLE:")
+    )
+
+
+def test_observability_doctor_preserves_diagnostics_when_disk_check_fails(
+    monkeypatch,
+) -> None:
+    from dev_tools import observability_reliability
+
+    state = _observability_state()
+    monkeypatch.setattr(observability_reliability, "inventory", lambda: state)
+    monkeypatch.setattr(
+        observability_reliability,
+        "ready",
+        lambda _state: dict.fromkeys(observability_reliability.SERVICES, True),
+    )
+    monkeypatch.setattr(
+        observability_reliability,
+        "internal_metrics",
+        lambda: [
+            'otelcol_exporter_queue_capacity{exporter="loki"} 100',
+            'otelcol_exporter_queue_size{exporter="loki"} 1',
+        ],
+    )
+
+    def unavailable_disk(*arguments: str, **_kwargs: object) -> str:
+        if arguments[:2] == ("volume", "inspect"):
+            return ""
+        if arguments[:2] == ("exec", state["pgadmin"]["id"]):
+            raise observability_reliability.ReliabilityError("disk")
+        raise AssertionError(arguments)
+
+    monkeypatch.setattr(observability_reliability, "docker", unavailable_disk)
+
+    payload = infrastructure_doctor.observability_doctor()
+
+    assert payload["ok"] is False
+    assert payload["code"] == "OBSERVABILITY_DEGRADED"
+    assert payload["warnings"] == ["DOCKER_DISK_CHECK_UNAVAILABLE"]
+    assert payload["disk_available_percent"] is None

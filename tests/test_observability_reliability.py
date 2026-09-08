@@ -3,6 +3,7 @@
 import copy
 import json
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -32,7 +33,7 @@ def docker_state(monkeypatch):
         target, "ready", lambda *args: dict.fromkeys(target.SERVICES, True)
     )
 
-    def docker(*args):
+    def docker(*args, **_kwargs):
         calls.append(args)
         if args[0] == "stop":
             state[args[-1]]["status"] = "exited"
@@ -171,7 +172,13 @@ def test_mcp_health_localizes_unhealthy_datasource(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "field,value", [("id", "different"), ("volumes", {}), ("restart_count", 1)]
+    "field,value",
+    [
+        ("id", "different"),
+        ("image", "different"),
+        ("volumes", {}),
+        ("restart_count", 1),
+    ],
 )
 def test_identity_or_volume_change_fails_closed(docker_state, field, value):
     before = copy.deepcopy(docker_state[0])
@@ -212,3 +219,23 @@ def test_retention_and_private_ports_contract():
         assert "block_on_overflow = false" in normalized
     assert "otelcol.storage.file" not in config
     assert 'max_keepalive_time = "8h"' in re.sub(r"[ \t]+", " ", config)
+
+
+def test_inventory_rejects_malformed_docker_inspect(monkeypatch):
+    def fake_docker(*arguments, **_kwargs):
+        return "container-id\n" if arguments[:2] == ("ps", "-aq") else "[{}]"
+
+    monkeypatch.setattr(target, "docker", fake_docker)
+
+    with pytest.raises(target.ReliabilityError, match="INVENTORY_INVALID"):
+        target.inventory()
+
+
+def test_subprocess_emit_timeout_is_safe(monkeypatch, tmp_path):
+    def timeout(*_args, **_kwargs):
+        raise subprocess.TimeoutExpired("emit", 15)
+
+    monkeypatch.setattr(target.subprocess, "run", timeout)
+
+    with pytest.raises(target.ReliabilityError, match="EMITTER_FAILED"):
+        target.subprocess_emit(tmp_path / "emit")

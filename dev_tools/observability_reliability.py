@@ -136,23 +136,26 @@ def subprocess_emit(output: Path, count: int = 1) -> dict:
     """Изолировать переменные SDK и ограниченное завершение процесса."""
     environment = {k: v for k, v in os.environ.items() if not k.startswith("OTEL_")}
     options = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "dev_tools.observability_reliability",
-            "emit",
-            "--output",
-            str(output),
-            "--count",
-            str(count),
-        ],
-        env=environment,
-        capture_output=True,
-        timeout=15,
-        check=False,
-        **options,
-    )
+    try:
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "dev_tools.observability_reliability",
+                "emit",
+                "--output",
+                str(output),
+                "--count",
+                str(count),
+            ],
+            env=environment,
+            capture_output=True,
+            timeout=15,
+            check=False,
+            **options,
+        )
+    except subprocess.TimeoutExpired:
+        raise ReliabilityError("OBSERVABILITY_EMITTER_FAILED") from None
     if result.returncode:
         raise ReliabilityError("OBSERVABILITY_EMITTER_FAILED")
     return json.loads((output / "emission.json").read_text(encoding="utf-8"))
@@ -266,24 +269,32 @@ def inventory() -> dict:
     ).split()
     if not ids:
         raise ReliabilityError("OBSERVABILITY_PROJECT_NOT_FOUND")
-    result = {}
-    for item in json.loads(docker("inspect", *ids)):
-        service = item["Config"]["Labels"]["com.docker.compose.service"]
-        result[service] = {
-            "id": item["Id"],
-            "image": item["Image"],
-            "status": item["State"]["Status"],
-            "health": item["State"].get("Health", {}).get("Status"),
-            "started_at": item["State"]["StartedAt"],
-            "restart_count": item["RestartCount"],
-            "volumes": {
-                m["Destination"]: m["Name"]
-                for m in item["Mounts"]
-                if m["Type"] == "volume"
-            },
-            "ports": item["NetworkSettings"]["Ports"],
-        }
-    return result
+    try:
+        records = json.loads(docker("inspect", *ids))
+        if not isinstance(records, list):
+            raise TypeError("Docker inspect result is not a list")
+        result = {}
+        for item in records:
+            service = item["Config"]["Labels"]["com.docker.compose.service"]
+            if not isinstance(service, str) or not service:
+                raise TypeError("Docker service label is invalid")
+            result[service] = {
+                "id": item["Id"],
+                "image": item["Image"],
+                "status": item["State"]["Status"],
+                "health": item["State"].get("Health", {}).get("Status"),
+                "started_at": item["State"]["StartedAt"],
+                "restart_count": item["RestartCount"],
+                "volumes": {
+                    m["Destination"]: m["Name"]
+                    for m in item["Mounts"]
+                    if m["Type"] == "volume"
+                },
+                "ports": item["NetworkSettings"]["Ports"],
+            }
+        return result
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError, IndexError):
+        raise ReliabilityError("OBSERVABILITY_INVENTORY_INVALID") from None
 
 
 def backend_get(url: str, state: dict | None = None) -> str:
