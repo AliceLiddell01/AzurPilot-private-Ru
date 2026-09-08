@@ -39,8 +39,10 @@ def docker_state(monkeypatch):
             state[args[-1]]["status"] = "exited"
         elif args[0] == "start":
             state[args[-1]]["status"] = "running"
+        elif args[:2] == ("volume", "inspect") or args[0] == "exec":
+            return ""
         else:
-            pytest.fail("Недопустимая Docker mutation")
+            raise AssertionError(f"Недопустимая Docker команда: {args}")
         return ""
 
     monkeypatch.setattr(target, "docker", docker)
@@ -239,3 +241,21 @@ def test_subprocess_emit_timeout_is_safe(monkeypatch, tmp_path):
 
     with pytest.raises(target.ReliabilityError, match="EMITTER_FAILED"):
         target.subprocess_emit(tmp_path / "emit")
+
+
+def test_internal_metrics_bounds_each_metric_family(monkeypatch):
+    lines = [
+        *(f'otelcol_exporter_queue_size{{id="{index}"}} {index}' for index in range(101)),
+        *(
+            f'otelcol_exporter_queue_capacity{{id="{index}"}} {index}'
+            for index in range(101)
+        ),
+        *(f'process_resident_memory_bytes {index}' for index in range(101)),
+    ]
+    monkeypatch.setattr(target, "backend_get", lambda _url: "\n".join(lines))
+
+    metrics = target.internal_metrics()
+
+    assert sum(item.startswith("otelcol_exporter_queue_size{") for item in metrics) == 100
+    assert sum(item.startswith("otelcol_exporter_queue_capacity{") for item in metrics) == 100
+    assert sum(item.startswith("process_resident_memory_bytes ") for item in metrics) == 100

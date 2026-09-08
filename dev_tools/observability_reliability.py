@@ -348,11 +348,11 @@ def internal_metrics() -> list[str]:
         "prometheus_remote_write_wal_samples_appended_total{",
         "process_resident_memory_bytes ",
     )
-    return [
-        line
-        for line in backend_get("http://alloy:12345/metrics").splitlines()
-        if line.startswith(prefixes)
-    ][:100]
+    lines = backend_get("http://alloy:12345/metrics").splitlines()
+    result = []
+    for prefix in prefixes:
+        result.extend([line for line in lines if line.startswith(prefix)][:100])
+    return result
 
 
 def emit(output: Path, *, count: int = 1) -> dict:

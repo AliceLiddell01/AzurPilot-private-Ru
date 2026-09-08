@@ -478,7 +478,8 @@ def observability_doctor() -> dict[str, object]:
                 # Любое положительное значение означает ещё не отправленный WAL backlog.
                 name == "prometheus_remote_storage_samples_pending" and float(value) > 0
             ):
-                warnings.append("REMOTE_WRITE_PENDING")
+                if "REMOTE_WRITE_PENDING" not in warnings:
+                    warnings.append("REMOTE_WRITE_PENDING")
         if not capacities or not sizes:
             warnings.append("EXPORT_QUEUE_METRICS_UNAVAILABLE")
         if any(

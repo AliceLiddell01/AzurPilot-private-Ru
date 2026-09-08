@@ -341,6 +341,7 @@ def test_observability_doctor_reports_pressure_pending_volume_and_disk_warnings(
             'otelcol_exporter_queue_capacity{exporter="loki"} 100',
             'otelcol_exporter_queue_size{exporter="loki"} 80',
             'prometheus_remote_storage_samples_pending{queue="local"} 1',
+            'prometheus_remote_storage_samples_pending{queue="retry"} 2',
         ],
     )
 
@@ -361,12 +362,16 @@ def test_observability_doctor_reports_pressure_pending_volume_and_disk_warnings(
     assert payload["ok"] is False
     assert "EXPORT_QUEUE_PRESSURE" in payload["warnings"]
     assert "REMOTE_WRITE_PENDING" in payload["warnings"]
+    assert payload["warnings"].count("REMOTE_WRITE_PENDING") == 1
     assert "DOCKER_DISK_HEADROOM_LOW" in payload["warnings"]
-    assert all(
-        warning.startswith("PERSISTENT_VOLUME_UNAVAILABLE:")
+    assert {
+        warning
         for warning in payload["warnings"]
         if warning.startswith("PERSISTENT_VOLUME_UNAVAILABLE:")
-    )
+    } == {
+        f"PERSISTENT_VOLUME_UNAVAILABLE:{service}"
+        for service in observability_reliability.SERVICES
+    }
 
 
 def test_observability_doctor_preserves_diagnostics_when_disk_check_fails(
