@@ -61,20 +61,28 @@ class _ResearchDrop:
         self.images.clear()
 
 
-_TIMER_ROLES = {
+_TIMER_SPECS = (
     (
+        'popup_timeout',
         research_module._RESEARCH_REWARD_POPUP_TIMEOUT_SECONDS,
         research_module._RESEARCH_REWARD_POPUP_TIMEOUT_COUNT,
-    ): ('popup_timeout', 'return_timeout'),
+    ),
     (
+        'popup_confirm',
         research_module._RESEARCH_REWARD_POPUP_STABILIZATION_SECONDS,
         research_module._RESEARCH_REWARD_POPUP_STABILIZATION_COUNT,
-    ): ('popup_confirm',),
+    ),
     (
+        'return_timeout',
+        research_module._RESEARCH_REWARD_RETURN_TIMEOUT_SECONDS,
+        research_module._RESEARCH_REWARD_RETURN_TIMEOUT_COUNT,
+    ),
+    (
+        'return_confirm',
         research_module._RESEARCH_REWARD_RETURN_CONFIRM_SECONDS,
         research_module._RESEARCH_REWARD_RETURN_CONFIRM_COUNT,
-    ): ('return_confirm',),
-}
+    ),
+)
 
 
 class _FastResearchTimer:
@@ -90,13 +98,14 @@ class _FastResearchTimer:
         self.limit = limit
         self.count = count
         self.calls = 0
-        parameters = (limit, count)
-        roles = _TIMER_ROLES.get(parameters)
-        occurrence = sum(timer.parameters == parameters for timer in self.created)
-        if roles is None or occurrence >= len(roles):
-            raise AssertionError(f'Неожиданные параметры Timer: limit={limit}, count={count}')
-        self.parameters = parameters
-        self.role = roles[occurrence]
+        try:
+            self.role, expected_limit, expected_count = _TIMER_SPECS[len(self.created)]
+        except IndexError as error:
+            raise AssertionError(f'Неожиданные параметры Timer: limit={limit}, count={count}') from error
+        if (limit, count) != (expected_limit, expected_count):
+            raise AssertionError(
+                f'Неожиданные параметры Timer для {self.role}: limit={limit}, count={count}'
+            )
         self.created.append(self)
 
     def start(self):
