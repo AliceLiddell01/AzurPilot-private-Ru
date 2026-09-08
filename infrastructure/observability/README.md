@@ -341,6 +341,10 @@ backend ingestion продолжается, а Grafana MCP failure ожидае�
 проверяются datasources, PromQL, LogQL и Tempo trace reads через
 `azurpilot-observability`.
 
+Параметр `--hold-seconds` задаёт дополнительную паузу после readiness и signal
+checks. Полное время outage включает baseline и recovery ожидания и может быть
+больше этого значения.
+
 Нельзя прерывать host/Docker во время outage. Если процесс был прерван, не
 удаляйте `recovery.json`: восстановите только его `attempted` container IDs,
 сверьте прежние volumes и повторите health/inventory. Synthetic boundary не

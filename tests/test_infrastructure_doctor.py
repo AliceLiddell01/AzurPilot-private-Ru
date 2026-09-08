@@ -271,3 +271,46 @@ def test_probe_requires_all_scopes_from_game_contract(
 
     assert payload["ok"] is False
     assert payload["code"] == "CADDY_PUBLIC_ENDPOINT_INVALID"
+
+
+def test_observability_doctor_reports_missing_queue_metrics(monkeypatch) -> None:
+    from dev_tools import observability_reliability
+
+    state = {
+        service: {
+            "id": service,
+            "status": "running",
+            "health": "healthy",
+            "volumes": {"/data": service},
+        }
+        for service in (*observability_reliability.SERVICES, "pgadmin")
+    }
+    monkeypatch.setattr(observability_reliability, "inventory", lambda: state)
+    monkeypatch.setattr(
+        observability_reliability,
+        "ready",
+        lambda _state: dict.fromkeys(observability_reliability.SERVICES, True),
+    )
+    monkeypatch.setattr(
+        observability_reliability,
+        "internal_metrics",
+        lambda: ["process_resident_memory_bytes 1"],
+    )
+
+    def fake_docker(*arguments: str, **_kwargs: object) -> str:
+        if arguments[:2] == ("volume", "inspect"):
+            return ""
+        if arguments[:2] == ("exec", state["pgadmin"]["id"]):
+            return (
+                "Filesystem 1024-blocks Used Available Capacity Mounted on\n"
+                "/dev/root 100 10 90 10% /var/lib/pgadmin\n"
+            )
+        raise AssertionError(arguments)
+
+    monkeypatch.setattr(observability_reliability, "docker", fake_docker)
+
+    payload = infrastructure_doctor.observability_doctor()
+
+    assert payload["ok"] is False
+    assert payload["code"] == "OBSERVABILITY_DEGRADED"
+    assert payload["warnings"] == ["EXPORT_QUEUE_METRICS_UNAVAILABLE"]

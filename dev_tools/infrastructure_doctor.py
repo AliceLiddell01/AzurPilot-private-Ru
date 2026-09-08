@@ -475,9 +475,12 @@ def observability_doctor() -> dict[str, object]:
             elif name == "otelcol_exporter_queue_size":
                 sizes[labels] = float(value)
             elif (
+                # Любое положительное значение означает ещё не отправленный WAL backlog.
                 name == "prometheus_remote_storage_samples_pending" and float(value) > 0
             ):
                 warnings.append("REMOTE_WRITE_PENDING")
+        if not capacities or not sizes:
+            warnings.append("EXPORT_QUEUE_METRICS_UNAVAILABLE")
         if any(
             capacities.get(key, 0) > 0 and size / capacities[key] >= 0.8
             for key, size in sizes.items()

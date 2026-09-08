@@ -2,6 +2,7 @@
 
 import copy
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -182,8 +183,8 @@ def test_identity_or_volume_change_fails_closed(docker_state, field, value):
 def test_retention_and_private_ports_contract():
     root = ROOT / "infrastructure/observability"
     compose = yaml.safe_load((root / "compose.yaml").read_text(encoding="utf-8"))
-    loki = yaml.safe_load((root / "loki/config.yaml").read_text())
-    tempo = yaml.safe_load((root / "tempo/config.yaml").read_text())
+    loki = yaml.safe_load((root / "loki/config.yaml").read_text(encoding="utf-8"))
+    tempo = yaml.safe_load((root / "tempo/config.yaml").read_text(encoding="utf-8"))
     assert loki["compactor"]["retention_enabled"] is True
     assert loki["compactor"]["working_directory"].startswith("/loki/")
     assert loki["limits_config"]["retention_period"] == "168h"
@@ -204,9 +205,10 @@ def test_retention_and_private_ports_contract():
         block = config.split(f'otelcol.exporter.otlphttp "{name}" {{', 1)[1].split(
             'otelcol.exporter.otlphttp "', 1
         )[0]
-        assert 'sizer             = "bytes"' in block
-        assert "queue_size        = 16777216" in block
-        assert 'max_elapsed_time = "5m"' in block
-        assert "block_on_overflow = false" in block
+        normalized = re.sub(r"[ \t]+", " ", block)
+        assert 'sizer = "bytes"' in normalized
+        assert "queue_size = 16777216" in normalized
+        assert 'max_elapsed_time = "5m"' in normalized
+        assert "block_on_overflow = false" in normalized
     assert "otelcol.storage.file" not in config
-    assert 'max_keepalive_time  = "8h"' in config
+    assert 'max_keepalive_time = "8h"' in re.sub(r"[ \t]+", " ", config)
