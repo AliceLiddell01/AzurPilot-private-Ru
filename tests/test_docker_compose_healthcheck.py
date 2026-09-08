@@ -327,7 +327,7 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
     assert "with (most_recent=true)" in overview_text
     assert "count_over_time()" in overview_text
     assert "deployment.environment.name" in overview_text
-    assert "deployment_environment_name=~\\\"$environment\\\"" in overview_text
+    assert "deployment_environment_name=~\\\"${environment:regex}\\\"" in overview_text
     assert "round(" not in overview_text
     assert "increase(" not in overview_text
     assert "clamp_min" not in overview_text
@@ -335,6 +335,10 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
     overview_panels = {
         panel["id"]: panel for panel in dashboards["azurpilot-overview"]["panels"]
     }
+    overview_loki_expr = overview_panels[10]["targets"][0]["expr"]
+    assert 'deployment_environment_name=~"${environment:regex}"' in overview_loki_expr
+    assert '| azurpilot_profile =~ "${profile:regex}"' in overview_loki_expr
+    assert '| azurpilot_task =~ "${task:regex}"' in overview_loki_expr
     assert {
         variable["name"] for variable in dashboards["azurpilot-overview"]["templating"]["list"]
     } == {"environment", "profile", "task"}
@@ -384,9 +388,14 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
     for panel in dashboards["azurpilot-errors"]["panels"]:
         panel_text = json.dumps(panel, ensure_ascii=False)
         if panel["id"] in {1, 3}:
-            assert "deployment_environment_name=~\\\"$environment\\\"" in panel_text
+            assert "deployment_environment_name=~\\\"${environment:regex}\\\"" in panel_text
+            assert 'azurpilot_profile =~ \\"${profile:regex}\\"' in panel_text
+            assert 'azurpilot_task =~ \\"${task:regex}\\"' in panel_text
         if panel["id"] in {2, 4, 5}:
             assert "resource.deployment.environment.name" in panel_text
+        if panel["id"] == 5:
+            assert 'name = \\"azurpilot.task.run\\"' in panel_text
+            assert " >> " in panel_text
 
     alerting_path = (
         ROOT

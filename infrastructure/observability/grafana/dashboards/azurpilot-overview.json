@@ -837,12 +837,13 @@
         {
           "direction": "backward",
           "editorMode": "code",
-          "expr": "{service_name=\"azurpilot\", deployment_environment_name=~\"$environment\"} | detected_level = \"error\"",
+          "expr": "{service_name=\"azurpilot\", deployment_environment_name=~\"${environment:regex}\"} | detected_level = \"error\" | azurpilot_profile =~ \"${profile:regex}\" | azurpilot_task =~ \"${task:regex}\"",
           "maxLines": 100,
           "queryType": "range",
           "refId": "A"
         }
       ],
+      "description": "LogQL фильтрует Environment, Profile и Task по structured metadata. При Task=All записи без task context остаются видимыми; конкретный Task показывает только записи с совпадающим task.",
       "title": "Последние ошибки / incidents",
       "type": "logs"
     },

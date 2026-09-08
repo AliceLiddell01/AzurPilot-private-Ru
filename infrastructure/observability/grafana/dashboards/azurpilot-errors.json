@@ -66,11 +66,12 @@
         {
           "direction": "backward",
           "editorMode": "code",
-          "expr": "sum(count_over_time({service_name=\"azurpilot\", deployment_environment_name=~\"$environment\"} | detected_level = \"error\" [$__range]))",
+          "expr": "sum(count_over_time({service_name=\"azurpilot\", deployment_environment_name=~\"${environment:regex}\"} | detected_level = \"error\" | azurpilot_profile =~ \"${profile:regex}\" | azurpilot_task =~ \"${task:regex}\" [$__range]))",
           "queryType": "range",
           "refId": "A"
         }
       ],
+      "description": "LogQL фильтрует Environment, Profile и Task по structured metadata. При Task=All записи без task context остаются видимыми; конкретный Task показывает только записи с совпадающим task.",
       "title": "Ошибки в Loki",
       "type": "stat"
     },
@@ -152,12 +153,13 @@
         {
           "direction": "backward",
           "editorMode": "code",
-          "expr": "{service_name=\"azurpilot\", deployment_environment_name=~\"$environment\"} | detected_level = \"error\"",
+          "expr": "{service_name=\"azurpilot\", deployment_environment_name=~\"${environment:regex}\"} | detected_level = \"error\" | azurpilot_profile =~ \"${profile:regex}\" | azurpilot_task =~ \"${task:regex}\"",
           "maxLines": 200,
           "queryType": "range",
           "refId": "A"
         }
       ],
+      "description": "LogQL фильтрует Environment, Profile и Task по structured metadata. При Task=All записи без task context остаются видимыми; конкретный Task показывает только записи с совпадающим task.",
       "title": "Ошибки / incidents: Loki",
       "type": "logs"
     },
@@ -240,7 +242,7 @@
             "uid": "tempo"
           },
           "limit": 50,
-          "query": "{ resource.service.name = \"azurpilot\" && (name = \"azurpilot.device.screenshot\" || name = \"azurpilot.ocr.process\") && resource.deployment.environment.name =~ \"${environment:regex}\" && span.azurpilot.profile =~ \"${profile:regex}\" && span.azurpilot.task =~ \"${task:regex}\" } with (most_recent=true)",
+          "query": "{ resource.service.name = \"azurpilot\" && name = \"azurpilot.task.run\" && resource.deployment.environment.name =~ \"${environment:regex}\" && span.azurpilot.profile =~ \"${profile:regex}\" && span.azurpilot.task =~ \"${task:regex}\" } >> { name = \"azurpilot.device.screenshot\" || name = \"azurpilot.ocr.process\" } with (most_recent=true)",
           "queryType": "traceql",
           "refId": "A",
           "tableType": "spans"

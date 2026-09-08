@@ -560,7 +560,12 @@ Prometheus rate. Для duration остаётся Prometheus histogram, сгру
 `deployment.environment.name`, а также bounded selectors `Profile` и `Task`.
 Эти selectors применяются одинаково к TraceQL, PromQL и LogQL и позволяют
 отделить synthetic reliability run от normal telemetry без task-specific
-hardcode. `AzurPilot Errors / Incidents` содержит bounded error log view,
+hardcode. В Loki `azurpilot_profile` и `azurpilot_task` используются как
+structured metadata, а не как index labels. Поэтому при `Task=All` записи без
+task context остаются видимыми; при выборе конкретного Task показываются только
+записи, которые несут совпадающий canonical task, и записи без task context
+намеренно не приписываются выбранной задаче. `AzurPilot Errors / Incidents`
+содержит bounded error log view,
 ошибочные и медленные traces, а также доступные
 `azurpilot.device.screenshot` / `azurpilot.ocr.process` spans. В Grafana не
 добавляется выдуманный общий runtime-health signal: для Prometheus показывается
