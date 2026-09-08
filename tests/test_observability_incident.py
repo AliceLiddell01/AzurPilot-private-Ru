@@ -196,6 +196,21 @@ def test_incident_log_is_bounded_sanitized_and_atomic(tmp_path):
     assert not list(folder.glob(".incident-log-*.tmp"))
 
 
+def test_incident_log_normalizes_embedded_line_breaks_before_line_bound(tmp_path):
+    folder = tmp_path / "incident"
+    folder.mkdir()
+
+    target = write_incident_log(
+        folder,
+        ("first\nembedded\r\nline", "second"),
+        max_lines=2,
+    )
+
+    assert target.read_text(encoding="utf-8") == (
+        "first embedded line\nsecond\n"
+    )
+
+
 def test_scheduler_boundary_exposes_only_canonical_current_task():
     assert get_current_task_name() is None
 

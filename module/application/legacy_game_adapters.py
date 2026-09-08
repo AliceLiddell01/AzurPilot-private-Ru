@@ -172,6 +172,12 @@ def _safe_instance_name(value: object) -> str:
     return identity.name
 
 
+def _is_reparse_point(path: Path) -> bool:
+    return path.is_symlink() or (
+        hasattr(path, "is_junction") and path.is_junction()
+    )
+
+
 def _safe_segment(value: object) -> str:
     if not isinstance(value, str):
         raise TypeError("segment должен быть строкой")
@@ -557,30 +563,24 @@ class LegacyRuntimeLogAdapter:
 
     def _find_incident_log_file(self, instance: str) -> Path | None:
         root = self._log_root
-        if root.is_symlink() or (
-            hasattr(root, "is_junction") and root.is_junction()
-        ):
+        if _is_reparse_point(root):
             raise ValueError("log root не должен быть ссылкой")
         error_root = root / "error"
         if not error_root.exists():
             return None
-        if error_root.is_symlink() or (
-            hasattr(error_root, "is_junction") and error_root.is_junction()
-        ):
+        if _is_reparse_point(error_root):
             raise ValueError("каталог incident-ов не должен быть ссылкой")
         profile_root = error_root / instance
         if not profile_root.exists():
             return None
-        if profile_root.is_symlink() or (
-            hasattr(profile_root, "is_junction") and profile_root.is_junction()
-        ):
+        if _is_reparse_point(profile_root):
             raise ValueError("каталог profile incident-ов не должен быть ссылкой")
         candidates: list[Path] = []
         for folder in profile_root.iterdir():
-            if not folder.is_dir() or folder.is_symlink():
+            if not folder.is_dir() or _is_reparse_point(folder):
                 continue
             log_path = folder / "log.txt"
-            if log_path.is_file() and not log_path.is_symlink():
+            if log_path.is_file() and not _is_reparse_point(log_path):
                 candidates.append(log_path)
         if not candidates:
             return None
@@ -611,15 +611,11 @@ class LegacyRuntimeLogAdapter:
 
     def _safe_candidate(self, filename: str) -> Path:
         root = self._log_root
-        if root.is_symlink() or (
-            hasattr(root, "is_junction") and root.is_junction()
-        ):
+        if _is_reparse_point(root):
             raise ValueError("log root не должен быть ссылкой")
         resolved_root = root.resolve(strict=False)
         candidate = root / filename
-        if candidate.is_symlink() or (
-            hasattr(candidate, "is_junction") and candidate.is_junction()
-        ):
+        if _is_reparse_point(candidate):
             raise ValueError("файл журнала не должен быть ссылкой")
         resolved = candidate.resolve(strict=False)
         if resolved.parent != resolved_root:

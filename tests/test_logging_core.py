@@ -255,6 +255,20 @@ class TestDiagnosticContextHandler(unittest.TestCase):
         finally:
             handler.close()
 
+    def test_capacity_snapshot_keeps_triggering_error(self):
+        handler = DiagnosticContextHandler(capacity=2)
+        try:
+            test_logger = self.make_logger(handler, StringIO())
+            test_logger.info("old")
+            test_logger.info("latest")
+            test_logger.error("boom")
+            self.assertEqual(
+                ["latest", "boom"],
+                [record.getMessage() for record in handler.snapshot(last_failure=True)],
+            )
+        finally:
+            handler.close()
+
     def test_reset_clears_current_and_last_failure_context(self):
         handler = DiagnosticContextHandler(capacity=2)
         try:

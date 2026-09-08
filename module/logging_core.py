@@ -435,9 +435,11 @@ class DiagnosticContextHandler(logging.Handler):
         self,
         records: tuple[logging.LogRecord, ...],
     ) -> tuple[logging.LogRecord, ...]:
-        selected: deque[logging.LogRecord] = deque(maxlen=self.capacity)
+        selected: deque[logging.LogRecord] = deque()
         total_bytes = 0
         for record in reversed(records):
+            if len(selected) >= self.capacity:
+                break
             record_bytes = self._record_bytes(record)
             if selected and total_bytes + record_bytes > self._max_bytes:
                 break

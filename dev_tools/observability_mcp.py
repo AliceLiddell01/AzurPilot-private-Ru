@@ -507,15 +507,15 @@ class _GrafanaApi:
         except (OSError, URLError, TimeoutError) as exc:
             raise ObservabilityMcpError(f"{error_code}_UNAVAILABLE") from exc
         if not raw.strip():
-            payload = None
+            response_payload = None
         else:
             try:
-                payload = json.loads(raw)
+                response_payload = json.loads(raw)
             except (UnicodeError, json.JSONDecodeError) as exc:
                 raise ObservabilityMcpError(f"{error_code}_JSON_INVALID") from exc
         if include_headers:
-            return payload, response_headers
-        return payload
+            return response_payload, response_headers
+        return response_payload
 
     def verify_admin_credentials(self) -> None:
         payload = self._request(

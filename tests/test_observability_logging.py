@@ -130,6 +130,28 @@ def test_canonical_project_env_enables_otlp_without_loading_secrets(
         monkeypatch.delenv(key, raising=False)
 
 
+def test_canonical_project_env_uses_process_repository_root(monkeypatch, tmp_path):
+    for key in _OTEL_ENVIRONMENT_KEYS:
+        monkeypatch.delenv(key, raising=False)
+    repository_root = tmp_path / "repository"
+    (repository_root / "module").mkdir(parents=True)
+    (repository_root / "gui.py").write_text("", encoding="utf-8")
+    (repository_root / ".env").write_text(
+        "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://worker-root:4318/v1/logs\n"
+        "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL=http/protobuf\n",
+        encoding="utf-8",
+    )
+    working_directory = tmp_path / "working"
+    working_directory.mkdir()
+    monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(repository_root))
+    monkeypatch.chdir(working_directory)
+
+    config = _read_config()
+
+    assert config is not None
+    assert config.signal_endpoint == "http://worker-root:4318/v1/logs"
+
+
 def test_application_logging_disabled_flag_wins_over_endpoint(monkeypatch):
     _configure_test_environment(monkeypatch)
     monkeypatch.setenv("OTEL_SDK_DISABLED", "true")

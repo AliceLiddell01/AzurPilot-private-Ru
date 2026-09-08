@@ -30,7 +30,9 @@ def docker_state(monkeypatch):
     calls = []
     monkeypatch.setattr(target, "inventory", lambda: copy.deepcopy(state))
     monkeypatch.setattr(
-        target, "ready", lambda *args: dict.fromkeys(target.SERVICES, True)
+        target,
+        "ready",
+        lambda *args, **_kwargs: dict.fromkeys(target.SERVICES, True),
     )
 
     def docker(*args, **_kwargs):

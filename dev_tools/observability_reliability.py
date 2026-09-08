@@ -135,7 +135,6 @@ def outage(services: tuple[str, ...], journal: Path):
         "recovered": [],
         "recovery_errors": [],
     }
-    journal.parent.mkdir(parents=True, exist_ok=True)
     _create_recovery_journal(journal, state)
     original_error = None
     try:
@@ -1023,7 +1022,7 @@ def main() -> int:
         elif args.command == "metrics":
             result = internal_metrics()
         elif args.output is None:
-            parser.error("Для emit/query требуется --output")
+            parser.error("Для emit/query/outage требуется --output")
         elif args.command == "emit":
             result = emit(args.output, count=args.count)
         elif args.command == "outage":

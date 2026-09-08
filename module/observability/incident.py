@@ -194,7 +194,13 @@ def write_incident_log(
     for line in lines:
         if len(output) >= max_lines:
             break
-        text = sanitize_log_text(str(line)).rstrip("\r\n")
+        text = (
+            sanitize_log_text(line)
+            .replace("\r\n", " ")
+            .replace("\r", " ")
+            .replace("\n", " ")
+            .rstrip("\r\n")
+        )
         encoded = (text + "\n").encode("utf-8", errors="replace")
         remaining = max_bytes - used_bytes
         if remaining <= 0:

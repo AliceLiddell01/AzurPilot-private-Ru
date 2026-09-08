@@ -85,6 +85,7 @@ _OTEL_INTERNAL_LOGGERS = (
     "opentelemetry.instrumentation.logging",
 )
 _OTEL_ENV_NAME_RE = re.compile(r"^OTEL_[A-Z0-9_]+$")
+_REPOSITORY_ROOT_ENV = "AZURPILOT_REPOSITORY_ROOT"
 
 _STANDARD_RECORD_FIELDS = frozenset(
     vars(
@@ -468,6 +469,24 @@ def _read_signal_config(
     return True, signal_endpoint or None
 
 
+def _application_repository_root() -> Path:
+    """Найти repository root, переданный runtime worker-у."""
+
+    configured = os.environ.get(_REPOSITORY_ROOT_ENV, "").strip()
+    if configured:
+        try:
+            candidate = Path(configured).resolve()
+        except (OSError, RuntimeError):
+            candidate = None
+        if (
+            candidate is not None
+            and (candidate / "gui.py").is_file()
+            and (candidate / "module").is_dir()
+        ):
+            return candidate
+    return Path.cwd()
+
+
 def _load_local_otlp_environment() -> None:
     """Загрузить только OTEL-настройки из канонического корневого ``.env``.
 
@@ -476,7 +495,7 @@ def _load_local_otlp_environment() -> None:
     переменные намеренно не читаются. Явное окружение процесса имеет приоритет.
     """
 
-    env_path = Path.cwd() / ".env"
+    env_path = _application_repository_root() / ".env"
     if not env_path.is_file():
         return
     try:

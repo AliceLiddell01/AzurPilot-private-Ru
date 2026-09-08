@@ -65,7 +65,6 @@ def test_gui_logging_uses_component_without_fake_profile() -> None:
         gui._configure_gui_logging()
 
     configure_logging.assert_called_once_with(
-        name="gui",
         observability_profile=None,
         observability_component="gui",
     )
