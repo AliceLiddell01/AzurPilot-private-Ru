@@ -31,6 +31,11 @@ _TRACE_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 _SPAN_ID_RE = re.compile(r"^[0-9a-f]{16}$")
 _INCIDENT_LOG_MAX_BYTES = 64 * 1024
 _INCIDENT_LOG_MAX_LINES = 200
+_LEGACY_INCIDENT_DIRECTORY_RE = re.compile(r"\d+")
+_CURRENT_INCIDENT_TIMESTAMP_RE = re.compile(
+    r"^(?P<timestamp>\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.\d{3})(?:_|$)"
+)
+_INCIDENT_COLLISION_SUFFIX_RE = re.compile(r"_(?P<collision>\d{3})$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +65,33 @@ def _utc_timestamp(value: datetime | None) -> datetime:
 
 def _format_timestamp(value: datetime) -> str:
     return value.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def incident_directory_time_key(name: str) -> tuple[int, int] | None:
+    """Вернуть хронологический ключ canonical или legacy incident-каталога."""
+    if _LEGACY_INCIDENT_DIRECTORY_RE.fullmatch(name):
+        return int(name), 0
+
+    timestamp_match = _CURRENT_INCIDENT_TIMESTAMP_RE.match(name)
+    if timestamp_match is None:
+        return None
+    try:
+        timestamp = datetime.strptime(
+            timestamp_match.group("timestamp"),
+            "%Y-%m-%d_%H-%M-%S.%f",
+        ).replace(tzinfo=timezone.utc)
+        epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
+        delta = timestamp - epoch
+        timestamp_millis = (
+            delta.days * 86_400_000
+            + delta.seconds * 1_000
+            + delta.microseconds // 1_000
+        )
+        collision_match = _INCIDENT_COLLISION_SUFFIX_RE.search(name)
+        collision = int(collision_match.group("collision")) if collision_match else 0
+    except (OverflowError, TypeError, ValueError):
+        return None
+    return timestamp_millis, collision
 
 
 def _exception_identity(exception: BaseException | None) -> str:
@@ -215,8 +247,9 @@ def write_incident_log(
             while len(encoded) > remaining and text:
                 text = text[:-1]
                 encoded = (text + "\n").encode("utf-8", errors="replace")
-        if not encoded:
+        if not text:
             continue
+        encoded = (text + "\n").encode("utf-8", errors="replace")
         output.append(text)
         used_bytes += len(encoded)
         if used_bytes >= max_bytes:
@@ -254,6 +287,7 @@ __all__ = (
     "IncidentMetadata",
     "build_incident_metadata",
     "create_incident_directory",
+    "incident_directory_time_key",
     "write_incident_log",
     "write_incident_metadata",
 )

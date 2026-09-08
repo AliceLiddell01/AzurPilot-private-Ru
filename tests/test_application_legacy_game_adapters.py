@@ -275,6 +275,22 @@ def test_legacy_log_adapter_reads_latest_incident_fallback(tmp_path: Path):
     assert adapter.read_tail("ap", 1) == ("latest incident\n",)
 
 
+def test_legacy_log_adapter_orders_mixed_incident_formats_by_actual_time(
+    tmp_path: Path,
+):
+    incident_root = tmp_path / "log" / "error" / "ap"
+    legacy = incident_root / "1800000000000"
+    current = incident_root / "2026-09-01_00-00-00.000_RuntimeError"
+    legacy.mkdir(parents=True)
+    current.mkdir()
+    (legacy / "log.txt").write_text("legacy latest\n", encoding="utf-8")
+    (current / "log.txt").write_text("current older\n", encoding="utf-8")
+
+    adapter = LegacyRuntimeLogAdapter(tmp_path / "log")
+
+    assert adapter.read_tail("ap", 1) == ("legacy latest\n",)
+
+
 @pytest.mark.parametrize(
     "created_at",
     [True, float("nan"), float("inf"), float("-inf"), 0, -1],

@@ -64,6 +64,7 @@ from module.application.scheduler_runtime import (
     scheduler_entry_sort_key,
 )
 from module.config.profile import profile_identity_from_name
+from module.observability.incident import incident_directory_time_key
 
 _MAX_LOG_LINES = 10_000
 _MAX_LOG_BYTES = 2 * 1024 * 1024
@@ -575,16 +576,19 @@ class LegacyRuntimeLogAdapter:
             return None
         if _is_reparse_point(profile_root):
             raise ValueError("каталог profile incident-ов не должен быть ссылкой")
-        candidates: list[Path] = []
+        candidates: list[tuple[tuple[int, int], Path]] = []
         for folder in profile_root.iterdir():
             if not folder.is_dir() or _is_reparse_point(folder):
                 continue
+            time_key = incident_directory_time_key(folder.name)
+            if time_key is None:
+                continue
             log_path = folder / "log.txt"
             if log_path.is_file() and not _is_reparse_point(log_path):
-                candidates.append(log_path)
+                candidates.append((time_key, log_path))
         if not candidates:
             return None
-        return sorted(candidates, key=lambda path: path.parent.name)[-1]
+        return max(candidates, key=lambda item: item[0])[1]
 
     @staticmethod
     def _read_bounded_tail(path: Path, limit: int) -> tuple[str, ...]:

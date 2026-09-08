@@ -797,7 +797,7 @@ def _identity_token_from_environment() -> str | None:
 def _gateway_identity_probe() -> IdentityProbe:
     """Проверить наличие официального Gateway identity tool без догадок о схеме."""
     try:
-        runtime_tools = runtime_tool_names()
+        runtime_tool_names()
     except ObservabilityMcpError as exc:
         code = (
             "MCP_GATEWAY_IDENTITY_ALLOWLIST_DRIFT"
@@ -805,15 +805,8 @@ def _gateway_identity_probe() -> IdentityProbe:
             else exc.code
         )
         return IdentityProbe(False, False, code)
-    if "user_info" not in runtime_tools:
-        return IdentityProbe(False, False, "MCP_GATEWAY_IDENTITY_UNAVAILABLE")
-    try:
-        payload = _gateway_tool_call("user_info")
-    except ObservabilityMcpError as exc:
-        return IdentityProbe(False, False, exc.code)
-    if isinstance(payload, dict) and payload.get("isError") is True:
-        return IdentityProbe(False, False, "MCP_GATEWAY_IDENTITY_RESPONSE_INVALID")
-    return IdentityProbe(False, False, "MCP_GATEWAY_IDENTITY_RESPONSE_UNSUPPORTED")
+    # Exact runtime allowlist intentionally exposes no Gateway identity tool.
+    return IdentityProbe(False, False, "MCP_GATEWAY_IDENTITY_UNAVAILABLE")
 
 
 def ensure_identity(

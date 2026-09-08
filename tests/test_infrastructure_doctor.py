@@ -59,7 +59,7 @@ def test_doctor_distinguishes_absent_caddy_container(
         raise AssertionError(arguments)
 
     monkeypatch.setattr(infrastructure_doctor, "_docker_executable", lambda: "docker")
-    monkeypatch.setattr(infrastructure_doctor, "_run", fake_run)
+    monkeypatch.setattr(infrastructure_doctor, "run_docker", fake_run)
 
     assert infrastructure_doctor.doctor(root) == {
         "ok": False,
@@ -111,7 +111,7 @@ def test_doctor_reports_ready_only_with_expected_published_ports(
         raise AssertionError(arguments)
 
     monkeypatch.setattr(infrastructure_doctor, "_docker_executable", lambda: "docker")
-    monkeypatch.setattr(infrastructure_doctor, "_run", fake_run)
+    monkeypatch.setattr(infrastructure_doctor, "run_docker", fake_run)
 
     payload = infrastructure_doctor.doctor(root)
 
@@ -147,7 +147,7 @@ def test_doctor_rejects_published_caddy_admin_port(
         raise AssertionError(arguments)
 
     monkeypatch.setattr(infrastructure_doctor, "_docker_executable", lambda: "docker")
-    monkeypatch.setattr(infrastructure_doctor, "_run", fake_run)
+    monkeypatch.setattr(infrastructure_doctor, "run_docker", fake_run)
 
     payload = infrastructure_doctor.doctor(root)
 

@@ -15,7 +15,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import urlencode, urlsplit
 
-from dev_tools.infrastructure_doctor import CANONICAL_PROJECT, _run
+from dev_tools.infrastructure_doctor import CANONICAL_PROJECT, run_docker
 
 SERVICES = ("alloy", "loki", "prometheus", "tempo", "grafana")
 MCP_BACKENDS = ("prometheus", "loki", "tempo")
@@ -349,7 +349,7 @@ def run_scenario(
 
 def docker(*arguments: str, timeout: int = 30) -> str:
     try:
-        result = _run(list(arguments), timeout=timeout)
+        result = run_docker(list(arguments), timeout=timeout)
     except (OSError, subprocess.SubprocessError):
         raise ReliabilityError("OBSERVABILITY_DOCKER_UNAVAILABLE") from None
     if result.returncode:
@@ -792,9 +792,7 @@ def mcp_signals(emission: dict) -> dict:
                 "nonempty": False,
                 "error": type(exc).__name__,
             }
-    if set(result["health"]) == set(MCP_BACKENDS) and all(
-        result["health"].values()
-    ):
+    if all(result["health"].get(service) is True for service in MCP_BACKENDS):
         result["operator_checks"] = {}
         for signal, (name, arguments) in operator_checks.items():
             try:
@@ -829,8 +827,8 @@ def assert_mcp_after_recovery(result: dict) -> None:
     if _mcp_error_names(result):
         raise ReliabilityError("OBSERVABILITY_MCP_UNEXPECTED_ERROR")
     health = result.get("health")
-    if not isinstance(health, dict) or set(health) != set(MCP_BACKENDS) or not all(
-        health.values()
+    if not isinstance(health, dict) or not all(
+        health.get(service) is True for service in MCP_BACKENDS
     ):
         raise ReliabilityError("OBSERVABILITY_MCP_NOT_RECOVERED")
     for signal in MCP_BACKENDS:
@@ -864,7 +862,9 @@ def assert_mcp_partial_outage(result: dict, affected: set[str]) -> None:
     if unexpected_errors:
         raise ReliabilityError("OBSERVABILITY_MCP_UNEXPECTED_ERROR")
     health = result.get("health")
-    if not isinstance(health, dict) or set(health) != set(MCP_BACKENDS):
+    if not isinstance(health, dict) or not all(
+        service in health for service in MCP_BACKENDS
+    ):
         raise ReliabilityError("OBSERVABILITY_MCP_PARTIAL_OUTAGE_CONTRACT_FAILED")
     for signal in MCP_BACKENDS:
         item = result.get(signal)

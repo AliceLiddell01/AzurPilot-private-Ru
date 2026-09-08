@@ -1,11 +1,10 @@
 import json
 import os
-import re
 import shutil
 import threading
 import time
 from contextlib import ExitStack
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import inflection
@@ -29,45 +28,12 @@ from module.exception import *
 from module.logger import logger
 from module.logging_context import task_logging_context
 from module.notify import handle_notify, notify_webui
+from module.observability.incident import incident_directory_time_key
 from module.persistence.runtime import bootstrap_runtime_storage
 
 # 缓存 i18n 任务名查找
 _i18n_task_names = None
 _SERVER_AVAILABILITY_POLL_SECONDS = 0.25
-_LEGACY_INCIDENT_DIRECTORY_RE = re.compile(r"\d+")
-_CURRENT_INCIDENT_TIMESTAMP_RE = re.compile(
-    r"^(?P<timestamp>\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.\d{3})(?:_|$)"
-)
-_INCIDENT_COLLISION_SUFFIX_RE = re.compile(r"_(?P<collision>\d{3})$")
-
-
-def _incident_directory_time_key(name: str):
-    """Вернуть comparable UTC key или ``None`` для неизвестного каталога."""
-    if _LEGACY_INCIDENT_DIRECTORY_RE.fullmatch(name):
-        return int(name), 0
-
-    timestamp_match = _CURRENT_INCIDENT_TIMESTAMP_RE.match(name)
-    if timestamp_match is None:
-        return None
-    try:
-        timestamp = datetime.strptime(
-            timestamp_match.group("timestamp"),
-            "%Y-%m-%d_%H-%M-%S.%f",
-        ).replace(tzinfo=timezone.utc)
-        epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
-        delta = timestamp - epoch
-        timestamp_millis = (
-            delta.days * 86_400_000
-            + delta.seconds * 1_000
-            + delta.microseconds // 1_000
-        )
-        collision_match = _INCIDENT_COLLISION_SUFFIX_RE.search(name)
-        collision = int(collision_match.group("collision")) if collision_match else 0
-    except (OverflowError, TypeError, ValueError):
-        return None
-    return timestamp_millis, collision
-
-
 def _get_task_display_name(task_command):
     """从 i18n 获取任务的本地化显示名，找不到则返回英文名"""
     global _i18n_task_names
@@ -860,7 +826,7 @@ class AzurLaneAutoScript:
             folder = os.path.join(folder_path, name)
             if not os.path.isdir(folder):
                 continue
-            time_key = _incident_directory_time_key(name)
+            time_key = incident_directory_time_key(name)
             if time_key is not None:
                 managed_folders.append((time_key, folder))
         managed_folders.sort(key=lambda item: item[0])

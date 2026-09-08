@@ -62,7 +62,7 @@ def _docker_executable() -> str:
     return executable
 
 
-def _run(
+def run_docker(
     arguments: list[str], *, timeout: int = 60
 ) -> subprocess.CompletedProcess[str]:
     options: dict[str, object] = {}
@@ -196,7 +196,7 @@ def _payload(ok: bool, code: str, **details: object) -> dict[str, object]:
 
 def _published_ports(container_id: str) -> tuple[bool, dict[str, object]]:
     try:
-        result = _run(
+        result = run_docker(
             ["inspect", "--format", "{{json .NetworkSettings.Ports}}", container_id]
         )
     except OSError, subprocess.SubprocessError:
@@ -357,7 +357,7 @@ def doctor(repository_root: Path = Path(".")) -> dict[str, object]:
         return _payload(False, "DOCKER_UNAVAILABLE")
 
     try:
-        info = _run(["info"], timeout=30)
+        info = run_docker(["info"], timeout=30)
     except OSError, subprocess.SubprocessError:
         return _payload(False, "DOCKER_UNAVAILABLE")
     if info.returncode != 0:
@@ -380,13 +380,13 @@ def doctor(repository_root: Path = Path(".")) -> dict[str, object]:
         return _payload(False, "CADDY_CONFIG_UNAVAILABLE")
 
     try:
-        config = _run(config_arguments, timeout=60)
+        config = run_docker(config_arguments, timeout=60)
     except OSError, subprocess.SubprocessError:
         return _payload(False, "CADDY_CONFIG_UNAVAILABLE")
     if config.returncode != 0:
         return _payload(False, "CADDY_CONFIG_INVALID")
     try:
-        status = _run(ps_arguments, timeout=60)
+        status = run_docker(ps_arguments, timeout=60)
     except OSError, subprocess.SubprocessError:
         return _payload(False, "CADDY_STATUS_UNAVAILABLE")
     if status.returncode != 0:

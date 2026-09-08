@@ -211,6 +211,20 @@ def test_incident_log_normalizes_embedded_line_breaks_before_line_bound(tmp_path
     )
 
 
+def test_incident_log_does_not_consume_budget_for_empty_utf8_truncation(tmp_path):
+    folder = tmp_path / "incident"
+    folder.mkdir()
+
+    target = write_incident_log(
+        folder,
+        ("ёж", "x"),
+        max_bytes=2,
+        max_lines=2,
+    )
+
+    assert target.read_text(encoding="utf-8") == "x\n"
+
+
 def test_scheduler_boundary_exposes_only_canonical_current_task():
     assert get_current_task_name() is None
 

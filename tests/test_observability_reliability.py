@@ -66,7 +66,8 @@ def test_denied_services_never_reach_docker(docker_state, tmp_path, services):
     with pytest.raises(target.ReliabilityError, match="SERVICE_DENIED"):
         with target.outage(services, tmp_path / "recovery.json"):
             pytest.fail("Недопустимый service был разрешён")
-    assert docker_state[1] == []
+    _, calls, _ = docker_state
+    assert calls == []
 
 
 def test_failed_probe_restores_only_attempted_services(docker_state, tmp_path):
@@ -89,8 +90,8 @@ def test_stop_timeout_after_side_effect_still_recovers(
 ):
     state, calls, docker = docker_state
 
-    def failing(*args):
-        docker(*args)
+    def failing(*args, **kwargs):
+        docker(*args, **kwargs)
         if args[0] == "stop":
             raise TimeoutError("таймаут после stop")
 
@@ -106,10 +107,10 @@ def test_stop_timeout_after_side_effect_still_recovers(
 def test_recovery_error_does_not_mask_original(docker_state, monkeypatch, tmp_path):
     _, calls, docker = docker_state
 
-    def failing(*args):
+    def failing(*args, **kwargs):
         if args[0] == "start" and args[-1] == "loki":
             raise OSError("ошибка recovery")
-        return docker(*args)
+        return docker(*args, **kwargs)
 
     monkeypatch.setattr(target, "docker", failing)
     journal = tmp_path / "recovery.json"
@@ -128,7 +129,8 @@ def test_existing_journal_prevents_mutation(docker_state, tmp_path):
     with pytest.raises(FileExistsError):
         with target.outage(("tempo",), journal):
             pass
-    assert docker_state[1] == []
+    _, calls, _ = docker_state
+    assert calls == []
 
 
 def test_recovery_journal_failure_prevents_first_stop(
@@ -147,7 +149,8 @@ def test_recovery_journal_failure_prevents_first_stop(
         with target.outage(("tempo",), journal):
             pytest.fail("До durable journal нельзя выполнять outage")
 
-    assert docker_state[1] == []
+    _, calls, _ = docker_state
+    assert calls == []
     state = json.loads(journal.read_text(encoding="utf-8"))
     assert state["attempted"] == []
     assert state["stopping"] == []
@@ -290,6 +293,29 @@ def test_mcp_post_recovery_requires_operator_reads_and_all_signals():
         target.assert_mcp_after_recovery(result)
 
 
+def test_mcp_post_recovery_allows_additional_health_entries():
+    result = {
+        "query_layer_available": True,
+        "unexpected_is_error": [],
+        "health": {
+            "prometheus": True,
+            "loki": True,
+            "tempo": True,
+            "grafana": False,
+        },
+        "prometheus": {"responded": True, "nonempty": True},
+        "loki": {"responded": True, "nonempty": True},
+        "tempo": {"responded": True, "nonempty": True},
+        "operator_checks": {
+            "dashboard": {"responded": True, "operation_ok": True},
+            "dashboard_queries": {"responded": True, "operation_ok": True},
+            "alerts": {"responded": True, "operation_ok": True},
+        },
+    }
+
+    target.assert_mcp_after_recovery(result)
+
+
 def test_bounded_outage_metrics_require_prometheus_group_for_prometheus_outage():
     metrics = [
         'otelcol_exporter_queue_capacity{exporter="loki"} 100',
@@ -321,10 +347,11 @@ def test_bounded_outage_metrics_matches_exporter_labels_without_fixed_order():
     ],
 )
 def test_identity_or_volume_change_fails_closed(docker_state, field, value):
-    before = copy.deepcopy(docker_state[0])
-    docker_state[0]["tempo"][field] = value
+    state, _, _ = docker_state
+    before = copy.deepcopy(state)
+    state["tempo"][field] = value
     with pytest.raises(target.ReliabilityError, match="STORAGE_OR_IDENTITY_CHANGED"):
-        target.verify_preserved(before, docker_state[0], ("tempo",))
+        target.verify_preserved(before, state, ("tempo",))
 
 
 def test_retention_and_private_ports_contract():
