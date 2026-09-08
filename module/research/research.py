@@ -1,22 +1,24 @@
 """
-科研任务主处理器。
+Основной обработчик задачи Research.
 
-本模块实现科研系统的完整自动化流程，包括：
-- 检测已完成的科研项目并领取奖励
-- 根据用户配置的筛选规则选择最优科研项目
-- 启动科研项目并加入科研队列
-- 填充科研队列（最多 5 个队列槽位 + 1 个队列外项目）
-- 处理特殊项目类型（E 系列需拆解装备、T 系列需完成委托）
-- 延迟科研策略：资源不足时等待队列自然消耗
+Модуль реализует полный автоматизированный процесс Research, включая:
+- поиск завершённых проектов и получение наград;
+- выбор оптимального проекта по правилам фильтрации из конфигурации;
+- запуск проекта и добавление его в очередь Research;
+- заполнение очереди (не более 5 слотов очереди и 1 проекта вне очереди);
+- обработку специальных типов проектов (для серии E нужно разобрать снаряжение,
+  для серии T — выполнить поручения);
+- отложенный запуск Research: при нехватке ресурсов очередь расходуется естественным
+  образом.
 
-核心类 `RewardResearch` 继承自 `ResearchSelector`（项目筛选与选择）、
-`ResearchQueue`（队列管理）和 `StorageHandler`（装备拆解），
-是 `AzurLaneAutoScript` 中 `research` 任务的执行入口。
+Основной класс RewardResearch наследуется от ResearchSelector (обнаружение и выбор
+проектов), ResearchQueue (управление очередью) и StorageHandler (разбор снаряжения)
+и является точкой входа задачи research в AzurLaneAutoScript.
 
-术语对照：
-    科研队列(Research Queue): 最多容纳 5 个排队项目的队列
-    第 6 个项目: 不在队列中、直接运行的额外科研项目
-    强制模式(enforce): 当筛选结果为空时，放宽条件选择项目
+Термины:
+    Research Queue: очередь не более чем из 5 проектов;
+    проект вне очереди: дополнительный проект, выполняющийся напрямую;
+    принудительный режим (enforce): ослабление фильтра, если обычный результат пуст.
 """
 from datetime import timedelta
 
@@ -25,11 +27,15 @@ import numpy as np
 from module.base.timer import Timer
 from module.base.utils import rgb2gray
 from module.config.time_source import now as current_time
-from module.exception import GameTooManyClickError
+from module.exception import (
+    ResearchProjectStartError,
+    ResearchRewardPopupTimeoutError,
+    ResearchRewardReturnTimeoutError,
+)
 from module.logger import logger
 from module.ocr.ocr import Duration
 from module.research.assets import *
-from module.research.project import get_research_finished
+from module.research.project import RESEARCH_STATUS, get_research_finished
 from module.research.rqueue import ResearchQueue
 from module.research.selector import RESEARCH_ENTRANCE, ResearchSelector
 from module.storage.storage import StorageHandler
@@ -39,48 +45,62 @@ from module.ui.page import page_research
 OCR_DURATION = Duration(RESEARCH_LAB_DURATION_REMAIN, letter=(255, 255, 255), threshold=64,
                         name='RESEARCH_LAB_DURATION_REMAIN')
 
+_RESEARCH_REWARD_POPUP_STABILIZATION_SECONDS = 1.5
+_RESEARCH_REWARD_POPUP_STABILIZATION_COUNT = 5
+_RESEARCH_REWARD_POPUP_TIMEOUT_SECONDS = 15
+_RESEARCH_REWARD_POPUP_TIMEOUT_COUNT = 30
+_RESEARCH_REWARD_RETURN_CONFIRM_SECONDS = 0.5
+_RESEARCH_REWARD_RETURN_CONFIRM_COUNT = 2
+_RESEARCH_REWARD_RETURN_TIMEOUT_SECONDS = 15
+_RESEARCH_REWARD_RETURN_TIMEOUT_COUNT = 30
+
 
 class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
     """
-    科研任务主处理器，负责科研项目的完整生命周期管理。
+    Основной обработчик задачи Research, управляющий полным жизненным циклом
+    проектов Research.
 
-    通过多重继承组合以下能力：
-    - ResearchSelector: 科研项目检测、筛选和优先级排序
-    - ResearchQueue: 科研队列的添加、状态检测和奖励领取
-    - StorageHandler: 装备拆解（用于 E 系列科研的前提条件）
+    Множественное наследование объединяет следующие возможности:
+    - ResearchSelector: обнаружение, фильтрация и сортировка проектов;
+    - ResearchQueue: добавление проектов в очередь, определение состояния и получение
+      наград;
+    - StorageHandler: разбор снаряжения как предварительное условие серии E.
 
-    科研流程概览：
-    1. 导航到科研页面
-    2. 进入队列，领取已完成项目的奖励
-    3. 处理挂起的 T 系列委托科研
-    4. 领取第 6 个（队列外）项目的奖励
-    5. 循环填充队列直到 5 个槽位用满
-    6. 计算下次调度时间
+    Обзор процесса Research:
+    1. перейти на страницу Research;
+    2. войти в очередь и получить награды завершённых проектов;
+    3. обработать отложенный проект серии T, требующий поручений;
+    4. получить награду проекта вне очереди;
+    5. заполнять очередь, пока не будут заняты 5 слотов;
+    6. рассчитать время следующего запуска.
 
-    Attributes:
-        _research_project_offset (int): 项目列表在屏幕上的偏移量，
-            用于在点击非中央位置的项目时进行索引修正。
-        _research_finished_index (int): 已完成项目的索引（0-4），
-            用于定位已完成项目在屏幕上的位置。
-        research_project_started (ResearchProject): 最近一次成功启动的
-            科研项目对象，未启动项目时为 None。
-        enforce (bool): 是否处于强制模式。当筛选结果为空时，
-            自动切换到强制模式以放宽条件选择项目。
-        end_time (datetime): 队列中第一个科研项目的预计完成时间，
-            用于计算任务调度延迟。
+    Атрибуты:
+        _research_project_offset (int): смещение списка проектов на экране,
+            используемое для поправки индекса при нажатии на проект не в центре;
+        _research_finished_index (int): индекс завершённого проекта (0-4),
+            используемый для определения его позиции на экране;
+        research_project_started (ResearchProject): объект последнего успешно
+            запущенного проекта Research или None, если проект не запущен;
+        enforce (bool): включён ли принудительный режим. Если обычный результат
+            фильтра пуст, режим автоматически ослабляет условия выбора;
+        end_time (datetime): ожидаемое время завершения первого проекта очереди,
+            используемое для расчёта задержки следующего запуска.
     """
     _research_project_offset = 0
     _research_finished_index = 2
-    research_project_started = None  # ResearchProject 对象
+    research_project_started = None  # Объект ResearchProject
     enforce = False
     end_time = None
 
     def research_has_finished(self):
         """
-        已完成的科研项目应自动聚焦到中央位置，但有时由于未知的游戏 bug 未能实现。
+        Проверяет, есть ли завершённый проект Research.
 
-        Returns:
-            bool: 是否有已完成的科研项目
+        Завершённый проект обычно автоматически перемещается в центр, но иногда
+        из-за неизвестной ошибки игры этого не происходит.
+
+        Результат:
+            bool: есть ли завершённый проект Research.
         """
         index = get_research_finished(self.device.image)
         if index is not None:
@@ -92,17 +112,18 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
 
     def research_reset(self, drop=None, skip_first_screenshot=True):
         """
-        重置科研项目列表，刷新可用的科研项目。
+        Сбрасывает список проектов Research и обновляет доступные проекты.
 
-        仅在重置功能可用时执行（RESET_AVAILABLE 按钮可见）。
-        重置后项目列表将更新，之前的筛选结果失效。
+        Выполняет сброс только при доступной функции сброса (видна кнопка
+        RESET_AVAILABLE). После сброса список проектов обновляется, а прежний
+        результат фильтра становится недействительным.
 
-        Args:
-            drop (DropImage): 掉落记录对象，记录重置前的截图。
-            skip_first_screenshot (bool): 是否跳过首次截图。
+        Аргументы:
+            drop (DropImage): объект записи добычи для сохранения скриншота до сброса.
+            skip_first_screenshot (bool): пропустить ли первый скриншот.
 
-        Returns:
-            bool: 重置是否成功执行。若重置功能不可用则返回 False。
+        Результат:
+            bool: выполнен ли сброс; False, если функция сброса недоступна.
         """
         if not self.appear(RESET_AVAILABLE, threshold=10):
             logger.info('[Исследование — сброс] Сброс исследований недоступен')
@@ -123,9 +144,9 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
                 executed = True
                 continue
 
-            # 结束条件
+            # Условие завершения.
             if executed and self.is_in_research():
-                self.ensure_no_info_bar(timeout=3)  # 刷新成功
+                self.ensure_no_info_bar(timeout=3)  # Сброс выполнен.
                 self.ensure_research_stable()
                 break
 
@@ -134,18 +155,19 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
 
     def research_enforce(self, drop=None, add_queue=True):
         """
-        强制选择一个科研项目，忽略部分筛选条件。
+        Принудительно выбирает проект Research, игнорируя часть фильтров.
 
-        当正常筛选结果为空时，切换到强制模式并使用宽松的筛选规则
-        重新选择项目。确保始终有项目在运行。
+        Если обычный результат фильтра пуст, включает принудительный режим и повторно
+        выбирает проект по более мягким правилам. Это гарантирует, что проект будет
+        выполняться.
 
-        Args:
-            drop (DropImage): 掉落记录对象。
-            add_queue (bool): 是否加入队列。
-                第 6 个项目无法加入队列，因此需要此开关。
+        Аргументы:
+            drop (DropImage): объект записи добычи.
+            add_queue (bool): добавить ли проект в очередь.
+                Проект вне очереди нельзя добавить в очередь, поэтому нужен этот флаг.
 
-        Returns:
-            bool: 是否成功选择项目。
+        Результат:
+            bool: выбран ли проект.
         """
         if not self.enforce:
             logger.info('[Исследование — принудительно] Принудительный выбор проекта')
@@ -156,21 +178,21 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
 
     def research_select(self, priority, drop=None, add_queue=True):
         """
-        Args:
-            priority (list): ResearchProject 对象和预设字符串的列表，
-                如 [object, object, object, 'reset']
-            drop (DropImage):
-            add_queue (bool): 是否加入队列。
-                第 6 个项目无法加入队列，因此需要此开关。
+        Аргументы:
+            priority (list): список объектов ResearchProject и управляющих строк,
+                например [object, object, object, 'reset'];
+            drop (DropImage): объект записи добычи.
+            add_queue (bool): добавить ли проект в очередь.
+                Проект вне очереди нельзя добавить в очередь, поэтому нужен этот флаг.
 
-        Returns:
-            bool: 如果已重置则返回 False
+        Результат:
+            bool: False, если был выполнен сброс.
         """
         if not len(priority):
             logger.info('[Исследование — выбор] Нет проектов, соответствующих текущему фильтру')
             return self.research_enforce(drop=drop, add_queue=add_queue)
         for project in priority:
-            # 优先级示例：['reset', 'shortest']
+            # Пример приоритета: ['reset', 'shortest'].
             if project == 'reset':
                 if self.research_reset(drop=drop):
                     return False
@@ -178,7 +200,7 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
                     continue
 
             if isinstance(project, str):
-                # 优先级示例：['shortest']
+                # Пример приоритета: ['shortest'].
                 if project == 'shortest':
                     self.research_select(self.research_sort_shortest(self.enforce),
                                          drop=drop, add_queue=add_queue)
@@ -191,7 +213,7 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
             elif project.genre.upper() in ['C', 'T'] and not self.enforce:
                 return self.research_enforce(drop=drop, add_queue=add_queue)
             else:
-                # 优先级示例：[ResearchProject, ResearchProject,]
+                # Пример приоритета: [ResearchProject, ResearchProject].
                 ret = self.research_project_start_with_requirements(project, add_queue=add_queue)
                 if ret:
                     return True
@@ -209,10 +231,10 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
 
     def research_delay_check(self):
         """
-        检查是否允许延迟科研。
+        Проверяет, разрешён ли отложенный запуск Research.
 
-        Returns:
-            bool: 是否允许延迟科研
+        Результат:
+            bool: разрешён ли отложенный запуск Research.
         """
         if self.config.Research_AllowDelay:
             slot = self.get_queue_slot()
@@ -228,19 +250,19 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
 
     def research_project_start(self, project, add_queue=True, skip_first_screenshot=True):
         """
-        启动指定项目并将其加入科研队列。
+        Запускает указанный проект и добавляет его в очередь Research.
 
-        Args:
-            project (ResearchProject, int): 项目对象或项目索引（0 到 4）。
-            add_queue (bool): 是否加入队列。
-                第 6 个项目无法加入队列，因此需要此开关。
-            skip_first_screenshot:
+        Аргументы:
+            project (ResearchProject, int): объект проекта или индекс проекта (от 0 до 4).
+            add_queue (bool): добавить ли проект в очередь.
+                Проект вне очереди нельзя добавить в очередь, поэтому нужен этот флаг.
+            skip_first_screenshot (bool): пропустить ли первый скриншот.
 
-        Returns:
-            bool: 启动是否成功。
-            None: 要启动的项目不在已知项目列表中。
+        Результат:
+            bool: успешно ли запущен проект.
+            None: проект для запуска отсутствует в известном списке.
 
-        Pages:
+        Страницы:
             in: is_in_research
             out: is_in_research
         """
@@ -267,7 +289,7 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
 
             max_rgb = np.max(rgb2gray(self.image_crop(RESEARCH_UNAVAILABLE, copy=False)))
 
-            # 此处不使用 interval，RESEARCH_CHECK 已在 5 秒前出现过
+            # Здесь interval не используется: RESEARCH_CHECK уже была видна 5 секунд назад.
             if click_timer.reached() and self.is_in_research():
                 i = (index - self._research_project_offset) % 5
                 logger.info(f'[Исследование — запуск] Смещение проекта: {self._research_project_offset}, проект {index} находится в {i}')
@@ -282,14 +304,17 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
             if self.handle_popup_confirm('RESEARCH_START'):
                 continue
 
-            # 结束条件
+            # Условие завершения.
             if click_count >= 3:
                 logger.error('[Исследование — запуск] Не удалось запустить проект после 3 попыток; '
                              'возможно, уже выполняется проект с невыполненными условиями '
                              'или исследование завершено')
-                raise GameTooManyClickError
+                raise ResearchProjectStartError(
+                    '[Исследование — запуск] Не удалось запустить проект после 3 попыток; '
+                    'возможно, условия проекта не выполнены или исследование уже завершено'
+                )
             if self.appear(RESEARCH_STOP, offset=(20, 20)):
-                # RESEARCH_STOP 是半透明按钮，颜色会随背景变化
+                # RESEARCH_STOP — полупрозрачная кнопка, её цвет зависит от фона.
                 if add_queue:
                     if not self.research_queue_add():
                         self.research_project_started = None
@@ -297,7 +322,7 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
                         return False
                 else:
                     self.research_detail_quit()
-                # self.ensure_no_info_bar(timeout=3)  # 科研已启动
+                # self.ensure_no_info_bar(timeout=3)  # Research запущен.
                 self.research_project_started = project
                 self._research_project_offset = (index - 2) % 5
                 return True
@@ -311,35 +336,36 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
 
     def research_project_start_with_requirements(self, project, add_queue=True):
         """
-        启动指定项目并将其加入科研队列，同时处理项目所需的前提条件。
+        Запускает указанный проект, добавляет его в очередь и обрабатывает
+        необходимые предварительные условия.
 
-        Args:
-            project (ResearchProject, int): 项目对象或项目索引（0 到 4）。
-            add_queue (bool): 是否加入队列。
-                第 6 个项目无法加入队列，因此需要此开关。
+        Аргументы:
+            project (ResearchProject, int): объект проекта или индекс проекта (от 0 до 4).
+            add_queue (bool): добавить ли проект в очередь.
+                Проект вне очереди нельзя добавить в очередь, поэтому нужен этот флаг.
 
-        Returns:
-            bool: 启动是否成功。
-            None: 要启动的项目不在已知项目列表中。
+        Результат:
+            bool: успешно ли запущен проект.
+            None: проект для запуска отсутствует в известном списке.
 
-        Pages:
+        Страницы:
             in: is_in_research
             out: is_in_research
         """
-        # 项目索引，直接调用
+        # Для индекса проекта сразу вызываем основной метод.
         if isinstance(project, int):
             return self.research_project_start(project, add_queue=add_queue)
         elif project.genre == 'E' and project.equipment_amount > 0:
             logger.info(f'[Исследование — серия E] Подготовка к запуску проекта {project} '
                         f'с разбором оборудования: {project.equipment_amount}')
-            # 启动项目
+            # Запуск проекта.
             self.research_project_start(project, add_queue=False)
-            # 拆解装备
+            # Разбор снаряжения.
             self.storage_disassemble_equipment(amount=project.equipment_amount)
-            # 返回科研界面
+            # Возврат на страницу Research.
             self.ui_ensure(page_research)
             self.research_project_list_init()
-            # 加入队列
+            # Добавление в очередь.
             result = self.research_project_start(project, add_queue=add_queue)
             if result is None:
                 logger.error('[Исследование — серия E] После разбора оборудования исследовательский проект исчез')
@@ -351,36 +377,46 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
             self.research_project_started = None
             return False
         else:
-            # 普通项目
+            # Обычный проект.
             return self.research_project_start(project, add_queue=add_queue)
 
     def research_receive(self, skip_first_screenshot=True):
         """
-        领取科研主页中已完成项目的奖励。
+        Получает награду завершённого проекта на главной странице Research.
 
-        检测已完成的科研项目，点击进入并领取奖励物品，
-        支持掉落记录功能。若项目时间已到但条件未满足则跳过。
+        Находит завершённый проект, открывает его и получает наградные предметы,
+        поддерживая запись добычи. Если время проекта истекло, но условия не
+        выполнены, проект пропускается.
 
-        Args:
-            skip_first_screenshot (bool): 是否跳过首次截图。
+        Аргументы:
+            skip_first_screenshot (bool): пропустить ли первый скриншот.
 
-        Pages:
-            in: page_research, stable, with project finished.
+        Страницы:
+            in: page_research, стабильная страница с завершённым проектом.
             out: page_research
 
-        Returns:
-            bool: 成功领取奖励返回 True。
-                  项目条件未满足返回 False。
+        Результат:
+            bool: True, если награда получена; False, если условия проекта
+                  не выполнены.
         """
         logger.hr('Получение награды за исследование', level=3)
         with self.stat.new(
                 genre='research', method=self.config.DropRecord_ResearchRecord
         ) as record:
-            # 截取项目列表
+            # Сохраняем скриншот списка проектов.
             record.add(self.device.image)
 
-            # 点击已完成项目，进入 GET_ITEMS_*
-            confirm_timer = Timer(1.5, count=5)
+            # После входа в завершённый проект окно награды становится владельцем
+            # цикла до явного сохранения результата.
+            popup_timeout = Timer(
+                _RESEARCH_REWARD_POPUP_TIMEOUT_SECONDS,
+                count=_RESEARCH_REWARD_POPUP_TIMEOUT_COUNT,
+            ).start()
+            popup_confirm = Timer(
+                _RESEARCH_REWARD_POPUP_STABILIZATION_SECONDS,
+                count=_RESEARCH_REWARD_POPUP_STABILIZATION_COUNT,
+            )
+            reward_popup_pending = False
             record_button = None
             while 1:
                 if skip_first_screenshot:
@@ -388,37 +424,104 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
                 else:
                     self.device.screenshot()
 
+                if reward_popup_pending:
+                    appear_button = self.get_items()
+                    if appear_button is not None and appear_button != record_button:
+                        logger.info(f'[Исследование — получение] Появился {appear_button}')
+                        record_button = appear_button
+                        popup_confirm.reset()
+
+                    if popup_confirm.reached():
+                        break
+                    if popup_timeout.reached():
+                        raise ResearchRewardPopupTimeoutError(
+                            '[Исследование — награда] Не удалось стабилизировать окно награды '
+                            f'за {_RESEARCH_REWARD_POPUP_TIMEOUT_SECONDS} с; '
+                            f'фаза=стабилизация, layout={record_button}'
+                        )
+                    continue
+
+                if popup_timeout.reached():
+                    raise ResearchRewardPopupTimeoutError(
+                        '[Исследование — награда] Окно награды не было обнаружено '
+                        f'за {_RESEARCH_REWARD_POPUP_TIMEOUT_SECONDS} с; '
+                        'фаза=обнаружение, ожидается GET_ITEMS_*'
+                    )
+
+                # В первую очередь проверяем модальное окно, чтобы не обслуживать
+                # затемнённый экран Research в том же кадре.
+                appear_button = self.get_items()
+                if appear_button is not None:
+                    logger.info(f'[Исследование — получение] Появился {appear_button}')
+                    reward_popup_pending = True
+                    record_button = appear_button
+                    popup_confirm.reset()
+                    # Фаза стабилизации получает отдельный бюджет времени.
+                    popup_timeout.reset()
+                    continue
+
                 if self.appear(RESEARCH_CHECK, offset=(20, 20), interval=10):
                     if self.research_has_finished():
                         self.device.click(RESEARCH_ENTRANCE[self._research_finished_index])
+                        continue
 
                 if self.appear(RESEARCH_STOP, offset=(20, 20)):
                     logger.info('[Исследование — получение] Время исследования истекло, но условия не выполнены')
                     self.research_project_started = None
                     self.research_detail_quit()
                     return False
-                # 误入其他项目
+                # Открыт другой проект.
                 if self.appear(RESEARCH_START, offset=(20, 20), interval=5):
                     self.device.click(RESEARCH_DETAIL_QUIT)
                     continue
 
-                appear_button = self.get_items()
-                if appear_button is not None:
-                    if appear_button == record_button:
-                        if confirm_timer.reached():
-                            break
-                    else:
-                        logger.info(f'{appear_button} появился')
-                        record_button = appear_button
-                        confirm_timer.reset()
+            # Сохраняем наградные предметы.
+            self.drop_record(drop=record, known_button=record_button)
 
-            # 截取奖励物品
-            self.drop_record(drop=record)
+        # Явно закрываем окно награды и отдельно подтверждаем возврат на стабильный
+        # экран Research. Один RESEARCH_CHECK под модальным окном успехом не считается.
+        self.device.click(GET_ITEMS_RESEARCH_SAVE)
+        return_timeout = Timer(
+            _RESEARCH_REWARD_RETURN_TIMEOUT_SECONDS,
+            count=_RESEARCH_REWARD_RETURN_TIMEOUT_COUNT,
+        ).start()
+        return_confirm = Timer(
+            _RESEARCH_REWARD_RETURN_CONFIRM_SECONDS,
+            count=_RESEARCH_REWARD_RETURN_CONFIRM_COUNT,
+        ).reset()
+        last_research_status = None
+        while 1:
+            self.device.screenshot()
+            popup_button = self.get_items()
+            if popup_button is None and self.is_in_research():
+                last_research_status = self.get_research_status(self.device.image)
+                # `is_research_stabled()` используется навигацией и считает
+                # страницу готовой уже при одном `detail`. После SAVE этого
+                # недостаточно: `get_items()` может временно пропустить ещё
+                # открытый popup, а карточки Research могут быть в переходе.
+                # `get_research_status()` возвращает по одному состоянию для
+                # каждого слота; отсутствие `unknown` — существующий барьер,
+                # который также используется перед продолжением сценария обработки
+                # проекта вне очереди. Два подтверждения подряд относятся к свежим кадрам.
+                if (
+                        isinstance(last_research_status, list)
+                        and len(last_research_status) == len(RESEARCH_STATUS)
+                        and 'unknown' not in last_research_status
+                ):
+                    if return_confirm.reached():
+                        return True
+                else:
+                    return_confirm.reset()
+            else:
+                return_confirm.reset()
 
-        # 关闭 GET_ITEMS_*，返回项目列表
-        self.ui_click(appear_button=self.get_items, click_button=GET_ITEMS_RESEARCH_SAVE,
-                      check_button=self.is_in_research, skip_first_screenshot=True)
-        return True
+            if return_timeout.reached():
+                raise ResearchRewardReturnTimeoutError(
+                    '[Исследование — награда] После SAVE не подтверждён устойчивый экран Research '
+                    f'за {_RESEARCH_REWARD_RETURN_TIMEOUT_SECONDS} с; '
+                    f'фаза=возврат, layout={record_button}, '
+                    f'состояние={last_research_status}'
+                )
 
     def queue_receive(self, skip_first_screenshot=True):
         """
@@ -429,14 +532,14 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
         явного нажатия `GET_ITEMS_RESEARCH_SAVE`. Это не позволяет более
         короткому таймеру окончания очереди оборвать обработку награды.
 
-        Args:
+        Аргументы:
             skip_first_screenshot (bool): Пропустить ли первый снимок экрана.
 
-        Pages:
+        Страницы:
             in: is_in_queue
             out: is_in_queue
 
-        Returns:
+        Результат:
             int: Количество полученных наград исследовательских проектов.
         """
         logger.hr('Получение наград очереди', level=1)
@@ -470,7 +573,7 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
                     if record_button is not None:
                         end_confirm.reset()
                         if item_confirm.reached():
-                            self.drop_record(drop=drop)
+                            self.drop_record(drop=drop, known_button=record_button)
                             self.device.click(GET_ITEMS_RESEARCH_SAVE)
                             item_confirm.reset()
                             record_button = None
@@ -512,14 +615,15 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
 
     def research_project_list_init(self, from_queue=False):
         """
-        处理进入科研列表：重置偏移量并检测项目。
+        Подготавливает список проектов Research: сбрасывает смещение и распознаёт проекты.
 
-        Args:
-            from_queue (bool): 是否从科研队列切换而来，
-                此时已调用过 ensure_research_center_stable()
+        Аргументы:
+            from_queue (bool): выполняется ли переход со страницы очереди; в этом
+                случае ensure_research_center_stable() уже был вызван.
         """
         self._research_project_offset = 0
-        # 处理信息栏，多截一张图以等待 info_bar 残留消退
+        # Обрабатываем информационную панель и делаем дополнительный скриншот,
+        # чтобы дождаться исчезновения остатка info_bar.
         if self.handle_info_bar():
             self.device.screenshot()
         if not from_queue:
@@ -528,18 +632,18 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
 
     def research_queue_append(self, drop=None, add_queue=True):
         """
-        从项目列表中选择一个科研项目并启动。
+        Выбирает и запускает проект Research из списка.
 
-        初始化项目列表、执行筛选和选择，最多尝试 2 次。
-        成功启动后记录已启动的项目对象。
+        Инициализирует список, выполняет фильтрацию и выбор, делая не более двух
+        попыток. После успешного запуска сохраняет объект запущенного проекта.
 
-        Args:
-            drop (DropImage): 掉落记录对象。
-            add_queue (bool): 是否加入队列。
-                第 6 个项目无法加入队列，因此需要此开关。
+        Аргументы:
+            drop (DropImage): объект записи добычи.
+            add_queue (bool): добавить ли проект в очередь.
+                Проект вне очереди нельзя добавить в очередь, поэтому нужен этот флаг.
 
-        Returns:
-            bool: 是否成功启动项目。
+        Результат:
+            bool: успешно ли запущен проект.
         """
         self.research_project_started = None
         project_record = None
@@ -561,12 +665,12 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
 
     def research_fill_queue(self):
         """
-        持续选择科研项目直到队列填满。
+        Выбирает проекты Research, пока очередь не заполнится.
 
-        Returns:
-            int: 加入队列的科研项目数量
+        Результат:
+            int: количество проектов Research, добавленных в очередь.
 
-        Pages:
+        Страницы:
             in: is_in_research
         """
         logger.hr('Заполнение очереди исследований', level=1)
@@ -585,7 +689,7 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
                 else:
                     break
 
-            # 运行第 6 个项目
+            # Запускаем проект вне очереди.
             status = self.get_research_status(self.device.image)
             if 'waiting' not in status:
                 logger.info('[Исследование — шестой] Выбор шестого проекта')
@@ -598,12 +702,12 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
 
     def receive_6th_research(self, skip_first_screenshot=True):
         """
-        Returns:
-            bool: 是否成功
+        Результат:
+            bool: успешно ли обработан проект.
         """
         logger.hr('Получение шестого проекта', level=2)
 
-        # 等待动画
+        # Ждём завершения анимации.
         timeout = Timer(2, count=6).start()
         while 1:
             if skip_first_screenshot:
@@ -616,22 +720,24 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
                 break
 
             status = self.get_research_status(self.device.image)
-            # 项目卡片尚未完全加载
+            # Карточки проектов ещё не загрузились полностью.
             if 'unknown' in status:
                 continue
-            # 进入科研界面时，`waiting`（排队中）项目出现在第 2 位，然后移动到第 3 位
-            # 从队列领取奖励后返回科研界面时，`waiting` 项目出现在第 4 位，然后移动到第 3 位
-            # `waiting`（排队中）项目默认应在第 3 个位置
+            # При входе на страницу Research проект waiting появляется на второй
+            # позиции, а затем перемещается на третью.
+            # После получения награды в очереди проект waiting появляется на
+            # четвёртой позиции, а затем перемещается на третью.
+            # В обычном состоянии проект waiting должен находиться на третьей позиции.
             if 'waiting' in status:
                 if status.index('waiting') == 2:
                     break
                 else:
                     continue
-            # 没有第 6 个科研项目
+            # Проекта вне очереди нет.
             if sum([s == 'detail' for s in status]) == 5:
                 break
 
-        # 检查是否已完成
+        # Проверяем, есть ли завершённый проект.
         if self.research_has_finished():
             logger.info(f'[Исследование — шестой] Шестой проект завершён, позиция: {self._research_finished_index}')
             success = self.research_receive()
@@ -640,7 +746,7 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
         else:
             logger.info('[Исследование — шестой] Завершённых проектов нет')
 
-        # 检查是否处于等待或运行状态
+        # Проверяем состояния waiting и running.
         status = self.get_research_status(self.device.image)
         if 'waiting' in status:
             if self.get_queue_slot() > 0:
@@ -657,15 +763,16 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
 
     def handle_pending_t_research(self):
         """
-        处理挂起的 T 系列委托科研项目。
+        Обрабатывает отложенный проект Research серии T, требующий поручений.
 
-        T 系列科研需要完成委托才能启动。此方法检查是否有待处理的
-        T 系列科研，并尝试启动它。启动成功后将委托数写入配置，
-        由委托任务模块负责完成。
+        Для запуска Research серии T нужно выполнить поручения. Метод проверяет,
+        есть ли такой ожидающий проект, и пытается его запустить. После успешного
+        запуска количество поручений записывается в конфигурацию, а модуль поручений
+        выполняет их.
 
-        Returns:
-            bool: True 表示 T 类科研已处理完毕或无需处理，
-                  False 表示 T 类科研仍在等待中。
+        Результат:
+            bool: True, если Research серии T обработан или отсутствует;
+                  False, если Research серии T всё ещё ожидает.
         """
         if self.config.Research_RemainingCommissions <= -1:
             return True
@@ -687,38 +794,38 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
 
     def run(self):
         """
-        Pages:
-            in: Any page
-            out: page_research, with research project information, but it's still page_research.
-                    or page_main
+        Страницы:
+            in: любая страница;
+            out: page_research с информацией о проектах Research или page_main.
         """
         self.ui_ensure(page_research)
 
-        # 检查队列
+        # Проверяем очередь.
         self.queue_enter()
         self.queue_receive()
         self.end_time = self.get_research_ended()
         self.queue_quit()
 
-        # 处理挂起的T类科研
+        # Обрабатываем отложенный Research серии T.
         if self.handle_pending_t_research():
-            # 检查第 6 个项目（在队列之外）
+            # Проверяем проект вне очереди.
             self.receive_6th_research()
-            # 填充队列
+            # Заполняем очередь.
             self.research_fill_queue()
 
         slot = self.get_queue_slot()
-        # 调度
+        # Планирование.
         if slot == 5:
-            # 队列为空，无法启动任何科研
+            # Очередь пуста; нельзя запустить новый Research.
             self.config.task_delay(server_update=True)
             return
         elif self.end_time <= current_time():
-            # 获取新启动项目的剩余时间
+            # Получаем оставшееся время нового проекта.
             self.queue_enter()
             self.end_time = self.get_research_ended()
             self.queue_quit()
         if slot == 4:
-            # 队列即将为空，因资源不足放弃科研，提前 10 分钟以避免科研闲置
+            # Очередь скоро опустеет; при нехватке ресурсов откладываем Research
+            # на 10 минут, чтобы избежать простоя.
             self.end_time = self.end_time + timedelta(minutes=-10)
         self.config.task_delay(target=self.end_time)

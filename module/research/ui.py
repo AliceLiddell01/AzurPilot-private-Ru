@@ -1,21 +1,21 @@
 """
-科研系统 UI 操作基类。
+Базовые UI-операции системы Research.
 
-本模块提供科研系统的底层 UI 操作，包括：
-- 页面检测：判断当前是否在科研主页或队列页面
-- 页面稳定性等待：等待科研卡片动画完成
-- 队列页面的进入和退出导航
-- 奖励物品的获取和掉落记录
-- 科研项目状态检测：通过模板匹配识别 waiting/running/detail 状态
-- 科研详情页的退出和取消操作
+Модуль предоставляет низкоуровневые UI-операции для Research, включая:
+- определение страницы: главная страница Research или страница очереди;
+- ожидание стабильности страницы: завершение анимации карточек Research;
+- навигацию входа на страницу очереди и выхода с неё;
+- получение наградных предметов и сохранение данных о добыче;
+- определение состояния проектов по шаблонам: waiting/running/detail;
+- выход из карточки проекта и отмену Research.
 
-本模块作为 ResearchSelector、ResearchQueue 和 RewardResearch
-的共同基类，提供统一的 UI 操作接口。
+Модуль является общей базой для ResearchSelector, ResearchQueue и RewardResearch
+и предоставляет им единый интерфейс UI-операций.
 
-术语对照：
-    科研队列(Research Queue): 科研页面中可容纳 5 个排队项目的区域
-    详情页(Detail): 点击科研项目后展开的详细信息页面
-    获取物品界面(Get Items): 领取科研奖励后弹出的物品展示界面
+Термины:
+    Research Queue: область страницы Research, вмещающая 5 проектов очереди;
+    Detail: страница подробностей, открывающаяся после выбора проекта;
+    Get Items: экран с предметами, появляющийся после получения награды Research.
 """
 from module.base.timer import Timer
 from module.base.utils import crop, rgb2gray
@@ -30,58 +30,60 @@ from module.ui.ui import UI
 
 class ResearchUI(UI):
     """
-    科研系统 UI 操作基类，提供科研页面的底层交互方法。
+    Базовые UI-операции Research.
 
-    所有科研相关的 UI 操作（页面检测、稳定性等待、队列导航、
-    奖励领取、状态检测等）封装在此类中，供上层模块组合使用。
+    Все операции UI, связанные с Research — определение страницы, ожидание
+    стабильности, навигация по очереди, получение наград и определение состояния —
+    собраны в этом классе для использования составными модулями верхнего уровня.
 
-    继承自 UI 基类，获得页面导航和通用 UI 操作能力。
+    Наследуется от UI и получает возможности навигации по страницам и общие
+    UI-операции.
     """
     def is_in_research(self, interval=0):
         """
-        检测当前是否在科研主页（项目列表页面）。
+        Проверяет, открыта ли главная страница Research (список проектов).
 
-        Args:
-            interval (int): 按钮检测的时间间隔，0 表示每次都检测。
+        Аргументы:
+            interval (int): интервал проверки кнопки; 0 означает проверять каждый раз.
 
-        Returns:
-            bool: 是否在科研主页。
+        Результат:
+            bool: открыта ли главная страница Research.
         """
         return self.appear(RESEARCH_CHECK, offset=(20, 20), interval=interval)
 
     def is_in_queue(self, interval=0):
         """
-        检测当前是否在科研队列页面。
+        Проверяет, открыта ли страница очереди Research.
 
-        Args:
-            interval (int): 按钮检测的时间间隔，0 表示每次都检测。
+        Аргументы:
+            interval (int): интервал проверки кнопки; 0 означает проверять каждый раз.
 
-        Returns:
-            bool: 是否在科研队列页面。
+        Результат:
+            bool: открыта ли страница очереди Research.
         """
         return self.appear(QUEUE_CHECK, offset=(20, 20), interval=interval)
 
     def ensure_research_stable(self):
         """
-        等待科研项目列表页面的动画稳定。
+        Ожидает завершения анимации списка проектов Research.
 
-        确保科研卡片的切换/加载动画完成后才进行后续操作，
-        避免因动画未完成导致的误检测。
+        Последующие операции выполняются только после завершения анимации
+        переключения или загрузки карточек, чтобы избежать ложного распознавания.
         """
         self.wait_until_stable(STABLE_CHECKER)
 
     def ensure_research_center_stable(self):
         """
-        等待科研项目列表中心区域的动画稳定。
+        Ожидает завершения анимации центральной области списка Research.
 
-        与 ensure_research_stable 类似，但使用中心区域的检测器，
-        适用于从队列页面返回等场景。
+        Подобно ensure_research_stable, но использует проверку центральной области
+        и подходит, например, для возврата со страницы очереди.
         """
         self.wait_until_stable(STABLE_CHECKER_CENTER)
 
     def queue_enter(self, skip_first_screenshot=True):
         """
-        Pages:
+        Страницы:
             in: is_in_research
             out: is_in_queue
         """
@@ -90,9 +92,9 @@ class ResearchUI(UI):
 
     def queue_quit(self):
         """
-        Pages:
+        Страницы:
             in: is_in_queue
-            out: is_in_research, project stabled
+            out: is_in_research, стабильный список проектов
         """
         logger.info('[Исследование — очередь] Выход из очереди')
         for _ in self.loop():
@@ -101,8 +103,9 @@ class ResearchUI(UI):
             if self.is_in_queue(interval=3):
                 self.device.click(BACK_ARROW)
                 continue
-            # handle get_items
-            # get_items should be handled when receiving, but sometimes just slow network
+            # Обрабатываем get_items.
+            # Обычно get_items обрабатывается во время получения награды, но сеть
+            # иногда отвечает с задержкой.
             if self.appear(GET_ITEMS_1, offset=(20, 20), interval=3):
                 logger.info(f'[Исследование — очередь] {GET_ITEMS_1} -> {GET_ITEMS_RESEARCH_SAVE}')
                 self.device.click(GET_ITEMS_RESEARCH_SAVE)
@@ -115,27 +118,27 @@ class ResearchUI(UI):
         self.ensure_research_center_stable()
 
     def get_items(self):
-        """
-        Returns:
-            Button:
-        """
+        """Возвращает кнопку текущего окна получения предметов или None."""
         if self.appear(GET_ITEMS_3, offset=(5, 5)):
             if self.image_color_count(GET_ITEMS_3_CHECK, color=(255, 255, 255), threshold=221, count=100):
                 return GET_ITEMS_3
             else:
                 return GET_ITEMS_2
+        if self.appear(GET_ITEMS_2, offset=(5, 5)):
+            return GET_ITEMS_2
         if self.appear(GET_ITEMS_1, offset=(5, 5)):
             return GET_ITEMS_1
         return None
 
-    def drop_record(self, drop):
+    def drop_record(self, drop, known_button=None):
         """
-        Args:
+        Аргументы:
             drop (DropRecord):
+            known_button (Button | None): Уже подтверждённый тип окна награды.
         """
         if not drop:
             return
-        button = self.get_items()
+        button = known_button if known_button is not None else self.get_items()
         if button == GET_ITEMS_1 or button == GET_ITEMS_2:
             drop.add(self.device.image)
         elif button == GET_ITEMS_3:
@@ -150,11 +153,11 @@ class ResearchUI(UI):
 
     def get_research_status(self, image):
         """
-        Args:
-            image: Screenshot
+        Аргументы:
+            image: скриншот.
 
-        Returns:
-            list[str]: List of project status
+        Результат:
+            list[str]: список состояний проектов.
         """
         out = []
         for index, status, scaling in zip(range(5), RESEARCH_STATUS, RESEARCH_SCALING):
@@ -174,24 +177,25 @@ class ResearchUI(UI):
 
     def is_research_stabled(self):
         """
-        检测科研主页是否已稳定（无动画进行中）。
+        Проверяет, стабильна ли главная страница Research без анимации.
 
-        通过检测是否存在 'detail' 状态的项目来判断页面是否已加载完成。
+        Страница считается загруженной, если на ней есть проект в состоянии
+        'detail'.
 
-        Returns:
-            bool: 科研主页是否已稳定。
+        Результат:
+            bool: стабильна ли главная страница Research.
         """
         return self.is_in_research() and 'detail' in self.get_research_status(self.device.image)
 
     def research_detail_quit(self, skip_first_screenshot=True):
         """
-        从科研详情页退回科研主页。
+        Возвращается со страницы деталей проекта на главную страницу Research.
 
-        点击详情页的退出按钮，等待回到稳定的项目列表页面。
-        不取消正在进行的科研项目。
+        Нажимает кнопку выхода и ждёт стабильного списка проектов. Выполняющийся
+        проект при этом не отменяется.
 
-        Args:
-            skip_first_screenshot (bool): 是否跳过首次截图。
+        Аргументы:
+            skip_first_screenshot (bool): пропустить ли первый скриншот.
         """
         logger.info('[Исследование — детали] Выход из деталей проекта')
         click_timer = Timer(10)
@@ -213,13 +217,13 @@ class ResearchUI(UI):
 
     def research_detail_cancel(self, skip_first_screenshot=True):
         """
-        取消正在进行的科研项目并退回科研主页。
+        Отменяет выполняющийся проект Research и возвращается на главную страницу.
 
-        点击停止按钮取消当前项目，确认弹窗后等待回到稳定的项目列表页面。
-        与 research_detail_quit 不同，此方法会取消正在运行的科研。
+        Нажимает кнопку остановки, подтверждает диалог и ждёт стабильного списка
+        проектов. В отличие от research_detail_quit, этот метод отменяет Research.
 
-        Args:
-            skip_first_screenshot (bool): 是否跳过首次截图。
+        Аргументы:
+            skip_first_screenshot (bool): пропустить ли первый скриншот.
         """
         logger.info('[Исследование — детали] Отмена проекта')
         while 1:
