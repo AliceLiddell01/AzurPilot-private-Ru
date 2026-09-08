@@ -1,18 +1,18 @@
 """
-科研队列管理。
+Управление очередью Research.
 
-本模块管理科研系统的队列功能，包括：
-- 将已启动的科研项目添加到队列
-- 检测队列中各槽位的状态（已完成/运行中/等待中/空）
-- 领取队列中已完成项目的奖励
-- 获取队列中第一个项目的剩余时间和预计完成时间
+Модуль управляет очередью системы Research, включая:
+- добавление запущенных проектов в очередь;
+- определение состояния каждого слота (завершён, выполняется, ожидает, пуст);
+- получение наград завершённых проектов очереди;
+- получение оставшегося времени и расчёт ожидаемого завершения первого проекта.
 
-科研队列最多容纳 5 个项目，采用 FIFO 顺序运行。
-队列中第一个项目运行完成后，等待中的项目自动开始。
+Очередь Research вмещает не более 5 проектов и работает в порядке FIFO.
+После завершения первого проекта ожидающий проект запускается автоматически.
 
-术语对照：
-    科研队列(Research Queue): 最多容纳 5 个排队项目的队列
-    槽位(Slot): 队列中的位置，从下到上编号 0-4
+Термины:
+    Research Queue: очередь не более чем из 5 проектов;
+    Slot: позиция в очереди, нумерация снизу вверх от 0 до 4.
 """
 import re
 from datetime import timedelta
@@ -53,27 +53,29 @@ def _parse_queue_remain_duration(text):
 
 class ResearchQueue(ResearchUI):
     """
-    科研队列管理器，负责队列操作和状态检测。
+    Менеджер очереди Research, отвечающий за операции и определение состояния.
 
-    提供队列项目的添加、状态检测、奖励领取和时间查询等功能。
-    通过颜色检测识别队列左侧的状态图标来判断各槽位状态。
+    Предоставляет добавление проектов в очередь, определение состояния, получение
+    наград и чтение времени. Состояние слотов определяется по цвету значков слева
+    от очереди.
 
-    Attributes:
-        queue_status_grids (ButtonGrid): 队列状态图标的按钮网格，
-            因各服务器 UI 布局差异，通过 @Config.when 按服务器分别定义。
+    Атрибуты:
+        queue_status_grids (ButtonGrid): сетка кнопок значков состояния очереди.
+            Из-за различий UI серверов свойство определяется отдельно через
+            @Config.when для каждого сервера.
     """
     def research_queue_add(self, skip_first_screenshot=True):
         """
-        Returns:
-            bool: True if success to add to queue,
-                False if project requirements not satisfied, can't be added to queue
+        Результат:
+            bool: True, если проект добавлен в очередь; False, если условия проекта
+                не выполнены и добавить его нельзя.
 
-        Pages:
+        Страницы:
             in: RESEARCH_QUEUE_ADD (is_in_research, DETAIL_NEXT)
-            out: is_in_research and stabled
+            out: is_in_research и стабильный список проектов
         """
         logger.hr('Добавление в очередь исследований')
-        # POPUP_CONFIRM has just been clicked in research_project_start()
+        # POPUP_CONFIRM только что нажата в research_project_start().
         self.popup_interval_clear()
         self.interval_clear([RESEARCH_QUEUE_ADD])
         while 1:
@@ -82,7 +84,7 @@ class ResearchQueue(ResearchUI):
             else:
                 self.device.screenshot()
 
-            # End
+            # Завершение.
             if self.is_research_stabled():
                 break
 
@@ -104,14 +106,14 @@ class ResearchQueue(ResearchUI):
 
     def _research_queue_add_available(self):
         """
-        Returns:
-            bool: True if able add to queue,
-                False if project requirements not satisfied, can't be added to queue
+        Результат:
+            bool: True, если проект можно добавить в очередь; False, если условия
+                проекта не выполнены и добавить его нельзя.
         """
-        # RESEARCH_QUEUE_ADD.area is the letter `Queue`
-        # RESEARCH_QUEUE_ADD.button is the entire clickable area of button
-        # Available: (90, 142, 203)
-        # Unavailable: (153, 160, 170)
+        # RESEARCH_QUEUE_ADD.area — область текста Queue.
+        # RESEARCH_QUEUE_ADD.button — вся кликабельная область кнопки.
+        # Доступное состояние: (90, 142, 203).
+        # Недоступное состояние: (153, 160, 170).
         r, g, b = get_color(self.device.image, RESEARCH_QUEUE_ADD.button)
         if b - min(r, g) > 60:
             return True
@@ -128,7 +130,7 @@ class ResearchQueue(ResearchUI):
     @Config.when(SERVER='en')
     def queue_status_grids(self):
         """
-        Status icons on the left
+        Значки состояния слева.
         """
         return ButtonGrid(
             origin=(8, 259), delta=(0, 40.5), button_shape=(25, 25), grid_shape=(1, 5), name='QUEUE_STATUS')
@@ -137,7 +139,7 @@ class ResearchQueue(ResearchUI):
     @Config.when(SERVER='jp')
     def queue_status_grids(self):
         """
-        Status icons on the left
+        Значки состояния слева.
         """
         return ButtonGrid(
             origin=(18, 259), delta=(0, 40.5), button_shape=(25, 25), grid_shape=(1, 5), name='QUEUE_STATUS')
@@ -146,7 +148,7 @@ class ResearchQueue(ResearchUI):
     @Config.when(SERVER='tw')
     def queue_status_grids(self):
         """
-        Status icons on the left
+        Значки состояния слева.
         """
         return ButtonGrid(
             origin=(8, 259), delta=(0, 40.5), button_shape=(25, 25), grid_shape=(1, 5), name='QUEUE_STATUS')
@@ -155,22 +157,22 @@ class ResearchQueue(ResearchUI):
     @Config.when(SERVER=None)
     def queue_status_grids(self):
         """
-        Status icons on the left
+        Значки состояния слева.
         """
         return ButtonGrid(
             origin=(18, 259), delta=(0, 40.5), button_shape=(25, 25), grid_shape=(1, 5), name='QUEUE_STATUS')
 
     def _queue_status_detect(self, button):
         """
-        Args:
-            button: Button of status icon
+        Аргументы:
+            button: кнопка значка состояния.
 
-        Returns:
+        Результат:
             str:
-                'finished': Orange ✓ surrounded by orange border
-                'running': Black ✓ surrounded by research progress, gray and blue
-                'waiting': Gray … surrounded by gray border
-                'empty': Black … surrounded by black border or just nothing
+                'finished': оранжевая галочка в оранжевой рамке;
+                'running': чёрная галочка на фоне хода Research, серого и синего;
+                'waiting': серое многоточие в серой рамке;
+                'empty': чёрное многоточие в чёрной рамке или отсутствие значка.
         """
         center = button.crop((7, 7, 21, 21))
         if self.image_color_count(center, color=(255, 158, 57), threshold=180, count=20):
@@ -188,10 +190,10 @@ class ResearchQueue(ResearchUI):
 
     def get_queue_slot(self):
         """
-        Returns:
-            int: Number of empty slots in queue
+        Результат:
+            int: количество пустых слотов очереди.
 
-        Pages:
+        Страницы:
             in: is_in_queue
         """
         status = [self._queue_status_detect(button) for button in self.queue_status_grids.buttons]
@@ -227,13 +229,13 @@ class ResearchQueue(ResearchUI):
 
     def get_research_ended(self):
         """
-        Returns:
-            datetime: Time of the end of the first research in the queue.
+        Результат:
+            datetime: время завершения первого проекта в очереди.
 
-        Pages:
+        Страницы:
             in: is_in_queue
 
-        Raises:
+        Выбрасывает:
             ResearchQueueStateError:
         """
         now = current_time()

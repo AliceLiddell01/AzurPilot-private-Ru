@@ -24,7 +24,10 @@ from module.research.rqueue import (
     _QUEUE_REMAIN_OCR_ATTEMPTS,
     _QUEUE_REMAIN_OCR_RECHECK_DELAY,
 )
+from module.research.assets import RESEARCH_START, RESEARCH_STOP
+from module.research.selector import RESEARCH_ENTRANCE
 from module.research.ui import ResearchUI
+from module.ui.assets import RESEARCH_CHECK
 
 
 def _queue_with_device():
@@ -61,35 +64,10 @@ class _ResearchDrop:
         self.images.clear()
 
 
-_TIMER_SPECS = (
-    (
-        'popup_timeout',
-        research_module._RESEARCH_REWARD_POPUP_TIMEOUT_SECONDS,
-        research_module._RESEARCH_REWARD_POPUP_TIMEOUT_COUNT,
-    ),
-    (
-        'popup_confirm',
-        research_module._RESEARCH_REWARD_POPUP_STABILIZATION_SECONDS,
-        research_module._RESEARCH_REWARD_POPUP_STABILIZATION_COUNT,
-    ),
-    (
-        'return_timeout',
-        research_module._RESEARCH_REWARD_RETURN_TIMEOUT_SECONDS,
-        research_module._RESEARCH_REWARD_RETURN_TIMEOUT_COUNT,
-    ),
-    (
-        'return_confirm',
-        research_module._RESEARCH_REWARD_RETURN_CONFIRM_SECONDS,
-        research_module._RESEARCH_REWARD_RETURN_CONFIRM_COUNT,
-    ),
-)
-
-
 class _FastResearchTimer:
     thresholds = {
-        'popup_timeout': 999,
+        'timeout': 999,
         'popup_confirm': 3,
-        'return_timeout': 999,
         'return_confirm': 2,
     }
     created = []
@@ -98,14 +76,39 @@ class _FastResearchTimer:
         self.limit = limit
         self.count = count
         self.calls = 0
-        try:
-            self.role, expected_limit, expected_count = _TIMER_SPECS[len(self.created)]
-        except IndexError as error:
-            raise AssertionError(f'Неожиданные параметры Timer: limit={limit}, count={count}') from error
-        if (limit, count) != (expected_limit, expected_count):
-            raise AssertionError(
-                f'Неожиданные параметры Timer для {self.role}: limit={limit}, count={count}'
-            )
+        parameters = (limit, count)
+        popup_timeout = (
+            research_module._RESEARCH_REWARD_POPUP_TIMEOUT_SECONDS,
+            research_module._RESEARCH_REWARD_POPUP_TIMEOUT_COUNT,
+        )
+        return_timeout = (
+            research_module._RESEARCH_REWARD_RETURN_TIMEOUT_SECONDS,
+            research_module._RESEARCH_REWARD_RETURN_TIMEOUT_COUNT,
+        )
+        popup_confirm = (
+            research_module._RESEARCH_REWARD_POPUP_STABILIZATION_SECONDS,
+            research_module._RESEARCH_REWARD_POPUP_STABILIZATION_COUNT,
+        )
+        return_confirm = (
+            research_module._RESEARCH_REWARD_RETURN_CONFIRM_SECONDS,
+            research_module._RESEARCH_REWARD_RETURN_CONFIRM_COUNT,
+        )
+        if parameters == popup_timeout or parameters == return_timeout:
+            self.role = 'timeout'
+            max_instances = int(parameters == popup_timeout) + int(parameters == return_timeout)
+        elif parameters == popup_confirm:
+            self.role = 'popup_confirm'
+            max_instances = 1
+        elif parameters == return_confirm:
+            self.role = 'return_confirm'
+            max_instances = 1
+        else:
+            raise AssertionError(f'Неожиданные параметры Timer: limit={limit}, count={count}')
+        created_with_parameters = sum(
+            (timer.limit, timer.count) == parameters for timer in self.created
+        )
+        if created_with_parameters >= max_instances:
+            raise AssertionError(f'Слишком много Timer с параметрами: limit={limit}, count={count}')
         self.created.append(self)
 
     def start(self):
@@ -178,13 +181,128 @@ def _reward_research_harness(get_items_values, statuses=None):
 def _reset_fast_research_timer(monkeypatch, **thresholds):
     _FastResearchTimer.created = []
     _FastResearchTimer.thresholds = {
-        'popup_timeout': 999,
+        'timeout': 999,
         'popup_confirm': 3,
-        'return_timeout': 999,
         'return_confirm': 2,
         **thresholds,
     }
     monkeypatch.setattr(research_module, 'Timer', _FastResearchTimer)
+
+
+class _IncidentResearchHarness:
+    """Явная машина состояний для перехода из Research в окно награды."""
+
+    def __init__(self, finished_index=1):
+        self.finished_index = finished_index
+        self.expected_entrance = RESEARCH_ENTRANCE[finished_index]
+        self.phase = 'underlay'
+        self.screenshots = []
+        self.post_save_screenshots = []
+        self.clicks = []
+        self.entrance_clicks = []
+        self.save_clicks = []
+        self.get_items_calls = []
+        self.appear_calls = []
+        self.popup_appear_calls = []
+        self.return_appear_calls = []
+        self.research_has_finished_calls = 0
+        self.research_detail_quit_calls = 0
+        self.drop_layouts = []
+        self.status_calls = []
+        self.drop = _ResearchDrop()
+        self._popup_values = iter([GET_ITEMS_1, None, None, None])
+        self._return_values = iter([None, None, None])
+        self._return_statuses = iter([
+            ['unknown'] * len(research_module.RESEARCH_STATUS),
+            ['detail'] * len(research_module.RESEARCH_STATUS),
+            ['detail'] * len(research_module.RESEARCH_STATUS),
+        ])
+
+        self.research = object.__new__(RewardResearch)
+        self.research._research_finished_index = finished_index
+        self.research.device = SimpleNamespace(
+            image=np.zeros((720, 1280, 3), dtype=np.uint8),
+            screenshot=self.screenshot,
+            click=self.click,
+        )
+        self.research.config = SimpleNamespace(DropRecord_ResearchRecord=True)
+        self.research.stat = SimpleNamespace(new=lambda **kwargs: self.drop)
+        self.research.get_items = self.get_items
+        self.research.is_in_research = self.is_in_research
+        self.research.get_research_status = self.get_research_status
+        self.research.appear = self.appear
+        self.research.research_has_finished = self.research_has_finished
+        self.research.research_detail_quit = self.research_detail_quit
+        self.research.drop_record = self.drop_record
+
+    def screenshot(self):
+        if self.phase == 'entrance_pending':
+            self.phase = 'popup'
+        self.screenshots.append(self.phase)
+        if self.phase == 'return':
+            self.post_save_screenshots.append(self.phase)
+
+    def click(self, button):
+        self.clicks.append(button)
+        if button is self.expected_entrance:
+            self.entrance_clicks.append(button)
+            self.phase = 'entrance_pending'
+        elif button is research_module.GET_ITEMS_RESEARCH_SAVE:
+            self.save_clicks.append(button)
+            self.phase = 'return'
+        else:
+            raise AssertionError(f'Неожиданный клик в тестовом стенде: {button}')
+
+    def get_items(self):
+        if self.phase in ('underlay', 'entrance_pending'):
+            value = None
+        elif self.phase == 'popup':
+            try:
+                value = next(self._popup_values)
+            except StopIteration:
+                value = None
+        elif self.phase == 'return':
+            try:
+                value = next(self._return_values)
+            except StopIteration:
+                value = None
+        else:
+            raise AssertionError(f'Неизвестная фаза тестового стенда: {self.phase}')
+        self.get_items_calls.append((self.phase, value))
+        return value
+
+    def appear(self, button, **kwargs):
+        self.appear_calls.append((button, self.phase))
+        if self.phase == 'popup':
+            self.popup_appear_calls.append(button)
+        elif self.phase == 'return':
+            self.return_appear_calls.append(button)
+        return self.phase == 'underlay' and button is RESEARCH_CHECK
+
+    def is_in_research(self):
+        return self.phase == 'return'
+
+    def get_research_status(self, image):
+        try:
+            status = next(self._return_statuses)
+        except StopIteration:
+            status = self.status_calls[-1]
+        self.status_calls.append(status)
+        return status
+
+    def research_has_finished(self):
+        assert self.phase == 'underlay'
+        self.research_has_finished_calls += 1
+        self.research._research_finished_index = self.finished_index
+        return True
+
+    def research_detail_quit(self):
+        self.research_detail_quit_calls += 1
+        raise AssertionError('Под окном награды нельзя закрывать экран деталей')
+
+    def drop_record(self, drop, known_button=None):
+        self.drop_layouts.append(known_button)
+        assert known_button is GET_ITEMS_1
 
 
 def test_queue_duration_parser_rejects_missing_ocr_digit():
@@ -369,6 +487,44 @@ def test_research_receive_tracks_layout_transition_and_saves_once(monkeypatch):
     assert appear_calls == []
 
 
+def test_research_receive_reproduces_incident_transition(monkeypatch):
+    harness = _IncidentResearchHarness(finished_index=1)
+    _reset_fast_research_timer(monkeypatch)
+
+    assert harness.research.research_receive() is True
+
+    assert harness.entrance_clicks == [harness.expected_entrance]
+    assert harness.clicks == [harness.expected_entrance, research_module.GET_ITEMS_RESEARCH_SAVE]
+    assert harness.save_clicks == [research_module.GET_ITEMS_RESEARCH_SAVE]
+    assert harness.screenshots[:4] == ['popup'] * 4
+    assert harness.get_items_calls == [
+        ('underlay', None),
+        ('popup', GET_ITEMS_1),
+        ('popup', None),
+        ('popup', None),
+        ('popup', None),
+        ('return', None),
+        ('return', None),
+        ('return', None),
+    ]
+    assert harness.appear_calls == [(RESEARCH_CHECK, 'underlay')]
+    assert not any(
+        button is underlay_button
+        for button in harness.popup_appear_calls
+        for underlay_button in (RESEARCH_CHECK, RESEARCH_START, RESEARCH_STOP)
+    )
+    assert harness.return_appear_calls == []
+    assert harness.research_has_finished_calls == 1
+    assert harness.research_detail_quit_calls == 0
+    assert harness.drop_layouts == [GET_ITEMS_1]
+    assert harness.post_save_screenshots == ['return', 'return', 'return']
+    assert harness.status_calls == [
+        ['unknown'] * len(research_module.RESEARCH_STATUS),
+        ['detail'] * len(research_module.RESEARCH_STATUS),
+        ['detail'] * len(research_module.RESEARCH_STATUS),
+    ]
+
+
 def test_research_receive_keeps_popup_owned_across_detector_misses(monkeypatch):
     research, clicks, known_buttons, appear_calls, _ = _reward_research_harness([
         GET_ITEMS_1,
@@ -391,7 +547,7 @@ def test_research_receive_popup_timeout_is_research_specific(monkeypatch):
     research, clicks, _, _, _ = _reward_research_harness([
         GET_ITEMS_1,
     ])
-    _reset_fast_research_timer(monkeypatch, popup_timeout=3, popup_confirm=999)
+    _reset_fast_research_timer(monkeypatch, timeout=3, popup_confirm=999)
 
     with pytest.raises(ResearchRewardPopupTimeoutError, match='фаза=стабилизация'):
         research.research_receive()
@@ -399,7 +555,7 @@ def test_research_receive_popup_timeout_is_research_specific(monkeypatch):
     assert clicks == []
 
 
-def test_research_receive_does_not_accept_unknown_return_state(monkeypatch):
+def test_research_receive_requires_stable_known_return_frames(monkeypatch):
     research, clicks, _, _, _ = _reward_research_harness(
         [
             GET_ITEMS_1,
@@ -411,7 +567,7 @@ def test_research_receive_does_not_accept_unknown_return_state(monkeypatch):
             None,
         ],
         statuses=[
-            ['unknown'] * len(research_module.RESEARCH_STATUS),
+            ['detail'] * len(research_module.RESEARCH_STATUS),
             ['unknown'] * len(research_module.RESEARCH_STATUS),
             ['detail'] * len(research_module.RESEARCH_STATUS),
             ['detail'] * len(research_module.RESEARCH_STATUS),
@@ -429,6 +585,43 @@ def test_research_receive_does_not_accept_unknown_return_state(monkeypatch):
     assert len(status_calls) == 4
 
 
+def test_research_receive_resets_return_confirmation_when_popup_reappears(monkeypatch):
+    research, clicks, _, _, _ = _reward_research_harness(
+        [
+            GET_ITEMS_1,
+            GET_ITEMS_1,
+            GET_ITEMS_1,
+            GET_ITEMS_1,
+            None,
+            GET_ITEMS_1,
+            None,
+            None,
+        ],
+        statuses=[['detail'] * len(research_module.RESEARCH_STATUS)] * 3,
+    )
+    get_items_values = []
+    get_items = research.get_items
+
+    def tracked_get_items():
+        value = get_items()
+        get_items_values.append(value)
+        return value
+
+    research.get_items = tracked_get_items
+    status_calls = []
+    get_research_status = research.get_research_status
+    research.get_research_status = lambda image: (
+        status_calls.append(True) or get_research_status(image)
+    )
+    _reset_fast_research_timer(monkeypatch)
+
+    assert research.research_receive() is True
+
+    assert clicks == [research_module.GET_ITEMS_RESEARCH_SAVE]
+    assert get_items_values[-4:] == [None, GET_ITEMS_1, None, None]
+    assert len(status_calls) == 3
+
+
 def test_research_receive_return_timeout_is_research_specific(monkeypatch):
     research, clicks, _, _, _ = _reward_research_harness([
         GET_ITEMS_1,
@@ -436,7 +629,7 @@ def test_research_receive_return_timeout_is_research_specific(monkeypatch):
         GET_ITEMS_1,
         GET_ITEMS_1,
     ], statuses=[['unknown'] * len(research_module.RESEARCH_STATUS)])
-    _reset_fast_research_timer(monkeypatch, return_timeout=3, return_confirm=999)
+    _reset_fast_research_timer(monkeypatch, timeout=4, return_confirm=999)
 
     with pytest.raises(ResearchRewardReturnTimeoutError, match='фаза=возврат'):
         research.research_receive()
