@@ -393,6 +393,7 @@ def test_research_project_start_failure_uses_domain_exception(monkeypatch):
     research.popup_interval_clear = lambda: None
     research.image_crop = lambda *args, **kwargs: np.zeros((1, 1, 3), dtype=np.uint8)
     research.is_in_research = lambda: True
+    research.ensure_research_stable = lambda: None
     research.appear_then_click = lambda *args, **kwargs: False
     research.handle_popup_confirm = lambda *args, **kwargs: False
     research.appear = lambda *args, **kwargs: False
