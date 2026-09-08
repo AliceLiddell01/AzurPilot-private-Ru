@@ -46,6 +46,7 @@ class SchedulerContinuationTests(unittest.TestCase):
         with (
             patch('module.config.utils.is_oobe_needed', return_value=False),
             patch('alas.del_cached_property'),
+            patch('alas.logger.set_file_logger'),
             patch.object(script, 'get_next_task', side_effect=['TaskA', 'TaskB', SystemExit]),
             patch.object(script, 'run', side_effect=['recoverable', True]) as run_task,
             patch('alas.handle_notify'),
@@ -74,6 +75,7 @@ class SchedulerContinuationTests(unittest.TestCase):
         with (
             patch('module.config.utils.is_oobe_needed', return_value=False),
             patch('alas.del_cached_property'),
+            patch('alas.logger.set_file_logger'),
             patch.object(script, 'get_next_task', return_value='TaskA') as get_next_task,
             patch.object(script, 'run', side_effect=fail_with_transport_loss) as run_task,
             patch('alas.handle_notify'),

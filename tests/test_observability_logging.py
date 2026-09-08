@@ -504,13 +504,7 @@ def test_set_file_logger_keeps_canonical_profile_separate_from_filename(tmp_path
     diagnostic_log_file_before = logger_module.logger.diagnostic_log_file
     failure_target_before = logger_module.diagnostic_hdlr._failure_target
     try:
-        with patch.object(
-            logger_module.multiprocessing,
-            "current_process",
-            return_value=type("Process", (), {"name": "LoggingTestProcess"})(),
-        ), patch.object(
-            observability, "configure_application_observability"
-        ) as configure:
+        with patch.object(observability, "configure_application_observability") as configure:
             logger_module.set_file_logger(name="farm_main", log_dir=tmp_path)
 
         configure.assert_called_once_with(

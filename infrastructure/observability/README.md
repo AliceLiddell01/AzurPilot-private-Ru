@@ -270,15 +270,14 @@ docker compose --env-file ../../.env config проверяет итоговую 
 неожиданного host binding. pull загружает зафиксированные образы после чистого
 clone. Повторный up -d должен быть идемпотентным.
 
-Для штатной остановки выполните:
+Для остановки только observability выполните:
 
-    docker compose --env-file ../../.env stop
-    docker compose --env-file ../../.env start
+    docker compose --env-file ../../.env stop alloy loki prometheus tempo grafana
+    docker compose --env-file ../../.env start loki prometheus tempo alloy grafana
 
-Не используйте docker compose --env-file ../../.env down -v: volumes содержат
-накопленные данные. Если нужно удалить сам Compose-контур без данных,
-используйте docker compose --env-file ../../.env down; volumes и их содержимое
-останутся доступными для последующего запуска.
+Общий `compose down`, `down -v`, удаление или пересоздание volumes запрещены
+для observability maintenance: этот проект также обслуживает PostgreSQL,
+pgAdmin и Caddy. Управляйте только явно выбранными services.
 
 ## Хранилище и retention
 
@@ -287,6 +286,65 @@ storage в своих named volumes; Prometheus хранит TSDB в отдел�
 Retention ограничен 7 днями для Loki и Tempo и 15 днями для Prometheus.
 Эти настройки предназначены для локального контура и могут быть заменены
 deployment-specific override без изменения service topology.
+
+### Reliability policy и bounded recovery
+
+Игровой runtime не зависит от доставки telemetry. `RuntimeStateStore` и exact
+worker identity определяют execution через Game MCP; очереди scheduler, Loki и
+traces не являются доказательством текущей игровой задачи.
+
+Alloy использует bounded in-memory queue по 16 MiB для каждого OTLP logs/traces
+exporter, два consumers и retry с backoff 5–30 секунд в течение 5 минут.
+`block_on_overflow=false` сохраняет fail-open поведение: при переполнении новый
+batch отклоняется и локальные file/incident artifacts остаются доступными.
+После restart Alloy неподтверждённые logs/traces не обещают durable replay.
+Preview `otelcol.storage.file` намеренно не включён.
+
+`prometheus.remote_write.local` сохраняет metrics в существующий WAL volume
+`azurpilot-observability_alloy-data`; `truncate_frequency=2h`,
+`min_keepalive_time=5m`, `max_keepalive_time=8h`. Это bounded age window:
+после него backlog может быть потерян. Loki retention — 7 дней с TSDB/v13,
+24-часовым индексом, singleton Compactor и persistent delete markers. Tempo
+blocks — 7 дней в `/var/tempo`; Prometheus TSDB — 15 дней в `/prometheus`.
+Оставляйте не менее 20% свободного Docker filesystem для compaction. Размер
+очереди и WAL контролируйте по internal metrics и volume usage; fixed
+machine-specific `retention.size` не задаётся.
+
+Internal metrics Alloy (`otelcol_exporter_queue_size`,
+`otelcol_exporter_queue_capacity`, enqueue/send failures,
+`otelcol_receiver_refused_*`, remote-write pending/retries/WAL и RSS) доступны
+через его loopback admin endpoint внутри Compose network. Отсутствующая failure
+series не считается нулём: она появляется после соответствующего события.
+
+Для воспроизводимой проверки используйте canonical tooling:
+
+    uv run --locked --no-sync python -m dev_tools.infrastructure_doctor observability
+    uv run --locked --no-sync python -m dev_tools.observability_reliability inventory
+    uv run --locked --no-sync python -m dev_tools.observability_reliability metrics
+    uv run --locked --no-sync python -m dev_tools.observability_reliability outage --services tempo --output artifacts/observability/tempo
+
+Harness сначала создаёт unique marker настоящим application OTel bootstrap и
+общей scheduler telemetry boundary, затем проверяет Loki/Prometheus/Tempo,
+local log, incident metadata и correlation trace ID. Он допускает только
+`alloy`, `loki`, `prometheus`, `tempo`, `grafana`, пишет recovery journal до
+первого stop, фиксирует container IDs/volumes и в `finally` запускает только
+сервисы, изменённые этим запуском. PostgreSQL, Caddy и pgAdmin сверяются с
+baseline и не останавливаются; `compose down`, `down -v`, удаление и
+пересоздание volumes запрещены.
+
+Матрица включает отдельные outages `tempo`, `loki`, `prometheus`, `grafana`,
+`alloy` и одновременный outage всех пяти services. Для Loki/Tempo остальные
+signals продолжают поступать, после recovery queued и fresh markers доступны;
+Prometheus догоняет WAL. При Alloy проверяются local fallback и новые события
+после recovery, без backfill уже отброшенных SDK данных. При Grafana direct
+backend ingestion продолжается, а Grafana MCP failure ожидаем; после recovery
+проверяются datasources, PromQL, LogQL и Tempo trace reads через
+`azurpilot-observability`.
+
+Нельзя прерывать host/Docker во время outage. Если процесс был прерван, не
+удаляйте `recovery.json`: восстановите только его `attempted` container IDs,
+сверьте прежние volumes и повторите health/inventory. Synthetic boundary не
+исполняет игровую задачу и не заменяет отдельную live game acceptance.
 
 ## Подключение application logs
 
@@ -510,14 +568,27 @@ exemplar в Prometheus TSDB; текущий synthetic check не обнаруж�
 После изменения provisioning нужно перезапустить Grafana или выполнить
 поддержанный Admin API reload, затем автоматически проверить dashboard UIDs,
 alert provenance, datasource UID и каждую panel query через Grafana API.
-Чистый `docker compose down` без удаления named volumes и последующий `up`
+Остановка и запуск только observability services с прежними named volumes
 должны восстановить тот же operator UX.
 
-Исторические `log/`-артефакты не импортируются и не удаляются. `log/error/`
+Исторические `log/`-артефакты не импортируются. `log/error/`
 остаётся локальным incident store со скриншотами и `log.txt`, диагностические и
 архивные каталоги сохраняются, CSV/JSON относятся к data/export или legacy
 storage и не считаются application logs. Скриншоты и object-store слой в этот
-контур не отправляются.
+контур не отправляются. `Error_SaveErrorCount` ограничивает число каталогов
+incident-а для каждого profile, `DiagnosticContextHandler` хранит ограниченный
+ring и ротацию, а `RichTimedRotatingHandler` применяет `LogKeepCount` и
+`LogBackUpMethod` к архивам `bak/`. Producer-ы `device_id.json` и
+`azurstat_meowofficer_farming.csv` остаются data/storage paths; они не маскируются
+под telemetry logs. Импорт logger и изолированный worker-registry smoke не
+создают новых файлов с именами случайных process/test helpers. Накопленные в
+корне `log/` файлы отсутствующих ролей, включая `*_registryclaim<PID>.txt`,
+`*_probe.txt`, `*_test.txt`, пустые process names и старые smoke artifacts,
+удалены отдельной локальной retention policy после явного разрешения
+пользователя. Из `diagnostic/` и `bak/` удалена только история отсутствующих
+ролей; текущие `alas`/`ap` runtime logs, их bounded diagnostic/rotation
+fallback, `log/error/` и data/export paths сохранены. Неизвестные или активные
+артефакты по-прежнему не удаляются автоматически.
 
 Portable base Compose не содержит Windows drive letters, WSL paths,
 host.docker.internal, захардкоженные IP, host networking или публичные

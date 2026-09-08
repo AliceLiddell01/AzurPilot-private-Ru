@@ -1,7 +1,4 @@
 from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import patch
-
 import module.logger as logger_module
 
 _OTEL_ENDPOINT_ENVIRONMENT_KEYS = (
@@ -20,15 +17,10 @@ def test_configured_rich_handlers_hide_traceback_locals(tmp_path, monkeypatch):
     log_file_before = logger_module.logger.log_file
     diagnostic_log_file_before = logger_module.logger.diagnostic_log_file
     failure_target_before = logger_module.diagnostic_hdlr._failure_target
-    with patch.object(
-        logger_module.multiprocessing,
-        "current_process",
-        return_value=SimpleNamespace(name="LoggingTestProcess"),
-    ):
-        logger_module.set_file_logger(
-            name="handler-contract",
-            log_dir=Path(tmp_path),
-        )
+    logger_module.set_file_logger(
+        name="handler-contract",
+        log_dir=Path(tmp_path),
+    )
     assert logger_module.console_hdlr.tracebacks_show_locals is False
 
     file_handlers = [

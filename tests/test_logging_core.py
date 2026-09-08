@@ -5,7 +5,6 @@ import threading
 import unittest
 from io import StringIO
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import module.logger as logger_module
@@ -32,17 +31,11 @@ class TestLoggingRouting(unittest.TestCase):
         for key in _OTEL_ENDPOINT_ENVIRONMENT_KEYS:
             os.environ.pop(key, None)
         self._temp_dir = tempfile.TemporaryDirectory()
-        # Production policy Windows намеренно пропускает файловые обработчики
-        # служебных процессов; тест создаёт изолированный обычный обработчик.
-        with patch.object(
-            logger_module.multiprocessing,
-            "current_process",
-            return_value=SimpleNamespace(name="LoggingTestProcess"),
-        ):
-            logger_module.set_file_logger(
-                name="logging-test",
-                log_dir=Path(self._temp_dir.name),
-            )
+        # Роль задаётся canonical именем, поэтому тест не зависит от имени процесса.
+        logger_module.set_file_logger(
+            name="logging-test",
+            log_dir=Path(self._temp_dir.name),
+        )
 
     def tearDown(self):
         for handler in list(logger_module.logger.handlers):

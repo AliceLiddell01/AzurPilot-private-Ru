@@ -20,7 +20,6 @@ import datetime
 import io
 import json
 import logging
-import multiprocessing
 import os
 import shutil
 import sys
@@ -501,12 +500,9 @@ def set_file_logger(
     local_name = name.split("_", 1)[0] if "_" in name else name
     if observability_profile is None and observability_component is None:
         observability_profile = canonical_name
-    # В Windows возможны процессы ``SyncManager-N:N``, ``MainProcess``,
-    # ``Process-N`` и ``gui``; в Linux отдельного SyncManager обычно нет.
+    # Файловый logger привязан к явной роли или canonical profile, а не к имени
+    # операционного процесса. Это сохраняет один локальный fallback на роль.
     if os.name == "nt":
-        # Эти служебные процессы Windows не должны создавать отдельные журналы.
-        processes = ["SyncManager-", "MainProcess", "Process-"]
-        pname = multiprocessing.current_process().name.replace(":", "_")
         # Каждый процесс должен настраивать файловый logger не более одного раза.
         if any(isinstance(hdlr, RichTimedRotatingHandler) for hdlr in logger.handlers):
             _configure_application_observability(
@@ -515,8 +511,6 @@ def set_file_logger(
             )
             return
     else:
-        processes = []
-        pname = local_name
         for hdlr in logger.handlers:
             if isinstance(hdlr, RichTimedRotatingHandler):
                 # Каждый процесс должен настраивать файловый logger не более одного раза.
@@ -532,13 +526,9 @@ def set_file_logger(
     
     log_dir = Path(log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir.joinpath(
-        f"{pname}.txt" if local_name == "gui" else f"{local_name}.txt"
-    )
-    if any(p in log_file.name for p in processes):
-        return
+    log_file = log_dir.joinpath(f"{local_name}.txt")
 
-    _configure_diagnostic_logger(pname if local_name == "gui" else local_name, log_dir)
+    _configure_diagnostic_logger(local_name, log_dir)
     hdlr = RichTimedRotatingHandler(
         pname=local_name,
         filename=str(log_file),

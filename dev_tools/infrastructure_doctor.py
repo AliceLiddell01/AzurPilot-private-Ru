@@ -426,15 +426,93 @@ def _parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("doctor", help="Проверить Docker Caddy state.")
     subparsers.add_parser("probe", help="Проверить public TLS и read-only MCP.")
+    subparsers.add_parser(
+        "observability", help="Проверить backends, volumes и давление collector."
+    )
     return parser
+
+
+def observability_doctor() -> dict[str, object]:
+    """Прочитать состояние telemetry без изменения services и доступа к secrets."""
+    from dev_tools.observability_reliability import (
+        SERVICES,
+        ReliabilityError,
+        docker,
+        internal_metrics,
+        inventory,
+        ready,
+    )
+
+    try:
+        containers = inventory()
+        health = ready(containers)
+        warnings = []
+        for service in SERVICES:
+            entry = containers.get(service, {})
+            if (
+                entry.get("status") != "running"
+                or entry.get("health") == "unhealthy"
+                or not health[service]
+            ):
+                warnings.append(f"SERVICE_UNAVAILABLE:{service}")
+            volumes = entry.get("volumes", {})
+            if not volumes:
+                warnings.append(f"PERSISTENT_VOLUME_MISSING:{service}")
+            for volume in volumes.values():
+                try:
+                    docker("volume", "inspect", volume, "--format", "{{.Name}}")
+                except ReliabilityError:
+                    warnings.append(f"PERSISTENT_VOLUME_UNAVAILABLE:{volume}")
+        metrics = internal_metrics() if health["alloy"] else []
+        # Полные наборы меток нужны для сопоставления ёмкости и размера одного signal.
+        capacities = {}
+        sizes = {}
+        for line in metrics:
+            name_labels, value = line.rsplit(" ", 1)
+            name, _, labels = name_labels.partition("{")
+            if name == "otelcol_exporter_queue_capacity":
+                capacities[labels] = float(value)
+            elif name == "otelcol_exporter_queue_size":
+                sizes[labels] = float(value)
+            elif (
+                name == "prometheus_remote_storage_samples_pending" and float(value) > 0
+            ):
+                warnings.append("REMOTE_WRITE_PENDING")
+        if any(
+            capacities.get(key, 0) > 0 and size / capacities[key] >= 0.8
+            for key, size in sizes.items()
+        ):
+            warnings.append("EXPORT_QUEUE_PRESSURE")
+        # Свободное место общей файловой системы Docker; не заменяет quota volume.
+        disk = docker(
+            "exec", containers["pgadmin"]["id"], "df", "-Pk", "/var/lib/pgadmin"
+        )
+        fields = disk.splitlines()[-1].split()
+        available_percent = 100 - int(fields[-2].rstrip("%"))
+        if available_percent < 20:
+            warnings.append("DOCKER_DISK_HEADROOM_LOW")
+        return {
+            "ok": not warnings,
+            "code": "OBSERVABILITY_READY" if not warnings else "OBSERVABILITY_DEGRADED",
+            "services": health,
+            "warnings": warnings,
+            "disk_available_percent": available_percent,
+            "collector_metrics": metrics,
+        }
+    except ReliabilityError, OSError, ValueError, KeyError, IndexError:
+        return {"ok": False, "code": "OBSERVABILITY_DIAGNOSTICS_UNAVAILABLE"}
 
 
 def main(argv: list[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
     payload = (
-        doctor(arguments.repository_root)
-        if arguments.command == "doctor"
-        else probe(arguments.repository_root)
+        observability_doctor()
+        if arguments.command == "observability"
+        else (
+            doctor(arguments.repository_root)
+            if arguments.command == "doctor"
+            else probe(arguments.repository_root)
+        )
     )
     print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
     return 0 if payload["ok"] else 1

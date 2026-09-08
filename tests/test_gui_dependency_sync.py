@@ -328,6 +328,7 @@ class TestGuiDualStackSockets(unittest.TestCase):
         with (
             patch.object(gui.State, "deploy_config", deployment),
             patch.object(sys, "argv", ["gui.py", "--host", "0.0.0.0", "--port", "23456"]),
+            patch.object(gui, "_configure_gui_logging"),
             patch("gui.sys.platform", "linux"),
             patch("uvicorn.Config", return_value=uvicorn_config) as config_factory,
             patch("gui._create_dual_stack_sockets", return_value=listeners) as create_sockets,
@@ -360,6 +361,7 @@ class TestGuiDualStackSockets(unittest.TestCase):
         with (
             patch.object(gui.State, "deploy_config", deployment),
             patch.object(sys, "argv", ["gui.py", "--host", "::", "--port", "23456"]),
+            patch.object(gui, "_configure_gui_logging"),
             patch("gui.sys.platform", "linux"),
             patch("uvicorn.Config", return_value=uvicorn_config) as config_factory,
             patch("gui._create_dual_stack_sockets", return_value=listeners) as create_sockets,
@@ -391,6 +393,7 @@ class TestGuiDualStackSockets(unittest.TestCase):
         with (
             patch.object(gui.State, "deploy_config", deployment),
             patch.object(sys, "argv", ["gui.py", "--host", "127.0.0.1", "--port", "23456"]),
+            patch.object(gui, "_configure_gui_logging"),
             patch("gui.sys.platform", "linux"),
             patch("uvicorn.Config", return_value=uvicorn_config) as config_factory,
             patch("gui._create_dual_stack_sockets") as create_sockets,
@@ -487,6 +490,11 @@ class TestGuiReadyHandshake(unittest.TestCase):
 
 
 class TestWebUISupervisor(unittest.TestCase):
+    def setUp(self):
+        self._configure_logging = patch.object(gui, "_configure_gui_logging")
+        self._configure_logging.start()
+        self.addCleanup(self._configure_logging.stop)
+
     @staticmethod
     def _service():
         return Mock(), Mock(), Mock()
