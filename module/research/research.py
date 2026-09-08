@@ -25,11 +25,15 @@ import numpy as np
 from module.base.timer import Timer
 from module.base.utils import rgb2gray
 from module.config.time_source import now as current_time
-from module.exception import GameTooManyClickError
+from module.exception import (
+    ResearchProjectStartError,
+    ResearchRewardPopupTimeoutError,
+    ResearchRewardReturnTimeoutError,
+)
 from module.logger import logger
 from module.ocr.ocr import Duration
 from module.research.assets import *
-from module.research.project import get_research_finished
+from module.research.project import RESEARCH_STATUS, get_research_finished
 from module.research.rqueue import ResearchQueue
 from module.research.selector import RESEARCH_ENTRANCE, ResearchSelector
 from module.storage.storage import StorageHandler
@@ -38,6 +42,15 @@ from module.ui.page import page_research
 
 OCR_DURATION = Duration(RESEARCH_LAB_DURATION_REMAIN, letter=(255, 255, 255), threshold=64,
                         name='RESEARCH_LAB_DURATION_REMAIN')
+
+_RESEARCH_REWARD_POPUP_STABILIZATION_SECONDS = 1.5
+_RESEARCH_REWARD_POPUP_STABILIZATION_COUNT = 5
+_RESEARCH_REWARD_POPUP_TIMEOUT_SECONDS = 15
+_RESEARCH_REWARD_POPUP_TIMEOUT_COUNT = 30
+_RESEARCH_REWARD_RETURN_CONFIRM_SECONDS = 0.5
+_RESEARCH_REWARD_RETURN_CONFIRM_COUNT = 2
+_RESEARCH_REWARD_RETURN_TIMEOUT_SECONDS = 15
+_RESEARCH_REWARD_RETURN_TIMEOUT_COUNT = 30
 
 
 class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
@@ -287,7 +300,10 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
                 logger.error('[Исследование — запуск] Не удалось запустить проект после 3 попыток; '
                              'возможно, уже выполняется проект с невыполненными условиями '
                              'или исследование завершено')
-                raise GameTooManyClickError
+                raise ResearchProjectStartError(
+                    '[Исследование — запуск] Не удалось запустить проект после 3 попыток; '
+                    'возможно, условия проекта не выполнены или исследование уже завершено'
+                )
             if self.appear(RESEARCH_STOP, offset=(20, 20)):
                 # RESEARCH_STOP 是半透明按钮，颜色会随背景变化
                 if add_queue:
@@ -379,14 +395,57 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
             # 截取项目列表
             record.add(self.device.image)
 
-            # 点击已完成项目，进入 GET_ITEMS_*
-            confirm_timer = Timer(1.5, count=5)
+            # После входа в завершённый проект окно награды становится владельцем
+            # цикла до явного сохранения результата.
+            popup_timeout = Timer(
+                _RESEARCH_REWARD_POPUP_TIMEOUT_SECONDS,
+                count=_RESEARCH_REWARD_POPUP_TIMEOUT_COUNT,
+            ).start()
+            popup_confirm = Timer(
+                _RESEARCH_REWARD_POPUP_STABILIZATION_SECONDS,
+                count=_RESEARCH_REWARD_POPUP_STABILIZATION_COUNT,
+            )
+            reward_popup_pending = False
             record_button = None
             while 1:
                 if skip_first_screenshot:
                     skip_first_screenshot = False
                 else:
                     self.device.screenshot()
+
+                if reward_popup_pending:
+                    appear_button = self.get_items()
+                    if appear_button is not None and appear_button != record_button:
+                        logger.info(f'[Исследование — получение] Появился {appear_button}')
+                        record_button = appear_button
+                        popup_confirm.reset()
+
+                    if popup_confirm.reached():
+                        break
+                    if popup_timeout.reached():
+                        raise ResearchRewardPopupTimeoutError(
+                            '[Исследование — награда] Не удалось стабилизировать окно награды '
+                            f'за {_RESEARCH_REWARD_POPUP_TIMEOUT_SECONDS} с; '
+                            f'фаза=стабилизация, layout={record_button}'
+                        )
+                    continue
+
+                if popup_timeout.reached():
+                    raise ResearchRewardPopupTimeoutError(
+                        '[Исследование — награда] Окно награды не было обнаружено '
+                        f'за {_RESEARCH_REWARD_POPUP_TIMEOUT_SECONDS} с; '
+                        'фаза=обнаружение, ожидается GET_ITEMS_*'
+                    )
+
+                # В первую очередь проверяем модальное окно, чтобы не обслуживать
+                # затемнённый экран Research в том же кадре.
+                appear_button = self.get_items()
+                if appear_button is not None:
+                    logger.info(f'[Исследование — получение] Появился {appear_button}')
+                    reward_popup_pending = True
+                    record_button = appear_button
+                    popup_confirm.reset()
+                    continue
 
                 if self.appear(RESEARCH_CHECK, offset=(20, 20), interval=10):
                     if self.research_has_finished():
@@ -402,23 +461,41 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
                     self.device.click(RESEARCH_DETAIL_QUIT)
                     continue
 
-                appear_button = self.get_items()
-                if appear_button is not None:
-                    if appear_button == record_button:
-                        if confirm_timer.reached():
-                            break
-                    else:
-                        logger.info(f'{appear_button} появился')
-                        record_button = appear_button
-                        confirm_timer.reset()
-
             # 截取奖励物品
-            self.drop_record(drop=record)
+            self.drop_record(drop=record, known_button=record_button)
 
-        # 关闭 GET_ITEMS_*，返回项目列表
-        self.ui_click(appear_button=self.get_items, click_button=GET_ITEMS_RESEARCH_SAVE,
-                      check_button=self.is_in_research, skip_first_screenshot=True)
-        return True
+        # Явно закрываем окно награды и отдельно подтверждаем возврат на стабильный
+        # экран Research. Один RESEARCH_CHECK под модальным окном успехом не считается.
+        self.device.click(GET_ITEMS_RESEARCH_SAVE)
+        return_timeout = Timer(
+            _RESEARCH_REWARD_RETURN_TIMEOUT_SECONDS,
+            count=_RESEARCH_REWARD_RETURN_TIMEOUT_COUNT,
+        ).start()
+        return_confirm = Timer(
+            _RESEARCH_REWARD_RETURN_CONFIRM_SECONDS,
+            count=_RESEARCH_REWARD_RETURN_CONFIRM_COUNT,
+        ).reset()
+        last_research_status = None
+        while 1:
+            self.device.screenshot()
+            popup_button = self.get_items()
+            if popup_button is None and self.is_in_research():
+                last_research_status = self.get_research_status(self.device.image)
+                if len(last_research_status) == len(RESEARCH_STATUS) and 'unknown' not in last_research_status:
+                    if return_confirm.reached():
+                        return True
+                else:
+                    return_confirm.reset()
+            else:
+                return_confirm.reset()
+
+            if return_timeout.reached():
+                raise ResearchRewardReturnTimeoutError(
+                    '[Исследование — награда] После SAVE не подтверждён устойчивый экран Research '
+                    f'за {_RESEARCH_REWARD_RETURN_TIMEOUT_SECONDS} с; '
+                    f'фаза=возврат, layout={record_button}, '
+                    f'состояние={last_research_status}'
+                )
 
     def queue_receive(self, skip_first_screenshot=True):
         """
@@ -470,7 +547,7 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
                     if record_button is not None:
                         end_confirm.reset()
                         if item_confirm.reached():
-                            self.drop_record(drop=drop)
+                            self.drop_record(drop=drop, known_button=record_button)
                             self.device.click(GET_ITEMS_RESEARCH_SAVE)
                             item_confirm.reset()
                             record_button = None

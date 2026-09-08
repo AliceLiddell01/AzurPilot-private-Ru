@@ -21,7 +21,7 @@ from module.base.button import ButtonGrid
 from module.base.decorator import cached_property, Config
 from module.base.utils import get_color
 from module.config.time_source import now as current_time
-from module.exception import GameBugError
+from module.exception import ResearchQueueStateError
 from module.logger import logger
 from module.ocr.ocr import Duration, Ocr
 from module.research.assets import *
@@ -234,7 +234,7 @@ class ResearchQueue(ResearchUI):
             in: is_in_queue
 
         Raises:
-            GameBugError:
+            ResearchQueueStateError:
         """
         now = current_time()
 
@@ -251,7 +251,10 @@ class ResearchQueue(ResearchUI):
             logger.error('[Исследование — очередь] Первый проект в очереди не запущен; '
                          'возможно, это ошибка игры. '
                          'Перезапуск игры должен помочь.')
-            raise GameBugError
+            raise ResearchQueueStateError(
+                '[Исследование — очередь] Первый проект в очереди не запущен; '
+                'возможна ошибка состояния игры'
+            )
         if not self.image_color_count(QUEUE_REMAIN, color=(255, 255, 255), threshold=221, count=100):
             logger.info('[Исследование — очередь] Очередь исследований пуста')
             return now

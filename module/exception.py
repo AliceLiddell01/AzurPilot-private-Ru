@@ -120,6 +120,21 @@ class GameStuckError(Exception):
     pass
 
 
+class ResearchRewardError(GameStuckError):
+    """Ошибка управляемого жизненного цикла награды исследования."""
+    pass
+
+
+class ResearchRewardPopupTimeoutError(ResearchRewardError):
+    """Окно награды исследования не стабилизировалось в установленный срок."""
+    pass
+
+
+class ResearchRewardReturnTimeoutError(ResearchRewardError):
+    """После сохранения награды не подтверждён устойчивый экран исследования."""
+    pass
+
+
 class GameBugError(Exception):
     """碧蓝航线游戏客户端发生错误，AzurPilot 无法自行处理。
 
@@ -134,6 +149,16 @@ class GameTooManyClickError(Exception):
     最近 15 次操作中，同一按钮被点击 ≥12 次，
     或两个按钮各被点击 ≥6 次时触发。
     """
+    pass
+
+
+class ResearchProjectStartError(GameTooManyClickError):
+    """Исследовательский проект не удалось запустить после ограниченных попыток."""
+    pass
+
+
+class ResearchQueueStateError(GameBugError):
+    """Состояние очереди исследования противоречит ожидаемому игровому контракту."""
     pass
 
 

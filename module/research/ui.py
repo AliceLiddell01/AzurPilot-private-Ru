@@ -124,18 +124,21 @@ class ResearchUI(UI):
                 return GET_ITEMS_3
             else:
                 return GET_ITEMS_2
+        if self.appear(GET_ITEMS_2, offset=(5, 5)):
+            return GET_ITEMS_2
         if self.appear(GET_ITEMS_1, offset=(5, 5)):
             return GET_ITEMS_1
         return None
 
-    def drop_record(self, drop):
+    def drop_record(self, drop, known_button=None):
         """
         Args:
             drop (DropRecord):
+            known_button (Button | None): Уже подтверждённый тип окна награды.
         """
         if not drop:
             return
-        button = self.get_items()
+        button = known_button if known_button is not None else self.get_items()
         if button == GET_ITEMS_1 or button == GET_ITEMS_2:
             drop.add(self.device.image)
         elif button == GET_ITEMS_3:
