@@ -456,6 +456,8 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
                     reward_popup_pending = True
                     record_button = appear_button
                     popup_confirm.reset()
+                    # Фаза стабилизации получает отдельный бюджет времени.
+                    popup_timeout.reset()
                     continue
 
                 if self.appear(RESEARCH_CHECK, offset=(20, 20), interval=10):
