@@ -255,6 +255,19 @@ class TestDiagnosticContextHandler(unittest.TestCase):
         finally:
             handler.close()
 
+    def test_consecutive_errors_preserve_failure_context(self):
+        handler = DiagnosticContextHandler(capacity=3)
+        try:
+            test_logger = self.make_logger(handler, StringIO())
+            test_logger.error("first")
+            test_logger.critical("second")
+            self.assertEqual(
+                ["first", "second"],
+                [record.getMessage() for record in handler.snapshot(last_failure=True)],
+            )
+        finally:
+            handler.close()
+
     def test_capacity_snapshot_keeps_triggering_error(self):
         handler = DiagnosticContextHandler(capacity=2)
         try:

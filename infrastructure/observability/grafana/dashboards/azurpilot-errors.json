@@ -198,12 +198,13 @@
             "uid": "tempo"
           },
           "limit": 20,
-          "query": "{ resource.service.name = \"azurpilot\" && duration > 500ms && resource.deployment.environment.name =~ \"${environment:regex}\" && span.azurpilot.profile =~ \"${profile:regex}\" && span.azurpilot.task =~ \"${task:regex}\" } with (most_recent=true)",
+          "query": "{ resource.service.name = \"azurpilot\" && name = \"azurpilot.task.run\" && duration > 500ms && resource.deployment.environment.name =~ \"${environment:regex}\" && span.azurpilot.profile =~ \"${profile:regex}\" && span.azurpilot.task =~ \"${task:regex}\" } with (most_recent=true)",
           "queryType": "traceql",
           "refId": "A",
           "tableType": "spans"
         }
       ],
+      "description": "Показываются matched root spans canonical azurpilot.task.run с duration > 500ms. Строка около 495 ms относится к отдельной панели ошибочных traces и не является результатом этого predicate.",
       "title": "Медленные traces / операции",
       "type": "table"
     },

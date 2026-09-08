@@ -469,7 +469,11 @@ def _read_signal_config(
     return True, signal_endpoint or None
 
 
-def _application_repository_root() -> Path:
+def _is_repository_root(candidate: Path) -> bool:
+    return (candidate / "gui.py").is_file() and (candidate / "module").is_dir()
+
+
+def _application_repository_root() -> Path | None:
     """Найти repository root, переданный runtime worker-у."""
 
     configured = os.environ.get(_REPOSITORY_ROOT_ENV, "").strip()
@@ -478,24 +482,26 @@ def _application_repository_root() -> Path:
             candidate = Path(configured).resolve()
         except (OSError, RuntimeError):
             candidate = None
-        if (
-            candidate is not None
-            and (candidate / "gui.py").is_file()
-            and (candidate / "module").is_dir()
-        ):
+        if candidate is not None and _is_repository_root(candidate):
             return candidate
-    return Path.cwd()
+    current = Path.cwd()
+    return current if _is_repository_root(current) else None
 
 
 def _load_local_otlp_environment() -> None:
     """Загрузить только OTEL-настройки из канонического корневого ``.env``.
 
     Корневой ``.env`` уже является источником deployment-настроек Compose.
-    В приложение попадают только ключи ``OTEL_*``; секреты и остальные
-    переменные намеренно не читаются. Явное окружение процесса имеет приоритет.
+    В приложение попадают все ключи ``OTEL_*``, включая заголовки авторизации
+    ``OTEL_EXPORTER_OTLP_HEADERS`` и ``OTEL_EXPORTER_OTLP_LOGS_HEADERS``;
+    секреты и остальные переменные намеренно не читаются. Явное окружение
+    процесса имеет приоритет.
     """
 
-    env_path = _application_repository_root() / ".env"
+    root = _application_repository_root()
+    if root is None:
+        return
+    env_path = root / ".env"
     if not env_path.is_file():
         return
     try:

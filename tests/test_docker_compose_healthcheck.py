@@ -370,7 +370,7 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
     assert success_share["targets"][4]["type"] == "math"
     assert success_share["targets"][4]["expression"] == "$C / $D * 100"
     assert success_share["fieldConfig"]["defaults"]["noValue"] == "нет данных"
-    assert success_share["options"]["noValue"] == "нет данных"
+    assert "noValue" not in success_share["options"]
     assert overview_panels[7]["targets"][0]["metricsQueryType"] == "range"
     assert "count_over_time() by (span.azurpilot.task.outcome)" in overview_panels[7]["targets"][0]["query"]
     assert overview_panels[7]["targets"][0]["step"] == "1m"
@@ -378,6 +378,9 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
     assert overview_panels[9]["targets"][0]["metricsQueryType"] == "range"
     assert overview_panels[9]["targets"][0]["step"] == "1m"
     assert "count_over_time() by (span.azurpilot.profile" in overview_panels[9]["targets"][0]["query"]
+    for panel_id in (1, 3, 13):
+        assert overview_panels[panel_id]["fieldConfig"]["defaults"]["noValue"] == "0"
+        assert "noValue" not in overview_panels[panel_id]["options"]
     assert [
         transformation["id"] for transformation in overview_panels[9]["transformations"]
     ] == ["reduce", "labelsToFields", "extractFields", "organize"]
@@ -393,6 +396,9 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
             assert 'azurpilot_task =~ \\"${task:regex}\\"' in panel_text
         if panel["id"] in {2, 4, 5}:
             assert "resource.deployment.environment.name" in panel_text
+        if panel["id"] == 4:
+            assert 'name = \\"azurpilot.task.run\\"' in panel_text
+            assert "duration > 500ms" in panel_text
         if panel["id"] == 5:
             assert 'name = \\"azurpilot.task.run\\"' in panel_text
             assert " >> " in panel_text

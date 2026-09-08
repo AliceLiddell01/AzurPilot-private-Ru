@@ -4,6 +4,8 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from dev_tools import infrastructure_doctor
 
 _GAME_HOST = "play.mcp.example.test"
@@ -42,6 +44,29 @@ def _observability_state() -> dict:
         }
         for service in (*observability_reliability.SERVICES, "pgadmin")
     }
+
+
+@pytest.fixture
+def observability_doctor_harness(monkeypatch):
+    from dev_tools import observability_reliability
+
+    state = _observability_state()
+    monkeypatch.setattr(observability_reliability, "inventory", lambda: state)
+    monkeypatch.setattr(
+        observability_reliability,
+        "ready",
+        lambda _state, **_kwargs: dict.fromkeys(
+            observability_reliability.SERVICES, True
+        ),
+    )
+
+    def configure(metrics, docker):
+        monkeypatch.setattr(
+            observability_reliability, "internal_metrics", lambda: metrics
+        )
+        monkeypatch.setattr(observability_reliability, "docker", docker)
+
+    return state, configure
 
 
 def test_doctor_distinguishes_absent_caddy_container(
@@ -287,21 +312,10 @@ def test_probe_requires_all_scopes_from_game_contract(
     assert payload["code"] == "CADDY_PUBLIC_ENDPOINT_INVALID"
 
 
-def test_observability_doctor_reports_missing_queue_metrics(monkeypatch) -> None:
-    from dev_tools import observability_reliability
-
-    state = _observability_state()
-    monkeypatch.setattr(observability_reliability, "inventory", lambda: state)
-    monkeypatch.setattr(
-        observability_reliability,
-        "ready",
-        lambda _state, **_kwargs: dict.fromkeys(observability_reliability.SERVICES, True),
-    )
-    monkeypatch.setattr(
-        observability_reliability,
-        "internal_metrics",
-        lambda: ["process_resident_memory_bytes 1"],
-    )
+def test_observability_doctor_reports_missing_queue_metrics(
+    observability_doctor_harness,
+) -> None:
+    state, configure = observability_doctor_harness
 
     def fake_docker(*arguments: str, **_kwargs: object) -> str:
         if arguments[:2] == ("volume", "inspect"):
@@ -313,7 +327,7 @@ def test_observability_doctor_reports_missing_queue_metrics(monkeypatch) -> None
             )
         raise AssertionError(arguments)
 
-    monkeypatch.setattr(observability_reliability, "docker", fake_docker)
+    configure(["process_resident_memory_bytes 1"], fake_docker)
 
     payload = infrastructure_doctor.observability_doctor()
 
@@ -323,28 +337,11 @@ def test_observability_doctor_reports_missing_queue_metrics(monkeypatch) -> None
 
 
 def test_observability_doctor_reports_pressure_pending_volume_and_disk_warnings(
-    monkeypatch,
+    observability_doctor_harness,
 ) -> None:
     from dev_tools import observability_reliability
 
-    state = _observability_state()
-    monkeypatch.setattr(observability_reliability, "inventory", lambda: state)
-    monkeypatch.setattr(
-        observability_reliability,
-        "ready",
-        lambda _state, **_kwargs: dict.fromkeys(observability_reliability.SERVICES, True),
-    )
-    monkeypatch.setattr(
-        observability_reliability,
-        "internal_metrics",
-        lambda: [
-            'otelcol_exporter_queue_capacity{exporter="loki"} 100',
-            'otelcol_exporter_queue_size{exporter="loki"} 80',
-                'prometheus_remote_storage_samples_pending{queue="local"} 1',
-                'prometheus_remote_storage_samples_pending{queue="retry"} 2',
-                'prometheus_remote_storage_samples_retries_total{queue="retry"} 1',
-        ],
-    )
+    state, configure = observability_doctor_harness
 
     def failing_docker(*arguments: str, **_kwargs: object) -> str:
         if arguments[:2] == ("volume", "inspect"):
@@ -356,7 +353,16 @@ def test_observability_doctor_reports_pressure_pending_volume_and_disk_warnings(
             )
         raise AssertionError(arguments)
 
-    monkeypatch.setattr(observability_reliability, "docker", failing_docker)
+    configure(
+        [
+            'otelcol_exporter_queue_capacity{exporter="loki"} 100',
+            'otelcol_exporter_queue_size{exporter="loki"} 80',
+            'prometheus_remote_storage_samples_pending{queue="local"} 1',
+            'prometheus_remote_storage_samples_pending{queue="retry"} 2',
+            'prometheus_remote_storage_samples_retries_total{queue="retry"} 1',
+        ],
+        failing_docker,
+    )
 
     payload = infrastructure_doctor.observability_doctor()
 
@@ -376,25 +382,11 @@ def test_observability_doctor_reports_pressure_pending_volume_and_disk_warnings(
 
 
 def test_observability_doctor_preserves_diagnostics_when_disk_check_fails(
-    monkeypatch,
+    observability_doctor_harness,
 ) -> None:
     from dev_tools import observability_reliability
 
-    state = _observability_state()
-    monkeypatch.setattr(observability_reliability, "inventory", lambda: state)
-    monkeypatch.setattr(
-        observability_reliability,
-        "ready",
-        lambda _state, **_kwargs: dict.fromkeys(observability_reliability.SERVICES, True),
-    )
-    monkeypatch.setattr(
-        observability_reliability,
-        "internal_metrics",
-        lambda: [
-            'otelcol_exporter_queue_capacity{exporter="loki"} 100',
-            'otelcol_exporter_queue_size{exporter="loki"} 1',
-        ],
-    )
+    state, configure = observability_doctor_harness
 
     def unavailable_disk(*arguments: str, **_kwargs: object) -> str:
         if arguments[:2] == ("volume", "inspect"):
@@ -403,7 +395,13 @@ def test_observability_doctor_preserves_diagnostics_when_disk_check_fails(
             raise observability_reliability.ReliabilityError("disk")
         raise AssertionError(arguments)
 
-    monkeypatch.setattr(observability_reliability, "docker", unavailable_disk)
+    configure(
+        [
+            'otelcol_exporter_queue_capacity{exporter="loki"} 100',
+            'otelcol_exporter_queue_size{exporter="loki"} 1',
+        ],
+        unavailable_disk,
+    )
 
     payload = infrastructure_doctor.observability_doctor()
 
@@ -414,28 +412,9 @@ def test_observability_doctor_preserves_diagnostics_when_disk_check_fails(
 
 
 def test_observability_doctor_keeps_transient_pending_in_observations(
-    monkeypatch,
+    observability_doctor_harness,
 ):
-    from dev_tools import observability_reliability
-
-    state = _observability_state()
-    monkeypatch.setattr(observability_reliability, "inventory", lambda: state)
-    monkeypatch.setattr(
-        observability_reliability,
-        "ready",
-        lambda _state, **_kwargs: dict.fromkeys(
-            observability_reliability.SERVICES, True
-        ),
-    )
-    monkeypatch.setattr(
-        observability_reliability,
-        "internal_metrics",
-        lambda: [
-            'otelcol_exporter_queue_capacity{exporter="loki"} 100',
-            'otelcol_exporter_queue_size{exporter="loki"} 1',
-            'prometheus_remote_storage_samples_pending{queue="local"} 2',
-        ],
-    )
+    state, configure = observability_doctor_harness
 
     def fake_docker(*arguments: str, **_kwargs: object) -> str:
         if arguments[:2] == ("volume", "inspect"):
@@ -447,7 +426,14 @@ def test_observability_doctor_keeps_transient_pending_in_observations(
             )
         raise AssertionError(arguments)
 
-    monkeypatch.setattr(observability_reliability, "docker", fake_docker)
+    configure(
+        [
+            'otelcol_exporter_queue_capacity{exporter="loki"} 100',
+            'otelcol_exporter_queue_size{exporter="loki"} 1',
+            'prometheus_remote_storage_samples_pending{queue="local"} 2',
+        ],
+        fake_docker,
+    )
 
     payload = infrastructure_doctor.observability_doctor()
 
@@ -458,14 +444,13 @@ def test_observability_doctor_keeps_transient_pending_in_observations(
 
 
 def test_observability_doctor_distinguishes_probe_helper_failure(
+    observability_doctor_harness,
     monkeypatch,
 ):
     from dev_tools import observability_reliability
 
-    state = _observability_state()
+    state, configure = observability_doctor_harness
     state["pgadmin"]["status"] = "exited"
-    monkeypatch.setattr(observability_reliability, "inventory", lambda: state)
-    probe_errors = {}
 
     def fake_ready(_state, *, errors=None):
         if errors is not None:
@@ -473,12 +458,7 @@ def test_observability_doctor_distinguishes_probe_helper_failure(
         return dict.fromkeys(observability_reliability.SERVICES, False)
 
     monkeypatch.setattr(observability_reliability, "ready", fake_ready)
-    monkeypatch.setattr(observability_reliability, "internal_metrics", lambda: [])
-    monkeypatch.setattr(
-        observability_reliability,
-        "docker",
-        lambda *_arguments, **_kwargs: "",
-    )
+    configure([], lambda *_arguments, **_kwargs: "")
 
     payload = infrastructure_doctor.observability_doctor()
 

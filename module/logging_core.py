@@ -425,7 +425,12 @@ class DiagnosticContextHandler(logging.Handler):
         cloned = self._clone_record(record)
         if record.levelno >= logging.ERROR:
             failure = tuple(self._buffer) + (cloned,)
-            self._last_failure = self._bounded_snapshot(failure)
+            if self._buffer or not self._last_failure:
+                self._last_failure = self._bounded_snapshot(failure)
+            else:
+                self._last_failure = self._bounded_snapshot(
+                    self._last_failure + (cloned,)
+                )
             self._buffer.clear()
             self._buffer_bytes = 0
             return

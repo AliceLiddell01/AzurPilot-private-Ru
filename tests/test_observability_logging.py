@@ -113,6 +113,9 @@ def test_canonical_project_env_enables_otlp_without_loading_secrets(
 ):
     for key in _OTEL_ENVIRONMENT_KEYS:
         monkeypatch.delenv(key, raising=False)
+    monkeypatch.delenv("AZURPILOT_REPOSITORY_ROOT", raising=False)
+    (tmp_path / "module").mkdir()
+    (tmp_path / "gui.py").write_text("", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".env").write_text(
         "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://alloy:4318/v1/logs\n"
@@ -128,6 +131,21 @@ def test_canonical_project_env_enables_otlp_without_loading_secrets(
     assert os.environ.get("AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD") is None
     for key in _OTEL_ENVIRONMENT_KEYS:
         monkeypatch.delenv(key, raising=False)
+
+
+def test_unverified_working_directory_does_not_load_project_env(monkeypatch, tmp_path):
+    for key in _OTEL_ENVIRONMENT_KEYS:
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.delenv("AZURPILOT_REPOSITORY_ROOT", raising=False)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text(
+        "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://unverified-root:4318/v1/logs\n"
+        "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL=http/protobuf\n",
+        encoding="utf-8",
+    )
+
+    assert _read_config() is None
+    assert os.environ.get("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT") is None
 
 
 def test_canonical_project_env_uses_process_repository_root(monkeypatch, tmp_path):

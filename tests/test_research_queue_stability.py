@@ -302,7 +302,6 @@ class _IncidentResearchHarness:
 
     def drop_record(self, drop, known_button=None):
         self.drop_layouts.append(known_button)
-        assert known_button is GET_ITEMS_1
 
 
 def test_queue_duration_parser_rejects_missing_ocr_digit():

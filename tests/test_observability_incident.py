@@ -144,6 +144,7 @@ def test_error_retention_preserves_current_timestamp_collision_order(tmp_path):
     names = (
         "2026-09-07_00-34-12.123_RuntimeError",
         "2026-09-07_00-34-12.123_RuntimeError_001",
+        "2026-09-07_00-34-12.123_RuntimeError_999",
         "2026-09-07_00-34-12.123_RuntimeError_1000",
     )
     for name in names:
@@ -152,8 +153,28 @@ def test_error_retention_preserves_current_timestamp_collision_order(tmp_path):
     script.keep_last_errlog(str(tmp_path), n=2)
 
     assert not (tmp_path / names[0]).exists()
-    assert (tmp_path / names[1]).is_dir()
+    assert not (tmp_path / names[1]).exists()
     assert (tmp_path / names[2]).is_dir()
+    assert (tmp_path / names[3]).is_dir()
+
+
+def test_error_retention_preserves_short_numeric_exception_suffix(tmp_path):
+    script = AzurLaneAutoScript.__new__(AzurLaneAutoScript)
+    names = (
+        "2026-09-07_00-34-12.123_RuntimeError",
+        "2026-09-07_00-34-12.123_RuntimeError_12",
+        "2026-09-07_00-34-12.123_RuntimeError_001",
+        "2026-09-07_00-34-12.123_RuntimeError_999",
+        "2026-09-07_00-34-12.123_RuntimeError_1000",
+    )
+    for name in names:
+        (tmp_path / name).mkdir()
+
+    script.keep_last_errlog(str(tmp_path), n=4)
+
+    assert not (tmp_path / names[0]).exists()
+    for name in names[1:]:
+        assert (tmp_path / name).is_dir()
 
 
 def test_error_retention_does_nothing_for_non_positive_limit(tmp_path):

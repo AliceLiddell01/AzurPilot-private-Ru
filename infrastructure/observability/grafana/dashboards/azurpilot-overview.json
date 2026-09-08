@@ -43,6 +43,7 @@
             "mode": "thresholds"
           },
           "mappings": [],
+          "noValue": "0",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -79,8 +80,7 @@
           "fields": "",
           "values": false
         },
-        "textMode": "auto",
-        "noValue": "0"
+        "textMode": "auto"
       },
       "targets": [
         {
@@ -145,8 +145,7 @@
           "fields": "",
           "values": false
         },
-        "textMode": "auto",
-        "noValue": "нет данных"
+        "textMode": "auto"
       },
       "targets": [
         {
@@ -218,6 +217,7 @@
             "mode": "thresholds"
           },
           "mappings": [],
+          "noValue": "0",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -254,8 +254,7 @@
           "fields": "",
           "values": false
         },
-        "textMode": "auto",
-        "noValue": "0"
+        "textMode": "auto"
       },
       "targets": [
         {
@@ -283,6 +282,7 @@
             "mode": "thresholds"
           },
           "mappings": [],
+          "noValue": "0",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -319,8 +319,7 @@
           "fields": "",
           "values": false
         },
-        "textMode": "auto",
-        "noValue": "0"
+        "textMode": "auto"
       },
       "targets": [
         {
