@@ -286,7 +286,7 @@ class _IncidentResearchHarness:
         try:
             status = next(self._return_statuses)
         except StopIteration:
-            status = self.status_calls[-1]
+            status = ['unknown'] * len(research_module.RESEARCH_STATUS)
         self.status_calls.append(status)
         return status
 
