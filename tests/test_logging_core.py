@@ -1,41 +1,17 @@
 import logging
-import os
-import tempfile
 import threading
 import unittest
 from io import StringIO
-from pathlib import Path
 from unittest.mock import patch
 
 import module.logger as logger_module
 from module.logging_core import DiagnosticContextHandler, RepeatedEventSuppressor
 
-_OTEL_ENDPOINT_ENVIRONMENT_KEYS = (
-    "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
-    "OTEL_EXPORTER_OTLP_ENDPOINT",
-    "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL",
-    "OTEL_EXPORTER_OTLP_PROTOCOL",
-    "OTEL_SDK_DISABLED",
-)
-
 
 class TestLoggingRouting(unittest.TestCase):
     def setUp(self):
         self._handlers_before = list(logger_module.logger.handlers)
-        self._failure_target_before = logger_module.diagnostic_hdlr._failure_target
-        self._log_file_before = logger_module.logger.log_file
-        self._diagnostic_log_file_before = logger_module.logger.diagnostic_log_file
-        self._otel_environment_before = {
-            key: os.environ.get(key) for key in _OTEL_ENDPOINT_ENVIRONMENT_KEYS
-        }
-        for key in _OTEL_ENDPOINT_ENVIRONMENT_KEYS:
-            os.environ.pop(key, None)
-        self._temp_dir = tempfile.TemporaryDirectory()
-        # Роль задаётся canonical именем, поэтому тест не зависит от имени процесса.
-        logger_module.set_file_logger(
-            name="logging-test",
-            log_dir=Path(self._temp_dir.name),
-        )
+        logger_module.reset_diagnostic_context()
 
     def tearDown(self):
         for handler in list(logger_module.logger.handlers):
@@ -43,125 +19,42 @@ class TestLoggingRouting(unittest.TestCase):
                 logger_module.logger.removeHandler(handler)
                 handler.close()
         logger_module.logger.handlers[:] = self._handlers_before
-        logger_module.logger.log_file = self._log_file_before
-        logger_module.logger.diagnostic_log_file = self._diagnostic_log_file_before
-        logger_module.diagnostic_hdlr.configure_failure_target(
-            self._failure_target_before
-        )
         logger_module.reset_diagnostic_context()
-        for key, value in self._otel_environment_before.items():
-            if value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = value
-        self._temp_dir.cleanup()
 
-    def test_logger_accepts_debug_but_normal_handlers_start_at_info(self):
-        self.assertFalse(
-            logger_module.logger_debug,
-            "тест уровней обработчиков предполагает logger_debug=False",
-        )
+    def test_logger_uses_console_and_memory_context_without_file_handler(self):
+        logger_module.configure_runtime_logging(name="logging-test")
         self.assertEqual(logging.DEBUG, logger_module.logger.level)
         self.assertFalse(logger_module.logger.propagate)
         self.assertEqual(logging.DEBUG, logger_module.diagnostic_hdlr.level)
         self.assertEqual(logging.INFO, logger_module.console_hdlr.level)
-
-        normal_file_handlers = [
-            handler
-            for handler in logger_module.logger.handlers
-            if isinstance(handler, logger_module.RichTimedRotatingHandler)
-        ]
-        self.assertTrue(normal_file_handlers)
-        self.assertTrue(
-            all(handler.level == logging.INFO for handler in normal_file_handlers)
+        self.assertFalse(
+            any(
+                isinstance(handler, logging.FileHandler)
+                for handler in logger_module.logger.handlers
+                if handler not in self._handlers_before
+            )
         )
 
     def test_webui_handler_has_independent_info_threshold(self):
         handlers_before = list(logger_module.logger.handlers)
         callback_records = []
         try:
-            with patch.object(logger_module, "logger_debug", False):
-                logger_module.set_func_logger(callback_records.append)
-                web_handlers = [
-                    handler
-                    for handler in logger_module.logger.handlers
-                    if isinstance(handler, logger_module.RichRenderableHandler)
-                ]
-                self.assertEqual(1, len(web_handlers))
-                self.assertEqual(logging.INFO, web_handlers[0].level)
-                logger_module.logger.debug("webui debug must stay hidden")
-                self.assertEqual([], callback_records)
+            logger_module.set_func_logger(callback_records.append)
+            web_handlers = [
+                handler
+                for handler in logger_module.logger.handlers
+                if isinstance(handler, logger_module.RichRenderableHandler)
+            ]
+            self.assertEqual(1, len(web_handlers))
+            self.assertEqual(logging.INFO, web_handlers[0].level)
+            logger_module.logger.debug("webui debug must stay hidden")
+            self.assertEqual([], callback_records)
         finally:
             for handler in logger_module.logger.handlers:
                 if handler not in handlers_before:
                     handler.close()
             logger_module.logger.handlers[:] = handlers_before
             logger_module.reset_diagnostic_context()
-
-    def test_reinitializing_same_file_logger_does_not_duplicate_handler(self):
-        handlers_before = list(logger_module.logger.handlers)
-        failure_target_before = logger_module.diagnostic_hdlr._failure_target
-        log_file_before = logger_module.logger.log_file
-        before = [
-            handler
-            for handler in logger_module.logger.handlers
-            if isinstance(handler, logger_module.RichTimedRotatingHandler)
-        ]
-        self.assertTrue(before)
-        handler_before = before[0]
-        try:
-            logger_module.set_file_logger(name=handler_before.pname)
-            after = [
-                handler
-                for handler in logger_module.logger.handlers
-                if isinstance(handler, logger_module.RichTimedRotatingHandler)
-            ]
-            self.assertEqual(before, after)
-            self.assertEqual(log_file_before, logger_module.logger.log_file)
-        finally:
-            for handler in logger_module.logger.handlers:
-                if handler not in handlers_before:
-                    handler.close()
-            logger_module.logger.handlers[:] = handlers_before
-            logger_module.logger.log_file = log_file_before
-            logger_module.diagnostic_hdlr.configure_failure_target(failure_target_before)
-
-    def test_archive_failure_keeps_all_source_logs(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            files = [root / "2026-08-16_alas.txt", root / "2026-08-17_alas.txt"]
-            for path in files:
-                path.write_text("log", encoding="utf-8")
-
-            handler = object.__new__(logger_module.RichTimedRotatingHandler)
-            handler.baseFilename = str(root / "alas.txt")
-            handler.bak = "zip"
-            handler.compression = "zip"
-            writes = []
-
-            class FailingZip:
-                def __init__(self, *_args, **_kwargs):
-                    pass
-
-                def __enter__(self):
-                    return self
-
-                def __exit__(self, *_args):
-                    return False
-
-                def write(self, path, *, arcname):
-                    writes.append((Path(path).name, arcname))
-                    if len(writes) == 2:
-                        raise OSError("искусственный сбой архивации")
-
-            with (
-                patch.object(logger_module.zipfile, "ZipFile", FailingZip),
-                patch.object(logger_module.logger, "exception"),
-            ):
-                handler.expire(files)
-
-            self.assertEqual(2, len(writes))
-            self.assertTrue(all(path.exists() for path in files))
 
     def test_hr_level_one_and_two_do_not_emit_duplicate_info_record(self):
         for level in (1, 2):
@@ -179,26 +72,17 @@ class TestLoggingRouting(unittest.TestCase):
             with patch.object(logger_module.logger, "log") as log:
                 self.assertTrue(
                     logger_module.log_suppressed(
-                        logging.INFO,
-                        "state unknown",
-                        key="state",
-                        payload="unknown",
+                        logging.INFO, "state unknown", key="state", payload="unknown"
                     )
                 )
                 self.assertFalse(
                     logger_module.log_suppressed(
-                        logging.INFO,
-                        "state unknown",
-                        key="state",
-                        payload="unknown",
+                        logging.INFO, "state unknown", key="state", payload="unknown"
                     )
                 )
                 self.assertTrue(
                     logger_module.log_suppressed(
-                        logging.INFO,
-                        "state ready",
-                        key="state",
-                        payload="ready",
+                        logging.INFO, "state ready", key="state", payload="ready"
                     )
                 )
                 self.assertEqual(3, log.call_count)
@@ -210,23 +94,10 @@ class TestLoggingRouting(unittest.TestCase):
 class TestRepeatedEventSuppressor(unittest.TestCase):
     def test_first_repeat_summary_and_payload_change(self):
         suppressor = RepeatedEventSuppressor(max_keys=4, default_window=10)
-        first = suppressor.observe(
-            "state", payload="unknown", level=logging.INFO,
-            message="state=unknown", now=1,
-        )
-        repeat1 = suppressor.observe(
-            "state", payload="unknown", level=logging.INFO,
-            message="state=unknown", now=2,
-        )
-        repeat2 = suppressor.observe(
-            "state", payload="unknown", level=logging.INFO,
-            message="state=unknown", now=3,
-        )
-        changed = suppressor.observe(
-            "state", payload="ready", level=logging.INFO,
-            message="state=ready", now=4,
-        )
-
+        first = suppressor.observe("state", payload="unknown", level=20, message="state=unknown", now=1)
+        repeat1 = suppressor.observe("state", payload="unknown", level=20, message="state=unknown", now=2)
+        repeat2 = suppressor.observe("state", payload="unknown", level=20, message="state=unknown", now=3)
+        changed = suppressor.observe("state", payload="ready", level=20, message="state=ready", now=4)
         self.assertTrue(first.emit)
         self.assertFalse(repeat1.emit)
         self.assertFalse(repeat2.emit)
@@ -243,87 +114,36 @@ class TestRepeatedEventSuppressor(unittest.TestCase):
                 raise ValueError("ambiguous truth value")
 
         suppressor = RepeatedEventSuppressor(default_window=60)
-        first_payload = AmbiguousEquality()
-        second_payload = AmbiguousEquality()
-        self.assertTrue(
-            suppressor.observe(
-                "array-like",
-                payload=first_payload,
-                level=logging.INFO,
-                message="first",
-                now=1,
-            ).emit
-        )
-        self.assertTrue(
-            suppressor.observe(
-                "array-like",
-                payload=second_payload,
-                level=logging.INFO,
-                message="second",
-                now=2,
-            ).emit
-        )
+        self.assertTrue(suppressor.observe("array-like", payload=AmbiguousEquality(), level=20, message="first", now=1).emit)
+        self.assertTrue(suppressor.observe("array-like", payload=AmbiguousEquality(), level=20, message="second", now=2).emit)
 
     def test_severity_escalation_and_error_are_never_suppressed(self):
         suppressor = RepeatedEventSuppressor(default_window=60)
-        self.assertTrue(
-            suppressor.observe(
-                "x", payload=1, level=logging.INFO, message="x", now=1
-            ).emit
-        )
-        self.assertFalse(
-            suppressor.observe(
-                "x", payload=1, level=logging.INFO, message="x", now=2
-            ).emit
-        )
-        warning = suppressor.observe(
-            "x", payload=1, level=logging.WARNING, message="x warning", now=3
-        )
+        self.assertTrue(suppressor.observe("x", payload=1, level=20, message="x", now=1).emit)
+        self.assertFalse(suppressor.observe("x", payload=1, level=20, message="x", now=2).emit)
+        warning = suppressor.observe("x", payload=1, level=logging.WARNING, message="x warning", now=3)
         self.assertTrue(warning.emit)
         self.assertEqual(1, warning.summary_count)
-        self.assertTrue(
-            suppressor.observe(
-                "x", payload=1, level=logging.ERROR, message="x error", now=4
-            ).emit
-        )
-        self.assertTrue(
-            suppressor.observe(
-                "x", payload=1, level=logging.CRITICAL,
-                message="x critical", now=5,
-            ).emit
-        )
+        self.assertTrue(suppressor.observe("x", payload=1, level=logging.ERROR, message="x error", now=4).emit)
+        self.assertTrue(suppressor.observe("x", payload=1, level=logging.CRITICAL, message="x critical", now=5).emit)
 
     def test_repeated_error_without_escalation_is_never_suppressed(self):
         suppressor = RepeatedEventSuppressor(default_window=60)
-        self.assertTrue(
-            suppressor.observe(
-                "y", payload=1, level=logging.ERROR, message="y", now=1
-            ).emit
-        )
-        self.assertTrue(
-            suppressor.observe(
-                "y", payload=1, level=logging.ERROR, message="y", now=2
-            ).emit
-        )
+        self.assertTrue(suppressor.observe("y", payload=1, level=logging.ERROR, message="y", now=1).emit)
+        self.assertTrue(suppressor.observe("y", payload=1, level=logging.ERROR, message="y", now=2).emit)
 
     def test_window_expiry_emits_and_summarizes(self):
         suppressor = RepeatedEventSuppressor(default_window=5)
         suppressor.observe("x", payload=1, level=20, message="x", now=0)
         suppressor.observe("x", payload=1, level=20, message="x", now=1)
-        decision = suppressor.observe(
-            "x", payload=1, level=20, message="x", now=5
-        )
+        decision = suppressor.observe("x", payload=1, level=20, message="x", now=5)
         self.assertTrue(decision.emit)
         self.assertEqual(1, decision.summary_count)
 
     def test_finish_returns_summary_and_clears_series(self):
         suppressor = RepeatedEventSuppressor(default_window=60)
-        suppressor.observe(
-            "x", payload=1, level=logging.WARNING, message="x", now=1
-        )
-        suppressor.observe(
-            "x", payload=1, level=logging.WARNING, message="x", now=2
-        )
+        suppressor.observe("x", payload=1, level=logging.WARNING, message="x", now=1)
+        suppressor.observe("x", payload=1, level=logging.WARNING, message="x", now=2)
         decision = suppressor.finish("x", now=3)
         self.assertFalse(decision.emit)
         self.assertEqual(1, decision.summary_count)
@@ -348,12 +168,7 @@ class TestRepeatedEventSuppressor(unittest.TestCase):
         def worker(offset):
             try:
                 for index in range(100):
-                    suppressor.observe(
-                        (offset + index) % 16,
-                        payload=index % 3,
-                        level=logging.INFO,
-                        message="value",
-                    )
+                    suppressor.observe((offset + index) % 16, payload=index % 3, level=20, message="value")
             except Exception as exc:
                 errors.append(exc)
 
@@ -369,97 +184,45 @@ class TestRepeatedEventSuppressor(unittest.TestCase):
 class TestDiagnosticContextHandler(unittest.TestCase):
     @staticmethod
     def make_logger(handler, normal_stream):
-        logger = logging.getLogger(f"diag-test-{id(handler)}")
-        logger.handlers.clear()
-        logger.propagate = False
-        logger.setLevel(logging.DEBUG)
+        test_logger = logging.getLogger(f"diag-test-{id(handler)}")
+        test_logger.handlers.clear()
+        test_logger.propagate = False
+        test_logger.setLevel(logging.DEBUG)
         normal = logging.StreamHandler(normal_stream)
         normal.setLevel(logging.INFO)
         normal.setFormatter(logging.Formatter("%(levelname)s|%(message)s"))
-        logger.addHandler(normal)
-        logger.addHandler(handler)
-        handler.configure_failure_target(normal)
-        return logger
+        test_logger.addHandler(normal)
+        test_logger.addHandler(handler)
+        return test_logger
 
-    def test_debug_is_bounded_and_error_flushes_only_diagnostic_context(self):
-        with tempfile.TemporaryDirectory() as temp:
-            output = Path(temp) / "diagnostic.log"
-            handler = DiagnosticContextHandler(
-                capacity=2,
-                sanitizer=lambda value: str(value).replace("secret", "***"),
+    def test_all_levels_are_bounded_and_error_snapshots_context_without_file(self):
+        handler = DiagnosticContextHandler(
+            capacity=4,
+            max_bytes=64,
+            sanitizer=lambda value: str(value).replace("secret", "***"),
+        )
+        try:
+            normal_stream = StringIO()
+            test_logger = self.make_logger(handler, normal_stream)
+            test_logger.debug("debug")
+            test_logger.info("secret info")
+            test_logger.warning("warning")
+            test_logger.error("boom")
+            self.assertEqual(
+                ["debug", "*** info", "warning", "boom"],
+                [record.getMessage() for record in handler.snapshot(last_failure=True)],
             )
-            try:
-                formatter = logging.Formatter("%(levelname)s|%(message)s")
-                handler.setFormatter(formatter)
-                handler.configure_output(output, formatter)
-                normal_stream = StringIO()
-                logger = self.make_logger(handler, normal_stream)
-
-                logger.debug("old")
-                logger.debug("secret two")
-                logger.debug("three")
-                self.assertEqual(
-                    ["*** two", "three"],
-                    [record.getMessage() for record in handler.snapshot()],
-                )
-                self.assertEqual("", normal_stream.getvalue())
-
-                logger.error("boom")
-                self.assertEqual(
-                    ["*** two", "three"],
-                    [record.getMessage() for record in handler.snapshot(last_failure=True)],
-                )
-                normal_output = normal_stream.getvalue()
-                self.assertEqual(1, normal_output.count("ERROR|boom"))
-                self.assertIn("INFO|[Диагностика] Контекст перед ERROR: boom", normal_output)
-                self.assertIn("DEBUG|*** two", normal_output)
-                self.assertIn("DEBUG|three", normal_output)
-                diagnostic = output.read_text(encoding="utf-8")
-                self.assertNotIn("old", diagnostic)
-                self.assertIn("*** two", diagnostic)
-                self.assertIn("three", diagnostic)
-                self.assertIn("Контекст перед ERROR: boom", diagnostic)
-            finally:
-                handler.close()
-
-    def test_error_discovers_normal_file_handler_without_explicit_binding(self):
-        with tempfile.TemporaryDirectory() as temp:
-            diagnostic_output = Path(temp) / "diagnostic.log"
-            normal_output = Path(temp) / "normal.log"
-            handler = DiagnosticContextHandler(capacity=2)
-            normal = None
-            try:
-                formatter = logging.Formatter("%(levelname)s|%(message)s")
-                handler.configure_output(diagnostic_output, formatter)
-
-                logger = logging.getLogger(f"diag-file-target-{id(handler)}")
-                logger.handlers.clear()
-                logger.propagate = False
-                logger.setLevel(logging.DEBUG)
-                normal = logging.FileHandler(normal_output, encoding="utf-8")
-                normal.setLevel(logging.INFO)
-                normal.setFormatter(formatter)
-                logger.addHandler(normal)
-                logger.addHandler(handler)
-
-                logger.debug("pre-failure detail")
-                logger.error("boom")
-                normal.flush()
-                normal_text = normal_output.read_text(encoding="utf-8")
-                self.assertIn("DEBUG|pre-failure detail", normal_text)
-                self.assertEqual(1, normal_text.count("ERROR|boom"))
-            finally:
-                if normal is not None:
-                    logger.removeHandler(normal)
-                    normal.close()
-                handler.close()
+            self.assertEqual((), handler.snapshot())
+            self.assertNotIn("secret", " ".join(record.getMessage() for record in handler.snapshot(last_failure=True)))
+            self.assertFalse(any(isinstance(h, logging.FileHandler) for h in test_logger.handlers))
+        finally:
+            handler.close()
 
     def test_buffer_clone_does_not_retain_arbitrary_extra_objects(self):
         handler = DiagnosticContextHandler(capacity=2)
         try:
-            logger = self.make_logger(handler, StringIO())
-            payload = object()
-            logger.debug("detail", extra={"large_payload": payload})
+            test_logger = self.make_logger(handler, StringIO())
+            test_logger.debug("detail", extra={"large_payload": object()})
             record = handler.snapshot()[0]
             self.assertFalse(hasattr(record, "large_payload"))
             self.assertIsNone(record.exc_info)
@@ -467,66 +230,26 @@ class TestDiagnosticContextHandler(unittest.TestCase):
         finally:
             handler.close()
 
-    def test_debug_sanitizer_runs_only_for_message(self):
-        calls = []
-
-        def sanitizer(value):
-            calls.append(value)
-            return str(value)
-
-        handler = DiagnosticContextHandler(capacity=2, sanitizer=sanitizer)
+    def test_sanitizer_failure_does_not_escape_logging_call(self):
+        handler = DiagnosticContextHandler(capacity=2, sanitizer=lambda value: 1 / 0)
         try:
-            logger = self.make_logger(handler, StringIO())
-            logger.debug("detail")
-            self.assertEqual(["detail"], calls)
-        finally:
-            handler.close()
-
-    def test_diagnostic_failure_does_not_escape_logging_call(self):
-        def broken_sanitizer(value):
-            raise RuntimeError("sanitizer failed")
-
-        handler = DiagnosticContextHandler(capacity=2, sanitizer=broken_sanitizer)
-        try:
-            logger = self.make_logger(handler, StringIO())
+            test_logger = self.make_logger(handler, StringIO())
             with patch.object(logging, "raiseExceptions", False):
-                logger.debug("detail")
+                test_logger.debug("detail")
             self.assertEqual((), handler.snapshot())
         finally:
             handler.close()
 
-    def test_info_does_not_enter_diagnostic_buffer(self):
-        handler = DiagnosticContextHandler(capacity=4)
-        try:
-            logger = self.make_logger(handler, StringIO())
-            logger.info("normal")
-            self.assertEqual((), handler.snapshot())
-        finally:
-            handler.close()
-
-    def test_success_and_close_do_not_dump_buffer(self):
-        with tempfile.TemporaryDirectory() as temp:
-            output = Path(temp) / "diagnostic.log"
-            handler = DiagnosticContextHandler(capacity=4)
-            try:
-                formatter = logging.Formatter("%(message)s")
-                handler.configure_output(output, formatter)
-                logger = self.make_logger(handler, StringIO())
-                logger.debug("quiet detail")
-                handler.close()
-                self.assertFalse(output.exists())
-            finally:
-                handler.close()
-
-    def test_second_error_without_new_debug_preserves_last_failure_context(self):
+    def test_second_error_starts_a_new_failure_snapshot(self):
         handler = DiagnosticContextHandler(capacity=2)
         try:
-            logger = self.make_logger(handler, StringIO())
-            logger.debug("one")
-            logger.error("first")
-            logger.critical("second")
+            test_logger = self.make_logger(handler, StringIO())
+            test_logger.debug("one")
+            test_logger.error("first")
+            test_logger.debug("two")
+            test_logger.critical("second")
             self.assertEqual(
-                ["one"],
+                ["two", "second"],
                 [record.getMessage() for record in handler.snapshot(last_failure=True)],
             )
         finally:
@@ -535,14 +258,9 @@ class TestDiagnosticContextHandler(unittest.TestCase):
     def test_reset_clears_current_and_last_failure_context(self):
         handler = DiagnosticContextHandler(capacity=2)
         try:
-            logger = self.make_logger(handler, StringIO())
-            logger.debug("one")
-            logger.error("boom")
-            self.assertEqual(
-                ["one"],
-                [record.getMessage() for record in handler.snapshot(last_failure=True)],
-            )
-            logger.debug("two")
+            test_logger = self.make_logger(handler, StringIO())
+            test_logger.info("one")
+            test_logger.error("boom")
             handler.reset()
             self.assertEqual((), handler.snapshot())
             self.assertEqual((), handler.snapshot(last_failure=True))

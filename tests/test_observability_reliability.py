@@ -129,6 +129,29 @@ def test_existing_journal_prevents_mutation(docker_state, tmp_path):
     assert docker_state[1] == []
 
 
+def test_recovery_journal_failure_prevents_first_stop(
+    docker_state, monkeypatch, tmp_path
+):
+    journal = tmp_path / "recovery.json"
+
+    def fail_journal(*_args, **_kwargs):
+        raise target.ReliabilityError("OBSERVABILITY_RECOVERY_JOURNAL_WRITE_FAILED")
+
+    monkeypatch.setattr(target, "_write_authoritative_journal", fail_journal)
+
+    with pytest.raises(
+        target.ReliabilityError, match="OBSERVABILITY_RECOVERY_JOURNAL_WRITE_FAILED"
+    ):
+        with target.outage(("tempo",), journal):
+            pytest.fail("До durable journal нельзя выполнять outage")
+
+    assert docker_state[1] == []
+    state = json.loads(journal.read_text(encoding="utf-8"))
+    assert state["attempted"] == []
+    assert state["stopping"] == []
+    assert state["stopped"] == []
+
+
 def test_backend_probe_is_limited_to_internal_observability_endpoints(
     docker_state,
 ):
@@ -155,7 +178,13 @@ def test_mcp_health_localizes_unhealthy_datasource(monkeypatch):
             }
         if name == "tempo_get-trace":
             return {"trace": {"traceId": arguments["trace_id"]}}
-        return {"data": {"result": [{"value": [1, "1"]}]}}
+        return {
+            "data": {
+                "result": [{"value": [1, "1"]}],
+                "environment": "probe",
+                "marker": "marker",
+            }
+        }
 
     monkeypatch.setattr(observability_mcp, "_gateway_tool_call", gateway)
     result = target.mcp_signals(
@@ -167,10 +196,117 @@ def test_mcp_health_localizes_unhealthy_datasource(monkeypatch):
         "query_prometheus",
         "tempo_get-trace",
     ]
-    assert result["loki"] == {"responded": False, "source_unavailable": True}
-    assert result["prometheus"] == {"responded": True, "nonempty": True}
-    assert result["tempo"] == {"responded": True, "nonempty": True}
+    assert result["loki"] == {
+        "responded": False,
+        "nonempty": False,
+        "source_unavailable": True,
+    }
+    assert result["prometheus"]["responded"] is True
+    assert result["prometheus"]["nonempty"] is True
+    assert result["tempo"]["responded"] is True
+    assert result["tempo"]["nonempty"] is True
     assert result["operator_checks"] == {"skipped": "DATASOURCE_UNAVAILABLE"}
+
+
+def test_mcp_signal_nonempty_accepts_gateway_list_response_shape():
+    emission = {
+        "environment": "probe-environment",
+        "marker": "probe-marker",
+        "trace_ids": ["0123456789abcdef0123456789abcdef"],
+    }
+
+    assert target._mcp_signal_nonempty(
+        {
+            "data": [
+                {
+                    "metric": {
+                        "deployment_environment_name": emission["environment"]
+                    }
+                }
+            ]
+        },
+        signal="prometheus",
+        emission=emission,
+    )
+    assert target._mcp_signal_nonempty(
+        {
+            "data": [
+                {
+                    "line": emission["marker"],
+                    "labels": {"deployment_environment_name": emission["environment"]},
+                }
+            ]
+        },
+        signal="loki",
+        emission=emission,
+    )
+
+
+def test_mcp_partial_outage_allows_expected_affected_query_error():
+    result = {
+        "query_layer_available": True,
+        "unexpected_is_error": ["loki"],
+        "health": {"prometheus": True, "loki": True, "tempo": True},
+        "prometheus": {"responded": True, "nonempty": True},
+        "loki": {"responded": False, "nonempty": False, "is_error": True},
+        "tempo": {"responded": True, "nonempty": True},
+    }
+
+    target.assert_mcp_partial_outage(result, {"loki"})
+
+
+def test_mcp_partial_outage_rejects_unaffected_query_error():
+    result = {
+        "query_layer_available": True,
+        "unexpected_is_error": ["tempo"],
+        "health": {"prometheus": True, "loki": True, "tempo": True},
+        "prometheus": {"responded": True, "nonempty": True},
+        "loki": {"responded": True, "nonempty": True},
+        "tempo": {"responded": False, "nonempty": False, "is_error": True},
+    }
+
+    with pytest.raises(target.ReliabilityError, match="MCP_UNEXPECTED_ERROR"):
+        target.assert_mcp_partial_outage(result, {"loki"})
+
+
+def test_mcp_post_recovery_requires_operator_reads_and_all_signals():
+    result = {
+        "query_layer_available": True,
+        "unexpected_is_error": [],
+        "health": {"prometheus": True, "loki": True, "tempo": True},
+        "prometheus": {"responded": True, "nonempty": True},
+        "loki": {"responded": True, "nonempty": True},
+        "tempo": {"responded": True, "nonempty": True},
+        "operator_checks": {
+            "dashboard": {"responded": True, "operation_ok": True},
+            "dashboard_queries": {"responded": True, "operation_ok": True},
+            "alerts": {"responded": True, "operation_ok": False},
+        },
+    }
+
+    with pytest.raises(target.ReliabilityError, match="MCP_NOT_RECOVERED"):
+        target.assert_mcp_after_recovery(result)
+
+
+def test_bounded_outage_metrics_require_prometheus_group_for_prometheus_outage():
+    metrics = [
+        'otelcol_exporter_queue_capacity{exporter="loki"} 100',
+        'otelcol_exporter_queue_size{exporter="loki"} 1',
+    ]
+
+    with pytest.raises(target.ReliabilityError, match="BOUNDED_SIGNAL_EVIDENCE_MISSING"):
+        target.assert_bounded_outage_metrics(metrics, services=("prometheus",))
+
+
+def test_bounded_outage_metrics_matches_exporter_labels_without_fixed_order():
+    metrics = [
+        'otelcol_exporter_queue_capacity{pipeline="logs",exporter="otlp_http/otelcol.exporter.otlphttp.loki"} 100',
+        'otelcol_exporter_queue_size{exporter="otlp_http/otelcol.exporter.otlphttp.loki",pipeline="logs"} 1',
+        'otelcol_exporter_queue_capacity{pipeline="traces",exporter="otlp_http/otelcol.exporter.otlphttp.tempo"} 100',
+        'otelcol_exporter_queue_size{exporter="otlp_http/otelcol.exporter.otlphttp.tempo",pipeline="traces"} 2',
+    ]
+
+    target.assert_bounded_outage_metrics(metrics, services=("loki", "tempo"))
 
 
 @pytest.mark.parametrize(

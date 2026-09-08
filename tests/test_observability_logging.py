@@ -108,6 +108,28 @@ def test_application_logging_is_disabled_without_explicit_endpoint(monkeypatch):
         shutdown_application_observability(target)
 
 
+def test_canonical_project_env_enables_otlp_without_loading_secrets(
+    monkeypatch, tmp_path
+):
+    for key in _OTEL_ENVIRONMENT_KEYS:
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text(
+        "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://alloy:4318/v1/logs\n"
+        "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL=http/protobuf\n"
+        "AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD=must-not-load\n",
+        encoding="utf-8",
+    )
+
+    config = _read_config()
+
+    assert config is not None
+    assert config.signal_endpoint == "http://alloy:4318/v1/logs"
+    assert os.environ.get("AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD") is None
+    for key in _OTEL_ENVIRONMENT_KEYS:
+        monkeypatch.delenv(key, raising=False)
+
+
 def test_application_logging_disabled_flag_wins_over_endpoint(monkeypatch):
     _configure_test_environment(monkeypatch)
     monkeypatch.setenv("OTEL_SDK_DISABLED", "true")
@@ -495,17 +517,14 @@ def test_process_role_component_does_not_create_fake_profile(monkeypatch):
         shutdown_application_observability(target)
 
 
-def test_set_file_logger_keeps_canonical_profile_separate_from_filename(tmp_path):
+def test_runtime_logging_keeps_canonical_profile_without_file_sink():
     from module import observability
     import module.logger as logger_module
 
     handlers_before = list(logger_module.logger.handlers)
-    log_file_before = logger_module.logger.log_file
-    diagnostic_log_file_before = logger_module.logger.diagnostic_log_file
-    failure_target_before = logger_module.diagnostic_hdlr._failure_target
     try:
         with patch.object(observability, "configure_application_observability") as configure:
-            logger_module.set_file_logger(name="farm_main", log_dir=tmp_path)
+            logger_module.configure_runtime_logging(name="farm_main")
 
         configure.assert_called_once_with(
             logger_module.logger,
@@ -518,9 +537,6 @@ def test_set_file_logger_keeps_canonical_profile_separate_from_filename(tmp_path
                 logger_module.logger.removeHandler(handler)
                 handler.close()
         logger_module.logger.handlers[:] = handlers_before
-        logger_module.logger.log_file = log_file_before
-        logger_module.logger.diagnostic_log_file = diagnostic_log_file_before
-        logger_module.diagnostic_hdlr.configure_failure_target(failure_target_before)
 
 
 def test_logging_context_restores_nested_values_and_isolates_async_tasks():
@@ -575,8 +591,7 @@ def test_importing_logger_does_not_create_file_handler_or_remote_bootstrap():
     code = """
 import module.logger as logger_module
 import module.observability
-print(logger_module.logger.log_file)
-print(sum(isinstance(handler, logger_module.RichTimedRotatingHandler) for handler in logger_module.logger.handlers))
+print(any(isinstance(handler, __import__("logging").FileHandler) for handler in logger_module.logger.handlers))
 print(any(name.startswith("opentelemetry") for name in __import__("sys").modules))
 """
     environment = os.environ.copy()
@@ -591,7 +606,7 @@ print(any(name.startswith("opentelemetry") for name in __import__("sys").modules
         text=True,
         check=True,
     )
-    assert result.stdout.splitlines()[-3:] == ["None", "0", "False"]
+    assert result.stdout.splitlines()[-2:] == ["False", "False"]
 
 
 def test_exporter_failure_is_fail_open_for_local_logger(monkeypatch):

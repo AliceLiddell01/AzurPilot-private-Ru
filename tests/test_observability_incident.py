@@ -12,6 +12,7 @@ from module.observability import scheduler_task_run
 from module.observability.incident import (
     build_incident_metadata,
     create_incident_directory,
+    write_incident_log,
     write_incident_metadata,
 )
 from module.observability.scheduler import get_current_task_name
@@ -175,6 +176,26 @@ def test_incident_metadata_write_is_atomic_and_contains_no_exception_payload(tmp
     assert "/var/lib/azurpilot" not in contents
 
 
+def test_incident_log_is_bounded_sanitized_and_atomic(tmp_path):
+    folder = tmp_path / "incident"
+    folder.mkdir()
+
+    target = write_incident_log(
+        folder,
+        ("password=raw-secret", "line-2", "line-3"),
+        max_bytes=32,
+        max_lines=2,
+    )
+
+    assert target == folder / "log.txt"
+    contents = target.read_text(encoding="utf-8")
+    assert "raw-secret" not in contents
+    assert "line-2" in contents
+    assert "line-3" not in contents
+    assert len(target.read_bytes()) <= 32
+    assert not list(folder.glob(".incident-log-*.tmp"))
+
+
 def test_scheduler_boundary_exposes_only_canonical_current_task():
     assert get_current_task_name() is None
 
@@ -198,9 +219,7 @@ def test_save_error_log_keeps_original_error_and_writes_incident_bundle(
     monkeypatch,
 ):
     monkeypatch.chdir(tmp_path)
-    log_file = tmp_path / "application.log"
-    log_file.write_text("до ошибки\n════════════════\nпосле ошибки\n", encoding="utf-8")
-    monkeypatch.setattr(logger, "log_file", str(log_file))
+    logger.reset_diagnostic_context()
 
     script = AzurLaneAutoScript.__new__(AzurLaneAutoScript)
     script.config_name = "profile-a"
@@ -213,6 +232,8 @@ def test_save_error_log_keeps_original_error_and_writes_incident_bundle(
     try:
         raise RuntimeError("password=raw-secret C:\\Users\\operator\\error.log")
     except RuntimeError:
+        logger.info("до ошибки")
+        logger.error("ошибка с password=raw-secret")
         script.save_error_log()
 
     bundles = sorted((tmp_path / "log" / "error" / "profile-a").iterdir())
@@ -233,9 +254,7 @@ def test_save_error_log_does_not_mask_original_when_metadata_write_fails(
     monkeypatch,
 ):
     monkeypatch.chdir(tmp_path)
-    log_file = tmp_path / "application.log"
-    log_file.write_text("ошибка\n", encoding="utf-8")
-    monkeypatch.setattr(logger, "log_file", str(log_file))
+    logger.reset_diagnostic_context()
 
     script = AzurLaneAutoScript.__new__(AzurLaneAutoScript)
     script.config_name = "profile-a"
@@ -252,6 +271,7 @@ def test_save_error_log_does_not_mask_original_when_metadata_write_fails(
         try:
             raise ValueError("исходная ошибка")
         except ValueError:
+            logger.error("исходная ошибка")
             script.save_error_log()
 
     bundles = sorted((tmp_path / "log" / "error" / "profile-a").iterdir())

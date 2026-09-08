@@ -6,6 +6,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 import time
@@ -17,6 +18,8 @@ from urllib.parse import urlencode, urlsplit
 from dev_tools.infrastructure_doctor import CANONICAL_PROJECT, _run
 
 SERVICES = ("alloy", "loki", "prometheus", "tempo", "grafana")
+MCP_BACKENDS = ("prometheus", "loki", "tempo")
+MCP_OPERATOR_CHECKS = ("dashboard", "dashboard_queries", "alerts")
 ENDPOINTS = {
     "alloy": "http://alloy:12345/-/ready",
     "loki": "http://loki:3100/ready",
@@ -35,6 +38,10 @@ _INTERNAL_ENDPOINTS = {
 
 class ReliabilityError(RuntimeError):
     """Безопасный код ошибки без Docker stderr и пользовательских данных."""
+
+    def __init__(self, code: str) -> None:
+        self.code = code
+        super().__init__(code)
 
 
 def validate_services(services: tuple[str, ...]) -> None:
@@ -62,6 +69,51 @@ def verify_preserved(before: dict, after: dict, changed: tuple[str, ...]) -> Non
             raise ReliabilityError("OBSERVABILITY_STORAGE_OR_IDENTITY_CHANGED")
 
 
+def _journal_payload(state: dict) -> str:
+    return json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True)
+
+
+def _create_recovery_journal(path: Path, state: dict) -> None:
+    """Создать полный journal эксклюзивно и durable до первой мутации."""
+    try:
+        descriptor = os.open(
+            path,
+            os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+        )
+    except FileExistsError:
+        raise
+    except OSError as exc:
+        raise ReliabilityError("OBSERVABILITY_RECOVERY_JOURNAL_WRITE_FAILED") from exc
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as stream:
+            stream.write(_journal_payload(state))
+            stream.flush()
+            os.fsync(stream.fileno())
+    except (OSError, TypeError, ValueError) as exc:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise ReliabilityError("OBSERVABILITY_RECOVERY_JOURNAL_WRITE_FAILED") from exc
+
+
+def _write_authoritative_journal(path: Path, state: dict) -> None:
+    """Атомарно обновить recovery journal; failure запрещает следующую мутацию."""
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        with temporary.open("w", encoding="utf-8", newline="\n") as stream:
+            stream.write(_journal_payload(state))
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    except (OSError, TypeError, ValueError) as exc:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise ReliabilityError("OBSERVABILITY_RECOVERY_JOURNAL_WRITE_FAILED") from exc
+
+
 @contextmanager
 def outage(services: tuple[str, ...], journal: Path):
     """Остановить выбранные containers и восстановить их после ошибки probe."""
@@ -75,26 +127,43 @@ def outage(services: tuple[str, ...], journal: Path):
     if any(before.get(s, {}).get("status") != "running" for s in services):
         raise ReliabilityError("OBSERVABILITY_SERVICE_NOT_RUNNING")
     journal.parent.mkdir(parents=True, exist_ok=True)
-    state = {"before": before, "attempted": [], "recovered": [], "recovery_errors": []}
-    # Маркер только для создания защищает незавершённое recovery evidence.
-    with journal.open("x", encoding="utf-8") as stream:
-        json.dump(state, stream)
+    state = {
+        "before": before,
+        "attempted": [],
+        "stopping": [],
+        "stopped": [],
+        "recovered": [],
+        "recovery_errors": [],
+    }
+    journal.parent.mkdir(parents=True, exist_ok=True)
+    _create_recovery_journal(journal, state)
     original_error = None
     try:
         for service in services:
             verify_preserved(before, inventory(), services)
             state["attempted"].append(service)
-            _write_json_best_effort(journal, state)
+            state["stopping"].append(service)
+            try:
+                _write_authoritative_journal(journal, state)
+            except BaseException:
+                state["stopping"].remove(service)
+                raise
             docker("stop", "--time", "10", before[service]["id"])
             if inventory()[service]["status"] != "exited":
                 raise ReliabilityError("OBSERVABILITY_STOP_NOT_CONFIRMED")
+            state["stopping"].remove(service)
+            state["stopped"].append(service)
+            _write_authoritative_journal(journal, state)
         verify_preserved(before, inventory(), services)
         yield state
     except BaseException as exc:
         original_error = exc
         raise
     finally:
+        recovery_services = set(state["stopping"]) | set(state["stopped"])
         for service in reversed(state["attempted"]):
+            if service not in recovery_services:
+                continue
             try:
                 current = inventory().get(service, {})
                 if (
@@ -109,7 +178,12 @@ def outage(services: tuple[str, ...], journal: Path):
                 state["recovery_errors"].append(
                     {"service": service, "error": type(exc).__name__}
                 )
-        _write_json_best_effort(journal, state)
+        try:
+            _write_authoritative_journal(journal, state)
+        except ReliabilityError as exc:
+            if original_error is None:
+                raise
+            original_error.add_note(exc.code)
         if state["recovery_errors"] and original_error is None:
             raise ReliabilityError("OBSERVABILITY_RECOVERY_FAILED")
 
@@ -203,22 +277,42 @@ def run_scenario(
                 }
             else:
                 result["mcp_during"] = mcp_signals(baseline)
+                assert_mcp_partial_outage(
+                    result["mcp_during"],
+                    set(services).intersection(MCP_BACKENDS),
+                )
             if "alloy" not in services:
                 result["metrics_during"] = internal_metrics()
             if (
                 not emission["local_log"]
                 or not emission["incident"]
+                or not emission["incident_sanitized"]
+                or emission["screenshots"] <= 0
+                or emission["normal_runtime_text_files"]
                 or emission["shutdown_seconds"] > 4
             ):
                 raise ReliabilityError("OBSERVABILITY_LOCAL_FALLBACK_FAILED")
-            unaffected = set(("loki", "prometheus", "tempo")) - set(services)
             if "alloy" not in services:
                 deadline = time.monotonic() + 30
-                while not all(result["during_signals"][s] for s in unaffected):
-                    if time.monotonic() >= deadline:
-                        raise ReliabilityError("OBSERVABILITY_UNAFFECTED_SIGNAL_FAILED")
-                    time.sleep(2)
-                    result["during_signals"] = query_signals(emission)
+                while True:
+                    try:
+                        assert_direct_partial_signals(
+                            result["during_signals"], services
+                        )
+                        break
+                    except ReliabilityError as exc:
+                        if str(exc) != "OBSERVABILITY_UNAFFECTED_SIGNAL_FAILED":
+                            raise
+                        if time.monotonic() >= deadline:
+                            raise
+                        time.sleep(2)
+                        result["during_signals"] = query_signals(emission)
+            else:
+                assert_direct_partial_signals(result["during_signals"], services)
+            if "alloy" not in services:
+                assert_bounded_outage_metrics(
+                    result["metrics_during"], services=services
+                )
             print(
                 json.dumps(
                     {
@@ -230,6 +324,12 @@ def run_scenario(
                 flush=True,
             )
             time.sleep(hold_seconds)
+            if "alloy" not in services:
+                result["metrics_during_end"] = internal_metrics()
+                assert_bounded_outage_metrics(
+                    result["metrics_during"] + result["metrics_during_end"],
+                    services=services,
+                )
             verify_preserved(state["before"], inventory(), services)
         wait_ready()
         verify_preserved(state["before"], inventory(), services)
@@ -241,11 +341,7 @@ def run_scenario(
         result["fresh_signals"] = wait_signals(fresh)
         result["metrics_after"] = internal_metrics()
         result["mcp_after"] = mcp_signals(fresh)
-        if (
-            not all(result["mcp_after"]["health"].values())
-            or len(result["mcp_after"]["health"]) != 3
-        ):
-            raise ReliabilityError("OBSERVABILITY_MCP_NOT_RECOVERED")
+        assert_mcp_after_recovery(result["mcp_after"])
         result["ok"] = True
         return result
     finally:
@@ -255,7 +351,7 @@ def run_scenario(
 def docker(*arguments: str, timeout: int = 30) -> str:
     try:
         result = _run(list(arguments), timeout=timeout)
-    except OSError, subprocess.SubprocessError:
+    except (OSError, subprocess.SubprocessError):
         raise ReliabilityError("OBSERVABILITY_DOCKER_UNAVAILABLE") from None
     if result.returncode:
         raise ReliabilityError("OBSERVABILITY_DOCKER_COMMAND_FAILED")
@@ -316,19 +412,28 @@ def backend_get(url: str, state: dict | None = None) -> str:
     # pgAdmin не входит в outage allowlist и содержит wget для read-only probes.
     helper = state.get("pgadmin", {})
     if helper.get("status") != "running":
-        raise ReliabilityError("OBSERVABILITY_NETWORK_PROBE_UNAVAILABLE")
-    return docker("exec", helper["id"], "wget", "-qO-", "-T", "5", url, timeout=10)
+        raise ReliabilityError("OBSERVABILITY_PROBE_HELPER_UNAVAILABLE")
+    try:
+        return docker(
+            "exec", helper["id"], "wget", "-qO-", "-T", "5", url, timeout=10
+        )
+    except ReliabilityError as exc:
+        raise ReliabilityError("OBSERVABILITY_BACKEND_UNAVAILABLE") from exc
 
 
-def ready(state: dict | None = None) -> dict[str, bool]:
+def ready(
+    state: dict | None = None, *, errors: dict[str, str] | None = None
+) -> dict[str, bool]:
     state = inventory() if state is None else state
     result = {}
     for service, endpoint in ENDPOINTS.items():
         try:
             backend_get(endpoint, state)
             result[service] = True
-        except ReliabilityError:
+        except ReliabilityError as exc:
             result[service] = False
+            if errors is not None:
+                errors[service] = str(exc)
     return result
 
 
@@ -357,44 +462,64 @@ def internal_metrics() -> list[str]:
 
 def emit(output: Path, *, count: int = 1) -> dict:
     """Пройти настоящий bootstrap и общую границу scheduler telemetry без игры."""
+    from collections import deque
+    from datetime import datetime, timezone
     from types import SimpleNamespace
 
     from module.logging_context import logging_context
+    from module.logger import logger
     from module.observability import scheduler_task_run
     from module.observability.bootstrap import (
         configure_application_observability,
         shutdown_application_observability,
     )
-    from module.observability.incident import (
-        build_incident_metadata,
-        write_incident_metadata,
-    )
     from module.observability.tracing import get_current_trace_context, trace_operation
+    from alas import AzurLaneAutoScript
+    import numpy as np
 
     if not 1 <= count <= 256:
         raise ReliabilityError("OBSERVABILITY_EMISSION_LIMIT")
     marker = uuid.uuid4().hex
     output.mkdir(parents=True, exist_ok=False)
     # Уникальный resource отделяет synthetic series; игровой profile не изменяется.
+    otlp_endpoint = os.environ.get(
+        "AZURPILOT_OBSERVABILITY_OTLP_ENDPOINT", "http://127.0.0.1:4318"
+    ).strip()
     os.environ.update(
         {
-            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://127.0.0.1:4318",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": otlp_endpoint,
             "OTEL_RESOURCE_ATTRIBUTES": f"deployment.environment.name=probe-{marker}",
             "OTEL_TRACES_SAMPLER": "always_on",
             "OTEL_METRIC_EXPORT_INTERVAL": "1000",
             "OTEL_EXPORTER_OTLP_TIMEOUT": "1000",
         }
     )
-    target = logging.getLogger("azurpilot.observability.probe")
-    target.setLevel(logging.INFO)
-    target.propagate = False
-    handler = logging.FileHandler(output / "log.txt", encoding="utf-8")
-    target.addHandler(handler)
+    logger.reset_diagnostic_context()
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    script = AzurLaneAutoScript.__new__(AzurLaneAutoScript)
+    script.config_name = "acceptance"
+    script.config = SimpleNamespace(
+        Error_LlmAnalysis=False,
+        Error_SaveError=True,
+        Error_SaveErrorCount=30,
+    )
+    script.device = SimpleNamespace(
+        screenshot_deque=deque(
+            [
+                {
+                    "time": datetime.now(timezone.utc),
+                    "image": np.zeros((720, 1280, 3), dtype=np.uint8),
+                }
+            ],
+            maxlen=1,
+        )
+    )
     started = time.monotonic()
     correlations = []
     try:
         if not configure_application_observability(
-            target, default_component="acceptance"
+            logger, default_component="acceptance"
         ):
             raise ReliabilityError("OBSERVABILITY_BOOTSTRAP_FAILED")
         with logging_context(
@@ -409,23 +534,44 @@ def emit(output: Path, *, count: int = 1) -> dict:
                 if context is None:
                     raise ReliabilityError("OBSERVABILITY_TRACE_CONTEXT_MISSING")
                 correlations.append(context.trace_id)
+                logger.info(
+                    "Синтетический контекст password=synthetic-secret marker=%s",
+                    marker,
+                )
                 for index in range(count):
                     with trace_operation("azurpilot.acceptance.probe"):
-                        target.info(
+                        logger.info(
                             "Проверка observability marker=%s index=%s", marker, index
                         )
-                write_incident_metadata(
-                    output,
-                    build_incident_metadata(profile="acceptance", exception=None),
-                )
+                try:
+                    raise RuntimeError(
+                        f"Синтетический incident marker={marker} password=synthetic-secret"
+                    )
+                except RuntimeError:
+                    logger.error(
+                        "Контролируемая ошибка synthetic incident marker=%s", marker
+                    )
+                    script.save_error_log(error_root=output / "log" / "error")
                 task.finish(True)
         action_seconds = time.monotonic() - started
     finally:
         shutdown_started = time.monotonic()
-        flushed = shutdown_application_observability(target, timeout_millis=3000)
+        flushed = shutdown_application_observability(logger, timeout_millis=3000)
         shutdown_seconds = time.monotonic() - shutdown_started
-        target.removeHandler(handler)
-        handler.close()
+    incident_root = output / "log" / "error" / "acceptance"
+    bundles = sorted(incident_root.iterdir()) if incident_root.is_dir() else []
+    incident_folder = bundles[-1] if bundles else None
+    incident_log = (
+        incident_folder / "log.txt" if incident_folder is not None else None
+    )
+    incident_metadata = (
+        incident_folder / "incident.json" if incident_folder is not None else None
+    )
+    incident_text = (
+        incident_log.read_text(encoding="utf-8")
+        if incident_log is not None and incident_log.is_file()
+        else ""
+    )
     result = {
         "marker": marker,
         "environment": f"probe-{marker}",
@@ -434,8 +580,17 @@ def emit(output: Path, *, count: int = 1) -> dict:
         "action_seconds": action_seconds,
         "shutdown_seconds": shutdown_seconds,
         "flush_completed": flushed,
-        "local_log": marker in (output / "log.txt").read_text(encoding="utf-8"),
-        "incident": (output / "incident.json").is_file(),
+        "local_log": bool(incident_text) and marker in incident_text,
+        "incident_sanitized": "synthetic-secret" not in incident_text,
+        "incident": incident_metadata is not None and incident_metadata.is_file(),
+        "screenshots": len(list(incident_folder.glob("*.png")))
+        if incident_folder is not None
+        else 0,
+        "normal_runtime_text_files": sorted(
+            path.relative_to(output).as_posix()
+            for path in output.rglob("*.txt")
+            if "log/error" not in path.relative_to(output).as_posix()
+        ),
     }
     (output / "emission.json").write_text(
         json.dumps(result, indent=2), encoding="utf-8"
@@ -471,14 +626,69 @@ def query_signals(emission: dict) -> dict[str, bool]:
     for service, url in queries.items():
         try:
             payload = json.loads(backend_get(url))
-            result[service] = (
-                bool(payload.get("batches") or payload.get("resourceSpans"))
-                if service == "tempo"
-                else bool(payload.get("data", {}).get("result"))
-            )
-        except ReliabilityError, json.JSONDecodeError:
+            if not isinstance(payload, dict):
+                result[service] = False
+            elif service == "tempo":
+                result[service] = bool(
+                    payload.get("batches") or payload.get("resourceSpans")
+                )
+            else:
+                data = payload.get("data")
+                result[service] = isinstance(data, dict) and bool(data.get("result"))
+        except (ReliabilityError, json.JSONDecodeError, TypeError, ValueError):
             result[service] = False
     return result
+
+
+def _mcp_payload_is_error(payload: object) -> bool:
+    if isinstance(payload, dict):
+        if payload.get("isError") is True:
+            return True
+        return any(_mcp_payload_is_error(value) for value in payload.values())
+    if isinstance(payload, list):
+        return any(_mcp_payload_is_error(value) for value in payload)
+    return False
+
+
+def _mcp_payload_text(payload: object) -> str:
+    try:
+        return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    except (TypeError, ValueError):
+        return ""
+
+
+def _mcp_has_trace(payload: object, trace_id: str) -> bool:
+    if isinstance(payload, dict):
+        if payload.get("traceId") == trace_id:
+            return True
+        return any(_mcp_has_trace(value, trace_id) for value in payload.values())
+    if isinstance(payload, list):
+        return any(_mcp_has_trace(value, trace_id) for value in payload)
+    return False
+
+
+def _mcp_signal_nonempty(payload: object, *, signal: str, emission: dict) -> bool:
+    if _mcp_payload_is_error(payload) or not isinstance(payload, dict):
+        return False
+    data = payload.get("data")
+    text = _mcp_payload_text(payload)
+    if signal == "tempo":
+        return _mcp_has_trace(payload, emission["trace_ids"][0])
+    if isinstance(data, list):
+        data_nonempty = bool(data)
+    elif isinstance(data, dict):
+        data_nonempty = bool(data.get("result"))
+    else:
+        data_nonempty = False
+    if not data_nonempty:
+        return False
+    expected = emission["marker"] if signal == "loki" else emission["environment"]
+    return expected in text
+
+
+def _mcp_error_names(result: dict) -> list[str]:
+    value = result.get("unexpected_is_error", [])
+    return list(value) if isinstance(value, list) else []
 
 
 def mcp_signals(emission: dict) -> dict:
@@ -526,53 +736,275 @@ def mcp_signals(emission: dict) -> dict:
             {"operation": "list", "rule_limit": "50"},
         ),
     }
-    result = {}
+    result = {
+        "query_layer_available": True,
+        "unexpected_is_error": [],
+        "health": {},
+    }
     try:
         health_payload = _gateway_tool_call(*requests["health"])
+        if _mcp_payload_is_error(health_payload):
+            result["unexpected_is_error"].append("health")
+            result["health_error"] = "MCP_HEALTH_IS_ERROR"
+            return result
+        health_results = (
+            health_payload.get("results")
+            if isinstance(health_payload, dict)
+            else None
+        )
+        if not isinstance(health_results, list) or any(
+            not isinstance(item, dict) or not isinstance(item.get("uid"), str)
+            for item in health_results
+        ):
+            result["health_error"] = "MCP_HEALTH_RESPONSE_INVALID"
+            return result
         result["health"] = {
-            item["uid"]: item.get("status") == "OK"
-            for item in health_payload.get("results", [])
+            item["uid"]: item.get("status") == "OK" for item in health_results
         }
     except Exception as exc:
-        return {
-            "health": {},
-            "query_layer_available": False,
-            "health_error": type(exc).__name__,
-        }
+        result["query_layer_available"] = False
+        result["health_error"] = type(exc).__name__
+        return result
     datasource_by_signal = {"prometheus": "prometheus", "loki": "loki", "tempo": "tempo"}
-    for signal in ("prometheus", "loki", "tempo"):
+    for signal in MCP_BACKENDS:
         name, arguments = requests[signal]
         if not result["health"].get(datasource_by_signal[signal], False):
-            result[signal] = {"responded": False, "source_unavailable": True}
+            result[signal] = {
+                "responded": False,
+                "nonempty": False,
+                "source_unavailable": True,
+            }
             continue
         try:
             payload = _gateway_tool_call(name, arguments)
-            nonempty = (
-                payload.get("trace", {}).get("traceId") == emission["trace_ids"][0]
-                if signal == "tempo"
-                else bool(payload.get("data"))
-            )
+            is_error = _mcp_payload_is_error(payload)
+            if is_error:
+                result["unexpected_is_error"].append(signal)
             result[signal] = {
-                "responded": not payload.get("isError", False),
-                "nonempty": nonempty,
+                "responded": not is_error,
+                "nonempty": _mcp_signal_nonempty(
+                    payload, signal=signal, emission=emission
+                ),
+                "is_error": is_error,
             }
         except Exception as exc:
-            result[signal] = {"responded": False, "error": type(exc).__name__}
-    if len(result["health"]) == 3 and all(result["health"].values()):
+            result[signal] = {
+                "responded": False,
+                "nonempty": False,
+                "error": type(exc).__name__,
+            }
+    if set(result["health"]) == set(MCP_BACKENDS) and all(
+        result["health"].values()
+    ):
+        result["operator_checks"] = {}
         for signal, (name, arguments) in operator_checks.items():
             try:
                 payload = _gateway_tool_call(name, arguments)
+                is_error = _mcp_payload_is_error(payload)
+                if is_error:
+                    result["unexpected_is_error"].append(signal)
                 result[signal] = {
-                    "responded": not (
-                        isinstance(payload, dict) and payload.get("isError", False)
-                    ),
-                    "nonempty": bool(payload),
+                    "responded": not is_error,
+                    "nonempty": bool(payload) and not is_error,
+                    "operation_ok": not is_error,
+                    "is_error": is_error,
                 }
+                result["operator_checks"][signal] = result[signal]
             except Exception as exc:
-                result[signal] = {"responded": False, "error": type(exc).__name__}
+                result[signal] = {
+                    "responded": False,
+                    "nonempty": False,
+                    "operation_ok": False,
+                    "error": type(exc).__name__,
+                }
+                result["operator_checks"][signal] = result[signal]
     else:
         result["operator_checks"] = {"skipped": "DATASOURCE_UNAVAILABLE"}
     return result
+
+
+def assert_mcp_after_recovery(result: dict) -> None:
+    """Сделать все post-recovery MCP reads обязательным acceptance gate."""
+    if result.get("query_layer_available") is not True:
+        raise ReliabilityError("OBSERVABILITY_MCP_NOT_RECOVERED")
+    if _mcp_error_names(result):
+        raise ReliabilityError("OBSERVABILITY_MCP_UNEXPECTED_ERROR")
+    health = result.get("health")
+    if not isinstance(health, dict) or set(health) != set(MCP_BACKENDS) or not all(
+        health.values()
+    ):
+        raise ReliabilityError("OBSERVABILITY_MCP_NOT_RECOVERED")
+    for signal in MCP_BACKENDS:
+        item = result.get(signal)
+        if (
+            not isinstance(item, dict)
+            or item.get("responded") is not True
+            or item.get("nonempty") is not True
+        ):
+            raise ReliabilityError("OBSERVABILITY_MCP_NOT_RECOVERED")
+    if not isinstance(result["tempo"], dict) or result["tempo"].get("nonempty") is not True:
+        raise ReliabilityError("OBSERVABILITY_MCP_NOT_RECOVERED")
+    checks = result.get("operator_checks")
+    if not isinstance(checks, dict) or "skipped" in checks:
+        raise ReliabilityError("OBSERVABILITY_MCP_NOT_RECOVERED")
+    for name in MCP_OPERATOR_CHECKS:
+        item = checks.get(name)
+        if (
+            not isinstance(item, dict)
+            or item.get("responded") is not True
+            or item.get("operation_ok") is not True
+        ):
+            raise ReliabilityError("OBSERVABILITY_MCP_NOT_RECOVERED")
+
+
+def assert_mcp_partial_outage(result: dict, affected: set[str]) -> None:
+    """Проверить expected affected/unaffected MCP behavior во время outage."""
+    if result.get("query_layer_available") is not True:
+        raise ReliabilityError("OBSERVABILITY_MCP_PARTIAL_QUERY_LAYER_FAILED")
+    unexpected_errors = set(_mcp_error_names(result)) - affected
+    if unexpected_errors:
+        raise ReliabilityError("OBSERVABILITY_MCP_UNEXPECTED_ERROR")
+    health = result.get("health")
+    if not isinstance(health, dict) or set(health) != set(MCP_BACKENDS):
+        raise ReliabilityError("OBSERVABILITY_MCP_PARTIAL_OUTAGE_CONTRACT_FAILED")
+    for signal in MCP_BACKENDS:
+        item = result.get(signal)
+        if signal in affected:
+            if not isinstance(item, dict):
+                raise ReliabilityError("OBSERVABILITY_MCP_PARTIAL_OUTAGE_CONTRACT_FAILED")
+            if health.get(signal) is True:
+                if item.get("is_error") is not True:
+                    raise ReliabilityError(
+                        "OBSERVABILITY_MCP_PARTIAL_OUTAGE_CONTRACT_FAILED"
+                    )
+            elif item.get("source_unavailable") is not True:
+                raise ReliabilityError("OBSERVABILITY_MCP_PARTIAL_OUTAGE_CONTRACT_FAILED")
+            continue
+        if (
+            health.get(signal) is not True
+            or not isinstance(item, dict)
+            or item.get("responded") is not True
+            or item.get("nonempty") is not True
+        ):
+            raise ReliabilityError("OBSERVABILITY_MCP_UNAFFECTED_SIGNAL_FAILED")
+
+
+def assert_direct_partial_signals(
+    result: dict[str, bool], services: tuple[str, ...]
+) -> None:
+    """Проверить direct backend reads, когда Grafana query layer недоступен."""
+    if "alloy" in services:
+        return
+    affected = set(services).intersection(MCP_BACKENDS)
+    for signal in MCP_BACKENDS:
+        expected = signal not in affected
+        if result.get(signal) is not expected:
+            raise ReliabilityError(
+                "OBSERVABILITY_AFFECTED_SIGNAL_CONTRACT_FAILED"
+                if not expected
+                else "OBSERVABILITY_UNAFFECTED_SIGNAL_FAILED"
+            )
+
+
+_METRIC_VALUE_RE = re.compile(r"\s(-?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*$")
+_EXPORTER_LABEL_RE = re.compile(r'(?:^|,)exporter="([^"]+)"(?:,|$)')
+
+
+def _metric_values(metrics: list[str], prefixes: tuple[str, ...]) -> list[float]:
+    values: list[float] = []
+    for line in metrics:
+        if not line.startswith(prefixes):
+            continue
+        match = _METRIC_VALUE_RE.search(line)
+        if match is None:
+            continue
+        try:
+            values.append(float(match.group(1)))
+        except ValueError:
+            continue
+    return values
+
+
+def _metric_lines(
+    metrics: list[str],
+    prefixes: tuple[str, ...],
+    *,
+    exporter: str | None = None,
+) -> list[str]:
+    lines = [line for line in metrics if line.startswith(prefixes)]
+    if exporter is None:
+        return lines
+    matched = []
+    for line in lines:
+        labels = line.partition("{")[2].split("}", 1)[0]
+        label_match = _EXPORTER_LABEL_RE.search(labels)
+        if label_match is None:
+            continue
+        exporter_value = label_match.group(1).casefold()
+        expected_exporter = exporter.casefold()
+        if (
+            exporter_value == expected_exporter
+            or exporter_value.endswith(f".{expected_exporter}")
+            or exporter_value.endswith(f"/{expected_exporter}")
+        ):
+            matched.append(line)
+    if matched:
+        return matched
+    # Некоторые версии collector не добавляют exporter label. Сохраняем
+    # tolerant contract для такого bounded endpoint, если labels отсутствуют.
+    unlabeled = [line for line in lines if "{" not in line]
+    return unlabeled
+
+
+def assert_bounded_outage_metrics(
+    metrics: list[str], *, services: tuple[str, ...]
+) -> None:
+    """Проверить bounded queue/WAL evidence без обязательной event-specific series."""
+    if "alloy" in services:
+        return
+    bounded_prefixes = (
+        "otelcol_exporter_queue_size{",
+        "otelcol_exporter_queue_capacity{",
+        "otelcol_exporter_enqueue_failed_",
+        "otelcol_exporter_send_failed_",
+        "otelcol_receiver_refused_",
+        "prometheus_remote_storage_samples_pending{",
+        "prometheus_remote_storage_samples_retries_total{",
+        "prometheus_remote_storage_enqueue_retries_total{",
+        "prometheus_remote_write_wal_samples_appended_total{",
+    )
+    if not any(line.startswith(bounded_prefixes) for line in metrics):
+        raise ReliabilityError("OBSERVABILITY_BOUNDED_SIGNAL_EVIDENCE_MISSING")
+
+    queue_prefixes = ("otelcol_exporter_queue_size{",)
+    capacity_prefixes = ("otelcol_exporter_queue_capacity{",)
+    failure_prefixes = (
+        "otelcol_exporter_enqueue_failed_",
+        "otelcol_exporter_send_failed_",
+        "otelcol_receiver_refused_",
+    )
+    for exporter in {"loki", "tempo"}.intersection(services):
+        queue_lines = _metric_lines(metrics, queue_prefixes, exporter=exporter)
+        capacity_lines = _metric_lines(metrics, capacity_prefixes, exporter=exporter)
+        failure_lines = _metric_lines(metrics, failure_prefixes, exporter=exporter)
+        queue_values = _metric_values(queue_lines, queue_prefixes)
+        capacity_values = _metric_values(capacity_lines, capacity_prefixes)
+        if queue_values and capacity_values:
+            if max(queue_values) > max(capacity_values):
+                raise ReliabilityError("OBSERVABILITY_QUEUE_CAPACITY_EXCEEDED")
+            continue
+        if not failure_lines:
+            raise ReliabilityError("OBSERVABILITY_BOUNDED_SIGNAL_EVIDENCE_MISSING")
+
+    if "prometheus" in services:
+        prometheus_prefixes = (
+            "prometheus_remote_storage_samples_pending{",
+            "prometheus_remote_storage_samples_retries_total{",
+            "prometheus_remote_storage_enqueue_retries_total{",
+            "prometheus_remote_write_wal_samples_appended_total{",
+        )
+        if not any(line.startswith(prometheus_prefixes) for line in metrics):
+            raise ReliabilityError("OBSERVABILITY_BOUNDED_SIGNAL_EVIDENCE_MISSING")
 
 
 def main() -> int:

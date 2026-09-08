@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import http.client
 import json
+import math
 import os
 import re
 import shutil
@@ -445,14 +446,20 @@ def observability_doctor() -> dict[str, object]:
 
     try:
         containers = inventory()
-        health = ready(containers)
-        warnings = []
+        probe_errors: dict[str, str] = {}
+        health = ready(containers, errors=probe_errors)
+        warnings: list[str] = []
+        observations: list[str] = []
         for service in SERVICES:
             entry = containers.get(service, {})
-            if (
+            probe_error = probe_errors.get(service)
+            if probe_error == "OBSERVABILITY_PROBE_HELPER_UNAVAILABLE":
+                if "OBSERVABILITY_PROBE_HELPER_UNAVAILABLE" not in warnings:
+                    warnings.append("OBSERVABILITY_PROBE_HELPER_UNAVAILABLE")
+            elif (
                 entry.get("status") != "running"
                 or entry.get("health") == "unhealthy"
-                or not health[service]
+                or not health.get(service, False)
             ):
                 warnings.append(f"SERVICE_UNAVAILABLE:{service}")
             volumes = entry.get("volumes", {})
@@ -463,30 +470,70 @@ def observability_doctor() -> dict[str, object]:
                     docker("volume", "inspect", volume, "--format", "{{.Name}}")
                 except ReliabilityError:
                     warnings.append(f"PERSISTENT_VOLUME_UNAVAILABLE:{volume}")
-        metrics = internal_metrics() if health["alloy"] else []
-        # Полные наборы меток нужны для сопоставления ёмкости и размера одного signal.
-        capacities = {}
-        sizes = {}
+
+        metrics: list[str] = []
+        if health.get("alloy", False):
+            try:
+                metrics = internal_metrics()
+            except (ReliabilityError, OSError):
+                warnings.append("EXPORT_QUEUE_METRICS_UNAVAILABLE")
+        else:
+            warnings.append("EXPORT_QUEUE_METRICS_UNAVAILABLE")
+
+        capacities: dict[str, float] = {}
+        sizes: dict[str, float] = {}
+        pending = 0.0
+        retries = 0.0
+        metrics_invalid = False
         for line in metrics:
-            name_labels, value = line.rsplit(" ", 1)
+            fields = line.split()
+            if len(fields) < 2:
+                metrics_invalid = True
+                continue
+            name_labels, raw_value = fields[0], fields[1]
+            try:
+                value = float(raw_value)
+            except ValueError:
+                metrics_invalid = True
+                continue
+            if not math.isfinite(value):
+                metrics_invalid = True
+                continue
             name, _, labels = name_labels.partition("{")
             if name == "otelcol_exporter_queue_capacity":
-                capacities[labels] = float(value)
+                capacities[labels] = value
             elif name == "otelcol_exporter_queue_size":
-                sizes[labels] = float(value)
-            elif (
-                # Любое положительное значение означает ещё не отправленный WAL backlog.
-                name == "prometheus_remote_storage_samples_pending" and float(value) > 0
-            ):
-                if "REMOTE_WRITE_PENDING" not in warnings:
-                    warnings.append("REMOTE_WRITE_PENDING")
+                sizes[labels] = value
+            elif name == "prometheus_remote_storage_samples_pending":
+                pending += max(0.0, value)
+            elif name in {
+                "prometheus_remote_storage_samples_retries_total",
+                "prometheus_remote_storage_enqueue_retries_total",
+            }:
+                retries += max(0.0, value)
+        if metrics_invalid:
+            warnings.append("EXPORT_QUEUE_METRICS_INVALID")
         if not capacities or not sizes:
-            warnings.append("EXPORT_QUEUE_METRICS_UNAVAILABLE")
-        if any(
+            if "EXPORT_QUEUE_METRICS_UNAVAILABLE" not in warnings:
+                warnings.append("EXPORT_QUEUE_METRICS_UNAVAILABLE")
+
+        queue_pressure = any(
             capacities.get(key, 0) > 0 and size / capacities[key] >= 0.8
             for key, size in sizes.items()
-        ):
+        )
+        queue_saturated = any(
+            capacities.get(key, 0) > 0 and size >= capacities[key]
+            for key, size in sizes.items()
+        )
+        if queue_pressure:
             warnings.append("EXPORT_QUEUE_PRESSURE")
+        if queue_saturated:
+            warnings.append("EXPORT_QUEUE_SATURATED")
+        if pending > 0:
+            observations.append("REMOTE_WRITE_PENDING_TRANSIENT")
+            if retries > 0 or queue_pressure:
+                warnings.append("REMOTE_WRITE_PRESSURE")
+
         # Свободное место общей файловой системы Docker; не заменяет quota volume.
         available_percent = None
         try:
@@ -504,6 +551,7 @@ def observability_doctor() -> dict[str, object]:
             "code": "OBSERVABILITY_READY" if not warnings else "OBSERVABILITY_DEGRADED",
             "services": health,
             "warnings": warnings,
+            "observations": observations,
             "disk_available_percent": available_percent,
             "collector_metrics": metrics,
         }

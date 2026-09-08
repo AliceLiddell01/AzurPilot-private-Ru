@@ -1,13 +1,11 @@
 """Система журналирования AzurPilot.
 
-Модуль построен на Rich и поддерживает цветной вывод в консоль, ротацию
-файловых журналов и потоковую отрисовку в WebUI. Глобальный экземпляр
+Модуль построен на Rich и поддерживает вывод в консоль, потоковую отрисовку
+в WebUI и bounded in-memory контекст для incident-ов. Глобальный экземпляр
 ``logger`` с именем ``alas`` используется всем приложением.
 
 Основные компоненты:
-    - ``RichFileHandler`` — обработчик файлового журнала на базе Rich.
     - ``RichRenderableHandler`` — передаёт отрисованные объекты callback-функции WebUI.
-    - ``RichTimedRotatingHandler`` — ротация файлов по времени с учётом процессов.
     - ``HTMLConsole`` — Rich Console для HTML/WebUI.
     - ``Highlighter`` — подсветка путей, времени и технических значений.
 
@@ -16,23 +14,13 @@
 как единая точка журналирования проекта.
 """
 
-import datetime
-import io
-import json
 import logging
 import os
-import shutil
 import sys
-import tarfile
-import threading
-import time
-import zipfile
-from logging.handlers import TimedRotatingFileHandler
-from pathlib import Path
 from typing import Callable, List
 
 from rich.console import Console, ConsoleOptions, ConsoleRenderable, NewLine
-from rich.highlighter import NullHighlighter, RegexHighlighter
+from rich.highlighter import RegexHighlighter
 from rich.logging import RichHandler
 from rich.pretty import Node
 from rich.rule import Rule
@@ -92,11 +80,6 @@ def sanitize_rich_traceback(renderable: Traceback) -> Traceback:
     return renderable
 
 
-class RichFileHandler(RichHandler):
-    # Отдельный тип нужен, чтобы отличать файловый Rich-обработчик от остальных.
-    pass
-
-
 class RichRenderableHandler(RichHandler):
     """Передавать отрисованный объект журнала в callback-функцию."""
 
@@ -151,212 +134,6 @@ class RichRenderableHandler(RichHandler):
         super().handle(record)
 
 
-class RichTimedRotatingHandler(TimedRotatingFileHandler):
-    ZIPMAP = {
-        "gzip": "gz",
-        "gz" : "gz",
-        "bz2" : "bz2",
-        "xz": "xz",
-        "zip": "zip",
-    }
-    def __init__(self, pname:str, *args, **kwargs) -> None:
-        count, bak_method, zip_method = self._read_file_logger_config(pname)
-        TimedRotatingFileHandler.__init__(self, backupCount=count,* args, **kwargs)
-        self.console = Console(file=io.StringIO(), no_color=True, highlight=False, width=119)
-        self.richd = RichHandler(
-            console=self.console,
-            show_path=False,
-            show_time=False,
-            show_level=False,
-            rich_tracebacks=True,
-            tracebacks_show_locals=False,
-            tracebacks_extra_lines=3,
-            highlighter=NullHighlighter(),
-        )
-        # Используем единый формат для файловых журналов.
-        self.richd.setFormatter(
-            logging.Formatter(
-                fmt="%(asctime)s.%(msecs)03d | %(levelname)s | %(message)s",
-                datefmt="%Y-%m-%d %H:%M:%S",
-            )
-        )
-        # Совместимость с интерфейсом alas.save_error_log().
-        self.log_file = None
-        # Поля используются методом expire().
-        self.pname = pname
-        self.bak = bak_method.lower()
-        self.compression = zip_method.lower()
-
-        # Переопределяем начальный rolloverAt и поток Rich Console.
-        self.rolloverAt = time.time()
-        self.doRollover()
-
-        # Закрываем лишний файловый поток базового обработчика.
-        self.stream.close()
-        self.stream = None
-    
-    def _read_file_logger_config(self, process_name):
-        cfg_name = "alas" if process_name == "gui" else process_name
-        config_file = Path("./config").joinpath(f"{cfg_name}.json")
-        if config_file.exists():
-            try:
-                with config_file.open("r", encoding="utf-8") as f:
-                    config = json.load(f)
-                    log_config = config.get("General", {}).get("Log", {})
-                    count = log_config.get("LogKeepCount", 7)
-                    bak_method = log_config.get("LogBackUpMethod", "copy")
-                    zip_method = log_config.get("ZipMethod", "bz2")
-            except Exception as e:
-                logging.exception(e)
-                count = 7
-                bak_method = "copy"
-                zip_method = "bz2"
-        else:
-            count = 7
-            bak_method = "zip" if process_name == "gui" else "copy"
-            zip_method = "bz2"
-        return count, bak_method, zip_method
-
-    def getFilesToDelete(self) -> List[Path]:
-        """Определить старые файлы журнала, подлежащие удалению при ротации."""
-        dirName, baseName = os.path.split(self.baseFilename)
-        fileNames = os.listdir(dirName)
-        result = []
-        suffix = "_" + baseName
-        plen = len(suffix)
-        for fileName in fileNames:
-            if fileName[-plen:] == suffix:
-                prefix = fileName[:-plen]
-                if self.extMatch.match(prefix):
-                    result.append(Path(dirName).joinpath(fileName).resolve())
-        if len(result) < self.backupCount:
-            result = []
-        else:
-            result.sort()
-            result = result[: len(result) - self.backupCount]
-        return result
-
-    def doRollover(self) -> None:
-        """Выполнить ротацию журнала и переключить файловый поток Rich."""
-        if self.richd.console:
-            self.richd.console.file.close()
-            self.richd.console.file = None
-
-        currentTime = int(time.time())
-        dstNow = time.localtime(currentTime)[-1]
-        t = self.rolloverAt
-        if self.utc:
-            timeTuple = time.gmtime(t)
-        else:
-            timeTuple = time.localtime(t)
-            dstThen = timeTuple[-1]
-            if dstNow != dstThen:
-                if dstNow:
-                    addend = 3600
-                else:
-                    addend = -3600
-                timeTuple = time.localtime(t + addend)
-
-        path = Path(self.baseFilename)
-        # 2021-08-01 + _ + alas.txt -> "2021-08-01_alas.txt".
-        newPath = path.with_name(
-            time.strftime(self.suffix, timeTuple) + "_" + path.name
-        )
-        self.richd.console.file = open(newPath, "a", encoding="utf-8")
-
-        if self.backupCount > 0:
-            files = self.getFilesToDelete()
-            if files:
-                threading.Thread(target=self.expire, args=(files,), daemon=True).start()
-
-        newRolloverAt = self.computeRollover(currentTime)
-        while newRolloverAt <= currentTime:
-            newRolloverAt = newRolloverAt + self.interval
-        # При переходе через границу летнего времени для полуночной/недельной
-        # ротации компенсируем изменение смещения.
-        if (self.when == "MIDNIGHT" or self.when.startswith("W")) and not self.utc:
-            dstAtRollover = time.localtime(newRolloverAt)[-1]
-            if dstNow != dstAtRollover:
-                if not dstNow:
-                    addend = -3600
-                else:
-                    addend = 3600
-                newRolloverAt += addend
-        self.rolloverAt = newRolloverAt
-
-        self.log_file = str(newPath.resolve())
-
-    def expire(self, files: List[Path]) -> None:
-        """Удалить или архивировать просроченные файлы журнала.
-
-        Примеры:
-            2021-08-01_alas.txt...2021-08-07_alas.txt -> bak/2021-08-01~2021-08-07_alas.tar.bz2
-            2021-08-01_gui.txt -> bak/2021-08-01_gui.zip
-            2021-08-01_gui.txt (copy) -> bak/2021-08-01_gui.txt
-        """
-        basePath = Path(self.baseFilename)
-        bakPath = basePath.parent / "bak"
-        bakPath.mkdir(parents=True, exist_ok=True)
-        if self.bak == "delete":
-            for file in files:
-                file.unlink()
-            return
-        elif self.bak == "copy":
-            for file in files:
-                dst = bakPath.joinpath(file.name)
-                if not dst.exists():
-                    shutil.copy2(file, dst)
-                file.unlink()
-            return
-        try:
-            dates = [file.stem.split("_")[0] for file in files]
-            name = (
-                min(dates) + "~" + max(dates) + "_" + basePath.name
-                if len(dates) > 1
-                else files[0].name
-            )
-            ext = self.ZIPMAP[self.compression]
-            if ext == "zip":
-                zipFile = bakPath.joinpath(name).with_suffix(".zip")
-                with zipfile.ZipFile(zipFile, "w", zipfile.ZIP_DEFLATED) as zipf:
-                    for file in files:
-                        zipf.write(file, arcname=file.name)
-            else:
-                zipFile = bakPath.joinpath(name).with_suffix(".tar." + ext)
-                with tarfile.open(zipFile, "w:" + ext) as tar:
-                    for file in files:
-                        tar.add(file, arcname=file.name)
-            # Исходные журналы удаляем только после успешного закрытия архива.
-            # Если daemon-поток завершится во время записи, исходные файлы останутся.
-            for file in files:
-                file.unlink()
-        except Exception as e:
-            logger.exception(e)
-
-    def print(self, *objects: ConsoleRenderable, **kwargs) -> None:
-        Console.print(self.console, *objects, **kwargs)
-
-    def close(self) -> None:
-        """Закрыть Rich-поток ротационного файла вместе с logging handler."""
-        try:
-            # ``Console.file`` возвращает stdout при ``_file is None``;
-            # повторный close не должен закрывать процессный stdout.
-            stream = getattr(self.richd.console, "_file", None)
-            if stream is not None:
-                stream.close()
-                self.richd.console.file = None
-        finally:
-            super().close()
-
-    def emit(self, record: logging.LogRecord) -> None:
-        try:
-            if self.shouldRollover(record):
-                self.doRollover()
-            RichHandler.emit(self.richd, record)
-        except Exception:
-            RichHandler.handleError(self.richd, record)
-
-
 class HTMLConsole(Console):
     """Rich Console с принудительно включёнными возможностями для Web-вывода.
 
@@ -404,8 +181,6 @@ logger_debug = False
 logger = logging.getLogger('alas')
 logger.setLevel(logging.DEBUG)
 logger.propagate = False
-file_formatter = logging.Formatter(
-    fmt='%(asctime)s.%(msecs)03d | %(levelname)s | %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
 console_formatter = logging.Formatter(
     fmt='%(asctime)s.%(msecs)03d │ %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
 web_formatter = logging.Formatter(
@@ -415,7 +190,6 @@ diagnostic_hdlr = DiagnosticContextHandler(
     capacity=200,
     sanitizer=sanitize_traceback_text,
 )
-diagnostic_hdlr.setFormatter(file_formatter)
 logger.addHandler(diagnostic_hdlr)
 
 # Консольный обработчик стандартного logging оставлен в истории как заменённый Rich.
@@ -434,38 +208,8 @@ logger.addHandler(console_hdlr)
 # Гарантируем запуск из корня AzurPilot.
 os.chdir(os.path.join(os.path.dirname(__file__), '../'))
 
-# Файловый обработчик журнала.
+# Имя процесса используется только как default для application observability.
 pyw_name = os.path.splitext(os.path.basename(sys.argv[0]))[0]
-
-
-def _configure_diagnostic_logger(name, log_dir='./log'):
-    diagnostic_file = Path(log_dir).joinpath('diagnostic').joinpath(
-        f'{datetime.date.today()}_{name}.txt'
-    )
-    diagnostic_hdlr.configure_output(diagnostic_file, file_formatter)
-    logger.diagnostic_log_file = str(diagnostic_file.resolve())
-
-
-def _set_file_logger(name=pyw_name, log_dir='./log'):
-    if '_' in name:
-        name = name.split('_', 1)[0]
-    log_dir = Path(log_dir)
-    log_dir.mkdir(parents=True, exist_ok=True)
-    _configure_diagnostic_logger(name, log_dir)
-    log_file = log_dir.joinpath(f'{datetime.date.today()}_{name}.txt')
-    try:
-        file = logging.FileHandler(log_file, encoding='utf-8')
-    except FileNotFoundError:
-        log_dir.mkdir(parents=True, exist_ok=True)
-        file = logging.FileHandler(log_file, encoding='utf-8')
-    file.setLevel(logging.DEBUG if logger_debug else logging.INFO)
-    file.setFormatter(file_formatter)
-
-    logger.handlers = [h for h in logger.handlers if not isinstance(
-        h, (logging.FileHandler, RichFileHandler))]
-    logger.addHandler(file)
-    diagnostic_hdlr.configure_failure_target(file)
-    logger.log_file = str(log_file)
 
 
 def _configure_application_observability(profile, *, component=None):
@@ -483,69 +227,23 @@ def _configure_application_observability(profile, *, component=None):
         try:
             sys.stderr.write(
                 '[AzurPilot] Не удалось подключить удалённый журнал; '
-                f'локальный контур продолжит работу ({type(exc).__name__}).\n'
+                'работа WebUI/консоли продолжится, bounded incident-контекст '
+                f'останется доступен ({type(exc).__name__}).\n'
             )
         except Exception:
             pass
 
 
-def set_file_logger(
+def configure_runtime_logging(
     name=pyw_name,
     *,
-    log_dir='./log',
     observability_profile=None,
     observability_component=None,
 ):
-    canonical_name = name
-    local_name = name.split("_", 1)[0] if "_" in name else name
     if observability_profile is None and observability_component is None:
-        observability_profile = canonical_name
-    # Файловый logger привязан к явной роли или canonical profile, а не к имени
-    # операционного процесса. Это сохраняет один локальный fallback на роль.
-    if os.name == "nt":
-        # Каждый процесс должен настраивать файловый logger не более одного раза.
-        if any(isinstance(hdlr, RichTimedRotatingHandler) for hdlr in logger.handlers):
-            _configure_application_observability(
-                observability_profile,
-                component=observability_component,
-            )
-            return
-    else:
-        for hdlr in logger.handlers:
-            if isinstance(hdlr, RichTimedRotatingHandler):
-                # Каждый процесс должен настраивать файловый logger не более одного раза.
-                if hdlr.pname == local_name:
-                    _configure_application_observability(
-                        observability_profile,
-                        component=observability_component,
-                    )
-                    return
-                else:
-                    logger.handlers = [h for h in logger.handlers if not isinstance(
-                        h, (logging.FileHandler, RichTimedRotatingHandler, RichFileHandler))]
-    
-    log_dir = Path(log_dir)
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir.joinpath(f"{local_name}.txt")
-
-    _configure_diagnostic_logger(local_name, log_dir)
-    hdlr = RichTimedRotatingHandler(
-        pname=local_name,
-        filename=str(log_file),
-        when="midnight",
-        interval=1,
-        encoding="utf-8",
-    )
-    hdlr.setLevel(logging.DEBUG if logger_debug else logging.INFO)
-
-    logger.addHandler(hdlr)
-    diagnostic_hdlr.configure_failure_target(hdlr)
-    logger.log_file = hdlr.log_file
-    try:
-        if log_file.exists():
-            log_file.unlink()
-    except Exception:
-        pass
+        observability_profile = name
+    # Обычный runtime не создаёт локальный файл: console/WebUI и bounded
+    # in-memory incident context остаются доступными независимо от OTLP.
     _configure_application_observability(
         observability_profile,
         component=observability_component,
@@ -615,8 +313,6 @@ def print(*objects: ConsoleRenderable, **kwargs):
                 hdlr._func(renderable)
         elif isinstance(hdlr, RichHandler):
             hdlr.console.print(*objects)
-        elif isinstance(hdlr, RichTimedRotatingHandler):
-            hdlr.print(*objects, **kwargs)
 
 
 def rule(title="", *, characters="─", style="rule.line", end="\n", align="center"):
@@ -764,7 +460,7 @@ logger.exception_context = exception_context
 logger.hr = hr
 logger.attr = attr
 logger.attr_align = attr_align
-logger.set_file_logger = set_file_logger
+logger.configure_runtime_logging = configure_runtime_logging
 logger.set_func_logger = set_func_logger
 logger.rule = rule
 logger.print = print
@@ -773,5 +469,3 @@ logger.finish_suppressed = finish_suppressed
 logger.reset_suppression = reset_suppression
 logger.get_diagnostic_context = get_diagnostic_context
 logger.reset_diagnostic_context = reset_diagnostic_context
-logger.log_file: str | None = None
-logger.diagnostic_log_file: str | None = None

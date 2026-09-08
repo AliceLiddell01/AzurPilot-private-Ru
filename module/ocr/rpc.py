@@ -250,8 +250,8 @@ class ModelProxyFactory:
 
 
 def _configure_ocr_logging() -> None:
-    """Настроить локальный и удалённый журнал для OCR RPC-процесса."""
-    logger.set_file_logger(
+    """Настроить runtime logger и необязательное удалённое логирование OCR RPC."""
+    logger.configure_runtime_logging(
         name="ocr-rpc",
         observability_profile=None,
         observability_component="ocr-rpc",

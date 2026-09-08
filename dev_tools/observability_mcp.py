@@ -103,6 +103,32 @@ class GatewayProbe:
     code: str
 
 
+@dataclass(frozen=True, slots=True)
+class GrafanaIdentity:
+    """Идентификатор, который Grafana привязала к bearer credential."""
+
+    account_id: int
+    role: str
+
+
+@dataclass(frozen=True, slots=True)
+class IdentityProbe:
+    ok: bool
+    authentication_failed: bool
+    code: str
+    identity: GrafanaIdentity | None = None
+
+
+_ROTATE_IDENTITY_ERRORS = frozenset(
+    {
+        "MCP_GRAFANA_TOKEN_IDENTITY_FOREIGN",
+        "MCP_GRAFANA_TOKEN_EFFECTIVE_ROLE_INVALID",
+        "MCP_GRAFANA_TOKEN_IDENTITY_UNAUTHORIZED",
+        "MCP_GRAFANA_TOKEN_IDENTITY_NOT_FOUND",
+    }
+)
+
+
 def _docker_executable() -> str:
     executable = shutil.which("docker.exe") or shutil.which("docker")
     if executable is None:
@@ -444,6 +470,7 @@ class _GrafanaApi:
         payload: dict[str, Any] | None = None,
         bearer: str | None = None,
         error_code: str = "MCP_GRAFANA_REQUEST_FAILED",
+        include_headers: bool = False,
     ) -> Any:
         headers = {"Accept": "application/json"}
         if bearer is not None:
@@ -466,6 +493,7 @@ class _GrafanaApi:
         try:
             with self._opener(request, timeout=30) as response:
                 raw = response.read()
+                response_headers = getattr(response, "headers", {}) or {}
         except HTTPError as exc:
             if exc.code == 401 and bearer is None:
                 raise ObservabilityMcpError(
@@ -479,11 +507,15 @@ class _GrafanaApi:
         except (OSError, URLError, TimeoutError) as exc:
             raise ObservabilityMcpError(f"{error_code}_UNAVAILABLE") from exc
         if not raw.strip():
-            return None
-        try:
-            return json.loads(raw)
-        except (UnicodeError, json.JSONDecodeError) as exc:
-            raise ObservabilityMcpError(f"{error_code}_JSON_INVALID") from exc
+            payload = None
+        else:
+            try:
+                payload = json.loads(raw)
+            except (UnicodeError, json.JSONDecodeError) as exc:
+                raise ObservabilityMcpError(f"{error_code}_JSON_INVALID") from exc
+        if include_headers:
+            return payload, response_headers
+        return payload
 
     def verify_admin_credentials(self) -> None:
         payload = self._request(
@@ -564,15 +596,87 @@ class _GrafanaApi:
             raise ObservabilityMcpError("MCP_GRAFANA_TOKEN_RESPONSE_INVALID")
         return token_id, payload["key"]
 
-    def verify_token(self, token: str) -> None:
-        payload = self._request(
-            "GET",
-            "/api/user",
-            bearer=token,
-            error_code="MCP_GRAFANA_TOKEN_VERIFY",
-        )
-        if not isinstance(payload, dict) or not payload.get("login"):
-            raise ObservabilityMcpError("MCP_GRAFANA_TOKEN_VERIFY_INVALID")
+    @staticmethod
+    def _identity_header(headers: Any) -> str:
+        if not hasattr(headers, "items"):
+            return ""
+        for name, value in headers.items():
+            if str(name).casefold() == "x-grafana-identity-id":
+                return str(value).strip()
+        return ""
+
+    @staticmethod
+    def _validate_permissions(payload: object) -> None:
+        if not isinstance(payload, dict):
+            raise ObservabilityMcpError("MCP_GRAFANA_TOKEN_IDENTITY_INVALID")
+        for action, scopes in payload.items():
+            if not isinstance(action, str) or not isinstance(scopes, list):
+                raise ObservabilityMcpError("MCP_GRAFANA_TOKEN_IDENTITY_INVALID")
+            if any(not isinstance(scope, str) for scope in scopes):
+                raise ObservabilityMcpError("MCP_GRAFANA_TOKEN_IDENTITY_INVALID")
+            normalized_action = action.casefold()
+            if any(
+                marker in normalized_action
+                for marker in (
+                    ":write",
+                    ":delete",
+                    ":create",
+                    ":update",
+                    ":admin",
+                    ":delegate",
+                )
+            ) or normalized_action in {"write", "delete", "create", "update", "admin", "delegate"}:
+                raise ObservabilityMcpError("MCP_GRAFANA_TOKEN_EFFECTIVE_ROLE_INVALID")
+
+    def _require_identity_header(
+        self, headers: Any, account_id: int
+    ) -> None:
+        identity_header = self._identity_header(headers)
+        expected_identity = f"service-account:{account_id}"
+        if identity_header == expected_identity:
+            return
+        if identity_header:
+            raise ObservabilityMcpError("MCP_GRAFANA_TOKEN_IDENTITY_FOREIGN")
+        raise ObservabilityMcpError("MCP_GRAFANA_TOKEN_IDENTITY_UNAVAILABLE")
+
+    def verify_token_identity(self, token: str, account_id: int) -> GrafanaIdentity:
+        try:
+            payload, response_headers = self._request(
+                "GET",
+                "/api/access-control/user/permissions",
+                bearer=token,
+                error_code="MCP_GRAFANA_TOKEN_IDENTITY",
+                include_headers=True,
+            )
+        except ObservabilityMcpError as exc:
+            if exc.code != "MCP_GRAFANA_TOKEN_IDENTITY_NOT_FOUND":
+                raise
+            try:
+                payload, response_headers = self._request(
+                    "GET",
+                    "/api/datasources",
+                    bearer=token,
+                    error_code="MCP_GRAFANA_TOKEN_IDENTITY_FALLBACK",
+                    include_headers=True,
+                )
+            except ObservabilityMcpError as fallback_exc:
+                if fallback_exc.code.endswith("_UNAUTHORIZED"):
+                    raise ObservabilityMcpError(
+                        "MCP_GRAFANA_TOKEN_IDENTITY_UNAUTHORIZED"
+                    ) from fallback_exc
+                raise
+            self._require_identity_header(response_headers, account_id)
+            if not isinstance(payload, list) or any(
+                not isinstance(item, dict) for item in payload
+            ):
+                raise ObservabilityMcpError("MCP_GRAFANA_TOKEN_IDENTITY_INVALID")
+            return GrafanaIdentity(
+                account_id=account_id, role=CANONICAL_SERVICE_ACCOUNT_ROLE
+            )
+
+        self._require_identity_header(response_headers, account_id)
+        self._validate_permissions(payload)
+        return GrafanaIdentity(account_id=account_id, role=CANONICAL_SERVICE_ACCOUNT_ROLE)
 
     def delete_token(self, account_id: int, token_id: int) -> None:
         self._request(
@@ -673,6 +777,45 @@ def _store_secret(token: str) -> None:
     )
 
 
+def _identity_token_from_environment() -> str | None:
+    """Получить credential только из официального MCP inline/file input."""
+    inline = os.environ.get("GRAFANA_SERVICE_ACCOUNT_TOKEN", "").strip()
+    if inline:
+        return inline
+    token_file = os.environ.get("GRAFANA_SERVICE_ACCOUNT_TOKEN_FILE", "").strip()
+    if not token_file:
+        return None
+    try:
+        token = Path(token_file).read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeError) as exc:
+        raise ObservabilityMcpError("MCP_GRAFANA_TOKEN_INPUT_UNAVAILABLE") from exc
+    if not token:
+        raise ObservabilityMcpError("MCP_GRAFANA_TOKEN_INPUT_INVALID")
+    return token
+
+
+def _gateway_identity_probe() -> IdentityProbe:
+    """Проверить наличие официального Gateway identity tool без догадок о схеме."""
+    try:
+        runtime_tools = runtime_tool_names()
+    except ObservabilityMcpError as exc:
+        code = (
+            "MCP_GATEWAY_IDENTITY_ALLOWLIST_DRIFT"
+            if exc.code == "MCP_RUNTIME_ALLOWLIST_MISMATCH"
+            else exc.code
+        )
+        return IdentityProbe(False, False, code)
+    if "user_info" not in runtime_tools:
+        return IdentityProbe(False, False, "MCP_GATEWAY_IDENTITY_UNAVAILABLE")
+    try:
+        payload = _gateway_tool_call("user_info")
+    except ObservabilityMcpError as exc:
+        return IdentityProbe(False, False, exc.code)
+    if isinstance(payload, dict) and payload.get("isError") is True:
+        return IdentityProbe(False, False, "MCP_GATEWAY_IDENTITY_RESPONSE_INVALID")
+    return IdentityProbe(False, False, "MCP_GATEWAY_IDENTITY_RESPONSE_UNSUPPORTED")
+
+
 def ensure_identity(
     *,
     repository_root: Path,
@@ -708,21 +851,35 @@ def ensure_identity(
 
     if not account.created:
         probe = _gateway_probe()
-        if probe.ok:
-            return {
-                "ok": True,
-                "account": CANONICAL_SERVICE_ACCOUNT,
-                "role": CANONICAL_SERVICE_ACCOUNT_ROLE,
-                "token": "reused",
-                "gateway": probe.code,
-            }
         if not probe.authentication_failed:
-            raise ObservabilityMcpError(probe.code)
+            if not probe.ok:
+                raise ObservabilityMcpError(probe.code)
+            token = _identity_token_from_environment()
+            if token is None:
+                identity_probe = _gateway_identity_probe()
+                raise ObservabilityMcpError(identity_probe.code)
+            try:
+                identity = api.verify_token_identity(token, account.account_id)
+            except ObservabilityMcpError as exc:
+                if exc.code not in _ROTATE_IDENTITY_ERRORS:
+                    raise
+            else:
+                if identity.role != CANONICAL_SERVICE_ACCOUNT_ROLE:
+                    raise ObservabilityMcpError("MCP_GRAFANA_TOKEN_EFFECTIVE_ROLE_INVALID")
+                return {
+                    "ok": True,
+                    "account": CANONICAL_SERVICE_ACCOUNT,
+                    "role": CANONICAL_SERVICE_ACCOUNT_ROLE,
+                    "token": "reused",
+                    "gateway": probe.code,
+                    "identity": "direct_grafana_api",
+                }
 
     token_id, token = api.create_token(account.account_id)
     try:
-        api.verify_token(token)
+        api.verify_token_identity(token, account.account_id)
         _store_secret(token)
+        api.verify_token_identity(token, account.account_id)
         probe = _gateway_probe()
         if not probe.ok:
             raise ObservabilityMcpError("MCP_GATEWAY_AUTH_AFTER_TOKEN_STORE_FAILED")
@@ -823,6 +980,13 @@ def _verify_grafana_compose_contract(
         and environment.get("GF_SECURITY_ADMIN_PASSWORD__FILE")
         == GRAFANA_ADMIN_SECRET_PATH
     )
+    has_identity_response_header = (
+        isinstance(environment, dict)
+        and environment.get("GF_AUTH_ID_RESPONSE_HEADER_ENABLED") == "true"
+        and environment.get("GF_AUTH_ID_RESPONSE_HEADER_PREFIX") == "X-Grafana"
+        and environment.get("GF_AUTH_ID_RESPONSE_HEADER_NAMESPACES")
+        == "service-account"
+    )
     has_canonical_secret_source = (
         isinstance(admin_secret, dict)
         and admin_secret.get("environment")
@@ -837,6 +1001,7 @@ def _verify_grafana_compose_contract(
         and has_persisted_mount
         and has_admin_secret
         and has_secret_file_setting
+        and has_identity_response_header
         and has_canonical_secret_source
     ):
         raise ObservabilityMcpError("MCP_GRAFANA_COMPOSE_CONTRACT_INVALID")

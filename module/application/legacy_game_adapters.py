@@ -516,7 +516,7 @@ class LegacyConfigAdapter:
 
 
 class LegacyRuntimeLogAdapter:
-    """Безопасный bounded reader файлов runtime-журнала."""
+    """Безопасный bounded reader incident fallback и старых runtime-журналов."""
 
     def __init__(
         self,
@@ -537,6 +537,9 @@ class LegacyRuntimeLogAdapter:
 
     def _find_log_file(self, instance: str) -> Path:
         instance = _safe_instance_name(instance)
+        incident_path = self._find_incident_log_file(instance)
+        if incident_path is not None:
+            return incident_path
         current_date = self._date_provider()
         if not isinstance(current_date, date):
             raise TypeError("date_provider вернул не date")
@@ -551,6 +554,37 @@ class LegacyRuntimeLogAdapter:
             if candidate.is_file():
                 return candidate
         raise FileNotFoundError
+
+    def _find_incident_log_file(self, instance: str) -> Path | None:
+        root = self._log_root
+        if root.is_symlink() or (
+            hasattr(root, "is_junction") and root.is_junction()
+        ):
+            raise ValueError("log root не должен быть ссылкой")
+        error_root = root / "error"
+        if not error_root.exists():
+            return None
+        if error_root.is_symlink() or (
+            hasattr(error_root, "is_junction") and error_root.is_junction()
+        ):
+            raise ValueError("каталог incident-ов не должен быть ссылкой")
+        profile_root = error_root / instance
+        if not profile_root.exists():
+            return None
+        if profile_root.is_symlink() or (
+            hasattr(profile_root, "is_junction") and profile_root.is_junction()
+        ):
+            raise ValueError("каталог profile incident-ов не должен быть ссылкой")
+        candidates: list[Path] = []
+        for folder in profile_root.iterdir():
+            if not folder.is_dir() or folder.is_symlink():
+                continue
+            log_path = folder / "log.txt"
+            if log_path.is_file() and not log_path.is_symlink():
+                candidates.append(log_path)
+        if not candidates:
+            return None
+        return sorted(candidates, key=lambda path: path.parent.name)[-1]
 
     @staticmethod
     def _read_bounded_tail(path: Path, limit: int) -> tuple[str, ...]:

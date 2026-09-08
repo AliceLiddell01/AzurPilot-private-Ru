@@ -261,6 +261,20 @@ def test_legacy_log_adapter_falls_back_to_previous_calendar_date(tmp_path: Path)
     assert adapter.read_tail("ap", 1) == ("<<< Run task Main >>>\n",)
 
 
+def test_legacy_log_adapter_reads_latest_incident_fallback(tmp_path: Path):
+    incident_root = tmp_path / "log" / "error" / "ap"
+    first = incident_root / "2026-08-31_00-00-00.000_RuntimeError"
+    second = incident_root / "2026-09-01_00-00-00.000_RuntimeError"
+    first.mkdir(parents=True)
+    second.mkdir()
+    (first / "log.txt").write_text("old incident\n", encoding="utf-8")
+    (second / "log.txt").write_text("latest incident\n", encoding="utf-8")
+
+    adapter = LegacyRuntimeLogAdapter(tmp_path / "log")
+
+    assert adapter.read_tail("ap", 1) == ("latest incident\n",)
+
+
 @pytest.mark.parametrize(
     "created_at",
     [True, float("nan"), float("inf"), float("-inf"), 0, -1],

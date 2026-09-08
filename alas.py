@@ -6,6 +6,7 @@ import threading
 import time
 from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import inflection
 from cached_property import cached_property
@@ -116,7 +117,7 @@ class AzurLaneAutoScript:
     stop_event: threading.Event = None
 
     def __init__(self, config_name=DEFAULT_CONFIG_NAME):
-        logger.set_file_logger(config_name)
+        logger.configure_runtime_logging(config_name)
         logger.hr('Запуск', level=0)
         bootstrap_runtime_storage(require_ready=True)
         logger.info('[Хранилище] PostgreSQL готов к работе')
@@ -866,13 +867,12 @@ class AzurLaneAutoScript:
         for _, folder in managed_folders[:-n]:
             shutil.rmtree(folder)
 
-    def save_error_log(self):
+    def save_error_log(self, *, error_root: Path | str | None = None):
         """
         Сохранить incident: последние снимки, журнал и metadata в ``log/error``.
 
         При включённой настройке также запустить LLM-анализ ошибки.
         """
-        import pathlib
         import sys
 
         from module.base.utils import save_image
@@ -883,10 +883,18 @@ class AzurLaneAutoScript:
         from module.observability.incident import (
             build_incident_metadata,
             create_incident_directory,
+            write_incident_log,
             write_incident_metadata,
         )
 
         current_exception = sys.exc_info()[1]
+        incident_context = logger.get_diagnostic_context(last_failure=True)
+        if not incident_context:
+            incident_context = logger.get_diagnostic_context()
+        if not incident_context and current_exception is not None:
+            incident_context = (
+                f'{type(current_exception).__name__}: {current_exception}',
+            )
 
         # LLM-анализ выполняется первым, чтобы последующий сбой сохранения снимка
         # не лишил ошибку уже запрошенного анализа.
@@ -907,7 +915,7 @@ class AzurLaneAutoScript:
         if getattr(self.config, 'Error_SaveError', False):
             try:
                 folder, incident_time = create_incident_directory(
-                    pathlib.Path('./log/error'),
+                    Path('./log/error') if error_root is None else Path(error_root),
                     profile=self.config_name,
                     exception=current_exception,
                 )
@@ -939,17 +947,8 @@ class AzurLaneAutoScript:
                 logger.error(f"[Alas] Не удалось сохранить снимок ошибки: {e}")
 
             try:
-                with open(logger.log_file, 'r', encoding='utf-8') as f:
-                    lines = f.readlines()
-                    start = 0
-                    for index, line in enumerate(lines):
-                        line = line.strip(' \r\t\n')
-                        if re.match('^═{15,}$', line):
-                            start = index
-                    lines = lines[start - 2:]
-                    lines = handle_sensitive_logs(lines)
-                with open(f'{folder}/log.txt', 'w', encoding='utf-8') as f:
-                    f.writelines(lines)
+                lines = handle_sensitive_logs(incident_context)
+                write_incident_log(folder, lines)
             except Exception as e:
                 logger.error(f"[Alas] Не удалось сохранить журнал ошибки: {e}")
 
@@ -1771,7 +1770,7 @@ class AzurLaneAutoScript:
             return result
 
     def loop(self):
-        logger.set_file_logger(self.config_name)
+        logger.configure_runtime_logging(self.config_name)
         logger.info(f'[Alas] Запуск цикла планировщика: {self.config_name}')
         record_dev_runtime_error = getattr(
             self,

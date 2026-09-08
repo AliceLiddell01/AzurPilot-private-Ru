@@ -352,29 +352,36 @@ checks. Полное время outage включает baseline и recovery о�
 
 ## Подключение application logs
 
-AzurPilot подключает application logs явно после настройки штатного локального
-logger-а через `set_file_logger()`. Подключение не выполняется при импорте
-модулей: пока endpoint не задан, приложение работает в обычном offline-режиме
-только с console/WebUI/file handlers. После opt-in приложение использует
-официальные OpenTelemetry Logs bridge и OTLP/HTTP protobuf BatchLogRecordProcessor;
-прямых зависимостей от Loki, Prometheus, Tempo или Grafana в application code
-нет.
+AzurPilot подключает application logs явно после настройки штатного runtime
+logger-а через `configure_runtime_logging()`. Подключение не выполняется при
+импорте модулей. Без OTLP endpoint приложение работает в допустимом offline-
+режиме с console/WebUI и bounded in-memory incident context. При включённом
+endpoint используется официальный OpenTelemetry Logs bridge и
+OTLP/HTTP protobuf `BatchLogRecordProcessor`; прямых зависимостей от Loki,
+Prometheus, Tempo или Grafana в application code нет.
 
-Для локального Compose-контура перед запуском AzurPilot передайте процессу
-стандартные `OTEL_*` переменные:
+Для локального Compose deployment корневой `.env` является единственным
+каноническим источником application OTLP и Compose-настроек. Каждый штатный
+entrypoint (`Start-AzurPilot.ps1`, GUI, scheduler worker, `alas`, `ap` и OCR
+RPC) вызывает `configure_runtime_logging()`, который загружает из этого файла
+только ключи `OTEL_*`; значения уже существующего окружения имеют приоритет.
+Одного заполнения `.env` достаточно, отдельный PowerShell-сеанс перед каждым
+запуском не нужен:
 
-    $env:OTEL_EXPORTER_OTLP_LOGS_ENDPOINT = 'http://127.0.0.1:4318/v1/logs'
-    $env:OTEL_EXPORTER_OTLP_LOGS_PROTOCOL = 'http/protobuf'
-    $env:OTEL_RESOURCE_ATTRIBUTES = 'deployment.environment.name=local'
-    $env:OTEL_PYTHON_LOG_HANDLER_LEVEL = 'INFO'
+    OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://127.0.0.1:4318/v1/logs
+    OTEL_EXPORTER_OTLP_LOGS_PROTOCOL=http/protobuf
+    OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://127.0.0.1:4318/v1/metrics
+    OTEL_EXPORTER_OTLP_METRICS_PROTOCOL=http/protobuf
+    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://127.0.0.1:4318/v1/traces
+    OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=http/protobuf
+    OTEL_RESOURCE_ATTRIBUTES=deployment.environment.name=local
+    OTEL_PYTHON_LOG_HANDLER_LEVEL=INFO
 
-Допустим также общий `OTEL_EXPORTER_OTLP_ENDPOINT`; для logs используется
-`http/protobuf`. Таймауты и bounded batch-параметры читаются из стандартных
-`OTEL_EXPORTER_OTLP_LOGS_TIMEOUT`, `OTEL_BLRP_SCHEDULE_DELAY`,
-`OTEL_BLRP_MAX_QUEUE_SIZE`, `OTEL_BLRP_MAX_EXPORT_BATCH_SIZE` и
-`OTEL_BLRP_EXPORT_TIMEOUT`. `OTEL_SDK_DISABLED=true` отключает все application
-signals независимо от endpoint. `.env` Compose автоматически не загружается
-в процесс AzurPilot: это намеренно отдельные границы конфигурации.
+Список выше — пример для loopback Alloy, а не безусловный endpoint в коде.
+Signal-specific endpoint или общий `OTEL_EXPORTER_OTLP_ENDPOINT` должны быть
+явно заданы deployment-ом. `OTEL_SDK_DISABLED=true` отключает все application
+signals, сохраняя offline-режим. Ошибка чтения `.env` не останавливает runtime:
+используется окружение процесса и bounded fail-open политика.
 
 В удалённую запись попадают стабильный `service.name=azurpilot`, окружение,
 `profile`, canonical task context, component, run id, process id/command и
@@ -383,7 +390,9 @@ Rich markup, секретов и локальных абсолютных пут�
 изменяется. В Loki только `service.name` и
 `deployment.environment.name` являются index labels, остальные metadata остаются
 structured metadata. Ошибка exporter, его недоступность или bounded shutdown не
-останавливают gameplay, WebUI, console и локальный file fallback.
+останавливают gameplay, WebUI и console. После исчерпания bounded queue/retry
+часть normal remote log может быть потеряна; persistent local runtime copy при
+этом не обещается, но bounded context остаётся доступен для реального incident.
 
 ## Подключение application metrics
 
@@ -392,12 +401,10 @@ process-local `MeterProvider` с официальным `PeriodicExportingMetric
 OTLP/HTTP protobuf exporter. Без metrics endpoint приложение не создаёт metrics
 provider и не выполняет сетевых запросов.
 
-Для локального Compose-контура перед запуском AzurPilot задайте:
-
-    $env:OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = 'http://127.0.0.1:4318/v1/metrics'
-    $env:OTEL_EXPORTER_OTLP_METRICS_PROTOCOL = 'http/protobuf'
-    $env:OTEL_METRIC_EXPORT_INTERVAL = '60000'
-    $env:OTEL_METRIC_EXPORT_TIMEOUT = '30000'
+Для локального Compose-контура добавьте metrics endpoint в тот же корневой
+`.env`, как показано в разделе logs. Metrics подключаются независимо от logs;
+`OTEL_METRIC_EXPORT_INTERVAL` и `OTEL_METRIC_EXPORT_TIMEOUT` являются
+необязательными bounded параметрами этого же источника.
 
 Signal-specific endpoint передаётся exporter-у как полный URL. При использовании
 общего `OTEL_EXPORTER_OTLP_ENDPOINT` официальный exporter добавляет стандартный
@@ -461,12 +468,9 @@ Application traces подключаются независимо от logs и me
 Используется официальный OTLP/HTTP protobuf exporter через существующий Alloy,
 без прямых зависимостей application code от Tempo.
 
-Для локального Compose-контура перед запуском AzurPilot задайте:
-
-    $env:OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = 'http://127.0.0.1:4318/v1/traces'
-    $env:OTEL_EXPORTER_OTLP_TRACES_PROTOCOL = 'http/protobuf'
-    $env:OTEL_EXPORTER_OTLP_TRACES_TIMEOUT = '5000'
-    $env:OTEL_TRACES_SAMPLER = 'parentbased_always_on'
+Для локального Compose-контура добавьте traces endpoint в тот же корневой
+`.env`, как показано в разделе logs. `OTEL_TRACES_SAMPLER`, signal-specific
+timeouts и bounded `OTEL_BSP_*` параметры также задаются там же.
 
 Допустим общий `OTEL_EXPORTER_OTLP_ENDPOINT`; signal-specific endpoint имеет
 приоритет над ним. Для traces также поддерживаются общий
@@ -575,24 +579,25 @@ alert provenance, datasource UID и каждую panel query через Grafana 
 Остановка и запуск только observability services с прежними named volumes
 должны восстановить тот же operator UX.
 
-Исторические `log/`-артефакты не импортируются. `log/error/`
-остаётся локальным incident store со скриншотами и `log.txt`, диагностические и
-архивные каталоги сохраняются, CSV/JSON относятся к data/export или legacy
-storage и не считаются application logs. Скриншоты и object-store слой в этот
-контур не отправляются. `Error_SaveErrorCount` ограничивает число каталогов
-incident-а для каждого profile, `DiagnosticContextHandler` хранит ограниченный
-ring и ротацию, а `RichTimedRotatingHandler` применяет `LogKeepCount` и
-`LogBackUpMethod` к архивам `bak/`. Producer-ы `device_id.json` и
-`azurstat_meowofficer_farming.csv` остаются data/storage paths; они не маскируются
-под telemetry logs. Импорт logger и изолированный worker-registry smoke не
-создают новых файлов с именами случайных process/test helpers. Накопленные в
-корне `log/` файлы отсутствующих ролей, включая `*_registryclaim<PID>.txt`,
-`*_probe.txt`, `*_test.txt`, пустые process names и старые smoke artifacts,
-удалены отдельной локальной retention policy после явного разрешения
-пользователя. Из `diagnostic/` и `bak/` удалена только история отсутствующих
-ролей; текущие `alas`/`ap` runtime logs, их bounded diagnostic/rotation
-fallback, `log/error/` и data/export paths сохранены. Неизвестные или активные
-артефакты по-прежнему не удаляются автоматически.
+Исторические `log/`-артефакты не импортируются. Обычная работа GUI, `alas`,
+`ap`, scheduler worker, OCR RPC и симулятора не создаёт runtime `.txt`/`.log`
+файлы, `diagnostic/` или `bak/`; console/WebUI и Loki остаются разными
+поверхностями одного runtime logger-а. `log/error/<profile>/<incident>/` —
+единственный локальный persistent namespace для реального incident fallback:
+sanitized bounded `log.txt`, `incident.json` и снимки из существующей
+screenshot deque. `Error_SaveErrorCount` ограничивает число каталогов для
+каждого profile, а `DiagnosticContextHandler` хранит только ограниченный
+thread-safe in-memory ring до incident-а. PNG/JPG не отправляются в Loki и
+отдельный binary/object store для этого контура не добавляется. CSV/JSON
+существующих data/export и legacy storage не считаются application logs.
+
+При недоступности Alloy/Loki normal remote log может быть потерян после
+bounded queue/retry policy, но gameplay, WebUI и console продолжают работу.
+При реальном исключении `save_error_log()` использует накопленный sanitized
+context и создаёт только incident bundle; сбой записи этого bundle не маскирует
+исходную ошибку. Dev Runtime сохраняет отдельный stdout/stderr evidence в
+`config/state/dev-runtime-gui.log`, а явные benchmark/debug-инструменты могут
+создавать собственные артефакты вне application runtime contract.
 
 Portable base Compose не содержит Windows drive letters, WSL paths,
 host.docker.internal, захардкоженные IP, host networking или публичные
@@ -706,6 +711,20 @@ README, аргументах команд или временном plaintext-ф
 в Docker MCP contract — `grafana.api_key`, а pinned server передаёт его через
 `GRAFANA_SERVICE_ACCOUNT_TOKEN`.
 
+Фактический pinned runtime проверяется через `tools/list`. В текущем image
+официальный `user_info` отсутствует, поэтому `list_datasources` не считается
+доказательством identity. При наличии доступного credential `ensure-identity`
+проверяет его тем же bearer token через официальный Grafana read-only endpoint
+`/api/access-control/user/permissions` и обязательный заголовок
+`X-Grafana-Identity-Id: service-account:<id>`; при отсутствии этого endpoint
+используется только read-only fallback `/api/datasources` с тем же identity
+header. Отсутствующий или foreign header, malformed permissions, invalid или
+более широкая роль приводят к fail-closed/rotation. После записи нового token в
+secret store identity проверяется повторно; obsolete tokens удаляются только у
+canonical account. Если pinned Gateway не предоставляет `user_info`, а
+credential нельзя получить официальным способом для identity-проверки, команда
+завершается диагностируемой ошибкой и не объявляет token canonical.
+
 Идемпотентный bootstrap выполняется из корня checkout. Он использует
 Grafana admin credentials из локального `.env`, проверяет или создаёт ровно
 один canonical service account, приводит его к роли `Viewer`, проверяет
@@ -766,6 +785,10 @@ Grafana container, затем перезапусти именно Grafana MCP Ga
 → log → trace_id → tempo_get-trace`; результат MCP для выбранных metric,
 dashboard, alert и trace по возможности сверяется независимым Grafana/backend
 API.
+
+Synthetic и Docker outage harness не запускают Azur Lane. Live game acceptance
+намеренно остаётся `PENDING USER AUTHORIZATION` до отдельного разрешения
+пользователя.
 
 ### Проверка безопасности и восстановление Docker Desktop
 

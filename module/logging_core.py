@@ -10,7 +10,6 @@ import time
 from collections import OrderedDict, deque
 from collections.abc import Callable, Hashable
 from dataclasses import dataclass
-from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 _TASK_METADATA_LIMIT = 128
@@ -335,7 +334,12 @@ class RepeatedEventSuppressor:
 
 
 class DiagnosticContextHandler(logging.Handler):
-    """Bounded DEBUG-ring, сохраняемый в отдельный файл только при ERROR/CRITICAL."""
+    """Потокобезопасный bounded ring для контекста реального incident-а.
+
+    Обработчик никогда не создаёт и не открывает файл. Текущий контекст
+    хранится в памяти до ошибки, после которой атомарно становится
+    ``last_failure`` для единственного incident producer-а.
+    """
 
     def __init__(
         self,
@@ -343,19 +347,25 @@ class DiagnosticContextHandler(logging.Handler):
         capacity: int = 200,
         sanitizer: Callable[[object], str] = str,
         max_bytes: int = 2 * 1024 * 1024,
-        backup_count: int = 2,
     ) -> None:
         if capacity <= 0:
             raise ValueError("capacity должен быть положительным")
+        if max_bytes <= 0:
+            raise ValueError("max_bytes должен быть положительным")
         super().__init__(level=logging.DEBUG)
         self.capacity = capacity
         self._buffer: deque[logging.LogRecord] = deque(maxlen=capacity)
+        self._buffer_bytes = 0
         self._last_failure: tuple[logging.LogRecord, ...] = ()
         self._sanitizer = sanitizer
         self._max_bytes = max_bytes
-        self._backup_count = backup_count
-        self._target: RotatingFileHandler | None = None
-        self._failure_target: logging.Handler | None = None
+
+    def _bounded_message(self, message: object) -> str:
+        text = str(message)
+        encoded = text.encode("utf-8", errors="replace")
+        if len(encoded) <= self._max_bytes:
+            return text
+        return encoded[: self._max_bytes].decode("utf-8", errors="ignore")
 
     def _clone_record(self, record: logging.LogRecord) -> logging.LogRecord:
         # Не копируем __dict__ исходного LogRecord: произвольный ``extra`` может
@@ -367,7 +377,7 @@ class DiagnosticContextHandler(logging.Handler):
             level=record.levelno,
             pathname=record.filename,
             lineno=record.lineno,
-            msg=self._sanitizer(record.getMessage()),
+            msg=self._bounded_message(self._sanitizer(record.getMessage())),
             args=(),
             exc_info=None,
             func=record.funcName,
@@ -387,85 +397,53 @@ class DiagnosticContextHandler(logging.Handler):
             cloned.alas_task = alas_task[:_TASK_METADATA_LIMIT]
         return cloned
 
-    def configure_output(self, path: str | Path, formatter: logging.Formatter) -> None:
-        output = Path(path)
-        output.parent.mkdir(parents=True, exist_ok=True)
-        with self.lock:
-            if self._target is not None:
-                self._target.close()
-            target = RotatingFileHandler(
-                output,
-                maxBytes=self._max_bytes,
-                backupCount=self._backup_count,
-                encoding="utf-8",
-                delay=True,
-            )
-            target.setLevel(logging.DEBUG)
-            target.setFormatter(formatter)
-            self._target = target
+    @staticmethod
+    def _record_bytes(record: logging.LogRecord) -> int:
+        return len(record.getMessage().encode("utf-8", errors="replace"))
 
-    def configure_failure_target(self, target: logging.Handler | None) -> None:
-        """Задать normal file handler для условного DEBUG-dump при реальном сбое."""
-        with self.lock:
-            self._failure_target = target
+    def _append(self, record: logging.LogRecord) -> None:
+        if len(self._buffer) == self.capacity:
+            self._buffer_bytes -= self._record_bytes(self._buffer[0])
+        self._buffer.append(record)
+        self._buffer_bytes += self._record_bytes(record)
+        while self._buffer and self._buffer_bytes > self._max_bytes:
+            removed = self._buffer.popleft()
+            self._buffer_bytes -= self._record_bytes(removed)
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
-            self._emit(record)
+            with self.lock:
+                self._emit(record)
         except Exception:
             # Ошибка самого диагностического контура не должна прерывать игровой код.
             self.handleError(record)
-            if record.levelno >= logging.ERROR:
+            with self.lock:
                 self._buffer.clear()
+                self._buffer_bytes = 0
 
     def _emit(self, record: logging.LogRecord) -> None:
-        if record.levelno < logging.INFO:
-            self._buffer.append(self._clone_record(record))
+        cloned = self._clone_record(record)
+        if record.levelno >= logging.ERROR:
+            failure = tuple(self._buffer) + (cloned,)
+            self._last_failure = self._bounded_snapshot(failure)
+            self._buffer.clear()
+            self._buffer_bytes = 0
             return
-        if record.levelno < logging.ERROR:
-            return
+        self._append(cloned)
 
-        buffered = tuple(self._buffer)
-        if buffered:
-            self._last_failure = buffered
-            header = logging.LogRecord(
-                name=record.name,
-                level=logging.INFO,
-                pathname=record.filename,
-                lineno=record.lineno,
-                msg=(
-                    "[Диагностика] Контекст перед %s: %s"
-                    % (record.levelname, self._sanitizer(record.getMessage()))
-                ),
-                args=(),
-                exc_info=None,
-                func=record.funcName,
-            )
-            header.created = record.created
-            header.msecs = record.msecs
-            failure_target = self._failure_target
-            if failure_target is None:
-                owner_logger = logging.getLogger(record.name)
-                for candidate in owner_logger.handlers:
-                    if candidate is self:
-                        continue
-                    if isinstance(candidate, logging.FileHandler):
-                        failure_target = candidate
-                        break
-
-            targets = []
-            for target in (self._target, failure_target):
-                if target is not None and all(target is not item for item in targets):
-                    targets.append(target)
-            for target in targets:
-                try:
-                    target.handle(copy.copy(header))
-                    for buffered_record in buffered:
-                        target.handle(copy.copy(buffered_record))
-                    target.flush()
-                except Exception:
-                    self.handleError(record)
-        self._buffer.clear()
+    def _bounded_snapshot(
+        self,
+        records: tuple[logging.LogRecord, ...],
+    ) -> tuple[logging.LogRecord, ...]:
+        selected: deque[logging.LogRecord] = deque(maxlen=self.capacity)
+        total_bytes = 0
+        for record in reversed(records):
+            record_bytes = self._record_bytes(record)
+            if selected and total_bytes + record_bytes > self._max_bytes:
+                break
+            selected.appendleft(record)
+            total_bytes += record_bytes
+        return tuple(selected)
 
     def snapshot(self, *, last_failure: bool = False) -> tuple[logging.LogRecord, ...]:
         with self.lock:
@@ -475,14 +453,12 @@ class DiagnosticContextHandler(logging.Handler):
     def reset(self) -> None:
         with self.lock:
             self._buffer.clear()
+            self._buffer_bytes = 0
             self._last_failure = ()
 
     def close(self) -> None:
         with self.lock:
             self._buffer.clear()
+            self._buffer_bytes = 0
             self._last_failure = ()
-            if self._target is not None:
-                self._target.close()
-                self._target = None
-            self._failure_target = None
         super().close()

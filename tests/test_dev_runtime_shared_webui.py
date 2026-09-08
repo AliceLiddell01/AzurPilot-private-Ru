@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -355,37 +355,9 @@ def test_shared_recovery_does_not_close_marker_while_worker_is_present(tmp_path:
     assert preserved.process is None
 
 
-def test_shared_runtime_log_file_translates_target_registry_error(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from module.dev_runtime import target as target_module
-
-    def fail(_root: Path) -> object:
-        raise target_module.DevTargetError(
-            "DEV_TARGET_INVALID", "синтетическая ошибка registry target"
-        )
-
-    monkeypatch.setattr(target_module.DevTargetRegistry, "load", fail)
-
-    with pytest.raises(RuntimeError, match="log target"):
-        _ = SharedWebUIRuntime(tmp_path).log_file
-
-
-def test_shared_runtime_uses_current_rotating_worker_log_path(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from module.dev_runtime import target as target_module
-
-    monkeypatch.setattr(
-        target_module.DevTargetRegistry,
-        "load",
-        lambda _root: DevTarget("ap"),
-    )
-
+def test_shared_runtime_uses_dev_runtime_evidence_log_path(tmp_path: Path) -> None:
     assert SharedWebUIRuntime(tmp_path).log_file == (
-        tmp_path / "log" / f"{date.today().isoformat()}_ap.txt"
+        tmp_path / "config" / "state" / "dev-runtime-gui.log"
     )
 
 

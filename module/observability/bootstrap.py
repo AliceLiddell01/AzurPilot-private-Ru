@@ -2,7 +2,8 @@
 
 OTel Logs API остаётся изолированным в этом модуле. Центральный AzurPilot
 logger передаёт сюда обычные ``LogRecord`` без изменений существующих call
-sites, а локальные console/WebUI/file handlers продолжают работать отдельно.
+sites, а локальные console/WebUI и bounded incident context продолжают работать
+отдельно.
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ import copy
 import importlib.metadata
 import logging
 import os
+import re
 import sys
 import threading
 import time
@@ -82,6 +84,7 @@ _OTEL_INTERNAL_LOGGERS = (
     "opentelemetry.sdk.metrics",
     "opentelemetry.instrumentation.logging",
 )
+_OTEL_ENV_NAME_RE = re.compile(r"^OTEL_[A-Z0-9_]+$")
 
 _STANDARD_RECORD_FIELDS = frozenset(
     vars(
@@ -284,7 +287,7 @@ class _FailOpenExporter:
             result = self._exporter.export(records)
         except Exception as exc:
             self._reporter.report(
-                "OTLP exporter недоступен; запись останется только в локальном журнале",
+                "OTLP exporter недоступен; работа runtime/WebUI/консоли продолжится, bounded incident context доступен",
                 exc,
             )
             return None
@@ -292,7 +295,7 @@ class _FailOpenExporter:
             _EXPORTER_INTERNAL.reset(token)
         if getattr(result, "name", "") == "FAILURE":
             self._reporter.report(
-                "OTLP exporter отклонил пакет; запись останется только в локальном журнале"
+                "OTLP exporter отклонил пакет; после bounded policy удалённая запись может быть потеряна"
             )
         return result
 
@@ -353,7 +356,7 @@ class _SanitizedOTelHandler(logging.Handler):
             )
         except Exception as exc:
             self._reporter.report(
-                "Ошибка подготовки записи для OTLP; локальный журнал продолжит работу",
+                "Ошибка подготовки записи для OTLP; runtime/WebUI/консоль продолжат работу, bounded incident context доступен",
                 exc,
             )
 
@@ -465,7 +468,40 @@ def _read_signal_config(
     return True, signal_endpoint or None
 
 
+def _load_local_otlp_environment() -> None:
+    """Загрузить только OTEL-настройки из канонического корневого ``.env``.
+
+    Корневой ``.env`` уже является источником deployment-настроек Compose.
+    В приложение попадают только ключи ``OTEL_*``; секреты и остальные
+    переменные намеренно не читаются. Явное окружение процесса имеет приоритет.
+    """
+
+    env_path = Path.cwd() / ".env"
+    if not env_path.is_file():
+        return
+    try:
+        lines = env_path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError) as exc:
+        _failure_reporter.report(
+            "Не удалось прочитать OTEL-настройки из корневого .env; используется окружение процесса",
+            exc,
+        )
+        return
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        name, value = (part.strip() for part in stripped.split("=", 1))
+        if not _OTEL_ENV_NAME_RE.fullmatch(name):
+            continue
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        os.environ.setdefault(name, value)
+
+
 def _read_config() -> _ObservabilityConfig | None:
+    _load_local_otlp_environment()
     if _is_true(os.environ.get("OTEL_SDK_DISABLED")):
         return None
     generic_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "").strip()
@@ -884,7 +920,7 @@ def configure_application_observability(
             )
         except Exception as exc:
             _failure_reporter.report(
-                "Не удалось инициализировать application observability; локальный журнал продолжит работу",
+                "Не удалось инициализировать application observability; runtime/WebUI/консоль продолжат работу, bounded incident context доступен",
                 exc,
             )
             return False

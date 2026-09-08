@@ -1,36 +1,15 @@
-from pathlib import Path
-
-from module.llm import _read_log_tail
+import module.logger as logger_module
 
 
-def test_read_log_tail_keeps_only_requested_lines(tmp_path: Path):
-    path = tmp_path / "error.log"
-    path.write_text(
-        "".join(f"line-{index:04d}\n" for index in range(500)),
-        encoding="utf-8",
-    )
-
-    result = _read_log_tail(path, max_bytes=64 * 1024, max_lines=200)
-
-    lines = result.splitlines()
-    assert len(lines) == 200
-    assert lines[0] == "line-0300"
-    assert lines[-1] == "line-0499"
-
-
-def test_read_log_tail_bounds_single_large_record(tmp_path: Path):
-    path = tmp_path / "large.log"
-    path.write_bytes(b"x" * (256 * 1024))
-
-    result = _read_log_tail(path, max_bytes=64 * 1024, max_lines=200)
-
-    assert len(result.encode("utf-8")) <= 64 * 1024
-
-
-def test_read_log_tail_keeps_byte_bound_for_invalid_utf8(tmp_path: Path):
-    path = tmp_path / "invalid.log"
-    path.write_bytes(b"\xff" * (256 * 1024))
-
-    result = _read_log_tail(path, max_bytes=64 * 1024, max_lines=200)
-
-    assert len(result.encode("utf-8")) <= 64 * 1024
+def test_llm_diagnostic_context_is_bounded_and_memory_only():
+    logger_module.reset_diagnostic_context()
+    try:
+        for index in range(300):
+            logger_module.logger.info(f"line-{index:04d}")
+        context = logger_module.get_diagnostic_context()
+        assert len(context) == 200
+        assert context[0] == "line-0100"
+        assert context[-1] == "line-0299"
+        assert not hasattr(logger_module.logger, "log_file")
+    finally:
+        logger_module.reset_diagnostic_context()

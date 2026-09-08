@@ -37,7 +37,7 @@ from module.config.profile import (
     profile_identity_from_name,
 )
 from module.config.utils import DEFAULT_CONFIG_NAME
-from module.logger import logger, set_file_logger, set_func_logger
+from module.logger import configure_runtime_logging, logger, set_func_logger
 from module.submodule.submodule import load_mod
 from module.submodule.utils import (
     get_available_func,
@@ -1042,8 +1042,8 @@ class ProcessManager:
         args, _ = parser.parse_known_args()
         State.electron = args.electron
 
-        # Инициализировать журнал.
-        set_file_logger(name=config_name)
+        # Инициализировать runtime logger и необязательное удалённое логирование.
+        configure_runtime_logging(name=config_name)
         if State.electron:
             # См. https://github.com/LmeSzinc/AzurLaneAutoScript/issues/2051.
             logger.info("[WebUI] Обнаружена среда Electron; обработчик стандартного вывода удалён")
