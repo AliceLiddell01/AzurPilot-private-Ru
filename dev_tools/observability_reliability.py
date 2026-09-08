@@ -34,6 +34,9 @@ _INTERNAL_ENDPOINTS = {
     "tempo": 3200,
     "grafana": 3000,
 }
+_EMITTER_TIMEOUT_MIN_SECONDS = 15
+_EMITTER_TIMEOUT_MAX_SECONDS = 60
+_PRESERVED_SERVICE_FIELDS = ("id", "image", "volumes", "restart_count")
 
 
 class ReliabilityError(RuntimeError):
@@ -54,18 +57,17 @@ def validate_services(services: tuple[str, ...]) -> None:
 
 
 def verify_preserved(before: dict, after: dict, changed: tuple[str, ...]) -> None:
-    """Проверить identity, volumes и состояние посторонних services."""
+    """Проверить identity, volumes и стабильные поля services."""
     if before.keys() != after.keys():
         raise ReliabilityError("OBSERVABILITY_CONTAINER_SET_CHANGED")
     for service, original in before.items():
         current = after[service]
-        if service not in changed:
-            if current != original:
-                raise ReliabilityError("OBSERVABILITY_UNRELATED_SERVICE_CHANGED")
-        elif any(
-            current[key] != original[key]
-            for key in ("id", "image", "volumes", "restart_count")
+        if any(
+            current.get(key) != original.get(key)
+            for key in _PRESERVED_SERVICE_FIELDS
         ):
+            if service not in changed:
+                raise ReliabilityError("OBSERVABILITY_UNRELATED_SERVICE_CHANGED")
             raise ReliabilityError("OBSERVABILITY_STORAGE_OR_IDENTITY_CHANGED")
 
 
@@ -183,8 +185,10 @@ def outage(services: tuple[str, ...], journal: Path):
             if original_error is None:
                 raise
             original_error.add_note(exc.code)
-        if state["recovery_errors"] and original_error is None:
-            raise ReliabilityError("OBSERVABILITY_RECOVERY_FAILED")
+        if state["recovery_errors"]:
+            if original_error is None:
+                raise ReliabilityError("OBSERVABILITY_RECOVERY_FAILED")
+            original_error.add_note("OBSERVABILITY_RECOVERY_FAILED")
 
 
 def _write_json_best_effort(path: Path, payload: dict) -> None:
@@ -209,6 +213,10 @@ def subprocess_emit(output: Path, count: int = 1, failures: int = 1) -> dict:
     """Изолировать переменные SDK и ограниченное завершение процесса."""
     environment = {k: v for k, v in os.environ.items() if not k.startswith("OTEL_")}
     options = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
+    timeout = min(
+        _EMITTER_TIMEOUT_MAX_SECONDS,
+        max(_EMITTER_TIMEOUT_MIN_SECONDS, 5 + count * 0.25),
+    )
     try:
         result = subprocess.run(
             [
@@ -225,7 +233,7 @@ def subprocess_emit(output: Path, count: int = 1, failures: int = 1) -> dict:
             ],
             env=environment,
             capture_output=True,
-            timeout=15,
+            timeout=timeout,
             check=False,
             **options,
         )

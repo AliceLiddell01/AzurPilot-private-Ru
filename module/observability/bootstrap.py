@@ -484,8 +484,11 @@ def _application_repository_root() -> Path | None:
             candidate = None
         if candidate is not None and _is_repository_root(candidate):
             return candidate
-    current = Path.cwd()
-    return current if _is_repository_root(current) else None
+    try:
+        module_root = Path(__file__).resolve().parents[2]
+    except (OSError, RuntimeError):
+        return None
+    return module_root if _is_repository_root(module_root) else None
 
 
 def _load_local_otlp_environment() -> None:

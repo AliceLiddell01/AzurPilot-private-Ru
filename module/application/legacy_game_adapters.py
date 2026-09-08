@@ -577,7 +577,11 @@ class LegacyRuntimeLogAdapter:
         if _is_reparse_point(profile_root):
             raise ValueError("каталог profile incident-ов не должен быть ссылкой")
         candidates: list[tuple[tuple[int, int], Path]] = []
-        for folder in profile_root.iterdir():
+        try:
+            folders = tuple(profile_root.iterdir())
+        except OSError:
+            return None
+        for folder in folders:
             if not folder.is_dir() or _is_reparse_point(folder):
                 continue
             time_key = incident_directory_time_key(folder.name)

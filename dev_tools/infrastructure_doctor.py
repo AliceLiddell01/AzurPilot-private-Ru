@@ -450,6 +450,7 @@ def observability_doctor() -> dict[str, object]:
         health = ready(containers, errors=probe_errors)
         warnings: list[str] = []
         observations: list[str] = []
+        volume_names: set[str] = set()
         for service in SERVICES:
             entry = containers.get(service, {})
             probe_error = probe_errors.get(service)
@@ -465,11 +466,12 @@ def observability_doctor() -> dict[str, object]:
             volumes = entry.get("volumes", {})
             if not volumes:
                 warnings.append(f"PERSISTENT_VOLUME_MISSING:{service}")
-            for volume in volumes.values():
-                try:
-                    docker("volume", "inspect", volume, "--format", "{{.Name}}")
-                except ReliabilityError:
-                    warnings.append(f"PERSISTENT_VOLUME_UNAVAILABLE:{volume}")
+            volume_names.update(volumes.values())
+        for volume in sorted(volume_names):
+            try:
+                docker("volume", "inspect", volume, "--format", "{{.Name}}")
+            except ReliabilityError:
+                warnings.append(f"PERSISTENT_VOLUME_UNAVAILABLE:{volume}")
 
         metrics: list[str] = []
         if health.get("alloy", False):

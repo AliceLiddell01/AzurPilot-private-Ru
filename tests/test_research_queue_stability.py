@@ -66,7 +66,8 @@ class _ResearchDrop:
 
 class _FastResearchTimer:
     thresholds = {
-        'timeout': 999,
+        'popup_timeout': 999,
+        'return_timeout': 999,
         'popup_confirm': 3,
         'return_confirm': 2,
     }
@@ -93,9 +94,23 @@ class _FastResearchTimer:
             research_module._RESEARCH_REWARD_RETURN_CONFIRM_SECONDS,
             research_module._RESEARCH_REWARD_RETURN_CONFIRM_COUNT,
         )
-        if parameters == popup_timeout or parameters == return_timeout:
-            self.role = 'timeout'
-            max_instances = int(parameters == popup_timeout) + int(parameters == return_timeout)
+        if parameters == popup_timeout and parameters == return_timeout:
+            created_with_parameters = sum(
+                (timer.limit, timer.count) == parameters for timer in self.created
+            )
+            if created_with_parameters == 0:
+                self.role = 'popup_timeout'
+            elif created_with_parameters == 1:
+                self.role = 'return_timeout'
+            else:
+                raise AssertionError(f'Слишком много Timer с параметрами: limit={limit}, count={count}')
+            max_instances = 2
+        elif parameters == popup_timeout:
+            self.role = 'popup_timeout'
+            max_instances = 1
+        elif parameters == return_timeout:
+            self.role = 'return_timeout'
+            max_instances = 1
         elif parameters == popup_confirm:
             self.role = 'popup_confirm'
             max_instances = 1
@@ -181,7 +196,8 @@ def _reward_research_harness(get_items_values, statuses=None):
 def _reset_fast_research_timer(monkeypatch, **thresholds):
     _FastResearchTimer.created = []
     _FastResearchTimer.thresholds = {
-        'timeout': 999,
+        'popup_timeout': 999,
+        'return_timeout': 999,
         'popup_confirm': 3,
         'return_confirm': 2,
         **thresholds,
@@ -547,7 +563,7 @@ def test_research_receive_popup_timeout_is_research_specific(monkeypatch):
     research, clicks, _, _, _ = _reward_research_harness([
         GET_ITEMS_1,
     ])
-    _reset_fast_research_timer(monkeypatch, timeout=3, popup_confirm=999)
+    _reset_fast_research_timer(monkeypatch, popup_timeout=3, popup_confirm=999)
 
     with pytest.raises(ResearchRewardPopupTimeoutError, match='фаза=стабилизация'):
         research.research_receive()
@@ -629,7 +645,7 @@ def test_research_receive_return_timeout_is_research_specific(monkeypatch):
         GET_ITEMS_1,
         GET_ITEMS_1,
     ], statuses=[['unknown'] * len(research_module.RESEARCH_STATUS)])
-    _reset_fast_research_timer(monkeypatch, timeout=4, return_confirm=999)
+    _reset_fast_research_timer(monkeypatch, return_timeout=4, return_confirm=999)
 
     with pytest.raises(ResearchRewardReturnTimeoutError, match='фаза=возврат'):
         research.research_receive()

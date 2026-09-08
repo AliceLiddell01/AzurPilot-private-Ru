@@ -132,10 +132,11 @@ def test_recovery_error_does_not_mask_original(docker_state, monkeypatch, tmp_pa
 
     monkeypatch.setattr(target, "docker", failing)
     journal = tmp_path / "recovery.json"
-    with pytest.raises(ValueError, match="исходная ошибка"):
+    with pytest.raises(ValueError, match="исходная ошибка") as error_info:
         with target.outage(("tempo", "loki"), journal):
             raise ValueError("исходная ошибка")
     assert calls[-1] == ("start", "tempo")
+    assert "OBSERVABILITY_RECOVERY_FAILED" in error_info.value.__notes__
     assert json.loads(journal.read_text())["recovery_errors"] == [
         {"service": "loki", "error": "OSError"}
     ]
@@ -372,6 +373,17 @@ def test_identity_or_volume_change_fails_closed(docker_state, field, value):
         target.verify_preserved(before, state, ("tempo",))
 
 
+def test_volatile_inventory_changes_do_not_fail_preservation(docker_state):
+    state, _, _ = docker_state
+    before = copy.deepcopy(state)
+    state["tempo"]["status"] = "exited"
+    state["tempo"]["health"] = "unhealthy"
+    state["loki"]["status"] = "exited"
+    state["loki"]["health"] = "unhealthy"
+
+    target.verify_preserved(before, state, ("tempo",))
+
+
 def test_retention_and_private_ports_contract():
     root = ROOT / "infrastructure/observability"
     compose = yaml.safe_load((root / "compose.yaml").read_text(encoding="utf-8"))
@@ -417,13 +429,17 @@ def test_inventory_rejects_malformed_docker_inspect(monkeypatch):
 
 
 def test_subprocess_emit_timeout_is_safe(monkeypatch, tmp_path):
-    def timeout(*_args, **_kwargs):
-        raise subprocess.TimeoutExpired("emit", 15)
+    observed = {}
+
+    def timeout(*_args, **kwargs):
+        observed["timeout"] = kwargs["timeout"]
+        raise subprocess.TimeoutExpired("emit", kwargs["timeout"])
 
     monkeypatch.setattr(target.subprocess, "run", timeout)
 
     with pytest.raises(target.ReliabilityError, match="EMITTER_FAILED"):
-        target.subprocess_emit(tmp_path / "emit")
+        target.subprocess_emit(tmp_path / "emit", count=128)
+    assert observed["timeout"] == 37.0
 
 
 def test_internal_metrics_bounds_each_metric_family(monkeypatch):

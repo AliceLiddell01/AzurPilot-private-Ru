@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from opentelemetry.sdk._logs.export import InMemoryLogRecordExporter
 
+import module.observability.bootstrap as bootstrap_module
 from module.logging_context import (
     get_logging_context,
     get_task_context,
@@ -116,6 +117,7 @@ def test_canonical_project_env_enables_otlp_without_loading_secrets(
     monkeypatch.delenv("AZURPILOT_REPOSITORY_ROOT", raising=False)
     (tmp_path / "module").mkdir()
     (tmp_path / "gui.py").write_text("", encoding="utf-8")
+    monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(tmp_path))
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".env").write_text(
         "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://alloy:4318/v1/logs\n"
@@ -137,6 +139,11 @@ def test_unverified_working_directory_does_not_load_project_env(monkeypatch, tmp
     for key in _OTEL_ENVIRONMENT_KEYS:
         monkeypatch.delenv(key, raising=False)
     monkeypatch.delenv("AZURPILOT_REPOSITORY_ROOT", raising=False)
+    monkeypatch.setattr(
+        bootstrap_module,
+        "__file__",
+        str(tmp_path / "unverified" / "module" / "observability" / "bootstrap.py"),
+    )
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".env").write_text(
         "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://unverified-root:4318/v1/logs\n"
@@ -168,6 +175,8 @@ def test_canonical_project_env_uses_process_repository_root(monkeypatch, tmp_pat
 
     assert config is not None
     assert config.signal_endpoint == "http://worker-root:4318/v1/logs"
+    for key in _OTEL_ENVIRONMENT_KEYS:
+        monkeypatch.delenv(key, raising=False)
 
 
 def test_application_logging_disabled_flag_wins_over_endpoint(monkeypatch):
