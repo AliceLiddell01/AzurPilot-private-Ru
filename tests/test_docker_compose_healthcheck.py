@@ -364,6 +364,10 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
     assert success_share["targets"][2]["type"] == "reduce"
     assert success_share["targets"][2]["expression"] == "A"
     assert success_share["targets"][2]["reducer"] == "last"
+    assert success_share["targets"][2]["settings"] == {
+        "mode": "replaceNN",
+        "replaceWithValue": 0,
+    }
     assert success_share["targets"][3]["type"] == "reduce"
     assert success_share["targets"][3]["expression"] == "B"
     assert success_share["targets"][3]["reducer"] == "last"

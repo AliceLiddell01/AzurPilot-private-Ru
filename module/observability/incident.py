@@ -70,6 +70,14 @@ def _format_timestamp(value: datetime) -> str:
 def incident_directory_time_key(name: str) -> tuple[int, int] | None:
     """Вернуть хронологический ключ canonical или legacy incident-каталога."""
     if _LEGACY_INCIDENT_DIRECTORY_RE.fullmatch(name):
+        if len(name) == 14:
+            try:
+                timestamp = datetime.strptime(name, "%Y%m%d%H%M%S").replace(
+                    tzinfo=timezone.utc
+                )
+            except ValueError:
+                return None
+            return int(timestamp.timestamp() * 1000), 0
         return int(name), 0
 
     timestamp_match = _CURRENT_INCIDENT_TIMESTAMP_RE.match(name)

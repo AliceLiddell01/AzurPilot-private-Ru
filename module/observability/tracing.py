@@ -70,6 +70,7 @@ class TracingConfig:
     max_queue_size: int
     max_export_batch_size: int
     processor_timeout_millis: int
+    headers: Mapping[str, str] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -374,6 +375,7 @@ def build_tracing_runtime(
             else OTLPSpanExporter(
                 endpoint=config.endpoint,
                 timeout=config.timeout_millis / 1000,
+                headers=dict(config.headers) if config.headers else None,
             )
         )
         provider = TracerProvider(resource=resource, shutdown_on_exit=False)

@@ -86,6 +86,14 @@ _OTEL_INTERNAL_LOGGERS = (
 )
 _OTEL_ENV_NAME_RE = re.compile(r"^OTEL_[A-Z0-9_]+$")
 _REPOSITORY_ROOT_ENV = "AZURPILOT_REPOSITORY_ROOT"
+_OTLP_HEADER_ENV_NAMES = frozenset(
+    {
+        "OTEL_EXPORTER_OTLP_HEADERS",
+        "OTEL_EXPORTER_OTLP_LOGS_HEADERS",
+        "OTEL_EXPORTER_OTLP_METRICS_HEADERS",
+        "OTEL_EXPORTER_OTLP_TRACES_HEADERS",
+    }
+)
 
 _STANDARD_RECORD_FIELDS = frozenset(
     vars(
@@ -118,6 +126,7 @@ class _ObservabilityConfig:
     logs_enabled: bool = False
     metrics: MetricsConfig | None = None
     traces: TracingConfig | None = None
+    headers: Mapping[str, str] | None = None
 
 
 @dataclass
@@ -491,22 +500,21 @@ def _application_repository_root() -> Path | None:
     return module_root if _is_repository_root(module_root) else None
 
 
-def _load_local_otlp_environment() -> None:
+def _load_local_otlp_environment() -> set[str]:
     """Загрузить только OTEL-настройки из канонического корневого ``.env``.
 
     Корневой ``.env`` уже является источником deployment-настроек Compose.
-    В приложение попадают все ключи ``OTEL_*``, включая заголовки авторизации
-    ``OTEL_EXPORTER_OTLP_HEADERS`` и ``OTEL_EXPORTER_OTLP_LOGS_HEADERS``;
-    секреты и остальные переменные намеренно не читаются. Явное окружение
-    процесса имеет приоритет.
+    Секретные OTLP headers возвращаются вызывающему коду отдельно, чтобы они
+    не оставались в глобальном окружении процесса. Секреты и остальные
+    переменные намеренно не читаются. Явное окружение процесса имеет приоритет.
     """
 
     root = _application_repository_root()
     if root is None:
-        return
+        return set()
     env_path = root / ".env"
     if not env_path.is_file():
-        return
+        return set()
     try:
         lines = env_path.read_text(encoding="utf-8").splitlines()
     except (OSError, UnicodeError) as exc:
@@ -514,8 +522,9 @@ def _load_local_otlp_environment() -> None:
             "Не удалось прочитать OTEL-настройки из корневого .env; используется окружение процесса",
             exc,
         )
-        return
+        return set()
 
+    loaded_names: set[str] = set()
     for line in lines:
         stripped = line.strip()
         if not stripped or stripped.startswith("#") or "=" not in stripped:
@@ -525,11 +534,60 @@ def _load_local_otlp_environment() -> None:
             continue
         if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
             value = value[1:-1]
-        os.environ.setdefault(name, value)
+        if name not in os.environ:
+            os.environ[name] = value
+            loaded_names.add(name)
+    return loaded_names
+
+
+def _read_otlp_headers(
+    specific_name: str,
+    local_values: Mapping[str, str],
+) -> dict[str, str] | None:
+    """Прочитать signal-specific или общий OTLP headers без утечки в env."""
+
+    def value_for(name: str) -> str:
+        if name in os.environ:
+            return os.environ[name]
+        return local_values.get(name, "")
+
+    raw = value_for(specific_name) or value_for("OTEL_EXPORTER_OTLP_HEADERS")
+    if not raw.strip():
+        return None
+    try:
+        from opentelemetry.util.re import parse_env_headers
+
+        headers = dict(parse_env_headers(raw, liberal=True))
+    except Exception as exc:
+        _failure_reporter.report(
+            "Не удалось разобрать OTLP headers; заголовки этого signal отключены",
+            exc,
+        )
+        return None
+    return headers or None
 
 
 def _read_config() -> _ObservabilityConfig | None:
-    _load_local_otlp_environment()
+    loaded_names = _load_local_otlp_environment()
+    local_header_values = {
+        name: os.environ[name]
+        for name in loaded_names & _OTLP_HEADER_ENV_NAMES
+        if name in os.environ
+    }
+    for name in local_header_values:
+        os.environ.pop(name, None)
+    logs_headers = _read_otlp_headers(
+        "OTEL_EXPORTER_OTLP_LOGS_HEADERS",
+        local_header_values,
+    )
+    metrics_headers = _read_otlp_headers(
+        "OTEL_EXPORTER_OTLP_METRICS_HEADERS",
+        local_header_values,
+    )
+    traces_headers = _read_otlp_headers(
+        "OTEL_EXPORTER_OTLP_TRACES_HEADERS",
+        local_header_values,
+    )
     if _is_true(os.environ.get("OTEL_SDK_DISABLED")):
         return None
     generic_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "").strip()
@@ -640,9 +698,11 @@ def _read_config() -> _ObservabilityConfig | None:
             _MAX_PROCESSOR_TIMEOUT_MILLIS,
         ) if logs_enabled else _DEFAULT_PROCESSOR_TIMEOUT_MILLIS,
         logs_enabled=logs_enabled,
+        headers=logs_headers,
         metrics=(
             MetricsConfig(
                 endpoint=metrics_endpoint,
+                headers=metrics_headers,
                 timeout_millis=_bounded_int(
                     "OTEL_EXPORTER_OTLP_METRICS_TIMEOUT",
                     _DEFAULT_EXPORT_TIMEOUT_MILLIS,
@@ -666,6 +726,7 @@ def _read_config() -> _ObservabilityConfig | None:
         traces=(
             TracingConfig(
                 endpoint=traces_endpoint,
+                headers=traces_headers,
                 timeout_millis=_bounded_int(
                     "OTEL_EXPORTER_OTLP_TRACES_TIMEOUT",
                     _DEFAULT_EXPORT_TIMEOUT_MILLIS,
@@ -751,6 +812,7 @@ def _build_runtime(
                 else log_components.log_exporter(
                     endpoint=config.signal_endpoint,
                     timeout=config.timeout_millis / 1000,
+                    headers=dict(config.headers) if config.headers else None,
                 )
             )
             wrapped_exporter = _FailOpenExporter(exporter, _failure_reporter)

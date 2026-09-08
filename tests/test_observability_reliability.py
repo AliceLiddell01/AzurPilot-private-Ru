@@ -356,6 +356,15 @@ def test_bounded_outage_metrics_matches_exporter_labels_without_fixed_order():
     target.assert_bounded_outage_metrics(metrics, services=("loki", "tempo"))
 
 
+def test_bounded_outage_metrics_accepts_unlabeled_queue_series():
+    metrics = [
+        "otelcol_exporter_queue_size 2",
+        "otelcol_exporter_queue_capacity 100",
+    ]
+
+    target.assert_bounded_outage_metrics(metrics, services=("loki",))
+
+
 @pytest.mark.parametrize(
     "field,value",
     [

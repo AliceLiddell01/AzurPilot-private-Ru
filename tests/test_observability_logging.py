@@ -32,6 +32,10 @@ from module.observability.bootstrap import (
 
 _ROOT = Path(__file__).resolve().parents[1]
 _OTEL_ENVIRONMENT_KEYS = (
+    "OTEL_EXPORTER_OTLP_HEADERS",
+    "OTEL_EXPORTER_OTLP_LOGS_HEADERS",
+    "OTEL_EXPORTER_OTLP_METRICS_HEADERS",
+    "OTEL_EXPORTER_OTLP_TRACES_HEADERS",
     "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
     "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
     "OTEL_EXPORTER_OTLP_ENDPOINT",
@@ -115,6 +119,10 @@ def test_canonical_project_env_enables_otlp_without_loading_secrets(
     for key in _OTEL_ENVIRONMENT_KEYS:
         monkeypatch.delenv(key, raising=False)
     monkeypatch.delenv("AZURPILOT_REPOSITORY_ROOT", raising=False)
+    monkeypatch.delenv(
+        "AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD",
+        raising=False,
+    )
     (tmp_path / "module").mkdir()
     (tmp_path / "gui.py").write_text("", encoding="utf-8")
     monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(tmp_path))
@@ -133,6 +141,29 @@ def test_canonical_project_env_enables_otlp_without_loading_secrets(
     assert os.environ.get("AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD") is None
     for key in _OTEL_ENVIRONMENT_KEYS:
         monkeypatch.delenv(key, raising=False)
+
+
+def test_local_otlp_headers_are_passed_in_config_without_global_env_leak(
+    monkeypatch, tmp_path
+):
+    for key in _OTEL_ENVIRONMENT_KEYS:
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.delenv("AZURPILOT_REPOSITORY_ROOT", raising=False)
+    (tmp_path / "module").mkdir()
+    (tmp_path / "gui.py").write_text("", encoding="utf-8")
+    monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(tmp_path))
+    (tmp_path / ".env").write_text(
+        "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://alloy:4318/v1/logs\n"
+        "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL=http/protobuf\n"
+        "OTEL_EXPORTER_OTLP_LOGS_HEADERS=x-test=from-local-env\n",
+        encoding="utf-8",
+    )
+
+    config = _read_config()
+
+    assert config is not None
+    assert config.headers == {"x-test": "from-local-env"}
+    assert os.environ.get("OTEL_EXPORTER_OTLP_LOGS_HEADERS") is None
 
 
 def test_unverified_working_directory_does_not_load_project_env(monkeypatch, tmp_path):

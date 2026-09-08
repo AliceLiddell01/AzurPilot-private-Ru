@@ -14,6 +14,7 @@ from module.observability import scheduler_task_run
 from module.observability.incident import (
     build_incident_metadata,
     create_incident_directory,
+    incident_directory_time_key,
     write_incident_log,
     write_incident_metadata,
 )
@@ -125,6 +126,12 @@ def test_error_retention_keeps_mixed_format_incidents_by_actual_time(tmp_path):
     assert (tmp_path / "1757000100000").is_dir()
     assert (tmp_path / "2026-09-07_00-34-12.123_RuntimeError").is_dir()
     assert (tmp_path / "unknown-bundle").is_dir()
+
+
+def test_incident_directory_time_key_supports_legacy_datetime_names():
+    assert incident_directory_time_key("20260901000000") == incident_directory_time_key(
+        "2026-09-01_00-00-00.000_RuntimeError"
+    )
 
 
 def test_error_retention_orders_legacy_epoch_directories_naturally(tmp_path):

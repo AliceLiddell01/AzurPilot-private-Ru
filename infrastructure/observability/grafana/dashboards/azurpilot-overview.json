@@ -179,6 +179,10 @@
           "hide": true,
           "refId": "C",
           "reducer": "last",
+          "settings": {
+            "mode": "replaceNN",
+            "replaceWithValue": 0
+          },
           "type": "reduce"
         },
         {

@@ -401,10 +401,9 @@ def test_identity_reclaims_new_token_when_gateway_probe_fails(
     "identity_error",
     [
         "MCP_GRAFANA_TOKEN_IDENTITY_FOREIGN",
-        "MCP_GRAFANA_TOKEN_EFFECTIVE_ROLE_INVALID",
     ],
 )
-def test_identity_rotates_foreign_or_privileged_gateway_credential(
+def test_identity_rotates_foreign_gateway_credential(
     monkeypatch, tmp_path, identity_error
 ):
     api = _FakeGrafanaApi(
@@ -435,6 +434,37 @@ def test_identity_rotates_foreign_or_privileged_gateway_credential(
     assert result["token"] == "created"
     assert stored == ["fixture-value"]
     assert ("delete-token", 1, 1) in api.calls
+
+
+def test_identity_does_not_rotate_invalid_gateway_role(monkeypatch, tmp_path):
+    api = _FakeGrafanaApi(
+        accounts=[_account()],
+        tokens=[{"id": 1, "name": target.CANONICAL_TOKEN_NAME}],
+        identity_results=[
+            target.ObservabilityMcpError("MCP_GRAFANA_TOKEN_EFFECTIVE_ROLE_INVALID")
+        ],
+    )
+    monkeypatch.setenv("GRAFANA_SERVICE_ACCOUNT_TOKEN", "privileged-value")
+    monkeypatch.setattr(target, "_GrafanaApi", lambda *_args, **_kwargs: api)
+    monkeypatch.setattr(target, "ensure_dynamic_tools_disabled", lambda apply: "disabled")
+    monkeypatch.setattr(
+        target,
+        "_gateway_probe",
+        lambda: target.GatewayProbe(True, False, "MCP_GATEWAY_READY"),
+    )
+    monkeypatch.setattr(target, "_checked_docker", lambda *args, **kwargs: None)
+
+    with pytest.raises(
+        target.ObservabilityMcpError,
+        match="MCP_GRAFANA_TOKEN_EFFECTIVE_ROLE_INVALID",
+    ):
+        target.ensure_identity(
+            repository_root=ROOT,
+            env_file=_env_file(tmp_path),
+            import_profile=False,
+        )
+
+    assert not any(call[0] == "delete-token" for call in api.calls)
 
 
 def test_identity_rotates_invalid_gateway_secret(monkeypatch, tmp_path):

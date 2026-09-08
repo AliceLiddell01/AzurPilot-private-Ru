@@ -363,25 +363,30 @@ class DiagnosticContextHandler(logging.Handler):
     def _bounded_message(self, message: object) -> str:
         text = str(message)
         encoded = text.encode("utf-8", errors="replace")
-        if len(encoded) <= self._max_bytes:
+        record_limit = max(1, self._max_bytes // self.capacity)
+        if len(encoded) <= record_limit:
             return text
-        return encoded[: self._max_bytes].decode("utf-8", errors="ignore")
+        return encoded[:record_limit].decode("utf-8", errors="ignore")
 
     def _clone_record(self, record: logging.LogRecord) -> logging.LogRecord:
         # Не копируем __dict__ исходного LogRecord: произвольный ``extra`` может
         # удерживать секреты, изображения, NumPy-массивы и другие тяжёлые объекты.
         # Полный pathname также не нужен текущему formatter: оставляем только имя
         # файла, а дорогостоящую sanitization выполняем один раз — для сообщения.
+        bounded_message = self._bounded_message(self._sanitizer(record.getMessage()))
         cloned = logging.LogRecord(
             name=record.name,
             level=record.levelno,
             pathname=record.filename,
             lineno=record.lineno,
-            msg=self._bounded_message(self._sanitizer(record.getMessage())),
+            msg=bounded_message,
             args=(),
             exc_info=None,
             func=record.funcName,
             sinfo=None,
+        )
+        cloned._azurpilot_record_bytes = len(
+            bounded_message.encode("utf-8", errors="replace")
         )
         cloned.created = record.created
         cloned.msecs = record.msecs
@@ -399,7 +404,12 @@ class DiagnosticContextHandler(logging.Handler):
 
     @staticmethod
     def _record_bytes(record: logging.LogRecord) -> int:
-        return len(record.getMessage().encode("utf-8", errors="replace"))
+        cached = getattr(record, "_azurpilot_record_bytes", None)
+        if isinstance(cached, int):
+            return cached
+        size = len(record.getMessage().encode("utf-8", errors="replace"))
+        record._azurpilot_record_bytes = size
+        return size
 
     def _append(self, record: logging.LogRecord) -> None:
         if len(self._buffer) == self.capacity:

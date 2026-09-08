@@ -230,6 +230,20 @@ class TestDiagnosticContextHandler(unittest.TestCase):
         finally:
             handler.close()
 
+    def test_single_record_cannot_evict_all_diagnostic_context(self):
+        handler = DiagnosticContextHandler(capacity=4, max_bytes=16)
+        try:
+            test_logger = self.make_logger(handler, StringIO())
+            test_logger.debug("a")
+            test_logger.error("x" * 100)
+
+            messages = [
+                record.getMessage() for record in handler.snapshot(last_failure=True)
+            ]
+            self.assertEqual(["a", "xxxx"], messages)
+        finally:
+            handler.close()
+
     def test_sanitizer_failure_does_not_escape_logging_call(self):
         handler = DiagnosticContextHandler(capacity=2, sanitizer=lambda value: 1 / 0)
         try:

@@ -985,21 +985,21 @@ def assert_bounded_outage_metrics(
     if "alloy" in services:
         return
     bounded_prefixes = (
-        "otelcol_exporter_queue_size{",
-        "otelcol_exporter_queue_capacity{",
+        "otelcol_exporter_queue_size",
+        "otelcol_exporter_queue_capacity",
         "otelcol_exporter_enqueue_failed_",
         "otelcol_exporter_send_failed_",
         "otelcol_receiver_refused_",
-        "prometheus_remote_storage_samples_pending{",
-        "prometheus_remote_storage_samples_retries_total{",
-        "prometheus_remote_storage_enqueue_retries_total{",
-        "prometheus_remote_write_wal_samples_appended_total{",
+        "prometheus_remote_storage_samples_pending",
+        "prometheus_remote_storage_samples_retries_total",
+        "prometheus_remote_storage_enqueue_retries_total",
+        "prometheus_remote_write_wal_samples_appended_total",
     )
     if not any(line.startswith(bounded_prefixes) for line in metrics):
         raise ReliabilityError("OBSERVABILITY_BOUNDED_SIGNAL_EVIDENCE_MISSING")
 
-    queue_prefixes = ("otelcol_exporter_queue_size{",)
-    capacity_prefixes = ("otelcol_exporter_queue_capacity{",)
+    queue_prefixes = ("otelcol_exporter_queue_size",)
+    capacity_prefixes = ("otelcol_exporter_queue_capacity",)
     failure_prefixes = (
         "otelcol_exporter_enqueue_failed_",
         "otelcol_exporter_send_failed_",
@@ -1020,10 +1020,10 @@ def assert_bounded_outage_metrics(
 
     if "prometheus" in services:
         prometheus_prefixes = (
-            "prometheus_remote_storage_samples_pending{",
-            "prometheus_remote_storage_samples_retries_total{",
-            "prometheus_remote_storage_enqueue_retries_total{",
-            "prometheus_remote_write_wal_samples_appended_total{",
+            "prometheus_remote_storage_samples_pending",
+            "prometheus_remote_storage_samples_retries_total",
+            "prometheus_remote_storage_enqueue_retries_total",
+            "prometheus_remote_write_wal_samples_appended_total",
         )
         if not any(line.startswith(prometheus_prefixes) for line in metrics):
             raise ReliabilityError("OBSERVABILITY_BOUNDED_SIGNAL_EVIDENCE_MISSING")

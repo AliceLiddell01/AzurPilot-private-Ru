@@ -493,7 +493,10 @@ class RewardResearch(ResearchSelector, ResearchQueue, StorageHandler):
         while 1:
             self.device.screenshot()
             popup_button = self.get_items()
-            if popup_button is None and self.is_in_research():
+            if popup_button is not None:
+                self.device.click(GET_ITEMS_RESEARCH_SAVE)
+                return_confirm.reset()
+            elif self.is_in_research():
                 last_research_status = self.get_research_status(self.device.image)
                 # `is_research_stabled()` используется навигацией и считает
                 # страницу готовой уже при одном `detail`. После SAVE этого

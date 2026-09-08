@@ -484,7 +484,9 @@ def test_queue_receive_finishes_detected_popup_before_queue_end(monkeypatch):
     assert drop.cleared is False
 
 
-def test_research_receive_tracks_layout_transition_and_saves_once(monkeypatch):
+def test_research_receive_tracks_layout_transition_and_resaves_until_popup_closes(
+    monkeypatch,
+):
     research, clicks, known_buttons, appear_calls, _ = _reward_research_harness([
         GET_ITEMS_1,
         GET_ITEMS_2,
@@ -498,7 +500,10 @@ def test_research_receive_tracks_layout_transition_and_saves_once(monkeypatch):
 
     assert research.research_receive() is True
 
-    assert clicks == [research_module.GET_ITEMS_RESEARCH_SAVE]
+    assert clicks == [
+        research_module.GET_ITEMS_RESEARCH_SAVE,
+        research_module.GET_ITEMS_RESEARCH_SAVE,
+    ]
     assert known_buttons == [GET_ITEMS_2]
     assert appear_calls == []
 
@@ -633,7 +638,10 @@ def test_research_receive_resets_return_confirmation_when_popup_reappears(monkey
 
     assert research.research_receive() is True
 
-    assert clicks == [research_module.GET_ITEMS_RESEARCH_SAVE]
+    assert clicks == [
+        research_module.GET_ITEMS_RESEARCH_SAVE,
+        research_module.GET_ITEMS_RESEARCH_SAVE,
+    ]
     assert get_items_values[-4:] == [None, GET_ITEMS_1, None, None]
     assert len(status_calls) == 3
 
@@ -650,7 +658,7 @@ def test_research_receive_return_timeout_is_research_specific(monkeypatch):
     with pytest.raises(ResearchRewardReturnTimeoutError, match='фаза=возврат'):
         research.research_receive()
 
-    assert clicks == [research_module.GET_ITEMS_RESEARCH_SAVE]
+    assert clicks == [research_module.GET_ITEMS_RESEARCH_SAVE] * 5
 
 
 def test_queue_duration_retries_fresh_frames_until_valid(monkeypatch):
