@@ -61,6 +61,22 @@ class _ResearchDrop:
         self.images.clear()
 
 
+_TIMER_ROLES = {
+    (
+        research_module._RESEARCH_REWARD_POPUP_TIMEOUT_SECONDS,
+        research_module._RESEARCH_REWARD_POPUP_TIMEOUT_COUNT,
+    ): ('popup_timeout', 'return_timeout'),
+    (
+        research_module._RESEARCH_REWARD_POPUP_STABILIZATION_SECONDS,
+        research_module._RESEARCH_REWARD_POPUP_STABILIZATION_COUNT,
+    ): ('popup_confirm',),
+    (
+        research_module._RESEARCH_REWARD_RETURN_CONFIRM_SECONDS,
+        research_module._RESEARCH_REWARD_RETURN_CONFIRM_COUNT,
+    ): ('return_confirm',),
+}
+
+
 class _FastResearchTimer:
     thresholds = {
         'popup_timeout': 999,
@@ -74,7 +90,13 @@ class _FastResearchTimer:
         self.limit = limit
         self.count = count
         self.calls = 0
-        self.role = ('popup_timeout', 'popup_confirm', 'return_timeout', 'return_confirm')[len(self.created)]
+        parameters = (limit, count)
+        roles = _TIMER_ROLES.get(parameters)
+        occurrence = sum(timer.parameters == parameters for timer in self.created)
+        if roles is None or occurrence >= len(roles):
+            raise AssertionError(f'Неожиданные параметры Timer: limit={limit}, count={count}')
+        self.parameters = parameters
+        self.role = roles[occurrence]
         self.created.append(self)
 
     def start(self):
@@ -381,14 +403,21 @@ def test_research_receive_does_not_accept_unknown_return_state(monkeypatch):
         ],
         statuses=[
             ['unknown'] * len(research_module.RESEARCH_STATUS),
+            ['unknown'] * len(research_module.RESEARCH_STATUS),
             ['detail'] * len(research_module.RESEARCH_STATUS),
             ['detail'] * len(research_module.RESEARCH_STATUS),
         ],
+    )
+    status_calls = []
+    get_research_status = research.get_research_status
+    research.get_research_status = lambda image: (
+        status_calls.append(True) or get_research_status(image)
     )
     _reset_fast_research_timer(monkeypatch)
 
     assert research.research_receive() is True
     assert clicks == [research_module.GET_ITEMS_RESEARCH_SAVE]
+    assert len(status_calls) == 4
 
 
 def test_research_receive_return_timeout_is_research_specific(monkeypatch):
