@@ -94,7 +94,7 @@
           "refId": "A"
         }
       ],
-      "title": "Запуски task",
+      "title": "Всего запусков task за диапазон",
       "type": "stat"
     },
     {
@@ -207,7 +207,7 @@
           "type": "math"
         }
       ],
-      "title": "Доля success",
+      "title": "Доля success за диапазон",
       "type": "stat"
     },
     {
@@ -272,7 +272,7 @@
           "refId": "A"
         }
       ],
-      "title": "Успешные запуски",
+      "title": "Успешные запуски за диапазон",
       "type": "stat"
     },
     {
@@ -337,7 +337,7 @@
           "refId": "A"
         }
       ],
-      "title": "Ошибки (failure)",
+      "title": "Ошибки (failure) за диапазон",
       "type": "stat"
     },
     {
@@ -402,7 +402,7 @@
           "refId": "A"
         }
       ],
-      "title": "Recoverable",
+      "title": "Recoverable за диапазон",
       "type": "stat"
     },
     {
@@ -467,7 +467,7 @@
           "refId": "A"
         }
       ],
-      "title": "Stopped",
+      "title": "Stopped за диапазон",
       "type": "stat"
     },
     {
@@ -556,13 +556,6 @@
       },
       "fieldConfig": {
         "defaults": {
-          "custom": {
-            "drawStyle": "line",
-            "fillOpacity": 15,
-            "lineWidth": 2,
-            "showPoints": "auto",
-            "spanNulls": false
-          },
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -579,7 +572,68 @@
           },
           "unit": "short"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "stopped"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "success"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "green",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "recoverable"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "blue",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "failure"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 8,
@@ -589,19 +643,22 @@
       },
       "id": 7,
       "options": {
-        "legend": {
+        "displayMode": "basic",
+        "maxVizHeight": 300,
+        "minVizHeight": 16,
+        "minVizWidth": 8,
+        "namePlacement": "left",
+        "orientation": "horizontal",
+        "reduceOptions": {
           "calcs": [
-            "lastNotNull",
-            "max"
+            "lastNotNull"
           ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
+          "fields": "",
+          "values": false
         },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
+        "showUnfilled": true,
+        "sizing": "auto",
+        "valueMode": "color"
       },
       "targets": [
         {
@@ -609,20 +666,19 @@
             "type": "tempo",
             "uid": "tempo"
           },
-          "metricsQueryType": "range",
+          "metricsQueryType": "instant",
           "query": "{ resource.service.name = \"azurpilot\" && name = \"azurpilot.task.run\" && resource.deployment.environment.name =~ \"${environment:regex}\" && span.azurpilot.profile =~ \"${profile:regex}\" && span.azurpilot.task =~ \"${task:regex}\" } | count_over_time() by (span.azurpilot.task.outcome)",
           "queryType": "traceql",
-          "refId": "A",
-          "step": "1m"
+          "refId": "A"
         }
       ],
-      "title": "Запуски task по outcome (точное число)",
-      "type": "timeseries"
+      "title": "Всего запусков task по outcome за диапазон",
+      "type": "bargauge"
     },
     {
       "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
+        "type": "tempo",
+        "uid": "tempo"
       },
       "fieldConfig": {
         "defaults": {
@@ -675,23 +731,47 @@
       },
       "targets": [
         {
-          "editorMode": "code",
-          "expr": "histogram_quantile(0.50, sum by (azurpilot_profile, azurpilot_task, le) (rate(azurpilot_task_duration_seconds_bucket{deployment_environment_name=~\"${environment:regex}\",azurpilot_profile=~\"${profile:regex}\",azurpilot_task=~\"${task:regex}\"}[$__rate_interval])))",
-          "format": "time_series",
-          "legendFormat": "p50 {{azurpilot_profile}} / {{azurpilot_task}}",
-          "range": true,
-          "refId": "A"
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "legendFormat": "p50 {{span.azurpilot.profile}} / {{span.azurpilot.task}}",
+          "metricsQueryType": "range",
+          "query": "{ resource.service.name = \"azurpilot\" && name = \"azurpilot.task.run\" && resource.deployment.environment.name =~ \"${environment:regex}\" && span.azurpilot.profile =~ \"${profile:regex}\" && span.azurpilot.task =~ \"${task:regex}\" } | quantile_over_time(span:duration, .50) by (span.azurpilot.profile, span.azurpilot.task)",
+          "queryType": "traceql",
+          "refId": "A",
+          "step": "1m"
         },
         {
-          "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum by (azurpilot_profile, azurpilot_task, le) (rate(azurpilot_task_duration_seconds_bucket{deployment_environment_name=~\"${environment:regex}\",azurpilot_profile=~\"${profile:regex}\",azurpilot_task=~\"${task:regex}\"}[$__rate_interval])))",
-          "format": "time_series",
-          "legendFormat": "p95 {{azurpilot_profile}} / {{azurpilot_task}}",
-          "range": true,
-          "refId": "B"
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "legendFormat": "p95 {{span.azurpilot.profile}} / {{span.azurpilot.task}}",
+          "metricsQueryType": "range",
+          "query": "{ resource.service.name = \"azurpilot\" && name = \"azurpilot.task.run\" && resource.deployment.environment.name =~ \"${environment:regex}\" && span.azurpilot.profile =~ \"${profile:regex}\" && span.azurpilot.task =~ \"${task:regex}\" } | quantile_over_time(span:duration, .95) by (span.azurpilot.profile, span.azurpilot.task)",
+          "queryType": "traceql",
+          "refId": "B",
+          "step": "1m"
         }
       ],
-      "title": "Длительность task p50 / p95",
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^\\{p=0\\.5, span\\.azurpilot\\.profile=\"([^\"]+)\", span\\.azurpilot\\.task=\"([^\"]+)\"\\}$",
+            "renamePattern": "p50 $1 / $2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^\\{p=0\\.95, span\\.azurpilot\\.profile=\"([^\"]+)\", span\\.azurpilot\\.task=\"([^\"]+)\"\\}$",
+            "renamePattern": "p95 $1 / $2"
+          }
+        }
+      ],
+      "title": "Длительность task p50 / p95 за диапазон",
       "type": "timeseries"
     },
     {
@@ -790,7 +870,7 @@
           }
         }
       ],
-      "title": "Запуски по profile / task / outcome (точное число)",
+      "title": "Всего запусков по profile / task / outcome за диапазон",
       "type": "table"
     },
     {
@@ -944,7 +1024,7 @@
       "type": "alertlist"
     }
   ],
-  "refresh": "30s",
+  "refresh": "5s",
   "schemaVersion": 39,
   "tags": [
     "azurpilot",

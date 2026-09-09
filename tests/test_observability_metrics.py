@@ -220,8 +220,36 @@ def test_metrics_invalid_interval_and_timeout_use_bounded_defaults(monkeypatch):
 
     assert config is not None
     assert config.metrics is not None
-    assert config.metrics.export_interval_millis == 60_000
+    assert config.metrics.export_interval_millis == 1_000
     assert config.metrics.export_timeout_millis == 30_000
+
+
+def test_online_signal_defaults_use_low_latency_export_schedules(monkeypatch):
+    _clear_environment(monkeypatch)
+    monkeypatch.setenv(
+        "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+        "http://collector:4318/v1/logs",
+    )
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_LOGS_PROTOCOL", "http/protobuf")
+    monkeypatch.setenv(
+        "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+        "http://collector:4318/v1/metrics",
+    )
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_METRICS_PROTOCOL", "http/protobuf")
+    monkeypatch.setenv(
+        "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+        "http://collector:4318/v1/traces",
+    )
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", "http/protobuf")
+
+    config = _read_config()
+
+    assert config is not None
+    assert config.schedule_delay_millis == 500
+    assert config.metrics is not None
+    assert config.metrics.export_interval_millis == 1_000
+    assert config.traces is not None
+    assert config.traces.schedule_delay_millis == 500
 
 
 def test_signal_specific_metric_exporter_endpoint_is_not_extended_twice():

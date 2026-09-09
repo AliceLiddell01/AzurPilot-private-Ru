@@ -279,7 +279,7 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
                 "folderUid": "azurpilot",
                 "type": "file",
                 "disableDeletion": False,
-                "updateIntervalSeconds": 30,
+                "updateIntervalSeconds": 5,
                 "allowUiUpdates": False,
                 "options": {
                     "path": "/var/lib/grafana/dashboards",
@@ -297,12 +297,14 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
     assert set(dashboards) == {"azurpilot-overview", "azurpilot-errors"}
     assert dashboards["azurpilot-overview"]["uid"] == "azurpilot-overview"
     assert dashboards["azurpilot-overview"]["title"] == "AzurPilot Overview"
+    assert dashboards["azurpilot-overview"]["refresh"] == "5s"
     assert any(
-        panel["title"] == "Успешные запуски"
+        panel["title"] == "Успешные запуски за диапазон"
         for panel in dashboards["azurpilot-overview"]["panels"]
     )
     assert dashboards["azurpilot-errors"]["uid"] == "azurpilot-errors"
     assert dashboards["azurpilot-errors"]["title"] == "AzurPilot Errors / Incidents"
+    assert dashboards["azurpilot-errors"]["refresh"] == "5s"
 
     allowed_datasources = {"prometheus", "loki", "tempo", "-100", "-- Mixed --"}
     for dashboard in dashboards.values():
@@ -322,7 +324,10 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
 
     overview_text = json.dumps(dashboards["azurpilot-overview"], ensure_ascii=False)
     assert "azurpilot_task_run_total" in overview_text
-    assert "azurpilot_task_duration_seconds_bucket" in overview_text
+    assert "quantile_over_time(span:duration, .50)" in overview_text
+    assert "quantile_over_time(span:duration, .95)" in overview_text
+    assert "histogram_quantile" not in overview_text
+    assert "azurpilot_task_duration_seconds_bucket" not in overview_text
     assert "detected_level = \\\"error\\\"" in overview_text
     assert "with (most_recent=true)" in overview_text
     assert "count_over_time()" in overview_text
@@ -375,13 +380,28 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
     assert success_share["targets"][4]["expression"] == "$C * ($D > 0) / ($D + ($D == 0)) * 100"
     assert success_share["fieldConfig"]["defaults"]["noValue"] == "нет данных"
     assert "noValue" not in success_share["options"]
-    assert overview_panels[7]["targets"][0]["metricsQueryType"] == "range"
+    assert overview_panels[7]["type"] == "bargauge"
+    assert overview_panels[7]["targets"][0]["metricsQueryType"] == "instant"
     assert "count_over_time() by (span.azurpilot.task.outcome)" in overview_panels[7]["targets"][0]["query"]
-    assert overview_panels[7]["targets"][0]["step"] == "1m"
-    assert "sum by (azurpilot_profile, azurpilot_task, le)" in overview_panels[8]["targets"][0]["expr"]
-    assert overview_panels[8]["targets"][0]["legendFormat"] == "p50 {{azurpilot_profile}} / {{azurpilot_task}}"
-    assert "sum by (azurpilot_profile, azurpilot_task, le)" in overview_panels[8]["targets"][1]["expr"]
-    assert overview_panels[8]["targets"][1]["legendFormat"] == "p95 {{azurpilot_profile}} / {{azurpilot_task}}"
+    assert overview_panels[7]["options"]["displayMode"] == "basic"
+    assert overview_panels[7]["options"]["orientation"] == "horizontal"
+    assert overview_panels[7]["options"]["namePlacement"] == "left"
+    assert overview_panels[7]["options"]["reduceOptions"]["calcs"] == ["lastNotNull"]
+    assert overview_panels[7]["options"]["showUnfilled"] is True
+    assert overview_panels[7]["fieldConfig"]["overrides"][0]["matcher"]["options"] == "stopped"
+    assert overview_panels[8]["datasource"]["uid"] == "tempo"
+    assert overview_panels[8]["targets"][0]["metricsQueryType"] == "range"
+    assert overview_panels[8]["targets"][0]["queryType"] == "traceql"
+    assert "quantile_over_time(span:duration, .50)" in overview_panels[8]["targets"][0]["query"]
+    assert overview_panels[8]["targets"][0]["legendFormat"] == "p50 {{span.azurpilot.profile}} / {{span.azurpilot.task}}"
+    assert "quantile_over_time(span:duration, .95)" in overview_panels[8]["targets"][1]["query"]
+    assert overview_panels[8]["targets"][1]["legendFormat"] == "p95 {{span.azurpilot.profile}} / {{span.azurpilot.task}}"
+    assert [item["id"] for item in overview_panels[8]["transformations"]] == [
+        "renameByRegex",
+        "renameByRegex",
+    ]
+    assert overview_panels[8]["transformations"][0]["options"]["renamePattern"] == "p50 $1 / $2"
+    assert overview_panels[8]["transformations"][1]["options"]["renamePattern"] == "p95 $1 / $2"
     assert overview_panels[9]["targets"][0]["metricsQueryType"] == "range"
     assert overview_panels[9]["targets"][0]["step"] == "1m"
     assert "count_over_time() by (span.azurpilot.profile" in overview_panels[9]["targets"][0]["query"]

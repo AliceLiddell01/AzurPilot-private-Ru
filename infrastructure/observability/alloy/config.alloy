@@ -20,7 +20,7 @@ otelcol.receiver.otlp "local" {
 }
 
 otelcol.processor.batch "local" {
-  timeout             = "2s"
+  timeout             = "500ms"
   send_batch_size     = 128
   send_batch_max_size = 512
 

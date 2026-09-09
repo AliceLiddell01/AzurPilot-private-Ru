@@ -131,6 +131,33 @@ def test_local_env_accepts_exact_infrastructure_registry_keys(tmp_path: Path):
     assert local is not None
 
 
+def test_local_env_accepts_canonical_otlp_configuration_without_exporting_it(
+    tmp_path: Path,
+):
+    path = tmp_path / ".env"
+    otlp = (
+        "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://127.0.0.1:4318/v1/logs\n"
+        "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL=http/protobuf\n"
+        "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://127.0.0.1:4318/v1/metrics\n"
+        "OTEL_EXPORTER_OTLP_METRICS_PROTOCOL=http/protobuf\n"
+        "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://127.0.0.1:4318/v1/traces\n"
+        "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=http/protobuf\n"
+        "OTEL_RESOURCE_ATTRIBUTES=deployment.environment.name=local\n"
+        "OTEL_PYTHON_LOG_HANDLER_LEVEL=INFO\n"
+        "OTEL_METRIC_EXPORT_INTERVAL=1000\n"
+        "OTEL_BLRP_SCHEDULE_DELAY=500\n"
+        "OTEL_BSP_SCHEDULE_DELAY=500\n"
+    )
+    _write_env(path, _document() + otlp)
+    environment: dict[str, str] = {}
+
+    local = load_local_postgres_environment(path, environment=environment)
+
+    assert local is not None
+    assert not any(key.startswith("OTEL_") for key in local.values)
+    assert not any(key.startswith("OTEL_") for key in environment)
+
+
 def test_local_env_rejects_bare_docker_namespace_key(tmp_path: Path):
     path = tmp_path / ".env"
     _write_env(path, _document() + "AZURPILOT_POSTGRES_DOCKER_=value\n")

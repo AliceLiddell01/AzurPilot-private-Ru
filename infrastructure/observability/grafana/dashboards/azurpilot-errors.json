@@ -273,7 +273,7 @@
       "type": "text"
     }
   ],
-  "refresh": "30s",
+  "refresh": "5s",
   "schemaVersion": 39,
   "tags": [
     "azurpilot",

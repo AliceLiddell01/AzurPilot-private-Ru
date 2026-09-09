@@ -394,6 +394,23 @@ structured metadata. Ошибка exporter, его недоступность и
 часть normal remote log может быть потеряна; persistent local runtime copy при
 этом не обещается, но bounded context остаётся доступен для реального incident.
 
+### Задержка доставки в Grafana
+
+Для локального Compose-контура цепочка доставки настроена на короткую, но
+ограниченную задержку: application BatchLogRecordProcessor и
+BatchSpanProcessor используют значение по умолчанию 500 мс, application
+metrics — export interval 1 с, Alloy сбрасывает неполный batch через 500 мс, а
+provisioned dashboards обновляются
+каждые 5 с. Поэтому после завершения task обычно достаточно нескольких секунд;
+точная задержка всё ещё зависит от доступности backend и очередей exporter-а.
+
+Явные `OTEL_BLRP_SCHEDULE_DELAY`, `OTEL_BSP_SCHEDULE_DELAY` и
+`OTEL_METRIC_EXPORT_INTERVAL` могут увеличить эту задержку, но проходят через
+ограниченный контракт. В дашборде `overview` панель с outcome показывает
+итоговое число запусков за выбранный диапазон, а панель p50/p95 считает
+распределение длительностей по завершённым root spans через Tempo
+`quantile_over_time`.
+
 ## Подключение application metrics
 
 Application metrics подключаются независимо от logs. В процессе используется один
@@ -553,9 +570,11 @@ breakdown, p50/p95 task duration, разбивку по profile/task/outcome, п
 ошибки Loki, последние traces и текущие alerts. Точные counters, outcome graph и
 aggregate table считают только канонические root spans `azurpilot.task.run`
 через Tempo TraceQL metrics; они не используют `increase()` или округление
-Prometheus rate. Для duration остаётся Prometheus histogram, сгруппированный по
-`azurpilot_profile`, `azurpilot_task`, поэтому p50/p95 разных profile/task не
-смешиваются.
+Prometheus rate. Для duration используются Tempo TraceQL metrics
+`quantile_over_time` с группировкой по `azurpilot.profile` и `azurpilot.task`,
+поэтому p50/p95 разных profile/task не смешиваются. Grafana явно переименовывает
+возвращаемые Tempo labels в вид `p50 <profile> / <task>` и `p95 <profile> /
+<task>`; сырой набор `{p=..., span...}` в operator UX не показывается.
 
 Оба dashboard имеют общий semantic selector `Environment` по
 `deployment.environment.name`, а также bounded selectors `Profile` и `Task`.
@@ -581,10 +600,11 @@ task context остаются видимыми; при выборе конкре
 
 Tempo metrics-generator использует `local-blocks` с persistent generator WAL и
 trace WAL; `query_frontend.metrics.max_duration` покрывает bounded operator
-window. Grafana instant query используется для exact counters, а bounded range
-query с reduce — для aggregate table и событийного outcome graph. При отсутствии
-событий counters показывают нулевое значение, а success share остаётся `нет
-данных`, без `0/0` и NaN. Если backend явно возвращает нулевой total как
+window. Grafana instant query используется для exact counters и outcome graph в
+горизонтальном `bargauge` без синтетической временной оси,
+а bounded range query с reduce — для aggregate table. При отсутствии событий
+counters показывают нулевое значение, а success share остаётся `нет данных`,
+без `0/0` и NaN. Если backend явно возвращает нулевой total как
 числовой ряд, защитное math-выражение показывает bounded `0%` вместо Inf/NaN;
 это не трактуется как запуск и не меняет семантику отсутствующего ряда.
 
