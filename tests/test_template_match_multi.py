@@ -64,6 +64,18 @@ def test_gif_template_matches_grayscale_source_without_channel_assertion(tmp_pat
     assert origin in _matched_origins(items)
 
 
+def test_rgb_png_template_matches_grayscale_source(tmp_path):
+    path = tmp_path / 'template.png'
+    rgb = _write_rgb_png(path)
+    template = Template(str(path))
+    source, origin = _source_with_template(rgb2gray(rgb))
+
+    items = template.match_multi(source, similarity=0.99)
+
+    assert template.image_gray.ndim == 2
+    assert origin in _matched_origins(items)
+
+
 def test_grayscale_png_template_matches_grayscale_source(tmp_path):
     path = tmp_path / 'template.png'
     gray = _write_gray_png(path)
