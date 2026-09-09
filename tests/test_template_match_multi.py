@@ -91,9 +91,11 @@ def test_rgb_png_template_match_matches_grayscale_source(tmp_path):
 
 def test_opsi_akashi_gif_template_matches_grayscale_map_crop():
     asset = Path(__file__).resolve().parents[1] / 'assets/en/template/TEMPLATE_SIREN_Akashi.gif'
+    if not asset.is_file():
+        pytest.skip(f'ассет недоступен: {asset}')
     template = Template(str(asset))
     frame = template.image[0]
-    source, origin = _source_with_template(rgb2gray(frame), shape=(60, 60))
+    source, _origin = _source_with_template(rgb2gray(frame), shape=(60, 60))
 
     assert frame.ndim == 3
     assert frame.shape[2] == 3
@@ -181,13 +183,27 @@ def test_match_result_normalizes_channels_but_keeps_raw_rgb_metadata(tmp_path):
     assert len(button.color) == 3
 
 
-def test_template_match_normalizes_depth_only_when_needed(tmp_path):
+def test_template_match_normalizes_depth_only_when_needed(tmp_path, monkeypatch):
     path = tmp_path / 'template.png'
     rgb = _write_rgb_png(path)
     template = Template(str(path))
     source, _ = _source_with_template(rgb)
 
-    assert template.match(source.astype(np.float32), similarity=0.99, direct_match=True)
+    observed = []
+
+    def fake_match_template(image, candidate, _method):
+        observed.append((image.dtype, candidate.dtype))
+        return np.ones((1, 1), dtype=np.float32)
+
+    monkeypatch.setattr('module.base.utils.cv2.matchTemplate', fake_match_template)
+
+    template_match(source, template.image)
+    template_match(source.astype(np.float32), template.image)
+
+    assert observed == [
+        (np.dtype('uint8'), np.dtype('uint8')),
+        (np.dtype('float32'), np.dtype('float32')),
+    ]
 
 
 def test_match_result_keeps_raw_rgb_for_button_metadata(tmp_path):
