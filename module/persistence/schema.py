@@ -970,6 +970,10 @@ notification_event = Table(
     CheckConstraint("btrim(type) <> ''", name="type_not_blank"),
     CheckConstraint("btrim(profile_id) <> ''", name="profile_not_blank"),
     CheckConstraint(
+        "dedup_key IS NULL OR btrim(dedup_key) <> ''",
+        name="dedup_key_not_blank",
+    ),
+    CheckConstraint(
         "severity IN ('INFO', 'WARNING', 'ERROR', 'CRITICAL')",
         name="severity_allowed",
     ),

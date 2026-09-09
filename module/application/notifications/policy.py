@@ -110,6 +110,9 @@ class NotificationPolicyResolver:
             raise TypeError("Policy rules должны быть immutable tuple.")
         for rule in policy.rules:
             _validate_rule(rule)
+        rule_ids = tuple(rule.rule_id for rule in policy.rules)
+        if len(set(rule_ids)) != len(rule_ids):
+            raise ValueError("Policy не может содержать повторяющиеся rule id.")
         _validate_action(policy.default_action)
         self._policy = policy
         self._ordered_rules = tuple(

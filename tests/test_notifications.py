@@ -17,6 +17,7 @@ from module.application.notifications import (
     DeliveryResult,
     DeliveryState,
     HandoverNotificationOutcome,
+    HandoverPreemptionRenderer,
     HandoverPreemptionPayload,
     NotificationChannelCatalog,
     NotificationDispatcher,
@@ -36,10 +37,15 @@ from module.application.notifications import (
     build_default_registry,
     default_registry,
 )
-from module.application.notifications.encoding import canonical_json, event_payload_digest
+from module.application.notifications.encoding import (
+    canonical_json,
+    correlation_document,
+    event_payload_digest,
+)
 from module.application.notifications.models import (
     ClaimedDelivery,
     DeliveryUpdate,
+    NotificationCorrelation,
     NotificationDeliveryPlan,
     NotificationEventProjection,
     NotificationPersistenceResult,
@@ -238,7 +244,37 @@ class _MemoryRepository:
                 if len(claimed) >= batch_size or delivery.state not in {
                     DeliveryState.PENDING,
                     DeliveryState.RETRY_WAIT,
-                } or delivery.next_attempt_at > now:
+                }:
+                    continue
+                if delivery.deadline_at is not None and delivery.deadline_at <= now:
+                    result = DeliveryResult.permanent_failure(
+                        "handover_deadline_expired"
+                    )
+                    ordinal = delivery.attempt_count + 1
+                    self.deliveries[delivery.id] = replace(
+                        delivery,
+                        state=DeliveryState.FAILED,
+                        next_attempt_at=now,
+                        attempt_count=ordinal,
+                        last_safe_error_code=result.safe_error_code,
+                        updated_at=now,
+                    )
+                    self.attempts[delivery.id].append(
+                        NotificationStoredAttempt(
+                            delivery_id=delivery.id,
+                            attempt_ordinal=ordinal,
+                            started_at=now,
+                            finished_at=now,
+                            result_class=result.result_class,
+                            safe_error_code=result.safe_error_code,
+                            safe_error_summary=result.safe_error_summary,
+                            retry_after_seconds=result.retry_after_seconds,
+                            provider_message_id=result.provider_message_id,
+                            lease_token=None,
+                        )
+                    )
+                    continue
+                if delivery.next_attempt_at > now:
                     continue
                 token = uuid4()
                 ordinal = delivery.attempt_count + 1
@@ -253,7 +289,18 @@ class _MemoryRepository:
                 )
                 self.deliveries[delivery.id] = updated
                 self.attempts[delivery.id].append(
-                    NotificationStoredAttempt(delivery.id, ordinal, now, None, None, None, None, None, None, token)
+                    NotificationStoredAttempt(
+                        delivery_id=delivery.id,
+                        attempt_ordinal=ordinal,
+                        started_at=now,
+                        finished_at=None,
+                        result_class=None,
+                        safe_error_code=None,
+                        safe_error_summary=None,
+                        retry_after_seconds=None,
+                        provider_message_id=None,
+                        lease_token=token,
+                    )
                 )
                 event = self.events[delivery.event_id]
                 claimed.append(
@@ -331,6 +378,22 @@ def test_registry_rejects_naive_and_canonicalizes_handover_payload() -> None:
     assert error.value.reason_code == "occurred_at_not_aware"
 
 
+def test_empty_correlation_is_canonicalized_as_null() -> None:
+    assert correlation_document(NotificationCorrelation()) is None
+
+
+def test_handover_renderer_rejects_unknown_presentation_profile() -> None:
+    with pytest.raises(NotificationValidationError) as error:
+        HandoverPreemptionRenderer().render(
+            _event(),
+            locale="ru-RU",
+            capabilities=ChannelCapabilities(),
+            presentation_profile="compact",
+        )
+
+    assert error.value.reason_code == "renderer_presentation_profile_unsupported"
+
+
 def test_default_registry_is_cached_and_frozen() -> None:
     registry = default_registry()
 
@@ -365,6 +428,23 @@ def test_policy_is_first_matching_rule_and_snapshot_is_stable() -> None:
     assert decision.state is PolicyState.ROUTED
     assert decision.matched_rule_id == "handover"
     assert resolver.resolve(event).snapshot_hash == decision.snapshot_hash
+
+
+def test_policy_rejects_duplicate_rule_ids() -> None:
+    rule = NotificationRule(
+        rule_id="duplicate",
+        priority=1,
+        matcher=NotificationRuleMatcher(exact_type="runtime.handover.preemption_requested"),
+        action=PolicyAction(channel_instance_ids=("agent",)),
+    )
+    policy = NotificationPolicy(
+        version=1,
+        rules=(rule, rule),
+        default_action=PolicyAction(suppression_reason="default_suppressed"),
+    )
+
+    with pytest.raises(ValueError, match="повторяющиеся rule id"):
+        NotificationPolicyResolver(policy)
 
 
 def test_policy_severity_matcher_is_typed_and_safe() -> None:
@@ -429,6 +509,7 @@ def test_delivery_result_rejects_unsafe_provider_data() -> None:
     assert not DeliveryResult.transient_failure(
         "channel_failed", summary="serial=redacted"
     ).is_valid()
+    assert not DeliveryResult.transient_failure("bearer_token").is_valid()
     assert DeliveryResult.transient_failure(
         "serialization_error", summary="serialization_error"
     ).is_valid()

@@ -86,7 +86,9 @@ class _FailingTracer:
 def test_notification_metrics_never_use_event_or_delivery_identity_as_label() -> None:
     meter = _Meter()
     telemetry = NotificationTelemetry(meter=meter, tracer=_Tracer())
-    event = SimpleNamespace(source="runtime", id="event-secret", profile_id="profile-secret")
+    event = SimpleNamespace(
+        source="runtime.dispatcher", id="event-secret", profile_id="profile-secret"
+    )
     telemetry.record_publish(event=event, value="persisted")
     telemetry.record_rejected(event=event, value="arbitrary-secret-reason")
     claimed = SimpleNamespace(
@@ -104,6 +106,7 @@ def test_notification_metrics_never_use_event_or_delivery_identity_as_label() ->
     assert all("delivery_id" not in attrs for attrs in observed)
     assert all("profile_id" not in attrs for attrs in observed)
     assert all("secret" not in str(attrs) for attrs in observed)
+    assert any(attrs.get("source_domain") == "runtime" for attrs in observed)
 
 
 def test_notification_span_keeps_only_allowlisted_attributes() -> None:

@@ -246,6 +246,45 @@ def test_two_dispatchers_claim_one_delivery_and_provider_acceptance_is_intermedi
         assert len(uow.notifications.list_attempts(delivery.id)) == 1
 
 
+def test_expired_pending_delivery_fails_without_provider_call(
+    database: LazyEngine,
+) -> None:
+    publisher_channel = _Channel()
+    result = _publisher(database, publisher_channel).publish(
+        _event(operation_id="operation-expired")
+    )
+    assert result.status is PublishStatus.PERSISTED
+
+    with database.get().begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE azurpilot.notification_delivery "
+                "SET deadline_at = :deadline_at "
+                "WHERE event_id = :event_id"
+            ),
+            {"deadline_at": NOW - timedelta(seconds=1), "event_id": result.event_id},
+        )
+
+    channel = _Channel()
+    report = NotificationDispatcher(
+        lambda: PostgresUnitOfWork(database),
+        channel_catalog=NotificationChannelCatalog((channel,)),
+        worker_id="worker-expired",
+        clock=lambda: NOW,
+        telemetry=object(),
+    ).dispatch_once()
+
+    assert report.claimed == 0
+    assert channel.calls == 0
+    with PostgresUnitOfWork(database) as uow:
+        delivery = uow.notifications.list_deliveries(result.event_id)[0]
+        assert delivery.state is DeliveryState.FAILED
+        attempts = uow.notifications.list_attempts(delivery.id)
+        assert len(attempts) == 1
+        assert attempts[0].result_class is DeliveryResultClass.PERMANENT_FAILURE
+        assert attempts[0].safe_error_code == "handover_deadline_expired"
+
+
 def test_expired_lease_recovers_and_stale_token_cannot_update(
     database: LazyEngine,
 ) -> None:

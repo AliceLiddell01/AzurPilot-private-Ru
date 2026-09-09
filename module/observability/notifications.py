@@ -6,12 +6,12 @@ import re
 import sys
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from typing import Any, Self
+from typing import TYPE_CHECKING, Any, Self
 
-from module.application.notifications.models import (
-    DeliveryResult,
-    PolicyDecision,
-)
+from module.application.notifications.reasons import NOTIFICATION_REASON_CODES
+
+if TYPE_CHECKING:
+    from module.application.notifications.models import DeliveryResult, PolicyDecision
 
 _TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$")
 _PUBLISH_RESULTS = frozenset(
@@ -30,41 +30,6 @@ _CHANNEL_TYPES = frozenset(
 _DELIVERY_STATES = frozenset(
     {"PENDING", "IN_FLIGHT", "RETRY_WAIT", "FAILED", "PROVIDER_ACCEPTED", "AWAITING_AGENT_ACK", "DELIVERED", "SUPPRESSED"}
 )
-_REASONS = frozenset(
-    {
-        "agent_ack_timeout",
-        "channel_result_invalid",
-        "channel_send_failed",
-        "channel_unregistered",
-        "default_routed",
-        "default_suppressed",
-        "global_disabled",
-        "payload_type_invalid",
-        "severity_not_allowed",
-        "payload_schema_invalid",
-        "payload_prohibited_field",
-        "event_type_or_version_unknown",
-        "dedup_key_required",
-        "source_invalid",
-        "profile_id_invalid",
-        "handover_deadline_expired",
-        "handover_payload_invalid",
-        "identity_conflict",
-        "immutable_identity_mismatch",
-        "lease_expired",
-        "no_channel_registered",
-        "payload_producer_schema_not_migrated",
-        "producer_schema_not_migrated",
-        "rule_routed",
-        "rule_suppressed",
-        "storage_error",
-        "storage_unavailable",
-        "unknown",
-        "validation_failed",
-    }
-)
-
-
 class NotificationTelemetry:
     """Переиспользует global OTel API и не создаёт отдельный exporter/provider."""
 
@@ -206,7 +171,7 @@ def _choice(value: object, choices: frozenset[str]) -> str:
 def _reason(value: object) -> str:
     if not isinstance(value, str):
         return "unknown"
-    return _choice(value.casefold(), _REASONS)
+    return _choice(value.casefold(), NOTIFICATION_REASON_CODES)
 
 
 def _channel(value: object) -> str:
@@ -214,7 +179,10 @@ def _channel(value: object) -> str:
 
 
 def _source(event: object) -> str:
-    return _choice(getattr(event, "source", None), _SOURCE_DOMAINS)
+    source = getattr(event, "source", None)
+    if not isinstance(source, str):
+        return "unknown"
+    return _choice(source.split(".", 1)[0], _SOURCE_DOMAINS)
 
 
 def _channel_type(claimed: object) -> str:

@@ -105,7 +105,7 @@ def correlation_document(
         result["trace_id"] = correlation.trace_id
     if correlation.span_id is not None:
         result["span_id"] = correlation.span_id
-    return result
+    return result or None
 
 
 def event_document(

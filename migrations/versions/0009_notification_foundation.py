@@ -47,6 +47,10 @@ def upgrade() -> None:
         sa.CheckConstraint("btrim(type) <> ''", name=op.f("ck_notification_event_type_not_blank")),
         sa.CheckConstraint("btrim(profile_id) <> ''", name=op.f("ck_notification_event_profile_not_blank")),
         sa.CheckConstraint(
+            "dedup_key IS NULL OR btrim(dedup_key) <> ''",
+            name=op.f("ck_notification_event_dedup_key_not_blank"),
+        ),
+        sa.CheckConstraint(
             "severity IN ('INFO', 'WARNING', 'ERROR', 'CRITICAL')",
             name=op.f("ck_notification_event_severity_allowed"),
         ),

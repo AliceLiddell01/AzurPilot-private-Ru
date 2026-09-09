@@ -1,0 +1,77 @@
+"""Централизованный bounded-набор reason codes notification foundation."""
+
+from __future__ import annotations
+
+from typing import Final
+
+
+NOTIFICATION_REASON_CODES: Final[frozenset[str]] = frozenset(
+    {
+        "agent_ack_timeout",
+        "caller_deadline_not_aware",
+        "channel_result_invalid",
+        "channel_send_failed",
+        "channel_unavailable",
+        "channel_unregistered",
+        "clock_not_aware",
+        "correlation_invalid",
+        "dedup_key_invalid",
+        "dedup_key_required",
+        "default_routed",
+        "default_suppressed",
+        "descriptor_not_publishable",
+        "event_id_invalid",
+        "event_invalid",
+        "event_type_invalid",
+        "event_type_or_version_unknown",
+        "global_disabled",
+        "handover_deadline_exceeds_caller",
+        "handover_deadline_expired",
+        "handover_dedup_key_invalid",
+        "handover_payload_invalid",
+        "identity_conflict",
+        "immutable_identity_mismatch",
+        "lease_expired",
+        "no_channel_registered",
+        "notification_contract_invalid",
+        "occurred_at_invalid",
+        "occurred_at_not_aware",
+        "payload_encoding_failed",
+        "payload_mapping_key_invalid",
+        "payload_naive_datetime",
+        "payload_non_finite_number",
+        "payload_occurrence_time_forbidden",
+        "payload_prohibited_field",
+        "payload_schema_invalid",
+        "payload_too_deep",
+        "payload_too_large",
+        "payload_type_invalid",
+        "payload_validation_failed",
+        "payload_value_type_invalid",
+        "payload_producer_schema_not_migrated",
+        "producer_schema_not_migrated",
+        "profile_id_invalid",
+        "renderer_locale_unsupported",
+        "renderer_not_registered",
+        "renderer_payload_type_invalid",
+        "renderer_presentation_profile_unsupported",
+        "rendered_snapshot_invalid",
+        "rule_routed",
+        "rule_suppressed",
+        "runtime_instance_id_invalid",
+        "schema_version_invalid",
+        "sensitivity_invalid",
+        "server_owned_field_provided",
+        "severity_invalid",
+        "severity_not_allowed",
+        "source_invalid",
+        "storage_error",
+        "storage_unavailable",
+        "stored_payload_invalid",
+        "subject_invalid",
+        "validation_failed",
+    }
+)
+
+
+__all__ = ["NOTIFICATION_REASON_CODES"]

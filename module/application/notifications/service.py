@@ -22,7 +22,6 @@ from module.application.notifications.models import (
     NotificationDeliveryPlan,
     NotificationEvent,
     NotificationPolicy,
-    NotificationPublishResult,
     PublishResult,
     PublishStatus,
     PolicyState,
@@ -37,7 +36,7 @@ from module.application.notifications.ports import NotificationUnitOfWork
 from module.application.notifications.registry import (
     NotificationDescriptor,
     NotificationRegistry,
-    build_default_registry,
+    default_registry,
 )
 from module.application.notifications.rendering import (
     NotificationRendererCatalog,
@@ -66,7 +65,7 @@ class NotificationPublisher:
         telemetry: Any | None = None,
     ) -> None:
         self._uow_factory = uow_factory
-        self._registry = registry or build_default_registry()
+        self._registry = registry if registry is not None else default_registry()
         self._policy_resolver = policy_resolver or NotificationPolicyResolver(
             policy or default_notification_policy()
         )
@@ -79,7 +78,7 @@ class NotificationPublisher:
     def registry(self) -> NotificationRegistry:
         return self._registry
 
-    def publish(self, event: NotificationEvent) -> NotificationPublishResult:
+    def publish(self, event: NotificationEvent) -> PublishResult:
         event_id = _event_id(event)
         try:
             descriptor, payload_document, payload_digest = self._registry.validate(event)

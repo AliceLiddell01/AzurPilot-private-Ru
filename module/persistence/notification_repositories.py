@@ -151,6 +151,70 @@ class PostgresNotificationRepository:
         if not 1 <= lease_seconds <= 3600:
             raise ValueError("Dispatcher lease вне bounded диапазона.")
         try:
+            expired_rows = self._connection.execute(
+                select(
+                    notification_delivery.c.id,
+                    notification_delivery.c.attempt_count,
+                )
+                .where(
+                    notification_delivery.c.state.in_(
+                        (
+                            DeliveryState.PENDING.value,
+                            DeliveryState.RETRY_WAIT.value,
+                        )
+                    ),
+                    notification_delivery.c.deadline_at.is_not(None),
+                    notification_delivery.c.deadline_at <= now,
+                )
+                .order_by(
+                    notification_delivery.c.deadline_at,
+                    notification_delivery.c.id,
+                )
+                .with_for_update(skip_locked=True)
+                .limit(batch_size)
+            ).mappings().all()
+            for row in expired_rows:
+                delivery_id = cast(UUID, row["id"])
+                attempt_ordinal = int(row["attempt_count"]) + 1
+                result = DeliveryResult.permanent_failure("handover_deadline_expired")
+                self._connection.execute(
+                    notification_delivery_attempt.insert().values(
+                        delivery_id=delivery_id,
+                        attempt_ordinal=attempt_ordinal,
+                        started_at=now,
+                        finished_at=now,
+                        result_class=result.result_class.value,
+                        safe_error_code=result.safe_error_code,
+                    )
+                )
+                changed = self._connection.execute(
+                    update(notification_delivery)
+                    .where(
+                        notification_delivery.c.id == delivery_id,
+                        notification_delivery.c.state.in_(
+                            (
+                                DeliveryState.PENDING.value,
+                                DeliveryState.RETRY_WAIT.value,
+                            )
+                        ),
+                    )
+                    .values(
+                        state=DeliveryState.FAILED.value,
+                        next_attempt_at=now,
+                        attempt_count=attempt_ordinal,
+                        lease_owner=None,
+                        lease_token=None,
+                        lease_until=None,
+                        last_safe_error_code=result.safe_error_code,
+                        updated_at=now,
+                    )
+                )
+                if changed.rowcount != 1:
+                    raise StorageInvariantViolationError(
+                        "Просроченная notification delivery не перешла в FAILED."
+                    )
+            if len(expired_rows) >= batch_size:
+                return ()
             due = or_(
                 and_(
                     notification_delivery.c.state == DeliveryState.PENDING.value,
@@ -167,7 +231,13 @@ class PostgresNotificationRepository:
                     notification_event,
                     notification_event.c.id == notification_delivery.c.event_id,
                 )
-                .where(due)
+                .where(
+                    due,
+                    or_(
+                        notification_delivery.c.deadline_at.is_(None),
+                        notification_delivery.c.deadline_at > now,
+                    ),
+                )
                 .order_by(
                     notification_delivery.c.priority.desc(),
                     notification_delivery.c.next_attempt_at,
@@ -175,7 +245,7 @@ class PostgresNotificationRepository:
                     notification_delivery.c.id,
                 )
                 .with_for_update(skip_locked=True, of=notification_delivery)
-                .limit(batch_size)
+                .limit(batch_size - len(expired_rows))
             ).all()
             claimed: list[ClaimedDelivery] = []
             for row in rows:

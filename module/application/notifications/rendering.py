@@ -42,6 +42,8 @@ class HandoverPreemptionRenderer:
     ) -> RenderedSnapshot:
         if locale not in {"ru-RU", "en-US"}:
             raise NotificationValidationError("renderer_locale_unsupported")
+        if presentation_profile != "default":
+            raise NotificationValidationError("renderer_presentation_profile_unsupported")
         payload = event.data
         if not isinstance(payload, HandoverPreemptionPayload):
             raise NotificationValidationError("renderer_payload_type_invalid")

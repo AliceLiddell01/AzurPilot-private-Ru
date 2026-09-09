@@ -108,9 +108,6 @@ class NotificationSubject:
         return _valid_token(self.kind, limit=32) and _valid_token(self.id, limit=128)
 
 
-NotificationReference = NotificationSubject
-
-
 @dataclass(frozen=True, slots=True)
 class NotificationCorrelation:
     task_id: str | None = None
@@ -316,6 +313,7 @@ class DeliveryResult:
         if self.safe_error_code is not None and (
             not isinstance(self.safe_error_code, str)
             or fullmatch(_SAFE_ERROR_CODE_RE, self.safe_error_code) is None
+            or _UNSAFE_RESULT_RE.search(self.safe_error_code) is not None
         ):
             return False
         if self.safe_error_summary is not None and (
@@ -563,9 +561,6 @@ class PublishResult:
     reason: str | None = None
 
 
-NotificationPublishResult = PublishResult
-
-
 @dataclass(frozen=True, slots=True)
 class HandoverNotificationResult:
     outcome: HandoverNotificationOutcome
@@ -600,8 +595,6 @@ __all__ = [
     "NotificationEventProjection",
     "NotificationPolicy",
     "NotificationPolicySnapshot",
-    "NotificationPublishResult",
-    "NotificationReference",
     "NotificationRule",
     "NotificationRuleMatcher",
     "NotificationSensitivity",
