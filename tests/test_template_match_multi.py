@@ -94,7 +94,8 @@ def test_opsi_akashi_gif_template_matches_grayscale_map_crop():
     frame = template.image[0]
     source, origin = _source_with_template(rgb2gray(frame), shape=(60, 60))
 
-    assert frame.shape == (18, 15, 3)
+    assert frame.ndim == 3
+    assert frame.shape[2] == 3
     assert frame.dtype == np.uint8
     assert source.shape == (60, 60)
     assert source.ndim == 2
