@@ -12,6 +12,7 @@ def test_configured_rich_handlers_hide_traceback_locals(monkeypatch):
         "OTEL_SDK_DISABLED",
     ):
         monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("OTEL_SDK_DISABLED", "true")
     handlers_before = list(logger_module.logger.handlers)
     try:
         logger_module.configure_runtime_logging(name="handler-contract")

@@ -851,7 +851,7 @@ def ensure_identity(
                 identity_probe = _gateway_identity_probe()
                 raise ObservabilityMcpError(identity_probe.code)
             try:
-                identity = api.verify_token_identity(token, account.account_id)
+                api.verify_token_identity(token, account.account_id)
             except ObservabilityMcpError as exc:
                 if exc.code not in _ROTATE_IDENTITY_ERRORS:
                     raise

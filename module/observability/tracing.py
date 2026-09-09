@@ -9,7 +9,7 @@ import time
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import TracebackType
 from typing import Any, Self
 
@@ -70,7 +70,7 @@ class TracingConfig:
     max_queue_size: int
     max_export_batch_size: int
     processor_timeout_millis: int
-    headers: Mapping[str, str] | None = None
+    headers: Mapping[str, str] | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True, slots=True)

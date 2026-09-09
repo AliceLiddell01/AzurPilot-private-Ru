@@ -57,7 +57,13 @@ def validate_services(services: tuple[str, ...]) -> None:
 
 
 def verify_preserved(before: dict, after: dict, changed: tuple[str, ...]) -> None:
-    """Проверить identity, volumes и стабильные поля services."""
+    """Проверить identity, volumes и стабильные поля services.
+
+    При изменении любого защищённого поля исключение выбрасывается всегда;
+    ``changed`` выбирает только код ошибки: для изменённого service это
+    ``OBSERVABILITY_STORAGE_OR_IDENTITY_CHANGED``, для остальных —
+    ``OBSERVABILITY_UNRELATED_SERVICE_CHANGED``.
+    """
     if before.keys() != after.keys():
         raise ReliabilityError("OBSERVABILITY_CONTAINER_SET_CHANGED")
     for service, original in before.items():
@@ -634,7 +640,7 @@ def emit(output: Path, *, count: int = 1, failures: int = 1) -> dict:
         "normal_runtime_text_files": sorted(
             path.relative_to(output).as_posix()
             for path in output.rglob("*.txt")
-            if "log/error" not in path.relative_to(output).as_posix()
+            if path.relative_to(output).parts[:2] != ("log", "error")
         ),
     }
     (output / "emission.json").write_text(
@@ -719,13 +725,25 @@ def _mcp_has_trace(payload: object, trace_id: str) -> bool:
     return False
 
 
+def _trace_id_from_emission(emission: dict) -> str:
+    trace_ids = emission.get("trace_ids")
+    if (
+        not isinstance(trace_ids, list)
+        or not trace_ids
+        or any(not isinstance(trace_id, str) or not trace_id for trace_id in trace_ids)
+    ):
+        raise ReliabilityError("OBSERVABILITY_TRACE_ID_MISSING")
+    return trace_ids[0]
+
+
 def _mcp_signal_nonempty(payload: object, *, signal: str, emission: dict) -> bool:
+    trace_id = _trace_id_from_emission(emission)
     if _mcp_payload_is_error(payload) or not isinstance(payload, dict):
         return False
     data = payload.get("data")
     text = _mcp_payload_text(payload)
     if signal == "tempo":
-        return _mcp_has_trace(payload, emission["trace_ids"][0])
+        return _mcp_has_trace(payload, trace_id)
     if isinstance(data, list):
         data_nonempty = bool(data)
     elif isinstance(data, dict):
@@ -747,6 +765,7 @@ def mcp_signals(emission: dict) -> dict:
     """Проверить read-only Gateway без raw logs и credentials в отчёте."""
     from dev_tools.observability_mcp import _gateway_tool_call
 
+    trace_id = _trace_id_from_emission(emission)
     requests = {
         "health": ("check_datasources_health", {}),
         "prometheus": (
@@ -771,7 +790,7 @@ def mcp_signals(emission: dict) -> dict:
         ),
         "tempo": (
             "tempo_get-trace",
-            {"datasourceUid": "tempo", "trace_id": emission["trace_ids"][0]},
+            {"datasourceUid": "tempo", "trace_id": trace_id},
         ),
     }
     operator_checks = {
@@ -1081,6 +1100,8 @@ def main() -> int:
         elif args.command == "emit":
             result = emit(args.output, count=args.count, failures=args.failures)
         elif args.command == "outage":
+            if not args.services:
+                parser.error("Для outage требуется --services с одним или несколькими service")
             result = run_scenario(
                 tuple(args.services or ()), args.output, args.hold_seconds
             )
@@ -1091,7 +1112,7 @@ def main() -> int:
             )
         print(json.dumps(result, ensure_ascii=False))
         return 0
-    except (ReliabilityError, OSError, ValueError) as exc:
+    except (ReliabilityError, OSError, ValueError, KeyError, IndexError) as exc:
         print(
             json.dumps(
                 {

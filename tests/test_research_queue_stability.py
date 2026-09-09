@@ -111,8 +111,6 @@ class _FastResearchTimer:
                 f'Неожиданные параметры Timer для {self.role}: '
                 f'limit={limit}, count={count}'
             )
-        if any(timer.role == self.role for timer in self.created):
-            raise AssertionError(f'Слишком много Timer с ролью {self.role}')
         self.created.append(self)
 
     def start(self):

@@ -249,6 +249,7 @@
           "tableType": "spans"
         }
       ],
+      "description": "Фильтры Environment, Profile и Task применяются к родительскому azurpilot.task.run; оператор >> возвращает дочерние azurpilot.device.screenshot и azurpilot.ocr.process spans.",
       "title": "Длительности screenshot / OCR spans",
       "type": "table"
     },

@@ -378,7 +378,10 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
     assert overview_panels[7]["targets"][0]["metricsQueryType"] == "range"
     assert "count_over_time() by (span.azurpilot.task.outcome)" in overview_panels[7]["targets"][0]["query"]
     assert overview_panels[7]["targets"][0]["step"] == "1m"
-    assert "sum by (azurpilot_task, le)" in overview_panels[8]["targets"][0]["expr"]
+    assert "sum by (azurpilot_profile, azurpilot_task, le)" in overview_panels[8]["targets"][0]["expr"]
+    assert overview_panels[8]["targets"][0]["legendFormat"] == "p50 {{azurpilot_profile}} / {{azurpilot_task}}"
+    assert "sum by (azurpilot_profile, azurpilot_task, le)" in overview_panels[8]["targets"][1]["expr"]
+    assert overview_panels[8]["targets"][1]["legendFormat"] == "p95 {{azurpilot_profile}} / {{azurpilot_task}}"
     assert overview_panels[9]["targets"][0]["metricsQueryType"] == "range"
     assert overview_panels[9]["targets"][0]["step"] == "1m"
     assert "count_over_time() by (span.azurpilot.profile" in overview_panels[9]["targets"][0]["query"]
@@ -403,7 +406,7 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
     assert logs_grid["y"] >= overview_panels[9]["gridPos"]["y"] + overview_panels[9]["gridPos"]["h"]
     assert traces_grid["y"] >= logs_grid["y"] + logs_grid["h"]
     assert alerts_grid["y"] >= traces_grid["y"] + traces_grid["h"]
-    for panel_id in (1, 3, 13):
+    for panel_id in (1, 3, 4, 5, 13):
         assert overview_panels[panel_id]["fieldConfig"]["defaults"]["noValue"] == "0"
         assert "noValue" not in overview_panels[panel_id]["options"]
     assert [
@@ -429,6 +432,7 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
         if panel["id"] == 5:
             assert 'name = \\"azurpilot.task.run\\"' in panel_text
             assert " >> " in panel_text
+            assert "родительскому azurpilot.task.run" in panel_text
 
     alerting_path = (
         ROOT

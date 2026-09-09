@@ -19,7 +19,7 @@ import threading
 import time
 from collections.abc import Callable, Mapping
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -126,7 +126,7 @@ class _ObservabilityConfig:
     logs_enabled: bool = False
     metrics: MetricsConfig | None = None
     traces: TracingConfig | None = None
-    headers: Mapping[str, str] | None = None
+    headers: Mapping[str, str] | None = field(default=None, repr=False)
 
 
 @dataclass

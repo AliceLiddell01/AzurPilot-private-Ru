@@ -269,6 +269,22 @@ def test_mcp_signal_nonempty_accepts_gateway_list_response_shape():
     )
 
 
+@pytest.mark.parametrize("trace_ids", [[], [""], [123]])
+def test_mcp_signals_reject_invalid_trace_ids(trace_ids):
+    emission = {
+        "environment": "probe-environment",
+        "marker": "probe-marker",
+        "trace_ids": trace_ids,
+    }
+
+    with pytest.raises(target.ReliabilityError, match="TRACE_ID_MISSING"):
+        target.mcp_signals(emission)
+    with pytest.raises(target.ReliabilityError, match="TRACE_ID_MISSING"):
+        target._mcp_signal_nonempty(
+            {"data": {}}, signal="tempo", emission=emission
+        )
+
+
 def test_mcp_partial_outage_allows_expected_affected_query_error():
     result = {
         "query_layer_available": True,

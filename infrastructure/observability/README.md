@@ -554,7 +554,8 @@ breakdown, p50/p95 task duration, разбивку по profile/task/outcome, п
 aggregate table считают только канонические root spans `azurpilot.task.run`
 через Tempo TraceQL metrics; они не используют `increase()` или округление
 Prometheus rate. Для duration остаётся Prometheus histogram, сгруппированный по
-`azurpilot_task`, поэтому p50/p95 разных task не смешиваются.
+`azurpilot_profile`, `azurpilot_task`, поэтому p50/p95 разных profile/task не
+смешиваются.
 
 Оба dashboard имеют общий semantic selector `Environment` по
 `deployment.environment.name`, а также bounded selectors `Profile` и `Task`.
@@ -572,12 +573,20 @@ task context остаются видимыми; при выборе конкре
 только его собственный `prometheus_ready`, а недоступность остальных backend-ов
 определяется по фактической ошибке datasource/query.
 
+Значения переменных `Environment`, `Profile` и `Task` обнаруживаются по
+каноническим Prometheus labels `deployment_environment_name`, `azurpilot_profile`
+и `azurpilot_task`. Это намеренная зависимость discovery: соответствующие поля
+в Loki являются structured metadata, а не index labels, поэтому Loki используется
+для фильтрации записей, но не для `label_values`-списков.
+
 Tempo metrics-generator использует `local-blocks` с persistent generator WAL и
 trace WAL; `query_frontend.metrics.max_duration` покрывает bounded operator
 window. Grafana instant query используется для exact counters, а bounded range
 query с reduce — для aggregate table и событийного outcome graph. При отсутствии
 событий counters показывают нулевое значение, а success share остаётся `нет
-данных`, без `0/0` и NaN.
+данных`, без `0/0` и NaN. Если backend явно возвращает нулевой total как
+числовой ряд, защитное math-выражение показывает bounded `0%` вместо Inf/NaN;
+это не трактуется как запуск и не меняет семантику отсутствующего ряда.
 
 Alerts ограничены одним источником с достоверным generic-контрактом:
 ненулевой поток failure task за 15 минут, сохраняющийся пять минут. Alert не
@@ -769,8 +778,13 @@ CLI arguments, logs, traceback или artifact. При rotation новый token
 Grafana URL (`127.0.0.1`, `localhost` или `::1`).
 
 Если Docker Secrets Engine недоступен, bootstrap завершается с ошибкой и не
-создаёт новый token. Исправлять нужно именно credential transport, а не
-обходить его plaintext-файлом или переменной в profile.
+создаёт новый token. Pinned Gateway secret проверяется косвенно через Gateway;
+сам bootstrap не читает secret store обратно. Для reuse существующего account
+credential должен быть явно передан через поддержанный
+`GRAFANA_SERVICE_ACCOUNT_TOKEN` или `GRAFANA_SERVICE_ACCOUNT_TOKEN_FILE`;
+при отсутствии такого источника identity probe завершается fail-closed.
+Исправлять нужно именно credential transport, а не обходить его plaintext-файлом
+или переменной в profile.
 
 ### Question-driven diagnostic workflow
 

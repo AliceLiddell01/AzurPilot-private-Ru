@@ -163,6 +163,7 @@ def test_local_otlp_headers_are_passed_in_config_without_global_env_leak(
 
     assert config is not None
     assert config.headers == {"x-test": "from-local-env"}
+    assert "from-local-env" not in repr(config)
     assert os.environ.get("OTEL_EXPORTER_OTLP_LOGS_HEADERS") is None
 
 

@@ -329,7 +329,7 @@ def test_observability_doctor_reports_missing_queue_metrics(
 
     configure(["process_resident_memory_bytes 1"], fake_docker)
 
-    payload = infrastructure_doctor.observability_doctor()
+    payload = infrastructure_doctor.observability_doctor(None)
 
     assert payload["ok"] is False
     assert payload["code"] == "OBSERVABILITY_DEGRADED"
@@ -385,7 +385,7 @@ def test_observability_doctor_reports_pressure_pending_volume_and_disk_warnings(
         failing_docker,
     )
 
-    payload = infrastructure_doctor.observability_doctor()
+    payload = infrastructure_doctor.observability_doctor(None)
 
     assert payload["ok"] is False
     assert "EXPORT_QUEUE_PRESSURE" in payload["warnings"]
@@ -424,7 +424,7 @@ def test_observability_doctor_preserves_diagnostics_when_disk_check_fails(
         unavailable_disk,
     )
 
-    payload = infrastructure_doctor.observability_doctor()
+    payload = infrastructure_doctor.observability_doctor(None)
 
     assert payload["ok"] is False
     assert payload["code"] == "OBSERVABILITY_DEGRADED"
@@ -456,7 +456,7 @@ def test_observability_doctor_keeps_transient_pending_in_observations(
         fake_docker,
     )
 
-    payload = infrastructure_doctor.observability_doctor()
+    payload = infrastructure_doctor.observability_doctor(None)
 
     assert payload["ok"] is True
     assert payload["code"] == "OBSERVABILITY_READY"
@@ -481,7 +481,7 @@ def test_observability_doctor_distinguishes_probe_helper_failure(
     monkeypatch.setattr(observability_reliability, "ready", fake_ready)
     configure([], lambda *_arguments, **_kwargs: "")
 
-    payload = infrastructure_doctor.observability_doctor()
+    payload = infrastructure_doctor.observability_doctor(None)
 
     assert payload["ok"] is False
     assert "OBSERVABILITY_PROBE_HELPER_UNAVAILABLE" in payload["warnings"]

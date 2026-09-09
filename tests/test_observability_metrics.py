@@ -162,6 +162,18 @@ def test_read_config_supports_signal_specific_metrics_and_bounded_values(monkeyp
     )
 
 
+def test_metrics_config_repr_hides_headers():
+    config = MetricsConfig(
+        endpoint="http://collector:4318/v1/metrics",
+        timeout_millis=1000,
+        export_interval_millis=60_000,
+        export_timeout_millis=30_000,
+        headers={"authorization": "raw-secret"},
+    )
+
+    assert "raw-secret" not in repr(config)
+
+
 def test_metrics_are_disabled_without_endpoint_or_with_sdk_disabled(monkeypatch):
     _clear_environment(monkeypatch)
     assert _read_config() is None

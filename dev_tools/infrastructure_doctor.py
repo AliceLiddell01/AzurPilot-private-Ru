@@ -433,8 +433,14 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def observability_doctor(repository_root: Path | None = None) -> dict[str, object]:
-    """Прочитать состояние telemetry без изменения services и доступа к secrets."""
+def observability_doctor(repository_root: Path | None) -> dict[str, object]:
+    """Прочитать telemetry без изменения services и доступа к secrets.
+
+    При переданном ``repository_root`` дополнительно проверяется canonical
+    Compose project. ``None`` оставляет намеренный read-only backend-only режим
+    для programmatic callers, которым не нужен локальный Compose gate; CLI
+    всегда передаёт repository root.
+    """
     from dev_tools.observability_reliability import (
         SERVICES,
         ReliabilityError,
