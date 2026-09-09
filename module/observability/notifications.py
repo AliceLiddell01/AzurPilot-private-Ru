@@ -30,6 +30,8 @@ _CHANNEL_TYPES = frozenset(
 _DELIVERY_STATES = frozenset(
     {"PENDING", "IN_FLIGHT", "RETRY_WAIT", "FAILED", "PROVIDER_ACCEPTED", "AWAITING_AGENT_ACK", "DELIVERED", "SUPPRESSED"}
 )
+
+
 class NotificationTelemetry:
     """Переиспользует global OTel API и не создаёт отдельный exporter/provider."""
 

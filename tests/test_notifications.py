@@ -53,7 +53,9 @@ from module.application.notifications.models import (
     NotificationStoredDelivery,
     NotificationStoredEvent,
     PreparedDelivery,
+    RenderedSnapshot,
 )
+from module.application.notifications.state import transition_for_result
 from module.application.notifications.telemetry import safe_telemetry_span
 
 NOW = datetime(2026, 9, 10, 12, 0, tzinfo=UTC)
@@ -381,6 +383,31 @@ def test_registry_rejects_naive_and_canonicalizes_handover_payload() -> None:
     assert error.value.reason_code == "occurred_at_not_aware"
 
 
+def test_rendered_snapshot_allows_newline_only_in_body() -> None:
+    snapshot = RenderedSnapshot(
+        locale="ru-RU",
+        renderer_id="test.renderer",
+        renderer_version="v1",
+        title="Заголовок",
+        body="Первая строка\nВторая строка",
+    )
+    assert snapshot.is_valid(max_title=256, max_body=2048, max_payload_bytes=4096)
+    assert not replace(snapshot, title="Заголовок\n").is_valid(
+        max_title=256, max_body=2048, max_payload_bytes=4096
+    )
+    assert not replace(snapshot, body="Первая строка\tВторая строка").is_valid(
+        max_title=256, max_body=2048, max_payload_bytes=4096
+    )
+
+
+def test_channel_capabilities_bound_title_by_payload() -> None:
+    assert not ChannelCapabilities(
+        max_payload_bytes=256,
+        max_title_length=257,
+        max_body_length=256,
+    ).is_valid()
+
+
 def test_empty_correlation_is_canonicalized_as_null() -> None:
     assert correlation_document(NotificationCorrelation()) is None
 
@@ -487,8 +514,6 @@ def test_canonical_payload_rejects_non_finite_decimal_and_deep_nesting() -> None
 
 
 def test_provider_acceptance_never_becomes_delivered() -> None:
-    from module.application.notifications.state import transition_for_result
-
     accepted = transition_for_result(
         DeliveryResult.provider_accepted(provider_message_id="provider-1"),
         capabilities=ChannelCapabilities(receipt_strength=ReceiptStrength.AGENT_ACK),

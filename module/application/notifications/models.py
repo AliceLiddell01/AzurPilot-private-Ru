@@ -20,6 +20,10 @@ _UNSAFE_RESULT_RE = compile(
     IGNORECASE,
 )
 
+MAX_CHANNEL_PAYLOAD_BYTES: Final = 64 * 1024
+MAX_CHANNEL_TITLE_LENGTH: Final = 4096
+MAX_CHANNEL_BODY_LENGTH: Final = 64 * 1024
+
 
 class NotificationSeverity(str, Enum):
     INFO = "INFO"
@@ -243,7 +247,9 @@ class RenderedSnapshot:
             return False
         if not isinstance(self.body, str) or not 0 < len(self.body) <= max_body:
             return False
-        if any(ord(character) < 32 for character in self.title + self.body):
+        if any(ord(character) < 32 for character in self.title):
+            return False
+        if any(ord(character) < 32 and character != "\n" for character in self.body):
             return False
         return len((self.title + self.body).encode("utf-8")) <= max_payload_bytes
 
@@ -266,9 +272,13 @@ class ChannelCapabilities:
             and not isinstance(self.max_title_length, bool)
             and isinstance(self.max_body_length, int)
             and not isinstance(self.max_body_length, bool)
-            and 256 <= self.max_payload_bytes <= 64 * 1024
-            and 1 <= self.max_title_length <= 4096
-            and 1 <= self.max_body_length <= self.max_payload_bytes
+            and 256 <= self.max_payload_bytes <= MAX_CHANNEL_PAYLOAD_BYTES
+            and 1 <= self.max_title_length <= min(
+                MAX_CHANNEL_TITLE_LENGTH, self.max_payload_bytes
+            )
+            and 1 <= self.max_body_length <= min(
+                MAX_CHANNEL_BODY_LENGTH, self.max_payload_bytes
+            )
             and _valid_token(self.markup_mode, limit=32)
             and isinstance(self.idempotency, bool)
             and isinstance(self.receipt_strength, ReceiptStrength)

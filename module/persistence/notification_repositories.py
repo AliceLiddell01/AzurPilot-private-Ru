@@ -17,6 +17,7 @@ from module.application.errors import (
     StorageInvariantViolationError,
 )
 from module.application.notifications.encoding import (
+    MAX_SNAPSHOT_BYTES,
     canonical_digest,
     correlation_document,
     event_payload_digest,
@@ -25,6 +26,9 @@ from module.application.notifications.encoding import (
 )
 from module.application.notifications.models import (
     ClaimedDelivery,
+    MAX_CHANNEL_BODY_LENGTH,
+    MAX_CHANNEL_PAYLOAD_BYTES,
+    MAX_CHANNEL_TITLE_LENGTH,
     DeliveryResult,
     DeliveryResultClass,
     DeliveryState,
@@ -213,8 +217,6 @@ class PostgresNotificationRepository:
                     raise StorageInvariantViolationError(
                         "Просроченная notification delivery не перешла в FAILED."
                     )
-            if len(expired_rows) >= batch_size:
-                return ()
             due = or_(
                 and_(
                     notification_delivery.c.state == DeliveryState.PENDING.value,
@@ -245,7 +247,7 @@ class PostgresNotificationRepository:
                     notification_delivery.c.id,
                 )
                 .with_for_update(skip_locked=True, of=notification_delivery)
-                .limit(batch_size - len(expired_rows))
+                .limit(batch_size)
             ).all()
             claimed: list[ClaimedDelivery] = []
             for row in rows:
@@ -596,24 +598,18 @@ class PostgresNotificationRepository:
     def _allocate_profile_sequence(self, profile_id: str) -> int:
         row = self._connection.execute(
             pg_insert(notification_profile_sequence)
-            .values(profile_id=profile_id, next_sequence=1)
+            .values(profile_id=profile_id, next_sequence=2)
             .on_conflict_do_update(
                 index_elements=["profile_id"],
                 set_={
-                    "next_sequence": notification_profile_sequence.c.next_sequence
+                    "next_sequence": notification_profile_sequence.c.next_sequence + 1
                 },
             )
             .returning(notification_profile_sequence.c.next_sequence)
         ).one_or_none()
         if row is None:
             raise StorageInvariantViolationError("Profile sequence allocator не создал строку.")
-        sequence = int(row.next_sequence)
-        self._connection.execute(
-            update(notification_profile_sequence)
-            .where(notification_profile_sequence.c.profile_id == profile_id)
-            .values(next_sequence=sequence + 1)
-        )
-        return sequence
+        return int(row.next_sequence) - 1
 
     def _insert_event(
         self,
@@ -857,7 +853,12 @@ class PostgresNotificationRepository:
             rule_id=cast(str | None, snapshot_doc.get("rule_id")),
             action=action,
         )
-        if canonical_digest(policy_snapshot_document(snapshot)) != row["policy_snapshot_hash"]:
+        if (
+            canonical_digest(
+                policy_snapshot_document(snapshot), max_bytes=MAX_SNAPSHOT_BYTES
+            )
+            != row["policy_snapshot_hash"]
+        ):
             raise StorageInvariantViolationError(
                 "Stored policy snapshot hash не совпадает с snapshot."
             )
@@ -894,7 +895,9 @@ class PostgresNotificationRepository:
             body=cast(str, snapshot["body"]),
         )
         if not rendered.is_valid(
-            max_title=4096, max_body=8192, max_payload_bytes=8192
+            max_title=MAX_CHANNEL_TITLE_LENGTH,
+            max_body=MAX_CHANNEL_BODY_LENGTH,
+            max_payload_bytes=MAX_CHANNEL_PAYLOAD_BYTES,
         ):
             raise StorageInvariantViolationError(
                 "Stored rendered snapshot не прошёл bounded validation."
@@ -998,7 +1001,12 @@ class PostgresNotificationRepository:
 
 
 def _column_mapping(row: object, table: Table) -> dict[str, object]:
-    mapping = getattr(row, "_mapping", {})
+    try:
+        mapping = row._mapping  # noqa: SLF001 - SQLAlchemy Row предоставляет mapping колонок.
+    except AttributeError:
+        raise StorageInvariantViolationError(
+            "SQLAlchemy row не предоставляет column mapping."
+        ) from None
     return {
         column.name: mapping[column]
         for column in table.c

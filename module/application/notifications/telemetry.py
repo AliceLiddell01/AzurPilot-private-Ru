@@ -25,11 +25,11 @@ def safe_telemetry_span(
     try:
         context = method(name, attributes=dict(attributes or {}))
         enter = getattr(context, "__enter__", None)
-        exit = getattr(context, "__exit__", None)
+        exit_ = getattr(context, "__exit__", None)
     except Exception:  # noqa: BLE001 - telemetry остаётся fail-open.
         yield
         return
-    if not callable(enter) or not callable(exit):
+    if not callable(enter) or not callable(exit_):
         yield
         return
     try:
@@ -41,13 +41,13 @@ def safe_telemetry_span(
         yield
     except BaseException:
         try:
-            exit(*sys.exc_info())
+            exit_(*sys.exc_info())
         except Exception:  # noqa: BLE001 - telemetry остаётся fail-open.
             pass
         raise
     else:
         try:
-            exit(None, None, None)
+            exit_(None, None, None)
         except Exception:  # noqa: BLE001 - telemetry остаётся fail-open.
             pass
 

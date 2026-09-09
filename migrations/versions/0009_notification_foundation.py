@@ -205,6 +205,11 @@ def upgrade() -> None:
             "state <> 'AWAITING_AGENT_ACK' OR lease_until IS NOT NULL",
             name=op.f("ck_notification_delivery_awaiting_ack_lease_consistent"),
         ),
+        sa.CheckConstraint(
+            "last_safe_error_code IS NULL OR "
+            "last_safe_error_code ~ '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$'",
+            name=op.f("ck_notification_delivery_last_safe_error_code_format"),
+        ),
         sa.ForeignKeyConstraint(
             ["event_id"],
             ["azurpilot.notification_event.id"],
@@ -225,7 +230,7 @@ def upgrade() -> None:
     op.create_index(
         "ix_notification_delivery_claim_due",
         "notification_delivery",
-        ["state", "next_attempt_at", "priority", "id"],
+        [sa.text("priority DESC"), "next_attempt_at", "id"],
         schema=_SCHEMA,
         postgresql_where=sa.text("state IN ('PENDING', 'RETRY_WAIT')"),
     )
@@ -282,6 +287,15 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "retry_after_seconds IS NULL OR retry_after_seconds BETWEEN 0 AND 3600",
             name=op.f("ck_notification_delivery_attempt_retry_after_range"),
+        ),
+        sa.CheckConstraint(
+            "safe_error_code IS NULL OR "
+            "safe_error_code ~ '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$'",
+            name=op.f("ck_notification_delivery_attempt_safe_error_code_format"),
+        ),
+        sa.CheckConstraint(
+            "safe_error_summary IS NULL OR safe_error_summary !~ '[[:cntrl:]]'",
+            name=op.f("ck_notification_delivery_attempt_safe_error_summary_no_control"),
         ),
         sa.CheckConstraint(
             "trace_id IS NULL OR trace_id ~ '^[0-9a-f]{16}$|^[0-9a-f]{32}$'",

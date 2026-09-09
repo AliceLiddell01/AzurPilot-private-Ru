@@ -75,6 +75,8 @@ class NotificationDescriptor:
     deferred_reason: str | None = None
 
     def validate(self, event: NotificationEvent) -> tuple[dict[str, object], str]:
+        if not self.publishable:
+            raise NotificationValidationError(self.deferred_reason or "descriptor_not_publishable")
         if not isinstance(event.data, self.payload_type):
             raise NotificationValidationError("payload_type_invalid")
         if not self.allow_severity_override and event.severity is not self.default_severity:
@@ -97,8 +99,6 @@ class NotificationDescriptor:
             raise
         except Exception:  # noqa: BLE001 - stored payload boundary имеет bounded error code.
             raise NotificationValidationError("payload_validation_failed") from None
-        if not self.publishable:
-            raise NotificationValidationError(self.deferred_reason or "descriptor_not_publishable")
         normalized_document = json.loads(normalized)
         if not isinstance(normalized_document, dict):
             raise NotificationValidationError("payload_schema_invalid")

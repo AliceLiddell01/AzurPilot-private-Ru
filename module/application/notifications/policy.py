@@ -5,6 +5,7 @@ from __future__ import annotations
 from re import fullmatch
 
 from module.application.notifications.encoding import (
+    MAX_SNAPSHOT_BYTES,
     canonical_digest,
     policy_snapshot_document,
 )
@@ -158,7 +159,9 @@ class NotificationPolicyResolver:
             matched_rule_id=selected_rule.rule_id if selected_rule else None,
             reason=reason,
             snapshot=snapshot,
-            snapshot_hash=canonical_digest(policy_snapshot_document(snapshot)),
+            snapshot_hash=canonical_digest(
+                policy_snapshot_document(snapshot), max_bytes=MAX_SNAPSHOT_BYTES
+            ),
         )
 
 

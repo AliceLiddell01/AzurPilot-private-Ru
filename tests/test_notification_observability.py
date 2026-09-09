@@ -69,7 +69,12 @@ class _FailingMeter:
 
 
 class _FailingSpan:
+    def __init__(self, *, enter_failure: bool = False) -> None:
+        self.enter_failure = enter_failure
+
     def __enter__(self) -> Self:
+        if self.enter_failure:
+            raise RuntimeError("tracer enter unavailable")
         return self
 
     def __exit__(self, *_args: object) -> None:
@@ -77,10 +82,13 @@ class _FailingSpan:
 
 
 class _FailingTracer:
+    def __init__(self, *, enter_failure: bool = False) -> None:
+        self.enter_failure = enter_failure
+
     def start_as_current_span(
         self, _name: str, *, attributes: dict[str, str]
     ) -> _FailingSpan:
-        return _FailingSpan()
+        return _FailingSpan(enter_failure=self.enter_failure)
 
 
 def test_notification_metrics_never_use_event_or_delivery_identity_as_label() -> None:
@@ -129,5 +137,13 @@ def test_notification_telemetry_stays_fail_open() -> None:
 
     telemetry.record_publish(event=event, value="persisted")
     telemetry.record_latency(channel_type="test", result_class="DELIVERED", seconds=1.0)
+    with telemetry.span("notification.publish") as span:
+        assert span is not None
+
+
+def test_notification_span_stays_fail_open_on_enter_failure() -> None:
+    telemetry = NotificationTelemetry(
+        meter=_FailingMeter(), tracer=_FailingTracer(enter_failure=True)
+    )
     with telemetry.span("notification.publish") as span:
         assert span is not None

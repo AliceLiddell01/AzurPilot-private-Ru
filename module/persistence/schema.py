@@ -1102,12 +1102,16 @@ notification_delivery = Table(
         "state <> 'AWAITING_AGENT_ACK' OR lease_until IS NOT NULL",
         name="awaiting_ack_lease_consistent",
     ),
+    CheckConstraint(
+        "last_safe_error_code IS NULL OR "
+        "last_safe_error_code ~ '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$'",
+        name="last_safe_error_code_format",
+    ),
 )
 Index(
     "ix_notification_delivery_claim_due",
-    notification_delivery.c.state,
+    notification_delivery.c.priority.desc(),
     notification_delivery.c.next_attempt_at,
-    notification_delivery.c.priority,
     notification_delivery.c.id,
     postgresql_where=text("state IN ('PENDING', 'RETRY_WAIT')"),
 )
@@ -1171,6 +1175,15 @@ notification_delivery_attempt = Table(
     CheckConstraint(
         "retry_after_seconds IS NULL OR retry_after_seconds BETWEEN 0 AND 3600",
         name="retry_after_range",
+    ),
+    CheckConstraint(
+        "safe_error_code IS NULL OR "
+        "safe_error_code ~ '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$'",
+        name="safe_error_code_format",
+    ),
+    CheckConstraint(
+        "safe_error_summary IS NULL OR safe_error_summary !~ '[[:cntrl:]]'",
+        name="safe_error_summary_no_control",
     ),
     CheckConstraint(
         "trace_id IS NULL OR trace_id ~ '^[0-9a-f]{16}$|^[0-9a-f]{32}$'",

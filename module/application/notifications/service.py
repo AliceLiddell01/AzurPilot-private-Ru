@@ -16,6 +16,7 @@ from module.application.errors import (
 )
 from module.application.notifications.channels import NotificationChannelCatalog
 from module.application.notifications.models import (
+    ChannelCapabilities,
     HandoverNotificationOutcome,
     HandoverNotificationResult,
     HandoverPreemptionPayload,
@@ -204,10 +205,10 @@ class NotificationPublisher:
             (deadline_at - now).total_seconds(),
         )
         plans: list[NotificationDeliveryPlan] = []
+        renderer = self._renderers.require(descriptor.renderer_id)
         for channel_id in decision.channel_instance_ids:
             channel = self._channels.get(channel_id)
             capabilities = channel.capabilities if channel else _fallback_capabilities()
-            renderer = self._renderers.require(descriptor.renderer_id)
             snapshot = renderer.render(
                 event,
                 locale=decision.snapshot.action.locale,
@@ -271,8 +272,6 @@ def _event_id(event: object) -> UUID:
 
 
 def _fallback_capabilities():
-    from module.application.notifications.models import ChannelCapabilities
-
     return ChannelCapabilities()
 
 

@@ -285,6 +285,37 @@ def test_expired_pending_delivery_fails_without_provider_call(
         assert attempts[0].safe_error_code == "handover_deadline_expired"
 
 
+def test_expired_pending_delivery_does_not_starve_due_delivery(
+    database: LazyEngine,
+) -> None:
+    expired_result = _publisher(database, _Channel()).publish(
+        _event(operation_id="operation-expired-first")
+    )
+    active_result = _publisher(database, _Channel()).publish(
+        _event(operation_id="operation-active-second")
+    )
+    with database.get().begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE azurpilot.notification_delivery "
+                "SET deadline_at = :deadline_at "
+                "WHERE event_id = :event_id"
+            ),
+            {"deadline_at": NOW - timedelta(seconds=1), "event_id": expired_result.event_id},
+        )
+
+    with PostgresUnitOfWork(database) as uow:
+        claimed = uow.notifications.claim_due(
+            now=NOW,
+            worker_id="worker-no-starvation",
+            batch_size=1,
+            lease_seconds=30,
+        )
+        assert len(claimed) == 1
+        assert claimed[0].delivery.event_id == active_result.event_id
+        uow.commit()
+
+
 def test_claim_bounds_lease_and_timeout_by_remaining_deadline(
     database: LazyEngine,
 ) -> None:
