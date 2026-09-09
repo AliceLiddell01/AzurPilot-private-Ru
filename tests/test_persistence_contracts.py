@@ -440,6 +440,11 @@ class SchemaMetadataTests(unittest.TestCase):
             "dorm_morale_scan_observation",
             "formation_surface_fleet_scan_command",
             "formation_surface_fleet_scan_command_fleet",
+            "notification_event",
+            "notification_policy_decision",
+            "notification_delivery",
+            "notification_delivery_attempt",
+            "notification_profile_sequence",
         }
         self.assertEqual({table.name for table in metadata.tables.values()}, expected)
         self.assertTrue(
@@ -515,7 +520,17 @@ class SchemaMetadataTests(unittest.TestCase):
             for column in table.columns
             if column.type.__class__.__name__ in {"JSON", "JSONB"}
         }
-        self.assertEqual(json_columns, {("import_record", "quarantine_metadata")})
+        self.assertEqual(
+            json_columns,
+            {
+                ("import_record", "quarantine_metadata"),
+                ("notification_event", "payload"),
+                ("notification_event", "correlation"),
+                ("notification_policy_decision", "channel_instance_ids"),
+                ("notification_policy_decision", "policy_snapshot"),
+                ("notification_delivery", "rendered_snapshot"),
+            },
+        )
 
     def test_temporal_and_json_constraints_are_semantic(self):
         for table_name in (

@@ -21,6 +21,7 @@ from sqlalchemy import (
     Table,
     UniqueConstraint,
     Uuid,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 
@@ -28,7 +29,7 @@ from module.application.resource_fields import RESOURCE_FIELDS
 from module.application.storage_models import MonthlyMetric
 
 SCHEMA_NAME = "azurpilot"
-EXPECTED_ALEMBIC_HEAD = "0008_dorm_morale_idempotency"
+EXPECTED_ALEMBIC_HEAD = "0009_notification_foundation"
 
 NAMING_CONVENTION = {
     "ix": "ix_%(table_name)s_%(column_0_N_name)s",
@@ -935,4 +936,230 @@ formation_surface_fleet_scan_command_fleet = Table(
     Column("fleet_index", Integer, nullable=False),
     PrimaryKeyConstraint("command_id", "fleet_index"),
     CheckConstraint("fleet_index BETWEEN 1 AND 6", name="fleet_index_range"),
+)
+
+
+notification_event = Table(
+    "notification_event",
+    metadata,
+    Column("id", Uuid, primary_key=True),
+    Column("source", String(64), nullable=False),
+    Column("type", String(128), nullable=False),
+    Column("schema_version", Integer, nullable=False),
+    Column("profile_id", String(128), nullable=False),
+    Column("runtime_instance_id", String(128), nullable=True),
+    Column("subject_kind", String(32), nullable=True),
+    Column("subject_id", String(128), nullable=True),
+    Column("severity", String(16), nullable=False),
+    Column("occurred_at", DateTime(timezone=True), nullable=False),
+    Column("persisted_at", DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    Column("profile_sequence", BigInteger, nullable=False),
+    Column("payload", JSONB, nullable=False),
+    Column("payload_digest", String(64), nullable=False),
+    Column("dedup_key", String(128), nullable=True),
+    Column("correlation", JSONB(none_as_null=True), nullable=True),
+    Column("sensitivity", String(16), nullable=False),
+    UniqueConstraint(
+        "profile_id",
+        "profile_sequence",
+        name="uq_notification_event_profile_sequence",
+    ),
+    CheckConstraint("schema_version > 0", name="schema_version_positive"),
+    CheckConstraint("profile_sequence > 0", name="profile_sequence_positive"),
+    CheckConstraint("btrim(source) <> ''", name="source_not_blank"),
+    CheckConstraint("btrim(type) <> ''", name="type_not_blank"),
+    CheckConstraint("btrim(profile_id) <> ''", name="profile_not_blank"),
+    CheckConstraint(
+        "severity IN ('INFO', 'WARNING', 'ERROR', 'CRITICAL')",
+        name="severity_allowed",
+    ),
+    CheckConstraint(
+        "sensitivity IN ('NORMAL', 'SENSITIVE')",
+        name="sensitivity_allowed",
+    ),
+    CheckConstraint("payload_digest ~ '^[0-9a-f]{64}$'", name="digest_sha256"),
+    CheckConstraint("jsonb_typeof(payload) = 'object'", name="payload_object"),
+    CheckConstraint(
+        "correlation IS NULL OR jsonb_typeof(correlation) = 'object'",
+        name="correlation_object",
+    ),
+    CheckConstraint(
+        "(subject_kind IS NULL AND subject_id IS NULL) OR "
+        "(subject_kind IS NOT NULL AND subject_id IS NOT NULL)",
+        name="subject_consistent",
+    ),
+)
+Index(
+    "uq_notification_event_logical_identity",
+    notification_event.c.source,
+    notification_event.c.profile_id,
+    notification_event.c.type,
+    notification_event.c.dedup_key,
+    unique=True,
+    postgresql_where=text("dedup_key IS NOT NULL"),
+)
+Index(
+    "ix_notification_event_profile_history",
+    notification_event.c.profile_id,
+    notification_event.c.profile_sequence,
+    notification_event.c.id,
+)
+
+notification_policy_decision = Table(
+    "notification_policy_decision",
+    metadata,
+    Column(
+        "event_id",
+        Uuid,
+        ForeignKey(
+            f"{SCHEMA_NAME}.notification_event.id",
+            ondelete="CASCADE",
+            name="fk_notification_policy_decision_event",
+        ),
+        primary_key=True,
+    ),
+    Column("state", String(16), nullable=False),
+    Column("matched_rule_id", String(128), nullable=True),
+    Column("policy_version", Integer, nullable=False),
+    Column("reason", String(128), nullable=False),
+    Column("channel_instance_ids", JSONB, nullable=False),
+    Column("policy_snapshot", JSONB, nullable=False),
+    Column("policy_snapshot_hash", String(64), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    CheckConstraint(
+        "state IN ('ROUTED', 'SUPPRESSED')", name="state_allowed"
+    ),
+    CheckConstraint("policy_version > 0", name="policy_version_positive"),
+    CheckConstraint("btrim(reason) <> ''", name="reason_not_blank"),
+    CheckConstraint(
+        "jsonb_typeof(channel_instance_ids) = 'array' AND "
+        "jsonb_array_length(channel_instance_ids) <= 32",
+        name="channels_bounded",
+    ),
+    CheckConstraint(
+        "jsonb_typeof(policy_snapshot) = 'object'",
+        name="snapshot_object",
+    ),
+    CheckConstraint(
+        "policy_snapshot_hash ~ '^[0-9a-f]{64}$'", name="snapshot_hash_sha256"
+    ),
+)
+
+notification_delivery = Table(
+    "notification_delivery",
+    metadata,
+    Column("id", Uuid, primary_key=True),
+    Column(
+        "event_id",
+        Uuid,
+        ForeignKey(
+            f"{SCHEMA_NAME}.notification_event.id",
+            ondelete="CASCADE",
+            name="fk_notification_delivery_event",
+        ),
+        nullable=False,
+    ),
+    Column("channel_instance_id", String(128), nullable=False),
+    Column("channel_type", String(64), nullable=False),
+    Column("state", String(32), nullable=False, server_default="PENDING"),
+    Column("priority", Integer, nullable=False, server_default="0"),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    Column("next_attempt_at", DateTime(timezone=True), nullable=False),
+    Column("deadline_at", DateTime(timezone=True), nullable=True),
+    Column("attempt_count", Integer, nullable=False, server_default="0"),
+    Column("lease_owner", String(128), nullable=True),
+    Column("lease_token", Uuid, nullable=True),
+    Column("lease_until", DateTime(timezone=True), nullable=True),
+    Column("last_safe_error_code", String(64), nullable=True),
+    Column("rendered_snapshot", JSONB, nullable=False),
+    Column("idempotency_key", String(256), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    UniqueConstraint(
+        "event_id", "channel_instance_id", name="uq_notification_delivery_event_channel"
+    ),
+    UniqueConstraint("idempotency_key", name="uq_notification_delivery_idempotency"),
+    CheckConstraint(
+        "state IN ('PENDING', 'IN_FLIGHT', 'RETRY_WAIT', 'FAILED', "
+        "'PROVIDER_ACCEPTED', 'AWAITING_AGENT_ACK', 'DELIVERED', 'SUPPRESSED')",
+        name="state_allowed",
+    ),
+    CheckConstraint("priority BETWEEN -100 AND 100", name="priority_range"),
+    CheckConstraint("attempt_count >= 0", name="attempt_count_nonnegative"),
+    CheckConstraint(
+        "jsonb_typeof(rendered_snapshot) = 'object'", name="snapshot_object"
+    ),
+    CheckConstraint(
+        "(state = 'IN_FLIGHT' AND lease_owner IS NOT NULL "
+        "AND lease_token IS NOT NULL AND lease_until IS NOT NULL) OR "
+        "state <> 'IN_FLIGHT'",
+        name="in_flight_lease_consistent",
+    ),
+)
+Index(
+    "ix_notification_delivery_claim_due",
+    notification_delivery.c.state,
+    notification_delivery.c.next_attempt_at,
+    notification_delivery.c.priority,
+    notification_delivery.c.id,
+)
+Index(
+    "ix_notification_delivery_event",
+    notification_delivery.c.event_id,
+    notification_delivery.c.id,
+)
+
+notification_delivery_attempt = Table(
+    "notification_delivery_attempt",
+    metadata,
+    Column(
+        "delivery_id",
+        Uuid,
+        ForeignKey(
+            f"{SCHEMA_NAME}.notification_delivery.id",
+            ondelete="CASCADE",
+            name="fk_notification_delivery_attempt_delivery",
+        ),
+        nullable=False,
+    ),
+    Column("attempt_ordinal", Integer, nullable=False),
+    Column("started_at", DateTime(timezone=True), nullable=False),
+    Column("finished_at", DateTime(timezone=True), nullable=True),
+    Column("result_class", String(32), nullable=True),
+    Column("safe_error_code", String(64), nullable=True),
+    Column("safe_error_summary", String(256), nullable=True),
+    Column("retry_after_seconds", Integer, nullable=True),
+    Column("provider_message_id", String(128), nullable=True),
+    Column("lease_token", Uuid, nullable=True),
+    Column("trace_id", String(32), nullable=True),
+    Column("span_id", String(16), nullable=True),
+    PrimaryKeyConstraint(
+        "delivery_id", "attempt_ordinal", name="pk_notification_delivery_attempt"
+    ),
+    CheckConstraint("attempt_ordinal > 0", name="attempt_ordinal_positive"),
+    CheckConstraint(
+        "result_class IS NULL OR result_class IN ('DELIVERED', 'PROVIDER_ACCEPTED', "
+        "'TRANSIENT_FAILURE', 'PERMANENT_FAILURE', 'UNAVAILABLE', 'SUPPRESSED')",
+        name="result_class_allowed",
+    ),
+    CheckConstraint(
+        "retry_after_seconds IS NULL OR retry_after_seconds BETWEEN 0 AND 3600",
+        name="retry_after_range",
+    ),
+    CheckConstraint(
+        "trace_id IS NULL OR trace_id ~ '^[0-9a-f]{16}$|^[0-9a-f]{32}$'",
+        name="trace_id_format",
+    ),
+    CheckConstraint(
+        "span_id IS NULL OR span_id ~ '^[0-9a-f]{16}$'",
+        name="span_id_format",
+    ),
+)
+
+notification_profile_sequence = Table(
+    "notification_profile_sequence",
+    metadata,
+    Column("profile_id", String(128), primary_key=True),
+    Column("next_sequence", BigInteger, nullable=False, server_default="1"),
+    CheckConstraint("btrim(profile_id) <> ''", name="profile_not_blank"),
+    CheckConstraint("next_sequence > 0", name="next_sequence_positive"),
 )

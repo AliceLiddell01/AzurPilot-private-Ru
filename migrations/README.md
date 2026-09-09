@@ -9,10 +9,12 @@ Revision-файлы не должны читать production config или вы
 Alembic entry point также требует отдельного точного подтверждения target через
 `AZURPILOT_POSTGRES_DISPOSABLE_HOST`, `_PORT`, `_DATABASE` и `_USER`.
 
-Текущий единственный head — `0008_dorm_morale_idempotency`. Он меняет область
-уникальности `idempotency_key` скана Dorm на `(instance_id, idempotency_key)`,
-чтобы новые строки сохраняли исходный ключ вызывающего кода напрямую, без
-хэширования с пространством имён.
+Текущий единственный head — `0009_notification_foundation`. Revision `0008`
+меняет область уникальности `idempotency_key` скана Dorm на
+`(instance_id, idempotency_key)`, чтобы новые строки сохраняли исходный ключ
+вызывающего кода напрямую, без хэширования с пространством имён. Revision
+`0009` добавляет только durable typed notification foundation: event, policy
+decision, delivery, attempt history и per-profile sequence allocator.
 
 Существующие строки схемы `0007` хранят SHA-256, рассчитанный из
 `instance_id` и исходного ключа. Массово восстановить исходные ключи по уже

@@ -122,3 +122,19 @@ class StorageInvalidDataError(StorageError):
     """Domain command не удовлетворяет storage-инвариантам."""
 
     code = "storage_invalid_data"
+
+
+class StorageInvariantViolationError(StorageError):
+    """Критический durable invariant нарушен и не должен быть скрыт retry."""
+
+    code = "storage_invariant_violation"
+
+
+class NotificationValidationError(InvalidRequestError):
+    """Notification event не прошёл bounded typed schema validation."""
+
+    code = "notification_validation_failed"
+
+    def __init__(self, reason_code: str, message: str | None = None) -> None:
+        self.reason_code = reason_code
+        super().__init__(message or "Notification event не прошёл проверку схемы.")

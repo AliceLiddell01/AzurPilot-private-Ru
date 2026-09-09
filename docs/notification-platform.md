@@ -1,7 +1,9 @@
 # Платформа уведомлений AzurPilot
 
-Статус документа: архитектурный контракт Stage 1. Production-реализация новой
-платформы уведомлений этим изменением не добавляется.
+Статус документа: архитектурный контракт Stage 1 и фактическая граница
+реализации Stage 2. Stage 2 добавляет только durable typed foundation;
+production adapters, producer cutover и handover wiring остаются будущими
+этапами.
 
 ## 1. Контекст аудита и границы
 
@@ -1395,3 +1397,31 @@ PROVIDER_ACCEPTED и human-readable intent этого не делают.
 Stage 1 остаётся documentation-only. Любое изменение runtime, persistence,
 transport, producer или config semantics требует отдельного implementation
 этапа с собственным exact-head review, CI и live acceptance.
+
+## 23. Фактическая граница Stage 2 implementation
+
+### [Факт] Durable foundation
+
+В Stage 2 добавлены `module.application.notifications` и PostgreSQL adapter
+`PostgresNotificationRepository`. Migration `0009_notification_foundation`
+создаёт event, policy decision, delivery, append-only attempt и per-profile
+sequence allocator в schema `azurpilot`. Публикация выполняет validation,
+deduplication, policy snapshot и создание delivery в одной короткой
+транзакции; внешний channel вызывается только после commit dispatcher claim.
+
+### [Факт] Безопасная граница транспорта
+
+Зарегистрирован typed descriptor только для
+`runtime.handover.preemption_requested/v1`; остальные initial taxonomy entries
+явно deferred до producer migration и не принимают generic payload. В текущей
+ветке нет Desktop Agent, Telegram, Webhook или OnePush adapter, а production
+channel registry по умолчанию пуст. `PROVIDER_ACCEPTED` остаётся
+промежуточным состоянием, а `DELIVERED` требует Agent ACK capability.
+
+### [Факт] Незатронутые legacy boundaries
+
+`State.init`, `WebUIRuntimeControlOwner`, `handle_notify`, `notify_webui`,
+`_notification_queue`, существующие user config keys и PR #177 не подключены к
+новому foundation. Текущий PR #177 остаётся отдельным busy-handover blocker:
+`ACCEPTED` legacy fallback не является доказательством `DELIVERED`; его
+production wiring переносится в Stage 3 после authenticated Agent receipt.

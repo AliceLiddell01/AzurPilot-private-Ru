@@ -1,0 +1,73 @@
+"""Нейтральный contract channel adapters и их bounded registry."""
+
+from __future__ import annotations
+
+from collections.abc import Iterable
+from re import fullmatch
+from typing import Protocol, runtime_checkable
+
+from module.application.notifications.models import (
+    ChannelCapabilities,
+    DeliveryResult,
+    PreparedDelivery,
+)
+
+
+@runtime_checkable
+class NotificationChannel(Protocol):
+    """Внешний adapter получает только уже подготовленный channel-safe DTO."""
+
+    @property
+    def instance_id(self) -> str: ...
+
+    @property
+    def channel_type(self) -> str: ...
+
+    @property
+    def capabilities(self) -> ChannelCapabilities: ...
+
+    def send(self, prepared: PreparedDelivery) -> DeliveryResult: ...
+
+
+class NotificationChannelCatalog:
+    """Явный in-process registry; Stage 2 не регистрирует production adapters."""
+
+    def __init__(self, channels: Iterable[NotificationChannel] = ()) -> None:
+        self._channels: dict[str, NotificationChannel] = {}
+        for channel in channels:
+            self.register(channel)
+
+    def register(self, channel: NotificationChannel) -> None:
+        if not callable(getattr(channel, "send", None)):
+            raise TypeError("Channel должен предоставлять callable send.")
+        if not isinstance(channel.instance_id, str) or fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", channel.instance_id
+        ) is None:
+            raise ValueError("Channel instance id должен быть непустым.")
+        if channel.instance_id in self._channels:
+            raise ValueError("Channel instance id уже зарегистрирован.")
+        if not isinstance(channel.channel_type, str) or fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}", channel.channel_type
+        ) is None:
+            raise ValueError("Channel type имеет неверный формат.")
+        if not isinstance(channel.capabilities, ChannelCapabilities) or not channel.capabilities.is_valid():
+            raise ValueError("Channel capabilities не прошли bounded validation.")
+        self._channels[channel.instance_id] = channel
+
+    def get(self, instance_id: str) -> NotificationChannel | None:
+        return self._channels.get(instance_id)
+
+    def require(self, instance_id: str) -> NotificationChannel:
+        channel = self.get(instance_id)
+        if channel is None:
+            raise LookupError("Notification channel instance не зарегистрирован.")
+        return channel
+
+    def __len__(self) -> int:
+        return len(self._channels)
+
+    def ids(self) -> tuple[str, ...]:
+        return tuple(self._channels)
+
+
+__all__ = ["NotificationChannel", "NotificationChannelCatalog"]

@@ -10,6 +10,7 @@ from sqlalchemy import Connection
 from sqlalchemy.exc import SQLAlchemyError
 
 from module.application.errors import StorageError
+from module.application.notifications.registry import NotificationRegistry
 from module.persistence.database import LazyEngine, translate_database_error
 from module.persistence.dorm_morale_repositories import PostgresDormMoraleRepository
 from module.persistence.fleet_manual_scan_repositories import (
@@ -17,6 +18,7 @@ from module.persistence.fleet_manual_scan_repositories import (
 )
 from module.persistence.fleet_state_repositories import PostgresFleetStateRepository
 from module.persistence.morale_repositories import PostgresMoraleRepository
+from module.persistence.notification_repositories import PostgresNotificationRepository
 from module.persistence.repositories import (
     PostgresImportLedgerRepository,
     PostgresInstanceIdentityRepository,
@@ -28,8 +30,14 @@ logger = logging.getLogger(__name__)
 
 
 class PostgresUnitOfWork:
-    def __init__(self, engine: LazyEngine):
+    def __init__(
+        self,
+        engine: LazyEngine,
+        *,
+        notification_registry: NotificationRegistry | None = None,
+    ):
         self._engine = engine
+        self._notification_registry = notification_registry
         self._connection: Connection | None = None
         self.instances: PostgresInstanceIdentityRepository
         self.statistics: PostgresStatisticsRepository
@@ -39,6 +47,7 @@ class PostgresUnitOfWork:
         self.morale: PostgresMoraleRepository
         self.dorm_morale: PostgresDormMoraleRepository
         self.fleet_scan_commands: PostgresFleetManualScanCommandRepository
+        self.notifications: PostgresNotificationRepository
 
     def __enter__(self) -> Self:
         if self._connection is not None:
@@ -57,6 +66,9 @@ class PostgresUnitOfWork:
             self.dorm_morale = PostgresDormMoraleRepository(connection)
             self.fleet_scan_commands = PostgresFleetManualScanCommandRepository(
                 connection
+            )
+            self.notifications = PostgresNotificationRepository(
+                connection, registry=self._notification_registry
             )
         except SQLAlchemyError as exc:
             self._connection = None
@@ -80,6 +92,7 @@ class PostgresUnitOfWork:
             "morale",
             "dorm_morale",
             "fleet_scan_commands",
+            "notifications",
         ):
             self.__dict__.pop(attribute, None)
 

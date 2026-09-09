@@ -1,0 +1,77 @@
+"""Application ports для durable notification persistence и dispatch."""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Protocol
+from uuid import UUID
+
+from module.application.notifications.models import (
+    ClaimedDelivery,
+    DeliveryUpdate,
+    NotificationDeliveryPlan,
+    NotificationEvent,
+    NotificationPersistenceResult,
+    NotificationStoredAttempt,
+    NotificationStoredDelivery,
+    NotificationStoredEvent,
+    PolicyDecision,
+)
+from module.application.storage_ports import StorageUnitOfWork
+
+
+class NotificationRepository(Protocol):
+    def publish(
+        self,
+        event: NotificationEvent,
+        *,
+        payload_document: dict[str, object],
+        payload_digest: str,
+        decision: PolicyDecision,
+        deliveries: tuple[NotificationDeliveryPlan, ...],
+    ) -> NotificationPersistenceResult: ...
+
+    def claim_due(
+        self,
+        *,
+        now: datetime,
+        worker_id: str,
+        batch_size: int,
+        lease_seconds: int,
+    ) -> tuple[ClaimedDelivery, ...]: ...
+
+    def apply_update(
+        self,
+        *,
+        delivery_id: UUID,
+        lease_token: UUID,
+        update: DeliveryUpdate,
+    ) -> bool: ...
+
+    def recover_expired(
+        self,
+        *,
+        now: datetime,
+        batch_size: int,
+        worker_id: str,
+        retry_policy: object,
+    ) -> int: ...
+
+    def get_event(self, event_id: UUID) -> NotificationStoredEvent | None: ...
+
+    def get_decision(self, event_id: UUID) -> PolicyDecision | None: ...
+
+    def list_deliveries(self, event_id: UUID) -> tuple[NotificationStoredDelivery, ...]: ...
+
+    def list_attempts(self, delivery_id: UUID) -> tuple[NotificationStoredAttempt, ...]: ...
+
+    def list_profile_history(
+        self, *, profile_id: str, after_sequence: int = 0, limit: int = 100
+    ) -> tuple[NotificationStoredEvent, ...]: ...
+
+
+class NotificationUnitOfWork(StorageUnitOfWork, Protocol):
+    notifications: NotificationRepository
+
+
+__all__ = ["NotificationRepository", "NotificationUnitOfWork"]
