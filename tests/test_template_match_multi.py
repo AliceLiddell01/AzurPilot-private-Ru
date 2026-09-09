@@ -90,7 +90,8 @@ def test_rgb_png_template_match_matches_grayscale_source(tmp_path):
 
 
 def test_opsi_akashi_gif_template_matches_grayscale_map_crop():
-    template = Template('./assets/en/template/TEMPLATE_SIREN_Akashi.gif')
+    asset = Path(__file__).resolve().parents[1] / 'assets/en/template/TEMPLATE_SIREN_Akashi.gif'
+    template = Template(str(asset))
     frame = template.image[0]
     source, origin = _source_with_template(rgb2gray(frame), shape=(60, 60))
 
