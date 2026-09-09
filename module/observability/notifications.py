@@ -149,10 +149,16 @@ class NotificationTelemetry:
         try:
             yield span
         except BaseException:
-            context.__exit__(*sys.exc_info())
+            try:
+                context.__exit__(*sys.exc_info())
+            except Exception:  # noqa: BLE001 - OTel API fail-open boundary.
+                pass
             raise
         else:
-            context.__exit__(None, None, None)
+            try:
+                context.__exit__(None, None, None)
+            except Exception:  # noqa: BLE001 - OTel API fail-open boundary.
+                return
 
     def _safe_add(self, instrument: Any, attributes: Mapping[str, str]) -> None:
         try:

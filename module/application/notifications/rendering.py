@@ -52,7 +52,12 @@ class HandoverPreemptionRenderer:
             title = "Запрошена передача профиля"
             body = f"Операция {payload.operation_id} запросила передачу профиля; причина: {payload.reason_code}."
         if payload.current_task is not None:
-            body += f" Текущая задача: {payload.current_task.kind}/{payload.current_task.id}."
+            task_reference = f"{payload.current_task.kind}/{payload.current_task.id}"
+            body += (
+                f" Current task: {task_reference}."
+                if locale == "en-US"
+                else f" Текущая задача: {task_reference}."
+            )
         snapshot = RenderedSnapshot(
             locale=locale,
             renderer_id=self.renderer_id,

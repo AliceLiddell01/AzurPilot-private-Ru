@@ -513,7 +513,7 @@ class SchemaMetadataTests(unittest.TestCase):
         self.assertTrue(expressions)
         self.assertEqual(set(re.findall(r"'([^']+)'", expressions[-1])), expected)
 
-    def test_json_is_limited_to_quarantine_metadata(self):
+    def test_json_columns_are_limited_to_allowed_set(self):
         json_columns = {
             (table.name, column.name)
             for table in metadata.tables.values()

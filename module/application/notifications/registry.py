@@ -6,6 +6,7 @@ import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
+from functools import lru_cache
 from re import fullmatch
 from typing import Final
 from uuid import UUID
@@ -29,6 +30,7 @@ NotificationValidator = Callable[[NotificationEvent, object, Mapping[str, object
 NotificationDeserializer = Callable[[Mapping[str, object]], object]
 
 _SOURCE_RE: Final = r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}"
+_DEDUP_KEY_RE: Final = r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}"
 _PROFILE_RE: Final = r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}"
 _PROHIBITED_KEYS = frozenset(
     {
@@ -291,8 +293,7 @@ class NotificationRegistry:
             raise NotificationValidationError("runtime_instance_id_invalid")
         if event.dedup_key is not None and (
             not isinstance(event.dedup_key, str)
-            or not 0 < len(event.dedup_key) <= 128
-            or fullmatch(_SOURCE_RE, event.dedup_key) is None
+            or fullmatch(_DEDUP_KEY_RE, event.dedup_key) is None
         ):
             raise NotificationValidationError("dedup_key_invalid")
         if event.subject is not None and not event.subject.is_valid():
@@ -372,9 +373,16 @@ def build_default_registry() -> NotificationRegistry:
     return NotificationRegistry(tuple(descriptors))
 
 
+@lru_cache(maxsize=1)
+def default_registry() -> NotificationRegistry:
+    """Вернуть общий immutable-by-convention registry стандартных схем."""
+    return build_default_registry()
+
+
 __all__ = [
     "DeferredNotificationPayload",
     "NotificationDescriptor",
     "NotificationRegistry",
     "build_default_registry",
+    "default_registry",
 ]

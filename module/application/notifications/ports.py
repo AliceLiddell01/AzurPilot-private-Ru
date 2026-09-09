@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Protocol
 from uuid import UUID
@@ -17,6 +18,7 @@ from module.application.notifications.models import (
     NotificationStoredEvent,
     PolicyDecision,
 )
+from module.application.notifications.state import RetryPolicy
 from module.application.storage_ports import StorageUnitOfWork
 
 
@@ -25,7 +27,7 @@ class NotificationRepository(Protocol):
         self,
         event: NotificationEvent,
         *,
-        payload_document: dict[str, object],
+        payload_document: Mapping[str, object],
         payload_digest: str,
         decision: PolicyDecision,
         deliveries: tuple[NotificationDeliveryPlan, ...],
@@ -45,7 +47,7 @@ class NotificationRepository(Protocol):
         *,
         delivery_id: UUID,
         lease_token: UUID,
-        update: DeliveryUpdate,
+        delivery_update: DeliveryUpdate,
     ) -> bool: ...
 
     def recover_expired(
@@ -54,7 +56,7 @@ class NotificationRepository(Protocol):
         now: datetime,
         batch_size: int,
         worker_id: str,
-        retry_policy: object,
+        retry_policy: RetryPolicy,
     ) -> int: ...
 
     def get_event(self, event_id: UUID) -> NotificationStoredEvent | None: ...

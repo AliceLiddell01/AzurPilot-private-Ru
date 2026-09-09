@@ -23,14 +23,17 @@ from module.application.notifications.models import (
 
 MAX_PAYLOAD_BYTES: Final = 4 * 1024
 MAX_SNAPSHOT_BYTES: Final = 8 * 1024
+MAX_PAYLOAD_DEPTH: Final = 16
 
 
 def _reject(reason: str) -> None:
     raise NotificationValidationError(reason)
 
 
-def canonical_value(value: object) -> object:
+def canonical_value(value: object, *, _depth: int = 0) -> object:
     """Преобразовать только известные JSON-совместимые доменные значения."""
+    if _depth > MAX_PAYLOAD_DEPTH:
+        _reject("payload_too_deep")
     if value is None or isinstance(value, (str, bool, int)):
         return value
     if isinstance(value, float):
@@ -44,20 +47,22 @@ def canonical_value(value: object) -> object:
     if isinstance(value, date):
         return value.isoformat()
     if isinstance(value, Decimal):
+        if not value.is_finite():
+            _reject("payload_non_finite_number")
         return str(value.normalize())
     if isinstance(value, UUID):
         return str(value)
     if isinstance(value, Enum):
-        return canonical_value(value.value)
+        return canonical_value(value.value, _depth=_depth + 1)
     if isinstance(value, Mapping):
         result: dict[str, object] = {}
         for key, item in value.items():
             if not isinstance(key, str) or not key:
                 _reject("payload_mapping_key_invalid")
-            result[key] = canonical_value(item)
+            result[key] = canonical_value(item, _depth=_depth + 1)
         return result
     if isinstance(value, (tuple, list)):
-        return [canonical_value(item) for item in value]
+        return [canonical_value(item, _depth=_depth + 1) for item in value]
     _reject("payload_value_type_invalid")
     return None
 

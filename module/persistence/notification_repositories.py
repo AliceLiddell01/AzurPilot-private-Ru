@@ -51,7 +51,7 @@ from module.application.notifications.models import (
 )
 from module.application.notifications.registry import (
     NotificationRegistry,
-    build_default_registry,
+    default_registry,
 )
 from module.application.notifications.state import RetryPolicy, expired_lease_update
 from module.persistence.database import translate_database_error
@@ -83,7 +83,7 @@ class PostgresNotificationRepository:
         self, connection: Connection, *, registry: NotificationRegistry | None = None
     ) -> None:
         self._connection = connection
-        self._registry = registry or build_default_registry()
+        self._registry = registry if registry is not None else default_registry()
 
     def publish(
         self,
@@ -278,10 +278,10 @@ class PostgresNotificationRepository:
         *,
         delivery_id: UUID,
         lease_token: UUID,
-        update: DeliveryUpdate,
+        delivery_update: DeliveryUpdate,
     ) -> bool:
-        now = _utc(update.completed_at or update.next_attempt_at)
-        _validate_update(update)
+        now = _utc(delivery_update.completed_at or delivery_update.next_attempt_at)
+        _validate_update(delivery_update)
         try:
             current = self._connection.execute(
                 select(
@@ -296,18 +296,18 @@ class PostgresNotificationRepository:
             if current is None:
                 return False
             values: dict[str, object] = {
-                "state": update.state.value,
-                "next_attempt_at": update.next_attempt_at,
+                "state": delivery_update.state.value,
+                "next_attempt_at": delivery_update.next_attempt_at,
                 "lease_owner": None,
                 "lease_token": None,
-                "lease_until": update.lease_until
-                if update.state is DeliveryState.AWAITING_AGENT_ACK
+                "lease_until": delivery_update.lease_until
+                if delivery_update.state is DeliveryState.AWAITING_AGENT_ACK
                 else None,
-                "last_safe_error_code": update.result.safe_error_code,
+                "last_safe_error_code": delivery_update.result.safe_error_code,
                 "updated_at": now,
             }
             changed = self._connection.execute(
-                update_statement(notification_delivery)
+                update(notification_delivery)
                 .where(
                     notification_delivery.c.id == delivery_id,
                     notification_delivery.c.lease_token == lease_token,
@@ -319,7 +319,7 @@ class PostgresNotificationRepository:
                 return False
             attempt_ordinal = int(current.attempt_count)
             attempt_changed = self._connection.execute(
-                update_statement(notification_delivery_attempt)
+                update(notification_delivery_attempt)
                 .where(
                     notification_delivery_attempt.c.delivery_id == delivery_id,
                     notification_delivery_attempt.c.attempt_ordinal == attempt_ordinal,
@@ -327,11 +327,11 @@ class PostgresNotificationRepository:
                 )
                 .values(
                     finished_at=now,
-                    result_class=update.result.result_class.value,
-                    safe_error_code=update.result.safe_error_code,
-                    safe_error_summary=update.result.safe_error_summary,
-                    retry_after_seconds=update.result.retry_after_seconds,
-                    provider_message_id=update.result.provider_message_id,
+                    result_class=delivery_update.result.result_class.value,
+                    safe_error_code=delivery_update.result.safe_error_code,
+                    safe_error_summary=delivery_update.result.safe_error_summary,
+                    retry_after_seconds=delivery_update.result.retry_after_seconds,
+                    provider_message_id=delivery_update.result.provider_message_id,
                 )
             )
             if attempt_changed.rowcount != 1:
@@ -389,13 +389,11 @@ class PostgresNotificationRepository:
                     retry_policy=retry_policy,
                     idempotency_key=delivery.idempotency_key,
                 )
-                new_attempt_ordinal = delivery.attempt_count
                 if previous_state is DeliveryState.AWAITING_AGENT_ACK:
-                    new_attempt_ordinal += 1
                     self._connection.execute(
                         notification_delivery_attempt.insert().values(
                             delivery_id=delivery.id,
-                            attempt_ordinal=new_attempt_ordinal,
+                            attempt_ordinal=next_attempt_count,
                             started_at=now,
                             finished_at=now,
                             result_class=transition.result.result_class.value,
@@ -410,7 +408,7 @@ class PostgresNotificationRepository:
                             "IN_FLIGHT delivery не содержит lease token при recovery."
                         )
                     attempt_changed = self._connection.execute(
-                        update_statement(notification_delivery_attempt)
+                        update(notification_delivery_attempt)
                         .where(
                             notification_delivery_attempt.c.delivery_id == delivery.id,
                             notification_delivery_attempt.c.attempt_ordinal
@@ -428,7 +426,7 @@ class PostgresNotificationRepository:
                             "Expired IN_FLIGHT delivery не имеет текущей attempt."
                         )
                 self._connection.execute(
-                    update_statement(notification_delivery)
+                    update(notification_delivery)
                     .where(notification_delivery.c.id == delivery.id)
                     .values(
                         state=transition.state.value,
@@ -534,7 +532,7 @@ class PostgresNotificationRepository:
             raise StorageInvariantViolationError("Profile sequence allocator не создал строку.")
         sequence = int(row.next_sequence)
         self._connection.execute(
-            update_statement(notification_profile_sequence)
+            update(notification_profile_sequence)
             .where(notification_profile_sequence.c.profile_id == profile_id)
             .values(next_sequence=sequence + 1)
         )
@@ -920,10 +918,6 @@ class PostgresNotificationRepository:
         ):
             raise StorageInvariantViolationError("Stored span id не bounded.")
         return attempt
-
-
-def update_statement(table: Table):
-    return update(table)
 
 
 def _column_mapping(row: object, table: Table) -> dict[str, object]:

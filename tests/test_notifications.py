@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from threading import RLock
 from typing import Self
 from uuid import UUID, uuid4
@@ -34,7 +35,7 @@ from module.application.notifications import (
     RetryPolicy,
     build_default_registry,
 )
-from module.application.notifications.encoding import event_payload_digest
+from module.application.notifications.encoding import canonical_json, event_payload_digest
 from module.application.notifications.models import (
     ClaimedDelivery,
     DeliveryUpdate,
@@ -46,6 +47,7 @@ from module.application.notifications.models import (
     NotificationStoredEvent,
     PreparedDelivery,
 )
+from module.application.notifications.telemetry import safe_telemetry_span
 
 NOW = datetime(2026, 9, 10, 12, 0, tzinfo=UTC)
 
@@ -101,6 +103,33 @@ class _FakeChannel:
         return self.result
 
 
+class _FailingSpan:
+    def __init__(self, *, enter_failure: bool, exit_failure: bool) -> None:
+        self.enter_failure = enter_failure
+        self.exit_failure = exit_failure
+
+    def __enter__(self) -> Self:
+        if self.enter_failure:
+            raise RuntimeError("telemetry enter failed")
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        if self.exit_failure:
+            raise RuntimeError("telemetry exit failed")
+
+
+class _FailingTelemetry:
+    def __init__(self, *, enter_failure: bool = False, exit_failure: bool = False) -> None:
+        self.enter_failure = enter_failure
+        self.exit_failure = exit_failure
+
+    def span(self, *_args: object, **_kwargs: object) -> _FailingSpan:
+        return _FailingSpan(
+            enter_failure=self.enter_failure,
+            exit_failure=self.exit_failure,
+        )
+
+
 class _MemoryUow:
     def __init__(self, repository: _MemoryRepository) -> None:
         self.notifications = repository
@@ -154,12 +183,10 @@ class _MemoryRepository:
                     reason=None if status is PublishStatus.DUPLICATE else "immutable_identity_mismatch",
                 )
             self._sequence += 1
-            stored_event = replace(
-                event.with_persistence(
-                    persisted_at=NOW,
-                    profile_sequence=self._sequence,
-                    payload_digest=payload_digest,
-                )
+            stored_event = event.with_persistence(
+                persisted_at=NOW,
+                profile_sequence=self._sequence,
+                payload_digest=payload_digest,
             )
             stored = NotificationStoredEvent(stored_event, payload_document)
             self.events[event.id] = stored
@@ -257,7 +284,11 @@ class _MemoryRepository:
             return tuple(claimed)
 
     def apply_update(
-        self, *, delivery_id: UUID, lease_token: UUID, update: DeliveryUpdate
+        self,
+        *,
+        delivery_id: UUID,
+        lease_token: UUID,
+        delivery_update: DeliveryUpdate,
     ) -> bool:
         with self._lock:
             delivery = self.deliveries[delivery_id]
@@ -265,20 +296,20 @@ class _MemoryRepository:
                 return False
             self.deliveries[delivery_id] = replace(
                 delivery,
-                state=update.state,
-                next_attempt_at=update.next_attempt_at,
+                state=delivery_update.state,
+                next_attempt_at=delivery_update.next_attempt_at,
                 lease_owner=None,
                 lease_token=None,
-                lease_until=update.lease_until,
-                last_safe_error_code=update.result.safe_error_code,
-                updated_at=update.completed_at or update.next_attempt_at,
+                lease_until=delivery_update.lease_until,
+                last_safe_error_code=delivery_update.result.safe_error_code,
+                updated_at=delivery_update.completed_at or delivery_update.next_attempt_at,
             )
             current = self.attempts[delivery_id][-1]
             self.attempts[delivery_id][-1] = replace(
                 current,
-                finished_at=update.completed_at or update.next_attempt_at,
-                result_class=update.result.result_class,
-                safe_error_code=update.result.safe_error_code,
+                finished_at=delivery_update.completed_at or delivery_update.next_attempt_at,
+                result_class=delivery_update.result.result_class,
+                safe_error_code=delivery_update.result.safe_error_code,
             )
             return True
 
@@ -306,6 +337,42 @@ def test_policy_is_first_matching_rule_and_snapshot_is_stable() -> None:
     assert decision.state is PolicyState.ROUTED
     assert decision.matched_rule_id == "handover"
     assert resolver.resolve(event).snapshot_hash == decision.snapshot_hash
+
+
+def test_policy_severity_matcher_is_typed_and_safe() -> None:
+    policy = NotificationPolicy(
+        version=1,
+        rules=(
+            NotificationRule(
+                rule_id="critical-only",
+                priority=1,
+                matcher=NotificationRuleMatcher(
+                    minimum_severity=NotificationSeverity.ERROR
+                ),
+                action=PolicyAction(channel_instance_ids=("agent",)),
+            ),
+        ),
+        default_action=PolicyAction(suppression_reason="default_suppressed"),
+    )
+    resolver = NotificationPolicyResolver(policy)
+
+    assert resolver.resolve(_event()).matched_rule_id == "critical-only"
+    assert not NotificationRuleMatcher(
+        minimum_severity=NotificationSeverity.ERROR
+    ).matches(replace(_event(), severity="CRITICAL"))
+
+
+def test_canonical_payload_rejects_non_finite_decimal_and_deep_nesting() -> None:
+    with pytest.raises(NotificationValidationError) as decimal_error:
+        canonical_json(Decimal("NaN"))
+    assert decimal_error.value.reason_code == "payload_non_finite_number"
+
+    nested: object = "leaf"
+    for _ in range(17):
+        nested = {"value": nested}
+    with pytest.raises(NotificationValidationError) as depth_error:
+        canonical_json(nested)
+    assert depth_error.value.reason_code == "payload_too_deep"
 
 
 def test_provider_acceptance_never_becomes_delivered() -> None:
@@ -355,6 +422,44 @@ def test_publisher_and_dispatcher_keep_provider_acceptance_intermediate() -> Non
     delivery = next(iter(repository.deliveries.values()))
     assert delivery.state is DeliveryState.AWAITING_AGENT_ACK
     assert channel.sent[0].idempotency_key.startswith(str(result.event_id))
+
+
+@pytest.mark.parametrize(
+    ("enter_failure", "exit_failure"),
+    ((True, False), (False, True)),
+)
+def test_dispatcher_telemetry_lifecycle_is_fail_open(
+    enter_failure: bool, exit_failure: bool
+) -> None:
+    repository = _MemoryRepository()
+    NotificationPublisher(
+        lambda: _MemoryUow(repository),
+        policy=_policy(),
+        clock=lambda: NOW,
+        telemetry=object(),
+    ).publish(_event())
+    dispatcher = NotificationDispatcher(
+        lambda: _MemoryUow(repository),
+        channel_catalog=NotificationChannelCatalog((_FakeChannel(DeliveryResult.delivered()),)),
+        clock=lambda: NOW,
+        worker_id="worker-telemetry",
+        telemetry=_FailingTelemetry(
+            enter_failure=enter_failure,
+            exit_failure=exit_failure,
+        ),
+    )
+
+    report = dispatcher.dispatch_once()
+
+    assert report.updated == 1
+
+
+def test_telemetry_exit_failure_does_not_hide_notification_error() -> None:
+    with pytest.raises(RuntimeError, match="notification failed"):
+        with safe_telemetry_span(
+            _FailingTelemetry(exit_failure=True), "notification.test"
+        ):
+            raise RuntimeError("notification failed")
 
 
 def test_handover_result_accepted_is_not_delivery_proof() -> None:

@@ -1107,6 +1107,12 @@ Index(
     notification_delivery.c.event_id,
     notification_delivery.c.id,
 )
+Index(
+    "ix_notification_delivery_lease_expiry",
+    notification_delivery.c.lease_until,
+    notification_delivery.c.id,
+    postgresql_where=text("lease_until IS NOT NULL"),
+)
 
 notification_delivery_attempt = Table(
     "notification_delivery_attempt",

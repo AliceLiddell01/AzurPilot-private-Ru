@@ -137,4 +137,7 @@ class NotificationValidationError(InvalidRequestError):
 
     def __init__(self, reason_code: str, message: str | None = None) -> None:
         self.reason_code = reason_code
-        super().__init__(message or "Notification event не прошёл проверку схемы.")
+        super().__init__(
+            message
+            or f"Notification event не прошёл проверку схемы: {reason_code}."
+        )

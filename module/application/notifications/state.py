@@ -105,7 +105,7 @@ def transition_for_result(
     if attempt_count >= retry_policy.max_attempts or (
         deadline_at is not None and now >= _bounded_now(deadline_at)
     ):
-        return DeliveryUpdate(DeliveryState.FAILED, result, now)
+        return DeliveryUpdate(DeliveryState.FAILED, result, now, completed_at=now)
     retry_after = result.retry_after_seconds
     delay = (
         max(1, min(retry_policy.max_delay_seconds, retry_after))

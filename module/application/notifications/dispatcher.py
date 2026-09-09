@@ -5,18 +5,19 @@ from __future__ import annotations
 import os
 import time
 from collections.abc import Callable
-from contextlib import nullcontext
 from datetime import UTC, datetime
 from uuid import uuid4
 
 from module.application.errors import StorageInvariantViolationError
 from module.application.notifications.channels import NotificationChannelCatalog
 from module.application.notifications.models import (
+    ChannelCapabilities,
     DeliveryResult,
     DispatchReport,
 )
 from module.application.notifications.ports import NotificationUnitOfWork
 from module.application.notifications.state import RetryPolicy, transition_for_result
+from module.application.notifications.telemetry import safe_telemetry_span
 
 
 def _default_clock() -> datetime:
@@ -57,7 +58,7 @@ class NotificationDispatcher:
 
     def dispatch_once(self) -> DispatchReport:
         now = _utc(self._clock())
-        with _telemetry_span(self._telemetry, "notification.dispatch.claim"):
+        with safe_telemetry_span(self._telemetry, "notification.dispatch.claim"):
             with self._uow_factory() as uow:
                 claimed = uow.notifications.claim_due(
                     now=now,
@@ -71,7 +72,7 @@ class NotificationDispatcher:
         for item in claimed:
             channel = self._channels.get(item.delivery.channel_instance_id)
             started = time.perf_counter()
-            with _telemetry_span(
+            with safe_telemetry_span(
                 self._telemetry,
                 "notification.channel.send",
                 attributes={"channel_type": item.delivery.channel_type},
@@ -104,7 +105,7 @@ class NotificationDispatcher:
                 if uow.notifications.apply_update(
                     delivery_id=item.delivery.id,
                     lease_token=item.lease_token,
-                    update=transition,
+                    delivery_update=transition,
                 ):
                     uow.commit()
                     updated += 1
@@ -157,9 +158,7 @@ class NotificationDispatcher:
             return
 
 
-def _fallback_capabilities():
-    from module.application.notifications.models import ChannelCapabilities
-
+def _fallback_capabilities() -> ChannelCapabilities:
     return ChannelCapabilities()
 
 
@@ -176,21 +175,6 @@ def _build_telemetry() -> object | None:
         return NotificationTelemetry()
     except Exception:  # noqa: BLE001 - observability fail-open при создании dispatcher.
         return None
-
-
-def _telemetry_span(
-    telemetry: object | None,
-    name: str,
-    *,
-    attributes: dict[str, object] | None = None,
-):
-    method = getattr(telemetry, "span", None)
-    if method is None:
-        return nullcontext()
-    try:
-        return method(name, attributes=attributes or {})
-    except Exception:  # noqa: BLE001 - telemetry остаётся fail-open.
-        return nullcontext()
 
 
 __all__ = ["NotificationDispatcher"]

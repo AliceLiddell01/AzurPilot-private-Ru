@@ -226,6 +226,13 @@ def upgrade() -> None:
         ["event_id", "id"],
         schema=_SCHEMA,
     )
+    op.create_index(
+        "ix_notification_delivery_lease_expiry",
+        "notification_delivery",
+        ["lease_until", "id"],
+        schema=_SCHEMA,
+        postgresql_where=sa.text("lease_until IS NOT NULL"),
+    )
 
     op.create_table(
         "notification_delivery_attempt",
@@ -295,19 +302,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_table("notification_delivery_attempt", schema=_SCHEMA)
-    op.drop_index(
-        "ix_notification_delivery_event", table_name="notification_delivery", schema=_SCHEMA
-    )
-    op.drop_index(
-        "ix_notification_delivery_claim_due", table_name="notification_delivery", schema=_SCHEMA
-    )
     op.drop_table("notification_delivery", schema=_SCHEMA)
     op.drop_table("notification_policy_decision", schema=_SCHEMA)
-    op.drop_index(
-        "ix_notification_event_profile_history", table_name="notification_event", schema=_SCHEMA
-    )
-    op.drop_index(
-        "uq_notification_event_logical_identity", table_name="notification_event", schema=_SCHEMA
-    )
     op.drop_table("notification_event", schema=_SCHEMA)
     op.drop_table("notification_profile_sequence", schema=_SCHEMA)

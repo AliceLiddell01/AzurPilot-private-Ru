@@ -10,7 +10,10 @@ from sqlalchemy import Connection
 from sqlalchemy.exc import SQLAlchemyError
 
 from module.application.errors import StorageError
-from module.application.notifications.registry import NotificationRegistry
+from module.application.notifications.registry import (
+    NotificationRegistry,
+    default_registry,
+)
 from module.persistence.database import LazyEngine, translate_database_error
 from module.persistence.dorm_morale_repositories import PostgresDormMoraleRepository
 from module.persistence.fleet_manual_scan_repositories import (
@@ -67,8 +70,13 @@ class PostgresUnitOfWork:
             self.fleet_scan_commands = PostgresFleetManualScanCommandRepository(
                 connection
             )
+            registry = (
+                self._notification_registry
+                if self._notification_registry is not None
+                else default_registry()
+            )
             self.notifications = PostgresNotificationRepository(
-                connection, registry=self._notification_registry
+                connection, registry=registry
             )
         except SQLAlchemyError as exc:
             self._connection = None

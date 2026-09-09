@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from re import fullmatch
 from typing import Any
@@ -26,6 +25,7 @@ from module.application.notifications.models import (
     NotificationPublishResult,
     PublishResult,
     PublishStatus,
+    PolicyState,
     RenderedSnapshot,
     ensure_aware_utc,
 )
@@ -43,6 +43,7 @@ from module.application.notifications.rendering import (
     NotificationRendererCatalog,
     build_default_renderer_catalog,
 )
+from module.application.notifications.telemetry import safe_telemetry_span
 
 
 def _default_clock() -> datetime:
@@ -82,7 +83,7 @@ class NotificationPublisher:
         event_id = _event_id(event)
         try:
             descriptor, payload_document, payload_digest = self._registry.validate(event)
-            with _telemetry_span(
+            with safe_telemetry_span(
                 self._telemetry, "notification.policy.resolve"
             ):
                 decision = self._policy_resolver.resolve(event)
@@ -105,7 +106,7 @@ class NotificationPublisher:
                 reason=reason,
             )
         try:
-            with _telemetry_span(self._telemetry, "notification.publish"):
+            with safe_telemetry_span(self._telemetry, "notification.publish"):
                 with self._uow_factory() as uow:
                     persisted = uow.notifications.publish(
                         event,
@@ -186,7 +187,7 @@ class NotificationPublisher:
         descriptor: NotificationDescriptor,
         decision: Any,
     ) -> tuple[NotificationDeliveryPlan, ...]:
-        if decision.state.value == "SUPPRESSED":
+        if decision.state is PolicyState.SUPPRESSED:
             return ()
         now = _utc(self._clock())
         plans: list[NotificationDeliveryPlan] = []
@@ -223,7 +224,7 @@ class NotificationPublisher:
                     rendered_snapshot=snapshot,
                     idempotency_key=f"{event.id}:{channel_id}",
                     timeout_seconds=min(300.0, max(1.0, (deadline_at - now).total_seconds()))
-                    if deadline_at is not None and deadline_at > now
+                    if deadline_at > now
                     else 60.0,
                 )
             )
@@ -291,21 +292,6 @@ def _build_telemetry() -> object | None:
         return NotificationTelemetry()
     except Exception:  # noqa: BLE001 - observability fail-open при создании use case.
         return None
-
-
-def _telemetry_span(
-    telemetry: object | None,
-    name: str,
-    *,
-    attributes: dict[str, object] | None = None,
-):
-    method = getattr(telemetry, "span", None)
-    if method is None:
-        return nullcontext()
-    try:
-        return method(name, attributes=attributes or {})
-    except Exception:  # noqa: BLE001 - telemetry остаётся fail-open.
-        return nullcontext()
 
 
 __all__ = ["NotificationPublisher", "NotificationService"]

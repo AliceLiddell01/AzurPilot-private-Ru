@@ -9,11 +9,13 @@ from module.application.notifications.encoding import (
     policy_snapshot_document,
 )
 from module.application.notifications.models import (
+    _DOTTED_TYPE_RE,
     NotificationEvent,
     NotificationPolicy,
     NotificationPolicySnapshot,
     NotificationRule,
     NotificationRuleMatcher,
+    NotificationSeverity,
     PolicyAction,
     PolicyDecision,
     PolicyState,
@@ -52,11 +54,11 @@ def _validate_matcher(matcher: object) -> None:
     if not isinstance(matcher, NotificationRuleMatcher):
         raise TypeError("Policy matcher должен быть NotificationRuleMatcher.")
     if matcher.exact_type is not None and not _bounded_token(
-        matcher.exact_type, r"[a-z0-9]+(?:[._-][a-z0-9]+)*"
+        matcher.exact_type, _DOTTED_TYPE_RE
     ):
         raise ValueError("Policy exact type имеет неверный формат.")
     if matcher.type_prefix is not None and not _bounded_token(
-        matcher.type_prefix, r"[a-z0-9]+(?:[._-][a-z0-9]+)*"
+        matcher.type_prefix, _DOTTED_TYPE_RE
     ):
         raise ValueError("Policy type prefix имеет неверный формат.")
     for severity in (matcher.exact_severity, matcher.minimum_severity):
@@ -143,7 +145,7 @@ class NotificationPolicyResolver:
             rule_id=selected_rule.rule_id if selected_rule else None,
             action=action,
         )
-        state = PolicyState.ROUTED if action.channel_instance_ids and action.suppression_reason is None else PolicyState.SUPPRESSED
+        state = PolicyState.SUPPRESSED if action.suppressed else PolicyState.ROUTED
         return PolicyDecision(
             state=state,
             policy_version=self._policy.version,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
@@ -63,7 +64,7 @@ class _Channel:
 
 
 @pytest.fixture
-def database() -> LazyEngine:
+def database() -> Iterator[LazyEngine]:
     lazy = LazyEngine(DatabaseSettings.from_environment())
     with lazy.get().begin() as connection:
         for table in reversed(metadata.sorted_tables):
@@ -280,7 +281,7 @@ def test_expired_lease_recovers_and_stale_token_cannot_update(
         stale = uow.notifications.apply_update(
             delivery_id=delivery.id,
             lease_token=token,
-            update=DeliveryUpdate(
+            delivery_update=DeliveryUpdate(
                 state=DeliveryState.FAILED,
                 result=DeliveryResult.permanent_failure("stale_worker"),
                 next_attempt_at=NOW + timedelta(seconds=31),
@@ -332,7 +333,7 @@ def test_overlapping_attempt_keeps_stable_idempotency_and_fences_old_worker(
         stale = uow.notifications.apply_update(
             delivery_id=first.delivery.id,
             lease_token=first.lease_token,
-            update=DeliveryUpdate(
+            delivery_update=DeliveryUpdate(
                 state=DeliveryState.PROVIDER_ACCEPTED,
                 result=DeliveryResult.provider_accepted(provider_message_id="late-a"),
                 next_attempt_at=NOW + timedelta(seconds=40),

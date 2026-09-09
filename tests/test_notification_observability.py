@@ -52,6 +52,37 @@ class _Span:
         return None
 
 
+class _FailingInstrument:
+    def add(self, _value: object, *, attributes: dict[str, str]) -> None:
+        raise RuntimeError("instrument unavailable")
+
+    def record(self, _value: object, *, attributes: dict[str, str]) -> None:
+        raise RuntimeError("instrument unavailable")
+
+
+class _FailingMeter:
+    def create_counter(self, _name: str, **_kwargs: object) -> _FailingInstrument:
+        return _FailingInstrument()
+
+    def create_histogram(self, _name: str, **_kwargs: object) -> _FailingInstrument:
+        return _FailingInstrument()
+
+
+class _FailingSpan:
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        raise RuntimeError("tracer exit unavailable")
+
+
+class _FailingTracer:
+    def start_as_current_span(
+        self, _name: str, *, attributes: dict[str, str]
+    ) -> _FailingSpan:
+        return _FailingSpan()
+
+
 def test_notification_metrics_never_use_event_or_delivery_identity_as_label() -> None:
     meter = _Meter()
     telemetry = NotificationTelemetry(meter=meter, tracer=_Tracer())
@@ -87,3 +118,13 @@ def test_notification_span_keeps_only_allowlisted_attributes() -> None:
     ) as span:
         assert span.name == "notification.channel.send"
     assert span.attributes == {"channel_type": "test", "source_domain": "runtime"}
+
+
+def test_notification_telemetry_stays_fail_open() -> None:
+    telemetry = NotificationTelemetry(meter=_FailingMeter(), tracer=_FailingTracer())
+    event = SimpleNamespace(source="runtime")
+
+    telemetry.record_publish(event=event, value="persisted")
+    telemetry.record_latency(channel_type="test", result_class="DELIVERED", seconds=1.0)
+    with telemetry.span("notification.publish") as span:
+        assert span is not None

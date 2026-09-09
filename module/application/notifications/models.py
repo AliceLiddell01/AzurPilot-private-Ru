@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from enum import Enum
 from re import fullmatch
+from typing import Final
 from uuid import UUID, uuid4
 
 _TOKEN_RE = r"[A-Za-z0-9][A-Za-z0-9_.:-]*"
@@ -34,6 +35,14 @@ class NotificationSeverity(str, Enum):
     WARNING = "WARNING"
     ERROR = "ERROR"
     CRITICAL = "CRITICAL"
+
+
+_SEVERITY_ORDER: Final[dict[NotificationSeverity, int]] = {
+    NotificationSeverity.INFO: 10,
+    NotificationSeverity.WARNING: 20,
+    NotificationSeverity.ERROR: 30,
+    NotificationSeverity.CRITICAL: 40,
+}
 
 
 class NotificationSensitivity(str, Enum):
@@ -88,7 +97,7 @@ class HandoverNotificationOutcome(str, Enum):
     UNAVAILABLE = "unavailable"
 
 
-def _valid_token(value: object, *, name: str, limit: int, pattern: str = _TOKEN_RE) -> bool:
+def _valid_token(value: object, *, limit: int, pattern: str = _TOKEN_RE) -> bool:
     return isinstance(value, str) and 0 < len(value) <= limit and fullmatch(pattern, value) is not None
 
 
@@ -105,9 +114,7 @@ class NotificationSubject:
     id: str
 
     def is_valid(self) -> bool:
-        return _valid_token(self.kind, name="subject.kind", limit=32) and _valid_token(
-            self.id, name="subject.id", limit=128
-        )
+        return _valid_token(self.kind, limit=32) and _valid_token(self.id, limit=128)
 
 
 NotificationReference = NotificationSubject
@@ -126,7 +133,7 @@ class NotificationCorrelation:
             (self.task_id, 128),
             (self.runtime_session_id, 128),
         ):
-            if value is not None and not _valid_token(value, name="correlation", limit=limit):
+            if value is not None and not _valid_token(value, limit=limit):
                 return False
         if self.trace_id is not None and (
             not isinstance(self.trace_id, str)
@@ -155,16 +162,16 @@ class HandoverPreemptionPayload:
         deadline = ensure_aware_utc(self.deadline_at)
         occurred = ensure_aware_utc(occurred_at)
         return (
-            _valid_token(self.operation_id, name="operation_id", limit=128)
-            and _valid_token(self.source_profile_id, name="source_profile_id", limit=128)
+            _valid_token(self.operation_id, limit=128)
+            and _valid_token(self.source_profile_id, limit=128)
             and self.source_profile_id == event_profile_id
             and isinstance(self.owner_epoch, int)
             and not isinstance(self.owner_epoch, bool)
             and self.owner_epoch >= 0
-            and _valid_token(self.reason_code, name="reason_code", limit=64)
+            and _valid_token(self.reason_code, limit=64)
             and (
                 self.session_id is None
-                or _valid_token(self.session_id, name="session_id", limit=128)
+                or _valid_token(self.session_id, limit=128)
             )
             and (self.current_task is None or self.current_task.is_valid())
             and occurred is not None
@@ -238,11 +245,11 @@ class RenderedSnapshot:
     body: str
 
     def is_valid(self, *, max_title: int, max_body: int, max_payload_bytes: int) -> bool:
-        if not _valid_token(self.locale, name="locale", limit=32, pattern=r"[A-Za-z]{2,8}(?:-[A-Za-z0-9]{2,8})?"):
+        if not _valid_token(self.locale, limit=32, pattern=r"[A-Za-z]{2,8}(?:-[A-Za-z0-9]{2,8})?"):
             return False
-        if not _valid_token(self.renderer_id, name="renderer_id", limit=64):
+        if not _valid_token(self.renderer_id, limit=64):
             return False
-        if not _valid_token(self.renderer_version, name="renderer_version", limit=32):
+        if not _valid_token(self.renderer_version, limit=32):
             return False
         if not isinstance(self.title, str) or not 0 < len(self.title) <= max_title:
             return False
@@ -274,7 +281,7 @@ class ChannelCapabilities:
             and 256 <= self.max_payload_bytes <= 64 * 1024
             and 1 <= self.max_title_length <= 4096
             and 1 <= self.max_body_length <= self.max_payload_bytes
-            and _valid_token(self.markup_mode, name="markup_mode", limit=32)
+            and _valid_token(self.markup_mode, limit=32)
             and isinstance(self.idempotency, bool)
             and isinstance(self.receipt_strength, ReceiptStrength)
             and isinstance(self.health_check, bool)
@@ -287,7 +294,7 @@ class NotificationAttribute:
     value: str | int | bool
 
     def is_valid(self) -> bool:
-        return _valid_token(self.key, name="attribute.key", limit=64) and (
+        return _valid_token(self.key, limit=64) and (
             isinstance(self.value, (str, int, bool))
             and not isinstance(self.value, float)
             and (not isinstance(self.value, str) or len(self.value) <= 256)
@@ -414,16 +421,15 @@ class NotificationRuleMatcher:
             event.type == self.type_prefix or event.type.startswith(self.type_prefix + ".")
         ):
             return False
-        order = {
-            NotificationSeverity.INFO: 10,
-            NotificationSeverity.WARNING: 20,
-            NotificationSeverity.ERROR: 30,
-            NotificationSeverity.CRITICAL: 40,
-        }
         if self.exact_severity is not None and event.severity is not self.exact_severity:
             return False
-        if self.minimum_severity is not None and order[event.severity] < order[self.minimum_severity]:
-            return False
+        if self.minimum_severity is not None:
+            if not isinstance(event.severity, NotificationSeverity):
+                return False
+            actual = _SEVERITY_ORDER.get(event.severity)
+            minimum = _SEVERITY_ORDER.get(self.minimum_severity)
+            if actual is None or minimum is None or actual < minimum:
+                return False
         if self.profile_id is not None and event.profile_id != self.profile_id:
             return False
         if self.source is not None and event.source != self.source:

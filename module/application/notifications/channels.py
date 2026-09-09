@@ -38,21 +38,28 @@ class NotificationChannelCatalog:
             self.register(channel)
 
     def register(self, channel: NotificationChannel) -> None:
-        if not callable(getattr(channel, "send", None)):
+        try:
+            send = getattr(channel, "send", None)
+            instance_id = getattr(channel, "instance_id")
+            channel_type = getattr(channel, "channel_type")
+            capabilities = getattr(channel, "capabilities")
+        except Exception:  # noqa: BLE001 - adapter contract переводится в typed error.
+            raise TypeError("Channel должен предоставлять атрибуты contract.") from None
+        if not callable(send):
             raise TypeError("Channel должен предоставлять callable send.")
-        if not isinstance(channel.instance_id, str) or fullmatch(
-            r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", channel.instance_id
+        if not isinstance(instance_id, str) or fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", instance_id
         ) is None:
-            raise ValueError("Channel instance id должен быть непустым.")
-        if channel.instance_id in self._channels:
+            raise ValueError("Channel instance id имеет неверный формат.")
+        if instance_id in self._channels:
             raise ValueError("Channel instance id уже зарегистрирован.")
-        if not isinstance(channel.channel_type, str) or fullmatch(
-            r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}", channel.channel_type
+        if not isinstance(channel_type, str) or fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}", channel_type
         ) is None:
             raise ValueError("Channel type имеет неверный формат.")
-        if not isinstance(channel.capabilities, ChannelCapabilities) or not channel.capabilities.is_valid():
+        if not isinstance(capabilities, ChannelCapabilities) or not capabilities.is_valid():
             raise ValueError("Channel capabilities не прошли bounded validation.")
-        self._channels[channel.instance_id] = channel
+        self._channels[instance_id] = channel
 
     def get(self, instance_id: str) -> NotificationChannel | None:
         return self._channels.get(instance_id)
