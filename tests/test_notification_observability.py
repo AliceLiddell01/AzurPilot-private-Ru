@@ -115,6 +115,7 @@ def test_notification_metrics_never_use_event_or_delivery_identity_as_label() ->
     assert all("profile_id" not in attrs for attrs in observed)
     assert all("secret" not in str(attrs) for attrs in observed)
     assert any(attrs.get("source_domain") == "runtime" for attrs in observed)
+    assert any(attrs.get("channel_type") == "unknown" for attrs in observed)
 
 
 def test_notification_span_keeps_only_allowlisted_attributes() -> None:

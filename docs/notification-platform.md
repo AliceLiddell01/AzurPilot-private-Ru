@@ -492,8 +492,9 @@ deadline_at        required UTC deadline, within caller deadline and <= 300 sec
 ~~~
 
 Payload использует canonical encoding и ограничен initial target 4 KiB; строки
-имеют индивидуальные bounded limits, а свободные dict/list и raw exception,
-device id, screenshot, credentials и config запрещены. `occurred_at` является
+имеют индивидуальные bounded limits, а каждая вложенная mapping/sequence также
+ограничена 256 items до полной сериализации. Свободные dict/list и raw
+exception, device id, screenshot, credentials и config запрещены. `occurred_at` является
 requested time и не дублируется в data. `dedup_key` равен operation_id, поэтому
 retry publisher возвращает exact existing result, а изменение любого
 immutable field или payload_digest даёт identity_conflict без republish.
@@ -697,10 +698,10 @@ lease claim выполняет повторную попытку с тем же 
 
 `NotificationDispatcher.dispatch_once()` возвращает bounded `DispatchReport`:
 `updated` отражает durable result update, `stale_updates` — отклонённые lease
-token, а `failed` — исключения обработки отдельных элементов. Ошибка одного
-channel contract или storage update не прерывает уже claim-нутый batch; lease
-остаётся доступным для bounded recovery, а безопасный typed result используется
-для обычного retry, если это возможно.
+token, а `failed` — элементы с исключением adapter, channel contract или
+storage update. Ошибка одного элемента не прерывает уже claim-нутый batch;
+ошибка `channel.send` сначала переводится в безопасный typed unavailable result,
+а lease остаётся доступным для bounded recovery, если durable update не удался.
 
 ### [Внешний design reference] Transactional outbox
 

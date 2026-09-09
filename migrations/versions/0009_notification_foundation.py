@@ -340,5 +340,5 @@ def downgrade() -> None:
     op.drop_table("notification_delivery_attempt", schema=_SCHEMA)
     op.drop_table("notification_delivery", schema=_SCHEMA)
     op.drop_table("notification_policy_decision", schema=_SCHEMA)
-    op.drop_table("notification_event", schema=_SCHEMA)
     op.drop_table("notification_profile_sequence", schema=_SCHEMA)
+    op.drop_table("notification_event", schema=_SCHEMA)

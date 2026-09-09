@@ -23,9 +23,9 @@ from module.application.notifications.models import (
     NotificationDeliveryPlan,
     NotificationEvent,
     NotificationPolicy,
+    PolicyState,
     PublishResult,
     PublishStatus,
-    PolicyState,
     RenderedSnapshot,
     ensure_aware_utc,
 )
@@ -85,7 +85,7 @@ class NotificationPublisher:
     def publish(self, event: NotificationEvent) -> PublishResult:
         event_id = _event_id(event)
         try:
-            descriptor, payload_document, payload_digest = self._registry.validate(event)
+            descriptor, payload_document, _ = self._registry.validate(event)
             with safe_telemetry_span(
                 self._telemetry, "notification.policy.resolve"
             ):
@@ -109,16 +109,14 @@ class NotificationPublisher:
                 reason=reason,
             )
         try:
-            with safe_telemetry_span(self._telemetry, "notification.publish"):
-                with self._uow_factory() as uow:
-                    persisted = uow.notifications.publish(
-                        event,
-                        payload_document=payload_document,
-                        payload_digest=payload_digest,
-                        decision=decision,
-                        deliveries=plans,
-                    )
-                    uow.commit()
+            with safe_telemetry_span(self._telemetry, "notification.publish"), self._uow_factory() as uow:
+                persisted = uow.notifications.publish(
+                    event,
+                    payload_document=payload_document,
+                    decision=decision,
+                    deliveries=plans,
+                )
+                uow.commit()
         except StorageInvariantViolationError:
             raise
         except StorageUnavailableError:

@@ -24,6 +24,7 @@ from module.application.notifications.models import (
 MAX_PAYLOAD_BYTES: Final = 4 * 1024
 MAX_SNAPSHOT_BYTES: Final = 8 * 1024
 MAX_PAYLOAD_DEPTH: Final = 16
+MAX_PAYLOAD_ITEMS: Final = 256
 
 
 def _reject(reason: str) -> NoReturn:
@@ -55,6 +56,8 @@ def canonical_value(value: object, *, _depth: int = 0) -> object:
     if isinstance(value, Enum):
         return canonical_value(value.value, _depth=_depth + 1)
     if isinstance(value, Mapping):
+        if len(value) > MAX_PAYLOAD_ITEMS:
+            _reject("payload_too_large")
         result: dict[str, object] = {}
         for key, item in value.items():
             if not isinstance(key, str) or not key:
@@ -62,6 +65,8 @@ def canonical_value(value: object, *, _depth: int = 0) -> object:
             result[key] = canonical_value(item, _depth=_depth + 1)
         return result
     if isinstance(value, (tuple, list)):
+        if len(value) > MAX_PAYLOAD_ITEMS:
+            _reject("payload_too_large")
         return [canonical_value(item, _depth=_depth + 1) for item in value]
     _reject("payload_value_type_invalid")
 
@@ -164,6 +169,8 @@ def rendered_snapshot_document(snapshot: RenderedSnapshot) -> dict[str, object]:
 
 __all__ = [
     "MAX_PAYLOAD_BYTES",
+    "MAX_PAYLOAD_DEPTH",
+    "MAX_PAYLOAD_ITEMS",
     "MAX_SNAPSHOT_BYTES",
     "canonical_digest",
     "canonical_json",

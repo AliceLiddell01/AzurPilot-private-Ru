@@ -49,6 +49,10 @@ def _validate_action(action: PolicyAction) -> None:
         action.suppression_reason, r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}"
     ):
         raise ValueError("Policy suppression reason имеет неверный формат.")
+    if action.suppression_reason is not None and action.channel_instance_ids:
+        raise ValueError(
+            "Policy action не может задавать channels вместе с suppression reason."
+        )
 
 
 def _validate_matcher(matcher: object) -> None:

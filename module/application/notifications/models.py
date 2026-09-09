@@ -6,7 +6,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from enum import Enum
-from re import IGNORECASE, compile, fullmatch
+from re import IGNORECASE, fullmatch
+from re import compile as compile_regex
 from typing import Final
 from uuid import UUID, uuid4
 
@@ -14,7 +15,7 @@ _TOKEN_RE = r"[A-Za-z0-9][A-Za-z0-9_.:-]*"
 DOTTED_TYPE_RE = r"[a-z0-9]+(?:[._-][a-z0-9]+)*"
 _HEX_RE = r"[0-9a-f]+"
 _SAFE_ERROR_CODE_RE = r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}"
-_UNSAFE_RESULT_RE = compile(
+_UNSAFE_RESULT_RE = compile_regex(
     r"(?:https?://|(?:password|secret|token|credential|authorization|bearer|"
     r"traceback|stacktrace|serial)(?:\b|_)|device_id(?:\b|_))",
     IGNORECASE,
@@ -561,7 +562,6 @@ class DispatchReport:
     updated: int
     stale_updates: int
     failed: int = 0
-    recovered: int = 0
 
 
 @dataclass(frozen=True, slots=True)

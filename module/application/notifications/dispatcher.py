@@ -103,6 +103,7 @@ class NotificationDispatcher:
                                 item_failed = True
                         except Exception:  # noqa: BLE001 - ошибка provider переводится в safe unavailable.
                             result = DeliveryResult.unavailable("channel_send_failed")
+                            item_failed = True
             elapsed = time.perf_counter() - started
             try:
                 transition = transition_for_result(

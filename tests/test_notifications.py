@@ -38,6 +38,8 @@ from module.application.notifications import (
     default_registry,
 )
 from module.application.notifications.encoding import (
+    MAX_PAYLOAD_BYTES,
+    MAX_PAYLOAD_ITEMS,
     canonical_json,
     correlation_document,
     event_payload_digest,
@@ -197,10 +199,10 @@ class _MemoryRepository:
         event: NotificationEvent,
         *,
         payload_document: dict[str, object],
-        payload_digest: str,
         decision: object,
         deliveries: tuple[NotificationDeliveryPlan, ...],
     ) -> NotificationPersistenceResult:
+        payload_digest = event_payload_digest(event, payload_document)
         with self._lock:
             existing = self.events.get(event.id)
             if existing is not None:
@@ -434,6 +436,18 @@ def test_registry_rejects_naive_and_canonicalizes_handover_payload() -> None:
     assert error.value.reason_code == "occurred_at_not_aware"
 
 
+@pytest.mark.parametrize(
+    "value",
+    (
+        {str(index): index for index in range(MAX_PAYLOAD_ITEMS + 1)},
+        list(range(MAX_PAYLOAD_ITEMS + 1)),
+    ),
+)
+def test_canonical_value_rejects_oversized_containers(value: object) -> None:
+    with pytest.raises(NotificationValidationError, match="payload_too_large"):
+        canonical_json(value, max_bytes=MAX_PAYLOAD_BYTES)
+
+
 def test_rendered_snapshot_allows_newline_only_in_body() -> None:
     snapshot = RenderedSnapshot(
         locale="ru-RU",
@@ -525,6 +539,20 @@ def test_policy_rejects_duplicate_rule_ids() -> None:
     )
 
     with pytest.raises(ValueError, match="повторяющиеся rule id"):
+        NotificationPolicyResolver(policy)
+
+
+def test_policy_rejects_channels_with_suppression_reason() -> None:
+    policy = NotificationPolicy(
+        version=1,
+        rules=(),
+        default_action=PolicyAction(
+            channel_instance_ids=("agent",),
+            suppression_reason="maintenance",
+        ),
+    )
+
+    with pytest.raises(ValueError, match="channels вместе"):
         NotificationPolicyResolver(policy)
 
 

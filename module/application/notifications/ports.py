@@ -28,7 +28,6 @@ class NotificationRepository(Protocol):
         event: NotificationEvent,
         *,
         payload_document: Mapping[str, object],
-        payload_digest: str,
         decision: PolicyDecision,
         deliveries: tuple[NotificationDeliveryPlan, ...],
     ) -> NotificationPersistenceResult: ...

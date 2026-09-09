@@ -124,14 +124,14 @@ def _publisher(database: LazyEngine, channel: _Channel) -> NotificationPublisher
 
 
 def test_application_role_has_dml_but_not_schema_ddl(database: LazyEngine) -> None:
-    with pytest.raises(DBAPIError):
-        with database.get().begin() as connection:
-            connection.execute(
-                text(
-                    "CREATE TABLE azurpilot.notification_ddl_probe "
-                    "(id integer NOT NULL)"
-                )
+    probe_table = f"notification_ddl_probe_{uuid4().hex}"
+    with pytest.raises(DBAPIError, match="permission denied"), database.get().begin() as connection:
+        connection.execute(
+            text(
+                f"CREATE TABLE azurpilot.{probe_table} "
+                "(id integer NOT NULL)"
             )
+        )
 
 
 def test_publish_duplicate_conflict_and_profile_sequence_are_durable(
@@ -517,14 +517,13 @@ def test_publisher_rollback_does_not_consume_profile_sequence(database: LazyEngi
     channel = _Channel()
     publisher = _publisher(database, channel)
     event = _event(operation_id="operation-rollback")
-    descriptor, payload, digest = publisher.registry.validate(event)
+    descriptor, payload, _ = publisher.registry.validate(event)
     decision = publisher._policy_resolver.resolve(event)
     plans = publisher._build_plans(event, descriptor, decision)
     with PostgresUnitOfWork(database) as uow:
         uow.notifications.publish(
             event,
             payload_document=payload,
-            payload_digest=digest,
             decision=decision,
             deliveries=plans,
         )

@@ -94,10 +94,10 @@ class PostgresNotificationRepository:
         event: NotificationEvent,
         *,
         payload_document: dict[str, object],
-        payload_digest: str,
         decision: PolicyDecision,
         deliveries: tuple[NotificationDeliveryPlan, ...],
     ) -> NotificationPersistenceResult:
+        payload_digest = event_payload_digest(event, payload_document)
         try:
             savepoint = self._connection.begin_nested()
             try:
@@ -358,8 +358,8 @@ class PostgresNotificationRepository:
         lease_token: UUID,
         delivery_update: DeliveryUpdate,
     ) -> bool:
-        now = _utc(delivery_update.completed_at or delivery_update.next_attempt_at)
         _validate_update(delivery_update)
+        now = _utc(delivery_update.completed_at or delivery_update.next_attempt_at)
         try:
             current = self._connection.execute(
                 select(
