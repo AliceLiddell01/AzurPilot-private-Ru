@@ -94,9 +94,24 @@ class SharedWebUIRuntime:
             return None
         if record is None:
             snapshot = self.state.read(profile)
-            if snapshot is not None and snapshot.phase.value != "stopped":
+            if snapshot is None or snapshot.worker_running is not True:
+                return False
+            # После штатного unregister registry уже не содержит worker,
+            # но snapshot может ещё хранить его exact identity до canonical
+            # recovery. Проверяем именно этот PID и created_at; не считаем
+            # отсутствие registry доказательством отсутствия живого worker.
+            try:
+                from module.webui.worker_registry import process_matches
+
+                worker_matches = process_matches(
+                    {
+                        "pid": snapshot.worker_pid,
+                        "created_at": snapshot.worker_created_at,
+                    }
+                )
+            except RuntimeError:
                 return None
-            return False
+            return worker_matches is True
         try:
             from module.webui.worker_registry import process_matches
 
