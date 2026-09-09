@@ -27,6 +27,7 @@ class Template(Resource):
         self._image = None
         self._image_binary = None
         self._image_luma = None
+        self._image_gray = None
 
         self.resource_add(self.file)
 
@@ -65,6 +66,24 @@ class Template(Resource):
                 self._image = self.pre_process(load_image(self.file))
 
         return self._image
+
+    @property
+    def image_gray(self):
+        """Вернуть кэшированное одноканальное представление шаблона."""
+        if self._image_gray is None:
+            if self.is_gif:
+                self._image_gray = [
+                    image if image.ndim == 2 else rgb2gray(image)
+                    for image in self.image
+                ]
+            else:
+                self._image_gray = (
+                    self.image
+                    if self.image.ndim == 2
+                    else rgb2gray(self.image)
+                )
+
+        return self._image_gray
 
     @property
     def image_binary(self):
@@ -117,6 +136,7 @@ class Template(Resource):
         self._image = None
         self._image_binary = None
         self._image_luma = None
+        self._image_gray = None
 
     def pre_process(self, image):
         """对输入图像进行预处理。
@@ -257,17 +277,17 @@ class Template(Resource):
         return sim, button
 
     def match_multi(self, image, scaling=1.0, similarity=0.85, threshold=3, name=None):
-        """模板匹配多个位置，返回所有匹配结果的 Button 列表。
+        """Найти все совпадения шаблона и вернуть список объектов Button.
 
         Args:
-            image: 截图图像。
-            scaling: 缩放比例，用于缩放模板以匹配图像。
-            similarity: 相似度阈值，范围 0 到 1。
-            threshold: 聚类距离阈值，用于合并相邻的匹配结果。
-            name: 按钮名称。
+            image: Изображение screenshot.
+            scaling: Масштаб для сопоставления с изображением.
+            similarity: Порог сходства от 0 до 1.
+            threshold: Расстояние кластеризации соседних совпадений.
+            name: Имя кнопки.
 
         Returns:
-            所有匹配位置的 Button 对象列表。
+            Список объектов Button для всех найденных позиций.
         """
         similarity = lower_template_match_similarity(similarity)
         scaling = 1 / scaling
@@ -275,16 +295,25 @@ class Template(Resource):
             image = cv2.resize(image, None, fx=scaling, fy=scaling)
 
         raw = image
+        template = self.image[0] if self.is_gif else self.image
+        if image.ndim == 2 and template.ndim == 3:
+            templates = self.image_gray
+        elif image.ndim == 3 and template.ndim == 2:
+            image = rgb2gray(image)
+            templates = self.image
+        else:
+            templates = self.image
+
         if self.is_gif:
             result = []
-            for template in self.image:
+            for template in templates:
                 res = cv2.matchTemplate(image, template, cv2.TM_CCOEFF_NORMED)
                 result += np.array(np.where(res > similarity)).T[:, ::-1].tolist()
                 res = cv2.matchTemplate(image, cv2.flip(template, 1), cv2.TM_CCOEFF_NORMED)
                 result += np.array(np.where(res > similarity)).T[:, ::-1].tolist()
             result = np.array(result)
         else:
-            result = cv2.matchTemplate(image, self.image, cv2.TM_CCOEFF_NORMED)
+            result = cv2.matchTemplate(image, templates, cv2.TM_CCOEFF_NORMED)
             result = np.array(np.where(result > similarity)).T[:, ::-1]
 
         # result: np.array([[x0, y0], [x1, y1], ...])  匹配位置坐标数组

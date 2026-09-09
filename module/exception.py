@@ -113,6 +113,21 @@ class ScriptError(Exception):
     pass
 
 
+class OpsiError(ScriptError):
+    """Предметная ошибка Operation Siren с прежним recovery-контрактом ScriptError."""
+    pass
+
+
+class OpsiStorageError(OpsiError):
+    """Ошибка распознавания или обработки предмета в хранилище Operation Siren."""
+    pass
+
+
+class OpsiStorageTemplateMatchError(OpsiStorageError):
+    """Ошибка шаблонного поиска предмета в хранилище Operation Siren."""
+    pass
+
+
 class ScriptEnd(Exception):
     """Штатное завершение скрипта.
 
