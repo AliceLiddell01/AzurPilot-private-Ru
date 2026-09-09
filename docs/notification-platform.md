@@ -550,12 +550,20 @@ PENDING -> IN_FLIGHT -> PROVIDER_ACCEPTED
                     -> RETRY_WAIT -> IN_FLIGHT
                     -> FAILED
                     -> SUPPRESSED
+PROVIDER_ACCEPTED -> AWAITING_AGENT_ACK -> DELIVERED
+                                  -> RETRY_WAIT -> IN_FLIGHT
 ~~~
 
 Delivery хранит lease_owner, lease_token, lease_until, attempt_count,
 next_attempt_at, last_safe_error_code и immutable rendered snapshot. Для
-Desktop Agent PROVIDER_ACCEPTED недостаточен: DELIVERED появляется только
-после подтверждённого Agent receipt.
+Desktop Agent PROVIDER_ACCEPTED — промежуточный результат принятия frame
+транспортом, а не terminal state: он обязан перейти в
+AWAITING_AGENT_ACK с отдельным bounded ack deadline. Только проверенный ACK
+переводит эту Delivery в DELIVERED; timeout, disconnect или истечение lease
+переводят AWAITING_AGENT_ACK в RETRY_WAIT, затем в новый IN_FLIGHT либо в
+FAILED по retry budget. Для Telegram/Webhook PROVIDER_ACCEPTED может быть
+terminal channel-specific state, если контракт provider не даёт более сильный
+receipt; Agent ACK для них не ожидается.
 
 #### DeliveryAttempt
 
@@ -607,6 +615,13 @@ Retry-After только в разрешённом диапазоне; timeout/r
 transient; invalid credentials, invalid destination и schema rejection обычно
 permanent. Точное значение budget и SLO требует Stage 2 load/chaos evidence.
 
+Для Desktop Agent переход в AWAITING_AGENT_ACK и его ack deadline должны быть
+durable. ACK handler атомарно проверяет delivery_id, profile_id, payload
+digest, connection/session epoch и срок действия; только успешная проверка
+делает DELIVERED. Timeout/disconnect не может оставить delivery навсегда в
+ожидании: recovery переводит её в RETRY_WAIT или FAILED, после чего обычный
+lease claim выполняет повторную попытку с тем же idempotency key.
+
 ### [Внешний design reference] Transactional outbox
 
 Transactional outbox нужен только когда durable domain change и outbox event
@@ -647,7 +662,7 @@ Handover передаёт bounded deadline, ограниченный сущес�
 
 - PENDING или RETRY_WAIT в момент deadline;
 - IN_FLIGHT без валидного Agent ACK;
-- PROVIDER_ACCEPTED без Agent receipt;
+- PROVIDER_ACCEPTED или AWAITING_AGENT_ACK без Agent receipt;
 - FAILED, SUPPRESSED или UNAVAILABLE;
 - stale/unknown/expired ownership;
 - profile mismatch, invalid session epoch или rejected ACK;
@@ -1103,7 +1118,8 @@ legacy metrics.
 | HTTP 429 | transient; bounded Retry-After, rate limit metric | не DELIVERED; при deadline handover fail-closed |
 | HTTP 4xx permanent | PERMANENT_FAILURE/FAILED, кроме provider-specific documented retryable code | ручное исправление config/destination; handover fail-closed |
 | HTTP 5xx | TRANSIENT_FAILURE с bounded retry | не DELIVERED до сильного receipt contract |
-| Desktop Agent offline | delivery остаётся PENDING/RETRY_WAIT; no receipt | handover UNAVAILABLE/timeout, текущий worker не вытесняется |
+| Desktop Agent offline | delivery остаётся PENDING/RETRY_WAIT или выходит из AWAITING_AGENT_ACK по lease/timeout; no receipt | handover UNAVAILABLE/timeout, текущий worker не вытесняется |
+| Agent ACK timeout/disconnect | AWAITING_AGENT_ACK атомарно переходит в RETRY_WAIT, затем повторно claim-ится или становится FAILED по budget | handover не получает DELIVERED без ACK; повторная попытка не возобновляет старый handover |
 | Agent reconnect | resume cursor + durable gap fill; ACK-нутые rows idempotent | новые события доставляются без gaps; старый failed handover не возобновляется |
 | Duplicate ACK | exact same ACK — no-op success; append bounded audit if needed | не запускает второй quiesce/handover |
 | Stale ACK | token/profile/epoch/deadline проверка отклоняет ACK | state не меняется; handover остаётся fail-closed |
@@ -1190,6 +1206,8 @@ transaction/lease tests. Acceptance:
 Реализовать outbound authenticated Agent, resumable SSE, ACK endpoint,
 profile authorization, cursor gap fill и durable receipt. Acceptance:
 
+- Agent ACK timeout: AWAITING_AGENT_ACK -> RETRY_WAIT -> IN_FLIGHT или
+  FAILED;
 - Agent offline/reconnect/backlog;
 - duplicate/stale/late ACK;
 - WebUI/backend restart;
