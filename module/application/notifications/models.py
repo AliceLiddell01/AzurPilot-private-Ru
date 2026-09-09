@@ -6,27 +6,18 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from enum import Enum
-from re import fullmatch
+from re import IGNORECASE, compile, fullmatch
 from typing import Final
 from uuid import UUID, uuid4
 
 _TOKEN_RE = r"[A-Za-z0-9][A-Za-z0-9_.:-]*"
-_DOTTED_TYPE_RE = r"[a-z0-9]+(?:[._-][a-z0-9]+)*"
+DOTTED_TYPE_RE = r"[a-z0-9]+(?:[._-][a-z0-9]+)*"
 _HEX_RE = r"[0-9a-f]+"
 _SAFE_ERROR_CODE_RE = r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}"
-_UNSAFE_RESULT_MARKERS = (
-    "password",
-    "secret",
-    "token",
-    "credential",
-    "authorization",
-    "bearer",
-    "http://",
-    "https://",
-    "traceback",
-    "stacktrace",
-    "device_id",
-    "serial",
+_UNSAFE_RESULT_RE = compile(
+    r"(?:https?://|(?:password|secret|token|credential|authorization|bearer|"
+    r"traceback|stacktrace|serial)(?:\b|_)|device_id(?:\b|_))",
+    IGNORECASE,
 )
 
 
@@ -296,7 +287,6 @@ class NotificationAttribute:
     def is_valid(self) -> bool:
         return _valid_token(self.key, limit=64) and (
             isinstance(self.value, (str, int, bool))
-            and not isinstance(self.value, float)
             and (not isinstance(self.value, str) or len(self.value) <= 256)
         )
 
@@ -332,10 +322,7 @@ class DeliveryResult:
             not isinstance(self.safe_error_summary, str)
             or len(self.safe_error_summary) > 256
             or any(ord(character) < 32 for character in self.safe_error_summary)
-            or any(
-                marker in self.safe_error_summary.casefold()
-                for marker in _UNSAFE_RESULT_MARKERS
-            )
+            or _UNSAFE_RESULT_RE.search(self.safe_error_summary) is not None
         ):
             return False
         if self.retry_after_seconds is not None and (
@@ -348,10 +335,7 @@ class DeliveryResult:
             not isinstance(self.provider_message_id, str)
             or not 0 < len(self.provider_message_id) <= 128
             or fullmatch(_TOKEN_RE, self.provider_message_id) is None
-            or any(
-                marker in self.provider_message_id.casefold()
-                for marker in _UNSAFE_RESULT_MARKERS
-            )
+            or _UNSAFE_RESULT_RE.search(self.provider_message_id) is not None
         ):
             return False
         return self.received_at is None or ensure_aware_utc(self.received_at) is not None
@@ -604,6 +588,7 @@ __all__ = [
     "DeliveryResultClass",
     "DeliveryState",
     "DeliveryUpdate",
+    "DOTTED_TYPE_RE",
     "DispatchReport",
     "HandoverNotificationOutcome",
     "HandoverNotificationResult",

@@ -197,6 +197,10 @@ def upgrade() -> None:
             "state <> 'IN_FLIGHT'",
             name=op.f("ck_notification_delivery_in_flight_lease_consistent"),
         ),
+        sa.CheckConstraint(
+            "state <> 'AWAITING_AGENT_ACK' OR lease_until IS NOT NULL",
+            name=op.f("ck_notification_delivery_awaiting_ack_lease_consistent"),
+        ),
         sa.ForeignKeyConstraint(
             ["event_id"],
             ["azurpilot.notification_event.id"],
@@ -219,6 +223,7 @@ def upgrade() -> None:
         "notification_delivery",
         ["state", "next_attempt_at", "priority", "id"],
         schema=_SCHEMA,
+        postgresql_where=sa.text("state IN ('PENDING', 'RETRY_WAIT')"),
     )
     op.create_index(
         "ix_notification_delivery_event",
@@ -251,6 +256,10 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "attempt_ordinal > 0",
             name=op.f("ck_notification_delivery_attempt_attempt_ordinal_positive"),
+        ),
+        sa.CheckConstraint(
+            "finished_at IS NULL OR finished_at >= started_at",
+            name=op.f("ck_notification_delivery_attempt_finished_time_ordered"),
         ),
         sa.CheckConstraint(
             "result_class IS NULL OR result_class IN ('DELIVERED', 'PROVIDER_ACCEPTED', "

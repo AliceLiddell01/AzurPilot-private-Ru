@@ -38,7 +38,11 @@ class RetryPolicy:
     def delay_seconds(self, attempt_ordinal: int, *, stable_key: str = "") -> float:
         exponent = max(0, attempt_ordinal - 1)
         delay = min(self.max_delay_seconds, self.base_delay_seconds * (2**exponent))
-        digest = sha256(stable_key.encode("utf-8")).digest()[0] / 255 if stable_key else 0.5
+        digest = (
+            sha256(f"{stable_key}:{attempt_ordinal}".encode("utf-8")).digest()[0] / 255
+            if stable_key
+            else 0.5
+        )
         jitter = 1 + ((digest * 2) - 1) * self.jitter_ratio
         return max(1.0, min(float(self.max_delay_seconds), delay * jitter))
 

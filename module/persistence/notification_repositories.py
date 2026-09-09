@@ -174,7 +174,7 @@ class PostgresNotificationRepository:
                     notification_event.c.profile_sequence,
                     notification_delivery.c.id,
                 )
-                .with_for_update(skip_locked=True)
+                .with_for_update(skip_locked=True, of=notification_delivery)
                 .limit(batch_size)
             ).all()
             claimed: list[ClaimedDelivery] = []
@@ -518,15 +518,16 @@ class PostgresNotificationRepository:
             raise translate_database_error(exc) from None
 
     def _allocate_profile_sequence(self, profile_id: str) -> int:
-        self._connection.execute(
+        row = self._connection.execute(
             pg_insert(notification_profile_sequence)
             .values(profile_id=profile_id, next_sequence=1)
-            .on_conflict_do_nothing(index_elements=["profile_id"])
-        )
-        row = self._connection.execute(
-            select(notification_profile_sequence.c.next_sequence)
-            .where(notification_profile_sequence.c.profile_id == profile_id)
-            .with_for_update()
+            .on_conflict_do_update(
+                index_elements=["profile_id"],
+                set_={
+                    "next_sequence": notification_profile_sequence.c.next_sequence
+                },
+            )
+            .returning(notification_profile_sequence.c.next_sequence)
         ).one_or_none()
         if row is None:
             raise StorageInvariantViolationError("Profile sequence allocator не создал строку.")

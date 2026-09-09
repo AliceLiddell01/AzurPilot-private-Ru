@@ -9,7 +9,7 @@ from module.application.notifications.encoding import (
     policy_snapshot_document,
 )
 from module.application.notifications.models import (
-    _DOTTED_TYPE_RE,
+    DOTTED_TYPE_RE,
     NotificationEvent,
     NotificationPolicy,
     NotificationPolicySnapshot,
@@ -54,11 +54,11 @@ def _validate_matcher(matcher: object) -> None:
     if not isinstance(matcher, NotificationRuleMatcher):
         raise TypeError("Policy matcher должен быть NotificationRuleMatcher.")
     if matcher.exact_type is not None and not _bounded_token(
-        matcher.exact_type, _DOTTED_TYPE_RE
+        matcher.exact_type, DOTTED_TYPE_RE
     ):
         raise ValueError("Policy exact type имеет неверный формат.")
     if matcher.type_prefix is not None and not _bounded_token(
-        matcher.type_prefix, _DOTTED_TYPE_RE
+        matcher.type_prefix, DOTTED_TYPE_RE
     ):
         raise ValueError("Policy type prefix имеет неверный формат.")
     for severity in (matcher.exact_severity, matcher.minimum_severity):
@@ -122,24 +122,26 @@ class NotificationPolicyResolver:
 
     def resolve(self, event: NotificationEvent) -> PolicyDecision:
         selected_rule: NotificationRule | None = None
-        if self._policy.global_enabled:
+        if not self._policy.global_enabled:
+            action = PolicyAction(suppression_reason="global_disabled")
+            reason = "global_disabled"
+        else:
             for _, rule in self._ordered_rules:
                 if rule.matcher.matches(event):
                     selected_rule = rule
                     break
-        if not self._policy.global_enabled:
-            action = PolicyAction(suppression_reason="global_disabled")
-            reason = "global_disabled"
-        elif selected_rule is None:
-            action = self._policy.default_action
-            reason = action.suppression_reason or (
-                "default_routed" if action.channel_instance_ids else "default_suppressed"
-            )
-        else:
-            action = selected_rule.action
-            reason = action.suppression_reason or (
-                "rule_routed" if action.channel_instance_ids else "rule_suppressed"
-            )
+            if selected_rule is None:
+                action = self._policy.default_action
+                reason = action.suppression_reason or (
+                    "default_routed"
+                    if action.channel_instance_ids
+                    else "default_suppressed"
+                )
+            else:
+                action = selected_rule.action
+                reason = action.suppression_reason or (
+                    "rule_routed" if action.channel_instance_ids else "rule_suppressed"
+                )
         snapshot = NotificationPolicySnapshot(
             policy_version=self._policy.version,
             rule_id=selected_rule.rule_id if selected_rule else None,

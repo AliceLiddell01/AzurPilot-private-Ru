@@ -9,7 +9,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from enum import Enum
 from hashlib import sha256
-from typing import Final
+from typing import Final, NoReturn
 from uuid import UUID
 
 from module.application.errors import NotificationValidationError
@@ -26,7 +26,7 @@ MAX_SNAPSHOT_BYTES: Final = 8 * 1024
 MAX_PAYLOAD_DEPTH: Final = 16
 
 
-def _reject(reason: str) -> None:
+def _reject(reason: str) -> NoReturn:
     raise NotificationValidationError(reason)
 
 
@@ -64,7 +64,6 @@ def canonical_value(value: object, *, _depth: int = 0) -> object:
     if isinstance(value, (tuple, list)):
         return [canonical_value(item, _depth=_depth + 1) for item in value]
     _reject("payload_value_type_invalid")
-    return None
 
 
 def canonical_json(value: object, *, max_bytes: int | None = None) -> bytes:

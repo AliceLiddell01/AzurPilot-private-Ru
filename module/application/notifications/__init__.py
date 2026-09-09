@@ -56,6 +56,7 @@ from module.application.notifications.registry import (
     NotificationDescriptor,
     NotificationRegistry,
     build_default_registry,
+    default_registry,
 )
 from module.application.notifications.rendering import (
     HandoverPreemptionRenderer,
@@ -127,6 +128,7 @@ __all__ = [
     "RetryPolicy",
     "build_default_registry",
     "build_default_renderer_catalog",
+    "default_registry",
     "default_notification_policy",
     "expired_lease_update",
     "transition_for_result",

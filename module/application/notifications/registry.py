@@ -219,10 +219,13 @@ class NotificationRegistry:
 
     def __init__(self, descriptors: tuple[NotificationDescriptor, ...] = ()) -> None:
         self._descriptors: dict[tuple[str, int], NotificationDescriptor] = {}
+        self._frozen = False
         for descriptor in descriptors:
             self.register(descriptor)
 
     def register(self, descriptor: NotificationDescriptor) -> None:
+        if self._frozen:
+            raise RuntimeError("Notification registry по умолчанию неизменяем.")
         if not isinstance(descriptor, NotificationDescriptor):
             raise TypeError("Notification descriptor имеет неверный тип.")
         if not isinstance(descriptor.event_type, str) or fullmatch(
@@ -319,6 +322,10 @@ class NotificationRegistry:
     def descriptors(self) -> tuple[NotificationDescriptor, ...]:
         return tuple(self._descriptors.values())
 
+    def _freeze(self) -> NotificationRegistry:
+        self._frozen = True
+        return self
+
 
 def _reject_prohibited_keys(value: object) -> None:
     if isinstance(value, Mapping):
@@ -375,8 +382,8 @@ def build_default_registry() -> NotificationRegistry:
 
 @lru_cache(maxsize=1)
 def default_registry() -> NotificationRegistry:
-    """Вернуть общий immutable-by-convention registry стандартных схем."""
-    return build_default_registry()
+    """Вернуть общий неизменяемый registry стандартных схем."""
+    return build_default_registry()._freeze()
 
 
 __all__ = [

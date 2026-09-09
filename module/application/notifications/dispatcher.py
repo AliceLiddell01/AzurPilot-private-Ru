@@ -12,6 +12,7 @@ from module.application.errors import StorageInvariantViolationError
 from module.application.notifications.channels import NotificationChannelCatalog
 from module.application.notifications.models import (
     ChannelCapabilities,
+    ClaimedDelivery,
     DeliveryResult,
     DispatchReport,
 )
@@ -132,7 +133,7 @@ class NotificationDispatcher:
             uow.commit()
         return recovered
 
-    def _record_attempt(self, claimed: object, result: DeliveryResult) -> None:
+    def _record_attempt(self, claimed: ClaimedDelivery, result: DeliveryResult) -> None:
         method = getattr(self._telemetry, "record_attempt", None)
         if method is None:
             return
@@ -142,15 +143,14 @@ class NotificationDispatcher:
             return
 
     def _record_latency(
-        self, claimed: object, result: DeliveryResult, seconds: float
+        self, claimed: ClaimedDelivery, result: DeliveryResult, seconds: float
     ) -> None:
         method = getattr(self._telemetry, "record_latency", None)
         if method is None:
             return
-        delivery = getattr(claimed, "delivery", None)
         try:
             method(
-                channel_type=getattr(delivery, "channel_type", "unknown"),
+                channel_type=claimed.delivery.channel_type,
                 result_class=result.result_class.value,
                 seconds=seconds,
             )

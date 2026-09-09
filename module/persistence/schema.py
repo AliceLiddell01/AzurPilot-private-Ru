@@ -1094,6 +1094,10 @@ notification_delivery = Table(
         "state <> 'IN_FLIGHT'",
         name="in_flight_lease_consistent",
     ),
+    CheckConstraint(
+        "state <> 'AWAITING_AGENT_ACK' OR lease_until IS NOT NULL",
+        name="awaiting_ack_lease_consistent",
+    ),
 )
 Index(
     "ix_notification_delivery_claim_due",
@@ -1101,6 +1105,7 @@ Index(
     notification_delivery.c.next_attempt_at,
     notification_delivery.c.priority,
     notification_delivery.c.id,
+    postgresql_where=text("state IN ('PENDING', 'RETRY_WAIT')"),
 )
 Index(
     "ix_notification_delivery_event",
@@ -1142,6 +1147,10 @@ notification_delivery_attempt = Table(
         "delivery_id", "attempt_ordinal", name="pk_notification_delivery_attempt"
     ),
     CheckConstraint("attempt_ordinal > 0", name="attempt_ordinal_positive"),
+    CheckConstraint(
+        "finished_at IS NULL OR finished_at >= started_at",
+        name="finished_time_ordered",
+    ),
     CheckConstraint(
         "result_class IS NULL OR result_class IN ('DELIVERED', 'PROVIDER_ACCEPTED', "
         "'TRANSIENT_FAILURE', 'PERMANENT_FAILURE', 'UNAVAILABLE', 'SUPPRESSED')",

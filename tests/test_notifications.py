@@ -34,6 +34,7 @@ from module.application.notifications import (
     ReceiptStrength,
     RetryPolicy,
     build_default_registry,
+    default_registry,
 )
 from module.application.notifications.encoding import canonical_json, event_payload_digest
 from module.application.notifications.models import (
@@ -330,6 +331,33 @@ def test_registry_rejects_naive_and_canonicalizes_handover_payload() -> None:
     assert error.value.reason_code == "occurred_at_not_aware"
 
 
+def test_default_registry_is_cached_and_frozen() -> None:
+    registry = default_registry()
+
+    assert registry is default_registry()
+    with pytest.raises(RuntimeError, match="неизменяем"):
+        registry.register(registry.descriptors()[0])
+
+
+def test_publisher_rejects_expired_handover_deadline() -> None:
+    repository = _MemoryRepository()
+    event = _event()
+    event = replace(
+        event,
+        occurred_at=NOW - timedelta(seconds=60),
+        data=replace(event.data, deadline_at=NOW - timedelta(seconds=1)),
+    )
+    result = NotificationPublisher(
+        lambda: _MemoryUow(repository),
+        policy=_policy(),
+        clock=lambda: NOW,
+    ).publish(event)
+
+    assert result.status is PublishStatus.VALIDATION_FAILED
+    assert result.reason == "handover_deadline_expired"
+    assert repository.events == {}
+
+
 def test_policy_is_first_matching_rule_and_snapshot_is_stable() -> None:
     event = _event()
     resolver = NotificationPolicyResolver(_policy())
@@ -398,6 +426,18 @@ def test_delivery_result_rejects_unsafe_provider_data() -> None:
     assert not DeliveryResult.provider_accepted(
         provider_message_id="https://provider.example/message"
     ).is_valid()
+    assert not DeliveryResult.transient_failure(
+        "channel_failed", summary="serial=redacted"
+    ).is_valid()
+    assert DeliveryResult.transient_failure(
+        "serialization_error", summary="serialization_error"
+    ).is_valid()
+    assert DeliveryResult.provider_accepted(provider_message_id="tokenizer-v1").is_valid()
+
+
+def test_channel_catalog_rejects_incomplete_adapter_as_typed_error() -> None:
+    with pytest.raises(TypeError, match="атрибуты"):
+        NotificationChannelCatalog((object(),))
 
 
 def test_publisher_and_dispatcher_keep_provider_acceptance_intermediate() -> None:

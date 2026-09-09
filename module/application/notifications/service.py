@@ -190,6 +190,13 @@ class NotificationPublisher:
         if decision.state is PolicyState.SUPPRESSED:
             return ()
         now = _utc(self._clock())
+        deadline_at = (
+            event.data.deadline_at.astimezone(UTC)
+            if isinstance(event.data, HandoverPreemptionPayload)
+            else now + timedelta(seconds=300)
+        )
+        if deadline_at <= now:
+            raise NotificationValidationError("handover_deadline_expired")
         plans: list[NotificationDeliveryPlan] = []
         for channel_id in decision.channel_instance_ids:
             channel = self._channels.get(channel_id)
@@ -207,11 +214,6 @@ class NotificationPublisher:
                 max_payload_bytes=capabilities.max_payload_bytes,
             ):
                 raise NotificationValidationError("rendered_snapshot_invalid")
-            deadline_at = (
-                event.data.deadline_at.astimezone(UTC)
-                if isinstance(event.data, HandoverPreemptionPayload)
-                else now + timedelta(seconds=300)
-            )
             plans.append(
                 NotificationDeliveryPlan(
                     id=uuid4(),
@@ -223,9 +225,7 @@ class NotificationPublisher:
                     deadline_at=deadline_at,
                     rendered_snapshot=snapshot,
                     idempotency_key=f"{event.id}:{channel_id}",
-                    timeout_seconds=min(300.0, max(1.0, (deadline_at - now).total_seconds()))
-                    if deadline_at > now
-                    else 60.0,
+                    timeout_seconds=min(300.0, max(1.0, (deadline_at - now).total_seconds())),
                 )
             )
         return tuple(plans)

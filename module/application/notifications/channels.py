@@ -26,7 +26,9 @@ class NotificationChannel(Protocol):
     @property
     def capabilities(self) -> ChannelCapabilities: ...
 
-    def send(self, prepared: PreparedDelivery) -> DeliveryResult: ...
+    def send(self, prepared: PreparedDelivery) -> DeliveryResult:
+        """Адаптер обязан соблюдать bounded timeout из PreparedDelivery."""
+        ...
 
 
 class NotificationChannelCatalog:
@@ -40,9 +42,9 @@ class NotificationChannelCatalog:
     def register(self, channel: NotificationChannel) -> None:
         try:
             send = getattr(channel, "send", None)
-            instance_id = getattr(channel, "instance_id")
-            channel_type = getattr(channel, "channel_type")
-            capabilities = getattr(channel, "capabilities")
+            instance_id = channel.instance_id
+            channel_type = channel.channel_type
+            capabilities = channel.capabilities
         except Exception:  # noqa: BLE001 - adapter contract переводится в typed error.
             raise TypeError("Channel должен предоставлять атрибуты contract.") from None
         if not callable(send):
