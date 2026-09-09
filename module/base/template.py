@@ -243,12 +243,8 @@ class Template(Resource):
             return self._match_gif(image, self.image_luma, similarity, name=self.name)
 
         else:
-            res = template_match(
-                image,
-                self.image,
-                template_gray=lambda: self.image_gray,
-                name=self.name,
-            )
+            image_luma = rgb2luma(image)
+            res = template_match(image_luma, self.image_luma, name=self.name)
             _, sim, _, _ = cv2.minMaxLoc(res)
             return sim > similarity
 

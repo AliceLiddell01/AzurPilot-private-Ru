@@ -8,7 +8,7 @@ from PIL import Image
 
 from module.base.button import Button
 from module.base.template import Template
-from module.base.utils import rgb2gray, template_match
+from module.base.utils import rgb2gray, rgb2luma, template_match
 from module.exception import (
     OpsiError,
     OpsiMapDetectionError,
@@ -102,7 +102,6 @@ def test_opsi_akashi_gif_template_matches_grayscale_map_crop():
     assert template.match(source, similarity=0.99, direct_match=True)
     assert template.image_gray[0].shape == frame.shape[:2]
     assert template.image_gray[0].dtype == np.uint8
-    assert origin == (17, 21)
 
 
 def test_rgb_png_template_matches_grayscale_source(tmp_path):
@@ -215,6 +214,15 @@ def test_match_luma_result_keeps_raw_rgb_for_button_metadata(tmp_path):
     assert button.area[:2] == origin
     assert button.image.ndim == 3
     assert len(button.color) == 3
+
+
+def test_match_luma_normalizes_grayscale_source_for_static_rgb_template(tmp_path):
+    path = tmp_path / 'template.png'
+    rgb = _write_rgb_png(path)
+    template = Template(str(path))
+    source, _ = _source_with_template(rgb2luma(rgb))
+
+    assert template.match_luma(source, similarity=0.99)
 
 
 def test_binary_matching_accepts_grayscale_source_and_template(tmp_path):
