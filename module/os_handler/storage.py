@@ -10,7 +10,7 @@ from enum import Enum
 import cv2
 
 from module.base.timer import Timer
-from module.base.utils import area_offset, crop, rgb2gray
+from module.base.utils import _template_match_image_info, area_offset, crop, rgb2gray
 from module.combat.assets import GET_ITEMS_1, GET_ITEMS_2
 from module.exception import (
     OpsiStorageError,
@@ -52,17 +52,9 @@ class StorageHandler(GlobeOperation, ZoneManager):
                 f'Не удалось распознать шаблон хранилища {template.name}: {error}'
             ) from error
         except cv2.error as error:
-            if getattr(image, 'ndim', None) == 2:
-                channels = 1
-            elif getattr(image, 'ndim', None) == 3:
-                channels = image.shape[2]
-            else:
-                channels = 'неизвестно'
             raise OpsiStorageTemplateMatchError(
                 f'Не удалось распознать шаблон хранилища {template.name}: '
-                f'источник shape={getattr(image, "shape", "неизвестно")}, '
-                f'dtype={getattr(image, "dtype", "неизвестно")}, '
-                f'channels={channels}'
+                f'источник {_template_match_image_info(image)}'
             ) from error
 
     def is_in_storage(self):
