@@ -286,6 +286,23 @@ class TestProcessManagerRegistry(unittest.TestCase):
             self.assertEqual(observed_environment["root"], str(root_path.resolve()))
             self.assertEqual(observed_environment["policy"], str(policy_path.resolve()))
 
+    def test_task_policy_path_rejects_parent_symlink_outside_repository(self):
+        with TemporaryDirectory() as root, TemporaryDirectory() as outside:
+            root_path = Path(root).resolve()
+            outside_state = Path(outside).resolve() / "state"
+            outside_state.mkdir(parents=True)
+            (outside_state / "dev-runtime-task-policy.json").write_text(
+                "{}", encoding="utf-8"
+            )
+            state_path = root_path / "config" / "state"
+            state_path.parent.mkdir(parents=True)
+            try:
+                state_path.symlink_to(outside_state, target_is_directory=True)
+            except OSError as exc:
+                self.skipTest(f"создание symlink недоступно: {exc}")
+
+            self.assertIsNone(ProcessManager._resolve_task_policy_path(root_path))
+
     def test_startup_gate_does_not_accept_different_worker_identity(self):
         import psutil
 

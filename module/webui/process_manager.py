@@ -950,6 +950,27 @@ class ProcessManager:
                 return
 
     @staticmethod
+    def _resolve_task_policy_path(repository_root_path: Path) -> Path | None:
+        policy_path = (
+            repository_root_path
+            / "config"
+            / "state"
+            / "dev-runtime-task-policy.json"
+        )
+        try:
+            policy_present = policy_path.is_file() and not policy_path.is_symlink()
+            if policy_present and hasattr(policy_path, "is_junction"):
+                policy_present = not policy_path.is_junction()
+            if not policy_present:
+                return None
+            resolved_policy_path = policy_path.resolve(strict=True)
+            if not resolved_policy_path.is_relative_to(repository_root_path):
+                return None
+            return resolved_policy_path
+        except (OSError, RuntimeError):
+            return None
+
+    @staticmethod
     def run_process(
         config_name,
         func: str,
@@ -973,22 +994,11 @@ class ProcessManager:
             TASK_POLICY_FILE_ENV,
         ):
             os.environ.pop(variable, None)
-        policy_path = (
-            repository_root_path
-            / "config"
-            / "state"
-            / "dev-runtime-task-policy.json"
-        )
-        try:
-            policy_present = policy_path.is_file() and not policy_path.is_symlink()
-            if policy_present and hasattr(policy_path, "is_junction"):
-                policy_present = not policy_path.is_junction()
-        except OSError:
-            policy_present = False
-        if session_id and policy_present:
+        policy_path = ProcessManager._resolve_task_policy_path(repository_root_path)
+        if session_id and policy_path is not None:
             os.environ[TASK_POLICY_SESSION_ENV] = session_id
             os.environ[TASK_POLICY_ROOT_ENV] = str(repository_root_path)
-            os.environ[TASK_POLICY_FILE_ENV] = str(policy_path.resolve())
+            os.environ[TASK_POLICY_FILE_ENV] = str(policy_path)
         if operation_id:
             os.environ["AZURPILOT_RUNTIME_OPERATION_ID"] = operation_id
         else:
