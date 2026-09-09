@@ -201,7 +201,7 @@
             "type": "__expr__",
             "uid": "-100"
           },
-          "expression": "$C / $D * 100",
+          "expression": "$C * ($D > 0) / ($D + ($D == 0)) * 100",
           "hide": false,
           "refId": "E",
           "type": "math"
@@ -674,7 +674,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "histogram_quantile(0.50, sum by (azurpilot_task, le) (rate(azurpilot_task_duration_seconds_bucket{deployment_environment_name=~\"$environment\",azurpilot_profile=~\"$profile\",azurpilot_task=~\"$task\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.50, sum by (azurpilot_task, le) (rate(azurpilot_task_duration_seconds_bucket{deployment_environment_name=~\"${environment:regex}\",azurpilot_profile=~\"${profile:regex}\",azurpilot_task=~\"${task:regex}\"}[$__rate_interval])))",
           "format": "time_series",
           "legendFormat": "p50 {{azurpilot_task}}",
           "range": true,
@@ -682,7 +682,7 @@
         },
         {
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum by (azurpilot_task, le) (rate(azurpilot_task_duration_seconds_bucket{deployment_environment_name=~\"$environment\",azurpilot_profile=~\"$profile\",azurpilot_task=~\"$task\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (azurpilot_task, le) (rate(azurpilot_task_duration_seconds_bucket{deployment_environment_name=~\"${environment:regex}\",azurpilot_profile=~\"${profile:regex}\",azurpilot_task=~\"${task:regex}\"}[$__rate_interval])))",
           "format": "time_series",
           "legendFormat": "p95 {{azurpilot_task}}",
           "range": true,

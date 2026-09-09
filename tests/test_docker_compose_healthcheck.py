@@ -372,7 +372,7 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
     assert success_share["targets"][3]["expression"] == "B"
     assert success_share["targets"][3]["reducer"] == "last"
     assert success_share["targets"][4]["type"] == "math"
-    assert success_share["targets"][4]["expression"] == "$C / $D * 100"
+    assert success_share["targets"][4]["expression"] == "$C * ($D > 0) / ($D + ($D == 0)) * 100"
     assert success_share["fieldConfig"]["defaults"]["noValue"] == "нет данных"
     assert "noValue" not in success_share["options"]
     assert overview_panels[7]["targets"][0]["metricsQueryType"] == "range"
@@ -382,9 +382,27 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
     assert overview_panels[9]["targets"][0]["metricsQueryType"] == "range"
     assert overview_panels[9]["targets"][0]["step"] == "1m"
     assert "count_over_time() by (span.azurpilot.profile" in overview_panels[9]["targets"][0]["query"]
-    assert overview_panels[10]["gridPos"] == {"h": 10, "w": 24, "x": 0, "y": 22}
-    assert overview_panels[11]["gridPos"] == {"h": 12, "w": 24, "x": 0, "y": 32}
-    assert overview_panels[12]["gridPos"] == {"h": 6, "w": 24, "x": 0, "y": 44}
+    logs_grid = overview_panels[10]["gridPos"]
+    traces_grid = overview_panels[11]["gridPos"]
+    alerts_grid = overview_panels[12]["gridPos"]
+    assert {key: logs_grid[key] for key in ("h", "w", "x")} == {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+    }
+    assert {key: traces_grid[key] for key in ("h", "w", "x")} == {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+    }
+    assert {key: alerts_grid[key] for key in ("h", "w", "x")} == {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+    }
+    assert logs_grid["y"] >= overview_panels[9]["gridPos"]["y"] + overview_panels[9]["gridPos"]["h"]
+    assert traces_grid["y"] >= logs_grid["y"] + logs_grid["h"]
+    assert alerts_grid["y"] >= traces_grid["y"] + traces_grid["h"]
     for panel_id in (1, 3, 13):
         assert overview_panels[panel_id]["fieldConfig"]["defaults"]["noValue"] == "0"
         assert "noValue" not in overview_panels[panel_id]["options"]
@@ -395,6 +413,8 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
         "Field": True,
         "time": True,
     }
+    error_panel_ids = {panel["id"] for panel in dashboards["azurpilot-errors"]["panels"]}
+    assert error_panel_ids >= {1, 2, 3, 4, 5}
     for panel in dashboards["azurpilot-errors"]["panels"]:
         panel_text = json.dumps(panel, ensure_ascii=False)
         if panel["id"] in {1, 3}:

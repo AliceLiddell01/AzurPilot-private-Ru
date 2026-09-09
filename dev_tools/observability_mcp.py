@@ -514,6 +514,28 @@ class _GrafanaApi:
             return response_payload, response_headers
         return response_payload
 
+    def _request_with_headers(
+        self,
+        method: str,
+        path: str,
+        *,
+        payload: dict[str, Any] | None = None,
+        bearer: str | None = None,
+        error_code: str = "MCP_GRAFANA_REQUEST_FAILED",
+    ) -> tuple[Any, Any]:
+        """Выполнить запрос и типизированно вернуть payload вместе с headers."""
+        response = self._request(
+            method,
+            path,
+            payload=payload,
+            bearer=bearer,
+            error_code=error_code,
+            include_headers=True,
+        )
+        if not isinstance(response, tuple) or len(response) != 2:
+            raise ObservabilityMcpError(f"{error_code}_RESPONSE_INVALID")
+        return response
+
     def verify_admin_credentials(self) -> None:
         payload = self._request(
             "GET",
@@ -638,12 +660,11 @@ class _GrafanaApi:
 
     def verify_token_identity(self, token: str, account_id: int) -> GrafanaIdentity:
         try:
-            payload, response_headers = self._request(
+            payload, response_headers = self._request_with_headers(
                 "GET",
                 "/api/access-control/user/permissions",
                 bearer=token,
                 error_code="MCP_GRAFANA_TOKEN_IDENTITY",
-                include_headers=True,
             )
         except ObservabilityMcpError as exc:
             if exc.code == "MCP_GRAFANA_TOKEN_IDENTITY_NOT_FOUND":

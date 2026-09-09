@@ -72,58 +72,47 @@ class _FastResearchTimer:
         'return_confirm': 2,
     }
     created = []
+    creation_roles = (
+        'popup_timeout',
+        'popup_confirm',
+        'return_timeout',
+        'return_confirm',
+    )
 
     def __init__(self, limit, count=0):
         self.limit = limit
         self.count = count
         self.calls = 0
         parameters = (limit, count)
-        popup_timeout = (
-            research_module._RESEARCH_REWARD_POPUP_TIMEOUT_SECONDS,
-            research_module._RESEARCH_REWARD_POPUP_TIMEOUT_COUNT,
-        )
-        return_timeout = (
-            research_module._RESEARCH_REWARD_RETURN_TIMEOUT_SECONDS,
-            research_module._RESEARCH_REWARD_RETURN_TIMEOUT_COUNT,
-        )
-        popup_confirm = (
-            research_module._RESEARCH_REWARD_POPUP_STABILIZATION_SECONDS,
-            research_module._RESEARCH_REWARD_POPUP_STABILIZATION_COUNT,
-        )
-        return_confirm = (
-            research_module._RESEARCH_REWARD_RETURN_CONFIRM_SECONDS,
-            research_module._RESEARCH_REWARD_RETURN_CONFIRM_COUNT,
-        )
-        if parameters == popup_timeout and parameters == return_timeout:
-            created_with_parameters = sum(
-                (timer.limit, timer.count) == parameters for timer in self.created
+        role_parameters = {
+            'popup_timeout': (
+                research_module._RESEARCH_REWARD_POPUP_TIMEOUT_SECONDS,
+                research_module._RESEARCH_REWARD_POPUP_TIMEOUT_COUNT,
+            ),
+            'popup_confirm': (
+                research_module._RESEARCH_REWARD_POPUP_STABILIZATION_SECONDS,
+                research_module._RESEARCH_REWARD_POPUP_STABILIZATION_COUNT,
+            ),
+            'return_timeout': (
+                research_module._RESEARCH_REWARD_RETURN_TIMEOUT_SECONDS,
+                research_module._RESEARCH_REWARD_RETURN_TIMEOUT_COUNT,
+            ),
+            'return_confirm': (
+                research_module._RESEARCH_REWARD_RETURN_CONFIRM_SECONDS,
+                research_module._RESEARCH_REWARD_RETURN_CONFIRM_COUNT,
+            ),
+        }
+        try:
+            self.role = self.creation_roles[len(self.created)]
+        except IndexError as exc:
+            raise AssertionError('Слишком много Timer в research_receive') from exc
+        if parameters != role_parameters[self.role]:
+            raise AssertionError(
+                f'Неожиданные параметры Timer для {self.role}: '
+                f'limit={limit}, count={count}'
             )
-            if created_with_parameters == 0:
-                self.role = 'popup_timeout'
-            elif created_with_parameters == 1:
-                self.role = 'return_timeout'
-            else:
-                raise AssertionError(f'Слишком много Timer с параметрами: limit={limit}, count={count}')
-            max_instances = 2
-        elif parameters == popup_timeout:
-            self.role = 'popup_timeout'
-            max_instances = 1
-        elif parameters == return_timeout:
-            self.role = 'return_timeout'
-            max_instances = 1
-        elif parameters == popup_confirm:
-            self.role = 'popup_confirm'
-            max_instances = 1
-        elif parameters == return_confirm:
-            self.role = 'return_confirm'
-            max_instances = 1
-        else:
-            raise AssertionError(f'Неожиданные параметры Timer: limit={limit}, count={count}')
-        created_with_parameters = sum(
-            (timer.limit, timer.count) == parameters for timer in self.created
-        )
-        if created_with_parameters >= max_instances:
-            raise AssertionError(f'Слишком много Timer с параметрами: limit={limit}, count={count}')
+        if any(timer.role == self.role for timer in self.created):
+            raise AssertionError(f'Слишком много Timer с ролью {self.role}')
         self.created.append(self)
 
     def start(self):

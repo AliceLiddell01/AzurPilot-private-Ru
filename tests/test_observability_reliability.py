@@ -451,7 +451,38 @@ def test_subprocess_emit_timeout_is_safe(monkeypatch, tmp_path):
 
     with pytest.raises(target.ReliabilityError, match="EMITTER_FAILED"):
         target.subprocess_emit(tmp_path / "emit", count=128)
-    assert observed["timeout"] == 37.0
+    assert observed["timeout"] == 69.0
+
+
+def test_query_signals_handles_emission_without_trace_ids(monkeypatch):
+    urls = []
+
+    def fake_backend_get(url):
+        urls.append(url)
+        return '{"data":{"result":[{}]}}'
+
+    monkeypatch.setattr(target, "backend_get", fake_backend_get)
+
+    result = target.query_signals(
+        {"environment": "probe", "marker": "marker", "trace_ids": []}
+    )
+
+    assert result == {"loki": True, "prometheus": True, "tempo": False}
+    assert all("tempo:3200" not in url for url in urls)
+
+
+def test_subprocess_emit_rejects_incomplete_evidence(monkeypatch, tmp_path):
+    output = tmp_path / "emit"
+    output.mkdir()
+    (output / "emission.json").write_text('{"marker":"incomplete"}', encoding="utf-8")
+    monkeypatch.setattr(
+        target.subprocess,
+        "run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 0, "", ""),
+    )
+
+    with pytest.raises(target.ReliabilityError, match="EMITTER_FAILED"):
+        target.subprocess_emit(output)
 
 
 def test_internal_metrics_bounds_each_metric_family(monkeypatch):

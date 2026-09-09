@@ -336,6 +336,27 @@ def test_observability_doctor_reports_missing_queue_metrics(
     assert payload["warnings"] == ["EXPORT_QUEUE_METRICS_UNAVAILABLE"]
 
 
+def test_observability_doctor_validates_repository_root(
+    observability_doctor_harness, tmp_path: Path, monkeypatch
+) -> None:
+    _state, configure = observability_doctor_harness
+    root = _repository_fixture(tmp_path)
+    calls = []
+
+    def fake_run_docker(arguments, *, timeout):
+        calls.append((arguments, timeout))
+        return _result(arguments)
+
+    configure([], lambda *_args, **_kwargs: "")
+    monkeypatch.setattr(infrastructure_doctor, "run_docker", fake_run_docker)
+
+    payload = infrastructure_doctor.observability_doctor(root)
+
+    assert payload["code"] == "OBSERVABILITY_DEGRADED"
+    assert calls[0][0][:2] == ["compose", "--project-name"]
+    assert calls[0][1] == 60
+
+
 def test_observability_doctor_reports_pressure_pending_volume_and_disk_warnings(
     observability_doctor_harness,
 ) -> None:
@@ -355,8 +376,8 @@ def test_observability_doctor_reports_pressure_pending_volume_and_disk_warnings(
 
     configure(
         [
-            'otelcol_exporter_queue_capacity{exporter="loki"} 100',
-            'otelcol_exporter_queue_size{exporter="loki"} 80',
+            'otelcol_exporter_queue_capacity{exporter="loki zone"} 100',
+            'otelcol_exporter_queue_size{exporter="loki zone"} 80',
             'prometheus_remote_storage_samples_pending{queue="local"} 1',
             'prometheus_remote_storage_samples_pending{queue="retry"} 2',
             'prometheus_remote_storage_samples_retries_total{queue="retry"} 1',

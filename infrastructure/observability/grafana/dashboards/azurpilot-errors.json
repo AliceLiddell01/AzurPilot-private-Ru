@@ -204,7 +204,7 @@
           "tableType": "spans"
         }
       ],
-      "description": "Показываются matched root spans canonical azurpilot.task.run с duration > 500ms. Строка около 495 ms относится к отдельной панели ошибочных traces и не является результатом этого predicate.",
+      "description": "Показываются matched root spans canonical azurpilot.task.run с duration > 500ms.",
       "title": "Медленные traces / операции",
       "type": "table"
     },

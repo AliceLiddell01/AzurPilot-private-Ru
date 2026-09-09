@@ -1,4 +1,5 @@
 import logging
+import os
 import threading
 import unittest
 from io import StringIO
@@ -22,7 +23,8 @@ class TestLoggingRouting(unittest.TestCase):
         logger_module.reset_diagnostic_context()
 
     def test_logger_uses_console_and_memory_context_without_file_handler(self):
-        logger_module.configure_runtime_logging(name="logging-test")
+        with patch.dict(os.environ, {"OTEL_SDK_DISABLED": "true"}):
+            logger_module.configure_runtime_logging(name="logging-test")
         self.assertEqual(logging.DEBUG, logger_module.logger.level)
         self.assertFalse(logger_module.logger.propagate)
         self.assertEqual(logging.DEBUG, logger_module.diagnostic_hdlr.level)

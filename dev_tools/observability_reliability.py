@@ -35,7 +35,7 @@ _INTERNAL_ENDPOINTS = {
     "grafana": 3000,
 }
 _EMITTER_TIMEOUT_MIN_SECONDS = 15
-_EMITTER_TIMEOUT_MAX_SECONDS = 60
+_EMITTER_TIMEOUT_MAX_SECONDS = 120
 _PRESERVED_SERVICE_FIELDS = ("id", "image", "volumes", "restart_count")
 
 
@@ -175,7 +175,7 @@ def outage(services: tuple[str, ...], journal: Path):
                 if current["status"] != "running":
                     docker("start", before[service]["id"])
                 state["recovered"].append(service)
-            except Exception as exc:
+            except (Exception, GeneratorExit) as exc:
                 state["recovery_errors"].append(
                     {"service": service, "error": type(exc).__name__}
                 )
@@ -215,7 +215,7 @@ def subprocess_emit(output: Path, count: int = 1, failures: int = 1) -> dict:
     options = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
     timeout = min(
         _EMITTER_TIMEOUT_MAX_SECONDS,
-        max(_EMITTER_TIMEOUT_MIN_SECONDS, 5 + count * 0.25),
+        max(_EMITTER_TIMEOUT_MIN_SECONDS, 5 + count * 0.5),
     )
     try:
         result = subprocess.run(
@@ -241,7 +241,30 @@ def subprocess_emit(output: Path, count: int = 1, failures: int = 1) -> dict:
         raise ReliabilityError("OBSERVABILITY_EMITTER_FAILED") from None
     if result.returncode:
         raise ReliabilityError("OBSERVABILITY_EMITTER_FAILED")
-    return json.loads((output / "emission.json").read_text(encoding="utf-8"))
+    try:
+        emission = json.loads(
+            (output / "emission.json").read_text(encoding="utf-8")
+        )
+    except (OSError, TypeError, ValueError):
+        raise ReliabilityError("OBSERVABILITY_EMITTER_FAILED") from None
+    required_fields = {
+        "marker",
+        "environment",
+        "trace_ids",
+        "count",
+        "expected_outcomes",
+        "action_seconds",
+        "flush_completed",
+        "local_log",
+        "incident",
+        "incident_sanitized",
+        "screenshots",
+        "shutdown_seconds",
+        "normal_runtime_text_files",
+    }
+    if not isinstance(emission, dict) or not required_fields.issubset(emission):
+        raise ReliabilityError("OBSERVABILITY_EMITTER_FAILED")
+    return emission
 
 
 def wait_signals(emission: dict, timeout: float = 90) -> dict:
@@ -642,9 +665,16 @@ def query_signals(emission: dict) -> dict[str, bool]:
                 + '"}'
             }
         ),
-        "tempo": "http://tempo:3200/api/traces/" + emission["trace_ids"][0],
     }
-    result = {}
+    result = {"tempo": False}
+    trace_ids = emission.get("trace_ids")
+    if (
+        isinstance(trace_ids, list)
+        and trace_ids
+        and isinstance(trace_ids[0], str)
+        and trace_ids[0]
+    ):
+        queries["tempo"] = "http://tempo:3200/api/traces/" + trace_ids[0]
     for service, url in queries.items():
         try:
             payload = json.loads(backend_get(url))
@@ -1042,7 +1072,8 @@ def main() -> int:
     args = parser.parse_args()
     try:
         if args.command == "inventory":
-            result = {"containers": inventory(), "ready": ready()}
+            containers = inventory()
+            result = {"containers": containers, "ready": ready(containers)}
         elif args.command == "metrics":
             result = internal_metrics()
         elif args.output is None:

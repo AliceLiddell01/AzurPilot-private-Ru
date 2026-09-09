@@ -314,7 +314,11 @@ def test_save_error_log_keeps_original_error_and_writes_incident_bundle(
     assert metadata["exception_type"] == "RuntimeError"
     assert metadata["trace_id"] is None
     assert metadata["span_id"] is None
-    assert (bundles[0] / "log.txt").exists()
+    incident_log = bundles[0] / "log.txt"
+    assert incident_log.exists()
+    incident_text = incident_log.read_text(encoding="utf-8")
+    assert "raw-secret" not in incident_text
+    assert "password=raw-secret" not in incident_text
 
 
 def test_save_error_log_does_not_mask_original_when_metadata_write_fails(

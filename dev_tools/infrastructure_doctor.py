@@ -433,7 +433,7 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def observability_doctor() -> dict[str, object]:
+def observability_doctor(repository_root: Path | None = None) -> dict[str, object]:
     """Прочитать состояние telemetry без изменения services и доступа к secrets."""
     from dev_tools.observability_reliability import (
         SERVICES,
@@ -445,6 +445,24 @@ def observability_doctor() -> dict[str, object]:
     )
 
     try:
+        if repository_root is not None:
+            try:
+                config = run_docker(
+                    _compose_arguments(repository_root, "config", "--quiet"),
+                    timeout=60,
+                )
+            except (
+                FileNotFoundError,
+                OSError,
+                RuntimeError,
+                subprocess.SubprocessError,
+            ):
+                return {
+                    "ok": False,
+                    "code": "OBSERVABILITY_CONFIG_UNAVAILABLE",
+                }
+            if config.returncode != 0:
+                return {"ok": False, "code": "OBSERVABILITY_CONFIG_INVALID"}
         containers = inventory()
         probe_errors: dict[str, str] = {}
         health = ready(containers, errors=probe_errors)
@@ -488,11 +506,11 @@ def observability_doctor() -> dict[str, object]:
         retries = 0.0
         metrics_invalid = False
         for line in metrics:
-            fields = line.split()
-            if len(fields) < 2:
+            fields = line.rstrip().rsplit(maxsplit=1)
+            if len(fields) != 2:
                 metrics_invalid = True
                 continue
-            name_labels, raw_value = fields[0], fields[1]
+            name_labels, raw_value = fields
             try:
                 value = float(raw_value)
             except ValueError:
@@ -564,7 +582,7 @@ def observability_doctor() -> dict[str, object]:
 def main(argv: list[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
     payload = (
-        observability_doctor()
+        observability_doctor(arguments.repository_root)
         if arguments.command == "observability"
         else (
             doctor(arguments.repository_root)
