@@ -2234,7 +2234,6 @@ class SmokeSupervisorBackend:
             if not process.is_running() or process.status() == psutil.STATUS_ZOMBIE:
                 return None
             actual_cmd = process.cmdline()
-            actual_cwd = process.cwd()
             actual_executable = process.exe()
             actual_created = float(process.create_time())
         except psutil.NoSuchProcess:
@@ -2245,7 +2244,11 @@ class SmokeSupervisorBackend:
             return False
         if abs(actual_created - identity.created_at) > 0.01:
             return False
-        if actual_cmd != expected or os.path.normcase(os.path.abspath(actual_cwd)) != os.path.normcase(os.path.abspath(environment.repository_root)):
+        # CWD процесса может измениться во время импорта или запуска runtime и
+        # не является immutable identity supervisor. PID+created_at, exact
+        # command line и executable достаточно, чтобы отличить его от другого
+        # процесса и не сорвать живой SmokeRun ложным recovery.
+        if actual_cmd != expected:
             return False
         allowed = {os.path.normcase(os.path.abspath(str(environment.python_executable)))}
         if os.name == "nt":

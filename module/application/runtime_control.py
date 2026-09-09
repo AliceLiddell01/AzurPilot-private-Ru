@@ -28,6 +28,9 @@ _MAX_RESULT_BYTES = 128 * 1024
 _MAX_REQUEST_FILES = 128
 _MAX_RESULT_FILES = 128
 _MAX_CONTROL_TIMEOUT_SECONDS = 120.0
+# Операции жизненного цикла могут ждать настроенный период cooperative handover
+# до escalation; значение по умолчанию должно покрывать это bounded ожидание.
+DEFAULT_CONTROL_TIMEOUT_SECONDS = _MAX_CONTROL_TIMEOUT_SECONDS
 _MAX_TEXT = 512
 _SAFE_TOKEN = r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}"
 _SAFE_CODE = r"[A-Z][A-Z0-9_]{1,96}"
@@ -327,7 +330,7 @@ class WebUIControlClient:
         owner_reader: Callable[[], object | None],
         owner_matches: Callable[[RuntimeOwnerIdentity], bool],
         bootstrapper: SharedWebUIBootstrapper | None = None,
-        timeout: float = 15.0,
+        timeout: float = DEFAULT_CONTROL_TIMEOUT_SECONDS,
         poll_interval: float = 0.05,
     ) -> None:
         if (

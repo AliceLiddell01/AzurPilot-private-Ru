@@ -94,9 +94,38 @@ class SharedWebUIRuntime:
             return None
         if record is None:
             snapshot = self.state.read(profile)
-            if snapshot is not None and snapshot.phase.value != "stopped":
+            if snapshot is None or snapshot.worker_running is not True:
+                return False
+            # После штатного unregister registry уже не содержит worker,
+            # но snapshot может ещё хранить его exact identity до canonical
+            # recovery. Проверяем именно этот PID и created_at; не считаем
+            # отсутствие registry доказательством отсутствия живого worker.
+            try:
+                from module.webui.worker_registry import process_matches
+
+                worker_pid = snapshot.worker_pid
+                worker_created_at = snapshot.worker_created_at
+                if (
+                    isinstance(worker_pid, bool)
+                    or not isinstance(worker_pid, int)
+                    or worker_pid <= 0
+                    or isinstance(worker_created_at, bool)
+                    or not isinstance(worker_created_at, (int, float))
+                    or not math.isfinite(float(worker_created_at))
+                    or float(worker_created_at) <= 0
+                ):
+                    return None
+                worker_matches = process_matches(
+                    {
+                        "pid": worker_pid,
+                        "created_at": float(worker_created_at),
+                    }
+                )
+            except (RuntimeError, TypeError, ValueError, OverflowError):
                 return None
-            return False
+            except Exception:  # noqa: BLE001 - неизвестная identity переводит recovery в fail-closed режим.
+                return None
+            return worker_matches is True
         try:
             from module.webui.worker_registry import process_matches
 

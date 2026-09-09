@@ -10,6 +10,7 @@ from module.exception import (
     GameNotRunningError,
     GameStuckError,
     GameTooManyClickError,
+    OpsiMapDetectionTemplateMatchError,
 )
 from module.logger import error_context
 
@@ -73,6 +74,27 @@ class TestGameNotRunningErrorHandling(unittest.TestCase):
             result = script.run("commission", skip_first_screenshot=True)
 
         self.assertTrue(result)
+
+
+class TestOpsiTemplateErrorHandling(unittest.TestCase):
+    def test_map_detection_template_error_uses_script_path_without_restart(self):
+        script = AzurLaneAutoScript.__new__(AzurLaneAutoScript)
+        script.config_name = 'test'
+        script.__dict__['config'] = Mock()
+        error = OpsiMapDetectionTemplateMatchError('ошибка распознавания карты')
+        script.__dict__['commission'] = Mock(side_effect=error)
+
+        with (
+            patch('alas.logger.exception_context') as exception_context,
+            patch('alas.handle_notify'),
+            patch('alas.notify_webui'),
+            self.assertRaises(OpsiMapDetectionTemplateMatchError),
+        ):
+            script.run('commission', skip_first_screenshot=True)
+
+        script.config.task_call.assert_not_called()
+        exception_context.assert_called_once()
+        self.assertIs(exception_context.call_args.kwargs['exc'], error)
 
 
 class TestGameStuckRecovery(unittest.TestCase):
