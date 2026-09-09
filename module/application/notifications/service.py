@@ -42,6 +42,7 @@ from module.application.notifications.rendering import (
     NotificationRendererCatalog,
     build_default_renderer_catalog,
 )
+from module.application.notifications.state import RetryPolicy
 from module.application.notifications.telemetry import safe_telemetry_span
 
 
@@ -61,6 +62,7 @@ class NotificationPublisher:
         policy_resolver: NotificationPolicyResolver | None = None,
         channel_catalog: NotificationChannelCatalog | None = None,
         renderer_catalog: NotificationRendererCatalog | None = None,
+        retry_policy: RetryPolicy | None = None,
         clock: Callable[[], datetime] = _default_clock,
         telemetry: Any | None = None,
     ) -> None:
@@ -71,6 +73,7 @@ class NotificationPublisher:
         )
         self._channels = channel_catalog or NotificationChannelCatalog()
         self._renderers = renderer_catalog or build_default_renderer_catalog()
+        self._retry_policy = retry_policy if retry_policy is not None else RetryPolicy()
         self._clock = clock
         self._telemetry = telemetry if telemetry is not None else _build_telemetry()
 
@@ -192,10 +195,14 @@ class NotificationPublisher:
         deadline_at = (
             event.data.deadline_at.astimezone(UTC)
             if isinstance(event.data, HandoverPreemptionPayload)
-            else now + timedelta(seconds=300)
+            else now + timedelta(seconds=self._retry_policy.absolute_deadline_seconds)
         )
         if deadline_at <= now:
             raise NotificationValidationError("handover_deadline_expired")
+        timeout_seconds = min(
+            float(self._retry_policy.absolute_deadline_seconds),
+            (deadline_at - now).total_seconds(),
+        )
         plans: list[NotificationDeliveryPlan] = []
         for channel_id in decision.channel_instance_ids:
             channel = self._channels.get(channel_id)
@@ -224,7 +231,7 @@ class NotificationPublisher:
                     deadline_at=deadline_at,
                     rendered_snapshot=snapshot,
                     idempotency_key=f"{event.id}:{channel_id}",
-                    timeout_seconds=min(300.0, max(1.0, (deadline_at - now).total_seconds())),
+                    timeout_seconds=timeout_seconds,
                 )
             )
         return tuple(plans)
@@ -246,9 +253,6 @@ class NotificationPublisher:
             method(decision=decision)
         except Exception:  # noqa: BLE001 - telemetry не меняет policy result.
             return
-
-
-NotificationService = NotificationPublisher
 
 
 def _priority_for_event(event: NotificationEvent) -> int:
@@ -293,4 +297,4 @@ def _build_telemetry() -> object | None:
         return None
 
 
-__all__ = ["NotificationPublisher", "NotificationService"]
+__all__ = ["NotificationPublisher"]

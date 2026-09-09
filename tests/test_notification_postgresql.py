@@ -285,6 +285,51 @@ def test_expired_pending_delivery_fails_without_provider_call(
         assert attempts[0].safe_error_code == "handover_deadline_expired"
 
 
+def test_claim_bounds_lease_and_timeout_by_remaining_deadline(
+    database: LazyEngine,
+) -> None:
+    result = _publisher(database, _Channel()).publish(
+        _event(operation_id="operation-short-deadline")
+    )
+    assert result.status is PublishStatus.PERSISTED
+
+    with database.get().begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE azurpilot.notification_delivery "
+                "SET deadline_at = :deadline_at "
+                "WHERE event_id = :event_id"
+            ),
+            {"deadline_at": NOW + timedelta(seconds=5), "event_id": result.event_id},
+        )
+
+    with PostgresUnitOfWork(database) as uow:
+        claimed = uow.notifications.claim_due(
+            now=NOW,
+            worker_id="worker-short-deadline",
+            batch_size=1,
+            lease_seconds=30,
+        )
+        assert len(claimed) == 1
+        assert claimed[0].delivery.lease_until == NOW + timedelta(seconds=5)
+        assert claimed[0].prepared.timeout_seconds == pytest.approx(5.0)
+        token = claimed[0].lease_token
+        uow.commit()
+
+    with PostgresUnitOfWork(database) as uow:
+        assert uow.notifications.apply_update(
+            delivery_id=claimed[0].delivery.id,
+            lease_token=token,
+            delivery_update=DeliveryUpdate(
+                state=DeliveryState.FAILED,
+                result=DeliveryResult.permanent_failure("test_cleanup"),
+                next_attempt_at=NOW + timedelta(seconds=5),
+                completed_at=NOW + timedelta(seconds=5),
+            ),
+        )
+        uow.commit()
+
+
 def test_expired_lease_recovers_and_stale_token_cannot_update(
     database: LazyEngine,
 ) -> None:

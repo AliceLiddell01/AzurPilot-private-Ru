@@ -256,7 +256,9 @@ class PostgresNotificationRepository:
                 lease_token = uuid4()
                 attempt_ordinal = delivery.attempt_count + 1
                 lease_until = now + timedelta(seconds=lease_seconds)
-                self._connection.execute(
+                if delivery.deadline_at is not None:
+                    lease_until = min(lease_until, delivery.deadline_at)
+                claimed_rows = self._connection.execute(
                     update(notification_delivery)
                     .where(
                         notification_delivery.c.id == delivery.id,
@@ -273,6 +275,10 @@ class PostgresNotificationRepository:
                         updated_at=now,
                     )
                 )
+                if claimed_rows.rowcount != 1:
+                    raise StorageInvariantViolationError(
+                        "Заблокированная notification delivery не перешла в IN_FLIGHT."
+                    )
                 self._connection.execute(
                     notification_delivery_attempt.insert().values(
                         delivery_id=delivery.id,
@@ -322,7 +328,7 @@ class PostgresNotificationRepository:
                     ),
                     rendered_snapshot=delivery.rendered_snapshot,
                     idempotency_key=delivery.idempotency_key,
-                    timeout_seconds=float(min(lease_seconds, 300)),
+                    timeout_seconds=(lease_until - now).total_seconds(),
                     attributes=(
                         NotificationAttribute("profile_id", stored_event.event.profile_id),
                         NotificationAttribute("event_type", stored_event.event.type),
@@ -1014,7 +1020,13 @@ def _validate_result(result: DeliveryResult) -> None:
     if not isinstance(result, DeliveryResult) or not result.is_valid():
         raise StorageInvariantViolationError("DeliveryResult class не зарегистрирован.")
     if result.safe_error_summary is not None and (
-        any(marker in result.safe_error_summary.casefold() for marker in _UNSAFE_TEXT_MARKERS)
+        not isinstance(result.safe_error_summary, str)
+        or len(result.safe_error_summary) > 256
+        or any(ord(character) < 32 for character in result.safe_error_summary)
+        or any(
+            marker in result.safe_error_summary.casefold()
+            for marker in _UNSAFE_TEXT_MARKERS
+        )
     ):
         raise StorageInvariantViolationError("DeliveryResult summary не bounded.")
     if result.provider_message_id is not None and fullmatch(

@@ -742,8 +742,9 @@ Handover передаёт bounded deadline, ограниченный сущес�
 - backend restart, после которого нельзя доказать текущий operation state.
 
 При таком результате текущий worker не quiesce-ится и не вытесняется. Durable
-delivery продолжает retry независимо от уже завершённого failed handover, но
-late success не меняет исход старой операции.
+delivery продолжает retry до собственного retry budget/deadline независимо от
+уже завершённого failed handover, но late success не меняет исход старой
+операции.
 
 ### [Решение] Disconnect, duplicate и late ACK
 
@@ -847,6 +848,11 @@ COMMIT;
 для конкурирующих queue-like workers, но не обещает глобальный порядок при
 нескольких workers. Если порядок нужен, он определяется per profile/subject
 sequence и отдельным acceptance test; global total order не обещается.
+
+В реализации Stage 2 просроченные `PENDING/RETRY_WAIT` сначала атомарно
+переводятся в `FAILED` с bounded `handover_deadline_expired`, а в active claim
+попадают только rows с `deadline_at` в будущем. `lease_until` и
+`PreparedDelivery.timeout_seconds` не выходят за оставшееся до deadline время.
 
 Lock предотвращает concurrent claim только в пределах короткой transaction,
 пока lease активен; lease token fencing защищает durable state update от

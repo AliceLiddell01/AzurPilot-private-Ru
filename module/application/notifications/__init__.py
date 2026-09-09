@@ -64,7 +64,6 @@ from module.application.notifications.rendering import (
 )
 from module.application.notifications.service import (
     NotificationPublisher,
-    NotificationService,
 )
 from module.application.notifications.state import (
     RetryPolicy,
@@ -105,7 +104,6 @@ __all__ = [
     "NotificationRule",
     "NotificationRuleMatcher",
     "NotificationSensitivity",
-    "NotificationService",
     "NotificationSeverity",
     "NotificationStoredAttempt",
     "NotificationStoredDelivery",

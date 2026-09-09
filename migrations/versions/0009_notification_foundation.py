@@ -230,6 +230,15 @@ def upgrade() -> None:
         postgresql_where=sa.text("state IN ('PENDING', 'RETRY_WAIT')"),
     )
     op.create_index(
+        "ix_notification_delivery_deadline_expiry",
+        "notification_delivery",
+        ["deadline_at", "id"],
+        schema=_SCHEMA,
+        postgresql_where=sa.text(
+            "state IN ('PENDING', 'RETRY_WAIT') AND deadline_at IS NOT NULL"
+        ),
+    )
+    op.create_index(
         "ix_notification_delivery_event",
         "notification_delivery",
         ["event_id", "id"],

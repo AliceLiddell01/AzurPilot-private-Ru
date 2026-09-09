@@ -1112,6 +1112,14 @@ Index(
     postgresql_where=text("state IN ('PENDING', 'RETRY_WAIT')"),
 )
 Index(
+    "ix_notification_delivery_deadline_expiry",
+    notification_delivery.c.deadline_at,
+    notification_delivery.c.id,
+    postgresql_where=text(
+        "state IN ('PENDING', 'RETRY_WAIT') AND deadline_at IS NOT NULL"
+    ),
+)
+Index(
     "ix_notification_delivery_event",
     notification_delivery.c.event_id,
     notification_delivery.c.id,

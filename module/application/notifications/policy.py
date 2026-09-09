@@ -115,6 +115,7 @@ class NotificationPolicyResolver:
             raise ValueError("Policy не может содержать повторяющиеся rule id.")
         _validate_action(policy.default_action)
         self._policy = policy
+        # Меньшее значение priority выигрывает; ties сохраняют порядок объявления.
         self._ordered_rules = tuple(
             sorted(enumerate(policy.rules), key=lambda item: (item[1].priority, item[0]))
         )

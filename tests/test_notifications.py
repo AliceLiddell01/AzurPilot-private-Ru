@@ -278,13 +278,16 @@ class _MemoryRepository:
                     continue
                 token = uuid4()
                 ordinal = delivery.attempt_count + 1
+                lease_until = now + timedelta(seconds=lease_seconds)
+                if delivery.deadline_at is not None:
+                    lease_until = min(lease_until, delivery.deadline_at)
                 updated = replace(
                     delivery,
                     state=DeliveryState.IN_FLIGHT,
                     attempt_count=ordinal,
                     lease_owner=worker_id,
                     lease_token=token,
-                    lease_until=now + timedelta(seconds=lease_seconds),
+                    lease_until=lease_until,
                     updated_at=now,
                 )
                 self.deliveries[delivery.id] = updated
@@ -325,7 +328,7 @@ class _MemoryRepository:
                             ),
                             rendered_snapshot=delivery.rendered_snapshot,
                             idempotency_key=delivery.idempotency_key,
-                            timeout_seconds=30,
+                            timeout_seconds=(lease_until - now).total_seconds(),
                         ),
                     )
                 )
