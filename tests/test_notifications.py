@@ -17,8 +17,8 @@ from module.application.notifications import (
     DeliveryResult,
     DeliveryState,
     HandoverNotificationOutcome,
-    HandoverPreemptionRenderer,
     HandoverPreemptionPayload,
+    HandoverPreemptionRenderer,
     NotificationChannelCatalog,
     NotificationDispatcher,
     NotificationEvent,
@@ -81,7 +81,11 @@ def _event(*, event_id: UUID | None = None, operation_id: str = "op-1") -> Notif
     )
 
 
-def _policy(channel: str = "agent") -> NotificationPolicy:
+def _policy(
+    channel: str = "agent",
+    *,
+    channel_instance_ids: tuple[str, ...] | None = None,
+) -> NotificationPolicy:
     return NotificationPolicy(
         version=4,
         rules=(
@@ -91,7 +95,10 @@ def _policy(channel: str = "agent") -> NotificationPolicy:
                 matcher=NotificationRuleMatcher(
                     exact_type="runtime.handover.preemption_requested"
                 ),
-                action=PolicyAction(channel_instance_ids=(channel,), locale="ru-RU"),
+                action=PolicyAction(
+                    channel_instance_ids=channel_instance_ids or (channel,),
+                    locale="ru-RU",
+                ),
             ),
         ),
         default_action=PolicyAction(suppression_reason="default_suppressed"),
@@ -110,6 +117,26 @@ class _FakeChannel:
     def send(self, prepared: PreparedDelivery) -> DeliveryResult:
         self.sent.append(prepared)
         return self.result
+
+
+class _FlakyCapabilitiesChannel:
+    instance_id = "agent-flaky"
+    channel_type = "test"
+
+    def __init__(self) -> None:
+        self._capabilities = ChannelCapabilities(receipt_strength=ReceiptStrength.AGENT_ACK)
+        self.fail_capabilities = False
+        self.sent: list[PreparedDelivery] = []
+
+    @property
+    def capabilities(self) -> ChannelCapabilities:
+        if self.fail_capabilities:
+            raise RuntimeError("Не удалось прочитать channel capabilities.")
+        return self._capabilities
+
+    def send(self, prepared: PreparedDelivery) -> DeliveryResult:
+        self.sent.append(prepared)
+        return DeliveryResult.delivered()
 
 
 class _FailingSpan:
@@ -243,7 +270,9 @@ class _MemoryRepository:
         with self._lock:
             claimed: list[ClaimedDelivery] = []
             for delivery in tuple(self.deliveries.values()):
-                if len(claimed) >= batch_size or delivery.state not in {
+                if len(claimed) >= batch_size:
+                    break
+                if delivery.state not in {
                     DeliveryState.PENDING,
                     DeliveryState.RETRY_WAIT,
                 }:
@@ -368,6 +397,28 @@ class _MemoryRepository:
 
     def recover_expired(self, **_kwargs: object) -> int:
         return 0
+
+
+class _FailingApplyRepository(_MemoryRepository):
+    def __init__(self) -> None:
+        super().__init__()
+        self.fail_next_update = True
+
+    def apply_update(
+        self,
+        *,
+        delivery_id: UUID,
+        lease_token: UUID,
+        delivery_update: DeliveryUpdate,
+    ) -> bool:
+        if self.fail_next_update:
+            self.fail_next_update = False
+            raise RuntimeError("Ошибка применения notification update.")
+        return super().apply_update(
+            delivery_id=delivery_id,
+            lease_token=lease_token,
+            delivery_update=delivery_update,
+        )
 
 
 def test_registry_rejects_naive_and_canonicalizes_handover_payload() -> None:
@@ -573,6 +624,63 @@ def test_publisher_and_dispatcher_keep_provider_acceptance_intermediate() -> Non
     assert channel.sent[0].idempotency_key.startswith(str(result.event_id))
 
 
+def test_dispatcher_isolates_channel_capability_failure_within_batch() -> None:
+    repository = _MemoryRepository()
+    flaky = _FlakyCapabilitiesChannel()
+    healthy = _FakeChannel(DeliveryResult.delivered())
+    healthy.instance_id = "agent-healthy"
+    channels = NotificationChannelCatalog((flaky, healthy))
+    publisher = NotificationPublisher(
+        lambda: _MemoryUow(repository),
+        policy=_policy(channel_instance_ids=(flaky.instance_id, healthy.instance_id)),
+        channel_catalog=channels,
+        clock=lambda: NOW,
+    )
+    publisher.publish(_event(operation_id="operation-capabilities"))
+    flaky.fail_capabilities = True
+
+    report = NotificationDispatcher(
+        lambda: _MemoryUow(repository),
+        channel_catalog=channels,
+        clock=lambda: NOW,
+        worker_id="worker-capabilities",
+        batch_size=2,
+    ).dispatch_once()
+
+    assert report.claimed == 2
+    assert report.updated == 2
+    assert report.failed == 1
+    assert flaky.sent == []
+    assert len(healthy.sent) == 1
+
+
+def test_dispatcher_continues_after_storage_update_failure() -> None:
+    repository = _FailingApplyRepository()
+    channel = _FakeChannel(DeliveryResult.delivered())
+    channels = NotificationChannelCatalog((channel,))
+    publisher = NotificationPublisher(
+        lambda: _MemoryUow(repository),
+        policy=_policy(),
+        channel_catalog=channels,
+        clock=lambda: NOW,
+    )
+    publisher.publish(_event(operation_id="operation-storage-first"))
+    publisher.publish(_event(operation_id="operation-storage-second"))
+
+    report = NotificationDispatcher(
+        lambda: _MemoryUow(repository),
+        channel_catalog=channels,
+        clock=lambda: NOW,
+        worker_id="worker-storage",
+        batch_size=2,
+    ).dispatch_once()
+
+    assert report.claimed == 2
+    assert report.updated == 1
+    assert report.failed == 1
+    assert len(channel.sent) == 2
+
+
 @pytest.mark.parametrize(
     ("enter_failure", "exit_failure"),
     ((True, False), (False, True)),
@@ -604,11 +712,10 @@ def test_dispatcher_telemetry_lifecycle_is_fail_open(
 
 
 def test_telemetry_exit_failure_does_not_hide_notification_error() -> None:
-    with pytest.raises(RuntimeError, match="notification failed"):
-        with safe_telemetry_span(
-            _FailingTelemetry(exit_failure=True), "notification.test"
-        ):
-            raise RuntimeError("notification failed")
+    with pytest.raises(RuntimeError, match="notification failed"), safe_telemetry_span(
+        _FailingTelemetry(exit_failure=True), "notification.test"
+    ):
+        raise RuntimeError("notification failed")
 
 
 def test_handover_result_accepted_is_not_delivery_proof() -> None:

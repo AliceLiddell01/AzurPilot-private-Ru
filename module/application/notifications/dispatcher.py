@@ -59,67 +59,103 @@ class NotificationDispatcher:
 
     def dispatch_once(self) -> DispatchReport:
         now = _utc(self._clock())
-        with safe_telemetry_span(self._telemetry, "notification.dispatch.claim"):
-            with self._uow_factory() as uow:
-                claimed = uow.notifications.claim_due(
-                    now=now,
-                    worker_id=self._worker_id,
-                    batch_size=self._batch_size,
-                    lease_seconds=self._lease_seconds,
-                )
-                uow.commit()
+        with (
+            safe_telemetry_span(self._telemetry, "notification.dispatch.claim"),
+            self._uow_factory() as uow,
+        ):
+            claimed = uow.notifications.claim_due(
+                now=now,
+                worker_id=self._worker_id,
+                batch_size=self._batch_size,
+                lease_seconds=self._lease_seconds,
+            )
+            uow.commit()
         updated = 0
         stale = 0
+        failed = 0
         for item in claimed:
             channel = self._channels.get(item.delivery.channel_instance_id)
             started = time.perf_counter()
+            item_failed = False
+            capabilities = _fallback_capabilities()
+            result = DeliveryResult.unavailable("channel_unavailable")
             with safe_telemetry_span(
                 self._telemetry,
                 "notification.channel.send",
                 attributes={"channel_type": item.delivery.channel_type},
             ):
-                try:
-                    result = (
-                        channel.send(item.prepared)
-                        if channel is not None
-                        else DeliveryResult.unavailable("channel_unregistered")
-                    )
-                    if not isinstance(result, DeliveryResult) or not result.is_valid():
-                        result = DeliveryResult.unavailable("channel_result_invalid")
-                except Exception:  # noqa: BLE001 - provider exception становится safe unavailable.
-                    result = DeliveryResult.unavailable("channel_send_failed")
-            elapsed = time.perf_counter() - started
-            if channel is None:
-                capabilities = _fallback_capabilities()
-            else:
-                capabilities = channel.capabilities
-            transition = transition_for_result(
-                result,
-                capabilities=capabilities,
-                attempt_count=item.attempt_ordinal,
-                now=_utc(self._clock()),
-                deadline_at=item.delivery.deadline_at,
-                retry_policy=self._retry_policy,
-                idempotency_key=item.delivery.idempotency_key,
-            )
-            with self._uow_factory() as uow:
-                if uow.notifications.apply_update(
-                    delivery_id=item.delivery.id,
-                    lease_token=item.lease_token,
-                    delivery_update=transition,
-                ):
-                    uow.commit()
-                    updated += 1
+                if channel is None:
+                    result = DeliveryResult.unavailable("channel_unregistered")
                 else:
-                    uow.rollback()
-                    stale += 1
+                    try:
+                        capabilities = channel.capabilities
+                        if not isinstance(capabilities, ChannelCapabilities) or not capabilities.is_valid():
+                            raise ValueError("Некорректные channel capabilities.")
+                    except Exception:  # noqa: BLE001 - ошибка contract переводится в safe retry.
+                        capabilities = _fallback_capabilities()
+                        result = DeliveryResult.unavailable("channel_result_invalid")
+                        item_failed = True
+                    else:
+                        try:
+                            result = channel.send(item.prepared)
+                            if not isinstance(result, DeliveryResult) or not result.is_valid():
+                                result = DeliveryResult.unavailable("channel_result_invalid")
+                                item_failed = True
+                        except Exception:  # noqa: BLE001 - ошибка provider переводится в safe unavailable.
+                            result = DeliveryResult.unavailable("channel_send_failed")
+            elapsed = time.perf_counter() - started
+            try:
+                transition = transition_for_result(
+                    result,
+                    capabilities=capabilities,
+                    attempt_count=item.attempt_ordinal,
+                    now=_utc(self._clock()),
+                    deadline_at=item.delivery.deadline_at,
+                    retry_policy=self._retry_policy,
+                    idempotency_key=item.delivery.idempotency_key,
+                )
+            except Exception:  # noqa: BLE001 - некорректный channel result остаётся fail-closed.
+                item_failed = True
+                capabilities = _fallback_capabilities()
+                result = DeliveryResult.unavailable("channel_result_invalid")
+                try:
+                    transition = transition_for_result(
+                        result,
+                        capabilities=capabilities,
+                        attempt_count=item.attempt_ordinal,
+                        now=_utc(self._clock()),
+                        deadline_at=item.delivery.deadline_at,
+                        retry_policy=self._retry_policy,
+                        idempotency_key=item.delivery.idempotency_key,
+                    )
+                except Exception:  # noqa: BLE001 - lease остаётся для bounded recovery.
+                    self._record_attempt(item, result)
+                    self._record_latency(item, result, elapsed)
+                    failed += 1
+                    continue
+            try:
+                with self._uow_factory() as uow:
+                    if uow.notifications.apply_update(
+                        delivery_id=item.delivery.id,
+                        lease_token=item.lease_token,
+                        delivery_update=transition,
+                    ):
+                        uow.commit()
+                        updated += 1
+                    else:
+                        uow.rollback()
+                        stale += 1
+            except Exception:  # noqa: BLE001 - ошибка storage не останавливает batch.
+                item_failed = True
             self._record_attempt(item, result)
             self._record_latency(item, result, elapsed)
+            failed += int(item_failed)
         return DispatchReport(
             claimed=len(claimed),
             processed=len(claimed),
             updated=updated,
             stale_updates=stale,
+            failed=failed,
         )
 
     def recover_expired(self) -> int:

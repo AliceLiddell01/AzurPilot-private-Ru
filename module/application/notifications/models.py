@@ -554,10 +554,13 @@ class DeliveryUpdate:
 
 @dataclass(frozen=True, slots=True)
 class DispatchReport:
+    """Итог bounded batch; failed означает исключение обработки элемента."""
+
     claimed: int
     processed: int
     updated: int
     stale_updates: int
+    failed: int = 0
     recovered: int = 0
 
 
@@ -587,13 +590,13 @@ def new_uuid() -> UUID:
 
 
 __all__ = [
+    "DOTTED_TYPE_RE",
     "ChannelCapabilities",
     "ClaimedDelivery",
     "DeliveryResult",
     "DeliveryResultClass",
     "DeliveryState",
     "DeliveryUpdate",
-    "DOTTED_TYPE_RE",
     "DispatchReport",
     "HandoverNotificationOutcome",
     "HandoverNotificationResult",

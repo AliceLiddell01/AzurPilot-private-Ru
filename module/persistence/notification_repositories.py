@@ -25,10 +25,10 @@ from module.application.notifications.encoding import (
     rendered_snapshot_document,
 )
 from module.application.notifications.models import (
-    ClaimedDelivery,
     MAX_CHANNEL_BODY_LENGTH,
     MAX_CHANNEL_PAYLOAD_BYTES,
     MAX_CHANNEL_TITLE_LENGTH,
+    ClaimedDelivery,
     DeliveryResult,
     DeliveryResultClass,
     DeliveryState,
@@ -155,6 +155,38 @@ class PostgresNotificationRepository:
         if not 1 <= lease_seconds <= 3600:
             raise ValueError("Dispatcher lease вне bounded диапазона.")
         try:
+            due = or_(
+                and_(
+                    notification_delivery.c.state == DeliveryState.PENDING.value,
+                    notification_delivery.c.next_attempt_at <= now,
+                ),
+                and_(
+                    notification_delivery.c.state == DeliveryState.RETRY_WAIT.value,
+                    notification_delivery.c.next_attempt_at <= now,
+                ),
+            )
+            rows = self._connection.execute(
+                select(notification_delivery, notification_event)
+                .join(
+                    notification_event,
+                    notification_event.c.id == notification_delivery.c.event_id,
+                )
+                .where(
+                    due,
+                    or_(
+                        notification_delivery.c.deadline_at.is_(None),
+                        notification_delivery.c.deadline_at > now,
+                    ),
+                )
+                .order_by(
+                    notification_delivery.c.priority.desc(),
+                    notification_delivery.c.next_attempt_at,
+                    notification_event.c.profile_sequence,
+                    notification_delivery.c.id,
+                )
+                .with_for_update(skip_locked=True, of=notification_delivery)
+                .limit(batch_size)
+            ).all()
             expired_rows = self._connection.execute(
                 select(
                     notification_delivery.c.id,
@@ -175,7 +207,7 @@ class PostgresNotificationRepository:
                     notification_delivery.c.id,
                 )
                 .with_for_update(skip_locked=True)
-                .limit(batch_size)
+                .limit(max(0, batch_size - len(rows)))
             ).mappings().all()
             for row in expired_rows:
                 delivery_id = cast(UUID, row["id"])
@@ -217,38 +249,6 @@ class PostgresNotificationRepository:
                     raise StorageInvariantViolationError(
                         "Просроченная notification delivery не перешла в FAILED."
                     )
-            due = or_(
-                and_(
-                    notification_delivery.c.state == DeliveryState.PENDING.value,
-                    notification_delivery.c.next_attempt_at <= now,
-                ),
-                and_(
-                    notification_delivery.c.state == DeliveryState.RETRY_WAIT.value,
-                    notification_delivery.c.next_attempt_at <= now,
-                ),
-            )
-            rows = self._connection.execute(
-                select(notification_delivery, notification_event)
-                .join(
-                    notification_event,
-                    notification_event.c.id == notification_delivery.c.event_id,
-                )
-                .where(
-                    due,
-                    or_(
-                        notification_delivery.c.deadline_at.is_(None),
-                        notification_delivery.c.deadline_at > now,
-                    ),
-                )
-                .order_by(
-                    notification_delivery.c.priority.desc(),
-                    notification_delivery.c.next_attempt_at,
-                    notification_event.c.profile_sequence,
-                    notification_delivery.c.id,
-                )
-                .with_for_update(skip_locked=True, of=notification_delivery)
-                .limit(batch_size)
-            ).all()
             claimed: list[ClaimedDelivery] = []
             for row in rows:
                 delivery_row = _column_mapping(row, notification_delivery)
@@ -1002,7 +1002,7 @@ class PostgresNotificationRepository:
 
 def _column_mapping(row: object, table: Table) -> dict[str, object]:
     try:
-        mapping = row._mapping  # noqa: SLF001 - SQLAlchemy Row предоставляет mapping колонок.
+        mapping = row._mapping  # SQLAlchemy Row предоставляет mapping колонок.
     except AttributeError:
         raise StorageInvariantViolationError(
             "SQLAlchemy row не предоставляет column mapping."

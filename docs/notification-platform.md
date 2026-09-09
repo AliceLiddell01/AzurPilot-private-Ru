@@ -695,6 +695,13 @@ lease_token, payload digest, connection/session epoch и срок действи
 или FAILED, после чего обычный
 lease claim выполняет повторную попытку с тем же idempotency key.
 
+`NotificationDispatcher.dispatch_once()` возвращает bounded `DispatchReport`:
+`updated` отражает durable result update, `stale_updates` — отклонённые lease
+token, а `failed` — исключения обработки отдельных элементов. Ошибка одного
+channel contract или storage update не прерывает уже claim-нутый batch; lease
+остаётся доступным для bounded recovery, а безопасный typed result используется
+для обычного retry, если это возможно.
+
 ### [Внешний design reference] Transactional outbox
 
 Transactional outbox нужен только когда durable domain change и outbox event
