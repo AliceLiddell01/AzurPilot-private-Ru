@@ -158,13 +158,29 @@ class TestProcessManagerRegistry(unittest.TestCase):
             worker_created_at = float(psutil.Process(os.getpid()).create_time())
             store = RuntimeStateStore(root_path)
             body_called = threading.Event()
+            observed_environment: dict[str, str | None] = {}
 
             def body(*_args: object, **_kwargs: object) -> None:
+                observed_environment.update(
+                    {
+                        "session": os.environ.get("AZURPILOT_DEV_SESSION_ID"),
+                        "root": os.environ.get("AZURPILOT_DEV_REPOSITORY_ROOT"),
+                        "policy": os.environ.get("AZURPILOT_DEV_POLICY_FILE"),
+                    }
+                )
                 body_called.set()
 
             with (
                 # run_process меняет runtime-переменные; не переносить их между тестами.
-                patch.dict(os.environ, {}, clear=False),
+                patch.dict(
+                    os.environ,
+                    {
+                        "AZURPILOT_DEV_SESSION_ID": "stale-session",
+                        "AZURPILOT_DEV_REPOSITORY_ROOT": "stale-root",
+                        "AZURPILOT_DEV_POLICY_FILE": "stale-policy",
+                    },
+                    clear=False,
+                ),
                 patch.object(ProcessManager, "_run_process_body", side_effect=body),
             ):
                 worker = threading.Thread(
@@ -198,6 +214,77 @@ class TestProcessManagerRegistry(unittest.TestCase):
             snapshot = store.read("alas")
             self.assertIsNotNone(snapshot)
             self.assertFalse(snapshot.worker_running)
+            self.assertIsNone(observed_environment["session"])
+            self.assertIsNone(observed_environment["root"])
+            self.assertIsNone(observed_environment["policy"])
+
+    def test_worker_body_inherits_active_task_policy_context(self):
+        import psutil
+
+        from module.application.runtime_state import RuntimeStateStore
+
+        with TemporaryDirectory() as root:
+            root_path = Path(root)
+            policy_path = root_path / "config" / "state" / "dev-runtime-task-policy.json"
+            policy_path.parent.mkdir(parents=True)
+            policy_path.write_text("{}", encoding="utf-8")
+            worker_created_at = float(psutil.Process(os.getpid()).create_time())
+            store = RuntimeStateStore(root_path)
+            body_called = threading.Event()
+            observed_environment: dict[str, str | None] = {}
+
+            def body(*_args: object, **_kwargs: object) -> None:
+                observed_environment.update(
+                    {
+                        "session": os.environ.get("AZURPILOT_DEV_SESSION_ID"),
+                        "root": os.environ.get("AZURPILOT_DEV_REPOSITORY_ROOT"),
+                        "policy": os.environ.get("AZURPILOT_DEV_POLICY_FILE"),
+                    }
+                )
+                body_called.set()
+
+            with (
+                patch.dict(
+                    os.environ,
+                    {
+                        "AZURPILOT_DEV_SESSION_ID": "stale-session",
+                        "AZURPILOT_DEV_REPOSITORY_ROOT": "stale-root",
+                        "AZURPILOT_DEV_POLICY_FILE": "stale-policy",
+                    },
+                    clear=False,
+                ),
+                patch.object(ProcessManager, "_run_process_body", side_effect=body),
+            ):
+                worker = threading.Thread(
+                    target=ProcessManager.run_process,
+                    args=(
+                        "ap",
+                        "alas",
+                        Mock(),
+                        None,
+                        str(root_path),
+                        "operation-1",
+                        "session-1",
+                    ),
+                    daemon=True,
+                )
+                worker.start()
+                self.assertFalse(body_called.wait(timeout=0.2))
+
+                store.mark_worker_started(
+                    "ap",
+                    worker_pid=os.getpid(),
+                    worker_created_at=worker_created_at,
+                    operation_id="operation-1",
+                    session_id="session-1",
+                )
+
+                self.assertTrue(body_called.wait(timeout=5))
+                worker.join(timeout=5)
+
+            self.assertEqual(observed_environment["session"], "session-1")
+            self.assertEqual(observed_environment["root"], str(root_path.resolve()))
+            self.assertEqual(observed_environment["policy"], str(policy_path.resolve()))
 
     def test_startup_gate_does_not_accept_different_worker_identity(self):
         import psutil

@@ -959,13 +959,36 @@ class ProcessManager:
         operation_id: str | None = None,
         session_id: str | None = None,
     ) -> None:
-        os.environ["AZURPILOT_REPOSITORY_ROOT"] = str(
-            Path(repository_root or _REPOSITORY_ROOT).resolve()
+        repository_root_path = Path(repository_root or _REPOSITORY_ROOT).resolve()
+        os.environ["AZURPILOT_REPOSITORY_ROOT"] = str(repository_root_path)
+        from module.dev_runtime.task_sandbox import (
+            TASK_POLICY_FILE_ENV,
+            TASK_POLICY_ROOT_ENV,
+            TASK_POLICY_SESSION_ENV,
         )
-        if session_id:
-            os.environ["AZURPILOT_DEV_SESSION_ID"] = session_id
-        else:
-            os.environ.pop("AZURPILOT_DEV_SESSION_ID", None)
+
+        for variable in (
+            TASK_POLICY_SESSION_ENV,
+            TASK_POLICY_ROOT_ENV,
+            TASK_POLICY_FILE_ENV,
+        ):
+            os.environ.pop(variable, None)
+        policy_path = (
+            repository_root_path
+            / "config"
+            / "state"
+            / "dev-runtime-task-policy.json"
+        )
+        try:
+            policy_present = policy_path.is_file() and not policy_path.is_symlink()
+            if policy_present and hasattr(policy_path, "is_junction"):
+                policy_present = not policy_path.is_junction()
+        except OSError:
+            policy_present = False
+        if session_id and policy_present:
+            os.environ[TASK_POLICY_SESSION_ENV] = session_id
+            os.environ[TASK_POLICY_ROOT_ENV] = str(repository_root_path)
+            os.environ[TASK_POLICY_FILE_ENV] = str(policy_path.resolve())
         if operation_id:
             os.environ["AZURPILOT_RUNTIME_OPERATION_ID"] = operation_id
         else:
