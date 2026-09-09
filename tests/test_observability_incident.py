@@ -132,18 +132,21 @@ def test_incident_directory_time_key_supports_legacy_datetime_names():
     assert incident_directory_time_key("20260901000000") == incident_directory_time_key(
         "2026-09-01_00-00-00.000_RuntimeError"
     )
+    assert incident_directory_time_key("2") is None
+    assert incident_directory_time_key("1757000000000") == (1757000000000, 0)
+    assert incident_directory_time_key("17570000000000") is None
 
 
 def test_error_retention_orders_legacy_epoch_directories_naturally(tmp_path):
     script = AzurLaneAutoScript.__new__(AzurLaneAutoScript)
-    for name in ("2", "10", "100"):
+    for name in ("1757000000000", "1757000100000", "1757000200000"):
         (tmp_path / name).mkdir()
 
     script.keep_last_errlog(str(tmp_path), n=2)
 
-    assert not (tmp_path / "2").exists()
-    assert (tmp_path / "10").is_dir()
-    assert (tmp_path / "100").is_dir()
+    assert not (tmp_path / "1757000000000").exists()
+    assert (tmp_path / "1757000100000").is_dir()
+    assert (tmp_path / "1757000200000").is_dir()
 
 
 def test_error_retention_preserves_current_timestamp_collision_order(tmp_path):

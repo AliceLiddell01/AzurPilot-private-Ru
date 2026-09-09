@@ -382,6 +382,9 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
     assert overview_panels[9]["targets"][0]["metricsQueryType"] == "range"
     assert overview_panels[9]["targets"][0]["step"] == "1m"
     assert "count_over_time() by (span.azurpilot.profile" in overview_panels[9]["targets"][0]["query"]
+    assert overview_panels[10]["gridPos"] == {"h": 10, "w": 24, "x": 0, "y": 22}
+    assert overview_panels[11]["gridPos"] == {"h": 12, "w": 24, "x": 0, "y": 32}
+    assert overview_panels[12]["gridPos"] == {"h": 6, "w": 24, "x": 0, "y": 44}
     for panel_id in (1, 3, 13):
         assert overview_panels[panel_id]["fieldConfig"]["defaults"]["noValue"] == "0"
         assert "noValue" not in overview_panels[panel_id]["options"]

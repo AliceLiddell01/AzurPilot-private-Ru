@@ -31,7 +31,8 @@ _TRACE_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 _SPAN_ID_RE = re.compile(r"^[0-9a-f]{16}$")
 _INCIDENT_LOG_MAX_BYTES = 64 * 1024
 _INCIDENT_LOG_MAX_LINES = 200
-_LEGACY_INCIDENT_DIRECTORY_RE = re.compile(r"\d+")
+_LEGACY_INCIDENT_EPOCH_MILLIS_RE = re.compile(r"\d{13}")
+_LEGACY_INCIDENT_DATETIME_RE = re.compile(r"\d{14}")
 _CURRENT_INCIDENT_TIMESTAMP_RE = re.compile(
     r"^(?P<timestamp>\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.\d{3})(?:_|$)"
 )
@@ -69,16 +70,16 @@ def _format_timestamp(value: datetime) -> str:
 
 def incident_directory_time_key(name: str) -> tuple[int, int] | None:
     """Вернуть хронологический ключ canonical или legacy incident-каталога."""
-    if _LEGACY_INCIDENT_DIRECTORY_RE.fullmatch(name):
-        if len(name) == 14:
-            try:
-                timestamp = datetime.strptime(name, "%Y%m%d%H%M%S").replace(
-                    tzinfo=timezone.utc
-                )
-            except ValueError:
-                return None
-            return int(timestamp.timestamp() * 1000), 0
+    if _LEGACY_INCIDENT_EPOCH_MILLIS_RE.fullmatch(name):
         return int(name), 0
+    if _LEGACY_INCIDENT_DATETIME_RE.fullmatch(name):
+        try:
+            timestamp = datetime.strptime(name, "%Y%m%d%H%M%S").replace(
+                tzinfo=timezone.utc
+            )
+        except ValueError:
+            return None
+        return int(timestamp.timestamp() * 1000), 0
 
     timestamp_match = _CURRENT_INCIDENT_TIMESTAMP_RE.match(name)
     if timestamp_match is None:

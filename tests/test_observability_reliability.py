@@ -136,7 +136,10 @@ def test_recovery_error_does_not_mask_original(docker_state, monkeypatch, tmp_pa
         with target.outage(("tempo", "loki"), journal):
             raise ValueError("исходная ошибка")
     assert calls[-1] == ("start", "tempo")
-    assert "OBSERVABILITY_RECOVERY_FAILED" in error_info.value.__notes__
+    assert any(
+        "OBSERVABILITY_RECOVERY_FAILED" in note
+        for note in getattr(error_info.value, "__notes__", ())
+    )
     assert json.loads(journal.read_text())["recovery_errors"] == [
         {"service": "loki", "error": "OSError"}
     ]

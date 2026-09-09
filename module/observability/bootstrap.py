@@ -500,21 +500,21 @@ def _application_repository_root() -> Path | None:
     return module_root if _is_repository_root(module_root) else None
 
 
-def _load_local_otlp_environment() -> set[str]:
+def _load_local_otlp_environment() -> dict[str, str]:
     """Загрузить только OTEL-настройки из канонического корневого ``.env``.
 
     Корневой ``.env`` уже является источником deployment-настроек Compose.
-    Секретные OTLP headers возвращаются вызывающему коду отдельно, чтобы они
-    не оставались в глобальном окружении процесса. Секреты и остальные
+    Секретные OTLP headers возвращаются вызывающему коду отдельно и не
+    записываются в глобальное окружение процесса. Секреты и остальные
     переменные намеренно не читаются. Явное окружение процесса имеет приоритет.
     """
 
     root = _application_repository_root()
     if root is None:
-        return set()
+        return {}
     env_path = root / ".env"
     if not env_path.is_file():
-        return set()
+        return {}
     try:
         lines = env_path.read_text(encoding="utf-8").splitlines()
     except (OSError, UnicodeError) as exc:
@@ -522,9 +522,9 @@ def _load_local_otlp_environment() -> set[str]:
             "Не удалось прочитать OTEL-настройки из корневого .env; используется окружение процесса",
             exc,
         )
-        return set()
+        return {}
 
-    loaded_names: set[str] = set()
+    local_header_values: dict[str, str] = {}
     for line in lines:
         stripped = line.strip()
         if not stripped or stripped.startswith("#") or "=" not in stripped:
@@ -534,10 +534,13 @@ def _load_local_otlp_environment() -> set[str]:
             continue
         if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
             value = value[1:-1]
+        if name in _OTLP_HEADER_ENV_NAMES:
+            if name not in os.environ:
+                local_header_values[name] = value
+            continue
         if name not in os.environ:
             os.environ[name] = value
-            loaded_names.add(name)
-    return loaded_names
+    return local_header_values
 
 
 def _read_otlp_headers(
@@ -568,14 +571,7 @@ def _read_otlp_headers(
 
 
 def _read_config() -> _ObservabilityConfig | None:
-    loaded_names = _load_local_otlp_environment()
-    local_header_values = {
-        name: os.environ[name]
-        for name in loaded_names & _OTLP_HEADER_ENV_NAMES
-        if name in os.environ
-    }
-    for name in local_header_values:
-        os.environ.pop(name, None)
+    local_header_values = _load_local_otlp_environment()
     logs_headers = _read_otlp_headers(
         "OTEL_EXPORTER_OTLP_LOGS_HEADERS",
         local_header_values,
