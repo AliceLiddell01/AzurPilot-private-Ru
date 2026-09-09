@@ -317,8 +317,20 @@ publish(event: NotificationEvent) -> PublishResult
 publish_for_handover(event, deadline) -> HandoverNotificationResult
 ~~~
 
-Обычная публикация возвращает только durable result: persisted, duplicate,
-suppressed или unavailable. Она не обещает, что человек прочитал сообщение.
+PublishResult — typed result, а не bool:
+
+~~~text
+persisted | duplicate | suppressed | identity_conflict |
+validation_failed | unavailable
+~~~
+
+`identity_conflict` означает, что существующая occurrence identity получила
+другие immutable fields или payload_digest; обычный caller не повторяет такую
+публикацию. `unavailable` означает временно недоступную durable boundary и
+может быть повторён только с тем же occurrence identity. `duplicate`,
+`suppressed` и `validation_failed` не являются успешной доставкой и не
+требуют provider retry. Обычная публикация не обещает, что человек прочитал
+сообщение.
 Handover use case ждёт только до переданного bounded deadline и возвращает
 NotificationOutcome для существующего runtime contract. Он не знает, каким
 каналом получен ACK.
@@ -461,6 +473,39 @@ run_count, level, coin или new_ship. opsi.ship_exp.target_reached испол�
 bounded scope fleet или custom_positions. Новые producer’ы расширяют registry
 через typed descriptor, а не через транспортное имя.
 
+### [Решение] Typed descriptor для handover preemption
+
+Target descriptor `(runtime.handover.preemption_requested, schema_version=1)`
+имеет отдельные validator, policy descriptor и renderer descriptor. Его
+минимальный typed payload:
+
+~~~text
+operation_id       required bounded handover operation identity
+source_profile_id  required canonical profile id; must equal event.profile_id
+owner_epoch        required authoritative ownership epoch/version
+session_id         optional bounded runtime session reference
+current_task       optional typed subject reference, never raw task payload
+reason_code        required bounded enum/code for the preemption cause
+deadline_at        required UTC deadline, within caller deadline and <= 300 sec
+~~~
+
+Payload использует canonical encoding и ограничен initial target 4 KiB; строки
+имеют индивидуальные bounded limits, а свободные dict/list и raw exception,
+device id, screenshot, credentials и config запрещены. `occurred_at` является
+requested time и не дублируется в data. `dedup_key` равен operation_id, поэтому
+retry publisher возвращает exact existing result, а изменение любого
+immutable field или payload_digest даёт identity_conflict без republish.
+
+Policy descriptor помечает событие handover-critical и выбирает только
+profile-bound Desktop Agent receipt path; suppression или unavailable всегда
+дают fail-closed HandoverNotificationResult и никогда не становятся proof.
+Renderer descriptor для type/version строит channel-safe presentation из
+bounded reason/task reference и не передаёт secrets. Пара
+type/version считается registered только когда validator, dedup, policy и
+renderer descriptors совместимы; unregistered pair отклоняется до durable
+normal history. Это Stage 1 design contract, а не добавление production
+event class или registry.
+
 ### [Решение] Severity
 
 Default severity принадлежит descriptor type/version. Ориентир:
@@ -562,12 +607,18 @@ identity/version, bounded reason, selected channels и policy snapshot/hash.
 ~~~text
 PENDING -> IN_FLIGHT
 IN_FLIGHT -> RETRY_WAIT -> IN_FLIGHT
-IN_FLIGHT -> FAILED
+IN_FLIGHT -> FAILED [permanent failure or retry budget exhausted]
 IN_FLIGHT -> PROVIDER_ACCEPTED [Telegram/Webhook: terminal]
 PROVIDER_ACCEPTED -> AWAITING_AGENT_ACK -> DELIVERED [Desktop Agent]
 AWAITING_AGENT_ACK -> RETRY_WAIT -> IN_FLIGHT [Agent timeout/disconnect]
-PolicyDecision -> SUPPRESSED
+AWAITING_AGENT_ACK -> FAILED [retry budget exhausted]
+RETRY_WAIT -> FAILED [retry budget or absolute deadline exhausted]
+PENDING -> SUPPRESSED [channel policy before send]
 ~~~
+
+Global/rule-level suppression — отдельный terminal результат PolicyDecision
+SUPPRESSED, при котором Delivery row не создаётся; он не является переходом
+Delivery.
 
 Delivery хранит lease_owner, lease_token, lease_until, attempt_count,
 next_attempt_at, last_safe_error_code и immutable rendered snapshot. Для
@@ -591,10 +642,11 @@ credentials и секретные URL не сохраняются.
 
 #### Suppression / terminal failure
 
-SUPPRESSED — policy/channel decision, при котором отправка не выполнялась.
-FAILED — terminal delivery state после permanent failure или исчерпания
-retry budget. Unavailable до истечения policy deadline остаётся retryable
-state, а не успешной доставкой.
+SUPPRESSED — channel-level decision, при котором отправка не выполнялась;
+global/rule-level вариант живёт только в PolicyDecision. FAILED — terminal
+delivery state после permanent failure или исчерпания retry budget/absolute
+deadline. Unavailable до истечения policy deadline остаётся retryable state, а
+не успешной доставкой.
 
 ### [Решение] Строгая семантика результата
 
@@ -633,10 +685,12 @@ transient; invalid credentials, invalid destination и schema rejection обыч
 permanent. Точное значение budget и SLO требует Stage 2 load/chaos evidence.
 
 Для Desktop Agent переход в AWAITING_AGENT_ACK и его ack deadline должны быть
-durable. ACK handler атомарно проверяет delivery_id, profile_id, payload
-digest, connection/session epoch и срок действия; только успешная проверка
-делает DELIVERED. Timeout/disconnect не может оставить delivery навсегда в
-ожидании: recovery переводит её в RETRY_WAIT или FAILED, после чего обычный
+durable. ACK handler атомарно проверяет event_id, delivery_id, profile_id,
+lease_token, payload digest, connection/session epoch и срок действия; только
+успешная проверка делает DELIVERED. ACK старой попытки после lease recovery
+обязан быть отклонён по lease_token или session epoch. Timeout/disconnect не
+может оставить delivery навсегда в ожидании: recovery переводит её в RETRY_WAIT
+или FAILED, после чего обычный
 lease claim выполняет повторную попытку с тем же idempotency key.
 
 ### [Внешний design reference] Transactional outbox
@@ -698,8 +752,8 @@ late success не меняет исход старой операции.
 - duplicate delivery: стабильный delivery_id/idempotency_key позволяет Agent
   повторно принять и отобразить одну logical notification;
 - duplicate ACK с теми же identity и результатом идемпотентен;
-- ACK с другим profile, lease token, connection epoch или payload digest
-  отклоняется и только санитизированно журналируется;
+- ACK с другим event_id, profile, lease_token, connection epoch или payload
+  digest отклоняется и только санитизированно журналируется;
 - ACK после handover deadline принимается для durable audit только если
   delivery всё ещё валиден, но не переводит старый handover в success;
 - backend restart восстанавливает rows по PostgreSQL и lease scan, а не по
@@ -928,15 +982,26 @@ clock skew могут создавать gaps/duplicates.
 ### [Решение] Live updates и reconnect
 
 Live projection использует отдельную non-destructive подписку поверх durable
-table:
+table и единый snapshot/cursor protocol:
 
-1. consumer получает initial page и high-water cursor;
-2. подписывается на future signal;
-3. запрашивает все rows после high-water cursor;
-4. выдаёт SSE event id равный durable cursor;
-5. при reconnect передаёт Last-Event-ID или эквивалентный opaque cursor;
-6. сервер сначала выполняет gap fill из PostgreSQL, затем продолжает live
-   projection.
+1. authenticated consumer регистрирует subscription (для PostgreSQL
+   LISTEN — LISTEN и commit) до initial state read;
+2. в одной согласованной DB snapshot transaction читает bounded initial page
+   и cursor последней фактически выданной записи, затем commit-ит snapshot;
+3. сервер делает gap fill из PostgreSQL после этого cursor, проверяет
+   непрерывность retained profile_sequence и повторяет snapshot/catch-up при
+   обнаруженной гонке или несовместимом cursor;
+4. выдаёт SSE event id, равный durable cursor;
+5. при reconnect consumer передаёт Last-Event-ID или эквивалентный opaque
+   cursor;
+6. сервер сначала выполняет gap fill от этого cursor, затем продолжает live
+   projection. События, committed после initial snapshot, покрываются
+   subscription signal или тем же durable gap fill.
+
+High-water не является произвольным MAX(sequence) за пределами выданной
+страницы: cursor обязан соответствовать последней фактически выданной записи
+или явно переданному caller cursor. Timestamp alone не заменяет snapshot или
+profile_sequence.
 
 Каждый consumer имеет собственный cursor. Никакой shared destructive
 asyncio.Queue не используется. Медленный consumer ограничивается bounded
@@ -954,7 +1019,10 @@ Retention policy является explicit bounded configuration и примен
 учётом legal/privacy requirements. Cleanup:
 
 - выполняется отдельным bounded batch job;
-- не удаляет активный lease;
+- выбирает только terminal rows и сохраняет все rows, связанные с
+  non-terminal PENDING, RETRY_WAIT и AWAITING_AGENT_ACK, независимо от
+  наличия active lease;
+- не удаляет active lease;
 - сначала оставляет минимальный terminal audit, если это требуется policy;
 - журналирует количество и возраст удалённых rows без payload;
 - не является implicit side effect publisher/dispatcher.
@@ -1108,14 +1176,43 @@ OpenTelemetry semantic conventions используются как naming refere
 | tests patch targets | patch direct alas/module.notify и route presence | application port fakes, channel result fakes, contract tests | параллельно каждому producer cutover | tests подтверждают event/policy/delivery semantics |
 | onepush dependency | runtime dependency onepush==1.2.0 | transitional adapter only | последний после полного producer cutover | lock/config/import scan не содержит production dependency |
 
+Для любого будущего запуска `dev_tools/cyclic_notify.py` test-only harness
+сначала обязан доказать изоляцию test config/profile от пользовательской
+конфигурации; при невозможности доказательства запуск немедленно
+отказывается. Harness обязан иметь bounded duration/iteration budget,
+использовать test sink или явно non-production channel и запрещать
+irreversible game actions. Пока эти свойства не проверены, безопасный вариант
+только удаление инструмента, а не запуск его текущего бесконечного loop.
+
 ### [Открытый критерий/риск] Rollback
 
 Rollback implementation stage обязан возвращать producers к единственному
-известному legacy path только в пределах заранее заданного окна. Нельзя
-оставлять permanent dual write, потому что это создаёт duplicate user pushes и
-неопределённую history. Перед удалением legacy нужно иметь export/audit
-доказательства отсутствия active clients, pending legacy queue и non-zero
-legacy metrics.
+известному legacy path только в пределах заранее заданного окна. До cutover
+фиксируется immutable cutover watermark по каждому profile: последний
+committed profile_sequence/event identity нового stack, состояние его
+deliveries и legacy source offset. Timestamp alone watermark не заменяет.
+
+Оба path используют один cross-stack idempotency contract: event key равен
+source + event_id, delivery key — event_id + channel_instance_id. Новый stack
+остаётся source of truth для всех event/decision/delivery rows, committed до
+watermark, и для external attempts, которые он уже начал; rollback не
+переписывает их history. После freeze новых publishers owner выбирается
+однозначно: либо bounded drain нового dispatcher, либо legacy takeover только
+после reconciliation watermark и проверки тех же idempotency keys.
+
+| Частичное состояние при rollback | Reconciliation | Запрещённый результат |
+| --- | --- | --- |
+| event committed, delivery не создана | сохранить event в history и создать legacy work только после проверки отсутствия этого event key в legacy | blind republish или потеря occurrence |
+| PENDING/RETRY_WAIT/AWAITING_AGENT_ACK | bounded drain нового stack либо передача ownership legacy с тем же delivery key и audit handoff | два dispatcher или пропуск delivery |
+| IN_FLIGHT с неизвестным provider outcome | query/provider idempotency или оставить row под новым stack до разрешения uncertainty | blind resend и duplicate push |
+| PROVIDER_ACCEPTED/DELIVERED | считать external attempt уже состоявшейся и не replay-ить | второй пользовательский push |
+| SUPPRESSED/FAILED | сохранить terminal decision/audit; повтор возможен только как новая явно audited occurrence | тихое изменение старого decision |
+
+Если reconciliation не может доказать ownership или idempotency, rollback
+останавливается fail-closed, а не включает второй долгоживущий stack.
+Удаление legacy path разрешается только после закрытия rollback window,
+export/audit доказательств отсутствия active clients и pending legacy queue,
+нулевых legacy metrics и успешного replay/rollback rehearsal.
 
 ## 18. Failure-mode matrix
 
@@ -1145,7 +1242,7 @@ legacy metrics.
 | ACK после handover timeout | сохраняется как late audit или игнорируется после retention | старый handover никогда не переходит в success |
 | WebUI restart | process queue не является source of truth; history/stream catch-up из PostgreSQL | live consumer reconnects; delivery не теряется |
 | Backend restart | lease recovery и dispatcher scan восстанавливают rows | handover operation revalidates authoritative state; нет implicit continuation |
-| Retention cleanup | удаляются только eligible terminal rows bounded batches | late ACK не восстанавливает удалённую history |
+| Retention cleanup | удаляются только eligible terminal rows bounded batches; PENDING/RETRY_WAIT/AWAITING_AGENT_ACK сохраняются | late ACK не восстанавливает удалённую history |
 | Misconfigured channel | validation до send или PERMANENT_FAILURE; secret не логируется | policy/admin diagnostic; handover fail-closed |
 | Malformed event | rejected до normal event persistence; bounded reject metric/log | producer получает validation failure; no delivery |
 | Global suppression | event + PolicyDecision SUPPRESSED, Delivery не создаётся | отсутствие push объяснимо history/policy reason |
@@ -1214,6 +1311,8 @@ policy resolver, PostgreSQL schema/repositories, unique identity и
 transaction/lease tests. Acceptance:
 
 - malformed/duplicate/policy suppression tests;
+- runtime.handover.preemption_requested/schema_version=1 descriptor registration,
+  bounded payload and renderer/policy compatibility tests;
 - exact duplicate immutable fields + payload_digest returns existing state,
   while changed payload returns identity_conflict with no republish;
 - publisher crash до/после commit;
@@ -1233,10 +1332,14 @@ profile authorization, cursor gap fill и durable receipt. Acceptance:
   FAILED;
 - concurrent commits, reconnect и gap fill возвращают profile_sequence без
   gaps/duplicates в пределах committed history;
+- snapshot/cursor race test с публикацией между initial read и subscription не
+  пропускает committed event;
 - Agent offline/reconnect/backlog;
 - channel-specific receipt test: Desktop Agent ждёт ACK, а
   Telegram/Webhook завершаются в terminal PROVIDER_ACCEPTED без ACK wait;
 - duplicate/stale/late ACK;
+- mismatched event_id и stale lease_token после recovery отклоняются без
+  перехода в DELIVERED;
 - WebUI/backend restart;
 - exact NotificationOutcome mapping;
 - busy PR #177 live acceptance с одним владельцем, одним exact runtime root,
