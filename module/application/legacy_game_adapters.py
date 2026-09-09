@@ -64,6 +64,7 @@ from module.application.scheduler_runtime import (
     scheduler_entry_sort_key,
 )
 from module.config.profile import profile_identity_from_name
+from module.observability.incident import incident_directory_time_key
 
 _MAX_LOG_LINES = 10_000
 _MAX_LOG_BYTES = 2 * 1024 * 1024
@@ -170,6 +171,12 @@ def _safe_instance_name(value: object) -> str:
     if identity is None:
         raise ValueError("instance содержит недопустимое значение")
     return identity.name
+
+
+def _is_reparse_point(path: Path) -> bool:
+    return path.is_symlink() or (
+        hasattr(path, "is_junction") and path.is_junction()
+    )
 
 
 def _safe_segment(value: object) -> str:
@@ -516,7 +523,7 @@ class LegacyConfigAdapter:
 
 
 class LegacyRuntimeLogAdapter:
-    """Безопасный bounded reader файлов runtime-журнала."""
+    """Безопасный bounded reader incident fallback и старых runtime-журналов."""
 
     def __init__(
         self,
@@ -537,6 +544,9 @@ class LegacyRuntimeLogAdapter:
 
     def _find_log_file(self, instance: str) -> Path:
         instance = _safe_instance_name(instance)
+        incident_path = self._find_incident_log_file(instance)
+        if incident_path is not None:
+            return incident_path
         current_date = self._date_provider()
         if not isinstance(current_date, date):
             raise TypeError("date_provider вернул не date")
@@ -551,6 +561,38 @@ class LegacyRuntimeLogAdapter:
             if candidate.is_file():
                 return candidate
         raise FileNotFoundError
+
+    def _find_incident_log_file(self, instance: str) -> Path | None:
+        root = self._log_root
+        if _is_reparse_point(root):
+            raise ValueError("log root не должен быть ссылкой")
+        error_root = root / "error"
+        if not error_root.exists():
+            return None
+        if _is_reparse_point(error_root):
+            raise ValueError("каталог incident-ов не должен быть ссылкой")
+        profile_root = error_root / instance
+        if not profile_root.exists():
+            return None
+        if _is_reparse_point(profile_root):
+            raise ValueError("каталог profile incident-ов не должен быть ссылкой")
+        candidates: list[tuple[tuple[int, int], Path]] = []
+        try:
+            folders = tuple(profile_root.iterdir())
+        except OSError:
+            return None
+        for folder in folders:
+            if not folder.is_dir() or _is_reparse_point(folder):
+                continue
+            time_key = incident_directory_time_key(folder.name)
+            if time_key is None:
+                continue
+            log_path = folder / "log.txt"
+            if log_path.is_file() and not _is_reparse_point(log_path):
+                candidates.append((time_key, log_path))
+        if not candidates:
+            return None
+        return max(candidates, key=lambda item: item[0])[1]
 
     @staticmethod
     def _read_bounded_tail(path: Path, limit: int) -> tuple[str, ...]:
@@ -577,15 +619,11 @@ class LegacyRuntimeLogAdapter:
 
     def _safe_candidate(self, filename: str) -> Path:
         root = self._log_root
-        if root.is_symlink() or (
-            hasattr(root, "is_junction") and root.is_junction()
-        ):
+        if _is_reparse_point(root):
             raise ValueError("log root не должен быть ссылкой")
         resolved_root = root.resolve(strict=False)
         candidate = root / filename
-        if candidate.is_symlink() or (
-            hasattr(candidate, "is_junction") and candidate.is_junction()
-        ):
+        if _is_reparse_point(candidate):
             raise ValueError("файл журнала не должен быть ссылкой")
         resolved = candidate.resolve(strict=False)
         if resolved.parent != resolved_root:

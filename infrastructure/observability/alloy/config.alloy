@@ -20,6 +20,10 @@ otelcol.receiver.otlp "local" {
 }
 
 otelcol.processor.batch "local" {
+  timeout             = "500ms"
+  send_batch_size     = 128
+  send_batch_max_size = 512
+
   output {
     metrics = [otelcol.processor.transform.metrics.input]
     logs    = [otelcol.exporter.otlphttp.loki.input]
@@ -56,16 +60,53 @@ prometheus.remote_write "local" {
   endpoint {
     url = "http://prometheus:9090/api/v1/write"
   }
+
+  wal {
+    truncate_frequency = "2h"
+    min_keepalive_time = "5m"
+    max_keepalive_time = "8h"
+  }
 }
 
 otelcol.exporter.otlphttp "loki" {
   client {
     endpoint = "http://loki:3100/otlp"
   }
+
+  // Ограничение serialized bytes не зависит от размера отдельного batch.
+  sending_queue {
+    enabled           = true
+    sizer             = "bytes"
+    queue_size        = 16777216
+    num_consumers     = 2
+    block_on_overflow = false
+  }
+
+  retry_on_failure {
+    enabled          = true
+    initial_interval = "5s"
+    max_interval     = "30s"
+    max_elapsed_time = "5m"
+  }
 }
 
 otelcol.exporter.otlphttp "tempo" {
   client {
     endpoint = "http://tempo:4318"
+  }
+
+  sending_queue {
+    enabled           = true
+    sizer             = "bytes"
+    queue_size        = 16777216
+    num_consumers     = 2
+    block_on_overflow = false
+  }
+
+  retry_on_failure {
+    enabled          = true
+    initial_interval = "5s"
+    max_interval     = "30s"
+    max_elapsed_time = "5m"
   }
 }

@@ -36,6 +36,10 @@ from module.observability.tracing import (
 )
 
 _OTEL_ENVIRONMENT_KEYS = (
+    "OTEL_EXPORTER_OTLP_HEADERS",
+    "OTEL_EXPORTER_OTLP_LOGS_HEADERS",
+    "OTEL_EXPORTER_OTLP_METRICS_HEADERS",
+    "OTEL_EXPORTER_OTLP_TRACES_HEADERS",
     "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
     "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
     "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
@@ -371,7 +375,9 @@ def test_build_tracing_runtime_closes_partial_resources(monkeypatch):
         max_queue_size=16,
         max_export_batch_size=4,
         processor_timeout_millis=1000,
+        headers={"authorization": "raw-secret"},
     )
+    assert "raw-secret" not in repr(config)
     reporter = _FailureReporter()
 
     with pytest.raises(RuntimeError, match="processor registration failed"):

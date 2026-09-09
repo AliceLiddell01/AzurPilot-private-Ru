@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import http.client
 import json
+import math
 import os
 import re
 import shutil
@@ -61,7 +62,7 @@ def _docker_executable() -> str:
     return executable
 
 
-def _run(
+def run_docker(
     arguments: list[str], *, timeout: int = 60
 ) -> subprocess.CompletedProcess[str]:
     options: dict[str, object] = {}
@@ -195,7 +196,7 @@ def _payload(ok: bool, code: str, **details: object) -> dict[str, object]:
 
 def _published_ports(container_id: str) -> tuple[bool, dict[str, object]]:
     try:
-        result = _run(
+        result = run_docker(
             ["inspect", "--format", "{{json .NetworkSettings.Ports}}", container_id]
         )
     except OSError, subprocess.SubprocessError:
@@ -356,7 +357,7 @@ def doctor(repository_root: Path = Path(".")) -> dict[str, object]:
         return _payload(False, "DOCKER_UNAVAILABLE")
 
     try:
-        info = _run(["info"], timeout=30)
+        info = run_docker(["info"], timeout=30)
     except OSError, subprocess.SubprocessError:
         return _payload(False, "DOCKER_UNAVAILABLE")
     if info.returncode != 0:
@@ -379,13 +380,13 @@ def doctor(repository_root: Path = Path(".")) -> dict[str, object]:
         return _payload(False, "CADDY_CONFIG_UNAVAILABLE")
 
     try:
-        config = _run(config_arguments, timeout=60)
+        config = run_docker(config_arguments, timeout=60)
     except OSError, subprocess.SubprocessError:
         return _payload(False, "CADDY_CONFIG_UNAVAILABLE")
     if config.returncode != 0:
         return _payload(False, "CADDY_CONFIG_INVALID")
     try:
-        status = _run(ps_arguments, timeout=60)
+        status = run_docker(ps_arguments, timeout=60)
     except OSError, subprocess.SubprocessError:
         return _payload(False, "CADDY_STATUS_UNAVAILABLE")
     if status.returncode != 0:
@@ -426,15 +427,174 @@ def _parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("doctor", help="Проверить Docker Caddy state.")
     subparsers.add_parser("probe", help="Проверить public TLS и read-only MCP.")
+    subparsers.add_parser(
+        "observability", help="Проверить backends, volumes и давление collector."
+    )
     return parser
+
+
+def observability_doctor(repository_root: Path | None) -> dict[str, object]:
+    """Прочитать telemetry без изменения services и доступа к secrets.
+
+    При переданном ``repository_root`` дополнительно проверяется canonical
+    Compose project. ``None`` оставляет намеренный read-only backend-only режим
+    для programmatic callers, которым не нужен локальный Compose gate; CLI
+    всегда передаёт repository root.
+    """
+    from dev_tools.observability_reliability import (
+        SERVICES,
+        ReliabilityError,
+        docker,
+        internal_metrics,
+        inventory,
+        ready,
+    )
+
+    try:
+        if repository_root is not None:
+            try:
+                config = run_docker(
+                    _compose_arguments(repository_root, "config", "--quiet"),
+                    timeout=60,
+                )
+            except (
+                FileNotFoundError,
+                OSError,
+                RuntimeError,
+                subprocess.SubprocessError,
+            ):
+                return {
+                    "ok": False,
+                    "code": "OBSERVABILITY_CONFIG_UNAVAILABLE",
+                }
+            if config.returncode != 0:
+                return {"ok": False, "code": "OBSERVABILITY_CONFIG_INVALID"}
+        containers = inventory()
+        probe_errors: dict[str, str] = {}
+        health = ready(containers, errors=probe_errors)
+        warnings: list[str] = []
+        observations: list[str] = []
+        volume_names: set[str] = set()
+        for service in SERVICES:
+            entry = containers.get(service, {})
+            probe_error = probe_errors.get(service)
+            if probe_error == "OBSERVABILITY_PROBE_HELPER_UNAVAILABLE":
+                if "OBSERVABILITY_PROBE_HELPER_UNAVAILABLE" not in warnings:
+                    warnings.append("OBSERVABILITY_PROBE_HELPER_UNAVAILABLE")
+            elif (
+                entry.get("status") != "running"
+                or entry.get("health") == "unhealthy"
+                or not health.get(service, False)
+            ):
+                warnings.append(f"SERVICE_UNAVAILABLE:{service}")
+            volumes = entry.get("volumes", {})
+            if not volumes:
+                warnings.append(f"PERSISTENT_VOLUME_MISSING:{service}")
+            volume_names.update(volumes.values())
+        for volume in sorted(volume_names):
+            try:
+                docker("volume", "inspect", volume, "--format", "{{.Name}}")
+            except ReliabilityError:
+                warnings.append(f"PERSISTENT_VOLUME_UNAVAILABLE:{volume}")
+
+        metrics: list[str] = []
+        if health.get("alloy", False):
+            try:
+                metrics = internal_metrics()
+            except (ReliabilityError, OSError):
+                warnings.append("EXPORT_QUEUE_METRICS_UNAVAILABLE")
+        else:
+            warnings.append("EXPORT_QUEUE_METRICS_UNAVAILABLE")
+
+        capacities: dict[str, float] = {}
+        sizes: dict[str, float] = {}
+        pending = 0.0
+        retries = 0.0
+        metrics_invalid = False
+        for line in metrics:
+            fields = line.rstrip().rsplit(maxsplit=1)
+            if len(fields) != 2:
+                metrics_invalid = True
+                continue
+            name_labels, raw_value = fields
+            try:
+                value = float(raw_value)
+            except ValueError:
+                metrics_invalid = True
+                continue
+            if not math.isfinite(value):
+                metrics_invalid = True
+                continue
+            name, _, labels = name_labels.partition("{")
+            if name == "otelcol_exporter_queue_capacity":
+                capacities[labels] = value
+            elif name == "otelcol_exporter_queue_size":
+                sizes[labels] = value
+            elif name == "prometheus_remote_storage_samples_pending":
+                pending += max(0.0, value)
+            elif name in {
+                "prometheus_remote_storage_samples_retries_total",
+                "prometheus_remote_storage_enqueue_retries_total",
+            }:
+                retries += max(0.0, value)
+        if metrics_invalid:
+            warnings.append("EXPORT_QUEUE_METRICS_INVALID")
+        if not capacities or not sizes:
+            if "EXPORT_QUEUE_METRICS_UNAVAILABLE" not in warnings:
+                warnings.append("EXPORT_QUEUE_METRICS_UNAVAILABLE")
+
+        queue_pressure = any(
+            capacities.get(key, 0) > 0 and size / capacities[key] >= 0.8
+            for key, size in sizes.items()
+        )
+        queue_saturated = any(
+            capacities.get(key, 0) > 0 and size >= capacities[key]
+            for key, size in sizes.items()
+        )
+        if queue_pressure:
+            warnings.append("EXPORT_QUEUE_PRESSURE")
+        if queue_saturated:
+            warnings.append("EXPORT_QUEUE_SATURATED")
+        if pending > 0:
+            observations.append("REMOTE_WRITE_PENDING_TRANSIENT")
+            if retries > 0 or queue_pressure:
+                warnings.append("REMOTE_WRITE_PRESSURE")
+
+        # Свободное место общей файловой системы Docker; не заменяет quota volume.
+        available_percent = None
+        try:
+            disk = docker(
+                "exec", containers["pgadmin"]["id"], "df", "-Pk", "/var/lib/pgadmin"
+            )
+            fields = disk.splitlines()[-1].split()
+            available_percent = 100 - int(fields[-2].rstrip("%"))
+            if available_percent < 20:
+                warnings.append("DOCKER_DISK_HEADROOM_LOW")
+        except ReliabilityError, OSError, TypeError, ValueError, KeyError, IndexError:
+            warnings.append("DOCKER_DISK_CHECK_UNAVAILABLE")
+        return {
+            "ok": not warnings,
+            "code": "OBSERVABILITY_READY" if not warnings else "OBSERVABILITY_DEGRADED",
+            "services": health,
+            "warnings": warnings,
+            "observations": observations,
+            "disk_available_percent": available_percent,
+            "collector_metrics": metrics,
+        }
+    except ReliabilityError, OSError, ValueError, KeyError, IndexError:
+        return {"ok": False, "code": "OBSERVABILITY_DIAGNOSTICS_UNAVAILABLE"}
 
 
 def main(argv: list[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
     payload = (
-        doctor(arguments.repository_root)
-        if arguments.command == "doctor"
-        else probe(arguments.repository_root)
+        observability_doctor(arguments.repository_root)
+        if arguments.command == "observability"
+        else (
+            doctor(arguments.repository_root)
+            if arguments.command == "doctor"
+            else probe(arguments.repository_root)
+        )
     )
     print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
     return 0 if payload["ok"] else 1

@@ -1,11 +1,11 @@
 import json
 import os
-import re
 import shutil
 import threading
 import time
 from contextlib import ExitStack
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
+from pathlib import Path
 
 import inflection
 from cached_property import cached_property
@@ -28,45 +28,12 @@ from module.exception import *
 from module.logger import logger
 from module.logging_context import task_logging_context
 from module.notify import handle_notify, notify_webui
+from module.observability.incident import incident_directory_time_key
 from module.persistence.runtime import bootstrap_runtime_storage
 
 # 缓存 i18n 任务名查找
 _i18n_task_names = None
 _SERVER_AVAILABILITY_POLL_SECONDS = 0.25
-_LEGACY_INCIDENT_DIRECTORY_RE = re.compile(r"\d+")
-_CURRENT_INCIDENT_TIMESTAMP_RE = re.compile(
-    r"^(?P<timestamp>\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.\d{3})(?:_|$)"
-)
-_INCIDENT_COLLISION_SUFFIX_RE = re.compile(r"_(?P<collision>\d{3})$")
-
-
-def _incident_directory_time_key(name: str):
-    """Вернуть comparable UTC key или ``None`` для неизвестного каталога."""
-    if _LEGACY_INCIDENT_DIRECTORY_RE.fullmatch(name):
-        return int(name), 0
-
-    timestamp_match = _CURRENT_INCIDENT_TIMESTAMP_RE.match(name)
-    if timestamp_match is None:
-        return None
-    try:
-        timestamp = datetime.strptime(
-            timestamp_match.group("timestamp"),
-            "%Y-%m-%d_%H-%M-%S.%f",
-        ).replace(tzinfo=timezone.utc)
-        epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
-        delta = timestamp - epoch
-        timestamp_millis = (
-            delta.days * 86_400_000
-            + delta.seconds * 1_000
-            + delta.microseconds // 1_000
-        )
-        collision_match = _INCIDENT_COLLISION_SUFFIX_RE.search(name)
-        collision = int(collision_match.group("collision")) if collision_match else 0
-    except (OverflowError, TypeError, ValueError):
-        return None
-    return timestamp_millis, collision
-
-
 def _get_task_display_name(task_command):
     """从 i18n 获取任务的本地化显示名，找不到则返回英文名"""
     global _i18n_task_names
@@ -116,7 +83,7 @@ class AzurLaneAutoScript:
     stop_event: threading.Event = None
 
     def __init__(self, config_name=DEFAULT_CONFIG_NAME):
-        logger.set_file_logger(config_name)
+        logger.configure_runtime_logging(config_name)
         logger.hr('Запуск', level=0)
         bootstrap_runtime_storage(require_ready=True)
         logger.info('[Хранилище] PostgreSQL готов к работе')
@@ -859,20 +826,19 @@ class AzurLaneAutoScript:
             folder = os.path.join(folder_path, name)
             if not os.path.isdir(folder):
                 continue
-            time_key = _incident_directory_time_key(name)
+            time_key = incident_directory_time_key(name)
             if time_key is not None:
                 managed_folders.append((time_key, folder))
         managed_folders.sort(key=lambda item: item[0])
         for _, folder in managed_folders[:-n]:
             shutil.rmtree(folder)
 
-    def save_error_log(self):
+    def save_error_log(self, *, error_root: Path | str | None = None):
         """
         Сохранить incident: последние снимки, журнал и metadata в ``log/error``.
 
         При включённой настройке также запустить LLM-анализ ошибки.
         """
-        import pathlib
         import sys
 
         from module.base.utils import save_image
@@ -883,10 +849,18 @@ class AzurLaneAutoScript:
         from module.observability.incident import (
             build_incident_metadata,
             create_incident_directory,
+            write_incident_log,
             write_incident_metadata,
         )
 
         current_exception = sys.exc_info()[1]
+        incident_context = logger.get_diagnostic_context(last_failure=True)
+        if not incident_context:
+            incident_context = logger.get_diagnostic_context()
+        if not incident_context and current_exception is not None:
+            incident_context = (
+                f'{type(current_exception).__name__}: {current_exception}',
+            )
 
         # LLM-анализ выполняется первым, чтобы последующий сбой сохранения снимка
         # не лишил ошибку уже запрошенного анализа.
@@ -907,7 +881,7 @@ class AzurLaneAutoScript:
         if getattr(self.config, 'Error_SaveError', False):
             try:
                 folder, incident_time = create_incident_directory(
-                    pathlib.Path('./log/error'),
+                    Path('./log/error') if error_root is None else Path(error_root),
                     profile=self.config_name,
                     exception=current_exception,
                 )
@@ -939,17 +913,8 @@ class AzurLaneAutoScript:
                 logger.error(f"[Alas] Не удалось сохранить снимок ошибки: {e}")
 
             try:
-                with open(logger.log_file, 'r', encoding='utf-8') as f:
-                    lines = f.readlines()
-                    start = 0
-                    for index, line in enumerate(lines):
-                        line = line.strip(' \r\t\n')
-                        if re.match('^═{15,}$', line):
-                            start = index
-                    lines = lines[start - 2:]
-                    lines = handle_sensitive_logs(lines)
-                with open(f'{folder}/log.txt', 'w', encoding='utf-8') as f:
-                    f.writelines(lines)
+                lines = handle_sensitive_logs(incident_context)
+                write_incident_log(folder, lines)
             except Exception as e:
                 logger.error(f"[Alas] Не удалось сохранить журнал ошибки: {e}")
 
@@ -1771,7 +1736,7 @@ class AzurLaneAutoScript:
             return result
 
     def loop(self):
-        logger.set_file_logger(self.config_name)
+        logger.configure_runtime_logging(self.config_name)
         logger.info(f'[Alas] Запуск цикла планировщика: {self.config_name}')
         record_dev_runtime_error = getattr(
             self,

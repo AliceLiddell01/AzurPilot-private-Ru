@@ -27,6 +27,19 @@ def test_control_plane_accepts_canonical_profile_without_local_length_cap() -> N
     assert runtime_control._profile(profile) == profile
 
 
+def test_control_client_default_timeout_covers_cooperative_handover_grace(tmp_path: Path) -> None:
+    owner = RuntimeOwnerIdentity(pid=4321, created_at=1234.5)
+
+    client = WebUIControlClient(
+        tmp_path,
+        owner_reader=lambda: owner.as_dict(),
+        owner_matches=lambda candidate: candidate == owner,
+    )
+
+    assert client.timeout == runtime_control.DEFAULT_CONTROL_TIMEOUT_SECONDS
+    assert client.timeout >= 30.0
+
+
 def test_control_plane_executes_owner_operation_once_and_is_idempotent(tmp_path: Path) -> None:
     owner = RuntimeOwnerIdentity(pid=4321, created_at=1234.5)
     calls: list[tuple[RuntimeControlOperation, str]] = []

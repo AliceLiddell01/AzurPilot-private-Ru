@@ -583,31 +583,6 @@
     }
   },
   "General": {
-    "Log": {
-      "LogKeepCount": {
-        "type": "input",
-        "value": 3
-      },
-      "LogBackUpMethod": {
-        "type": "select",
-        "value": "zip",
-        "option": [
-          "delete",
-          "zip",
-          "copy"
-        ]
-      },
-      "ZipMethod": {
-        "type": "select",
-        "value": "zip",
-        "option": [
-          "bz2",
-          "gzip",
-          "xz",
-          "zip"
-        ]
-      }
-    },
     "Retirement": {
       "RetireMode": {
         "type": "select",

@@ -38,6 +38,10 @@ from module.observability.metrics import (
 
 
 _OTEL_ENVIRONMENT_KEYS = (
+    "OTEL_EXPORTER_OTLP_HEADERS",
+    "OTEL_EXPORTER_OTLP_LOGS_HEADERS",
+    "OTEL_EXPORTER_OTLP_METRICS_HEADERS",
+    "OTEL_EXPORTER_OTLP_TRACES_HEADERS",
     "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
     "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
     "OTEL_EXPORTER_OTLP_ENDPOINT",
@@ -158,6 +162,18 @@ def test_read_config_supports_signal_specific_metrics_and_bounded_values(monkeyp
     )
 
 
+def test_metrics_config_repr_hides_headers():
+    config = MetricsConfig(
+        endpoint="http://collector:4318/v1/metrics",
+        timeout_millis=1000,
+        export_interval_millis=60_000,
+        export_timeout_millis=30_000,
+        headers={"authorization": "raw-secret"},
+    )
+
+    assert "raw-secret" not in repr(config)
+
+
 def test_metrics_are_disabled_without_endpoint_or_with_sdk_disabled(monkeypatch):
     _clear_environment(monkeypatch)
     assert _read_config() is None
@@ -204,8 +220,36 @@ def test_metrics_invalid_interval_and_timeout_use_bounded_defaults(monkeypatch):
 
     assert config is not None
     assert config.metrics is not None
-    assert config.metrics.export_interval_millis == 60_000
+    assert config.metrics.export_interval_millis == 1_000
     assert config.metrics.export_timeout_millis == 30_000
+
+
+def test_online_signal_defaults_use_low_latency_export_schedules(monkeypatch):
+    _clear_environment(monkeypatch)
+    monkeypatch.setenv(
+        "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+        "http://collector:4318/v1/logs",
+    )
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_LOGS_PROTOCOL", "http/protobuf")
+    monkeypatch.setenv(
+        "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+        "http://collector:4318/v1/metrics",
+    )
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_METRICS_PROTOCOL", "http/protobuf")
+    monkeypatch.setenv(
+        "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+        "http://collector:4318/v1/traces",
+    )
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", "http/protobuf")
+
+    config = _read_config()
+
+    assert config is not None
+    assert config.schedule_delay_millis == 500
+    assert config.metrics is not None
+    assert config.metrics.export_interval_millis == 1_000
+    assert config.traces is not None
+    assert config.traces.schedule_delay_millis == 500
 
 
 def test_signal_specific_metric_exporter_endpoint_is_not_extended_twice():

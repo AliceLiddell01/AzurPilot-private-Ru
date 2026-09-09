@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from opentelemetry.sdk._logs.export import InMemoryLogRecordExporter
 
+import module.observability.bootstrap as bootstrap_module
 from module.logging_context import (
     get_logging_context,
     get_task_context,
@@ -31,6 +32,10 @@ from module.observability.bootstrap import (
 
 _ROOT = Path(__file__).resolve().parents[1]
 _OTEL_ENVIRONMENT_KEYS = (
+    "OTEL_EXPORTER_OTLP_HEADERS",
+    "OTEL_EXPORTER_OTLP_LOGS_HEADERS",
+    "OTEL_EXPORTER_OTLP_METRICS_HEADERS",
+    "OTEL_EXPORTER_OTLP_TRACES_HEADERS",
     "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
     "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
     "OTEL_EXPORTER_OTLP_ENDPOINT",
@@ -106,6 +111,104 @@ def test_application_logging_is_disabled_without_explicit_endpoint(monkeypatch):
         assert _observability_handlers(target) == []
     finally:
         shutdown_application_observability(target)
+
+
+def test_canonical_project_env_enables_otlp_without_loading_secrets(
+    monkeypatch, tmp_path
+):
+    for key in _OTEL_ENVIRONMENT_KEYS:
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.delenv("AZURPILOT_REPOSITORY_ROOT", raising=False)
+    monkeypatch.delenv(
+        "AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD",
+        raising=False,
+    )
+    (tmp_path / "module").mkdir()
+    (tmp_path / "gui.py").write_text("", encoding="utf-8")
+    monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text(
+        "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://alloy:4318/v1/logs\n"
+        "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL=http/protobuf\n"
+        "AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD=must-not-load\n",
+        encoding="utf-8",
+    )
+
+    config = _read_config()
+
+    assert config is not None
+    assert config.signal_endpoint == "http://alloy:4318/v1/logs"
+    assert os.environ.get("AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD") is None
+    for key in _OTEL_ENVIRONMENT_KEYS:
+        monkeypatch.delenv(key, raising=False)
+
+
+def test_local_otlp_headers_are_passed_in_config_without_global_env_leak(
+    monkeypatch, tmp_path
+):
+    for key in _OTEL_ENVIRONMENT_KEYS:
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.delenv("AZURPILOT_REPOSITORY_ROOT", raising=False)
+    (tmp_path / "module").mkdir()
+    (tmp_path / "gui.py").write_text("", encoding="utf-8")
+    monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(tmp_path))
+    (tmp_path / ".env").write_text(
+        "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://alloy:4318/v1/logs\n"
+        "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL=http/protobuf\n"
+        "OTEL_EXPORTER_OTLP_LOGS_HEADERS=x-test=from-local-env\n",
+        encoding="utf-8",
+    )
+
+    config = _read_config()
+
+    assert config is not None
+    assert config.headers == {"x-test": "from-local-env"}
+    assert "from-local-env" not in repr(config)
+    assert os.environ.get("OTEL_EXPORTER_OTLP_LOGS_HEADERS") is None
+
+
+def test_unverified_working_directory_does_not_load_project_env(monkeypatch, tmp_path):
+    for key in _OTEL_ENVIRONMENT_KEYS:
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.delenv("AZURPILOT_REPOSITORY_ROOT", raising=False)
+    monkeypatch.setattr(
+        bootstrap_module,
+        "__file__",
+        str(tmp_path / "unverified" / "module" / "observability" / "bootstrap.py"),
+    )
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text(
+        "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://unverified-root:4318/v1/logs\n"
+        "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL=http/protobuf\n",
+        encoding="utf-8",
+    )
+
+    assert _read_config() is None
+    assert os.environ.get("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT") is None
+
+
+def test_canonical_project_env_uses_process_repository_root(monkeypatch, tmp_path):
+    for key in _OTEL_ENVIRONMENT_KEYS:
+        monkeypatch.delenv(key, raising=False)
+    repository_root = tmp_path / "repository"
+    (repository_root / "module").mkdir(parents=True)
+    (repository_root / "gui.py").write_text("", encoding="utf-8")
+    (repository_root / ".env").write_text(
+        "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://worker-root:4318/v1/logs\n"
+        "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL=http/protobuf\n",
+        encoding="utf-8",
+    )
+    working_directory = tmp_path / "working"
+    working_directory.mkdir()
+    monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(repository_root))
+    monkeypatch.chdir(working_directory)
+
+    config = _read_config()
+
+    assert config is not None
+    assert config.signal_endpoint == "http://worker-root:4318/v1/logs"
+    for key in _OTEL_ENVIRONMENT_KEYS:
+        monkeypatch.delenv(key, raising=False)
 
 
 def test_application_logging_disabled_flag_wins_over_endpoint(monkeypatch):
@@ -495,23 +598,14 @@ def test_process_role_component_does_not_create_fake_profile(monkeypatch):
         shutdown_application_observability(target)
 
 
-def test_set_file_logger_keeps_canonical_profile_separate_from_filename(tmp_path):
+def test_runtime_logging_keeps_canonical_profile_without_file_sink():
     from module import observability
     import module.logger as logger_module
 
     handlers_before = list(logger_module.logger.handlers)
-    log_file_before = logger_module.logger.log_file
-    diagnostic_log_file_before = logger_module.logger.diagnostic_log_file
-    failure_target_before = logger_module.diagnostic_hdlr._failure_target
     try:
-        with patch.object(
-            logger_module.multiprocessing,
-            "current_process",
-            return_value=type("Process", (), {"name": "LoggingTestProcess"})(),
-        ), patch.object(
-            observability, "configure_application_observability"
-        ) as configure:
-            logger_module.set_file_logger(name="farm_main", log_dir=tmp_path)
+        with patch.object(observability, "configure_application_observability") as configure:
+            logger_module.configure_runtime_logging(name="farm_main")
 
         configure.assert_called_once_with(
             logger_module.logger,
@@ -524,9 +618,6 @@ def test_set_file_logger_keeps_canonical_profile_separate_from_filename(tmp_path
                 logger_module.logger.removeHandler(handler)
                 handler.close()
         logger_module.logger.handlers[:] = handlers_before
-        logger_module.logger.log_file = log_file_before
-        logger_module.logger.diagnostic_log_file = diagnostic_log_file_before
-        logger_module.diagnostic_hdlr.configure_failure_target(failure_target_before)
 
 
 def test_logging_context_restores_nested_values_and_isolates_async_tasks():
@@ -581,8 +672,7 @@ def test_importing_logger_does_not_create_file_handler_or_remote_bootstrap():
     code = """
 import module.logger as logger_module
 import module.observability
-print(logger_module.logger.log_file)
-print(sum(isinstance(handler, logger_module.RichTimedRotatingHandler) for handler in logger_module.logger.handlers))
+print(any(isinstance(handler, __import__("logging").FileHandler) for handler in logger_module.logger.handlers))
 print(any(name.startswith("opentelemetry") for name in __import__("sys").modules))
 """
     environment = os.environ.copy()
@@ -597,7 +687,7 @@ print(any(name.startswith("opentelemetry") for name in __import__("sys").modules
         text=True,
         check=True,
     )
-    assert result.stdout.splitlines()[-3:] == ["None", "0", "False"]
+    assert result.stdout.splitlines()[-2:] == ["False", "False"]
 
 
 def test_exporter_failure_is_fail_open_for_local_logger(monkeypatch):

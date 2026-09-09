@@ -73,6 +73,35 @@ LOCAL_ENVIRONMENT_REGISTRY = (
     LocalEnvironmentKey("AZURPILOT_OBSERVABILITY_PGADMIN_PORT", "infrastructure"),
     LocalEnvironmentKey("AZURPILOT_CADDY_HOST", "infrastructure"),
     LocalEnvironmentKey("AZURPILOT_GAME_MCP_PUBLIC_HOST", "infrastructure"),
+    LocalEnvironmentKey(
+        "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+        "infrastructure",
+    ),
+    LocalEnvironmentKey(
+        "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL",
+        "infrastructure",
+    ),
+    LocalEnvironmentKey(
+        "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+        "infrastructure",
+    ),
+    LocalEnvironmentKey(
+        "OTEL_EXPORTER_OTLP_METRICS_PROTOCOL",
+        "infrastructure",
+    ),
+    LocalEnvironmentKey(
+        "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+        "infrastructure",
+    ),
+    LocalEnvironmentKey(
+        "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL",
+        "infrastructure",
+    ),
+    LocalEnvironmentKey("OTEL_RESOURCE_ATTRIBUTES", "infrastructure"),
+    LocalEnvironmentKey("OTEL_PYTHON_LOG_HANDLER_LEVEL", "infrastructure"),
+    LocalEnvironmentKey("OTEL_METRIC_EXPORT_INTERVAL", "infrastructure"),
+    LocalEnvironmentKey("OTEL_BLRP_SCHEDULE_DELAY", "infrastructure"),
+    LocalEnvironmentKey("OTEL_BSP_SCHEDULE_DELAY", "infrastructure"),
 )
 
 _REGISTRY_BY_NAME = {entry.name: entry for entry in LOCAL_ENVIRONMENT_REGISTRY}

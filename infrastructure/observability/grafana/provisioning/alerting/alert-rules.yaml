@@ -11,7 +11,7 @@ groups:
     interval: 1m
     rules:
       - uid: azurpilot-task-failures
-        title: Рост ошибок scheduler task
+        title: Ошибки scheduler task за 15 минут
         condition: C
         data:
           - refId: A
@@ -60,8 +60,8 @@ groups:
         execErrState: Error
         for: 5m
         annotations:
-          description: Есть непрерывный поток неуспешных scheduler task за последние 15 минут.
-          summary: Рост ошибок scheduler task
+          description: За последние 15 минут был хотя бы один failure scheduler task; alert срабатывает после 5 минут ненулевого потока.
+          summary: Ошибки scheduler task за 15 минут
         labels:
           severity: warning
           source: azurpilot

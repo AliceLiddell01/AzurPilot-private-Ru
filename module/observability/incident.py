@@ -6,6 +6,7 @@ import json
 import os
 import re
 import tempfile
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,6 +16,7 @@ from module.observability._shared import (
     _metric_label,
     _profile_label,
 )
+from module.logging_core import sanitize_log_text
 from module.observability.scheduler import get_current_task_name
 from module.observability.tracing import (
     TraceCorrelation,
@@ -27,6 +29,14 @@ _FILENAME_COMPONENT_RE = re.compile(r"[^A-Za-z0-9_.-]+")
 _FILENAME_COMPONENT_LIMIT = 128
 _TRACE_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 _SPAN_ID_RE = re.compile(r"^[0-9a-f]{16}$")
+_INCIDENT_LOG_MAX_BYTES = 64 * 1024
+_INCIDENT_LOG_MAX_LINES = 200
+_LEGACY_INCIDENT_EPOCH_MILLIS_RE = re.compile(r"\d{13}")
+_LEGACY_INCIDENT_DATETIME_RE = re.compile(r"\d{14}")
+_CURRENT_INCIDENT_TIMESTAMP_RE = re.compile(
+    r"^(?P<timestamp>\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.\d{3})(?:_|$)"
+)
+_INCIDENT_COLLISION_SUFFIX_RE = re.compile(r"_(?P<collision>\d{3,})$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +66,41 @@ def _utc_timestamp(value: datetime | None) -> datetime:
 
 def _format_timestamp(value: datetime) -> str:
     return value.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def incident_directory_time_key(name: str) -> tuple[int, int] | None:
+    """Вернуть хронологический ключ canonical или legacy incident-каталога."""
+    if _LEGACY_INCIDENT_EPOCH_MILLIS_RE.fullmatch(name):
+        return int(name), 0
+    if _LEGACY_INCIDENT_DATETIME_RE.fullmatch(name):
+        try:
+            timestamp = datetime.strptime(name, "%Y%m%d%H%M%S").replace(
+                tzinfo=timezone.utc
+            )
+        except ValueError:
+            return None
+        return int(timestamp.timestamp() * 1000), 0
+
+    timestamp_match = _CURRENT_INCIDENT_TIMESTAMP_RE.match(name)
+    if timestamp_match is None:
+        return None
+    try:
+        timestamp = datetime.strptime(
+            timestamp_match.group("timestamp"),
+            "%Y-%m-%d_%H-%M-%S.%f",
+        ).replace(tzinfo=timezone.utc)
+        epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
+        delta = timestamp - epoch
+        timestamp_millis = (
+            delta.days * 86_400_000
+            + delta.seconds * 1_000
+            + delta.microseconds // 1_000
+        )
+        collision_match = _INCIDENT_COLLISION_SUFFIX_RE.search(name)
+        collision = int(collision_match.group("collision")) if collision_match else 0
+    except (OverflowError, TypeError, ValueError):
+        return None
+    return timestamp_millis, collision
 
 
 def _exception_identity(exception: BaseException | None) -> str:
@@ -174,9 +219,84 @@ def write_incident_metadata(
                 pass
 
 
+def write_incident_log(
+    folder: Path | str,
+    lines: Iterable[object],
+    *,
+    max_bytes: int = _INCIDENT_LOG_MAX_BYTES,
+    max_lines: int = _INCIDENT_LOG_MAX_LINES,
+) -> Path:
+    """Атомарно сохранить bounded sanitized context реального incident-а."""
+    if max_bytes <= 0 or max_lines <= 0:
+        raise ValueError("Ограничения incident log должны быть положительными")
+    target = Path(folder) / "log.txt"
+    output: list[str] = []
+    used_bytes = 0
+    for line in lines:
+        if len(output) >= max_lines:
+            break
+        text = (
+            sanitize_log_text(line)
+            .replace("\r\n", " ")
+            .replace("\r", " ")
+            .replace("\n", " ")
+            .rstrip("\r\n")
+        )
+        encoded = (text + "\n").encode("utf-8", errors="replace")
+        remaining = max_bytes - used_bytes
+        if remaining <= 0:
+            break
+        if len(encoded) > remaining:
+            if remaining <= 1:
+                break
+            text = encoded[: remaining - 1].decode("utf-8", errors="ignore").rstrip(
+                "\r\n"
+            )
+            encoded = (text + "\n").encode("utf-8", errors="replace")
+            while len(encoded) > remaining and text:
+                text = text[:-1]
+                encoded = (text + "\n").encode("utf-8", errors="replace")
+        if not text:
+            continue
+        encoded = (text + "\n").encode("utf-8", errors="replace")
+        output.append(text)
+        used_bytes += len(encoded)
+        if used_bytes >= max_bytes:
+            break
+
+    temporary_path: str | None = None
+    descriptor: int | None = None
+    try:
+        descriptor, temporary_path = tempfile.mkstemp(
+            prefix=".incident-log-",
+            suffix=".tmp",
+            dir=target.parent,
+        )
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as stream:
+            descriptor = None
+            stream.write("\n".join(output))
+            if output:
+                stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary_path, target)
+        temporary_path = None
+        return target
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        if temporary_path is not None:
+            try:
+                os.unlink(temporary_path)
+            except FileNotFoundError:
+                pass
+
+
 __all__ = (
     "IncidentMetadata",
     "build_incident_metadata",
     "create_incident_directory",
+    "incident_directory_time_key",
+    "write_incident_log",
     "write_incident_metadata",
 )

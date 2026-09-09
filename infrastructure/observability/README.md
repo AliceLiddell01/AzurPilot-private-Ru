@@ -270,15 +270,14 @@ docker compose --env-file ../../.env config проверяет итоговую 
 неожиданного host binding. pull загружает зафиксированные образы после чистого
 clone. Повторный up -d должен быть идемпотентным.
 
-Для штатной остановки выполните:
+Для остановки только observability выполните:
 
-    docker compose --env-file ../../.env stop
-    docker compose --env-file ../../.env start
+    docker compose --env-file ../../.env stop alloy loki prometheus tempo grafana
+    docker compose --env-file ../../.env start loki prometheus tempo alloy grafana
 
-Не используйте docker compose --env-file ../../.env down -v: volumes содержат
-накопленные данные. Если нужно удалить сам Compose-контур без данных,
-используйте docker compose --env-file ../../.env down; volumes и их содержимое
-останутся доступными для последующего запуска.
+Общий `compose down`, `down -v`, удаление или пересоздание volumes запрещены
+для observability maintenance: этот проект также обслуживает PostgreSQL,
+pgAdmin и Caddy. Управляйте только явно выбранными services.
 
 ## Хранилище и retention
 
@@ -288,31 +287,101 @@ Retention ограничен 7 днями для Loki и Tempo и 15 днями 
 Эти настройки предназначены для локального контура и могут быть заменены
 deployment-specific override без изменения service topology.
 
+### Reliability policy и bounded recovery
+
+Игровой runtime не зависит от доставки telemetry. `RuntimeStateStore` и exact
+worker identity определяют execution через Game MCP; очереди scheduler, Loki и
+traces не являются доказательством текущей игровой задачи.
+
+Alloy использует bounded in-memory queue по 16 MiB для каждого OTLP logs/traces
+exporter, два consumers и retry с backoff 5–30 секунд в течение 5 минут.
+`block_on_overflow=false` сохраняет fail-open поведение: при переполнении новый
+batch отклоняется и локальные file/incident artifacts остаются доступными.
+После restart Alloy неподтверждённые logs/traces не обещают durable replay.
+Preview `otelcol.storage.file` намеренно не включён.
+
+`prometheus.remote_write.local` сохраняет metrics в существующий WAL volume
+`azurpilot-observability_alloy-data`; `truncate_frequency=2h`,
+`min_keepalive_time=5m`, `max_keepalive_time=8h`. Это bounded age window:
+после него backlog может быть потерян. Loki retention — 7 дней с TSDB/v13,
+24-часовым индексом, singleton Compactor и persistent delete markers. Tempo
+blocks — 7 дней в `/var/tempo`; Prometheus TSDB — 15 дней в `/prometheus`.
+Оставляйте не менее 20% свободного Docker filesystem для compaction. Размер
+очереди и WAL контролируйте по internal metrics и volume usage; fixed
+machine-specific `retention.size` не задаётся.
+
+Internal metrics Alloy (`otelcol_exporter_queue_size`,
+`otelcol_exporter_queue_capacity`, enqueue/send failures,
+`otelcol_receiver_refused_*`, remote-write pending/retries/WAL и RSS) доступны
+через его loopback admin endpoint внутри Compose network. Отсутствующая failure
+series не считается нулём: она появляется после соответствующего события.
+
+Для воспроизводимой проверки используйте canonical tooling:
+
+    uv run --locked --no-sync python -m dev_tools.infrastructure_doctor observability
+    uv run --locked --no-sync python -m dev_tools.observability_reliability inventory
+    uv run --locked --no-sync python -m dev_tools.observability_reliability metrics
+    uv run --locked --no-sync python -m dev_tools.observability_reliability outage --services tempo --output artifacts/observability/tempo
+
+Harness сначала создаёт unique marker настоящим application OTel bootstrap и
+общей scheduler telemetry boundary, затем проверяет Loki/Prometheus/Tempo,
+local log, incident metadata и correlation trace ID. Он допускает только
+`alloy`, `loki`, `prometheus`, `tempo`, `grafana`, пишет recovery journal до
+первого stop, фиксирует container IDs/volumes и в `finally` запускает только
+сервисы, изменённые этим запуском. PostgreSQL, Caddy и pgAdmin сверяются с
+baseline и не останавливаются; `compose down`, `down -v`, удаление и
+пересоздание volumes запрещены.
+
+Матрица включает отдельные outages `tempo`, `loki`, `prometheus`, `grafana`,
+`alloy` и одновременный outage всех пяти services. Для Loki/Tempo остальные
+signals продолжают поступать, после recovery queued и fresh markers доступны;
+Prometheus догоняет WAL. При Alloy проверяются local fallback и новые события
+после recovery, без backfill уже отброшенных SDK данных. При Grafana direct
+backend ingestion продолжается, а Grafana MCP failure ожидаем; после recovery
+проверяются datasources, PromQL, LogQL и Tempo trace reads через
+`azurpilot-observability`.
+
+Параметр `--hold-seconds` задаёт дополнительную паузу после readiness и signal
+checks. Полное время outage включает baseline и recovery ожидания и может быть
+больше этого значения.
+
+Нельзя прерывать host/Docker во время outage. Если процесс был прерван, не
+удаляйте `recovery.json`: восстановите только его `attempted` container IDs,
+сверьте прежние volumes и повторите health/inventory. Synthetic boundary не
+исполняет игровую задачу и не заменяет отдельную live game acceptance.
+
 ## Подключение application logs
 
-AzurPilot подключает application logs явно после настройки штатного локального
-logger-а через `set_file_logger()`. Подключение не выполняется при импорте
-модулей: пока endpoint не задан, приложение работает в обычном offline-режиме
-только с console/WebUI/file handlers. После opt-in приложение использует
-официальные OpenTelemetry Logs bridge и OTLP/HTTP protobuf BatchLogRecordProcessor;
-прямых зависимостей от Loki, Prometheus, Tempo или Grafana в application code
-нет.
+AzurPilot подключает application logs явно после настройки штатного runtime
+logger-а через `configure_runtime_logging()`. Подключение не выполняется при
+импорте модулей. Без OTLP endpoint приложение работает в допустимом offline-
+режиме с console/WebUI и bounded in-memory incident context. При включённом
+endpoint используется официальный OpenTelemetry Logs bridge и
+OTLP/HTTP protobuf `BatchLogRecordProcessor`; прямых зависимостей от Loki,
+Prometheus, Tempo или Grafana в application code нет.
 
-Для локального Compose-контура перед запуском AzurPilot передайте процессу
-стандартные `OTEL_*` переменные:
+Для локального Compose deployment корневой `.env` является единственным
+каноническим источником application OTLP и Compose-настроек. Каждый штатный
+entrypoint (`Start-AzurPilot.ps1`, GUI, scheduler worker, `alas`, `ap` и OCR
+RPC) вызывает `configure_runtime_logging()`, который загружает из этого файла
+только ключи `OTEL_*`; значения уже существующего окружения имеют приоритет.
+Одного заполнения `.env` достаточно, отдельный PowerShell-сеанс перед каждым
+запуском не нужен:
 
-    $env:OTEL_EXPORTER_OTLP_LOGS_ENDPOINT = 'http://127.0.0.1:4318/v1/logs'
-    $env:OTEL_EXPORTER_OTLP_LOGS_PROTOCOL = 'http/protobuf'
-    $env:OTEL_RESOURCE_ATTRIBUTES = 'deployment.environment.name=local'
-    $env:OTEL_PYTHON_LOG_HANDLER_LEVEL = 'INFO'
+    OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://127.0.0.1:4318/v1/logs
+    OTEL_EXPORTER_OTLP_LOGS_PROTOCOL=http/protobuf
+    OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://127.0.0.1:4318/v1/metrics
+    OTEL_EXPORTER_OTLP_METRICS_PROTOCOL=http/protobuf
+    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://127.0.0.1:4318/v1/traces
+    OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=http/protobuf
+    OTEL_RESOURCE_ATTRIBUTES=deployment.environment.name=local
+    OTEL_PYTHON_LOG_HANDLER_LEVEL=INFO
 
-Допустим также общий `OTEL_EXPORTER_OTLP_ENDPOINT`; для logs используется
-`http/protobuf`. Таймауты и bounded batch-параметры читаются из стандартных
-`OTEL_EXPORTER_OTLP_LOGS_TIMEOUT`, `OTEL_BLRP_SCHEDULE_DELAY`,
-`OTEL_BLRP_MAX_QUEUE_SIZE`, `OTEL_BLRP_MAX_EXPORT_BATCH_SIZE` и
-`OTEL_BLRP_EXPORT_TIMEOUT`. `OTEL_SDK_DISABLED=true` отключает все application
-signals независимо от endpoint. `.env` Compose автоматически не загружается
-в процесс AzurPilot: это намеренно отдельные границы конфигурации.
+Список выше — пример для loopback Alloy, а не безусловный endpoint в коде.
+Signal-specific endpoint или общий `OTEL_EXPORTER_OTLP_ENDPOINT` должны быть
+явно заданы deployment-ом. `OTEL_SDK_DISABLED=true` отключает все application
+signals, сохраняя offline-режим. Ошибка чтения `.env` не останавливает runtime:
+используется окружение процесса и bounded fail-open политика.
 
 В удалённую запись попадают стабильный `service.name=azurpilot`, окружение,
 `profile`, canonical task context, component, run id, process id/command и
@@ -321,7 +390,26 @@ Rich markup, секретов и локальных абсолютных пут�
 изменяется. В Loki только `service.name` и
 `deployment.environment.name` являются index labels, остальные metadata остаются
 structured metadata. Ошибка exporter, его недоступность или bounded shutdown не
-останавливают gameplay, WebUI, console и локальный file fallback.
+останавливают gameplay, WebUI и console. После исчерпания bounded queue/retry
+часть normal remote log может быть потеряна; persistent local runtime copy при
+этом не обещается, но bounded context остаётся доступен для реального incident.
+
+### Задержка доставки в Grafana
+
+Для локального Compose-контура цепочка доставки настроена на короткую, но
+ограниченную задержку: application BatchLogRecordProcessor и
+BatchSpanProcessor используют значение по умолчанию 500 мс, application
+metrics — export interval 1 с, Alloy сбрасывает неполный batch через 500 мс, а
+provisioned dashboards обновляются
+каждые 5 с. Поэтому после завершения task обычно достаточно нескольких секунд;
+точная задержка всё ещё зависит от доступности backend и очередей exporter-а.
+
+Явные `OTEL_BLRP_SCHEDULE_DELAY`, `OTEL_BSP_SCHEDULE_DELAY` и
+`OTEL_METRIC_EXPORT_INTERVAL` могут увеличить эту задержку, но проходят через
+ограниченный контракт. В дашборде `overview` панель с outcome показывает
+итоговое число запусков за выбранный диапазон, а панель p50/p95 считает
+распределение длительностей по завершённым root spans через Tempo
+`quantile_over_time`.
 
 ## Подключение application metrics
 
@@ -330,12 +418,10 @@ process-local `MeterProvider` с официальным `PeriodicExportingMetric
 OTLP/HTTP protobuf exporter. Без metrics endpoint приложение не создаёт metrics
 provider и не выполняет сетевых запросов.
 
-Для локального Compose-контура перед запуском AzurPilot задайте:
-
-    $env:OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = 'http://127.0.0.1:4318/v1/metrics'
-    $env:OTEL_EXPORTER_OTLP_METRICS_PROTOCOL = 'http/protobuf'
-    $env:OTEL_METRIC_EXPORT_INTERVAL = '60000'
-    $env:OTEL_METRIC_EXPORT_TIMEOUT = '30000'
+Для локального Compose-контура добавьте metrics endpoint в тот же корневой
+`.env`, как показано в разделе logs. Metrics подключаются независимо от logs;
+`OTEL_METRIC_EXPORT_INTERVAL` и `OTEL_METRIC_EXPORT_TIMEOUT` являются
+необязательными bounded параметрами этого же источника.
 
 Signal-specific endpoint передаётся exporter-у как полный URL. При использовании
 общего `OTEL_EXPORTER_OTLP_ENDPOINT` официальный exporter добавляет стандартный
@@ -399,12 +485,9 @@ Application traces подключаются независимо от logs и me
 Используется официальный OTLP/HTTP protobuf exporter через существующий Alloy,
 без прямых зависимостей application code от Tempo.
 
-Для локального Compose-контура перед запуском AzurPilot задайте:
-
-    $env:OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = 'http://127.0.0.1:4318/v1/traces'
-    $env:OTEL_EXPORTER_OTLP_TRACES_PROTOCOL = 'http/protobuf'
-    $env:OTEL_EXPORTER_OTLP_TRACES_TIMEOUT = '5000'
-    $env:OTEL_TRACES_SAMPLER = 'parentbased_always_on'
+Для локального Compose-контура добавьте traces endpoint в тот же корневой
+`.env`, как показано в разделе logs. `OTEL_TRACES_SAMPLER`, signal-specific
+timeouts и bounded `OTEL_BSP_*` параметры также задаются там же.
 
 Допустим общий `OTEL_EXPORTER_OTLP_ENDPOINT`; signal-specific endpoint имеет
 приоритет над ним. Для traces также поддерживаются общий
@@ -484,12 +567,46 @@ Grafana `13.2.1` получает постоянное состояние тол
 `AzurPilot Overview` содержит task runs, отдельные success / failure /
 recoverable / stopped counters, success rate, достоверный `prometheus_ready`, outcome
 breakdown, p50/p95 task duration, разбивку по profile/task/outcome, последние
-ошибки Loki, последние traces и текущие alerts. `AzurPilot Errors / Incidents`
-содержит bounded error log view, ошибочные и медленные traces, а также
-доступные `azurpilot.device.screenshot` / `azurpilot.ocr.process` spans. В
-Grafana не добавляется выдуманный общий runtime-health signal: для Prometheus
-показывается только его собственный `prometheus_ready`, а недоступность
-остальных backend-ов определяется по фактической ошибке datasource/query.
+ошибки Loki, последние traces и текущие alerts. Точные counters, outcome graph и
+aggregate table считают только канонические root spans `azurpilot.task.run`
+через Tempo TraceQL metrics; они не используют `increase()` или округление
+Prometheus rate. Для duration используются Tempo TraceQL metrics
+`quantile_over_time` с группировкой по `azurpilot.profile` и `azurpilot.task`,
+поэтому p50/p95 разных profile/task не смешиваются. Grafana явно переименовывает
+возвращаемые Tempo labels в вид `p50 <profile> / <task>` и `p95 <profile> /
+<task>`; сырой набор `{p=..., span...}` в operator UX не показывается.
+
+Оба dashboard имеют общий semantic selector `Environment` по
+`deployment.environment.name`, а также bounded selectors `Profile` и `Task`.
+Эти selectors применяются одинаково к TraceQL, PromQL и LogQL и позволяют
+отделить synthetic reliability run от normal telemetry без task-specific
+hardcode. В Loki `azurpilot_profile` и `azurpilot_task` используются как
+structured metadata, а не как index labels. Поэтому при `Task=All` записи без
+task context остаются видимыми; при выборе конкретного Task показываются только
+записи, которые несут совпадающий canonical task, и записи без task context
+намеренно не приписываются выбранной задаче. `AzurPilot Errors / Incidents`
+содержит bounded error log view,
+ошибочные и медленные traces, а также доступные
+`azurpilot.device.screenshot` / `azurpilot.ocr.process` spans. В Grafana не
+добавляется выдуманный общий runtime-health signal: для Prometheus показывается
+только его собственный `prometheus_ready`, а недоступность остальных backend-ов
+определяется по фактической ошибке datasource/query.
+
+Значения переменных `Environment`, `Profile` и `Task` обнаруживаются по
+каноническим Prometheus labels `deployment_environment_name`, `azurpilot_profile`
+и `azurpilot_task`. Это намеренная зависимость discovery: соответствующие поля
+в Loki являются structured metadata, а не index labels, поэтому Loki используется
+для фильтрации записей, но не для `label_values`-списков.
+
+Tempo metrics-generator использует `local-blocks` с persistent generator WAL и
+trace WAL; `query_frontend.metrics.max_duration` покрывает bounded operator
+window. Grafana instant query используется для exact counters и outcome graph в
+горизонтальном `bargauge` без синтетической временной оси,
+а bounded range query с reduce — для aggregate table. При отсутствии событий
+counters показывают нулевое значение, а success share остаётся `нет данных`,
+без `0/0` и NaN. Если backend явно возвращает нулевой total как
+числовой ряд, защитное math-выражение показывает bounded `0%` вместо Inf/NaN;
+это не трактуется как запуск и не меняет семантику отсутствующего ряда.
 
 Alerts ограничены одним источником с достоверным generic-контрактом:
 ненулевой поток failure task за 15 минут, сохраняющийся пять минут. Alert не
@@ -500,24 +617,38 @@ Alerts ограничены одним источником с достовер�
 dashboard для операторской диагностики. Нет отдельного alert «нет запусков»,
 потому что scheduler не публикует authoritative expected-run schedule.
 
-Exemplars не используются как workaround. Для текущей цепочки
-OTel → Alloy → Prometheus remote-write проверяется именно наличие application
-exemplar в Prometheus TSDB; текущий synthetic check не обнаружил exemplars для
-`azurpilot_task_run_total`. `trace_id` не добавляется в metric labels, поэтому
-связь metrics с traces выполняется только через Grafana correlations Loki/Tempo
-и TraceQL, без ложного обещания clickable exemplar.
+Prometheus exemplars не используются как workaround для exact counters:
+`trace_id` не добавляется в metric labels, а Prometheus `increase()` не является
+источником истины для числа run-ов. Tempo TraceQL metrics может вернуть
+exemplar trace ID от того же canonical root span для корреляции с trace, но
+корректность counters не зависит от наличия exemplar и остаётся проверяемой по
+root-span count и grouped outcome.
 
 После изменения provisioning нужно перезапустить Grafana или выполнить
 поддержанный Admin API reload, затем автоматически проверить dashboard UIDs,
 alert provenance, datasource UID и каждую panel query через Grafana API.
-Чистый `docker compose down` без удаления named volumes и последующий `up`
+Остановка и запуск только observability services с прежними named volumes
 должны восстановить тот же operator UX.
 
-Исторические `log/`-артефакты не импортируются и не удаляются. `log/error/`
-остаётся локальным incident store со скриншотами и `log.txt`, диагностические и
-архивные каталоги сохраняются, CSV/JSON относятся к data/export или legacy
-storage и не считаются application logs. Скриншоты и object-store слой в этот
-контур не отправляются.
+Исторические `log/`-артефакты не импортируются. Обычная работа GUI, `alas`,
+`ap`, scheduler worker, OCR RPC и симулятора не создаёт runtime `.txt`/`.log`
+файлы, `diagnostic/` или `bak/`; console/WebUI и Loki остаются разными
+поверхностями одного runtime logger-а. `log/error/<profile>/<incident>/` —
+единственный локальный persistent namespace для реального incident fallback:
+sanitized bounded `log.txt`, `incident.json` и снимки из существующей
+screenshot deque. `Error_SaveErrorCount` ограничивает число каталогов для
+каждого profile, а `DiagnosticContextHandler` хранит только ограниченный
+thread-safe in-memory ring до incident-а. PNG/JPG не отправляются в Loki и
+отдельный binary/object store для этого контура не добавляется. CSV/JSON
+существующих data/export и legacy storage не считаются application logs.
+
+При недоступности Alloy/Loki normal remote log может быть потерян после
+bounded queue/retry policy, но gameplay, WebUI и console продолжают работу.
+При реальном исключении `save_error_log()` использует накопленный sanitized
+context и создаёт только incident bundle; сбой записи этого bundle не маскирует
+исходную ошибку. Dev Runtime сохраняет отдельный stdout/stderr evidence в
+`config/state/dev-runtime-gui.log`, а явные benchmark/debug-инструменты могут
+создавать собственные артефакты вне application runtime contract.
 
 Portable base Compose не содержит Windows drive letters, WSL paths,
 host.docker.internal, захардкоженные IP, host networking или публичные
@@ -631,6 +762,21 @@ README, аргументах команд или временном plaintext-ф
 в Docker MCP contract — `grafana.api_key`, а pinned server передаёт его через
 `GRAFANA_SERVICE_ACCOUNT_TOKEN`.
 
+Фактический pinned runtime проверяется через `tools/list`. В текущем image
+официальный `user_info` отсутствует, поэтому `list_datasources` не считается
+доказательством identity. При наличии доступного credential `ensure-identity`
+проверяет его тем же bearer token через официальный Grafana read-only endpoint
+`/api/access-control/user/permissions` и обязательный заголовок
+`X-Grafana-Identity-Id: service-account:<id>`. Отсутствующий endpoint не заменяется
+проверкой доступа к datasource: identity verification завершается
+`MCP_GRAFANA_TOKEN_IDENTITY_UNAVAILABLE`. Отсутствующий или foreign header,
+malformed permissions, invalid или более широкая роль приводят к
+fail-closed/rotation. После записи нового token в secret store identity
+проверяется повторно; obsolete tokens удаляются только у canonical account. Если
+pinned Gateway не предоставляет `user_info`, а credential нельзя получить
+официальным способом для identity-проверки, команда завершается диагностируемой
+ошибкой и не объявляет token canonical.
+
 Идемпотентный bootstrap выполняется из корня checkout. Он использует
 Grafana admin credentials из локального `.env`, проверяет или создаёт ровно
 один canonical service account, приводит его к роли `Viewer`, проверяет
@@ -652,8 +798,13 @@ CLI arguments, logs, traceback или artifact. При rotation новый token
 Grafana URL (`127.0.0.1`, `localhost` или `::1`).
 
 Если Docker Secrets Engine недоступен, bootstrap завершается с ошибкой и не
-создаёт новый token. Исправлять нужно именно credential transport, а не
-обходить его plaintext-файлом или переменной в profile.
+создаёт новый token. Pinned Gateway secret проверяется косвенно через Gateway;
+сам bootstrap не читает secret store обратно. Для reuse существующего account
+credential должен быть явно передан через поддержанный
+`GRAFANA_SERVICE_ACCOUNT_TOKEN` или `GRAFANA_SERVICE_ACCOUNT_TOKEN_FILE`;
+при отсутствии такого источника identity probe завершается fail-closed.
+Исправлять нужно именно credential transport, а не обходить его plaintext-файлом
+или переменной в profile.
 
 ### Question-driven diagnostic workflow
 
@@ -691,6 +842,10 @@ Grafana container, затем перезапусти именно Grafana MCP Ga
 → log → trace_id → tempo_get-trace`; результат MCP для выбранных metric,
 dashboard, alert и trace по возможности сверяется независимым Grafana/backend
 API.
+
+Synthetic и Docker outage harness не запускают Azur Lane. Live game acceptance
+намеренно остаётся `PENDING USER AUTHORIZATION` до отдельного разрешения
+пользователя.
 
 ### Проверка безопасности и восстановление Docker Desktop
 

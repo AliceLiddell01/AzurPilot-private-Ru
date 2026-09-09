@@ -5,6 +5,8 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
 from alas import AzurLaneAutoScript
 from module.config.config import Function
 from module.logger import logger
@@ -12,10 +14,20 @@ from module.observability import scheduler_task_run
 from module.observability.incident import (
     build_incident_metadata,
     create_incident_directory,
+    incident_directory_time_key,
+    write_incident_log,
     write_incident_metadata,
 )
 from module.observability.scheduler import get_current_task_name
 from module.observability.tracing import TraceCorrelation
+
+
+@pytest.fixture(autouse=True)
+def _diagnostic_context():
+    """Изолировать диагностический контекст логгера между тестами."""
+    logger.reset_diagnostic_context()
+    yield
+    logger.reset_diagnostic_context()
 
 
 def _task(command: str = "Research") -> Function:
@@ -116,16 +128,25 @@ def test_error_retention_keeps_mixed_format_incidents_by_actual_time(tmp_path):
     assert (tmp_path / "unknown-bundle").is_dir()
 
 
+def test_incident_directory_time_key_supports_legacy_datetime_names():
+    assert incident_directory_time_key("20260901000000") == incident_directory_time_key(
+        "2026-09-01_00-00-00.000_RuntimeError"
+    )
+    assert incident_directory_time_key("2") is None
+    assert incident_directory_time_key("1757000000000") == (1757000000000, 0)
+    assert incident_directory_time_key("17570000000000") is None
+
+
 def test_error_retention_orders_legacy_epoch_directories_naturally(tmp_path):
     script = AzurLaneAutoScript.__new__(AzurLaneAutoScript)
-    for name in ("2", "10", "100"):
+    for name in ("1757000000000", "1757000100000", "1757000200000"):
         (tmp_path / name).mkdir()
 
     script.keep_last_errlog(str(tmp_path), n=2)
 
-    assert not (tmp_path / "2").exists()
-    assert (tmp_path / "10").is_dir()
-    assert (tmp_path / "100").is_dir()
+    assert not (tmp_path / "1757000000000").exists()
+    assert (tmp_path / "1757000100000").is_dir()
+    assert (tmp_path / "1757000200000").is_dir()
 
 
 def test_error_retention_preserves_current_timestamp_collision_order(tmp_path):
@@ -133,7 +154,8 @@ def test_error_retention_preserves_current_timestamp_collision_order(tmp_path):
     names = (
         "2026-09-07_00-34-12.123_RuntimeError",
         "2026-09-07_00-34-12.123_RuntimeError_001",
-        "2026-09-07_00-34-12.123_RuntimeError_002",
+        "2026-09-07_00-34-12.123_RuntimeError_999",
+        "2026-09-07_00-34-12.123_RuntimeError_1000",
     )
     for name in names:
         (tmp_path / name).mkdir()
@@ -141,8 +163,28 @@ def test_error_retention_preserves_current_timestamp_collision_order(tmp_path):
     script.keep_last_errlog(str(tmp_path), n=2)
 
     assert not (tmp_path / names[0]).exists()
-    assert (tmp_path / names[1]).is_dir()
+    assert not (tmp_path / names[1]).exists()
     assert (tmp_path / names[2]).is_dir()
+    assert (tmp_path / names[3]).is_dir()
+
+
+def test_error_retention_preserves_short_numeric_exception_suffix(tmp_path):
+    script = AzurLaneAutoScript.__new__(AzurLaneAutoScript)
+    names = (
+        "2026-09-07_00-34-12.123_RuntimeError",
+        "2026-09-07_00-34-12.123_RuntimeError_12",
+        "2026-09-07_00-34-12.123_RuntimeError_001",
+        "2026-09-07_00-34-12.123_RuntimeError_999",
+        "2026-09-07_00-34-12.123_RuntimeError_1000",
+    )
+    for name in names:
+        (tmp_path / name).mkdir()
+
+    script.keep_last_errlog(str(tmp_path), n=4)
+
+    assert not (tmp_path / names[0]).exists()
+    for name in names[1:]:
+        assert (tmp_path / name).is_dir()
 
 
 def test_error_retention_does_nothing_for_non_positive_limit(tmp_path):
@@ -175,6 +217,55 @@ def test_incident_metadata_write_is_atomic_and_contains_no_exception_payload(tmp
     assert "/var/lib/azurpilot" not in contents
 
 
+def test_incident_log_is_bounded_sanitized_and_atomic(tmp_path):
+    folder = tmp_path / "incident"
+    folder.mkdir()
+
+    target = write_incident_log(
+        folder,
+        ("password=raw-secret", "line-2", "line-3"),
+        max_bytes=32,
+        max_lines=2,
+    )
+
+    assert target == folder / "log.txt"
+    contents = target.read_text(encoding="utf-8")
+    assert "raw-secret" not in contents
+    assert "line-2" in contents
+    assert "line-3" not in contents
+    assert len(target.read_bytes()) <= 32
+    assert not list(folder.glob(".incident-log-*.tmp"))
+
+
+def test_incident_log_normalizes_embedded_line_breaks_before_line_bound(tmp_path):
+    folder = tmp_path / "incident"
+    folder.mkdir()
+
+    target = write_incident_log(
+        folder,
+        ("first\nembedded\r\nline", "second"),
+        max_lines=2,
+    )
+
+    assert target.read_text(encoding="utf-8") == (
+        "first embedded line\nsecond\n"
+    )
+
+
+def test_incident_log_does_not_consume_budget_for_empty_utf8_truncation(tmp_path):
+    folder = tmp_path / "incident"
+    folder.mkdir()
+
+    target = write_incident_log(
+        folder,
+        ("ёж", "x"),
+        max_bytes=2,
+        max_lines=2,
+    )
+
+    assert target.read_text(encoding="utf-8") == "x\n"
+
+
 def test_scheduler_boundary_exposes_only_canonical_current_task():
     assert get_current_task_name() is None
 
@@ -198,10 +289,6 @@ def test_save_error_log_keeps_original_error_and_writes_incident_bundle(
     monkeypatch,
 ):
     monkeypatch.chdir(tmp_path)
-    log_file = tmp_path / "application.log"
-    log_file.write_text("до ошибки\n════════════════\nпосле ошибки\n", encoding="utf-8")
-    monkeypatch.setattr(logger, "log_file", str(log_file))
-
     script = AzurLaneAutoScript.__new__(AzurLaneAutoScript)
     script.config_name = "profile-a"
     script.__dict__["config"] = SimpleNamespace(
@@ -213,6 +300,8 @@ def test_save_error_log_keeps_original_error_and_writes_incident_bundle(
     try:
         raise RuntimeError("password=raw-secret C:\\Users\\operator\\error.log")
     except RuntimeError:
+        logger.info("до ошибки")
+        logger.error("ошибка с password=raw-secret")
         script.save_error_log()
 
     bundles = sorted((tmp_path / "log" / "error" / "profile-a").iterdir())
@@ -225,7 +314,11 @@ def test_save_error_log_keeps_original_error_and_writes_incident_bundle(
     assert metadata["exception_type"] == "RuntimeError"
     assert metadata["trace_id"] is None
     assert metadata["span_id"] is None
-    assert (bundles[0] / "log.txt").exists()
+    incident_log = bundles[0] / "log.txt"
+    assert incident_log.exists()
+    incident_text = incident_log.read_text(encoding="utf-8")
+    assert "raw-secret" not in incident_text
+    assert "password=raw-secret" not in incident_text
 
 
 def test_save_error_log_does_not_mask_original_when_metadata_write_fails(
@@ -233,10 +326,6 @@ def test_save_error_log_does_not_mask_original_when_metadata_write_fails(
     monkeypatch,
 ):
     monkeypatch.chdir(tmp_path)
-    log_file = tmp_path / "application.log"
-    log_file.write_text("ошибка\n", encoding="utf-8")
-    monkeypatch.setattr(logger, "log_file", str(log_file))
-
     script = AzurLaneAutoScript.__new__(AzurLaneAutoScript)
     script.config_name = "profile-a"
     script.__dict__["config"] = SimpleNamespace(
@@ -252,6 +341,7 @@ def test_save_error_log_does_not_mask_original_when_metadata_write_fails(
         try:
             raise ValueError("исходная ошибка")
         except ValueError:
+            logger.error("исходная ошибка")
             script.save_error_log()
 
     bundles = sorted((tmp_path / "log" / "error" / "profile-a").iterdir())

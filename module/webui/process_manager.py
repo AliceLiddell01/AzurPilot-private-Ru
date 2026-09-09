@@ -37,7 +37,7 @@ from module.config.profile import (
     profile_identity_from_name,
 )
 from module.config.utils import DEFAULT_CONFIG_NAME
-from module.logger import logger, set_file_logger, set_func_logger
+from module.logger import configure_runtime_logging, logger, set_func_logger
 from module.submodule.submodule import load_mod
 from module.submodule.utils import (
     get_available_func,
@@ -950,6 +950,27 @@ class ProcessManager:
                 return
 
     @staticmethod
+    def _resolve_task_policy_path(repository_root_path: Path) -> Path | None:
+        policy_path = (
+            repository_root_path
+            / "config"
+            / "state"
+            / "dev-runtime-task-policy.json"
+        )
+        try:
+            policy_present = policy_path.is_file() and not policy_path.is_symlink()
+            if policy_present and hasattr(policy_path, "is_junction"):
+                policy_present = not policy_path.is_junction()
+            if not policy_present:
+                return None
+            resolved_policy_path = policy_path.resolve(strict=True)
+            if not resolved_policy_path.is_relative_to(repository_root_path):
+                return None
+            return resolved_policy_path
+        except (OSError, RuntimeError):
+            return None
+
+    @staticmethod
     def run_process(
         config_name,
         func: str,
@@ -959,13 +980,30 @@ class ProcessManager:
         operation_id: str | None = None,
         session_id: str | None = None,
     ) -> None:
-        os.environ["AZURPILOT_REPOSITORY_ROOT"] = str(
-            Path(repository_root or _REPOSITORY_ROOT).resolve()
+        repository_root_path = Path(repository_root or _REPOSITORY_ROOT).resolve()
+        os.environ["AZURPILOT_REPOSITORY_ROOT"] = str(repository_root_path)
+        from module.dev_runtime.task_sandbox import (
+            TASK_POLICY_FILE_ENV,
+            TASK_POLICY_ROOT_ENV,
+            TASK_POLICY_SESSION_ENV,
         )
+
+        for variable in (
+            TASK_POLICY_SESSION_ENV,
+            TASK_POLICY_ROOT_ENV,
+            TASK_POLICY_FILE_ENV,
+        ):
+            os.environ.pop(variable, None)
+        policy_path = ProcessManager._resolve_task_policy_path(repository_root_path)
+        if session_id and policy_path is None:
+            logger.error(
+                f"[{config_name}] Политика dev-runtime не подтверждена; запуск task отклонён"
+            )
+            return
         if session_id:
-            os.environ["AZURPILOT_DEV_SESSION_ID"] = session_id
-        else:
-            os.environ.pop("AZURPILOT_DEV_SESSION_ID", None)
+            os.environ[TASK_POLICY_SESSION_ENV] = session_id
+            os.environ[TASK_POLICY_ROOT_ENV] = str(repository_root_path)
+            os.environ[TASK_POLICY_FILE_ENV] = str(policy_path)
         if operation_id:
             os.environ["AZURPILOT_RUNTIME_OPERATION_ID"] = operation_id
         else:
@@ -1042,8 +1080,8 @@ class ProcessManager:
         args, _ = parser.parse_known_args()
         State.electron = args.electron
 
-        # Инициализировать журнал.
-        set_file_logger(name=config_name)
+        # Инициализировать runtime logger и необязательное удалённое логирование.
+        configure_runtime_logging(name=config_name)
         if State.electron:
             # См. https://github.com/LmeSzinc/AzurLaneAutoScript/issues/2051.
             logger.info("[WebUI] Обнаружена среда Electron; обработчик стандартного вывода удалён")

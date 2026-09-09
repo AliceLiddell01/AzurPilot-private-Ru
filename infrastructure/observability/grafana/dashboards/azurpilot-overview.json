@@ -23,7 +23,7 @@
     {
       "asDropdown": false,
       "icon": "external link",
-      "includeVars": false,
+      "includeVars": true,
       "keepTime": true,
       "targetBlank": false,
       "title": "Ошибки и инциденты",
@@ -34,8 +34,8 @@
   "panels": [
     {
       "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
+        "type": "tempo",
+        "uid": "tempo"
       },
       "fieldConfig": {
         "defaults": {
@@ -43,6 +43,7 @@
             "mode": "thresholds"
           },
           "mappings": [],
+          "noValue": "0",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -83,22 +84,23 @@
       },
       "targets": [
         {
-          "editorMode": "code",
-          "expr": "sum(increase(azurpilot_task_run_total[$__range])) or vector(0)",
-          "format": "time_series",
-          "instant": true,
-          "legendFormat": "Все запуски task",
-          "range": false,
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "metricsQueryType": "instant",
+          "query": "{ resource.service.name = \"azurpilot\" && name = \"azurpilot.task.run\" && resource.deployment.environment.name =~ \"${environment:regex}\" && span.azurpilot.profile =~ \"${profile:regex}\" && span.azurpilot.task =~ \"${task:regex}\" } | count_over_time()",
+          "queryType": "traceql",
           "refId": "A"
         }
       ],
-      "title": "Запуски task",
+      "title": "Всего запусков task за диапазон",
       "type": "stat"
     },
     {
       "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
+        "type": "mixed",
+        "uid": "-- Mixed --"
       },
       "fieldConfig": {
         "defaults": {
@@ -106,6 +108,7 @@
             "mode": "thresholds"
           },
           "mappings": [],
+          "noValue": "нет данных",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -146,22 +149,71 @@
       },
       "targets": [
         {
-          "editorMode": "code",
-          "expr": "100 * (sum(rate(azurpilot_task_run_total{azurpilot_task_outcome=\"success\"}[$__rate_interval])) or vector(0)) / (sum(rate(azurpilot_task_run_total[$__rate_interval])) or vector(0))",
-          "format": "time_series",
-          "instant": true,
-          "legendFormat": "Доля success",
-          "range": false,
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "metricsQueryType": "instant",
+          "query": "{ resource.service.name = \"azurpilot\" && name = \"azurpilot.task.run\" && span.azurpilot.task.outcome = \"success\" && resource.deployment.environment.name =~ \"${environment:regex}\" && span.azurpilot.profile =~ \"${profile:regex}\" && span.azurpilot.task =~ \"${task:regex}\" } | count_over_time()",
+          "queryType": "traceql",
+          "hide": true,
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "metricsQueryType": "instant",
+          "query": "{ resource.service.name = \"azurpilot\" && name = \"azurpilot.task.run\" && resource.deployment.environment.name =~ \"${environment:regex}\" && span.azurpilot.profile =~ \"${profile:regex}\" && span.azurpilot.task =~ \"${task:regex}\" } | count_over_time()",
+          "queryType": "traceql",
+          "hide": true,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "__expr__",
+            "uid": "-100"
+          },
+          "expression": "A",
+          "hide": true,
+          "refId": "C",
+          "reducer": "last",
+          "settings": {
+            "mode": "replaceNN",
+            "replaceWithValue": 0
+          },
+          "type": "reduce"
+        },
+        {
+          "datasource": {
+            "type": "__expr__",
+            "uid": "-100"
+          },
+          "expression": "B",
+          "hide": true,
+          "refId": "D",
+          "reducer": "last",
+          "type": "reduce"
+        },
+        {
+          "datasource": {
+            "type": "__expr__",
+            "uid": "-100"
+          },
+          "expression": "$C * ($D > 0) / ($D + ($D == 0)) * 100",
+          "hide": false,
+          "refId": "E",
+          "type": "math"
         }
       ],
-      "title": "Доля success",
+      "title": "Доля success за диапазон",
       "type": "stat"
     },
     {
       "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
+        "type": "tempo",
+        "uid": "tempo"
       },
       "fieldConfig": {
         "defaults": {
@@ -169,6 +221,7 @@
             "mode": "thresholds"
           },
           "mappings": [],
+          "noValue": "0",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -209,22 +262,23 @@
       },
       "targets": [
         {
-          "editorMode": "code",
-          "expr": "sum(increase(azurpilot_task_run_total{azurpilot_task_outcome=\"success\"}[$__range])) or vector(0)",
-          "format": "time_series",
-          "instant": true,
-          "legendFormat": "Успешные запуски",
-          "range": false,
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "metricsQueryType": "instant",
+          "query": "{ resource.service.name = \"azurpilot\" && name = \"azurpilot.task.run\" && span.azurpilot.task.outcome = \"success\" && resource.deployment.environment.name =~ \"${environment:regex}\" && span.azurpilot.profile =~ \"${profile:regex}\" && span.azurpilot.task =~ \"${task:regex}\" } | count_over_time()",
+          "queryType": "traceql",
           "refId": "A"
         }
       ],
-      "title": "Успешные запуски",
+      "title": "Успешные запуски за диапазон",
       "type": "stat"
     },
     {
       "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
+        "type": "tempo",
+        "uid": "tempo"
       },
       "fieldConfig": {
         "defaults": {
@@ -232,6 +286,7 @@
             "mode": "thresholds"
           },
           "mappings": [],
+          "noValue": "0",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -272,22 +327,23 @@
       },
       "targets": [
         {
-          "editorMode": "code",
-          "expr": "sum(increase(azurpilot_task_run_total{azurpilot_task_outcome=\"failure\"}[$__range])) or vector(0)",
-          "format": "time_series",
-          "instant": true,
-          "legendFormat": "Ошибки (failure)",
-          "range": false,
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "metricsQueryType": "instant",
+          "query": "{ resource.service.name = \"azurpilot\" && name = \"azurpilot.task.run\" && span.azurpilot.task.outcome = \"failure\" && resource.deployment.environment.name =~ \"${environment:regex}\" && span.azurpilot.profile =~ \"${profile:regex}\" && span.azurpilot.task =~ \"${task:regex}\" } | count_over_time()",
+          "queryType": "traceql",
           "refId": "A"
         }
       ],
-      "title": "Ошибки (failure)",
+      "title": "Ошибки (failure) за диапазон",
       "type": "stat"
     },
     {
       "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
+        "type": "tempo",
+        "uid": "tempo"
       },
       "fieldConfig": {
         "defaults": {
@@ -295,6 +351,7 @@
             "mode": "thresholds"
           },
           "mappings": [],
+          "noValue": "0",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -335,22 +392,23 @@
       },
       "targets": [
         {
-          "editorMode": "code",
-          "expr": "sum(increase(azurpilot_task_run_total{azurpilot_task_outcome=\"recoverable\"}[$__range])) or vector(0)",
-          "format": "time_series",
-          "instant": true,
-          "legendFormat": "Recoverable",
-          "range": false,
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "metricsQueryType": "instant",
+          "query": "{ resource.service.name = \"azurpilot\" && name = \"azurpilot.task.run\" && span.azurpilot.task.outcome = \"recoverable\" && resource.deployment.environment.name =~ \"${environment:regex}\" && span.azurpilot.profile =~ \"${profile:regex}\" && span.azurpilot.task =~ \"${task:regex}\" } | count_over_time()",
+          "queryType": "traceql",
           "refId": "A"
         }
       ],
-      "title": "Recoverable",
+      "title": "Recoverable за диапазон",
       "type": "stat"
     },
     {
       "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
+        "type": "tempo",
+        "uid": "tempo"
       },
       "fieldConfig": {
         "defaults": {
@@ -358,6 +416,7 @@
             "mode": "thresholds"
           },
           "mappings": [],
+          "noValue": "0",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -398,16 +457,17 @@
       },
       "targets": [
         {
-          "editorMode": "code",
-          "expr": "sum(increase(azurpilot_task_run_total{azurpilot_task_outcome=\"stopped\"}[$__range])) or vector(0)",
-          "format": "time_series",
-          "instant": true,
-          "legendFormat": "Stopped",
-          "range": false,
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "metricsQueryType": "instant",
+          "query": "{ resource.service.name = \"azurpilot\" && name = \"azurpilot.task.run\" && span.azurpilot.task.outcome = \"stopped\" && resource.deployment.environment.name =~ \"${environment:regex}\" && span.azurpilot.profile =~ \"${profile:regex}\" && span.azurpilot.task =~ \"${task:regex}\" } | count_over_time()",
+          "queryType": "traceql",
           "refId": "A"
         }
       ],
-      "title": "Stopped",
+      "title": "Stopped за диапазон",
       "type": "stat"
     },
     {
@@ -491,18 +551,11 @@
     },
     {
       "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
+        "type": "tempo",
+        "uid": "tempo"
       },
       "fieldConfig": {
         "defaults": {
-          "custom": {
-            "drawStyle": "line",
-            "fillOpacity": 15,
-            "lineWidth": 2,
-            "showPoints": "auto",
-            "spanNulls": false
-          },
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -517,9 +570,70 @@
               }
             ]
           },
-          "unit": "runs/s"
+          "unit": "short"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "stopped"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "success"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "green",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "recoverable"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "blue",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "failure"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 8,
@@ -529,37 +643,42 @@
       },
       "id": 7,
       "options": {
-        "legend": {
+        "displayMode": "basic",
+        "maxVizHeight": 300,
+        "minVizHeight": 16,
+        "minVizWidth": 8,
+        "namePlacement": "left",
+        "orientation": "horizontal",
+        "reduceOptions": {
           "calcs": [
-            "lastNotNull",
-            "max"
+            "lastNotNull"
           ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
+          "fields": "",
+          "values": false
         },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
+        "showUnfilled": true,
+        "sizing": "auto",
+        "valueMode": "color"
       },
       "targets": [
         {
-          "editorMode": "code",
-          "expr": "sum by (azurpilot_task_outcome) (rate(azurpilot_task_run_total[$__rate_interval]))",
-          "format": "time_series",
-          "legendFormat": "{{azurpilot_task_outcome}}",
-          "range": true,
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "metricsQueryType": "instant",
+          "query": "{ resource.service.name = \"azurpilot\" && name = \"azurpilot.task.run\" && resource.deployment.environment.name =~ \"${environment:regex}\" && span.azurpilot.profile =~ \"${profile:regex}\" && span.azurpilot.task =~ \"${task:regex}\" } | count_over_time() by (span.azurpilot.task.outcome)",
+          "queryType": "traceql",
           "refId": "A"
         }
       ],
-      "title": "Запуски task по outcome",
-      "type": "timeseries"
+      "title": "Всего запусков task по outcome за диапазон",
+      "type": "bargauge"
     },
     {
       "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
+        "type": "tempo",
+        "uid": "tempo"
       },
       "fieldConfig": {
         "defaults": {
@@ -612,29 +731,53 @@
       },
       "targets": [
         {
-          "editorMode": "code",
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(azurpilot_task_duration_seconds_bucket[$__rate_interval])))",
-          "format": "time_series",
-          "legendFormat": "p50",
-          "range": true,
-          "refId": "A"
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "legendFormat": "p50 {{span.azurpilot.profile}} / {{span.azurpilot.task}}",
+          "metricsQueryType": "range",
+          "query": "{ resource.service.name = \"azurpilot\" && name = \"azurpilot.task.run\" && resource.deployment.environment.name =~ \"${environment:regex}\" && span.azurpilot.profile =~ \"${profile:regex}\" && span.azurpilot.task =~ \"${task:regex}\" } | quantile_over_time(span:duration, .50) by (span.azurpilot.profile, span.azurpilot.task)",
+          "queryType": "traceql",
+          "refId": "A",
+          "step": "1m"
         },
         {
-          "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(azurpilot_task_duration_seconds_bucket[$__rate_interval])))",
-          "format": "time_series",
-          "legendFormat": "p95",
-          "range": true,
-          "refId": "B"
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "legendFormat": "p95 {{span.azurpilot.profile}} / {{span.azurpilot.task}}",
+          "metricsQueryType": "range",
+          "query": "{ resource.service.name = \"azurpilot\" && name = \"azurpilot.task.run\" && resource.deployment.environment.name =~ \"${environment:regex}\" && span.azurpilot.profile =~ \"${profile:regex}\" && span.azurpilot.task =~ \"${task:regex}\" } | quantile_over_time(span:duration, .95) by (span.azurpilot.profile, span.azurpilot.task)",
+          "queryType": "traceql",
+          "refId": "B",
+          "step": "1m"
         }
       ],
-      "title": "Длительность task p50 / p95",
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^\\{p=0\\.5, span\\.azurpilot\\.profile=\"([^\"]+)\", span\\.azurpilot\\.task=\"([^\"]+)\"\\}$",
+            "renamePattern": "p50 $1 / $2"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^\\{p=0\\.95, span\\.azurpilot\\.profile=\"([^\"]+)\", span\\.azurpilot\\.task=\"([^\"]+)\"\\}$",
+            "renamePattern": "p95 $1 / $2"
+          }
+        }
+      ],
+      "title": "Длительность task p50 / p95 за диапазон",
       "type": "timeseries"
     },
     {
       "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
+        "type": "tempo",
+        "uid": "tempo"
       },
       "fieldConfig": {
         "defaults": {
@@ -677,16 +820,57 @@
       },
       "targets": [
         {
-          "editorMode": "code",
-          "expr": "sum by (azurpilot_profile, azurpilot_task, azurpilot_task_outcome) (increase(azurpilot_task_run_total[$__range]))",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
           "format": "table",
-          "instant": true,
-          "legendFormat": "{{azurpilot_profile}} / {{azurpilot_task}} / {{azurpilot_task_outcome}}",
-          "range": false,
-          "refId": "A"
+          "metricsQueryType": "range",
+          "query": "{ resource.service.name = \"azurpilot\" && name = \"azurpilot.task.run\" && resource.deployment.environment.name =~ \"${environment:regex}\" && span.azurpilot.profile =~ \"${profile:regex}\" && span.azurpilot.task =~ \"${task:regex}\" } | count_over_time() by (span.azurpilot.profile, span.azurpilot.task, span.azurpilot.task.outcome)",
+          "queryType": "traceql",
+          "refId": "A",
+          "step": "1m"
         }
       ],
-      "title": "Запуски по profile / task / outcome",
+      "transformations": [
+        {
+          "id": "reduce",
+          "options": {
+            "reducers": [
+              "sum"
+            ]
+          }
+        },
+        {
+          "id": "labelsToFields",
+          "options": {}
+        },
+        {
+          "id": "extractFields",
+          "options": {
+            "format": "kvp",
+            "replace": false,
+            "source": "Field"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Field": true,
+              "time": true
+            },
+            "renameByName": {
+              "span.azurpilot.profile": "Profile",
+              "span.azurpilot.task": "Task",
+              "span.azurpilot.task.outcome": "Outcome",
+              "Total": "Запуски",
+              "Value": "Запуски"
+            }
+          }
+        }
+      ],
+      "title": "Всего запусков по profile / task / outcome за диапазон",
       "type": "table"
     },
     {
@@ -714,10 +898,10 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 9,
-        "w": 12,
-        "x": 12,
-        "y": 13
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 22
       },
       "id": 10,
       "options": {
@@ -732,18 +916,19 @@
         "showLabels": false,
         "showTime": true,
         "sortOrder": "Descending",
-        "wrapLines": false
+        "wrapLines": true
       },
       "targets": [
         {
           "direction": "backward",
           "editorMode": "code",
-          "expr": "{service_name=\"azurpilot\"} | detected_level = \"error\"",
+          "expr": "{service_name=\"azurpilot\", deployment_environment_name=~\"${environment:regex}\"} | detected_level = \"error\" | azurpilot_profile =~ \"${profile:regex}\" | azurpilot_task =~ \"${task:regex}\"",
           "maxLines": 100,
           "queryType": "range",
           "refId": "A"
         }
       ],
+      "description": "LogQL фильтрует Environment, Profile и Task по structured metadata. При Task=All записи без task context остаются видимыми; конкретный Task показывает только записи с совпадающим task.",
       "title": "Последние ошибки / incidents",
       "type": "logs"
     },
@@ -775,7 +960,7 @@
         "h": 12,
         "w": 24,
         "x": 0,
-        "y": 22
+        "y": 32
       },
       "id": 11,
       "options": {
@@ -797,7 +982,7 @@
             "uid": "tempo"
           },
           "limit": 20,
-          "query": "{ resource.service.name = \"azurpilot\" } with (most_recent=true)",
+          "query": "{ resource.service.name = \"azurpilot\" && name = \"azurpilot.task.run\" && resource.deployment.environment.name =~ \"${environment:regex}\" && span.azurpilot.profile =~ \"${profile:regex}\" && span.azurpilot.task =~ \"${task:regex}\" } with (most_recent=true)",
           "queryType": "traceql",
           "refId": "A",
           "tableType": "traces"
@@ -815,7 +1000,7 @@
         "h": 6,
         "w": 24,
         "x": 0,
-        "y": 34
+        "y": 44
       },
       "id": 12,
       "options": {
@@ -839,14 +1024,75 @@
       "type": "alertlist"
     }
   ],
-  "refresh": "30s",
+  "refresh": "5s",
   "schemaVersion": 39,
   "tags": [
     "azurpilot",
     "observability"
   ],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "allValue": ".*",
+        "current": {},
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(azurpilot_task_run_total, deployment_environment_name)",
+        "includeAll": true,
+        "label": "Environment",
+        "multi": true,
+        "name": "environment",
+        "options": [],
+        "query": "label_values(azurpilot_task_run_total, deployment_environment_name)",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {},
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(azurpilot_task_run_total, azurpilot_profile)",
+        "includeAll": true,
+        "label": "Profile",
+        "multi": true,
+        "name": "profile",
+        "options": [],
+        "query": "label_values(azurpilot_task_run_total, azurpilot_profile)",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {},
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(azurpilot_task_run_total, azurpilot_task)",
+        "includeAll": true,
+        "label": "Task",
+        "multi": true,
+        "name": "task",
+        "options": [],
+        "query": "label_values(azurpilot_task_run_total, azurpilot_task)",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
   },
   "time": {
     "from": "now-6h",

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-from datetime import date
 from pathlib import Path
 
 from module.application.runtime_control import (
@@ -14,7 +13,6 @@ from module.application.runtime_control import (
     WebUIControlClient,
 )
 from module.application.runtime_state import RuntimeStateStore
-from module.dev_runtime.target import DevTargetError
 
 
 class SharedWebUIRuntime:
@@ -41,17 +39,9 @@ class SharedWebUIRuntime:
 
     @property
     def log_file(self) -> Path:
-        # ``RichTimedRotatingHandler`` переводит базовый путь профиля в
-        # текущий датированный файл после начальной ротации. Evidence должен
-        # открыть именно этот canonical файл worker, иначе граница будет
-        # создана для несуществующего ``log/<profile>.txt``.
-        try:
-            profile_name = self.profile_name
-        except DevTargetError as exc:
-            raise RuntimeError(
-                "Нельзя определить log target общего WebUI из-за ошибки development target registry"
-            ) from exc
-        return self.repository_root / "log" / f"{date.today().isoformat()}_{profile_name}.txt"
+        # Dev Runtime сохраняет только собственный bounded stdout/stderr
+        # evidence-файл; application logger больше не создаёт log/*.txt.
+        return self.repository_root / "config" / "state" / "dev-runtime-gui.log"
 
     def ensure_webui(self) -> RuntimeOwnerIdentity:
         return self._client().ensure_owner()
@@ -104,9 +94,38 @@ class SharedWebUIRuntime:
             return None
         if record is None:
             snapshot = self.state.read(profile)
-            if snapshot is not None and snapshot.phase.value != "stopped":
+            if snapshot is None or snapshot.worker_running is not True:
+                return False
+            # После штатного unregister registry уже не содержит worker,
+            # но snapshot может ещё хранить его exact identity до canonical
+            # recovery. Проверяем именно этот PID и created_at; не считаем
+            # отсутствие registry доказательством отсутствия живого worker.
+            try:
+                from module.webui.worker_registry import process_matches
+
+                worker_pid = snapshot.worker_pid
+                worker_created_at = snapshot.worker_created_at
+                if (
+                    isinstance(worker_pid, bool)
+                    or not isinstance(worker_pid, int)
+                    or worker_pid <= 0
+                    or isinstance(worker_created_at, bool)
+                    or not isinstance(worker_created_at, (int, float))
+                    or not math.isfinite(float(worker_created_at))
+                    or float(worker_created_at) <= 0
+                ):
+                    return None
+                worker_matches = process_matches(
+                    {
+                        "pid": worker_pid,
+                        "created_at": float(worker_created_at),
+                    }
+                )
+            except (RuntimeError, TypeError, ValueError, OverflowError):
                 return None
-            return False
+            except Exception:  # noqa: BLE001 - неизвестная identity переводит recovery в fail-closed режим.
+                return None
+            return worker_matches is True
         try:
             from module.webui.worker_registry import process_matches
 

@@ -16,7 +16,7 @@ def test_direct_alas_startup_bootstraps_logging_before_storage() -> None:
     with (
         patch.object(
             alas.logger,
-            "set_file_logger",
+            "configure_runtime_logging",
             side_effect=lambda name: events.append(("logging", name)),
         ),
         patch.object(
@@ -61,11 +61,10 @@ def test_gui_spawned_process_bootstraps_process_role_logging() -> None:
 
 
 def test_gui_logging_uses_component_without_fake_profile() -> None:
-    with patch.object(gui.logger, "set_file_logger") as set_file_logger:
+    with patch.object(gui.logger, "configure_runtime_logging") as configure_logging:
         gui._configure_gui_logging()
 
-    set_file_logger.assert_called_once_with(
-        name="gui",
+    configure_logging.assert_called_once_with(
         observability_profile=None,
         observability_component="gui",
     )
@@ -103,7 +102,7 @@ def test_ocr_rpc_server_bootstraps_process_role_before_binding() -> None:
     with (
         patch.object(
             ocr_rpc.logger,
-            "set_file_logger",
+            "configure_runtime_logging",
             side_effect=lambda **kwargs: events.append(("logging", kwargs)),
         ),
         patch.object(ocr_rpc.logger, "info"),

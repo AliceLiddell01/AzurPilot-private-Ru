@@ -124,6 +124,40 @@ class _Backend(smoke.SmokeSupervisorBackend):
         return True
 
 
+def test_supervisor_identity_allows_runtime_working_directory_change(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    environment = _environment(tmp_path)
+    smoke_id = "smoke-id"
+    command_line = [
+        str(environment.python_executable),
+        "-m",
+        "module.dev_runtime.smoke_supervisor",
+        "--smoke-id",
+        smoke_id,
+    ]
+    identity = smoke.SmokeSupervisorIdentity(
+        pid=1234,
+        created_at=12.5,
+        executable=str(environment.python_executable),
+        command_line=command_line,
+        cwd=str(environment.repository_root),
+    )
+    process = SimpleNamespace(
+        pid=identity.pid,
+        is_running=lambda: True,
+        status=lambda: "running",
+        cmdline=lambda: command_line,
+        cwd=lambda: str(tmp_path / "runtime-temp"),
+        exe=lambda: str(environment.python_executable),
+        create_time=lambda: identity.created_at,
+    )
+    monkeypatch.setattr(smoke.psutil, "Process", lambda _pid: process)
+
+    assert smoke.SmokeSupervisorBackend.matches(environment, smoke_id, identity) is True
+
+
 class _Runtime:
     def __init__(
         self,

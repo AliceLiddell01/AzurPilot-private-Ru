@@ -8,7 +8,7 @@ import threading
 import time
 from collections.abc import Callable, Iterable, Mapping
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import TracebackType
 from typing import Any, Self
 
@@ -43,6 +43,7 @@ class MetricsConfig:
     timeout_millis: int
     export_interval_millis: int
     export_timeout_millis: int
+    headers: Mapping[str, str] | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,6 +220,7 @@ def build_metrics_runtime(
             else OTLPMetricExporter(
                 endpoint=config.endpoint,
                 timeout=config.timeout_millis / 1000,
+                headers=dict(config.headers) if config.headers else None,
             )
         )
         reader = (

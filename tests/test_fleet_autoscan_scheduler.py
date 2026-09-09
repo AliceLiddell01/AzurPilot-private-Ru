@@ -309,7 +309,7 @@ def test_loop_does_not_finish_task_cancelled_before_runtime_start(
     monkeypatch.setattr(
         "alas.logger",
         SimpleNamespace(
-            set_file_logger=lambda *_args, **_kwargs: None,
+            configure_runtime_logging=lambda *_args, **_kwargs: None,
             info=lambda *_args, **_kwargs: None,
             hr=lambda *_args, **_kwargs: None,
         ),
@@ -370,7 +370,7 @@ def test_loop_runs_task_when_handover_arrives_after_started_boundary(
     monkeypatch.setattr(
         "alas.logger",
         SimpleNamespace(
-            set_file_logger=lambda *_args, **_kwargs: None,
+            configure_runtime_logging=lambda *_args, **_kwargs: None,
             info=lambda *_args, **_kwargs: None,
             hr=lambda *_args, **_kwargs: None,
         ),
@@ -422,7 +422,7 @@ def test_loop_closes_current_boundary_once_for_recoverable_result(
     monkeypatch.setattr(
         "alas.logger",
         SimpleNamespace(
-            set_file_logger=lambda *_args, **_kwargs: None,
+            configure_runtime_logging=lambda *_args, **_kwargs: None,
             info=lambda *_args, **_kwargs: None,
             warning=lambda *_args, **_kwargs: None,
             error=lambda *_args, **_kwargs: None,
@@ -473,7 +473,7 @@ def test_loop_does_not_run_when_handover_wins_atomic_task_start(
     monkeypatch.setattr(
         "alas.logger",
         SimpleNamespace(
-            set_file_logger=lambda *_args, **_kwargs: None,
+            configure_runtime_logging=lambda *_args, **_kwargs: None,
             info=lambda *_args, **_kwargs: None,
             hr=lambda *_args, **_kwargs: None,
             error=lambda *_args, **_kwargs: None,
@@ -520,7 +520,7 @@ def test_loop_does_not_run_task_without_authoritative_worker_state(
     monkeypatch.setattr(
         "alas.logger",
         SimpleNamespace(
-            set_file_logger=lambda *_args, **_kwargs: None,
+            configure_runtime_logging=lambda *_args, **_kwargs: None,
             info=lambda *_args, **_kwargs: None,
             warning=lambda *_args, **_kwargs: None,
             error=lambda *_args, **_kwargs: None,
@@ -569,7 +569,7 @@ def test_loop_finishes_runtime_task_boundary_when_task_raises(
     monkeypatch.setattr(
         "alas.logger",
         SimpleNamespace(
-            set_file_logger=lambda *_args, **_kwargs: None,
+            configure_runtime_logging=lambda *_args, **_kwargs: None,
             info=lambda *_args, **_kwargs: None,
             warning=lambda *_args, **_kwargs: None,
             error=lambda *_args, **_kwargs: None,
@@ -636,7 +636,7 @@ def test_loop_treats_task_end_as_success_and_finishes_boundary_once(
         patch(
             "alas.logger",
             SimpleNamespace(
-                set_file_logger=lambda *_args, **_kwargs: None,
+                configure_runtime_logging=lambda *_args, **_kwargs: None,
                 info=lambda *_args, **_kwargs: None,
                 warning=lambda *_args, **_kwargs: None,
                 error=lambda *_args, **_kwargs: None,

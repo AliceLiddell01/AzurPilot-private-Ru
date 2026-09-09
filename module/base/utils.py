@@ -11,6 +11,8 @@ import cv2
 import numpy as np
 from PIL import Image
 
+from module.exception import TemplateMatchError
+
 REGEX_NODE = re.compile(r'(-?[A-Za-z]+)(-?\d+)')
 TEMPLATE_MATCH_NON_NATIVE_720P = False
 TEMPLATE_MATCH_NON_NATIVE_720P_THRESHOLD = 0.75
@@ -741,6 +743,9 @@ def rgb2gray(image):
     #     cv2.multiply(cv2.max(cv2.max(r, g), b), 0.5),
     #     cv2.multiply(cv2.min(cv2.min(r, g), b), 0.5)
     # )
+    if image.ndim == 2:
+        return image
+
     r, g, b = cv2.split(image)
     maximum = cv2.max(r, g)
     cv2.min(r, g, dst=r)
@@ -751,6 +756,127 @@ def rgb2gray(image):
     cv2.convertScaleAbs(r, alpha=0.5, dst=r)
     cv2.add(maximum, r, dst=maximum)
     return maximum
+
+
+def _template_match_image_info(image):
+    """Вернуть безопасное описание массива для диагностики шаблонного поиска."""
+    shape = getattr(image, 'shape', 'неизвестно')
+    dtype = getattr(image, 'dtype', 'неизвестно')
+    if isinstance(image, np.ndarray):
+        if image.ndim == 2:
+            channels = 1
+        elif image.ndim == 3:
+            channels = image.shape[2]
+        else:
+            channels = 'неизвестно'
+    else:
+        channels = 'неизвестно'
+    return f'shape={shape}, dtype={dtype}, channels={channels}'
+
+
+def _template_match_channels(image, role):
+    """Проверить поддерживаемое представление массива для matchTemplate."""
+    if not isinstance(image, np.ndarray) or image.ndim not in (2, 3):
+        raise TemplateMatchError(
+            f'Неподдерживаемое представление {role} шаблонного поиска: '
+            f'{_template_match_image_info(image)}'
+        )
+
+    channels = 1 if image.ndim == 2 else image.shape[2]
+    if channels not in (1, 3):
+        raise TemplateMatchError(
+            f'Неподдерживаемое число каналов {role} шаблонного поиска: '
+            f'{_template_match_image_info(image)}'
+        )
+    return channels
+
+
+def _template_match_gray(image, cached, role):
+    """Получить одноканальное представление массива, используя кэш при наличии."""
+    if callable(cached):
+        cached = cached()
+    if cached is not None:
+        gray = cached
+    elif image.ndim == 2:
+        gray = image
+    elif image.shape[2] == 1:
+        gray = image[:, :, 0]
+    else:
+        gray = rgb2gray(image)
+
+    channels = _template_match_channels(gray, f'одноканальный {role}')
+    if channels != 1:
+        raise TemplateMatchError(
+            f'Кэшированное одноканальное представление {role} некорректно: '
+            f'{_template_match_image_info(gray)}'
+        )
+    if gray.shape[:2] != image.shape[:2]:
+        raise TemplateMatchError(
+            f'Форма кэшированного одноканального представления {role} не совпадает с исходной: '
+            f'кэш {_template_match_image_info(gray)}; исходный {_template_match_image_info(image)}'
+        )
+    return gray
+
+
+def _template_match_depth(image, template):
+    """Согласовать depth только при необходимости и в поддерживаемый OpenCV тип."""
+    if image.dtype == template.dtype and image.dtype in (np.dtype('uint8'), np.dtype('float32')):
+        return image, template
+    return image.astype(np.float32, copy=False), template.astype(np.float32, copy=False)
+
+
+def template_match(
+    image,
+    template,
+    method=cv2.TM_CCOEFF_NORMED,
+    *,
+    image_gray=None,
+    template_gray=None,
+    name=None,
+):
+    """Выполнить matchTemplate с единым контрактом каналов и depth.
+
+    При несовпадении каналов цветная сторона приводится к grayscale. Для
+    кэшированного представления шаблона используется переданный ``template_gray``;
+    это сохраняет исходный RGB-массив доступным вызывающему коду. Значение
+    ``image_gray``/``template_gray`` может быть callable-провайдером: тогда кэш
+    вычисляется только при несовпадении каналов.
+    """
+    label = f' {name}' if name else ''
+    try:
+        image_channels = _template_match_channels(image, 'изображения')
+        template_channels = _template_match_channels(template, 'шаблона')
+
+        if image_channels != template_channels:
+            if image_channels == 1 and template_channels == 3:
+                template = _template_match_gray(template, template_gray, 'шаблона')
+            elif image_channels == 3 and template_channels == 1:
+                image = _template_match_gray(image, image_gray, 'изображения')
+            else:
+                raise TemplateMatchError(
+                    f'Несовместимые каналы шаблонного поиска{label}: '
+                    f'изображение {_template_match_image_info(image)}; '
+                    f'шаблон {_template_match_image_info(template)}'
+                )
+
+        image, template = _template_match_depth(image, template)
+    except TemplateMatchError:
+        raise
+    except (TypeError, ValueError) as error:
+        raise TemplateMatchError(
+            f'Не удалось подготовить шаблонный поиск{label}: '
+            f'изображение {_template_match_image_info(image)}; '
+            f'шаблон {_template_match_image_info(template)}'
+        ) from error
+
+    try:
+        return cv2.matchTemplate(image, template, method)
+    except cv2.error as error:
+        raise TemplateMatchError(
+            f'Шаблонный поиск{label} завершился ошибкой OpenCV: '
+            f'изображение {_template_match_image_info(image)}; '
+            f'шаблон {_template_match_image_info(template)}'
+        ) from error
 
 
 def rgb2hsv(image):
@@ -793,6 +919,9 @@ def rgb2luma(image):
     Returns:
         np.ndarray: 亮度通道，形状 (height, width)。
     """
+    if image.ndim == 2:
+        return image
+
     image = cv2.cvtColor(image, cv2.COLOR_RGB2YUV)
     luma, _, _ = cv2.split(image)
     return luma

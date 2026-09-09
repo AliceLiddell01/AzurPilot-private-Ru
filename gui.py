@@ -43,9 +43,8 @@ DEPENDENCY_SYNC_RESPONSE_TIMEOUT = DEPENDENCY_SYNC_TIMEOUT + 60
 
 
 def _configure_gui_logging() -> None:
-    """Настроить локальный и удалённый журнал для GUI-процесса."""
-    logger.set_file_logger(
-        name="gui",
+    """Настроить runtime logger и необязательное удалённое логирование GUI."""
+    logger.configure_runtime_logging(
         observability_profile=None,
         observability_component="gui",
     )

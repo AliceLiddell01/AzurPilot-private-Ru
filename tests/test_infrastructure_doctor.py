@@ -4,6 +4,8 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from dev_tools import infrastructure_doctor
 
 _GAME_HOST = "play.mcp.example.test"
@@ -30,6 +32,43 @@ def _result(arguments: list[str], *, output: str = "", code: int = 0):
     return subprocess.CompletedProcess(arguments, code, output, "")
 
 
+def _observability_state() -> dict:
+    from dev_tools import observability_reliability
+
+    return {
+        service: {
+            "id": service,
+            "status": "running",
+            "health": "healthy",
+            "volumes": {"/data": service},
+        }
+        for service in (*observability_reliability.SERVICES, "pgadmin")
+    }
+
+
+@pytest.fixture
+def observability_doctor_harness(monkeypatch):
+    from dev_tools import observability_reliability
+
+    state = _observability_state()
+    monkeypatch.setattr(observability_reliability, "inventory", lambda: state)
+    monkeypatch.setattr(
+        observability_reliability,
+        "ready",
+        lambda _state, **_kwargs: dict.fromkeys(
+            observability_reliability.SERVICES, True
+        ),
+    )
+
+    def configure(metrics, docker):
+        monkeypatch.setattr(
+            observability_reliability, "internal_metrics", lambda: metrics
+        )
+        monkeypatch.setattr(observability_reliability, "docker", docker)
+
+    return state, configure
+
+
 def test_doctor_distinguishes_absent_caddy_container(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -45,7 +84,7 @@ def test_doctor_distinguishes_absent_caddy_container(
         raise AssertionError(arguments)
 
     monkeypatch.setattr(infrastructure_doctor, "_docker_executable", lambda: "docker")
-    monkeypatch.setattr(infrastructure_doctor, "_run", fake_run)
+    monkeypatch.setattr(infrastructure_doctor, "run_docker", fake_run)
 
     assert infrastructure_doctor.doctor(root) == {
         "ok": False,
@@ -97,7 +136,7 @@ def test_doctor_reports_ready_only_with_expected_published_ports(
         raise AssertionError(arguments)
 
     monkeypatch.setattr(infrastructure_doctor, "_docker_executable", lambda: "docker")
-    monkeypatch.setattr(infrastructure_doctor, "_run", fake_run)
+    monkeypatch.setattr(infrastructure_doctor, "run_docker", fake_run)
 
     payload = infrastructure_doctor.doctor(root)
 
@@ -133,7 +172,7 @@ def test_doctor_rejects_published_caddy_admin_port(
         raise AssertionError(arguments)
 
     monkeypatch.setattr(infrastructure_doctor, "_docker_executable", lambda: "docker")
-    monkeypatch.setattr(infrastructure_doctor, "_run", fake_run)
+    monkeypatch.setattr(infrastructure_doctor, "run_docker", fake_run)
 
     payload = infrastructure_doctor.doctor(root)
 
@@ -271,3 +310,179 @@ def test_probe_requires_all_scopes_from_game_contract(
 
     assert payload["ok"] is False
     assert payload["code"] == "CADDY_PUBLIC_ENDPOINT_INVALID"
+
+
+def test_observability_doctor_reports_missing_queue_metrics(
+    observability_doctor_harness,
+) -> None:
+    state, configure = observability_doctor_harness
+
+    def fake_docker(*arguments: str, **_kwargs: object) -> str:
+        if arguments[:2] == ("volume", "inspect"):
+            return ""
+        if arguments[:2] == ("exec", state["pgadmin"]["id"]):
+            return (
+                "Filesystem 1024-blocks Used Available Capacity Mounted on\n"
+                "/dev/root 100 10 90 10% /var/lib/pgadmin\n"
+            )
+        raise AssertionError(arguments)
+
+    configure(["process_resident_memory_bytes 1"], fake_docker)
+
+    payload = infrastructure_doctor.observability_doctor(None)
+
+    assert payload["ok"] is False
+    assert payload["code"] == "OBSERVABILITY_DEGRADED"
+    assert payload["warnings"] == ["EXPORT_QUEUE_METRICS_UNAVAILABLE"]
+
+
+def test_observability_doctor_validates_repository_root(
+    observability_doctor_harness, tmp_path: Path, monkeypatch
+) -> None:
+    _state, configure = observability_doctor_harness
+    root = _repository_fixture(tmp_path)
+    calls = []
+
+    def fake_run_docker(arguments, *, timeout):
+        calls.append((arguments, timeout))
+        return _result(arguments)
+
+    configure([], lambda *_args, **_kwargs: "")
+    monkeypatch.setattr(infrastructure_doctor, "run_docker", fake_run_docker)
+
+    payload = infrastructure_doctor.observability_doctor(root)
+
+    assert payload["code"] == "OBSERVABILITY_DEGRADED"
+    assert calls[0][0][:2] == ["compose", "--project-name"]
+    assert calls[0][1] == 60
+
+
+def test_observability_doctor_reports_pressure_pending_volume_and_disk_warnings(
+    observability_doctor_harness,
+) -> None:
+    from dev_tools import observability_reliability
+
+    state, configure = observability_doctor_harness
+
+    def failing_docker(*arguments: str, **_kwargs: object) -> str:
+        if arguments[:2] == ("volume", "inspect"):
+            raise observability_reliability.ReliabilityError("volume")
+        if arguments[:2] == ("exec", state["pgadmin"]["id"]):
+            return (
+                "Filesystem 1024-blocks Used Available Capacity Mounted on\n"
+                "/dev/root 100 90 10 90% /var/lib/pgadmin\n"
+            )
+        raise AssertionError(arguments)
+
+    configure(
+        [
+            'otelcol_exporter_queue_capacity{exporter="loki zone"} 100',
+            'otelcol_exporter_queue_size{exporter="loki zone"} 80',
+            'prometheus_remote_storage_samples_pending{queue="local"} 1',
+            'prometheus_remote_storage_samples_pending{queue="retry"} 2',
+            'prometheus_remote_storage_samples_retries_total{queue="retry"} 1',
+        ],
+        failing_docker,
+    )
+
+    payload = infrastructure_doctor.observability_doctor(None)
+
+    assert payload["ok"] is False
+    assert "EXPORT_QUEUE_PRESSURE" in payload["warnings"]
+    assert "REMOTE_WRITE_PRESSURE" in payload["warnings"]
+    assert "REMOTE_WRITE_PENDING_TRANSIENT" in payload["observations"]
+    assert "DOCKER_DISK_HEADROOM_LOW" in payload["warnings"]
+    assert {
+        warning
+        for warning in payload["warnings"]
+        if warning.startswith("PERSISTENT_VOLUME_UNAVAILABLE:")
+    } == {
+        f"PERSISTENT_VOLUME_UNAVAILABLE:{service}"
+        for service in observability_reliability.SERVICES
+    }
+
+
+def test_observability_doctor_preserves_diagnostics_when_disk_check_fails(
+    observability_doctor_harness,
+) -> None:
+    from dev_tools import observability_reliability
+
+    state, configure = observability_doctor_harness
+
+    def unavailable_disk(*arguments: str, **_kwargs: object) -> str:
+        if arguments[:2] == ("volume", "inspect"):
+            return ""
+        if arguments[:2] == ("exec", state["pgadmin"]["id"]):
+            raise observability_reliability.ReliabilityError("disk")
+        raise AssertionError(arguments)
+
+    configure(
+        [
+            'otelcol_exporter_queue_capacity{exporter="loki"} 100',
+            'otelcol_exporter_queue_size{exporter="loki"} 1',
+        ],
+        unavailable_disk,
+    )
+
+    payload = infrastructure_doctor.observability_doctor(None)
+
+    assert payload["ok"] is False
+    assert payload["code"] == "OBSERVABILITY_DEGRADED"
+    assert payload["warnings"] == ["DOCKER_DISK_CHECK_UNAVAILABLE"]
+    assert payload["disk_available_percent"] is None
+
+
+def test_observability_doctor_keeps_transient_pending_in_observations(
+    observability_doctor_harness,
+):
+    state, configure = observability_doctor_harness
+
+    def fake_docker(*arguments: str, **_kwargs: object) -> str:
+        if arguments[:2] == ("volume", "inspect"):
+            return ""
+        if arguments[:2] == ("exec", state["pgadmin"]["id"]):
+            return (
+                "Filesystem 1024-blocks Used Available Capacity Mounted on\n"
+                "/dev/root 100 10 90 10% /var/lib/pgadmin\n"
+            )
+        raise AssertionError(arguments)
+
+    configure(
+        [
+            'otelcol_exporter_queue_capacity{exporter="loki"} 100',
+            'otelcol_exporter_queue_size{exporter="loki"} 1',
+            'prometheus_remote_storage_samples_pending{queue="local"} 2',
+        ],
+        fake_docker,
+    )
+
+    payload = infrastructure_doctor.observability_doctor(None)
+
+    assert payload["ok"] is True
+    assert payload["code"] == "OBSERVABILITY_READY"
+    assert payload["warnings"] == []
+    assert payload["observations"] == ["REMOTE_WRITE_PENDING_TRANSIENT"]
+
+
+def test_observability_doctor_distinguishes_probe_helper_failure(
+    observability_doctor_harness,
+    monkeypatch,
+):
+    from dev_tools import observability_reliability
+
+    state, configure = observability_doctor_harness
+    state["pgadmin"]["status"] = "exited"
+
+    def fake_ready(_state, *, errors=None):
+        if errors is not None:
+            errors.update({service: "OBSERVABILITY_PROBE_HELPER_UNAVAILABLE" for service in observability_reliability.SERVICES})
+        return dict.fromkeys(observability_reliability.SERVICES, False)
+
+    monkeypatch.setattr(observability_reliability, "ready", fake_ready)
+    configure([], lambda *_arguments, **_kwargs: "")
+
+    payload = infrastructure_doctor.observability_doctor(None)
+
+    assert payload["ok"] is False
+    assert "OBSERVABILITY_PROBE_HELPER_UNAVAILABLE" in payload["warnings"]
+    assert "SERVICE_UNAVAILABLE:loki" not in payload["warnings"]

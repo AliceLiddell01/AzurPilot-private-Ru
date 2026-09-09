@@ -2,7 +2,8 @@
 
 OTel Logs API остаётся изолированным в этом модуле. Центральный AzurPilot
 logger передаёт сюда обычные ``LogRecord`` без изменений существующих call
-sites, а локальные console/WebUI/file handlers продолжают работать отдельно.
+sites, а локальные console/WebUI и bounded incident context продолжают работать
+отдельно.
 """
 
 from __future__ import annotations
@@ -12,12 +13,13 @@ import copy
 import importlib.metadata
 import logging
 import os
+import re
 import sys
 import threading
 import time
 from collections.abc import Callable, Mapping
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -59,7 +61,7 @@ _DEFAULT_ENVIRONMENT = "local"
 _DEFAULT_HANDLER_LEVEL = logging.INFO
 _DEFAULT_EXPORT_TIMEOUT_MILLIS = 1_000
 _MAX_EXPORT_TIMEOUT_MILLIS = 5_000
-_DEFAULT_SCHEDULE_DELAY_MILLIS = 1_000
+_DEFAULT_SCHEDULE_DELAY_MILLIS = 500
 _MAX_SCHEDULE_DELAY_MILLIS = 10_000
 _DEFAULT_MAX_QUEUE_SIZE = 512
 _MAX_QUEUE_SIZE = 2_048
@@ -67,7 +69,7 @@ _DEFAULT_MAX_EXPORT_BATCH_SIZE = 128
 _MAX_EXPORT_BATCH_SIZE = 512
 _DEFAULT_PROCESSOR_TIMEOUT_MILLIS = 1_000
 _MAX_PROCESSOR_TIMEOUT_MILLIS = 5_000
-_DEFAULT_METRIC_EXPORT_INTERVAL_MILLIS = 60_000
+_DEFAULT_METRIC_EXPORT_INTERVAL_MILLIS = 1_000
 _MAX_METRIC_EXPORT_INTERVAL_MILLIS = 3_600_000
 _DEFAULT_METRIC_EXPORT_TIMEOUT_MILLIS = 30_000
 _MAX_METRIC_EXPORT_TIMEOUT_MILLIS = 30_000
@@ -81,6 +83,16 @@ _OTEL_INTERNAL_LOGGERS = (
     "opentelemetry.sdk._logs",
     "opentelemetry.sdk.metrics",
     "opentelemetry.instrumentation.logging",
+)
+_OTEL_ENV_NAME_RE = re.compile(r"^OTEL_[A-Z0-9_]+$")
+_REPOSITORY_ROOT_ENV = "AZURPILOT_REPOSITORY_ROOT"
+_OTLP_HEADER_ENV_NAMES = frozenset(
+    {
+        "OTEL_EXPORTER_OTLP_HEADERS",
+        "OTEL_EXPORTER_OTLP_LOGS_HEADERS",
+        "OTEL_EXPORTER_OTLP_METRICS_HEADERS",
+        "OTEL_EXPORTER_OTLP_TRACES_HEADERS",
+    }
 )
 
 _STANDARD_RECORD_FIELDS = frozenset(
@@ -114,6 +126,7 @@ class _ObservabilityConfig:
     logs_enabled: bool = False
     metrics: MetricsConfig | None = None
     traces: TracingConfig | None = None
+    headers: Mapping[str, str] | None = field(default=None, repr=False)
 
 
 @dataclass
@@ -284,7 +297,7 @@ class _FailOpenExporter:
             result = self._exporter.export(records)
         except Exception as exc:
             self._reporter.report(
-                "OTLP exporter недоступен; запись останется только в локальном журнале",
+                "OTLP exporter недоступен; работа runtime/WebUI/консоли продолжится, bounded incident context доступен",
                 exc,
             )
             return None
@@ -292,7 +305,7 @@ class _FailOpenExporter:
             _EXPORTER_INTERNAL.reset(token)
         if getattr(result, "name", "") == "FAILURE":
             self._reporter.report(
-                "OTLP exporter отклонил пакет; запись останется только в локальном журнале"
+                "OTLP exporter отклонил пакет; после bounded policy удалённая запись может быть потеряна"
             )
         return result
 
@@ -353,7 +366,7 @@ class _SanitizedOTelHandler(logging.Handler):
             )
         except Exception as exc:
             self._reporter.report(
-                "Ошибка подготовки записи для OTLP; локальный журнал продолжит работу",
+                "Ошибка подготовки записи для OTLP; runtime/WebUI/консоль продолжат работу, bounded incident context доступен",
                 exc,
             )
 
@@ -465,7 +478,112 @@ def _read_signal_config(
     return True, signal_endpoint or None
 
 
+def _is_repository_root(candidate: Path) -> bool:
+    return (candidate / "gui.py").is_file() and (candidate / "module").is_dir()
+
+
+def _application_repository_root() -> Path | None:
+    """Найти repository root, переданный runtime worker-у."""
+
+    configured = os.environ.get(_REPOSITORY_ROOT_ENV, "").strip()
+    if configured:
+        try:
+            candidate = Path(configured).resolve()
+        except (OSError, RuntimeError):
+            candidate = None
+        if candidate is not None and _is_repository_root(candidate):
+            return candidate
+    try:
+        module_root = Path(__file__).resolve().parents[2]
+    except (OSError, RuntimeError):
+        return None
+    return module_root if _is_repository_root(module_root) else None
+
+
+def _load_local_otlp_environment() -> dict[str, str]:
+    """Загрузить только OTEL-настройки из канонического корневого ``.env``.
+
+    Корневой ``.env`` уже является источником deployment-настроек Compose.
+    Секретные OTLP headers возвращаются вызывающему коду отдельно и не
+    записываются в глобальное окружение процесса. Секреты и остальные
+    переменные намеренно не читаются. Явное окружение процесса имеет приоритет.
+    """
+
+    root = _application_repository_root()
+    if root is None:
+        return {}
+    env_path = root / ".env"
+    if not env_path.is_file():
+        return {}
+    try:
+        lines = env_path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError) as exc:
+        _failure_reporter.report(
+            "Не удалось прочитать OTEL-настройки из корневого .env; используется окружение процесса",
+            exc,
+        )
+        return {}
+
+    local_header_values: dict[str, str] = {}
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        name, value = (part.strip() for part in stripped.split("=", 1))
+        if not _OTEL_ENV_NAME_RE.fullmatch(name):
+            continue
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        if name in _OTLP_HEADER_ENV_NAMES:
+            if name not in os.environ:
+                local_header_values[name] = value
+            continue
+        if name not in os.environ:
+            os.environ[name] = value
+    return local_header_values
+
+
+def _read_otlp_headers(
+    specific_name: str,
+    local_values: Mapping[str, str],
+) -> dict[str, str] | None:
+    """Прочитать signal-specific или общий OTLP headers без утечки в env."""
+
+    def value_for(name: str) -> str:
+        if name in os.environ:
+            return os.environ[name]
+        return local_values.get(name, "")
+
+    raw = value_for(specific_name) or value_for("OTEL_EXPORTER_OTLP_HEADERS")
+    if not raw.strip():
+        return None
+    try:
+        from opentelemetry.util.re import parse_env_headers
+
+        headers = dict(parse_env_headers(raw, liberal=True))
+    except Exception as exc:
+        _failure_reporter.report(
+            "Не удалось разобрать OTLP headers; заголовки этого signal отключены",
+            exc,
+        )
+        return None
+    return headers or None
+
+
 def _read_config() -> _ObservabilityConfig | None:
+    local_header_values = _load_local_otlp_environment()
+    logs_headers = _read_otlp_headers(
+        "OTEL_EXPORTER_OTLP_LOGS_HEADERS",
+        local_header_values,
+    )
+    metrics_headers = _read_otlp_headers(
+        "OTEL_EXPORTER_OTLP_METRICS_HEADERS",
+        local_header_values,
+    )
+    traces_headers = _read_otlp_headers(
+        "OTEL_EXPORTER_OTLP_TRACES_HEADERS",
+        local_header_values,
+    )
     if _is_true(os.environ.get("OTEL_SDK_DISABLED")):
         return None
     generic_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "").strip()
@@ -576,9 +694,11 @@ def _read_config() -> _ObservabilityConfig | None:
             _MAX_PROCESSOR_TIMEOUT_MILLIS,
         ) if logs_enabled else _DEFAULT_PROCESSOR_TIMEOUT_MILLIS,
         logs_enabled=logs_enabled,
+        headers=logs_headers,
         metrics=(
             MetricsConfig(
                 endpoint=metrics_endpoint,
+                headers=metrics_headers,
                 timeout_millis=_bounded_int(
                     "OTEL_EXPORTER_OTLP_METRICS_TIMEOUT",
                     _DEFAULT_EXPORT_TIMEOUT_MILLIS,
@@ -602,6 +722,7 @@ def _read_config() -> _ObservabilityConfig | None:
         traces=(
             TracingConfig(
                 endpoint=traces_endpoint,
+                headers=traces_headers,
                 timeout_millis=_bounded_int(
                     "OTEL_EXPORTER_OTLP_TRACES_TIMEOUT",
                     _DEFAULT_EXPORT_TIMEOUT_MILLIS,
@@ -687,6 +808,7 @@ def _build_runtime(
                 else log_components.log_exporter(
                     endpoint=config.signal_endpoint,
                     timeout=config.timeout_millis / 1000,
+                    headers=dict(config.headers) if config.headers else None,
                 )
             )
             wrapped_exporter = _FailOpenExporter(exporter, _failure_reporter)
@@ -884,7 +1006,7 @@ def configure_application_observability(
             )
         except Exception as exc:
             _failure_reporter.report(
-                "Не удалось инициализировать application observability; локальный журнал продолжит работу",
+                "Не удалось инициализировать application observability; runtime/WebUI/консоль продолжат работу, bounded incident context доступен",
                 exc,
             )
             return False

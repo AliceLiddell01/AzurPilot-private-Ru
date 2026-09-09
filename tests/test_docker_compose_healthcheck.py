@@ -224,6 +224,19 @@ def test_tempo_mcp_is_enabled_without_a_host_port():
         )
     assert {str(port) for port in tempo["expose"]} >= {"3200", "4317", "4318"}
     assert tempo_config["query_frontend"]["mcp_server"] == {"enabled": True}
+    assert tempo_config["metrics_generator"]["storage"]["path"] == "/var/tempo/generator/wal"
+    assert (
+        tempo_config["metrics_generator"]["traces_storage"]["path"]
+        == "/var/tempo/generator/traces"
+    )
+    assert tempo_config["metrics_generator"]["processor"]["local_blocks"] == {
+        "filter_server_spans": False,
+        "flush_to_storage": True,
+    }
+    assert tempo_config["overrides"]["defaults"]["metrics_generator"]["processors"] == [
+        "local-blocks"
+    ]
+    assert tempo_config["query_frontend"]["metrics"]["max_duration"] == "168h"
 
 
 def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
@@ -266,7 +279,7 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
                 "folderUid": "azurpilot",
                 "type": "file",
                 "disableDeletion": False,
-                "updateIntervalSeconds": 30,
+                "updateIntervalSeconds": 5,
                 "allowUiUpdates": False,
                 "options": {
                     "path": "/var/lib/grafana/dashboards",
@@ -284,14 +297,16 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
     assert set(dashboards) == {"azurpilot-overview", "azurpilot-errors"}
     assert dashboards["azurpilot-overview"]["uid"] == "azurpilot-overview"
     assert dashboards["azurpilot-overview"]["title"] == "AzurPilot Overview"
+    assert dashboards["azurpilot-overview"]["refresh"] == "5s"
     assert any(
-        panel["title"] == "Успешные запуски"
+        panel["title"] == "Успешные запуски за диапазон"
         for panel in dashboards["azurpilot-overview"]["panels"]
     )
     assert dashboards["azurpilot-errors"]["uid"] == "azurpilot-errors"
     assert dashboards["azurpilot-errors"]["title"] == "AzurPilot Errors / Incidents"
+    assert dashboards["azurpilot-errors"]["refresh"] == "5s"
 
-    allowed_datasources = {"prometheus", "loki", "tempo"}
+    allowed_datasources = {"prometheus", "loki", "tempo", "-100", "-- Mixed --"}
     for dashboard in dashboards.values():
         panel_ids = [panel["id"] for panel in dashboard["panels"]]
         assert len(panel_ids) == len(set(panel_ids))
@@ -309,10 +324,135 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
 
     overview_text = json.dumps(dashboards["azurpilot-overview"], ensure_ascii=False)
     assert "azurpilot_task_run_total" in overview_text
-    assert "azurpilot_task_duration_seconds_bucket" in overview_text
+    assert "quantile_over_time(span:duration, .50)" in overview_text
+    assert "quantile_over_time(span:duration, .95)" in overview_text
+    assert "histogram_quantile" not in overview_text
+    assert "azurpilot_task_duration_seconds_bucket" not in overview_text
     assert "detected_level = \\\"error\\\"" in overview_text
     assert "with (most_recent=true)" in overview_text
+    assert "count_over_time()" in overview_text
+    assert "deployment.environment.name" in overview_text
+    assert "deployment_environment_name=~\\\"${environment:regex}\\\"" in overview_text
+    assert "round(" not in overview_text
+    assert "increase(" not in overview_text
     assert "clamp_min" not in overview_text
+
+    overview_panels = {
+        panel["id"]: panel for panel in dashboards["azurpilot-overview"]["panels"]
+    }
+    overview_loki_expr = overview_panels[10]["targets"][0]["expr"]
+    assert 'deployment_environment_name=~"${environment:regex}"' in overview_loki_expr
+    assert '| azurpilot_profile =~ "${profile:regex}"' in overview_loki_expr
+    assert '| azurpilot_task =~ "${task:regex}"' in overview_loki_expr
+    assert {
+        variable["name"] for variable in dashboards["azurpilot-overview"]["templating"]["list"]
+    } == {"environment", "profile", "task"}
+    assert {
+        variable["name"] for variable in dashboards["azurpilot-errors"]["templating"]["list"]
+    } == {"environment", "profile", "task"}
+    for panel_id in (1, 3, 4, 5):
+        target = overview_panels[panel_id]["targets"][0]
+        assert target["datasource"]["uid"] == "tempo"
+        assert target["metricsQueryType"] == "instant"
+        assert target["queryType"] == "traceql"
+        assert 'name = "azurpilot.task.run"' in target["query"]
+        assert "count_over_time()" in target["query"]
+    success_share = overview_panels[2]
+    assert success_share["datasource"]["uid"] == "-- Mixed --"
+    assert {target["refId"] for target in success_share["targets"]} == {
+        "A",
+        "B",
+        "C",
+        "D",
+        "E",
+    }
+    assert success_share["targets"][2]["type"] == "reduce"
+    assert success_share["targets"][2]["expression"] == "A"
+    assert success_share["targets"][2]["reducer"] == "last"
+    assert success_share["targets"][2]["settings"] == {
+        "mode": "replaceNN",
+        "replaceWithValue": 0,
+    }
+    assert success_share["targets"][3]["type"] == "reduce"
+    assert success_share["targets"][3]["expression"] == "B"
+    assert success_share["targets"][3]["reducer"] == "last"
+    assert success_share["targets"][4]["type"] == "math"
+    assert success_share["targets"][4]["expression"] == "$C * ($D > 0) / ($D + ($D == 0)) * 100"
+    assert success_share["fieldConfig"]["defaults"]["noValue"] == "нет данных"
+    assert "noValue" not in success_share["options"]
+    assert overview_panels[7]["type"] == "bargauge"
+    assert overview_panels[7]["targets"][0]["metricsQueryType"] == "instant"
+    assert "count_over_time() by (span.azurpilot.task.outcome)" in overview_panels[7]["targets"][0]["query"]
+    assert overview_panels[7]["options"]["displayMode"] == "basic"
+    assert overview_panels[7]["options"]["orientation"] == "horizontal"
+    assert overview_panels[7]["options"]["namePlacement"] == "left"
+    assert overview_panels[7]["options"]["reduceOptions"]["calcs"] == ["lastNotNull"]
+    assert overview_panels[7]["options"]["showUnfilled"] is True
+    assert overview_panels[7]["fieldConfig"]["overrides"][0]["matcher"]["options"] == "stopped"
+    assert overview_panels[8]["datasource"]["uid"] == "tempo"
+    assert overview_panels[8]["targets"][0]["metricsQueryType"] == "range"
+    assert overview_panels[8]["targets"][0]["queryType"] == "traceql"
+    assert "quantile_over_time(span:duration, .50)" in overview_panels[8]["targets"][0]["query"]
+    assert overview_panels[8]["targets"][0]["legendFormat"] == "p50 {{span.azurpilot.profile}} / {{span.azurpilot.task}}"
+    assert "quantile_over_time(span:duration, .95)" in overview_panels[8]["targets"][1]["query"]
+    assert overview_panels[8]["targets"][1]["legendFormat"] == "p95 {{span.azurpilot.profile}} / {{span.azurpilot.task}}"
+    assert [item["id"] for item in overview_panels[8]["transformations"]] == [
+        "renameByRegex",
+        "renameByRegex",
+    ]
+    assert overview_panels[8]["transformations"][0]["options"]["renamePattern"] == "p50 $1 / $2"
+    assert overview_panels[8]["transformations"][1]["options"]["renamePattern"] == "p95 $1 / $2"
+    assert overview_panels[9]["targets"][0]["metricsQueryType"] == "range"
+    assert overview_panels[9]["targets"][0]["step"] == "1m"
+    assert "count_over_time() by (span.azurpilot.profile" in overview_panels[9]["targets"][0]["query"]
+    logs_grid = overview_panels[10]["gridPos"]
+    traces_grid = overview_panels[11]["gridPos"]
+    alerts_grid = overview_panels[12]["gridPos"]
+    assert {key: logs_grid[key] for key in ("h", "w", "x")} == {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+    }
+    assert {key: traces_grid[key] for key in ("h", "w", "x")} == {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+    }
+    assert {key: alerts_grid[key] for key in ("h", "w", "x")} == {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+    }
+    assert logs_grid["y"] >= overview_panels[9]["gridPos"]["y"] + overview_panels[9]["gridPos"]["h"]
+    assert traces_grid["y"] >= logs_grid["y"] + logs_grid["h"]
+    assert alerts_grid["y"] >= traces_grid["y"] + traces_grid["h"]
+    for panel_id in (1, 3, 4, 5, 13):
+        assert overview_panels[panel_id]["fieldConfig"]["defaults"]["noValue"] == "0"
+        assert "noValue" not in overview_panels[panel_id]["options"]
+    assert [
+        transformation["id"] for transformation in overview_panels[9]["transformations"]
+    ] == ["reduce", "labelsToFields", "extractFields", "organize"]
+    assert overview_panels[9]["transformations"][3]["options"]["excludeByName"] == {
+        "Field": True,
+        "time": True,
+    }
+    error_panel_ids = {panel["id"] for panel in dashboards["azurpilot-errors"]["panels"]}
+    assert error_panel_ids >= {1, 2, 3, 4, 5}
+    for panel in dashboards["azurpilot-errors"]["panels"]:
+        panel_text = json.dumps(panel, ensure_ascii=False)
+        if panel["id"] in {1, 3}:
+            assert "deployment_environment_name=~\\\"${environment:regex}\\\"" in panel_text
+            assert 'azurpilot_profile =~ \\"${profile:regex}\\"' in panel_text
+            assert 'azurpilot_task =~ \\"${task:regex}\\"' in panel_text
+        if panel["id"] in {2, 4, 5}:
+            assert "resource.deployment.environment.name" in panel_text
+        if panel["id"] == 4:
+            assert 'name = \\"azurpilot.task.run\\"' in panel_text
+            assert "duration > 500ms" in panel_text
+        if panel["id"] == 5:
+            assert 'name = \\"azurpilot.task.run\\"' in panel_text
+            assert " >> " in panel_text
+            assert "родительскому azurpilot.task.run" in panel_text
 
     alerting_path = (
         ROOT
@@ -336,3 +476,6 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
             "prometheus",
             "__expr__",
         }
+    assert rules[0]["title"] == "Ошибки scheduler task за 15 минут"
+    assert "хотя бы один failure" in rules[0]["annotations"]["description"]
+    assert "or vector(0)" in alerting_text

@@ -55,12 +55,14 @@ def test_logger_security_redaction_and_rendering_contract_is_intact():
         "tracebacks_extra_lines=2",
         "RichRenderableHandler",
         "HTMLConsole",
-        "TimedRotatingFileHandler",
+        "DiagnosticContextHandler",
+        "logger.configure_runtime_logging",
         "logger.setLevel(logging.DEBUG)",
         "datefmt='%Y-%m-%d %H:%M:%S'",
         "datefmt='%H:%M:%S'",
     ):
         assert token in source
+    assert "TimedRotatingFileHandler" not in source
     assert "tracebacks_show_locals=True" not in source
 
     raw = (

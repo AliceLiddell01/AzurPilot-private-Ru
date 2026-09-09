@@ -6,15 +6,16 @@
 
 # 此文件定义了 Alas 视觉交互系统的核心基类：Button（按钮）及相关网格。
 # 它是所有 UI 交互的基本单位，包含了坐标偏移、颜色/模板识别逻辑以及模拟点击的具体实现方案。
-import typing as t
 import os
 import traceback
+import typing as t
 
 from PIL import ImageDraw
 
 from module.base.decorator import cached_property
 from module.base.resource import Resource
 from module.base.utils import *
+from module.base.utils import template_match
 from module.config.server import VALID_SERVER
 from module.logger import logger
 
@@ -47,9 +48,11 @@ class Button(Resource):
 
         self._button_offset = None
         self._match_init = False
+        self._match_gray_init = False
         self._match_binary_init = False
         self._match_luma_init = False
         self.image = None
+        self.image_gray = None
         self.image_binary = None
         self.image_luma = None
 
@@ -139,6 +142,12 @@ class Button(Resource):
         self.__dict__['color'] = get_color(image, self.area)
         self.image = crop(image, self.area)
         self.__dict__['is_gif'] = False
+        self.image_gray = None
+        self.image_binary = None
+        self.image_luma = None
+        self._match_gray_init = False
+        self._match_binary_init = False
+        self._match_luma_init = False
         return self.color
 
     def load_offset(self, button):
@@ -173,13 +182,29 @@ class Button(Resource):
             if self.is_gif:
                 self.image_binary = []
                 for image in self.image:
-                    image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+                    image_gray = image if image.ndim == 2 else cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
                     _, image_binary = cv2.threshold(image_gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
                     self.image_binary.append(image_binary)
             else:
-                image_gray = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
+                image_gray = self.image if self.image.ndim == 2 else cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
                 _, self.image_binary = cv2.threshold(image_gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
             self._match_binary_init = True
+
+    def ensure_gray_template(self):
+        """Загрузить кэшированное одноканальное представление шаблона."""
+        if not self._match_gray_init:
+            if self.image is None:
+                self.ensure_template()
+            if self.is_gif:
+                self.image_gray = [image if image.ndim == 2 else rgb2gray(image) for image in self.image]
+            else:
+                self.image_gray = self.image if self.image.ndim == 2 else rgb2gray(self.image)
+            self._match_gray_init = True
+
+    def _get_gray_template(self, index=None):
+        """Лениво вернуть одноканальный кэш шаблона для matcher-а."""
+        self.ensure_gray_template()
+        return self.image_gray if index is None else self.image_gray[index]
 
     def ensure_luma_template(self):
         if not self._match_luma_init:
@@ -195,9 +220,11 @@ class Button(Resource):
     def resource_release(self):
         super().resource_release()
         self.image = None
+        self.image_gray = None
         self.image_binary = None
         self.image_luma = None
         self._match_init = False
+        self._match_gray_init = False
         self._match_binary_init = False
         self._match_luma_init = False
 
@@ -225,15 +252,25 @@ class Button(Resource):
         image = crop(image, offset + self.area, copy=False)
 
         if self.is_gif:
-            for template in self.image:
-                res = cv2.matchTemplate(template, image, cv2.TM_CCOEFF_NORMED)
+            for index, template in enumerate(self.image):
+                res = template_match(
+                    image,
+                    template,
+                    template_gray=lambda index=index: self._get_gray_template(index),
+                    name=self.name,
+                )
                 _, sim, _, point = cv2.minMaxLoc(res)
                 self._button_offset = area_offset(self._button, offset[:2] + np.array(point))
                 if sim > similarity:
                     return True
             return False
         else:
-            res = cv2.matchTemplate(self.image, image, cv2.TM_CCOEFF_NORMED)
+            res = template_match(
+                image,
+                self.image,
+                template_gray=lambda: self._get_gray_template(),
+                name=self.name,
+            )
             _, sim, _, point = cv2.minMaxLoc(res)
             self._button_offset = area_offset(self._button, offset[:2] + np.array(point))
             return sim > similarity
@@ -261,27 +298,21 @@ class Button(Resource):
         else:
             offset = np.array((-3, -offset, 3, offset))
         image = crop(image, offset + self.area, copy=False)
+        image_gray = image if image.ndim == 2 else cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        _, image_binary = cv2.threshold(image_gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
 
         if self.is_gif:
             for template in self.image_binary:
-                # 灰度化
-                image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-                # 二值化
-                _, image_binary = cv2.threshold(image_gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
                 # 模板匹配
-                res = cv2.matchTemplate(template, image_binary, cv2.TM_CCOEFF_NORMED)
+                res = template_match(image_binary, template, name=self.name)
                 _, sim, _, point = cv2.minMaxLoc(res)
                 self._button_offset = area_offset(self._button, offset[:2] + np.array(point))
                 if sim > similarity:
                     return True
             return False
         else:
-            # 灰度化
-            image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-            # 二值化
-            _, image_binary = cv2.threshold(image_gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
             # 模板匹配
-            res = cv2.matchTemplate(self.image_binary, image_binary, cv2.TM_CCOEFF_NORMED)
+            res = template_match(image_binary, self.image_binary, name=self.name)
             _, sim, _, point = cv2.minMaxLoc(res)
             self._button_offset = area_offset(self._button, offset[:2] + np.array(point))
             return sim > similarity
@@ -313,14 +344,14 @@ class Button(Resource):
         if self.is_gif:
             image_luma = rgb2luma(image)
             for template in self.image_luma:
-                res = cv2.matchTemplate(template, image_luma, cv2.TM_CCOEFF_NORMED)
+                res = template_match(image_luma, template, name=self.name)
                 _, sim, _, point = cv2.minMaxLoc(res)
                 self._button_offset = area_offset(self._button, offset[:2] + np.array(point))
                 if sim > similarity:
                     return True
         else:
             image_luma = rgb2luma(image)
-            res = cv2.matchTemplate(self.image_luma, image_luma, cv2.TM_CCOEFF_NORMED)
+            res = template_match(image_luma, self.image_luma, name=self.name)
             _, sim, _, point = cv2.minMaxLoc(res)
             self._button_offset = area_offset(self._button, offset[:2] + np.array(point))
             return sim > similarity

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -333,6 +333,69 @@ def test_shared_runtime_fails_closed_when_worker_registry_is_unknown(
     assert shared.matches_session("session-1", "ap") is False
 
 
+def test_shared_runtime_confirms_dead_snapshot_worker_after_registry_unregister(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    shared = SharedWebUIRuntime(tmp_path)
+    shared._worker_record = lambda _profile: None  # type: ignore[method-assign]
+    RuntimeStateStore(tmp_path).mark_resource_ready(
+        "ap",
+        worker_pid=7010,
+        worker_created_at=8010.0,
+        operation_id="operation-1",
+        session_id="session-1",
+    )
+
+    from module.webui import worker_registry
+
+    monkeypatch.setattr(worker_registry, "process_matches", lambda _record: None)
+    assert shared.worker_present("ap") is False
+
+
+def test_shared_runtime_keeps_live_snapshot_worker_present_after_registry_unregister(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    shared = SharedWebUIRuntime(tmp_path)
+    shared._worker_record = lambda _profile: None  # type: ignore[method-assign]
+    RuntimeStateStore(tmp_path).mark_resource_ready(
+        "ap",
+        worker_pid=7010,
+        worker_created_at=8010.0,
+        operation_id="operation-1",
+        session_id="session-1",
+    )
+
+    from module.webui import worker_registry
+
+    monkeypatch.setattr(worker_registry, "process_matches", lambda _record: True)
+    assert shared.worker_present("ap") is True
+
+
+def test_shared_runtime_fails_closed_on_unexpected_snapshot_identity_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    shared = SharedWebUIRuntime(tmp_path)
+    shared._worker_record = lambda _profile: None  # type: ignore[method-assign]
+    RuntimeStateStore(tmp_path).mark_resource_ready(
+        "ap",
+        worker_pid=7010,
+        worker_created_at=8010.0,
+        operation_id="operation-1",
+        session_id="session-1",
+    )
+
+    from module.webui import worker_registry
+
+    def unexpected_identity_error(_record: dict) -> bool:
+        raise LookupError("синтетическая ошибка проверки identity")
+
+    monkeypatch.setattr(worker_registry, "process_matches", unexpected_identity_error)
+    assert shared.worker_present("ap") is None
+
+
 def test_shared_recovery_does_not_close_marker_while_worker_is_present(tmp_path: Path) -> None:
     manager, shared = _manager(tmp_path)
     started = manager.start()
@@ -355,37 +418,33 @@ def test_shared_recovery_does_not_close_marker_while_worker_is_present(tmp_path:
     assert preserved.process is None
 
 
-def test_shared_runtime_log_file_translates_target_registry_error(
+def test_shared_recovery_closes_marker_after_worker_registry_unregister(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from module.dev_runtime import target as target_module
+    manager, shared = _manager(tmp_path)
+    started = manager.start()
+    assert started.ok is True
 
-    def fail(_root: Path) -> object:
-        raise target_module.DevTargetError(
-            "DEV_TARGET_INVALID", "синтетическая ошибка registry target"
-        )
+    session = manager._read_session()
+    assert session is not None
+    session.process = None
+    session.state = DevSessionState.FAILED
+    manager._write_session(session)
+    shared.active = False
 
-    monkeypatch.setattr(target_module.DevTargetRegistry, "load", fail)
+    recovered = manager.recover()
 
-    with pytest.raises(RuntimeError, match="log target"):
-        _ = SharedWebUIRuntime(tmp_path).log_file
+    assert recovered.ok is True
+    assert recovered.code == "DEV_STALE_RECOVERED"
+    persisted = manager._read_session()
+    assert persisted is not None
+    assert persisted.state is DevSessionState.STOPPED
+    assert persisted.process is None
 
 
-def test_shared_runtime_uses_current_rotating_worker_log_path(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from module.dev_runtime import target as target_module
-
-    monkeypatch.setattr(
-        target_module.DevTargetRegistry,
-        "load",
-        lambda _root: DevTarget("ap"),
-    )
-
+def test_shared_runtime_uses_dev_runtime_evidence_log_path(tmp_path: Path) -> None:
     assert SharedWebUIRuntime(tmp_path).log_file == (
-        tmp_path / "log" / f"{date.today().isoformat()}_ap.txt"
+        tmp_path / "config" / "state" / "dev-runtime-gui.log"
     )
 
 
