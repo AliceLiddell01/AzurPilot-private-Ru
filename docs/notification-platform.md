@@ -345,17 +345,22 @@ Canonical event — immutable typed DTO факта occurrence:
 | severity | INFO, WARNING, ERROR или CRITICAL |
 | occurred_at | timezone-aware UTC время фактического occurrence |
 | persisted_at | server-side UTC время успешной durable записи |
+| profile_sequence | server-assigned monotonic sequence within profile; durable cursor/history order |
 | data | concrete registered typed payload для type + schema_version |
 | dedup_key | optional stable logical-occurrence key, scoped by source/profile/type |
 | correlation | typed task/runtime/trace/causation references |
 | sensitivity | NORMAL или SENSITIVE; влияет на projection/logging, но не разрешает secrets |
+| payload_digest | digest canonical immutable identity + typed payload; server-computed and immutable |
 
 Identity deduplication определяется как idempotent combination of source + id
 для повторной публикации события и, если producer знает логическую операцию,
-source + profile_id + type + dedup_key для повторного occurrence. Arbitrary
-hash от title/body не является dedup identity. Один occurrence может иметь
-несколько deliveries, но один event не должен порождать второй canonical row
-из-за retry publisher.
+source + profile_id + type + dedup_key для повторного occurrence. Для каждой
+такой identity application boundary сравнивает immutable event fields и
+payload_digest. Exact match возвращает уже существующие event/decision/delivery
+без republish; mismatch возвращает bounded error identity_conflict и ничего не
+публикует. Arbitrary hash от title/body не является dedup identity. Один
+occurrence может иметь несколько deliveries, но один event не должен порождать
+второй canonical row из-за retry publisher.
 
 ### [Решение] Source, subject и correlation
 
@@ -509,15 +514,25 @@ transaction:
 
 1. проверяет schema/type и bounded payload;
 2. применяет unique identity/dedup constraint;
-3. если occurrence уже существует, возвращает существующие decision/delivery
-   без повторного publish;
-4. записывает immutable NotificationEvent;
+3. если occurrence уже существует, сравнивает immutable fields и
+   payload_digest: exact match возвращает существующие decision/delivery без
+   повторного publish, mismatch возвращает identity_conflict;
+4. атомарно выдаёт profile_sequence и записывает immutable NotificationEvent;
 5. при global disabled записывает PolicyDecision SUPPRESSED с bounded reason и
    не создаёт Delivery;
 6. иначе выбирает первое правило;
 7. записывает одну PolicyDecision с rule identity, policy_version и snapshot
    выбранных channel ids;
 8. создаёт не более одной Delivery на пару event_id + channel_instance_id.
+
+profile_sequence выдаётся только для нового committed occurrence. Целевой
+durable allocator хранит counter по profile_id и выдаёт следующее значение
+под row lock в той же PostgreSQL transaction, которая вставляет
+NotificationEvent; rollback не публикует sequence. Уникальность
+(profile_id, profile_sequence) и этот allocator сериализуют concurrent
+publishers внутри профиля. History и opaque cursor используют
+profile_sequence, затем event/delivery identity как tie-breaker; occurred_at и
+event_id не заменяют sequence и не задают порядок reconnect.
 
 Channel-level suppression, например disabled channel или cooldown, записывается
 в самой Delivery как SUPPRESSED. Global/rule-level suppression остаётся в
@@ -545,25 +560,27 @@ identity/version, bounded reason, selected channels и policy snapshot/hash.
 Одна строка на event + channel instance. Целевые состояния:
 
 ~~~text
-PENDING -> IN_FLIGHT -> PROVIDER_ACCEPTED
-                    -> DELIVERED
-                    -> RETRY_WAIT -> IN_FLIGHT
-                    -> FAILED
-                    -> SUPPRESSED
-PROVIDER_ACCEPTED -> AWAITING_AGENT_ACK -> DELIVERED
-                                  -> RETRY_WAIT -> IN_FLIGHT
+PENDING -> IN_FLIGHT
+IN_FLIGHT -> RETRY_WAIT -> IN_FLIGHT
+IN_FLIGHT -> FAILED
+IN_FLIGHT -> PROVIDER_ACCEPTED [Telegram/Webhook: terminal]
+PROVIDER_ACCEPTED -> AWAITING_AGENT_ACK -> DELIVERED [Desktop Agent]
+AWAITING_AGENT_ACK -> RETRY_WAIT -> IN_FLIGHT [Agent timeout/disconnect]
+PolicyDecision -> SUPPRESSED
 ~~~
 
 Delivery хранит lease_owner, lease_token, lease_until, attempt_count,
 next_attempt_at, last_safe_error_code и immutable rendered snapshot. Для
 Desktop Agent PROVIDER_ACCEPTED — промежуточный результат принятия frame
-транспортом, а не terminal state: он обязан перейти в
-AWAITING_AGENT_ACK с отдельным bounded ack deadline. Только проверенный ACK
-переводит эту Delivery в DELIVERED; timeout, disconnect или истечение lease
-переводят AWAITING_AGENT_ACK в RETRY_WAIT, затем в новый IN_FLIGHT либо в
-FAILED по retry budget. Для Telegram/Webhook PROVIDER_ACCEPTED может быть
-terminal channel-specific state, если контракт provider не даёт более сильный
-receipt; Agent ACK для них не ожидается.
+транспортом, а не terminal state: он обязан перейти в AWAITING_AGENT_ACK с
+отдельным bounded ack deadline. Только проверенный ACK переводит эту Delivery
+в DELIVERED; timeout, disconnect или истечение lease переводят
+AWAITING_AGENT_ACK в RETRY_WAIT, затем в новый IN_FLIGHT либо в FAILED по
+retry budget. Для Telegram/Webhook capability receipt=provider_acceptance
+делает PROVIDER_ACCEPTED terminal state: после успешного provider response не
+запускаются ACK wait или повторная отправка из-за отсутствующего Agent ACK.
+Канал с более сильным receipt contract может выбрать другой переход, но это
+должно быть явно задано channel capability и acceptance test.
 
 #### DeliveryAttempt
 
@@ -775,10 +792,12 @@ COMMIT;
 нескольких workers. Если порядок нужен, он определяется per profile/subject
 sequence и отдельным acceptance test; global total order не обещается.
 
-Два dispatcher workers не обрабатывают одну row одновременно благодаря lock +
-lease token. Crash recovery не полагается на in-memory queue. Внешний вызов
-может быть повторен после истечения lease, поэтому adapter/provider idempotency
-обязательна.
+Lock предотвращает concurrent claim только в пределах короткой transaction,
+пока lease активен; lease token fencing защищает durable state update от
+устаревшего worker. После lease_until recovery может claim-ить row, пока
+старый worker ещё находится во внешнем вызове, поэтому overlapping external
+attempts допустимы и adapter/provider idempotency обязательна. Crash recovery
+не полагается на in-memory queue.
 
 ### [Внешний design reference] PostgreSQL locking
 
@@ -1195,8 +1214,12 @@ policy resolver, PostgreSQL schema/repositories, unique identity и
 transaction/lease tests. Acceptance:
 
 - malformed/duplicate/policy suppression tests;
+- exact duplicate immutable fields + payload_digest returns existing state,
+  while changed payload returns identity_conflict with no republish;
 - publisher crash до/после commit;
 - two dispatcher claim and lease recovery;
+- concurrent publishers получают уникальный monotonic profile_sequence, а
+  slow external attempt после lease expiry покрыт overlapping-attempt test;
 - secret/log/history redaction;
 - Alembic cycle и current head;
 - no imports from application layer to transport providers.
@@ -1208,7 +1231,11 @@ profile authorization, cursor gap fill и durable receipt. Acceptance:
 
 - Agent ACK timeout: AWAITING_AGENT_ACK -> RETRY_WAIT -> IN_FLIGHT или
   FAILED;
+- concurrent commits, reconnect и gap fill возвращают profile_sequence без
+  gaps/duplicates в пределах committed history;
 - Agent offline/reconnect/backlog;
+- channel-specific receipt test: Desktop Agent ждёт ACK, а
+  Telegram/Webhook завершаются в terminal PROVIDER_ACCEPTED без ACK wait;
 - duplicate/stale/late ACK;
 - WebUI/backend restart;
 - exact NotificationOutcome mapping;
