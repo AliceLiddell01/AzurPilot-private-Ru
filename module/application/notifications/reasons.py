@@ -9,6 +9,7 @@ NOTIFICATION_REASON_CODES: Final[frozenset[str]] = frozenset(
     {
         "agent_ack_timeout",
         "caller_deadline_not_aware",
+        "delivery_deadline_expired",
         "channel_result_invalid",
         "channel_send_failed",
         "channel_unavailable",

@@ -282,7 +282,7 @@ def test_expired_pending_delivery_fails_without_provider_call(
         attempts = uow.notifications.list_attempts(delivery.id)
         assert len(attempts) == 1
         assert attempts[0].result_class is DeliveryResultClass.PERMANENT_FAILURE
-        assert attempts[0].safe_error_code == "handover_deadline_expired"
+        assert attempts[0].safe_error_code == "delivery_deadline_expired"
 
 
 def test_expired_pending_delivery_does_not_starve_due_delivery(

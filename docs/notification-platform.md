@@ -684,7 +684,7 @@ attempt semantics. Старый worker может завершить внешн�
 lease, поэтому channel idempotency key и consumer/provider dedup обязательны.
 
 Retry policy хранит bounded max attempts, exponential backoff с jitter,
-absolute deadline и channel-specific classification. 429 использует bounded
+absolute deadline, bounded agent ACK timeout и channel-specific classification. 429 использует bounded
 Retry-After только в разрешённом диапазоне; timeout/reset/5xx обычно
 transient; invalid credentials, invalid destination и schema rejection обычно
 permanent. Точное значение budget и SLO требует Stage 2 load/chaos evidence.
@@ -860,7 +860,7 @@ COMMIT;
 sequence и отдельным acceptance test; global total order не обещается.
 
 В реализации Stage 2 просроченные `PENDING/RETRY_WAIT` сначала атомарно
-переводятся в `FAILED` с bounded `handover_deadline_expired`, а в active claim
+переводятся в `FAILED` с bounded `delivery_deadline_expired`, а в active claim
 попадают только rows с `deadline_at` в будущем. `lease_until` и
 `PreparedDelivery.timeout_seconds` не выходят за оставшееся до deadline время.
 

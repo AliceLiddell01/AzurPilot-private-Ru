@@ -58,7 +58,10 @@ from module.application.notifications.models import (
     PreparedDelivery,
     RenderedSnapshot,
 )
-from module.application.notifications.state import transition_for_result
+from module.application.notifications.state import (
+    expired_lease_update,
+    transition_for_result,
+)
 from module.application.notifications.telemetry import safe_telemetry_span
 
 NOW = datetime(2026, 9, 10, 12, 0, tzinfo=UTC)
@@ -281,9 +284,7 @@ class _MemoryRepository:
                 }:
                     continue
                 if delivery.deadline_at is not None and delivery.deadline_at <= now:
-                    result = DeliveryResult.permanent_failure(
-                        "handover_deadline_expired"
-                    )
+                    result = DeliveryResult.permanent_failure("delivery_deadline_expired")
                     ordinal = delivery.attempt_count + 1
                     self.deliveries[delivery.id] = replace(
                         delivery,
@@ -398,8 +399,74 @@ class _MemoryRepository:
             )
             return True
 
-    def recover_expired(self, **_kwargs: object) -> int:
-        return 0
+    def recover_expired(
+        self,
+        *,
+        now: datetime,
+        batch_size: int,
+        worker_id: str,
+        retry_policy: RetryPolicy,
+    ) -> int:
+        del worker_id
+        with self._lock:
+            expired = tuple(
+                delivery
+                for delivery in self.deliveries.values()
+                if delivery.state
+                in {DeliveryState.IN_FLIGHT, DeliveryState.AWAITING_AGENT_ACK}
+                and delivery.lease_until is not None
+                and delivery.lease_until <= now
+            )[:batch_size]
+            recovered = 0
+            for delivery in expired:
+                previous_state = delivery.state
+                next_attempt_count = delivery.attempt_count
+                if previous_state is DeliveryState.AWAITING_AGENT_ACK:
+                    next_attempt_count += 1
+                transition = expired_lease_update(
+                    state=previous_state,
+                    now=now,
+                    attempt_count=max(1, next_attempt_count),
+                    deadline_at=delivery.deadline_at,
+                    retry_policy=retry_policy,
+                    idempotency_key=delivery.idempotency_key,
+                )
+                if previous_state is DeliveryState.AWAITING_AGENT_ACK:
+                    self.attempts[delivery.id].append(
+                        NotificationStoredAttempt(
+                            delivery_id=delivery.id,
+                            attempt_ordinal=next_attempt_count,
+                            started_at=now,
+                            finished_at=now,
+                            result_class=transition.result.result_class,
+                            safe_error_code=transition.result.safe_error_code,
+                            safe_error_summary=transition.result.safe_error_summary,
+                            retry_after_seconds=transition.result.retry_after_seconds,
+                            provider_message_id=transition.result.provider_message_id,
+                            lease_token=None,
+                        )
+                    )
+                else:
+                    current = self.attempts[delivery.id][-1]
+                    self.attempts[delivery.id][-1] = replace(
+                        current,
+                        finished_at=now,
+                        result_class=transition.result.result_class,
+                        safe_error_code=transition.result.safe_error_code,
+                    )
+                self.deliveries[delivery.id] = replace(
+                    delivery,
+                    state=transition.state,
+                    next_attempt_at=transition.next_attempt_at,
+                    attempt_count=next_attempt_count,
+                    lease_owner=None,
+                    lease_token=None,
+                    lease_until=None,
+                    last_safe_error_code=transition.result.safe_error_code,
+                    updated_at=now,
+                )
+                recovered += 1
+            return recovered
 
 
 class _FailingApplyRepository(_MemoryRepository):
@@ -600,11 +667,17 @@ def test_provider_acceptance_never_becomes_delivered() -> None:
         attempt_count=1,
         now=NOW,
         deadline_at=NOW + timedelta(seconds=30),
-        retry_policy=RetryPolicy(max_attempts=2),
+        retry_policy=RetryPolicy(max_attempts=2, agent_ack_timeout_seconds=12),
         idempotency_key="delivery-1",
     )
     assert accepted.state is DeliveryState.AWAITING_AGENT_ACK
     assert accepted.state is not DeliveryState.DELIVERED
+    assert accepted.lease_until == NOW + timedelta(seconds=12)
+
+
+def test_retry_policy_rejects_invalid_agent_ack_timeout() -> None:
+    with pytest.raises(ValueError, match="agent ACK timeout"):
+        RetryPolicy(agent_ack_timeout_seconds=0)
 
 
 def test_delivery_result_rejects_unsafe_provider_data() -> None:
@@ -646,6 +719,46 @@ def test_channel_catalog_rejects_incomplete_adapter_as_typed_error() -> None:
 def test_dispatcher_rejects_invalid_worker_id(worker_id: str) -> None:
     with pytest.raises(ValueError, match="worker id"):
         NotificationDispatcher(lambda: _MemoryUow(_MemoryRepository()), worker_id=worker_id)
+
+
+def test_memory_recovery_fences_stale_lease_token() -> None:
+    repository = _MemoryRepository()
+    publisher = NotificationPublisher(
+        lambda: _MemoryUow(repository),
+        policy=_policy(),
+        clock=lambda: NOW,
+    )
+    result = publisher.publish(_event())
+    claimed = repository.claim_due(
+        now=NOW,
+        worker_id="worker-claim",
+        batch_size=1,
+        lease_seconds=5,
+    )[0]
+    stale_token = claimed.lease_token
+
+    dispatcher = NotificationDispatcher(
+        lambda: _MemoryUow(repository),
+        worker_id="worker-recovery",
+        clock=lambda: NOW + timedelta(seconds=6),
+        retry_policy=RetryPolicy(),
+    )
+    assert dispatcher.recover_expired() == 1
+    assert (
+        repository.deliveries[next(iter(repository.deliveries))].state
+        is DeliveryState.RETRY_WAIT
+    )
+    assert not repository.apply_update(
+        delivery_id=claimed.delivery.id,
+        lease_token=stale_token,
+        delivery_update=DeliveryUpdate(
+            state=DeliveryState.DELIVERED,
+            result=DeliveryResult.delivered(),
+            next_attempt_at=NOW + timedelta(seconds=6),
+            completed_at=NOW + timedelta(seconds=6),
+        ),
+    )
+    assert result.event_id in repository.events
 
 
 def test_publisher_and_dispatcher_keep_provider_acceptance_intermediate() -> None:

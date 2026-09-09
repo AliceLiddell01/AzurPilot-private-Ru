@@ -67,7 +67,7 @@ from module.persistence.schema import (
     notification_profile_sequence,
 )
 
-_SAFE_TOKEN_RE = r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}"
+_SAFE_TOKEN_RE = r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}"
 _UNSAFE_TEXT_MARKERS = (
     "password",
     "secret",
@@ -212,7 +212,7 @@ class PostgresNotificationRepository:
             for row in expired_rows:
                 delivery_id = cast(UUID, row["id"])
                 attempt_ordinal = int(row["attempt_count"]) + 1
-                result = DeliveryResult.permanent_failure("handover_deadline_expired")
+                result = DeliveryResult.permanent_failure("delivery_deadline_expired")
                 self._connection.execute(
                     notification_delivery_attempt.insert().values(
                         delivery_id=delivery_id,

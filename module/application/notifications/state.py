@@ -24,6 +24,7 @@ class RetryPolicy:
     max_delay_seconds: int = 120
     jitter_ratio: float = 0.1
     absolute_deadline_seconds: int = 300
+    agent_ack_timeout_seconds: int = 30
 
     def __post_init__(self) -> None:
         if not 1 <= self.max_attempts <= 100:
@@ -34,6 +35,8 @@ class RetryPolicy:
             raise ValueError("Retry jitter вне bounded диапазона.")
         if not 1 <= self.absolute_deadline_seconds <= 86400:
             raise ValueError("Retry absolute deadline вне bounded диапазона.")
+        if not 1 <= self.agent_ack_timeout_seconds <= 3600:
+            raise ValueError("Retry agent ACK timeout вне bounded диапазона.")
 
     def delay_seconds(self, attempt_ordinal: int, *, stable_key: str = "") -> float:
         exponent = max(0, attempt_ordinal - 1)
@@ -84,7 +87,9 @@ def transition_for_result(
                 "PROVIDER_ACCEPTED требует provider receipt capability."
             )
         if capabilities.receipt_strength is ReceiptStrength.AGENT_ACK:
-            ack_deadline = now + timedelta(seconds=30)
+            ack_deadline = now + timedelta(
+                seconds=retry_policy.agent_ack_timeout_seconds
+            )
             if deadline_at is not None:
                 ack_deadline = min(ack_deadline, _bounded_now(deadline_at))
             return DeliveryUpdate(
