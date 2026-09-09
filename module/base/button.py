@@ -193,6 +193,8 @@ class Button(Resource):
     def ensure_gray_template(self):
         """Загрузить кэшированное одноканальное представление шаблона."""
         if not self._match_gray_init:
+            if self.image is None:
+                self.ensure_template()
             if self.is_gif:
                 self.image_gray = [image if image.ndim == 2 else rgb2gray(image) for image in self.image]
             else:
@@ -252,9 +254,9 @@ class Button(Resource):
         if self.is_gif:
             for index, template in enumerate(self.image):
                 res = template_match(
-                    template,
                     image,
-                    first_gray=lambda index=index: self._get_gray_template(index),
+                    template,
+                    template_gray=lambda index=index: self._get_gray_template(index),
                     name=self.name,
                 )
                 _, sim, _, point = cv2.minMaxLoc(res)
@@ -264,9 +266,9 @@ class Button(Resource):
             return False
         else:
             res = template_match(
-                self.image,
                 image,
-                first_gray=lambda: self._get_gray_template(),
+                self.image,
+                template_gray=lambda: self._get_gray_template(),
                 name=self.name,
             )
             _, sim, _, point = cv2.minMaxLoc(res)
@@ -302,7 +304,7 @@ class Button(Resource):
         if self.is_gif:
             for template in self.image_binary:
                 # 模板匹配
-                res = template_match(template, image_binary, name=self.name)
+                res = template_match(image_binary, template, name=self.name)
                 _, sim, _, point = cv2.minMaxLoc(res)
                 self._button_offset = area_offset(self._button, offset[:2] + np.array(point))
                 if sim > similarity:
@@ -310,7 +312,7 @@ class Button(Resource):
             return False
         else:
             # 模板匹配
-            res = template_match(self.image_binary, image_binary, name=self.name)
+            res = template_match(image_binary, self.image_binary, name=self.name)
             _, sim, _, point = cv2.minMaxLoc(res)
             self._button_offset = area_offset(self._button, offset[:2] + np.array(point))
             return sim > similarity
@@ -342,14 +344,14 @@ class Button(Resource):
         if self.is_gif:
             image_luma = rgb2luma(image)
             for template in self.image_luma:
-                res = template_match(template, image_luma, name=self.name)
+                res = template_match(image_luma, template, name=self.name)
                 _, sim, _, point = cv2.minMaxLoc(res)
                 self._button_offset = area_offset(self._button, offset[:2] + np.array(point))
                 if sim > similarity:
                     return True
         else:
             image_luma = rgb2luma(image)
-            res = template_match(self.image_luma, image_luma, name=self.name)
+            res = template_match(image_luma, self.image_luma, name=self.name)
             _, sim, _, point = cv2.minMaxLoc(res)
             self._button_offset = area_offset(self._button, offset[:2] + np.array(point))
             return sim > similarity

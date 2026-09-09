@@ -238,6 +238,7 @@ def test_button_match_normalizes_mismatched_channels(tmp_path):
     source[area[1]:area[3], area[0]:area[2]] = rgb2gray(pattern)
 
     assert button.match(source, offset=(0, 0), similarity=0.99)
+    assert button.match(source, offset=(2, 2), similarity=0.99)
     assert button.image_gray.ndim == 2
 
 

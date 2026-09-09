@@ -5,6 +5,7 @@
 """
 
 import os
+from functools import partial
 
 import imageio
 
@@ -121,10 +122,10 @@ class Template(Resource):
             if gray_templates is None:
                 gray_template = None
             elif callable(gray_templates):
-                gray_template = lambda index=index: gray_templates(index)
+                gray_template = partial(gray_templates, index)
             else:
                 gray_template = gray_templates[index]
-            res = template_match(image, template, second_gray=gray_template, name=name)
+            res = template_match(image, template, template_gray=gray_template, name=name)
             _, sim, _, _ = cv2.minMaxLoc(res)
             if sim > similarity:
                 return True
@@ -135,7 +136,7 @@ class Template(Resource):
                 flipped_gray = lambda gray_template=gray_template: cv2.flip(gray_template(), 1)
             else:
                 flipped_gray = cv2.flip(gray_template, 1)
-            res = template_match(image, flipped_template, second_gray=flipped_gray, name=name)
+            res = template_match(image, flipped_template, template_gray=flipped_gray, name=name)
             _, sim, _, _ = cv2.minMaxLoc(res)
             if sim > similarity:
                 return True
@@ -201,7 +202,7 @@ class Template(Resource):
             res = template_match(
                 image,
                 self.image,
-                second_gray=lambda: self.image_gray,
+                template_gray=lambda: self.image_gray,
                 name=self.name,
             )
             _, sim, _, _ = cv2.minMaxLoc(res)
@@ -231,7 +232,7 @@ class Template(Resource):
             # 二值化
             _, image_binary = cv2.threshold(image_gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
             # 模板匹配
-            res = template_match(self.image_binary, image_binary, name=self.name)
+            res = template_match(image_binary, self.image_binary, name=self.name)
             _, sim, _, _ = cv2.minMaxLoc(res)
             return sim > similarity
 
@@ -245,7 +246,7 @@ class Template(Resource):
             res = template_match(
                 image,
                 self.image,
-                second_gray=lambda: self.image_gray,
+                template_gray=lambda: self.image_gray,
                 name=self.name,
             )
             _, sim, _, _ = cv2.minMaxLoc(res)
@@ -283,7 +284,7 @@ class Template(Resource):
         res = template_match(
             image,
             self.image,
-            second_gray=lambda: self.image_gray,
+            template_gray=lambda: self.image_gray,
             name=self.name,
         )
         _, sim, _, point = cv2.minMaxLoc(res)
@@ -326,18 +327,18 @@ class Template(Resource):
             result = []
             for index, template in enumerate(self.image):
                 gray_template = lambda index=index: self.image_gray[index]
-                res = template_match(image, template, second_gray=gray_template, name=self.name)
+                res = template_match(image, template, template_gray=gray_template, name=self.name)
                 result += np.array(np.where(res > similarity)).T[:, ::-1].tolist()
                 flipped_template = cv2.flip(template, 1)
                 flipped_gray = lambda index=index: cv2.flip(self.image_gray[index], 1)
-                res = template_match(image, flipped_template, second_gray=flipped_gray, name=self.name)
+                res = template_match(image, flipped_template, template_gray=flipped_gray, name=self.name)
                 result += np.array(np.where(res > similarity)).T[:, ::-1].tolist()
             result = np.array(result)
         else:
             result = template_match(
                 image,
                 self.image,
-                second_gray=lambda: self.image_gray,
+                template_gray=lambda: self.image_gray,
                 name=self.name,
             )
             result = np.array(np.where(result > similarity)).T[:, ::-1]
