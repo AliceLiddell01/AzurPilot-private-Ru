@@ -995,7 +995,12 @@ class ProcessManager:
         ):
             os.environ.pop(variable, None)
         policy_path = ProcessManager._resolve_task_policy_path(repository_root_path)
-        if session_id and policy_path is not None:
+        if session_id and policy_path is None:
+            logger.error(
+                f"[{config_name}] Политика dev-runtime не подтверждена; запуск task отклонён"
+            )
+            return
+        if session_id:
             os.environ[TASK_POLICY_SESSION_ENV] = session_id
             os.environ[TASK_POLICY_ROOT_ENV] = str(repository_root_path)
             os.environ[TASK_POLICY_FILE_ENV] = str(policy_path)

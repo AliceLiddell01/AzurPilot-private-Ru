@@ -373,6 +373,29 @@ def test_shared_runtime_keeps_live_snapshot_worker_present_after_registry_unregi
     assert shared.worker_present("ap") is True
 
 
+def test_shared_runtime_fails_closed_on_unexpected_snapshot_identity_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    shared = SharedWebUIRuntime(tmp_path)
+    shared._worker_record = lambda _profile: None  # type: ignore[method-assign]
+    RuntimeStateStore(tmp_path).mark_resource_ready(
+        "ap",
+        worker_pid=7010,
+        worker_created_at=8010.0,
+        operation_id="operation-1",
+        session_id="session-1",
+    )
+
+    from module.webui import worker_registry
+
+    def unexpected_identity_error(_record: dict) -> bool:
+        raise LookupError("синтетическая ошибка проверки identity")
+
+    monkeypatch.setattr(worker_registry, "process_matches", unexpected_identity_error)
+    assert shared.worker_present("ap") is None
+
+
 def test_shared_recovery_does_not_close_marker_while_worker_is_present(tmp_path: Path) -> None:
     manager, shared = _manager(tmp_path)
     started = manager.start()

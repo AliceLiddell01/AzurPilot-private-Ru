@@ -191,8 +191,8 @@ class TestProcessManagerRegistry(unittest.TestCase):
                         Mock(),
                         None,
                         str(root_path),
-                        "operation-1",
-                        "session-1",
+                        None,
+                        None,
                     ),
                     daemon=True,
                 )
@@ -203,8 +203,6 @@ class TestProcessManagerRegistry(unittest.TestCase):
                     "alas",
                     worker_pid=os.getpid(),
                     worker_created_at=worker_created_at,
-                    operation_id="operation-1",
-                    session_id="session-1",
                 )
 
                 self.assertTrue(body_called.wait(timeout=5))
@@ -217,6 +215,48 @@ class TestProcessManagerRegistry(unittest.TestCase):
             self.assertIsNone(observed_environment["session"])
             self.assertIsNone(observed_environment["root"])
             self.assertIsNone(observed_environment["policy"])
+
+    def test_worker_body_refuses_task_session_without_policy(self):
+        with TemporaryDirectory() as root:
+            root_path = Path(root)
+            body_called = threading.Event()
+
+            def body(*_args: object, **_kwargs: object) -> None:
+                body_called.set()
+
+            with (
+                patch.dict(
+                    os.environ,
+                    {
+                        "AZURPILOT_DEV_SESSION_ID": "stale-session",
+                        "AZURPILOT_DEV_REPOSITORY_ROOT": "stale-root",
+                        "AZURPILOT_DEV_POLICY_FILE": "stale-policy",
+                    },
+                    clear=False,
+                ),
+                patch.object(ProcessManager, "_run_process_body", side_effect=body),
+            ):
+                worker = threading.Thread(
+                    target=ProcessManager.run_process,
+                    args=(
+                        "ap",
+                        "alas",
+                        Mock(),
+                        None,
+                        str(root_path),
+                        "operation-1",
+                        "session-1",
+                    ),
+                    daemon=True,
+                )
+                worker.start()
+                worker.join(timeout=5)
+
+                self.assertFalse(worker.is_alive())
+                self.assertFalse(body_called.is_set())
+                self.assertIsNone(os.environ.get("AZURPILOT_DEV_SESSION_ID"))
+                self.assertIsNone(os.environ.get("AZURPILOT_DEV_REPOSITORY_ROOT"))
+                self.assertIsNone(os.environ.get("AZURPILOT_DEV_POLICY_FILE"))
 
     def test_worker_body_inherits_active_task_policy_context(self):
         import psutil

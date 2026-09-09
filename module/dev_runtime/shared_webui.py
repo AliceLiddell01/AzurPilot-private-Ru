@@ -123,6 +123,8 @@ class SharedWebUIRuntime:
                 )
             except (RuntimeError, TypeError, ValueError, OverflowError):
                 return None
+            except Exception:  # noqa: BLE001 - неизвестная identity переводит recovery в fail-closed режим.
+                return None
             return worker_matches is True
         try:
             from module.webui.worker_registry import process_matches
