@@ -33,7 +33,7 @@ from module.application.notifications import (
     RetryPolicy,
 )
 from module.persistence import DatabaseSettings, LazyEngine, PostgresUnitOfWork
-from module.persistence.schema import metadata
+from module.persistence.schema import SCHEMA_NAME, metadata
 
 REQUIRED_ENV = (
     "AZURPILOT_POSTGRES_HOST",
@@ -128,7 +128,7 @@ def test_application_role_has_dml_but_not_schema_ddl(database: LazyEngine) -> No
     with pytest.raises(DBAPIError, match="permission denied"), database.get().begin() as connection:
         connection.execute(
             text(
-                f"CREATE TABLE azurpilot.{probe_table} "
+                f"CREATE TABLE {SCHEMA_NAME}.{probe_table} "
                 "(id integer NOT NULL)"
             )
         )
@@ -258,7 +258,7 @@ def test_expired_pending_delivery_fails_without_provider_call(
     with database.get().begin() as connection:
         connection.execute(
             text(
-                "UPDATE azurpilot.notification_delivery "
+                f"UPDATE {SCHEMA_NAME}.notification_delivery "
                 "SET deadline_at = :deadline_at "
                 "WHERE event_id = :event_id"
             ),
@@ -297,7 +297,7 @@ def test_expired_pending_delivery_does_not_starve_due_delivery(
     with database.get().begin() as connection:
         connection.execute(
             text(
-                "UPDATE azurpilot.notification_delivery "
+                f"UPDATE {SCHEMA_NAME}.notification_delivery "
                 "SET deadline_at = :deadline_at "
                 "WHERE event_id = :event_id"
             ),
@@ -327,7 +327,7 @@ def test_claim_bounds_lease_and_timeout_by_remaining_deadline(
     with database.get().begin() as connection:
         connection.execute(
             text(
-                "UPDATE azurpilot.notification_delivery "
+                f"UPDATE {SCHEMA_NAME}.notification_delivery "
                 "SET deadline_at = :deadline_at "
                 "WHERE event_id = :event_id"
             ),

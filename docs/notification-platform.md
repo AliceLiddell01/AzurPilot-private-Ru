@@ -675,6 +675,8 @@ PROVIDER_ACCEPTED; channel adapter может вернуть DELIVERED толь�
 Dispatcher атомарно claim-ит PENDING/RETRY_WAIT rows с due
 next_attempt_at, выставляет owner/token/deadline и коммитит claim до внешнего
 вызова. После результата запись обновляется только при совпадении lease_token.
+`worker_id`, если задан явно, обязан быть непустым bounded token длиной не более
+128 символов; автоматически созданный id соблюдает тот же контракт.
 
 Crash с IN_FLIGHT не теряет работу: после lease_until отдельный recovery scan
 переводит её в RETRY_WAIT или FAILED по retry budget. Это at-least-once

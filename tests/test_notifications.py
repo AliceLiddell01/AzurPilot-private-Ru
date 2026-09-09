@@ -15,6 +15,7 @@ from module.application.notifications import (
     ChannelCapabilities,
     DeferredNotificationPayload,
     DeliveryResult,
+    DeliveryResultClass,
     DeliveryState,
     HandoverNotificationOutcome,
     HandoverPreemptionPayload,
@@ -621,11 +622,30 @@ def test_delivery_result_rejects_unsafe_provider_data() -> None:
         "serialization_error", summary="serialization_error"
     ).is_valid()
     assert DeliveryResult.provider_accepted(provider_message_id="tokenizer-v1").is_valid()
+    assert not DeliveryResult(
+        DeliveryResultClass.DELIVERED,
+        safe_error_code="unexpected_error",
+    ).is_valid()
+    assert not DeliveryResult(
+        DeliveryResultClass.PROVIDER_ACCEPTED,
+        safe_error_code="unexpected_error",
+    ).is_valid()
+    assert not DeliveryResult(
+        DeliveryResultClass.PERMANENT_FAILURE,
+        safe_error_code="permanent_error",
+        retry_after_seconds=1,
+    ).is_valid()
 
 
 def test_channel_catalog_rejects_incomplete_adapter_as_typed_error() -> None:
     with pytest.raises(TypeError, match="атрибуты"):
         NotificationChannelCatalog((object(),))
+
+
+@pytest.mark.parametrize("worker_id", ("", "worker id", "x" * 129))
+def test_dispatcher_rejects_invalid_worker_id(worker_id: str) -> None:
+    with pytest.raises(ValueError, match="worker id"):
+        NotificationDispatcher(lambda: _MemoryUow(_MemoryRepository()), worker_id=worker_id)
 
 
 def test_publisher_and_dispatcher_keep_provider_acceptance_intermediate() -> None:

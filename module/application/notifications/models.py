@@ -321,6 +321,16 @@ class DeliveryResult:
     def is_valid(self) -> bool:
         if not isinstance(self.result_class, DeliveryResultClass):
             return False
+        if self.result_class in {
+            DeliveryResultClass.DELIVERED,
+            DeliveryResultClass.PROVIDER_ACCEPTED,
+        } and self.safe_error_code is not None:
+            return False
+        if (
+            self.result_class is DeliveryResultClass.PERMANENT_FAILURE
+            and self.retry_after_seconds is not None
+        ):
+            return False
         if self.safe_error_code is not None and (
             not isinstance(self.safe_error_code, str)
             or fullmatch(_SAFE_ERROR_CODE_RE, self.safe_error_code) is None

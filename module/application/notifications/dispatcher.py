@@ -6,6 +6,7 @@ import os
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
+from re import fullmatch
 from uuid import uuid4
 
 from module.application.errors import StorageInvariantViolationError
@@ -14,6 +15,7 @@ from module.application.notifications.models import (
     ChannelCapabilities,
     ClaimedDelivery,
     DeliveryResult,
+    DeliveryUpdate,
     DispatchReport,
 )
 from module.application.notifications.ports import NotificationUnitOfWork
@@ -23,6 +25,9 @@ from module.application.notifications.telemetry import safe_telemetry_span
 
 def _default_clock() -> datetime:
     return datetime.now(UTC)
+
+
+_WORKER_ID_RE = r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}"
 
 
 class NotificationDispatcher:
@@ -44,6 +49,11 @@ class NotificationDispatcher:
             raise ValueError("Dispatcher batch size вне bounded диапазона.")
         if not 1 <= lease_seconds <= 3600:
             raise ValueError("Dispatcher lease вне bounded диапазона.")
+        if worker_id is not None and (
+            not isinstance(worker_id, str)
+            or fullmatch(_WORKER_ID_RE, worker_id) is None
+        ):
+            raise ValueError("Dispatcher worker id имеет неверный формат.")
         self._uow_factory = uow_factory
         self._channels = channel_catalog or NotificationChannelCatalog()
         self._retry_policy = retry_policy or RetryPolicy()
@@ -106,29 +116,13 @@ class NotificationDispatcher:
                             item_failed = True
             elapsed = time.perf_counter() - started
             try:
-                transition = transition_for_result(
-                    result,
-                    capabilities=capabilities,
-                    attempt_count=item.attempt_ordinal,
-                    now=_utc(self._clock()),
-                    deadline_at=item.delivery.deadline_at,
-                    retry_policy=self._retry_policy,
-                    idempotency_key=item.delivery.idempotency_key,
-                )
+                transition = self._build_transition(item, result, capabilities)
             except Exception:  # noqa: BLE001 - некорректный channel result остаётся fail-closed.
                 item_failed = True
                 capabilities = _fallback_capabilities()
                 result = DeliveryResult.unavailable("channel_result_invalid")
                 try:
-                    transition = transition_for_result(
-                        result,
-                        capabilities=capabilities,
-                        attempt_count=item.attempt_ordinal,
-                        now=_utc(self._clock()),
-                        deadline_at=item.delivery.deadline_at,
-                        retry_policy=self._retry_policy,
-                        idempotency_key=item.delivery.idempotency_key,
-                    )
+                    transition = self._build_transition(item, result, capabilities)
                 except Exception:  # noqa: BLE001 - lease остаётся для bounded recovery.
                     self._record_attempt(item, result)
                     self._record_latency(item, result, elapsed)
@@ -157,6 +151,22 @@ class NotificationDispatcher:
             updated=updated,
             stale_updates=stale,
             failed=failed,
+        )
+
+    def _build_transition(
+        self,
+        item: ClaimedDelivery,
+        result: DeliveryResult,
+        capabilities: ChannelCapabilities,
+    ) -> DeliveryUpdate:
+        return transition_for_result(
+            result,
+            capabilities=capabilities,
+            attempt_count=item.attempt_ordinal,
+            now=_utc(self._clock()),
+            deadline_at=item.delivery.deadline_at,
+            retry_policy=self._retry_policy,
+            idempotency_key=item.delivery.idempotency_key,
         )
 
     def recover_expired(self) -> int:
