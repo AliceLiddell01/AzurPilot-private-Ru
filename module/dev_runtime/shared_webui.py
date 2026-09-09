@@ -103,13 +103,25 @@ class SharedWebUIRuntime:
             try:
                 from module.webui.worker_registry import process_matches
 
+                worker_pid = snapshot.worker_pid
+                worker_created_at = snapshot.worker_created_at
+                if (
+                    isinstance(worker_pid, bool)
+                    or not isinstance(worker_pid, int)
+                    or worker_pid <= 0
+                    or isinstance(worker_created_at, bool)
+                    or not isinstance(worker_created_at, (int, float))
+                    or not math.isfinite(float(worker_created_at))
+                    or float(worker_created_at) <= 0
+                ):
+                    return None
                 worker_matches = process_matches(
                     {
-                        "pid": snapshot.worker_pid,
-                        "created_at": snapshot.worker_created_at,
+                        "pid": worker_pid,
+                        "created_at": float(worker_created_at),
                     }
                 )
-            except RuntimeError:
+            except (RuntimeError, TypeError, ValueError, OverflowError):
                 return None
             return worker_matches is True
         try:
