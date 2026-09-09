@@ -28,6 +28,11 @@
 
 Ошибки разработчика и скрипта:
     - ScriptError: ошибка логики скрипта (обычно программная ошибка)
+    - TemplateMatchError: базовая ошибка подготовки или выполнения шаблонного
+      поиска с исходной причиной OpenCV в цепочке исключений
+    - OpsiMapDetectionError: предметная ошибка распознавания карты Operation
+      Siren с сохранением ScriptError recovery-контракта
+    - OpsiStorageError: предметная ошибка обработки хранилища Operation Siren
     - ScriptEnd: штатное завершение скрипта (для прерывания текущего сценария)
 
 Невосстанавливаемые ошибки (требуют ручного вмешательства):
@@ -113,6 +118,11 @@ class ScriptError(Exception):
     pass
 
 
+class TemplateMatchError(ScriptError):
+    """Базовая ошибка подготовки или выполнения шаблонного поиска."""
+    pass
+
+
 class OpsiError(ScriptError):
     """Предметная ошибка Operation Siren с прежним recovery-контрактом ScriptError."""
     pass
@@ -125,6 +135,16 @@ class OpsiStorageError(OpsiError):
 
 class OpsiStorageTemplateMatchError(OpsiStorageError):
     """Ошибка шаблонного поиска предмета в хранилище Operation Siren."""
+    pass
+
+
+class OpsiMapDetectionError(OpsiError):
+    """Ошибка распознавания карты Operation Siren."""
+    pass
+
+
+class OpsiMapDetectionTemplateMatchError(OpsiMapDetectionError):
+    """Ошибка шаблонного поиска при распознавании карты Operation Siren."""
     pass
 
 

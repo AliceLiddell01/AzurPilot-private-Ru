@@ -12,7 +12,11 @@ import cv2
 from module.base.timer import Timer
 from module.base.utils import area_offset, crop, rgb2gray
 from module.combat.assets import GET_ITEMS_1, GET_ITEMS_2
-from module.exception import OpsiStorageError, OpsiStorageTemplateMatchError
+from module.exception import (
+    OpsiStorageError,
+    OpsiStorageTemplateMatchError,
+    TemplateMatchError,
+)
 from module.handler.assets import GET_MISSION, POPUP_CANCEL
 from module.logger import logger
 from module.os.globe_operation import GlobeOperation
@@ -43,6 +47,10 @@ class StorageHandler(GlobeOperation, ZoneManager):
         """Выполнить поиск шаблона и классифицировать ошибку OpenCV для Storage."""
         try:
             return template.match_multi(image, similarity=similarity)
+        except TemplateMatchError as error:
+            raise OpsiStorageTemplateMatchError(
+                f'Не удалось распознать шаблон хранилища {template.name}: {error}'
+            ) from error
         except cv2.error as error:
             if getattr(image, 'ndim', None) == 2:
                 channels = 1
