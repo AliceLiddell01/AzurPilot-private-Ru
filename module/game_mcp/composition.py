@@ -16,6 +16,7 @@ from module.application.legacy_adapters import (
 )
 from module.application.legacy_game_adapters import (
     LegacyConfigAdapter,
+    LegacyRuntimeExecutionReader,
     LegacyRuntimeLogAdapter,
     LegacyScreenshotAdapter,
 )
@@ -48,18 +49,25 @@ class GameMcpBackend:
         persistence_factory: Callable[[GameMcpEnvironment], object] | None = None,
         repository_root: Path | None = None,
     ) -> None:
+        resolved_repository_root = (repository_root or _REPOSITORY_ROOT).resolve()
         if instance_reader is None:
             instance_reader = LegacyInstanceRuntimeAdapter()
         if task_catalog is None:
             task_catalog = GeneratedTaskCatalogAdapter.from_generated_sources()
         if config_reader is None:
-            config_reader = LegacyConfigAdapter(task_catalog)  # type: ignore[arg-type]
+            config_reader = LegacyConfigAdapter(
+                task_catalog,
+                repository_root=resolved_repository_root,
+            )  # type: ignore[arg-type]
         if log_reader is None:
             log_reader = LegacyRuntimeLogAdapter(
-                (repository_root or _REPOSITORY_ROOT) / "log"
+                resolved_repository_root / "log"
             )
         if screenshot_reader is None:
             screenshot_reader = LegacyScreenshotAdapter()
+        runtime_execution_reader = LegacyRuntimeExecutionReader(
+            resolved_repository_root
+        )
 
         self._instance_reader = instance_reader
         self._task_catalog = task_catalog
@@ -72,12 +80,13 @@ class GameMcpBackend:
             log_reader=log_reader,  # type: ignore[arg-type]
             screenshot_reader=screenshot_reader,  # type: ignore[arg-type]
             scheduler_tasks=task_catalog,  # type: ignore[arg-type]
+            runtime_execution_reader=runtime_execution_reader,
         )
         self._fleet_state = fleet_state_reader
         self._morale = morale_reader
         self._control: object | None = None
         self._persistence_factory = persistence_factory or _default_persistence
-        self._repository_root = (repository_root or _REPOSITORY_ROOT).resolve()
+        self._repository_root = resolved_repository_root
         self._persistence: object | None = None
         self._closed = False
         self._service_lock = Lock()
@@ -128,7 +137,9 @@ class GameMcpBackend:
                     config_schema=self._task_catalog,  # type: ignore[arg-type]
                     config_writer=self._config_reader,  # type: ignore[arg-type]
                     scheduler_tasks=self._task_catalog,  # type: ignore[arg-type]
-                    lifecycle=LegacyProcessManagerAdapter(),
+                    lifecycle=LegacyProcessManagerAdapter(
+                        repository_root=self._repository_root,
+                    ),
                     emulator=LegacyEmulatorAdapter(typed_failures=True),
                     adb=LegacyAdbAdapter(typed_failures=True),
                     application=LegacyGameApplicationAdapter(),
@@ -165,21 +176,20 @@ class GameMcpBackend:
     def dispose(self) -> None:
         """Освободить engine, если domain read действительно его создавал."""
 
-        with self._service_lock:
-            with self._persistence_lock:
-                if self._closed:
-                    return
-                self._closed = True
-                self._fleet_state = None
-                self._morale = None
-                self._control = None
-                persistence = self._persistence
-                self._persistence = None
-                if persistence is None:
-                    return
-                dispose = getattr(persistence, "dispose", None)
-                if callable(dispose):
-                    dispose()
+        with self._service_lock, self._persistence_lock:
+            if self._closed:
+                return
+            self._closed = True
+            self._fleet_state = None
+            self._morale = None
+            self._control = None
+            persistence = self._persistence
+            self._persistence = None
+            if persistence is None:
+                return
+            dispose = getattr(persistence, "dispose", None)
+            if callable(dispose):
+                dispose()
 
     def _ensure_open(self) -> None:
         if self._closed:

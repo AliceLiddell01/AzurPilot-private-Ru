@@ -47,14 +47,25 @@ def _clearup_step(name, handler) -> bool:
 def startup() -> None:
     """Инициализировать WebUI после явной миграции UI locale."""
     from deploy.language_migration import migrate_deploy_language
-    from module.persistence.runtime import bootstrap_runtime_storage
+    from module.persistence.runtime import (
+        bootstrap_runtime_storage,
+        build_runtime_desktop_agent_composition,
+        build_runtime_notification_composition,
+        build_runtime_notification_telemetry,
+    )
 
     bootstrap_runtime_storage(require_ready=True)
     logger.info("[WebUI] PostgreSQL готов к работе")
     result = migrate_deploy_language()
     if result.changed:
         logger.info("[WebUI] Старое значение Language безопасно изменено на ru-RU")
-    State.init()
+    telemetry = build_runtime_notification_telemetry()
+    State.init(
+        notification_runtime=build_runtime_notification_composition(telemetry=telemetry),
+        desktop_agent_runtime=build_runtime_desktop_agent_composition(
+            telemetry=telemetry
+        ),
+    )
     lang.reload()
     task_handler.start()
     if State.deploy_config.DiscordRichPresence:

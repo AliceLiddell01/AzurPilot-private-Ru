@@ -4,11 +4,13 @@ import unittest
 from unittest.mock import Mock, patch
 
 from alas import AzurLaneAutoScript
+from module.config.config import TaskEnd
 from module.exception import (
     EmulatorNotRunningError,
     GameNotRunningError,
     GameStuckError,
     GameTooManyClickError,
+    OpsiMapDetectionTemplateMatchError,
 )
 from module.logger import error_context
 
@@ -59,6 +61,40 @@ class TestGameNotRunningErrorHandling(unittest.TestCase):
             level=30,
             with_traceback=False,
         )
+
+    def test_task_end_stays_success_when_metrics_hook_fails(self):
+        script = AzurLaneAutoScript.__new__(AzurLaneAutoScript)
+        script.config_name = "test"
+        script.__dict__["commission"] = Mock(side_effect=TaskEnd("normal stop"))
+
+        with patch(
+            "module.observability.mark_task_stopped",
+            side_effect=RuntimeError("metrics hook failed"),
+        ):
+            result = script.run("commission", skip_first_screenshot=True)
+
+        self.assertTrue(result)
+
+
+class TestOpsiTemplateErrorHandling(unittest.TestCase):
+    def test_map_detection_template_error_uses_script_path_without_restart(self):
+        script = AzurLaneAutoScript.__new__(AzurLaneAutoScript)
+        script.config_name = 'test'
+        script.__dict__['config'] = Mock()
+        error = OpsiMapDetectionTemplateMatchError('ошибка распознавания карты')
+        script.__dict__['commission'] = Mock(side_effect=error)
+
+        with (
+            patch('alas.logger.exception_context') as exception_context,
+            patch('alas.handle_notify'),
+            patch('alas.notify_webui'),
+            self.assertRaises(OpsiMapDetectionTemplateMatchError),
+        ):
+            script.run('commission', skip_first_screenshot=True)
+
+        script.config.task_call.assert_not_called()
+        exception_context.assert_called_once()
+        self.assertIs(exception_context.call_args.kwargs['exc'], error)
 
 
 class TestGameStuckRecovery(unittest.TestCase):

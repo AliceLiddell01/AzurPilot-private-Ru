@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
+from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
+
+if TYPE_CHECKING:
+    from module.application.notifications.agent import DesktopAgentNotificationRuntime
 
 from module.application.errors import StorageConfigurationError
 from module.application.fleet_manual_scan import (
@@ -233,6 +238,64 @@ def runtime_engine() -> LazyEngine | None:
         return _engine
 
 
+def build_runtime_notification_telemetry() -> object | None:
+    """Собрать общий fail-open telemetry объект для server и Desktop Agent."""
+
+    try:
+        from module.observability.notifications import NotificationTelemetry
+
+        return NotificationTelemetry()
+    except Exception as exc:  # noqa: BLE001 - telemetry остаётся fail-open.
+        _LOGGER.warning(
+            "Сборка notification telemetry завершилась недоступностью: %s",
+            type(exc).__name__,
+        )
+        return None
+
+
+def build_runtime_notification_composition(
+    *, telemetry: object | None = None
+) -> DesktopAgentNotificationRuntime | None:
+    """Собрать Agent notification поверх уже созданного process-local Engine."""
+
+    engine = runtime_engine()
+    if engine is None:
+        return None
+    from module.application.notifications.agent import DesktopAgentNotificationRuntime
+
+    runtime = DesktopAgentNotificationRuntime.from_environment(
+        lambda: PostgresUnitOfWork(engine),
+        telemetry=telemetry,
+    )
+    return runtime if runtime.enabled else None
+
+
+def build_runtime_desktop_agent_composition(
+    *, telemetry: object | None = None
+) -> object | None:
+    """Подключить outbound Desktop Agent к существующему WebUI lifecycle."""
+
+    source = os.environ
+    # Поля Agent credential одновременно используются inbound API. Только
+    # явный URL отличает outbound client configuration от общей server
+    # configuration; после задания URL остальные поля проверяются как единый
+    # fail-closed client contract.
+    if source.get("AZURPILOT_NOTIFICATION_AGENT_URL") is None:
+        return None
+    from module.notification_agent.client import (
+        DesktopAgentClientConfig,
+        DesktopAgentClientRuntime,
+        present_desktop_agent_notification,
+    )
+
+    config = DesktopAgentClientConfig.from_environment(source)
+    return DesktopAgentClientRuntime(
+        config,
+        on_notification=present_desktop_agent_notification,
+        telemetry=telemetry,
+    )
+
+
 def build_runtime_database_diagnostics(
     environment: object,
 ) -> PostgresDatabaseDiagnostics:
@@ -383,9 +446,12 @@ __all__ = [
     "bootstrap_runtime_storage",
     "build_read_only_persistence_composition",
     "build_runtime_database_diagnostics",
+    "build_runtime_desktop_agent_composition",
     "build_runtime_fleet_manual_scan_context",
     "build_runtime_fleet_page_context",
     "build_runtime_fleet_state_context",
+    "build_runtime_notification_composition",
+    "build_runtime_notification_telemetry",
     "dispose_runtime_storage",
     "runtime_engine",
     "runtime_health",

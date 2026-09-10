@@ -170,6 +170,39 @@ class _FakeRuntimeBackend:
         self.pending = None
 
 
+class _BoundedPlatform:
+    def __init__(self) -> None:
+        self.emulator_instance = object()
+        self.calls: list[str] = []
+
+    def _emulator_function_wrapper(self, func):
+        self.calls.append(func.__name__)
+        return func(self.emulator_instance)
+
+    def _emulator_start(self, _instance):
+        self.calls.append("start_request")
+        return None
+
+    def _emulator_stop(self, _instance):
+        self.calls.append("stop_request")
+        return None
+
+    def emulator_start(self):
+        raise AssertionError("control plane не должен вызывать high-level emulator_start")
+
+    def emulator_stop(self):
+        raise AssertionError("control plane не должен вызывать high-level emulator_stop")
+
+
+class _AdbConnectionProbe:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, float | None]] = []
+
+    def connect(self, serial: str, *, timeout: float | None = None) -> str:
+        self.calls.append((serial, timeout))
+        return f"connected to {serial}"
+
+
 @pytest.fixture
 def supervisor_identity(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(control_module, "_process_created_at", lambda _pid: 123.0)
@@ -208,6 +241,13 @@ def _accepted(manager: RuntimeControlManager, action: ControlAction) -> str:
     control_id = operation["control_id"]
     assert isinstance(control_id, str)
     return control_id
+
+
+def _mark_supervisor_claimed(manager: RuntimeControlManager, control_id: str) -> None:
+    operation = manager.store.read()
+    assert operation is not None
+    assert operation.control_id == control_id
+    manager.store.write(replace(operation, supervisor_pid=4242, supervisor_created_at=123.0))
 
 
 def _finish(manager: RuntimeControlManager, control_id: str):
@@ -285,7 +325,7 @@ def test_runtime_status_does_not_persist_orphan_reconciliation(
 ) -> None:
     environment = _environment(tmp_path)
     manager = _manager(environment, _FakeRuntimeBackend())
-    _accepted(manager, ControlAction.START_GAME)
+    _mark_supervisor_claimed(manager, _accepted(manager, ControlAction.START_GAME))
     before = manager.store.operation_path.read_bytes()
     monkeypatch.setattr(control_module, "_process_matches", lambda _pid, _created_at: False)
 
@@ -318,6 +358,36 @@ def test_created_control_operation_survives_supervisor_launch_grace(
     assert after_grace.details["control_operation"]["outcome"] == ControlOutcome.ABORTED.value
 
 
+def test_supervisor_launcher_pid_is_not_persisted_before_child_claim(
+    tmp_path: Path,
+    supervisor_identity: None,
+) -> None:
+    environment = _environment(tmp_path)
+    backend = _FakeRuntimeBackend()
+    manager = RuntimeControlManager(
+        environment,
+        backend_factory=lambda _environment: backend,
+        session_state_provider=lambda: None,
+        smoke_active_provider=lambda: False,
+        supervisor_launcher=lambda _environment, _control_id: SimpleNamespace(pid=4242),
+        now=lambda: _NOW,
+        sleep=lambda _seconds: backend.settle(),
+        action_timeouts={action: 5.0 for action in ControlAction},
+    )
+
+    accepted = manager.start(ControlAction.START_GAME)
+    assert accepted.ok is True
+    operation = manager.store.read()
+    assert operation is not None
+    assert operation.supervisor_pid is None
+    assert operation.supervisor_created_at is None
+
+    control_id = accepted.details["control_operation"]["control_id"]
+    finished = manager.execute(control_id)
+    assert finished.ok is True
+    assert finished.details["control_operation"]["outcome"] == ControlOutcome.PASS.value
+
+
 def test_new_control_request_reconciles_crashed_previous_supervisor(
     tmp_path: Path,
     supervisor_identity: None,
@@ -326,7 +396,7 @@ def test_new_control_request_reconciles_crashed_previous_supervisor(
     environment = _environment(tmp_path)
     backend = _FakeRuntimeBackend()
     first_manager = _manager(environment, backend)
-    _accepted(first_manager, ControlAction.START_GAME)
+    _mark_supervisor_claimed(first_manager, _accepted(first_manager, ControlAction.START_GAME))
 
     monkeypatch.setattr(control_module, "_process_matches", lambda _pid, _created_at: False)
     second_manager = _manager(environment, backend)
@@ -360,6 +430,111 @@ def test_emulator_start_waits_for_ready_and_persists_completion(
     assert result.details["control_operation"]["transitions"][-1]["state"] == "FINISHED"
     assert backend.calls == ["start_emulator"]
     assert sleeps
+
+
+def test_configured_backend_uses_single_emulator_request_for_bounded_control(
+    tmp_path: Path,
+) -> None:
+    environment = _environment(tmp_path)
+    backend = control_module.ConfiguredRuntimeBackend(environment)
+    backend._configuration()
+    platform = _BoundedPlatform()
+    backend._platform = platform
+
+    assert backend.start_emulator() is None
+    assert backend.stop_emulator() is None
+    assert platform.calls == [
+        "_emulator_start",
+        "start_request",
+        "_emulator_stop",
+        "stop_request",
+    ]
+
+
+def test_configured_backend_connects_target_during_bounded_emulator_wait(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    environment = _environment(tmp_path)
+    backend = ConfiguredRuntimeBackend(environment)
+    backend._configuration()
+    probe = _AdbConnectionProbe()
+    monkeypatch.setattr(
+        control_module.ConfiguredRuntimeBackend,
+        "_adb_client",
+        staticmethod(lambda: probe),
+    )
+
+    backend._connect_emulator_for_readiness(
+        prepared=control_module._runtime_config_snapshot(environment),
+        timeout=4.5,
+    )
+
+    assert probe.calls == [("127.0.0.1:5555", 4.5)]
+
+
+def test_emulator_wait_connects_target_before_readiness_probe(
+    tmp_path: Path,
+    supervisor_identity: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    environment = _environment(tmp_path)
+    backend = ConfiguredRuntimeBackend(environment)
+    snapshots = [
+        RuntimeSnapshot(
+            target_configured=True,
+            emulator_detected=False,
+            emulator_running=False,
+            emulator_ready=False,
+            adb_reachable=False,
+            adb_state="unavailable",
+            game_reachable=False,
+            game_foreground=False,
+            game_running=None,
+        ),
+        RuntimeSnapshot(
+            target_configured=True,
+            emulator_detected=True,
+            emulator_running=True,
+            emulator_ready=True,
+            adb_reachable=True,
+            adb_state="device",
+            game_reachable=True,
+            game_foreground=False,
+            game_running=False,
+        ),
+    ]
+    connection_calls: list[tuple[object, object]] = []
+    snapshot_calls = 0
+
+    def snapshot(*, prepared=None) -> RuntimeSnapshot:
+        nonlocal snapshot_calls
+        snapshot_calls += 1
+        if snapshot_calls > 1:
+            assert connection_calls
+        return snapshots.pop(0)
+
+    def connect(*, prepared, timeout) -> None:
+        connection_calls.append((prepared, timeout))
+
+    monkeypatch.setattr(backend, "snapshot", snapshot)
+    monkeypatch.setattr(backend, "start_emulator", lambda: True)
+    monkeypatch.setattr(backend, "_connect_emulator_for_readiness", connect)
+    manager = RuntimeControlManager(
+        environment,
+        backend_factory=lambda _environment: backend,
+        session_state_provider=lambda: None,
+        smoke_active_provider=lambda: False,
+        supervisor_launcher=lambda _environment, _control_id: SimpleNamespace(pid=os.getpid()),
+        now=lambda: _NOW,
+        sleep=lambda _seconds: None,
+        action_timeouts={action: 5.0 for action in ControlAction},
+    )
+
+    result = _finish(manager, _accepted(manager, ControlAction.START_EMULATOR))
+
+    assert result.ok is True
+    assert len(connection_calls) == 1
 
 
 def test_emulator_stop_and_restart_use_state_predicates(
@@ -744,6 +919,7 @@ def test_supervisor_crash_is_reconciled_as_aborted(
     environment = _environment(tmp_path)
     manager = _manager(environment, _FakeRuntimeBackend())
     control_id = _accepted(manager, ControlAction.START_GAME)
+    _mark_supervisor_claimed(manager, control_id)
     monkeypatch.setattr(control_module, "_process_matches", lambda _pid, _created_at: False)
 
     result = manager.get_operation(control_id)

@@ -2,16 +2,18 @@
 
 import errno
 import json
+import math
 import os
 import threading
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
 from copy import deepcopy
+from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
-from typing import Iterator
 
 from deploy.atomic import atomic_remove, atomic_replace, atomic_write
-
 
 DEFAULT_WORKER_REGISTRY_FILE = Path("./cache/webui-workers.json")
 WORKER_REGISTRY_FILE = Path(
@@ -31,6 +33,31 @@ class WorkerRegistryOwnershipError(RuntimeError):
 
 class WorkerRegistryLockError(RuntimeError):
     """无法在限定时间内取得 WebUI worker 登记锁。"""
+
+
+class ReadOnlyWorkerStatus(StrEnum):
+    """Результат bounded read worker registry без lifecycle side effects."""
+
+    VERIFIED = "verified"
+    ABSENT = "absent"
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True, slots=True)
+class ReadOnlyWorkerResult:
+    """Типизированный результат чтения worker registry."""
+
+    status: ReadOnlyWorkerStatus
+    record: dict | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.status, ReadOnlyWorkerStatus):
+            raise TypeError("status должен быть ReadOnlyWorkerStatus")
+        if self.status is ReadOnlyWorkerStatus.VERIFIED:
+            if not isinstance(self.record, dict):
+                raise ValueError("Подтверждённый worker должен содержать запись")
+        elif self.record is not None:
+            raise ValueError("Неподтверждённый результат не должен содержать запись worker")
 
 
 def _empty_registry(
@@ -144,7 +171,7 @@ def _legacy_registry_enabled() -> bool:
     return WORKER_REGISTRY_FILE == DEFAULT_WORKER_REGISTRY_FILE
 
 
-def _record_is_alive(record: dict | None) -> bool:
+def _record_is_alive(record: dict | None) -> bool | None:
     """保守判断登记的进程是否仍在运行。"""
     if record is None:
         return False
@@ -153,8 +180,10 @@ def _record_is_alive(record: dict | None) -> bool:
     try:
         return process_matches(record) is True
     except RuntimeError:
-        # 无法确认旧进程状态时不能覆盖其登记，避免启动第二个 WebUI。
-        return True
+        # При невозможности подтвердить состояние вернуть неопределённый
+        # результат; вызывающий код должен отклонить перезапись, не выдавая его
+        # за живой процесс.
+        return None
 
 
 def _migrate_legacy_registry() -> Path:
@@ -164,7 +193,7 @@ def _migrate_legacy_registry() -> Path:
 
     legacy_registry = _read_registry(LEGACY_WORKER_REGISTRY_FILE)
     legacy_owner = _owner_record(legacy_registry)
-    if _record_is_alive(legacy_owner):
+    if _record_is_alive(legacy_owner) is not False:
         if WORKER_REGISTRY_FILE.exists():
             current_registry = _read_registry(WORKER_REGISTRY_FILE)
             if current_registry != legacy_registry:
@@ -214,6 +243,8 @@ def _read_registry(registry_file: Path) -> dict:
 
     try:
         registry = json.loads(raw)
+        if not isinstance(registry, dict):
+            raise ValueError("Корень реестра должен быть объектом")
         owner_pid = registry.get("owner_pid")
         owner_created_at = registry.get("owner_created_at")
         workers = registry.get("workers")
@@ -225,7 +256,7 @@ def _read_registry(registry_file: Path) -> dict:
             owner_created_at = None
         if not isinstance(workers, dict):
             raise ValueError("Поле workers должно быть объектом")
-    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+    except (AttributeError, TypeError, ValueError, json.JSONDecodeError) as exc:
         raise RuntimeError(f"Недопустимый формат реестра рабочих процессов: {exc}") from exc
 
     return {
@@ -339,38 +370,105 @@ def claim_owner(owner_pid: int) -> None:
                 raise WorkerRegistryOwnershipError(
                     "У прежней WebUI остались рабочие процессы; сначала родительский процесс должен завершить их очистку"
                 )
+        elif registry["workers"]:
+            # Отсутствующий owner не доказывает отсутствие orphan worker.
+            # Новый WebUI не может безопасно перезаписать их registry, пока
+            # каждая запись не подтверждена как завершённая или переиспользованная.
+            for worker_name, worker_record in registry["workers"].items():
+                if not isinstance(worker_record, dict):
+                    raise WorkerRegistryOwnershipError(
+                        f"Запись orphan worker {worker_name} имеет неподтверждённый формат; перезапись реестра отклонена"
+                    )
+                try:
+                    worker_matches = _record_is_alive(worker_record)
+                except (KeyError, RuntimeError, TypeError, ValueError) as exc:
+                    raise WorkerRegistryOwnershipError(
+                        f"Нельзя подтвердить отсутствие orphan worker {worker_name}; перезапись реестра отклонена"
+                    ) from exc
+                if worker_matches is None:
+                    raise WorkerRegistryOwnershipError(
+                        f"Нельзя подтвердить состояние orphan worker {worker_name}; перезапись реестра отклонена"
+                    )
+                if worker_matches is True:
+                    raise WorkerRegistryOwnershipError(
+                        f"Orphan worker {worker_name} ещё работает; запуск WebUI отклонён"
+                    )
 
         _write_registry(_empty_registry(owner_pid, owner_created_at), registry_file)
 
 
-def register_worker(owner_pid: int, config_name: str, pid: int) -> None:
+def register_worker(owner_pid: int, config_name: str, pid: int) -> dict[str, float | int]:
     """登记已启动的 worker，以便父进程在 WebUI 异常退出后回收它。"""
     try:
         pid = int(pid)
     except (TypeError, ValueError) as exc:
         raise RuntimeError(f"Недопустимый PID рабочего процесса: {pid}") from exc
 
+    created_at = _process_created_at(pid)
+    record = {"created_at": created_at, "pid": pid}
     with _locked_registry() as registry_file:
         registry = _read_registry(registry_file)
         _require_current_owner(registry, owner_pid)
-        registry["workers"][config_name] = {
-            "created_at": _process_created_at(pid),
-            "pid": pid,
-        }
+        registry["workers"][config_name] = record
         _write_registry(registry, registry_file)
+    return deepcopy(record)
 
 
-def unregister_worker(owner_pid: int, config_name: str) -> bool:
-    """移除已正常退出的 worker 登记，返回是否仍拥有该登记。"""
+def unregister_worker(
+    owner_pid: int,
+    config_name: str,
+    *,
+    expected_worker: dict | None,
+) -> bool:
+    """Удалить запись worker только при совпадении ожидаемой identity."""
     with _locked_registry() as registry_file:
         registry = _read_registry(registry_file)
         try:
             _require_current_owner(registry, owner_pid)
         except WorkerRegistryOwnershipError:
             return False
+        current_worker = registry["workers"].get(config_name)
+        if expected_worker is None:
+            return False
+        if not _same_worker_identity(current_worker, expected_worker):
+            return False
         registry["workers"].pop(config_name, None)
         _write_registry(registry, registry_file)
         return True
+
+
+def _same_worker_identity(left: object, right: object) -> bool:
+    if not isinstance(left, dict) or not isinstance(right, dict):
+        return False
+    if not _valid_worker_identity(left) or not _valid_worker_identity(right):
+        return False
+    return left["pid"] == right["pid"] and float(left["created_at"]) == float(
+        right["created_at"]
+    )
+
+
+def _valid_worker_identity(record: object) -> bool:
+    if not isinstance(record, dict):
+        return False
+    try:
+        pid = record["pid"]
+        created_at = record["created_at"]
+    except KeyError:
+        return False
+    try:
+        if (
+            isinstance(pid, bool)
+            or not isinstance(pid, int)
+            or pid <= 0
+            or isinstance(created_at, bool)
+            or not isinstance(created_at, (int, float))
+            or not math.isfinite(float(created_at))
+            or float(created_at) <= 0
+        ):
+            return False
+    except (TypeError, ValueError, OverflowError):
+        return False
+    return True
 
 
 def get_workers(owner_pid: int) -> dict[str, dict]:
@@ -384,10 +482,19 @@ def get_workers(owner_pid: int) -> dict[str, dict]:
 
 def get_worker_read_only(config_name: str) -> dict | None:
     """Прочитать worker без миграции и блокировки, не проверяя владельца."""
+    result = read_worker_read_only(config_name)
+    if result.status is ReadOnlyWorkerStatus.UNKNOWN:
+        raise RuntimeError("Не удалось подтвердить состояние реестра рабочих процессов")
+    return deepcopy(result.record) if result.record is not None else None
+
+
+def read_worker_read_only(config_name: str) -> ReadOnlyWorkerResult:
+    """Типизированно прочитать worker без миграции и блокировки."""
     if not isinstance(config_name, str) or not config_name:
         raise ValueError("Имя экземпляра должно быть непустой строкой")
 
     paths, legacy_registry = _read_only_registry_paths()
+    unavailable = False
     for registry_file in paths:
         if not registry_file.is_file():
             continue
@@ -397,15 +504,21 @@ def get_worker_read_only(config_name: str) -> dict | None:
             try:
                 registry = _read_registry(registry_file)
             except RuntimeError:
-                # Повреждённый реестр не должен прерывать чтение остальных путей.
+                unavailable = True
                 continue
-        record = registry["workers"].get(config_name)
-        if record is None:
+        workers = registry["workers"]
+        if config_name not in workers:
             continue
-        if not isinstance(record, dict):
-            raise RuntimeError("Недопустимая запись рабочего процесса")
-        return deepcopy(record)
-    return None
+        record = workers[config_name]
+        if not _valid_worker_identity(record):
+            return ReadOnlyWorkerResult(ReadOnlyWorkerStatus.UNKNOWN)
+        return ReadOnlyWorkerResult(
+            ReadOnlyWorkerStatus.VERIFIED,
+            record=deepcopy(record),
+        )
+
+    status = ReadOnlyWorkerStatus.UNKNOWN if unavailable else ReadOnlyWorkerStatus.ABSENT
+    return ReadOnlyWorkerResult(status)
 
 
 def _read_only_registry_paths() -> tuple[tuple[Path, ...], dict | None]:
@@ -422,9 +535,27 @@ def _read_only_registry_paths() -> tuple[tuple[Path, ...], dict | None]:
     except RuntimeError:
         # Повреждённый устаревший реестр не должен блокировать чтение текущего.
         return (current_file,), None
-    if _record_is_alive(_owner_record(legacy_registry)):
+    if _record_is_alive(_owner_record(legacy_registry)) is not False:
         return (legacy_file, current_file), legacy_registry
     return (current_file, legacy_file), legacy_registry
+
+
+def _iter_read_only_registries() -> Iterator[dict]:
+    """Перечислить доступные registry без миграции и создания lock-файлов."""
+
+    paths, legacy_registry = _read_only_registry_paths()
+    for registry_file in paths:
+        if not registry_file.is_file():
+            continue
+        if registry_file == LEGACY_WORKER_REGISTRY_FILE and legacy_registry is not None:
+            registry = legacy_registry
+        else:
+            try:
+                registry = _read_registry(registry_file)
+            except RuntimeError:
+                # Повреждённый реестр не должен прерывать чтение остальных путей.
+                continue
+        yield registry
 
 
 def get_owner() -> int | None:
@@ -438,6 +569,15 @@ def get_owner_record() -> dict | None:
     with _locked_registry() as registry_file:
         registry = _read_registry(registry_file)
         return _owner_record(registry)
+
+
+def get_owner_record_read_only() -> dict | None:
+    """Прочитать owner без миграции registry и создания lock-файлов."""
+    for registry in _iter_read_only_registries():
+        owner = _owner_record(registry)
+        if owner is not None:
+            return deepcopy(owner)
+    return None
 
 
 def clear_owner(owner_pid: int) -> bool:

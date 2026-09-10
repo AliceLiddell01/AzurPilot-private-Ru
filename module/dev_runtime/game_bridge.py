@@ -992,6 +992,7 @@ def build_runtime_game_bridge(
     )
     from module.application.legacy_game_adapters import (
         LegacyConfigAdapter,
+        LegacyRuntimeExecutionReader,
         LegacyRuntimeLogAdapter,
         LegacyScreenshotAdapter,
     )
@@ -1009,6 +1010,7 @@ def build_runtime_game_bridge(
         LegacyRuntimeLogAdapter(repository_root / "log"),
         LegacyScreenshotAdapter(),
         metadata,
+        LegacyRuntimeExecutionReader(repository_root),
     )
 
     composition: ReadOnlyPersistenceComposition | None = None

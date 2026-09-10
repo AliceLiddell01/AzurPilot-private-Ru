@@ -4,15 +4,188 @@ from __future__ import annotations
 
 import copy
 import logging
+import re
 import threading
 import time
 from collections import OrderedDict, deque
 from collections.abc import Callable, Hashable
 from dataclasses import dataclass
-from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 _TASK_METADATA_LIMIT = 128
+REMOTE_LOG_TEXT_LIMIT = 32 * 1024
+
+_SENSITIVE_NAME_RE = re.compile(
+    r"(?i)(?:authorization|credential|access[_-]?token|api[_-]?key|token|password|passwd|secret|cookie|session|private[_-]?key)"
+)
+_URL_USERINFO_RE = re.compile(
+    r"(?P<scheme>\b[a-z][a-z0-9+.-]*://)[^/\s@]+@", re.IGNORECASE
+)
+_SENSITIVE_QUERY_RE = re.compile(
+    r"(?i)([?&](?:access[_-]?token|api[_-]?key|token|password|passwd|secret)=)[^&#\s]+"
+)
+_SENSITIVE_ASSIGNMENT_RE = re.compile(
+    r"""(?ix)
+    (?<![\w-])
+    (?P<key>[\"']?(?:authorization|credential|access[_-]?token|api[_-]?key|token|password|
+    passwd|secret|cookie|session|private[_-]?key)[\"']?)
+    \s*(?P<separator>[:=])\s*
+    (?:bearer\s+)?
+    (?P<value>
+        \"(?:\\.|[^\"\\])*\"
+        |'(?:\\.|[^'\\])*'
+        |[^\s,;}\]]+
+    )
+    """
+)
+_ANSI_ESCAPE_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
+_UNSAFE_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+_BIDI_CONTROL_RE = re.compile(r"[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]")
+_ABSOLUTE_PATH_PLACEHOLDER = "<ABSOLUTE_PATH>"
+_PATH_HARD_BOUNDARY = frozenset(",;:!?()[]{}<>|\"'\r\n")
+_PATH_FIELD_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]*\s*[:=]")
+_PATH_URL_RE = re.compile(r"(?:https?|file)://", re.IGNORECASE)
+_FILE_URI_RE = re.compile(
+    r"""(?<![A-Za-z0-9+.-])file://[^\r\n\"'<>|]*?(?=$|[,\r\n\"'<>|]|\s+(?=[A-Za-z_][A-Za-z0-9_.-]*\s*[:=])|\s+(?=(?:https?|file)://))""",
+    re.IGNORECASE,
+)
+_WINDOWS_ABSOLUTE_PATH_START_RE = re.compile(
+    r"(?<![A-Za-z0-9_/:?])[A-Za-z]:[\\/]",
+    re.IGNORECASE,
+)
+_UNC_ABSOLUTE_PATH_START_RE = re.compile(
+    r"(?<![A-Za-z0-9_/:?])\\\\",
+)
+_POSIX_ABSOLUTE_PATH_START_RE = re.compile(
+    r"(?<![/:A-Za-z0-9_<])/",
+)
+_ABSOLUTE_PATH_STARTS = (
+    ("windows", _WINDOWS_ABSOLUTE_PATH_START_RE),
+    ("unc", _UNC_ABSOLUTE_PATH_START_RE),
+    ("posix", _POSIX_ABSOLUTE_PATH_START_RE),
+)
+
+
+def _build_traceback_path_aliases():
+    """Безопасно вычислить локальные path-aliases для удалённого журнала."""
+    aliases = []
+    for resolver, alias in (
+        (lambda: Path(__file__).resolve().parent.parent, "<PROJECT_ROOT>"),
+        (lambda: Path.home().resolve(), "<USER_HOME>"),
+    ):
+        try:
+            local_path = str(resolver())
+        except (OSError, RuntimeError):
+            continue
+        if local_path:
+            aliases.append((re.compile(re.escape(local_path), re.IGNORECASE), alias))
+    return tuple(aliases)
+
+
+_TRACEBACK_PATH_ALIASES = _build_traceback_path_aliases()
+
+
+def _is_absolute_path_start(text: str, index: int) -> bool:
+    return any(pattern.match(text, index) for _, pattern in _ABSOLUTE_PATH_STARTS)
+
+
+def _path_continuation_is_boundary(text: str, index: int) -> bool:
+    probe = index
+    while probe < len(text) and text[probe] in " \t":
+        probe += 1
+    return (
+        probe != index
+        and (
+            probe >= len(text)
+            or _PATH_FIELD_RE.match(text, probe) is not None
+            or _PATH_URL_RE.match(text, probe) is not None
+            or _is_absolute_path_start(text, probe)
+        )
+    )
+
+
+def _consume_absolute_path(text: str, start: int, kind: str) -> int | None:
+    index = start
+    while index < len(text):
+        character = text[index]
+        if character in _PATH_HARD_BOUNDARY:
+            break
+        if character in " \t" and _path_continuation_is_boundary(text, index):
+            break
+        index += 1
+
+    end = index
+    while end > start and text[end - 1] in " \t":
+        end -= 1
+    if kind == "unc":
+        components = text[start:end].split("\\")
+        if len(components) < 2 or not all(component.strip() for component in components[:2]):
+            return None
+    return end
+
+
+def _redact_absolute_paths(text: str) -> str:
+    fragments: list[str] = []
+    cursor = 0
+    while cursor < len(text):
+        candidates = [
+            (match.start(), match.end(), kind)
+            for kind, pattern in _ABSOLUTE_PATH_STARTS
+            for match in [pattern.search(text, cursor)]
+            if match is not None
+        ]
+        if not candidates:
+            fragments.append(text[cursor:])
+            break
+        start, prefix_end, kind = min(candidates)
+        end = _consume_absolute_path(text, prefix_end, kind)
+        if end is None:
+            fragments.append(text[cursor:prefix_end])
+            cursor = prefix_end
+            continue
+        fragments.append(text[cursor:start])
+        fragments.append(_ABSOLUTE_PATH_PLACEHOLDER)
+        cursor = end
+    return "".join(fragments)
+
+
+def sanitize_traceback_text(value) -> str:
+    """Скрыть секреты, абсолютные пути и управляющие последовательности."""
+    try:
+        text = str("" if value is None else value)
+    except Exception:
+        text = "<значение не удалось безопасно преобразовать>"
+    text = _ANSI_ESCAPE_RE.sub("", text)
+    text = _UNSAFE_CONTROL_RE.sub("", text)
+    text = _BIDI_CONTROL_RE.sub("", text)
+    text = _FILE_URI_RE.sub(_ABSOLUTE_PATH_PLACEHOLDER, text)
+    text = _URL_USERINFO_RE.sub(r"\g<scheme>***@", text)
+    text = _SENSITIVE_QUERY_RE.sub(r"\1***", text)
+    text = _SENSITIVE_ASSIGNMENT_RE.sub(r"\1\2***", text)
+    for path_pattern, alias in _TRACEBACK_PATH_ALIASES:
+        text = path_pattern.sub(alias, text)
+    return _redact_absolute_paths(text)
+
+
+def sanitize_log_text(value, limit: int = REMOTE_LOG_TEXT_LIMIT) -> str:
+    """Очистить и ограничить текст перед сохранением за пределами процесса."""
+    if limit <= 0:
+        return ""
+    text = sanitize_traceback_text(value)
+    if len(text) <= limit:
+        return text
+    marker = "\n...[текст обрезан по ограничению удалённого журнала]"
+    if len(marker) >= limit:
+        return text[:limit]
+    return text[: limit - len(marker)] + marker
+
+
+def is_sensitive_name(value: object) -> bool:
+    """Проверить, обозначает ли имя поля потенциально секретное значение."""
+    try:
+        return bool(_SENSITIVE_NAME_RE.search(str(value)[:_TASK_METADATA_LIMIT]))
+    except Exception:
+        return False
 
 
 @dataclass(frozen=True)
@@ -161,7 +334,12 @@ class RepeatedEventSuppressor:
 
 
 class DiagnosticContextHandler(logging.Handler):
-    """Bounded DEBUG-ring, сохраняемый в отдельный файл только при ERROR/CRITICAL."""
+    """Потокобезопасный bounded ring для контекста реального incident-а.
+
+    Обработчик никогда не создаёт и не открывает файл. Текущий контекст
+    хранится в памяти до ошибки, после которой атомарно становится
+    ``last_failure`` для единственного incident producer-а.
+    """
 
     def __init__(
         self,
@@ -169,35 +347,46 @@ class DiagnosticContextHandler(logging.Handler):
         capacity: int = 200,
         sanitizer: Callable[[object], str] = str,
         max_bytes: int = 2 * 1024 * 1024,
-        backup_count: int = 2,
     ) -> None:
         if capacity <= 0:
             raise ValueError("capacity должен быть положительным")
+        if max_bytes <= 0:
+            raise ValueError("max_bytes должен быть положительным")
         super().__init__(level=logging.DEBUG)
         self.capacity = capacity
         self._buffer: deque[logging.LogRecord] = deque(maxlen=capacity)
+        self._buffer_bytes = 0
         self._last_failure: tuple[logging.LogRecord, ...] = ()
         self._sanitizer = sanitizer
         self._max_bytes = max_bytes
-        self._backup_count = backup_count
-        self._target: RotatingFileHandler | None = None
-        self._failure_target: logging.Handler | None = None
+
+    def _bounded_message(self, message: object) -> str:
+        text = str(message)
+        encoded = text.encode("utf-8", errors="replace")
+        record_limit = max(1, self._max_bytes // self.capacity)
+        if len(encoded) <= record_limit:
+            return text
+        return encoded[:record_limit].decode("utf-8", errors="ignore")
 
     def _clone_record(self, record: logging.LogRecord) -> logging.LogRecord:
         # Не копируем __dict__ исходного LogRecord: произвольный ``extra`` может
         # удерживать секреты, изображения, NumPy-массивы и другие тяжёлые объекты.
         # Полный pathname также не нужен текущему formatter: оставляем только имя
         # файла, а дорогостоящую sanitization выполняем один раз — для сообщения.
+        bounded_message = self._bounded_message(self._sanitizer(record.getMessage()))
         cloned = logging.LogRecord(
             name=record.name,
             level=record.levelno,
             pathname=record.filename,
             lineno=record.lineno,
-            msg=self._sanitizer(record.getMessage()),
+            msg=bounded_message,
             args=(),
             exc_info=None,
             func=record.funcName,
             sinfo=None,
+        )
+        cloned._azurpilot_record_bytes = len(
+            bounded_message.encode("utf-8", errors="replace")
         )
         cloned.created = record.created
         cloned.msecs = record.msecs
@@ -213,85 +402,65 @@ class DiagnosticContextHandler(logging.Handler):
             cloned.alas_task = alas_task[:_TASK_METADATA_LIMIT]
         return cloned
 
-    def configure_output(self, path: str | Path, formatter: logging.Formatter) -> None:
-        output = Path(path)
-        output.parent.mkdir(parents=True, exist_ok=True)
-        with self.lock:
-            if self._target is not None:
-                self._target.close()
-            target = RotatingFileHandler(
-                output,
-                maxBytes=self._max_bytes,
-                backupCount=self._backup_count,
-                encoding="utf-8",
-                delay=True,
-            )
-            target.setLevel(logging.DEBUG)
-            target.setFormatter(formatter)
-            self._target = target
+    @staticmethod
+    def _record_bytes(record: logging.LogRecord) -> int:
+        cached = getattr(record, "_azurpilot_record_bytes", None)
+        if isinstance(cached, int):
+            return cached
+        size = len(record.getMessage().encode("utf-8", errors="replace"))
+        record._azurpilot_record_bytes = size
+        return size
 
-    def configure_failure_target(self, target: logging.Handler | None) -> None:
-        """Задать normal file handler для условного DEBUG-dump при реальном сбое."""
-        with self.lock:
-            self._failure_target = target
+    def _append(self, record: logging.LogRecord) -> None:
+        if len(self._buffer) == self.capacity:
+            self._buffer_bytes -= self._record_bytes(self._buffer[0])
+        self._buffer.append(record)
+        self._buffer_bytes += self._record_bytes(record)
+        while self._buffer and self._buffer_bytes > self._max_bytes:
+            removed = self._buffer.popleft()
+            self._buffer_bytes -= self._record_bytes(removed)
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
-            self._emit(record)
+            with self.lock:
+                self._emit(record)
         except Exception:
             # Ошибка самого диагностического контура не должна прерывать игровой код.
             self.handleError(record)
-            if record.levelno >= logging.ERROR:
+            with self.lock:
                 self._buffer.clear()
+                self._buffer_bytes = 0
 
     def _emit(self, record: logging.LogRecord) -> None:
-        if record.levelno < logging.INFO:
-            self._buffer.append(self._clone_record(record))
+        cloned = self._clone_record(record)
+        if record.levelno >= logging.ERROR:
+            failure = tuple(self._buffer) + (cloned,)
+            if self._buffer or not self._last_failure:
+                self._last_failure = self._bounded_snapshot(failure)
+            else:
+                self._last_failure = self._bounded_snapshot(
+                    self._last_failure + (cloned,)
+                )
+            self._buffer.clear()
+            self._buffer_bytes = 0
             return
-        if record.levelno < logging.ERROR:
-            return
+        self._append(cloned)
 
-        buffered = tuple(self._buffer)
-        if buffered:
-            self._last_failure = buffered
-            header = logging.LogRecord(
-                name=record.name,
-                level=logging.INFO,
-                pathname=record.filename,
-                lineno=record.lineno,
-                msg=(
-                    "[Диагностика] Контекст перед %s: %s"
-                    % (record.levelname, self._sanitizer(record.getMessage()))
-                ),
-                args=(),
-                exc_info=None,
-                func=record.funcName,
-            )
-            header.created = record.created
-            header.msecs = record.msecs
-            failure_target = self._failure_target
-            if failure_target is None:
-                owner_logger = logging.getLogger(record.name)
-                for candidate in owner_logger.handlers:
-                    if candidate is self:
-                        continue
-                    if isinstance(candidate, logging.FileHandler):
-                        failure_target = candidate
-                        break
-
-            targets = []
-            for target in (self._target, failure_target):
-                if target is not None and all(target is not item for item in targets):
-                    targets.append(target)
-            for target in targets:
-                try:
-                    target.handle(copy.copy(header))
-                    for buffered_record in buffered:
-                        target.handle(copy.copy(buffered_record))
-                    target.flush()
-                except Exception:
-                    self.handleError(record)
-        self._buffer.clear()
+    def _bounded_snapshot(
+        self,
+        records: tuple[logging.LogRecord, ...],
+    ) -> tuple[logging.LogRecord, ...]:
+        selected: deque[logging.LogRecord] = deque()
+        total_bytes = 0
+        for record in reversed(records):
+            if len(selected) >= self.capacity:
+                break
+            record_bytes = self._record_bytes(record)
+            if selected and total_bytes + record_bytes > self._max_bytes:
+                break
+            selected.appendleft(record)
+            total_bytes += record_bytes
+        return tuple(selected)
 
     def snapshot(self, *, last_failure: bool = False) -> tuple[logging.LogRecord, ...]:
         with self.lock:
@@ -301,14 +470,12 @@ class DiagnosticContextHandler(logging.Handler):
     def reset(self) -> None:
         with self.lock:
             self._buffer.clear()
+            self._buffer_bytes = 0
             self._last_failure = ()
 
     def close(self) -> None:
         with self.lock:
             self._buffer.clear()
+            self._buffer_bytes = 0
             self._last_failure = ()
-            if self._target is not None:
-                self._target.close()
-                self._target = None
-            self._failure_target = None
         super().close()

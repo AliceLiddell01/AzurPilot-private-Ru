@@ -13,11 +13,11 @@ from module.application import (
     ConfigUpdateRequest,
     ConfigurationValidationError,
     CurrentTaskSnapshot,
+    CurrentTaskState,
     DashboardResource,
     DashboardResources,
     GameControlService,
     GameReadService,
-    InstanceNotRunningError,
     InvalidRequestError,
     LifecycleOutcome,
     LifecycleResult,
@@ -32,6 +32,7 @@ from module.application import (
 )
 from module.application.game_validation import validate_config_value
 from module.application.ports import RuntimeSnapshot
+from module.application.resource_lease import game_runtime_lease
 
 
 class _Instances:
@@ -229,14 +230,20 @@ class _AuthoritativeConfig(_Config):
 
 
 class _Logs:
-    def __init__(self, *, current: str = "Main") -> None:
-        self.current = current
-
     def read_tail(self, instance: str, limit: int) -> tuple[str, ...]:
         return ("line 1\n", "line 2\n")[-limit:]
 
-    def read_current_task(self, instance: str) -> str:
-        return self.current
+
+class _RuntimeExecution:
+    def __init__(
+        self,
+        snapshot: CurrentTaskSnapshot | None = None,
+    ) -> None:
+        self.snapshot = snapshot or CurrentTaskSnapshot("ap", "Main")
+
+    def read_current_task(self, instance: str) -> CurrentTaskSnapshot:
+        assert instance == self.snapshot.instance
+        return self.snapshot
 
 
 class _Screens:
@@ -285,13 +292,22 @@ def _read_service(
     logs: _Logs | None = None,
     screens: _Screens | None = None,
     metadata: _Metadata | None = None,
+    runtime_execution: _RuntimeExecution | None = None,
 ) -> GameReadService:
     instances = instances or _Instances()
     config = config or _Config()
     logs = logs or _Logs()
     screens = screens or _Screens()
     metadata = metadata or _Metadata()
-    return GameReadService(instances, config, logs, screens, metadata)
+    runtime_execution = runtime_execution or _RuntimeExecution()
+    return GameReadService(
+        instances,
+        config,
+        logs,
+        screens,
+        metadata,
+        runtime_execution_reader=runtime_execution,
+    )
 
 
 def _control_service(
@@ -363,15 +379,60 @@ def test_read_service_returns_typed_bounded_results_and_canonical_instance():
     assert service.get_screenshot("ap").media_type == "image/jpeg"
 
 
-def test_read_service_rejects_invalid_unknown_and_not_running_instances():
-    service = _read_service(_Instances(running=False))
+def test_read_service_accepts_canonical_profile_without_local_length_cap() -> None:
+    profile = "a" * 129
+
+    class LongProfileInstances(_Instances):
+        def list_instance_names(self) -> tuple[str, ...]:
+            return (profile,)
+
+    service = _read_service(
+        LongProfileInstances(),
+        runtime_execution=_RuntimeExecution(
+            CurrentTaskSnapshot(profile, None, CurrentTaskState.IDLE)
+        ),
+    )
+
+    assert service.get_current_running_task(profile) == CurrentTaskSnapshot(
+        profile, None, CurrentTaskState.IDLE
+    )
+
+
+@pytest.mark.parametrize("state", [CurrentTaskState.IDLE, CurrentTaskState.STOPPED])
+def test_read_service_ignores_stale_run_task_log_for_authoritative_state(
+    state: CurrentTaskState,
+) -> None:
+    class StaleLogs(_Logs):
+        def read_tail(self, instance: str, limit: int) -> tuple[str, ...]:
+            return ("<<< Run task Event >>>\n",)
+
+    current_task = None
+    runtime_execution = _RuntimeExecution(
+        CurrentTaskSnapshot("ap", current_task, state)
+    )
+    service = _read_service(logs=StaleLogs(), runtime_execution=runtime_execution)
+
+    assert service.get_recent_logs("ap", 1).lines == ("<<< Run task Event >>>\n",)
+    assert service.get_current_running_task("ap") == CurrentTaskSnapshot(
+        "ap", None, state
+    )
+
+
+def test_read_service_rejects_invalid_instances_without_using_profile_status_for_execution():
+    service = _read_service(
+        _Instances(running=False),
+        runtime_execution=_RuntimeExecution(
+            CurrentTaskSnapshot("ap", None, CurrentTaskState.STOPPED)
+        ),
+    )
 
     with pytest.raises(InvalidRequestError):
         service.get_config("../ap")
     with pytest.raises(ResourceNotFoundError):
         service.get_config("missing")
-    with pytest.raises(InstanceNotRunningError):
-        service.get_current_running_task("ap")
+    assert service.get_current_running_task("ap") == CurrentTaskSnapshot(
+        "ap", None, CurrentTaskState.STOPPED
+    )
     with pytest.raises(InvalidRequestError):
         service.get_recent_logs("ap", -1)
     with pytest.raises(InvalidRequestError):
@@ -458,6 +519,30 @@ def test_control_service_validates_config_scheduler_and_lifecycle_postconditions
         "status",
         "status",
     ]
+
+
+def test_control_service_releases_game_lock_before_external_lifecycle_owner(
+    tmp_path: Path,
+) -> None:
+    class _ExternalLifecycle(_Lifecycle):
+        lifecycle_mutation_lock_owned_externally = True
+
+        def start_instance(self, instance: str) -> bool:
+            with game_runtime_lease(tmp_path, timeout=1):
+                self.calls.append("start")
+                self.running = True
+                return True
+
+    lifecycle = _ExternalLifecycle()
+    service, _config, _ = _control_service(
+        lifecycle=lifecycle,
+        mutation_lock_root=tmp_path,
+    )
+
+    result = service.start_instance("ap")
+
+    assert result.outcome is LifecycleOutcome.STARTED
+    assert lifecycle.calls == ["status", "start", "status"]
 
 
 def test_independent_control_services_share_profile_mutation_lock(

@@ -564,8 +564,6 @@ class RewardTacticalClass(Dock):
         if self.appear_then_click(REWARD_GOTO_TACTICAL_WHITE, offset=(20, 20), interval=3):
             self.interval_reset(REWARD_GOTO_TACTICAL)
             return True, False
-        if self.ui_main_appear_then_click(page_reward, interval=3):
-            return True, False
         if self.handle_popup_confirm('TACTICAL'):
             self.interval_reset([BOOK_EMPTY_POPUP])
             return True, False
@@ -574,6 +572,8 @@ class RewardTacticalClass(Dock):
             return True, self.config.Tactical_SkillAutoSwitch
         if self.ui_page_main_popups():
             self.interval_reset([BOOK_EMPTY_POPUP])
+            return True, False
+        if self.ui_main_appear_then_click(page_reward, interval=3):
             return True, False
         # Similar to handle_mission_popup_ack, but battle pass item expire popup has a different ACK button
         if self.appear(MISSION_POPUP_GO, offset=self._popup_offset, interval=2):

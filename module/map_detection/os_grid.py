@@ -2,6 +2,7 @@
 网格属性（敌人、资源、问号、盟友等）和雷达扫描检测。"""
 
 from module.base.utils import *
+from module.exception import OpsiMapDetectionTemplateMatchError, TemplateMatchError
 from module.map_detection.grid import Grid, GridInfo, GridPredictor
 from module.map_detection.utils_assets import ASSETS
 from module.os.assets import *
@@ -183,7 +184,16 @@ class OSGridPredictor(GridPredictor):
 
     def predict_fleet(self):
         # OS don't have ammo icon
-        return super().predict_current_fleet()
+        return self.predict_current_fleet()
+
+    def predict_current_fleet(self):
+        """Распознать текущий флот и классифицировать ошибку шаблона на границе OS."""
+        try:
+            return super().predict_current_fleet()
+        except TemplateMatchError as error:
+            raise OpsiMapDetectionTemplateMatchError(
+                f'Не удалось распознать текущий флот на карте Operation Siren: {error}'
+            ) from error
 
     def predict_sea(self):
         color = cv2.mean(self.image_trans)
@@ -191,20 +201,14 @@ class OSGridPredictor(GridPredictor):
             return False
 
         area = area_pad((48, 48, 48 + 46, 48 + 46), pad=5)
-        res = cv2.matchTemplate(ASSETS.tile_center_image, crop(self.image_homo, area=area, copy=False), cv2.TM_CCOEFF_NORMED)
+        res = self._match_image_template(
+            'OS sea tile center',
+            ASSETS.tile_center_image,
+            crop(self.image_homo, area=area, copy=False),
+        )
         _, sim, _, _ = cv2.minMaxLoc(res)
         if sim > lower_template_match_similarity(0.8):
             return True
-
-        # tile = 135
-        # corner = 25
-        # corner = [(5, 5, corner, corner), (tile - corner, 5, tile, corner), (5, tile - corner, corner, tile),
-        #           (tile - corner, tile - corner, tile, tile)]
-        # for area, template in zip(corner[::-1], ASSETS.tile_corner_image_list[::-1]):
-        #     res = cv2.matchTemplate(template, crop(self.image_homo, area=area), cv2.TM_CCOEFF_NORMED)
-        #     _, sim, _, _ = cv2.minMaxLoc(res)
-        #     if sim > 0.8:
-        #         return True
 
         return False
 
@@ -219,15 +223,51 @@ class OSGridPredictor(GridPredictor):
         'LoggingTower': TEMPLATE_LoggingTowerUpper,
     }
 
+    @staticmethod
+    def _match_template(template, image, *, similarity=0.85, direct_match=False, name=None):
+        """Преобразовать ошибку базового matcher-а в ошибку распознавания OS-карты."""
+        template_name = getattr(template, 'name', type(template).__name__)
+        object_name = name or template_name
+        try:
+            return template.match(image, similarity=similarity, direct_match=direct_match)
+        except TemplateMatchError as error:
+            raise OpsiMapDetectionTemplateMatchError(
+                f'Не удалось распознать объект карты Operation Siren {object_name}: '
+                f'шаблон {template_name}; {error}'
+            ) from error
+
+    @staticmethod
+    def _match_result(template, image, *, name=None):
+        """Получить результат matcher-а с диагностикой уровня OS-карты."""
+        template_name = getattr(template, 'name', type(template).__name__)
+        object_name = name or template_name
+        try:
+            return template.match_result(image, name=name)
+        except TemplateMatchError as error:
+            raise OpsiMapDetectionTemplateMatchError(
+                f'Не удалось получить результат распознавания объекта карты Operation Siren {object_name}: '
+                f'шаблон {template_name}; {error}'
+            ) from error
+
+    @staticmethod
+    def _match_image_template(name, first, second):
+        """Выполнить array matcher с диагностикой уровня OS-карты."""
+        try:
+            return template_match(first, second, name=name)
+        except TemplateMatchError as error:
+            raise OpsiMapDetectionTemplateMatchError(
+                f'Не удалось сопоставить изображение карты Operation Siren {name}: {error}'
+            ) from error
+
     def predict_enemy_genre(self):
         image = rgb2gray(self.relative_crop((-0.5, -1, 0.5, 0), shape=(60, 60)))
         for name, template in self._os_template_enemy.items():
-            if template.match(image, similarity=0.9, direct_match=True):
+            if self._match_template(template, image, similarity=0.9, direct_match=True, name=name):
                 return name
 
         image = rgb2gray(self.relative_crop((-0.5, -2, 0.5, -1), shape=(60, 60)))
         for name, template in self._os_template_enemy_upper.items():
-            if template.match(image, similarity=0.9, direct_match=True):
+            if self._match_template(template, image, similarity=0.9, direct_match=True, name=name):
                 return name
 
         return None
@@ -245,9 +285,9 @@ class OSGridPredictor(GridPredictor):
         red = color_similarity_2d(image, (255, 130, 132))
         yellow = color_similarity_2d(image, (255, 235, 156))
 
-        if TEMPLATE_ENEMY_L.match(red):
+        if self._match_template(TEMPLATE_ENEMY_L, red):
             scale = 3
-        elif TEMPLATE_ENEMY_M.match(yellow):
+        elif self._match_template(TEMPLATE_ENEMY_M, yellow):
             scale = 2
         # Disable the detection of 1 triangle enemies
         # In OS, light tower on map will detect to be 1 triangle enemy
@@ -260,20 +300,20 @@ class OSGridPredictor(GridPredictor):
 
     def predict_resource(self):
         image = rgb2gray(self.relative_crop((-0.5, -1, 0.5, 0), shape=(60, 60)))
-        return TEMPLATE_OS_Resource.match(image, similarity=0.85, direct_match=True)
+        return self._match_template(TEMPLATE_OS_Resource, image, similarity=0.85, direct_match=True)
 
     def predict_meowfficer(self):
         image = rgb2gray(self.image_trans)
-        return TEMPLATE_OS_Meowfficer.match(image, similarity=0.85, direct_match=True)
+        return self._match_template(TEMPLATE_OS_Meowfficer, image, similarity=0.85, direct_match=True)
 
     def predict_ally(self):
         # Ally cargo ship in daily mission
         image = rgb2gray(self.relative_crop((-0.5, -0.5, 0.5, 0.5), shape=(60, 60)))
-        return TEMPLATE_OS_AllyCargo.match(image, similarity=0.85, direct_match=True)
+        return self._match_template(TEMPLATE_OS_AllyCargo, image, similarity=0.85, direct_match=True)
 
     def predict_akashi(self):
         image = rgb2gray(self.relative_crop((-0.5, -1, 0.5, 0), shape=(60, 60)))
-        return TEMPLATE_SIREN_Akashi.match(image, similarity=0.85, direct_match=True)
+        return self._match_template(TEMPLATE_SIREN_Akashi, image, similarity=0.85, direct_match=True)
 
     def predict_caught_by_siren(self):
         # Detect the red slash background of `In action`.
@@ -318,7 +358,7 @@ class OSGridPredictor(GridPredictor):
         #     return False
         # Should match the letter `2`
         image = rgb2gray(self.image_trans)
-        sim, button = TEMPLATE_FleetMechanism.match_result(image)
+        sim, button = self._match_result(TEMPLATE_FleetMechanism, image)
         point = (53, 37)
         distance = np.linalg.norm(np.subtract(button.area[:2], point))
         if distance > 5 or sim < lower_template_match_similarity(0.3):

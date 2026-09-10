@@ -1,5 +1,10 @@
 """Безопасная граница ошибок прикладного слоя."""
 
+from re import fullmatch
+
+
+_NOTIFICATION_REASON_CODE_RE = r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}"
+
 
 class ApplicationError(Exception):
     """Ожидаемая ошибка, безопасная для преобразования транспортным адаптером."""
@@ -122,3 +127,26 @@ class StorageInvalidDataError(StorageError):
     """Domain command не удовлетворяет storage-инвариантам."""
 
     code = "storage_invalid_data"
+
+
+class StorageInvariantViolationError(StorageError):
+    """Критический durable invariant нарушен и не должен быть скрыт retry."""
+
+    code = "storage_invariant_violation"
+
+
+class NotificationValidationError(InvalidRequestError):
+    """Notification event не прошёл bounded typed schema validation."""
+
+    code = "notification_validation_failed"
+
+    def __init__(self, reason_code: str, message: str | None = None) -> None:
+        if not isinstance(reason_code, str) or fullmatch(
+            _NOTIFICATION_REASON_CODE_RE, reason_code
+        ) is None:
+            raise ValueError("Notification reason code имеет неверный формат.")
+        self.reason_code = reason_code
+        super().__init__(
+            message
+            or f"Notification event не прошёл проверку схемы: {reason_code}."
+        )

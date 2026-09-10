@@ -48,18 +48,19 @@ def handle_sensitive_image(image):
 
 
 def handle_sensitive_text(text):
-    """对日志文本中的敏感路径信息进行脱敏处理。
+    """Обезличить чувствительные сведения о путях в тексте журнала.
 
-    将日志中的真实文件路径替换为假路径，防止泄露用户的目录结构信息。
+    Заменить реальные пути в журнале на фиктивные, чтобы не раскрывать структуру
+    каталогов пользователя.
 
     Args:
-        text (str): 输入文本。
+        text (str): Исходный текст.
 
     Returns:
-        str: 脱敏后的文本。
+        str: Обезличенный текст.
     """
     text = re.sub('File \"(.*?)AzurLaneAutoScript', 'File \"C:\\\\fakepath\\\\AzurLaneAutoScript', text)
-    text = re.sub('\[Adb_binary\] (.*?)AzurLaneAutoScript', '[Adb_binary] C:\\\\fakepath\\\\AzurLaneAutoScript', text)
+    text = re.sub(r'\[Adb_binary\] (.*?)AzurLaneAutoScript', '[Adb_binary] C:\\\\fakepath\\\\AzurLaneAutoScript', text)
     return text
 
 

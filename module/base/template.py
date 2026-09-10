@@ -5,6 +5,7 @@
 """
 
 import os
+from functools import partial
 
 import imageio
 
@@ -12,6 +13,7 @@ from module.base.button import Button
 from module.base.decorator import cached_property
 from module.base.resource import Resource
 from module.base.utils import *
+from module.base.utils import template_match
 from module.config.server import VALID_SERVER
 from module.map_detection.utils import Points
 
@@ -27,6 +29,7 @@ class Template(Resource):
         self._image = None
         self._image_binary = None
         self._image_luma = None
+        self._image_gray = None
 
         self.resource_add(self.file)
 
@@ -67,16 +70,34 @@ class Template(Resource):
         return self._image
 
     @property
+    def image_gray(self):
+        """Вернуть кэшированное одноканальное представление шаблона."""
+        if self._image_gray is None:
+            if self.is_gif:
+                self._image_gray = [
+                    image if image.ndim == 2 else rgb2gray(image)
+                    for image in self.image
+                ]
+            else:
+                self._image_gray = (
+                    self.image
+                    if self.image.ndim == 2
+                    else rgb2gray(self.image)
+                )
+
+        return self._image_gray
+
+    @property
     def image_binary(self):
         if self._image_binary is None:
             if self.is_gif:
                 self._image_binary = []
                 for image in self.image:
-                    image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+                    image_gray = image if image.ndim == 2 else cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
                     _, image_binary = cv2.threshold(image_gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
                     self._image_binary.append(image_binary)
             else:
-                image_gray = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
+                image_gray = self.image if self.image.ndim == 2 else cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
                 _, self._image_binary = cv2.threshold(image_gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
 
         return self._image_binary
@@ -95,14 +116,27 @@ class Template(Resource):
         return self._image_luma
 
     @staticmethod
-    def _match_gif(image, templates, similarity):
+    def _match_gif(image, templates, similarity, gray_templates=None, name=None):
         """GIF 模板匹配，对每帧同时尝试原图和水平翻转。"""
-        for template in templates:
-            res = cv2.matchTemplate(image, template, cv2.TM_CCOEFF_NORMED)
+        for index, template in enumerate(templates):
+            if gray_templates is None:
+                gray_template = None
+            elif callable(gray_templates):
+                gray_template = partial(gray_templates, index)
+            else:
+                gray_template = gray_templates[index]
+            res = template_match(image, template, template_gray=gray_template, name=name)
             _, sim, _, _ = cv2.minMaxLoc(res)
             if sim > similarity:
                 return True
-            res = cv2.matchTemplate(image, cv2.flip(template, 1), cv2.TM_CCOEFF_NORMED)
+            flipped_template = cv2.flip(template, 1)
+            if gray_template is None:
+                flipped_gray = None
+            elif callable(gray_template):
+                flipped_gray = lambda gray_template=gray_template: cv2.flip(gray_template(), 1)
+            else:
+                flipped_gray = cv2.flip(gray_template, 1)
+            res = template_match(image, flipped_template, template_gray=flipped_gray, name=name)
             _, sim, _, _ = cv2.minMaxLoc(res)
             if sim > similarity:
                 return True
@@ -117,6 +151,7 @@ class Template(Resource):
         self._image = None
         self._image_binary = None
         self._image_luma = None
+        self._image_gray = None
 
     def pre_process(self, image):
         """对输入图像进行预处理。
@@ -155,20 +190,21 @@ class Template(Resource):
             image = cv2.resize(image, None, fx=scaling, fy=scaling)
 
         if self.is_gif:
-            for template in self.image:
-                res = cv2.matchTemplate(image, template, cv2.TM_CCOEFF_NORMED)
-                _, sim, _, _ = cv2.minMaxLoc(res)
-                if sim > similarity:
-                    return True
-                res = cv2.matchTemplate(image, cv2.flip(template, 1), cv2.TM_CCOEFF_NORMED)
-                _, sim, _, _ = cv2.minMaxLoc(res)
-                if sim > similarity:
-                    return True
-
-            return False
+            return self._match_gif(
+                image,
+                self.image,
+                similarity,
+                gray_templates=lambda index: self.image_gray[index],
+                name=self.name,
+            )
 
         else:
-            res = cv2.matchTemplate(image, self.image, cv2.TM_CCOEFF_NORMED)
+            res = template_match(
+                image,
+                self.image,
+                template_gray=lambda: self.image_gray,
+                name=self.name,
+            )
             _, sim, _, _ = cv2.minMaxLoc(res)
             return sim > similarity
 
@@ -185,18 +221,18 @@ class Template(Resource):
         similarity = lower_template_match_similarity(similarity)
         if self.is_gif:
             # 灰度化
-            image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            image_gray = image if image.ndim == 2 else cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
             # 二值化
             _, image_binary = cv2.threshold(image_gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
-            return self._match_gif(image_binary, self.image_binary, similarity)
+            return self._match_gif(image_binary, self.image_binary, similarity, name=self.name)
 
         else:
             # 灰度化
-            image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            image_gray = image if image.ndim == 2 else cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
             # 二值化
             _, image_binary = cv2.threshold(image_gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
             # 模板匹配
-            res = cv2.matchTemplate(self.image_binary, image_binary, cv2.TM_CCOEFF_NORMED)
+            res = template_match(image_binary, self.image_binary, name=self.name)
             _, sim, _, _ = cv2.minMaxLoc(res)
             return sim > similarity
 
@@ -204,10 +240,11 @@ class Template(Resource):
         similarity = lower_template_match_similarity(similarity)
         if self.is_gif:
             image = rgb2luma(image)
-            return self._match_gif(image, self.image_luma, similarity)
+            return self._match_gif(image, self.image_luma, similarity, name=self.name)
 
         else:
-            res = cv2.matchTemplate(image, self.image, cv2.TM_CCOEFF_NORMED)
+            image_luma = rgb2luma(image)
+            res = template_match(image_luma, self.image_luma, name=self.name)
             _, sim, _, _ = cv2.minMaxLoc(res)
             return sim > similarity
 
@@ -240,7 +277,12 @@ class Template(Resource):
         Returns:
             相似度（float）和对应的 Button 对象。
         """
-        res = cv2.matchTemplate(image, self.image, cv2.TM_CCOEFF_NORMED)
+        res = template_match(
+            image,
+            self.image,
+            template_gray=lambda: self.image_gray,
+            name=self.name,
+        )
         _, sim, _, point = cv2.minMaxLoc(res)
         # print(self.file, sim)
 
@@ -248,26 +290,27 @@ class Template(Resource):
         return sim, button
 
     def match_luma_result(self, image, name=None):
-        image = rgb2luma(image)
-        res = cv2.matchTemplate(image, self.image_luma, cv2.TM_CCOEFF_NORMED)
+        raw = image
+        image_luma = rgb2luma(image)
+        res = template_match(image_luma, self.image_luma, name=self.name)
         _, sim, _, point = cv2.minMaxLoc(res)
         # print(self.file, sim)
 
-        button = self._point_to_button(point, image=image, name=name)
+        button = self._point_to_button(point, image=raw, name=name)
         return sim, button
 
     def match_multi(self, image, scaling=1.0, similarity=0.85, threshold=3, name=None):
-        """模板匹配多个位置，返回所有匹配结果的 Button 列表。
+        """Найти все совпадения шаблона и вернуть список объектов Button.
 
         Args:
-            image: 截图图像。
-            scaling: 缩放比例，用于缩放模板以匹配图像。
-            similarity: 相似度阈值，范围 0 到 1。
-            threshold: 聚类距离阈值，用于合并相邻的匹配结果。
-            name: 按钮名称。
+            image: Изображение screenshot.
+            scaling: Масштаб для сопоставления с изображением.
+            similarity: Порог сходства от 0 до 1.
+            threshold: Расстояние кластеризации соседних совпадений.
+            name: Имя кнопки.
 
         Returns:
-            所有匹配位置的 Button 对象列表。
+            Список объектов Button для всех найденных позиций.
         """
         similarity = lower_template_match_similarity(similarity)
         scaling = 1 / scaling
@@ -275,16 +318,25 @@ class Template(Resource):
             image = cv2.resize(image, None, fx=scaling, fy=scaling)
 
         raw = image
+
         if self.is_gif:
             result = []
-            for template in self.image:
-                res = cv2.matchTemplate(image, template, cv2.TM_CCOEFF_NORMED)
+            for index, template in enumerate(self.image):
+                gray_template = lambda index=index: self.image_gray[index]
+                res = template_match(image, template, template_gray=gray_template, name=self.name)
                 result += np.array(np.where(res > similarity)).T[:, ::-1].tolist()
-                res = cv2.matchTemplate(image, cv2.flip(template, 1), cv2.TM_CCOEFF_NORMED)
+                flipped_template = cv2.flip(template, 1)
+                flipped_gray = lambda index=index: cv2.flip(self.image_gray[index], 1)
+                res = template_match(image, flipped_template, template_gray=flipped_gray, name=self.name)
                 result += np.array(np.where(res > similarity)).T[:, ::-1].tolist()
             result = np.array(result)
         else:
-            result = cv2.matchTemplate(image, self.image, cv2.TM_CCOEFF_NORMED)
+            result = template_match(
+                image,
+                self.image,
+                template_gray=lambda: self.image_gray,
+                name=self.name,
+            )
             result = np.array(np.where(result > similarity)).T[:, ::-1]
 
         # result: np.array([[x0, y0], [x1, y1], ...])  匹配位置坐标数组

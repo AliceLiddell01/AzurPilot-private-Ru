@@ -4,6 +4,7 @@ from collections.abc import Mapping
 
 from module.dev_mcp.adapter import DevMcpAdapter
 from module.dev_runtime import DevResult, DevStatusKind
+from module.persistence.schema import EXPECTED_ALEMBIC_HEAD
 
 
 def _result(code: str, details: dict[str, object]) -> DevResult:
@@ -126,7 +127,7 @@ class _GameDatabaseManager:
                     "marker_ready": False,
                     "connectivity": False,
                     "app_role_ready": False,
-                    "expected_schema_head": "0008_dorm_morale_idempotency",
+                    "expected_schema_head": EXPECTED_ALEMBIC_HEAD,
                     "current_schema_head": None,
                     "schema_marker_version": None,
                     "target_resolved": False,

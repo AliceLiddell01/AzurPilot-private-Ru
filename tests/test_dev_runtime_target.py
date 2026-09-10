@@ -8,6 +8,7 @@ import pytest
 
 from module.dev_runtime import (
     DevEnvironment,
+    DevRuntimeMode,
     DevSession,
     DevSessionManager,
     DevSessionState,
@@ -48,6 +49,12 @@ def _write_profile(root: Path, name: str = _TARGET_NAME) -> Path:
 
 def _error_code(error: pytest.ExceptionInfo[DevTargetError]) -> str:
     return error.value.code
+
+
+def test_dev_target_accepts_canonical_profile_without_local_length_cap() -> None:
+    profile = "a" * 129
+
+    assert DevTarget(profile).profile_name == profile
 
 
 def test_configured_target_round_trips_against_one_structural_profile(tmp_path: Path) -> None:
@@ -314,6 +321,7 @@ def test_existing_session_keeps_recorded_target_after_registry_switch(
         process=identity,
         profile_name="profile-a",
         target_identity=target_module.target_identity(DevTarget("profile-a")),
+        runtime_mode=DevRuntimeMode.STANDALONE_PROCESS,
     )
     state_path = root / "config" / "state" / "dev-runtime-session.json"
     state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -332,6 +340,7 @@ def test_existing_session_keeps_recorded_target_after_registry_switch(
     manager = DevSessionManager(
         environment_b,
         process_backend=backend,
+        shared_webui=False,
         storage_probe=lambda _environment: (True, "ready"),
         port_probe=lambda _host, _port: False,
         readiness_probe=lambda _environment, _identity: (True, "ready"),
@@ -375,6 +384,37 @@ def test_long_lived_manager_refreshes_target_before_new_read_only_call(
 
     assert result.ok is True
     assert manager.environment.profile_name == "profile-b"
+
+
+def test_long_lived_shared_manager_rebinds_owned_lifecycle_after_target_switch(
+    tmp_path: Path,
+) -> None:
+    _write_profile(tmp_path, "profile-a")
+    _write_profile(tmp_path, "profile-b")
+    target_a = DevTargetRegistry.configure(
+        tmp_path,
+        profile_name="profile-a",
+        explicit_consent=True,
+    )
+    manager = DevSessionManager(
+        DevEnvironment(tmp_path, Path("python"), target_a),
+        storage_probe=lambda _environment: (True, "ready"),
+        port_probe=lambda _host, _port: False,
+    )
+    old_lifecycle = manager.shared_lifecycle
+
+    DevTargetRegistry.configure(
+        tmp_path,
+        profile_name="profile-b",
+        explicit_consent=True,
+    )
+
+    result = manager.list_tasks()
+
+    assert result.ok is True
+    assert manager.shared_lifecycle is not old_lifecycle
+    assert manager.shared_lifecycle is not None
+    assert manager.shared_lifecycle.profile_name == "profile-b"
 
 
 def test_long_lived_manager_reports_target_registry_error_as_result(

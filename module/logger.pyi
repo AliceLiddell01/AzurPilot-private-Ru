@@ -17,7 +17,6 @@ WEB_THEME: Theme
 logger_debug: bool
 pyw_name: str
 
-file_formatter: logging.Formatter
 console_formatter: logging.Formatter
 web_formatter: logging.Formatter
 
@@ -25,8 +24,11 @@ stdout_console: Console
 console_hdlr: RichHandler
 diagnostic_hdlr: DiagnosticContextHandler
 
-def set_file_logger(
+def configure_runtime_logging(
     name: str = pyw_name,
+    *,
+    observability_profile: str | None = None,
+    observability_component: str | None = None,
 ) -> None: ...
 def set_func_logger(
     func: Callable[[ConsoleRenderable], None],
@@ -45,9 +47,6 @@ def get_diagnostic_context(*, last_failure: bool = False) -> tuple[str, ...]: ..
 def reset_diagnostic_context() -> None: ...
 
 class __logger(logging.Logger):
-    log_file: str
-    diagnostic_log_file: str
-
     def rule(
         self,
         title: str = "",
@@ -74,9 +73,12 @@ class __logger(logging.Logger):
         front="",
         align: int = 22,
     ) -> None: ...
-    def set_file_logger(
+    def configure_runtime_logging(
         self,
         name: str = pyw_name,
+        *,
+        observability_profile: str | None = None,
+        observability_component: str | None = None,
     ) -> None: ...
     def set_func_logger(
         self,

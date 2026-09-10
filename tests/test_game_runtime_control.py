@@ -460,6 +460,25 @@ def test_application_adapter_revalidates_target_before_start() -> None:
     assert replacement.start_calls == 0
 
 
+def test_application_adapter_preserves_handover_failure_step_and_cause() -> None:
+    target = _Device("target")
+
+    def fail_device(_config: object) -> object:
+        raise RuntimeError("synthetic device failure")
+
+    adapter = _application_adapter(
+        _Client([target]),
+        device_factory=fail_device,
+    )
+
+    with pytest.raises(OperationFailedError) as failure:
+        adapter.return_to_main("alas")
+
+    assert failure.value.handover_step == "device"
+    assert failure.value.cause_type == "RuntimeError"
+    assert failure.value.cause_message == "synthetic device failure"
+
+
 class _LoginDevice:
     def __init__(self, running: bool) -> None:
         self.running = running

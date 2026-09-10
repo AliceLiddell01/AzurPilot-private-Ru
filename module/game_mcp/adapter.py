@@ -8,7 +8,7 @@ import logging
 import math
 import re
 from collections.abc import Callable, Collection, Mapping, Sequence
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -45,6 +45,7 @@ from module.application.game_models import (
     ConfigUpdateRequest,
     ConfigUpdateResult,
     CurrentTaskSnapshot,
+    CurrentTaskState,
     DashboardResources,
     EmulatorRestartResult,
     GameLoginResult,
@@ -63,8 +64,8 @@ from module.application.game_models import (
 from module.application.game_validation import (
     INVALID_NAME_CHARS,
     MAX_NAME_LENGTH,
-    UNKNOWN_TASK,
     validate_json_value,
+    validated_profile,
 )
 from module.application.models import (
     InstanceReference,
@@ -367,6 +368,32 @@ def _invalid(tool: str) -> dict[str, object]:
     )
 
 
+def _operation_failure_details(error: OperationFailedError) -> dict[str, object]:
+    """Вернуть bounded typed cause от application/runtime control boundary."""
+
+    code = getattr(error, "runtime_code", None)
+    message = getattr(error, "runtime_message", None)
+    if (
+        not isinstance(code, str)
+        or not re.fullmatch(r"[A-Z][A-Z0-9_]{1,96}", code)
+        or not isinstance(message, str)
+    ):
+        return {}
+    try:
+        details = _safe_value(getattr(error, "runtime_details", {}))
+    except (TypeError, ValueError, _ResultLimitExceeded):
+        details = {}
+    if not isinstance(details, dict):
+        details = {}
+    return {
+        "cause": {
+            "code": code,
+            "message": _safe_text(message),
+            "details": details,
+        }
+    }
+
+
 def _unknown_tool(tool: object) -> dict[str, object]:
     return _error(
         "GAME_MCP_UNKNOWN_TOOL",
@@ -414,11 +441,17 @@ def _public_name(value: object, *, resource: str) -> str:
     return value
 
 
+def _public_profile(value: object) -> str:
+    if isinstance(value, str) and value != value.strip():
+        raise InvalidRequestError("Имя профиля должно быть канонической строкой.")
+    return validated_profile(value, resource="профиля")
+
+
 def _profile_arguments(arguments: dict[str, object]) -> str:
     _check_keys(
         arguments, allowed=frozenset({"profile"}), required=frozenset({"profile"})
     )
-    return _public_name(arguments["profile"], resource="профиля")
+    return _public_profile(arguments["profile"])
 
 
 def _task_arguments(arguments: dict[str, object]) -> str:
@@ -1345,7 +1378,19 @@ class GameMcpAdapter:
         self,
         profile: str,
         backend: object,
+        *,
+        tool: str,
     ) -> AbstractContextManager[None]:
+        if tool in {"game_start_profile", "game_stop_profile"}:
+            control = _control_service(backend)
+            if (
+                getattr(control, "lifecycle_mutation_lock_owned_externally", False)
+                is True
+            ):
+                # Lifecycle mutation передаётся общему WebUI owner.
+                # Удержание того же межпроцессного lease во время ожидания
+                # owner привело бы к взаимной блокировке handover.
+                return nullcontext()
         root = getattr(backend, "mutation_lock_root", None)
         if root is None:
             root = self._mutation_lock_root
@@ -1374,14 +1419,14 @@ class GameMcpAdapter:
                 raise ServiceUnavailableError(
                     "Каталог профилей имеет некорректный формат."
                 )
-            names.append(_public_name(item.name, resource="профиля"))
+            names.append(_public_profile(item.name))
         if profile not in names:
             raise ResourceNotFoundError("Профиль не найден.")
         return profile
 
     @staticmethod
     def _profile_from(arguments: dict[str, object]) -> str:
-        return _public_name(arguments["profile"], resource="профиля")
+        return _public_profile(arguments["profile"])
 
     def _dispatch(
         self,
@@ -1407,7 +1452,7 @@ class GameMcpAdapter:
                     "Каталог профилей имеет некорректный формат."
                 )
             profiles = [
-                {"profile": _public_name(item.name, resource="профиля")}
+                {"profile": _public_profile(item.name)}
                 for item in values
             ]
             return _ok(
@@ -1494,15 +1539,25 @@ class GameMcpAdapter:
                 raise ServiceUnavailableError(
                     "Источник вернул некорректную текущую задачу."
                 )
-            task_unknown = result.task == UNKNOWN_TASK
-            return _ok(
-                "GAME_DATA_UNKNOWN" if task_unknown else "GAME_CURRENT_TASK_READY",
-                "Текущая задача неизвестна."
-                if task_unknown
-                else "Текущая задача определена",
-                "unknown" if task_unknown else "running",
-                {"profile": profile, "task": result.task},
-            )
+            if result.state is CurrentTaskState.RUNNING:
+                code = "GAME_CURRENT_TASK_READY"
+                message = "Текущая задача определена"
+                state = "running"
+            elif result.state is CurrentTaskState.IDLE:
+                code = "GAME_CURRENT_TASK_IDLE"
+                message = "Активная задача отсутствует"
+                state = "idle"
+            elif result.state is CurrentTaskState.UNKNOWN:
+                code = "GAME_CURRENT_TASK_UNKNOWN"
+                message = "Состояние текущей задачи не подтверждено."
+                state = "unknown"
+            elif result.state is CurrentTaskState.STOPPED:
+                raise InstanceNotRunningError("Экземпляр не запущен.")
+            else:  # pragma: no cover - CurrentTaskSnapshot validates the enum.
+                raise ServiceUnavailableError(
+                    "Источник вернул неизвестное состояние текущей задачи."
+                )
+            return _ok(code, message, state, {"profile": profile, "task": result.task})
         if tool == "game_get_scheduler_queue":
             result = read.get_scheduler_queue(profile)
             if not isinstance(result, SchedulerQueueSnapshot):
@@ -1656,7 +1711,11 @@ class GameMcpAdapter:
                 if tool_name in GAME_MCP_CONTROL_TOOL_NAMES:
                     profile = self._profile_from(parsed)
                     self._known_profile(backend, profile)
-                    with self._acquire_mutation_lock(profile, backend):
+                    with self._acquire_mutation_lock(
+                        profile,
+                        backend,
+                        tool=tool_name,
+                    ):
                         # Повторная проверка после lock закрывает TOCTOU-окно.
                         result = self._dispatch(
                             tool_name,
@@ -1695,35 +1754,40 @@ class GameMcpAdapter:
                 return _error(
                     "GAME_UNKNOWN_PROFILE", "Профиль не найден.", tool=tool_name
                 )
-            except PostconditionFailedError:
+            except PostconditionFailedError as error:
                 return _error(
                     "GAME_POSTCONDITION_FAILED",
                     "Изменение не подтверждено ожидаемым состоянием.",
                     tool=tool_name,
+                    details=_operation_failure_details(error),
                 )
-            except ResourceBusyError:
+            except ResourceBusyError as error:
                 return _error(
                     "GAME_RESOURCE_BUSY",
                     "Профиль занят другой control-операцией.",
                     tool=tool_name,
+                    details=_operation_failure_details(error),
                 )
-            except OwnershipAmbiguousError:
+            except OwnershipAmbiguousError as error:
                 return _error(
                     "GAME_OWNERSHIP_AMBIGUOUS",
                     "Ownership целевого Game ресурса не подтвержден.",
                     tool=tool_name,
+                    details=_operation_failure_details(error),
                 )
-            except PreconditionFailedError:
+            except PreconditionFailedError as error:
                 return _error(
                     "GAME_PRECONDITION_FAILED",
                     "Безопасное условие Game операции не выполнено.",
                     tool=tool_name,
+                    details=_operation_failure_details(error),
                 )
-            except OperationFailedError:
+            except OperationFailedError as error:
                 return _error(
                     "GAME_OPERATION_FAILED",
                     "Операция Game MCP не подтверждена.",
                     tool=tool_name,
+                    details=_operation_failure_details(error),
                 )
             except (
                 StorageConfigurationError,

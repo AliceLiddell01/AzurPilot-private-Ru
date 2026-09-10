@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import UTC, datetime
@@ -472,10 +473,10 @@ def test_production_modules_do_not_import_sqlite_or_legacy_database():
                 continue
             names = imports_for_path(ROOT, path)
             if any(
-                name == "sqlite3"
-                or name.startswith("sqlite3.")
-                or name == "module.statistics.cl1_database"
-                or name.startswith("module.statistics.cl1_database.")
+                name in {"sqlite3", "module.statistics.cl1_database"}
+                or name.startswith(
+                    ("sqlite3.", "module.statistics.cl1_database.")
+                )
                 for name in names
             ):
                 violations.append(str(path.relative_to(ROOT)))
@@ -494,9 +495,11 @@ def test_lifecycle_scripts_encode_postgresql_ownership():
     repair = (ROOT / "scripts" / "Repair-AzurPilot.ps1").read_text(encoding="utf-8")
     build = (ROOT / "scripts" / "Build-AzurPilot.ps1").read_text(encoding="utf-8")
 
-    assert "'systemctl'\n                'start'\n                'postgresql'" in start
-    assert "'--user'\n                'root'" in start
-    assert "'pg_isready', '--host', '127.0.0.1'" in start
+    assert re.search(r"'compose'\s+'--env-file'", start)
+    assert re.search(r"'config'\s+'--quiet'", start)
+    assert "dev_tools.observability_compose_migration" in start
+    assert "'migrate'" in start
+    assert re.search(r"'up'\s+'--detach'\s+'--wait'\s+'postgres'", start)
     assert "dev_tools.postgresql_runtime" in start
     backup_call = update.index("\n        $postgresqlBackupPath = Backup-ProductionPostgreSql\n")
     merge_call = update.index("'merge'", backup_call)
@@ -505,10 +508,12 @@ def test_lifecycle_scripts_encode_postgresql_ownership():
     assert "Repair не изменяет БД" in repair
     assert "dev_tools.postgresql_security" in repair
     assert "dev_tools.postgresql_runtime" not in build
-    assert "Get-Command -Name 'wsl.exe'" in start
-    assert "Get-Command -Name 'wsl.exe'" in repair
+    assert "Get-Command -Name 'docker.exe'" in start
+    assert "foreach ($dockerName in @('docker.exe', 'docker'))" in repair
+    assert re.search(r"'--deployment'\s+'docker'", repair)
     assert "Select-Object -First 1" in start
     assert "Select-Object -First 1" in repair
+    assert "-TimeoutMilliseconds 30000" in repair
 
 
 def test_webui_rejects_database_upload_before_read():

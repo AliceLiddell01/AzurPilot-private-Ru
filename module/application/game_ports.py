@@ -9,6 +9,7 @@ from typing import Protocol
 from module.application.game_models import (
     ConfigArgumentDefinition,
     ConfigUpdateRequest,
+    CurrentTaskSnapshot,
     DashboardResources,
     GameApplicationState,
     GameLoginState,
@@ -93,7 +94,9 @@ class SchedulerTaskReader(Protocol):
 class RuntimeLogReader(Protocol):
     def read_tail(self, instance: str, limit: int) -> Sequence[str]: ...
 
-    def read_current_task(self, instance: str) -> str: ...
+
+class RuntimeExecutionStateReader(Protocol):
+    def read_current_task(self, instance: str) -> CurrentTaskSnapshot: ...
 
 
 class ScreenshotReader(Protocol):
@@ -126,6 +129,10 @@ class GameApplicationController(Protocol):
         timeout_seconds: float,
     ) -> GameLoginState: ...
 
+    def return_to_main(self, instance: str) -> bool: ...
+
+    def is_in_main(self, instance: str) -> bool: ...
+
 
 class AdbController(Protocol):
     def restart_adb(self, instance: str | None) -> bool: ...
@@ -140,6 +147,7 @@ __all__ = [
     "GameConfigReader",
     "GameConfigWriter",
     "InstanceLifecycleController",
+    "RuntimeExecutionStateReader",
     "RuntimeLogReader",
     "SchedulerTaskReader",
     "ScreenshotReader",

@@ -1,0 +1,737 @@
+import asyncio
+import logging
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+from unittest.mock import patch
+
+from opentelemetry.sdk._logs.export import InMemoryLogRecordExporter
+
+import module.observability.bootstrap as bootstrap_module
+from module.logging_context import (
+    get_logging_context,
+    get_task_context,
+    logging_context,
+    task_context,
+    task_logging_context,
+)
+from module.logging_core import sanitize_log_text, sanitize_traceback_text
+from module.observability.bootstrap import (
+    _bounded_exception_stacktrace,
+    _read_config,
+    _Runtime,
+    _SanitizedOTelHandler,
+    _safe_exception_message,
+    _safe_record,
+    _shutdown_runtime,
+    configure_application_observability,
+    shutdown_application_observability,
+)
+
+_ROOT = Path(__file__).resolve().parents[1]
+_OTEL_ENVIRONMENT_KEYS = (
+    "OTEL_EXPORTER_OTLP_HEADERS",
+    "OTEL_EXPORTER_OTLP_LOGS_HEADERS",
+    "OTEL_EXPORTER_OTLP_METRICS_HEADERS",
+    "OTEL_EXPORTER_OTLP_TRACES_HEADERS",
+    "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL",
+    "OTEL_EXPORTER_OTLP_METRICS_PROTOCOL",
+    "OTEL_EXPORTER_OTLP_PROTOCOL",
+    "OTEL_SDK_DISABLED",
+    "OTEL_RESOURCE_ATTRIBUTES",
+    "OTEL_PYTHON_LOG_HANDLER_LEVEL",
+    "OTEL_EXPORTER_OTLP_LOGS_TIMEOUT",
+    "OTEL_EXPORTER_OTLP_METRICS_TIMEOUT",
+    "OTEL_EXPORTER_OTLP_TIMEOUT",
+    "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE",
+    "OTEL_METRICS_EXEMPLAR_FILTER",
+    "OTEL_METRIC_EXPORT_INTERVAL",
+    "OTEL_METRIC_EXPORT_TIMEOUT",
+    "OTEL_BLRP_SCHEDULE_DELAY",
+    "OTEL_BLRP_MAX_QUEUE_SIZE",
+    "OTEL_BLRP_MAX_EXPORT_BATCH_SIZE",
+    "OTEL_BLRP_EXPORT_TIMEOUT",
+    "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL",
+    "OTEL_EXPORTER_OTLP_TRACES_TIMEOUT",
+    "OTEL_BSP_SCHEDULE_DELAY",
+    "OTEL_BSP_MAX_QUEUE_SIZE",
+    "OTEL_BSP_MAX_EXPORT_BATCH_SIZE",
+    "OTEL_BSP_EXPORT_TIMEOUT",
+    "OTEL_TRACES_SAMPLER",
+    "OTEL_TRACES_SAMPLER_ARG",
+)
+
+
+def _configure_test_environment(monkeypatch):
+    for key in _OTEL_ENVIRONMENT_KEYS:
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv(
+        "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+        "http://127.0.0.1:4318/v1/logs",
+    )
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_LOGS_PROTOCOL", "http/protobuf")
+    monkeypatch.setenv(
+        "OTEL_RESOURCE_ATTRIBUTES",
+        "deployment.environment.name=test",
+    )
+    monkeypatch.setenv("OTEL_BLRP_SCHEDULE_DELAY", "10000")
+
+
+def _new_logger(name: str) -> logging.Logger:
+    target = logging.getLogger(name)
+    for handler in list(target.handlers):
+        target.removeHandler(handler)
+        handler.close()
+    target.filters.clear()
+    target.setLevel(logging.DEBUG)
+    target.propagate = False
+    return target
+
+
+def _observability_handlers(target: logging.Logger):
+    return [
+        handler
+        for handler in target.handlers
+        if getattr(handler, "_azurpilot_observability_handler", False)
+    ]
+
+
+def test_application_logging_is_disabled_without_explicit_endpoint(monkeypatch):
+    for key in _OTEL_ENVIRONMENT_KEYS:
+        monkeypatch.delenv(key, raising=False)
+    target = _new_logger("observability-disabled")
+    try:
+        assert not configure_application_observability(target)
+        assert _observability_handlers(target) == []
+    finally:
+        shutdown_application_observability(target)
+
+
+def test_canonical_project_env_enables_otlp_without_loading_secrets(
+    monkeypatch, tmp_path
+):
+    for key in _OTEL_ENVIRONMENT_KEYS:
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.delenv("AZURPILOT_REPOSITORY_ROOT", raising=False)
+    monkeypatch.delenv(
+        "AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD",
+        raising=False,
+    )
+    (tmp_path / "module").mkdir()
+    (tmp_path / "gui.py").write_text("", encoding="utf-8")
+    monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text(
+        "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://alloy:4318/v1/logs\n"
+        "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL=http/protobuf\n"
+        "AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD=must-not-load\n",
+        encoding="utf-8",
+    )
+
+    config = _read_config()
+
+    assert config is not None
+    assert config.signal_endpoint == "http://alloy:4318/v1/logs"
+    assert os.environ.get("AZURPILOT_OBSERVABILITY_GRAFANA_ADMIN_PASSWORD") is None
+    for key in _OTEL_ENVIRONMENT_KEYS:
+        monkeypatch.delenv(key, raising=False)
+
+
+def test_local_otlp_headers_are_passed_in_config_without_global_env_leak(
+    monkeypatch, tmp_path
+):
+    for key in _OTEL_ENVIRONMENT_KEYS:
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.delenv("AZURPILOT_REPOSITORY_ROOT", raising=False)
+    (tmp_path / "module").mkdir()
+    (tmp_path / "gui.py").write_text("", encoding="utf-8")
+    monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(tmp_path))
+    (tmp_path / ".env").write_text(
+        "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://alloy:4318/v1/logs\n"
+        "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL=http/protobuf\n"
+        "OTEL_EXPORTER_OTLP_LOGS_HEADERS=x-test=from-local-env\n",
+        encoding="utf-8",
+    )
+
+    config = _read_config()
+
+    assert config is not None
+    assert config.headers == {"x-test": "from-local-env"}
+    assert "from-local-env" not in repr(config)
+    assert os.environ.get("OTEL_EXPORTER_OTLP_LOGS_HEADERS") is None
+
+
+def test_unverified_working_directory_does_not_load_project_env(monkeypatch, tmp_path):
+    for key in _OTEL_ENVIRONMENT_KEYS:
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.delenv("AZURPILOT_REPOSITORY_ROOT", raising=False)
+    monkeypatch.setattr(
+        bootstrap_module,
+        "__file__",
+        str(tmp_path / "unverified" / "module" / "observability" / "bootstrap.py"),
+    )
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text(
+        "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://unverified-root:4318/v1/logs\n"
+        "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL=http/protobuf\n",
+        encoding="utf-8",
+    )
+
+    assert _read_config() is None
+    assert os.environ.get("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT") is None
+
+
+def test_canonical_project_env_uses_process_repository_root(monkeypatch, tmp_path):
+    for key in _OTEL_ENVIRONMENT_KEYS:
+        monkeypatch.delenv(key, raising=False)
+    repository_root = tmp_path / "repository"
+    (repository_root / "module").mkdir(parents=True)
+    (repository_root / "gui.py").write_text("", encoding="utf-8")
+    (repository_root / ".env").write_text(
+        "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://worker-root:4318/v1/logs\n"
+        "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL=http/protobuf\n",
+        encoding="utf-8",
+    )
+    working_directory = tmp_path / "working"
+    working_directory.mkdir()
+    monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(repository_root))
+    monkeypatch.chdir(working_directory)
+
+    config = _read_config()
+
+    assert config is not None
+    assert config.signal_endpoint == "http://worker-root:4318/v1/logs"
+    for key in _OTEL_ENVIRONMENT_KEYS:
+        monkeypatch.delenv(key, raising=False)
+
+
+def test_application_logging_disabled_flag_wins_over_endpoint(monkeypatch):
+    _configure_test_environment(monkeypatch)
+    monkeypatch.setenv("OTEL_SDK_DISABLED", "true")
+    target = _new_logger("observability-disabled-flag")
+    try:
+        assert not configure_application_observability(target)
+        assert _observability_handlers(target) == []
+    finally:
+        shutdown_application_observability(target)
+
+
+def test_generic_otlp_endpoint_uses_standard_logs_path_and_timeout_fallback(
+    monkeypatch,
+):
+    for key in _OTEL_ENVIRONMENT_KEYS:
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4318")
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_TIMEOUT", "2000")
+
+    config = _read_config()
+    assert config is not None
+    assert config.signal_endpoint is None
+    assert config.timeout_millis == 2000
+
+
+def test_handler_level_is_configurable(monkeypatch):
+    _configure_test_environment(monkeypatch)
+    monkeypatch.setenv("OTEL_PYTHON_LOG_HANDLER_LEVEL", "WARNING")
+    target = _new_logger("observability-level")
+    exporter = InMemoryLogRecordExporter()
+    try:
+        assert configure_application_observability(
+            target,
+            _exporter_factory=lambda _timeout: exporter,
+        )
+        handler = _observability_handlers(target)[0]
+        assert handler.level == logging.WARNING
+    finally:
+        shutdown_application_observability(target)
+
+
+def test_application_logging_is_idempotent_and_preserves_context_and_redaction(
+    monkeypatch,
+):
+    _configure_test_environment(monkeypatch)
+    target = _new_logger("observability-records")
+    exporter = InMemoryLogRecordExporter()
+
+    class SecretObject:
+        def __str__(self):
+            return "raw-secret-from-object"
+
+    local_records = []
+    local_handler = logging.Handler()
+    local_handler.emit = local_records.append
+    target.addHandler(local_handler)
+    try:
+        assert configure_application_observability(
+            target,
+            default_profile="default-profile",
+            _exporter_factory=lambda _timeout: exporter,
+        )
+        assert configure_application_observability(
+            target,
+            default_profile="default-profile",
+            _exporter_factory=lambda _timeout: exporter,
+        )
+        assert len(_observability_handlers(target)) == 1
+
+        with logging_context(
+            profile="profile-a",
+            component="component-a",
+            run_id="run-a",
+        ):
+            with task_context("ObservationTask"):
+                target.warning(
+                    "token=raw-token credential=raw-credential cookie=raw-cookie "
+                    "session=raw-session private_key=raw-private-key "
+                    "url=https://user:password@example.test/path?secret=raw-secret value=%s",
+                    SecretObject(),
+                    extra={"raw_secret": "raw-attribute"},
+                )
+                try:
+                    raise ValueError("password=raw-exception")
+                except ValueError:
+                    target.exception(
+                        "[bold]exception body[/bold]", extra={"markup": True}
+                    )
+
+        assert shutdown_application_observability(target, timeout_millis=3000)
+        records = exporter.get_finished_logs()
+        assert len(records) == 2
+
+        warning = records[0].log_record
+        exception = records[1].log_record
+        assert warning.severity_text == "WARN"
+        assert "raw-token" not in str(warning.body)
+        assert "raw-credential" not in str(warning.body)
+        assert "raw-cookie" not in str(warning.body)
+        assert "raw-session" not in str(warning.body)
+        assert "raw-private-key" not in str(warning.body)
+        assert "raw-secret" not in str(warning.body)
+        assert "raw-secret-from-object" not in str(warning.body)
+        assert "https://***@example.test/path?secret=***" in warning.body
+        assert warning.attributes["azurpilot.profile"] == "profile-a"
+        assert warning.attributes["azurpilot.task"] == "ObservationTask"
+        assert warning.attributes["azurpilot.component"] == "component-a"
+        assert warning.attributes["azurpilot.run.id"] == "run-a"
+        assert isinstance(warning.attributes["process.pid"], int)
+        assert "pathname" not in warning.attributes
+        assert "raw_secret" not in warning.attributes
+        assert local_records[0].raw_secret == "raw-attribute"
+
+        assert exception.severity_text == "ERROR"
+        assert exception.body == "exception body"
+        assert exception.attributes["exception.type"] == "ValueError"
+        assert "raw-exception" not in exception.attributes["exception.message"]
+        assert "raw-exception" not in exception.attributes["exception.stacktrace"]
+
+        resource = records[0].resource.attributes
+        assert resource["service.name"] == "azurpilot"
+        assert resource["deployment.environment.name"] == "test"
+    finally:
+        target.removeHandler(local_handler)
+        local_handler.close()
+        shutdown_application_observability(target)
+
+
+def test_mapping_and_quoted_redaction_covers_body_and_exception_metadata(monkeypatch):
+    _configure_test_environment(monkeypatch)
+    target = _new_logger("observability-mapping-redaction")
+    exporter = InMemoryLogRecordExporter()
+    local_records = []
+    local_handler = logging.Handler()
+    local_handler.emit = local_records.append
+    target.addHandler(local_handler)
+    try:
+        assert configure_application_observability(
+            target,
+            _exporter_factory=lambda _timeout: exporter,
+        )
+        target.info("token=raw-assignment")
+        target.info('{"token":"raw-json"}')
+        target.info("{'token': 'raw-dict'}")
+        target.info('"authorization": "Bearer raw-authorization"')
+        target.info("%(token)s", {"token": "raw-mapping"})
+        try:
+            raise ValueError('{"token":"raw-exception"}')
+        except ValueError:
+            target.exception("Ошибка с секретом")
+
+        assert shutdown_application_observability(target, timeout_millis=3000)
+        records = exporter.get_finished_logs()
+        assert len(records) == 6
+        for exported in records:
+            log_record = exported.log_record
+            payload = "\n".join(
+                [
+                    str(log_record.body),
+                    str(log_record.attributes.get("exception.message", "")),
+                    str(log_record.attributes.get("exception.stacktrace", "")),
+                ]
+            )
+            for secret in (
+                "raw-assignment",
+                "raw-json",
+                "raw-dict",
+                "raw-authorization",
+                "raw-mapping",
+                "raw-exception",
+            ):
+                assert secret not in payload
+
+        assert local_records[4].getMessage() == "raw-mapping"
+        assert sanitize_log_text('{"token":"raw-json"}') == '{"token":***}'
+    finally:
+        target.removeHandler(local_handler)
+        local_handler.close()
+        shutdown_application_observability(target)
+
+
+def test_traceback_sanitizer_redacts_absolute_paths_without_breaking_urls():
+    paths = (
+        r"C:\Users\operator\private",
+        r"C:\Program Files\Private Folder",
+        r"C:\Program Files\Private Folder\secret",
+        r"\\server\share\private",
+        r"\\server\share name\private data",
+        r"/var/lib/azurpilot/private",
+        r"/home/other user/private",
+        r"file:///C:/Program%20Files/AzurPilot/log.txt",
+        r"file:///home/other%20user/private",
+    )
+    text = "visible text " + " ".join(
+        f"path-{index}={path}" for index, path in enumerate(paths)
+    )
+    text += (
+        " url=https://example.test/path/to/resource"
+        " local=http://localhost:3000/d/azurpilot-overview"
+        " relative=foo/bar"
+    )
+
+    sanitized = sanitize_traceback_text(text)
+
+    assert "visible text" in sanitized
+    assert all(path not in sanitized for path in paths)
+    assert sanitized.count("<ABSOLUTE_PATH>") == len(paths)
+    assert "visible text" in sanitized
+    assert "https://example.test/path/to/resource" in sanitized
+    assert "http://localhost:3000/d/azurpilot-overview" in sanitized
+    assert "foo/bar" in sanitized
+
+
+def test_exported_log_payload_redacts_paths_and_credentials(monkeypatch):
+    _configure_test_environment(monkeypatch)
+    target = _new_logger("observability-exported-paths")
+    exporter = InMemoryLogRecordExporter()
+    paths = (
+        r"C:\Program Files\Private Folder",
+        r"C:\Program Files\Private Folder\secret",
+        r"\\server\share name\private data",
+        r"/home/other user/private",
+        r"file:///C:/Program%20Files/AzurPilot/log.txt",
+    )
+    path_text = " ".join(
+        f"path-{index}={path}" for index, path in enumerate(paths)
+    )
+    exception_text = (
+        f"password=raw-secret {path_text} "
+        "url=https://example.test/path/to/resource"
+    )
+
+    try:
+        assert configure_application_observability(
+            target,
+            _exporter_factory=lambda _timeout: exporter,
+        )
+        target.error("log payload %s", exception_text)
+        try:
+            raise RuntimeError(exception_text)
+        except RuntimeError:
+            target.exception("Ошибка с path и credential")
+
+        assert shutdown_application_observability(target, timeout_millis=3000)
+        records = [item.log_record for item in exporter.get_finished_logs()]
+        assert len(records) == 2
+        exported_payloads = [
+            "\n".join(
+                [
+                    str(record.body),
+                    str(record.attributes.get("exception.message", "")),
+                    str(record.attributes.get("exception.stacktrace", "")),
+                ]
+            )
+            for record in records
+        ]
+        for payload in exported_payloads:
+            assert all(path not in payload for path in paths)
+            assert "raw-secret" not in payload
+            assert "password=***" in payload
+            assert "https://example.test/path/to/resource" in payload
+    finally:
+        shutdown_application_observability(target)
+
+
+def test_exception_metadata_preserves_multi_args_and_sanitizes_chained_traceback(
+    monkeypatch,
+):
+    _configure_test_environment(monkeypatch)
+    target = _new_logger("observability-exception-chain")
+    exporter = InMemoryLogRecordExporter()
+
+    class BrokenString:
+        def __str__(self):
+            raise RuntimeError("string conversion failed")
+
+    try:
+        assert configure_application_observability(
+            target,
+            _exporter_factory=lambda _timeout: exporter,
+        )
+        try:
+            raise ValueError("cause")
+        except ValueError as cause:
+            try:
+                raise RuntimeError("outer") from cause
+            except RuntimeError:
+                target.exception("chained exception")
+        try:
+            raise KeyError("implicit inner")
+        except KeyError:
+            try:
+                raise RuntimeError("implicit outer")
+            except RuntimeError:
+                target.exception("implicit chained exception")
+        try:
+            raise ValueError("first", "second", BrokenString())
+        except ValueError:
+            target.exception("multi-argument exception")
+
+        assert shutdown_application_observability(target, timeout_millis=3000)
+        records = [item.log_record for item in exporter.get_finished_logs()]
+        assert len(records) == 3
+
+        chained = records[0].attributes["exception.stacktrace"]
+        assert "ValueError: cause" in chained
+        assert "RuntimeError: outer" in chained
+        assert "непосредственной причиной" in chained
+        assert "locals" not in chained
+
+        implicit = records[1].attributes["exception.stacktrace"]
+        assert "KeyError: 'implicit inner'" in implicit
+        assert "RuntimeError: implicit outer" in implicit
+        assert "При обработке предыдущего исключения" in implicit
+
+        multi_argument = records[2].attributes["exception.message"]
+        assert "first" in multi_argument
+        assert "second" in multi_argument
+        assert "BrokenString" in multi_argument
+    finally:
+        shutdown_application_observability(target)
+
+
+def test_exception_serialization_is_bounded_and_does_not_mutate_log_record():
+    class BrokenString:
+        def __str__(self):
+            raise RuntimeError("conversion failed")
+
+    exception = ValueError("first", BrokenString(), "last")
+    message = _safe_exception_message(exception)
+    assert "first" in message
+    assert "last" in message
+    assert "BrokenString" in message
+    assert _safe_exception_message(RuntimeError("boom")) == "boom"
+    os_error_message = _safe_exception_message(OSError(2, "No such file", "raw-path"))
+    assert "No such file" in os_error_message
+    assert "raw-path" in os_error_message
+
+    class BrokenException(Exception):
+        def __str__(self):
+            raise RuntimeError("conversion failed")
+
+    assert "safe" in _safe_exception_message(BrokenException("safe"))
+
+    bounded = _bounded_exception_stacktrace("head\n" + "x" * 40_000 + "\ntail")
+    assert len(bounded) <= 32 * 1024
+    assert "трассировка обрезана" in bounded
+    assert bounded.endswith("tail")
+
+    record = logging.LogRecord(
+        name="observability",
+        level=logging.ERROR,
+        pathname="test.py",
+        lineno=1,
+        msg="value=%s",
+        args=("raw",),
+        exc_info=None,
+        func="test",
+        sinfo=None,
+    )
+    original_msg = record.msg
+    original_args = record.args
+    safe_record = _safe_record(record, None, None)
+    assert record.msg == original_msg
+    assert record.args == original_args
+    assert safe_record.args == ()
+
+
+def test_process_role_component_does_not_create_fake_profile(monkeypatch):
+    _configure_test_environment(monkeypatch)
+    target = _new_logger("observability-process-role")
+    exporter = InMemoryLogRecordExporter()
+    try:
+        assert configure_application_observability(
+            target,
+            default_component="gui",
+            _exporter_factory=lambda _timeout: exporter,
+        )
+        target.info("запуск GUI")
+        assert shutdown_application_observability(target, timeout_millis=3000)
+        attributes = exporter.get_finished_logs()[0].log_record.attributes
+        assert attributes["azurpilot.component"] == "gui"
+        assert "azurpilot.profile" not in attributes
+    finally:
+        shutdown_application_observability(target)
+
+
+def test_runtime_logging_keeps_canonical_profile_without_file_sink():
+    from module import observability
+    import module.logger as logger_module
+
+    handlers_before = list(logger_module.logger.handlers)
+    try:
+        with patch.object(observability, "configure_application_observability") as configure:
+            logger_module.configure_runtime_logging(name="farm_main")
+
+        configure.assert_called_once_with(
+            logger_module.logger,
+            default_profile="farm_main",
+            default_component=None,
+        )
+    finally:
+        for handler in list(logger_module.logger.handlers):
+            if handler not in handlers_before:
+                logger_module.logger.removeHandler(handler)
+                handler.close()
+        logger_module.logger.handlers[:] = handlers_before
+
+
+def test_logging_context_restores_nested_values_and_isolates_async_tasks():
+    assert get_logging_context().profile is None
+    assert get_task_context() is None
+
+    with logging_context(profile="outer", component="outer-component"):
+        with task_context("OuterTask"):
+            assert get_logging_context().profile == "outer"
+            assert get_task_context() == "OuterTask"
+            with logging_context(component="inner", run_id="run"):
+                with task_context("InnerTask"):
+                    assert get_logging_context().component == "inner"
+                    assert get_logging_context().run_id == "run"
+                    assert get_task_context() == "InnerTask"
+            assert get_logging_context().component == "outer-component"
+            assert get_logging_context().run_id is None
+            assert get_task_context() == "OuterTask"
+
+    async def read_context(profile):
+        with logging_context(profile=profile):
+            with task_context(f"Task-{profile}"):
+                await asyncio.sleep(0)
+                return get_logging_context().profile, get_task_context()
+
+    async def read_both():
+        return await asyncio.gather(read_context("one"), read_context("two"))
+
+    assert asyncio.run(read_both()) == [
+        ("one", "Task-one"),
+        ("two", "Task-two"),
+    ]
+    assert get_logging_context().profile is None
+    assert get_task_context() is None
+
+
+def test_task_boundary_adds_profile_without_replacing_canonical_task_context():
+    class Probe:
+        config_name = "profile-from-boundary"
+
+        @task_logging_context
+        def run(self, command):
+            return get_logging_context().profile, get_task_context()
+
+    probe = Probe()
+    assert probe.run("research") == ("profile-from-boundary", "Research")
+    assert get_logging_context().profile is None
+    assert get_task_context() is None
+
+
+def test_importing_logger_does_not_create_file_handler_or_remote_bootstrap():
+    code = """
+import module.logger as logger_module
+import module.observability
+print(any(isinstance(handler, __import__("logging").FileHandler) for handler in logger_module.logger.handlers))
+print(any(name.startswith("opentelemetry") for name in __import__("sys").modules))
+"""
+    environment = os.environ.copy()
+    for key in _OTEL_ENVIRONMENT_KEYS:
+        environment.pop(key, None)
+    environment["OTEL_SDK_DISABLED"] = "true"
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=_ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert result.stdout.splitlines()[-2:] == ["False", "False"]
+
+
+def test_exporter_failure_is_fail_open_for_local_logger(monkeypatch):
+    _configure_test_environment(monkeypatch)
+    target = _new_logger("observability-failure")
+
+    class FailingExporter:
+        def export(self, _records):
+            raise RuntimeError("искусственный сбой транспорта")
+
+        def shutdown(self):
+            return None
+
+    records = []
+    target.addHandler(logging.Handler())
+    target.handlers[0].emit = records.append
+    try:
+        assert configure_application_observability(
+            target,
+            _exporter_factory=lambda _timeout: FailingExporter(),
+        )
+        target.error("локальная запись сохраняется")
+        assert shutdown_application_observability(target, timeout_millis=3000)
+        assert records
+    finally:
+        shutdown_application_observability(target)
+
+
+def test_shutdown_is_bounded_even_when_provider_blocks():
+    class SlowProvider:
+        def force_flush(self, timeout_millis):
+            time.sleep(0.2)
+            return False
+
+        def shutdown(self):
+            time.sleep(0.2)
+
+    target = _new_logger("observability-timeout")
+    handler = _SanitizedOTelHandler(
+        logging.Handler(),
+        SlowProvider(),
+        reporter=type("Reporter", (), {"report": lambda *_args, **_kwargs: None})(),
+    )
+    runtime = _Runtime(target=target, provider=SlowProvider(), handler=handler)
+    started = time.monotonic()
+    assert not _shutdown_runtime(runtime, timeout_millis=25)
+    assert time.monotonic() - started < 0.35

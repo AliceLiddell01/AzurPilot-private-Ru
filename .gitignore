@@ -34,8 +34,7 @@ debug_ocr/
 PaddleOCR
 .trae
 docs/
-# Локальная конфигурация public HTTPS содержит host и OAuth-значения оператора.
-docs/dev-mcp/Caddyfile
+# Локальный архив прежнего host Caddy; канонический ingress работает в Compose.
 .tools/caddy/
 # Created by .ignore support plugin (hsz.mobi)
 

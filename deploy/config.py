@@ -72,6 +72,7 @@ class ConfigModel:
     # WebUI 配置
     WebuiHost: str = "0.0.0.0"
     WebuiPort: int = 25548
+    RuntimeHandoverGraceSeconds: int = 30
     WebuiSSLKey: Optional[str] = None
     WebuiSSLCert: Optional[str] = None
     Language: str = "ru-RU"

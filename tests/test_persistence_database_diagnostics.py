@@ -195,6 +195,37 @@ def test_database_diagnostics_contracts_allow_only_sanitized_scalars() -> None:
         checks=(result,),
     )
     assert snapshot.as_dict()["checks"] == [result.as_dict()]
+    assert snapshot.as_dict()["target_profile"] == _TARGET_PROFILE
+
+
+def test_database_status_snapshot_stores_resolved_canonical_profile(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from module.config.profile import ProfileIdentity
+
+    monkeypatch.setattr(
+        "module.application.database_diagnostics.profile_identity_from_name",
+        lambda _name: ProfileIdentity("canonical-profile"),
+    )
+
+    snapshot = DatabaseStatusSnapshot(
+        target_profile="alias-profile",
+        marker_ready=False,
+        connectivity=False,
+        app_role_ready=False,
+        expected_schema_head=EXPECTED_ALEMBIC_HEAD,
+        current_schema_head=None,
+        schema_marker_version=None,
+        target_resolved=False,
+        required_tables_ready=False,
+        domain_consistency=None,
+        transaction_ready=False,
+        config_match=False,
+        checks=(),
+    )
+
+    assert snapshot.target_profile == "canonical-profile"
+    assert snapshot.as_dict()["target_profile"] == "canonical-profile"
 
 
 def test_database_diagnostics_maps_healthy_and_schema_drift_states() -> None:
