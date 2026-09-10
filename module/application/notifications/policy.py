@@ -38,6 +38,12 @@ def _validate_action(action: PolicyAction) -> None:
         action.presentation_profile, r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}"
     ):
         raise ValueError("Policy presentation profile имеет неверный формат.")
+    if action.priority is not None and (
+        not isinstance(action.priority, int)
+        or isinstance(action.priority, bool)
+        or not -100 <= action.priority <= 100
+    ):
+        raise ValueError("Policy priority имеет неверный диапазон.")
     if len(action.channel_instance_ids) > 32:
         raise ValueError("Policy не может выбрать больше 32 channel instances.")
     if len(set(action.channel_instance_ids)) != len(action.channel_instance_ids):

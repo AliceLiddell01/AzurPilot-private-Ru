@@ -19,6 +19,7 @@ _SCHEMA = "azurpilot"
 def upgrade() -> None:
     op.create_table(
         "notification_event",
+        sa.Column("row_id", sa.Uuid(), nullable=False),
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column("source", sa.String(length=64), nullable=False),
         sa.Column("type", sa.String(length=128), nullable=False),
@@ -75,11 +76,16 @@ def upgrade() -> None:
             "(subject_kind IS NOT NULL AND subject_id IS NOT NULL)",
             name=op.f("ck_notification_event_subject_consistent"),
         ),
-        sa.PrimaryKeyConstraint("id", name=op.f("pk_notification_event")),
+        sa.PrimaryKeyConstraint("row_id", name=op.f("pk_notification_event")),
         sa.UniqueConstraint(
             "profile_id",
             "profile_sequence",
             name=op.f("uq_notification_event_profile_sequence"),
+        ),
+        sa.UniqueConstraint(
+            "source",
+            "id",
+            name=op.f("uq_notification_event_occurrence"),
         ),
         schema=_SCHEMA,
     )
@@ -100,7 +106,7 @@ def upgrade() -> None:
 
     op.create_table(
         "notification_policy_decision",
-        sa.Column("event_id", sa.Uuid(), nullable=False),
+        sa.Column("event_row_id", sa.Uuid(), nullable=False),
         sa.Column("state", sa.String(length=16), nullable=False),
         sa.Column("matched_rule_id", sa.String(length=128), nullable=True),
         sa.Column("policy_version", sa.Integer(), nullable=False),
@@ -140,19 +146,19 @@ def upgrade() -> None:
             name=op.f("ck_notification_policy_decision_snapshot_hash_sha256"),
         ),
         sa.ForeignKeyConstraint(
-            ["event_id"],
-            ["azurpilot.notification_event.id"],
+            ["event_row_id"],
+            ["azurpilot.notification_event.row_id"],
             ondelete="CASCADE",
             name=op.f("fk_notification_policy_decision_event"),
         ),
-        sa.PrimaryKeyConstraint("event_id", name=op.f("pk_notification_policy_decision")),
+        sa.PrimaryKeyConstraint("event_row_id", name=op.f("pk_notification_policy_decision")),
         schema=_SCHEMA,
     )
 
     op.create_table(
         "notification_delivery",
         sa.Column("id", sa.Uuid(), nullable=False),
-        sa.Column("event_id", sa.Uuid(), nullable=False),
+        sa.Column("event_row_id", sa.Uuid(), nullable=False),
         sa.Column("channel_instance_id", sa.String(length=128), nullable=False),
         sa.Column("channel_type", sa.String(length=64), nullable=False),
         sa.Column("state", sa.String(length=32), server_default="PENDING", nullable=False),
@@ -202,7 +208,8 @@ def upgrade() -> None:
             name=op.f("ck_notification_delivery_in_flight_lease_consistent"),
         ),
         sa.CheckConstraint(
-            "state <> 'AWAITING_AGENT_ACK' OR lease_until IS NOT NULL",
+            "state <> 'AWAITING_AGENT_ACK' OR "
+            "(lease_token IS NOT NULL AND lease_until IS NOT NULL)",
             name=op.f("ck_notification_delivery_awaiting_ack_lease_consistent"),
         ),
         sa.CheckConstraint(
@@ -211,14 +218,14 @@ def upgrade() -> None:
             name=op.f("ck_notification_delivery_last_safe_error_code_format"),
         ),
         sa.ForeignKeyConstraint(
-            ["event_id"],
-            ["azurpilot.notification_event.id"],
+            ["event_row_id"],
+            ["azurpilot.notification_event.row_id"],
             ondelete="CASCADE",
             name=op.f("fk_notification_delivery_event"),
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_notification_delivery")),
         sa.UniqueConstraint(
-            "event_id",
+            "event_row_id",
             "channel_instance_id",
             name=op.f("uq_notification_delivery_event_channel"),
         ),
@@ -246,7 +253,7 @@ def upgrade() -> None:
     op.create_index(
         "ix_notification_delivery_event",
         "notification_delivery",
-        ["event_id", "id"],
+        ["event_row_id", "id"],
         schema=_SCHEMA,
     )
     op.create_index(

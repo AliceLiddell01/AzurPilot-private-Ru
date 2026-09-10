@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from typing import Final
 
-
 NOTIFICATION_REASON_CODES: Final[frozenset[str]] = frozenset(
     {
         "agent_ack_timeout",
         "caller_deadline_not_aware",
         "delivery_deadline_expired",
         "channel_result_invalid",
+        "channel_capabilities_invalid",
+        "channel_capability_missing",
+        "channel_not_registered",
         "channel_send_failed",
         "channel_unavailable",
         "channel_unregistered",
@@ -35,6 +37,9 @@ NOTIFICATION_REASON_CODES: Final[frozenset[str]] = frozenset(
         "lease_expired",
         "no_channel_registered",
         "notification_contract_invalid",
+        "publish_context_capability_missing",
+        "publish_context_invalid",
+        "publish_context_required",
         "occurred_at_invalid",
         "occurred_at_not_aware",
         "payload_encoding_failed",
@@ -67,6 +72,11 @@ NOTIFICATION_REASON_CODES: Final[frozenset[str]] = frozenset(
         "severity_not_allowed",
         "source_invalid",
         "storage_error",
+        "storage_authentication_failed",
+        "storage_configuration_invalid",
+        "storage_conflict",
+        "storage_invalid_data",
+        "storage_schema_incompatible",
         "storage_unavailable",
         "stored_payload_invalid",
         "subject_invalid",

@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from re import fullmatch
-from typing import Protocol, runtime_checkable
+from typing import Final, Protocol, runtime_checkable
 
 from module.application.notifications.models import (
     ChannelCapabilities,
     DeliveryResult,
     PreparedDelivery,
 )
+
+STAGE2_CHANNEL_TYPES: Final[frozenset[str]] = frozenset({"test"})
 
 
 @runtime_checkable
@@ -79,4 +81,4 @@ class NotificationChannelCatalog:
         return tuple(self._channels)
 
 
-__all__ = ["NotificationChannel", "NotificationChannelCatalog"]
+__all__ = ["STAGE2_CHANNEL_TYPES", "NotificationChannel", "NotificationChannelCatalog"]

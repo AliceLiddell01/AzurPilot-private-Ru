@@ -8,6 +8,7 @@ from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Self
 
+from module.application.notifications.channels import STAGE2_CHANNEL_TYPES
 from module.application.notifications.reasons import NOTIFICATION_REASON_CODES
 
 if TYPE_CHECKING:
@@ -24,9 +25,7 @@ _RESULT_CLASSES = frozenset(
     {"DELIVERED", "PROVIDER_ACCEPTED", "TRANSIENT_FAILURE", "PERMANENT_FAILURE", "UNAVAILABLE", "SUPPRESSED"}
 )
 _POLICY_STATES = frozenset({"ROUTED", "SUPPRESSED"})
-_CHANNEL_TYPES = frozenset(
-    {"desktop", "desktop_agent", "telegram", "webhook", "onepush", "test", "unregistered"}
-)
+_CHANNEL_TYPES = STAGE2_CHANNEL_TYPES
 _DELIVERY_STATES = frozenset(
     {"PENDING", "IN_FLIGHT", "RETRY_WAIT", "FAILED", "PROVIDER_ACCEPTED", "AWAITING_AGENT_ACK", "DELIVERED", "SUPPRESSED"}
 )

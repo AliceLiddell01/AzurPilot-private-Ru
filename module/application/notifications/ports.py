@@ -23,6 +23,10 @@ from module.application.storage_ports import StorageUnitOfWork
 
 
 class NotificationRepository(Protocol):
+    def find_existing(
+        self, event: NotificationEvent, *, payload_digest: str
+    ) -> NotificationPersistenceResult | None: ...
+
     def publish(
         self,
         event: NotificationEvent,
@@ -58,11 +62,17 @@ class NotificationRepository(Protocol):
         retry_policy: RetryPolicy,
     ) -> int: ...
 
-    def get_event(self, event_id: UUID) -> NotificationStoredEvent | None: ...
+    def get_event(
+        self, *, source: str, event_id: UUID
+    ) -> NotificationStoredEvent | None: ...
 
-    def get_decision(self, event_id: UUID) -> PolicyDecision | None: ...
+    def get_decision(
+        self, *, source: str, event_id: UUID
+    ) -> PolicyDecision | None: ...
 
-    def list_deliveries(self, event_id: UUID) -> tuple[NotificationStoredDelivery, ...]: ...
+    def list_deliveries(
+        self, *, source: str, event_id: UUID
+    ) -> tuple[NotificationStoredDelivery, ...]: ...
 
     def list_attempts(self, delivery_id: UUID) -> tuple[NotificationStoredAttempt, ...]: ...
 

@@ -12,6 +12,7 @@ import pytest
 from sqlalchemy import delete, text
 from sqlalchemy.exc import DBAPIError
 
+from module.application.errors import StorageInvariantViolationError
 from module.application.notifications import (
     ChannelCapabilities,
     DeliveryResult,
@@ -24,6 +25,7 @@ from module.application.notifications import (
     NotificationEvent,
     NotificationPolicy,
     NotificationPublisher,
+    NotificationRendererCatalog,
     NotificationRule,
     NotificationRuleMatcher,
     NotificationSeverity,
@@ -32,6 +34,7 @@ from module.application.notifications import (
     ReceiptStrength,
     RetryPolicy,
 )
+from module.application.notifications.rendering import HandoverPreemptionRenderer
 from module.persistence import DatabaseSettings, LazyEngine, PostgresUnitOfWork
 from module.persistence.schema import SCHEMA_NAME, metadata
 
@@ -52,7 +55,10 @@ NOW = datetime(2026, 9, 10, 12, 0, tzinfo=UTC)
 class _Channel:
     instance_id = "agent"
     channel_type = "test"
-    capabilities = ChannelCapabilities(receipt_strength=ReceiptStrength.AGENT_ACK)
+    capabilities = ChannelCapabilities(
+        receipt_strength=ReceiptStrength.AGENT_ACK,
+        policy_capabilities=frozenset({"handover_receipt"}),
+    )
 
     def __init__(self, result: DeliveryResult | None = None) -> None:
         self.result = result or DeliveryResult.provider_accepted(provider_message_id="p1")
@@ -61,6 +67,19 @@ class _Channel:
     def send(self, _prepared: object) -> DeliveryResult:
         self.calls += 1
         return self.result
+
+
+class _CountingRenderer:
+    renderer_id = "handover.preemption"
+    renderer_version = "v1"
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self._renderer = HandoverPreemptionRenderer()
+
+    def render(self, *args: object, **kwargs: object):
+        self.calls += 1
+        return self._renderer.render(*args, **kwargs)
 
 
 @pytest.fixture
@@ -76,13 +95,14 @@ def database() -> Iterator[LazyEngine]:
 def _event(
     *,
     event_id: UUID | None = None,
+    source: str = "runtime",
     profile_id: str = "profile-1",
     operation_id: str = "operation-1",
     owner_epoch: int = 1,
 ) -> NotificationEvent:
     return NotificationEvent(
         id=event_id or uuid4(),
-        source="runtime",
+        source=source,
         type="runtime.handover.preemption_requested",
         schema_version=1,
         profile_id=profile_id,
@@ -99,8 +119,8 @@ def _event(
     )
 
 
-def _publisher(database: LazyEngine, channel: _Channel) -> NotificationPublisher:
-    policy = NotificationPolicy(
+def _policy(channel_instance_id: str = "agent") -> NotificationPolicy:
+    return NotificationPolicy(
         version=1,
         rules=(
             NotificationRule(
@@ -109,18 +129,35 @@ def _publisher(database: LazyEngine, channel: _Channel) -> NotificationPublisher
                 matcher=NotificationRuleMatcher(
                     exact_type="runtime.handover.preemption_requested"
                 ),
-                action=PolicyAction(channel_instance_ids=("agent",)),
+                action=PolicyAction(channel_instance_ids=(channel_instance_id,)),
             ),
         ),
         default_action=PolicyAction(suppression_reason="default_suppressed"),
     )
+
+
+def _publisher(
+    database: LazyEngine,
+    channel: _Channel,
+    *,
+    policy: NotificationPolicy | None = None,
+    renderer_catalog: NotificationRendererCatalog | None = None,
+    clock=lambda: NOW,
+) -> NotificationPublisher:
     return NotificationPublisher(
         lambda: PostgresUnitOfWork(database),
-        policy=policy,
+        policy=policy or _policy(),
         channel_catalog=NotificationChannelCatalog((channel,)),
-        clock=lambda: NOW,
+        renderer_catalog=renderer_catalog,
+        clock=clock,
         telemetry=object(),
     )
+
+
+def _publish(publisher: NotificationPublisher, event: NotificationEvent):
+    return publisher.publish_for_handover(
+        event, NOW + timedelta(seconds=120)
+    ).publish_result
 
 
 def test_application_role_has_dml_but_not_schema_ddl(database: LazyEngine) -> None:
@@ -141,9 +178,10 @@ def test_publish_duplicate_conflict_and_profile_sequence_are_durable(
     publisher = _publisher(database, channel)
     event = _event()
 
-    first = publisher.publish(event)
-    duplicate = publisher.publish(event)
-    conflict = publisher.publish(
+    first = _publish(publisher, event)
+    duplicate = _publish(publisher, event)
+    conflict = _publish(
+        publisher,
         _event(event_id=uuid4(), operation_id=event.dedup_key or "operation-1", owner_epoch=2)
     )
 
@@ -155,7 +193,71 @@ def test_publish_duplicate_conflict_and_profile_sequence_are_durable(
     with PostgresUnitOfWork(database) as uow:
         history = uow.notifications.list_profile_history(profile_id="profile-1")
         assert [item.event.profile_sequence for item in history] == [1]
-        assert len(uow.notifications.list_deliveries(event.id)) == 1
+        assert len(uow.notifications.list_deliveries(source="runtime", event_id=event.id)) == 1
+
+
+def test_publisher_crash_after_commit_returns_durable_bundle_on_retry(
+    database: LazyEngine,
+) -> None:
+    channel = _Channel()
+    renderer = _CountingRenderer()
+    event = _event(operation_id="operation-durable-retry")
+    first = _publish(
+        _publisher(
+            database,
+            channel,
+            renderer_catalog=NotificationRendererCatalog((renderer,)),
+        ),
+        event,
+    )
+    assert first.status is PublishStatus.PERSISTED
+    assert renderer.calls == 1
+    # Потеря ответа publisher имитирует crash сразу после commit.
+    with PostgresUnitOfWork(database) as uow:
+        assert uow.notifications.get_event(source="runtime", event_id=event.id) is not None
+        assert uow.notifications.get_decision(source="runtime", event_id=event.id) is not None
+
+    drifted_publisher = _publisher(
+        database,
+        channel,
+        policy=_policy("missing-channel"),
+        renderer_catalog=NotificationRendererCatalog((renderer,)),
+        clock=lambda: NOW + timedelta(seconds=121),
+    )
+    retry = _publish(drifted_publisher, event)
+
+    assert retry.status is PublishStatus.DUPLICATE
+    assert retry.event_id == first.event_id
+    assert retry.profile_sequence == first.profile_sequence
+    assert tuple(item.id for item in retry.deliveries) == tuple(
+        item.id for item in first.deliveries
+    )
+    assert renderer.calls == 1
+    with PostgresUnitOfWork(database) as uow:
+        assert len(uow.notifications.list_profile_history(profile_id="profile-1")) == 1
+
+
+def test_same_uuid_different_sources_are_distinct_occurrences(
+    database: LazyEngine,
+) -> None:
+    event_id = uuid4()
+    runtime_event = _event(event_id=event_id, operation_id="operation-runtime")
+    scheduler_event = _event(
+        event_id=event_id,
+        source="scheduler",
+        operation_id="operation-scheduler",
+    )
+    first = _publish(_publisher(database, _Channel()), runtime_event)
+    second = _publish(_publisher(database, _Channel()), scheduler_event)
+
+    assert first.status is PublishStatus.PERSISTED
+    assert second.status is PublishStatus.PERSISTED
+    assert first.event_id == second.event_id
+    with PostgresUnitOfWork(database) as uow:
+        assert uow.notifications.get_event(source="runtime", event_id=event_id) is not None
+        assert uow.notifications.get_event(source="scheduler", event_id=event_id) is not None
+        history = uow.notifications.list_profile_history(profile_id="profile-1")
+        assert len(history) == 2
 
 
 def test_profile_sequence_allocator_serializes_concurrent_publishers(
@@ -171,7 +273,7 @@ def test_profile_sequence_allocator_serializes_concurrent_publishers(
     )
 
     def publish(event: NotificationEvent) -> PublishStatus:
-        return _publisher(database, channel).publish(event).status
+        return _publish(_publisher(database, channel), event).status
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         statuses = tuple(executor.map(publish, events))
@@ -198,7 +300,7 @@ def test_concurrent_logical_duplicates_keep_one_event_and_one_delivery(
     )
 
     def publish(event: NotificationEvent) -> PublishStatus:
-        return _publisher(database, channel).publish(event).status
+        return _publish(_publisher(database, channel), event).status
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         statuses = tuple(executor.map(publish, events))
@@ -209,14 +311,18 @@ def test_concurrent_logical_duplicates_keep_one_event_and_one_delivery(
     with PostgresUnitOfWork(database) as uow:
         history = uow.notifications.list_profile_history(profile_id="profile-1")
         assert len(history) == 1
-        assert len(uow.notifications.list_deliveries(history[0].event.id)) == 1
+        assert len(
+            uow.notifications.list_deliveries(
+                source=history[0].event.source, event_id=history[0].event.id
+            )
+        ) == 1
 
 
 def test_two_dispatchers_claim_one_delivery_and_provider_acceptance_is_intermediate(
     database: LazyEngine,
 ) -> None:
     publisher_channel = _Channel()
-    result = _publisher(database, publisher_channel).publish(_event())
+    result = _publish(_publisher(database, publisher_channel), _event())
     assert result.status is PublishStatus.PERSISTED
     first_channel = _Channel()
     second_channel = _Channel()
@@ -241,16 +347,82 @@ def test_two_dispatchers_claim_one_delivery_and_provider_acceptance_is_intermedi
     assert sum(report.claimed for report in reports) == 1
     assert first_channel.calls + second_channel.calls == 1
     with PostgresUnitOfWork(database) as uow:
-        delivery = uow.notifications.list_deliveries(result.event_id)[0]
+        delivery = uow.notifications.list_deliveries(
+            source="runtime", event_id=result.event_id
+        )[0]
         assert delivery.state is DeliveryState.AWAITING_AGENT_ACK
         assert len(uow.notifications.list_attempts(delivery.id)) == 1
+
+
+def test_ack_timeout_releases_token_without_synthetic_attempt(
+    database: LazyEngine,
+) -> None:
+    channel = _Channel(result=DeliveryResult.provider_accepted(provider_message_id="ack-1"))
+    publisher = _publisher(database, channel)
+    result = _publish(publisher, _event(operation_id="operation-ack-timeout"))
+    assert result.status is PublishStatus.PERSISTED
+    retry_policy = RetryPolicy(max_attempts=2, agent_ack_timeout_seconds=5)
+    dispatcher = NotificationDispatcher(
+        lambda: PostgresUnitOfWork(database),
+        channel_catalog=NotificationChannelCatalog((channel,)),
+        worker_id="worker-ack",
+        clock=lambda: NOW,
+        retry_policy=retry_policy,
+        lease_seconds=30,
+        telemetry=object(),
+    )
+    assert dispatcher.dispatch_once().updated == 1
+
+    with PostgresUnitOfWork(database) as uow:
+        waiting = uow.notifications.list_deliveries(
+            source="runtime", event_id=result.event_id
+        )[0]
+        first_token = waiting.lease_token
+        assert waiting.state is DeliveryState.AWAITING_AGENT_ACK
+        assert first_token is not None
+        assert waiting.attempt_count == 1
+        assert len(uow.notifications.list_attempts(waiting.id)) == 1
+
+    recovery = NotificationDispatcher(
+        lambda: PostgresUnitOfWork(database),
+        channel_catalog=NotificationChannelCatalog((channel,)),
+        worker_id="worker-ack-recovery",
+        clock=lambda: NOW + timedelta(seconds=6),
+        retry_policy=retry_policy,
+        telemetry=object(),
+    )
+    assert recovery.recover_expired() == 1
+
+    with PostgresUnitOfWork(database) as uow:
+        recovered = uow.notifications.list_deliveries(
+            source="runtime", event_id=result.event_id
+        )[0]
+        assert recovered.state is DeliveryState.RETRY_WAIT
+        assert recovered.attempt_count == 1
+        assert recovered.lease_token is None
+        attempts = uow.notifications.list_attempts(recovered.id)
+        assert len(attempts) == 1
+        assert attempts[0].result_class is DeliveryResultClass.PROVIDER_ACCEPTED
+
+    with PostgresUnitOfWork(database) as uow:
+        claimed = uow.notifications.claim_due(
+            now=NOW + timedelta(seconds=60),
+            worker_id="worker-ack-retry",
+            batch_size=1,
+            lease_seconds=30,
+        )[0]
+        assert claimed.lease_token != first_token
+        assert claimed.attempt_ordinal == 2
+        assert claimed.delivery.attempt_count == 2
+        assert len(uow.notifications.list_attempts(claimed.delivery.id)) == 2
+        uow.commit()
 
 
 def test_expired_pending_delivery_fails_without_provider_call(
     database: LazyEngine,
 ) -> None:
     publisher_channel = _Channel()
-    result = _publisher(database, publisher_channel).publish(
+    result = _publish(_publisher(database, publisher_channel),
         _event(operation_id="operation-expired")
     )
     assert result.status is PublishStatus.PERSISTED
@@ -260,7 +432,9 @@ def test_expired_pending_delivery_fails_without_provider_call(
             text(
                 f"UPDATE {SCHEMA_NAME}.notification_delivery "
                 "SET deadline_at = :deadline_at "
-                "WHERE event_id = :event_id"
+                "WHERE event_row_id = (SELECT row_id FROM "
+                f"{SCHEMA_NAME}.notification_event "
+                "WHERE source = 'runtime' AND id = :event_id)"
             ),
             {"deadline_at": NOW - timedelta(seconds=1), "event_id": result.event_id},
         )
@@ -277,21 +451,21 @@ def test_expired_pending_delivery_fails_without_provider_call(
     assert report.claimed == 0
     assert channel.calls == 0
     with PostgresUnitOfWork(database) as uow:
-        delivery = uow.notifications.list_deliveries(result.event_id)[0]
+        delivery = uow.notifications.list_deliveries(
+            source="runtime", event_id=result.event_id
+        )[0]
         assert delivery.state is DeliveryState.FAILED
         attempts = uow.notifications.list_attempts(delivery.id)
-        assert len(attempts) == 1
-        assert attempts[0].result_class is DeliveryResultClass.PERMANENT_FAILURE
-        assert attempts[0].safe_error_code == "delivery_deadline_expired"
+        assert attempts == ()
 
 
 def test_expired_pending_delivery_does_not_starve_due_delivery(
     database: LazyEngine,
 ) -> None:
-    expired_result = _publisher(database, _Channel()).publish(
+    expired_result = _publish(_publisher(database, _Channel()),
         _event(operation_id="operation-expired-first")
     )
-    active_result = _publisher(database, _Channel()).publish(
+    active_result = _publish(_publisher(database, _Channel()),
         _event(operation_id="operation-active-second")
     )
     with database.get().begin() as connection:
@@ -299,7 +473,9 @@ def test_expired_pending_delivery_does_not_starve_due_delivery(
             text(
                 f"UPDATE {SCHEMA_NAME}.notification_delivery "
                 "SET deadline_at = :deadline_at "
-                "WHERE event_id = :event_id"
+                "WHERE event_row_id = (SELECT row_id FROM "
+                f"{SCHEMA_NAME}.notification_event "
+                "WHERE source = 'runtime' AND id = :event_id)"
             ),
             {"deadline_at": NOW - timedelta(seconds=1), "event_id": expired_result.event_id},
         )
@@ -319,7 +495,7 @@ def test_expired_pending_delivery_does_not_starve_due_delivery(
 def test_claim_bounds_lease_and_timeout_by_remaining_deadline(
     database: LazyEngine,
 ) -> None:
-    result = _publisher(database, _Channel()).publish(
+    result = _publish(_publisher(database, _Channel()),
         _event(operation_id="operation-short-deadline")
     )
     assert result.status is PublishStatus.PERSISTED
@@ -329,7 +505,9 @@ def test_claim_bounds_lease_and_timeout_by_remaining_deadline(
             text(
                 f"UPDATE {SCHEMA_NAME}.notification_delivery "
                 "SET deadline_at = :deadline_at "
-                "WHERE event_id = :event_id"
+                "WHERE event_row_id = (SELECT row_id FROM "
+                f"{SCHEMA_NAME}.notification_event "
+                "WHERE source = 'runtime' AND id = :event_id)"
             ),
             {"deadline_at": NOW + timedelta(seconds=5), "event_id": result.event_id},
         )
@@ -365,7 +543,9 @@ def test_expired_lease_recovers_and_stale_token_cannot_update(
     database: LazyEngine,
 ) -> None:
     channel = _Channel(result=DeliveryResult.unavailable())
-    result = _publisher(database, channel).publish(_event(operation_id="operation-recovery"))
+    result = _publish(
+        _publisher(database, channel), _event(operation_id="operation-recovery")
+    )
     assert result.status is PublishStatus.PERSISTED
     with PostgresUnitOfWork(database) as uow:
         claimed = uow.notifications.claim_due(
@@ -391,7 +571,9 @@ def test_expired_lease_recovers_and_stale_token_cannot_update(
         uow.commit()
 
     with PostgresUnitOfWork(database) as uow:
-        delivery = uow.notifications.list_deliveries(result.event_id)[0]
+        delivery = uow.notifications.list_deliveries(
+            source="runtime", event_id=result.event_id
+        )[0]
         assert delivery.state is DeliveryState.RETRY_WAIT
         stale = uow.notifications.apply_update(
             delivery_id=delivery.id,
@@ -410,7 +592,7 @@ def test_overlapping_attempt_keeps_stable_idempotency_and_fences_old_worker(
     database: LazyEngine,
 ) -> None:
     channel = _Channel()
-    result = _publisher(database, channel).publish(
+    result = _publish(_publisher(database, channel),
         _event(operation_id="operation-overlap")
     )
     assert result.status is PublishStatus.PERSISTED
@@ -459,7 +641,9 @@ def test_overlapping_attempt_keeps_stable_idempotency_and_fences_old_worker(
         uow.commit()
 
     with PostgresUnitOfWork(database) as uow:
-        delivery = uow.notifications.list_deliveries(result.event_id)[0]
+        delivery = uow.notifications.list_deliveries(
+            source="runtime", event_id=result.event_id
+        )[0]
         attempts = uow.notifications.list_attempts(delivery.id)
         assert delivery.state is DeliveryState.IN_FLIGHT
         assert delivery.lease_owner == "worker-b"
@@ -472,7 +656,7 @@ def test_dispatcher_crash_after_channel_result_is_recoverable(
     database: LazyEngine,
 ) -> None:
     channel = _Channel()
-    result = _publisher(database, channel).publish(
+    result = _publish(_publisher(database, channel),
         _event(operation_id="operation-crash-after-send")
     )
     assert result.status is PublishStatus.PERSISTED
@@ -529,6 +713,28 @@ def test_publisher_rollback_does_not_consume_profile_sequence(database: LazyEngi
         )
         uow.rollback()
 
-    result = publisher.publish(event)
+    result = _publish(publisher, event)
     assert result.status is PublishStatus.PERSISTED
     assert result.profile_sequence == 1
+
+
+def test_unknown_stored_schema_fails_closed(database: LazyEngine) -> None:
+    event = _event(operation_id="operation-unknown-schema")
+    result = _publish(_publisher(database, _Channel()), event)
+    assert result.status is PublishStatus.PERSISTED
+
+    with database.get().begin() as connection:
+        connection.execute(
+            text(
+                f"UPDATE {SCHEMA_NAME}.notification_event "
+                "SET type = 'unknown.stored.schema' "
+                "WHERE source = 'runtime' AND id = :event_id"
+            ),
+            {"event_id": result.event_id},
+        )
+
+    with (
+        PostgresUnitOfWork(database) as uow,
+        pytest.raises(StorageInvariantViolationError, match="schema не зарегистрирована"),
+    ):
+        uow.notifications.get_event(source="runtime", event_id=result.event_id)

@@ -20,9 +20,12 @@ from module.application.notifications.models import (
     HandoverNotificationOutcome,
     HandoverNotificationResult,
     HandoverPreemptionPayload,
+    HandoverPublishContext,
     NotificationDeliveryPlan,
     NotificationEvent,
+    NotificationPersistenceResult,
     NotificationPolicy,
+    NotificationPublishContext,
     PolicyState,
     PublishResult,
     PublishStatus,
@@ -82,10 +85,53 @@ class NotificationPublisher:
     def registry(self) -> NotificationRegistry:
         return self._registry
 
-    def publish(self, event: NotificationEvent) -> PublishResult:
+    def publish(
+        self,
+        event: NotificationEvent,
+        *,
+        context: NotificationPublishContext | None = None,
+    ) -> PublishResult:
         event_id = _event_id(event)
         try:
-            descriptor, payload_document, _ = self._registry.validate(event)
+            descriptor, payload_document, payload_digest = self._registry.validate(event)
+            self._validate_context(event, descriptor, context)
+        except NotificationValidationError as exc:
+            reason = _safe_reason(exc.reason_code)
+            self._record("record_rejected", event, reason)
+            return PublishResult(
+                status=PublishStatus.VALIDATION_FAILED,
+                event_id=event_id,
+                reason=reason,
+            )
+        except Exception:  # noqa: BLE001 - contract boundary возвращает bounded failure.
+            reason = "notification_contract_invalid"
+            self._record("record_rejected", event, reason)
+            return PublishResult(
+                status=PublishStatus.VALIDATION_FAILED,
+                event_id=event_id,
+                reason=reason,
+            )
+
+        # Сначала читаем durable identity. Это исключает переоценку policy,
+        # renderer и текущего deadline для уже committed occurrence.
+        try:
+            with self._uow_factory() as uow:
+                existing = uow.notifications.find_existing(
+                    event, payload_digest=payload_digest
+                )
+                if existing is not None:
+                    uow.commit()
+                    result = _publish_result(existing, event_id)
+                    self._record("record_publish", event, result.status.value)
+                    return result
+        except StorageInvariantViolationError:
+            raise
+        except StorageError as exc:
+            result = _storage_failure_result(event_id, exc)
+            self._record("record_publish", event, result.status.value)
+            return result
+
+        try:
             with safe_telemetry_span(
                 self._telemetry, "notification.policy.resolve"
             ):
@@ -100,7 +146,7 @@ class NotificationPublisher:
                 event_id=event_id,
                 reason=reason,
             )
-        except Exception:  # noqa: BLE001 - contract boundary возвращает bounded failure.
+        except Exception:  # noqa: BLE001 - policy/render boundary возвращает bounded результат.
             reason = "notification_contract_invalid"
             self._record("record_rejected", event, reason)
             return PublishResult(
@@ -119,31 +165,12 @@ class NotificationPublisher:
                 uow.commit()
         except StorageInvariantViolationError:
             raise
-        except StorageUnavailableError:
-            self._record("record_publish", event, PublishStatus.UNAVAILABLE.value)
-            return PublishResult(
-                status=PublishStatus.UNAVAILABLE,
-                event_id=event_id,
-                reason="storage_unavailable",
-            )
-        except StorageError:
-            self._record("record_publish", event, PublishStatus.UNAVAILABLE.value)
-            return PublishResult(
-                status=PublishStatus.UNAVAILABLE,
-                event_id=event_id,
-                reason="storage_error",
-            )
+        except StorageError as exc:
+            result = _storage_failure_result(event_id, exc)
+            self._record("record_publish", event, result.status.value)
+            return result
         self._record("record_publish", event, persisted.status.value)
-        return PublishResult(
-            status=persisted.status,
-            event_id=persisted.event.event.id if persisted.event else event.id,
-            profile_sequence=(
-                persisted.event.event.profile_sequence if persisted.event else None
-            ),
-            decision=persisted.decision,
-            deliveries=persisted.deliveries,
-            reason=persisted.reason,
-        )
+        return _publish_result(persisted, event_id)
 
     def publish_for_handover(
         self, event: NotificationEvent, deadline: datetime
@@ -173,7 +200,10 @@ class NotificationPublisher:
                 reason="handover_deadline_exceeds_caller",
             )
             return HandoverNotificationResult(HandoverNotificationOutcome.FAILED, result)
-        result = self.publish(event)
+        result = self.publish(
+            event,
+            context=HandoverPublishContext(caller_deadline=caller_deadline),
+        )
         if result.status in {PublishStatus.PERSISTED, PublishStatus.DUPLICATE}:
             if result.deliveries:
                 return HandoverNotificationResult(HandoverNotificationOutcome.ACCEPTED, result)
@@ -206,7 +236,16 @@ class NotificationPublisher:
         renderer = self._renderers.require(descriptor.renderer_id)
         for channel_id in decision.channel_instance_ids:
             channel = self._channels.get(channel_id)
-            capabilities = channel.capabilities if channel else _fallback_capabilities()
+            if channel is None:
+                raise NotificationValidationError("channel_not_registered")
+            capabilities = channel.capabilities
+            if not isinstance(capabilities, ChannelCapabilities) or not capabilities.is_valid():
+                raise NotificationValidationError("channel_capabilities_invalid")
+            missing_capabilities = set(descriptor.policy_capabilities).difference(
+                capabilities.policy_capabilities
+            )
+            if missing_capabilities:
+                raise NotificationValidationError("channel_capability_missing")
             snapshot = renderer.render(
                 event,
                 locale=decision.snapshot.action.locale,
@@ -223,17 +262,46 @@ class NotificationPublisher:
                 NotificationDeliveryPlan(
                     id=uuid4(),
                     event_id=event.id,
+                    event_source=event.source,
                     channel_instance_id=channel_id,
                     channel_type=channel.channel_type if channel else "unregistered",
-                    priority=_priority_for_event(event),
+                    priority=_priority_for_event(event, descriptor, decision),
                     next_attempt_at=now,
                     deadline_at=deadline_at,
                     rendered_snapshot=snapshot,
-                    idempotency_key=f"{event.id}:{channel_id}",
+                    idempotency_key=f"{event.source}:{event.id}:{channel_id}",
                     timeout_seconds=timeout_seconds,
                 )
             )
         return tuple(plans)
+
+    @staticmethod
+    def _validate_context(
+        event: NotificationEvent,
+        descriptor: NotificationDescriptor,
+        context: NotificationPublishContext | None,
+    ) -> None:
+        required_context = descriptor.required_context_type
+        if required_context is None:
+            return
+        if context is None or not isinstance(context, required_context):
+            raise NotificationValidationError("publish_context_required")
+        if not isinstance(context.capabilities, frozenset) or any(
+            not isinstance(item, str) for item in context.capabilities
+        ):
+            raise NotificationValidationError("publish_context_invalid")
+        missing = set(descriptor.policy_capabilities).difference(context.capabilities)
+        if missing:
+            raise NotificationValidationError("publish_context_capability_missing")
+        if not isinstance(context.caller_deadline, datetime):
+            raise NotificationValidationError("caller_deadline_not_aware")
+        caller_deadline = ensure_aware_utc(context.caller_deadline)
+        if caller_deadline is None:
+            raise NotificationValidationError("caller_deadline_not_aware")
+        if isinstance(event.data, HandoverPreemptionPayload):
+            event_deadline = ensure_aware_utc(event.data.deadline_at)
+            if event_deadline is None or event_deadline > caller_deadline:
+                raise NotificationValidationError("handover_deadline_exceeds_caller")
 
     def _record(self, method: str, event: object, value: str) -> None:
         telemetry_method = getattr(self._telemetry, method, None)
@@ -254,23 +322,20 @@ class NotificationPublisher:
             return
 
 
-def _priority_for_event(event: NotificationEvent) -> int:
-    return {
-        "INFO": 0,
-        "WARNING": 10,
-        "ERROR": 20,
-        "CRITICAL": 30,
-    }[event.severity.value]
+def _priority_for_event(
+    event: NotificationEvent,
+    descriptor: NotificationDescriptor,
+    decision: Any,
+) -> int:
+    del event
+    configured = decision.snapshot.action.priority
+    return descriptor.default_priority if configured is None else configured
 
 
 def _event_id(event: object) -> UUID:
     if isinstance(event, NotificationEvent) and isinstance(event.id, UUID):
         return event.id
     return uuid4()
-
-
-def _fallback_capabilities():
-    return ChannelCapabilities()
 
 
 def _utc(value: datetime) -> datetime:
@@ -283,6 +348,36 @@ def _safe_reason(value: object) -> str:
     if isinstance(value, str) and fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", value):
         return value
     return "validation_failed"
+
+
+def _publish_result(
+    persisted: NotificationPersistenceResult, event_id: UUID
+) -> PublishResult:
+    return PublishResult(
+        status=persisted.status,
+        event_id=persisted.event.event.id if persisted.event else event_id,
+        profile_sequence=(
+            persisted.event.event.profile_sequence if persisted.event else None
+        ),
+        decision=persisted.decision,
+        deliveries=persisted.deliveries,
+        reason=persisted.reason,
+    )
+
+
+def _storage_failure_result(event_id: UUID, error: StorageError) -> PublishResult:
+    if isinstance(error, StorageUnavailableError):
+        return PublishResult(
+            status=PublishStatus.UNAVAILABLE,
+            event_id=event_id,
+            reason="storage_unavailable",
+        )
+    reason = getattr(error, "code", "storage_error")
+    return PublishResult(
+        status=PublishStatus.VALIDATION_FAILED,
+        event_id=event_id,
+        reason=_safe_reason(reason),
+    )
 
 
 def _build_telemetry() -> object | None:

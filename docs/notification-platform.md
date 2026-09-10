@@ -1441,3 +1441,50 @@ channel registry по умолчанию пуст. `PROVIDER_ACCEPTED` оста�
 новому foundation. Текущий PR #177 остаётся отдельным busy-handover blocker:
 `ACCEPTED` legacy fallback не является доказательством `DELIVERED`; его
 production wiring переносится в Stage 3 после authenticated Agent receipt.
+
+## 24. Stage 2 fix-loop closure
+
+### [Факт] Durable identity и exact retry
+
+Публичная occurrence identity имеет форму `(source, event.id)`; одинаковый
+UUID из разных источников не сталкивается. Внутренний `notification_event.row_id`
+является единственным FK target для policy и delivery. Логический dedup
+использует `(source, profile_id, type, dedup_key)`.
+
+До текущих policy, renderer и deadline вычислений publisher читает durable
+identity. После commit exact retry возвращает сохранённый event, decision и
+delivery bundle даже при изменившемся времени или policy; новые rows, reroute и
+повторный render не создаются. PostgreSQL unique constraints и savepoint
+conflict path закрывают race между конкурентными publishers.
+
+### [Факт] Attempts, ACK lease и capability boundary
+
+`notification_delivery_attempt` создаётся только при фактическом provider send.
+Истечение pending deadline переводит delivery в `FAILED` без synthetic attempt;
+истечение Agent ACK lease не увеличивает `attempt_count` и не создаёт новую
+attempt. `AWAITING_AGENT_ACK` сохраняет текущий lease token до recovery, после
+чего token инвалидируется; следующий claim получает новый token и новый ordinal.
+
+Handover publication требует typed `HandoverPublishContext`, caller deadline и
+capability `handover_receipt`. Generic `publish(event)` не может обойти это
+требование, а registered channel обязан явно объявить capability. Stage 2 не
+добавляет production Agent или ACK endpoint.
+
+### [Факт] Typed storage и bounded failure
+
+Каждый publishable descriptor обязан иметь typed deserializer. Чтение неизвестной
+или повреждённой stored schema завершается invariant failure без generic `dict`
+fallback. Application и persistence используют один bounded `DeliveryResult`
+validator: `tokenizer-v1` разрешён как provider identifier, secrets и URL
+отклоняются. Storage authentication/configuration/schema/conflict/invalid errors
+маппятся в bounded `PublishResult`; только временная недоступность получает
+`UNAVAILABLE`, а durable invariant violation пробрасывается fail-closed.
+
+### [Факт] Verification boundary
+
+Unit tests разделены по registry, policy, publisher и dispatcher responsibilities;
+PostgreSQL integration tests покрывают concurrent identity, exact retry after
+commit, source-scoped UUID, real-attempt budget, ACK recovery, stale token,
+unknown stored schema и crash-after-commit recovery. Migration `0009` остаётся
+unshipped до отдельного release lifecycle и проходит upgrade/downgrade/check
+только на disposable PostgreSQL 18 target.

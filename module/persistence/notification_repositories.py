@@ -67,18 +67,6 @@ from module.persistence.schema import (
     notification_profile_sequence,
 )
 
-_SAFE_TOKEN_RE = r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}"
-_UNSAFE_TEXT_MARKERS = (
-    "password",
-    "secret",
-    "token",
-    "credential",
-    "authorization",
-    "bearer",
-    "http://",
-    "https://",
-)
-
 
 class PostgresNotificationRepository:
     """Repository выполняет только короткие DB операции и не знает о transport."""
@@ -88,6 +76,21 @@ class PostgresNotificationRepository:
     ) -> None:
         self._connection = connection
         self._registry = registry if registry is not None else default_registry()
+
+    def find_existing(
+        self, event: NotificationEvent, *, payload_digest: str
+    ) -> NotificationPersistenceResult | None:
+        try:
+            row = self._find_existing(event)
+            return (
+                self._existing_result(row, event, payload_digest)
+                if row is not None
+                else None
+            )
+        except StorageError:
+            raise
+        except SQLAlchemyError as exc:
+            raise translate_database_error(exc) from None
 
     def publish(
         self,
@@ -99,28 +102,35 @@ class PostgresNotificationRepository:
     ) -> NotificationPersistenceResult:
         payload_digest = event_payload_digest(event, payload_document)
         try:
+            existing = self.find_existing(event, payload_digest=payload_digest)
+            if existing is not None:
+                return existing
             savepoint = self._connection.begin_nested()
             try:
                 profile_sequence = self._allocate_profile_sequence(event.profile_id)
-                inserted_id = self._insert_event(
+                inserted_row_id = self._insert_event(
                     event,
                     payload_document=payload_document,
                     payload_digest=payload_digest,
                     profile_sequence=profile_sequence,
                 )
-                if inserted_id is None:
+                if inserted_row_id is None:
                     savepoint.rollback()
-                    existing = self._find_existing(event)
-                    return self._existing_result(existing, event, payload_digest)
-                self._insert_decision(event.id, decision)
+                    existing = self.find_existing(event, payload_digest=payload_digest)
+                    if existing is None:
+                        raise StorageInvariantViolationError(
+                            "Conflict insert не вернул существующий notification event."
+                        )
+                    return existing
+                self._insert_decision(inserted_row_id, decision)
                 for delivery in deliveries:
-                    self._insert_delivery(delivery)
+                    self._insert_delivery(delivery, event_row_id=inserted_row_id)
                 savepoint.commit()
             except BaseException:
                 if savepoint.is_active:
                     savepoint.rollback()
                 raise
-            stored = self._load_event_bundle(event.id)
+            stored = self._load_event_bundle(inserted_row_id)
             if stored is None:
                 raise StorageInvariantViolationError(
                     "После insert notification event не читается в той же transaction."
@@ -169,7 +179,8 @@ class PostgresNotificationRepository:
                 select(notification_delivery, notification_event)
                 .join(
                     notification_event,
-                    notification_event.c.id == notification_delivery.c.event_id,
+                    notification_event.c.row_id
+                    == notification_delivery.c.event_row_id,
                 )
                 .where(
                     due,
@@ -190,7 +201,6 @@ class PostgresNotificationRepository:
             expired_rows = self._connection.execute(
                 select(
                     notification_delivery.c.id,
-                    notification_delivery.c.attempt_count,
                 )
                 .where(
                     notification_delivery.c.state.in_(
@@ -211,18 +221,7 @@ class PostgresNotificationRepository:
             ).mappings().all()
             for row in expired_rows:
                 delivery_id = cast(UUID, row["id"])
-                attempt_ordinal = int(row["attempt_count"]) + 1
                 result = DeliveryResult.permanent_failure("delivery_deadline_expired")
-                self._connection.execute(
-                    notification_delivery_attempt.insert().values(
-                        delivery_id=delivery_id,
-                        attempt_ordinal=attempt_ordinal,
-                        started_at=now,
-                        finished_at=now,
-                        result_class=result.result_class.value,
-                        safe_error_code=result.safe_error_code,
-                    )
-                )
                 changed = self._connection.execute(
                     update(notification_delivery)
                     .where(
@@ -237,7 +236,6 @@ class PostgresNotificationRepository:
                     .values(
                         state=DeliveryState.FAILED.value,
                         next_attempt_at=now,
-                        attempt_count=attempt_ordinal,
                         lease_owner=None,
                         lease_token=None,
                         lease_until=None,
@@ -253,7 +251,11 @@ class PostgresNotificationRepository:
             for row in rows:
                 delivery_row = _column_mapping(row, notification_delivery)
                 event_row = _column_mapping(row, notification_event)
-                delivery = self._stored_delivery(delivery_row)
+                delivery = self._stored_delivery(
+                    delivery_row,
+                    event_id=cast(UUID, event_row["id"]),
+                    event_source=cast(str, event_row["source"]),
+                )
                 stored_event = self._stored_event(event_row)
                 lease_token = uuid4()
                 attempt_ordinal = delivery.attempt_count + 1
@@ -313,6 +315,7 @@ class PostgresNotificationRepository:
                     rendered_snapshot=delivery.rendered_snapshot,
                     idempotency_key=delivery.idempotency_key,
                     updated_at=now,
+                    event_source=stored_event.event.source,
                 )
                 prepared = PreparedDelivery(
                     delivery_id=delivery.id,
@@ -377,7 +380,9 @@ class PostgresNotificationRepository:
                 "state": delivery_update.state.value,
                 "next_attempt_at": delivery_update.next_attempt_at,
                 "lease_owner": None,
-                "lease_token": None,
+                "lease_token": lease_token
+                if delivery_update.state is DeliveryState.AWAITING_AGENT_ACK
+                else None,
                 "lease_until": delivery_update.lease_until
                 if delivery_update.state is DeliveryState.AWAITING_AGENT_ACK
                 else None,
@@ -436,7 +441,16 @@ class PostgresNotificationRepository:
             raise ValueError("Recovery batch size вне bounded диапазона.")
         try:
             rows = self._connection.execute(
-                select(notification_delivery)
+                select(
+                    notification_delivery,
+                    notification_event.c.id.label("event_id"),
+                    notification_event.c.source.label("event_source"),
+                )
+                .join(
+                    notification_event,
+                    notification_event.c.row_id
+                    == notification_delivery.c.event_row_id,
+                )
                 .where(
                     notification_delivery.c.state.in_(
                         (
@@ -453,34 +467,22 @@ class PostgresNotificationRepository:
             ).mappings().all()
             recovered = 0
             for row in rows:
-                delivery = self._stored_delivery(row)
+                delivery = self._stored_delivery(
+                    row,
+                    event_id=cast(UUID, row["event_id"]),
+                    event_source=cast(str, row["event_source"]),
+                )
                 previous_state = delivery.state
                 old_token = delivery.lease_token
-                next_attempt_count = delivery.attempt_count
-                if previous_state is DeliveryState.AWAITING_AGENT_ACK:
-                    next_attempt_count += 1
                 transition = expired_lease_update(
                     state=previous_state,
                     now=now,
-                    attempt_count=max(1, next_attempt_count),
+                    attempt_count=delivery.attempt_count,
                     deadline_at=delivery.deadline_at,
                     retry_policy=retry_policy,
                     idempotency_key=delivery.idempotency_key,
                 )
-                if previous_state is DeliveryState.AWAITING_AGENT_ACK:
-                    self._connection.execute(
-                        notification_delivery_attempt.insert().values(
-                            delivery_id=delivery.id,
-                            attempt_ordinal=next_attempt_count,
-                            started_at=now,
-                            finished_at=now,
-                            result_class=transition.result.result_class.value,
-                            safe_error_code=transition.result.safe_error_code,
-                            trace_id=None,
-                            span_id=None,
-                        )
-                    )
-                else:
+                if previous_state is DeliveryState.IN_FLIGHT:
                     if old_token is None:
                         raise StorageInvariantViolationError(
                             "IN_FLIGHT delivery не содержит lease token при recovery."
@@ -503,13 +505,17 @@ class PostgresNotificationRepository:
                         raise StorageInvariantViolationError(
                             "Expired IN_FLIGHT delivery не имеет текущей attempt."
                         )
+                elif old_token is None:
+                    raise StorageInvariantViolationError(
+                        "AWAITING_AGENT_ACK delivery не содержит active attempt token."
+                    )
                 self._connection.execute(
                     update(notification_delivery)
                     .where(notification_delivery.c.id == delivery.id)
                     .values(
                         state=transition.state.value,
                         next_attempt_at=transition.next_attempt_at,
-                        attempt_count=next_attempt_count,
+                        attempt_count=delivery.attempt_count,
                         lease_owner=None,
                         lease_token=None,
                         lease_until=None,
@@ -524,10 +530,13 @@ class PostgresNotificationRepository:
         except SQLAlchemyError as exc:
             raise translate_database_error(exc) from None
 
-    def get_event(self, event_id: UUID) -> NotificationStoredEvent | None:
+    def get_event(self, *, source: str, event_id: UUID) -> NotificationStoredEvent | None:
         try:
             row = self._connection.execute(
-                select(notification_event).where(notification_event.c.id == event_id)
+                select(notification_event).where(
+                    notification_event.c.source == source,
+                    notification_event.c.id == event_id,
+                )
             ).mappings().one_or_none()
             return self._stored_event(row) if row is not None else None
         except StorageError:
@@ -535,11 +544,20 @@ class PostgresNotificationRepository:
         except SQLAlchemyError as exc:
             raise translate_database_error(exc) from None
 
-    def get_decision(self, event_id: UUID) -> PolicyDecision | None:
+    def get_decision(
+        self, *, source: str, event_id: UUID
+    ) -> PolicyDecision | None:
         try:
             row = self._connection.execute(
-                select(notification_policy_decision).where(
-                    notification_policy_decision.c.event_id == event_id
+                select(notification_policy_decision)
+                .join(
+                    notification_event,
+                    notification_event.c.row_id
+                    == notification_policy_decision.c.event_row_id,
+                )
+                .where(
+                    notification_event.c.source == source,
+                    notification_event.c.id == event_id,
                 )
             ).mappings().one_or_none()
             return self._stored_decision(row) if row is not None else None
@@ -548,14 +566,27 @@ class PostgresNotificationRepository:
         except SQLAlchemyError as exc:
             raise translate_database_error(exc) from None
 
-    def list_deliveries(self, event_id: UUID) -> tuple[NotificationStoredDelivery, ...]:
+    def list_deliveries(
+        self, *, source: str, event_id: UUID
+    ) -> tuple[NotificationStoredDelivery, ...]:
         try:
             rows = self._connection.execute(
                 select(notification_delivery)
-                .where(notification_delivery.c.event_id == event_id)
+                .join(
+                    notification_event,
+                    notification_event.c.row_id
+                    == notification_delivery.c.event_row_id,
+                )
+                .where(
+                    notification_event.c.source == source,
+                    notification_event.c.id == event_id,
+                )
                 .order_by(notification_delivery.c.id)
             ).mappings().all()
-            return tuple(self._stored_delivery(row) for row in rows)
+            return tuple(
+                self._stored_delivery(row, event_id=event_id, event_source=source)
+                for row in rows
+            )
         except StorageError:
             raise
         except SQLAlchemyError as exc:
@@ -619,9 +650,11 @@ class PostgresNotificationRepository:
         payload_digest: str,
         profile_sequence: int,
     ) -> UUID | None:
+        row_id = uuid4()
         statement = (
             pg_insert(notification_event)
             .values(
+                row_id=row_id,
                 id=event.id,
                 source=event.source,
                 type=event.type,
@@ -642,15 +675,15 @@ class PostgresNotificationRepository:
                 sensitivity=event.sensitivity.value,
             )
             .on_conflict_do_nothing()
-            .returning(notification_event.c.id)
+            .returning(notification_event.c.row_id)
         )
         return self._connection.execute(statement).scalar_one_or_none()
 
-    def _insert_decision(self, event_id: UUID, decision: PolicyDecision) -> None:
+    def _insert_decision(self, event_row_id: UUID, decision: PolicyDecision) -> None:
         snapshot = policy_snapshot_document(decision.snapshot)
         self._connection.execute(
             notification_policy_decision.insert().values(
-                event_id=event_id,
+                event_row_id=event_row_id,
                 state=decision.state.value,
                 matched_rule_id=decision.matched_rule_id,
                 policy_version=decision.policy_version,
@@ -661,11 +694,11 @@ class PostgresNotificationRepository:
             )
         )
 
-    def _insert_delivery(self, delivery: NotificationDeliveryPlan) -> None:
+    def _insert_delivery(self, delivery: NotificationDeliveryPlan, *, event_row_id: UUID) -> None:
         self._connection.execute(
             notification_delivery.insert().values(
                 id=delivery.id,
-                event_id=delivery.event_id,
+                event_row_id=event_row_id,
                 channel_instance_id=delivery.channel_instance_id,
                 channel_type=delivery.channel_type,
                 state=DeliveryState.PENDING.value,
@@ -680,7 +713,10 @@ class PostgresNotificationRepository:
     def _find_existing(self, event: NotificationEvent) -> Mapping[str, object] | None:
         row = self._connection.execute(
             select(notification_event)
-            .where(notification_event.c.id == event.id)
+            .where(
+                notification_event.c.source == event.source,
+                notification_event.c.id == event.id,
+            )
         ).mappings().one_or_none()
         if row is not None:
             return row
@@ -707,7 +743,7 @@ class PostgresNotificationRepository:
                 "Conflict insert не вернул существующий notification event."
             )
         same = _same_immutable_event(row, event, payload_digest)
-        bundle = self._load_event_bundle(cast(UUID, row["id"]))
+        bundle = self._load_event_bundle(cast(UUID, row["row_id"]))
         if bundle is None:
             raise StorageInvariantViolationError("Существующий notification event не читается.")
         if not same:
@@ -726,33 +762,40 @@ class PostgresNotificationRepository:
         )
 
     def _load_event_bundle(
-        self, event_id: UUID
+        self, event_row_id: UUID
     ) -> tuple[
         NotificationStoredEvent,
         PolicyDecision,
         tuple[NotificationStoredDelivery, ...],
     ] | None:
         event_row = self._connection.execute(
-            select(notification_event).where(notification_event.c.id == event_id)
+            select(notification_event).where(notification_event.c.row_id == event_row_id)
         ).mappings().one_or_none()
         if event_row is None:
             return None
         decision_row = self._connection.execute(
             select(notification_policy_decision).where(
-                notification_policy_decision.c.event_id == event_id
+                notification_policy_decision.c.event_row_id == event_row_id
             )
         ).mappings().one_or_none()
         if decision_row is None:
             raise StorageInvariantViolationError("Notification event не имеет policy decision.")
         deliveries = self._connection.execute(
             select(notification_delivery)
-            .where(notification_delivery.c.event_id == event_id)
+            .where(notification_delivery.c.event_row_id == event_row_id)
             .order_by(notification_delivery.c.id)
         ).mappings().all()
         return (
             self._stored_event(event_row),
             self._stored_decision(decision_row),
-            tuple(self._stored_delivery(row) for row in deliveries),
+            tuple(
+                self._stored_delivery(
+                    row,
+                    event_id=cast(UUID, event_row["id"]),
+                    event_source=cast(str, event_row["source"]),
+                )
+                for row in deliveries
+            ),
         )
 
     def _stored_event(self, row: Mapping[object, object]) -> NotificationStoredEvent:
@@ -783,7 +826,13 @@ class PostgresNotificationRepository:
         schema_version = int(row["schema_version"])
         descriptor = self._registry.get(event_type, schema_version)
         try:
-            data = descriptor.deserialize(payload) if descriptor else dict(payload)
+            if descriptor is None:
+                raise StorageInvariantViolationError(
+                    "Stored notification schema не зарегистрирована."
+                )
+            data = descriptor.deserialize(payload)
+        except StorageError:
+            raise
         except Exception:  # noqa: BLE001 - corrupted durable payload is an invariant failure.
             raise StorageInvariantViolationError(
                 "Stored notification payload не прошёл typed decoder."
@@ -847,7 +896,9 @@ class PostgresNotificationRepository:
             presentation_profile=cast(
                 str, snapshot_doc.get("presentation_profile", "default")
             ),
+            priority=cast(int | None, snapshot_doc.get("priority")),
         )
+        _validate_stored_policy_action(action)
         snapshot = NotificationPolicySnapshot(
             policy_version=int(snapshot_doc.get("policy_version", row["policy_version"])),
             rule_id=cast(str | None, snapshot_doc.get("rule_id")),
@@ -872,9 +923,13 @@ class PostgresNotificationRepository:
         )
 
     @staticmethod
-    def _stored_delivery(row: Mapping[object, object]) -> NotificationStoredDelivery:
+    def _stored_delivery(
+        row: Mapping[object, object], *, event_id: UUID, event_source: str
+    ) -> NotificationStoredDelivery:
         try:
-            return PostgresNotificationRepository._decode_stored_delivery(row)
+            return PostgresNotificationRepository._decode_stored_delivery(
+                row, event_id=event_id, event_source=event_source
+            )
         except StorageError:
             raise
         except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
@@ -883,7 +938,9 @@ class PostgresNotificationRepository:
             ) from None
 
     @staticmethod
-    def _decode_stored_delivery(row: Mapping[object, object]) -> NotificationStoredDelivery:
+    def _decode_stored_delivery(
+        row: Mapping[object, object], *, event_id: UUID, event_source: str
+    ) -> NotificationStoredDelivery:
         snapshot = row["rendered_snapshot"]
         if not isinstance(snapshot, Mapping):
             raise StorageInvariantViolationError("Rendered snapshot не является object.")
@@ -904,7 +961,7 @@ class PostgresNotificationRepository:
             )
         return NotificationStoredDelivery(
             id=cast(UUID, row["id"]),
-            event_id=cast(UUID, row["event_id"]),
+            event_id=event_id,
             channel_instance_id=cast(str, row["channel_instance_id"]),
             channel_type=cast(str, row["channel_type"]),
             state=DeliveryState(cast(str, row["state"])),
@@ -924,6 +981,7 @@ class PostgresNotificationRepository:
             rendered_snapshot=rendered,
             idempotency_key=cast(str, row["idempotency_key"]),
             updated_at=_utc(cast(datetime, row["updated_at"])),
+            event_source=event_source,
         )
 
     @staticmethod
@@ -959,33 +1017,29 @@ class PostgresNotificationRepository:
         )
         if attempt.attempt_ordinal <= 0:
             raise StorageInvariantViolationError("Stored attempt ordinal не положителен.")
-        if attempt.safe_error_code is not None and fullmatch(
-            r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}", attempt.safe_error_code
-        ) is None:
-            raise StorageInvariantViolationError("Stored attempt error code не bounded.")
-        if attempt.safe_error_summary is not None and (
-            not isinstance(attempt.safe_error_summary, str)
-            or
-            len(attempt.safe_error_summary) > 256
-            or any(ord(character) < 32 for character in attempt.safe_error_summary)
-            or any(
-                marker in attempt.safe_error_summary.casefold()
-                for marker in _UNSAFE_TEXT_MARKERS
+        if attempt.result_class is None:
+            if any(
+                value is not None
+                for value in (
+                    attempt.safe_error_code,
+                    attempt.safe_error_summary,
+                    attempt.retry_after_seconds,
+                    attempt.provider_message_id,
+                )
+            ):
+                raise StorageInvariantViolationError(
+                    "Незавершённая delivery attempt содержит result fields."
+                )
+        else:
+            _validate_result(
+                DeliveryResult(
+                    result_class=attempt.result_class,
+                    safe_error_code=attempt.safe_error_code,
+                    safe_error_summary=attempt.safe_error_summary,
+                    retry_after_seconds=attempt.retry_after_seconds,
+                    provider_message_id=attempt.provider_message_id,
+                )
             )
-        ):
-            raise StorageInvariantViolationError("Stored attempt summary не bounded.")
-        if attempt.retry_after_seconds is not None and not 0 <= attempt.retry_after_seconds <= 3600:
-            raise StorageInvariantViolationError("Stored attempt retry-after вне диапазона.")
-        if attempt.provider_message_id is not None and (
-            not isinstance(attempt.provider_message_id, str)
-            or
-            fullmatch(_SAFE_TOKEN_RE, attempt.provider_message_id) is None
-            or any(
-                marker in attempt.provider_message_id.casefold()
-                for marker in _UNSAFE_TEXT_MARKERS
-            )
-        ):
-            raise StorageInvariantViolationError("Stored provider message id не bounded.")
         if attempt.trace_id is not None and (
             not isinstance(attempt.trace_id, str)
             or
@@ -1027,24 +1081,36 @@ def _bounded_worker(worker_id: str) -> None:
 def _validate_result(result: DeliveryResult) -> None:
     if not isinstance(result, DeliveryResult) or not result.is_valid():
         raise StorageInvariantViolationError("DeliveryResult class не зарегистрирован.")
-    if result.safe_error_summary is not None and (
-        not isinstance(result.safe_error_summary, str)
-        or len(result.safe_error_summary) > 256
-        or any(ord(character) < 32 for character in result.safe_error_summary)
+
+
+def _validate_stored_policy_action(action: PolicyAction) -> None:
+    if (
+        len(action.channel_instance_ids) > 32
+        or len(set(action.channel_instance_ids)) != len(action.channel_instance_ids)
         or any(
-            marker in result.safe_error_summary.casefold()
-            for marker in _UNSAFE_TEXT_MARKERS
+            fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", channel_id) is None
+            for channel_id in action.channel_instance_ids
         )
     ):
-        raise StorageInvariantViolationError("DeliveryResult summary не bounded.")
-    if result.provider_message_id is not None and fullmatch(
-        _SAFE_TOKEN_RE, result.provider_message_id
+        raise StorageInvariantViolationError("Stored policy channels не bounded.")
+    if action.suppression_reason is not None and fullmatch(
+        r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", action.suppression_reason
     ) is None:
-        raise StorageInvariantViolationError("Provider message id не bounded.")
-    if result.provider_message_id is not None and any(
-        marker in result.provider_message_id.casefold() for marker in _UNSAFE_TEXT_MARKERS
+        raise StorageInvariantViolationError("Stored policy suppression reason не bounded.")
+    if action.suppression_reason is not None and action.channel_instance_ids:
+        raise StorageInvariantViolationError(
+            "Stored policy action содержит channels и suppression reason."
+        )
+    if fullmatch(r"[A-Za-z]{2,8}(?:-[A-Za-z0-9]{2,8})?", action.locale) is None:
+        raise StorageInvariantViolationError("Stored policy locale не bounded.")
+    if fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}", action.presentation_profile) is None:
+        raise StorageInvariantViolationError("Stored policy presentation profile не bounded.")
+    if action.priority is not None and (
+        not isinstance(action.priority, int)
+        or isinstance(action.priority, bool)
+        or not -100 <= action.priority <= 100
     ):
-        raise StorageInvariantViolationError("Provider message id содержит запрещённый marker.")
+        raise StorageInvariantViolationError("Stored policy priority вне bounded диапазона.")
 
 
 def _validate_update(update: DeliveryUpdate) -> None:

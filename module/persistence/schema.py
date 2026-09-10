@@ -942,7 +942,8 @@ formation_surface_fleet_scan_command_fleet = Table(
 notification_event = Table(
     "notification_event",
     metadata,
-    Column("id", Uuid, primary_key=True),
+    Column("row_id", Uuid, primary_key=True),
+    Column("id", Uuid, nullable=False),
     Column("source", String(64), nullable=False),
     Column("type", String(128), nullable=False),
     Column("schema_version", Integer, nullable=False),
@@ -963,6 +964,11 @@ notification_event = Table(
         "profile_id",
         "profile_sequence",
         name="uq_notification_event_profile_sequence",
+    ),
+    UniqueConstraint(
+        "source",
+        "id",
+        name="uq_notification_event_occurrence",
     ),
     CheckConstraint("schema_version > 0", name="schema_version_positive"),
     CheckConstraint("profile_sequence > 0", name="profile_sequence_positive"),
@@ -1013,10 +1019,10 @@ notification_policy_decision = Table(
     "notification_policy_decision",
     metadata,
     Column(
-        "event_id",
+        "event_row_id",
         Uuid,
         ForeignKey(
-            f"{SCHEMA_NAME}.notification_event.id",
+            f"{SCHEMA_NAME}.notification_event.row_id",
             ondelete="CASCADE",
             name="fk_notification_policy_decision_event",
         ),
@@ -1054,10 +1060,10 @@ notification_delivery = Table(
     metadata,
     Column("id", Uuid, primary_key=True),
     Column(
-        "event_id",
+        "event_row_id",
         Uuid,
         ForeignKey(
-            f"{SCHEMA_NAME}.notification_event.id",
+            f"{SCHEMA_NAME}.notification_event.row_id",
             ondelete="CASCADE",
             name="fk_notification_delivery_event",
         ),
@@ -1079,7 +1085,9 @@ notification_delivery = Table(
     Column("idempotency_key", String(256), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")),
     UniqueConstraint(
-        "event_id", "channel_instance_id", name="uq_notification_delivery_event_channel"
+        "event_row_id",
+        "channel_instance_id",
+        name="uq_notification_delivery_event_channel",
     ),
     UniqueConstraint("idempotency_key", name="uq_notification_delivery_idempotency"),
     CheckConstraint(
@@ -1099,7 +1107,8 @@ notification_delivery = Table(
         name="in_flight_lease_consistent",
     ),
     CheckConstraint(
-        "state <> 'AWAITING_AGENT_ACK' OR lease_until IS NOT NULL",
+        "state <> 'AWAITING_AGENT_ACK' OR "
+        "(lease_token IS NOT NULL AND lease_until IS NOT NULL)",
         name="awaiting_ack_lease_consistent",
     ),
     CheckConstraint(
@@ -1125,7 +1134,7 @@ Index(
 )
 Index(
     "ix_notification_delivery_event",
-    notification_delivery.c.event_id,
+    notification_delivery.c.event_row_id,
     notification_delivery.c.id,
 )
 Index(

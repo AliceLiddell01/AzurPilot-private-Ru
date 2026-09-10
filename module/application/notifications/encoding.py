@@ -154,6 +154,7 @@ def policy_snapshot_document(snapshot: NotificationPolicySnapshot) -> dict[str, 
         "suppression_reason": action.suppression_reason,
         "locale": action.locale,
         "presentation_profile": action.presentation_profile,
+        "priority": action.priority,
     }
 
 

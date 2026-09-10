@@ -19,6 +19,7 @@ from module.application.notifications.encoding import (
 )
 from module.application.notifications.models import (
     HandoverPreemptionPayload,
+    HandoverPublishContext,
     NotificationEvent,
     NotificationSensitivity,
     NotificationSeverity,
@@ -73,6 +74,8 @@ class NotificationDescriptor:
     allow_severity_override: bool = False
     publishable: bool = True
     deferred_reason: str | None = None
+    default_priority: int = 0
+    required_context_type: type | None = None
 
     def validate(self, event: NotificationEvent) -> tuple[dict[str, object], str]:
         if not self.publishable:
@@ -106,11 +109,14 @@ class NotificationDescriptor:
 
     def deserialize(self, document: Mapping[str, object]) -> object:
         if self.deserializer is None:
-            return dict(document)
+            raise NotificationValidationError("stored_payload_decoder_unavailable")
         try:
-            return self.deserializer(document)
+            payload = self.deserializer(document)
         except Exception:  # noqa: BLE001 - corrupted stored payload не выходит наружу.
             raise NotificationValidationError("stored_payload_invalid") from None
+        if not isinstance(payload, self.payload_type):
+            raise NotificationValidationError("stored_payload_type_invalid")
+        return payload
 
 
 class DeferredNotificationPayload:
@@ -260,6 +266,18 @@ class NotificationRegistry:
             raise TypeError("Descriptor flags должны быть bool.")
         if descriptor.deserializer is not None and not callable(descriptor.deserializer):
             raise TypeError("Descriptor deserializer должен быть callable.")
+        if descriptor.publishable and descriptor.deserializer is None:
+            raise ValueError(
+                "Publishable descriptor должен иметь typed deserializer."
+            )
+        if not isinstance(descriptor.default_priority, int) or isinstance(
+            descriptor.default_priority, bool
+        ) or not -100 <= descriptor.default_priority <= 100:
+            raise ValueError("Descriptor default priority имеет неверный диапазон.")
+        if descriptor.required_context_type is not None and not isinstance(
+            descriptor.required_context_type, type
+        ):
+            raise TypeError("Descriptor required context должен быть type.")
         key = (descriptor.event_type, descriptor.schema_version)
         if key in self._descriptors:
             raise ValueError("Notification descriptor уже зарегистрирован.")
@@ -375,6 +393,8 @@ def build_default_registry() -> NotificationRegistry:
             deserializer=_handover_deserializer,
             policy_capabilities=("handover_receipt",),
             dedup_required=True,
+            default_priority=30,
+            required_context_type=HandoverPublishContext,
         )
     )
     return NotificationRegistry(tuple(descriptors))

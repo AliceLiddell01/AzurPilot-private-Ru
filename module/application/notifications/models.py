@@ -264,6 +264,7 @@ class ChannelCapabilities:
     idempotency: bool = True
     receipt_strength: ReceiptStrength = ReceiptStrength.NONE
     health_check: bool = False
+    policy_capabilities: frozenset[str] = frozenset()
 
     def is_valid(self) -> bool:
         return (
@@ -284,7 +285,25 @@ class ChannelCapabilities:
             and isinstance(self.idempotency, bool)
             and isinstance(self.receipt_strength, ReceiptStrength)
             and isinstance(self.health_check, bool)
+            and isinstance(self.policy_capabilities, frozenset)
+            and len(self.policy_capabilities) <= 32
+            and all(_valid_token(item, limit=64) for item in self.policy_capabilities)
         )
+
+
+@dataclass(frozen=True, slots=True)
+class NotificationPublishContext:
+    """Типизированный неизменяемый context для descriptor caller invariants."""
+
+    caller_deadline: datetime | None = None
+    capabilities: frozenset[str] = frozenset()
+
+
+@dataclass(frozen=True, slots=True)
+class HandoverPublishContext(NotificationPublishContext):
+    """Context, подтверждающий bounded handover publish contract."""
+
+    capabilities: frozenset[str] = frozenset({"handover_receipt"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -400,6 +419,7 @@ class PolicyAction:
     suppression_reason: str | None = None
     locale: str = "ru-RU"
     presentation_profile: str = "default"
+    priority: int | None = None
 
     @property
     def suppressed(self) -> bool:
@@ -483,6 +503,7 @@ class PolicyDecision:
 class NotificationDeliveryPlan:
     id: UUID
     event_id: UUID
+    event_source: str
     channel_instance_id: str
     channel_type: str
     priority: int
@@ -518,6 +539,7 @@ class NotificationStoredDelivery:
     rendered_snapshot: RenderedSnapshot
     idempotency_key: str
     updated_at: datetime
+    event_source: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -611,6 +633,7 @@ __all__ = [
     "HandoverNotificationOutcome",
     "HandoverNotificationResult",
     "HandoverPreemptionPayload",
+    "HandoverPublishContext",
     "NotificationAttribute",
     "NotificationCorrelation",
     "NotificationDeliveryPlan",
@@ -618,6 +641,7 @@ __all__ = [
     "NotificationEventProjection",
     "NotificationPolicy",
     "NotificationPolicySnapshot",
+    "NotificationPublishContext",
     "NotificationRule",
     "NotificationRuleMatcher",
     "NotificationSensitivity",
