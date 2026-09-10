@@ -47,8 +47,8 @@ class CombatManual(ModuleBase):
         """
         if auto != 'stand_still_in_the_middle':
             return False
-        # 从自动切换到手动时，舰队通常在中央，无需下移
-        # 否则舰队会被移动到底部
+        # При переключении с автоматического на ручной режим флот обычно уже в центре, опускать его не нужно
+        # Иначе флот будет перемещён вниз
         if self.auto_mode_switched:
             return False
 
