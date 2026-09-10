@@ -91,7 +91,9 @@ class NotificationRepository(Protocol):
         after_sequence: int = 0,
         after_event_id: UUID | None = None,
         limit: int = 32,
-    ) -> tuple[NotificationAgentDelivery, ...]: ...
+    ) -> tuple[NotificationAgentDelivery, ...]:
+        """Вернуть строки строго по возрастанию `(profile_sequence, event_id)`."""
+        ...
 
     def acknowledge_agent_delivery(
         self,

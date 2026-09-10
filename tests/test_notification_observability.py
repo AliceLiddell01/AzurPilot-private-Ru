@@ -161,6 +161,17 @@ def test_agent_metrics_use_only_bounded_status_labels() -> None:
         for instrument in meter.instruments.values()
         for _, attributes in instrument.calls
     ]
+    expected_instruments = {
+        "notification_agent_connection_total",
+        "notification_agent_ack_total",
+        "notification_agent_backlog_total",
+        "notification_agent_ack_timeout_total",
+        "notification_agent_reconnect_total",
+    }
+    assert expected_instruments <= meter.instruments.keys()
+    assert all(
+        len(meter.instruments[name].calls) == 1 for name in expected_instruments
+    )
     assert observed
     assert all(set(attributes) <= {"status", "channel_type"} for attributes in observed)
     assert all("event_id" not in attributes for attributes in observed)

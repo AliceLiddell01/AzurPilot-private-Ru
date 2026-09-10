@@ -8,6 +8,7 @@ from module.application.notifications.agent import (
     DesktopAgentConfigurationError,
     DesktopAgentCredential,
     DesktopAgentDeliveryFrame,
+    DesktopAgentError,
     DesktopAgentHistoryService,
     DesktopAgentNotificationRuntime,
     DesktopAgentPrincipal,
@@ -22,6 +23,7 @@ from module.application.notifications.agent import (
     validate_agent_delivery_document,
 )
 from module.application.notifications.channels import (
+    DESKTOP_AGENT_CHANNEL_TYPE,
     SUPPORTED_CHANNEL_TYPES,
     NotificationChannel,
     NotificationChannelCatalog,
@@ -102,6 +104,7 @@ from module.application.notifications.state import (
 __all__ = [
     "SUPPORTED_CHANNEL_TYPES",
     "ChannelCapabilities",
+    "DESKTOP_AGENT_CHANNEL_TYPE",
     "ClaimedDelivery",
     "DeferredNotificationPayload",
     "DeliveryResult",
@@ -114,6 +117,7 @@ __all__ = [
     "DesktopAgentConfigurationError",
     "DesktopAgentCredential",
     "DesktopAgentDeliveryFrame",
+    "DesktopAgentError",
     "DesktopAgentHistoryService",
     "DesktopAgentNotificationRuntime",
     "DesktopAgentPrincipal",

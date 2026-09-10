@@ -58,6 +58,15 @@ def upgrade() -> None:
             ondelete="CASCADE",
             name=op.f("fk_notification_agent_ack_delivery"),
         ),
+        sa.ForeignKeyConstraint(
+            ["delivery_id", "attempt_ordinal"],
+            [
+                "azurpilot.notification_delivery_attempt.delivery_id",
+                "azurpilot.notification_delivery_attempt.attempt_ordinal",
+            ],
+            ondelete="CASCADE",
+            name=op.f("fk_notification_agent_ack_attempt"),
+        ),
         sa.PrimaryKeyConstraint(
             "delivery_id",
             "attempt_ordinal",

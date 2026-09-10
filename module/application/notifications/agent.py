@@ -21,7 +21,10 @@ from module.application.errors import (
     StorageError,
     StorageUnavailableError,
 )
-from module.application.notifications.channels import NotificationChannelCatalog
+from module.application.notifications.channels import (
+    DESKTOP_AGENT_CHANNEL_TYPE,
+    NotificationChannelCatalog,
+)
 from module.application.notifications.dispatcher import NotificationDispatcher
 from module.application.notifications.models import (
     ChannelCapabilities,
@@ -52,7 +55,6 @@ from module.application.notifications.telemetry import safe_telemetry_span
 from module.application.runtime_handover import NotificationOutcome
 from module.application.runtime_state import RuntimeStateSnapshot
 
-DESKTOP_AGENT_CHANNEL_TYPE = "desktop-agent"
 DESKTOP_AGENT_CHANNEL_INSTANCE_ID = "desktop-agent"
 DESKTOP_AGENT_STREAM_PATH = "/api/notification-agent/stream"
 DESKTOP_AGENT_ACK_PATH = "/api/notification-agent/ack"
@@ -350,6 +352,8 @@ def notification_agent_document(
         raise DesktopAgentUnavailableError("Stored event не имеет cursor identity.")
     if delivery.lease_token is None or attempt.lease_token is None:
         raise DesktopAgentUnavailableError("Stored delivery не имеет Agent lease identity.")
+    if delivery.lease_token != attempt.lease_token:
+        raise DesktopAgentUnavailableError("Stored attempt относится к устаревшему lease.")
     cursor = NotificationCursor(event.profile_id, event.profile_sequence, event.id)
     title = delivery.rendered_snapshot.title
     body = delivery.rendered_snapshot.body
@@ -662,9 +666,12 @@ class DesktopAgentNotificationRuntime:
         clock: Callable[[], datetime] | None = None,
         telemetry: object | None = None,
     ) -> DesktopAgentNotificationRuntime:
+        source = os.environ if environment is None else environment
         try:
             credential = DesktopAgentCredential.from_environment(environment)
         except DesktopAgentConfigurationError:
+            if _agent_identity_configuration_present(source):
+                raise
             credential = None
         return cls(
             uow_factory,
@@ -807,6 +814,7 @@ class DesktopAgentNotificationRuntime:
             except Exception:  # noqa: BLE001 - fatal worker errors fail closed.
                 _record_agent_connection(self._telemetry, "unavailable")
                 self._stop_event.set()
+                self._worker = None
                 return
             self._wake_event.wait(timeout=AGENT_POLL_SECONDS)
             self._wake_event.clear()
@@ -904,6 +912,20 @@ def _validate_agent_token(token: str) -> None:
         raise DesktopAgentConfigurationError("Agent token имеет неверный размер.")
     if any(character.isspace() or ord(character) < 32 or ord(character) == 127 for character in token):
         raise DesktopAgentConfigurationError("Agent token содержит недопустимые символы.")
+
+
+def _agent_identity_configuration_present(
+    environment: Mapping[str, str | None],
+) -> bool:
+    return any(
+        environment.get(name) is not None
+        for name in (
+            "AZURPILOT_NOTIFICATION_AGENT_ID",
+            "AZURPILOT_NOTIFICATION_AGENT_PROFILES",
+            "AZURPILOT_NOTIFICATION_AGENT_TOKEN",
+            "AZURPILOT_NOTIFICATION_AGENT_TOKEN_FILE",
+        )
+    )
 
 
 def _read_token_file(path_value: str) -> str:

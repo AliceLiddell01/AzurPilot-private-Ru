@@ -1243,6 +1243,15 @@ notification_agent_ack = Table(
     PrimaryKeyConstraint(
         "delivery_id", "attempt_ordinal", name="pk_notification_agent_ack"
     ),
+    ForeignKeyConstraint(
+        ["delivery_id", "attempt_ordinal"],
+        [
+            f"{SCHEMA_NAME}.notification_delivery_attempt.delivery_id",
+            f"{SCHEMA_NAME}.notification_delivery_attempt.attempt_ordinal",
+        ],
+        ondelete="CASCADE",
+        name="fk_notification_agent_ack_attempt",
+    ),
     CheckConstraint("attempt_ordinal > 0", name="attempt_ordinal_positive"),
     CheckConstraint("btrim(event_source) <> ''", name="event_source_not_blank"),
     CheckConstraint("btrim(profile_id) <> ''", name="profile_not_blank"),

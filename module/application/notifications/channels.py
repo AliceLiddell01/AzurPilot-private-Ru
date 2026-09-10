@@ -13,8 +13,9 @@ from module.application.notifications.models import (
 )
 
 STAGE2_CHANNEL_TYPES: Final[frozenset[str]] = frozenset({"test"})
+DESKTOP_AGENT_CHANNEL_TYPE: Final[str] = "desktop-agent"
 SUPPORTED_CHANNEL_TYPES: Final[frozenset[str]] = frozenset(
-    {*STAGE2_CHANNEL_TYPES, "desktop-agent"}
+    {*STAGE2_CHANNEL_TYPES, DESKTOP_AGENT_CHANNEL_TYPE}
 )
 
 
@@ -88,6 +89,7 @@ class NotificationChannelCatalog:
 
 __all__ = [
     "STAGE2_CHANNEL_TYPES",
+    "DESKTOP_AGENT_CHANNEL_TYPE",
     "SUPPORTED_CHANNEL_TYPES",
     "NotificationChannel",
     "NotificationChannelCatalog",

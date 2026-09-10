@@ -2,7 +2,6 @@ import ast
 import unittest
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 WEBUI_ROOT = ROOT / "module/webui"
 WEBUI_RUNTIME_SUFFIXES = {".py", ".html", ".js", ".css"}
@@ -113,10 +112,21 @@ class TestSharedWebUiLocalizationContracts(unittest.TestCase):
         self.assertIsInstance(assignment.value, ast.List)
 
         routes = []
-        route_constants = {
-            "DESKTOP_AGENT_STREAM_PATH": "/api/notification-agent/stream",
-            "DESKTOP_AGENT_ACK_PATH": "/api/notification-agent/ack",
-        }
+        from module.application.notifications.agent import (
+            DESKTOP_AGENT_ACK_PATH,
+            DESKTOP_AGENT_STREAM_PATH,
+        )
+
+        route_constants = {}
+        route_constants["DESKTOP_AGENT_STREAM_PATH"] = DESKTOP_AGENT_STREAM_PATH
+        route_constants["DESKTOP_AGENT_ACK_PATH"] = DESKTOP_AGENT_ACK_PATH
+        self.assertEqual(
+            route_constants,
+            {
+                "DESKTOP_AGENT_STREAM_PATH": "/api/notification-agent/stream",
+                "DESKTOP_AGENT_ACK_PATH": "/api/notification-agent/ack",
+            },
+        )
         for call in assignment.value.elts:
             self.assertIsInstance(call, ast.Call)
             self.assertIsInstance(call.func, ast.Name)

@@ -8,7 +8,11 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
+from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
+
+if TYPE_CHECKING:
+    from module.application.notifications.agent import DesktopAgentNotificationRuntime
 
 from module.application.errors import StorageConfigurationError
 from module.application.fleet_manual_scan import (
@@ -233,7 +237,7 @@ def runtime_engine() -> LazyEngine | None:
         return _engine
 
 
-def build_runtime_notification_composition() -> object | None:
+def build_runtime_notification_composition() -> DesktopAgentNotificationRuntime | None:
     """Собрать Agent notification поверх уже созданного process-local Engine."""
 
     engine = runtime_engine()

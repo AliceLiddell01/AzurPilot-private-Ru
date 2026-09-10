@@ -18,9 +18,11 @@ from module.application.notifications.agent import (
     DesktopAgentCredential,
     DesktopAgentNotificationRuntime,
     DesktopAgentRequestError,
+    DesktopAgentUnavailableError,
     NotificationCursor,
     NotificationCursorError,
     build_handover_preemption_event,
+    notification_agent_document,
     parse_agent_ack_document,
     validate_agent_delivery_document,
 )
@@ -30,6 +32,7 @@ from module.application.notifications.models import (
     NotificationAgentAck,
     NotificationAgentAckResult,
     NotificationAgentAckStatus,
+    NotificationAgentDelivery,
     NotificationSensitivity,
     ReceiptStrength,
 )
@@ -136,6 +139,18 @@ def test_credential_and_authenticator_never_repr_token_and_enforce_scope() -> No
     assert authenticator.authenticate({"Authorization": f"Bearer {credential.token} "}) is None
 
 
+def test_partial_agent_configuration_fails_closed_instead_of_disabling_silently() -> None:
+    with pytest.raises(DesktopAgentConfigurationError):
+        DesktopAgentNotificationRuntime.from_environment(
+            lambda: _MemoryUow(_MemoryRepository()),
+            environment={"AZURPILOT_NOTIFICATION_AGENT_ID": "desktop-agent-1"},
+        )
+    disabled = DesktopAgentNotificationRuntime.from_environment(
+        lambda: _MemoryUow(_MemoryRepository()), environment={}
+    )
+    assert disabled.enabled is False
+
+
 def test_api_requires_authentication_for_stream_and_ack(monkeypatch) -> None:
     from module.webui import api as webui_api
 
@@ -228,13 +243,36 @@ def test_durable_agent_projection_is_resumable_and_two_reads_are_independent() -
     assert duplicate.status.value == "duplicate"
 
 
-def test_sensitive_projection_does_not_expose_rendered_content() -> None:
-    runtime, _repository = _runtime()
-    event = replace(_event(operation_id="sensitive-1"), sensitivity=NotificationSensitivity.SENSITIVE)
+def test_agent_projection_rejects_mismatched_current_attempt_lease() -> None:
+    runtime, repository = _runtime()
+    event = _event(operation_id="projection-lease-1")
     _principal_value, frame = _stage_delivery(runtime, event)
+    delivery = repository.deliveries[UUID(str(frame.document["delivery_id"]))]
+    attempt = repository.attempts[delivery.id][-1]
+    repository.attempts[delivery.id][-1] = replace(attempt, lease_token=uuid4())
+
+    stored_event = repository.events[(event.source, event.id)]
+    with pytest.raises(DesktopAgentUnavailableError):
+        notification_agent_document(
+            NotificationAgentDelivery(
+                stored_event, delivery, repository.attempts[delivery.id][-1]
+            )
+        )
+
+
+def test_sensitive_projection_does_not_expose_rendered_content() -> None:
+    runtime, repository = _runtime()
+    event = replace(
+        _event(operation_id="sensitive-1"), sensitivity=NotificationSensitivity.SENSITIVE
+    )
+    _principal_value, frame = _stage_delivery(runtime, event)
+    delivery = repository.deliveries[UUID(str(frame.document["delivery_id"]))]
+    rendered = delivery.rendered_snapshot
+    wire = json.dumps(frame.document, ensure_ascii=False)
     assert frame.document["sensitivity"] == "SENSITIVE"
-    assert "Operation" not in str(frame.document)
-    assert "raw" not in json.dumps(frame.document).casefold()
+    assert rendered.title not in wire
+    assert rendered.body not in wire
+    assert "sensitive-1" not in wire
 
 
 def test_ack_rejects_wrong_profile_before_persistence_mutation() -> None:
@@ -380,6 +418,16 @@ def test_sse_parser_handles_id_event_and_multiline_data() -> None:
     assert events[0].data == '{"a":\n1}'
 
 
+def test_sse_parser_discards_unterminated_frame_on_disconnect() -> None:
+    async def chunks():
+        yield "event: notification\ndata: {\"partial\":true}\n"
+
+    async def collect():
+        return [event async for event in iter_sse_events(chunks())]
+
+    assert asyncio.run(collect()) == []
+
+
 def test_client_requires_verified_https_and_persists_only_valid_cursor(tmp_path: Path) -> None:
     with pytest.raises(DesktopAgentConfigurationError):
         DesktopAgentClientConfig("http://localhost", _credential(), tmp_path / "cursor.json")
@@ -396,12 +444,13 @@ def test_client_requires_verified_https_and_persists_only_valid_cursor(tmp_path:
 
 
 def test_client_rejects_unknown_notification_fields() -> None:
+    runtime, _repository = _runtime()
+    _principal_value, frame = _stage_delivery(
+        runtime, _event(operation_id="unknown-field-1")
+    )
+    validate_agent_delivery_document(frame.document)
     with pytest.raises(DesktopAgentRequestError):
-        validate_agent_delivery_document(
-            {
-                "unexpected": True,
-            }
-        )
+        validate_agent_delivery_document(dict(frame.document, unexpected=True))
 
 
 def _api_request(

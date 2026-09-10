@@ -119,14 +119,7 @@ async def iter_sse_events(
             result = await feed_line(line)
             if result is not None:
                 yield result
-    if buffer:
-        buffer = buffer.removesuffix("\r")
-        result = await feed_line(buffer)
-        if result is not None:
-            yield result
-    result = await feed_line("")
-    if result is not None:
-        yield result
+    # Незавершённый frame без пустой строки отбрасывается при закрытии SSE.
 
 
 @dataclass(frozen=True, slots=True)
@@ -261,7 +254,9 @@ class DesktopAgentClient:
                     ack_status = await self._post_ack(session, document, timeout=timeout)
                     if ack_status not in {"acknowledged", "duplicate"}:
                         raise DesktopAgentProtocolError("Desktop Agent ACK имеет неизвестный статус.")
-                    self._write_cursor(profile_id, event.event_id)
+                    await asyncio.to_thread(
+                        self._write_cursor, profile_id, event.event_id
+                    )
                     latest = event.event_id
                 return latest
         except DesktopAgentClientError:

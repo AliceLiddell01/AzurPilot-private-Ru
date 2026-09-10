@@ -7,8 +7,8 @@
 import multiprocessing
 import os
 import threading
-from pathlib import Path
 from multiprocessing.managers import SyncManager
+from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Generic, TypeVar
 
 from deploy.atomic import atomic_remove, atomic_write

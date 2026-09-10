@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 from module.application.notifications import (
     ChannelCapabilities,
     DeliveryResult,
+    DeliveryResultClass,
     DeliveryState,
     HandoverPreemptionPayload,
     NotificationEvent,
@@ -504,7 +505,10 @@ class _MemoryRepository:
                 if (
                     event.event.profile_id != profile_id
                     or delivery.channel_instance_id != channel_instance_id
+                    or delivery.channel_type != "desktop-agent"
                     or delivery.state is not DeliveryState.AWAITING_AGENT_ACK
+                    or delivery.lease_token is None
+                    or delivery.lease_until is None
                     or (
                         (
                             sequence <= after_sequence
@@ -520,6 +524,12 @@ class _MemoryRepository:
                 ):
                     continue
                 attempt = self.attempts[delivery.id][-1]
+                if (
+                    attempt.attempt_ordinal != delivery.attempt_count
+                    or attempt.lease_token != delivery.lease_token
+                    or attempt.result_class is not DeliveryResultClass.PROVIDER_ACCEPTED
+                ):
+                    continue
                 result.append(NotificationAgentDelivery(event, delivery, attempt))
                 if len(result) >= limit:
                     break
@@ -539,26 +549,53 @@ class _MemoryRepository:
                     None if previous == ack else "ack_identity_conflict",
                 )
             delivery = self.deliveries.get(ack.delivery_id)
-            if delivery is None or delivery.state is not DeliveryState.AWAITING_AGENT_ACK:
+            if delivery is None:
+                return NotificationAgentAckResult(
+                    NotificationAgentAckStatus.REJECTED, "delivery_not_found"
+                )
+            if delivery.state is DeliveryState.DELIVERED:
+                return NotificationAgentAckResult(
+                    NotificationAgentAckStatus.REJECTED, "delivery_already_completed"
+                )
+            event = self.events[(delivery.event_source, delivery.event_id)].event
+            identity_checks = (
+                (ack.event_id != event.id, "event_identity_mismatch"),
+                (ack.event_source != event.source, "event_identity_mismatch"),
+                (ack.profile_id != event.profile_id, "profile_identity_mismatch"),
+                (delivery.channel_type != "desktop-agent", "channel_identity_mismatch"),
+                (ack.attempt_ordinal != delivery.attempt_count, "attempt_identity_mismatch"),
+                (ack.lease_token != delivery.lease_token, "lease_identity_mismatch"),
+                (ack.session_epoch != ack.lease_token, "lease_identity_mismatch"),
+                (ack.payload_digest != event.payload_digest, "payload_digest_mismatch"),
+            )
+            for mismatch, reason in identity_checks:
+                if mismatch:
+                    return NotificationAgentAckResult(
+                        NotificationAgentAckStatus.REJECTED, reason
+                    )
+            if delivery.state is not DeliveryState.AWAITING_AGENT_ACK:
                 return NotificationAgentAckResult(
                     NotificationAgentAckStatus.REJECTED, "delivery_not_awaiting_ack"
                 )
-            event = self.events[(delivery.event_source, delivery.event_id)].event
             if (
-                ack.event_id != event.id
-                or ack.event_source != event.source
-                or ack.profile_id != event.profile_id
-                or ack.payload_digest != event.payload_digest
-                or ack.attempt_ordinal != delivery.attempt_count
-                or ack.lease_token != delivery.lease_token
-                or ack.session_epoch != ack.lease_token
+                delivery.lease_until is None
+                or delivery.lease_until <= now
+                or (
+                    delivery.deadline_at is not None
+                    and delivery.deadline_at <= now
+                )
             ):
                 return NotificationAgentAckResult(
-                    NotificationAgentAckStatus.REJECTED, "ack_identity_mismatch"
-                )
-            if delivery.lease_until is None or delivery.lease_until <= now:
-                return NotificationAgentAckResult(
                     NotificationAgentAckStatus.REJECTED, "ack_expired"
+                )
+            attempt = self.attempts[delivery.id][-1]
+            if (
+                attempt.attempt_ordinal != ack.attempt_ordinal
+                or attempt.lease_token != ack.lease_token
+                or attempt.result_class is not DeliveryResultClass.PROVIDER_ACCEPTED
+            ):
+                return NotificationAgentAckResult(
+                    NotificationAgentAckStatus.REJECTED, "attempt_not_awaiting_ack"
                 )
             self.agent_acks[key] = ack
             self.deliveries[ack.delivery_id] = replace(

@@ -1578,8 +1578,8 @@ async def api_notification_agent_stream(request):
                             yield ": keepalive\n\n"
                             continue
                         else:
-                            # Lease recovery/retry may replace the frame identity;
-                            # reread from PostgreSQL without advancing the cursor.
+                            # Восстановление lease/retry может заменить identity frame;
+                            # перечитываем данные из PostgreSQL без продвижения cursor.
                             pending = None
                     frames = await asyncio.to_thread(
                         runtime.read_agent_batch,
