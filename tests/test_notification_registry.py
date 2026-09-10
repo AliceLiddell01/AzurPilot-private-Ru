@@ -31,6 +31,7 @@ from module.application.notifications.encoding import (
     MAX_PAYLOAD_BYTES,
     MAX_EVENT_DIGEST_DOCUMENT_BYTES,
     MAX_PAYLOAD_ITEMS,
+    MAX_PAYLOAD_NODES,
     canonical_json,
     correlation_document,
     event_payload_digest,
@@ -77,6 +78,14 @@ def test_registry_rejects_naive_and_canonicalizes_handover_payload() -> None:
     with pytest.raises(NotificationValidationError) as error:
         registry.validate(invalid)
     assert error.value.reason_code == "occurred_at_not_aware"
+
+
+@pytest.mark.parametrize("reason_code", ("bad reason", "x" * 65, None))
+def test_notification_reason_code_is_bounded_before_message_interpolation(
+    reason_code: object,
+) -> None:
+    with pytest.raises(ValueError, match="неверный формат"):
+        NotificationValidationError(reason_code)  # type: ignore[arg-type]
 
 
 def test_handover_descriptor_requires_agent_ack_receipt_strength() -> None:
@@ -186,6 +195,17 @@ def test_payload_rejects_compound_prohibited_keys(key: str) -> None:
 def test_canonical_value_rejects_oversized_containers(value: object) -> None:
     with pytest.raises(NotificationValidationError, match="payload_too_large"):
         canonical_json(value, max_bytes=MAX_PAYLOAD_BYTES)
+
+
+def test_canonical_value_rejects_excessive_total_nodes() -> None:
+    nested: object = []
+    for _ in range(13):
+        nested = [nested, nested]
+
+    with pytest.raises(NotificationValidationError, match="payload_too_many_nodes"):
+        canonical_json(nested)
+
+    assert MAX_PAYLOAD_NODES > MAX_PAYLOAD_ITEMS
 
 
 def test_rendered_snapshot_allows_newline_only_in_body() -> None:

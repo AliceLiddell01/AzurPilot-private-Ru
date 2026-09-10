@@ -1,5 +1,10 @@
 """Безопасная граница ошибок прикладного слоя."""
 
+from re import fullmatch
+
+
+_NOTIFICATION_REASON_CODE_RE = r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}"
+
 
 class ApplicationError(Exception):
     """Ожидаемая ошибка, безопасная для преобразования транспортным адаптером."""
@@ -136,6 +141,10 @@ class NotificationValidationError(InvalidRequestError):
     code = "notification_validation_failed"
 
     def __init__(self, reason_code: str, message: str | None = None) -> None:
+        if not isinstance(reason_code, str) or fullmatch(
+            _NOTIFICATION_REASON_CODE_RE, reason_code
+        ) is None:
+            raise ValueError("Notification reason code имеет неверный формат.")
         self.reason_code = reason_code
         super().__init__(
             message

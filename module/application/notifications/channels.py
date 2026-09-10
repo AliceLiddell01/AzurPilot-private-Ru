@@ -61,6 +61,8 @@ class NotificationChannelCatalog:
             r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}", channel_type
         ) is None:
             raise ValueError("Channel type имеет неверный формат.")
+        if channel_type not in STAGE2_CHANNEL_TYPES:
+            raise ValueError("Channel type не поддерживается текущим Stage 2.")
         if not isinstance(capabilities, ChannelCapabilities) or not capabilities.is_valid():
             raise ValueError("Channel capabilities не прошли bounded validation.")
         self._channels[instance_id] = channel

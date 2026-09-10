@@ -174,6 +174,16 @@ def test_handover_capability_is_required_at_publish_boundary() -> None:
     assert repository.events == {}
 
 
+def test_channel_catalog_rejects_unsupported_stage2_type() -> None:
+    class _UnsupportedChannel(_FakeChannel):
+        channel_type = "webhook"
+
+    with pytest.raises(ValueError, match="не поддерживается"):
+        NotificationChannelCatalog(
+            (_UnsupportedChannel(DeliveryResult.provider_accepted()),)
+        )
+
+
 @pytest.mark.parametrize(
     "receipt_strength", (ReceiptStrength.NONE, ReceiptStrength.PROVIDER_ACCEPTANCE)
 )

@@ -123,6 +123,7 @@ class NotificationDispatcher:
                             item_failed = True
             elapsed = time.perf_counter() - started
             retry_scheduled = False
+            durable_applied = False
             try:
                 transition = self._build_transition(item, result, capabilities)
             except Exception:  # noqa: BLE001 - некорректный channel result остаётся fail-closed.
@@ -132,8 +133,6 @@ class NotificationDispatcher:
                 try:
                     transition = self._build_transition(item, result, capabilities)
                 except Exception:  # noqa: BLE001 - lease остаётся для bounded recovery.
-                    self._record_attempt(item, result, retry_scheduled=False)
-                    self._record_latency(item, result, elapsed)
                     failed += 1
                     continue
             try:
@@ -145,14 +144,16 @@ class NotificationDispatcher:
                     ):
                         uow.commit()
                         updated += 1
+                        durable_applied = True
                         retry_scheduled = transition.state is DeliveryState.RETRY_WAIT
                     else:
                         uow.rollback()
                         stale += 1
             except Exception:  # noqa: BLE001 - ошибка storage не останавливает batch.
                 item_failed = True
-            self._record_attempt(item, result, retry_scheduled=retry_scheduled)
-            self._record_latency(item, result, elapsed)
+            if durable_applied:
+                self._record_attempt(item, result, retry_scheduled=retry_scheduled)
+                self._record_latency(item, result, elapsed)
             failed += int(item_failed)
         return DispatchReport(
             claimed=claimed_count,

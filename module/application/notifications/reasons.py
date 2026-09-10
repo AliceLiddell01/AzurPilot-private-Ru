@@ -60,6 +60,7 @@ NOTIFICATION_REASON_CODES: Final[frozenset[str]] = frozenset(
         "producer_schema_not_migrated",
         "profile_id_invalid",
         "profile_sequence_invalid",
+        "payload_too_many_nodes",
         "renderer_locale_unsupported",
         "renderer_not_registered",
         "renderer_payload_type_invalid",

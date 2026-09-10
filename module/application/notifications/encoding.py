@@ -26,18 +26,28 @@ MAX_EVENT_DIGEST_DOCUMENT_BYTES: Final = 16 * 1024
 MAX_SNAPSHOT_BYTES: Final = 8 * 1024
 MAX_PAYLOAD_DEPTH: Final = 16
 MAX_PAYLOAD_ITEMS: Final = 256
+MAX_PAYLOAD_NODES: Final = 4096
 
 
 def _reject(reason: str) -> NoReturn:
     raise NotificationValidationError(reason)
 
 
-def canonical_value(value: object, *, _depth: int = 0) -> object:
+def canonical_value(
+    value: object, *, _depth: int = 0, _node_budget: list[int] | None = None
+) -> object:
     """Преобразовать только известные JSON-совместимые доменные значения."""
     if _depth > MAX_PAYLOAD_DEPTH:
         _reject("payload_too_deep")
+    if _node_budget is None:
+        _node_budget = [MAX_PAYLOAD_NODES]
+    if _node_budget[0] <= 0:
+        _reject("payload_too_many_nodes")
+    _node_budget[0] -= 1
     if isinstance(value, Enum):
-        return canonical_value(value.value, _depth=_depth + 1)
+        return canonical_value(
+            value.value, _depth=_depth + 1, _node_budget=_node_budget
+        )
     if value is None or isinstance(value, (bool, int)):
         return value
     if isinstance(value, str):
@@ -65,12 +75,17 @@ def canonical_value(value: object, *, _depth: int = 0) -> object:
         for key, item in value.items():
             if not isinstance(key, str) or not key:
                 _reject("payload_mapping_key_invalid")
-            result[key] = canonical_value(item, _depth=_depth + 1)
+            result[key] = canonical_value(
+                item, _depth=_depth + 1, _node_budget=_node_budget
+            )
         return result
     if isinstance(value, (tuple, list)):
         if len(value) > MAX_PAYLOAD_ITEMS:
             _reject("payload_too_large")
-        return [canonical_value(item, _depth=_depth + 1) for item in value]
+        return [
+            canonical_value(item, _depth=_depth + 1, _node_budget=_node_budget)
+            for item in value
+        ]
     _reject("payload_value_type_invalid")
 
 
@@ -192,6 +207,7 @@ __all__ = [
     "MAX_PAYLOAD_BYTES",
     "MAX_PAYLOAD_DEPTH",
     "MAX_PAYLOAD_ITEMS",
+    "MAX_PAYLOAD_NODES",
     "MAX_SNAPSHOT_BYTES",
     "canonical_digest",
     "canonical_json",

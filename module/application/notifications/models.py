@@ -359,7 +359,10 @@ class DeliveryResult:
         if self.result_class in {
             DeliveryResultClass.DELIVERED,
             DeliveryResultClass.PROVIDER_ACCEPTED,
-        } and self.safe_error_code is not None:
+        } and (
+            self.safe_error_code is not None
+            or self.safe_error_summary is not None
+        ):
             return False
         if (
             self.result_class is DeliveryResultClass.PERMANENT_FAILURE
