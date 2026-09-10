@@ -24,6 +24,8 @@ from module.application.notifications.models import (
     NotificationSensitivity,
     NotificationSeverity,
     NotificationSubject,
+    ReceiptStrength,
+    ensure_aware_utc,
 )
 
 NotificationSerializer = Callable[[object], Mapping[str, object]]
@@ -33,6 +35,7 @@ NotificationDeserializer = Callable[[Mapping[str, object]], object]
 _SOURCE_RE: Final = r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}"
 _DEDUP_KEY_RE: Final = r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}"
 _PROFILE_RE: Final = r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}"
+_DIGEST_RE: Final = r"[0-9a-f]{64}"
 _PROHIBITED_KEYS = frozenset(
     {
         "auth",
@@ -70,6 +73,7 @@ class NotificationDescriptor:
     renderer_id: str
     deserializer: NotificationDeserializer | None = None
     policy_capabilities: tuple[str, ...] = ()
+    required_receipt_strength: ReceiptStrength | None = None
     dedup_required: bool = False
     allow_severity_override: bool = False
     publishable: bool = True
@@ -77,15 +81,9 @@ class NotificationDescriptor:
     default_priority: int = 0
     required_context_type: type | None = None
 
-    def validate(self, event: NotificationEvent) -> tuple[dict[str, object], str]:
-        if not self.publishable:
-            raise NotificationValidationError(self.deferred_reason or "descriptor_not_publishable")
-        if not isinstance(event.data, self.payload_type):
-            raise NotificationValidationError("payload_type_invalid")
-        if not self.allow_severity_override and event.severity is not self.default_severity:
-            raise NotificationValidationError("severity_not_allowed")
+    def _serialize_payload(self, payload: object) -> dict[str, object]:
         try:
-            document = self.serializer(event.data)
+            document = self.serializer(payload)
         except NotificationValidationError:
             raise
         except Exception:  # noqa: BLE001 - descriptor boundary скрывает raw payload exception.
@@ -94,18 +92,43 @@ class NotificationDescriptor:
             not isinstance(key, str) for key in document
         ):
             raise NotificationValidationError("payload_schema_invalid")
-        normalized = canonical_json(document, max_bytes=MAX_PAYLOAD_BYTES)
+        return _normalize_payload_document(document)
+
+    def _validate_payload_semantics(
+        self, event: NotificationEvent, payload: object, document: Mapping[str, object]
+    ) -> None:
+        if not isinstance(payload, self.payload_type):
+            raise NotificationValidationError("payload_type_invalid")
+        if not self.allow_severity_override and event.severity is not self.default_severity:
+            raise NotificationValidationError("severity_not_allowed")
         try:
-            self.validator(event, event.data, document)
+            self.validator(event, payload, document)
         except NotificationValidationError:
             raise
         except Exception:  # noqa: BLE001 - stored payload boundary имеет bounded error code.
             raise NotificationValidationError("payload_validation_failed") from None
-        normalized_document = json.loads(normalized)
-        if not isinstance(normalized_document, dict):
-            raise NotificationValidationError("payload_schema_invalid")
-        _reject_prohibited_keys(normalized_document)
-        return normalized_document, event_payload_digest(event, normalized_document)
+
+    def validate(self, event: NotificationEvent) -> tuple[dict[str, object], str]:
+        if not self.publishable:
+            raise NotificationValidationError(self.deferred_reason or "descriptor_not_publishable")
+        document = self._serialize_payload(event.data)
+        self._validate_payload_semantics(event, event.data, document)
+        return document, event_payload_digest(event, document)
+
+    def validate_stored(
+        self, event: NotificationEvent, document: Mapping[str, object]
+    ) -> dict[str, object]:
+        """Проверить typed payload и его descriptor semantics после чтения из storage."""
+        if not self.publishable:
+            raise NotificationValidationError(self.deferred_reason or "descriptor_not_publishable")
+        if not isinstance(document, Mapping):
+            raise NotificationValidationError("stored_payload_schema_invalid")
+        normalized_document = _normalize_payload_document(document)
+        serialized_document = self._serialize_payload(event.data)
+        if normalized_document != serialized_document:
+            raise NotificationValidationError("stored_payload_schema_invalid")
+        self._validate_payload_semantics(event, event.data, normalized_document)
+        return normalized_document
 
     def deserialize(self, document: Mapping[str, object]) -> object:
         if self.deserializer is None:
@@ -268,6 +291,10 @@ class NotificationRegistry:
             raise TypeError("Descriptor flags должны быть bool.")
         if descriptor.deserializer is not None and not callable(descriptor.deserializer):
             raise TypeError("Descriptor deserializer должен быть callable.")
+        if descriptor.required_receipt_strength is not None and not isinstance(
+            descriptor.required_receipt_strength, ReceiptStrength
+        ):
+            raise TypeError("Descriptor required receipt strength имеет неверный тип.")
         if descriptor.publishable and descriptor.deserializer is None:
             raise ValueError(
                 "Publishable descriptor должен иметь typed deserializer."
@@ -295,6 +322,24 @@ class NotificationRegistry:
         return descriptor
 
     def validate(self, event: NotificationEvent) -> tuple[NotificationDescriptor, dict[str, object], str]:
+        self._validate_event_fields(event, stored=False)
+        descriptor = self.require(event.type, event.schema_version)
+        if descriptor.dedup_required and event.dedup_key is None:
+            raise NotificationValidationError("dedup_key_required")
+        document, digest = descriptor.validate(event)
+        return descriptor, document, digest
+
+    def validate_stored(
+        self, event: NotificationEvent, payload_document: Mapping[str, object]
+    ) -> tuple[NotificationDescriptor, dict[str, object]]:
+        self._validate_event_fields(event, stored=True)
+        descriptor = self.require(event.type, event.schema_version)
+        if descriptor.dedup_required and event.dedup_key is None:
+            raise NotificationValidationError("dedup_key_required")
+        return descriptor, descriptor.validate_stored(event, payload_document)
+
+    @staticmethod
+    def _validate_event_fields(event: NotificationEvent, *, stored: bool) -> None:
         if not isinstance(event, NotificationEvent):
             raise NotificationValidationError("event_invalid")
         if not isinstance(event.id, UUID):
@@ -329,15 +374,25 @@ class NotificationRegistry:
             raise NotificationValidationError("sensitivity_invalid")
         if not isinstance(event.occurred_at, datetime):
             raise NotificationValidationError("occurred_at_invalid")
-        if event.occurred_at.tzinfo is None or event.occurred_at.utcoffset() is None:
+        if ensure_aware_utc(event.occurred_at) is None:
             raise NotificationValidationError("occurred_at_not_aware")
-        if event.persisted_at is not None or event.profile_sequence is not None or event.payload_digest is not None:
+        if stored:
+            if ensure_aware_utc(event.persisted_at) is None:
+                raise NotificationValidationError("persisted_at_not_aware")
+            if not isinstance(event.profile_sequence, int) or isinstance(
+                event.profile_sequence, bool
+            ) or event.profile_sequence <= 0:
+                raise NotificationValidationError("profile_sequence_invalid")
+            if not isinstance(event.payload_digest, str) or fullmatch(
+                _DIGEST_RE, event.payload_digest
+            ) is None:
+                raise NotificationValidationError("payload_digest_invalid")
+        elif (
+            event.persisted_at is not None
+            or event.profile_sequence is not None
+            or event.payload_digest is not None
+        ):
             raise NotificationValidationError("server_owned_field_provided")
-        descriptor = self.require(event.type, event.schema_version)
-        if descriptor.dedup_required and event.dedup_key is None:
-            raise NotificationValidationError("dedup_key_required")
-        document, digest = descriptor.validate(event)
-        return descriptor, document, digest
 
     def descriptors(self) -> tuple[NotificationDescriptor, ...]:
         return tuple(self._descriptors.values())
@@ -368,6 +423,23 @@ def _reject_prohibited_keys(value: object) -> None:
             _reject_prohibited_keys(item)
 
 
+def _normalize_payload_document(document: Mapping[str, object]) -> dict[str, object]:
+    if not isinstance(document, Mapping) or any(
+        not isinstance(key, str) for key in document
+    ):
+        raise NotificationValidationError("payload_schema_invalid")
+    try:
+        normalized = json.loads(canonical_json(document, max_bytes=MAX_PAYLOAD_BYTES))
+    except NotificationValidationError:
+        raise
+    except Exception:  # noqa: BLE001 - bounded payload encoding failure.
+        raise NotificationValidationError("payload_schema_invalid") from None
+    if not isinstance(normalized, dict):
+        raise NotificationValidationError("payload_schema_invalid")
+    _reject_prohibited_keys(normalized)
+    return normalized
+
+
 def build_default_registry() -> NotificationRegistry:
     descriptors = [
         NotificationDescriptor(
@@ -394,6 +466,7 @@ def build_default_registry() -> NotificationRegistry:
             renderer_id="handover.preemption",
             deserializer=_handover_deserializer,
             policy_capabilities=("handover_receipt",),
+            required_receipt_strength=ReceiptStrength.AGENT_ACK,
             dedup_required=True,
             default_priority=30,
             required_context_type=HandoverPublishContext,

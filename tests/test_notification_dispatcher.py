@@ -30,6 +30,24 @@ from tests.notification_test_support import (
 )
 
 
+class _RecordingTelemetry:
+    def __init__(self) -> None:
+        self.retry_scheduled: list[bool] = []
+
+    def record_attempt(
+        self,
+        *,
+        claimed: object,
+        result: DeliveryResult,
+        retry_scheduled: bool,
+    ) -> None:
+        del claimed, result
+        self.retry_scheduled.append(retry_scheduled)
+
+    def record_latency(self, **_kwargs: object) -> None:
+        return None
+
+
 @pytest.mark.parametrize("worker_id", ("", "worker id", "x" * 129))
 def test_dispatcher_rejects_invalid_worker_id(worker_id: str) -> None:
     with pytest.raises(ValueError, match="worker id"):
@@ -103,7 +121,7 @@ def test_publisher_and_dispatcher_keep_provider_acceptance_intermediate() -> Non
     assert report.updated == 1
     delivery = next(iter(repository.deliveries.values()))
     assert delivery.state is DeliveryState.AWAITING_AGENT_ACK
-    assert channel.sent[0].idempotency_key.endswith(f":{result.event_id}:agent")
+    assert channel.sent[0].idempotency_key.startswith("notification-delivery-v1:")
 
 
 def test_memory_ack_timeout_keeps_real_attempt_budget() -> None:
@@ -241,6 +259,70 @@ def test_dispatcher_continues_after_storage_update_failure() -> None:
     assert report.updated == 1
     assert report.failed == 1
     assert len(channel.sent) == 2
+
+
+def test_retry_metric_follows_durable_retry_transition() -> None:
+    repository = _MemoryRepository()
+    telemetry = _RecordingTelemetry()
+    channel = _FakeChannel(DeliveryResult.transient_failure("temporary"))
+    retry_policy = RetryPolicy(max_attempts=2, jitter_ratio=0)
+    publisher = NotificationPublisher(
+        lambda: _MemoryUow(repository),
+        policy=_policy(),
+        channel_catalog=NotificationChannelCatalog((channel,)),
+        retry_policy=retry_policy,
+        clock=lambda: NOW,
+    )
+    _publish(publisher, _event(operation_id="operation-retry-telemetry"))
+
+    first_dispatch = NotificationDispatcher(
+        lambda: _MemoryUow(repository),
+        channel_catalog=NotificationChannelCatalog((channel,)),
+        retry_policy=retry_policy,
+        worker_id="worker-retry-first",
+        clock=lambda: NOW,
+        telemetry=telemetry,
+    )
+    assert first_dispatch.dispatch_once().updated == 1
+
+    second_dispatch = NotificationDispatcher(
+        lambda: _MemoryUow(repository),
+        channel_catalog=NotificationChannelCatalog((channel,)),
+        retry_policy=retry_policy,
+        worker_id="worker-retry-second",
+        clock=lambda: NOW + timedelta(seconds=10),
+        telemetry=telemetry,
+    )
+    assert second_dispatch.dispatch_once().updated == 1
+
+    assert telemetry.retry_scheduled == [True, False]
+
+
+def test_retry_metric_does_not_count_deadline_exhaustion() -> None:
+    repository = _MemoryRepository()
+    telemetry = _RecordingTelemetry()
+    channel = _FakeChannel(DeliveryResult.transient_failure("temporary"))
+    retry_policy = RetryPolicy(max_attempts=5, base_delay_seconds=2, jitter_ratio=0)
+    publisher = NotificationPublisher(
+        lambda: _MemoryUow(repository),
+        policy=_policy(),
+        channel_catalog=NotificationChannelCatalog((channel,)),
+        retry_policy=retry_policy,
+        clock=lambda: NOW,
+    )
+    _publish(publisher, _event(operation_id="operation-deadline-telemetry"))
+
+    dispatcher = NotificationDispatcher(
+        lambda: _MemoryUow(repository),
+        channel_catalog=NotificationChannelCatalog((channel,)),
+        retry_policy=retry_policy,
+        worker_id="worker-deadline",
+        clock=lambda: NOW + timedelta(seconds=29),
+        telemetry=telemetry,
+    )
+
+    assert dispatcher.dispatch_once().updated == 1
+    assert telemetry.retry_scheduled == [False]
 
 
 @pytest.mark.parametrize(

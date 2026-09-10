@@ -15,6 +15,7 @@ from module.application.errors import (
     StorageUnavailableError,
 )
 from module.application.notifications.channels import NotificationChannelCatalog
+from module.application.notifications.encoding import notification_delivery_idempotency_key
 from module.application.notifications.models import (
     ChannelCapabilities,
     HandoverNotificationOutcome,
@@ -241,6 +242,12 @@ class NotificationPublisher:
             capabilities = channel.capabilities
             if not isinstance(capabilities, ChannelCapabilities) or not capabilities.is_valid():
                 raise NotificationValidationError("channel_capabilities_invalid")
+            if not capabilities.supports_receipt_strength(
+                descriptor.required_receipt_strength
+            ):
+                raise NotificationValidationError(
+                    "channel_receipt_strength_insufficient"
+                )
             missing_capabilities = set(descriptor.policy_capabilities).difference(
                 capabilities.policy_capabilities
             )
@@ -269,7 +276,11 @@ class NotificationPublisher:
                     next_attempt_at=now,
                     deadline_at=deadline_at,
                     rendered_snapshot=snapshot,
-                    idempotency_key=f"{event.source}:{event.id}:{channel_id}",
+                    idempotency_key=notification_delivery_idempotency_key(
+                        source=event.source,
+                        event_id=event.id,
+                        channel_instance_id=channel_id,
+                    ),
                     timeout_seconds=timeout_seconds,
                 )
             )

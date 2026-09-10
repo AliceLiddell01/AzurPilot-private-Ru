@@ -638,10 +638,14 @@ retry budget. Для Telegram/Webhook capability receipt=provider_acceptance
 
 #### DeliveryAttempt
 
-Append-only audit фактической попытки: ordinal, start/finish time, result
-class, safe error code, bounded retry-after, provider message id при наличии,
-lease token и trace correlation. Raw response body, authorization header,
-credentials и секретные URL не сохраняются.
+Append-only audit durable dispatch attempt: строка создаётся атомарно вместе с
+успешным claim, до внешнего provider call. В ней хранятся ordinal,
+start/finish time, result class, safe error code, bounded retry-after, provider
+message id при наличии, lease token и trace correlation. После commit claim
+внешний side effect может произойти до, во время или после crash, поэтому
+recovery сохраняет at-least-once semantics и тот же idempotency key. Raw
+response body, authorization header, credentials и секретные URL не
+сохраняются.
 
 #### Suppression / terminal failure
 
@@ -1121,10 +1125,14 @@ redaction.
 | notification_delivery_attempt_total | channel_type, result_class |
 | notification_retry_total | channel_type, reason |
 | notification_delivery_latency_seconds | channel_type, result_class |
-| notification_backlog_age_seconds | channel_type, state |
 | notification_channel_health | channel_type, health_state |
 | notification_agent_ack_timeout_total | channel_type, reason |
 | notification_event_rejected_total | source_domain, reason |
+
+`notification_backlog_age_seconds` пока не экспортируется: в Stage 2 нет
+production sampling path, который достоверно измеряет backlog без UUID labels.
+Metric можно добавить в следующем этапе только вместе с bounded observation
+path и тестом его фактического call site.
 
 Не помещать в Prometheus labels notification_id, delivery_id, trace_id,
 arbitrary title/message или неограниченный profile data. Profile/event/delivery
@@ -1459,27 +1467,34 @@ conflict path закрывают race между конкурентными publ
 
 ### [Факт] Attempts, ACK lease и capability boundary
 
-`notification_delivery_attempt` создаётся только при фактическом provider send.
-Истечение pending deadline переводит delivery в `FAILED` без synthetic attempt;
-истечение Agent ACK lease не увеличивает `attempt_count` и не создаёт новую
-attempt. `AWAITING_AGENT_ACK` сохраняет текущий lease token до recovery, после
-чего token инвалидируется; следующий claim получает новый token и новый ordinal.
+`notification_delivery_attempt` создаётся при успешном durable claim до
+фактического provider send. Crash до, во время или после внешнего вызова может
+оставить side effect неизвестным; recovery поэтому использует at-least-once
+semantics и stable idempotency key. Истечение pending deadline переводит
+delivery в `FAILED` без synthetic attempt; истечение Agent ACK lease не
+увеличивает `attempt_count` и не создаёт новую attempt. `AWAITING_AGENT_ACK`
+сохраняет текущий lease token до recovery, после чего token инвалидируется;
+следующий claim получает новый token и новый ordinal.
 Dispatcher claim-ит по одной delivery за lease window, а `batch_size` ограничивает
 число последовательных delivery в одном проходе; lease уже выбранных соседних
 сообщений не расходуется во время provider send.
 
-Handover publication требует typed `HandoverPublishContext`, caller deadline и
-capability `handover_receipt`. Generic `publish(event)` не может обойти это
-требование, а registered channel обязан явно объявить capability. Stage 2 не
+Handover publication требует typed `HandoverPublishContext`, caller deadline,
+`handover_receipt` context capability и typed channel receipt strength не ниже
+`AGENT_ACK`. Generic `publish(event)` не может обойти это требование, а
+registered channel с одной только строковой capability fail-closed. Stage 2 не
 добавляет production Agent или ACK endpoint.
 
 ### [Факт] Typed storage и bounded failure
 
 Каждый publishable descriptor обязан иметь typed deserializer. Чтение неизвестной
 или повреждённой stored schema завершается invariant failure без generic `dict`
-fallback. Application и persistence используют один bounded `DeliveryResult`
-validator: provider identifier обязан быть безопасным bounded token (например,
-`tokenizer-v1`), а secret-подобные значения и URL отклоняются. Storage
+fallback. После typed deserialization stored payload повторно проходит
+descriptor semantic validator и canonical reserialization; согласованный digest
+не заменяет эту проверку. Application и persistence используют один bounded
+`DeliveryResult` validator: provider identifier обязан быть безопасным bounded
+token (например, `tokenizer-v1`), а secret-подобные значения и URL отклоняются.
+Storage
 authentication/configuration/schema/conflict/invalid errors
 маппятся в bounded `PublishResult`; только временная недоступность получает
 `UNAVAILABLE`, а durable invariant violation пробрасывается fail-closed.

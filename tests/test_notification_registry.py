@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import datetime
 from decimal import Decimal
+from uuid import UUID
 
 import pytest
 
@@ -16,22 +17,53 @@ from module.application.notifications import (
     HandoverPreemptionRenderer,
     NotificationChannelCatalog,
     NotificationDescriptor,
+    NotificationEvent,
     NotificationRegistry,
+    NotificationSensitivity,
     NotificationSeverity,
     NotificationValidationError,
     RenderedSnapshot,
+    ReceiptStrength,
     build_default_registry,
     default_registry,
 )
 from module.application.notifications.encoding import (
     MAX_PAYLOAD_BYTES,
+    MAX_EVENT_DIGEST_DOCUMENT_BYTES,
     MAX_PAYLOAD_ITEMS,
     canonical_json,
     correlation_document,
     event_payload_digest,
+    event_document,
+    notification_delivery_idempotency_key,
 )
-from module.application.notifications.models import NotificationCorrelation
+from module.application.notifications.models import (
+    NotificationCorrelation,
+    NotificationSubject,
+)
 from tests.notification_test_support import _event
+
+
+@dataclass(frozen=True)
+class _LargePayload:
+    text: str
+
+
+def _large_payload_registry() -> NotificationRegistry:
+    return NotificationRegistry(
+        (
+            NotificationDescriptor(
+                event_type="test.large",
+                schema_version=1,
+                payload_type=_LargePayload,
+                serializer=lambda payload: {"text": payload.text},
+                validator=lambda _event, _payload, _document: None,
+                default_severity=NotificationSeverity.INFO,
+                renderer_id="deferred",
+                deserializer=lambda document: _LargePayload(document["text"]),
+            ),
+        )
+    )
 
 
 def test_registry_rejects_naive_and_canonicalizes_handover_payload() -> None:
@@ -45,6 +77,79 @@ def test_registry_rejects_naive_and_canonicalizes_handover_payload() -> None:
     with pytest.raises(NotificationValidationError) as error:
         registry.validate(invalid)
     assert error.value.reason_code == "occurred_at_not_aware"
+
+
+def test_handover_descriptor_requires_agent_ack_receipt_strength() -> None:
+    descriptor = build_default_registry().require(
+        "runtime.handover.preemption_requested", 1
+    )
+    assert descriptor.required_receipt_strength is ReceiptStrength.AGENT_ACK
+    assert (
+        build_default_registry().require("task.completed", 1).required_receipt_strength
+        is None
+    )
+
+
+def test_delivery_idempotency_key_is_structured_and_versioned() -> None:
+    first = notification_delivery_idempotency_key(
+        source="a",
+        event_id=UUID("00000000-0000-0000-0000-000000000001"),
+        channel_instance_id="x:00000000-0000-0000-0000-000000000002:y",
+    )
+    collision_candidate = notification_delivery_idempotency_key(
+        source="a:00000000-0000-0000-0000-000000000001:x",
+        event_id=UUID("00000000-0000-0000-0000-000000000002"),
+        channel_instance_id="y",
+    )
+
+    assert first.startswith("notification-delivery-v1:")
+    assert first != collision_candidate
+    assert first == notification_delivery_idempotency_key(
+        source="a",
+        event_id=UUID("00000000-0000-0000-0000-000000000001"),
+        channel_instance_id="x:00000000-0000-0000-0000-000000000002:y",
+    )
+
+
+def test_payload_limit_is_separate_from_bounded_event_digest_envelope() -> None:
+    event = replace(
+        _event(),
+        type="test.large",
+        severity=NotificationSeverity.INFO,
+        profile_id="p" * 128,
+        runtime_instance_id="r" * 128,
+        subject=NotificationSubject(kind="s" * 32, id="i" * 128),
+        correlation=NotificationCorrelation(
+            task_id="t" * 128,
+            runtime_session_id="u" * 128,
+            trace_id="a" * 32,
+            span_id="b" * 16,
+        ),
+        data=_LargePayload("x" * 3500),
+        dedup_key=None,
+        sensitivity=NotificationSensitivity.SENSITIVE,
+    )
+    registry = _large_payload_registry()
+
+    _, document, digest = registry.validate(event)
+
+    assert len(canonical_json(document, max_bytes=MAX_PAYLOAD_BYTES)) <= MAX_PAYLOAD_BYTES
+    assert len(canonical_json(event_document(event, document))) > MAX_PAYLOAD_BYTES
+    assert len(digest) == 64
+    assert MAX_EVENT_DIGEST_DOCUMENT_BYTES > MAX_PAYLOAD_BYTES
+
+
+def test_payload_over_4kib_remains_rejected() -> None:
+    event = replace(
+        _event(),
+        type="test.large",
+        severity=NotificationSeverity.INFO,
+        data=_LargePayload("x" * 4096),
+        dedup_key=None,
+    )
+
+    with pytest.raises(NotificationValidationError, match="payload_too_large"):
+        _large_payload_registry().validate(event)
 
 
 @pytest.mark.parametrize(

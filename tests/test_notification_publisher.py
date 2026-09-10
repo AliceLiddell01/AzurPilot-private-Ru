@@ -174,6 +174,35 @@ def test_handover_capability_is_required_at_publish_boundary() -> None:
     assert repository.events == {}
 
 
+@pytest.mark.parametrize(
+    "receipt_strength", (ReceiptStrength.NONE, ReceiptStrength.PROVIDER_ACCEPTANCE)
+)
+def test_handover_requires_typed_agent_ack_receipt(
+    receipt_strength: ReceiptStrength,
+) -> None:
+    class _WeakHandoverChannel(_FakeChannel):
+        capabilities = ChannelCapabilities(
+            receipt_strength=receipt_strength,
+            policy_capabilities=frozenset({"handover_receipt"}),
+        )
+
+    repository = _MemoryRepository()
+    publisher = NotificationPublisher(
+        lambda: _MemoryUow(repository),
+        policy=_policy(),
+        channel_catalog=NotificationChannelCatalog(
+            (_WeakHandoverChannel(DeliveryResult.provider_accepted()),)
+        ),
+        clock=lambda: NOW,
+    )
+
+    result = _publish(publisher, _event())
+
+    assert result.status is PublishStatus.VALIDATION_FAILED
+    assert result.reason == "channel_receipt_strength_insufficient"
+    assert repository.events == {}
+
+
 def test_provider_acceptance_never_becomes_delivered() -> None:
     accepted = transition_for_result(
         DeliveryResult.provider_accepted(provider_message_id="provider-1"),
@@ -205,6 +234,23 @@ def test_handover_result_accepted_is_not_delivery_proof() -> None:
         clock=lambda: NOW,
     )
     result = publisher.publish_for_handover(_event(), NOW + timedelta(seconds=30))
+    assert result.outcome is HandoverNotificationOutcome.ACCEPTED
+    assert not result.is_proof
+
+
+def test_generic_delivered_channel_result_is_not_handover_proof() -> None:
+    repository = _MemoryRepository()
+    publisher = NotificationPublisher(
+        lambda: _MemoryUow(repository),
+        policy=_policy(),
+        channel_catalog=NotificationChannelCatalog(
+            (_FakeChannel(DeliveryResult.delivered()),)
+        ),
+        clock=lambda: NOW,
+    )
+
+    result = publisher.publish_for_handover(_event(), NOW + timedelta(seconds=30))
+
     assert result.outcome is HandoverNotificationOutcome.ACCEPTED
     assert not result.is_proof
 

@@ -858,7 +858,15 @@ class PostgresNotificationRepository:
             payload_digest=cast(str, row["payload_digest"]),
         )
         try:
-            if event_payload_digest(event, payload) != event.payload_digest:
+            _, normalized_payload = self._registry.validate_stored(event, payload)
+        except StorageError:
+            raise
+        except Exception:  # noqa: BLE001 - semantic corruption is an invariant failure.
+            raise StorageInvariantViolationError(
+                "Stored notification payload не прошёл descriptor validation."
+            ) from None
+        try:
+            if event_payload_digest(event, normalized_payload) != event.payload_digest:
                 raise StorageInvariantViolationError(
                     "Stored notification payload digest не совпадает с event."
                 )
@@ -868,7 +876,9 @@ class PostgresNotificationRepository:
             raise StorageInvariantViolationError(
                 "Stored notification event не прошёл canonical digest check."
             ) from None
-        return NotificationStoredEvent(event=event, payload_document=dict(payload))
+        return NotificationStoredEvent(
+            event=event, payload_document=dict(normalized_payload)
+        )
 
     def _stored_decision(self, row: Mapping[object, object]) -> PolicyDecision:
         try:

@@ -26,9 +26,6 @@ _RESULT_CLASSES = frozenset(
 )
 _POLICY_STATES = frozenset({"ROUTED", "SUPPRESSED"})
 _CHANNEL_TYPES = STAGE2_CHANNEL_TYPES
-_DELIVERY_STATES = frozenset(
-    {"PENDING", "IN_FLIGHT", "RETRY_WAIT", "FAILED", "PROVIDER_ACCEPTED", "AWAITING_AGENT_ACK", "DELIVERED", "SUPPRESSED"}
-)
 
 
 class NotificationTelemetry:
@@ -50,7 +47,6 @@ class NotificationTelemetry:
         self._attempt_total = self._counter("notification_delivery_attempt_total")
         self._retry_total = self._counter("notification_retry_total")
         self._latency = self._histogram("notification_delivery_latency_seconds")
-        self._backlog_age = self._histogram("notification_backlog_age_seconds")
         self._rejected_total = self._counter("notification_event_rejected_total")
 
     def _counter(self, name: str) -> Any:
@@ -80,14 +76,20 @@ class NotificationTelemetry:
             {"source_domain": _source(event), "reason": _reason(value)},
         )
 
-    def record_attempt(self, *, claimed: object, result: DeliveryResult) -> None:
+    def record_attempt(
+        self,
+        *,
+        claimed: object,
+        result: DeliveryResult,
+        retry_scheduled: bool,
+    ) -> None:
         channel_type = _channel_type(claimed)
         result_class = _choice(result.result_class.value, _RESULT_CLASSES)
         self._safe_add(
             self._attempt_total,
             {"channel_type": _channel(channel_type), "result_class": result_class},
         )
-        if result_class in {"TRANSIENT_FAILURE", "UNAVAILABLE"}:
+        if retry_scheduled:
             self._safe_add(
                 self._retry_total,
                 {"channel_type": _channel(channel_type), "reason": _reason(result.safe_error_code)},
@@ -101,13 +103,6 @@ class NotificationTelemetry:
                 "channel_type": _channel(channel_type),
                 "result_class": _choice(result_class, _RESULT_CLASSES),
             },
-        )
-
-    def record_backlog_age(self, *, channel_type: str, state: str, seconds: float) -> None:
-        self._safe_record(
-            self._backlog_age,
-            seconds,
-            {"channel_type": _channel(channel_type), "state": _choice(state, _DELIVERY_STATES)},
         )
 
     @contextmanager

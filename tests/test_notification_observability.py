@@ -102,7 +102,11 @@ def test_notification_metrics_never_use_event_or_delivery_identity_as_label() ->
     claimed = SimpleNamespace(
         delivery=SimpleNamespace(channel_type="untrusted-channel", id="delivery-secret")
     )
-    telemetry.record_attempt(claimed=claimed, result=DeliveryResult.unavailable())
+    telemetry.record_attempt(
+        claimed=claimed,
+        result=DeliveryResult.unavailable(),
+        retry_scheduled=False,
+    )
 
     observed = [
         attributes
@@ -140,6 +144,29 @@ def test_notification_telemetry_stays_fail_open() -> None:
     telemetry.record_latency(channel_type="test", result_class="DELIVERED", seconds=1.0)
     with telemetry.span("notification.publish") as span:
         assert span is not None
+
+
+def test_retry_metric_requires_durable_retry_scheduling() -> None:
+    meter = _Meter()
+    telemetry = NotificationTelemetry(meter=meter, tracer=_Tracer())
+    claimed = SimpleNamespace(delivery=SimpleNamespace(channel_type="test"))
+    result = DeliveryResult.transient_failure("temporary")
+
+    telemetry.record_attempt(
+        claimed=claimed, result=result, retry_scheduled=False
+    )
+    assert meter.instruments["notification_retry_total"].calls == []
+
+    telemetry.record_attempt(claimed=claimed, result=result, retry_scheduled=True)
+    assert len(meter.instruments["notification_retry_total"].calls) == 1
+
+
+def test_backlog_age_metric_is_not_exported_without_production_observation_path() -> None:
+    meter = _Meter()
+
+    NotificationTelemetry(meter=meter, tracer=_Tracer())
+
+    assert "notification_backlog_age_seconds" not in meter.instruments
 
 
 def test_notification_span_stays_fail_open_on_enter_failure() -> None:

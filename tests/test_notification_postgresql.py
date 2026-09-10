@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
@@ -36,6 +37,10 @@ from module.application.notifications import (
     ReceiptStrength,
     RenderedSnapshot,
     RetryPolicy,
+)
+from module.application.notifications.encoding import (
+    event_payload_digest,
+    notification_delivery_idempotency_key,
 )
 from module.application.notifications.rendering import HandoverPreemptionRenderer
 from module.persistence import DatabaseSettings, LazyEngine, PostgresUnitOfWork
@@ -305,6 +310,55 @@ def test_same_uuid_different_sources_are_distinct_occurrences(
         assert uow.notifications.get_event(source="scheduler", event_id=event_id) is not None
         history = uow.notifications.list_profile_history(profile_id="profile-1")
         assert len(history) == 2
+
+
+def test_structured_idempotency_keys_keep_delimiter_candidates_distinct(
+    database: LazyEngine,
+) -> None:
+    first_id = UUID("00000000-0000-0000-0000-000000000001")
+    second_id = UUID("00000000-0000-0000-0000-000000000002")
+    first_channel = _Channel()
+    first_channel.instance_id = f"x:{second_id}:y"
+    second_channel = _Channel()
+    second_channel.instance_id = "y"
+
+    first = _publish(
+        _publisher(
+            database,
+            first_channel,
+            policy=_policy(first_channel.instance_id),
+        ),
+        _event(
+            event_id=first_id,
+            source="a",
+            operation_id="operation-collision-a",
+        ),
+    )
+    second = _publish(
+        _publisher(
+            database,
+            second_channel,
+            policy=_policy(second_channel.instance_id),
+        ),
+        _event(
+            event_id=second_id,
+            source=f"a:{first_id}:x",
+            operation_id="operation-collision-b",
+        ),
+    )
+
+    assert first.status is PublishStatus.PERSISTED
+    assert second.status is PublishStatus.PERSISTED
+    with PostgresUnitOfWork(database) as uow:
+        first_delivery = uow.notifications.list_deliveries(
+            source="a", event_id=first_id
+        )[0]
+        second_delivery = uow.notifications.list_deliveries(
+            source=f"a:{first_id}:x", event_id=second_id
+        )[0]
+
+    assert first_delivery.idempotency_key != second_delivery.idempotency_key
+    assert first_delivery.idempotency_key.startswith("notification-delivery-v1:")
 
 
 def test_profile_sequence_allocator_serializes_concurrent_publishers(
@@ -773,7 +827,11 @@ def test_publisher_rollback_does_not_consume_profile_sequence(database: LazyEngi
             title="Тест",
             body="Тестовое уведомление",
         ),
-        idempotency_key=f"{event.source}:{event.id}:agent",
+        idempotency_key=notification_delivery_idempotency_key(
+            source=event.source,
+            event_id=event.id,
+            channel_instance_id="agent",
+        ),
         timeout_seconds=30.0,
     )
     with PostgresUnitOfWork(database) as uow:
@@ -810,3 +868,45 @@ def test_unknown_stored_schema_fails_closed(database: LazyEngine) -> None:
         pytest.raises(StorageInvariantViolationError, match="schema не зарегистрирована"),
     ):
         uow.notifications.get_event(source="runtime", event_id=result.event_id)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("owner_epoch", "broken"),
+        ("source_profile_id", "other-profile"),
+        ("operation_id", "different-operation"),
+    ),
+)
+def test_semantically_corrupted_stored_payload_fails_closed_with_matching_digest(
+    database: LazyEngine, field: str, value: object
+) -> None:
+    event = _event(operation_id=f"operation-corrupt-{field}")
+    publisher = _publisher(database, _Channel())
+    result = _publish(publisher, event)
+    assert result.status is PublishStatus.PERSISTED
+    _, payload, _ = publisher.registry.validate(event)
+    corrupted = dict(payload)
+    corrupted[field] = value
+    digest = event_payload_digest(event, corrupted)
+
+    with database.get().begin() as connection:
+        connection.execute(
+            text(
+                f"UPDATE {SCHEMA_NAME}.notification_event "
+                "SET payload = CAST(:payload AS jsonb), payload_digest = :digest "
+                "WHERE source = :source AND id = :event_id"
+            ),
+            {
+                "payload": json.dumps(corrupted),
+                "digest": digest,
+                "source": event.source,
+                "event_id": event.id,
+            },
+        )
+
+    with (
+        PostgresUnitOfWork(database) as uow,
+        pytest.raises(StorageInvariantViolationError, match="descriptor validation"),
+    ):
+        uow.notifications.get_event(source=event.source, event_id=event.id)

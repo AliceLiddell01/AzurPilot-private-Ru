@@ -22,6 +22,7 @@ from module.application.notifications.models import (
 )
 
 MAX_PAYLOAD_BYTES: Final = 4 * 1024
+MAX_EVENT_DIGEST_DOCUMENT_BYTES: Final = 16 * 1024
 MAX_SNAPSHOT_BYTES: Final = 8 * 1024
 MAX_PAYLOAD_DEPTH: Final = 16
 MAX_PAYLOAD_ITEMS: Final = 256
@@ -144,7 +145,23 @@ def event_payload_digest(
     event: NotificationEvent, payload_document: Mapping[str, object]
 ) -> str:
     """Рассчитать digest immutable occurrence-полей без server-owned значений и UUID id."""
-    return canonical_digest(event_document(event, payload_document), max_bytes=MAX_PAYLOAD_BYTES)
+    return canonical_digest(
+        event_document(event, payload_document),
+        max_bytes=MAX_EVENT_DIGEST_DOCUMENT_BYTES,
+    )
+
+
+def notification_delivery_idempotency_key(
+    *, source: str, event_id: UUID, channel_instance_id: str
+) -> str:
+    """Сформировать bounded identity key без delimiter collision."""
+    identity = {
+        "domain": "notification-delivery-v1",
+        "source": source,
+        "event_id": event_id,
+        "channel_instance_id": channel_instance_id,
+    }
+    return "notification-delivery-v1:" + canonical_digest(identity, max_bytes=1024)
 
 
 def policy_snapshot_document(snapshot: NotificationPolicySnapshot) -> dict[str, object]:
@@ -171,6 +188,7 @@ def rendered_snapshot_document(snapshot: RenderedSnapshot) -> dict[str, object]:
 
 
 __all__ = [
+    "MAX_EVENT_DIGEST_DOCUMENT_BYTES",
     "MAX_PAYLOAD_BYTES",
     "MAX_PAYLOAD_DEPTH",
     "MAX_PAYLOAD_ITEMS",
@@ -181,6 +199,7 @@ __all__ = [
     "correlation_document",
     "event_document",
     "event_payload_digest",
+    "notification_delivery_idempotency_key",
     "policy_snapshot_document",
     "rendered_snapshot_document",
     "subject_document",

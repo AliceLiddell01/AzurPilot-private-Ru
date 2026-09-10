@@ -14,6 +14,7 @@ from module.application.notifications.models import (
     ChannelCapabilities,
     ClaimedDelivery,
     DeliveryResult,
+    DeliveryState,
     DeliveryUpdate,
     DispatchReport,
 )
@@ -121,6 +122,7 @@ class NotificationDispatcher:
                             result = DeliveryResult.unavailable("channel_send_failed")
                             item_failed = True
             elapsed = time.perf_counter() - started
+            retry_scheduled = False
             try:
                 transition = self._build_transition(item, result, capabilities)
             except Exception:  # noqa: BLE001 - некорректный channel result остаётся fail-closed.
@@ -130,7 +132,7 @@ class NotificationDispatcher:
                 try:
                     transition = self._build_transition(item, result, capabilities)
                 except Exception:  # noqa: BLE001 - lease остаётся для bounded recovery.
-                    self._record_attempt(item, result)
+                    self._record_attempt(item, result, retry_scheduled=False)
                     self._record_latency(item, result, elapsed)
                     failed += 1
                     continue
@@ -143,12 +145,13 @@ class NotificationDispatcher:
                     ):
                         uow.commit()
                         updated += 1
+                        retry_scheduled = transition.state is DeliveryState.RETRY_WAIT
                     else:
                         uow.rollback()
                         stale += 1
             except Exception:  # noqa: BLE001 - ошибка storage не останавливает batch.
                 item_failed = True
-            self._record_attempt(item, result)
+            self._record_attempt(item, result, retry_scheduled=retry_scheduled)
             self._record_latency(item, result, elapsed)
             failed += int(item_failed)
         return DispatchReport(
@@ -186,12 +189,22 @@ class NotificationDispatcher:
             uow.commit()
         return recovered
 
-    def _record_attempt(self, claimed: ClaimedDelivery, result: DeliveryResult) -> None:
+    def _record_attempt(
+        self,
+        claimed: ClaimedDelivery,
+        result: DeliveryResult,
+        *,
+        retry_scheduled: bool,
+    ) -> None:
         method = getattr(self._telemetry, "record_attempt", None)
         if method is None:
             return
         try:
-            method(claimed=claimed, result=result)
+            method(
+                claimed=claimed,
+                result=result,
+                retry_scheduled=retry_scheduled,
+            )
         except Exception:  # noqa: BLE001 - telemetry не меняет durable state.
             return
 

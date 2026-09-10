@@ -77,6 +77,13 @@ class ReceiptStrength(str, Enum):
     AGENT_ACK = "AGENT_ACK"
 
 
+_RECEIPT_STRENGTH_ORDER: Final[dict[ReceiptStrength, int]] = {
+    ReceiptStrength.NONE: 0,
+    ReceiptStrength.PROVIDER_ACCEPTANCE: 1,
+    ReceiptStrength.AGENT_ACK: 2,
+}
+
+
 class PublishStatus(str, Enum):
     PERSISTED = "persisted"
     DUPLICATE = "duplicate"
@@ -288,6 +295,15 @@ class ChannelCapabilities:
             and isinstance(self.policy_capabilities, frozenset)
             and len(self.policy_capabilities) <= 32
             and all(_valid_token(item, limit=64) for item in self.policy_capabilities)
+        )
+
+    def supports_receipt_strength(self, required: ReceiptStrength | None) -> bool:
+        if required is None:
+            return True
+        return (
+            isinstance(required, ReceiptStrength)
+            and _RECEIPT_STRENGTH_ORDER[self.receipt_strength]
+            >= _RECEIPT_STRENGTH_ORDER[required]
         )
 
 
