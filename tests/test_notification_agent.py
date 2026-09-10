@@ -1001,6 +1001,27 @@ def test_desktop_agent_client_runtime_has_start_stop_lifecycle() -> None:
     assert runtime.running is False
 
 
+def test_desktop_agent_client_runtime_stop_tolerates_closed_event_loop() -> None:
+    config = DesktopAgentClientConfig(
+        "https://agent.example", _credential(), Path("cursor.json")
+    )
+    runtime = DesktopAgentClientRuntime(
+        config,
+        on_notification=lambda _document: None,
+    )
+
+    class ClosedLoop:
+        def call_soon_threadsafe(self, _callback) -> None:
+            raise RuntimeError("event loop is closed")
+
+    runtime._loop = ClosedLoop()
+    runtime._stop_event = object()
+
+    runtime.stop()
+
+    assert runtime._stop_requested.is_set()
+
+
 def test_production_composition_wires_agent_client_to_shared_telemetry(monkeypatch) -> None:
     from module.notification_agent import client as client_module
     from module.persistence.runtime import build_runtime_desktop_agent_composition

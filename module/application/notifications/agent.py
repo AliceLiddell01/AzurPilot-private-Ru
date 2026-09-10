@@ -39,10 +39,14 @@ from module.application.notifications.models import (
     NotificationAgentDelivery,
     NotificationCorrelation,
     NotificationEvent,
+    NotificationPolicy,
+    NotificationRule,
+    NotificationRuleMatcher,
     NotificationSensitivity,
     NotificationSeverity,
     NotificationStoredDelivery,
     NotificationSubject,
+    PolicyAction,
     ReceiptStrength,
     ensure_aware_utc,
 )
@@ -280,9 +284,7 @@ class NotificationCursor:
         try:
             padding = "=" * (-len(encoded) % 4)
             document = json.loads(
-                base64.b64decode(
-                    encoded + padding, altchars=b"-_", validate=True
-                ).decode("utf-8")
+                base64.urlsafe_b64decode(encoded + padding).decode("utf-8")
             )
         except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
             raise NotificationCursorError("Cursor невозможно декодировать.") from None
@@ -1076,14 +1078,7 @@ def build_handover_preemption_event(
     )
 
 
-def _agent_policy(profiles: tuple[str, ...]):
-    from module.application.notifications.models import (
-        NotificationPolicy,
-        NotificationRule,
-        NotificationRuleMatcher,
-        PolicyAction,
-    )
-
+def _agent_policy(profiles: tuple[str, ...]) -> NotificationPolicy:
     return NotificationPolicy(
         version=1,
         rules=tuple(

@@ -645,7 +645,11 @@ class DesktopAgentClientRuntime:
                 if task is not None and not task.done():
                     task.cancel()
 
-            loop.call_soon_threadsafe(request_stop)
+            try:
+                loop.call_soon_threadsafe(request_stop)
+            except RuntimeError:
+                # Event loop уже закрыт: клиентский поток завершился самостоятельно.
+                pass
         thread = self._thread
         if thread is not None:
             thread.join(timeout=5.0)

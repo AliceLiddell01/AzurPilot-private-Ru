@@ -1653,11 +1653,14 @@ async def api_notification_agent_stream(request):
                     _record_agent_telemetry(runtime, "record_agent_backlog", status="error")
                     break
         finally:
-            runtime.close_agent_session(
-                principal,
-                profile_id=profile,
-                session_epoch=session_epoch,
-            )
+            try:
+                runtime.close_agent_session(
+                    principal,
+                    profile_id=profile,
+                    session_epoch=session_epoch,
+                )
+            except (DesktopAgentError, StorageError):
+                _record_agent_telemetry(runtime, "record_agent_backlog", status="error")
             _record_agent_telemetry(runtime, "record_agent_connection", status="stopped")
 
     return StreamingResponse(
