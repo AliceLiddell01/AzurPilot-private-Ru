@@ -198,27 +198,30 @@ class PostgresNotificationRepository:
                 .with_for_update(skip_locked=True, of=notification_delivery)
                 .limit(batch_size)
             ).all()
-            expired_rows = self._connection.execute(
-                select(
-                    notification_delivery.c.id,
-                )
-                .where(
-                    notification_delivery.c.state.in_(
-                        (
-                            DeliveryState.PENDING.value,
-                            DeliveryState.RETRY_WAIT.value,
-                        )
-                    ),
-                    notification_delivery.c.deadline_at.is_not(None),
-                    notification_delivery.c.deadline_at <= now,
-                )
-                .order_by(
-                    notification_delivery.c.deadline_at,
-                    notification_delivery.c.id,
-                )
-                .with_for_update(skip_locked=True)
-                .limit(max(0, batch_size - len(rows)))
-            ).mappings().all()
+            if len(rows) >= batch_size:
+                expired_rows = ()
+            else:
+                expired_rows = self._connection.execute(
+                    select(
+                        notification_delivery.c.id,
+                    )
+                    .where(
+                        notification_delivery.c.state.in_(
+                            (
+                                DeliveryState.PENDING.value,
+                                DeliveryState.RETRY_WAIT.value,
+                            )
+                        ),
+                        notification_delivery.c.deadline_at.is_not(None),
+                        notification_delivery.c.deadline_at <= now,
+                    )
+                    .order_by(
+                        notification_delivery.c.deadline_at,
+                        notification_delivery.c.id,
+                    )
+                    .with_for_update(skip_locked=True)
+                    .limit(batch_size - len(rows))
+                ).mappings().all()
             for row in expired_rows:
                 delivery_id = cast(UUID, row["id"])
                 result = DeliveryResult.permanent_failure("delivery_deadline_expired")
@@ -462,7 +465,7 @@ class PostgresNotificationRepository:
                     notification_delivery.c.lease_until <= now,
                 )
                 .order_by(notification_delivery.c.lease_until, notification_delivery.c.id)
-                .with_for_update(skip_locked=True)
+                .with_for_update(skip_locked=True, of=notification_delivery)
                 .limit(batch_size)
             ).mappings().all()
             recovered = 0

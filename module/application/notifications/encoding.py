@@ -35,8 +35,12 @@ def canonical_value(value: object, *, _depth: int = 0) -> object:
     """Преобразовать только известные JSON-совместимые доменные значения."""
     if _depth > MAX_PAYLOAD_DEPTH:
         _reject("payload_too_deep")
-    if value is None or isinstance(value, (str, bool, int)):
+    if isinstance(value, Enum):
+        return canonical_value(value.value, _depth=_depth + 1)
+    if value is None or isinstance(value, (bool, int)):
         return value
+    if isinstance(value, str):
+        return value if type(value) is str else str(value)
     if isinstance(value, float):
         if not math.isfinite(value):
             _reject("payload_non_finite_number")
@@ -53,8 +57,6 @@ def canonical_value(value: object, *, _depth: int = 0) -> object:
         return str(value.normalize())
     if isinstance(value, UUID):
         return str(value)
-    if isinstance(value, Enum):
-        return canonical_value(value.value, _depth=_depth + 1)
     if isinstance(value, Mapping):
         if len(value) > MAX_PAYLOAD_ITEMS:
             _reject("payload_too_large")

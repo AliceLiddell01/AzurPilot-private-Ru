@@ -1464,6 +1464,9 @@ conflict path закрывают race между конкурентными publ
 истечение Agent ACK lease не увеличивает `attempt_count` и не создаёт новую
 attempt. `AWAITING_AGENT_ACK` сохраняет текущий lease token до recovery, после
 чего token инвалидируется; следующий claim получает новый token и новый ordinal.
+Dispatcher claim-ит по одной delivery за lease window, а `batch_size` ограничивает
+число последовательных delivery в одном проходе; lease уже выбранных соседних
+сообщений не расходуется во время provider send.
 
 Handover publication требует typed `HandoverPublishContext`, caller deadline и
 capability `handover_receipt`. Generic `publish(event)` не может обойти это
@@ -1475,8 +1478,9 @@ capability `handover_receipt`. Generic `publish(event)` не может обой
 Каждый publishable descriptor обязан иметь typed deserializer. Чтение неизвестной
 или повреждённой stored schema завершается invariant failure без generic `dict`
 fallback. Application и persistence используют один bounded `DeliveryResult`
-validator: `tokenizer-v1` разрешён как provider identifier, secrets и URL
-отклоняются. Storage authentication/configuration/schema/conflict/invalid errors
+validator: provider identifier обязан быть безопасным bounded token (например,
+`tokenizer-v1`), а secret-подобные значения и URL отклоняются. Storage
+authentication/configuration/schema/conflict/invalid errors
 маппятся в bounded `PublishResult`; только временная недоступность получает
 `UNAVAILABLE`, а durable invariant violation пробрасывается fail-closed.
 

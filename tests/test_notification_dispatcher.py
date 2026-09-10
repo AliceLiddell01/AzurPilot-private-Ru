@@ -76,7 +76,7 @@ def test_memory_recovery_fences_stale_lease_token() -> None:
             completed_at=NOW + timedelta(seconds=6),
         ),
     )
-    assert result.event_id in repository.events
+    assert ("runtime", result.event_id) in repository.events
 
 
 def test_publisher_and_dispatcher_keep_provider_acceptance_intermediate() -> None:
@@ -189,6 +189,31 @@ def test_dispatcher_isolates_channel_capability_failure_within_batch() -> None:
     assert report.failed == 1
     assert flaky.sent == []
     assert len(healthy.sent) == 1
+
+
+def test_dispatcher_claims_each_delivery_with_its_own_lease_window() -> None:
+    repository = _MemoryRepository()
+    channel = _FakeChannel(DeliveryResult.delivered())
+    publisher = NotificationPublisher(
+        lambda: _MemoryUow(repository),
+        policy=_policy(),
+        channel_catalog=NotificationChannelCatalog((channel,)),
+        clock=lambda: NOW,
+    )
+    _publish(publisher, _event(operation_id="operation-lease-first"))
+    _publish(publisher, _event(operation_id="operation-lease-second"))
+
+    report = NotificationDispatcher(
+        lambda: _MemoryUow(repository),
+        channel_catalog=NotificationChannelCatalog((channel,)),
+        clock=lambda: NOW,
+        worker_id="worker-lease-window",
+        batch_size=2,
+        lease_seconds=5,
+    ).dispatch_once()
+
+    assert report.processed == 2
+    assert repository.claim_batch_sizes == [1, 1]
 
 
 def test_dispatcher_continues_after_storage_update_failure() -> None:

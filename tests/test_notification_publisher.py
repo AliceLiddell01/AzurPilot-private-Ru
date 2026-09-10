@@ -64,6 +64,25 @@ def test_publisher_rejects_expired_handover_deadline() -> None:
     assert repository.events == {}
 
 
+def test_publisher_commits_durable_bundle_before_return() -> None:
+    repository = _MemoryRepository()
+    uow = _MemoryUow(repository)
+    publisher = NotificationPublisher(
+        lambda: uow,
+        policy=_policy(),
+        channel_catalog=NotificationChannelCatalog(
+            (_FakeChannel(DeliveryResult.unavailable()),)
+        ),
+        clock=lambda: NOW,
+    )
+
+    result = _publish(publisher, _event(operation_id="operation-commit-boundary"))
+
+    assert result.status is PublishStatus.PERSISTED
+    assert uow.commit_count == 1
+    assert uow.rollback_count == 0
+
+
 @pytest.mark.parametrize(
     ("error", "expected_status", "expected_reason"),
     (
@@ -210,7 +229,7 @@ def test_global_suppression_is_durable_without_delivery() -> None:
     assert result.decision.state is PolicyState.SUPPRESSED
     assert result.decision.reason == "global_disabled"
     assert result.deliveries == ()
-    assert repository.events[result.event_id].event.profile_sequence == 1
+    assert repository.events[("runtime", result.event_id)].event.profile_sequence == 1
 
 
 def test_rule_suppression_is_durable_without_delivery() -> None:

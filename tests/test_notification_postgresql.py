@@ -170,6 +170,50 @@ def test_application_role_has_dml_but_not_schema_ddl(database: LazyEngine) -> No
             )
         )
 
+    row_id = uuid4()
+    event_id = uuid4()
+    with database.get().begin() as connection:
+        connection.execute(
+            text(
+                f"""
+                INSERT INTO {SCHEMA_NAME}.notification_event
+                    (row_id, id, source, type, schema_version, profile_id,
+                     severity, occurred_at, profile_sequence, payload,
+                     payload_digest, sensitivity)
+                VALUES
+                    (:row_id, :event_id, 'test-role', 'notification.test.requested',
+                     1, 'profile-role', 'INFO', :occurred_at, 1,
+                     CAST(:payload AS jsonb), :payload_digest, 'NORMAL')
+                """
+            ),
+            {
+                "row_id": row_id,
+                "event_id": event_id,
+                "occurred_at": NOW,
+                "payload": '{"value": 1}',
+                "payload_digest": "0" * 64,
+            },
+        )
+        updated = connection.execute(
+            text(
+                f"""
+                UPDATE {SCHEMA_NAME}.notification_event
+                SET payload = CAST(:payload AS jsonb)
+                WHERE row_id = :row_id
+                """
+            ),
+            {"row_id": row_id, "payload": '{"value": 2}'},
+        )
+        deleted = connection.execute(
+            text(
+                f"DELETE FROM {SCHEMA_NAME}.notification_event WHERE row_id = :row_id"
+            ),
+            {"row_id": row_id},
+        )
+
+    assert updated.rowcount == 1
+    assert deleted.rowcount == 1
+
 
 def test_publish_duplicate_conflict_and_profile_sequence_are_durable(
     database: LazyEngine,

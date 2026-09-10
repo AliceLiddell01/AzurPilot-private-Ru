@@ -90,7 +90,7 @@ def upgrade() -> None:
         schema=_SCHEMA,
     )
     op.create_index(
-        "uq_notification_event_logical_identity",
+        "ix_notification_event_logical_identity",
         "notification_event",
         ["source", "profile_id", "type", "dedup_key"],
         unique=True,
@@ -237,7 +237,7 @@ def upgrade() -> None:
     op.create_index(
         "ix_notification_delivery_claim_due",
         "notification_delivery",
-        [sa.text("priority DESC"), "next_attempt_at", "id"],
+        ["next_attempt_at", sa.text("priority DESC"), "id"],
         schema=_SCHEMA,
         postgresql_where=sa.text("state IN ('PENDING', 'RETRY_WAIT')"),
     )

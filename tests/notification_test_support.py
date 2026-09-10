@@ -163,6 +163,8 @@ class _FailingTelemetry:
 class _MemoryUow:
     def __init__(self, repository: _MemoryRepository) -> None:
         self.notifications = repository
+        self.commit_count = 0
+        self.rollback_count = 0
 
     def __enter__(self) -> Self:
         return self
@@ -171,26 +173,27 @@ class _MemoryUow:
         return None
 
     def commit(self) -> None:
-        return None
+        self.commit_count += 1
 
     def rollback(self) -> None:
-        return None
+        self.rollback_count += 1
 
 
 class _MemoryRepository:
     def __init__(self) -> None:
         self._lock = RLock()
-        self.events: dict[UUID, NotificationStoredEvent] = {}
-        self.decisions: dict[UUID, object] = {}
+        self.events: dict[tuple[str, UUID], NotificationStoredEvent] = {}
+        self.decisions: dict[tuple[str, UUID], object] = {}
         self.deliveries: dict[UUID, NotificationStoredDelivery] = {}
         self.attempts: dict[UUID, list[NotificationStoredAttempt]] = {}
+        self.claim_batch_sizes: list[int] = []
         self._sequence = 0
 
     def find_existing(
         self, event: NotificationEvent, *, payload_digest: str
     ) -> NotificationPersistenceResult | None:
         with self._lock:
-            existing = self.events.get(event.id)
+            existing = self.events.get((event.source, event.id))
             if existing is None and event.dedup_key is not None:
                 existing = next(
                     (
@@ -213,11 +216,12 @@ class _MemoryRepository:
             return NotificationPersistenceResult(
                 status=status,
                 event=existing,
-                decision=self.decisions[existing.event.id],
+                decision=self.decisions[(existing.event.source, existing.event.id)],
                 deliveries=tuple(
                     item
                     for item in self.deliveries.values()
-                    if item.event_id == existing.event.id
+                    if item.event_source == existing.event.source
+                    and item.event_id == existing.event.id
                 ),
                 reason=None
                 if status is PublishStatus.DUPLICATE
@@ -244,8 +248,9 @@ class _MemoryRepository:
                 payload_digest=payload_digest,
             )
             stored = NotificationStoredEvent(stored_event, payload_document)
-            self.events[event.id] = stored
-            self.decisions[event.id] = decision
+            event_key = (event.source, event.id)
+            self.events[event_key] = stored
+            self.decisions[event_key] = decision
             for plan in deliveries:
                 self.deliveries[plan.id] = NotificationStoredDelivery(
                     id=plan.id,
@@ -288,8 +293,18 @@ class _MemoryRepository:
         lease_seconds: int,
     ) -> tuple[ClaimedDelivery, ...]:
         with self._lock:
+            self.claim_batch_sizes.append(batch_size)
             claimed: list[ClaimedDelivery] = []
-            for delivery in tuple(self.deliveries.values()):
+            ordered = sorted(
+                self.deliveries.values(),
+                key=lambda item: (
+                    -item.priority,
+                    item.next_attempt_at,
+                    item.created_at,
+                    item.id.hex,
+                ),
+            )
+            for delivery in ordered:
                 if len(claimed) >= batch_size:
                     break
                 if delivery.state not in {DeliveryState.PENDING, DeliveryState.RETRY_WAIT}:
@@ -335,7 +350,7 @@ class _MemoryRepository:
                         lease_token=token,
                     )
                 )
-                event = self.events[delivery.event_id]
+                event = self.events[(delivery.event_source, delivery.event_id)]
                 claimed.append(
                     ClaimedDelivery(
                         delivery=updated,

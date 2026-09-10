@@ -9,7 +9,6 @@ from datetime import UTC, datetime
 from re import fullmatch
 from uuid import uuid4
 
-from module.application.errors import StorageInvariantViolationError
 from module.application.notifications.channels import NotificationChannelCatalog
 from module.application.notifications.models import (
     ChannelCapabilities,
@@ -68,22 +67,29 @@ class NotificationDispatcher:
         return self._worker_id
 
     def dispatch_once(self) -> DispatchReport:
-        now = _utc(self._clock())
-        with (
-            safe_telemetry_span(self._telemetry, "notification.dispatch.claim"),
-            self._uow_factory() as uow,
-        ):
-            claimed = uow.notifications.claim_due(
-                now=now,
-                worker_id=self._worker_id,
-                batch_size=self._batch_size,
-                lease_seconds=self._lease_seconds,
-            )
-            uow.commit()
+        claimed_count = 0
+        processed = 0
         updated = 0
         stale = 0
         failed = 0
-        for item in claimed:
+        for _ in range(self._batch_size):
+            now = _utc(self._clock())
+            with (
+                safe_telemetry_span(self._telemetry, "notification.dispatch.claim"),
+                self._uow_factory() as uow,
+            ):
+                claimed = uow.notifications.claim_due(
+                    now=now,
+                    worker_id=self._worker_id,
+                    batch_size=1,
+                    lease_seconds=self._lease_seconds,
+                )
+                uow.commit()
+            if not claimed:
+                break
+            item = claimed[0]
+            claimed_count += 1
+            processed += 1
             channel = self._channels.get(item.delivery.channel_instance_id)
             started = time.perf_counter()
             item_failed = False
@@ -146,8 +152,8 @@ class NotificationDispatcher:
             self._record_latency(item, result, elapsed)
             failed += int(item_failed)
         return DispatchReport(
-            claimed=len(claimed),
-            processed=len(claimed),
+            claimed=claimed_count,
+            processed=processed,
             updated=updated,
             stale_updates=stale,
             failed=failed,
@@ -211,7 +217,7 @@ def _fallback_capabilities() -> ChannelCapabilities:
 
 def _utc(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
-        raise StorageInvariantViolationError("Dispatcher clock должен быть timezone-aware.")
+        raise ValueError("Dispatcher clock должен быть timezone-aware.")
     return value.astimezone(UTC)
 
 

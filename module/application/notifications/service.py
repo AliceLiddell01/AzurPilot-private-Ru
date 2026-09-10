@@ -264,7 +264,7 @@ class NotificationPublisher:
                     event_id=event.id,
                     event_source=event.source,
                     channel_instance_id=channel_id,
-                    channel_type=channel.channel_type if channel else "unregistered",
+                    channel_type=channel.channel_type,
                     priority=_priority_for_event(event, descriptor, decision),
                     next_attempt_at=now,
                     deadline_at=deadline_at,

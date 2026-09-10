@@ -1000,7 +1000,7 @@ notification_event = Table(
     ),
 )
 Index(
-    "uq_notification_event_logical_identity",
+    "ix_notification_event_logical_identity",
     notification_event.c.source,
     notification_event.c.profile_id,
     notification_event.c.type,
@@ -1119,8 +1119,8 @@ notification_delivery = Table(
 )
 Index(
     "ix_notification_delivery_claim_due",
-    notification_delivery.c.priority.desc(),
     notification_delivery.c.next_attempt_at,
+    notification_delivery.c.priority.desc(),
     notification_delivery.c.id,
     postgresql_where=text("state IN ('PENDING', 'RETRY_WAIT')"),
 )

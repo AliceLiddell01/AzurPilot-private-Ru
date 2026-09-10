@@ -15,6 +15,7 @@ from module.application.notifications import (
     PolicyAction,
     PolicyState,
 )
+from module.application.notifications.encoding import canonical_value
 from tests.notification_test_support import _event, _policy
 
 
@@ -25,6 +26,13 @@ def test_policy_is_first_matching_rule_and_snapshot_is_stable() -> None:
     assert decision.state is PolicyState.ROUTED
     assert decision.matched_rule_id == "handover"
     assert resolver.resolve(event).snapshot_hash == decision.snapshot_hash
+
+
+def test_canonical_value_materializes_string_enums_as_plain_strings() -> None:
+    value = canonical_value(NotificationSeverity.CRITICAL)
+
+    assert value == "CRITICAL"
+    assert type(value) is str
 
 
 def test_policy_rejects_duplicate_rule_ids() -> None:

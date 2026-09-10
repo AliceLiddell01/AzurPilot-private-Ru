@@ -79,6 +79,8 @@ NOTIFICATION_REASON_CODES: Final[frozenset[str]] = frozenset(
         "storage_schema_incompatible",
         "storage_unavailable",
         "stored_payload_invalid",
+        "stored_payload_decoder_unavailable",
+        "stored_payload_type_invalid",
         "subject_invalid",
         "validation_failed",
     }
