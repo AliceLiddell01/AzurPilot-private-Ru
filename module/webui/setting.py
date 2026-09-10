@@ -178,6 +178,12 @@ class State:
     _notification_runtime = None
     _desktop_agent_runtime = None
     electron: bool = False
+
+    @classmethod
+    def get_notification_runtime(cls):
+        """Вернуть application notification runtime текущего WebUI owner."""
+
+        return cls._notification_runtime
     webui_host: str = None
     theme: str = "default"
     placeholder_images: list = [

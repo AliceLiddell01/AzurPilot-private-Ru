@@ -170,6 +170,7 @@ class TestWebUIState(unittest.TestCase):
         self.assertIs(owner_factory.call_args.kwargs["notification_service"], runtime)
         runtime.start.assert_called_once_with()
         self.assertIs(State._notification_runtime, runtime)
+        self.assertIs(State.get_notification_runtime(), runtime)
 
     def test_init_injects_and_starts_desktop_agent_runtime(self):
         manager = Mock()

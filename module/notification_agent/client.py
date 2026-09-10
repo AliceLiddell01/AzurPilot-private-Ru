@@ -221,18 +221,21 @@ class DesktopAgentClient:
         if cursor is not None:
             headers["Last-Event-ID"] = cursor
         own_session = session is None
-        if own_session:
-            session = aiohttp.ClientSession(
-                connector=aiohttp.TCPConnector(ssl=True),
-                auto_decompress=False,
-            )
-        assert session is not None
+        connector: aiohttp.TCPConnector | None = None
         timeout = aiohttp.ClientTimeout(
             total=None,
             sock_connect=self.config.connect_timeout_seconds,
             sock_read=self.config.read_timeout_seconds,
         )
         try:
+            if own_session:
+                connector = aiohttp.TCPConnector(ssl=True)
+                session = aiohttp.ClientSession(
+                    connector=connector,
+                    auto_decompress=False,
+                )
+            if session is None:
+                raise DesktopAgentClientError("Desktop Agent HTTPS session не создана.")
             async with session.get(
                 self._endpoint(DESKTOP_AGENT_STREAM_PATH),
                 params={"profile": profile_id, "limit": str(self.config.batch_size)},
@@ -280,7 +283,10 @@ class DesktopAgentClient:
                         saved_cursor = NotificationCursor.decode(
                             cursor, expected_profile_id=profile_id
                         )
-                        assert saved_cursor is not None
+                        if saved_cursor is None:
+                            raise DesktopAgentProtocolError(
+                                "Сохранённый cursor не имеет корректной identity."
+                            )
                         if (
                             frame_cursor.profile_sequence < saved_cursor.profile_sequence
                             or (
@@ -317,11 +323,13 @@ class DesktopAgentClient:
         except DesktopAgentClientError:
             raise
         except (TimeoutError, aiohttp.ClientError, OSError) as exc:
-            self._record_agent_connection("unavailable")
             raise DesktopAgentTransportError("Desktop Agent HTTPS transport недоступен.") from exc
         finally:
             if own_session:
-                await session.close()
+                if session is not None:
+                    await session.close()
+                elif connector is not None:
+                    await connector.close()
 
     async def run_forever(self, *, stop_event: asyncio.Event | None = None) -> None:
         stop_event = stop_event or asyncio.Event()
@@ -476,8 +484,10 @@ class DesktopAgentClient:
                 next_cursor = NotificationCursor.decode(
                     cursor, expected_profile_id=profile_id
                 )
-                assert previous_cursor is not None
-                assert next_cursor is not None
+                if previous_cursor is None or next_cursor is None:
+                    raise DesktopAgentProtocolError(
+                        "Сохранённый cursor не имеет корректной identity."
+                    )
                 if (
                     next_cursor.profile_sequence < previous_cursor.profile_sequence
                     or (

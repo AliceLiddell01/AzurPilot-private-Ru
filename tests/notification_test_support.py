@@ -668,20 +668,18 @@ class _MemoryRepository:
                 return NotificationAgentAckResult(
                     NotificationAgentAckStatus.REJECTED, "delivery_already_completed"
                 )
-            identity_checks = (
-                (ack.event_id != event.id, "event_identity_mismatch"),
-                (ack.event_source != event.source, "event_identity_mismatch"),
-                (ack.profile_id != event.profile_id, "profile_identity_mismatch"),
-                (delivery.channel_type != DESKTOP_AGENT_CHANNEL_TYPE, "channel_identity_mismatch"),
-                (ack.attempt_ordinal != delivery.attempt_count, "attempt_identity_mismatch"),
-                (ack.lease_token != delivery.lease_token, "lease_identity_mismatch"),
-                (ack.payload_digest != event.payload_digest, "payload_digest_mismatch"),
-            )
-            for mismatch, reason in identity_checks:
-                if mismatch:
-                    return NotificationAgentAckResult(
-                        NotificationAgentAckStatus.REJECTED, reason
-                    )
+            if ack.attempt_ordinal != delivery.attempt_count:
+                return NotificationAgentAckResult(
+                    NotificationAgentAckStatus.REJECTED, "attempt_identity_mismatch"
+                )
+            if ack.lease_token != delivery.lease_token:
+                return NotificationAgentAckResult(
+                    NotificationAgentAckStatus.REJECTED, "lease_identity_mismatch"
+                )
+            if ack.payload_digest != event.payload_digest:
+                return NotificationAgentAckResult(
+                    NotificationAgentAckStatus.REJECTED, "payload_digest_mismatch"
+                )
             if delivery.state is not DeliveryState.AWAITING_AGENT_ACK:
                 return NotificationAgentAckResult(
                     NotificationAgentAckStatus.REJECTED, "delivery_not_awaiting_ack"

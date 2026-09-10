@@ -143,8 +143,9 @@ mutation. Outbound-only Agent не открывает inbound listener. Queue ac
 `PROVIDER_ACCEPTED` и HTTP success не дают `DELIVERED`: это состояние возможно
 только после проверенного durable Agent ACK с текущей delivery/lease identity.
 При изменении этой границы отдельно проверять Migration
-`0010_notification_agent_ack`, cursor gap-fill/reconnect, stale ACK rejection,
-Caddy flush/timeout и bounded handover waiter.
+`0010_notification_agent_ack` и `0011_agent_session_identity`, cursor
+gap-fill/reconnect, stale ACK rejection, Caddy flush/timeout и bounded handover
+waiter.
 
 ## Персональный эксплуатационный контур
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0011_agent_session_identity"
@@ -16,20 +17,17 @@ _CONSTRAINT = "ck_notification_agent_ack_session_epoch_matches_lease"
 
 
 def upgrade() -> None:
-    # 0010 уже опубликована; удаляем только её временную проверку равенства
-    # отдельной миграцией, сохраняя воспроизводимость старой истории.
-    op.drop_constraint(
-        op.f(_CONSTRAINT),
-        "notification_agent_ack",
-        schema=_SCHEMA,
-        type_="check",
+    # Удалять constraint можно повторно после non-lossless downgrade.
+    op.execute(
+        sa.text(
+            f'ALTER TABLE "{_SCHEMA}"."notification_agent_ack" '
+            f'DROP CONSTRAINT IF EXISTS "{_CONSTRAINT}"'
+        )
     )
 
 
 def downgrade() -> None:
-    op.create_check_constraint(
-        op.f(_CONSTRAINT),
-        "notification_agent_ack",
-        "lease_token = session_epoch",
-        schema=_SCHEMA,
-    )
+    # Старый equality-check нельзя безопасно восстановить после появления
+    # receipt с независимыми server-issued session и lease identity.
+    # Оставляем таблицу работоспособной; ограничение rollback описано в README.
+    return

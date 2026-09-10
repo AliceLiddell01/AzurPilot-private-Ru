@@ -1461,7 +1461,7 @@ _notification_queue = asyncio.Queue()
 def _notification_agent_runtime():
     from module.webui.setting import State
 
-    return getattr(State, "_notification_runtime", None)
+    return State.get_notification_runtime()
 
 
 def _agent_unavailable_response() -> JSONResponse:
@@ -1739,6 +1739,8 @@ async def api_notification_agent_ack(request):
         return JSONResponse(
             {"success": False, "error": "Notification storage unavailable"}, status_code=503
         )
+    except DesktopAgentError:
+        return _agent_unavailable_response()
     if result.status in {
         NotificationAgentAckStatus.ACKNOWLEDGED,
         NotificationAgentAckStatus.DUPLICATE,

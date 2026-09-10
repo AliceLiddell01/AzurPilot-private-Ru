@@ -834,7 +834,7 @@ class PostgresNotificationRepository:
                         notification_event.c.profile_sequence == after_sequence,
                         notification_event.c.id == after_event_id,
                     )
-                ).scalar_one()
+                ).scalar_one_or_none()
             )
         except StorageError:
             raise
@@ -855,7 +855,7 @@ class PostgresNotificationRepository:
         _bounded_profile(profile_id)
         _bounded_channel_instance(channel_instance_id)
         if not isinstance(delivery_id, UUID) or not isinstance(event_id, UUID):
-            raise TypeError("Agent delivery identity имеет неверный формат.")
+            raise ValueError("Agent delivery identity имеет неверный формат.")
         if not isinstance(event_source, str) or fullmatch(
             r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}", event_source
         ) is None:

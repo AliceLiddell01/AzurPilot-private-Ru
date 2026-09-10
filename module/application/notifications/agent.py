@@ -458,7 +458,7 @@ class DesktopAgentChannel:
         if self._wake is not None:
             try:
                 self._wake()
-            except Exception:  # noqa: BLE001 - wakeup is an optimization only.
+            except Exception:  # noqa: BLE001 - пробуждение является только оптимизацией.
                 pass
         return DeliveryResult.provider_accepted(provider_message_id="desktop-agent")
 
@@ -693,7 +693,9 @@ class DesktopAgentNotificationRuntime:
         self._wake_event = threading.Event()
         self._session_lock = threading.Lock()
         self._sessions: dict[tuple[str, str], UUID] = {}
+        self._worker_lock = threading.Lock()
         self._worker: threading.Thread | None = None
+        self._worker_stopping = False
         self._fatal_stop_reason: str | None = None
         self._authenticator = DesktopAgentAuthenticator(credential)
         profiles = tuple(sorted(credential.profiles)) if credential is not None else ()
@@ -806,26 +808,44 @@ class DesktopAgentNotificationRuntime:
                 self._sessions.pop(key, None)
 
     def start(self) -> None:
-        if not self._enabled or self._worker is not None:
-            return
-        if self._fatal_stop_reason is not None:
-            return
-        self._stop_event.clear()
-        self._worker = threading.Thread(
-            target=self._run_dispatcher,
-            name="azurpilot-notification-agent-dispatcher",
-            daemon=True,
-        )
-        self._worker.start()
+        with self._worker_lock:
+            if (
+                not self._enabled
+                or self._worker is not None
+                or self._worker_stopping
+                or self._fatal_stop_reason is not None
+            ):
+                return
+            self._stop_event.clear()
+            worker = threading.Thread(
+                target=self._run_dispatcher,
+                name="azurpilot-notification-agent-dispatcher",
+                daemon=True,
+            )
+            self._worker = worker
+            try:
+                worker.start()
+            except Exception:
+                self._worker = None
+                raise
         _record_agent_connection(self._telemetry, "started")
 
     def stop(self) -> None:
-        self._stop_event.set()
-        self._wake_event.set()
-        worker = self._worker
-        self._worker = None
-        if worker is not None:
-            worker.join(timeout=5.0)
+        with self._worker_lock:
+            self._worker_stopping = True
+            self._stop_event.set()
+            self._wake_event.set()
+            worker = self._worker
+        try:
+            if worker is not None:
+                worker.join(timeout=5.0)
+        finally:
+            with self._worker_lock:
+                if self._worker is worker and (
+                    worker is None or not worker.is_alive()
+                ):
+                    self._worker = None
+                self._worker_stopping = False
         with self._session_lock:
             self._sessions.clear()
         if self._enabled:
@@ -842,7 +862,7 @@ class DesktopAgentNotificationRuntime:
         if callable(method):
             try:
                 method()
-            except Exception:  # noqa: BLE001 - telemetry remains fail-open.
+            except Exception:  # noqa: BLE001 - телеметрия остаётся fail-open.
                 return
 
     def record_agent_backlog(self, *, status: str) -> None:
@@ -850,7 +870,7 @@ class DesktopAgentNotificationRuntime:
         if callable(method):
             try:
                 method(status=status)
-            except Exception:  # noqa: BLE001 - telemetry remains fail-open.
+            except Exception:  # noqa: BLE001 - телеметрия остаётся fail-open.
                 return
 
     def read_agent_batch(
@@ -965,34 +985,39 @@ class DesktopAgentNotificationRuntime:
         return NotificationOutcome.FAILED
 
     def _run_dispatcher(self) -> None:
-        storage_backoff = AGENT_POLL_SECONDS
-        while not self._stop_event.is_set():
-            try:
-                recovered = self._dispatcher.recover_expired()
-                if recovered:
-                    method = getattr(self._telemetry, "record_agent_timeout", None)
-                    if callable(method):
-                        try:
-                            method()
-                        except Exception:  # noqa: BLE001 - telemetry remains fail-open.
-                            pass
-                self._dispatcher.dispatch_once()
-            except StorageUnavailableError:
-                self.record_agent_backlog(status="error")
-                self._wake_event.wait(timeout=storage_backoff)
-                self._wake_event.clear()
-                storage_backoff = min(
-                    AGENT_STORAGE_BACKOFF_MAX_SECONDS, storage_backoff * 2
-                )
-                continue
-            except Exception:  # noqa: BLE001 - fatal worker errors fail closed.
-                _record_agent_connection(self._telemetry, "unavailable")
-                self._fatal_stop_reason = "dispatcher_failed"
-                self._stop_event.set()
-                return
+        try:
             storage_backoff = AGENT_POLL_SECONDS
-            self._wake_event.wait(timeout=AGENT_POLL_SECONDS)
-            self._wake_event.clear()
+            while not self._stop_event.is_set():
+                try:
+                    recovered = self._dispatcher.recover_expired()
+                    if recovered:
+                        method = getattr(self._telemetry, "record_agent_timeout", None)
+                        if callable(method):
+                            try:
+                                method()
+                            except Exception:  # noqa: BLE001 - телеметрия остаётся fail-open.
+                                pass
+                    self._dispatcher.dispatch_once()
+                except StorageUnavailableError:
+                    self.record_agent_backlog(status="error")
+                    self._wake_event.wait(timeout=storage_backoff)
+                    self._wake_event.clear()
+                    storage_backoff = min(
+                        AGENT_STORAGE_BACKOFF_MAX_SECONDS, storage_backoff * 2
+                    )
+                    continue
+                except Exception:  # noqa: BLE001 - фатальная ошибка worker завершает его fail-closed.
+                    _record_agent_connection(self._telemetry, "unavailable")
+                    self._fatal_stop_reason = "dispatcher_failed"
+                    self._stop_event.set()
+                    return
+                storage_backoff = AGENT_POLL_SECONDS
+                self._wake_event.wait(timeout=AGENT_POLL_SECONDS)
+                self._wake_event.clear()
+        finally:
+            with self._worker_lock:
+                if self._worker is threading.current_thread():
+                    self._worker = None
 
 
 def build_handover_preemption_event(
@@ -1157,7 +1182,7 @@ def _record_agent_connection(telemetry: object | None, status: str) -> None:
     if callable(method):
         try:
             method(status=status)
-        except Exception:  # noqa: BLE001 - telemetry remains fail-open.
+        except Exception:  # noqa: BLE001 - телеметрия остаётся fail-open.
             return
 
 
@@ -1166,7 +1191,7 @@ def _record_agent_ack(telemetry: object | None, status: NotificationAgentAckStat
     if callable(method):
         try:
             method(status=status.value)
-        except Exception:  # noqa: BLE001 - telemetry remains fail-open.
+        except Exception:  # noqa: BLE001 - телеметрия остаётся fail-open.
             return
 
 

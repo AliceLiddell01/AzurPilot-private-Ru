@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
-from threading import Event
+from threading import Event, Thread
 from uuid import UUID, uuid4
 
 import pytest
@@ -19,6 +19,7 @@ from module.application.notifications.agent import (
     DesktopAgentAuthorizationError,
     DesktopAgentChannel,
     DesktopAgentCredential,
+    DesktopAgentError,
     DesktopAgentNotificationRuntime,
     DesktopAgentRequestError,
     DesktopAgentUnavailableError,
@@ -595,6 +596,37 @@ def test_fatal_dispatcher_failure_disables_agent_runtime() -> None:
     assert runtime.enabled is False
     assert runtime.fatal_stop_reason == "dispatcher_failed"
     runtime.start()
+    assert runtime._worker is None
+
+
+def test_runtime_stop_does_not_allow_a_second_dispatcher_start() -> None:
+    runtime, _repository = _runtime()
+    worker_started = Event()
+    release_worker = Event()
+
+    def blocking_worker() -> None:
+        worker_started.set()
+        release_worker.wait(timeout=2.0)
+
+    runtime._run_dispatcher = blocking_worker
+    runtime.start()
+    assert worker_started.wait(timeout=1.0)
+
+    stopping = Thread(target=runtime.stop)
+    stopping.start()
+    deadline = time.monotonic() + 1.0
+    while not runtime._worker_stopping and time.monotonic() < deadline:
+        time.sleep(0.001)
+    worker = runtime._worker
+    assert runtime._worker_stopping is True
+    assert worker is not None
+
+    runtime.start()
+    assert runtime._worker is worker
+
+    release_worker.set()
+    stopping.join(timeout=2.0)
+    assert stopping.is_alive() is False
     assert runtime._worker is None
 
 
@@ -1184,6 +1216,40 @@ def test_api_ack_is_authenticated_and_profile_scoped(monkeypatch) -> None:
 
     assert foreign_response.status_code == 403
     assert len(acknowledged) == 1
+
+
+def test_api_converts_unexpected_agent_error_to_unavailable(monkeypatch) -> None:
+    from module.webui import api as webui_api
+
+    runtime, _repository = _runtime()
+
+    def fail_ack(_principal, _ack):
+        raise DesktopAgentError("synthetic agent failure")
+
+    runtime.acknowledge_agent = fail_ack
+    monkeypatch.setattr(webui_api, "_notification_agent_runtime", lambda: runtime)
+    ack_document = {
+        "delivery_id": str(uuid4()),
+        "event_id": str(uuid4()),
+        "event_source": "runtime",
+        "profile_id": "profile-1",
+        "attempt_ordinal": 1,
+        "lease_token": str(uuid4()),
+        "session_epoch": str(uuid4()),
+        "payload_digest": "a" * 64,
+    }
+    response = asyncio.run(
+        webui_api.api_notification_agent_ack(
+            _api_request(
+                "POST",
+                "/api/notification-agent/ack",
+                headers={"Authorization": f"Bearer {_credential().token}"},
+                body=json.dumps(ack_document).encode("utf-8"),
+            )
+        )
+    )
+
+    assert response.status_code == 503
 
 
 def test_api_returns_bounded_recoverable_reason_for_stale_ack(monkeypatch) -> None:
