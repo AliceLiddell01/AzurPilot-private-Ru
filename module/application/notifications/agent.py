@@ -376,6 +376,7 @@ def notification_agent_document(
         "delivery_id": str(delivery.id),
         "attempt_ordinal": attempt.attempt_ordinal,
         "lease_token": str(delivery.lease_token),
+        # Lease token является bounded identity попытки и сессии; retry получает новый token.
         "session_epoch": str(delivery.lease_token),
         "payload_digest": event.payload_digest,
         "title": title,
@@ -623,6 +624,7 @@ class DesktopAgentNotificationRuntime:
         self._stop_event = threading.Event()
         self._wake_event = threading.Event()
         self._worker: threading.Thread | None = None
+        self._fatal_stop_reason: str | None = None
         self._authenticator = DesktopAgentAuthenticator(credential)
         profiles = tuple(sorted(credential.profiles)) if credential is not None else ()
         channel = DesktopAgentChannel(wake=self.wake)
@@ -682,7 +684,11 @@ class DesktopAgentNotificationRuntime:
 
     @property
     def enabled(self) -> bool:
-        return self._enabled
+        return self._enabled and self._fatal_stop_reason is None
+
+    @property
+    def fatal_stop_reason(self) -> str | None:
+        return self._fatal_stop_reason
 
     @property
     def authenticator(self) -> DesktopAgentAuthenticator:
@@ -695,6 +701,7 @@ class DesktopAgentNotificationRuntime:
     def start(self) -> None:
         if not self._enabled or self._worker is not None:
             return
+        self._fatal_stop_reason = None
         self._stop_event.clear()
         self._worker = threading.Thread(
             target=self._run_dispatcher,
@@ -744,7 +751,7 @@ class DesktopAgentNotificationRuntime:
         cursor: str | None,
         limit: int,
     ) -> tuple[DesktopAgentDeliveryFrame, ...]:
-        if not self._enabled:
+        if not self.enabled:
             raise DesktopAgentUnavailableError("Desktop Agent channel не настроен.")
         return self._history.read(
             principal, profile_id=profile_id, cursor=cursor, limit=limit
@@ -753,14 +760,14 @@ class DesktopAgentNotificationRuntime:
     def acknowledge_agent(
         self, principal: DesktopAgentPrincipal, ack: NotificationAgentAck
     ) -> NotificationAgentAckResult:
-        if not self._enabled:
+        if not self.enabled:
             raise DesktopAgentUnavailableError("Desktop Agent channel не настроен.")
         return self._history.acknowledge(principal, ack)
 
     def delivery_state(
         self, principal: DesktopAgentPrincipal, frame: DesktopAgentDeliveryFrame
     ) -> NotificationStoredDelivery | None:
-        if not self._enabled:
+        if not self.enabled:
             raise DesktopAgentUnavailableError("Desktop Agent channel не настроен.")
         return self._history.delivery_state(principal, frame)
 
@@ -773,7 +780,7 @@ class DesktopAgentNotificationRuntime:
         deadline: datetime | None,
         runtime_state: RuntimeStateSnapshot | None,
     ) -> NotificationOutcome:
-        if not self._enabled:
+        if not self.enabled:
             return NotificationOutcome.UNAVAILABLE
         if deadline is None or runtime_state is None:
             return NotificationOutcome.FAILED
@@ -805,7 +812,7 @@ class DesktopAgentNotificationRuntime:
                         try:
                             method()
                         except Exception:  # noqa: BLE001 - telemetry remains fail-open.
-                            recovered = 0
+                            pass
                 self._dispatcher.dispatch_once()
             except StorageUnavailableError:
                 self._wake_event.wait(timeout=AGENT_POLL_SECONDS)
@@ -813,6 +820,7 @@ class DesktopAgentNotificationRuntime:
                 continue
             except Exception:  # noqa: BLE001 - fatal worker errors fail closed.
                 _record_agent_connection(self._telemetry, "unavailable")
+                self._fatal_stop_reason = "dispatcher_failed"
                 self._stop_event.set()
                 self._worker = None
                 return
@@ -944,7 +952,10 @@ def _read_token_file(path_value: str) -> str:
 
 
 def _owner_epoch(runtime_state: RuntimeStateSnapshot) -> int:
-    identity = f"{runtime_state.worker_pid}:{runtime_state.worker_created_at:.6f}".encode() if runtime_state.worker_pid is not None and runtime_state.worker_created_at is not None else b"unknown"
+    if runtime_state.worker_pid is not None and runtime_state.worker_created_at is not None:
+        identity = f"{runtime_state.worker_pid}:{runtime_state.worker_created_at:.6f}".encode()
+    else:
+        identity = b"unknown"
     value = int.from_bytes(hashlib.sha256(identity).digest()[:8], "big") & ((1 << 63) - 1)
     return value or 1
 

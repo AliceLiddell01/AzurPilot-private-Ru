@@ -1224,11 +1224,6 @@ notification_agent_ack = Table(
     Column(
         "delivery_id",
         Uuid,
-        ForeignKey(
-            f"{SCHEMA_NAME}.notification_delivery.id",
-            ondelete="CASCADE",
-            name="fk_notification_agent_ack_delivery",
-        ),
         nullable=False,
     ),
     Column("attempt_ordinal", Integer, nullable=False),

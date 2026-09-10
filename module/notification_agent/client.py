@@ -190,7 +190,7 @@ class DesktopAgentClient:
     async def run_once(self, profile_id: str, *, session: aiohttp.ClientSession | None = None) -> str | None:
         if profile_id not in self.config.credential.profiles:
             raise DesktopAgentProtocolError("Профиль отсутствует в Agent scope.")
-        cursor = self._read_cursor(profile_id)
+        cursor = await asyncio.to_thread(self._read_cursor, profile_id)
         headers = {
             "Accept": "text/event-stream",
             "Authorization": f"Bearer {self.config.credential.token}",

@@ -17,7 +17,7 @@
 	handle @notification_agent {
 		reverse_proxy {$AZURPILOT_NOTIFICATION_AGENT_BACKEND} {
 			flush_interval -1
-			stream_timeout 3m
+			stream_timeout 210s
 			header_up Host {$AZURPILOT_CADDY_HOST}
 			transport http {
 				dial_timeout 3s

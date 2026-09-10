@@ -8,7 +8,10 @@ from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Self
 
-from module.application.notifications.channels import SUPPORTED_CHANNEL_TYPES
+from module.application.notifications.channels import (
+    DESKTOP_AGENT_CHANNEL_TYPE,
+    SUPPORTED_CHANNEL_TYPES,
+)
 from module.application.notifications.reasons import NOTIFICATION_REASON_CODES
 
 if TYPE_CHECKING:
@@ -128,13 +131,13 @@ class NotificationTelemetry:
     def record_agent_timeout(self) -> None:
         self._safe_add(
             self._agent_timeout_total,
-            {"channel_type": "desktop-agent"},
+            {"channel_type": _channel(DESKTOP_AGENT_CHANNEL_TYPE)},
         )
 
     def record_agent_reconnect(self) -> None:
         self._safe_add(
             self._agent_reconnect_total,
-            {"channel_type": "desktop-agent"},
+            {"channel_type": _channel(DESKTOP_AGENT_CHANNEL_TYPE)},
         )
 
     def record_agent_backlog(self, *, status: str) -> None:

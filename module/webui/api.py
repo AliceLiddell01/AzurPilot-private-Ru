@@ -1475,7 +1475,10 @@ def _agent_principal(request, runtime):
     authenticator = getattr(runtime, "authenticator", None)
     if authenticator is None:
         return None
-    return authenticator.authenticate(request.headers)
+    try:
+        return authenticator.authenticate(request.headers)
+    except DesktopAgentError:
+        return None
 
 
 def _agent_profile(request, runtime) -> str:
@@ -1526,7 +1529,7 @@ async def api_notification_agent_stream(request):
         )
     try:
         profile = _agent_profile(request, runtime)
-        requested_limit = _agent_limit(request)
+        _agent_limit(request)
         cursor = request.headers.get("last-event-id") or request.query_params.get("cursor")
         NotificationCursor.decode(cursor, expected_profile_id=profile)
     except DesktopAgentAuthorizationError:
@@ -1586,7 +1589,8 @@ async def api_notification_agent_stream(request):
                         principal,
                         profile_id=profile,
                         cursor=current_cursor,
-                        limit=min(requested_limit, 1),
+                        # Один frame удерживает bounded flow-control до явного ACK.
+                        limit=1,
                     )
                     if frames:
                         _record_agent_telemetry(

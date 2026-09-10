@@ -117,9 +117,10 @@ class TestSharedWebUiLocalizationContracts(unittest.TestCase):
             DESKTOP_AGENT_STREAM_PATH,
         )
 
-        route_constants = {}
-        route_constants["DESKTOP_AGENT_STREAM_PATH"] = DESKTOP_AGENT_STREAM_PATH
-        route_constants["DESKTOP_AGENT_ACK_PATH"] = DESKTOP_AGENT_ACK_PATH
+        route_constants = {
+            "DESKTOP_AGENT_STREAM_PATH": DESKTOP_AGENT_STREAM_PATH,
+            "DESKTOP_AGENT_ACK_PATH": DESKTOP_AGENT_ACK_PATH,
+        }
         self.assertEqual(
             route_constants,
             {

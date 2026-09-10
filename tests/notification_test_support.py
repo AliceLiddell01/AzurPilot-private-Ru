@@ -8,6 +8,7 @@ from threading import RLock
 from typing import Self
 from uuid import UUID, uuid4
 
+from module.application.errors import StorageInvariantViolationError
 from module.application.notifications import (
     ChannelCapabilities,
     DeliveryResult,
@@ -558,6 +559,10 @@ class _MemoryRepository:
                     NotificationAgentAckStatus.REJECTED, "delivery_already_completed"
                 )
             event = self.events[(delivery.event_source, delivery.event_id)].event
+            if ack.session_epoch != ack.lease_token:
+                raise StorageInvariantViolationError(
+                    "Agent ACK session epoch не совпадает с lease."
+                )
             identity_checks = (
                 (ack.event_id != event.id, "event_identity_mismatch"),
                 (ack.event_source != event.source, "event_identity_mismatch"),
@@ -565,7 +570,6 @@ class _MemoryRepository:
                 (delivery.channel_type != "desktop-agent", "channel_identity_mismatch"),
                 (ack.attempt_ordinal != delivery.attempt_count, "attempt_identity_mismatch"),
                 (ack.lease_token != delivery.lease_token, "lease_identity_mismatch"),
-                (ack.session_epoch != ack.lease_token, "lease_identity_mismatch"),
                 (ack.payload_digest != event.payload_digest, "payload_digest_mismatch"),
             )
             for mismatch, reason in identity_checks:

@@ -53,12 +53,6 @@ def upgrade() -> None:
             name=op.f("ck_notification_agent_ack_payload_digest_format"),
         ),
         sa.ForeignKeyConstraint(
-            ["delivery_id"],
-            ["azurpilot.notification_delivery.id"],
-            ondelete="CASCADE",
-            name=op.f("fk_notification_agent_ack_delivery"),
-        ),
-        sa.ForeignKeyConstraint(
             ["delivery_id", "attempt_ordinal"],
             [
                 "azurpilot.notification_delivery_attempt.delivery_id",

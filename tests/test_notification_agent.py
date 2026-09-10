@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 import pytest
 from starlette.requests import Request
 
+from module.application.errors import StorageInvariantViolationError
 from module.application.notifications.agent import (
     MAX_AGENT_ACK_BODY_BYTES,
     DesktopAgentAuthenticator,
@@ -292,13 +293,16 @@ def test_ack_rejects_mismatched_attempt_identity_and_expiry() -> None:
     principal, frame = _stage_delivery(runtime, event)
     ack = _ack_from_frame(frame)
 
+    stale_lease = uuid4()
     for candidate in (
         replace(ack, event_id=uuid4()),
-        replace(ack, lease_token=uuid4(), session_epoch=ack.session_epoch),
-        replace(ack, session_epoch=uuid4()),
+        replace(ack, lease_token=stale_lease, session_epoch=stale_lease),
     ):
         result = runtime.acknowledge_agent(principal, candidate)
         assert result.status is NotificationAgentAckStatus.REJECTED
+
+    with pytest.raises(StorageInvariantViolationError):
+        runtime.acknowledge_agent(principal, replace(ack, session_epoch=uuid4()))
 
     expired = repository.acknowledge_agent_delivery(
         ack, now=NOW + timedelta(seconds=31)
@@ -345,19 +349,16 @@ def test_handover_waiter_returns_delivered_only_after_agent_ack() -> None:
             for delivery in tuple(repository.deliveries.values()):
                 if delivery.state is not DeliveryState.AWAITING_AGENT_ACK:
                     continue
-                event = repository.events[(delivery.event_source, delivery.event_id)].event
+                stored_event = repository.events[(delivery.event_source, delivery.event_id)]
                 attempt = repository.attempts[delivery.id][-1]
-                ack = NotificationAgentAck(
-                    delivery_id=delivery.id,
-                    event_id=event.id,
-                    event_source=event.source,
-                    profile_id=event.profile_id,
-                    attempt_ordinal=attempt.attempt_ordinal,
-                    lease_token=attempt.lease_token,
-                    session_epoch=attempt.lease_token,
-                    payload_digest=event.payload_digest,
-                    agent_id=principal.agent_id,
+                frame = notification_agent_document(
+                    NotificationAgentDelivery(
+                        event=stored_event,
+                        delivery=delivery,
+                        attempt=attempt,
+                    )
                 )
+                ack = _ack_from_frame(frame, agent_id=principal.agent_id)
                 repository.acknowledge_agent_delivery(ack, now=NOW)
             return report
 
@@ -370,6 +371,20 @@ def test_handover_waiter_returns_delivered_only_after_agent_ack() -> None:
         runtime_state=_snapshot(),
     )
     assert outcome is NotificationOutcome.DELIVERED
+
+
+def test_fatal_dispatcher_failure_disables_agent_runtime() -> None:
+    runtime, _repository = _runtime()
+
+    class FailingDispatcher:
+        def recover_expired(self):
+            raise RuntimeError("synthetic dispatcher failure")
+
+    runtime._dispatcher = FailingDispatcher()
+    runtime._run_dispatcher()
+
+    assert runtime.enabled is False
+    assert runtime.fatal_stop_reason == "dispatcher_failed"
 
 
 def test_handover_waiter_times_out_provider_acceptance_without_ack() -> None:
@@ -519,17 +534,17 @@ def test_api_ack_is_authenticated_and_profile_scoped(monkeypatch) -> None:
 
     runtime.acknowledge_agent = acknowledge
     monkeypatch.setattr(webui_api, "_notification_agent_runtime", lambda: runtime)
+    lease_token = uuid4()
     ack_document = {
         "delivery_id": str(uuid4()),
         "event_id": str(uuid4()),
         "event_source": "runtime",
         "profile_id": "profile-1",
         "attempt_ordinal": 1,
-        "lease_token": str(uuid4()),
-        "session_epoch": "",
+        "lease_token": str(lease_token),
+        "session_epoch": str(lease_token),
         "payload_digest": "a" * 64,
     }
-    ack_document["session_epoch"] = ack_document["lease_token"]
     request = _api_request(
         "POST",
         "/api/notification-agent/ack",

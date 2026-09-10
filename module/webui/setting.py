@@ -51,7 +51,7 @@ def _stop_notification_runtime(runtime: object | None) -> None:
     if callable(stop):
         try:
             stop()
-        except Exception as exc:  # noqa: BLE001 - cleanup must not leave manager orphaned.
+        except Exception as exc:  # noqa: BLE001 - очистка не должна оставлять manager без владельца.
             try:
                 from module.logger import logger
 
