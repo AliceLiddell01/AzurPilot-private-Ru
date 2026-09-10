@@ -35,10 +35,10 @@ def merge_two_rects(
 
 def merge_rows(list_word, merge):
     """将相近的文本行合并为同一行。"""
-    # 按 y 坐标排序
+    # Сортируем по координате y
     list_word = sorted(list_word, key=lambda x: x[1])
 
-    # 合并相近的文本行
+    # Объединяем близко расположенные строки текста
     list_row = []
     current_row = []
     current_center = None
@@ -72,29 +72,29 @@ class HospitalClue(HospitalUI):
         area = CLUE_LIST.area
         image = self.image_crop(area, copy=False)
 
-        # 灰色文字掩码
+        # Маска серого текста
         gray = color_similarity_2d(image, color=(132, 134, 148))
         cv2.inRange(gray, 215, 255, dst=gray)
-        # 白色文字掩码（已选中的旁白）
+        # Маска белого текста (выбранная реплика)
         white = color_similarity_2d(image, color=(255, 255, 255))
         cv2.inRange(white, 215, 255, dst=white)
-        # 清除白色像素周围的灰色掩码
+        # Удаляем серую маску вокруг белых пикселей
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (200, 20))
         white_expanded = cv2.dilate(white, kernel)
         cv2.subtract(gray, white_expanded, dst=gray)
-        # 混合掩码
+        # Объединяем маски
         cv2.bitwise_or(gray, white, dst=gray)
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
         cv2.dilate(gray, kernel, dst=gray)
 
-        # 查找矩形轮廓
+        # Ищем прямоугольные контуры
         list_word = []
         contours, _ = cv2.findContours(gray, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         for cont in contours:
             rect = cv2.boundingRect(cv2.convexHull(cont).astype(np.float32))
-            # 按矩形高度过滤，通常为 16
+            # Фильтруем по высоте прямоугольника, обычно она равна 16
             rect = xywh2xyxy(rect)
-            # 过滤过矮的行
+            # Отбрасываем слишком низкие строки
             if rect[3] - rect[1] < 12:
                 continue
             center_y = (rect[1] + rect[3]) // 2
@@ -121,7 +121,7 @@ class HospitalClue(HospitalUI):
         image = self.image_crop(area, copy=False)
         image = rgb2gray(image)
 
-        # 搜索 INVEST 按钮
+        # Ищем кнопки INVEST
         buttons = TEMPLATE_INVEST.match_multi(image)
         buttons += TEMPLATE_INVEST2.match_multi(image)
         buttons = sorted(buttons, key=lambda b: b.area[1])
@@ -130,23 +130,23 @@ class HospitalClue(HospitalUI):
             return None
         buttons = [b.move(area[:2]) for b in buttons]
         if count == 1:
-            # 只有 1 个 INVEST 按钮，在其下方搜索
+            # Если кнопка INVEST одна, ищем под ней
             button = buttons[0]
             search = (area[0], button.button[3], area[2], area[3])
         else:
-            # 多个 INVEST 按钮，在两者之间搜索
+            # Если кнопок INVEST несколько, ищем между первыми двумя
             button = buttons[0]
             second = buttons[1]
             search = (area[0], button.button[3], area[2], second.button[1])
         image = self.image_crop(search, copy=False)
         image = rgb2gray(image)
 
-        # 检查图像尺寸
+        # Проверяем размер изображения
         x, y = image_size(image)
         if y < 50:
             return None
 
-        # 检查 INVEST 下方是否有剩余次数标识
+        # Проверяем наличие индикатора оставшихся попыток под INVEST
         if TEMPLATE_REMAIN_CURRENT.match(image):
             return button
         if TEMPLATE_REMAIN_TIMES.match(image):
@@ -242,7 +242,7 @@ class HospitalClue(HospitalUI):
         """
         logger.hr('Перебор исследований')
         scroll = Scroll(INVEST_SCROLL, color=(107, 97, 107), name='INVEST_SCROLL')
-        # 无滚动条时只检查当前页
+        # Если полосы прокрутки нет, проверяем только текущую страницу
         if not scroll.appear(main=self):
             logger.info('Полоса прокрутки отсутствует')
             button = self.get_invest_button()
@@ -250,18 +250,18 @@ class HospitalClue(HospitalUI):
                 yield button
             return
 
-        # 检查当前页
+        # Проверяем текущую страницу
         button = self.get_invest_button()
         if button:
             yield button
 
-        # 检查顶部
+        # Проверяем верхнюю часть списка
         if not scroll.at_top(main=self):
             scroll.set_top(main=self)
             button = self.get_invest_button()
             if button:
                 yield button
-        # 逐页遍历
+        # Перебираем список постранично
         while 1:
             if scroll.at_bottom(main=self):
                 logger.info(f'{scroll.name} достиг конца')
@@ -275,7 +275,7 @@ class HospitalClue(HospitalUI):
         """检查旁白是否被选中（深色背景）。"""
         area = button.area
         search = CLUE_LIST.area
-        # 检查周围是否有深色背景
+        # Проверяем наличие тёмного фона вокруг
         area = (search[0], area[1], search[2], area[3])
         return self.image_color_count(area, color=(82, 85, 107), threshold=221, count=500)
 
@@ -283,7 +283,7 @@ class HospitalClue(HospitalUI):
         """检查旁白是否已完成（青色标记）。"""
         area = button.area
         search = CLUE_LIST.area
-        # 检查是否有青色标记，JP 服文字溢出故右边界设为 308
+        # Проверяем бирюзовую отметку; на JP-сервере текст выходит за границы, поэтому правая граница равна 308
         area = (search[0], area[1], 308, area[3])
         return self.image_color_count(area, color=(74, 130, 148), threshold=221, count=20)
 
