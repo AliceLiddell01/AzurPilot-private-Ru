@@ -61,12 +61,12 @@ class PreservedAssets:
             file='./module/handler/info_handler.py',
             regex=re.compile(r'\(([A-Z][A-Z0-9_]+),')
         )
-        # MAIN_CHECK 等价于 MAIN_GOTO_CAMPAIGN
+        # MAIN_CHECK эквивалентен MAIN_GOTO_CAMPAIGN
         # assets.add('MAIN_GOTO_CAMPAIGN')
         return assets
 
 
-# 全局实例，用于判断哪些资源需要保留
+# Глобальный экземпляр для определения ресурсов, которые нужно сохранять
 _preserved_assets = PreservedAssets()
 
 
@@ -83,9 +83,9 @@ class Resource:
         cached (list[str]): 需要释放缓存的属性名称列表，
             子类应在创建缓存属性时维护此列表。
     """
-    # 类属性，记录所有按钮和模板实例
+    # Атрибут класса: хранит все экземпляры кнопок и шаблонов
     instances = {}
-    # 实例属性，记录实例的缓存属性名称列表
+    # Атрибут экземпляра: хранит список имён кэшируемых свойств
     cached = []
 
     def resource_add(self, key):
@@ -183,14 +183,14 @@ def release_resources(next_task=''):
     from module.webui.setting import State
     if State.deploy_config.UseOcrServer:
         if not next_task:
-            # 空闲时断开 OCR 服务器连接
+            # В состоянии простоя отключаемся от OCR-сервера
             from module.ocr.ocr import OCR_MODEL
             try:
                 OCR_MODEL.close()
             except AttributeError:
                 pass
     else:
-        # 仅在使用实例内 OCR 时释放
+        # Освобождаем только при использовании локального OCR
         from module.ocr.al_ocr import release_ocr_models
         from module.ocr.ocr import OCR_MODEL
         # The Global OCR namespace is retained between active tasks.
@@ -205,19 +205,19 @@ def release_resources(next_task=''):
                 cache_names.append('det')
             released_ocr_models = release_ocr_models(names=cache_names)
 
-    # 释放资源缓存
-    # module.ui 约有 80 个资源，占约 3MB
-    # Alas 总共约 800 个资源，但不会全部加载
-    # 模板图像占用更多，每个约 6MB
+    # Освобождаем кэш ресурсов
+    # В module.ui около 80 ресурсов, занимающих примерно 3 МБ
+    # Всего в Alas около 800 ресурсов, но загружаются не все
+    # Изображения шаблонов занимают больше: примерно 6 МБ каждое
     for key, obj in Resource.instances.items():
-        # 保留 UI 切换所需的资源
+        # Сохраняем ресурсы, необходимые для переключения UI
         if next_task and str(obj) in _preserved_assets.ui:
             continue
         # if Resource.is_loaded(obj):
         #     logger.info(f'Release {obj}')
         obj.resource_release()
 
-    # 释放地图检测的缓存图像
+    # Освобождаем кэшированные изображения обнаружения карты
     from module.map_detection.utils_assets import ASSETS
     attr_list = [
         'ui_mask',
@@ -232,7 +232,7 @@ def release_resources(next_task=''):
     for attr in attr_list:
         del_cached_property(ASSETS, attr)
 
-    # NumPy/OpenCV 图像的引用计数会立即释放；只在全局 OCR 缓存已实际剔除时
-    # 回收可能存在的 Python 循环引用，避免在截图和战斗循环中引入 GC 停顿。
+    # Счётчик ссылок изображений NumPy/OpenCV освобождает их сразу; только когда глобальный OCR-кэш действительно очищен
+    # собираем возможные циклические ссылки Python, чтобы не вносить паузы GC в циклы скриншотов и боя.
     if released_ocr_models:
         gc.collect(2)
