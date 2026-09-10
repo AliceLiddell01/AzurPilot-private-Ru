@@ -32,11 +32,11 @@ class AlasManager(DeployConfig):
             try:
                 from win32com.client import GetObject
             except ModuleNotFoundError:
-                # pywin32 未安装
+                # pywin32 не установлен
                 logger.info('pywin32 не установлен, проверка пропущена')
                 return False
             except (pickle.UnpicklingError, EOFError) as e:
-                # win32com 缓存损坏，尝试删除 dicts.dat 后重试
+                # Кэш win32com повреждён: удаляем dicts.dat и повторяем попытку
                 logger.error(f'Ошибка кэша win32com — {type(e).__name__}: {e}')
                 import sys
                 import win32api
@@ -72,7 +72,7 @@ class AlasManager(DeployConfig):
                         if folder in executable_path:
                             yield executable_path, process_name, process_id
         except Exception as e:
-            # WMI 查询可能抛出 pywintypes.com_error 等异常
+            # Запрос WMI может вызвать pywintypes.com_error и другие исключения
             logger.info(str(e))
             return False
 
