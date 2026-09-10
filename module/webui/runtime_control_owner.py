@@ -41,6 +41,7 @@ class WebUIRuntimeControlOwner:
         manager_factory: Callable[[str], object] | None = None,
         application: object | None = None,
         notifier: Callable[[str, str, str], NotificationOutcome | bool] | None = None,
+        notification_service: object | None = None,
         profile_provider: Callable[[], Sequence[str]] | None = None,
         worker_record_provider: Callable[[str], dict[str, object] | None] | None = None,
         function_factory: Callable[[str], object] | None = None,
@@ -51,6 +52,7 @@ class WebUIRuntimeControlOwner:
         self._manager_factory = manager_factory
         self._application = application
         self._notifier = notifier
+        self._notification_service = notification_service
         self._profile_provider = profile_provider
         self._worker_record_provider = worker_record_provider
         self._function_factory = function_factory
@@ -1091,8 +1093,25 @@ class WebUIRuntimeControlOwner:
         profile: str,
         operation_id: str,
         session_id: str | None,
+        *,
+        deadline: datetime | None = None,
     ) -> NotificationOutcome:
-        del operation_id, session_id
+        notification_service = self._notification_service
+        if notification_service is not None:
+            try:
+                notify = getattr(notification_service, "notify_preemption", None)
+                if not callable(notify):
+                    return NotificationOutcome.UNAVAILABLE
+                result = notify(
+                    profile,
+                    operation_id,
+                    session_id,
+                    deadline=deadline,
+                    runtime_state=self.state.read(profile),
+                )
+            except Exception:  # noqa: BLE001 - production notification is fail-closed.
+                return NotificationOutcome.UNAVAILABLE
+            return result if isinstance(result, NotificationOutcome) else NotificationOutcome.FAILED
         target = self._development_profile() or "development profile"
         content = (
             f"Текущий профиль занят; после короткого периода ожидания "
@@ -1255,7 +1274,12 @@ class _OwnerHandoverHooks(HandoverHooks):
         operation_id: str,
         session_id: str | None,
     ) -> NotificationOutcome:
-        return self.owner.notify_preemption(profile, operation_id, session_id)
+        return self.owner.notify_preemption(
+            profile,
+            operation_id,
+            session_id,
+            deadline=self.deadline,
+        )
 
     def request_cooperative_quiesce(self, profile: str, operation_id: str, session_id: str | None) -> bool:
         return self.owner.request_cooperative_quiesce(profile, operation_id, session_id)

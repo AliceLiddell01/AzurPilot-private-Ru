@@ -8,7 +8,7 @@ from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Self
 
-from module.application.notifications.channels import STAGE2_CHANNEL_TYPES
+from module.application.notifications.channels import SUPPORTED_CHANNEL_TYPES
 from module.application.notifications.reasons import NOTIFICATION_REASON_CODES
 
 if TYPE_CHECKING:
@@ -25,7 +25,10 @@ _RESULT_CLASSES = frozenset(
     {"DELIVERED", "PROVIDER_ACCEPTED", "TRANSIENT_FAILURE", "PERMANENT_FAILURE", "UNAVAILABLE", "SUPPRESSED"}
 )
 _POLICY_STATES = frozenset({"ROUTED", "SUPPRESSED"})
-_CHANNEL_TYPES = STAGE2_CHANNEL_TYPES
+_CHANNEL_TYPES = SUPPORTED_CHANNEL_TYPES
+_AGENT_CONNECTION_STATES = frozenset({"started", "stopped", "unavailable"})
+_AGENT_ACK_STATES = frozenset({"acknowledged", "duplicate", "rejected"})
+_AGENT_BACKLOG_STATES = frozenset({"available", "empty", "error"})
 
 
 class NotificationTelemetry:
@@ -48,6 +51,11 @@ class NotificationTelemetry:
         self._retry_total = self._counter("notification_retry_total")
         self._latency = self._histogram("notification_delivery_latency_seconds")
         self._rejected_total = self._counter("notification_event_rejected_total")
+        self._agent_connection_total = self._counter("notification_agent_connection_total")
+        self._agent_ack_total = self._counter("notification_agent_ack_total")
+        self._agent_timeout_total = self._counter("notification_agent_ack_timeout_total")
+        self._agent_reconnect_total = self._counter("notification_agent_reconnect_total")
+        self._agent_backlog_total = self._counter("notification_agent_backlog_total")
 
     def _counter(self, name: str) -> Any:
         return self._meter.create_counter(name)
@@ -103,6 +111,36 @@ class NotificationTelemetry:
                 "channel_type": _channel(channel_type),
                 "result_class": _choice(result_class, _RESULT_CLASSES),
             },
+        )
+
+    def record_agent_connection(self, *, status: str) -> None:
+        self._safe_add(
+            self._agent_connection_total,
+            {"status": _choice(status, _AGENT_CONNECTION_STATES)},
+        )
+
+    def record_agent_ack(self, *, status: str) -> None:
+        self._safe_add(
+            self._agent_ack_total,
+            {"status": _choice(status, _AGENT_ACK_STATES)},
+        )
+
+    def record_agent_timeout(self) -> None:
+        self._safe_add(
+            self._agent_timeout_total,
+            {"channel_type": "desktop-agent"},
+        )
+
+    def record_agent_reconnect(self) -> None:
+        self._safe_add(
+            self._agent_reconnect_total,
+            {"channel_type": "desktop-agent"},
+        )
+
+    def record_agent_backlog(self, *, status: str) -> None:
+        self._safe_add(
+            self._agent_backlog_total,
+            {"status": _choice(status, _AGENT_BACKLOG_STATES)},
         )
 
     @contextmanager

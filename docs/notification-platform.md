@@ -1,37 +1,37 @@
 # Платформа уведомлений AzurPilot
 
 Статус документа: архитектурный контракт Stage 1 и фактическая граница
-реализации Stage 2. Stage 2 добавляет только durable typed foundation;
-production adapters, producer cutover и handover wiring остаются будущими
-этапами.
+реализации Stage 2/Stage 3. Stage 3 добавляет authenticated outbound Desktop
+Agent, durable resumable SSE, отдельный ACK и handover waiter; внешние
+Telegram/Webhook adapters и producer cutover остаются будущими этапами.
 
 ## 1. Контекст аудита и границы
 
 ### [Факт] База и источник истины
 
-Аудит выполнен 2026-09-09 от exact base:
+Аудит выполнен 2026-09-10 от exact base:
 
 | Поле | Значение |
 | --- | --- |
 | Репозиторий | AliceLiddell01/AzurPilot-private-Ru |
 | Base branch | codex/mcp-profile-runtime-handover |
-| Base SHA | 33e3de3be85c5772a0fb62c2052dabf3dfade923 |
-| Рабочая ветка Stage 1 | codex/notification-platform-architecture |
-| Production migration head | 0008_dorm_morale_idempotency |
+| Base SHA | 01c5e99452da2c6a336940c9aff1934a72df357e |
+| Рабочая ветка Stage 3 | codex/notification-platform-desktop-agent-handover |
+| Current migration head | 0010_notification_agent_ack |
 
 Источники фактического поведения проверялись в текущем коде и тестах. Старые
 версии этого документа, прежние SHA и исторические PR используются только как
 контекст и не переопределяют текущий код.
 
-### [Решение] Различение запроса и прикреплённого контракта
+### [Решение] Различение запроса и прикреплённых контрактов
 
 Прямая просьба пользователя — выполнить работу по приложенному промту.
-Файл Stage_1_Notification_Platform_Architecture_Prompt.md задаёт технический
-контракт этой работы: Stage 1 ограничен аудитом и архитектурным документом,
-требует Draft PR и запрещает production implementation новой платформы,
-перевод PR в Ready и merge без отдельной команды. Ниже описаны решения,
-принятые в рамках этого контракта; они не являются утверждением, что
-перечисленные будущие компоненты уже существуют.
+Файл `Stage_3_Notification_Platform_Desktop_Agent_Handover_Prompt.md` задаёт
+текущий технический контракт: implement-only Stage 3, Draft PR к
+`codex/mcp-profile-runtime-handover`, без live acceptance PR #177 и без merge.
+Уже существующие ниже разделы Stage 1 и Stage 2 сохраняют исторические
+решения и audit facts соответствующих этапов; они не переопределяют факты
+текущей реализации, описанные в разделе 25.
 
 ### [Решение] Язык утверждений
 
@@ -117,11 +117,10 @@ NotificationOutcome.DELIVERED. При ACCEPTED, FAILED или UNAVAILABLE он
 возвращает RUNTIME_HANDOVER_NOTIFICATION_FAILED, не запрашивает quiesce и не
 останавливает текущий worker.
 
-WebUIRuntimeControlOwner при отсутствии injected notifier вызывает legacy
-notify_webui. True этого вызова переводится в ACCEPTED с явным комментарием,
-что enqueue не равен доставке пользователю. State.init() создаёт owner без
-production notifier injection, поэтому текущий fallback не закрывает busy
-handover.
+На момент Stage 1 аудита WebUIRuntimeControlOwner при отсутствии injected
+notifier вызывал legacy notify_webui. True этого вызова переводилось в ACCEPTED
+с явным комментарием, что enqueue не равен доставке пользователю; этот legacy
+fallback не закрывал busy handover.
 
 ### [Факт] PR #177 и его blocker
 
@@ -1422,7 +1421,7 @@ Stage 1 остаётся documentation-only. Любое изменение runti
 transport, producer или config semantics требует отдельного implementation
 этапа с собственным exact-head review, CI и live acceptance.
 
-## 23. Фактическая граница Stage 2 implementation
+## 23. Фактическая граница Stage 2 implementation (исторический base)
 
 ### [Факт] Durable foundation
 
@@ -1437,16 +1436,16 @@ deduplication, policy snapshot и создание delivery в одной кор
 
 Зарегистрирован typed descriptor только для
 `runtime.handover.preemption_requested/v1`; остальные initial taxonomy entries
-явно deferred до producer migration и не принимают generic payload. В текущей
-ветке нет Desktop Agent, Telegram, Webhook или OnePush adapter, а production
-channel registry по умолчанию пуст. `PROVIDER_ACCEPTED` остаётся
+явно deferred до producer migration и не принимают generic payload. На Stage 2
+base не было Desktop Agent, Telegram, Webhook или OnePush adapter, а production
+channel registry по умолчанию был пуст. `PROVIDER_ACCEPTED` остаётся
 промежуточным состоянием, а `DELIVERED` требует Agent ACK capability.
 
 ### [Факт] Незатронутые legacy boundaries
 
-`State.init`, `WebUIRuntimeControlOwner`, `handle_notify`, `notify_webui`,
-`_notification_queue`, существующие user config keys и PR #177 не подключены к
-новому foundation. Текущий PR #177 остаётся отдельным busy-handover blocker:
+На Stage 2 base `State.init`, `WebUIRuntimeControlOwner`, `handle_notify`,
+`notify_webui`, `_notification_queue` и существующие user config keys не были
+подключены к foundation. PR #177 остаётся отдельным busy-handover blocker:
 `ACCEPTED` legacy fallback не является доказательством `DELIVERED`; его
 production wiring переносится в Stage 3 после authenticated Agent receipt.
 
@@ -1482,8 +1481,8 @@ Dispatcher claim-ит по одной delivery за lease window, а `batch_size
 Handover publication требует typed `HandoverPublishContext`, caller deadline,
 `handover_receipt` context capability и typed channel receipt strength не ниже
 `AGENT_ACK`. Generic `publish(event)` не может обойти это требование, а
-registered channel с одной только строковой capability fail-closed. Stage 2 не
-добавляет production Agent или ACK endpoint.
+registered channel с одной только строковой capability fail-closed. Production
+Agent и ACK endpoint добавлены следующим разделом Stage 3.
 
 ### [Факт] Typed storage и bounded failure
 
@@ -1504,6 +1503,55 @@ authentication/configuration/schema/conflict/invalid errors
 Unit tests разделены по registry, policy, publisher и dispatcher responsibilities;
 PostgreSQL integration tests покрывают concurrent identity, exact retry after
 commit, source-scoped UUID, real-attempt budget, ACK recovery, stale token,
-unknown stored schema и crash-after-commit recovery. Migration `0009` остаётся
-unshipped до отдельного release lifecycle и проходит upgrade/downgrade/check
-только на disposable PostgreSQL 18 target.
+unknown stored schema и crash-after-commit recovery. На Stage 2 base Migration
+`0009` оставалась unshipped до отдельного release lifecycle и проходила
+upgrade/downgrade/check только на disposable PostgreSQL 18 target.
+
+## 25. Фактическая граница Stage 3 implementation
+
+### [Факт] Desktop Agent application boundary
+
+`module/application/notifications/agent.py` добавляет typed `DesktopAgent`
+channel, scoped credential/authentication, opaque cursor `(profile_sequence,
+event_id)`, durable history projection, bounded handover waiter и exact
+`NotificationOutcome.DELIVERED` mapping. `module/notification_agent/client.py`
+содержит outbound-only verified HTTPS client: он не открывает listener,
+поддерживает независимые profile streams, bounded SSE parsing, atomic cursor
+file и отдельный ACK request.
+
+Публикация handover сохраняет event, policy и delivery через существующий
+PostgreSQL unit of work. Dispatcher вызывает channel только после commit;
+`PROVIDER_ACCEPTED` переводится для Desktop Agent в
+`AWAITING_AGENT_ACK`. Только authenticated ACK с совпадающими
+`delivery_id/event_id/event_source/profile_id/attempt_ordinal/lease_token`,
+текущей session epoch и `payload_digest` переводит delivery в `DELIVERED`.
+Таблица `notification_agent_ack` в Migration `0010_notification_agent_ack`
+хранит immutable receipt и делает точный повторный ACK идемпотентным.
+
+### [Факт] SSE, reconnect и topology
+
+`GET /api/notification-agent/stream` читает только durable committed
+projection, применяет profile authorization и не продвигает cursor до
+подтверждённого ACK. Поток выдаёт одну frame за раз, поэтому recovery нового
+lease/attempt перечитывает тот же cursor с новой identity; committed gap
+заполняется PostgreSQL query с `(profile_sequence, event_id)` tie-break.
+`POST /api/notification-agent/ack` является отдельной authenticated mutation.
+Оба endpoint проходят через существующий Caddy и host-side WebUI; Caddy
+сохраняет `text/event-stream`, flush и bounded stream timeout. Второй WebUI,
+публичный PostgreSQL и inbound listener Desktop Agent не добавляются.
+
+### [Факт] Runtime/config и границы Stage 3
+
+`State.init()` получает composition поверх уже созданного process-local
+Engine и запускает bounded dispatcher worker вместе с WebUI owner. Конфигурация
+использует `AZURPILOT_NOTIFICATION_AGENT_URL`, `..._ID`, `..._PROFILES` и
+`..._TOKEN` либо `..._TOKEN_FILE`; token не попадает в event payload, history,
+metrics, traces, diagnostics или logs. При отсутствии полной Agent
+configuration legacy notifier сохраняется как compatibility boundary, но его
+queue acceptance не может стать `DELIVERED`.
+
+В Stage 3 не входят Telegram/Webhook/OnePush adapters, producer migration,
+удаление `_notification_queue`, removal legacy config и live acceptance PR
+#177. Live busy handover остаётся отдельным post-merge operational gate после
+проверки Draft PR exact head; текущий implementation не объявляет его
+выполненным.

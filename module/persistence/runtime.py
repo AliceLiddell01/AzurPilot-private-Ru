@@ -233,6 +233,20 @@ def runtime_engine() -> LazyEngine | None:
         return _engine
 
 
+def build_runtime_notification_composition() -> object | None:
+    """Собрать Agent notification поверх уже созданного process-local Engine."""
+
+    engine = runtime_engine()
+    if engine is None:
+        return None
+    from module.application.notifications.agent import DesktopAgentNotificationRuntime
+
+    runtime = DesktopAgentNotificationRuntime.from_environment(
+        lambda: PostgresUnitOfWork(engine)
+    )
+    return runtime if runtime.enabled else None
+
+
 def build_runtime_database_diagnostics(
     environment: object,
 ) -> PostgresDatabaseDiagnostics:
@@ -386,6 +400,7 @@ __all__ = [
     "build_runtime_fleet_manual_scan_context",
     "build_runtime_fleet_page_context",
     "build_runtime_fleet_state_context",
+    "build_runtime_notification_composition",
     "dispose_runtime_storage",
     "runtime_engine",
     "runtime_health",

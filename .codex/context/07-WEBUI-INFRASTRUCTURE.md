@@ -134,6 +134,18 @@ forward-fix, автоматический rollback на SQLite запрещён.
 - различие warning и fatal error;
 - отсутствие блокировки главного игрового цикла.
 
+Stage 3 notification handover использует существующий process-local PostgreSQL
+Engine и единственный WebUI owner. `State.init()` подключает
+`DesktopAgentNotificationRuntime` только при полной Agent configuration;
+`GET /api/notification-agent/stream` является durable profile-scoped SSE
+projection, а `POST /api/notification-agent/ack` — отдельной authenticated
+mutation. Outbound-only Agent не открывает inbound listener. Queue acceptance,
+`PROVIDER_ACCEPTED` и HTTP success не дают `DELIVERED`: это состояние возможно
+только после проверенного durable Agent ACK с текущей delivery/lease identity.
+При изменении этой границы отдельно проверять Migration
+`0010_notification_agent_ack`, cursor gap-fill/reconnect, stale ACK rejection,
+Caddy flush/timeout и bounded handover waiter.
+
 ## Персональный эксплуатационный контур
 
 Четыре команды имеют разные обязанности:

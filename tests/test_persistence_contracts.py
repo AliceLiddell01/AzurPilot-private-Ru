@@ -444,6 +444,7 @@ class SchemaMetadataTests(unittest.TestCase):
             "notification_policy_decision",
             "notification_delivery",
             "notification_delivery_attempt",
+            "notification_agent_ack",
             "notification_profile_sequence",
         }
         self.assertEqual({table.name for table in metadata.tables.values()}, expected)

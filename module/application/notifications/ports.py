@@ -10,6 +10,9 @@ from uuid import UUID
 from module.application.notifications.models import (
     ClaimedDelivery,
     DeliveryUpdate,
+    NotificationAgentAck,
+    NotificationAgentAckResult,
+    NotificationAgentDelivery,
     NotificationDeliveryPlan,
     NotificationEvent,
     NotificationPersistenceResult,
@@ -79,6 +82,23 @@ class NotificationRepository(Protocol):
     def list_profile_history(
         self, *, profile_id: str, after_sequence: int = 0, limit: int = 100
     ) -> tuple[NotificationStoredEvent, ...]: ...
+
+    def list_agent_deliveries(
+        self,
+        *,
+        profile_id: str,
+        channel_instance_id: str,
+        after_sequence: int = 0,
+        after_event_id: UUID | None = None,
+        limit: int = 32,
+    ) -> tuple[NotificationAgentDelivery, ...]: ...
+
+    def acknowledge_agent_delivery(
+        self,
+        ack: NotificationAgentAck,
+        *,
+        now: datetime,
+    ) -> NotificationAgentAckResult: ...
 
 
 class NotificationUnitOfWork(StorageUnitOfWork, Protocol):

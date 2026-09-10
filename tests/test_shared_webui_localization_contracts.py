@@ -113,11 +113,19 @@ class TestSharedWebUiLocalizationContracts(unittest.TestCase):
         self.assertIsInstance(assignment.value, ast.List)
 
         routes = []
+        route_constants = {
+            "DESKTOP_AGENT_STREAM_PATH": "/api/notification-agent/stream",
+            "DESKTOP_AGENT_ACK_PATH": "/api/notification-agent/ack",
+        }
         for call in assignment.value.elts:
             self.assertIsInstance(call, ast.Call)
             self.assertIsInstance(call.func, ast.Name)
             self.assertIn(call.func.id, {"Route", "WebSocketRoute"})
-            path_value = ast.literal_eval(call.args[0])
+            path_node = call.args[0]
+            if isinstance(path_node, ast.Name):
+                path_value = route_constants[path_node.id]
+            else:
+                path_value = ast.literal_eval(path_node)
             methods = None
             for keyword in call.keywords:
                 if keyword.arg == "methods":
@@ -130,6 +138,8 @@ class TestSharedWebUiLocalizationContracts(unittest.TestCase):
                 ("Route", "/api/ap_timeline", None),
                 ("Route", "/api/notify", ("POST",)),
                 ("Route", "/api/notify_stream", None),
+                ("Route", "/api/notification-agent/stream", None),
+                ("Route", "/api/notification-agent/ack", ("POST",)),
                 ("Route", "/api/launcher/status", None),
                 ("Route", "/api/launcher/startup", ("POST",)),
                 ("Route", "/api/launcher/stream", None),

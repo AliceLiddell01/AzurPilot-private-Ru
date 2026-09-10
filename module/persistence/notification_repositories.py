@@ -33,6 +33,10 @@ from module.application.notifications.models import (
     DeliveryResultClass,
     DeliveryState,
     DeliveryUpdate,
+    NotificationAgentAck,
+    NotificationAgentAckResult,
+    NotificationAgentAckStatus,
+    NotificationAgentDelivery,
     NotificationAttribute,
     NotificationCorrelation,
     NotificationDeliveryPlan,
@@ -60,6 +64,7 @@ from module.application.notifications.registry import (
 from module.application.notifications.state import RetryPolicy, expired_lease_update
 from module.persistence.database import translate_database_error
 from module.persistence.schema import (
+    notification_agent_ack,
     notification_delivery,
     notification_delivery_attempt,
     notification_event,
@@ -628,6 +633,221 @@ class PostgresNotificationRepository:
         except SQLAlchemyError as exc:
             raise translate_database_error(exc) from None
 
+    def list_agent_deliveries(
+        self,
+        *,
+        profile_id: str,
+        channel_instance_id: str,
+        after_sequence: int = 0,
+        after_event_id: UUID | None = None,
+        limit: int = 32,
+    ) -> tuple[NotificationAgentDelivery, ...]:
+        """Прочитать только текущие durable delivery, ожидающие Agent ACK."""
+
+        _bounded_profile(profile_id)
+        _bounded_channel_instance(channel_instance_id)
+        if not isinstance(after_sequence, int) or isinstance(after_sequence, bool) or after_sequence < 0:
+            raise ValueError("Notification cursor sequence имеет неверный формат.")
+        if after_event_id is not None and (
+            not isinstance(after_event_id, UUID) or after_sequence <= 0
+        ):
+            raise ValueError("Notification cursor tie-break имеет неверный формат.")
+        if not 1 <= limit <= 128:
+            raise ValueError("Agent history limit вне bounded диапазона.")
+        attempt = notification_delivery_attempt.alias("agent_attempt")
+        position = (
+            notification_event.c.profile_sequence > after_sequence
+            if after_event_id is None
+            else or_(
+                notification_event.c.profile_sequence > after_sequence,
+                and_(
+                    notification_event.c.profile_sequence == after_sequence,
+                    notification_event.c.id > after_event_id,
+                ),
+            )
+        )
+        try:
+            rows = self._connection.execute(
+                select(notification_delivery, notification_event, attempt)
+                .join(
+                    notification_event,
+                    notification_event.c.row_id
+                    == notification_delivery.c.event_row_id,
+                )
+                .join(
+                    attempt,
+                    and_(
+                        attempt.c.delivery_id == notification_delivery.c.id,
+                        attempt.c.attempt_ordinal
+                        == notification_delivery.c.attempt_count,
+                    ),
+                )
+                .where(
+                    notification_event.c.profile_id == profile_id,
+                    notification_delivery.c.channel_instance_id == channel_instance_id,
+                    notification_delivery.c.channel_type == "desktop-agent",
+                    notification_delivery.c.state
+                    == DeliveryState.AWAITING_AGENT_ACK.value,
+                    notification_delivery.c.lease_token.is_not(None),
+                    notification_delivery.c.lease_until.is_not(None),
+                    attempt.c.result_class == DeliveryResultClass.PROVIDER_ACCEPTED.value,
+                    attempt.c.lease_token == notification_delivery.c.lease_token,
+                    position,
+                )
+                .order_by(notification_event.c.profile_sequence, notification_event.c.id)
+                .limit(limit)
+            ).all()
+            result: list[NotificationAgentDelivery] = []
+            for row in rows:
+                delivery_row = _column_mapping(row, notification_delivery)
+                event_row = _column_mapping(row, notification_event)
+                attempt_row = _column_mapping(row, attempt)
+                stored_event = self._stored_event(event_row)
+                delivery = self._stored_delivery(
+                    delivery_row,
+                    event_id=cast(UUID, event_row["id"]),
+                    event_source=cast(str, event_row["source"]),
+                )
+                stored_attempt = self._stored_attempt(attempt_row)
+                if (
+                    delivery.attempt_count <= 0
+                    or delivery.lease_token is None
+                    or stored_attempt.attempt_ordinal != delivery.attempt_count
+                    or stored_attempt.lease_token != delivery.lease_token
+                    or stored_attempt.result_class
+                    is not DeliveryResultClass.PROVIDER_ACCEPTED
+                ):
+                    raise StorageInvariantViolationError(
+                        "Agent history не имеет согласованной текущей attempt."
+                    )
+                result.append(
+                    NotificationAgentDelivery(
+                        event=stored_event,
+                        delivery=delivery,
+                        attempt=stored_attempt,
+                    )
+                )
+            return tuple(result)
+        except StorageError:
+            raise
+        except SQLAlchemyError as exc:
+            raise translate_database_error(exc) from None
+
+    def acknowledge_agent_delivery(
+        self,
+        ack: NotificationAgentAck,
+        *,
+        now: datetime,
+    ) -> NotificationAgentAckResult:
+        """Атомарно записать authenticated ACK и перевести delivery в DELIVERED."""
+
+        _validate_agent_ack(ack)
+        now = _utc(now)
+        try:
+            row = self._connection.execute(
+                select(notification_delivery, notification_event)
+                .join(
+                    notification_event,
+                    notification_event.c.row_id
+                    == notification_delivery.c.event_row_id,
+                )
+                .where(notification_delivery.c.id == ack.delivery_id)
+                .with_for_update(of=notification_delivery)
+            ).one_or_none()
+            if row is None:
+                return _ack_rejected("delivery_not_found")
+            delivery_row = _column_mapping(row, notification_delivery)
+            event_row = _column_mapping(row, notification_event)
+            stored_event = self._stored_event(event_row)
+            delivery = self._stored_delivery(
+                delivery_row,
+                event_id=cast(UUID, event_row["id"]),
+                event_source=cast(str, event_row["source"]),
+            )
+            identity_reason = _agent_delivery_identity_reason(ack, stored_event, delivery)
+            receipt_row = self._connection.execute(
+                select(notification_agent_ack)
+                .where(
+                    notification_agent_ack.c.delivery_id == ack.delivery_id,
+                    notification_agent_ack.c.attempt_ordinal == ack.attempt_ordinal,
+                )
+            ).mappings().one_or_none()
+            if receipt_row is not None:
+                if _same_agent_ack(receipt_row, ack):
+                    return NotificationAgentAckResult(NotificationAgentAckStatus.DUPLICATE)
+                return _ack_rejected("ack_identity_conflict")
+            if delivery.state is DeliveryState.DELIVERED:
+                return _ack_rejected("delivery_already_completed")
+            if identity_reason is not None:
+                return _ack_rejected(identity_reason)
+            if delivery.state is not DeliveryState.AWAITING_AGENT_ACK:
+                return _ack_rejected("delivery_not_awaiting_ack")
+            if delivery.lease_token is None or delivery.lease_until is None:
+                raise StorageInvariantViolationError(
+                    "AWAITING_AGENT_ACK delivery не имеет полной lease identity."
+                )
+            if delivery.lease_until <= now or (
+                delivery.deadline_at is not None and delivery.deadline_at <= now
+            ):
+                return _ack_rejected("ack_expired")
+            attempt_row = self._connection.execute(
+                select(notification_delivery_attempt)
+                .where(
+                    notification_delivery_attempt.c.delivery_id == ack.delivery_id,
+                    notification_delivery_attempt.c.attempt_ordinal
+                    == ack.attempt_ordinal,
+                    notification_delivery_attempt.c.lease_token == ack.lease_token,
+                )
+            ).mappings().one_or_none()
+            if attempt_row is None:
+                return _ack_rejected("attempt_identity_mismatch")
+            attempt = self._stored_attempt(attempt_row)
+            if (
+                attempt.result_class is not DeliveryResultClass.PROVIDER_ACCEPTED
+                or attempt.lease_token != ack.lease_token
+            ):
+                return _ack_rejected("attempt_not_awaiting_ack")
+            changed = self._connection.execute(
+                update(notification_delivery)
+                .where(
+                    notification_delivery.c.id == ack.delivery_id,
+                    notification_delivery.c.state
+                    == DeliveryState.AWAITING_AGENT_ACK.value,
+                    notification_delivery.c.lease_token == ack.lease_token,
+                    notification_delivery.c.lease_until > now,
+                )
+                .values(
+                    state=DeliveryState.DELIVERED.value,
+                    next_attempt_at=now,
+                    lease_owner=None,
+                    lease_token=None,
+                    lease_until=None,
+                    last_safe_error_code=None,
+                    updated_at=now,
+                )
+            )
+            if changed.rowcount != 1:
+                return _ack_rejected("stale_delivery")
+            self._connection.execute(
+                notification_agent_ack.insert().values(
+                    delivery_id=ack.delivery_id,
+                    attempt_ordinal=ack.attempt_ordinal,
+                    event_id=ack.event_id,
+                    event_source=ack.event_source,
+                    profile_id=ack.profile_id,
+                    agent_id=ack.agent_id,
+                    lease_token=ack.lease_token,
+                    session_epoch=ack.session_epoch,
+                    payload_digest=ack.payload_digest,
+                    acknowledged_at=now,
+                )
+            )
+            return NotificationAgentAckResult(NotificationAgentAckStatus.ACKNOWLEDGED)
+        except StorageError:
+            raise
+        except SQLAlchemyError as exc:
+            raise translate_database_error(exc) from None
+
     def _allocate_profile_sequence(self, profile_id: str) -> int:
         row = self._connection.execute(
             pg_insert(notification_profile_sequence)
@@ -1088,6 +1308,93 @@ def _utc(value: datetime | None) -> datetime:
 def _bounded_worker(worker_id: str) -> None:
     if not isinstance(worker_id, str) or fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", worker_id) is None:
         raise ValueError("Dispatcher worker id имеет неверный формат.")
+
+
+def _bounded_profile(profile_id: str) -> None:
+    if not isinstance(profile_id, str) or fullmatch(
+        r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", profile_id
+    ) is None:
+        raise ValueError("Notification profile id имеет неверный формат.")
+
+
+def _bounded_channel_instance(channel_instance_id: str) -> None:
+    if not isinstance(channel_instance_id, str) or fullmatch(
+        r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", channel_instance_id
+    ) is None:
+        raise ValueError("Notification channel instance имеет неверный формат.")
+
+
+def _validate_agent_ack(ack: NotificationAgentAck) -> None:
+    if not isinstance(ack, NotificationAgentAck):
+        raise StorageInvariantViolationError("Agent ACK имеет неверный тип.")
+    if not all(isinstance(value, UUID) for value in (ack.delivery_id, ack.event_id)):
+        raise StorageInvariantViolationError("Agent ACK содержит некорректные UUID.")
+    if not isinstance(ack.event_source, str) or fullmatch(
+        r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}", ack.event_source
+    ) is None:
+        raise StorageInvariantViolationError("Agent ACK event source имеет неверный формат.")
+    _bounded_profile(ack.profile_id)
+    if not isinstance(ack.agent_id, str) or fullmatch(
+        r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", ack.agent_id
+    ) is None:
+        raise StorageInvariantViolationError("Agent ACK identity имеет неверный формат.")
+    if (
+        not isinstance(ack.attempt_ordinal, int)
+        or isinstance(ack.attempt_ordinal, bool)
+        or not 1 <= ack.attempt_ordinal <= 1_000_000
+    ):
+        raise StorageInvariantViolationError("Agent ACK attempt ordinal имеет неверный формат.")
+    if not isinstance(ack.lease_token, UUID) or not isinstance(ack.session_epoch, UUID):
+        raise StorageInvariantViolationError("Agent ACK lease identity имеет неверный формат.")
+    if ack.session_epoch != ack.lease_token:
+        raise StorageInvariantViolationError("Agent ACK session epoch не совпадает с lease.")
+    if not isinstance(ack.payload_digest, str) or fullmatch(
+        r"[0-9a-f]{64}", ack.payload_digest
+    ) is None:
+        raise StorageInvariantViolationError("Agent ACK payload digest имеет неверный формат.")
+
+
+def _agent_delivery_identity_reason(
+    ack: NotificationAgentAck,
+    event: NotificationStoredEvent,
+    delivery: NotificationStoredDelivery,
+) -> str | None:
+    if ack.event_id != event.event.id or ack.event_source != event.event.source:
+        return "event_identity_mismatch"
+    if ack.profile_id != event.event.profile_id:
+        return "profile_identity_mismatch"
+    if delivery.channel_type != "desktop-agent":
+        return "channel_identity_mismatch"
+    if ack.attempt_ordinal != delivery.attempt_count:
+        return "attempt_identity_mismatch"
+    if ack.lease_token != delivery.lease_token:
+        return "lease_identity_mismatch"
+    if ack.payload_digest != event.event.payload_digest:
+        return "payload_digest_mismatch"
+    return None
+
+
+def _same_agent_ack(row: Mapping[object, object], ack: NotificationAgentAck) -> bool:
+    return all(
+        row[field] == value
+        for field, value in (
+            ("delivery_id", ack.delivery_id),
+            ("attempt_ordinal", ack.attempt_ordinal),
+            ("event_id", ack.event_id),
+            ("event_source", ack.event_source),
+            ("profile_id", ack.profile_id),
+            ("agent_id", ack.agent_id),
+            ("lease_token", ack.lease_token),
+            ("session_epoch", ack.session_epoch),
+            ("payload_digest", ack.payload_digest),
+        )
+    )
+
+
+def _ack_rejected(reason: str) -> NotificationAgentAckResult:
+    if fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}", reason) is None:
+        reason = "ack_rejected"
+    return NotificationAgentAckResult(NotificationAgentAckStatus.REJECTED, reason)
 
 
 def _validate_result(result: DeliveryResult) -> None:

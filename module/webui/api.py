@@ -14,14 +14,35 @@ from pathlib import Path, PurePosixPath
 from time import sleep
 
 import cv2
+
 from module.device.pkg_resources import get_distribution
 
 _ = get_distribution
 
 from adbutils import AdbError, Network
-from starlette.responses import JSONResponse, HTMLResponse, StreamingResponse
+from starlette.responses import HTMLResponse, JSONResponse, StreamingResponse
 from starlette.routing import Route, WebSocketRoute
 from starlette.websockets import WebSocketDisconnect
+
+from module.application.errors import StorageError, StorageUnavailableError
+from module.application.notifications.agent import (
+    AGENT_POLL_SECONDS,
+    AGENT_STREAM_MAX_SECONDS,
+    DESKTOP_AGENT_ACK_PATH,
+    DESKTOP_AGENT_STREAM_PATH,
+    MAX_AGENT_ACK_BODY_BYTES,
+    MAX_AGENT_BATCH_SIZE,
+    DesktopAgentAuthorizationError,
+    DesktopAgentError,
+    DesktopAgentRequestError,
+    DesktopAgentUnavailableError,
+    NotificationCursor,
+    parse_agent_ack_document,
+)
+from module.application.notifications.models import (
+    DeliveryState,
+    NotificationAgentAckStatus,
+)
 from module.config.profile import InvalidProfileConfigError, parse_profile_config_bytes
 from module.config.utils import DEFAULT_CONFIG_NAME
 from module.device.method.scrcpy import const as scrcpy_const
@@ -35,8 +56,8 @@ from module.webui.deploy_settings import (
     save_deploy_settings,
     set_startup_run,
 )
-from module.webui.launcher import is_local_request, launcher_control
 from module.webui.lang import t
+from module.webui.launcher import is_local_request, launcher_control
 
 
 def is_demo_mode():
@@ -1437,6 +1458,248 @@ async def ws_live_control(websocket):
 _notification_queue = asyncio.Queue()
 
 
+def _notification_agent_runtime():
+    from module.webui.setting import State
+
+    return getattr(State, "_notification_runtime", None)
+
+
+def _agent_unavailable_response() -> JSONResponse:
+    return JSONResponse(
+        {"success": False, "error": "Desktop Agent notification runtime недоступен"},
+        status_code=503,
+    )
+
+
+def _agent_principal(request, runtime):
+    authenticator = getattr(runtime, "authenticator", None)
+    if authenticator is None:
+        return None
+    return authenticator.authenticate(request.headers)
+
+
+def _agent_profile(request, runtime) -> str:
+    profile = request.query_params.get("profile")
+    if profile:
+        return profile
+    profiles = tuple(getattr(runtime, "profiles", ()))
+    if len(profiles) == 1:
+        return profiles[0]
+    raise DesktopAgentRequestError("Для Agent stream требуется однозначный profile.")
+
+
+def _agent_limit(request) -> int:
+    value = request.query_params.get("limit")
+    if value is None:
+        return 32
+    try:
+        limit = int(value)
+    except (TypeError, ValueError):
+        raise DesktopAgentRequestError("Agent batch limit имеет неверный формат.") from None
+    if not 1 <= limit <= MAX_AGENT_BATCH_SIZE:
+        raise DesktopAgentRequestError("Agent batch limit вне bounded диапазона.")
+    return limit
+
+
+def _record_agent_telemetry(runtime, method_name: str, **kwargs: object) -> None:
+    method = getattr(runtime, method_name, None)
+    if not callable(method):
+        return
+    try:
+        method(**kwargs)
+    except Exception:  # noqa: BLE001 - telemetry must not affect transport.
+        return
+
+
+async def api_notification_agent_stream(request):
+    """GET /api/notification-agent/stream — durable resumable SSE projection."""
+
+    runtime = _notification_agent_runtime()
+    if runtime is None or getattr(runtime, "enabled", False) is not True:
+        return _agent_unavailable_response()
+    principal = _agent_principal(request, runtime)
+    if principal is None:
+        return JSONResponse(
+            {"success": False, "error": "Desktop Agent authentication failed"},
+            status_code=401,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    try:
+        profile = _agent_profile(request, runtime)
+        requested_limit = _agent_limit(request)
+        cursor = request.headers.get("last-event-id") or request.query_params.get("cursor")
+        NotificationCursor.decode(cursor, expected_profile_id=profile)
+    except DesktopAgentAuthorizationError:
+        return JSONResponse(
+            {"success": False, "error": "Desktop Agent profile authorization failed"},
+            status_code=403,
+        )
+    except DesktopAgentRequestError:
+        return JSONResponse(
+            {"success": False, "error": "Desktop Agent stream request is invalid"},
+            status_code=400,
+        )
+    if not principal.can_access(profile):
+        return JSONResponse(
+            {"success": False, "error": "Desktop Agent profile authorization failed"},
+            status_code=403,
+        )
+
+    async def event_generator():
+        started = time.monotonic()
+        current_cursor = cursor
+        pending = None
+        _record_agent_telemetry(runtime, "record_agent_connection", status="started")
+        if current_cursor is not None:
+            _record_agent_telemetry(runtime, "record_agent_reconnect")
+        try:
+            while time.monotonic() - started < AGENT_STREAM_MAX_SECONDS:
+                if await request.is_disconnected():
+                    break
+                try:
+                    if pending is not None:
+                        current = await asyncio.to_thread(
+                            runtime.delivery_state, principal, pending
+                        )
+                        if current is None:
+                            break
+                        state = current.state
+                        if state is DeliveryState.DELIVERED:
+                            current_cursor = pending.cursor.encode()
+                            pending = None
+                        elif state in {DeliveryState.FAILED, DeliveryState.SUPPRESSED}:
+                            break
+                        elif (
+                            state is DeliveryState.AWAITING_AGENT_ACK
+                            and current.attempt_count == pending.document["attempt_ordinal"]
+                            and str(current.lease_token) == str(pending.document["lease_token"])
+                        ):
+                            await asyncio.sleep(AGENT_POLL_SECONDS)
+                            yield ": keepalive\n\n"
+                            continue
+                        else:
+                            # Lease recovery/retry may replace the frame identity;
+                            # reread from PostgreSQL without advancing the cursor.
+                            pending = None
+                    frames = await asyncio.to_thread(
+                        runtime.read_agent_batch,
+                        principal,
+                        profile_id=profile,
+                        cursor=current_cursor,
+                        limit=min(requested_limit, 1),
+                    )
+                    if frames:
+                        _record_agent_telemetry(
+                            runtime, "record_agent_backlog", status="available"
+                        )
+                        frame = frames[0]
+                        event_id = frame.cursor.encode()
+                        payload = json.dumps(
+                            frame.document, ensure_ascii=False, separators=(",", ":")
+                        )
+                        pending = frame
+                        yield (
+                            f"id: {event_id}\n"
+                            f"event: notification\n"
+                            f"data: {payload}\n\n"
+                        )
+                        continue
+                    _record_agent_telemetry(runtime, "record_agent_backlog", status="empty")
+                    await asyncio.sleep(AGENT_POLL_SECONDS)
+                    yield ": keepalive\n\n"
+                except (DesktopAgentError, StorageUnavailableError, StorageError):
+                    _record_agent_telemetry(runtime, "record_agent_backlog", status="error")
+                    break
+        finally:
+            _record_agent_telemetry(runtime, "record_agent_connection", status="stopped")
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+async def _read_bounded_request_body(request) -> bytes:
+    length = request.headers.get("content-length")
+    if length is not None:
+        try:
+            if int(length) > MAX_AGENT_ACK_BODY_BYTES:
+                raise DesktopAgentRequestError("ACK body превысил bounded размер.")
+        except ValueError:
+            raise DesktopAgentRequestError("ACK Content-Length имеет неверный формат.") from None
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        if not isinstance(chunk, bytes):
+            raise DesktopAgentRequestError("ACK body имеет неизвестный тип chunk.")
+        total += len(chunk)
+        if total > MAX_AGENT_ACK_BODY_BYTES:
+            raise DesktopAgentRequestError("ACK body превысил bounded размер.")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+async def api_notification_agent_ack(request):
+    """POST /api/notification-agent/ack — отдельная authenticated ACK mutation."""
+
+    runtime = _notification_agent_runtime()
+    if runtime is None or getattr(runtime, "enabled", False) is not True:
+        return _agent_unavailable_response()
+    principal = _agent_principal(request, runtime)
+    if principal is None:
+        return JSONResponse(
+            {"success": False, "error": "Desktop Agent authentication failed"},
+            status_code=401,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    try:
+        raw_body = await _read_bounded_request_body(request)
+        if not raw_body:
+            raise DesktopAgentRequestError("ACK body пуст.")
+        document = json.loads(raw_body.decode("utf-8"))
+        ack = parse_agent_ack_document(document, agent_id=principal.agent_id)
+        if not principal.can_access(ack.profile_id):
+            raise DesktopAgentAuthorizationError(
+                "Desktop Agent profile authorization failed"
+            )
+        result = await asyncio.to_thread(runtime.acknowledge_agent, principal, ack)
+    except UnicodeDecodeError:
+        return JSONResponse(
+            {"success": False, "error": "ACK body должен быть UTF-8 JSON"}, status_code=400
+        )
+    except (json.JSONDecodeError, DesktopAgentRequestError):
+        return JSONResponse(
+            {"success": False, "error": "ACK body имеет неверный формат"}, status_code=400
+        )
+    except DesktopAgentAuthorizationError:
+        return JSONResponse(
+            {"success": False, "error": "Desktop Agent profile authorization failed"},
+            status_code=403,
+        )
+    except DesktopAgentUnavailableError:
+        return _agent_unavailable_response()
+    except StorageUnavailableError:
+        return _agent_unavailable_response()
+    except StorageError:
+        return JSONResponse(
+            {"success": False, "error": "Notification storage unavailable"}, status_code=503
+        )
+    if result.status in {
+        NotificationAgentAckStatus.ACKNOWLEDGED,
+        NotificationAgentAckStatus.DUPLICATE,
+    }:
+        return JSONResponse({"status": result.status.value})
+    return JSONResponse(
+        {"status": result.status.value, "reason": result.reason or "ack_rejected"},
+        status_code=409,
+    )
+
+
 async def api_notify(request):
     """POST /api/notify — 接收通知推送到 SSE"""
     data = await request.json()
@@ -1779,6 +2042,8 @@ api_routes = [
     Route("/api/ap_timeline", api_ap_timeline),
     Route("/api/notify", api_notify, methods=["POST"]),
     Route("/api/notify_stream", api_notify_stream),
+    Route(DESKTOP_AGENT_STREAM_PATH, api_notification_agent_stream),
+    Route(DESKTOP_AGENT_ACK_PATH, api_notification_agent_ack, methods=["POST"]),
     Route("/api/launcher/status", api_launcher_status),
     Route("/api/launcher/startup", api_launcher_startup, methods=["POST"]),
     Route("/api/launcher/stream", api_launcher_stream),

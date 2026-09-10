@@ -44,6 +44,25 @@ def _close_runtime_control_server(server: object | None) -> None:
                 pass
 
 
+def _stop_notification_runtime(runtime: object | None) -> None:
+    if runtime is None:
+        return
+    stop = getattr(runtime, "stop", None)
+    if callable(stop):
+        try:
+            stop()
+        except Exception as exc:  # noqa: BLE001 - cleanup must not leave manager orphaned.
+            try:
+                from module.logger import logger
+
+                logger.warning(
+                    "Не удалось остановить notification runtime при очистке: %s",
+                    type(exc).__name__,
+                )
+            except Exception:
+                pass
+
+
 def _ensure_gui_process_lifetime_guard() -> None:
     """Включить Windows-защиту только для корневого процесса ``gui.py``."""
     if os.name != "nt":
@@ -156,6 +175,7 @@ class State:
     manager: SyncManager = None
     process_registry = None
     _runtime_control_server = None
+    _notification_runtime = None
     electron: bool = False
     webui_host: str = None
     theme: str = "default"
@@ -203,12 +223,15 @@ class State:
         return f"static/assets/spa/{name}"
     
     @classmethod
-    def init(cls):
+    def init(cls, *, notification_runtime=None):
         cls._clearup = False
         cls._restart_requested = False
         previous_server = cls._runtime_control_server
         cls._runtime_control_server = None
         _close_runtime_control_server(previous_server)
+        previous_notification_runtime = cls._notification_runtime
+        cls._notification_runtime = None
+        _stop_notification_runtime(previous_notification_runtime)
         manager = multiprocessing.Manager()
         cls.manager = manager
         # Browser sessions may run in separate processes, so workers need a
@@ -232,13 +255,27 @@ class State:
         try:
             from module.webui.runtime_control_owner import WebUIRuntimeControlOwner
 
-            owner = WebUIRuntimeControlOwner(Path(__file__).resolve().parents[2])
+            owner_kwargs = (
+                {"notification_service": notification_runtime}
+                if notification_runtime is not None
+                else {}
+            )
+            owner = WebUIRuntimeControlOwner(
+                Path(__file__).resolve().parents[2], **owner_kwargs
+            )
             server = owner.start_server()
             cls._runtime_control_server = server
+            cls._notification_runtime = notification_runtime
+            if notification_runtime is not None:
+                start = getattr(notification_runtime, "start", None)
+                if callable(start):
+                    start()
         except Exception:
             # Нельзя оставлять worker registry owner без control server: это
             # создало бы невидимый и неуправляемый runtime.
+            cls._notification_runtime = None
             _close_runtime_control_server(server)
+            _stop_notification_runtime(notification_runtime)
             try:
                 from module.webui.worker_registry import clear_owner
 
@@ -276,6 +313,9 @@ class State:
         server = cls._runtime_control_server
         cls._runtime_control_server = None
         _close_runtime_control_server(server)
+        notification_runtime = cls._notification_runtime
+        cls._notification_runtime = None
+        _stop_notification_runtime(notification_runtime)
         manager = cls.manager
         try:
             if manager is not None:

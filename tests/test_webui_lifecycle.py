@@ -72,6 +72,7 @@ class TestWebUIState(unittest.TestCase):
         self.original_manager = State.manager
         self.original_registry = State.process_registry
         self.original_runtime_control_server = State._runtime_control_server
+        self.original_notification_runtime = State._notification_runtime
         State._clearup = False
 
     def tearDown(self):
@@ -79,6 +80,12 @@ class TestWebUIState(unittest.TestCase):
         if current_server is not self.original_runtime_control_server:
             _close_runtime_control_server(current_server)
         State._runtime_control_server = self.original_runtime_control_server
+        current_runtime = State._notification_runtime
+        if current_runtime is not self.original_notification_runtime:
+            stop = getattr(current_runtime, "stop", None)
+            if callable(stop):
+                stop()
+        State._notification_runtime = self.original_notification_runtime
         State._clearup = self.original_clearup
         State.manager = self.original_manager
         State.process_registry = self.original_registry
@@ -129,6 +136,29 @@ class TestWebUIState(unittest.TestCase):
         self.assertFalse(State._clearup)
         self.assertIs(manager, State.manager)
         self.assertEqual({}, State.process_registry)
+
+    def test_init_injects_and_starts_notification_runtime(self):
+        manager = Mock()
+        manager.dict.return_value = {}
+        server = Mock()
+        owner = Mock()
+        owner.start_server.return_value = server
+        runtime = Mock()
+
+        with (
+            patch("module.webui.setting.multiprocessing.Manager", return_value=manager),
+            patch("module.webui.worker_registry.claim_owner"),
+            patch(
+                "module.webui.runtime_control_owner.WebUIRuntimeControlOwner",
+                return_value=owner,
+            ) as owner_factory,
+        ):
+            State.init(notification_runtime=runtime)
+
+        owner_factory.assert_called_once()
+        self.assertIs(owner_factory.call_args.kwargs["notification_service"], runtime)
+        runtime.start.assert_called_once_with()
+        self.assertIs(State._notification_runtime, runtime)
 
     def test_dependency_sync_pending_marker_lifecycle(self):
         with tempfile.TemporaryDirectory() as directory:
