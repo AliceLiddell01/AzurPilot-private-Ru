@@ -200,9 +200,20 @@ def test_api_rejects_malformed_and_oversized_ack_body(monkeypatch) -> None:
             )
         )
     )
+    negative_length = asyncio.run(
+        webui_api.api_notification_agent_ack(
+            _api_request(
+                "POST",
+                "/api/notification-agent/ack",
+                headers={**headers, "Content-Length": "-1"},
+                body=b"{}",
+            )
+        )
+    )
 
     assert malformed.status_code == 400
     assert oversized.status_code == 400
+    assert negative_length.status_code == 400
 
 
 def test_opaque_cursor_rejects_foreign_and_malformed_values() -> None:
@@ -385,6 +396,8 @@ def test_fatal_dispatcher_failure_disables_agent_runtime() -> None:
 
     assert runtime.enabled is False
     assert runtime.fatal_stop_reason == "dispatcher_failed"
+    runtime.start()
+    assert runtime._worker is None
 
 
 def test_handover_waiter_times_out_provider_acceptance_without_ack() -> None:

@@ -174,6 +174,22 @@ def test_agent_metrics_use_only_bounded_status_labels() -> None:
     )
     assert observed
     assert all(set(attributes) <= {"status", "channel_type"} for attributes in observed)
+    allowed_statuses = {
+        "started",
+        "stopped",
+        "unavailable",
+        "acknowledged",
+        "duplicate",
+        "rejected",
+        "available",
+        "empty",
+        "error",
+    }
+    assert all(
+        attributes["status"] in allowed_statuses
+        for attributes in observed
+        if "status" in attributes
+    )
     assert all("event_id" not in attributes for attributes in observed)
     assert all("delivery_id" not in attributes for attributes in observed)
 

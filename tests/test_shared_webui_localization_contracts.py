@@ -134,6 +134,7 @@ class TestSharedWebUiLocalizationContracts(unittest.TestCase):
             self.assertIn(call.func.id, {"Route", "WebSocketRoute"})
             path_node = call.args[0]
             if isinstance(path_node, ast.Name):
+                self.assertIn(path_node.id, route_constants)
                 path_value = route_constants[path_node.id]
             else:
                 path_value = ast.literal_eval(path_node)

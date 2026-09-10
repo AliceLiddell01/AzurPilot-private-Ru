@@ -69,6 +69,7 @@ MAX_AGENT_ACK_BODY_BYTES = 16 * 1024
 MAX_AGENT_SSE_FRAME_BYTES = 256 * 1024
 AGENT_STREAM_MAX_SECONDS = 180.0
 AGENT_POLL_SECONDS = 0.25
+AGENT_STORAGE_BACKOFF_MAX_SECONDS = 8.0
 
 _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 _SAFE_PROFILE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
@@ -446,7 +447,7 @@ class DesktopAgentChannel:
             try:
                 self._wake()
             except Exception:  # noqa: BLE001 - wakeup is an optimization only.
-                return DeliveryResult.provider_accepted(provider_message_id="desktop-agent")
+                pass
         return DeliveryResult.provider_accepted(provider_message_id="desktop-agent")
 
 
@@ -701,7 +702,8 @@ class DesktopAgentNotificationRuntime:
     def start(self) -> None:
         if not self._enabled or self._worker is not None:
             return
-        self._fatal_stop_reason = None
+        if self._fatal_stop_reason is not None:
+            return
         self._stop_event.clear()
         self._worker = threading.Thread(
             target=self._run_dispatcher,
@@ -803,6 +805,7 @@ class DesktopAgentNotificationRuntime:
         return NotificationOutcome.FAILED
 
     def _run_dispatcher(self) -> None:
+        storage_backoff = AGENT_POLL_SECONDS
         while not self._stop_event.is_set():
             try:
                 recovered = self._dispatcher.recover_expired()
@@ -815,15 +818,19 @@ class DesktopAgentNotificationRuntime:
                             pass
                 self._dispatcher.dispatch_once()
             except StorageUnavailableError:
-                self._wake_event.wait(timeout=AGENT_POLL_SECONDS)
+                self.record_agent_backlog(status="error")
+                self._wake_event.wait(timeout=storage_backoff)
                 self._wake_event.clear()
+                storage_backoff = min(
+                    AGENT_STORAGE_BACKOFF_MAX_SECONDS, storage_backoff * 2
+                )
                 continue
             except Exception:  # noqa: BLE001 - fatal worker errors fail closed.
                 _record_agent_connection(self._telemetry, "unavailable")
                 self._fatal_stop_reason = "dispatcher_failed"
                 self._stop_event.set()
-                self._worker = None
                 return
+            storage_backoff = AGENT_POLL_SECONDS
             self._wake_event.wait(timeout=AGENT_POLL_SECONDS)
             self._wake_event.clear()
 

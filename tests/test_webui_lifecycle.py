@@ -81,11 +81,13 @@ class TestWebUIState(unittest.TestCase):
             _close_runtime_control_server(current_server)
         State._runtime_control_server = self.original_runtime_control_server
         current_runtime = State._notification_runtime
-        if current_runtime is not self.original_notification_runtime:
-            stop = getattr(current_runtime, "stop", None)
-            if callable(stop):
-                stop()
-        State._notification_runtime = self.original_notification_runtime
+        try:
+            if current_runtime is not self.original_notification_runtime:
+                stop = getattr(current_runtime, "stop", None)
+                if callable(stop):
+                    stop()
+        finally:
+            State._notification_runtime = self.original_notification_runtime
         State._clearup = self.original_clearup
         State.manager = self.original_manager
         State.process_registry = self.original_registry

@@ -1523,8 +1523,9 @@ file и отдельный ACK request.
 PostgreSQL unit of work. Dispatcher вызывает channel только после commit;
 `PROVIDER_ACCEPTED` переводится для Desktop Agent в
 `AWAITING_AGENT_ACK`. Только authenticated ACK с совпадающими
-`delivery_id/event_id/event_source/profile_id/attempt_ordinal/lease_token`,
-текущей session epoch и `payload_digest` переводит delivery в `DELIVERED`.
+`delivery_id/event_id/event_source/profile_id/attempt_ordinal/lease_token` и
+его alias `session_epoch` (на Stage 3 проверяется их равенство), а также
+`payload_digest` переводит delivery в `DELIVERED`.
 Таблица `notification_agent_ack` в Migration `0010_notification_agent_ack`
 хранит immutable receipt и делает точный повторный ACK идемпотентным.
 

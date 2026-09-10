@@ -100,7 +100,9 @@ class NotificationRepository(Protocol):
         ack: NotificationAgentAck,
         *,
         now: datetime,
-    ) -> NotificationAgentAckResult: ...
+    ) -> NotificationAgentAckResult:
+        """Записать ACK без commit; решение о commit/rollback принимает caller."""
+        ...
 
 
 class NotificationUnitOfWork(StorageUnitOfWork, Protocol):

@@ -1109,7 +1109,7 @@ class WebUIRuntimeControlOwner:
                     deadline=deadline,
                     runtime_state=self.state.read(profile),
                 )
-            except Exception:  # noqa: BLE001 - production notification is fail-closed.
+            except Exception:  # noqa: BLE001 - production notification работает fail-closed.
                 return NotificationOutcome.UNAVAILABLE
             return result if isinstance(result, NotificationOutcome) else NotificationOutcome.FAILED
         target = self._development_profile() or "development profile"

@@ -644,15 +644,15 @@ def test_concurrent_exact_agent_ack_has_one_mutation_and_one_duplicate(
 
     def acknowledge() -> NotificationAgentAckStatus:
         with PostgresUnitOfWork(database) as uow:
-            result = uow.notifications.acknowledge_agent_delivery(ack, now=NOW)
-            if result.status in {
+            ack_result = uow.notifications.acknowledge_agent_delivery(ack, now=NOW)
+            if ack_result.status in {
                 NotificationAgentAckStatus.ACKNOWLEDGED,
                 NotificationAgentAckStatus.DUPLICATE,
             }:
                 uow.commit()
             else:
                 uow.rollback()
-            return result.status
+            return ack_result.status
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         statuses = tuple(executor.map(lambda _item: acknowledge(), (1, 2)))
@@ -661,6 +661,21 @@ def test_concurrent_exact_agent_ack_has_one_mutation_and_one_duplicate(
         NotificationAgentAckStatus.ACKNOWLEDGED.value,
         NotificationAgentAckStatus.DUPLICATE.value,
     ]
+    with PostgresUnitOfWork(database) as uow:
+        delivery = uow.notifications.list_deliveries(
+            source="runtime", event_id=result.event_id
+        )[0]
+        assert delivery.state is DeliveryState.DELIVERED
+        uow.commit()
+    with database.get().begin() as connection:
+        receipt_count = connection.execute(
+            text(
+                f"SELECT count(*) FROM {SCHEMA_NAME}.notification_agent_ack "
+                "WHERE delivery_id = :delivery_id"
+            ),
+            {"delivery_id": delivery.id},
+        ).scalar_one()
+    assert receipt_count == 1
 
 
 def test_stale_agent_ack_after_lease_recovery_cannot_complete_new_attempt(

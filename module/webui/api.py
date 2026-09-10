@@ -1510,7 +1510,7 @@ def _record_agent_telemetry(runtime, method_name: str, **kwargs: object) -> None
         return
     try:
         method(**kwargs)
-    except Exception:  # noqa: BLE001 - telemetry must not affect transport.
+    except Exception:  # noqa: BLE001 - телеметрия не должна влиять на transport.
         return
 
 
@@ -1529,6 +1529,8 @@ async def api_notification_agent_stream(request):
         )
     try:
         profile = _agent_profile(request, runtime)
+        # Значение валидируется для отклонения некорректных запросов; поток
+        # намеренно удерживает одну frame до явного ACK.
         _agent_limit(request)
         cursor = request.headers.get("last-event-id") or request.query_params.get("cursor")
         NotificationCursor.decode(cursor, expected_profile_id=profile)
@@ -1632,10 +1634,13 @@ async def _read_bounded_request_body(request) -> bytes:
     length = request.headers.get("content-length")
     if length is not None:
         try:
-            if int(length) > MAX_AGENT_ACK_BODY_BYTES:
-                raise DesktopAgentRequestError("ACK body превысил bounded размер.")
-        except ValueError:
+            declared = int(length)
+        except (TypeError, ValueError):
             raise DesktopAgentRequestError("ACK Content-Length имеет неверный формат.") from None
+        if declared < 0:
+            raise DesktopAgentRequestError("ACK Content-Length имеет неверный формат.")
+        if declared > MAX_AGENT_ACK_BODY_BYTES:
+            raise DesktopAgentRequestError("ACK body превысил bounded размер.")
     chunks: list[bytes] = []
     total = 0
     async for chunk in request.stream():

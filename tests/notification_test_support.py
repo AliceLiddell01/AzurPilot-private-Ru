@@ -478,9 +478,15 @@ class _MemoryRepository:
     ) -> tuple[NotificationStoredDelivery, ...]:
         with self._lock:
             return tuple(
-                delivery
-                for delivery in self.deliveries.values()
-                if delivery.event_source == source and delivery.event_id == event_id
+                sorted(
+                    (
+                        delivery
+                        for delivery in self.deliveries.values()
+                        if delivery.event_source == source
+                        and delivery.event_id == event_id
+                    ),
+                    key=lambda item: item.id.hex,
+                )
             )
 
     def list_agent_deliveries(
@@ -540,6 +546,10 @@ class _MemoryRepository:
         self, ack: NotificationAgentAck, *, now: datetime
     ) -> NotificationAgentAckResult:
         with self._lock:
+            if ack.session_epoch != ack.lease_token:
+                raise StorageInvariantViolationError(
+                    "Agent ACK session epoch не совпадает с lease."
+                )
             key = (ack.delivery_id, ack.attempt_ordinal)
             previous = self.agent_acks.get(key)
             if previous is not None:
@@ -559,10 +569,6 @@ class _MemoryRepository:
                     NotificationAgentAckStatus.REJECTED, "delivery_already_completed"
                 )
             event = self.events[(delivery.event_source, delivery.event_id)].event
-            if ack.session_epoch != ack.lease_token:
-                raise StorageInvariantViolationError(
-                    "Agent ACK session epoch не совпадает с lease."
-                )
             identity_checks = (
                 (ack.event_id != event.id, "event_identity_mismatch"),
                 (ack.event_source != event.source, "event_identity_mismatch"),

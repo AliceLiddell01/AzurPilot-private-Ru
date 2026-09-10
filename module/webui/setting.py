@@ -255,13 +255,9 @@ class State:
         try:
             from module.webui.runtime_control_owner import WebUIRuntimeControlOwner
 
-            owner_kwargs = (
-                {"notification_service": notification_runtime}
-                if notification_runtime is not None
-                else {}
-            )
             owner = WebUIRuntimeControlOwner(
-                Path(__file__).resolve().parents[2], **owner_kwargs
+                Path(__file__).resolve().parents[2],
+                notification_service=notification_runtime,
             )
             server = owner.start_server()
             cls._runtime_control_server = server
