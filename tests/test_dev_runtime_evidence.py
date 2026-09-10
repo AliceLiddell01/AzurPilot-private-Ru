@@ -197,6 +197,63 @@ def test_manager_preserves_causal_handover_trace_order(tmp_path: Path) -> None:
     assert events[1]["fields"]["outcome"] == "delivered"
 
 
+def test_manager_reads_nested_handover_causal_trace(tmp_path: Path) -> None:
+    from module.dev_runtime.manager import DevSessionManager
+
+    store = _store(tmp_path)
+    manager = DevSessionManager.__new__(DevSessionManager)
+    manager._evidence_store_for_current_session = lambda: store
+    manager._timestamp = lambda: _TIME
+
+    manager._record_handover_evidence(
+        {
+            "details": {
+                "handover": {
+                    "profile": "alas",
+                    "operation_id": "handover-2",
+                    "phases": [
+                        "handover_requested",
+                        "preemption_notice",
+                        "quiesce_requested",
+                    ],
+                    "details": {
+                        "trace": [
+                            {
+                                "sequence": 1,
+                                "timestamp": "2026-08-30T00:00:01+00:00",
+                                "phase": "handover_requested",
+                            },
+                            {
+                                "sequence": 2,
+                                "timestamp": "2026-08-30T00:00:02+00:00",
+                                "phase": "preemption_notice",
+                                "reason": "notification",
+                                "attempted": True,
+                                "confirmed": True,
+                                "outcome": "delivered",
+                            },
+                            {
+                                "sequence": 3,
+                                "timestamp": "2026-08-30T00:00:03+00:00",
+                                "phase": "quiesce_requested",
+                            },
+                        ]
+                    },
+                }
+            }
+        }
+    )
+
+    events = store.timeline_page(limit=10)["events"]
+    assert [event["fields"]["trace_sequence"] for event in events] == [1, 2, 3]
+    assert [event["fields"]["phase"] for event in events] == [
+        "handover_requested",
+        "preemption_notice",
+        "quiesce_requested",
+    ]
+    assert events[1]["fields"]["outcome"] == "delivered"
+
+
 def test_unbound_evidence_summary_reports_profile_from_manifest(tmp_path: Path) -> None:
     environment = _environment(tmp_path)
     historical_environment = replace(

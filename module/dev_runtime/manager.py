@@ -332,6 +332,7 @@ class DevSessionManager(DevDiagnosticsMixin):
         profile = raw_handover.get("profile")
         operation_id = raw_handover.get("operation_id")
         raw_phases = raw_handover.get("phases")
+        handover_details = raw_handover.get("details")
         store = self._evidence_store_for_current_session()
 
         def mark_trace_invalid() -> None:
@@ -339,6 +340,8 @@ class DevSessionManager(DevDiagnosticsMixin):
                 store.mark_degraded("handover_trace_invalid")
 
         raw_trace = raw_handover.get("trace")
+        if raw_trace is None and isinstance(handover_details, Mapping):
+            raw_trace = handover_details.get("trace")
         if raw_trace is not None:
             if not isinstance(raw_trace, (list, tuple)) or len(raw_trace) > 32:
                 mark_trace_invalid()
@@ -397,7 +400,6 @@ class DevSessionManager(DevDiagnosticsMixin):
                     fields["operation_id"] = operation_id
                 self._evidence_event("handover_transition", fields, store=store)
 
-        handover_details = raw_handover.get("details")
         notification = (
             handover_details.get("notification")
             if isinstance(handover_details, Mapping)
