@@ -20,8 +20,8 @@ import time as time_
 from datetime import datetime, timezone
 
 
-# NTP 协议常量
-NTP_EPOCH_DELTA = 2208988800  # NTP 时间纪元与 Unix 时间纪元的差值（秒）
+# Константы протокола NTP
+NTP_EPOCH_DELTA = 2208988800  # Разница между эпохами NTP и Unix (секунды)
 NTP_PORT = 123
 NTP_PACKET = b'\x1b' + b'\0' * 47
 NTP_SERVERS_ENV = 'AZURPILOT_NTP_SERVERS'
