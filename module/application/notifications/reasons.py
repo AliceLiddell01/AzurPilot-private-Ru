@@ -8,6 +8,7 @@ NOTIFICATION_REASON_CODES: Final[frozenset[str]] = frozenset(
     {
         "agent_ack_timeout",
         "caller_deadline_not_aware",
+        "channel_receipt_strength_insufficient",
         "delivery_deadline_expired",
         "channel_result_invalid",
         "channel_capabilities_invalid",
@@ -42,6 +43,7 @@ NOTIFICATION_REASON_CODES: Final[frozenset[str]] = frozenset(
         "publish_context_required",
         "occurred_at_invalid",
         "occurred_at_not_aware",
+        "payload_digest_invalid",
         "payload_encoding_failed",
         "payload_mapping_key_invalid",
         "payload_naive_datetime",
@@ -57,6 +59,7 @@ NOTIFICATION_REASON_CODES: Final[frozenset[str]] = frozenset(
         "payload_producer_schema_not_migrated",
         "producer_schema_not_migrated",
         "profile_id_invalid",
+        "profile_sequence_invalid",
         "renderer_locale_unsupported",
         "renderer_not_registered",
         "renderer_payload_type_invalid",
@@ -80,7 +83,9 @@ NOTIFICATION_REASON_CODES: Final[frozenset[str]] = frozenset(
         "storage_unavailable",
         "stored_payload_invalid",
         "stored_payload_decoder_unavailable",
+        "stored_payload_schema_invalid",
         "stored_payload_type_invalid",
+        "persisted_at_not_aware",
         "subject_invalid",
         "validation_failed",
     }

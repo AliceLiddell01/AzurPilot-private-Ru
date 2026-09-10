@@ -152,6 +152,30 @@ def test_payload_over_4kib_remains_rejected() -> None:
         _large_payload_registry().validate(event)
 
 
+@pytest.mark.parametrize("key", ("access_token", "auth_header", "session_cookie", "callback_url"))
+def test_payload_rejects_compound_prohibited_keys(key: str) -> None:
+    descriptor = NotificationDescriptor(
+        event_type="test.large",
+        schema_version=1,
+        payload_type=_LargePayload,
+        serializer=lambda payload, key=key: {key: payload.text},
+        validator=lambda _event, _payload, _document: None,
+        default_severity=NotificationSeverity.INFO,
+        renderer_id="deferred",
+        deserializer=lambda document: _LargePayload(document[key]),
+    )
+    event = replace(
+        _event(),
+        type="test.large",
+        severity=NotificationSeverity.INFO,
+        data=_LargePayload("bounded"),
+        dedup_key=None,
+    )
+
+    with pytest.raises(NotificationValidationError, match="payload_prohibited_field"):
+        descriptor.validate(event)
+
+
 @pytest.mark.parametrize(
     "value",
     (

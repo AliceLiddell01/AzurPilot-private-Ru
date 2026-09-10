@@ -1047,6 +1047,10 @@ notification_policy_decision = Table(
         name="channels_bounded",
     ),
     CheckConstraint(
+        "state <> 'SUPPRESSED' OR jsonb_array_length(channel_instance_ids) = 0",
+        name="suppressed_channels_empty",
+    ),
+    CheckConstraint(
         "jsonb_typeof(policy_snapshot) = 'object'",
         name="snapshot_object",
     ),
@@ -1180,6 +1184,16 @@ notification_delivery_attempt = Table(
         "result_class IS NULL OR result_class IN ('DELIVERED', 'PROVIDER_ACCEPTED', "
         "'TRANSIENT_FAILURE', 'PERMANENT_FAILURE', 'UNAVAILABLE', 'SUPPRESSED')",
         name="result_class_allowed",
+    ),
+    CheckConstraint(
+        "(result_class IS NULL) = (finished_at IS NULL)",
+        name="result_class_matches_finished",
+    ),
+    CheckConstraint(
+        "result_class IS NOT NULL OR ("
+        "safe_error_code IS NULL AND safe_error_summary IS NULL AND "
+        "retry_after_seconds IS NULL AND provider_message_id IS NULL)",
+        name="open_result_fields_null",
     ),
     CheckConstraint(
         "retry_after_seconds IS NULL OR retry_after_seconds BETWEEN 0 AND 3600",

@@ -409,11 +409,15 @@ def _reject_prohibited_keys(value: object) -> None:
             if key_name in _PROHIBITED_KEYS or any(
                 marker in key_name
                 for marker in (
+                    "auth",
+                    "cookie",
                     "credential",
                     "password",
                     "secret",
                     "stacktrace",
+                    "token",
                     "traceback",
+                    "url",
                 )
             ):
                 raise NotificationValidationError("payload_prohibited_field")

@@ -138,6 +138,10 @@ def upgrade() -> None:
             name=op.f("ck_notification_policy_decision_channels_bounded"),
         ),
         sa.CheckConstraint(
+            "state <> 'SUPPRESSED' OR jsonb_array_length(channel_instance_ids) = 0",
+            name=op.f("ck_notification_policy_decision_suppressed_channels_empty"),
+        ),
+        sa.CheckConstraint(
             "jsonb_typeof(policy_snapshot) = 'object'",
             name=op.f("ck_notification_policy_decision_snapshot_object"),
         ),
@@ -290,6 +294,16 @@ def upgrade() -> None:
             "result_class IS NULL OR result_class IN ('DELIVERED', 'PROVIDER_ACCEPTED', "
             "'TRANSIENT_FAILURE', 'PERMANENT_FAILURE', 'UNAVAILABLE', 'SUPPRESSED')",
             name=op.f("ck_notification_delivery_attempt_result_class_allowed"),
+        ),
+        sa.CheckConstraint(
+            "(result_class IS NULL) = (finished_at IS NULL)",
+            name=op.f("ck_notification_delivery_attempt_result_class_matches_finished"),
+        ),
+        sa.CheckConstraint(
+            "result_class IS NOT NULL OR ("
+            "safe_error_code IS NULL AND safe_error_summary IS NULL AND "
+            "retry_after_seconds IS NULL AND provider_message_id IS NULL)",
+            name=op.f("ck_notification_delivery_attempt_open_result_fields_null"),
         ),
         sa.CheckConstraint(
             "retry_after_seconds IS NULL OR retry_after_seconds BETWEEN 0 AND 3600",
