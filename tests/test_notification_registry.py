@@ -122,7 +122,26 @@ def test_publishable_descriptor_requires_typed_deserializer() -> None:
         NotificationRegistry((descriptor,))
 
 
+def test_registry_rejects_event_type_over_storage_limit() -> None:
+    descriptor = NotificationDescriptor(
+        event_type="a" * 129,
+        schema_version=1,
+        payload_type=DeferredNotificationPayload,
+        serializer=lambda _payload: {},
+        validator=lambda _event, _payload, _document: None,
+        default_severity=NotificationSeverity.INFO,
+        renderer_id="deferred",
+        publishable=False,
+        deferred_reason="producer_schema_not_migrated",
+    )
+
+    with pytest.raises(ValueError, match="lowercase dotted token"):
+        NotificationRegistry((descriptor,))
+
+
 def test_canonical_payload_rejects_non_finite_decimal_and_deep_nesting() -> None:
+    assert canonical_json(Decimal("1E+2")) == b'"100"'
+
     with pytest.raises(NotificationValidationError) as decimal_error:
         canonical_json(Decimal("NaN"))
     assert decimal_error.value.reason_code == "payload_non_finite_number"

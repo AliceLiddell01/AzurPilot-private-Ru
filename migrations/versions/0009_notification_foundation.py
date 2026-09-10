@@ -237,7 +237,7 @@ def upgrade() -> None:
     op.create_index(
         "ix_notification_delivery_claim_due",
         "notification_delivery",
-        ["next_attempt_at", sa.text("priority DESC"), "id"],
+        [sa.text("priority DESC"), "next_attempt_at", "id"],
         schema=_SCHEMA,
         postgresql_where=sa.text("state IN ('PENDING', 'RETRY_WAIT')"),
     )

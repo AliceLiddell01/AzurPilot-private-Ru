@@ -94,7 +94,6 @@ class NotificationDescriptor:
             not isinstance(key, str) for key in document
         ):
             raise NotificationValidationError("payload_schema_invalid")
-        _reject_prohibited_keys(document)
         normalized = canonical_json(document, max_bytes=MAX_PAYLOAD_BYTES)
         try:
             self.validator(event, event.data, document)
@@ -105,6 +104,7 @@ class NotificationDescriptor:
         normalized_document = json.loads(normalized)
         if not isinstance(normalized_document, dict):
             raise NotificationValidationError("payload_schema_invalid")
+        _reject_prohibited_keys(normalized_document)
         return normalized_document, event_payload_digest(event, normalized_document)
 
     def deserialize(self, document: Mapping[str, object]) -> object:
@@ -234,7 +234,7 @@ class NotificationRegistry:
             raise RuntimeError("Notification registry по умолчанию неизменяем.")
         if not isinstance(descriptor, NotificationDescriptor):
             raise TypeError("Notification descriptor имеет неверный тип.")
-        if not isinstance(descriptor.event_type, str) or fullmatch(
+        if not isinstance(descriptor.event_type, str) or len(descriptor.event_type) > 128 or fullmatch(
             r"[a-z0-9]+(?:[._-][a-z0-9]+)*", descriptor.event_type
         ) is None:
             raise ValueError("event_type descriptor должен быть lowercase dotted token.")
@@ -299,7 +299,7 @@ class NotificationRegistry:
             raise NotificationValidationError("event_id_invalid")
         if not isinstance(event.source, str) or fullmatch(_SOURCE_RE, event.source) is None:
             raise NotificationValidationError("source_invalid")
-        if not isinstance(event.type, str) or fullmatch(
+        if not isinstance(event.type, str) or len(event.type) > 128 or fullmatch(
             r"[a-z0-9]+(?:[._-][a-z0-9]+)*", event.type
         ) is None:
             raise NotificationValidationError("event_type_invalid")

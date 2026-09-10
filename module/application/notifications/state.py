@@ -42,7 +42,7 @@ class RetryPolicy:
         exponent = max(0, attempt_ordinal - 1)
         delay = min(self.max_delay_seconds, self.base_delay_seconds * (2**exponent))
         digest = (
-            sha256(f"{stable_key}:{attempt_ordinal}".encode("utf-8")).digest()[0] / 255
+            sha256(f"{stable_key}:{attempt_ordinal}".encode()).digest()[0] / 255
             if stable_key
             else 0.5
         )
@@ -52,7 +52,9 @@ class RetryPolicy:
 
 def _bounded_now(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
-        raise ValueError("State machine требует timezone-aware datetime.")
+        raise StorageInvariantViolationError(
+            "State machine требует timezone-aware datetime."
+        )
     return value.astimezone(UTC)
 
 

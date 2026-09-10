@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import timedelta
 
 import pytest
@@ -46,8 +47,6 @@ from tests.notification_test_support import (
 def test_publisher_rejects_expired_handover_deadline() -> None:
     repository = _MemoryRepository()
     event = _event()
-    from dataclasses import replace
-
     event = replace(
         event,
         occurred_at=NOW - timedelta(seconds=60),

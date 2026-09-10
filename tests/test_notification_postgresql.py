@@ -21,9 +21,11 @@ from module.application.notifications import (
     DeliveryUpdate,
     HandoverPreemptionPayload,
     NotificationChannelCatalog,
+    NotificationDeliveryPlan,
     NotificationDispatcher,
     NotificationEvent,
     NotificationPolicy,
+    NotificationPolicyResolver,
     NotificationPublisher,
     NotificationRendererCatalog,
     NotificationRule,
@@ -32,6 +34,7 @@ from module.application.notifications import (
     PolicyAction,
     PublishStatus,
     ReceiptStrength,
+    RenderedSnapshot,
     RetryPolicy,
 )
 from module.application.notifications.rendering import HandoverPreemptionRenderer
@@ -535,6 +538,13 @@ def test_expired_pending_delivery_does_not_starve_due_delivery(
         assert claimed[0].delivery.event_id == active_result.event_id
         uow.commit()
 
+    with PostgresUnitOfWork(database) as uow:
+        expired_delivery = uow.notifications.list_deliveries(
+            source="runtime", event_id=expired_result.event_id
+        )[0]
+        assert expired_delivery.state is DeliveryState.FAILED
+        assert uow.notifications.list_attempts(expired_delivery.id) == ()
+
 
 def test_claim_bounds_lease_and_timeout_by_remaining_deadline(
     database: LazyEngine,
@@ -745,15 +755,33 @@ def test_publisher_rollback_does_not_consume_profile_sequence(database: LazyEngi
     channel = _Channel()
     publisher = _publisher(database, channel)
     event = _event(operation_id="operation-rollback")
-    descriptor, payload, _ = publisher.registry.validate(event)
-    decision = publisher._policy_resolver.resolve(event)
-    plans = publisher._build_plans(event, descriptor, decision)
+    _, payload, _ = publisher.registry.validate(event)
+    decision = NotificationPolicyResolver(_policy()).resolve(event)
+    plan = NotificationDeliveryPlan(
+        id=uuid4(),
+        event_id=event.id,
+        event_source=event.source,
+        channel_instance_id="agent",
+        channel_type="test",
+        priority=30,
+        next_attempt_at=NOW,
+        deadline_at=NOW + timedelta(seconds=30),
+        rendered_snapshot=RenderedSnapshot(
+            locale="ru-RU",
+            renderer_id="handover.preemption",
+            renderer_version="v1",
+            title="Тест",
+            body="Тестовое уведомление",
+        ),
+        idempotency_key=f"{event.source}:{event.id}:agent",
+        timeout_seconds=30.0,
+    )
     with PostgresUnitOfWork(database) as uow:
         uow.notifications.publish(
             event,
             payload_document=payload,
             decision=decision,
-            deliveries=plans,
+            deliveries=(plan,),
         )
         uow.rollback()
 

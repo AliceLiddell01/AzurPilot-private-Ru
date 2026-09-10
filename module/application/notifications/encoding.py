@@ -54,7 +54,7 @@ def canonical_value(value: object, *, _depth: int = 0) -> object:
     if isinstance(value, Decimal):
         if not value.is_finite():
             _reject("payload_non_finite_number")
-        return str(value.normalize())
+        return format(value.normalize(), "f")
     if isinstance(value, UUID):
         return str(value)
     if isinstance(value, Mapping):

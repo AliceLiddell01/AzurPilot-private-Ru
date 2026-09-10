@@ -12,6 +12,7 @@ from module.application.notifications import (
     ChannelCapabilities,
     DeliveryResult,
     DeliveryState,
+    HandoverPreemptionPayload,
     NotificationEvent,
     NotificationPolicy,
     NotificationPublisher,
@@ -42,8 +43,6 @@ NOW = datetime(2026, 9, 10, 12, 0, tzinfo=UTC)
 
 
 def _event(*, event_id: UUID | None = None, operation_id: str = "op-1") -> NotificationEvent:
-    from module.application.notifications import HandoverPreemptionPayload
-
     return NotificationEvent(
         id=event_id or uuid4(),
         source="runtime",
