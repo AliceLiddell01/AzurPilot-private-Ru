@@ -47,8 +47,8 @@ class AsyncExecutor:
         if asyncio.iscoroutinefunction(func):
             return asyncio.run_coroutine_threadsafe(func(*args, **kwargs), self._loop)
         else:
-            # 对于普通的同步函数，直接包装为协程跑在loop里
-            # 这样对于 SQLite 的写入来说，就变成了在单线程(event loop 线程)内的串行执行
+            # Обычную функцию запускаем в цикле как coroutine.
+            # Поэтому записи SQLite выполняются последовательно в его потоке.
             async def wrapper():
                 return func(*args, **kwargs)
             return asyncio.run_coroutine_threadsafe(wrapper(), self._loop)
@@ -67,9 +67,8 @@ class AsyncExecutor:
             logger.warning(f"[Асинхронный исполнитель] Ошибка при завершении задач: {e}")
 
 
-# 全局唯一实例
+# Единственный глобальный экземпляр.
 async_executor = AsyncExecutor()
 
 import atexit
 atexit.register(async_executor.flush)
-
