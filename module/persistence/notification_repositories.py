@@ -8,7 +8,7 @@ from re import fullmatch
 from typing import cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import Connection, Table, and_, null, or_, select, update
+from sqlalchemy import Connection, Table, and_, exists, null, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -16,6 +16,7 @@ from module.application.errors import (
     StorageError,
     StorageInvariantViolationError,
 )
+from module.application.notifications.channels import DESKTOP_AGENT_CHANNEL_TYPE
 from module.application.notifications.encoding import (
     MAX_SNAPSHOT_BYTES,
     canonical_digest,
@@ -70,6 +71,16 @@ from module.persistence.schema import (
     notification_event,
     notification_policy_decision,
     notification_profile_sequence,
+)
+
+_AGENT_UNRESOLVED_DELIVERY_STATES = frozenset(
+    {
+        DeliveryState.PENDING.value,
+        DeliveryState.IN_FLIGHT.value,
+        DeliveryState.RETRY_WAIT.value,
+        DeliveryState.PROVIDER_ACCEPTED.value,
+        DeliveryState.AWAITING_AGENT_ACK.value,
+    }
 )
 
 
@@ -655,8 +666,57 @@ class PostgresNotificationRepository:
         if not 1 <= limit <= 128:
             raise ValueError("Agent history limit вне bounded диапазона.")
         attempt = notification_delivery_attempt.alias("agent_attempt")
+        unresolved_delivery = notification_delivery.alias("agent_unresolved_delivery")
+        unresolved_event = notification_event.alias("agent_unresolved_event")
+        unresolved_join = unresolved_delivery.join(
+            unresolved_event,
+            unresolved_event.c.row_id == unresolved_delivery.c.event_row_id,
+        )
+        unresolved_before_candidate = exists(
+            select(1)
+            .select_from(unresolved_join)
+            .where(
+                unresolved_event.c.profile_id == profile_id,
+                unresolved_delivery.c.channel_instance_id == channel_instance_id,
+                unresolved_delivery.c.channel_type == DESKTOP_AGENT_CHANNEL_TYPE,
+                unresolved_delivery.c.state.in_(_AGENT_UNRESOLVED_DELIVERY_STATES),
+                or_(
+                    unresolved_event.c.profile_sequence
+                    < notification_event.c.profile_sequence,
+                    and_(
+                        unresolved_event.c.profile_sequence
+                        == notification_event.c.profile_sequence,
+                        unresolved_event.c.id < notification_event.c.id,
+                    ),
+                ),
+            )
+        )
+        cursor_hole = (
+            exists(
+                select(1)
+                .select_from(unresolved_join)
+                .where(
+                    unresolved_event.c.profile_id == profile_id,
+                    unresolved_delivery.c.channel_instance_id == channel_instance_id,
+                    unresolved_delivery.c.channel_type == DESKTOP_AGENT_CHANNEL_TYPE,
+                    unresolved_delivery.c.state.in_(_AGENT_UNRESOLVED_DELIVERY_STATES),
+                    or_(
+                        unresolved_event.c.profile_sequence < after_sequence,
+                        and_(
+                            unresolved_event.c.profile_sequence == after_sequence,
+                            unresolved_event.c.id <= after_event_id,
+                        ),
+                    ),
+                )
+            )
+            if after_event_id is not None
+            else False
+        )
         position = (
-            notification_event.c.profile_sequence > after_sequence
+            or_(
+                notification_event.c.profile_sequence > after_sequence,
+                cursor_hole,
+            )
             if after_event_id is None
             else or_(
                 notification_event.c.profile_sequence > after_sequence,
@@ -664,6 +724,7 @@ class PostgresNotificationRepository:
                     notification_event.c.profile_sequence == after_sequence,
                     notification_event.c.id > after_event_id,
                 ),
+                cursor_hole,
             )
         )
         try:
@@ -685,7 +746,7 @@ class PostgresNotificationRepository:
                 .where(
                     notification_event.c.profile_id == profile_id,
                     notification_delivery.c.channel_instance_id == channel_instance_id,
-                    notification_delivery.c.channel_type == "desktop-agent",
+                    notification_delivery.c.channel_type == DESKTOP_AGENT_CHANNEL_TYPE,
                     notification_delivery.c.state
                     == DeliveryState.AWAITING_AGENT_ACK.value,
                     notification_delivery.c.lease_token.is_not(None),
@@ -693,6 +754,7 @@ class PostgresNotificationRepository:
                     attempt.c.result_class == DeliveryResultClass.PROVIDER_ACCEPTED.value,
                     attempt.c.lease_token == notification_delivery.c.lease_token,
                     position,
+                    ~unresolved_before_candidate,
                 )
                 .order_by(notification_event.c.profile_sequence, notification_event.c.id)
                 .limit(limit)
@@ -733,15 +795,113 @@ class PostgresNotificationRepository:
         except SQLAlchemyError as exc:
             raise translate_database_error(exc) from None
 
+    def validate_agent_cursor(
+        self,
+        *,
+        profile_id: str,
+        channel_instance_id: str,
+        after_sequence: int,
+        after_event_id: UUID,
+    ) -> bool:
+        """Проверить cursor по сохранённому event и Agent delivery."""
+
+        _bounded_profile(profile_id)
+        _bounded_channel_instance(channel_instance_id)
+        if (
+            not isinstance(after_sequence, int)
+            or isinstance(after_sequence, bool)
+            or after_sequence <= 0
+            or not isinstance(after_event_id, UUID)
+        ):
+            raise ValueError("Notification cursor identity имеет неверный формат.")
+        try:
+            delivery_exists = exists(
+                select(1)
+                .select_from(notification_delivery)
+                .where(
+                    notification_delivery.c.event_row_id
+                    == notification_event.c.row_id,
+                    notification_delivery.c.channel_instance_id == channel_instance_id,
+                    notification_delivery.c.channel_type == DESKTOP_AGENT_CHANNEL_TYPE,
+                )
+            )
+            return bool(
+                self._connection.execute(
+                    select(delivery_exists)
+                    .select_from(notification_event)
+                    .where(
+                        notification_event.c.profile_id == profile_id,
+                        notification_event.c.profile_sequence == after_sequence,
+                        notification_event.c.id == after_event_id,
+                    )
+                ).scalar_one()
+            )
+        except StorageError:
+            raise
+        except SQLAlchemyError as exc:
+            raise translate_database_error(exc) from None
+
+    def get_agent_delivery_state(
+        self,
+        *,
+        profile_id: str,
+        channel_instance_id: str,
+        delivery_id: UUID,
+        event_id: UUID,
+        event_source: str,
+    ) -> NotificationStoredDelivery | None:
+        """Прочитать delivery только по полному Agent object scope."""
+
+        _bounded_profile(profile_id)
+        _bounded_channel_instance(channel_instance_id)
+        if not isinstance(delivery_id, UUID) or not isinstance(event_id, UUID):
+            raise TypeError("Agent delivery identity имеет неверный формат.")
+        if not isinstance(event_source, str) or fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}", event_source
+        ) is None:
+            raise ValueError("Agent event source имеет неверный формат.")
+        try:
+            row = self._connection.execute(
+                select(notification_delivery, notification_event)
+                .join(
+                    notification_event,
+                    notification_event.c.row_id
+                    == notification_delivery.c.event_row_id,
+                )
+                .where(
+                    notification_delivery.c.id == delivery_id,
+                    notification_delivery.c.channel_instance_id == channel_instance_id,
+                    notification_delivery.c.channel_type == DESKTOP_AGENT_CHANNEL_TYPE,
+                    notification_event.c.profile_id == profile_id,
+                    notification_event.c.id == event_id,
+                    notification_event.c.source == event_source,
+                )
+            ).one_or_none()
+            if row is None:
+                return None
+            delivery_row = _column_mapping(row, notification_delivery)
+            event_row = _column_mapping(row, notification_event)
+            return self._stored_delivery(
+                delivery_row,
+                event_id=cast(UUID, event_row["id"]),
+                event_source=cast(str, event_row["source"]),
+            )
+        except StorageError:
+            raise
+        except SQLAlchemyError as exc:
+            raise translate_database_error(exc) from None
+
     def acknowledge_agent_delivery(
         self,
         ack: NotificationAgentAck,
         *,
         now: datetime,
+        channel_instance_id: str,
     ) -> NotificationAgentAckResult:
         """Атомарно записать authenticated ACK и перевести delivery в DELIVERED."""
 
         _validate_agent_ack(ack)
+        _bounded_channel_instance(channel_instance_id)
         now = _utc(now)
         try:
             row = self._connection.execute(
@@ -751,7 +911,14 @@ class PostgresNotificationRepository:
                     notification_event.c.row_id
                     == notification_delivery.c.event_row_id,
                 )
-                .where(notification_delivery.c.id == ack.delivery_id)
+                .where(
+                    notification_delivery.c.id == ack.delivery_id,
+                    notification_delivery.c.channel_instance_id == channel_instance_id,
+                    notification_delivery.c.channel_type == DESKTOP_AGENT_CHANNEL_TYPE,
+                    notification_event.c.id == ack.event_id,
+                    notification_event.c.source == ack.event_source,
+                    notification_event.c.profile_id == ack.profile_id,
+                )
                 .with_for_update(of=notification_delivery)
             ).one_or_none()
             if row is None:
@@ -1346,8 +1513,6 @@ def _validate_agent_ack(ack: NotificationAgentAck) -> None:
         raise StorageInvariantViolationError("Agent ACK attempt ordinal имеет неверный формат.")
     if not isinstance(ack.lease_token, UUID) or not isinstance(ack.session_epoch, UUID):
         raise StorageInvariantViolationError("Agent ACK lease identity имеет неверный формат.")
-    if ack.session_epoch != ack.lease_token:
-        raise StorageInvariantViolationError("Agent ACK session epoch не совпадает с lease.")
     if not isinstance(ack.payload_digest, str) or fullmatch(
         r"[0-9a-f]{64}", ack.payload_digest
     ) is None:
@@ -1363,7 +1528,7 @@ def _agent_delivery_identity_reason(
         return "event_identity_mismatch"
     if ack.profile_id != event.event.profile_id:
         return "profile_identity_mismatch"
-    if delivery.channel_type != "desktop-agent":
+    if delivery.channel_type != DESKTOP_AGENT_CHANNEL_TYPE:
         return "channel_identity_mismatch"
     if ack.attempt_ordinal != delivery.attempt_count:
         return "attempt_identity_mismatch"

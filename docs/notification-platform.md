@@ -17,7 +17,7 @@ Telegram/Webhook adapters и producer cutover остаются будущими 
 | Base branch | codex/mcp-profile-runtime-handover |
 | Base SHA | 01c5e99452da2c6a336940c9aff1934a72df357e |
 | Рабочая ветка Stage 3 | codex/notification-platform-desktop-agent-handover |
-| Current migration head | 0010_notification_agent_ack |
+| Current migration head | 0011_agent_session_identity |
 
 Источники фактического поведения проверялись в текущем коде и тестах. Старые
 версии этого документа, прежние SHA и исторические PR используются только как
@@ -1523,11 +1523,13 @@ file и отдельный ACK request.
 PostgreSQL unit of work. Dispatcher вызывает channel только после commit;
 `PROVIDER_ACCEPTED` переводится для Desktop Agent в
 `AWAITING_AGENT_ACK`. Только authenticated ACK с совпадающими
-`delivery_id/event_id/event_source/profile_id/attempt_ordinal/lease_token` и
-его alias `session_epoch` (на Stage 3 проверяется их равенство), а также
-`payload_digest` переводит delivery в `DELIVERED`.
+`delivery_id/event_id/event_source/profile_id/attempt_ordinal/lease_token`,
+server-issued текущей `session_epoch` и `payload_digest` переводит delivery в
+`DELIVERED`; `session_epoch` больше не является alias lease token.
 Таблица `notification_agent_ack` в Migration `0010_notification_agent_ack`
-хранит immutable receipt и делает точный повторный ACK идемпотентным.
+хранит immutable receipt и делает точный повторный ACK идемпотентным. Migration
+`0011_agent_session_identity` удаляет временный equality-check,
+не переписывая опубликованную `0010`.
 
 ### [Факт] SSE, reconnect и topology
 
@@ -1537,19 +1539,29 @@ projection, применяет profile authorization и не продвигае�
 lease/attempt перечитывает тот же cursor с новой identity; committed gap
 заполняется PostgreSQL query с `(profile_sequence, event_id)` tie-break.
 `POST /api/notification-agent/ack` является отдельной authenticated mutation.
-Оба endpoint проходят через существующий Caddy и host-side WebUI; Caddy
-сохраняет `text/event-stream`, flush и bounded stream timeout. Второй WebUI,
-публичный PostgreSQL и inbound listener Desktop Agent не добавляются.
+Оба endpoint проходят через существующий Caddy и host-side WebUI; для Agent
+stream compression отключён, поэтому raw SSE parser получает
+`text/event-stream` без gzip, а flush и bounded stream timeout сохраняются.
+Backend выдаёт contiguous durable frontier: более новая delivery не выдаётся,
+пока более ранняя Agent delivery находится в pending/in-flight/retry/ACK
+состоянии. Cursor проверяется по profile-scoped committed history, а object
+lookup для stream state и ACK ограничен profile/channel/event scope.
 
 ### [Факт] Runtime/config и границы Stage 3
 
 `State.init()` получает composition поверх уже созданного process-local
-Engine и запускает bounded dispatcher worker вместе с WebUI owner. Конфигурация
+Engine, запускает bounded dispatcher worker вместе с WebUI owner и в том же
+каноническом WebUI lifecycle поднимает outbound `DesktopAgentClientRuntime`.
+Client вызывает существующее локальное WebUI presentation callback, сохраняет
+cursor и logical `delivery_id` в одном защищённом RMW-файле, ACK-ит только после
+presentation и восстанавливает profile loop после bounded stale ACK. Конфигурация
 использует `AZURPILOT_NOTIFICATION_AGENT_URL`, `..._ID`, `..._PROFILES` и
-`..._TOKEN` либо `..._TOKEN_FILE`; token не попадает в event payload, history,
-metrics, traces, diagnostics или logs. При отсутствии полной Agent
-configuration legacy notifier сохраняется как compatibility boundary, но его
-queue acceptance не может стать `DELIVERED`.
+`..._TOKEN` либо `..._TOKEN_FILE`; outbound client создаётся только при явном
+`..._URL`, чтобы общая inbound server configuration не запускала второй
+client без endpoint. Token не попадает в event payload, history, metrics,
+traces, diagnostics или logs. При отсутствии полной Agent configuration
+legacy notifier сохраняется как compatibility boundary, но его queue
+acceptance не может стать `DELIVERED`.
 
 В Stage 3 не входят Telegram/Webhook/OnePush adapters, producer migration,
 удаление `_notification_queue`, removal legacy config и live acceptance PR

@@ -70,6 +70,19 @@ MAX_AGENT_SSE_FRAME_BYTES = 256 * 1024
 AGENT_STREAM_MAX_SECONDS = 180.0
 AGENT_POLL_SECONDS = 0.25
 AGENT_STORAGE_BACKOFF_MAX_SECONDS = 8.0
+RECOVERABLE_AGENT_ACK_REASONS = frozenset(
+    {
+        "delivery_not_found",
+        "delivery_already_completed",
+        "delivery_not_awaiting_ack",
+        "attempt_identity_mismatch",
+        "attempt_not_awaiting_ack",
+        "lease_identity_mismatch",
+        "ack_expired",
+        "stale_delivery",
+        "session_identity_mismatch",
+    }
+)
 
 _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 _SAFE_PROFILE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
@@ -324,8 +337,6 @@ def parse_agent_ack_document(
         or not 1 <= ordinal <= 1_000_000
     ):
         raise DesktopAgentRequestError("ACK attempt ordinal имеет неверный формат.")
-    if session_epoch != lease_token:
-        raise DesktopAgentRequestError("ACK session epoch не совпадает с lease.")
     if not isinstance(digest, str) or _SAFE_DIGEST_RE.fullmatch(digest) is None:
         raise DesktopAgentRequestError("ACK payload digest имеет неверный формат.")
     return NotificationAgentAck(
@@ -343,6 +354,8 @@ def parse_agent_ack_document(
 
 def notification_agent_document(
     item: NotificationAgentDelivery,
+    *,
+    session_epoch: UUID,
 ) -> DesktopAgentDeliveryFrame:
     """Собрать безопасную projection; typed payload намеренно не выходит в wire."""
 
@@ -355,6 +368,8 @@ def notification_agent_document(
         raise DesktopAgentUnavailableError("Stored delivery не имеет Agent lease identity.")
     if delivery.lease_token != attempt.lease_token:
         raise DesktopAgentUnavailableError("Stored attempt относится к устаревшему lease.")
+    if not isinstance(session_epoch, UUID):
+        raise DesktopAgentUnavailableError("Stored Agent session identity имеет неверный формат.")
     cursor = NotificationCursor(event.profile_id, event.profile_sequence, event.id)
     title = delivery.rendered_snapshot.title
     body = delivery.rendered_snapshot.body
@@ -377,8 +392,7 @@ def notification_agent_document(
         "delivery_id": str(delivery.id),
         "attempt_ordinal": attempt.attempt_ordinal,
         "lease_token": str(delivery.lease_token),
-        # Lease token является bounded identity попытки и сессии; retry получает новый token.
-        "session_epoch": str(delivery.lease_token),
+        "session_epoch": str(session_epoch),
         "payload_digest": event.payload_digest,
         "title": title,
         "body": body,
@@ -413,8 +427,6 @@ def validate_agent_delivery_document(document: object) -> dict[str, object]:
         raise DesktopAgentRequestError("SSE frame attempt ordinal имеет неверный формат.")
     if not isinstance(sequence, int) or isinstance(sequence, bool) or sequence <= 0:
         raise DesktopAgentRequestError("SSE frame profile sequence имеет неверный формат.")
-    if parsed["session_epoch"] != parsed["lease_token"]:
-        raise DesktopAgentRequestError("SSE frame session epoch не совпадает с lease.")
     if not isinstance(digest, str) or _SAFE_DIGEST_RE.fullmatch(digest) is None:
         raise DesktopAgentRequestError("SSE frame payload digest имеет неверный формат.")
     for name in ("event_type", "severity", "occurred_at", "title", "body", "locale", "sensitivity"):
@@ -472,10 +484,13 @@ class DesktopAgentHistoryService:
         profile_id: str,
         cursor: str | None,
         limit: int,
+        session_epoch: UUID,
     ) -> tuple[DesktopAgentDeliveryFrame, ...]:
         _authorize_profile(principal, profile_id)
         if not 1 <= limit <= MAX_AGENT_BATCH_SIZE:
             raise DesktopAgentRequestError("Agent batch limit вне bounded диапазона.")
+        if not isinstance(session_epoch, UUID):
+            raise DesktopAgentAuthorizationError("Agent session identity некорректна.")
         parsed_cursor = NotificationCursor.decode(
             cursor, expected_profile_id=profile_id
         )
@@ -484,6 +499,13 @@ class DesktopAgentHistoryService:
             "notification.history.read",
             attributes={"channel_type": DESKTOP_AGENT_CHANNEL_TYPE},
         ), self._uow_factory() as uow:
+            if parsed_cursor is not None and not uow.notifications.validate_agent_cursor(
+                profile_id=profile_id,
+                channel_instance_id=self._channel_instance_id,
+                after_sequence=parsed_cursor.profile_sequence,
+                after_event_id=parsed_cursor.event_id,
+            ):
+                raise NotificationCursorError("Cursor отсутствует в durable Agent history.")
             rows = uow.notifications.list_agent_deliveries(
                 profile_id=profile_id,
                 channel_instance_id=self._channel_instance_id,
@@ -492,7 +514,34 @@ class DesktopAgentHistoryService:
                 limit=limit,
             )
             uow.commit()
-        return tuple(notification_agent_document(row) for row in rows)
+        return tuple(
+            notification_agent_document(row, session_epoch=session_epoch)
+            for row in rows
+        )
+
+    def validate_cursor(
+        self,
+        principal: DesktopAgentPrincipal,
+        *,
+        profile_id: str,
+        cursor: str | None,
+    ) -> None:
+        _authorize_profile(principal, profile_id)
+        parsed_cursor = NotificationCursor.decode(
+            cursor, expected_profile_id=profile_id
+        )
+        if parsed_cursor is None:
+            return
+        with self._uow_factory() as uow:
+            valid = uow.notifications.validate_agent_cursor(
+                profile_id=profile_id,
+                channel_instance_id=self._channel_instance_id,
+                after_sequence=parsed_cursor.profile_sequence,
+                after_event_id=parsed_cursor.event_id,
+            )
+            uow.commit()
+        if not valid:
+            raise NotificationCursorError("Cursor отсутствует в durable Agent history.")
 
     def acknowledge(
         self, principal: DesktopAgentPrincipal, ack: NotificationAgentAck
@@ -504,7 +553,9 @@ class DesktopAgentHistoryService:
             attributes={"channel_type": DESKTOP_AGENT_CHANNEL_TYPE},
         ), self._uow_factory() as uow:
             result = uow.notifications.acknowledge_agent_delivery(
-                ack, now=_utc(self._clock())
+                ack,
+                now=_utc(self._clock()),
+                channel_instance_id=self._channel_instance_id,
             )
             if result.status in {
                 NotificationAgentAckStatus.ACKNOWLEDGED,
@@ -524,14 +575,15 @@ class DesktopAgentHistoryService:
         source = str(frame.document["event_source"])
         delivery_id = UUID(str(frame.document["delivery_id"]))
         with self._uow_factory() as uow:
-            deliveries = uow.notifications.list_deliveries(
-                source=source, event_id=event_id
+            delivery = uow.notifications.get_agent_delivery_state(
+                profile_id=str(frame.document["profile_id"]),
+                channel_instance_id=self._channel_instance_id,
+                delivery_id=delivery_id,
+                event_id=event_id,
+                event_source=source,
             )
             uow.commit()
-        return next(
-            (delivery for delivery in deliveries if delivery.id == delivery_id),
-            None,
-        )
+        return delivery
 
 
 class NotificationHandoverWaiter:
@@ -581,7 +633,14 @@ class NotificationHandoverWaiter:
                 )
             except StorageError:
                 return replace(published, outcome=HandoverNotificationOutcome.FAILED)
+            if self._deadline_reached(caller_deadline, monotonic_deadline):
+                return replace(published, outcome=HandoverNotificationOutcome.FAILED)
             if _delivery_proof(deliveries, caller_deadline):
+                # Чтение DB и проверка proof отделены от caller deadline.
+                # Повторная проверка перед успехом не даёт позднему ACK
+                # возобновить handover.
+                if self._deadline_reached(caller_deadline, monotonic_deadline):
+                    return replace(published, outcome=HandoverNotificationOutcome.FAILED)
                 return HandoverNotificationResult(
                     HandoverNotificationOutcome.DELIVERED,
                     published.publish_result,
@@ -595,6 +654,14 @@ class NotificationHandoverWaiter:
             if remaining <= 0:
                 return replace(published, outcome=HandoverNotificationOutcome.FAILED)
             self._sleep(min(self._poll_seconds, remaining))
+
+    def _deadline_reached(
+        self, caller_deadline: datetime, monotonic_deadline: float
+    ) -> bool:
+        return (
+            self._monotonic() >= monotonic_deadline
+            or _utc(self._clock()) >= caller_deadline
+        )
 
     def _deliveries(self, event: NotificationEvent) -> tuple[NotificationStoredDelivery, ...]:
         with self._uow_factory() as uow:
@@ -624,6 +691,8 @@ class DesktopAgentNotificationRuntime:
         self._telemetry = telemetry
         self._stop_event = threading.Event()
         self._wake_event = threading.Event()
+        self._session_lock = threading.Lock()
+        self._sessions: dict[tuple[str, str], UUID] = {}
         self._worker: threading.Thread | None = None
         self._fatal_stop_reason: str | None = None
         self._authenticator = DesktopAgentAuthenticator(credential)
@@ -699,6 +768,43 @@ class DesktopAgentNotificationRuntime:
     def profiles(self) -> tuple[str, ...]:
         return tuple(sorted(self._credential.profiles)) if self._credential else ()
 
+    def open_agent_session(
+        self, principal: DesktopAgentPrincipal, *, profile_id: str
+    ) -> UUID:
+        """Создать server-issued session identity для одной profile connection."""
+
+        if not self.enabled:
+            raise DesktopAgentUnavailableError("Desktop Agent channel не настроен.")
+        _authorize_profile(principal, profile_id)
+        session_epoch = uuid4()
+        with self._session_lock:
+            self._sessions[(principal.agent_id, profile_id)] = session_epoch
+        return session_epoch
+
+    def is_agent_session_current(
+        self,
+        principal: DesktopAgentPrincipal,
+        *,
+        profile_id: str,
+        session_epoch: UUID,
+    ) -> bool:
+        if not isinstance(session_epoch, UUID):
+            return False
+        with self._session_lock:
+            return self._sessions.get((principal.agent_id, profile_id)) == session_epoch
+
+    def close_agent_session(
+        self,
+        principal: DesktopAgentPrincipal,
+        *,
+        profile_id: str,
+        session_epoch: UUID,
+    ) -> None:
+        with self._session_lock:
+            key = (principal.agent_id, profile_id)
+            if self._sessions.get(key) == session_epoch:
+                self._sessions.pop(key, None)
+
     def start(self) -> None:
         if not self._enabled or self._worker is not None:
             return
@@ -720,6 +826,8 @@ class DesktopAgentNotificationRuntime:
         self._worker = None
         if worker is not None:
             worker.join(timeout=5.0)
+        with self._session_lock:
+            self._sessions.clear()
         if self._enabled:
             _record_agent_connection(self._telemetry, "stopped")
 
@@ -752,11 +860,43 @@ class DesktopAgentNotificationRuntime:
         profile_id: str,
         cursor: str | None,
         limit: int,
+        session_epoch: UUID | None = None,
     ) -> tuple[DesktopAgentDeliveryFrame, ...]:
         if not self.enabled:
             raise DesktopAgentUnavailableError("Desktop Agent channel не настроен.")
+        _authorize_profile(principal, profile_id)
+        if session_epoch is None:
+            with self._session_lock:
+                session_epoch = self._sessions.get((principal.agent_id, profile_id))
+            if session_epoch is None:
+                session_epoch = self.open_agent_session(principal, profile_id=profile_id)
+        elif not self.is_agent_session_current(
+            principal,
+            profile_id=profile_id,
+            session_epoch=session_epoch,
+        ):
+            raise DesktopAgentAuthorizationError("Agent session identity устарела.")
         return self._history.read(
-            principal, profile_id=profile_id, cursor=cursor, limit=limit
+            principal,
+            profile_id=profile_id,
+            cursor=cursor,
+            limit=limit,
+            session_epoch=session_epoch,
+        )
+
+    def validate_agent_cursor(
+        self,
+        principal: DesktopAgentPrincipal,
+        *,
+        profile_id: str,
+        cursor: str | None,
+    ) -> None:
+        if not self.enabled:
+            raise DesktopAgentUnavailableError("Desktop Agent channel не настроен.")
+        self._history.validate_cursor(
+            principal,
+            profile_id=profile_id,
+            cursor=cursor,
         )
 
     def acknowledge_agent(
@@ -764,6 +904,18 @@ class DesktopAgentNotificationRuntime:
     ) -> NotificationAgentAckResult:
         if not self.enabled:
             raise DesktopAgentUnavailableError("Desktop Agent channel не настроен.")
+        _authorize_profile(principal, ack.profile_id)
+        if ack.agent_id != principal.agent_id:
+            raise DesktopAgentAuthorizationError("Agent identity ACK не совпадает с credential.")
+        if not self.is_agent_session_current(
+            principal,
+            profile_id=ack.profile_id,
+            session_epoch=ack.session_epoch,
+        ):
+            return NotificationAgentAckResult(
+                NotificationAgentAckStatus.REJECTED,
+                "session_identity_mismatch",
+            )
         return self._history.acknowledge(principal, ack)
 
     def delivery_state(
@@ -771,6 +923,14 @@ class DesktopAgentNotificationRuntime:
     ) -> NotificationStoredDelivery | None:
         if not self.enabled:
             raise DesktopAgentUnavailableError("Desktop Agent channel не настроен.")
+        profile_id = str(frame.document["profile_id"])
+        session_epoch = UUID(str(frame.document["session_epoch"]))
+        if not self.is_agent_session_current(
+            principal,
+            profile_id=profile_id,
+            session_epoch=session_epoch,
+        ):
+            raise DesktopAgentAuthorizationError("Agent session identity устарела.")
         return self._history.delivery_state(principal, frame)
 
     def notify_preemption(
@@ -972,7 +1132,7 @@ def _delivery_proof(
 ) -> bool:
     return bool(deliveries) and all(
         delivery.state is DeliveryState.DELIVERED
-        and delivery.updated_at <= deadline
+        and delivery.updated_at < deadline
         for delivery in deliveries
     )
 
@@ -1025,6 +1185,7 @@ __all__ = [
     "DESKTOP_AGENT_STREAM_PATH",
     "MAX_AGENT_ACK_BODY_BYTES",
     "MAX_AGENT_BATCH_SIZE",
+    "RECOVERABLE_AGENT_ACK_REASONS",
     "DesktopAgentAuthenticator",
     "DesktopAgentAuthorizationError",
     "DesktopAgentChannel",

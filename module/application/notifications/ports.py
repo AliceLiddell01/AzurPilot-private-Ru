@@ -95,11 +95,35 @@ class NotificationRepository(Protocol):
         """Вернуть строки строго по возрастанию `(profile_sequence, event_id)`."""
         ...
 
+    def validate_agent_cursor(
+        self,
+        *,
+        profile_id: str,
+        channel_instance_id: str,
+        after_sequence: int,
+        after_event_id: UUID,
+    ) -> bool:
+        """Проверить cursor по authoritative durable history."""
+        ...
+
+    def get_agent_delivery_state(
+        self,
+        *,
+        profile_id: str,
+        channel_instance_id: str,
+        delivery_id: UUID,
+        event_id: UUID,
+        event_source: str,
+    ) -> NotificationStoredDelivery | None:
+        """Вернуть delivery только в authenticated profile/channel scope."""
+        ...
+
     def acknowledge_agent_delivery(
         self,
         ack: NotificationAgentAck,
         *,
         now: datetime,
+        channel_instance_id: str,
     ) -> NotificationAgentAckResult:
         """Записать ACK без commit; решение о commit/rollback принимает caller."""
         ...

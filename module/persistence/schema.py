@@ -29,7 +29,7 @@ from module.application.resource_fields import RESOURCE_FIELDS
 from module.application.storage_models import MonthlyMetric
 
 SCHEMA_NAME = "azurpilot"
-EXPECTED_ALEMBIC_HEAD = "0010_notification_agent_ack"
+EXPECTED_ALEMBIC_HEAD = "0011_agent_session_identity"
 
 NAMING_CONVENTION = {
     "ix": "ix_%(table_name)s_%(column_0_N_name)s",
@@ -1251,7 +1251,6 @@ notification_agent_ack = Table(
     CheckConstraint("btrim(event_source) <> ''", name="event_source_not_blank"),
     CheckConstraint("btrim(profile_id) <> ''", name="profile_not_blank"),
     CheckConstraint("btrim(agent_id) <> ''", name="agent_id_not_blank"),
-    CheckConstraint("lease_token = session_epoch", name="session_epoch_matches_lease"),
     CheckConstraint(
         "payload_digest ~ '^[0-9a-f]{64}$'", name="payload_digest_format"
     ),

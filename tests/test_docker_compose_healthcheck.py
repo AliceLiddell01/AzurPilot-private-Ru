@@ -121,6 +121,8 @@ def test_caddy_is_pinned_profiled_and_keeps_mcp_backends_host_side():
     assert "host.docker.internal:8765" in caddyfile
     assert "host.docker.internal:8766" in caddyfile
     assert "path /api/notification-agent/*" in caddyfile
+    assert "not path /api/notification-agent/*" in caddyfile
+    assert "encode @compressed gzip" in caddyfile
     assert "flush_interval -1" in caddyfile
     assert "stream_timeout 210s" in caddyfile
     assert "reverse_proxy 127.0.0.1:8765" not in caddyfile

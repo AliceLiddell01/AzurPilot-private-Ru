@@ -1549,6 +1549,35 @@ async def api_notification_agent_stream(request):
             {"success": False, "error": "Desktop Agent profile authorization failed"},
             status_code=403,
         )
+    try:
+        runtime.validate_agent_cursor(
+            principal,
+            profile_id=profile,
+            cursor=cursor,
+        )
+    except DesktopAgentRequestError:
+        return JSONResponse(
+            {"success": False, "error": "Desktop Agent stream request is invalid"},
+            status_code=400,
+        )
+    except StorageUnavailableError:
+        return _agent_unavailable_response()
+    except StorageError:
+        return JSONResponse(
+            {"success": False, "error": "Notification storage unavailable"},
+            status_code=503,
+        )
+    except DesktopAgentError:
+        return _agent_unavailable_response()
+    try:
+        session_epoch = runtime.open_agent_session(principal, profile_id=profile)
+    except DesktopAgentAuthorizationError:
+        return JSONResponse(
+            {"success": False, "error": "Desktop Agent profile authorization failed"},
+            status_code=403,
+        )
+    except DesktopAgentError:
+        return _agent_unavailable_response()
 
     async def event_generator():
         started = time.monotonic()
@@ -1560,6 +1589,12 @@ async def api_notification_agent_stream(request):
         try:
             while time.monotonic() - started < AGENT_STREAM_MAX_SECONDS:
                 if await request.is_disconnected():
+                    break
+                if not runtime.is_agent_session_current(
+                    principal,
+                    profile_id=profile,
+                    session_epoch=session_epoch,
+                ):
                     break
                 try:
                     if pending is not None:
@@ -1593,6 +1628,7 @@ async def api_notification_agent_stream(request):
                         cursor=current_cursor,
                         # Один frame удерживает bounded flow-control до явного ACK.
                         limit=1,
+                        session_epoch=session_epoch,
                     )
                     if frames:
                         _record_agent_telemetry(
@@ -1617,6 +1653,11 @@ async def api_notification_agent_stream(request):
                     _record_agent_telemetry(runtime, "record_agent_backlog", status="error")
                     break
         finally:
+            runtime.close_agent_session(
+                principal,
+                profile_id=profile,
+                session_epoch=session_epoch,
+            )
             _record_agent_telemetry(runtime, "record_agent_connection", status="stopped")
 
     return StreamingResponse(

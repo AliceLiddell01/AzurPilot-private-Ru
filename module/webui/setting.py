@@ -176,6 +176,7 @@ class State:
     process_registry = None
     _runtime_control_server = None
     _notification_runtime = None
+    _desktop_agent_runtime = None
     electron: bool = False
     webui_host: str = None
     theme: str = "default"
@@ -223,12 +224,15 @@ class State:
         return f"static/assets/spa/{name}"
     
     @classmethod
-    def init(cls, *, notification_runtime=None):
+    def init(cls, *, notification_runtime=None, desktop_agent_runtime=None):
         cls._clearup = False
         cls._restart_requested = False
         previous_server = cls._runtime_control_server
         cls._runtime_control_server = None
         _close_runtime_control_server(previous_server)
+        previous_desktop_agent_runtime = cls._desktop_agent_runtime
+        cls._desktop_agent_runtime = None
+        _stop_notification_runtime(previous_desktop_agent_runtime)
         previous_notification_runtime = cls._notification_runtime
         cls._notification_runtime = None
         _stop_notification_runtime(previous_notification_runtime)
@@ -262,16 +266,23 @@ class State:
             server = owner.start_server()
             cls._runtime_control_server = server
             cls._notification_runtime = notification_runtime
+            cls._desktop_agent_runtime = desktop_agent_runtime
             if notification_runtime is not None:
                 start = getattr(notification_runtime, "start", None)
+                if callable(start):
+                    start()
+            if desktop_agent_runtime is not None:
+                start = getattr(desktop_agent_runtime, "start", None)
                 if callable(start):
                     start()
         except Exception:
             # Нельзя оставлять worker registry owner без control server: это
             # создало бы невидимый и неуправляемый runtime.
             cls._notification_runtime = None
+            cls._desktop_agent_runtime = None
             _close_runtime_control_server(server)
             _stop_notification_runtime(notification_runtime)
+            _stop_notification_runtime(desktop_agent_runtime)
             try:
                 from module.webui.worker_registry import clear_owner
 
@@ -308,6 +319,9 @@ class State:
         cls._clearup = True
         server = cls._runtime_control_server
         cls._runtime_control_server = None
+        desktop_agent_runtime = cls._desktop_agent_runtime
+        cls._desktop_agent_runtime = None
+        _stop_notification_runtime(desktop_agent_runtime)
         _close_runtime_control_server(server)
         notification_runtime = cls._notification_runtime
         cls._notification_runtime = None

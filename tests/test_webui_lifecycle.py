@@ -73,6 +73,7 @@ class TestWebUIState(unittest.TestCase):
         self.original_registry = State.process_registry
         self.original_runtime_control_server = State._runtime_control_server
         self.original_notification_runtime = State._notification_runtime
+        self.original_desktop_agent_runtime = State._desktop_agent_runtime
         State._clearup = False
 
     def tearDown(self):
@@ -88,6 +89,14 @@ class TestWebUIState(unittest.TestCase):
                     stop()
         finally:
             State._notification_runtime = self.original_notification_runtime
+        current_desktop_agent_runtime = State._desktop_agent_runtime
+        try:
+            if current_desktop_agent_runtime is not self.original_desktop_agent_runtime:
+                stop = getattr(current_desktop_agent_runtime, "stop", None)
+                if callable(stop):
+                    stop()
+        finally:
+            State._desktop_agent_runtime = self.original_desktop_agent_runtime
         State._clearup = self.original_clearup
         State.manager = self.original_manager
         State.process_registry = self.original_registry
@@ -161,6 +170,27 @@ class TestWebUIState(unittest.TestCase):
         self.assertIs(owner_factory.call_args.kwargs["notification_service"], runtime)
         runtime.start.assert_called_once_with()
         self.assertIs(State._notification_runtime, runtime)
+
+    def test_init_injects_and_starts_desktop_agent_runtime(self):
+        manager = Mock()
+        manager.dict.return_value = {}
+        server = Mock()
+        owner = Mock()
+        owner.start_server.return_value = server
+        desktop_agent = Mock()
+
+        with (
+            patch("module.webui.setting.multiprocessing.Manager", return_value=manager),
+            patch("module.webui.worker_registry.claim_owner"),
+            patch(
+                "module.webui.runtime_control_owner.WebUIRuntimeControlOwner",
+                return_value=owner,
+            ),
+        ):
+            State.init(desktop_agent_runtime=desktop_agent)
+
+        desktop_agent.start.assert_called_once_with()
+        self.assertIs(State._desktop_agent_runtime, desktop_agent)
 
     def test_dependency_sync_pending_marker_lifecycle(self):
         with tempfile.TemporaryDirectory() as directory:

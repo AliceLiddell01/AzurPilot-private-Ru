@@ -5,7 +5,8 @@
 
 # Публичный Dev MCP. Backend остаётся host-side и слушает только 127.0.0.1:8765.
 {$AZURPILOT_CADDY_HOST} {
-	encode gzip
+	@compressed not path /api/notification-agent/*
+	encode @compressed gzip
 	header Cache-Control "no-store"
 
 	# Access log отключён, чтобы Authorization не попадал в журналы reverse proxy.
