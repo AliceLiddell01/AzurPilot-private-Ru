@@ -688,8 +688,6 @@ class DesktopAgentClientRuntime:
             _record_client_telemetry(
                 self._telemetry, "record_agent_connection", status="unavailable"
             )
-        finally:
-            self._thread = None
 
 
 def present_desktop_agent_notification(document: Mapping[str, object]) -> None:

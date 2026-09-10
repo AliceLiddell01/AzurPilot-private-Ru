@@ -1550,7 +1550,8 @@ async def api_notification_agent_stream(request):
             status_code=403,
         )
     try:
-        runtime.validate_agent_cursor(
+        await asyncio.to_thread(
+            runtime.validate_agent_cursor,
             principal,
             profile_id=profile,
             cursor=cursor,
@@ -1570,7 +1571,11 @@ async def api_notification_agent_stream(request):
     except DesktopAgentError:
         return _agent_unavailable_response()
     try:
-        session_epoch = runtime.open_agent_session(principal, profile_id=profile)
+        session_epoch = await asyncio.to_thread(
+            runtime.open_agent_session,
+            principal,
+            profile_id=profile,
+        )
     except DesktopAgentAuthorizationError:
         return JSONResponse(
             {"success": False, "error": "Desktop Agent profile authorization failed"},
@@ -1590,7 +1595,8 @@ async def api_notification_agent_stream(request):
             while time.monotonic() - started < AGENT_STREAM_MAX_SECONDS:
                 if await request.is_disconnected():
                     break
-                if not runtime.is_agent_session_current(
+                if not await asyncio.to_thread(
+                    runtime.is_agent_session_current,
                     principal,
                     profile_id=profile,
                     session_epoch=session_epoch,
@@ -1654,7 +1660,8 @@ async def api_notification_agent_stream(request):
                     break
         finally:
             try:
-                runtime.close_agent_session(
+                await asyncio.to_thread(
+                    runtime.close_agent_session,
                     principal,
                     profile_id=profile,
                     session_epoch=session_epoch,

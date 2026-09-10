@@ -541,15 +541,12 @@ class _MemoryRepository:
                 for sequence, event_bytes in unresolved_positions
             )
             result: list[NotificationAgentDelivery] = []
-            for delivery in ordered:
+            for delivery in scoped:
                 event = self.events[(delivery.event_source, delivery.event_id)]
                 sequence = event.event.profile_sequence or 0
                 event_position = (sequence, event.event.id.bytes)
                 if (
-                    event.event.profile_id != profile_id
-                    or delivery.channel_instance_id != channel_instance_id
-                    or delivery.channel_type != DESKTOP_AGENT_CHANNEL_TYPE
-                    or any(position < event_position for position in unresolved_positions)
+                    any(position < event_position for position in unresolved_positions)
                     or delivery.state is not DeliveryState.AWAITING_AGENT_ACK
                     or delivery.lease_token is None
                     or delivery.lease_until is None

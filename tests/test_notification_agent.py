@@ -603,6 +603,24 @@ def test_runtime_stop_does_not_allow_a_second_dispatcher_start() -> None:
     runtime, _repository = _runtime()
     worker_started = Event()
     release_worker = Event()
+    stop_signaled = Event()
+    original_stop_event = runtime._stop_event
+
+    class SignalingStopEvent:
+        def clear(self) -> None:
+            original_stop_event.clear()
+
+        def set(self) -> None:
+            stop_signaled.set()
+            original_stop_event.set()
+
+        def is_set(self) -> bool:
+            return original_stop_event.is_set()
+
+        def wait(self, timeout: float | None = None) -> bool:
+            return original_stop_event.wait(timeout)
+
+    runtime._stop_event = SignalingStopEvent()
 
     def blocking_worker() -> None:
         worker_started.set()
@@ -614,12 +632,11 @@ def test_runtime_stop_does_not_allow_a_second_dispatcher_start() -> None:
 
     stopping = Thread(target=runtime.stop)
     stopping.start()
-    deadline = time.monotonic() + 1.0
-    while not runtime._worker_stopping and time.monotonic() < deadline:
-        time.sleep(0.001)
-    worker = runtime._worker
-    assert runtime._worker_stopping is True
-    assert worker is not None
+    assert stop_signaled.wait(timeout=1.0)
+    with runtime._worker_lock:
+        worker = runtime._worker
+        assert runtime._worker_stopping is True
+        assert worker is not None
 
     runtime.start()
     assert runtime._worker is worker

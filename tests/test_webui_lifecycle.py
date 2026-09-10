@@ -193,6 +193,37 @@ class TestWebUIState(unittest.TestCase):
         desktop_agent.start.assert_called_once_with()
         self.assertIs(State._desktop_agent_runtime, desktop_agent)
 
+    def test_init_rolls_back_both_runtimes_when_notification_start_fails(self):
+        manager = Mock()
+        manager.dict.return_value = {}
+        server = Mock()
+        owner = Mock()
+        owner.start_server.return_value = server
+        notification_runtime = Mock()
+        notification_runtime.start.side_effect = RuntimeError("start failed")
+        desktop_agent = Mock()
+
+        with (
+            patch("module.webui.setting.multiprocessing.Manager", return_value=manager),
+            patch("module.webui.worker_registry.claim_owner"),
+            patch(
+                "module.webui.runtime_control_owner.WebUIRuntimeControlOwner",
+                return_value=owner,
+            ),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "start failed"):
+                State.init(
+                    notification_runtime=notification_runtime,
+                    desktop_agent_runtime=desktop_agent,
+                )
+
+        self.assertIsNone(State._notification_runtime)
+        self.assertIsNone(State._desktop_agent_runtime)
+        self.assertIsNone(State.get_notification_runtime())
+        notification_runtime.stop.assert_called_once_with()
+        desktop_agent.stop.assert_called_once_with()
+        desktop_agent.start.assert_not_called()
+
     def test_dependency_sync_pending_marker_lifecycle(self):
         with tempfile.TemporaryDirectory() as directory:
             marker = os.path.join(directory, "dependency-sync-pending")
