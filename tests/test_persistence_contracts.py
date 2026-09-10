@@ -440,6 +440,11 @@ class SchemaMetadataTests(unittest.TestCase):
             "dorm_morale_scan_observation",
             "formation_surface_fleet_scan_command",
             "formation_surface_fleet_scan_command_fleet",
+            "notification_event",
+            "notification_policy_decision",
+            "notification_delivery",
+            "notification_delivery_attempt",
+            "notification_profile_sequence",
         }
         self.assertEqual({table.name for table in metadata.tables.values()}, expected)
         self.assertTrue(
@@ -508,14 +513,24 @@ class SchemaMetadataTests(unittest.TestCase):
         self.assertTrue(expressions)
         self.assertEqual(set(re.findall(r"'([^']+)'", expressions[-1])), expected)
 
-    def test_json_is_limited_to_quarantine_metadata(self):
+    def test_json_columns_are_limited_to_allowed_set(self):
         json_columns = {
             (table.name, column.name)
             for table in metadata.tables.values()
             for column in table.columns
             if column.type.__class__.__name__ in {"JSON", "JSONB"}
         }
-        self.assertEqual(json_columns, {("import_record", "quarantine_metadata")})
+        self.assertEqual(
+            json_columns,
+            {
+                ("import_record", "quarantine_metadata"),
+                ("notification_event", "payload"),
+                ("notification_event", "correlation"),
+                ("notification_policy_decision", "channel_instance_ids"),
+                ("notification_policy_decision", "policy_snapshot"),
+                ("notification_delivery", "rendered_snapshot"),
+            },
+        )
 
     def test_temporal_and_json_constraints_are_semantic(self):
         for table_name in (

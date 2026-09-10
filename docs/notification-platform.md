@@ -1,7 +1,9 @@
 # Платформа уведомлений AzurPilot
 
-Статус документа: архитектурный контракт Stage 1. Production-реализация новой
-платформы уведомлений этим изменением не добавляется.
+Статус документа: архитектурный контракт Stage 1 и фактическая граница
+реализации Stage 2. Stage 2 добавляет только durable typed foundation;
+production adapters, producer cutover и handover wiring остаются будущими
+этапами.
 
 ## 1. Контекст аудита и границы
 
@@ -490,8 +492,9 @@ deadline_at        required UTC deadline, within caller deadline and <= 300 sec
 ~~~
 
 Payload использует canonical encoding и ограничен initial target 4 KiB; строки
-имеют индивидуальные bounded limits, а свободные dict/list и raw exception,
-device id, screenshot, credentials и config запрещены. `occurred_at` является
+имеют индивидуальные bounded limits, а каждая вложенная mapping/sequence также
+ограничена 256 items до полной сериализации. Свободные dict/list и raw
+exception, device id, screenshot, credentials и config запрещены. `occurred_at` является
 requested time и не дублируется в data. `dedup_key` равен operation_id, поэтому
 retry publisher возвращает exact existing result, а изменение любого
 immutable field или payload_digest даёт identity_conflict без republish.
@@ -635,10 +638,14 @@ retry budget. Для Telegram/Webhook capability receipt=provider_acceptance
 
 #### DeliveryAttempt
 
-Append-only audit фактической попытки: ordinal, start/finish time, result
-class, safe error code, bounded retry-after, provider message id при наличии,
-lease token и trace correlation. Raw response body, authorization header,
-credentials и секретные URL не сохраняются.
+Append-only audit durable dispatch attempt: строка создаётся атомарно вместе с
+успешным claim, до внешнего provider call. В ней хранятся ordinal,
+start/finish time, result class, safe error code, bounded retry-after, provider
+message id при наличии, lease token и trace correlation. После commit claim
+внешний side effect может произойти до, во время или после crash, поэтому
+recovery сохраняет at-least-once semantics и тот же idempotency key. Raw
+response body, authorization header, credentials и секретные URL не
+сохраняются.
 
 #### Suppression / terminal failure
 
@@ -672,6 +679,8 @@ PROVIDER_ACCEPTED; channel adapter может вернуть DELIVERED толь�
 Dispatcher атомарно claim-ит PENDING/RETRY_WAIT rows с due
 next_attempt_at, выставляет owner/token/deadline и коммитит claim до внешнего
 вызова. После результата запись обновляется только при совпадении lease_token.
+`worker_id`, если задан явно, обязан быть непустым bounded token длиной не более
+128 символов; автоматически созданный id соблюдает тот же контракт.
 
 Crash с IN_FLIGHT не теряет работу: после lease_until отдельный recovery scan
 переводит её в RETRY_WAIT или FAILED по retry budget. Это at-least-once
@@ -679,7 +688,7 @@ attempt semantics. Старый worker может завершить внешн�
 lease, поэтому channel idempotency key и consumer/provider dedup обязательны.
 
 Retry policy хранит bounded max attempts, exponential backoff с jitter,
-absolute deadline и channel-specific classification. 429 использует bounded
+absolute deadline, bounded agent ACK timeout и channel-specific classification. 429 использует bounded
 Retry-After только в разрешённом диапазоне; timeout/reset/5xx обычно
 transient; invalid credentials, invalid destination и schema rejection обычно
 permanent. Точное значение budget и SLO требует Stage 2 load/chaos evidence.
@@ -692,6 +701,13 @@ lease_token, payload digest, connection/session epoch и срок действи
 может оставить delivery навсегда в ожидании: recovery переводит её в RETRY_WAIT
 или FAILED, после чего обычный
 lease claim выполняет повторную попытку с тем же idempotency key.
+
+`NotificationDispatcher.dispatch_once()` возвращает bounded `DispatchReport`:
+`updated` отражает durable result update, `stale_updates` — отклонённые lease
+token, а `failed` — элементы с исключением adapter, channel contract или
+storage update. Ошибка одного элемента не прерывает уже claim-нутый batch;
+ошибка `channel.send` сначала переводится в безопасный typed unavailable result,
+а lease остаётся доступным для bounded recovery, если durable update не удался.
 
 ### [Внешний design reference] Transactional outbox
 
@@ -740,8 +756,9 @@ Handover передаёт bounded deadline, ограниченный сущес�
 - backend restart, после которого нельзя доказать текущий operation state.
 
 При таком результате текущий worker не quiesce-ится и не вытесняется. Durable
-delivery продолжает retry независимо от уже завершённого failed handover, но
-late success не меняет исход старой операции.
+delivery продолжает retry до собственного retry budget/deadline независимо от
+уже завершённого failed handover, но late success не меняет исход старой
+операции.
 
 ### [Решение] Disconnect, duplicate и late ACK
 
@@ -845,6 +862,11 @@ COMMIT;
 для конкурирующих queue-like workers, но не обещает глобальный порядок при
 нескольких workers. Если порядок нужен, он определяется per profile/subject
 sequence и отдельным acceptance test; global total order не обещается.
+
+В реализации Stage 2 просроченные `PENDING/RETRY_WAIT` сначала атомарно
+переводятся в `FAILED` с bounded `delivery_deadline_expired`, а в active claim
+попадают только rows с `deadline_at` в будущем. `lease_until` и
+`PreparedDelivery.timeout_seconds` не выходят за оставшееся до deadline время.
 
 Lock предотвращает concurrent claim только в пределах короткой transaction,
 пока lease активен; lease token fencing защищает durable state update от
@@ -1103,10 +1125,14 @@ redaction.
 | notification_delivery_attempt_total | channel_type, result_class |
 | notification_retry_total | channel_type, reason |
 | notification_delivery_latency_seconds | channel_type, result_class |
-| notification_backlog_age_seconds | channel_type, state |
 | notification_channel_health | channel_type, health_state |
 | notification_agent_ack_timeout_total | channel_type, reason |
 | notification_event_rejected_total | source_domain, reason |
+
+`notification_backlog_age_seconds` пока не экспортируется: в Stage 2 нет
+production sampling path, который достоверно измеряет backlog без UUID labels.
+Metric можно добавить в следующем этапе только вместе с bounded observation
+path и тестом его фактического call site.
 
 Не помещать в Prometheus labels notification_id, delivery_id, trace_id,
 arbitrary title/message или неограниченный profile data. Profile/event/delivery
@@ -1395,3 +1421,89 @@ PROVIDER_ACCEPTED и human-readable intent этого не делают.
 Stage 1 остаётся documentation-only. Любое изменение runtime, persistence,
 transport, producer или config semantics требует отдельного implementation
 этапа с собственным exact-head review, CI и live acceptance.
+
+## 23. Фактическая граница Stage 2 implementation
+
+### [Факт] Durable foundation
+
+В Stage 2 добавлены `module.application.notifications` и PostgreSQL adapter
+`PostgresNotificationRepository`. Migration `0009_notification_foundation`
+создаёт event, policy decision, delivery, append-only attempt и per-profile
+sequence allocator в schema `azurpilot`. Публикация выполняет validation,
+deduplication, policy snapshot и создание delivery в одной короткой
+транзакции; внешний channel вызывается только после commit dispatcher claim.
+
+### [Факт] Безопасная граница транспорта
+
+Зарегистрирован typed descriptor только для
+`runtime.handover.preemption_requested/v1`; остальные initial taxonomy entries
+явно deferred до producer migration и не принимают generic payload. В текущей
+ветке нет Desktop Agent, Telegram, Webhook или OnePush adapter, а production
+channel registry по умолчанию пуст. `PROVIDER_ACCEPTED` остаётся
+промежуточным состоянием, а `DELIVERED` требует Agent ACK capability.
+
+### [Факт] Незатронутые legacy boundaries
+
+`State.init`, `WebUIRuntimeControlOwner`, `handle_notify`, `notify_webui`,
+`_notification_queue`, существующие user config keys и PR #177 не подключены к
+новому foundation. Текущий PR #177 остаётся отдельным busy-handover blocker:
+`ACCEPTED` legacy fallback не является доказательством `DELIVERED`; его
+production wiring переносится в Stage 3 после authenticated Agent receipt.
+
+## 24. Stage 2 fix-loop closure
+
+### [Факт] Durable identity и exact retry
+
+Публичная occurrence identity имеет форму `(source, event.id)`; одинаковый
+UUID из разных источников не сталкивается. Внутренний `notification_event.row_id`
+является единственным FK target для policy и delivery. Логический dedup
+использует `(source, profile_id, type, dedup_key)`.
+
+До текущих policy, renderer и deadline вычислений publisher читает durable
+identity. После commit exact retry возвращает сохранённый event, decision и
+delivery bundle даже при изменившемся времени или policy; новые rows, reroute и
+повторный render не создаются. PostgreSQL unique constraints и savepoint
+conflict path закрывают race между конкурентными publishers.
+
+### [Факт] Attempts, ACK lease и capability boundary
+
+`notification_delivery_attempt` создаётся при успешном durable claim до
+фактического provider send. Crash до, во время или после внешнего вызова может
+оставить side effect неизвестным; recovery поэтому использует at-least-once
+semantics и stable idempotency key. Истечение pending deadline переводит
+delivery в `FAILED` без synthetic attempt; истечение Agent ACK lease не
+увеличивает `attempt_count` и не создаёт новую attempt. `AWAITING_AGENT_ACK`
+сохраняет текущий lease token до recovery, после чего token инвалидируется;
+следующий claim получает новый token и новый ordinal.
+Dispatcher claim-ит по одной delivery за lease window, а `batch_size` ограничивает
+число последовательных delivery в одном проходе; lease уже выбранных соседних
+сообщений не расходуется во время provider send.
+
+Handover publication требует typed `HandoverPublishContext`, caller deadline,
+`handover_receipt` context capability и typed channel receipt strength не ниже
+`AGENT_ACK`. Generic `publish(event)` не может обойти это требование, а
+registered channel с одной только строковой capability fail-closed. Stage 2 не
+добавляет production Agent или ACK endpoint.
+
+### [Факт] Typed storage и bounded failure
+
+Каждый publishable descriptor обязан иметь typed deserializer. Чтение неизвестной
+или повреждённой stored schema завершается invariant failure без generic `dict`
+fallback. После typed deserialization stored payload повторно проходит
+descriptor semantic validator и canonical reserialization; согласованный digest
+не заменяет эту проверку. Application и persistence используют один bounded
+`DeliveryResult` validator: provider identifier обязан быть безопасным bounded
+token (например, `tokenizer-v1`), а secret-подобные значения и URL отклоняются.
+Storage
+authentication/configuration/schema/conflict/invalid errors
+маппятся в bounded `PublishResult`; только временная недоступность получает
+`UNAVAILABLE`, а durable invariant violation пробрасывается fail-closed.
+
+### [Факт] Verification boundary
+
+Unit tests разделены по registry, policy, publisher и dispatcher responsibilities;
+PostgreSQL integration tests покрывают concurrent identity, exact retry after
+commit, source-scoped UUID, real-attempt budget, ACK recovery, stale token,
+unknown stored schema и crash-after-commit recovery. Migration `0009` остаётся
+unshipped до отдельного release lifecycle и проходит upgrade/downgrade/check
+только на disposable PostgreSQL 18 target.

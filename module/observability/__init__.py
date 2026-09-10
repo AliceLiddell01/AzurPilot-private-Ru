@@ -5,6 +5,7 @@ from module.observability.bootstrap import (
     shutdown_application_observability,
 )
 from module.observability.metrics import mark_task_stopped as _mark_metrics_task_stopped
+from module.observability.notifications import NotificationTelemetry
 from module.observability.scheduler import (
     get_current_task_name,
     scheduler_task_run,
@@ -20,6 +21,7 @@ def mark_task_stopped() -> None:
 
 
 __all__ = (
+    "NotificationTelemetry",
     "configure_application_observability",
     "get_current_task_name",
     "get_current_trace_context",
