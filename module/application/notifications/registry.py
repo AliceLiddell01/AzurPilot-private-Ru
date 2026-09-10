@@ -179,6 +179,8 @@ def _handover_deserializer(document: Mapping[str, object]) -> object:
     deadline_at = document["deadline_at"]
     if isinstance(deadline_at, str):
         deadline_at = datetime.fromisoformat(deadline_at)
+    if not isinstance(deadline_at, datetime) or deadline_at.utcoffset() is None:
+        raise ValueError
     return HandoverPreemptionPayload(
         operation_id=document["operation_id"],
         source_profile_id=document["source_profile_id"],

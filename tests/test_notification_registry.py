@@ -139,6 +139,17 @@ def test_registry_rejects_event_type_over_storage_limit() -> None:
         NotificationRegistry((descriptor,))
 
 
+def test_handover_deserializer_rejects_naive_deadline() -> None:
+    registry = build_default_registry()
+    _, document, _ = registry.validate(_event())
+    document["deadline_at"] = "2026-09-10T12:00:30"
+
+    with pytest.raises(NotificationValidationError, match="stored_payload_invalid"):
+        registry.require(
+            "runtime.handover.preemption_requested", 1
+        ).deserialize(document)
+
+
 def test_canonical_payload_rejects_non_finite_decimal_and_deep_nesting() -> None:
     assert canonical_json(Decimal("1E+2")) == b'"100"'
 

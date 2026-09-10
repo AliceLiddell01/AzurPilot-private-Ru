@@ -216,7 +216,7 @@ class PostgresNotificationRepository:
                     notification_delivery.c.deadline_at,
                     notification_delivery.c.id,
                 )
-                .with_for_update(skip_locked=True)
+                .with_for_update(skip_locked=True, of=notification_delivery)
                 .limit(batch_size)
             ).mappings().all()
             expired_ids = tuple(cast(UUID, row["id"]) for row in expired_rows)
@@ -407,6 +407,7 @@ class PostgresNotificationRepository:
                     notification_delivery_attempt.c.delivery_id == delivery_id,
                     notification_delivery_attempt.c.attempt_ordinal == attempt_ordinal,
                     notification_delivery_attempt.c.lease_token == lease_token,
+                    notification_delivery_attempt.c.finished_at.is_(None),
                 )
                 .values(
                     finished_at=now,
@@ -494,6 +495,7 @@ class PostgresNotificationRepository:
                             notification_delivery_attempt.c.attempt_ordinal
                             == delivery.attempt_count,
                             notification_delivery_attempt.c.lease_token == old_token,
+                            notification_delivery_attempt.c.finished_at.is_(None),
                         )
                         .values(
                             finished_at=now,
