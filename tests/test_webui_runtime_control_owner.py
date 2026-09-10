@@ -741,6 +741,22 @@ def test_owner_handover_warns_and_uses_cooperative_stop_before_ap_start(tmp_path
         "outcome": "delivered",
         "confirmed": True,
     }
+    trace = handover["details"]["trace"]
+    assert [item["phase"] for item in trace] == [
+        "handover_requested",
+        "preemption_notice",
+        "preemption_notice",
+        "grace_period",
+        "quiesce_requested",
+        "current_task_draining",
+        "current_task_stopped",
+        "returning_to_main",
+        "main_confirmed",
+    ]
+    assert [item["sequence"] for item in trace] == list(range(1, len(trace) + 1))
+    assert trace[2]["reason"] == "notification"
+    assert trace[2]["outcome"] == "delivered"
+    assert trace[2]["confirmed"] is True
     assert notifications and notifications[0][0] == "alas"
     assert [call[0] for call in user.calls] == ["cooperative_stop", "wait_for_exit"]
     assert application.returned_to_main == 1

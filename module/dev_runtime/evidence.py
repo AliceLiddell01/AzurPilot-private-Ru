@@ -128,6 +128,7 @@ _EVENT_FIELD_NAMES = frozenset(
         "state",
         "task",
         "task_mode",
+        "trace_sequence",
         "type",
     }
 )
@@ -2778,13 +2779,25 @@ class EvidenceStore:
         validate_profile: bool = True,
         log_file: Path | str | None = None,
     ) -> EvidenceStore:
-        return cls(
+        store = cls(
             environment,
             validate_session_id(session_id),
             profile_name=profile_name,
             validate_profile=validate_profile,
             log_file=log_file,
         )
+        if log_file is None and store.exists:
+            try:
+                with _exclusive_lock(store.lock_path, store.environment.repository_root):
+                    manifest = store._manifest_locked()
+                    logs = _validate_log_metadata(manifest["logs"])
+                    store.log_file = store._log_path_from_source(logs["source"])
+                    store.log_source = logs["source"]
+            except (EvidenceError, OSError, ValueError):
+                # Повреждённый манифест будет сообщён обычным read-path;
+                # здесь нельзя подменять его текущим runtime log source.
+                pass
+        return store
 
     @classmethod
     def prune(

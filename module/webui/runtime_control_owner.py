@@ -414,6 +414,7 @@ class WebUIRuntimeControlOwner:
                 )
             source = running[0]
             grace_seconds = self._grace_seconds()
+            handover_hooks = _OwnerHandoverHooks(self, source, deadline=deadline)
             handover = ProfileHandoverCoordinator(
                 HandoverPolicy(
                     grace_period_seconds=grace_seconds,
@@ -423,12 +424,14 @@ class WebUIRuntimeControlOwner:
                 source,
                 operation_id=request_id,
                 session_id=session_id,
-                hooks=_OwnerHandoverHooks(self, source, deadline=deadline),
+                hooks=handover_hooks,
                 deadline_check=lambda: not self._deadline_expired(deadline),
                 deadline_remaining=lambda: max(
                     (deadline - datetime.now(UTC)).total_seconds(), 0.0
                 ),
             )
+            handover_dict = handover.as_dict()
+            handover_dict["details"]["trace"] = handover_hooks.trace
             if not handover.ok:
                 return self._failure(
                     RuntimeControlOperation.START_PROFILE,
@@ -438,7 +441,7 @@ class WebUIRuntimeControlOwner:
                     handover.code,
                     handover.message,
                     owner=owner,
-                    details={"handover": handover.as_dict()},
+                    details={"handover": handover_dict},
                 )
             if self._live_profiles():
                 return self._failure(
@@ -449,9 +452,9 @@ class WebUIRuntimeControlOwner:
                     "RUNTIME_HANDOVER_TIMEOUT",
                     "После handover worker пользовательского профиля всё ещё работает; development profile не запускается",
                     owner=owner,
-                    details={"handover": handover.as_dict()},
+                    details={"handover": handover_dict},
                 )
-            handover_details = handover.as_dict()
+            handover_details = handover_dict
 
         if self._deadline_expired(deadline):
             return self._failure(
@@ -1228,6 +1231,35 @@ class _OwnerHandoverHooks(HandoverHooks):
         self.owner = owner
         self.profile = profile
         self.deadline = deadline
+        self._trace: list[dict[str, object]] = []
+
+    @property
+    def trace(self) -> list[dict[str, object]]:
+        """Вернуть bounded causal trace callbacks текущего handover."""
+
+        return [dict(item) for item in self._trace]
+
+    def _append_trace(
+        self,
+        phase: RuntimePhase | str,
+        operation_id: str,
+        session_id: str | None,
+        **fields: object,
+    ) -> None:
+        if len(self._trace) >= 32:
+            raise RuntimeError("Causal handover trace превысил bounded limit")
+        phase_name = phase.value if isinstance(phase, RuntimePhase) else phase
+        entry: dict[str, object] = {
+            "sequence": len(self._trace) + 1,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "phase": phase_name,
+            "profile": self.profile,
+            "operation_id": operation_id,
+        }
+        if session_id is not None:
+            entry["session_id"] = session_id
+        entry.update(fields)
+        self._trace.append(entry)
 
     def read_state(self, profile: str) -> RuntimeStateSnapshot | None:
         return self.owner.state.read(profile)
@@ -1249,11 +1281,13 @@ class _OwnerHandoverHooks(HandoverHooks):
                 session_id=session_id,
                 terminal_state="handover_failed",
             )
+            self._append_trace(phase, operation_id, session_id)
             return
         method = methods.get(phase)
         if method is None:
             raise RuntimeError(f"Неизвестная handover phase: {phase}")
         method(profile, operation_id=operation_id, session_id=session_id)
+        self._append_trace(phase, operation_id, session_id)
 
     def begin_handover(
         self,
@@ -1261,12 +1295,15 @@ class _OwnerHandoverHooks(HandoverHooks):
         operation_id: str,
         session_id: str | None,
     ) -> RuntimeStateSnapshot | None:
-        return self.owner.begin_handover(
+        snapshot = self.owner.begin_handover(
             profile,
             operation_id,
             session_id,
             deadline=self.deadline,
         )
+        if snapshot is not None and snapshot.worker_running is True:
+            self._append_trace("handover_requested", operation_id, session_id)
+        return snapshot
 
     def notify_preemption(
         self,
@@ -1274,12 +1311,23 @@ class _OwnerHandoverHooks(HandoverHooks):
         operation_id: str,
         session_id: str | None,
     ) -> NotificationOutcome:
-        return self.owner.notify_preemption(
+        outcome = self.owner.notify_preemption(
             profile,
             operation_id,
             session_id,
             deadline=self.deadline,
         )
+        normalized = outcome if isinstance(outcome, NotificationOutcome) else NotificationOutcome.FAILED
+        self._append_trace(
+            RuntimePhase.PREEMPTION_NOTICE,
+            operation_id,
+            session_id,
+            reason="notification",
+            attempted=True,
+            confirmed=normalized is NotificationOutcome.DELIVERED,
+            outcome=normalized.value,
+        )
+        return normalized
 
     def request_cooperative_quiesce(self, profile: str, operation_id: str, session_id: str | None) -> bool:
         return self.owner.request_cooperative_quiesce(profile, operation_id, session_id)

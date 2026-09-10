@@ -101,6 +101,31 @@ def test_evidence_store_reopens_and_keeps_session_scoped_lifecycle(tmp_path: Pat
     assert all(event["timestamp"].endswith("+00:00") for event in timeline["events"])
 
 
+def test_evidence_reopen_uses_manifest_bound_log_source(tmp_path: Path) -> None:
+    environment = _environment(tmp_path)
+    shared_log = environment.repository_root / "config" / "state" / "shared-webui.log"
+    shared_log.write_text("startup\n", encoding="utf-8")
+    store = EvidenceStore.create(
+        environment,
+        session_id="shared-log-session",
+        root_tasks=["RootTask"],
+        excluded_tasks=[],
+        timestamp=_TIME,
+        log_file=shared_log,
+    )
+    store.capture_log_boundary()
+    with shared_log.open("a", encoding="utf-8") as handle:
+        handle.write("handover worker saw stop\n")
+    store.finalize(stopped_at=_TIME, cleanup_confirmed=True)
+
+    reopened = EvidenceStore.for_session(environment, "shared-log-session")
+
+    assert reopened.log_source == "config/state/shared-webui.log"
+    page = reopened.logs_page(active_owned=False)
+    assert [item["text"] for item in page["items"]] == ["handover worker saw stop"]
+    assert "log_boundary_lost" not in page["health"]["reasons"]
+
+
 def test_evidence_store_records_handover_and_notification_outcome(tmp_path: Path) -> None:
     store = _store(tmp_path)
 
@@ -120,6 +145,56 @@ def test_evidence_store_records_handover_and_notification_outcome(tmp_path: Path
     event = store.timeline_page(limit=10)["events"][0]
     assert event["type"] == "handover_transition"
     assert event["fields"]["confirmed"] is True
+
+
+def test_manager_preserves_causal_handover_trace_order(tmp_path: Path) -> None:
+    from module.dev_runtime.manager import DevSessionManager
+
+    store = _store(tmp_path)
+    manager = DevSessionManager.__new__(DevSessionManager)
+    manager._evidence_store_for_current_session = lambda: store
+    manager._timestamp = lambda: _TIME
+
+    manager._record_handover_evidence(
+        {
+            "details": {
+                "handover": {
+                    "profile": "alas",
+                    "operation_id": "handover-1",
+                    "trace": [
+                        {
+                            "sequence": 1,
+                            "timestamp": "2026-08-30T00:00:01+00:00",
+                            "phase": "preemption_notice",
+                        },
+                        {
+                            "sequence": 2,
+                            "timestamp": "2026-08-30T00:00:02+00:00",
+                            "phase": "preemption_notice",
+                            "reason": "notification",
+                            "attempted": True,
+                            "confirmed": True,
+                            "outcome": "delivered",
+                        },
+                        {
+                            "sequence": 3,
+                            "timestamp": "2026-08-30T00:00:03+00:00",
+                            "phase": "quiesce_requested",
+                        },
+                    ],
+                }
+            }
+        }
+    )
+
+    events = store.timeline_page(limit=10)["events"]
+    assert [event["fields"]["trace_sequence"] for event in events] == [1, 2, 3]
+    assert [event["fields"]["phase"] for event in events] == [
+        "preemption_notice",
+        "preemption_notice",
+        "quiesce_requested",
+    ]
+    assert events[1]["fields"]["outcome"] == "delivered"
 
 
 def test_unbound_evidence_summary_reports_profile_from_manifest(tmp_path: Path) -> None:

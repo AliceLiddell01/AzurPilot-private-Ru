@@ -279,7 +279,6 @@ class DevSessionManager(DevDiagnosticsMixin):
                 session_id,
                 profile_name=profile_name,
                 validate_profile=validate_profile,
-                log_file=self._evidence_log_path(),
             )
         except (EvidenceError, ValueError):
             return None
@@ -308,12 +307,13 @@ class DevSessionManager(DevDiagnosticsMixin):
         fields: dict[str, object] | None = None,
         *,
         store: EvidenceStore | None = None,
+        timestamp: str | None = None,
     ) -> None:
         active_store = store if store is not None else self._evidence_store_for_current_session()
         if active_store is None:
             return
         try:
-            active_store.append_event(event_type, fields or {}, timestamp=self._timestamp())
+            active_store.append_event(event_type, fields or {}, timestamp=timestamp or self._timestamp())
         except Exception:
             active_store.mark_degraded("timeline_write_failed")
 
@@ -332,6 +332,60 @@ class DevSessionManager(DevDiagnosticsMixin):
         profile = raw_handover.get("profile")
         operation_id = raw_handover.get("operation_id")
         raw_phases = raw_handover.get("phases")
+        store = self._evidence_store_for_current_session()
+
+        def mark_trace_invalid() -> None:
+            if store is not None:
+                store.mark_degraded("handover_trace_invalid")
+
+        raw_trace = raw_handover.get("trace")
+        if raw_trace is not None:
+            if not isinstance(raw_trace, (list, tuple)) or len(raw_trace) > 32:
+                mark_trace_invalid()
+                return
+            expected_sequence = 1
+            for item in raw_trace:
+                if not isinstance(item, Mapping):
+                    mark_trace_invalid()
+                    return
+                sequence = item.get("sequence")
+                phase = item.get("phase")
+                timestamp = item.get("timestamp")
+                if (
+                    type(sequence) is not int
+                    or sequence != expected_sequence
+                    or not isinstance(phase, str)
+                    or not isinstance(timestamp, str)
+                ):
+                    mark_trace_invalid()
+                    return
+                expected_sequence += 1
+            for item in raw_trace:
+                fields: dict[str, object] = {
+                    "phase": item["phase"],
+                    "source": "handover_coordinator",
+                    "trace_sequence": item["sequence"],
+                }
+                if isinstance(profile, str):
+                    fields["profile"] = profile
+                if isinstance(operation_id, str):
+                    fields["operation_id"] = operation_id
+                for key in ("reason", "outcome"):
+                    value = item.get(key)
+                    if isinstance(value, str):
+                        fields[key] = value
+                for key in ("attempted", "confirmed"):
+                    value = item.get(key)
+                    if type(value) is bool:
+                        fields[key] = value
+                self._evidence_event(
+                    "handover_transition",
+                    fields,
+                    store=store,
+                    timestamp=item["timestamp"],
+                )
+            return
+
         if isinstance(raw_phases, (list, tuple)):
             for phase in raw_phases:
                 if not isinstance(phase, str):
@@ -341,7 +395,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                     fields["profile"] = profile
                 if isinstance(operation_id, str):
                     fields["operation_id"] = operation_id
-                self._evidence_event("handover_transition", fields)
+                self._evidence_event("handover_transition", fields, store=store)
 
         handover_details = raw_handover.get("details")
         notification = (
@@ -371,7 +425,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             fields["profile"] = profile
         if isinstance(operation_id, str):
             fields["operation_id"] = operation_id
-        self._evidence_event("handover_transition", fields)
+        self._evidence_event("handover_transition", fields, store=store)
 
     def _session_runtime_matches(self, session: DevSession) -> bool | None:
         """Проверить ownership текущей DevSession через её фактический runtime."""

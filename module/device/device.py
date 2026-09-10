@@ -286,6 +286,7 @@ class Device(Screenshot, Control, AppControl, Input):
         from module.observability.tracing import trace_operation
 
         with trace_operation("azurpilot.device.screenshot"):
+            self._raise_if_cooperative_stop_requested()
             self.stuck_record_check()
 
             try:
@@ -307,6 +308,24 @@ class Device(Screenshot, Control, AppControl, Input):
 
                 serve_pending_screenshot(self.image)
             return self.image
+
+    def _raise_if_cooperative_stop_requested(self) -> None:
+        """Прервать task на общей interruptible границе после запроса handover."""
+
+        config = getattr(self, "config", None)
+        stop_event = getattr(config, "stop_event", None)
+        if stop_event is None or not stop_event.is_set():
+            return
+        config_name = getattr(config, "config_name", "worker")
+        logger.info(
+            f"[{config_name}] Worker увидел запрос cooperative stop на границе снимка"
+        )
+        task_stop = getattr(config, "task_stop", None)
+        if callable(task_stop):
+            task_stop(message="Получен запрос cooperative stop")
+        from module.config.config import TaskEnd
+
+        raise TaskEnd("Получен запрос cooperative stop")
 
     def dump_hierarchy(self) -> etree._Element:
         self.stuck_record_check()
