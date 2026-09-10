@@ -9,12 +9,20 @@ Revision-файлы не должны читать production config или вы
 Alembic entry point также требует отдельного точного подтверждения target через
 `AZURPILOT_POSTGRES_DISPOSABLE_HOST`, `_PORT`, `_DATABASE` и `_USER`.
 
-Текущий единственный head — `0009_notification_foundation`. Revision `0008`
+Текущий единственный head — `0011_agent_session_identity`. Revision `0008`
 меняет область уникальности `idempotency_key` скана Dorm на
 `(instance_id, idempotency_key)`, чтобы новые строки сохраняли исходный ключ
 вызывающего кода напрямую, без хэширования с пространством имён. Revision
 `0009` добавляет только durable typed notification foundation: event, policy
 decision, delivery, attempt history и per-profile sequence allocator.
+Revision `0010` добавляет durable receipt для authenticated Desktop Agent ACK,
+а `0011` удаляет временную проверку равенства `session_epoch` и `lease_token`,
+не переписывая опубликованную историю миграций.
+
+Downgrade `0011` в `0010` является намеренно non-lossless: старый equality-check
+не восстанавливается, потому что уже сохранённые receipt могут содержать
+раздельные server-issued session и lease identity. Таблица остаётся доступной,
+а повторный upgrade в `0011` безопасен благодаря `DROP CONSTRAINT IF EXISTS`.
 
 Существующие строки схемы `0007` хранят SHA-256, рассчитанный из
 `instance_id` и исходного ключа. Массово восстановить исходные ключи по уже

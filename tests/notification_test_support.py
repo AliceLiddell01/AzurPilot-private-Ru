@@ -10,7 +10,9 @@ from uuid import UUID, uuid4
 
 from module.application.notifications import (
     ChannelCapabilities,
+    DESKTOP_AGENT_CHANNEL_TYPE,
     DeliveryResult,
+    DeliveryResultClass,
     DeliveryState,
     HandoverPreemptionPayload,
     NotificationEvent,
@@ -29,6 +31,10 @@ from module.application.notifications.encoding import event_payload_digest
 from module.application.notifications.models import (
     ClaimedDelivery,
     DeliveryUpdate,
+    NotificationAgentAck,
+    NotificationAgentAckResult,
+    NotificationAgentAckStatus,
+    NotificationAgentDelivery,
     NotificationDeliveryPlan,
     NotificationEventProjection,
     NotificationPersistenceResult,
@@ -40,6 +46,16 @@ from module.application.notifications.models import (
 from module.application.notifications.state import expired_lease_update
 
 NOW = datetime(2026, 9, 10, 12, 0, tzinfo=UTC)
+
+_AGENT_UNRESOLVED_STATES = frozenset(
+    {
+        DeliveryState.PENDING,
+        DeliveryState.IN_FLIGHT,
+        DeliveryState.RETRY_WAIT,
+        DeliveryState.PROVIDER_ACCEPTED,
+        DeliveryState.AWAITING_AGENT_ACK,
+    }
+)
 
 
 def _event(*, event_id: UUID | None = None, operation_id: str = "op-1") -> NotificationEvent:
@@ -185,6 +201,7 @@ class _MemoryRepository:
         self.decisions: dict[tuple[str, UUID], object] = {}
         self.deliveries: dict[UUID, NotificationStoredDelivery] = {}
         self.attempts: dict[UUID, list[NotificationStoredAttempt]] = {}
+        self.agent_acks: dict[tuple[UUID, int], NotificationAgentAck] = {}
         self.claim_batch_sizes: list[int] = []
         self._sequence = 0
 
@@ -465,6 +482,237 @@ class _MemoryRepository:
                 )
                 recovered += 1
             return recovered
+
+    def list_deliveries(
+        self, *, source: str, event_id: UUID
+    ) -> tuple[NotificationStoredDelivery, ...]:
+        with self._lock:
+            return tuple(
+                sorted(
+                    (
+                        delivery
+                        for delivery in self.deliveries.values()
+                        if delivery.event_source == source
+                        and delivery.event_id == event_id
+                    ),
+                    key=lambda item: item.id.hex,
+                )
+            )
+
+    def list_agent_deliveries(
+        self,
+        *,
+        profile_id: str,
+        channel_instance_id: str,
+        after_sequence: int = 0,
+        after_event_id: UUID | None = None,
+        limit: int = 32,
+    ) -> tuple[NotificationAgentDelivery, ...]:
+        with self._lock:
+            ordered = sorted(
+                self.deliveries.values(),
+                key=lambda item: (
+                    self.events[(item.event_source, item.event_id)].event.profile_sequence or 0,
+                    item.event_id.bytes,
+                ),
+            )
+            scoped = [
+                delivery
+                for delivery in ordered
+                if (
+                    self.events[(delivery.event_source, delivery.event_id)].event.profile_id
+                    == profile_id
+                    and delivery.channel_instance_id == channel_instance_id
+                    and delivery.channel_type == DESKTOP_AGENT_CHANNEL_TYPE
+                )
+            ]
+            unresolved_positions = {
+                (
+                    self.events[(delivery.event_source, delivery.event_id)].event.profile_sequence
+                    or 0,
+                    delivery.event_id.bytes,
+                )
+                for delivery in scoped
+                if delivery.state in _AGENT_UNRESOLVED_STATES
+            }
+            cursor_hole = after_event_id is not None and any(
+                sequence < after_sequence
+                or (sequence == after_sequence and event_bytes <= after_event_id.bytes)
+                for sequence, event_bytes in unresolved_positions
+            )
+            result: list[NotificationAgentDelivery] = []
+            for delivery in scoped:
+                event = self.events[(delivery.event_source, delivery.event_id)]
+                sequence = event.event.profile_sequence or 0
+                event_position = (sequence, event.event.id.bytes)
+                if (
+                    any(position < event_position for position in unresolved_positions)
+                    or delivery.state is not DeliveryState.AWAITING_AGENT_ACK
+                    or delivery.lease_token is None
+                    or delivery.lease_until is None
+                    or (
+                        not cursor_hole
+                        and (
+                            sequence <= after_sequence
+                            if after_event_id is None
+                            else sequence < after_sequence
+                            or (
+                                sequence == after_sequence
+                                and event.event.id <= after_event_id
+                            )
+                        )
+                    )
+                ):
+                    continue
+                attempt = self.attempts[delivery.id][-1]
+                if (
+                    attempt.attempt_ordinal != delivery.attempt_count
+                    or attempt.lease_token != delivery.lease_token
+                    or attempt.result_class is not DeliveryResultClass.PROVIDER_ACCEPTED
+                ):
+                    continue
+                result.append(NotificationAgentDelivery(event, delivery, attempt))
+                if len(result) >= limit:
+                    break
+            return tuple(result)
+
+    def validate_agent_cursor(
+        self,
+        *,
+        profile_id: str,
+        channel_instance_id: str,
+        after_sequence: int,
+        after_event_id: UUID,
+    ) -> bool:
+        with self._lock:
+            stored = next(
+                (
+                    item
+                    for item in self.events.values()
+                    if item.event.profile_id == profile_id
+                    and item.event.profile_sequence == after_sequence
+                    and item.event.id == after_event_id
+                ),
+                None,
+            )
+            if stored is None:
+                return False
+            return any(
+                delivery.event_id == after_event_id
+                and delivery.event_source == stored.event.source
+                and delivery.channel_instance_id == channel_instance_id
+                and delivery.channel_type == DESKTOP_AGENT_CHANNEL_TYPE
+                for delivery in self.deliveries.values()
+            )
+
+    def get_agent_delivery_state(
+        self,
+        *,
+        profile_id: str,
+        channel_instance_id: str,
+        delivery_id: UUID,
+        event_id: UUID,
+        event_source: str,
+    ) -> NotificationStoredDelivery | None:
+        with self._lock:
+            delivery = self.deliveries.get(delivery_id)
+            if delivery is None or (
+                delivery.event_id != event_id
+                or delivery.event_source != event_source
+                or delivery.channel_instance_id != channel_instance_id
+                or delivery.channel_type != DESKTOP_AGENT_CHANNEL_TYPE
+            ):
+                return None
+            event = self.events.get((delivery.event_source, delivery.event_id))
+            if event is None or event.event.profile_id != profile_id:
+                return None
+            return delivery
+
+    def acknowledge_agent_delivery(
+        self,
+        ack: NotificationAgentAck,
+        *,
+        now: datetime,
+        channel_instance_id: str,
+    ) -> NotificationAgentAckResult:
+        with self._lock:
+            delivery = self.deliveries.get(ack.delivery_id)
+            if delivery is None:
+                return NotificationAgentAckResult(
+                    NotificationAgentAckStatus.REJECTED, "delivery_not_found"
+                )
+            event = self.events[(delivery.event_source, delivery.event_id)].event
+            if (
+                event.id != ack.event_id
+                or event.source != ack.event_source
+                or event.profile_id != ack.profile_id
+                or delivery.channel_instance_id != channel_instance_id
+                or delivery.channel_type != DESKTOP_AGENT_CHANNEL_TYPE
+            ):
+                return NotificationAgentAckResult(
+                    NotificationAgentAckStatus.REJECTED, "delivery_not_found"
+                )
+            key = (ack.delivery_id, ack.attempt_ordinal)
+            previous = self.agent_acks.get(key)
+            if previous is not None:
+                return NotificationAgentAckResult(
+                    NotificationAgentAckStatus.DUPLICATE
+                    if previous == ack
+                    else NotificationAgentAckStatus.REJECTED,
+                    None if previous == ack else "ack_identity_conflict",
+                )
+            if delivery.state is DeliveryState.DELIVERED:
+                return NotificationAgentAckResult(
+                    NotificationAgentAckStatus.REJECTED, "delivery_already_completed"
+                )
+            if ack.attempt_ordinal != delivery.attempt_count:
+                return NotificationAgentAckResult(
+                    NotificationAgentAckStatus.REJECTED, "attempt_identity_mismatch"
+                )
+            if ack.lease_token != delivery.lease_token:
+                return NotificationAgentAckResult(
+                    NotificationAgentAckStatus.REJECTED, "lease_identity_mismatch"
+                )
+            if ack.payload_digest != event.payload_digest:
+                return NotificationAgentAckResult(
+                    NotificationAgentAckStatus.REJECTED, "payload_digest_mismatch"
+                )
+            if delivery.state is not DeliveryState.AWAITING_AGENT_ACK:
+                return NotificationAgentAckResult(
+                    NotificationAgentAckStatus.REJECTED, "delivery_not_awaiting_ack"
+                )
+            if (
+                delivery.lease_until is None
+                or delivery.lease_until <= now
+                or (
+                    delivery.deadline_at is not None
+                    and delivery.deadline_at <= now
+                )
+            ):
+                return NotificationAgentAckResult(
+                    NotificationAgentAckStatus.REJECTED, "ack_expired"
+                )
+            attempt = self.attempts[delivery.id][-1]
+            if (
+                attempt.attempt_ordinal != ack.attempt_ordinal
+                or attempt.lease_token != ack.lease_token
+                or attempt.result_class is not DeliveryResultClass.PROVIDER_ACCEPTED
+            ):
+                return NotificationAgentAckResult(
+                    NotificationAgentAckStatus.REJECTED, "attempt_not_awaiting_ack"
+                )
+            self.agent_acks[key] = ack
+            self.deliveries[ack.delivery_id] = replace(
+                delivery,
+                state=DeliveryState.DELIVERED,
+                lease_owner=None,
+                lease_token=None,
+                lease_until=None,
+                last_safe_error_code=None,
+                next_attempt_at=now,
+                updated_at=now,
+            )
+            return NotificationAgentAckResult(NotificationAgentAckStatus.ACKNOWLEDGED)
 
 
 class _FailingApplyRepository(_MemoryRepository):

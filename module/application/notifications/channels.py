@@ -13,6 +13,10 @@ from module.application.notifications.models import (
 )
 
 STAGE2_CHANNEL_TYPES: Final[frozenset[str]] = frozenset({"test"})
+DESKTOP_AGENT_CHANNEL_TYPE: Final[str] = "desktop-agent"
+SUPPORTED_CHANNEL_TYPES: Final[frozenset[str]] = frozenset(
+    {*STAGE2_CHANNEL_TYPES, DESKTOP_AGENT_CHANNEL_TYPE}
+)
 
 
 @runtime_checkable
@@ -34,7 +38,7 @@ class NotificationChannel(Protocol):
 
 
 class NotificationChannelCatalog:
-    """Явный in-process registry; Stage 2 не регистрирует production adapters."""
+    """Явный in-process registry для проверенных channel adapters."""
 
     def __init__(self, channels: Iterable[NotificationChannel] = ()) -> None:
         self._channels: dict[str, NotificationChannel] = {}
@@ -61,8 +65,8 @@ class NotificationChannelCatalog:
             r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}", channel_type
         ) is None:
             raise ValueError("Channel type имеет неверный формат.")
-        if channel_type not in STAGE2_CHANNEL_TYPES:
-            raise ValueError("Channel type не поддерживается текущим Stage 2.")
+        if channel_type not in SUPPORTED_CHANNEL_TYPES:
+            raise ValueError("Channel type не поддерживается текущим контрактом.")
         if not isinstance(capabilities, ChannelCapabilities) or not capabilities.is_valid():
             raise ValueError("Channel capabilities не прошли bounded validation.")
         self._channels[instance_id] = channel
@@ -83,4 +87,10 @@ class NotificationChannelCatalog:
         return tuple(self._channels)
 
 
-__all__ = ["STAGE2_CHANNEL_TYPES", "NotificationChannel", "NotificationChannelCatalog"]
+__all__ = [
+    "STAGE2_CHANNEL_TYPES",
+    "DESKTOP_AGENT_CHANNEL_TYPE",
+    "SUPPORTED_CHANNEL_TYPES",
+    "NotificationChannel",
+    "NotificationChannelCatalog",
+]

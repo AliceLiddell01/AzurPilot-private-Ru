@@ -33,6 +33,11 @@ backend через `host.docker.internal`; Dev и Game процессы по-п�
 только `127.0.0.1:8765` и `127.0.0.1:8766`. На host публикуются только TCP
 `80`, TCP `443` и UDP `443`, используемый текущим HTTP/3 deployment. Admin API
 `2019`, backend-порты, PostgreSQL, WebUI и telemetry ports не публикуются.
+Путь `/api/notification-agent/*` в том же Caddy направляется на единственный
+host-side WebUI (по умолчанию `host.docker.internal:25548`) через
+`AZURPILOT_NOTIFICATION_AGENT_BACKEND`; второй WebUI или публичный PostgreSQL
+для Desktop Agent не создаются. Сам Agent использует только исходящие
+проверенные HTTPS-соединения и отдельный authenticated ACK.
 
 ## Данные и секрет
 
@@ -81,8 +86,11 @@ Grafana и pgAdmin передаётся через Compose secret и не поп
 совпадать с persisted login.
 Порт pgAdmin задаётся через `AZURPILOT_OBSERVABILITY_PGADMIN_PORT`; по умолчанию
 используется `5050`. Публичные Dev/Game hosts задаются не секретными ключами
-`AZURPILOT_CADDY_HOST` и `AZURPILOT_GAME_MCP_PUBLIC_HOST`; OAuth-переменные Dev/Game остаются в том же защищённом
-локальном `.env` и не записываются в Git.
+`AZURPILOT_CADDY_HOST` и `AZURPILOT_GAME_MCP_PUBLIC_HOST`; backend Agent
+задаётся `AZURPILOT_NOTIFICATION_AGENT_BACKEND`. OAuth-переменные Dev/Game
+и Agent credential остаются в том же защищённом локальном `.env` и не
+записываются в Git. Полный список Agent runtime-переменных и их scope описан
+в `docs/notification-platform.md`.
 
 Если переменных ещё нет, добавьте их в корневой .env. Для ротации уже
 добавленного пароля используйте PowerShell-команду ниже: она сохраняет новое

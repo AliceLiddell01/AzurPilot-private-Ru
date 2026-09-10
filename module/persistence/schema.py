@@ -29,7 +29,7 @@ from module.application.resource_fields import RESOURCE_FIELDS
 from module.application.storage_models import MonthlyMetric
 
 SCHEMA_NAME = "azurpilot"
-EXPECTED_ALEMBIC_HEAD = "0009_notification_foundation"
+EXPECTED_ALEMBIC_HEAD = "0011_agent_session_identity"
 
 NAMING_CONVENTION = {
     "ix": "ix_%(table_name)s_%(column_0_N_name)s",
@@ -1216,6 +1216,49 @@ notification_delivery_attempt = Table(
         "span_id IS NULL OR span_id ~ '^[0-9a-f]{16}$'",
         name="span_id_format",
     ),
+)
+
+notification_agent_ack = Table(
+    "notification_agent_ack",
+    metadata,
+    Column(
+        "delivery_id",
+        Uuid,
+        nullable=False,
+    ),
+    Column("attempt_ordinal", Integer, nullable=False),
+    Column("event_id", Uuid, nullable=False),
+    Column("event_source", String(64), nullable=False),
+    Column("profile_id", String(128), nullable=False),
+    Column("agent_id", String(128), nullable=False),
+    Column("lease_token", Uuid, nullable=False),
+    Column("session_epoch", Uuid, nullable=False),
+    Column("payload_digest", String(64), nullable=False),
+    Column("acknowledged_at", DateTime(timezone=True), nullable=False),
+    PrimaryKeyConstraint(
+        "delivery_id", "attempt_ordinal", name="pk_notification_agent_ack"
+    ),
+    ForeignKeyConstraint(
+        ["delivery_id", "attempt_ordinal"],
+        [
+            f"{SCHEMA_NAME}.notification_delivery_attempt.delivery_id",
+            f"{SCHEMA_NAME}.notification_delivery_attempt.attempt_ordinal",
+        ],
+        ondelete="CASCADE",
+        name="fk_notification_agent_ack_attempt",
+    ),
+    CheckConstraint("attempt_ordinal > 0", name="attempt_ordinal_positive"),
+    CheckConstraint("btrim(event_source) <> ''", name="event_source_not_blank"),
+    CheckConstraint("btrim(profile_id) <> ''", name="profile_not_blank"),
+    CheckConstraint("btrim(agent_id) <> ''", name="agent_id_not_blank"),
+    CheckConstraint(
+        "payload_digest ~ '^[0-9a-f]{64}$'", name="payload_digest_format"
+    ),
+)
+Index(
+    "ix_notification_agent_ack_event",
+    notification_agent_ack.c.event_id,
+    notification_agent_ack.c.event_source,
 )
 
 notification_profile_sequence = Table(

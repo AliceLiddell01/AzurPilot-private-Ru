@@ -7,8 +7,8 @@
 import multiprocessing
 import os
 import threading
-from pathlib import Path
 from multiprocessing.managers import SyncManager
+from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Generic, TypeVar
 
 from deploy.atomic import atomic_remove, atomic_write
@@ -39,6 +39,25 @@ def _close_runtime_control_server(server: object | None) -> None:
 
                 logger.warning(
                     f"Не удалось закрыть runtime control server во время очистки: {type(exc).__name__}"
+                )
+            except Exception:
+                pass
+
+
+def _stop_notification_runtime(runtime: object | None) -> None:
+    if runtime is None:
+        return
+    stop = getattr(runtime, "stop", None)
+    if callable(stop):
+        try:
+            stop()
+        except Exception as exc:  # noqa: BLE001 - очистка не должна оставлять manager без владельца.
+            try:
+                from module.logger import logger
+
+                logger.warning(
+                    "Не удалось остановить notification runtime при очистке: %s",
+                    type(exc).__name__,
                 )
             except Exception:
                 pass
@@ -156,6 +175,8 @@ class State:
     manager: SyncManager = None
     process_registry = None
     _runtime_control_server = None
+    _notification_runtime = None
+    _desktop_agent_runtime = None
     electron: bool = False
     webui_host: str = None
     theme: str = "default"
@@ -171,6 +192,12 @@ class State:
         "screen9.png",
     ]
     placeholder_index: int = 0
+
+    @classmethod
+    def get_notification_runtime(cls):
+        """Вернуть application notification runtime текущего WebUI owner."""
+
+        return cls._notification_runtime
 
     @classmethod
     def get_placeholder_url(cls) -> str:
@@ -203,12 +230,18 @@ class State:
         return f"static/assets/spa/{name}"
     
     @classmethod
-    def init(cls):
+    def init(cls, *, notification_runtime=None, desktop_agent_runtime=None):
         cls._clearup = False
         cls._restart_requested = False
         previous_server = cls._runtime_control_server
         cls._runtime_control_server = None
         _close_runtime_control_server(previous_server)
+        previous_desktop_agent_runtime = cls._desktop_agent_runtime
+        cls._desktop_agent_runtime = None
+        _stop_notification_runtime(previous_desktop_agent_runtime)
+        previous_notification_runtime = cls._notification_runtime
+        cls._notification_runtime = None
+        _stop_notification_runtime(previous_notification_runtime)
         manager = multiprocessing.Manager()
         cls.manager = manager
         # Browser sessions may run in separate processes, so workers need a
@@ -232,13 +265,30 @@ class State:
         try:
             from module.webui.runtime_control_owner import WebUIRuntimeControlOwner
 
-            owner = WebUIRuntimeControlOwner(Path(__file__).resolve().parents[2])
+            owner = WebUIRuntimeControlOwner(
+                Path(__file__).resolve().parents[2],
+                notification_service=notification_runtime,
+            )
             server = owner.start_server()
             cls._runtime_control_server = server
+            cls._notification_runtime = notification_runtime
+            cls._desktop_agent_runtime = desktop_agent_runtime
+            if notification_runtime is not None:
+                start = getattr(notification_runtime, "start", None)
+                if callable(start):
+                    start()
+            if desktop_agent_runtime is not None:
+                start = getattr(desktop_agent_runtime, "start", None)
+                if callable(start):
+                    start()
         except Exception:
             # Нельзя оставлять worker registry owner без control server: это
             # создало бы невидимый и неуправляемый runtime.
+            cls._notification_runtime = None
+            cls._desktop_agent_runtime = None
             _close_runtime_control_server(server)
+            _stop_notification_runtime(notification_runtime)
+            _stop_notification_runtime(desktop_agent_runtime)
             try:
                 from module.webui.worker_registry import clear_owner
 
@@ -275,7 +325,13 @@ class State:
         cls._clearup = True
         server = cls._runtime_control_server
         cls._runtime_control_server = None
+        desktop_agent_runtime = cls._desktop_agent_runtime
+        cls._desktop_agent_runtime = None
+        _stop_notification_runtime(desktop_agent_runtime)
         _close_runtime_control_server(server)
+        notification_runtime = cls._notification_runtime
+        cls._notification_runtime = None
+        _stop_notification_runtime(notification_runtime)
         manager = cls.manager
         try:
             if manager is not None:

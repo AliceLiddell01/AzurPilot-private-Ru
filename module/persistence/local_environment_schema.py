@@ -73,6 +73,19 @@ LOCAL_ENVIRONMENT_REGISTRY = (
     LocalEnvironmentKey("AZURPILOT_OBSERVABILITY_PGADMIN_PORT", "infrastructure"),
     LocalEnvironmentKey("AZURPILOT_CADDY_HOST", "infrastructure"),
     LocalEnvironmentKey("AZURPILOT_GAME_MCP_PUBLIC_HOST", "infrastructure"),
+    LocalEnvironmentKey("AZURPILOT_NOTIFICATION_AGENT_BACKEND", "infrastructure"),
+    LocalEnvironmentKey("AZURPILOT_NOTIFICATION_AGENT_URL", "infrastructure"),
+    LocalEnvironmentKey("AZURPILOT_NOTIFICATION_AGENT_ID", "infrastructure"),
+    LocalEnvironmentKey("AZURPILOT_NOTIFICATION_AGENT_PROFILES", "infrastructure"),
+    LocalEnvironmentKey(
+        "AZURPILOT_NOTIFICATION_AGENT_TOKEN", "infrastructure", secret=True
+    ),
+    LocalEnvironmentKey(
+        "AZURPILOT_NOTIFICATION_AGENT_TOKEN_FILE", "infrastructure"
+    ),
+    LocalEnvironmentKey(
+        "AZURPILOT_NOTIFICATION_AGENT_CURSOR_FILE", "infrastructure"
+    ),
     LocalEnvironmentKey(
         "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
         "infrastructure",

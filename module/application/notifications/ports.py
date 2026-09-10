@@ -10,6 +10,9 @@ from uuid import UUID
 from module.application.notifications.models import (
     ClaimedDelivery,
     DeliveryUpdate,
+    NotificationAgentAck,
+    NotificationAgentAckResult,
+    NotificationAgentDelivery,
     NotificationDeliveryPlan,
     NotificationEvent,
     NotificationPersistenceResult,
@@ -79,6 +82,51 @@ class NotificationRepository(Protocol):
     def list_profile_history(
         self, *, profile_id: str, after_sequence: int = 0, limit: int = 100
     ) -> tuple[NotificationStoredEvent, ...]: ...
+
+    def list_agent_deliveries(
+        self,
+        *,
+        profile_id: str,
+        channel_instance_id: str,
+        after_sequence: int = 0,
+        after_event_id: UUID | None = None,
+        limit: int = 32,
+    ) -> tuple[NotificationAgentDelivery, ...]:
+        """Вернуть строки строго по возрастанию `(profile_sequence, event_id)`."""
+        ...
+
+    def validate_agent_cursor(
+        self,
+        *,
+        profile_id: str,
+        channel_instance_id: str,
+        after_sequence: int,
+        after_event_id: UUID,
+    ) -> bool:
+        """Проверить cursor по authoritative durable history."""
+        ...
+
+    def get_agent_delivery_state(
+        self,
+        *,
+        profile_id: str,
+        channel_instance_id: str,
+        delivery_id: UUID,
+        event_id: UUID,
+        event_source: str,
+    ) -> NotificationStoredDelivery | None:
+        """Вернуть delivery только в authenticated profile/channel scope."""
+        ...
+
+    def acknowledge_agent_delivery(
+        self,
+        ack: NotificationAgentAck,
+        *,
+        now: datetime,
+        channel_instance_id: str,
+    ) -> NotificationAgentAckResult:
+        """Записать ACK без commit; решение о commit/rollback принимает caller."""
+        ...
 
 
 class NotificationUnitOfWork(StorageUnitOfWork, Protocol):

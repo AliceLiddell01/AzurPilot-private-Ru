@@ -21,6 +21,7 @@ from module.application.notifications import (
     DeliveryState,
     DeliveryUpdate,
     HandoverPreemptionPayload,
+    NotificationAgentAckStatus,
     NotificationChannelCatalog,
     NotificationDeliveryPlan,
     NotificationDispatcher,
@@ -37,6 +38,12 @@ from module.application.notifications import (
     ReceiptStrength,
     RenderedSnapshot,
     RetryPolicy,
+)
+from module.application.notifications.agent import (
+    DesktopAgentAuthenticator,
+    DesktopAgentCredential,
+    notification_agent_document,
+    parse_agent_ack_document,
 )
 from module.application.notifications.encoding import (
     event_payload_digest,
@@ -68,7 +75,13 @@ class _Channel:
         policy_capabilities=frozenset({"handover_receipt"}),
     )
 
-    def __init__(self, result: DeliveryResult | None = None) -> None:
+    def __init__(
+        self,
+        result: DeliveryResult | None = None,
+        *,
+        channel_type: str = "test",
+    ) -> None:
+        self.channel_type = channel_type
         self.result = result or DeliveryResult.provider_accepted(provider_message_id="p1")
         self.calls = 0
 
@@ -166,6 +179,38 @@ def _publish(publisher: NotificationPublisher, event: NotificationEvent):
     return publisher.publish_for_handover(
         event, NOW + timedelta(seconds=120)
     ).publish_result
+
+
+def _agent_ack(frame, *, agent_id: str = "desktop-agent-1"):
+    return parse_agent_ack_document(
+        {
+            key: frame.document[key]
+            for key in (
+                "delivery_id",
+                "event_id",
+                "event_source",
+                "profile_id",
+                "attempt_ordinal",
+                "lease_token",
+                "session_epoch",
+                "payload_digest",
+            )
+        },
+        agent_id=agent_id,
+    )
+
+
+def _agent_principal():
+    credential = DesktopAgentCredential(
+        agent_id="desktop-agent-1",
+        profiles=frozenset({"profile-1"}),
+        token="agent-token-0123456789abcdef",
+    )
+    principal = DesktopAgentAuthenticator(credential).authenticate(
+        {"Authorization": f"Bearer {credential.token}"}
+    )
+    assert principal is not None
+    return principal
 
 
 def test_application_role_has_dml_but_not_schema_ddl(database: LazyEngine) -> None:
@@ -517,6 +562,296 @@ def test_ack_timeout_releases_token_without_synthetic_attempt(
         assert claimed.delivery.attempt_count == 2
         assert len(uow.notifications.list_attempts(claimed.delivery.id)) == 2
         uow.commit()
+
+
+def test_agent_history_and_ack_are_durable_and_idempotent(
+    database: LazyEngine,
+) -> None:
+    channel = _Channel(channel_type="desktop-agent")
+    result = _publish(
+        _publisher(database, channel), _event(operation_id="operation-agent-ack")
+    )
+    assert result.status is PublishStatus.PERSISTED
+    assert NotificationDispatcher(
+        lambda: PostgresUnitOfWork(database),
+        channel_catalog=NotificationChannelCatalog((channel,)),
+        worker_id="worker-agent-history",
+        clock=lambda: NOW,
+        telemetry=object(),
+    ).dispatch_once().updated == 1
+
+    with PostgresUnitOfWork(database) as uow:
+        first = uow.notifications.list_agent_deliveries(
+            profile_id="profile-1", channel_instance_id="agent", limit=1
+        )
+        second = uow.notifications.list_agent_deliveries(
+            profile_id="profile-1", channel_instance_id="agent", limit=1
+        )
+        assert len(first) == 1
+        assert [item.delivery.id for item in first] == [item.delivery.id for item in second]
+        frame = notification_agent_document(first[0], session_epoch=uuid4())
+        ack = _agent_ack(frame)
+        uow.commit()
+
+    with PostgresUnitOfWork(database) as uow:
+        acknowledged = uow.notifications.acknowledge_agent_delivery(
+            ack, now=NOW, channel_instance_id="agent"
+        )
+        assert acknowledged.status is NotificationAgentAckStatus.ACKNOWLEDGED
+        uow.commit()
+
+    with PostgresUnitOfWork(database) as uow:
+        duplicate = uow.notifications.acknowledge_agent_delivery(
+            ack, now=NOW, channel_instance_id="agent"
+        )
+        assert duplicate.status is NotificationAgentAckStatus.DUPLICATE
+        delivery = uow.notifications.list_deliveries(
+            source="runtime", event_id=result.event_id
+        )[0]
+        assert delivery.state is DeliveryState.DELIVERED
+        uow.commit()
+    with database.get().begin() as connection:
+        receipt_count = connection.execute(
+            text(
+                f"SELECT count(*) FROM {SCHEMA_NAME}.notification_agent_ack "
+                "WHERE delivery_id = :delivery_id"
+            ),
+            {"delivery_id": delivery.id},
+        ).scalar_one()
+    assert receipt_count == 1
+
+
+def test_agent_history_blocks_and_recovers_earlier_retry_hole(
+    database: LazyEngine,
+) -> None:
+    channel = _Channel(channel_type="desktop-agent")
+    publisher = _publisher(database, channel)
+    first_event = _event(operation_id="operation-agent-frontier-first")
+    second_event = _event(operation_id="operation-agent-frontier-second")
+    first_result = _publish(publisher, first_event)
+    second_result = _publish(publisher, second_event)
+    assert first_result.status is PublishStatus.PERSISTED
+    assert second_result.status is PublishStatus.PERSISTED
+
+    dispatcher = NotificationDispatcher(
+        lambda: PostgresUnitOfWork(database),
+        channel_catalog=NotificationChannelCatalog((channel,)),
+        worker_id="worker-agent-frontier-initial",
+        clock=lambda: NOW,
+        telemetry=object(),
+    )
+    assert dispatcher.dispatch_once().updated == 2
+
+    with PostgresUnitOfWork(database) as uow:
+        first_delivery = uow.notifications.list_deliveries(
+            source="runtime", event_id=first_event.id
+        )[0]
+        second_delivery = uow.notifications.list_deliveries(
+            source="runtime", event_id=second_event.id
+        )[0]
+        assert first_delivery.state is DeliveryState.AWAITING_AGENT_ACK
+        assert second_delivery.state is DeliveryState.AWAITING_AGENT_ACK
+        uow.commit()
+
+    with database.get().begin() as connection:
+        connection.execute(
+            text(
+                f"UPDATE {SCHEMA_NAME}.notification_delivery "
+                "SET lease_until = :expired "
+                "WHERE id = :delivery_id"
+            ),
+            {
+                "expired": NOW - timedelta(seconds=1),
+                "delivery_id": first_delivery.id,
+            },
+        )
+
+    retry_policy = RetryPolicy(max_attempts=3, agent_ack_timeout_seconds=5)
+    recovery = NotificationDispatcher(
+        lambda: PostgresUnitOfWork(database),
+        channel_catalog=NotificationChannelCatalog((channel,)),
+        worker_id="worker-agent-frontier-recovery",
+        clock=lambda: NOW,
+        retry_policy=retry_policy,
+        telemetry=object(),
+    )
+    assert recovery.recover_expired() == 1
+
+    with PostgresUnitOfWork(database) as uow:
+        blocked = uow.notifications.list_agent_deliveries(
+            profile_id="profile-1", channel_instance_id="agent", limit=1
+        )
+        assert blocked == ()
+        uow.commit()
+
+    with database.get().begin() as connection:
+        connection.execute(
+            text(
+                f"UPDATE {SCHEMA_NAME}.notification_delivery "
+                "SET next_attempt_at = :next_attempt "
+                "WHERE id = :delivery_id"
+            ),
+            {"next_attempt": NOW, "delivery_id": first_delivery.id},
+        )
+
+    retry_dispatcher = NotificationDispatcher(
+        lambda: PostgresUnitOfWork(database),
+        channel_catalog=NotificationChannelCatalog((channel,)),
+        worker_id="worker-agent-frontier-retry",
+        clock=lambda: NOW + timedelta(seconds=1),
+        retry_policy=retry_policy,
+        telemetry=object(),
+    )
+    assert retry_dispatcher.dispatch_once().updated == 1
+
+    with PostgresUnitOfWork(database) as uow:
+        first_retry = uow.notifications.list_agent_deliveries(
+            profile_id="profile-1", channel_instance_id="agent", limit=1
+        )[0]
+        assert first_retry.event.event.id == first_event.id
+        frame = notification_agent_document(first_retry, session_epoch=uuid4())
+        ack = _agent_ack(frame)
+        acknowledged = uow.notifications.acknowledge_agent_delivery(
+            ack, now=NOW + timedelta(seconds=1), channel_instance_id="agent"
+        )
+        assert acknowledged.status is NotificationAgentAckStatus.ACKNOWLEDGED
+        uow.commit()
+
+    with PostgresUnitOfWork(database) as uow:
+        second_frame = uow.notifications.list_agent_deliveries(
+            profile_id="profile-1",
+            channel_instance_id="agent",
+            after_sequence=first_retry.event.event.profile_sequence or 0,
+            after_event_id=first_retry.event.event.id,
+            limit=1,
+        )
+        assert len(second_frame) == 1
+        assert second_frame[0].event.event.id == second_event.id
+        uow.commit()
+
+
+def test_concurrent_exact_agent_ack_has_one_mutation_and_one_duplicate(
+    database: LazyEngine,
+) -> None:
+    channel = _Channel(channel_type="desktop-agent")
+    result = _publish(
+        _publisher(database, channel), _event(operation_id="operation-agent-race")
+    )
+    assert result.status is PublishStatus.PERSISTED
+    dispatcher = NotificationDispatcher(
+        lambda: PostgresUnitOfWork(database),
+        channel_catalog=NotificationChannelCatalog((channel,)),
+        worker_id="worker-agent-race",
+        clock=lambda: NOW,
+        telemetry=object(),
+    )
+    assert dispatcher.dispatch_once().updated == 1
+    with PostgresUnitOfWork(database) as uow:
+        frame = notification_agent_document(
+            uow.notifications.list_agent_deliveries(
+                profile_id="profile-1", channel_instance_id="agent", limit=1
+            )[0],
+            session_epoch=uuid4(),
+        )
+        ack = _agent_ack(frame)
+        uow.commit()
+
+    def acknowledge() -> NotificationAgentAckStatus:
+        with PostgresUnitOfWork(database) as uow:
+            ack_result = uow.notifications.acknowledge_agent_delivery(
+                ack, now=NOW, channel_instance_id="agent"
+            )
+            if ack_result.status in {
+                NotificationAgentAckStatus.ACKNOWLEDGED,
+                NotificationAgentAckStatus.DUPLICATE,
+            }:
+                uow.commit()
+            else:
+                uow.rollback()
+            return ack_result.status
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        statuses = tuple(executor.map(lambda _item: acknowledge(), (1, 2)))
+
+    assert sorted(status.value for status in statuses) == [
+        NotificationAgentAckStatus.ACKNOWLEDGED.value,
+        NotificationAgentAckStatus.DUPLICATE.value,
+    ]
+    with PostgresUnitOfWork(database) as uow:
+        delivery = uow.notifications.list_deliveries(
+            source="runtime", event_id=result.event_id
+        )[0]
+        assert delivery.state is DeliveryState.DELIVERED
+        uow.commit()
+    with database.get().begin() as connection:
+        receipt_count = connection.execute(
+            text(
+                f"SELECT count(*) FROM {SCHEMA_NAME}.notification_agent_ack "
+                "WHERE delivery_id = :delivery_id"
+            ),
+            {"delivery_id": delivery.id},
+        ).scalar_one()
+    assert receipt_count == 1
+
+
+def test_stale_agent_ack_after_lease_recovery_cannot_complete_new_attempt(
+    database: LazyEngine,
+) -> None:
+    channel = _Channel(channel_type="desktop-agent")
+    event = _event(operation_id="operation-agent-stale")
+    result = _publish(_publisher(database, channel), event)
+    assert result.status is PublishStatus.PERSISTED
+    retry_policy = RetryPolicy(max_attempts=3, agent_ack_timeout_seconds=5)
+    first_dispatcher = NotificationDispatcher(
+        lambda: PostgresUnitOfWork(database),
+        channel_catalog=NotificationChannelCatalog((channel,)),
+        worker_id="worker-agent-stale-first",
+        clock=lambda: NOW,
+        retry_policy=retry_policy,
+        telemetry=object(),
+    )
+    assert first_dispatcher.dispatch_once().updated == 1
+    with PostgresUnitOfWork(database) as uow:
+        frame = notification_agent_document(
+            uow.notifications.list_agent_deliveries(
+                profile_id="profile-1", channel_instance_id="agent", limit=1
+            )[0],
+            session_epoch=uuid4(),
+        )
+        stale_ack = _agent_ack(frame)
+        uow.commit()
+
+    recovery = NotificationDispatcher(
+        lambda: PostgresUnitOfWork(database),
+        channel_catalog=NotificationChannelCatalog((channel,)),
+        worker_id="worker-agent-stale-recovery",
+        clock=lambda: NOW + timedelta(seconds=6),
+        retry_policy=retry_policy,
+        telemetry=object(),
+    )
+    assert recovery.recover_expired() == 1
+    with PostgresUnitOfWork(database) as uow:
+        claimed = uow.notifications.claim_due(
+            now=NOW + timedelta(seconds=10),
+            worker_id="worker-agent-stale-second",
+            batch_size=1,
+            lease_seconds=30,
+        )[0]
+        uow.commit()
+
+    with PostgresUnitOfWork(database) as uow:
+        rejected = uow.notifications.acknowledge_agent_delivery(
+            stale_ack,
+            now=NOW + timedelta(seconds=10),
+            channel_instance_id="agent",
+        )
+        assert rejected.status is NotificationAgentAckStatus.REJECTED
+        delivery = uow.notifications.list_deliveries(
+            source="runtime", event_id=result.event_id
+        )[0]
+        assert delivery.state is DeliveryState.IN_FLIGHT
+        assert delivery.lease_token == claimed.lease_token
+        uow.rollback()
 
 
 def test_expired_pending_delivery_fails_without_provider_call(

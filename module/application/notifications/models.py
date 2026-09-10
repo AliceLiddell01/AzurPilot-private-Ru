@@ -100,6 +100,14 @@ class HandoverNotificationOutcome(str, Enum):
     UNAVAILABLE = "unavailable"
 
 
+class NotificationAgentAckStatus(str, Enum):
+    """Результат проверки отдельного Agent ACK."""
+
+    ACKNOWLEDGED = "acknowledged"
+    DUPLICATE = "duplicate"
+    REJECTED = "rejected"
+
+
 def _valid_token(value: object, *, limit: int, pattern: str = _TOKEN_RE) -> bool:
     return isinstance(value, str) and 0 < len(value) <= limit and fullmatch(pattern, value) is not None
 
@@ -578,6 +586,36 @@ class NotificationStoredAttempt:
 
 
 @dataclass(frozen=True, slots=True)
+class NotificationAgentDelivery:
+    """Durable delivery projection, доступная authenticated Desktop Agent."""
+
+    event: NotificationStoredEvent
+    delivery: NotificationStoredDelivery
+    attempt: NotificationStoredAttempt
+
+
+@dataclass(frozen=True, slots=True)
+class NotificationAgentAck:
+    """Проверяемые identity поля ACK без credential и transport metadata."""
+
+    delivery_id: UUID
+    event_id: UUID
+    event_source: str
+    profile_id: str
+    attempt_ordinal: int
+    lease_token: UUID
+    session_epoch: UUID
+    payload_digest: str
+    agent_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class NotificationAgentAckResult:
+    status: NotificationAgentAckStatus
+    reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class NotificationPersistenceResult:
     status: PublishStatus
     event: NotificationStoredEvent | None = None
@@ -653,6 +691,10 @@ __all__ = [
     "HandoverNotificationResult",
     "HandoverPreemptionPayload",
     "HandoverPublishContext",
+    "NotificationAgentAck",
+    "NotificationAgentAckResult",
+    "NotificationAgentAckStatus",
+    "NotificationAgentDelivery",
     "NotificationAttribute",
     "NotificationCorrelation",
     "NotificationDeliveryPlan",

@@ -97,6 +97,9 @@ def test_caddy_is_pinned_profiled_and_keeps_mcp_backends_host_side():
     assert caddy["environment"] == {
         "AZURPILOT_CADDY_HOST": "${AZURPILOT_CADDY_HOST:-}",
         "AZURPILOT_GAME_MCP_PUBLIC_HOST": "${AZURPILOT_GAME_MCP_PUBLIC_HOST:-}",
+        "AZURPILOT_NOTIFICATION_AGENT_BACKEND": (
+            "${AZURPILOT_NOTIFICATION_AGENT_BACKEND:-host.docker.internal:25548}"
+        ),
     }
     assert {
         (volume["type"], volume["source"], volume["target"], volume.get("read_only"))
@@ -117,6 +120,11 @@ def test_caddy_is_pinned_profiled_and_keeps_mcp_backends_host_side():
     ]
     assert "host.docker.internal:8765" in caddyfile
     assert "host.docker.internal:8766" in caddyfile
+    assert "path /api/notification-agent/*" in caddyfile
+    assert "not path /api/notification-agent/*" in caddyfile
+    assert "encode @compressed gzip" in caddyfile
+    assert "flush_interval -1" in caddyfile
+    assert "stream_timeout 210s" in caddyfile
     assert "reverse_proxy 127.0.0.1:8765" not in caddyfile
     assert "reverse_proxy 127.0.0.1:8766" not in caddyfile
     assert compose_data["volumes"]["caddy-data"] == {"name": "azurpilot-caddy-data"}
