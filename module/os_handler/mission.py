@@ -37,8 +37,8 @@ class MissionHandler(GlobeOperation, ZoneManager):
             tuple | None: 非月度Boss任务行的偏移量，如果未找到则返回 None。
         """
         row_offset = checkout_offset
-        # 任务行垂直排列，间隔约 110 像素
-        # 扫描多行以处理月度Boss不在第一行的情况
+        # Строки заданий расположены вертикально с интервалом примерно 110 пикселей
+        # Сканируем несколько строк на случай, если ежемесячный босс находится не в первой строке
         for _ in range(8):
             has_checkout = self.match_template_color(MISSION_CHECKOUT, offset=row_offset, similarity=0.78)
             if has_checkout and not self.appear(MISSION_MONTHLY_BOSS, offset=row_offset):
@@ -55,15 +55,15 @@ class MissionHandler(GlobeOperation, ZoneManager):
             Zone: 任务海域对象。
         """
         area = (341, 72, 1217, 648)
-        # 黄色 `!` 的点
+        # Жёлтая точка `!`
         image = color_similarity_2d(self.image_crop(area, copy=False), color=(255, 207, 66))
         points = np.array(np.where(image > 235)).T[:, ::-1]
         if not len(points):
             logger.warning('Не удалось найти миссии на карте операции «Сирена»')
 
         point = fit_points(points, mod=(1000, 1000), encourage=5) + (0, 11)
-        # 海域位置
-        # (2570, 1694) 是 os_globe_map.png 的形状
+        # Положение зоны
+        # (2570, 1694) — размер os_globe_map.png
         point *= np.array(GLOBE_MAP_SHAPE) / np.subtract(area[2:], area[:2])
 
         zone = self.camera_to_zone(tuple(point))
@@ -91,29 +91,29 @@ class MissionHandler(GlobeOperation, ZoneManager):
         checkout_offset = (-20, -20, 20, 20)
         confirm_timer = Timer(2, count=6).start()
         for _ in self.loop():
-            # 结束
+            # Завершение
             if self.is_in_os_mission() \
                     and not self.appear(MISSION_FINISH, offset=checkout_offset) \
                     and not self.match_template_color(MISSION_CHECKOUT, offset=checkout_offset, similarity=0.78):
-                # 未找到任务，等待确认。任务可能加载较慢。
+                # Задание не найдено; ждём подтверждения, так как оно может загружаться медленно.
                 if confirm_timer.reached():
                     logger.info('[Операция «Сирена» — задания] Задание Операции «Сирена» не найдено')
                     break
             elif self.is_in_os_mission() \
                     and self.match_template_color(MISSION_CHECKOUT, offset=checkout_offset, similarity=0.78):
-                # 找到至少一个任务
+                # Найдено хотя бы одно задание
                 logger.info('[Операция «Сирена» — задания] Найдено хотя бы одно задание Операции «Сирена»')
                 break
             else:
                 confirm_timer.reset()
 
-            # 点击
+            # Нажатия
             if self.appear_then_click(MISSION_ENTER, offset=(200, 5), interval=5):
                 confirm_timer.reset()
                 continue
             if skip_siren_mission and self.appear(MISSION_SIREN_RESEARCH, offset=checkout_offset):
                 if self.appear(MISSION_FINISH, offset=checkout_offset):
-                    # 两个任务行之间大约 110 像素
+                    # Между строками заданий примерно 110 пикселей
                     checkout_offset = area_offset(checkout_offset, (0, 110))
                     confirm_timer.reset()
                     continue
@@ -132,7 +132,7 @@ class MissionHandler(GlobeOperation, ZoneManager):
                     continue
 
             if self.appear_then_click(GLOBE_GOTO_MAP, offset=(20, 20), interval=2):
-                # 意外进入地球仪
+                # Случайно открыт глобус
                 confirm_timer.reset()
                 continue
         return checkout_offset
@@ -143,13 +143,13 @@ class MissionHandler(GlobeOperation, ZoneManager):
         """
         logger.info('[Операция «Сирена» — задания] Выход из меню заданий Операции «Сирена»')
         for _ in self.loop():
-            # 结束
-            # 有时任务弹窗没有黑色模糊背景
-            # MISSION_QUIT 和 is_in_map 同时出现
+            # Завершение
+            # Иногда у окна задания нет чёрного размытого фона
+            # MISSION_QUIT и is_in_map появляются одновременно
             if not self.appear(MISSION_QUIT, offset=(20, 20)):
                 if self.is_in_map():
                     break
-            # 点击
+            # Нажатия
             if self.appear_then_click(MISSION_QUIT, offset=(20, 20), interval=3):
                 continue
 
@@ -181,7 +181,7 @@ class MissionHandler(GlobeOperation, ZoneManager):
 
         logger.info('[Операция «Сирена» — задания] Принятие заданий Операции «Сирена»')
         for _ in self.loop():
-            # 结束
+            # Завершение
             if self.is_zone_pinned():
                 if self.get_zone_pinned_name() == 'ARCHIVE':
                     logger.info('[Операция «Сирена» — задания] Зафиксировано в архивной зоне')
@@ -198,7 +198,7 @@ class MissionHandler(GlobeOperation, ZoneManager):
             if self.appear_then_click(MISSION_CHECKOUT, offset=checkout_offset, interval=2, similarity=0.78):
                 continue
             if self.handle_popup_confirm('OS_MISSION_CHECKOUT'):
-                # 弹窗：退出当前海域后潜艇将撤退
+                # Всплывающее окно: после выхода из текущей зоны подлодки отступят
                 continue
 
     def os_mission_overview_accept(self, skip_siren_mission=False, skip_first_screenshot=True):
@@ -236,7 +236,7 @@ class MissionHandler(GlobeOperation, ZoneManager):
             else:
                 self.device.screenshot()
 
-            # 结束
+            # Завершение
             if self.handle_manjuu():
                 continue
             if self.info_bar_count():
@@ -278,11 +278,11 @@ class MissionHandler(GlobeOperation, ZoneManager):
         next_reset = get_os_next_reset()
         logger.attr('Следующий сброс Операции «Сирена»', next_reset)
         logger.attr('Ежемесячное исследование+', (enable, next_run))
-        # -12 小时以处理夏令时
-        # `next_run` 可能在夏令时之前计算，但现在是夏令时
+        # -12 часов для учёта перехода на летнее время
+        # `next_run` мог быть рассчитан до перехода на летнее время, хотя сейчас оно уже действует
         # 2023-03-14 11:15:28.423 | INFO | [OpsiNextReset] 2023-04-01 03:00:00
         # 2023-03-14 11:15:28.425 | INFO | [OpsiExplore] (True, datetime.datetime(2023, 4, 1, 2, 0))
-        # 2023-03-14 11:15:28.426 | INFO | 每月开荒+仍在运行，仅接取任务...
+        # 2023-03-14 11:15:28.426 | INFO | Ежемесячное исследование+ всё ещё выполняется, только принимаем задания...
         if enable and next_run < next_reset - timedelta(hours=12):
             logger.info('«Ежемесячное исследование+» ещё выполняется, поэтому задания только принимаются. Они будут завершены при посещении всех зон, пропусков не будет.')
             return True
