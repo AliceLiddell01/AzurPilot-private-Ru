@@ -38,21 +38,21 @@ def bytes_to_str(b: bytes) -> str:
 
 @dataclass
 class DataLDPlayerInfo:
-    # 模拟器实例索引，从 0 开始
+    # Индекс экземпляра эмулятора, начиная с 0
     index: int
-    # 实例名称
+    # Имя экземпляра
     name: str
-    # 顶层窗口句柄
+    # Дескриптор окна верхнего уровня
     topWnd: int
-    # 绑定窗口句柄
+    # Дескриптор привязанного окна
     bndWnd: int
-    # 实例是否正在运行，1 表示是，0 表示否
+    # Запущен ли экземпляр: 1 — да, 0 — нет
     sysboot: int
-    # 实例进程的 PID，未运行时为 -1
+    # PID процесса экземпляра; -1, если не запущен
     playerpid: int
-    # vbox 进程的 PID，未运行时为 -1
+    # PID процесса vbox; -1, если не запущен
     vboxpid: int
-    # 分辨率
+    # Разрешение
     width: int
     height: int
     dpi: int
@@ -120,11 +120,11 @@ class LDConsole:
             if not row:
                 continue
             info = row.split(b',')
-            # 检查字段数
+            # Проверяем количество полей
             if len(info) != 10:
                 logger.warning(f'Сведения об экземпляре LDPlayer содержат менее 10 частей: «{row}»')
                 continue
-            # 构建信息
+            # Формируем сведения
             try:
                 info = DataLDPlayerInfo(*info)
             except Exception as e:
@@ -137,11 +137,11 @@ class IScreenShotClass:
     def __init__(self, ptr):
         self.ptr = ptr
 
-        # 在类中定义，因为 ctypes.WINFUNCTYPE 仅在 Windows 上可用
+        # Определяем внутри класса, поскольку ctypes.WINFUNCTYPE доступен только в Windows
         cap_type = ctypes.WINFUNCTYPE(ctypes.c_void_p)
         release_type = ctypes.WINFUNCTYPE(None)
         self.class_cap = cap_type(1, "IScreenShotClass_Cap")
-        # 保持引用计数，防止 __del__ 时 IScreenShotClass_Cap 为空
+        # Удерживаем ссылку, чтобы при __del__ IScreenShotClass_Cap не оказался пустым
         self.class_release = release_type(2, "IScreenShotClass_Release")
 
     def cap(self):
@@ -165,10 +165,10 @@ def retry(func):
                     time.sleep(retry_sleep(_))
                     init()
                 return func(self, *args, **kwargs)
-            # 不可处理
+            # Не обрабатывается
             except RequestHumanTakeover:
                 break
-            # 不可处理
+            # Не обрабатывается
             except LDOpenGLIncompatible as e:
                 logger.error(str(f'[Устройство — LDOpenGL] Ошибка повторной попытки: {e}'))
                 break
@@ -178,7 +178,7 @@ def retry(func):
 
                 def init():
                     pass
-            # 未知异常，可能是损坏的图像
+            # Неизвестное исключение; возможно повреждено изображение
             except Exception as e:
                 logger.exception(str(f'[Устройство — LDOpenGL] Ошибка повторной попытки: {e}'))
 
@@ -202,7 +202,7 @@ class LDOpenGLImpl:
         logger.info(
             f'[Устройство — LDOpenGL] Инициализация: каталог LDPlayer={ld_folder}, библиотека LDOpenGL={ldopengl_dll}, ID экземпляра={instance_id}'
         )
-        # 加载 DLL
+        # Загружаем DLL
         try:
             self.lib = ctypes.WinDLL(ldopengl_dll)
         except OSError as e:
@@ -217,13 +217,13 @@ class LDOpenGLImpl:
                     f'ldopengl_dll={ldopengl_dll} существует, '
                     f'но не может быть загружен'
                 )
-        # 加载 DLL 后获取信息，这样 DLL 是否存在可作为版本检查
+        # После загрузки DLL получаем сведения; наличие DLL таким образом служит проверкой версии
         self.console = LDConsole(ld_folder)
         self.info = self.get_player_info_by_index(instance_id)
 
         self.lib.CreateScreenShotInstance.restype = ctypes.c_void_p
 
-        # 获取截图实例
+        # Получаем экземпляр для снимков экрана
         instance_ptr = ctypes.c_void_p(self.lib.CreateScreenShotInstance(instance_id, self.info.playerpid))
         self.screenshot_instance = IScreenShotClass(instance_ptr)
 
@@ -256,7 +256,7 @@ class LDOpenGLImpl:
         width, height = self.info.width, self.info.height
 
         img_ptr = self.screenshot_instance.cap()
-        # ValueError: 空指针访问
+        # ValueError: обращение к нулевому указателю
         if img_ptr is None:
             raise LDOpenGLError('[Устройство — LDOpenGL] Указатель изображения равен null')
 
@@ -295,7 +295,7 @@ class LDOpenGL(Platform):
         """
         初始化 ldopengl 实现。
         """
-        # 优先使用已有设置
+        # В первую очередь используем уже имеющиеся настройки
         if self.config.EmulatorInfo_path:
             folder = os.path.abspath(os.path.join(self.config.EmulatorInfo_path, '../'))
             index = LDOpenGLImpl.serial_to_id(self.serial)
@@ -309,9 +309,9 @@ class LDOpenGL(Platform):
                     logger.error(str(f'[Устройство — LDOpenGL] Ошибка получения снимка экрана: {e}'))
                     logger.error('[Устройство — LDOpenGL] Некорректные сведения об эмуляторе')
 
-        # 搜索模拟器实例
-        # 例如 E:/ProgramFiles/LDPlayer9/dnplayer.exe
-        # 安装路径为 E:/ProgramFiles/LDPlayer9
+        # Ищем экземпляр эмулятора
+        # Например: E:/ProgramFiles/LDPlayer9/dnplayer.exe
+        # Путь установки: E:/ProgramFiles/LDPlayer9
         if self.emulator_instance is None:
             logger.error('[Устройство — LDOpenGL] LDOpenGL недоступен: экземпляр эмулятора не найден')
             raise RequestHumanTakeover
@@ -343,11 +343,11 @@ class LDOpenGL(Platform):
     def screenshot_ldopengl(self):
         image = self.ldopengl.screenshot()
 
-        # 指针数据的像素排列顺序不同（y 轴正方向向上），需要先垂直翻转
+        # Порядок пикселей в данных указателя отличается: положительное направление оси y вверх, поэтому сначала отражаем по вертикали
         image = cv2.flip(image, 0)
 
-        # 方向处理已统一在screenshot.py的_handle_orientated_image()方法中处理，避免重复旋转
+        # Обработка ориентации унифицирована в _handle_orientated_image() из screenshot.py, чтобы избежать повторного поворота
 
-        # 将色彩空间从 BGR 转换为 RGB
+        # Преобразуем цветовое пространство из BGR в RGB
         cv2.cvtColor(image, cv2.COLOR_BGR2RGB, dst=image)
         return image
