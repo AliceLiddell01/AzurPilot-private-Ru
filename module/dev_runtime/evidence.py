@@ -42,6 +42,7 @@ from module.dev_runtime.task_sandbox import (
     TASK_POLICY_SESSION_ENV,
     TaskPolicyStore,
 )
+from module.observability.identity import resolve_observability_identity
 
 EVIDENCE_SCHEMA_VERSION = 3
 _LEGACY_EVIDENCE_SCHEMA_VERSION = 2
@@ -83,13 +84,11 @@ _SAFE_SESSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _SAFE_OBSERVABILITY_VALUE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 _OBSERVABILITY_SOURCE = "grafana_loki"
 _OBSERVABILITY_SERVICE_NAME = "azurpilot"
-_OBSERVABILITY_COMPONENT = "gui"
 _OBSERVABILITY_KEYS = frozenset(
     {
         "source",
         "service_name",
         "deployment_environment",
-        "component",
         "profile",
         "root_tasks",
         "start_utc",
@@ -723,15 +722,10 @@ def _timeline_metadata(events: list[TimelineEvent], *, truncated: bool = False) 
     }
 
 
-def _deployment_environment() -> str:
-    raw_attributes = os.environ.get("OTEL_RESOURCE_ATTRIBUTES", "")
-    for attribute in raw_attributes.split(","):
-        key, separator, value = attribute.partition("=")
-        if separator and key.strip() == "deployment.environment.name":
-            candidate = value.strip()
-            if _SAFE_OBSERVABILITY_VALUE.fullmatch(candidate):
-                return candidate
-    return "local"
+def _deployment_environment(repository_root: Path | None = None) -> str:
+    return resolve_observability_identity(
+        repository_root=repository_root,
+    ).deployment_environment
 
 
 def _observability_context(
@@ -741,16 +735,17 @@ def _observability_context(
     start_utc: object,
     end_utc: object = None,
     deployment_environment: object | None = None,
+    repository_root: Path | None = None,
 ) -> dict[str, object]:
     """Сформировать только координаты для поиска application logs в Grafana MCP."""
 
+    identity = resolve_observability_identity(repository_root=repository_root)
     return {
         "source": _OBSERVABILITY_SOURCE,
-        "service_name": _OBSERVABILITY_SERVICE_NAME,
+        "service_name": identity.service_name,
         "deployment_environment": (
-            _deployment_environment() if deployment_environment is None else deployment_environment
+            identity.deployment_environment if deployment_environment is None else deployment_environment
         ),
-        "component": _OBSERVABILITY_COMPONENT,
         "profile": profile,
         "root_tasks": root_tasks,
         "start_utc": start_utc,
@@ -763,8 +758,10 @@ def _validate_observability_context(
     *,
     allow_upper_bound: bool = False,
 ) -> dict[str, object]:
-    allowed = _OBSERVABILITY_KEYS | ({"upper_bound_utc"} if allow_upper_bound else set())
-    if not isinstance(value, Mapping) or set(value) != allowed:
+    base_keys = _OBSERVABILITY_KEYS | ({"upper_bound_utc"} if allow_upper_bound else set())
+    legacy_keys = base_keys | {"component"}
+    actual_keys = frozenset(value) if isinstance(value, Mapping) else None
+    if actual_keys not in {frozenset(base_keys), frozenset(legacy_keys)}:
         raise EvidenceCorrupt(
             "DEV_EVIDENCE_CORRUPT",
             "Контекст observability имеет неполную или неизвестную структуру",
@@ -773,12 +770,14 @@ def _validate_observability_context(
         raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Источник observability не поддерживается")
     if value.get("service_name") != _OBSERVABILITY_SERVICE_NAME:
         raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Сервис observability не поддерживается")
-    if value.get("component") != _OBSERVABILITY_COMPONENT:
-        raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Компонент observability не поддерживается")
-    for field_name in ("deployment_environment", "service_name", "component"):
+    for field_name in ("deployment_environment", "service_name"):
         field_value = value.get(field_name)
         if not isinstance(field_value, str) or _SAFE_OBSERVABILITY_VALUE.fullmatch(field_value) is None:
             raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Контекст observability содержит небезопасное значение")
+    if "component" in value:
+        component = value.get("component")
+        if not isinstance(component, str) or _SAFE_OBSERVABILITY_VALUE.fullmatch(component) is None:
+            raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Legacy component observability имеет небезопасное значение")
     profile = value.get("profile")
     if not isinstance(profile, str):
         raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Контекст observability не содержит профиль")
@@ -810,7 +809,6 @@ def _validate_observability_context(
         "source": _OBSERVABILITY_SOURCE,
         "service_name": _OBSERVABILITY_SERVICE_NAME,
         "deployment_environment": value["deployment_environment"],
-        "component": _OBSERVABILITY_COMPONENT,
         "profile": safe_profile,
         "root_tasks": safe_roots,
         "start_utc": start_utc,
@@ -1406,6 +1404,7 @@ class EvidenceStore:
                 profile=environment.profile_name,
                 root_tasks=roots,
                 start_utc=_utc_timestamp(timestamp),
+                repository_root=environment.repository_root,
             ),
             "screenshots": {"count": 0, "latest": None},
             "last_error": None,

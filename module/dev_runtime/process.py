@@ -5,12 +5,15 @@ from __future__ import annotations
 import os
 import signal
 import subprocess
+import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 import psutil
 
 from module.dev_runtime.contracts import DevEnvironment, ProcessIdentity
+from module.dev_runtime.sanitizer import MAX_SANITIZED_TEXT, redact_text
 from module.dev_runtime.target import DevTarget
 from module.dev_runtime.task_sandbox import (
     TASK_POLICY_FILE_ENV,
@@ -22,6 +25,81 @@ _WINDOWS_REDIRECTOR_SETTLE_TIMEOUT = 1.0
 _WINDOWS_REDIRECTOR_POLL_INTERVAL = 0.02
 _IS_WINDOWS = os.name == "nt"
 _WINDOWS_CTRL_BREAK_EVENT = getattr(signal, "CTRL_BREAK_EVENT", None)
+_STARTUP_STDERR_MAX_BYTES = 16 * 1024
+_STARTUP_STDERR_READ_CHUNK = 4096
+_STARTUP_STDERR_JOIN_SECONDS = 0.25
+
+
+@dataclass(frozen=True, slots=True)
+class StartupFailureDiagnostics:
+    """Ограниченная диагностика stderr только для неуспешного startup."""
+
+    message: str
+    truncated: bool
+
+    def as_dict(self) -> dict[str, object]:
+        return {"message": self.message, "truncated": self.truncated}
+
+
+class _StartupStderrCapture:
+    def __init__(self, stream: object) -> None:
+        self._stream = stream
+        self._buffer = bytearray()
+        self._truncated = False
+        self._lock = threading.Lock()
+        self._thread = threading.Thread(
+            target=self._drain,
+            name="azurpilot-dev-startup-stderr",
+            daemon=True,
+        )
+        self._thread.start()
+
+    def _drain(self) -> None:
+        try:
+            while True:
+                chunk = self._stream.read(_STARTUP_STDERR_READ_CHUNK)  # type: ignore[attr-defined]
+                if not chunk:
+                    return
+                if isinstance(chunk, str):
+                    chunk = chunk.encode("utf-8", errors="replace")
+                if not isinstance(chunk, bytes):
+                    return
+                with self._lock:
+                    remaining = _STARTUP_STDERR_MAX_BYTES - len(self._buffer)
+                    if remaining > 0:
+                        self._buffer.extend(chunk[:remaining])
+                    if len(chunk) > remaining:
+                        self._truncated = True
+        except (OSError, ValueError, AttributeError):
+            return
+
+    def _close_stream(self) -> None:
+        try:
+            self._stream.close()  # type: ignore[attr-defined]
+        except (OSError, ValueError, AttributeError):
+            pass
+
+    def read(self) -> StartupFailureDiagnostics | None:
+        self._thread.join(timeout=_STARTUP_STDERR_JOIN_SECONDS)
+        if self._thread.is_alive():
+            self._close_stream()
+            self._thread.join(timeout=_STARTUP_STDERR_JOIN_SECONDS)
+        with self._lock:
+            raw = bytes(self._buffer)
+            truncated = self._truncated
+        self._close_stream()
+        if not raw:
+            return None
+        decoded = raw.decode("utf-8", errors="replace")
+        message = redact_text(decoded, max_length=MAX_SANITIZED_TEXT)
+        return StartupFailureDiagnostics(
+            message=message,
+            truncated=truncated or len(decoded) > MAX_SANITIZED_TEXT,
+        )
+
+    def discard(self) -> None:
+        self._close_stream()
+        self._thread.join(timeout=_STARTUP_STDERR_JOIN_SECONDS)
 
 
 class ProcessBackend:
@@ -30,6 +108,7 @@ class ProcessBackend:
     def __init__(self) -> None:
         self._launch_expectations: dict[int, tuple[DevEnvironment, str]] = {}
         self._launch_handles: dict[int, subprocess.Popen] = {}
+        self._startup_captures: dict[int, _StartupStderrCapture] = {}
 
     def launch(self, environment: DevEnvironment, session_id: str) -> int:
         command = self.expected_command(environment, session_id)
@@ -37,7 +116,7 @@ class ProcessBackend:
             "cwd": str(environment.repository_root),
             "stdin": subprocess.DEVNULL,
             "stdout": subprocess.DEVNULL,
-            "stderr": subprocess.DEVNULL,
+            "stderr": subprocess.PIPE,
             "close_fds": True,
         }
         child_environment = os.environ.copy()
@@ -67,7 +146,18 @@ class ProcessBackend:
         pid = int(process.pid)
         self._launch_expectations[pid] = (environment, session_id)
         self._launch_handles[pid] = process
+        if process.stderr is not None:
+            self._startup_captures[pid] = _StartupStderrCapture(process.stderr)
         return pid
+
+    def read_startup_failure(self, pid: int) -> StartupFailureDiagnostics | None:
+        capture = self._startup_captures.pop(pid, None)
+        return None if capture is None else capture.read()
+
+    def discard_startup_failure(self, pid: int) -> None:
+        capture = self._startup_captures.pop(pid, None)
+        if capture is not None:
+            capture.discard()
 
     @staticmethod
     def expected_command(environment: DevEnvironment, session_id: str) -> list[str]:
@@ -133,6 +223,8 @@ class ProcessBackend:
             return process.poll() is not None
         except (OSError, subprocess.SubprocessError):
             return False
+        finally:
+            self.discard_startup_failure(pid)
 
     @staticmethod
     def _identity_from_process(
@@ -263,6 +355,9 @@ class ProcessBackend:
                         session_id,
                     )
                     if redirected is not None:
+                        capture = self._startup_captures.pop(pid, None)
+                        if capture is not None:
+                            self._startup_captures[redirected.pid] = capture
                         self._launch_expectations.pop(pid, None)
                         self._launch_expectations[redirected.pid] = (
                             environment,

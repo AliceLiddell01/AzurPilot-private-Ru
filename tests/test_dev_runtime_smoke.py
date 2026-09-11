@@ -504,12 +504,173 @@ def test_capability_registry_evaluates_negative_assertion_only_after_window() ->
 def test_capability_registry_has_no_file_log_capabilities() -> None:
     registry = smoke.SmokeCapabilityRegistry()
     legacy_capabilities = {
-        "session_" + "log_contains",
-        "session_" + "log_not_contains",
+        "session_log_contains_literal",
+        "session_log_does_not_contain_literal",
     }
 
     assert not legacy_capabilities.intersection(item.capability_id for item in registry.descriptors())
-    assert all(item.evidence_source != "session_" + "log" for item in registry.descriptors())
+    assert all(item.evidence_source != "session_log" for item in registry.descriptors())
+
+
+def _legacy_run_files(
+    tmp_path: Path,
+    *,
+    finished: bool,
+) -> tuple[smoke.SmokeStateStore, smoke.SmokeSpec, str]:
+    environment = _environment(tmp_path)
+    store = smoke.SmokeStateStore(environment, now=lambda: _NOW)
+    spec = _spec()
+    record = store.create(
+        spec,
+        smoke._source_snapshot(_source()),
+        created_at=_STARTED_AT,
+        deadline_at="2026-08-30T09:01:00+00:00",
+        smoke_id="legacy-smoke",
+    )
+    if finished:
+        result = smoke.SmokeResult(
+            smoke_id=record.smoke_id,
+            spec_hash=record.spec_hash,
+            outcome=smoke.SmokeOutcome.PASS,
+            code="DEV_SMOKE_PASS",
+            message="готово",
+            source=record.source,
+            target_profile=record.target_profile,
+            target_identity=record.target_identity,
+            cleanup=smoke.SmokeCleanup(),
+            finished_at="2026-08-30T09:00:30+00:00",
+        )
+        store.finish(
+            record.smoke_id,
+            {
+                "state": smoke.SmokeState.FINISHED,
+                "outcome": smoke.SmokeOutcome.PASS,
+                "finished_at": result.finished_at,
+            },
+            result,
+        )
+
+    spec_payload = spec.canonical_dict()
+    spec_payload["schema_version"] = 1
+    spec_payload["assertions"] = [
+        {
+            "assertion_id": "old-contains",
+            "capability_id": "session_log_contains_literal",
+            "required": True,
+            "literal": "password=secret",
+        },
+        {
+            "assertion_id": "old-not-contains",
+            "capability_id": "session_log_does_not_contain_literal",
+            "required": True,
+            "literal": "token=secret",
+            "observation_window_seconds": 1.0,
+        },
+    ]
+    legacy_spec_hash = smoke._canonical_payload_hash(spec_payload)
+    state_path = store._file(record.smoke_id, "state.json")
+    state_payload = json.loads(state_path.read_text(encoding="utf-8"))
+    state_payload["schema_version"] = 1
+    state_payload["spec_hash"] = legacy_spec_hash
+    state_payload["assertions"] = [
+        {
+            "assertion_id": "old-contains",
+            "capability_id": "session_log_contains_literal",
+            "required": True,
+            "status": "PASS",
+            "evidence_source": "session_log",
+            "evidence_refs": [
+                {
+                    "source": "session_log",
+                    "reference": "bounded-log",
+                    "description": "password=secret",
+                }
+            ],
+            "message": "legacy payload",
+        }
+    ]
+    state_path.write_text(json.dumps(state_payload), encoding="utf-8")
+    store._file(record.smoke_id, "spec.json").write_text(json.dumps(spec_payload), encoding="utf-8")
+    if finished:
+        result_path = store._file(record.smoke_id, "result.json")
+        result_payload = json.loads(result_path.read_text(encoding="utf-8"))
+        result_payload["schema_version"] = 1
+        result_payload["spec_hash"] = legacy_spec_hash
+        result_payload["assertions"] = state_payload["assertions"]
+        result_path.write_text(json.dumps(result_payload), encoding="utf-8")
+    return store, spec, record.smoke_id
+
+
+def test_smoke_store_reads_v1_legacy_spec_state_result_without_file_log_payload(tmp_path: Path) -> None:
+    store, _specification, smoke_id = _legacy_run_files(tmp_path, finished=True)
+
+    loaded = store.load(smoke_id)
+    specification = store.load_spec(smoke_id)
+    result = store.load_result(smoke_id)
+
+    assert loaded.schema_version == smoke.SMOKE_STATE_SCHEMA_VERSION == 2
+    assert loaded._legacy_schema_version == 1
+    assert specification.schema_version == smoke.SMOKE_SCHEMA_VERSION == 2
+    assert specification._legacy_schema_version == 1
+    assert result is not None
+    assert result.schema_version == smoke.SMOKE_STATE_SCHEMA_VERSION
+    assert result._legacy_schema_version == 1
+    assert specification.assertions == []
+    assert loaded.assertions == []
+    assert result.assertions == []
+    public = smoke.SmokeRunManager(store.environment, now=lambda: _NOW)._record_details(loaded, result=result)
+    serialized = json.dumps(public, ensure_ascii=False)
+    assert "session_log_contains_literal" not in serialized
+    assert "session_log_does_not_contain_literal" not in serialized
+    assert "password=secret" not in serialized
+    assert public["compatibility"] == {
+        "source_schema_version": 1,
+        "migration": "bounded_legacy_read_adapter",
+    }
+
+
+def test_smoke_store_legacy_active_run_does_not_block_new_run(tmp_path: Path) -> None:
+    store, spec, legacy_id = _legacy_run_files(tmp_path, finished=False)
+
+    created = store.create(
+        spec,
+        smoke._source_snapshot(_source()),
+        created_at="2026-08-30T09:00:10+00:00",
+        deadline_at="2026-08-30T09:01:10+00:00",
+        smoke_id="current-smoke",
+    )
+
+    assert created.smoke_id == "current-smoke"
+    assert [item.smoke_id for item in store.list_records()] == [legacy_id, "current-smoke"]
+
+
+def test_smoke_store_prunes_legacy_completed_run_and_rejects_future_schema(tmp_path: Path) -> None:
+    store, _specification, smoke_id = _legacy_run_files(tmp_path, finished=True)
+    old_state = store._file(smoke_id, "state.json")
+    state_payload = json.loads(old_state.read_text(encoding="utf-8"))
+    state_payload["created_at"] = "2020-01-01T00:00:00+00:00"
+    old_state.write_text(json.dumps(state_payload), encoding="utf-8")
+
+    assert store.prune(now=_NOW) == 1
+    assert not old_state.exists()
+
+    _store, _specification, future_id = _legacy_run_files(tmp_path / "future", finished=True)
+    future_state = _store._file(future_id, "state.json")
+    future_payload = json.loads(future_state.read_text(encoding="utf-8"))
+    future_payload["schema_version"] = smoke.SMOKE_STATE_SCHEMA_VERSION + 1
+    future_state.write_text(json.dumps(future_payload), encoding="utf-8")
+    with pytest.raises(smoke.SmokeStoreError, match="будущую") as error:
+        _store.load(future_id)
+    assert error.value.code == "DEV_SMOKE_STATE_UNSUPPORTED"
+
+
+def test_smoke_public_spec_rejects_v1_and_legacy_mutations_are_immutable(tmp_path: Path) -> None:
+    store, spec, smoke_id = _legacy_run_files(tmp_path, finished=True)
+    with pytest.raises(ValueError):
+        smoke.SmokeSpec.model_validate({**spec.canonical_dict(), "schema_version": 1}, strict=True)
+    with pytest.raises(smoke.SmokeStoreError) as error:
+        store.update(smoke_id, {"state": smoke.SmokeState.FINISHED})
+    assert error.value.code == "DEV_SMOKE_LEGACY_IMMUTABLE"
 
 
 def test_smoke_run_passes_and_restores_declared_override(tmp_path: Path, clean_source: None) -> None:

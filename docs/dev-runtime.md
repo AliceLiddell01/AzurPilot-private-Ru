@@ -127,8 +127,11 @@ application logs через Grafana MCP, метаданные снимка эк�
 
 Dev MCP не является proxy для Grafana и не читает Loki, локальные log-файлы или
 incident-артефакты. `dev_get_evidence` возвращает только bounded observability-координаты:
-`source=grafana_loki`, `service_name=azurpilot`, deployment environment, component,
-profile, root tasks и UTC start/end (для активной сессии — bounded upper bound).
+`source=grafana_loki`, `service_name=azurpilot`, deployment environment, profile,
+root tasks и UTC start/end (для активной сессии — bounded upper bound). `component`
+не является обязательной координатой Evidence: role/component может отличаться у
+разных entrypoint-ов и остаётся только structured metadata application log, если
+оно действительно присутствует в OTel записи.
 Payload логов и LogQL наружу не передаются. Application logs ищутся отдельным
 read-only Grafana MCP через `query_loki_logs`; если observability недоступна,
 используется только структурированное evidence без локального fallback.
@@ -336,6 +339,17 @@ symlink/junction. Состояния выполнения (`created`, `preparing
 отделены от итогов `PASS`, `PRODUCT_FAILED`, `PRECONDITION_FAILED`,
 `HARNESS_FAILED`, `EVIDENCE_INCOMPLETE`, `TIMEOUT`, `INVALIDATED` и
 `CANCELLED`. Одновременно разрешён только один активный запуск.
+
+Текущие `SmokeSpec` и `SmokeRun` schema имеют версию 2. Read-only store содержит
+bounded adapter для исторических v1 `spec/state/result`: удалённые file-log
+capabilities и `session_log` refs отбрасываются из актуальной модели, исходные
+файлы не переписываются, а legacy run не блокирует новый v2 запуск. Повреждённая
+или будущая неизвестная schema не мигрируется и завершается fail-closed.
+
+До фиксации телеметрии отдельный process backend сохраняет только ограниченный и
+санитизированный `stderr` startup-попытки standalone DevSession. Поток дренируется
+конкурентно, чтобы не создать deadlock; при успешной готовности и обычной остановке
+буфер отбрасывается. Это не локальный log reader и не fallback для application logs.
 
 Длительная часть запускается отдельным Python проекта через
 `module.dev_runtime.smoke_supervisor`; команда, рабочий каталог и личность

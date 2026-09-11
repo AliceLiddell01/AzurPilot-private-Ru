@@ -37,6 +37,10 @@ from module.observability._shared import (
     _safe_exception_message,
     _safe_message_argument,
 )
+from module.observability.identity import (
+    ObservabilityIdentity,
+    resolve_observability_identity,
+)
 from module.observability.metrics import (
     MetricsConfig,
     MetricsRuntime,
@@ -57,7 +61,6 @@ from module.observability.scheduler import reset_scheduler_state_after_fork
 
 _TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 _SUPPORTED_PROTOCOL = "http/protobuf"
-_DEFAULT_ENVIRONMENT = "local"
 _DEFAULT_HANDLER_LEVEL = logging.INFO
 _DEFAULT_EXPORT_TIMEOUT_MILLIS = 1_000
 _MAX_EXPORT_TIMEOUT_MILLIS = 5_000
@@ -748,21 +751,22 @@ def _read_config() -> _ObservabilityConfig | None:
     )
 
 
+def _observability_identity() -> ObservabilityIdentity:
+    return resolve_observability_identity(
+        repository_root=_application_repository_root(),
+        allow_default_root=False,
+    )
+
+
 def _deployment_environment() -> str:
-    raw = os.environ.get("OTEL_RESOURCE_ATTRIBUTES", "")
-    for item in raw.split(","):
-        key, separator, value = item.partition("=")
-        if separator and key.strip() == "deployment.environment.name":
-            safe_value = _safe_context_value(value.strip())
-            if safe_value:
-                return safe_value
-    return _DEFAULT_ENVIRONMENT
+    return _observability_identity().deployment_environment
 
 
 def _resource_attributes() -> dict[str, str]:
+    identity = _observability_identity()
     attributes = {
-        "service.name": "azurpilot",
-        "deployment.environment.name": _deployment_environment(),
+        "service.name": identity.service_name,
+        "deployment.environment.name": identity.deployment_environment,
         "telemetry.sdk.language": "python",
         "telemetry.sdk.name": "opentelemetry",
     }

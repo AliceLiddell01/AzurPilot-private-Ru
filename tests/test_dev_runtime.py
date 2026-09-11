@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import inspect
 import json
 import os
@@ -46,6 +47,8 @@ class FakeProcessBackend:
         self.force_stop_count = 0
         self.fail_launch = False
         self.candidates: tuple[ProcessIdentity, ...] = ()
+        self.startup_failure: process_module.StartupFailureDiagnostics | None = None
+        self.discarded_startup_pids: list[int] = []
 
     def launch(self, environment: DevEnvironment, session_id: str) -> int:
         self.launch_count += 1
@@ -100,6 +103,14 @@ class FakeProcessBackend:
             return False
         self.alive = False
         return True
+
+    def read_startup_failure(self, _pid: int) -> process_module.StartupFailureDiagnostics | None:
+        failure = self.startup_failure
+        self.startup_failure = None
+        return failure
+
+    def discard_startup_failure(self, pid: int) -> None:
+        self.discarded_startup_pids.append(pid)
 
 
 def _environment(tmp_path: Path) -> DevEnvironment:
@@ -538,6 +549,29 @@ def test_readiness_failure_cleans_exact_owned_process_and_marks_failed(tmp_path:
     assert persisted.process is None
 
 
+def test_readiness_failure_exposes_only_bounded_sanitized_startup_diagnostics(tmp_path: Path) -> None:
+    backend = FakeProcessBackend()
+    backend.startup_failure = process_module.StartupFailureDiagnostics(
+        message="password=secret C:\\private\\config.json",
+        truncated=True,
+    )
+    manager, _backend = _manager(
+        tmp_path,
+        backend=backend,
+        readiness=lambda _environment, _identity: (False, "not ready"),
+        ready_timeout=0,
+    )
+
+    result = manager.start()
+
+    assert result.ok is False
+    assert result.details["startup_failure"] == {
+        "message": "password=*** [путь скрыт]",
+        "truncated": True,
+    }
+    assert backend.startup_failure is None
+
+
 def test_launch_failure_is_structured_and_does_not_report_running(tmp_path: Path) -> None:
     backend = FakeProcessBackend()
     backend.fail_launch = True
@@ -683,6 +717,53 @@ def test_capture_rejects_pid_reuse_after_launch_expectation(
     monkeypatch.setattr(process_module.psutil, "Process", lambda _pid: FakeProcess())
 
     assert backend.capture(7102) is None
+
+
+def test_startup_stderr_capture_is_bounded_and_sanitized() -> None:
+    capture = process_module._StartupStderrCapture(
+        io.BytesIO(
+            b"password=secret C:\\private\\token.txt "
+            + (b"x" * 32_000)
+        )
+    )
+
+    diagnostics = capture.read()
+
+    assert diagnostics is not None
+    assert diagnostics.truncated is True
+    assert len(diagnostics.message) <= process_module.MAX_SANITIZED_TEXT + 1
+    assert "password=secret" not in diagnostics.message
+    assert "C:\\private\\token.txt" not in diagnostics.message
+
+
+def test_process_launch_keeps_stdout_discarded_and_stderr_bounded(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    environment = _environment(tmp_path)
+    captured: dict[str, object] = {}
+
+    class FakePopen:
+        pid = 7110
+
+        def __init__(self) -> None:
+            self.stderr = io.BytesIO()
+
+    process = FakePopen()
+
+    def fake_popen(command, **kwargs):
+        captured["command"] = command
+        captured["kwargs"] = kwargs
+        return process
+
+    monkeypatch.setattr(process_module.subprocess, "Popen", fake_popen)
+    backend = ProcessBackend()
+
+    assert backend.launch(environment, "startup-contract") == process.pid
+    kwargs = captured["kwargs"]
+    assert kwargs["stdout"] is process_module.subprocess.DEVNULL
+    assert kwargs["stderr"] is process_module.subprocess.PIPE
+    backend.discard_startup_failure(process.pid)
 
 
 def test_force_stop_fails_if_owned_child_survives(

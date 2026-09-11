@@ -614,11 +614,14 @@ def test_serializer_allowlists_result_and_redacts_sensitive_details() -> None:
                     "source": "grafana_loki",
                     "service_name": "azurpilot",
                     "deployment_environment": "local",
-                    "component": "gui",
                     "profile": "ap",
                     "root_tasks": ["RootTask"],
                     "start_utc": "2026-08-29T00:00:00+00:00",
                     "end_utc": None,
+                },
+                "startup_failure": {
+                    "message": "ImportError: password=secret C:\\private\\module.py",
+                    "truncated": True,
                 },
                 "repository_root": "C:\\private\\repo",
                 "policy_file": "C:\\private\\policy.json",
@@ -637,11 +640,14 @@ def test_serializer_allowlists_result_and_redacts_sensitive_details() -> None:
             "source": "grafana_loki",
             "service_name": "azurpilot",
             "deployment_environment": "local",
-            "component": "gui",
             "profile": "ap",
             "root_tasks": ["RootTask"],
             "start_utc": "2026-08-29T00:00:00+00:00",
             "end_utc": None,
+        },
+        "startup_failure": {
+            "message": "ImportError: password=*** [путь скрыт]",
+            "truncated": True,
         },
     }
     assert "api_key" not in result["details"]
@@ -659,7 +665,7 @@ def test_serializer_preserves_smoke_result_and_active_conflict_state() -> None:
             "details": {
                 "conflict_state": "running",
                 "result": {
-                    "schema_version": 1,
+                    "schema_version": 2,
                     "smoke_id": "smoke-1",
                     "outcome": "PASS",
                 },
@@ -669,7 +675,7 @@ def test_serializer_preserves_smoke_result_and_active_conflict_state() -> None:
 
     assert result["details"]["conflict_state"] == "running"
     assert result["details"]["result"] == {
-        "schema_version": 1,
+        "schema_version": 2,
         "smoke_id": "smoke-1",
         "outcome": "PASS",
     }
@@ -1041,7 +1047,6 @@ def test_real_evidence_tools_expose_lifecycle_timeline_observability_and_image(t
             "source": "grafana_loki",
             "service_name": "azurpilot",
             "deployment_environment": "local",
-            "component": "gui",
             "profile": "ap",
             "root_tasks": ["RootTask"],
             "start_utc": "2026-08-29T00:00:00+00:00",

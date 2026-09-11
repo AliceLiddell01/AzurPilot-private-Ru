@@ -148,6 +148,7 @@ _SAFE_DETAIL_KEYS = frozenset(
         "sequence",
         "session_id",
         "state",
+        "startup_failure",
         "status",
         "steps",
         "task",
@@ -416,6 +417,7 @@ _SAFE_HANDOVER_NOTIFICATION_KEYS = frozenset({"attempted", "outcome", "confirmed
 _SAFE_HANDOVER_GRACE_PERIOD_KEYS = frozenset({"expired"})
 
 _SAFE_EVIDENCE_HEALTH_KEYS = frozenset({"status", "reasons"})
+_SAFE_STARTUP_FAILURE_KEYS = frozenset({"message", "truncated"})
 _SAFE_GIT_SNAPSHOT_KEYS = frozenset(
     {"head", "branch", "detached", "dirty", "changed_paths", "available", "reason"}
 )
@@ -454,7 +456,6 @@ _SAFE_OBSERVABILITY_KEYS = frozenset(
         "source",
         "service_name",
         "deployment_environment",
-        "component",
         "profile",
         "root_tasks",
         "start_utc",
@@ -704,6 +705,7 @@ _SCHEMA_KEYS = {
     "error": _SAFE_ERROR_KEYS,
     "evidence_summary": _SAFE_EVIDENCE_SUMMARY_KEYS,
     "evidence_health": _SAFE_EVIDENCE_HEALTH_KEYS,
+    "startup_failure": _SAFE_STARTUP_FAILURE_KEYS,
     "git_snapshot": _SAFE_GIT_SNAPSHOT_KEYS,
     "timeline_metadata": _SAFE_TIMELINE_METADATA_KEYS,
     "timeline_page": _SAFE_TIMELINE_PAGE_KEYS,
@@ -804,6 +806,7 @@ _DETAIL_CHILD_SCHEMAS: dict[str, str | None] = {
     "items": "generic_list",
     "observability": "observability",
     "last_error": "structured_error",
+    "startup_failure": "startup_failure",
     "last_sequence": "int",
     "last_timestamp": "string",
     "latest": "screenshot_metadata",
@@ -1060,6 +1063,11 @@ _HANDOVER_GRACE_PERIOD_CHILD_SCHEMAS: dict[str, str | None] = {
     "expired": "bool",
 }
 
+_STARTUP_FAILURE_CHILD_SCHEMAS: dict[str, str | None] = {
+    "message": "string",
+    "truncated": "bool",
+}
+
 _EVIDENCE_SUMMARY_CHILD_SCHEMAS: dict[str, str | None] = {
     "session_id": "session_id",
     "lifecycle": "lifecycle",
@@ -1161,7 +1169,6 @@ _OBSERVABILITY_CHILD_SCHEMAS: dict[str, str | None] = {
     "source": "string",
     "service_name": "string",
     "deployment_environment": "string",
-    "component": "string",
     "profile": "string",
     "root_tasks": "string_list",
     "start_utc": "string",
@@ -1463,6 +1470,7 @@ _SCHEMA_CHILD_SCHEMAS = {
     "task_catalog": _TASK_CATALOG_CHILD_SCHEMAS,
     "task_plan": _TASK_PLAN_CHILD_SCHEMAS,
     "error": _ERROR_CHILD_SCHEMAS,
+    "startup_failure": _STARTUP_FAILURE_CHILD_SCHEMAS,
     "handover": _HANDOVER_CHILD_SCHEMAS,
     "handover_details": _HANDOVER_DETAILS_CHILD_SCHEMAS,
     "handover_notification": _HANDOVER_NOTIFICATION_CHILD_SCHEMAS,

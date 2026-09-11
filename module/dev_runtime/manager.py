@@ -50,7 +50,12 @@ from module.dev_runtime.evidence import (
     EvidenceStore,
     validate_session_id,
 )
-from module.dev_runtime.process import ProcessBackend, _same_path
+from module.dev_runtime.process import (
+    ProcessBackend,
+    StartupFailureDiagnostics,
+    _same_path,
+)
+from module.dev_runtime.sanitizer import MAX_SANITIZED_TEXT, redact_text
 from module.dev_runtime.shared_webui import SharedWebUIRuntime
 from module.dev_runtime.target import (
     DevTarget,
@@ -438,6 +443,39 @@ class DevSessionManager(DevDiagnosticsMixin):
             active_store.record_error(exception, phase=phase)
         except Exception:
             active_store.mark_degraded("error_record_failed")
+
+    def _read_startup_failure(self, pid: int | None) -> dict[str, object] | None:
+        if pid is None:
+            return None
+        reader = getattr(self.process_backend, "read_startup_failure", None)
+        if not callable(reader):
+            return None
+        try:
+            diagnostics = reader(pid)
+        except Exception:
+            return None
+        if not isinstance(diagnostics, StartupFailureDiagnostics):
+            return None
+        diagnostics = StartupFailureDiagnostics(
+            message=redact_text(diagnostics.message, max_length=MAX_SANITIZED_TEXT),
+            truncated=diagnostics.truncated or len(diagnostics.message) > MAX_SANITIZED_TEXT,
+        )
+        self._evidence_error(
+            RuntimeError(diagnostics.message),
+            phase="startup_failure",
+        )
+        return diagnostics.as_dict()
+
+    def _discard_startup_failure(self, pid: int | None) -> None:
+        if pid is None:
+            return
+        discarder = getattr(self.process_backend, "discard_startup_failure", None)
+        if not callable(discarder):
+            return
+        try:
+            discarder(pid)
+        except Exception:
+            pass
 
     def _finalize_evidence_before_cleanup(
         self,
@@ -2576,6 +2614,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                             process_cleanup_confirmed = self.process_backend.force_stop(identity)
                         else:
                             process_cleanup_confirmed = False
+                    startup_failure = self._read_startup_failure(pid)
                     failure_code = "DEV_LAUNCH_FAILED"
                     session.state = DevSessionState.FAILED
                     session.updated_at = self._timestamp()
@@ -2589,6 +2628,8 @@ class DevSessionManager(DevDiagnosticsMixin):
                         reason=failure_code,
                     )
                     failure_details: dict[str, object] = {}
+                    if startup_failure is not None:
+                        failure_details["startup_failure"] = startup_failure
                     if task_plan is not None:
                         task_cleanup = (
                             self._cleanup_task_state_locked(
@@ -2602,7 +2643,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                                 session=session,
                             )
                         )
-                        failure_details = {"cleanup": task_cleanup.as_dict()}
+                        failure_details["cleanup"] = task_cleanup.as_dict()
                         if not task_cleanup.ok:
                             failure_code = "DEV_CLEANUP_FAILED"
                     session.last_code = failure_code
@@ -2665,6 +2706,9 @@ class DevSessionManager(DevDiagnosticsMixin):
                     {"code": "DEV_READINESS_FAILED", "reason": reason, "phase": "readiness"},
                 )
                 cleanup = self._stop_owned_process(latest.process)
+                startup_failure = self._read_startup_failure(
+                    latest.process.pid if latest.process is not None else None
+                )
                 latest.state = DevSessionState.FAILED
                 latest.updated_at = self._timestamp()
                 failure_code = "DEV_READINESS_FAILED"
@@ -2679,6 +2723,8 @@ class DevSessionManager(DevDiagnosticsMixin):
                     reason=failure_code,
                 )
                 failure_details: dict[str, object] = {"cleanup_confirmed": cleanup}
+                if startup_failure is not None:
+                    failure_details["startup_failure"] = startup_failure
                 if task_plan is not None:
                     task_cleanup = (
                         self._cleanup_task_state_locked(
@@ -2727,6 +2773,9 @@ class DevSessionManager(DevDiagnosticsMixin):
             except RuntimeError:
                 owned = False
             if owned is not True:
+                self._discard_startup_failure(
+                    latest.process.pid if latest.process is not None else None
+                )
                 self._evidence_event(
                     "runtime_warning",
                     {"code": "DEV_OWNERSHIP_LOST", "phase": "readiness"},
@@ -2749,6 +2798,9 @@ class DevSessionManager(DevDiagnosticsMixin):
             latest.updated_at = self._timestamp()
             latest.last_code = "DEV_SESSION_READY"
             latest.last_message = "Dev-сессия готова"
+            self._discard_startup_failure(
+                latest.process.pid if latest.process is not None else None
+            )
             self._write_session(latest)
             self._evidence_event(
                 "session_ready",
@@ -3327,6 +3379,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                     state=DevStatusKind.OWNERSHIP_MISMATCH,
                 )
             if matches is None:
+                self._discard_startup_failure(identity.pid)
                 return self._finish_stopped_locked(
                     session,
                     code="DEV_STALE_RECOVERED",
@@ -3349,6 +3402,8 @@ class DevSessionManager(DevDiagnosticsMixin):
             self._evidence_event("stop_requested", {"state": DevSessionState.STOPPING.value})
 
         stopped = self._stop_owned_process(identity)
+        if stopped:
+            self._discard_startup_failure(identity.pid if identity is not None else None)
         with self._locked_state():
             latest = self._read_session()
             if latest is None or latest.session_id != session.session_id:

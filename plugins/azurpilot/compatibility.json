@@ -3,8 +3,8 @@
   "product_family": "AzurPilot",
   "plugin_version": "0.1.0+codex.20260903132550",
   "dev_mcp_api_version": 3,
-  "smoke_spec_schema_version": 1,
-  "smoke_result_schema_version": 1,
+  "smoke_spec_schema_version": 2,
+  "smoke_result_schema_version": 2,
   "required_feature_flags": {
     "task_sandbox": true,
     "evidence_api": true,

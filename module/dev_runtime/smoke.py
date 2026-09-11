@@ -32,6 +32,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    PrivateAttr,
     StrictBool,
     StrictFloat,
     StrictInt,
@@ -85,8 +86,16 @@ from module.dev_runtime.task_sandbox import (
     write_profile_payload,
 )
 
-SMOKE_SCHEMA_VERSION = 1
-SMOKE_STATE_SCHEMA_VERSION = 1
+SMOKE_SCHEMA_VERSION = 2
+SMOKE_STATE_SCHEMA_VERSION = 2
+_LEGACY_SMOKE_SCHEMA_VERSION = 1
+_LEGACY_SMOKE_CAPABILITY_IDS = frozenset(
+    {
+        "session_log_contains_literal",
+        "session_log_does_not_contain_literal",
+    }
+)
+_LEGACY_SMOKE_EVIDENCE_SOURCE = "session_log"
 SMOKE_MAX_NAME = 128
 SMOKE_MAX_OBJECTIVE = 1024
 SMOKE_MAX_RUBRIC = 4096
@@ -633,6 +642,8 @@ class SmokeGameObservationSpec(_StrictModel):
 
 class SmokeSpec(_StrictModel):
     schema_version: Literal[SMOKE_SCHEMA_VERSION] = SMOKE_SCHEMA_VERSION
+    _legacy_schema_version: int | None = PrivateAttr(default=None)
+    _legacy_spec_hash: str | None = PrivateAttr(default=None)
     name: str = Field(min_length=1, max_length=SMOKE_MAX_NAME)
     objective: str = Field(min_length=1, max_length=SMOKE_MAX_OBJECTIVE)
     timeout_seconds: DurationValue = 180.0
@@ -713,11 +724,16 @@ class SmokeAssertionResult(_StrictModel):
     @field_validator("assertion_id", "capability_id")
     @classmethod
     def validate_ids(cls, value: str, info: object) -> str:
-        return _identifier(value, field_name=getattr(info, "field_name", "id"))
+        value = _identifier(value, field_name=getattr(info, "field_name", "id"))
+        if getattr(info, "field_name", "id") == "capability_id" and value in _LEGACY_SMOKE_CAPABILITY_IDS:
+            raise ValueError("удалённая file-log capability не поддерживается")
+        return value
 
     @field_validator("evidence_source", "message")
     @classmethod
     def validate_result_text(cls, value: str, info: object) -> str:
+        if getattr(info, "field_name", "result") == "evidence_source" and value == _LEGACY_SMOKE_EVIDENCE_SOURCE:
+            raise ValueError("удалённый session_log evidence source не поддерживается")
         return _text(value, field_name=getattr(info, "field_name", "result"), maximum=SMOKE_MAX_RESULT_TEXT, allow_empty=True)
 
 
@@ -1010,6 +1026,7 @@ class SmokeSupervisorIdentity(_StrictModel):
 
 class SmokeRunRecord(_StrictModel):
     schema_version: Literal[SMOKE_STATE_SCHEMA_VERSION] = SMOKE_STATE_SCHEMA_VERSION
+    _legacy_schema_version: int | None = PrivateAttr(default=None)
     smoke_id: str
     state: SmokeState
     outcome: SmokeOutcome | None = None
@@ -1092,6 +1109,7 @@ class SmokeRunRecord(_StrictModel):
 
 class SmokeResult(_StrictModel):
     schema_version: Literal[SMOKE_STATE_SCHEMA_VERSION] = SMOKE_STATE_SCHEMA_VERSION
+    _legacy_schema_version: int | None = PrivateAttr(default=None)
     smoke_id: str
     spec_hash: str
     outcome: SmokeOutcome
@@ -1210,6 +1228,62 @@ def _validate_json_model(model_type: type[BaseModel], payload: object) -> BaseMo
     """Строго проверить JSON-представление, сохранив смысл перечислений из файла."""
 
     return model_type.model_validate_json(json.dumps(payload, ensure_ascii=True), strict=True)
+
+
+def _canonical_payload_hash(payload: Mapping[str, object]) -> str:
+    return hashlib.sha256(
+        json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def _drop_legacy_file_log_assertions(payload: Mapping[str, object]) -> dict[str, object]:
+    """Удалить из legacy-представления capabilities, которых больше нет в Smoke API.
+
+    Legacy state/result могли содержать не только старые capability ids, но и
+    ``session_log`` evidence refs. Ни один из этих payloads не должен попасть в
+    актуальную модель или в публичный результат после bounded migration.
+    """
+
+    normalized = dict(payload)
+    raw_assertions = normalized.get("assertions")
+    if not isinstance(raw_assertions, list):
+        return normalized
+    assertions: list[object] = []
+    for item in raw_assertions:
+        if not isinstance(item, Mapping):
+            assertions.append(item)
+            continue
+        if item.get("capability_id") in _LEGACY_SMOKE_CAPABILITY_IDS:
+            continue
+        if item.get("evidence_source") == _LEGACY_SMOKE_EVIDENCE_SOURCE:
+            continue
+        raw_refs = item.get("evidence_refs")
+        if isinstance(raw_refs, list) and any(
+            isinstance(reference, Mapping)
+            and reference.get("source") == _LEGACY_SMOKE_EVIDENCE_SOURCE
+            for reference in raw_refs
+        ):
+            continue
+        assertions.append(item)
+    normalized["assertions"] = assertions
+    normalized["schema_version"] = SMOKE_STATE_SCHEMA_VERSION
+    return normalized
+
+
+def _normalize_legacy_spec_payload(payload: Mapping[str, object]) -> dict[str, object]:
+    normalized = dict(payload)
+    raw_assertions = normalized.get("assertions")
+    if isinstance(raw_assertions, list):
+        normalized["assertions"] = [
+            item
+            for item in raw_assertions
+            if not (
+                isinstance(item, Mapping)
+                and item.get("capability_id") in _LEGACY_SMOKE_CAPABILITY_IDS
+            )
+        ]
+    normalized["schema_version"] = SMOKE_SCHEMA_VERSION
+    return normalized
 
 
 def _source_snapshot(git: GitSnapshot) -> SmokeSourceSnapshot:
@@ -2033,6 +2107,8 @@ class SmokeCapabilityRegistry:
     ) -> None:
         """Добавить новую типизированную capability до запуска SmokeRun."""
 
+        if descriptor.capability_id in _LEGACY_SMOKE_CAPABILITY_IDS:
+            raise SmokeStoreError("DEV_SMOKE_CAPABILITY_UNSUPPORTED", "Удалённая file-log capability запрещена")
         if descriptor.capability_id in self._definitions:
             raise SmokeStoreError("DEV_SMOKE_CAPABILITY_CONFLICT", "Такая capability Smoke уже зарегистрирована")
         self._definitions[descriptor.capability_id] = _CapabilityDefinition(descriptor, evaluator)
@@ -2242,6 +2318,74 @@ class SmokeStateStore:
         except TaskSandboxError as exc:
             raise SmokeStoreError(exc.code, str(exc)) from exc
 
+    @staticmethod
+    def _versioned_payload(
+        payload: object,
+        *,
+        current_version: int,
+        corrupt_code: str,
+        label: str,
+    ) -> tuple[Mapping[str, object], bool]:
+        if not isinstance(payload, Mapping) or type(payload.get("schema_version")) is not int:
+            raise SmokeStoreError(corrupt_code, f"{label} не содержит целочисленную schema_version")
+        version = payload["schema_version"]
+        if version == current_version:
+            return payload, False
+        if version == _LEGACY_SMOKE_SCHEMA_VERSION:
+            return payload, True
+        if version > current_version:
+            raise SmokeStoreError(
+                f"{corrupt_code.rsplit('_', 1)[0]}_UNSUPPORTED",
+                f"{label} содержит неизвестную будущую schema_version",
+            )
+        raise SmokeStoreError(corrupt_code, f"{label} содержит неподдерживаемую schema_version")
+
+    @staticmethod
+    def _is_legacy(record: SmokeRunRecord) -> bool:
+        return record._legacy_schema_version is not None
+
+    @staticmethod
+    def _reject_legacy_mutation(record: SmokeRunRecord) -> None:
+        if record._legacy_schema_version is not None:
+            raise SmokeStoreError(
+                "DEV_SMOKE_LEGACY_IMMUTABLE",
+                "Исторический SmokeRun доступен только для bounded read/migration",
+            )
+
+    def _load_result_unlocked(
+        self,
+        smoke_id: str,
+        *,
+        record: SmokeRunRecord | None = None,
+    ) -> SmokeResult | None:
+        path = self._file(smoke_id, "result.json")
+        if not os.path.lexists(path):
+            return None
+        loaded_record = record or self._load_unlocked(smoke_id)
+        raw = self._read_json(path, SMOKE_MAX_RUN_BYTES)
+        payload, legacy = self._versioned_payload(
+            raw,
+            current_version=SMOKE_STATE_SCHEMA_VERSION,
+            corrupt_code="DEV_SMOKE_RESULT_CORRUPT",
+            label="SmokeResult",
+        )
+        normalized = (
+            _drop_legacy_file_log_assertions(payload)
+            if legacy
+            else payload
+        )
+        try:
+            result = _validate_json_model(SmokeResult, normalized)
+        except ValidationError as exc:
+            raise SmokeStoreError("DEV_SMOKE_RESULT_CORRUPT", "SmokeResult имеет некорректную схему") from exc
+        if not isinstance(result, SmokeResult):
+            raise SmokeStoreError("DEV_SMOKE_RESULT_CORRUPT", "SmokeResult имеет некорректный тип")
+        if legacy:
+            object.__setattr__(result, "_legacy_schema_version", _LEGACY_SMOKE_SCHEMA_VERSION)
+        if not self._result_matches_record(result, loaded_record):
+            raise SmokeStoreError("DEV_SMOKE_RESULT_MISMATCH", "SmokeResult не соответствует замороженному SmokeRun")
+        return result
+
     def create(self, spec: SmokeSpec, source: SmokeSourceSnapshot, *, created_at: str, deadline_at: str, smoke_id: str | None = None) -> SmokeRunRecord:
         smoke_id = smoke_id or str(uuid.uuid4())
         smoke_id = _identifier(smoke_id, field_name="smoke_id")
@@ -2267,6 +2411,7 @@ class SmokeStateStore:
                     SmokeState.CLEANING_UP,
                     SmokeState.AWAITING_EXTERNAL_EVALUATION,
                 }
+                and not self._is_legacy(record)
                 for record in self.list_records_unlocked()
             ):
                 raise SmokeStoreError("DEV_SMOKE_ACTIVE_CONFLICT", "Активный SmokeRun уже существует")
@@ -2281,10 +2426,22 @@ class SmokeStateStore:
 
     def _load_unlocked(self, smoke_id: str) -> SmokeRunRecord:
         raw = self._read_json(self._file(smoke_id, "state.json"), SMOKE_MAX_RUN_BYTES)
+        payload, legacy = self._versioned_payload(
+            raw,
+            current_version=SMOKE_STATE_SCHEMA_VERSION,
+            corrupt_code="DEV_SMOKE_STATE_CORRUPT",
+            label="SmokeRun state",
+        )
+        normalized = _drop_legacy_file_log_assertions(payload) if legacy else payload
         try:
-            return _validate_json_model(SmokeRunRecord, raw)  # type: ignore[return-value]
+            record = _validate_json_model(SmokeRunRecord, normalized)
         except ValidationError as exc:
             raise SmokeStoreError("DEV_SMOKE_STATE_CORRUPT", "состояние SmokeRun имеет некорректную схему") from exc
+        if not isinstance(record, SmokeRunRecord):
+            raise SmokeStoreError("DEV_SMOKE_STATE_CORRUPT", "состояние SmokeRun имеет некорректный тип")
+        if legacy:
+            object.__setattr__(record, "_legacy_schema_version", _LEGACY_SMOKE_SCHEMA_VERSION)
+        return record
 
     def load(self, smoke_id: str) -> SmokeRunRecord:
         with self._locked():
@@ -2293,13 +2450,27 @@ class SmokeStateStore:
     def load_spec(self, smoke_id: str) -> SmokeSpec:
         with self._locked():
             raw = self._read_json(self._file(smoke_id, "spec.json"), SMOKE_MAX_SPEC_BYTES)
+            payload, legacy = self._versioned_payload(
+                raw,
+                current_version=SMOKE_SCHEMA_VERSION,
+                corrupt_code="DEV_SMOKE_SPEC_CORRUPT",
+                label="SmokeSpec",
+            )
+            normalized = _normalize_legacy_spec_payload(payload) if legacy else payload
             try:
-                spec = _validate_json_model(SmokeSpec, raw)
+                spec = _validate_json_model(SmokeSpec, normalized)
             except ValidationError as exc:
                 raise SmokeStoreError("DEV_SMOKE_SPEC_CORRUPT", "SmokeSpec имеет некорректную схему") from exc
+            if not isinstance(spec, SmokeSpec):
+                raise SmokeStoreError("DEV_SMOKE_SPEC_CORRUPT", "SmokeSpec имеет некорректный тип")
             record = self._load_unlocked(smoke_id)
-            if spec.spec_hash() != record.spec_hash:
+            raw_hash = _canonical_payload_hash(payload)
+            expected_hash = raw_hash if legacy else spec.spec_hash()
+            if expected_hash != record.spec_hash:
                 raise SmokeStoreError("DEV_SMOKE_SPEC_HASH_MISMATCH", "spec_hash не соответствует замороженной спецификации")
+            if legacy:
+                object.__setattr__(spec, "_legacy_schema_version", _LEGACY_SMOKE_SCHEMA_VERSION)
+                object.__setattr__(spec, "_legacy_spec_hash", raw_hash)
             return spec
 
     @staticmethod
@@ -2318,6 +2489,7 @@ class SmokeStateStore:
     def update(self, smoke_id: str, updates: Mapping[str, object]) -> SmokeRunRecord:
         with self._locked():
             current = self._load_unlocked(smoke_id)
+            self._reject_legacy_mutation(current)
             if current.state is SmokeState.FINISHED and updates:
                 raise SmokeStoreError("DEV_SMOKE_STATE_IMMUTABLE", "завершённый SmokeRun нельзя изменять")
             updated = self._updated_unlocked(current, updates)
@@ -2379,6 +2551,7 @@ class SmokeStateStore:
 
         with self._locked():
             current = self._load_unlocked(smoke_id)
+            self._reject_legacy_mutation(current)
             if current.state is SmokeState.FINISHED:
                 raise SmokeStoreError("DEV_SMOKE_STATE_IMMUTABLE", "завершённый SmokeRun нельзя изменять")
             updated = self._updated_unlocked(current, updates)
@@ -2400,6 +2573,7 @@ class SmokeStateStore:
     def save_result(self, result: SmokeResult) -> None:
         with self._locked():
             record = self._load_unlocked(result.smoke_id)
+            self._reject_legacy_mutation(record)
             if record.state is not SmokeState.FINISHED:
                 raise SmokeStoreError("DEV_SMOKE_RESULT_STATE_INVALID", "результат разрешён только для завершённого SmokeRun")
             if not self._result_matches_record(result, record):
@@ -2414,24 +2588,13 @@ class SmokeStateStore:
 
     def load_result(self, smoke_id: str) -> SmokeResult | None:
         with self._locked():
-            path = self._file(smoke_id, "result.json")
-            if not os.path.lexists(path):
-                return None
             record = self._load_unlocked(smoke_id)
-            raw = self._read_json(path, SMOKE_MAX_RUN_BYTES)
-            try:
-                result = _validate_json_model(SmokeResult, raw)
-            except ValidationError as exc:
-                raise SmokeStoreError("DEV_SMOKE_RESULT_CORRUPT", "SmokeResult имеет некорректную схему") from exc
-            if not isinstance(result, SmokeResult):
-                raise SmokeStoreError("DEV_SMOKE_RESULT_CORRUPT", "SmokeResult имеет некорректный тип")
-            if not self._result_matches_record(result, record):
-                raise SmokeStoreError("DEV_SMOKE_RESULT_MISMATCH", "SmokeResult не соответствует замороженному SmokeRun")
-            return result
+            return self._load_result_unlocked(smoke_id, record=record)
 
     def request_cancel(self, smoke_id: str, timestamp: str) -> SmokeControl:
         with self._locked():
-            self._load_unlocked(smoke_id)
+            record = self._load_unlocked(smoke_id)
+            self._reject_legacy_mutation(record)
             control_path = self._file(smoke_id, "control.json")
             if os.path.lexists(control_path):
                 raw = self._read_json(control_path, 32 * 1024)
@@ -2489,8 +2652,11 @@ class SmokeStateStore:
             protected = {
                 record.smoke_id
                 for record in records
-                if record.smoke_id in active_ids
+                if not self._is_legacy(record)
+                and (
+                    record.smoke_id in active_ids
                 or record.state in {SmokeState.CREATED, SmokeState.PREPARING, SmokeState.RUNNING, SmokeState.EVALUATING, SmokeState.CLEANING_UP, SmokeState.AWAITING_EXTERNAL_EVALUATION}
+                )
             }
             cutoff = now.astimezone(UTC) - timedelta(seconds=SMOKE_MAX_RUN_AGE_SECONDS)
             candidates = []
@@ -2538,13 +2704,9 @@ class SmokeStateStore:
     def _validate_finished_result_unlocked(self, record: SmokeRunRecord) -> None:
         if record.state is not SmokeState.FINISHED:
             return
-        raw = self._read_json(self._file(record.smoke_id, "result.json"), SMOKE_MAX_RUN_BYTES)
-        try:
-            result = _validate_json_model(SmokeResult, raw)
-        except ValidationError as exc:
-            raise SmokeStoreError("DEV_SMOKE_RESULT_CORRUPT", "SmokeResult имеет некорректную схему") from exc
-        if not isinstance(result, SmokeResult) or not self._result_matches_record(result, record):
-            raise SmokeStoreError("DEV_SMOKE_RESULT_MISMATCH", "SmokeResult не соответствует завершённому SmokeRun")
+        result = self._load_result_unlocked(record.smoke_id, record=record)
+        if result is None:
+            raise SmokeStoreError("DEV_SMOKE_RESULT_CORRUPT", "Завершённый SmokeRun не содержит SmokeResult")
 
 
 class SmokeValidationIssue(_StrictModel):
@@ -2846,7 +3008,7 @@ class SmokeRunManager:
             SmokeState.AWAITING_EXTERNAL_EVALUATION,
         }
         for record in reversed(records):
-            if record.state in active_states:
+            if record.state in active_states and record._legacy_schema_version is None:
                 return record
         return None
 
@@ -3026,7 +3188,17 @@ class SmokeRunManager:
         except (SmokeStoreError, ValueError) as exc:
             code = exc.code if isinstance(exc, SmokeStoreError) else "DEV_SMOKE_ID_INVALID"
             return self._result(ok=False, code=code, message=str(exc), state=SmokeState.FINISHED.value, smoke_id=smoke_id if isinstance(smoke_id, str) else None)
-        if record.state in {SmokeState.CREATED, SmokeState.PREPARING, SmokeState.RUNNING, SmokeState.EVALUATING, SmokeState.CLEANING_UP}:
+        if (
+            record._legacy_schema_version is None
+            and record.state
+            in {
+                SmokeState.CREATED,
+                SmokeState.PREPARING,
+                SmokeState.RUNNING,
+                SmokeState.EVALUATING,
+                SmokeState.CLEANING_UP,
+            }
+        ):
             if record.supervisor is None:
                 record = self._recover_crashed(record, "DEV_SMOKE_SUPERVISOR_IDENTITY_MISSING")
             else:
@@ -4284,6 +4456,11 @@ class SmokeRunManager:
             },
             "pending_evaluation": _safe_model_json(record.pending_evaluation) if record.pending_evaluation is not None else None,
         }
+        if record._legacy_schema_version is not None:
+            details["compatibility"] = {
+                "source_schema_version": record._legacy_schema_version,
+                "migration": "bounded_legacy_read_adapter",
+            }
         if result is not None:
             details["result"] = _safe_model_json(result)
         if record.primary_failure is not None:

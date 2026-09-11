@@ -29,6 +29,7 @@ from module.observability.bootstrap import (
     configure_application_observability,
     shutdown_application_observability,
 )
+from module.observability.identity import resolve_observability_identity
 
 _ROOT = Path(__file__).resolve().parents[1]
 _OTEL_ENVIRONMENT_KEYS = (
@@ -209,6 +210,44 @@ def test_canonical_project_env_uses_process_repository_root(monkeypatch, tmp_pat
     assert config.signal_endpoint == "http://worker-root:4318/v1/logs"
     for key in _OTEL_ENVIRONMENT_KEYS:
         monkeypatch.delenv(key, raising=False)
+
+
+def test_resource_identity_is_shared_by_bootstrap_and_evidence_sources(
+    monkeypatch, tmp_path
+):
+    repository_root = tmp_path / "identity-repository"
+    (repository_root / "module").mkdir(parents=True)
+    (repository_root / "gui.py").write_text("", encoding="utf-8")
+    (repository_root / ".env").write_text(
+        "OTEL_RESOURCE_ATTRIBUTES=deployment.environment.name=staging\n"
+        "OTEL_EXPORTER_OTLP_LOGS_HEADERS=authorization=secret\n"
+        "AZURPILOT_REPOSITORY_ROOT=C:\\private\\not-an-identity\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AZURPILOT_REPOSITORY_ROOT", str(repository_root))
+    monkeypatch.delenv("OTEL_RESOURCE_ATTRIBUTES", raising=False)
+
+    from_file = resolve_observability_identity(repository_root=repository_root)
+    assert from_file.deployment_environment == "staging"
+    assert "secret" not in repr(from_file)
+    assert "private" not in repr(from_file)
+    assert bootstrap_module._resource_attributes()["deployment.environment.name"] == (
+        from_file.deployment_environment
+    )
+
+    monkeypatch.setenv(
+        "OTEL_RESOURCE_ATTRIBUTES",
+        "deployment.environment.name=production",
+    )
+    from_process = resolve_observability_identity(repository_root=repository_root)
+    assert from_process.deployment_environment == "production"
+    assert bootstrap_module._resource_attributes()["deployment.environment.name"] == (
+        from_process.deployment_environment
+    )
+
+    monkeypatch.delenv("OTEL_RESOURCE_ATTRIBUTES", raising=False)
+    (repository_root / ".env").unlink()
+    assert resolve_observability_identity(repository_root=repository_root).deployment_environment == "local"
 
 
 def test_application_logging_disabled_flag_wins_over_endpoint(monkeypatch):
