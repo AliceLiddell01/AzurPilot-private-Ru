@@ -137,6 +137,25 @@ def test_v2_evidence_manifest_migrates_without_file_log_metadata(
     assert "legacy_observability_environment_unknown" in migrated["evidence_health"]["reasons"]
 
 
+def test_v2_evidence_migration_bounds_legacy_health_reason(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    manifest = json.loads(store.manifest_path.read_text(encoding="utf-8"))
+    manifest["schema_version"] = 2
+    manifest["logs"] = {}
+    manifest.pop("observability")
+    manifest["evidence_health"] = {
+        "status": "degraded",
+        "reasons": [f"reason_{index}" for index in range(32)],
+    }
+    store.manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    summary = EvidenceStore.for_session(store.environment, store.session_id).summary()
+
+    reasons = summary["evidence_health"]["reasons"]
+    assert len(reasons) == 32
+    assert reasons[-1] == "legacy_observability_environment_unknown"
+
+
 def test_read_only_evidence_methods_do_not_persist_legacy_migration(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -969,6 +988,42 @@ def test_retention_leaves_corrupt_session_untouched_and_reports_failure(
 
     assert EvidenceStore.prune(environment, now=lambda: datetime(2026, 8, 30, tzinfo=UTC)) is False
     assert corrupt.root.exists()
+
+
+def test_retention_skips_busy_session_and_prunes_other_history(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    environment = _environment(tmp_path)
+    busy = EvidenceStore.create(
+        environment,
+        session_id="busy",
+        root_tasks=["RootTask"],
+        excluded_tasks=[],
+        timestamp=_TIME,
+    )
+    historical = EvidenceStore.create(
+        environment,
+        session_id="historical",
+        root_tasks=["RootTask"],
+        excluded_tasks=[],
+        timestamp=_TIME,
+    )
+    old_time = datetime(2020, 1, 1, tzinfo=UTC).timestamp()
+    os.utime(busy.root, (old_time, old_time))
+    os.utime(historical.root, (old_time, old_time))
+    original_lock = evidence_module._exclusive_lock
+
+    def lock(path: Path, repository_root: Path):
+        if path == busy.lock_path:
+            raise TimeoutError("busy session")
+        return original_lock(path, repository_root)
+
+    monkeypatch.setattr(evidence_module, "_exclusive_lock", lock)
+
+    assert EvidenceStore.prune(environment, now=lambda: datetime(2026, 8, 30, tzinfo=UTC)) is True
+    assert busy.root.exists()
+    assert not historical.root.exists()
 
 
 def test_hooks_are_noop_without_active_dev_session(monkeypatch) -> None:

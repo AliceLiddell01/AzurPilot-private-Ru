@@ -42,7 +42,10 @@ from module.dev_runtime.task_sandbox import (
     TASK_POLICY_SESSION_ENV,
     TaskPolicyStore,
 )
-from module.observability.identity import resolve_observability_identity
+from module.observability.identity import (
+    OBSERVABILITY_SERVICE_NAME,
+    resolve_observability_identity,
+)
 
 EVIDENCE_SCHEMA_VERSION = 3
 _LEGACY_EVIDENCE_SCHEMA_VERSION = 2
@@ -83,7 +86,6 @@ _SAFE_SHA = re.compile(r"^[0-9a-fA-F]{7,128}$")
 _SAFE_SESSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _SAFE_OBSERVABILITY_VALUE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 _OBSERVABILITY_SOURCE = "grafana_loki"
-_OBSERVABILITY_SERVICE_NAME = "azurpilot"
 _OBSERVABILITY_KEYS = frozenset(
     {
         "source",
@@ -739,13 +741,15 @@ def _observability_context(
 ) -> dict[str, object]:
     """Сформировать только координаты для поиска application logs в Grafana MCP."""
 
-    identity = resolve_observability_identity(repository_root=repository_root)
+    resolved_environment = deployment_environment
+    if resolved_environment is None:
+        resolved_environment = resolve_observability_identity(
+            repository_root=repository_root,
+        ).deployment_environment
     return {
         "source": _OBSERVABILITY_SOURCE,
-        "service_name": identity.service_name,
-        "deployment_environment": (
-            identity.deployment_environment if deployment_environment is None else deployment_environment
-        ),
+        "service_name": OBSERVABILITY_SERVICE_NAME,
+        "deployment_environment": resolved_environment,
         "profile": profile,
         "root_tasks": root_tasks,
         "start_utc": start_utc,
@@ -768,7 +772,7 @@ def _validate_observability_context(
         )
     if value.get("source") != _OBSERVABILITY_SOURCE:
         raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Источник observability не поддерживается")
-    if value.get("service_name") != _OBSERVABILITY_SERVICE_NAME:
+    if value.get("service_name") != OBSERVABILITY_SERVICE_NAME:
         raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Сервис observability не поддерживается")
     for field_name in ("deployment_environment", "service_name"):
         field_value = value.get(field_name)
@@ -807,7 +811,7 @@ def _validate_observability_context(
         raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Завершённый контекст observability не может иметь верхнюю границу")
     result: dict[str, object] = {
         "source": _OBSERVABILITY_SOURCE,
-        "service_name": _OBSERVABILITY_SERVICE_NAME,
+        "service_name": OBSERVABILITY_SERVICE_NAME,
         "deployment_environment": value["deployment_environment"],
         "profile": safe_profile,
         "root_tasks": safe_roots,
@@ -1132,6 +1136,8 @@ def _migrate_legacy_manifest(value: object) -> object:
         if isinstance(reasons, list):
             migrated_reasons = list(reasons)
             if _LEGACY_OBSERVABILITY_DEGRADED_REASON not in migrated_reasons:
+                if len(migrated_reasons) == 32:
+                    migrated_reasons = migrated_reasons[:31]
                 migrated_reasons.append(_LEGACY_OBSERVABILITY_DEGRADED_REASON)
             migrated_health["reasons"] = migrated_reasons
             if migrated_health.get("status") == EVIDENCE_HEALTH_COMPLETE:
@@ -2324,6 +2330,8 @@ class EvidenceStore:
                                 store._read_screenshot_metadata_locked(latest["screenshot_id"])
                             stat_result = path.stat()
                             size = _safe_tree_size(path, environment.repository_root)
+                    except TimeoutError:
+                        continue
                     except (EvidenceError, OSError, ValueError):
                         success = False
                         continue

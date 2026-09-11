@@ -248,6 +248,8 @@ def test_resource_identity_is_shared_by_bootstrap_and_evidence_sources(
     monkeypatch.delenv("OTEL_RESOURCE_ATTRIBUTES", raising=False)
     (repository_root / ".env").unlink()
     assert resolve_observability_identity(repository_root=repository_root).deployment_environment == "local"
+    for key in _OTEL_ENVIRONMENT_KEYS:
+        monkeypatch.delenv(key, raising=False)
 
 
 def test_application_logging_disabled_flag_wins_over_endpoint(monkeypatch):

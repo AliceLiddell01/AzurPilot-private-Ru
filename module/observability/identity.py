@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-_DEFAULT_SERVICE_NAME = "azurpilot"
+OBSERVABILITY_SERVICE_NAME = "azurpilot"
 _DEFAULT_DEPLOYMENT_ENVIRONMENT = "local"
 _REPOSITORY_ROOT_ENV = "AZURPILOT_REPOSITORY_ROOT"
 _MAX_ENV_BYTES = 64 * 1024
@@ -110,19 +110,23 @@ def resolve_observability_identity(
     """
 
     process_environment = environment if environment is not None else os.environ
-    root = _resolve_repository_root(
-        process_environment,
-        repository_root,
-        allow_default_root=allow_default_root,
-    )
     if "OTEL_RESOURCE_ATTRIBUTES" in process_environment:
         raw_attributes = process_environment.get("OTEL_RESOURCE_ATTRIBUTES")
     else:
+        root = _resolve_repository_root(
+            process_environment,
+            repository_root,
+            allow_default_root=allow_default_root,
+        )
         raw_attributes = _local_resource_attributes(root)
     return ObservabilityIdentity(
-        service_name=_DEFAULT_SERVICE_NAME,
+        service_name=OBSERVABILITY_SERVICE_NAME,
         deployment_environment=_deployment_environment(raw_attributes),
     )
 
 
-__all__ = ["ObservabilityIdentity", "resolve_observability_identity"]
+__all__ = [
+    "OBSERVABILITY_SERVICE_NAME",
+    "ObservabilityIdentity",
+    "resolve_observability_identity",
+]

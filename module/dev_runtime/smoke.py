@@ -1245,6 +1245,7 @@ def _drop_legacy_file_log_assertions(payload: Mapping[str, object]) -> dict[str,
     """
 
     normalized = dict(payload)
+    normalized["schema_version"] = SMOKE_STATE_SCHEMA_VERSION
     raw_assertions = normalized.get("assertions")
     if not isinstance(raw_assertions, list):
         return normalized
@@ -1266,7 +1267,6 @@ def _drop_legacy_file_log_assertions(payload: Mapping[str, object]) -> dict[str,
             continue
         assertions.append(item)
     normalized["assertions"] = assertions
-    normalized["schema_version"] = SMOKE_STATE_SCHEMA_VERSION
     return normalized
 
 
@@ -2324,6 +2324,7 @@ class SmokeStateStore:
         *,
         current_version: int,
         corrupt_code: str,
+        unsupported_code: str,
         label: str,
     ) -> tuple[Mapping[str, object], bool]:
         if not isinstance(payload, Mapping) or type(payload.get("schema_version")) is not int:
@@ -2335,7 +2336,7 @@ class SmokeStateStore:
             return payload, True
         if version > current_version:
             raise SmokeStoreError(
-                f"{corrupt_code.rsplit('_', 1)[0]}_UNSUPPORTED",
+                unsupported_code,
                 f"{label} содержит неизвестную будущую schema_version",
             )
         raise SmokeStoreError(corrupt_code, f"{label} содержит неподдерживаемую schema_version")
@@ -2367,6 +2368,7 @@ class SmokeStateStore:
             raw,
             current_version=SMOKE_STATE_SCHEMA_VERSION,
             corrupt_code="DEV_SMOKE_RESULT_CORRUPT",
+            unsupported_code="DEV_SMOKE_RESULT_UNSUPPORTED",
             label="SmokeResult",
         )
         normalized = (
@@ -2430,6 +2432,7 @@ class SmokeStateStore:
             raw,
             current_version=SMOKE_STATE_SCHEMA_VERSION,
             corrupt_code="DEV_SMOKE_STATE_CORRUPT",
+            unsupported_code="DEV_SMOKE_STATE_UNSUPPORTED",
             label="SmokeRun state",
         )
         normalized = _drop_legacy_file_log_assertions(payload) if legacy else payload
@@ -2454,6 +2457,7 @@ class SmokeStateStore:
                 raw,
                 current_version=SMOKE_SCHEMA_VERSION,
                 corrupt_code="DEV_SMOKE_SPEC_CORRUPT",
+                unsupported_code="DEV_SMOKE_SPEC_UNSUPPORTED",
                 label="SmokeSpec",
             )
             normalized = _normalize_legacy_spec_payload(payload) if legacy else payload

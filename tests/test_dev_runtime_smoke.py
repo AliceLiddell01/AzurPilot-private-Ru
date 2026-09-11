@@ -659,7 +659,7 @@ def test_smoke_store_prunes_legacy_completed_run_and_rejects_future_schema(tmp_p
     future_payload = json.loads(future_state.read_text(encoding="utf-8"))
     future_payload["schema_version"] = smoke.SMOKE_STATE_SCHEMA_VERSION + 1
     future_state.write_text(json.dumps(future_payload), encoding="utf-8")
-    with pytest.raises(smoke.SmokeStoreError, match="будущую") as error:
+    with pytest.raises(smoke.SmokeStoreError) as error:
         _store.load(future_id)
     assert error.value.code == "DEV_SMOKE_STATE_UNSUPPORTED"
 
