@@ -76,7 +76,7 @@ class OSTargetHandler(OSTarget, Combat, UI):
         Returns:
             bool: 是否找到。
         """
-        # 确保在所有海域列表中
+        # Убеждаемся, что открыт список всех зон
         TARGET_SWITCH.set('all', main=self)
 
         while 1:
@@ -85,7 +85,7 @@ class OSTargetHandler(OSTarget, Combat, UI):
             else:
                 self.device.screenshot()
 
-            # 结束
+            # Завершение
             if self.appear(TARGET_RECEIVE_SINGLE):
                 return True
 
@@ -207,7 +207,7 @@ class OSTargetHandler(OSTarget, Combat, UI):
                             continue
             if self.appear(TARGET_NEXT_ZONE):
                 self.device.click(TARGET_NEXT_ZONE)
-                # 可能点击超过 15 次
+                # Возможно более 15 нажатий
                 self.device.click_record.pop()
                 info_timer.reset()
                 continue
