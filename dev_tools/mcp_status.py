@@ -904,10 +904,9 @@ def _version_guard(
     """Проверить identity contracts и plugin compatibility без сети."""
 
     try:
-        import json
-
         from module.dev_mcp.contract import (
             contract_compatibility_issues,
+            server_compatibility_issues,
         )
         from module.dev_mcp.contract import (
             contract_payload as dev_contract_payload,
@@ -938,7 +937,19 @@ def _version_guard(
             compatibility, contracts["azurpilot-dev"]
         )
         issues.extend(f"plugin.{issue}" for issue in dev_issues)
-    except (OSError, TypeError, ValueError, KeyError, json.JSONDecodeError) as exc:
+        game_issues = server_compatibility_issues(
+            compatibility, contracts["azurpilot-game"]
+        )
+        issues.extend(f"plugin.game.{issue}" for issue in game_issues)
+    except (
+        OSError,
+        TypeError,
+        ValueError,
+        KeyError,
+        AttributeError,
+        ImportError,
+        json.JSONDecodeError,
+    ) as exc:
         return {
             "status": "unavailable",
             "reason_code": "MCP_VERSION_GUARD_FAILED",

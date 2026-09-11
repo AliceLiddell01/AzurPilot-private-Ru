@@ -9,7 +9,7 @@ from module.dev_runtime.smoke import (
     SMOKE_STATE_SCHEMA_VERSION,
     SmokeOutcome,
 )
-from module.mcp_shared.versioning import server_version, source_revision
+from module.mcp_shared.versioning import server_version, source_revision, version_satisfies
 
 CONTRACT_SCHEMA_VERSION = 1
 DEV_MCP_API_VERSION = 3
@@ -73,12 +73,36 @@ def contract_result() -> dict[str, object]:
     }
 
 
+def server_compatibility_issues(
+    expected: Mapping[str, object], actual: Mapping[str, object]
+) -> tuple[str, ...]:
+    """Проверить identity и bounded version range конкретного MCP-сервера."""
+
+    expected_servers = expected.get("required_mcp_servers")
+    if not isinstance(expected_servers, Mapping) or not expected_servers:
+        return ("required_mcp_servers",)
+
+    server_name = actual.get("server_name")
+    server_version_value = actual.get("server_version")
+    if not isinstance(server_name, str) or not isinstance(server_version_value, str):
+        return ("server_identity",)
+
+    expected_range = expected_servers.get(server_name)
+    if not isinstance(expected_range, str):
+        return ("server_name",)
+    try:
+        compatible = version_satisfies(server_version_value, expected_range)
+    except ValueError:
+        compatible = False
+    return () if compatible else ("server_version",)
+
+
 def contract_compatibility_issues(
     expected: Mapping[str, object], actual: Mapping[str, object]
 ) -> tuple[str, ...]:
     """Проверить требования пакета без догадок о несовместимых версиях."""
 
-    issues: list[str] = []
+    issues: list[str] = list(server_compatibility_issues(expected, actual))
     for field in (
         "contract_schema_version",
         "product_family",
@@ -92,28 +116,6 @@ def contract_compatibility_issues(
         actual_value = actual.get(field)
         if type(actual_value) is not type(expected_value) or actual_value != expected_value:
             issues.append(field)
-
-    expected_servers = expected.get("required_mcp_servers")
-    if not isinstance(expected_servers, Mapping) or len(expected_servers) != 1:
-        issues.append("required_mcp_servers")
-    else:
-        server_name = actual.get("server_name")
-        server_version_value = actual.get("server_version")
-        if not isinstance(server_name, str) or not isinstance(server_version_value, str):
-            issues.append("server_identity")
-        else:
-            expected_range = expected_servers.get(server_name)
-            if not isinstance(expected_range, str):
-                issues.append("server_name")
-            else:
-                try:
-                    from module.mcp_shared.versioning import version_satisfies
-
-                    compatible = version_satisfies(server_version_value, expected_range)
-                except ValueError:
-                    compatible = False
-                if not compatible:
-                    issues.append("server_version")
 
     expected_flags = expected.get("required_feature_flags")
     actual_flags = actual.get("feature_flags")
@@ -158,4 +160,5 @@ __all__ = [
     "contract_compatibility_issues",
     "contract_payload",
     "contract_result",
+    "server_compatibility_issues",
 ]

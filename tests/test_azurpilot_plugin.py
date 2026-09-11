@@ -9,7 +9,9 @@ import pytest
 from module.dev_mcp.contract import (
     contract_compatibility_issues,
     contract_payload,
+    server_compatibility_issues,
 )
+from module.game_mcp.contract import contract_payload as game_contract_payload
 from module.dev_runtime.smoke import SMOKE_SCHEMA_VERSION, SMOKE_STATE_SCHEMA_VERSION
 from module.mcp_shared.versioning import version_satisfies
 
@@ -114,6 +116,12 @@ def test_plugin_compatibility_matches_runtime_contract() -> None:
     assert version_satisfies(
         runtime["server_version"], compatibility["required_mcp_servers"]["azurpilot-dev"]
     )
+    game_runtime = game_contract_payload()
+    assert version_satisfies(
+        game_runtime["server_version"],
+        compatibility["required_mcp_servers"]["azurpilot-game"],
+    )
+    assert server_compatibility_issues(compatibility, game_runtime) == ()
     assert runtime["dev_mcp_api_version"] == 3
     assert compatibility["smoke_spec_schema_version"] == runtime["smoke_spec_schema_version"] == SMOKE_SCHEMA_VERSION
     assert compatibility["smoke_result_schema_version"] == runtime["smoke_result_schema_version"] == SMOKE_STATE_SCHEMA_VERSION

@@ -16,9 +16,12 @@ description: "Безопасный cross-surface workflow для Development Run
 Сравнивай `details.contract` с `compatibility.json` этого пакета по следующим
 полям: `product_family`, `server_name`, `server_version`,
 `smoke_spec_schema_version`, `smoke_result_schema_version` и
-`contract_schema_version`. `required_mcp_servers` проверяется как bounded
-SemVer range, а `dev_mcp_api_version` остаётся отдельной версией внутренней
-схемы контракта и проверяется только если она явно объявлена старым пакетом.
+`contract_schema_version`. Для совместимости сначала используй runtime
+`server_name` как ключ в `required_mcp_servers`, затем проверь его
+`server_version` против найденного bounded SemVer range; эти два значения не
+дублируются отдельными полями в `compatibility.json`. `dev_mcp_api_version`
+остаётся отдельной версией внутренней схемы контракта и проверяется только если
+она явно объявлена старым пакетом.
 Сопоставляй `compatibility.json.required_feature_flags` с
 `runtime contract.feature_flags`, `required_capability_families` с
 `runtime contract.capability_families`, а `result_outcomes` с

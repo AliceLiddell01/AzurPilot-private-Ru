@@ -288,13 +288,19 @@ def test_exported_profile_contains_secret_references_but_no_secret_values() -> N
         "secret_value",
     }
 
-    def walk(value: object) -> list[tuple[str, object]]:
+    def walk(value: object, key: str = "") -> list[tuple[str, object]]:
         if isinstance(value, dict):
-            items = [(str(key), item) for key, item in value.items()]
-            return items + [nested for item in value.values() for nested in walk(item)]
+            return [
+                nested
+                for key, item in value.items()
+                for nested in walk(item, str(key))
+            ]
         if isinstance(value, list):
-            return [nested for item in value for nested in walk(item)]
-        return []
+            return [nested for item in value for nested in walk(item, key)]
+        return [(key, value)]
+
+    synthetic = {"nested": [{"token": "sk-" + "synthetic"}]}
+    assert ("token", "sk-" + "synthetic") in walk(synthetic)
 
     assert not {
         key
