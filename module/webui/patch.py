@@ -68,12 +68,12 @@ def patch_mimetype():
     环境可能已被污染。为保证所有部署行为一致，仅使用内置 MIME 表。
     """
     import mimetypes
-    # 标记为已初始化，阻止后续从环境读取
+    # Помечаем базу как уже инициализированную, чтобы запретить последующее чтение из окружения
     mimetypes.inited = True
-    # 创建全新的干净实例
+    # Создаём новый чистый экземпляр
     db = mimetypes.MimeTypes(filenames=())
     mimetypes._db = db
-    # 用内置数据覆盖全局变量
+    # Перезаписываем глобальные переменные встроенными данными
     mimetypes.encodings_map = db.encodings_map
     mimetypes.suffix_map = db.suffix_map
     mimetypes.types_map = db.types_map[True]
@@ -100,7 +100,7 @@ def fix_py37_subprocess_communicate():
         return
 
     def _communicate_fixed(self, input, endtime, orig_timeout):
-        # 启动读取线程，将输出收集到列表中（如果尚未启动）
+        # Запускаем потоки чтения и собираем вывод в списки, если они ещё не запущены
         if self.stdout and not hasattr(self, "_stdout_buff"):
             self._stdout_buff = []
             self.stdout_thread = \
@@ -119,7 +119,7 @@ def fix_py37_subprocess_communicate():
         if self.stdin:
             self._stdin_write(input)
 
-        # 等待读取线程完成，超时则保留线程以便后续再次调用 communicate
+        # Ждём завершения потоков чтения; при тайм-ауте сохраняем их для следующего вызова communicate
         if self.stdout is not None:
             self.stdout_thread.join(self._remaining_time(endtime))
             if self.stdout_thread.is_alive():
@@ -129,7 +129,7 @@ def fix_py37_subprocess_communicate():
             if self.stderr_thread.is_alive():
                 raise subprocess.TimeoutExpired(self.args, orig_timeout)
 
-        # 收集输出并关闭管道
+        # Собираем вывод и закрываем каналы
         stdout = None
         stderr = None
         if self.stdout:
@@ -139,7 +139,7 @@ def fix_py37_subprocess_communicate():
             stderr = self._stderr_buff
             self.stderr.close()
 
-        # 将列表转换为字符串（修复点）
+        # Преобразуем списки в строки (исправление)
         stdout = stdout[0] if stdout else None
         stderr = stderr[0] if stderr else None
 
