@@ -102,11 +102,6 @@ SEMGREP_READ_ONLY_TOOLS = frozenset(
         "semgrep_rule_schema",
         "get_supported_languages",
         "semgrep_findings",
-        "semgrep_scan_with_custom_rule",
-        "semgrep_scan",
-        "semgrep_scan_local",
-        "security_check",
-        "get_abstract_syntax_tree",
     }
 )
 _KNOWN_WRITE_TOOLS = frozenset(
@@ -821,7 +816,12 @@ def _docker_status() -> dict[str, object]:
         and secret_store.get("status") == "ready"
     )
     profile_status = all(
-        item.get("status") == "ready" for item in third_party.values()
+        item.get("status") == "ready"
+        or (
+            name not in _REQUIRED_TOOL_SETS
+            and item.get("status") == "not_observable"
+        )
+        for name, item in third_party.items()
     ) and secret_store_ready
     profile_partial = exact_servers and all(
         item.get("status") in {"ready", "not_observable"}
@@ -1371,8 +1371,30 @@ def _strict_failure(
                 }:
                     return True
     docker = report.get("docker_mcp")
-    if isinstance(docker, Mapping) and docker.get("status") != "ready":
-        return True
+    if isinstance(docker, Mapping):
+        if docker.get("status") not in {"ready", "partial"}:
+            return True
+        third_party = docker.get("third_party")
+        if not isinstance(third_party, Mapping):
+            return True
+        for name in THIRD_PARTY_SERVERS:
+            item = third_party.get(name)
+            if not isinstance(item, Mapping):
+                return True
+            item_status = item.get("status")
+            if name in _REQUIRED_TOOL_SETS:
+                if item_status != "ready":
+                    return True
+            elif item_status not in {"ready", "not_observable"}:
+                return True
+        secret_engine = docker.get("secret_engine")
+        secret_store = (
+            secret_engine.get("secret_store")
+            if isinstance(secret_engine, Mapping)
+            else None
+        )
+        if not isinstance(secret_store, Mapping) or secret_store.get("status") != "ready":
+            return True
     return emission is not None and not emission.emitted
 
 

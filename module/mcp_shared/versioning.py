@@ -161,7 +161,15 @@ def version_satisfies(version: str | SemVer, version_range: str) -> bool:
     """Проверить версию против bounded SemVer range."""
 
     actual = version if isinstance(version, SemVer) else SemVer.parse(version)
-    for operator, expected in parse_version_range(version_range):
+    constraints = parse_version_range(version_range)
+    if actual.prerelease and not any(
+        expected.prerelease
+        and (expected.major, expected.minor, expected.patch)
+        == (actual.major, actual.minor, actual.patch)
+        for _operator, expected in constraints
+    ):
+        return False
+    for operator, expected in constraints:
         if operator == "=" and actual != expected:
             return False
         if operator == ">" and not actual > expected:

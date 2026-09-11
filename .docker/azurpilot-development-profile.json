@@ -682,12 +682,7 @@
       "tools": [
         "semgrep_rule_schema",
         "get_supported_languages",
-        "semgrep_findings",
-        "semgrep_scan_with_custom_rule",
-        "semgrep_scan",
-        "semgrep_scan_local",
-        "security_check",
-        "get_abstract_syntax_tree"
+        "semgrep_findings"
       ],
       "endpoint": "https://mcp.semgrep.ai/mcp",
       "catalogRef": "mcp/docker-mcp-catalog:latest",

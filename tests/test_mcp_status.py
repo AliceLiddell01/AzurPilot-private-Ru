@@ -177,6 +177,30 @@ def test_metrics_are_fail_open_when_otlp_endpoint_is_not_configured(
     assert result.reason_code == "MCP_METRICS_ENDPOINT_UNCONFIGURED"
 
 
+def test_strict_allows_unobservable_optional_gateway_catalogs() -> None:
+    report = {
+        "status": "partial",
+        "source": {"working_tree": "clean"},
+        "version_guard": {"status": "ready"},
+        "servers": {},
+        "docker_mcp": {
+            "status": "partial",
+            "secret_engine": {
+                "secret_store": {"status": "ready"},
+            },
+            "third_party": {
+                "context7": {"status": "not_observable"},
+                "docker-docs": {"status": "not_observable"},
+                "dockerhub": {"status": "ready"},
+                "grafana": {"status": "ready"},
+                "semgrep": {"status": "ready"},
+            },
+        },
+    }
+
+    assert not status._strict_failure(report, None)
+
+
 def test_secret_engine_status_separates_keychain_from_rpc(monkeypatch) -> None:
     def run_process(arguments, **kwargs):
         if tuple(arguments[-3:]) == ("pass", "plugins", "ls"):

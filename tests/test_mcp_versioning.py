@@ -56,6 +56,9 @@ def test_bounded_ranges_support_exact_compatibility_window() -> None:
     assert not version_satisfies("4.0.0", ">=3.0.0,<4.0.0")
     assert version_satisfies("3.0.0", "=3.0.0")
     assert version_satisfies("3.0.0", "3.0.0")
+    assert not version_satisfies("4.0.0-alpha", ">=3.0.0,<4.0.0")
+    assert not version_satisfies("2.0.0-alpha", ">=3.0.0,<4.0.0")
+    assert version_satisfies("3.0.0-alpha", ">=3.0.0-alpha,<4.0.0")
 
 
 @pytest.mark.parametrize("value", [">=3.0.0", ">3.0.0", "<4.0.0", "<=4.0.0"])
