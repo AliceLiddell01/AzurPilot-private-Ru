@@ -21,6 +21,7 @@ SOURCE_REVISION_ENV = "AZURPILOT_SOURCE_REVISION"
 UNKNOWN_SOURCE_REVISION = "unknown"
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _SHA_RE = re.compile(r"^[0-9a-fA-F]{7,64}$")
+_SEMVER_IDENTIFIER_RE = re.compile(r"^[0-9A-Za-z-]+$")
 _SEMVER_RE = re.compile(
     r"^(0|[1-9][0-9]*)\."
     r"(0|[1-9][0-9]*)\."
@@ -46,6 +47,35 @@ class SemVer:
     prerelease: tuple[str, ...] = ()
     build: tuple[str, ...] = ()
 
+    def __post_init__(self) -> None:
+        for component_name in ("major", "minor", "patch"):
+            component = getattr(self, component_name)
+            if type(component) is not int or component < 0:
+                raise VersioningError(
+                    f"Компонент SemVer {component_name} должен быть неотрицательным int"
+                )
+        for section_name in ("prerelease", "build"):
+            identifiers = getattr(self, section_name)
+            if type(identifiers) is not tuple:
+                raise VersioningError(
+                    f"Секция SemVer {section_name} должна быть tuple"
+                )
+            for identifier in identifiers:
+                if (
+                    type(identifier) is not str
+                    or _SEMVER_IDENTIFIER_RE.fullmatch(identifier) is None
+                ):
+                    raise VersioningError("Некорректный SemVer identifier")
+                if (
+                    section_name == "prerelease"
+                    and identifier.isdigit()
+                    and len(identifier) > 1
+                    and identifier.startswith("0")
+                ):
+                    raise VersioningError(
+                        "Числовой prerelease identifier содержит ведущий ноль"
+                    )
+
     @classmethod
     def parse(cls, value: str) -> SemVer:
         if not isinstance(value, str):
@@ -55,15 +85,6 @@ class SemVer:
             raise VersioningError("Некорректный SemVer")
         prerelease = _identifiers(match.group(4))
         build = _identifiers(match.group(5))
-        for identifier in prerelease:
-            if (
-                identifier.isdigit()
-                and len(identifier) > 1
-                and identifier.startswith("0")
-            ):
-                raise VersioningError(
-                    "Числовой prerelease identifier содержит ведущий ноль"
-                )
         return cls(
             major=int(match.group(1)),
             minor=int(match.group(2)),

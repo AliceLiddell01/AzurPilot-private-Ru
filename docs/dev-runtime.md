@@ -129,6 +129,10 @@ uv run --locked --no-sync python -m dev_tools.mcp_status --json --strict
 `UNKNOWN`, `UNAVAILABLE` или `DEGRADED`, а точный `reason_code` выводится только
 в компактном блоке `Notes`.
 
+`--strict` возвращает non-zero для подтверждённого drift или недоступной
+обязательной поверхности. Доступный metadata endpoint без наблюдаемого status
+token остаётся `UNKNOWN` и не маскируется под `OK`.
+
 Collector выполняет только local `initialize`/`tools/list` и
 `dev_get_contract`/`game_get_contract`, HTTPS GET protected-resource metadata
 без credentials, а также read-only Docker MCP Toolkit profile queries. В

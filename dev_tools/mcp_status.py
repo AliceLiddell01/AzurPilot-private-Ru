@@ -1367,7 +1367,6 @@ def _strict_failure(
                     "unavailable",
                     "drift",
                     "invalid",
-                    "not_observable",
                 }:
                     return True
     docker = report.get("docker_mcp")

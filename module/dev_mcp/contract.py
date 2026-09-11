@@ -9,7 +9,11 @@ from module.dev_runtime.smoke import (
     SMOKE_STATE_SCHEMA_VERSION,
     SmokeOutcome,
 )
-from module.mcp_shared.versioning import server_version, source_revision, version_satisfies
+from module.mcp_shared.versioning import (
+    server_version,
+    source_revision,
+    version_satisfies,
+)
 
 CONTRACT_SCHEMA_VERSION = 1
 DEV_MCP_API_VERSION = 3
@@ -103,9 +107,19 @@ def contract_compatibility_issues(
     """Проверить требования пакета без догадок о несовместимых версиях."""
 
     issues: list[str] = list(server_compatibility_issues(expected, actual))
+    for field in ("contract_schema_version", "product_family"):
+        expected_value = expected.get(field)
+        actual_value = actual.get(field)
+        if (
+            field not in expected
+            or expected_value is None
+            or field not in actual
+            or type(actual_value) is not type(expected_value)
+            or actual_value != expected_value
+        ):
+            issues.append(field)
+
     for field in (
-        "contract_schema_version",
-        "product_family",
         "dev_mcp_api_version",
         "smoke_spec_schema_version",
         "smoke_result_schema_version",

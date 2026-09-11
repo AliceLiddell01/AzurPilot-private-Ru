@@ -352,13 +352,20 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
     assert "increase(" not in overview_text
     assert "clamp_min" not in overview_text
 
-    mcp_status_text = json.dumps(
-        dashboards["azurpilot-mcp-status"], ensure_ascii=False
+    mcp_queries = [
+        query
+        for panel in dashboards["azurpilot-mcp-status"]["panels"]
+        for target in panel.get("targets", [])
+        for query in (target.get("expr"), target.get("query"))
+        if isinstance(query, str)
+    ]
+    assert any("azurpilot_mcp_endpoint_up" in query for query in mcp_queries)
+    assert any("azurpilot_mcp_gateway_server_up" in query for query in mcp_queries)
+    assert any("azurpilot_mcp_version_drift" in query for query in mcp_queries)
+    assert any(
+        "azurpilot_mcp_last_probe_timestamp_seconds" in query
+        for query in mcp_queries
     )
-    assert "azurpilot_mcp_endpoint_up" in mcp_status_text
-    assert "azurpilot_mcp_gateway_server_up" in mcp_status_text
-    assert "azurpilot_mcp_version_drift" in mcp_status_text
-    assert "azurpilot_mcp_last_probe_timestamp_seconds" in mcp_status_text
 
     overview_panels = {
         panel["id"]: panel for panel in dashboards["azurpilot-overview"]["panels"]

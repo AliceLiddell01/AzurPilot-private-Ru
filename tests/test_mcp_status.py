@@ -304,12 +304,17 @@ def test_metrics_are_fail_open_when_otlp_endpoint_is_not_configured(
     assert result.reason_code == "MCP_METRICS_ENDPOINT_UNCONFIGURED"
 
 
-def test_strict_allows_unobservable_optional_gateway_catalogs() -> None:
+def test_strict_allows_unobservable_remote_metadata_and_optional_catalogs() -> None:
     report = {
         "status": "partial",
         "source": {"working_tree": "clean"},
         "version_guard": {"status": "ready"},
-        "servers": {},
+        "servers": {
+            "azurpilot-dev": {
+                "local_direct": {"status": "ready"},
+                "remote": {"status": "not_observable"},
+            }
+        },
         "docker_mcp": {
             "status": "partial",
             "secret_engine": {

@@ -28,10 +28,10 @@ MCP и не превращается в произвольный shell/ADB ил�
 при неоднозначности; не подставляй известное или историческое имя.
 
 Перед control workflow получи `game_get_contract`, если он доступен, и проверь
-`runtime.server_name` как ключ в `compatibility.json.required_mcp_servers`, а
-`runtime.server_version` — против найденного bounded SemVer range. При
-отсутствующем или несовместимом runtime установи `STOP WRITES` и не подбирай
-другую схему или переименованный tool.
+`details.contract.server_name` как ключ в `compatibility.json.required_mcp_servers`,
+а `details.contract.server_version` — против найденного bounded SemVer range. При
+отсутствующем или невалидном `details.contract` либо несовместимом runtime
+установи `STOP WRITES` и не подбирай другую схему или переименованный tool.
 
 Перед незнакомой или неоднозначной операцией:
 

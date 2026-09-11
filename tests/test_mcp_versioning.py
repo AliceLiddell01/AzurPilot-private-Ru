@@ -50,6 +50,27 @@ def test_invalid_semver_is_rejected(value: str) -> None:
         SemVer.parse(value)
 
 
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        (-1, 0, 0),
+        (0, -1, 0),
+        (0, 0, -1),
+        (True, 0, 0),
+        (0, 0, 0, ("01",)),
+        (0, 0, 0, ("invalid.identifier",)),
+        (0, 0, 0, (), ("invalid identifier",)),
+    ],
+)
+def test_direct_semver_construction_rejects_invalid_components(arguments) -> None:
+    with pytest.raises(VersioningError):
+        SemVer(*arguments)
+
+
+def test_direct_semver_construction_preserves_valid_build_identifiers() -> None:
+    assert str(SemVer(1, 0, 0, build=("01",))) == "1.0.0+01"
+
+
 def test_bounded_ranges_support_exact_compatibility_window() -> None:
     assert parse_version_range(">=3.0.0,<4.0.0")
     assert version_satisfies("3.0.0", ">=3.0.0,<4.0.0")

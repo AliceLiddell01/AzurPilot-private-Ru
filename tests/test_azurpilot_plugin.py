@@ -11,8 +11,8 @@ from module.dev_mcp.contract import (
     contract_payload,
     server_compatibility_issues,
 )
-from module.game_mcp.contract import contract_payload as game_contract_payload
 from module.dev_runtime.smoke import SMOKE_SCHEMA_VERSION, SMOKE_STATE_SCHEMA_VERSION
+from module.game_mcp.contract import contract_payload as game_contract_payload
 from module.mcp_shared.versioning import version_satisfies
 
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -168,6 +168,19 @@ def test_missing_required_contract_values_fail_closed() -> None:
     missing_outcome = contract_payload()
     missing_outcome["result_outcomes"].remove("CANCELLED")
     assert "result_outcomes" in contract_compatibility_issues(compatibility, missing_outcome)
+
+    for field in ("contract_schema_version", "product_family"):
+        missing_expected = _json(_COMPATIBILITY_PATH)
+        missing_expected.pop(field)
+        assert field in contract_compatibility_issues(
+            missing_expected, contract_payload()
+        )
+
+        missing_actual = contract_payload()
+        missing_actual.pop(field)
+        assert field in contract_compatibility_issues(
+            compatibility, missing_actual
+        )
 
 
 def test_compatibility_allows_additive_runtime_contract_values() -> None:
