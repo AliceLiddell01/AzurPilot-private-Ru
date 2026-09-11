@@ -15,7 +15,7 @@ from module.base.button import Button
 from module.island.island_season import SEASONAL_ITEMS
 
 
-# 固定位置按钮 — 在委派界面不滑动时，双笋的固定位置
+# Кнопка с фиксированной позицией — положение двойных ростков бамбука в интерфейсе назначения без прокрутки
 FIXED_SELECT_DOUBLE_BAMBOO_SHOOTS = Button(
     area=(), color=(), button=(212, 143, 292, 211),
     file={'cn': '', 'en': '', 'jp': '', 'tw': ''}
@@ -58,23 +58,23 @@ class IslandRestaurant(IslandShopBase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        # 设置店铺类型
+        # Задаём тип магазина
         self.shop_type = "restaurant"
         self.time_prefix = "time_restaurant"
         self.chef_config = self.config.IslandRestaurant_ChefFilter
 
-        # === 初始化全局季节配置 ===
+        # === Инициализируем глобальную сезонную конфигурацию ===
         self._init_season_config()
 
-        # === 高优先级季节菜品映射 ===
+        # === Сопоставление сезонных блюд высокого приоритета ===
         self.seasonal_dish_slot = self._get_high_priority_seasonal_dish()
 
         if self.seasonal_dish_slot:
             logger.info(f"[Остров — ресторан «Есть рыба»] Приоритетное сезонное блюдо: {self.seasonal_dish_slot['cn_name']}")
 
-        # 设置商品列表（根据季节自动选择对应菜品）
+        # Задаём список товаров, автоматически выбирая блюда по текущему сезону
         self.shop_items = self._get_current_seasonal_shop_items()
-        # ---- 常规菜品 ----
+        # ---- Обычные блюда ----
         self.shop_items.extend([
             {'name': 'tofu', 'template': TEMPLATE_TOFU, 'var_name': 'tofu',
              'selection': SELECT_TOFU, 'selection_check': SELECT_TOFU_CHECK,
@@ -108,7 +108,7 @@ class IslandRestaurant(IslandShopBase):
              'post_action': POST_ONION_FISH},
         ])
 
-        # 设置套餐组成
+        # Задаём составы наборов
         self.meal_compositions = {
             'hearty_meal': {
                 'required': ['tofu', 'omurice'],
@@ -120,19 +120,19 @@ class IslandRestaurant(IslandShopBase):
             }
         }
 
-        # 特殊材料：豆腐（用于特殊餐品制作）
+        # Особый материал: тофу (для приготовления специальных блюд)
         self.special_materials = {}
 
-        # 设置岗位按钮
+        # Задаём кнопки постов
         self.post_buttons = {
             'ISLAND_RESTAURANT_POST1': ISLAND_RESTAURANT_POST1,
             'ISLAND_RESTAURANT_POST2': ISLAND_RESTAURANT_POST2
         }
 
-        # 设置筛选资产
+        # Задаём ресурс фильтра
         self.filter_asset = 'restaurant'
 
-        # 设置配置前缀
+        # Задаём префиксы конфигурации
         self.setup_config(
             config_meal_prefix="IslandRestaurant_Meal",
             config_number_prefix="IslandRestaurant_MealNumber",
@@ -140,12 +140,12 @@ class IslandRestaurant(IslandShopBase):
             config_post_number="IslandRestaurant_PostNumber"
         )
 
-        # === 季节餐品自动切换 ===
-        # 若用户在 Meal1~Meal8 中配置了 spring 限定餐品（double_bamboo_shoots / asparagus_shrimp），
-        # 但当前季节不是 spring，则自动替换为当前季节对应槽位的餐品
+        # === Автоматическое переключение сезонных блюд ===
+        # Если в Meal1~Meal8 настроено весеннее ограниченное блюдо (double_bamboo_shoots / asparagus_shrimp),
+        # а текущий сезон не spring, автоматически заменяем его блюдом соответствующего слота текущего сезона
         self._auto_switch_seasonal_meals()
 
-        # 初始化店铺
+        # Инициализируем магазин
         self.initialize_shop()
 
     def _is_seasonal_priority_enabled(self):
@@ -234,14 +234,14 @@ class IslandRestaurant(IslandShopBase):
         if batch_size <= 0:
             return 0
 
-        # cabbage_tofu需要1个豆腐
+        # cabbage_tofu требует 1 тофу
         if product == 'cabbage_tofu':
             tofu_needed_per_batch = 1
             tofu_available = self.warehouse_counts.get('tofu', 0)
             max_by_tofu = tofu_available // tofu_needed_per_batch
             return min(batch_size, max_by_tofu)
 
-        # tofu_meat需要2个豆腐
+        # tofu_meat требует 2 тофу
         if product == 'tofu_meat':
             tofu_needed_per_batch = 2
             tofu_available = self.warehouse_counts.get('tofu', 0)
@@ -252,17 +252,17 @@ class IslandRestaurant(IslandShopBase):
 
     def deduct_materials(self, product, number):
         """覆盖：扣除前置材料，包括豆腐"""
-        # 先调用父类方法扣除套餐原材料
+        # Сначала вызываем родительский метод для списания сырья наборов
         super().deduct_materials(product, number)
 
-        # cabbage_tofu需要扣除豆腐
+        # Для cabbage_tofu списываем тофу
         if product == 'cabbage_tofu':
             tofu_needed = number * 1
             if 'tofu' in self.warehouse_counts:
                 self.warehouse_counts['tofu'] -= tofu_needed
                 logger.info(f"[Остров — ресторан «Есть рыба»] Списан тофу: tofu -{tofu_needed} (для приготовления {product})")
 
-        # tofu_meat需要扣除豆腐
+        # Для tofu_meat списываем тофу
         if product == 'tofu_meat':
             tofu_needed = number * 2
             if 'tofu' in self.warehouse_counts:
@@ -273,28 +273,28 @@ class IslandRestaurant(IslandShopBase):
         """覆盖：根据豆腐库存调整需求，豆腐不足时自动补入生产计划"""
         result = requirements.copy()
 
-        # 获取豆腐库存
+        # Получаем запас тофу
         tofu_stock = self.warehouse_counts.get('tofu', 0)
 
-        # 处理cabbage_tofu的需求
+        # Обрабатываем потребность в cabbage_tofu
         if 'cabbage_tofu' in result and result['cabbage_tofu'] > 0:
             cabbage_needed = result['cabbage_tofu']
-            tofu_needed = cabbage_needed * 1  # 每个cabbage_tofu需要1个豆腐
+            tofu_needed = cabbage_needed * 1  # На каждый cabbage_tofu нужен 1 тофу
 
             if tofu_stock < tofu_needed:
                 max_cabbage = tofu_stock // 1
                 deficit = cabbage_needed - max_cabbage
                 result['cabbage_tofu'] = max_cabbage
-                # 豆腐本店可生产，限产的同时补入豆腐需求
+                # Тофу можно производить здесь же: ограничиваем выпуск и добавляем дефицит тофу в план
                 if 'tofu' in self.name_to_config:
                     result['tofu'] = result.get('tofu', 0) + deficit
                     logger.info(f"[Остров — ресторан «Есть рыба»] Недостаточно тофу: cabbage_tofu {cabbage_needed}→{max_cabbage}; добавлена потребность tofu x{deficit}")
                 tofu_stock -= max_cabbage
 
-        # 处理tofu_meat的需求
+        # Обрабатываем потребность в tofu_meat
         if 'tofu_meat' in result and result['tofu_meat'] > 0:
             tofu_meat_needed = result['tofu_meat']
-            tofu_needed = tofu_meat_needed * 2  # 每个tofu_meat需要2个豆腐
+            tofu_needed = tofu_meat_needed * 2  # На каждый tofu_meat нужно 2 тофу
 
             if tofu_stock < tofu_needed:
                 max_tofu_meat = tofu_stock // 2
@@ -319,7 +319,7 @@ class IslandRestaurant(IslandShopBase):
         self.post_close()
         self.post_manage_swipe(self.post_manage_swipe_count)
 
-        # 检查岗位状态
+        # Проверяем состояние постов
         post_count = getattr(self.config, self.config_post_number, 2)
         time_vars = []
         for i in range(post_count):
@@ -329,7 +329,7 @@ class IslandRestaurant(IslandShopBase):
             post_id = f'ISLAND_{self.shop_type.upper()}_POST{i + 1}'
             self.post_check(post_id, time_var_name)
 
-        # 获取空闲岗位
+        # Получаем свободные посты
         idle_posts = self.get_idle_posts()
 
         if idle_posts:
@@ -339,14 +339,14 @@ class IslandRestaurant(IslandShopBase):
             self.post_close()
             self.post_manage_swipe(self.post_manage_swipe_count)
 
-            # 计算当前总库存
+            # Вычисляем текущий общий запас
             self.current_totals = {}
             all_product_names = set(name for name, _ in self.post_products)
             for item in all_product_names | set(self.post_check_meal.keys()) | set(
                     self.warehouse_counts.keys()):
                 self.current_totals[item] = self.post_check_meal.get(item, 0) + self.warehouse_counts.get(item, 0)
 
-            # ============ 调试信息 ============
+            # ============ Отладочная информация ============
             logger.info(f"[Остров — ресторан «Есть рыба»] === Отладочная информация ===")
             logger.info(f"[Остров — ресторан «Есть рыба»] Запасы на складе: {self.warehouse_counts}")
             logger.info(f"[Остров — ресторан «Есть рыба»] В производстве: {self.post_check_meal}")
@@ -354,44 +354,44 @@ class IslandRestaurant(IslandShopBase):
             logger.info(f"[Остров — ресторан «Есть рыба»] Базовые требования ({len(self.post_products)} слотов): {self.post_products}")
             logger.info("===============")
 
-            # 保存原始库存，retry 时恢复（避免 max_targets 清零影响重算）
+            # Сохраняем исходные запасы и восстанавливаем их при retry, чтобы обнуление max_targets не влияло на повторный расчёт
             _orig_totals = dict(self.current_totals)
             self._compute_base_demands()
 
             logger.info(f"[Остров — ресторан «Есть рыба»] Ожидающие приготовления: {self.to_post_products}")
             logger.info(f"[Остров — ресторан «Есть рыба»] Текущий остаток запасов: {self.current_totals}")
 
-            # ============ 处理套餐分解 ============
+            # ============ Разбираем составные наборы ============
             if self.to_post_products:
                 self.to_post_products = self.process_meal_requirements(self.to_post_products)
                 logger.info(f"[Остров — ресторан «Есть рыба»] План производства базовых требований: {self.to_post_products}")
 
             # ================================================================
-            #  高优先级季节菜品
-            #  在所有基础需求之前单独生产，确保最高优先级
+            # Сезонное блюдо высокого приоритета
+            # Производим его отдельно перед всеми базовыми потребностями, гарантируя максимальный приоритет
             # ================================================================
             if self.seasonal_dish_slot:
                 dish_name = self.seasonal_dish_slot['name']
                 dish_cn = self.seasonal_dish_slot['cn_name']
                 logger.info(f"[Остров — ресторан «Есть рыба»] Этап: приоритетное сезонное блюдо — {dish_cn}")
 
-                # 从生产计划中提取，单独安排生产
+                # Извлекаем из производственного плана и назначаем отдельно
                 slot1_qty = self.POST_PRODUCE_LIMIT
                 if dish_name in self.to_post_products:
                     slot1_qty += self.to_post_products.pop(dish_name)
 
-                # 临时只安排位置1的生产
+                # Временно назначаем только производство в позиции 1
                 temp_products = self.to_post_products.copy()
                 self.to_post_products = {dish_name: slot1_qty}
                 logger.info(f"[Остров — ресторан «Есть рыба»] Отдельное производство {dish_cn}: {self.to_post_products}")
 
                 self.schedule_production()
 
-                # 恢复剩余的基础需求生产计划
+                # Восстанавливаем оставшийся план базовых потребностей
                 self.to_post_products = temp_products
                 logger.info(f"[Остров — ресторан «Есть рыба»] Оставшийся план базового производства: {self.to_post_products}")
 
-            # ============ 安排基础需求生产（循环直到无空岗或无缺口） ============
+            # ============ Назначаем производство базовых потребностей, пока есть свободные посты и дефицит ============
             _produced_pass = {}
             _force_skip_run = set()
             _loop_count = 0
@@ -440,13 +440,13 @@ class IslandRestaurant(IslandShopBase):
                         self.to_post_products = {}
                     continue
 
-            # ============ 检查是否还有空闲岗位，安排常驻餐品 ============
+            # ============ Проверяем оставшиеся свободные посты и назначаем постоянное блюдо ============
             idle_posts_after_basic = self.get_idle_posts()
 
-            # 获取常驻餐品配置（不再使用特殊餐品special_food，因为季节菜品已独立控制）
+            # Получаем конфигурацию постоянного блюда; special_food больше не используется, поскольку сезонные блюда управляются отдельно
             away_cook = getattr(self.config, self.config_away_cook, None)
 
-            # 检查常驻餐品是否为有效值
+            # Проверяем, что постоянное блюдо имеет допустимое значение
             has_away_cook = (away_cook and away_cook != "None" and
                              away_cook in self.name_to_config)
 
@@ -459,7 +459,7 @@ class IslandRestaurant(IslandShopBase):
 
                     logger.info(f"[Остров — ресторан «Есть рыба»] Попытка произвести постоянное блюдо {away_cook}")
 
-                    # 检查材料限制
+                    # Проверяем ограничения по материалам
                     batch_size = self.POST_PRODUCE_LIMIT
                     batch_size = self.get_max_producible(away_cook, batch_size)
 
@@ -483,7 +483,7 @@ class IslandRestaurant(IslandShopBase):
             elif idle_posts_after_basic:
                 logger.info(f"[Остров — ресторан «Есть рыба»] Есть свободные позиции ({len(idle_posts_after_basic)}), но постоянное блюдо не задано; позиции остаются свободными")
 
-        # ============ 设置任务延迟 ============
+        # ============ Настраиваем задержку задачи ============
         finish_times = []
         for var in time_vars:
             time_value = getattr(self, var)
