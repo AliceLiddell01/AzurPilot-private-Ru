@@ -34,6 +34,7 @@ from module.mcp_shared.versioning import (
 STATUS_SCHEMA_VERSION = 1
 STATUS_TIMEOUT_SECONDS = 20.0
 REMOTE_TIMEOUT_SECONDS = 5.0
+DOCKER_PROBE_TIMEOUT_SECONDS = 20.0
 METRICS_TIMEOUT_SECONDS = 5.0
 CANONICAL_DOCKER_PROFILE_ID = "azurpilot-development"
 CANONICAL_DOCKER_PROFILE_NAME = "AzurPilot Development"
@@ -748,7 +749,7 @@ def _docker_status() -> dict[str, object]:
     if code != "OK" or not isinstance(payload, list):
         return {
             "status": "unavailable",
-            "reason_code": code,
+            "reason_code": code if code != "OK" else "DOCKER_PROFILE_LIST_INVALID",
             "version": version,
             "secret_engine": secret_engine,
         }
@@ -1065,7 +1066,15 @@ async def collect_status_async(
         }
     version_guard = _version_guard(repository_root, expected_versions)
     try:
-        docker = await asyncio.to_thread(docker_probe or _docker_status)
+        docker = await asyncio.wait_for(
+            asyncio.to_thread(docker_probe or _docker_status),
+            timeout=DOCKER_PROBE_TIMEOUT_SECONDS,
+        )
+    except TimeoutError:
+        docker = {
+            "status": "unavailable",
+            "reason_code": "DOCKER_PROBE_TIMEOUT",
+        }
     except Exception as exc:  # noqa: BLE001 - status boundary hides subprocess details.
         docker = {
             "status": "unavailable",

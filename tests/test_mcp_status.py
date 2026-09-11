@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
+import time
 from copy import deepcopy
 from pathlib import Path
 
@@ -238,6 +240,39 @@ def test_status_marks_source_drift_and_strict_fails(monkeypatch) -> None:
     assert status._strict_failure(report, None)
 
 
+def test_docker_probe_timeout_is_reported_without_waiting_for_the_probe(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(status, "DOCKER_PROBE_TIMEOUT_SECONDS", 0.001)
+
+    async def local(name: str, root: Path, revision: str) -> dict[str, object]:
+        version = "3.0.0" if name == "azurpilot-dev" else "1.0.0"
+        return _local_result(name, version, revision)
+
+    async def remote(name: str) -> dict[str, object]:
+        return {
+            "status": "not_configured",
+            "reason_code": "REMOTE_PUBLIC_URL_NOT_CONFIGURED",
+            "endpoint_up": False,
+        }
+
+    def docker_probe() -> dict[str, object]:
+        time.sleep(0.05)
+        return _docker_ready()
+
+    report = asyncio.run(
+        status.collect_status_async(
+            Path(__file__).resolve().parents[1],
+            local_probe=local,
+            remote_probe=remote,
+            docker_probe=docker_probe,
+        )
+    )
+
+    assert report["docker_mcp"]["status"] == "unavailable"
+    assert report["docker_mcp"]["reason_code"] == "DOCKER_PROBE_TIMEOUT"
+
+
 def test_metric_samples_have_bounded_static_labels() -> None:
     report = {
         "servers": {
@@ -436,13 +471,22 @@ def test_exported_profile_contains_secret_references_but_no_secret_values() -> N
         / "azurpilot-development-profile.json"
     )
     profile = json.loads(path.read_text(encoding="utf-8"))
-    forbidden_keys = {
+    sensitive_keys = {
         "access_token",
         "api_key",
         "password",
         "pat_token",
         "secret_value",
+        "token",
+        "client_secret",
+        "authorization",
+        "bearer_token",
     }
+    secret_value_patterns = (
+        re.compile(r"\b(?:sk|rk|xox[baprs])-[A-Za-z0-9_-]{12,}\b"),
+        re.compile(r"\b(?:ghp|github_pat|pat)_[A-Za-z0-9_]{12,}\b"),
+        re.compile(r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b"),
+    )
 
     def walk(value: object, key: str = "") -> list[tuple[str, object]]:
         if isinstance(value, dict):
@@ -455,18 +499,65 @@ def test_exported_profile_contains_secret_references_but_no_secret_values() -> N
             return [nested for item in value for nested in walk(item, key)]
         return [(key, value)]
 
-    synthetic = {"nested": [{"token": "sk-" + "synthetic"}]}
-    assert ("token", "sk-" + "synthetic") in walk(synthetic)
+    def is_secret_reference(value: object) -> bool:
+        return isinstance(value, str) and value.startswith("se://") and len(value) > 5
 
-    assert not {
-        key
-        for key, _value in walk(profile)
-        if key.lower() in forbidden_keys
+    def is_literal_secret(value: object) -> bool:
+        return isinstance(value, str) and not is_secret_reference(value) and any(
+            pattern.search(value) for pattern in secret_value_patterns
+        )
+
+    for key, value in walk(profile):
+        if key.casefold() in sensitive_keys:
+            assert is_secret_reference(value), key
+        assert not is_literal_secret(value), key
+
+    synthetic = {
+        "token": "se://docker/token",
+        "nested": [
+            {"client_secret": "sk-" + ("x" * 20)},
+            {"authorization": "ghp_" + ("x" * 20)},
+            {"bearer_token": "pat_" + ("x" * 20)},
+            {"jwt": "eyJ" + ("a" * 12) + "." + ("b" * 12) + "." + ("c" * 12)},
+        ],
     }
+    synthetic_entries = walk(synthetic)
+    assert is_secret_reference(synthetic_entries[0][1])
     assert all(
-        not (isinstance(value, str) and value.startswith(("sk-", "pat_")))
-        for _key, value in walk(profile)
+        is_literal_secret(value)
+        for key, value in synthetic_entries
+        if key != "token"
     )
+
+
+def test_docker_status_rejects_non_list_profile_payload(monkeypatch) -> None:
+    monkeypatch.setattr(status, "_docker_executable", lambda: "docker")
+    monkeypatch.setattr(
+        status,
+        "_run_process",
+        lambda arguments, **kwargs: status.subprocess.CompletedProcess(
+            arguments, 0, "0.43.3\n", ""
+        ),
+    )
+    monkeypatch.setattr(
+        status,
+        "_docker_secret_engine_status",
+        lambda executable: {"status": "ready"},
+    )
+    monkeypatch.setattr(
+        status,
+        "_docker_json",
+        lambda arguments: ({"profiles": []}, "OK"),
+    )
+
+    result = status._docker_status()
+
+    assert result == {
+        "status": "unavailable",
+        "reason_code": "DOCKER_PROFILE_LIST_INVALID",
+        "version": "0.43.3",
+        "secret_engine": {"status": "ready"},
+    }
 
 
 def test_timeout_injected_local_probe_is_reported_without_payload(monkeypatch) -> None:
