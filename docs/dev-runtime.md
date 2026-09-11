@@ -131,6 +131,11 @@ JSON не попадают URL, headers, secrets, paths или полное ок
 `CHATGPT_ACTION_SNAPSHOT_NOT_OBSERVABLE`; его нельзя заменять synthetic или
 локальным evidence.
 
+Проверка Docker secret store внутри collector выполняет только read-only
+команды `docker pass --help`, `docker pass ls` и `docker pass plugins ls`.
+Они проверяют CLI/keychain и Secrets Engine RPC, но не раскрывают значения
+секретов и не доказывают отдельный `se://` injection в контейнер или Gateway.
+
 Для stdio stdout зарезервирован JSON-RPC протоколом и не содержит журналов оператора,
 баннеров или отладочного вывода. Диагностические сообщения идут только в stderr.
 

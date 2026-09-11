@@ -54,6 +54,14 @@ def test_bounded_ranges_support_exact_compatibility_window() -> None:
     assert parse_version_range(">=3.0.0,<4.0.0")
     assert version_satisfies("3.0.0", ">=3.0.0,<4.0.0")
     assert not version_satisfies("4.0.0", ">=3.0.0,<4.0.0")
+    assert version_satisfies("3.0.0", "=3.0.0")
+    assert version_satisfies("3.0.0", "3.0.0")
+
+
+@pytest.mark.parametrize("value", [">=3.0.0", ">3.0.0", "<4.0.0", "<=4.0.0"])
+def test_unbounded_ranges_are_rejected(value: str) -> None:
+    with pytest.raises(VersioningError):
+        parse_version_range(value)
 
 
 def test_source_revision_is_bounded_and_never_falls_back_to_environment_dump(

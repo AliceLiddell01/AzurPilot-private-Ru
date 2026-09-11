@@ -304,7 +304,10 @@ async def _probe_local_stdio(
         if isinstance(tool_items, list)
         else None
     )
-    contract = _extract_contract(contract_result)
+    try:
+        contract = _extract_contract(contract_result)
+    except StatusError as exc:
+        return {"status": "unavailable", "reason_code": exc.code}
     if (
         not isinstance(observed_name, str)
         or not isinstance(observed_version, str)
@@ -458,11 +461,11 @@ def _docker_json(arguments: Sequence[str]) -> tuple[object | None, str]:
 def _docker_secret_engine_status(executable: str) -> dict[str, object]:
     """Разделить secret store, host-side RPC и runtime injection.
 
-    ``docker pass ls`` проверяет только доступность локального keychain. Он не
-    доказывает, что текущий процесс может обратиться к Secrets Engine RPC, а
-    RPC-доступ не является достаточным доказательством ``se://`` injection в
-    контейнер или Gateway. Поэтому эти поверхности намеренно не сворачиваются
-    в один флаг.
+    Read-only probe выполняет только ``docker pass --help``, ``docker pass ls``
+    и ``docker pass plugins ls``. Эти команды проверяют доступность локального
+    keychain и Secrets Engine RPC, но не доказывают, что текущий процесс может
+    выполнить ``se://`` injection в контейнер или Gateway. Поэтому эти
+    поверхности намеренно не сворачиваются в один флаг.
     """
 
     def result(
@@ -667,6 +670,8 @@ def validate_development_profile(profile: Mapping[str, object]) -> None:
         if name is None or name in names:
             raise StatusError("DOCKER_PROFILE_SERVER_ID_INVALID")
         names.append(name)
+        if name not in _PROFILE_SERVER_SET:
+            raise StatusError("DOCKER_PROFILE_SERVER_SET_INVALID")
         if server.get("type") != _EXPECTED_DOCKER_SERVER_TYPES[name]:
             raise StatusError("DOCKER_PROFILE_SERVER_TYPE_INVALID")
         if server.get("type") == "image" and not (
@@ -1167,10 +1172,9 @@ def status_metric_samples(report: Mapping[str, object]) -> tuple[MetricSample, .
                     if isinstance(protocol, str) and _SAFE_TOKEN.fullmatch(protocol)
                     else "unknown",
                 }
+                surface_ok = status in {"ready", "configured"}
                 endpoint_up = (
-                    1.0
-                    if status == "ready" or surface.get("endpoint_up") is True
-                    else 0.0
+                    1.0 if surface_ok or surface.get("endpoint_up") is True else 0.0
                 )
                 samples.append(
                     MetricSample("azurpilot_mcp_endpoint_up", endpoint_up, attributes)
@@ -1178,7 +1182,7 @@ def status_metric_samples(report: Mapping[str, object]) -> tuple[MetricSample, .
                 samples.append(
                     MetricSample(
                         "azurpilot_mcp_version_info",
-                        1.0 if status == "ready" else 0.0,
+                        1.0 if surface_ok else 0.0,
                         attributes,
                     )
                 )

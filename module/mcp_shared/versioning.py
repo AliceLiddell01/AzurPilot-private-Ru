@@ -146,6 +146,14 @@ def parse_version_range(value: str) -> tuple[tuple[str, SemVer], ...]:
             raise VersioningError("Некорректная часть диапазона версий")
         operator = match.group(1) or "="
         constraints.append((operator, SemVer.parse(match.group(2).strip())))
+    if len(constraints) == 1 and constraints[0][0] == "=":
+        return tuple(constraints)
+    if any(operator == "=" for operator, _version in constraints):
+        raise VersioningError("Exact constraint нельзя смешивать с диапазоном")
+    if not any(operator in {">", ">="} for operator, _version in constraints):
+        raise VersioningError("Диапазон версий не содержит lower bound")
+    if not any(operator in {"<", "<="} for operator, _version in constraints):
+        raise VersioningError("Диапазон версий не содержит upper bound")
     return tuple(constraints)
 
 

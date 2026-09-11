@@ -121,6 +121,10 @@ def test_metric_samples_have_bounded_static_labels() -> None:
                     "protocol_version": "2025-11-25",
                     "version_status": "compatible",
                 },
+                "codex": {
+                    "status": "configured",
+                    "protocol_version": "2025-11-25",
+                },
             }
         },
         "docker_mcp": {"third_party": {}, "version": "v0.43.3", "status": "ready"},
@@ -142,6 +146,18 @@ def test_metric_samples_have_bounded_static_labels() -> None:
         sample.name == "azurpilot_mcp_version_info"
         and sample.attributes["server"] == "docker-gateway"
         and sample.attributes["version"] == "0.43.3"
+        for sample in samples
+    )
+    assert any(
+        sample.name == "azurpilot_mcp_endpoint_up"
+        and sample.attributes["surface"] == "codex"
+        and sample.value == 1.0
+        for sample in samples
+    )
+    assert any(
+        sample.name == "azurpilot_mcp_version_info"
+        and sample.attributes["surface"] == "codex"
+        and sample.value == 1.0
         for sample in samples
     )
 
@@ -240,6 +256,12 @@ def test_exported_development_profile_is_exact_and_read_only() -> None:
     with pytest.raises(status.StatusError, match="DOCKER_PROFILE_SERVER_COUNT_INVALID"):
         status.validate_development_profile(duplicated)
 
+    unknown = deepcopy(profile)
+    unknown["servers"][0]["snapshot"]["server"]["name"] = "unexpected"
+    unknown["servers"][0]["name"] = "unexpected"
+    with pytest.raises(status.StatusError, match="DOCKER_PROFILE_SERVER_SET_INVALID"):
+        status.validate_development_profile(unknown)
+
     remote_drift = deepcopy(profile)
     context7 = next(
         server
@@ -292,7 +314,7 @@ def test_timeout_injected_local_probe_is_reported_without_payload(monkeypatch) -
 
     async def local(name: str, root: Path, revision: str) -> dict[str, object]:
         await asyncio.sleep(0.01)
-        raise RuntimeError("do not publish this message")
+        raise TimeoutError("do not publish this message")
 
     async def remote(name: str) -> dict[str, object]:
         return {
@@ -310,6 +332,6 @@ def test_timeout_injected_local_probe_is_reported_without_payload(monkeypatch) -
     )
     assert (
         report["servers"]["azurpilot-dev"]["local_direct"]["reason_code"]
-        == "LOCAL_PROBE_FAILED"
+        == "LOCAL_PROBE_TIMEOUT"
     )
     assert "do not publish" not in str(report)
