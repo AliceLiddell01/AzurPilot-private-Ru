@@ -139,6 +139,27 @@ def test_v2_evidence_manifest_migrates_without_file_log_metadata(
     assert "legacy_observability_environment_unknown" in migrated["evidence_health"]["reasons"]
 
 
+def test_read_only_evidence_methods_do_not_persist_legacy_migration(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    screenshot = store.persist_screenshot(np.zeros((1, 1, 3), dtype=np.uint8), timestamp=_TIME)
+    screenshot_id = screenshot.result.details["screenshot"]["screenshot_id"]
+    store.finalize(stopped_at=_TIME, cleanup_confirmed=True)
+    manifest = json.loads(store.manifest_path.read_text(encoding="utf-8"))
+    manifest["schema_version"] = 2
+    manifest["logs"] = {"source": "config/state/dev-runtime-gui.log", "payload": "legacy"}
+    manifest.pop("observability")
+    store.manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    legacy_bytes = store.manifest_path.read_bytes()
+
+    timeline = store.timeline_page(limit=10)
+    assert timeline["events"] == []
+    assert store.manifest_path.read_bytes() == legacy_bytes
+
+    persisted = store.read_persisted_screenshot(screenshot_id)
+    assert persisted.result.ok is True
+    assert store.manifest_path.read_bytes() == legacy_bytes
+
+
 def test_evidence_rejects_unsafe_observability_context(tmp_path: Path) -> None:
     store = _store(tmp_path)
     manifest = json.loads(store.manifest_path.read_text(encoding="utf-8"))

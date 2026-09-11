@@ -1470,11 +1470,11 @@ class EvidenceStore:
         except OSError:
             return False
 
-    def _manifest_locked(self) -> dict[str, object]:
+    def _manifest_locked(self, *, persist_migration: bool = False) -> dict[str, object]:
         raw = _read_json(self.manifest_path, max_bytes=_MAX_MANIFEST_BYTES)
         migrated = _migrate_legacy_manifest(raw)
         manifest = _validate_manifest(migrated, self.session_id, self.expected_profile)
-        if migrated is not raw:
+        if persist_migration and migrated is not raw:
             _atomic_json_write(self.manifest_path, manifest)
         return manifest
 
@@ -2189,7 +2189,7 @@ class EvidenceStore:
 
     def summary(self, *, active_owned: bool = False) -> dict[str, object]:
         with _exclusive_lock(self.lock_path, self.environment.repository_root):
-            manifest = self._manifest_locked()
+            manifest = self._manifest_locked(persist_migration=True)
             events, truncated = self._timeline_locked()
             if manifest["timeline"] != _timeline_metadata(events, truncated=truncated):
                 raise EvidenceCorrupt("DEV_EVIDENCE_CORRUPT", "Метаданные хронологии не соответствуют событиям")
