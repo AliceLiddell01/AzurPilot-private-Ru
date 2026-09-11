@@ -113,7 +113,7 @@ class RewardDorm(UI):
         loves = TEMPLATE_DORM_LOVE.match_multi(image, name='DORM_LOVE')
         coins = TEMPLATE_DORM_COIN.match_multi(image, name='DORM_COIN')
         logger.info(f'[Общежитие — сбор] Сердца: {len(loves)}, монеты: {len(coins)}')
-        # 复杂的宿舍背景可能导致误检
+        # Сложный фон общежития может приводить к ложным срабатываниям
         if len(loves) > 6:
             logger.warning('[Общежитие — сбор] Количество сердец больше 6; ограничено до 6')
             loves = loves[:6]
@@ -124,7 +124,7 @@ class RewardDorm(UI):
         count = 0
         for button in loves:
             count += 1
-            # 禁用点击记录检查，因为可能有太多金币或爱心
+            # Отключаем проверку истории нажатий: монет или сердец может быть слишком много
             self.device.click(button, control_check=False)
             self.device.sleep((0.5, 0.8))
         for button in coins:
@@ -136,7 +136,7 @@ class RewardDorm(UI):
 
     @Config.when(DEVICE_CONTROL_METHOD='minitouch')
     def _dorm_feed_long_tap(self, button, count):
-        # 长按喂食，需要 minitouch 支持。
+        # Для кормления долгим нажатием требуется поддержка minitouch.
         timeout = Timer(count // 5 + 5).start()
         x, y = random_rectangle_point(button.button)
         builder = self.device.minitouch_builder
@@ -240,13 +240,13 @@ class RewardDorm(UI):
         """
         logger.info('[Общежитие — вид] Сброс вида общежития')
         for _ in self.loop():
-            # 结束
+            # Завершение
             if self.appear(DORM_MANAGE_CHECK, offset=(20, 20)):
                 break
 
             if self.appear_then_click(DORM_MANAGE, offset=(20, 20), interval=3):
                 continue
-            # 处理所有弹窗
+            # Обрабатываем все всплывающие окна
             if self.ui_additional(get_ship=False):
                 continue
             if self.appear_then_click(DORM_FURNITURE_CONFIRM, offset=(30, 30), interval=3):
@@ -272,23 +272,23 @@ class RewardDorm(UI):
 
         self.ensure_no_info_bar()
 
-        # 设置计时器，防止 Alas 偶尔未能检测到 info_bar
+        # Устанавливаем таймер на случай, если Alas иногда не обнаруживает info_bar
         timeout = Timer(1.5, count=3).start()
 
         for _ in self.loop():
-            # 处理所有弹窗
+            # Обрабатываем все всплывающие окна
             if self.ui_additional(get_ship=False):
                 continue
 
-            # 通过快捷收取按钮收取金币和爱心
+            # Собираем монеты и сердца кнопкой быстрого сбора
             if self.appear_then_click(DORM_QUICK_COLLECT, offset=(20, 20), interval=1):
                 continue
 
-            # 正常结束
+            # Обычное завершение
             if self.info_bar_count() > 0:
                 break
 
-            # 超时结束
+            # Завершение по тайм-ауту
             if timeout.reached():
                 logger.warning('[Общежитие — сбор] Тайм-аут сбора; возможно, информационная панель не была обнаружена')
                 break
@@ -337,10 +337,10 @@ class RewardDorm(UI):
 
         self.popup_interval_clear()
         for _ in self.loop(skip_first=skip_first_screenshot):
-            # 结束
+            # Завершение
             if self.appear(DORM_FEED_CHECK, offset=(20, 20)):
                 break
-            # 点击
+            # Нажатие
             if self.handle_popup_cancel('DORM_FEED'):
                 continue
 
@@ -379,7 +379,7 @@ class RewardDorm(UI):
         food: t.List[Food] = []
         fill: int = 0
         for _ in self.loop():
-            # 结束
+            # Завершение
             if timeout.reached():
                 logger.warning('[Общежитие — еда] Тайм-аут получения данных о еде; возможно, запас пуст')
                 break
@@ -387,7 +387,7 @@ class RewardDorm(UI):
             if self.handle_info_bar():
                 continue
 
-            # 获取食物信息
+            # Получаем информацию о еде
             food, fill = self.dorm_food_get()
             if fill == -1:
                 continue
@@ -438,7 +438,7 @@ class RewardDorm(UI):
         """
         self.interval_clear(DORM_CHECK)
         for _ in self.loop(skip_first=False):
-            # 结束
+            # Завершение
             if self.appear(DORM_FEED_CHECK, offset=(20, 20)):
                 break
 
@@ -471,7 +471,7 @@ class RewardDorm(UI):
         """
         self.interval_clear(DORM_FEED_CHECK)
         for _ in self.loop():
-            # 结束
+            # Завершение
             if self.appear(DORM_CHECK):
                 break
 
@@ -495,7 +495,7 @@ class RewardDorm(UI):
         """
         self.interval_clear(DORM_FEED_CHECK)
         for _ in self.loop():
-            # 结束
+            # Завершение
             if self.appear(DORM_BUY_FOOD_CHECK, offset=(20, 20)):
                 break
 
@@ -513,7 +513,7 @@ class RewardDorm(UI):
         """
         logger.hr('Покупка еды в общежитии')
         index_offset = (20, 20)
-        # 防止 +/- 按钮位置偏移，使用船坞 OCR 技巧准确解析
+        # Чтобы учесть смещение кнопок +/-, используем OCR-приём из верфи для точного разбора
         self.appear(FOOD_PLUS, offset=index_offset)
         self.appear(FOOD_MINUS, offset=index_offset)
 
@@ -531,7 +531,7 @@ class RewardDorm(UI):
         """
         self.interval_clear(DORM_BUY_FOOD_CONFIRM)
         for _ in self.loop():
-            # 结束
+            # Завершение
             if self.match_template_color(DORM_FEED_CHECK, offset=(20, 20)):
                 break
 
@@ -583,7 +583,7 @@ class RewardDorm(UI):
 
         self.ui_ensure(page_dormmenu)
         self.handle_info_bar()
-        # 2025.10.17 移除 DORM_RED_DOT 检查，因为宿舍卡片有缓慢的出现动画
+        # 2025.10.17 убрана проверка DORM_RED_DOT, потому что карточка общежития появляется с медленной анимацией
         # if not self.appear(DORM_RED_DOT, offset=(30, 30)):
         #     logger.info('Nothing to collect. Dorm collecting skipped.')
         #     collect = False
@@ -591,8 +591,8 @@ class RewardDorm(UI):
         #         return
         self.ui_goto(page_dorm, skip_first_screenshot=True)
 
-        # 先喂食以处理 DORM_INFO
-        # DORM_INFO 可能会遮挡宿舍金币和爱心
+        # Сначала кормим, чтобы обработать DORM_INFO
+        # DORM_INFO может перекрывать монеты и сердца в общежитии
         if feed:
             logger.hr('Кормление в общежитии', level=1)
             self.dorm_feed_enter()
@@ -620,7 +620,7 @@ class RewardDorm(UI):
         timeout = Timer(2, count=4).start()
         current = 0
         for _ in self.loop():
-            # 处理弹窗
+            # Обрабатываем всплывающие окна
             if self.appear_then_click(DORM_FURNITURE_CONFIRM, offset=(30, 30), interval=3):
                 timeout.reset()
                 continue
