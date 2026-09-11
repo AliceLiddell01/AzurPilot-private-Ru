@@ -157,6 +157,7 @@ def test_v2_evidence_migration_bounds_legacy_health_reason(
 
     reasons = summary["evidence_health"]["reasons"]
     assert len(reasons) == 32
+    assert reasons[:31] == [f"reason_{index}" for index in range(31)]
     assert reasons[-1] == "legacy_observability_environment_unknown"
 
 
@@ -1025,7 +1026,7 @@ def test_retention_skips_busy_session_and_prunes_other_history(
 
     monkeypatch.setattr(evidence_module, "_exclusive_lock", lock)
 
-    assert EvidenceStore.prune(environment, now=lambda: datetime(2026, 8, 30, tzinfo=UTC)) is True
+    assert EvidenceStore.prune(environment, now=lambda: datetime(2026, 8, 30, tzinfo=UTC)) is False
     assert busy.root.exists()
     assert not historical.root.exists()
 

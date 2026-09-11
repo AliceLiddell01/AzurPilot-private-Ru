@@ -9,8 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 OBSERVABILITY_SERVICE_NAME = "azurpilot"
+OBSERVABILITY_REPOSITORY_ROOT_ENV = "AZURPILOT_REPOSITORY_ROOT"
 _DEFAULT_DEPLOYMENT_ENVIRONMENT = "local"
-_REPOSITORY_ROOT_ENV = "AZURPILOT_REPOSITORY_ROOT"
 _MAX_ENV_BYTES = 64 * 1024
 _SAFE_VALUE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 
@@ -30,7 +30,7 @@ def _is_reparse_point(path: Path) -> bool:
         return True
 
 
-def _is_repository_root(candidate: Path) -> bool:
+def is_repository_root(candidate: Path) -> bool:
     return (candidate / "gui.py").is_file() and (candidate / "module").is_dir()
 
 
@@ -45,15 +45,15 @@ def _resolve_repository_root(
             candidate = repository_root.resolve()
         except (OSError, RuntimeError):
             return None
-        return candidate if _is_repository_root(candidate) else None
+        return candidate if is_repository_root(candidate) else None
 
-    configured = environment.get(_REPOSITORY_ROOT_ENV, "").strip()
+    configured = environment.get(OBSERVABILITY_REPOSITORY_ROOT_ENV, "").strip()
     if configured:
         try:
             candidate = Path(configured).resolve()
         except (OSError, RuntimeError):
             candidate = None
-        if candidate is not None and _is_repository_root(candidate):
+        if candidate is not None and is_repository_root(candidate):
             return candidate
     if not allow_default_root:
         return None
@@ -61,7 +61,7 @@ def _resolve_repository_root(
         candidate = Path(__file__).resolve().parents[2]
     except (OSError, RuntimeError):
         return None
-    return candidate if _is_repository_root(candidate) else None
+    return candidate if is_repository_root(candidate) else None
 
 
 def _local_resource_attributes(repository_root: Path | None) -> str | None:
@@ -133,7 +133,9 @@ def resolve_observability_identity(
 
 
 __all__ = [
+    "OBSERVABILITY_REPOSITORY_ROOT_ENV",
     "OBSERVABILITY_SERVICE_NAME",
     "ObservabilityIdentity",
+    "is_repository_root",
     "resolve_observability_identity",
 ]

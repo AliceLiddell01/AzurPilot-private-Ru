@@ -452,14 +452,8 @@ class DevSessionManager(DevDiagnosticsMixin):
     ) -> dict[str, object] | None:
         if pid is None:
             return None
-        reader = getattr(self.process_backend, "read_startup_failure", None)
-        if not callable(reader):
-            return None
         try:
-            try:
-                diagnostics = reader(pid, close=close)
-            except TypeError:
-                diagnostics = reader(pid)
+            diagnostics = self.process_backend.read_startup_failure(pid, close=close)
         except Exception:
             return None
         if not isinstance(diagnostics, StartupFailureDiagnostics):

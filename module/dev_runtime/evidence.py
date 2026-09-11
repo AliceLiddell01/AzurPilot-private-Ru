@@ -2331,6 +2331,9 @@ class EvidenceStore:
                             stat_result = path.stat()
                             size = _safe_tree_size(path, environment.repository_root)
                     except TimeoutError:
+                        # Размер занятой сессии неизвестен, поэтому лимит хранения
+                        # нельзя считать полностью подтверждённым.
+                        success = False
                         continue
                     except (EvidenceError, OSError, ValueError):
                         success = False

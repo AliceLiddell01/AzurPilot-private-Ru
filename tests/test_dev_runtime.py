@@ -737,6 +737,8 @@ def test_startup_stderr_capture_is_bounded_and_sanitized() -> None:
     assert diagnostics is not None
     assert diagnostics.truncated is True
     assert len(diagnostics.message) <= process_module.MAX_SANITIZED_TEXT + 1
+    assert diagnostics.message.endswith("…")
+    assert len(diagnostics.message[:-1]) <= process_module.MAX_SANITIZED_TEXT
     assert "password=secret" not in diagnostics.message
     assert "C:\\private\\token.txt" not in diagnostics.message
 
