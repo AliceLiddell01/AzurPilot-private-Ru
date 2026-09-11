@@ -88,7 +88,7 @@ def patch_uiautomator2():
         logger.info(f'{init_file} не существует')
         return
 
-    # 修补 minicap_urls
+    # Исправляем minicap_urls
     res = re.search(r'self.minicap_urls', content)
     if res:
         content = re.sub(r'self.minicap_urls', '[]', content)
@@ -97,7 +97,7 @@ def patch_uiautomator2():
     else:
         logger.info(f'{init_file}: исправление minicap_urls не требуется')
 
-    # 修补 atx_agent_url
+    # Исправляем atx_agent_url
     res = re.search(r"'arm64-v8a': 'atx-agent_\{v}_linux_armv7.tar.gz'", content)
     if res:
         content = re.sub(r"'arm64-v8a': 'atx-agent_\{v}_linux_armv7.tar.gz'",
@@ -108,7 +108,7 @@ def patch_uiautomator2():
     else:
         logger.info(f'{init_file}: исправление atx_agent_url не требуется')
 
-    # 修补 appdir
+    # Исправляем appdir
     if cache_dir and os.path.exists(cache_dir):
         res = re.search(r'appdir ?=(.*)\n', content)
         if res:
@@ -124,7 +124,7 @@ def patch_uiautomator2():
     else:
         logger.info('uiautomator2cache не установлен, исправление пропущено')
 
-    # 保存文件
+    # Сохраняем файл
     if modified:
         with open(init_file, 'w', encoding='utf-8') as f:
             f.write(content)
