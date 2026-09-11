@@ -26,7 +26,7 @@ import threading
 from module.logger import logger
 
 
-# 执行提供程序常量
+# Константы Execution Provider
 QNN_EP = "QNNExecutionProvider"
 OPENVINO_EP = "OpenVINOExecutionProvider"
 DML_EP = "DmlExecutionProvider"
@@ -99,8 +99,8 @@ def create_onnx_session(
         allow_vendor_execution_providers=allow_vendor_execution_providers,
     ):
         options = create_options()
-        # OrtEpDevice 已包含目标硬件的标识；重复传入 ep_options 会导致
-        # ONNX Runtime 重复设置 DirectML 的 device_id 并输出无意义警告。
+        # OrtEpDevice уже содержит идентификатор целевого оборудования; повторная передача ep_options приводит к
+        # повторной установке device_id DirectML в ONNX Runtime и бессмысленному предупреждению.
         options.add_provider_for_devices([device], {})
         if device.ep_name == DML_EP:
             options.enable_mem_pattern = False
@@ -150,7 +150,7 @@ def _prepare_vendor_execution_providers(ort, provider_names):
             return
 
         try:
-            # ExecutionProvider 句柄由 EpCatalog 所有，必须在目录关闭前完成注册。
+            # Дескриптор ExecutionProvider принадлежит EpCatalog, поэтому регистрацию нужно завершить до закрытия каталога.
             with windowsml.EpCatalog() as catalog:
                 providers = {
                     provider.name: provider
@@ -248,9 +248,9 @@ def _is_discrete_gpu(device):
     if discrete is not None:
         return str(discrete).lower() in ("1", "true")
 
-    # Windows 10 的部分驱动不会填充 Discrete。先排除已知核显和软件适配器，
-    # 再用 DXGI 专用显存确认其余设备；缺少显存元数据时仍放行未知名称，
-    # 避免 GTX 1070 之类独显被漏掉。
+    # Некоторые драйверы Windows 10 не заполняют Discrete. Сначала исключаем известные встроенные GPU и программные адаптеры,
+    # затем подтверждаем остальные устройства по выделенной видеопамяти DXGI; если метаданные о видеопамяти отсутствуют,
+    # всё равно допускаем неизвестные имена, чтобы не пропустить дискретные GPU вроде GTX 1070.
     name = _normalize_gpu_name(metadata.get("Description", ""))
     if _is_known_integrated_gpu_name(name) or _is_software_gpu_name(name):
         return False
@@ -285,7 +285,7 @@ def _is_known_integrated_gpu_name(name):
             "intel arc 140v",
         )
     ):
-        # Intel Iris Xe MAX 是独显，名称不会落入上述 Iris Xe Graphics 前缀。
+        # Intel Iris Xe MAX — дискретная GPU; её имя не попадает под указанный выше префикс Iris Xe Graphics.
         return True
 
     for prefix in ("amd ", "advanced micro devices, inc. "):
