@@ -16,9 +16,9 @@ from module.os_shop.assets import PORT_SUPPLY_CHECK
 from module.os_shop.shop import OSShop
 from module.ui.assets import BACK_ARROW
 
-# 碧蓝航线港口有 PORT_GOTO_MISSION、PORT_GOTO_SUPPLY、PORT_GOTO_DOCK
-# 红轴港口有 PORT_GOTO_SUPPLY
-# 使用 PORT_GOTO_SUPPLY 作为检查器
+# В портах Лазурного пути есть PORT_GOTO_MISSION, PORT_GOTO_SUPPLY и PORT_GOTO_DOCK
+# В портах Багровой оси есть PORT_GOTO_SUPPLY
+# Используем PORT_GOTO_SUPPLY как проверочный элемент
 PORT_CHECK = PORT_GOTO_SUPPLY
 
 
@@ -51,8 +51,8 @@ class PortHandler(OSShop):
                 continue
             if self.handle_map_event():
                 continue
-        # 底部按钮有显示动画
-        pass  # 已在 ui_click 中确保
+        # У нижних кнопок есть анимация появления
+        pass  # Это уже обеспечивается в ui_click
 
     def port_quit(self, skip_first_screenshot=True):
         """
@@ -65,7 +65,7 @@ class PortHandler(OSShop):
         logger.info('Выход из порта')
         self.ui_back(appear_button=PORT_CHECK, check_button=self.is_in_map,
                      skip_first_screenshot=skip_first_screenshot)
-        # 底部按钮有显示动画
+        # У нижних кнопок есть анимация появления
         self.wait_os_map_buttons()
 
     def port_mission_accept(self):
@@ -95,7 +95,7 @@ class PortHandler(OSShop):
                 confirm_timer.reset()
                 continue
             else:
-                # 结束
+                # Завершение
                 if confirm_timer.reached():
                     success = True
                     break
@@ -118,7 +118,7 @@ class PortHandler(OSShop):
         """
         self.ui_click(PORT_GOTO_SUPPLY, appear_button=PORT_CHECK, check_button=PORT_SUPPLY_CHECK,
                       skip_first_screenshot=True)
-        # 港口物品有显示动画
+        # У предметов в порту есть анимация появления
         self.device.sleep(0.5)
         self.device.screenshot()
 
@@ -134,12 +134,12 @@ class PortHandler(OSShop):
         
         self.interval_clear([PORT_SUPPLY_CHECK, PORT_CHECK, ORDER_CHECK])
         
-        # 超时保护：Timer(10, count=30) 限制最多 10 秒 / 30 次 reached() 调用
+        # Защита по тайм-ауту: Timer(10, count=30) ограничивает выполнение 10 секундами / 30 вызовами reached()
         timeout = Timer(10, count=30).start()
         order_quit_used = False
         
         while True:
-            # 超时保护：同时满足时间超过 10 秒且 reached() 调用超过 30 次
+            # Защита по тайм-ауту: должны одновременно пройти 10 секунд и произойти более 30 вызовов reached()
             if timeout.reached():
                 logger.warning('[Операция «Сирена» — порт] Истекло время выхода из портового магазина, попытка использовать стрелку «Назад»')
                 self.ui_back(appear_button=PORT_SUPPLY_CHECK, check_button=PORT_CHECK, skip_first_screenshot=True)
@@ -150,12 +150,12 @@ class PortHandler(OSShop):
             else:
                 self.device.screenshot()
 
-            # 成功返回到港口界面
+            # Успешно вернулись на экран порта
             if self.appear(PORT_CHECK, offset=(20, 20)):
                 logger.info('[Операция «Сирена» — порт] Выполнен возврат на экран порта')
                 break
 
-            # 意外进入情报界面（作战总览），用 order_quit 正确关闭
+            # При случайном входе на экран разведданных (обзор операции) корректно закрываем его через order_quit
             if self.appear(ORDER_CHECK, offset=(20, 20)):
                 logger.warning('[Операция «Сирена» — порт] Случайно открыт экран разведданных, выполняется order_quit')
                 self.order_quit()
@@ -164,7 +164,7 @@ class PortHandler(OSShop):
                 timeout.reset()
                 continue
 
-            # 从情报界面退出后可能落在大地图，重新进入港口
+            # После выхода с экрана разведданных можем оказаться на глобальной карте; повторно входим в порт
             if order_quit_used and self.is_in_map():
                 logger.info('[Операция «Сирена» — порт] После выхода с экрана разведданных открыта глобальная карта, повторный вход в порт')
                 self.port_enter()
@@ -172,7 +172,7 @@ class PortHandler(OSShop):
                 self.interval_reset(PORT_CHECK)
                 continue
 
-            # 正常点击返回箭头
+            # Обычное нажатие стрелки «Назад»
             if self.appear(PORT_SUPPLY_CHECK, offset=(20, 20), interval=3):
                 self.device.click(BACK_ARROW)
                 self.interval_reset(PORT_SUPPLY_CHECK)
@@ -191,13 +191,13 @@ class PortHandler(OSShop):
 
         repaired = False
         for _ in self.loop():
-            # 结束
+            # Завершение
             if self.info_bar_count():
                 break
             if repaired and self.appear(PORT_DOCK_CHECK, offset=(20, 20)):
                 break
 
-            # PORT_DOCK_CHECK 是全部修复按钮
+            # PORT_DOCK_CHECK — кнопка «Починить всё»
             if self.appear_then_click(PORT_DOCK_CHECK, offset=(20, 20), interval=2):
                 continue
             if self.handle_popup_confirm('DOCK_REPAIR'):
