@@ -9,7 +9,7 @@ from module.template.assets import (TEMPLATE_FORMATION_1, TEMPLATE_FORMATION_2,
                                     TEMPLATE_FORMATION_3)
 from module.ui.switch import Switch
 
-# 2023.10.19，单行图标数量从 2 个增加到 3 个
+# 2023-10-19: количество значков в одной строке увеличено с 2 до 3
 FORMATION = Switch('Formation', offset=(100, 200))
 FORMATION.add_state('line_ahead', check_button=FORMATION_1)
 FORMATION.add_state('double_line', check_button=FORMATION_2)
@@ -46,7 +46,7 @@ class StrategyHandler(InfoHandler):
                 self.device.click(STRATEGY_OPEN)
                 continue
 
-            # 处理遗漏的神秘格子
+            # Обрабатываем пропущенную таинственную клетку
             if self.appear_then_click(GET_ITEMS_1, offset=5):
                 continue
 
@@ -80,12 +80,12 @@ class StrategyHandler(InfoHandler):
 
         if formation is not None:
             FORMATION.set(formation, main=self)
-        # 在潜艇区域图标 bug 修复前禁用此功能
-        # 使用潜艇时不要启用 MAP_HAS_DYNAMIC_RED_BORDER
+        # Отключаем эту функцию до исправления бага значка в зоне подлодок
+        # При использовании подлодок не включать MAP_HAS_DYNAMIC_RED_BORDER
 
-        # 潜艇视图检查已恢复，参见 SwitchWithHandler。
+        # Проверка отображения подлодок восстановлена; см. SwitchWithHandler.
 
-        # 不知何时游戏 bug 已修复，移除 SwitchWithHandler 的使用
+        # Баг игры был исправлен неизвестно когда; использование SwitchWithHandler удалено
         if sub_view is not None:
             if SUBMARINE_VIEW.appear(main=self):
                 SUBMARINE_VIEW.set('on' if sub_view else 'off', main=self)
