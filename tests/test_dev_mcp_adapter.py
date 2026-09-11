@@ -93,16 +93,6 @@ class _FakeManager:
         self.calls.append(("get_timeline", (session_id, after_sequence, limit)))
         return _result("DEV_TIMELINE_READY")
 
-    def get_logs(
-        self,
-        *,
-        session_id: str | None = None,
-        cursor: str | None = None,
-        limit: int = 100,
-    ) -> DevResult:
-        self.calls.append(("get_logs", (session_id, cursor, limit)))
-        return _result("DEV_LOGS_READY")
-
     def get_screenshot(self):
         self.calls.append(("get_screenshot", None))
         return EvidenceScreenshot(_result("DEV_SCREENSHOT_READY"))
@@ -439,10 +429,6 @@ def test_manager_is_lazy_and_allowed_tools_delegate_exact_arguments() -> None:
         "dev_get_timeline",
         {"session_id": "session-1", "after_sequence": 2, "limit": 3},
     )["ok"] is True
-    assert adapter.call(
-        "dev_get_logs",
-        {"session_id": "session-1", "cursor": "cursor", "limit": 4},
-    )["ok"] is True
     assert adapter.call("dev_get_screenshot", {})["ok"] is True
     smoke_spec = {
         "name": "adapter-smoke",
@@ -500,7 +486,6 @@ def test_manager_is_lazy_and_allowed_tools_delegate_exact_arguments() -> None:
         ("recover", None),
         ("get_evidence", None),
         ("get_timeline", ("session-1", 2, 3)),
-        ("get_logs", ("session-1", "cursor", 4)),
         ("get_screenshot", None),
         ("list_smoke_capabilities", None),
         ("validate_smoke", "adapter-smoke"),
@@ -523,6 +508,7 @@ def test_manager_is_lazy_and_allowed_tools_delegate_exact_arguments() -> None:
 
 def test_invalid_and_privileged_arguments_are_rejected_before_manager_creation() -> None:
     adapter, manager, factory_calls = _adapter_with_factory()
+    legacy_log_tool = "dev_get_" + "logs"
 
     invalid_calls = [
         ("dev_plan_session", {}),
@@ -538,8 +524,7 @@ def test_invalid_and_privileged_arguments_are_rejected_before_manager_creation()
         ("dev_get_evidence", {"session_id": "../foreign"}),
         ("dev_get_timeline", {"after_sequence": -1}),
         ("dev_get_timeline", {"limit": 201}),
-        ("dev_get_logs", {"cursor": ""}),
-        ("dev_get_logs", {"path": "C:\\private\\logs"}),
+        (legacy_log_tool, {}),
         ("dev_validate_smoke", {"name": "bad", "objective": "bad", "profile": "ap"}),
         (
             "dev_validate_smoke",
@@ -567,7 +552,9 @@ def test_invalid_and_privileged_arguments_are_rejected_before_manager_creation()
     for tool_name, arguments in invalid_calls:
         result = adapter.call(tool_name, arguments)
         assert result["ok"] is False
-        assert result["code"] == "DEV_MCP_INPUT_INVALID"
+        assert result["code"] == (
+            "DEV_MCP_UNKNOWN_TOOL" if tool_name == legacy_log_tool else "DEV_MCP_INPUT_INVALID"
+        )
 
     assert factory_calls == []
     assert manager.calls == []
@@ -619,25 +606,44 @@ def test_serializer_allowlists_result_and_redacts_sensitive_details() -> None:
             "session_id": "session-1",
             "details": {
                 "profile": "ap",
-                "relative_log": "config/state/dev-runtime-gui.log",
-            "repository_root": "C:\\private\\repo",
-            "policy_file": "C:\\private\\policy.json",
-            "command_line": ["python", "gui.py"],
-            "api_key": "secret-api-key",
-            "apiKey": "secret-api-key",
-            "x-api-key": "secret-api-key",
-        },
+                "observability": {
+                    "source": "grafana_loki",
+                    "service_name": "azurpilot",
+                    "deployment_environment": "local",
+                    "component": "gui",
+                    "profile": "ap",
+                    "root_tasks": ["RootTask"],
+                    "start_utc": "2026-08-29T00:00:00+00:00",
+                    "end_utc": None,
+                },
+                "repository_root": "C:\\private\\repo",
+                "policy_file": "C:\\private\\policy.json",
+                "command_line": ["python", "gui.py"],
+                "api_key": "secret-api-key",
+                "apiKey": "secret-api-key",
+                "x-api-key": "secret-api-key",
+            },
             "unexpected": "must not cross boundary",
         }
     )
 
     assert result["message"] == "готово [путь скрыт]"
-    assert result["details"] == {"relative_log": "config/state/dev-runtime-gui.log"}
+    assert result["details"] == {
+        "observability": {
+            "source": "grafana_loki",
+            "service_name": "azurpilot",
+            "deployment_environment": "local",
+            "component": "gui",
+            "profile": "ap",
+            "root_tasks": ["RootTask"],
+            "start_utc": "2026-08-29T00:00:00+00:00",
+            "end_utc": None,
+        },
+    }
     assert "api_key" not in result["details"]
     assert "apiKey" not in result["details"]
     assert "x-api-key" not in result["details"]
     assert "unexpected" not in result
-
 
 def test_serializer_preserves_smoke_result_and_active_conflict_state() -> None:
     result = serialize_dev_result(
@@ -1011,7 +1017,7 @@ def test_real_status_preserves_task_lifecycle_and_policy_snapshot(tmp_path: Path
         assert stopped["ok"] is True
 
 
-def test_real_evidence_tools_expose_lifecycle_timeline_logs_and_image(tmp_path: Path) -> None:
+def test_real_evidence_tools_expose_lifecycle_timeline_observability_and_image(tmp_path: Path) -> None:
     manager, _backend = _real_runtime_manager(
         tmp_path,
         screenshot_provider=lambda _session_id: np.zeros((2, 3, 3), dtype=np.uint8),
@@ -1025,7 +1031,18 @@ def test_real_evidence_tools_expose_lifecycle_timeline_logs_and_image(tmp_path: 
         assert evidence["ok"] is True
         assert "profile" not in evidence["details"]
         assert evidence["details"]["git_snapshot"]["available"] is False
-        assert evidence["details"]["logs"]["available"] is True
+        assert evidence["details"]["observability"] == {
+            "source": "grafana_loki",
+            "service_name": "azurpilot",
+            "deployment_environment": "local",
+            "component": "gui",
+            "profile": "ap",
+            "root_tasks": ["RootTask"],
+            "start_utc": "2026-08-29T00:00:00+00:00",
+            "end_utc": None,
+            "upper_bound_utc": evidence["details"]["observability"]["upper_bound_utc"],
+        }
+        assert "logs" not in evidence["details"]
         assert evidence["details"]["current_task"] is None
         assert "cleanup" in evidence["details"]
         assert set(evidence["details"]["cleanup"]) == {
@@ -1049,16 +1066,6 @@ def test_real_evidence_tools_expose_lifecycle_timeline_logs_and_image(tmp_path: 
             "session_ready",
         ]
         assert timeline["details"]["more"] is False
-
-        manager.environment.log_file.write_text(
-            "новая запись password=секрет\n",
-            encoding="utf-8",
-        )
-        logs = adapter.call("dev_get_logs", {"limit": 10})
-        assert logs["ok"] is True
-        assert logs["details"]["items"] == [
-            {"text": "новая запись password=***", "truncated": False}
-        ]
 
         screenshot = adapter.call("dev_get_screenshot")
         assert screenshot.structured["ok"] is True

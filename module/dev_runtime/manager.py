@@ -235,37 +235,6 @@ class DevSessionManager(DevDiagnosticsMixin):
             return self.environment
         return replace(self.environment, dev_target=target)
 
-    def _evidence_log_path(self) -> Path:
-        """Вернуть фактический scoped log target текущего runtime mode."""
-
-        if self.shared_webui and self.shared_lifecycle is not None:
-            try:
-                candidate = getattr(self.shared_lifecycle, "log_file", None)
-            except (DevTargetError, OSError, RuntimeError):
-                return self.environment.log_file
-            if isinstance(candidate, (str, os.PathLike)):
-                try:
-                    candidate_path = Path(candidate)
-                    candidate_path.resolve().relative_to(
-                        self.environment.repository_root.resolve()
-                    )
-                except (OSError, RuntimeError, TypeError, ValueError):
-                    return self.environment.log_file
-                return candidate_path
-        return self.environment.log_file
-
-    def _relative_log_text(self, log_path: Path | None) -> str | None:
-        if log_path is None:
-            return None
-        try:
-            return str(
-                Path(log_path).resolve().relative_to(
-                    self.environment.repository_root.resolve()
-                )
-            )
-        except (OSError, RuntimeError, ValueError):
-            return str(log_path)
-
     def _evidence_for_session(
         self,
         session_id: str,
@@ -478,7 +447,7 @@ class DevSessionManager(DevDiagnosticsMixin):
         cleanup_attempted: bool,
         reason: str,
     ) -> EvidenceStore | None:
-        """Закрыть log boundary до любой очистки task sandbox."""
+        """Закрыть evidence до любой очистки task sandbox."""
 
         store = self._evidence_store
         if store is not None and store.session_id != session.session_id:
@@ -545,7 +514,6 @@ class DevSessionManager(DevDiagnosticsMixin):
                 excluded_tasks=task_plan.excluded_tasks,
                 timestamp=session.created_at,
                 now=self.now,
-                log_file=self._evidence_log_path(),
             )
             self._evidence_store = store
             self._evidence_event(
@@ -697,44 +665,6 @@ class DevSessionManager(DevDiagnosticsMixin):
             True,
             "DEV_TIMELINE_READY",
             "Каноническая хронология выполнения прочитана",
-            current.state.value if current is not None and current.session_id == store.session_id else DevStatusKind.STOPPED.value,
-            store.session_id,
-            page,
-        )
-
-    def get_logs(
-        self,
-        *,
-        session_id: str | None = None,
-        cursor: str | None = None,
-        limit: int = 100,
-    ) -> DevResult:
-        current, store, error = self._evidence_target(session_id)
-        if error is not None:
-            return error
-        assert store is not None
-        active_owned = False
-        if current is not None and current.session_id == store.session_id:
-            if current.state is DevSessionState.RUNNING and current.process is not None:
-                active_owned = self._session_runtime_matches(current) is True
-        try:
-            page = store.logs_page(cursor=cursor, limit=limit, active_owned=active_owned)
-        except EvidenceCorrupt as exc:
-            store.mark_corrupt("log_corrupt")
-            return DevResult(
-                False,
-                exc.code,
-                str(exc),
-                DevStatusKind.CORRUPT.value,
-                store.session_id,
-                {"evidence_health": {"status": "corrupt", "reasons": ["log_corrupt"]}},
-            )
-        except EvidenceError as exc:
-            return DevResult(False, exc.code, str(exc), "failed", store.session_id)
-        return DevResult(
-            True,
-            "DEV_LOGS_READY",
-            "Журнал в пределах сессии прочитан",
             current.state.value if current is not None and current.session_id == store.session_id else DevStatusKind.STOPPED.value,
             store.session_id,
             page,
@@ -2581,12 +2511,6 @@ class DevSessionManager(DevDiagnosticsMixin):
                         "policy_prepared",
                         {"profile": self.environment.profile_name, "state": TASK_POLICY_ACTIVE},
                     )
-                    try:
-                        if self._evidence_store is not None:
-                            self._evidence_store.capture_log_boundary()
-                    except EvidenceError:
-                        pass
-
                 session.state = DevSessionState.STARTING
                 session.updated_at = self._timestamp()
                 session.last_code = "DEV_SESSION_STARTING"
@@ -2842,7 +2766,6 @@ class DevSessionManager(DevDiagnosticsMixin):
                     "host": self.environment.host,
                     "port": self.environment.port,
                     "profile": self.environment.profile_name,
-                    "log": self._relative_log_text(self._evidence_log_path()),
                 },
             )
 
@@ -3038,7 +2961,6 @@ class DevSessionManager(DevDiagnosticsMixin):
                             "runtime_mode": DevRuntimeMode.SHARED_WEBUI.value,
                         },
                     )
-                    log_path = self._evidence_log_path()
                     return self._session_result(
                         latest,
                         ok=True,
@@ -3048,7 +2970,6 @@ class DevSessionManager(DevDiagnosticsMixin):
                         details={
                             "runtime_mode": DevRuntimeMode.SHARED_WEBUI.value,
                             "profile": self.environment.profile_name,
-                            "log": self._relative_log_text(log_path),
                         },
                     )
 

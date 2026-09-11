@@ -43,7 +43,6 @@ DEV_MCP_TOOL_NAMES = (
     "dev_recover",
     "dev_get_evidence",
     "dev_get_timeline",
-    "dev_get_logs",
     "dev_get_screenshot",
     "dev_list_smoke_capabilities",
     "dev_validate_smoke",
@@ -123,7 +122,6 @@ _SAFE_DETAIL_KEYS = frozenset(
         "items",
         "lifecycle",
         "lifecycle_marked_cleanup_pending",
-        "log",
         "message",
         "name",
         "new_dependency",
@@ -142,7 +140,6 @@ _SAFE_DETAIL_KEYS = frozenset(
         "policy_expected",
         "read_only",
         "reason",
-        "relative_log",
         "required_by",
         "root",
         "root_tasks",
@@ -180,8 +177,8 @@ _SAFE_DETAIL_KEYS = frozenset(
         "evidence",
         "git_snapshot",
         "evidence_health",
+        "observability",
         "timeline",
-        "logs",
         "screenshots",
         "last_error",
         "events",
@@ -189,8 +186,6 @@ _SAFE_DETAIL_KEYS = frozenset(
         "more",
         "truncated",
         "health",
-        "next_cursor",
-        "text",
         "screenshot",
         "screenshot_id",
         "mime",
@@ -454,13 +449,23 @@ _SAFE_EVENT_FIELDS_KEYS = frozenset(
 _SAFE_LIFECYCLE_KEYS = frozenset({"created_at", "started_at", "stopped_at", "duration_seconds"})
 _SAFE_DEPENDENCY_SUMMARY_KEYS = frozenset({"count", "last"})
 _SAFE_CLEANUP_SUMMARY_KEYS = frozenset({"status", "confirmed", "preserved", "updated_at"})
-_SAFE_LOG_SUMMARY_KEYS = frozenset({"available", "source", "truncated"})
+_SAFE_OBSERVABILITY_KEYS = frozenset(
+    {
+        "source",
+        "service_name",
+        "deployment_environment",
+        "component",
+        "profile",
+        "root_tasks",
+        "start_utc",
+        "end_utc",
+        "upper_bound_utc",
+    }
+)
 _SAFE_SCREENSHOT_METADATA_KEYS = frozenset(
     {"screenshot_id", "timestamp", "mime", "width", "height", "byte_size", "sha256"}
 )
 _SAFE_SCREENSHOT_SUMMARY_KEYS = frozenset({"count", "latest"})
-_SAFE_LOG_ITEM_KEYS = frozenset({"text", "truncated"})
-_SAFE_LOG_PAGE_KEYS = frozenset({"session_id", "items", "next_cursor", "more", "truncated", "health"})
 _SAFE_TIMELINE_PAGE_KEYS = frozenset(
     {"session_id", "events", "next_after_sequence", "more", "truncated", "health"}
 )
@@ -479,7 +484,7 @@ _SAFE_EVIDENCE_SUMMARY_KEYS = frozenset(
         "git_snapshot",
         "evidence_health",
         "timeline",
-        "logs",
+        "observability",
         "screenshots",
         "last_error",
         "cleanup",
@@ -704,12 +709,10 @@ _SCHEMA_KEYS = {
     "timeline_page": _SAFE_TIMELINE_PAGE_KEYS,
     "timeline_event": _SAFE_TIMELINE_EVENT_KEYS,
     "event_fields": _SAFE_EVENT_FIELDS_KEYS,
+    "observability": _SAFE_OBSERVABILITY_KEYS,
     "lifecycle": _SAFE_LIFECYCLE_KEYS,
     "dependency_summary": _SAFE_DEPENDENCY_SUMMARY_KEYS,
     "cleanup_summary": _SAFE_CLEANUP_SUMMARY_KEYS,
-    "log_summary": _SAFE_LOG_SUMMARY_KEYS,
-    "log_page": _SAFE_LOG_PAGE_KEYS,
-    "log_item": _SAFE_LOG_ITEM_KEYS,
     "screenshot_summary": _SAFE_SCREENSHOT_SUMMARY_KEYS,
     "screenshot_metadata": _SAFE_SCREENSHOT_METADATA_KEYS,
     "structured_error": _SAFE_STRUCTURED_ERROR_KEYS,
@@ -798,22 +801,20 @@ _DETAIL_CHILD_SCHEMAS: dict[str, str | None] = {
     "handover": "handover",
     "height": "int",
     "host": "string",
-    "items": "log_items",
+    "items": "generic_list",
+    "observability": "observability",
     "last_error": "structured_error",
     "last_sequence": "int",
     "last_timestamp": "string",
     "latest": "screenshot_metadata",
     "lifecycle": "lifecycle",
     "lifecycle_marked_cleanup_pending": "bool",
-    "log": "string",
-    "logs": "log_summary",
     "message": "string",
     "mime": "string",
     "more": "bool",
     "name": "string",
     "new_dependency": "bool",
     "next_after_sequence": "int",
-    "next_cursor": "string",
     "next_run": "string",
     "observed_code": "string",
     "outcome": "string",
@@ -832,7 +833,6 @@ _DETAIL_CHILD_SCHEMAS: dict[str, str | None] = {
     "reason": "string",
     "reasons": "string_list",
     "relative_file": "string",
-    "relative_log": "string",
     "required_by": "string",
     "root": "string",
     "roots": "string_list",
@@ -857,7 +857,6 @@ _DETAIL_CHILD_SCHEMAS: dict[str, str | None] = {
     "task_policy": "task_policy",
     "tasks": "task_descriptor_list",
     "tasks_reset": "int",
-    "text": "string",
     "timestamp": "string",
     "timeline": "timeline_metadata",
     "tool": "string",
@@ -1071,7 +1070,7 @@ _EVIDENCE_SUMMARY_CHILD_SCHEMAS: dict[str, str | None] = {
     "git_snapshot": "git_snapshot",
     "evidence_health": "evidence_health",
     "timeline": "timeline_metadata",
-    "logs": "log_summary",
+    "observability": "observability",
     "screenshots": "screenshot_summary",
     "last_error": "structured_error",
     "cleanup": "cleanup_summary",
@@ -1158,24 +1157,16 @@ _CLEANUP_SUMMARY_CHILD_SCHEMAS: dict[str, str | None] = {
     "updated_at": "string",
 }
 
-_LOG_SUMMARY_CHILD_SCHEMAS: dict[str, str | None] = {
-    "available": "bool",
+_OBSERVABILITY_CHILD_SCHEMAS: dict[str, str | None] = {
     "source": "string",
-    "truncated": "bool",
-}
-
-_LOG_PAGE_CHILD_SCHEMAS: dict[str, str | None] = {
-    "session_id": "session_id",
-    "items": "log_items",
-    "next_cursor": "string",
-    "more": "bool",
-    "truncated": "bool",
-    "health": "evidence_health",
-}
-
-_LOG_ITEM_CHILD_SCHEMAS: dict[str, str | None] = {
-    "text": "string",
-    "truncated": "bool",
+    "service_name": "string",
+    "deployment_environment": "string",
+    "component": "string",
+    "profile": "string",
+    "root_tasks": "string_list",
+    "start_utc": "string",
+    "end_utc": "string",
+    "upper_bound_utc": "string",
 }
 
 _SCREENSHOT_SUMMARY_CHILD_SCHEMAS: dict[str, str | None] = {
@@ -1483,12 +1474,10 @@ _SCHEMA_CHILD_SCHEMAS = {
     "timeline_page": _TIMELINE_PAGE_CHILD_SCHEMAS,
     "timeline_event": _TIMELINE_EVENT_CHILD_SCHEMAS,
     "event_fields": _EVENT_FIELDS_CHILD_SCHEMAS,
+    "observability": _OBSERVABILITY_CHILD_SCHEMAS,
     "lifecycle": _LIFECYCLE_CHILD_SCHEMAS,
     "dependency_summary": _DEPENDENCY_SUMMARY_CHILD_SCHEMAS,
     "cleanup_summary": _CLEANUP_SUMMARY_CHILD_SCHEMAS,
-    "log_summary": _LOG_SUMMARY_CHILD_SCHEMAS,
-    "log_page": _LOG_PAGE_CHILD_SCHEMAS,
-    "log_item": _LOG_ITEM_CHILD_SCHEMAS,
     "screenshot_summary": _SCREENSHOT_SUMMARY_CHILD_SCHEMAS,
     "screenshot_metadata": _SCREENSHOT_METADATA_CHILD_SCHEMAS,
     "structured_error": _STRUCTURED_ERROR_CHILD_SCHEMAS,
@@ -1595,14 +1584,6 @@ class DevRuntimeManager(Protocol):
         *,
         session_id: str | None = None,
         after_sequence: int = 0,
-        limit: int = 100,
-    ) -> object: ...
-
-    def get_logs(
-        self,
-        *,
-        session_id: str | None = None,
-        cursor: str | None = None,
         limit: int = 100,
     ) -> object: ...
 
@@ -1758,11 +1739,6 @@ class _TimelineArguments(_SessionArguments):
     limit: int = Field(default=100, ge=1, le=200)
 
 
-class _LogsArguments(_SessionArguments):
-    cursor: str | None = Field(default=None, min_length=1, max_length=2048)
-    limit: int = Field(default=100, ge=1, le=200)
-
-
 class _SmokeIdArguments(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
@@ -1837,7 +1813,6 @@ _ARGUMENT_MODELS: dict[str, type[BaseModel]] = {
     "dev_stop_session": _StopArguments,
     "dev_get_evidence": _SessionArguments,
     "dev_get_timeline": _TimelineArguments,
-    "dev_get_logs": _LogsArguments,
     "dev_get_database_status": _SessionArguments,
     "dev_run_database_check": _DatabaseCheckArguments,
     "dev_preview_database_repair": _DatabaseRepairArguments,
@@ -2011,7 +1986,6 @@ def _safe_value(
             "task_descriptor_list": "task_descriptor",
             "task_provenance_list": "task_provenance",
             "frame_list": "frame",
-            "log_items": "log_item",
             "timeline_events": "timeline_event",
             "smoke_capability_list": "smoke_capability",
             "smoke_issue_list": "smoke_issue",
@@ -2038,7 +2012,6 @@ def _safe_value(
             "task_descriptor_list",
             "task_provenance_list",
             "frame_list",
-            "log_items",
             "timeline_events",
             "smoke_capability_list",
             "smoke_issue_list",
@@ -2195,7 +2168,6 @@ class DevMcpAdapter:
         | _StopArguments
         | _SessionArguments
         | _TimelineArguments
-        | _LogsArguments
         | _SmokeIdArguments
         | _SmokeEvaluationArguments
         | _GameObservationArguments
@@ -2279,13 +2251,6 @@ class DevMcpAdapter:
                 result = manager.get_timeline(
                     session_id=parsed.session_id,
                     after_sequence=parsed.after_sequence,
-                    limit=parsed.limit,
-                )
-            elif tool_name == "dev_get_logs":
-                assert isinstance(parsed, _LogsArguments)
-                result = manager.get_logs(
-                    session_id=parsed.session_id,
-                    cursor=parsed.cursor,
                     limit=parsed.limit,
                 )
             elif tool_name == "dev_list_smoke_capabilities":

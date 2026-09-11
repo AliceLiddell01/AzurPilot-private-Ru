@@ -109,7 +109,7 @@ def test_plugin_compatibility_matches_runtime_contract() -> None:
 
     assert compatibility["product_family"] == runtime["product_family"] == "AzurPilot"
     assert compatibility["plugin_version"] == manifest["version"]
-    assert compatibility["dev_mcp_api_version"] == runtime["dev_mcp_api_version"] == 2
+    assert compatibility["dev_mcp_api_version"] == runtime["dev_mcp_api_version"] == 3
     assert compatibility["smoke_spec_schema_version"] == runtime["smoke_spec_schema_version"] == SMOKE_SCHEMA_VERSION
     assert compatibility["smoke_result_schema_version"] == runtime["smoke_result_schema_version"] == SMOKE_STATE_SCHEMA_VERSION
     assert "profile" not in compatibility

@@ -127,10 +127,7 @@ while not stopping:
             launcher_created_at = launcher.create_time()
 
             identity = backend.capture(launcher_pid)
-            assert identity is not None, environment.log_file.read_text(
-                encoding="utf-8",
-                errors="replace",
-            )
+            assert identity is not None
             assert identity.pid != launcher_pid, (
                 "Windows venv redirector не был adopted: "
                 f"launcher_pid={launcher_pid}, captured_pid={identity.pid}, "

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import io
 import json
 import os
@@ -56,7 +55,88 @@ def _store(tmp_path: Path, session_id: str = "session-1") -> EvidenceStore:
         root_tasks=["RootTask"],
         excluded_tasks=["ExcludedTask"],
         timestamp=_TIME,
+        now=lambda: datetime.fromisoformat(_TIME),
     )
+
+
+def test_evidence_summary_exposes_bounded_loki_correlation_context(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "OTEL_RESOURCE_ATTRIBUTES",
+        "service.name=azurpilot,deployment.environment.name=staging",
+    )
+    store = _store(tmp_path)
+
+    active = store.summary(active_owned=True)
+    assert active["observability"] == {
+        "source": "grafana_loki",
+        "service_name": "azurpilot",
+        "deployment_environment": "staging",
+        "component": "gui",
+        "profile": "ap",
+        "root_tasks": ["RootTask"],
+        "start_utc": _TIME,
+        "end_utc": None,
+        "upper_bound_utc": _TIME,
+    }
+    assert "session_id" not in active["observability"]
+    assert "password" not in json.dumps(active["observability"], ensure_ascii=False).lower()
+    assert "C:\\private" not in json.dumps(active["observability"], ensure_ascii=False)
+
+    store.finalize(stopped_at=_TIME, cleanup_confirmed=True)
+    stopped = store.summary()
+    assert stopped["observability"] == {
+        "source": "grafana_loki",
+        "service_name": "azurpilot",
+        "deployment_environment": "staging",
+        "component": "gui",
+        "profile": "ap",
+        "root_tasks": ["RootTask"],
+        "start_utc": _TIME,
+        "end_utc": _TIME,
+    }
+    persisted = json.loads(store.manifest_path.read_text(encoding="utf-8"))
+    assert persisted["schema_version"] == 3
+    assert "logs" not in persisted
+
+
+def test_v2_evidence_manifest_migrates_without_file_log_metadata(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    manifest = json.loads(store.manifest_path.read_text(encoding="utf-8"))
+    manifest["schema_version"] = 2
+    manifest["logs"] = {
+        "source": "config/state/dev-runtime-gui.log",
+        "available": True,
+        "boundary_offset": 0,
+        "boundary_identity": {"device": 1, "inode": 2, "mtime_ns": 3},
+        "end_offset": None,
+        "end_identity": None,
+        "truncated": False,
+        "payload": "password=secret",
+    }
+    manifest.pop("observability")
+    store.manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    summary = EvidenceStore.for_session(store.environment, store.session_id).summary()
+
+    assert summary["observability"]["source"] == "grafana_loki"
+    migrated = json.loads(store.manifest_path.read_text(encoding="utf-8"))
+    assert migrated["schema_version"] == 3
+    assert "logs" not in migrated
+    assert "dev-runtime-gui.log" not in json.dumps(migrated, ensure_ascii=False)
+    assert "password=secret" not in json.dumps(migrated, ensure_ascii=False)
+
+
+def test_evidence_rejects_unsafe_observability_context(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    manifest = json.loads(store.manifest_path.read_text(encoding="utf-8"))
+    manifest["observability"]["deployment_environment"] = "C:\\private\\env"
+    store.manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(EvidenceCorrupt):
+        store.summary()
 
 
 def test_evidence_store_reopens_and_keeps_session_scoped_lifecycle(tmp_path: Path) -> None:
@@ -99,31 +179,6 @@ def test_evidence_store_reopens_and_keeps_session_scoped_lifecycle(tmp_path: Pat
     ]
     assert [event["sequence"] for event in timeline["events"]] == [1, 2, 3, 4]
     assert all(event["timestamp"].endswith("+00:00") for event in timeline["events"])
-
-
-def test_evidence_reopen_uses_manifest_bound_log_source(tmp_path: Path) -> None:
-    environment = _environment(tmp_path)
-    shared_log = environment.repository_root / "config" / "state" / "shared-webui.log"
-    shared_log.write_text("startup\n", encoding="utf-8")
-    store = EvidenceStore.create(
-        environment,
-        session_id="shared-log-session",
-        root_tasks=["RootTask"],
-        excluded_tasks=[],
-        timestamp=_TIME,
-        log_file=shared_log,
-    )
-    store.capture_log_boundary()
-    with shared_log.open("a", encoding="utf-8") as handle:
-        handle.write("handover worker saw stop\n")
-    store.finalize(stopped_at=_TIME, cleanup_confirmed=True)
-
-    reopened = EvidenceStore.for_session(environment, "shared-log-session")
-
-    assert reopened.log_source == "config/state/shared-webui.log"
-    page = reopened.logs_page(active_owned=False)
-    assert [item["text"] for item in page["items"]] == ["handover worker saw stop"]
-    assert "log_boundary_lost" not in page["health"]["reasons"]
 
 
 def test_evidence_store_records_handover_and_notification_outcome(tmp_path: Path) -> None:
@@ -331,156 +386,6 @@ def test_evidence_store_rejects_corrupt_event_and_false_complete_health(tmp_path
         store.summary()
 
 
-def test_evidence_logs_use_boundary_cursor_and_sanitization(tmp_path: Path) -> None:
-    store = _store(tmp_path)
-    store.environment.log_file.parent.mkdir(parents=True, exist_ok=True)
-    store.environment.log_file.write_bytes(b"old session\n")
-    store.capture_log_boundary()
-    with store.environment.log_file.open("ab") as handle:
-        handle.write(b"new password=secret C:\\private\\token.txt\n")
-        handle.write(b"second\n")
-        handle.write(b"invalid-utf8-\xff\n")
-
-    first = store.logs_page(limit=1)
-    assert first["items"][0]["text"] == "new password=*** [путь скрыт]"
-    assert first["more"] is True
-    assert "old session" not in json.dumps(first, ensure_ascii=False)
-
-    second = store.logs_page(cursor=first["next_cursor"], limit=2)
-    assert [item["text"] for item in second["items"]] == ["second", "invalid-utf8-�"]
-    assert second["next_cursor"] is None
-
-    with pytest.raises(EvidenceError) as error:
-        store.logs_page(cursor="not-a-valid-cursor", limit=1)
-    assert error.value.code == "DEV_EVIDENCE_CURSOR_INVALID"
-
-    malformed_cursor = base64.urlsafe_b64encode(
-        json.dumps(
-            {
-                "session_id": store.session_id,
-                "offset": 0,
-                "identity": {"device": "не число"},
-            }
-        ).encode("utf-8")
-    ).decode("ascii")
-    with pytest.raises(EvidenceError) as error:
-        store.logs_page(cursor=malformed_cursor, limit=1)
-    assert error.value.code == "DEV_EVIDENCE_CURSOR_INVALID"
-    assert store.summary()["evidence_health"]["status"] != "corrupt"
-
-    store.environment.log_file.write_bytes(b"rotated\n")
-    with pytest.raises(EvidenceError) as error:
-        store.logs_page(limit=1)
-    assert error.value.code == "DEV_EVIDENCE_LOG_BOUNDARY_LOST"
-
-
-def test_evidence_logs_keep_replacement_startup_lines_during_active_session(
-    tmp_path: Path,
-) -> None:
-    store = _store(tmp_path)
-    log_path = store.environment.log_file
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_path.write_bytes(b"before session\n")
-    store.capture_log_boundary()
-
-    replacement = log_path.with_name("rotated-startup.txt")
-    replacement.write_bytes(b"new worker startup\n")
-    replacement.replace(log_path)
-
-    active = store.logs_page(active_owned=True)
-    assert [item["text"] for item in active["items"]] == ["new worker startup"]
-    assert "before session" not in json.dumps(active, ensure_ascii=False)
-    assert active["truncated"] is True
-    assert "log_boundary_lost" in active["health"]["reasons"]
-
-    with log_path.open("ab") as handle:
-        handle.write(b"new worker body\n")
-    store.finalize(stopped_at=_TIME, cleanup_confirmed=True)
-    finished = store.logs_page(active_owned=False)
-    assert [item["text"] for item in finished["items"]] == [
-        "new worker startup",
-        "new worker body",
-    ]
-
-
-def test_evidence_finalize_marks_unread_rotated_segment_as_truncated(
-    tmp_path: Path,
-) -> None:
-    store = _store(tmp_path)
-    log_path = store.environment.log_file
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_path.write_bytes(b"before session\n")
-    store.capture_log_boundary()
-
-    replacement = log_path.with_name("rotated-before-finalize.txt")
-    replacement.write_bytes(b"new worker startup\n")
-    replacement.replace(log_path)
-
-    store.finalize(stopped_at=_TIME, cleanup_confirmed=True)
-    finished = store.logs_page(active_owned=False)
-
-    assert [item["text"] for item in finished["items"]] == ["new worker startup"]
-    assert finished["truncated"] is True
-    assert "log_boundary_lost" in finished["health"]["reasons"]
-
-
-def test_evidence_log_rotation_fails_closed_at_segment_limit(tmp_path: Path) -> None:
-    store = _store(tmp_path)
-    log_path = store.environment.log_file
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_path.write_bytes(b"")
-    store.capture_log_boundary()
-
-    manifest = json.loads(store.manifest_path.read_text(encoding="utf-8"))
-    logs = manifest["logs"]
-    assert isinstance(logs, dict)
-    first_segment = logs["segments"][0]
-    assert isinstance(first_segment, dict)
-    segments = [first_segment]
-    segments.extend(
-        {
-            "identity": {"device": 999999, "inode": 1000 + index, "mtime_ns": 1},
-            "boundary_offset": 0,
-            "end_offset": 0,
-        }
-        for index in range(31)
-    )
-    logs["segments"] = segments
-    manifest["logs"] = logs
-    store.manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-
-    replacement = log_path.with_name("rotated-limit.txt")
-    replacement.write_bytes(b"new worker startup\n")
-    replacement.replace(log_path)
-
-    with pytest.raises(EvidenceError) as error:
-        store.logs_page(active_owned=True)
-
-    assert error.value.code == "DEV_EVIDENCE_LOG_BOUNDARY_LOST"
-    persisted = json.loads(store.manifest_path.read_text(encoding="utf-8"))
-    assert len(persisted["logs"]["segments"]) == 32
-    assert "log_boundary_lost" in persisted["evidence_health"]["reasons"]
-
-
-def test_evidence_rejects_manifest_log_source_mismatch(tmp_path: Path) -> None:
-    store = _store(tmp_path)
-    log_path = store.environment.log_file
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_path.write_bytes(b"")
-    store.capture_log_boundary()
-
-    manifest = json.loads(store.manifest_path.read_text(encoding="utf-8"))
-    manifest["logs"]["source"] = "log/another-profile.txt"
-    store.manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-
-    with pytest.raises(EvidenceError) as error:
-        store.logs_page(active_owned=True)
-
-    assert error.value.code == "DEV_EVIDENCE_LOG_BOUNDARY_LOST"
-    persisted = json.loads(store.manifest_path.read_text(encoding="utf-8"))
-    assert "log_boundary_lost" in persisted["evidence_health"]["reasons"]
-
-
 def test_evidence_rejects_confirmed_and_preserved_cleanup_together(
     tmp_path: Path,
 ) -> None:
@@ -501,165 +406,6 @@ def test_evidence_rejects_confirmed_and_preserved_cleanup_together(
             preserved=True,
         )
     assert record_error.value.code == "DEV_EVIDENCE_CLEANUP_INVALID"
-
-
-def test_evidence_log_cursor_reset_after_rotation_is_reported_as_truncated(
-    tmp_path: Path,
-) -> None:
-    store = _store(tmp_path)
-    log_path = store.environment.log_file
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_path.write_bytes(b"before session\n")
-    store.capture_log_boundary()
-    with log_path.open("ab") as handle:
-        handle.write(b"old worker first\nold worker second\n")
-
-    first = store.logs_page(limit=1)
-    cursor = first["next_cursor"]
-    assert isinstance(cursor, str)
-
-    replacement = log_path.with_name("rotated-cursor.txt")
-    replacement.write_bytes(b"new worker startup\n")
-    replacement.replace(log_path)
-
-    page = store.logs_page(cursor=cursor, limit=10, active_owned=True)
-    assert [item["text"] for item in page["items"]] == ["new worker startup"]
-    assert page["truncated"] is True
-
-
-def test_evidence_rejects_non_adjacent_reused_log_identity(tmp_path: Path) -> None:
-    first = evidence_module._FileIdentity(device=1, inode=10, mtime_ns=1)
-    second = evidence_module._FileIdentity(device=1, inode=11, mtime_ns=2)
-    metadata = {
-        "source": "log/2026-08-30_ap.txt",
-        "available": True,
-        "boundary_offset": 0,
-        "boundary_identity": first.as_dict(),
-        "end_offset": None,
-        "end_identity": None,
-        "truncated": False,
-        "segments": [
-            {"identity": identity.as_dict(), "boundary_offset": 0, "end_offset": None}
-            for identity in (first, second, first)
-        ],
-    }
-
-    with pytest.raises(EvidenceCorrupt, match="inode"):
-        evidence_module._validate_log_metadata(metadata)
-
-
-def test_evidence_rejects_terminal_boundary_for_multiple_log_segments() -> None:
-    first = evidence_module._FileIdentity(device=1, inode=10, mtime_ns=1)
-    second = evidence_module._FileIdentity(device=1, inode=11, mtime_ns=2)
-    metadata = {
-        "source": "log/2026-08-30_ap.txt",
-        "available": True,
-        "boundary_offset": 0,
-        "boundary_identity": first.as_dict(),
-        "end_offset": 0,
-        "end_identity": second.as_dict(),
-        "truncated": True,
-        "segments": [
-            {"identity": first.as_dict(), "boundary_offset": 0, "end_offset": 0},
-            {"identity": second.as_dict(), "boundary_offset": 0, "end_offset": None},
-        ],
-    }
-
-    with pytest.raises(EvidenceCorrupt, match="общую конечную границу"):
-        evidence_module._validate_log_metadata(metadata)
-
-
-def test_evidence_rejects_single_segment_with_foreign_terminal_identity() -> None:
-    first = evidence_module._FileIdentity(device=1, inode=10, mtime_ns=1)
-    foreign = evidence_module._FileIdentity(device=1, inode=11, mtime_ns=2)
-    metadata = {
-        "source": "log/2026-08-30_ap.txt",
-        "available": True,
-        "boundary_offset": 0,
-        "boundary_identity": first.as_dict(),
-        "end_offset": 4,
-        "end_identity": foreign.as_dict(),
-        "truncated": False,
-        "segments": [
-            {"identity": first.as_dict(), "boundary_offset": 0, "end_offset": 4}
-        ],
-    }
-
-    with pytest.raises(EvidenceCorrupt, match="другому файлу"):
-        evidence_module._validate_log_metadata(metadata)
-
-
-def test_evidence_logs_respect_hard_page_byte_bound(tmp_path: Path) -> None:
-    store = _store(tmp_path)
-    store.environment.log_file.parent.mkdir(parents=True, exist_ok=True)
-    store.environment.log_file.write_bytes("до сессии\n".encode("utf-8"))
-    store.capture_log_boundary()
-    with store.environment.log_file.open("ab") as handle:
-        for _index in range(32):
-            handle.write(("x" * 4096 + "\n").encode("utf-8"))
-
-    page = store.logs_page(limit=200)
-
-    assert len(page["items"]) < 200
-    assert sum(len(item["text"].encode("utf-8")) for item in page["items"]) <= 64 * 1024
-    assert page["more"] is True
-    assert page["next_cursor"]
-
-
-def test_evidence_logs_do_not_split_oversized_physical_lines_or_cursors(
-    tmp_path: Path,
-) -> None:
-    store = _store(tmp_path)
-    store.environment.log_file.parent.mkdir(parents=True, exist_ok=True)
-    store.environment.log_file.write_bytes("до сессии\n".encode("utf-8"))
-    store.capture_log_boundary()
-    with store.environment.log_file.open("ab") as handle:
-        handle.write(
-            b"password=" + b"s" * evidence_module._MAX_LOG_LINE_BYTES + b" secret-after-limit\n"
-        )
-        handle.write("следующая физическая строка\n".encode("utf-8"))
-
-    page = store.logs_page(limit=200)
-
-    assert len(page["items"]) == 2
-    assert page["items"][0]["truncated"] is True
-    assert page["items"][1]["text"] == "следующая физическая строка"
-    assert page["more"] is False
-    assert "secret-after-limit" not in json.dumps(page, ensure_ascii=False)
-
-    logs = store._manifest_locked()["logs"]
-    assert isinstance(logs, dict)
-    identity = evidence_module._FileIdentity.from_value(logs["boundary_identity"])
-    assert identity is not None
-    bad_cursor = store._cursor(offset=logs["boundary_offset"] + 1, identity=identity)
-    with pytest.raises(EvidenceError) as error:
-        store.logs_page(cursor=bad_cursor, limit=1)
-    assert error.value.code == "DEV_EVIDENCE_CURSOR_INVALID"
-
-
-def test_evidence_logs_finalize_with_end_boundary_and_fail_closed_after_loss(
-    tmp_path: Path,
-) -> None:
-    store = _store(tmp_path)
-    store.environment.log_file.parent.mkdir(parents=True, exist_ok=True)
-    store.environment.log_file.write_bytes("до сессии\n".encode("utf-8"))
-    store.capture_log_boundary()
-    with store.environment.log_file.open("ab") as handle:
-        handle.write("только эта строка\n".encode("utf-8"))
-    store.finalize(stopped_at=_TIME, cleanup_confirmed=True)
-    with store.environment.log_file.open("ab") as handle:
-        handle.write("следующая сессия\n".encode("utf-8"))
-
-    page = store.logs_page(limit=200)
-
-    assert [item["text"] for item in page["items"]] == ["только эта строка"]
-    assert page["more"] is False
-    assert page["next_cursor"] is None
-
-    store.environment.log_file.write_bytes("обрезано\n".encode("utf-8"))
-    with pytest.raises(EvidenceError) as error:
-        store.logs_page(limit=1)
-    assert error.value.code == "DEV_EVIDENCE_LOG_BOUNDARY_LOST"
 
 
 def test_evidence_reads_reject_oversized_files_before_buffering(

@@ -613,7 +613,6 @@ def test_session_state_paths_are_repository_scoped_and_ignored_area(tmp_path: Pa
         environment.repository_root / "config" / "state" / "dev-runtime-session.json"
     )
     assert environment.lock_file.parent == environment.state_file.parent
-    assert environment.log_file.parent == environment.state_file.parent
     assert environment.host == DEV_HOST
     assert environment.port == DEV_PORT
 

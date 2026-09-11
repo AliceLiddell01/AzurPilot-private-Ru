@@ -33,13 +33,11 @@ class ProcessBackend:
 
     def launch(self, environment: DevEnvironment, session_id: str) -> int:
         command = self.expected_command(environment, session_id)
-        environment.log_file.parent.mkdir(parents=True, exist_ok=True)
-        log_handle = environment.log_file.open("a", encoding="utf-8", buffering=1)
         kwargs: dict[str, object] = {
             "cwd": str(environment.repository_root),
             "stdin": subprocess.DEVNULL,
-            "stdout": log_handle,
-            "stderr": subprocess.STDOUT,
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.DEVNULL,
             "close_fds": True,
         }
         child_environment = os.environ.copy()
@@ -65,10 +63,7 @@ class ProcessBackend:
             kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
         else:
             kwargs["start_new_session"] = True
-        try:
-            process = subprocess.Popen(command, **kwargs)
-        finally:
-            log_handle.close()
+        process = subprocess.Popen(command, **kwargs)
         pid = int(process.pid)
         self._launch_expectations[pid] = (environment, session_id)
         self._launch_handles[pid] = process

@@ -274,22 +274,6 @@ class _Runtime:
             {"events": self._events(), "more": False, "next_after_sequence": 3},
         )
 
-    def get_logs(self, **_: object) -> DevResult:
-        return DevResult(
-            True,
-            "DEV_LOGS_READY",
-            "Журнал",
-            "running" if self.active else "stopped",
-            "session-1",
-            {
-                "items": [{"text": "Тест Smoke Harness", "truncated": False}],
-                "next_cursor": None,
-                "more": False,
-                "truncated": False,
-                "health": {"status": "complete", "reasons": []},
-            },
-        )
-
     def stop(self, **_: object) -> DevResult:
         self.stop_calls += 1
         self.active = False
@@ -499,7 +483,6 @@ def test_capability_registry_evaluates_negative_assertion_only_after_window() ->
     )
     context = smoke.SmokeObservationContext(
         timeline=(),
-        logs=(),
         evidence_health="complete",
         runtime_state="running",
         task_policy_state="active",
@@ -512,12 +495,21 @@ def test_capability_registry_evaluates_negative_assertion_only_after_window() ->
         session_id="session-1",
         structured_errors=(),
         screenshot_metadata=(),
-        log_available=True,
-        log_truncated=False,
     )
     assert registry.evaluate(assertion, context).status is smoke.SmokeAssertionStatus.PENDING
     completed = replace(context, elapsed_seconds=2.0, completed=True)
     assert registry.evaluate(assertion, completed).status is smoke.SmokeAssertionStatus.PASS
+
+
+def test_capability_registry_has_no_file_log_capabilities() -> None:
+    registry = smoke.SmokeCapabilityRegistry()
+    legacy_capabilities = {
+        "session_" + "log_contains",
+        "session_" + "log_not_contains",
+    }
+
+    assert not legacy_capabilities.intersection(item.capability_id for item in registry.descriptors())
+    assert all(item.evidence_source != "session_" + "log" for item in registry.descriptors())
 
 
 def test_smoke_run_passes_and_restores_declared_override(tmp_path: Path, clean_source: None) -> None:

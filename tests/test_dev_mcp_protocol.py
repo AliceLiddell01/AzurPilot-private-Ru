@@ -67,7 +67,6 @@ def test_tool_definitions_are_strict_and_target_neutral() -> None:
         "dev_recover",
         "dev_get_evidence",
         "dev_get_timeline",
-        "dev_get_logs",
         "dev_get_screenshot",
         "dev_list_smoke_capabilities",
         "dev_validate_smoke",
@@ -107,7 +106,7 @@ def test_tool_definitions_are_strict_and_target_neutral() -> None:
         "dev_cancel_smoke",
         "dev_start_smoke",
     }
-    additive = {"dev_get_evidence", "dev_get_logs", "dev_get_screenshot", "dev_submit_smoke_evaluation", "dev_capture_smoke_game_checkpoint"}
+    additive = {"dev_get_evidence", "dev_get_screenshot", "dev_submit_smoke_evaluation", "dev_capture_smoke_game_checkpoint"}
     control_start = {"dev_start_game", "dev_start_emulator"}
     control_stop = {"dev_stop_game", "dev_stop_emulator"}
     control_restart = {"dev_restart_game", "dev_restart_emulator", "dev_restart_adb"}
@@ -118,7 +117,6 @@ def test_tool_definitions_are_strict_and_target_neutral() -> None:
         "dev_stop_session",
         "dev_get_evidence",
         "dev_get_timeline",
-        "dev_get_logs",
         "dev_validate_smoke",
         "dev_start_smoke",
         "dev_get_smoke",
@@ -178,8 +176,6 @@ def test_tool_definitions_are_strict_and_target_neutral() -> None:
     assert set(evidence_schema["properties"]) == {"session_id"}
     timeline_schema = next(tool for tool in tools if tool.name == "dev_get_timeline").input_schema
     assert timeline_schema["properties"]["limit"]["maximum"] == 200
-    logs_schema = next(tool for tool in tools if tool.name == "dev_get_logs").input_schema
-    assert logs_schema["properties"]["cursor"]["maxLength"] == 2048
     evaluation_schema = next(tool for tool in tools if tool.name == "dev_submit_smoke_evaluation").input_schema
     assert set(evaluation_schema["properties"]) == {"smoke_id", "assertion_id", "verdict", "rationale"}
     assert evaluation_schema["required"] == ["smoke_id", "assertion_id", "verdict", "rationale"]

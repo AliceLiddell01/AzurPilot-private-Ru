@@ -106,7 +106,6 @@ SMOKE_MAX_OBSERVATION_SECONDS = 24 * 60 * 60
 SMOKE_MAX_CONFIG_PATH = 256
 SMOKE_MAX_LITERAL = 512
 SMOKE_MAX_EVIDENCE_REFS = 16
-SMOKE_MAX_LOG_BYTES = 128 * 1024
 SMOKE_MAX_TIMELINE_EVENTS = 2048
 SMOKE_LOCK_TIMEOUT = 10.0
 SMOKE_LOCK_RETRY_SECONDS = 0.05
@@ -451,32 +450,6 @@ class DurationWithinBoundAssertion(_AssertionBase):
         return self
 
 
-class SessionLogContainsAssertion(_AssertionBase):
-    capability_id: Literal["session_log_contains_literal"]
-    literal: str = Field(min_length=1, max_length=SMOKE_MAX_LITERAL)
-
-    @field_validator("literal")
-    @classmethod
-    def validate_literal(cls, value: str) -> str:
-        return _text(value, field_name="literal", maximum=SMOKE_MAX_LITERAL)
-
-
-class SessionLogNotContainsAssertion(_AssertionBase):
-    capability_id: Literal["session_log_does_not_contain_literal"]
-    literal: str = Field(min_length=1, max_length=SMOKE_MAX_LITERAL)
-    observation_window_seconds: DurationValue = 1.0
-
-    @field_validator("literal")
-    @classmethod
-    def validate_literal(cls, value: str) -> str:
-        return _text(value, field_name="literal", maximum=SMOKE_MAX_LITERAL)
-
-    @field_validator("observation_window_seconds")
-    @classmethod
-    def validate_window(cls, value: DurationValue) -> DurationValue:
-        return _duration(value, field_name="observation_window_seconds", minimum=0.1)
-
-
 type SmokeAssertion = Annotated[
     EventOccurredAssertion
     | EventNotOccurredAssertion
@@ -490,9 +463,7 @@ type SmokeAssertion = Annotated[
     | DevPortStateAssertion
     | ConfigValueAssertion
     | ConfigRestoredAssertion
-    | DurationWithinBoundAssertion
-    | SessionLogContainsAssertion
-    | SessionLogNotContainsAssertion,
+    | DurationWithinBoundAssertion,
     Field(discriminator="capability_id"),
 ]
 
@@ -718,7 +689,6 @@ class SmokeEvidenceRef(_StrictModel):
         "task_policy",
         "structured_error",
         "config",
-        "session_log",
         "external_visual",
         "game_observation",
     ]
@@ -1644,7 +1614,6 @@ class SmokeObservationContext:
     """Ограниченные данные только для чтения, передаваемые оценщикам capabilities."""
 
     timeline: tuple[TimelineObservation, ...]
-    logs: tuple[str, ...]
     evidence_health: str
     runtime_state: str
     task_policy_state: str | None
@@ -1657,8 +1626,6 @@ class SmokeObservationContext:
     session_id: str | None
     structured_errors: tuple[StructuredErrorObservation, ...]
     screenshot_metadata: tuple[Mapping[str, object], ...]
-    log_available: bool
-    log_truncated: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -1703,7 +1670,6 @@ class SmokeCapabilityDescriptor(_StrictModel):
         "task_policy",
         "structured_error",
         "config",
-        "session_log",
         "external_visual",
     ]
     deterministic: StrictBool
@@ -1986,59 +1952,6 @@ def _eval_duration(assertion: DurationWithinBoundAssertion, ctx: SmokeObservatio
     )
 
 
-def _eval_log_contains(assertion: SessionLogContainsAssertion, ctx: SmokeObservationContext) -> CapabilityEvaluation:
-    if not ctx.log_available:
-        return CapabilityEvaluation(
-            SmokeAssertionStatus.UNAVAILABLE,
-            "session_log",
-            "Журнал сессии недоступен",
-            (_ref("session_log", "bounded-log", "Ограниченный журнал сессии Evidence API"),),
-        )
-    if any(assertion.literal in line for line in ctx.logs):
-        return CapabilityEvaluation(
-            SmokeAssertionStatus.PASS,
-            "session_log",
-            "Журнал сессии содержит заданный фрагмент",
-            (_ref("session_log", "bounded-log", "Ограниченный журнал сессии Evidence API"),),
-        )
-    return CapabilityEvaluation(
-        SmokeAssertionStatus.PENDING if not ctx.completed else SmokeAssertionStatus.FAIL,
-        "session_log",
-        "Заданный фрагмент в журнале сессии не найден",
-        (_ref("session_log", "bounded-log", "Ограниченный журнал сессии Evidence API"),),
-    )
-
-
-def _eval_log_not_contains(assertion: SessionLogNotContainsAssertion, ctx: SmokeObservationContext) -> CapabilityEvaluation:
-    if not ctx.log_available:
-        return CapabilityEvaluation(
-            SmokeAssertionStatus.UNAVAILABLE,
-            "session_log",
-            "Журнал сессии недоступен",
-            (_ref("session_log", "bounded-log", "Ограниченный журнал сессии Evidence API"),),
-        )
-    if any(assertion.literal in line for line in ctx.logs):
-        return CapabilityEvaluation(
-            SmokeAssertionStatus.FAIL,
-            "session_log",
-            "Запрещённый фрагмент найден в журнале сессии",
-            (_ref("session_log", "bounded-log", "Ограниченный журнал сессии Evidence API"),),
-        )
-    if ctx.elapsed_seconds < float(assertion.observation_window_seconds):
-        return CapabilityEvaluation(
-            SmokeAssertionStatus.PENDING,
-            "session_log",
-            "Окно проверки журнала ещё не закрыто",
-            (_ref("session_log", "observation-window", "Текущее ограниченное окно журнала сессии Evidence API"),),
-        )
-    return CapabilityEvaluation(
-        SmokeAssertionStatus.PASS,
-        "session_log",
-        "Запрещённый literal отсутствовал после закрытия окна",
-        (_ref("session_log", "observation-window", "Закрытое ограниченное окно журнала сессии Evidence API"),),
-    )
-
-
 def _capability_fields(*fields: SmokeFieldSchema) -> SmokeCapabilitySchema:
     return SmokeCapabilitySchema(fields=list(fields))
 
@@ -2074,8 +1987,6 @@ class SmokeCapabilityRegistry:
             ("config_value", "assertion", "config", True, False, "Проверить безопасно наблюдаемое значение config", _eval_config_value, _capability_fields(text_field, required_field, _field("path", "canonical_config_path", True), _field("expected_value", "scalar", True))),
             ("config_restored", "assertion", "config", True, False, "Проверить восстановление объявленного пути конфигурации", _eval_config_restored, _capability_fields(text_field, required_field, _field("path", "canonical_config_path", True))),
             ("duration_within_bound", "assertion", "runtime_state", True, False, "Проверить ограничение длительности smoke", _eval_duration, _capability_fields(text_field, required_field, _field("maximum_seconds", "duration", True, minimum=0.0, maximum=SMOKE_MAX_OBSERVATION_SECONDS), _field("minimum_seconds", "duration", False, minimum=0.0, maximum=SMOKE_MAX_OBSERVATION_SECONDS))),
-            ("session_log_contains_literal", "assertion", "session_log", True, False, "Найти ограниченный literal в журнале сессии", _eval_log_contains, _capability_fields(text_field, required_field, _field("literal", "bounded_literal", True))),
-            ("session_log_does_not_contain_literal", "assertion", "session_log", True, False, "Подтвердить отсутствие ограниченного literal в журнале", _eval_log_not_contains, _capability_fields(text_field, required_field, _field("literal", "bounded_literal", True), _field("observation_window_seconds", "duration", False, minimum=0.1, maximum=SMOKE_MAX_OBSERVATION_SECONDS))),
         ]
         visual = SmokeCapabilityDescriptor(
             capability_id="external_visual",
@@ -3985,7 +3896,6 @@ class SmokeRunManager:
             if not isinstance(health, str):
                 health = EVIDENCE_HEALTH_UNAVAILABLE
             timeline = self._read_timeline(runtime, session_id)
-            logs, log_available, log_truncated = self._read_logs(runtime, session_id)
             status = runtime.status()
             runtime_state = _runtime_state(_result_state(status))
             task_policy = _result_details(status).get("task_policy")
@@ -4006,7 +3916,6 @@ class SmokeRunManager:
                 elapsed = max(0.0, (datetime.fromisoformat(_timestamp_now(self.now)) - datetime.fromisoformat(started_at)).total_seconds())
             context = SmokeObservationContext(
                 timeline=tuple(timeline),
-                logs=tuple(logs),
                 evidence_health=health,
                 runtime_state=runtime_state,
                 task_policy_state=task_policy_state,
@@ -4019,8 +3928,6 @@ class SmokeRunManager:
                 session_id=session_id,
                 structured_errors=tuple(errors),
                 screenshot_metadata=metadata,
-                log_available=log_available,
-                log_truncated=log_truncated,
             )
             return _RuntimeObservation(context, _source_snapshot(capture_git_snapshot(self.environment.repository_root)), health == EVIDENCE_HEALTH_COMPLETE, None if health == EVIDENCE_HEALTH_COMPLETE else f"evidence health={health}")
         except Exception as exc:  # noqa: BLE001 — ошибка наблюдения означает сбой Harness или evidence
@@ -4029,7 +3936,7 @@ class SmokeRunManager:
     @staticmethod
     def _empty_context(session_id: str, completed: bool) -> SmokeObservationContext:
         return SmokeObservationContext(
-            timeline=(), logs=(), evidence_health=EVIDENCE_HEALTH_UNAVAILABLE, runtime_state="failed", task_policy_state=None, current_task=None, config_values=MappingProxyType({}), restored_paths=frozenset(), port_listening=None, elapsed_seconds=0.0, completed=completed, session_id=session_id, structured_errors=(), screenshot_metadata=(), log_available=False, log_truncated=False,
+            timeline=(), evidence_health=EVIDENCE_HEALTH_UNAVAILABLE, runtime_state="failed", task_policy_state=None, current_task=None, config_values=MappingProxyType({}), restored_paths=frozenset(), port_listening=None, elapsed_seconds=0.0, completed=completed, session_id=session_id, structured_errors=(), screenshot_metadata=(),
         )
 
     def _read_timeline(self, runtime: object, session_id: str) -> list[TimelineObservation]:
@@ -4059,34 +3966,6 @@ class SmokeRunManager:
                 break
             after = next_after
         return events[-SMOKE_MAX_TIMELINE_EVENTS:]
-
-    def _read_logs(self, runtime: object, session_id: str) -> tuple[list[str], bool, bool]:
-        lines: list[str] = []
-        cursor: str | None = None
-        available = False
-        truncated = False
-        for _ in range(8):
-            result = runtime.get_logs(session_id=session_id, cursor=cursor, limit=200)
-            if not _result_ok(result):
-                return lines, False, True
-            details = _result_details(result)
-            health_details = details.get("health")
-            if isinstance(health_details, Mapping):
-                available = available or health_details.get("status") == EVIDENCE_HEALTH_COMPLETE
-            truncated = truncated or details.get("truncated") is True
-            items = details.get("items", [])
-            if isinstance(items, list):
-                for item in items:
-                    if isinstance(item, Mapping) and isinstance(item.get("text"), str):
-                        lines.append(item["text"][:SMOKE_MAX_LITERAL])
-            next_cursor = details.get("next_cursor")
-            if details.get("more") is not True or not isinstance(next_cursor, str) or next_cursor == cursor:
-                break
-            cursor = next_cursor
-            if sum(len(line) for line in lines) >= SMOKE_MAX_LOG_BYTES:
-                truncated = True
-                break
-        return lines, available, truncated
 
     @staticmethod
     def _structured_errors(summary: Mapping[str, object], timeline: Sequence[TimelineObservation]) -> list[StructuredErrorObservation]:
@@ -4465,8 +4344,6 @@ __all__ = [
     "ExpectedSafeErrorAssertion",
     "NoRuntimeErrorAssertion",
     "RuntimeStateAssertion",
-    "SessionLogContainsAssertion",
-    "SessionLogNotContainsAssertion",
     "SmokeAssertion",
     "SmokeAssertionResult",
     "SmokeAssertionStatus",
