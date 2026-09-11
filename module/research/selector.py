@@ -69,9 +69,9 @@ class ResearchSelector(ResearchUI):
         storage_has_boxes (bool): 仓库中是否有可拆解的科技箱/装备，
             影响 E 系列科研的筛选。由 StorageHandler 设置。
     """
-    # 当前科研项目列表
+    # Текущий список исследовательских проектов
     projects: list
-    # 来自 StorageHandler
+    # Значение из StorageHandler
     storage_has_boxes = True
 
     def research_goto_detail(self, index, skip_first_screenshot=True):
@@ -90,13 +90,13 @@ class ResearchSelector(ResearchUI):
             else:
                 self.device.screenshot()
 
-            # DETAIL_NEXT 在科研详情页未完全加载时也会出现
+            # DETAIL_NEXT появляется даже до полной загрузки страницы деталей исследования
             if not self.appear(DETAIL_NEXT, offset=(20, 20)):
                 if click_timer.reached():
                     self.device.click(RESEARCH_ENTRANCE[index])
                     click_timer.reset()
             else:
-                # 检查 RESEARCH_COST_CHECKER 以确保科研详情页已完全加载
+                # Проверяем RESEARCH_COST_CHECKER, чтобы убедиться, что страница деталей исследования полностью загружена
                 self.wait_until_appear(RESEARCH_COST_CHECKER, offset=(20, 20), skip_first_screenshot=True)
                 break
 
@@ -174,10 +174,10 @@ class ResearchSelector(ResearchUI):
                 break
 
             if sum([p.valid for p in projects]) < 5:
-                # 最左侧的科研系列被战令信息遮挡，参见 #1037
+                # Серия крайнего левого исследовательского проекта перекрыта информацией боевого пропуска, см. #1037
                 logger.info('[Исследование — обнаружение] Обнаружен некорректный проект')
                 logger.info('[Исследование — обнаружение] Возможная причина: информация боевого пропуска или слишком ранний снимок')
-                # 罕见情况，少量 sleep 可以接受
+                # Редкий случай, поэтому небольшая задержка sleep допустима
                 self.device.sleep(1)
                 self.device.screenshot()
                 continue
@@ -201,7 +201,7 @@ class ResearchSelector(ResearchUI):
             list: ResearchProject 对象和预设字符串的列表，
                 如 [object, object, object, 'reset']
         """
-        # 加载过滤器字符串
+        # Загружаем строку фильтра
         preset = self.config.Research_PresetFilter
         if preset == 'custom':
             string = self.config.Research_CustomFilter
@@ -223,19 +223,19 @@ class ResearchSelector(ResearchUI):
             self.config.Research_UsePart))
         logger.attr('Разрешить задержку', self.config.Research_AllowDelay)
 
-        # 不区分大小写
+        # Без учёта регистра
         string = string.lower()
-        # 过滤器使用 'hakuryu'，但同时允许 'hakuryu' 和 'hakuryuu'
+        # В фильтре используется 'hakuryu', но допускаем и 'hakuryu', и 'hakuryuu'
         string = string.replace('hakuryuu', 'hakuryu')
-        # 允许 'fastest' 和 'shortest' 两种写法
+        # Допускаем оба варианта: 'fastest' и 'shortest'
         string = string.replace('fastest', 'shortest')
-        # 允许 'PR' 和 'PRY' 两种写法
+        # Допускаем оба варианта: 'PR' и 'PRY'
         string = re.sub(r'pr([\d\- >])', r'pry\1', string)
 
         FILTER.load(string)
         priority = FILTER.apply(self.projects, func=partial(self._research_check, enforce=enforce))
 
-        # 日志
+        # Логирование
         logger.attr('Порядок фильтрации', ' > '.join([str(project) for project in priority]))
         return priority
 
@@ -256,7 +256,7 @@ class ResearchSelector(ResearchUI):
         if not project.valid:
             return False
 
-        # 检查项目消耗
+        # Проверяем затраты проекта
         is_05 = str(project.duration) == '0.5'
         if project.need_cube:
             if self.config.Research_UseCube == 'do_not_use':
@@ -280,23 +280,23 @@ class ResearchSelector(ResearchUI):
             if self.config.Research_UsePart == 'only_05_hour' and not is_05 and not enforce:
                 return False
 
-        # 忽略 B 系列和 E-2 的原因：
-        # - 无法保证科研条件被满足。
-        #   可能运行一天后因未完成前置条件而一无所获。
-        # - B 系列科研收益低。
-        #   金色 B-4 基本等同于 C-12，但需要大量石油。
+        # Причины игнорировать серии B и E-2:
+        # - Нельзя гарантировать выполнение условий исследования.
+        #   Можно проработать целый день и ничего не получить из-за невыполненных предварительных условий.
+        # - Исследования серии B дают мало пользы.
+        #   Золотой B-4 примерно эквивалентен C-12, но требует много нефти.
 
         if project.genre.upper() == 'B':
             return False
-        # T 系列需要委托
-        # 2022.05.08 允许 T 系列科研，因为委托现已强制启用
-        # 2022.07.17 再次禁止 T 系列，除非满足前置条件否则无法加入队列
+        # Для серии T требуются комиссии
+        # 2022.05.08 исследования серии T разрешены, поскольку комиссии теперь принудительно включены
+        # 2022.07.17 серия T снова запрещена: без выполненных предварительных условий проект нельзя добавить в очередь
         if project.genre.upper() == 'T':
             return self.config.Research_AllowGenreT
-        # 2021.08.19 允许 E-2 拆解科技箱，但 JP 服务器保持不变
-        # 2022.08.23 允许所有 E-2，现已支持拆解装备
-        #   如果仓库中没有可拆解的箱子则忽略 E-2，
-        #   否则会陷入启动科研、尝试拆解、取消科研的循环
+        # 2021.08.19 разрешено разбирать технологические ящики для E-2, но без изменений для JP-сервера
+        # 2022.08.23 разрешены все E-2, поскольку теперь поддерживается разбор снаряжения
+        #   Если на складе нет ящиков для разбора, игнорируем E-2,
+        #   иначе возникнет цикл: запуск исследования -> попытка разбора -> отмена исследования
         if not self.storage_has_boxes:
             if self.config.SERVER == 'jp':
                 if project.genre.upper() == 'E' and str(project.duration) != '6':
