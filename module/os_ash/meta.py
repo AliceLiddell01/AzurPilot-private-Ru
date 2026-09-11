@@ -162,7 +162,7 @@ class OpsiAshBeacon(Meta):
                 if self._begin_meta():
                     continue
                 else:
-                    # 正常结束
+                    # Обычное завершение
                     break
             if MetaState.ATTACKING == state:
                 # Exit beacon pages when in dossier-only mode
@@ -183,7 +183,7 @@ class OpsiAshBeacon(Meta):
                 self._handle_ash_beacon_reward()
                 if not self._meta_category in self._meta_receive:
                     self._meta_receive.append(self._meta_category)
-                # 击杀 META 后检查其他任务是否需要切换
+                # После уничтожения META проверяем, нужно ли переключить другие задачи
                 self.config.check_task_switch()
                 continue
 
@@ -201,24 +201,24 @@ class OpsiAshBeacon(Meta):
         logger.hr('Бой META', level=2)
 
         def expected_end():
-            # 误入战斗准备页面，点击返回
+            # При случайном входе на экран подготовки к бою нажимаем «Назад»
             if self.appear(BATTLE_PREPARATION, offset=(30, 30), interval=2):
                 logger.info('[META — бой] Случайно открыт экран подготовки к бою')
                 self.device.click(BACK_ARROW)
                 return False
-            # 误入帮助确认页面，点击帮助入口返回
+            # При случайном входе на экран подтверждения помощи возвращаемся через вход помощи
             if self.appear(HELP_CONFIRM, offset=(30, 30), interval=3):
                 logger.info('[META — бой] Случайно открыт экран подтверждения помощи')
                 self.device.click(HELP_ENTER)
                 return False
-            # 已回到 META 页面，战斗结束
+            # Вернулись на страницу META — бой завершён
             if self._in_meta_page():
                 logger.info('[META — бой] Бой завершён, выполнен возврат на нужную страницу')
                 return True
 
             return False
 
-        # 执行战斗
+        # Выполняем бой
         combat = AshCombat(config=self.config, device=self.device)
         combat.combat(expected_end=expected_end, save_get_items=False, emotion_reduce=False)
 
@@ -238,19 +238,19 @@ class OpsiAshBeacon(Meta):
             else:
                 self.device.screenshot()
 
-            # 结束条件：奖励按钮消失且回到 META 页面
+            # Условие завершения: кнопка награды исчезла и выполнен возврат на страницу META
             if not self.appear(BEACON_REWARD, offset=(30, 30)):
                 if self._in_meta_page():
                     break
 
-            # 点击领取奖励
+            # Нажимаем получение награды
             if self.appear_then_click(BEACON_REWARD, offset=(30, 30), interval=2):
                 logger.info('[META — бой] Получение награды META')
                 continue
-            # 处理随机事件
+            # Обрабатываем случайные события
             if self.handle_map_event():
                 continue
-            # 误回到主页面时，点击奖励入口返回
+            # При случайном возврате на главную страницу возвращаемся через вход наград
             if self.ui_main_appear_then_click(page_reward, interval=2):
                 continue
             if self.appear(META_ENTRANCE, offset=(20, 300), interval=2):
@@ -267,7 +267,7 @@ class OpsiAshBeacon(Meta):
             bool: 是否满足攻击条件（始终返回 True，不满足时通过 task_stop 提前终止）。
         """
         if self.appear(BEACON_LIST, offset=(20, 20)):
-            # 开启 OneHitMode 且已对当前 META 造成伤害
+            # OneHitMode включён и текущей META уже нанесён урон
             if _server_support() and self.config.OpsiAshBeacon_OneHitMode:
                 damage = self._get_meta_damage()
                 if damage > 0:
@@ -276,7 +276,7 @@ class OpsiAshBeacon(Meta):
                     self.ui_goto_main()
                     self.config.task_stop()
         if self.appear(DOSSIER_LIST, offset=(20, 20)):
-            # META 正在自动攻击中
+            # META уже атакуется автоматически
             if self.appear(META_AUTO_ATTACKING, offset=(20, 20)):
                 logger.info('[META — бой] Выполняется автоматическая атака цели META; повторная проверка через 15 минут')
                 self.config.task_delay(minute=15)
@@ -328,15 +328,15 @@ class OpsiAshBeacon(Meta):
         Returns:
             bool: 是否准备就绪。
         """
-        # 信标页面
+        # Страница маяка
         if self.appear(BEACON_LIST, offset=(20, 20)):
             if self.config.OpsiAshBeacon_OneHitMode or self.config.OpsiAshBeacon_RequestAssist:
                 if not self._ask_for_help():
                     return False
             return True
-        # 档案页面
+        # Страница архива
         if self.appear(DOSSIER_LIST, offset=(20, 20)):
-            # 支持自动攻击且未在自动攻击中
+            # Автоатака поддерживается и ещё не запущена
             if _server_support_dossier_auto_attack() and self.config.OpsiAshBeacon_DossierAutoAttackMode \
                     and self.appear(META_AUTO_ATTACK_START, offset=(5, 5)):
                 return self._dossier_auto_attack()
@@ -356,7 +356,7 @@ class OpsiAshBeacon(Meta):
             in: is_in_meta
             out: is_in_meta
         """
-        # 进入帮助页面
+        # Переходим на страницу помощи
         skip_first_screenshot = True
         while 1:
             if skip_first_screenshot:
@@ -364,18 +364,18 @@ class OpsiAshBeacon(Meta):
             else:
                 self.device.screenshot()
 
-            # 结束条件：帮助确认页面出现
+            # Условие завершения: появился экран подтверждения помощи
             if self.appear(HELP_CONFIRM, offset=(20, 20)):
                 break
-            # 点击帮助入口
+            # Нажимаем вход в помощь
             if self.appear_then_click(HELP_ENTER, offset=(20, 20), interval=3):
                 continue
-            # 误入战斗准备页面，点击返回
+            # При случайном входе на экран подготовки к бою нажимаем «Назад»
             if self.appear(BATTLE_PREPARATION, offset=(30, 30), interval=2):
                 self.device.click(BACK_ARROW)
                 continue
 
-        # 依次点击三个求助按钮，无需确认选中状态
+        # Последовательно нажимаем три кнопки помощи, не проверяя выбранное состояние
         self.device.click(HELP_3)
         self.device.sleep((0.1, 0.3))
         self.device.click(HELP_2)
@@ -389,16 +389,16 @@ class OpsiAshBeacon(Meta):
             else:
                 self.device.screenshot()
 
-            # 结束条件：帮助确认页面消失
-            # 有时帮助弹窗没有黑色模糊背景，HELP_CONFIRM 和 HELP_ENTER 同时出现
+            # Условие завершения: экран подтверждения помощи исчез
+            # Иногда окно помощи отображается без чёрного размытого фона, поэтому HELP_CONFIRM и HELP_ENTER появляются одновременно
             if not self.appear(HELP_CONFIRM, offset=(30, 30)):
                 if self.appear(HELP_ENTER, offset=(30, 30)):
                     return True
-                # META 刚好在请求协助后完成
+                # META могла завершиться сразу после запроса помощи
                 if self.appear(BEACON_REWARD, offset=(30, 30)):
                     logger.info('[META — поддержка] После запроса помощи цель META была завершена; эта попытка поддержки пропущена')
                     return False
-            # 点击确认
+            # Нажимаем подтверждение
             if self.appear_then_click(HELP_CONFIRM, offset=(30, 30), interval=3):
                 continue
 
@@ -423,22 +423,22 @@ class OpsiAshBeacon(Meta):
             else:
                 self.device.screenshot()
 
-            # 结束条件：自动攻击中
+            # Условие завершения: автоатака запущена
             if self.appear(META_AUTO_ATTACKING, offset=(5, 5)):
                 return True
             if timeout.reached():
                 logger.warning('[META — бой] Истекло время запуска автоатаки архива: возможно, кнопка запуска не найдена')
                 return False
-            # 已被他人击杀
+            # Цель уже уничтожена другим игроком
             if self.appear(BEACON_REWARD, offset=(30, 30)):
                 return False
 
-            # 点击自动攻击确认和开始按钮
+            # Нажимаем подтверждение и кнопку запуска автоатаки
             if self.appear_then_click(META_AUTO_ATTACK_CONFIRM, offset=(5, 5), interval=3):
                 continue
             if self.appear_then_click(META_AUTO_ATTACK_START, offset=(5, 5), interval=3):
                 continue
-            # 误入战斗准备页面，点击返回
+            # При случайном входе на экран подготовки к бою нажимаем «Назад»
             if self.appear(BATTLE_PREPARATION, offset=(30, 30), interval=2):
                 self.device.click(BACK_ARROW)
                 continue
@@ -455,15 +455,15 @@ class OpsiAshBeacon(Meta):
         """
         
         attack_mode = self.config.OpsiAshBeacon_AttackMode
-        # META 主页面
+        # Главная страница META
         if self.appear(ASH_SHOWDOWN, offset=(30, 30), interval=2):
-            # 信标入口
+            # Вход в маяк
             if attack_mode != 'current_dossier_only':
                 if self._check_beacon_point():
                     self.device.click(META_MAIN_BEACON_ENTRANCE)
                     logger.info('[META — бой] Выбран вход к маяку')
                     return True
-            # 档案入口
+            # Вход в архив
 
             if _server_support() \
                     and attack_mode != 'current' \
@@ -474,7 +474,7 @@ class OpsiAshBeacon(Meta):
                 else:
                     logger.info('[META — бой] Архив не выбран')
             return False
-        # 信标页面
+        # Страница маяка
         elif self.appear(BEACON_LIST, offset=(20, 20), interval=2):
             if attack_mode == 'current_dossier_only':
                 self.appear_then_click(ASH_QUIT, offset=(10, 10), interval=2)
@@ -483,7 +483,7 @@ class OpsiAshBeacon(Meta):
                 self.device.click(META_BEGIN_ENTRANCE)
                 logger.info('[META — бой] Запуск маяка')
             return True
-        # 档案页面
+        # Страница архива
         elif _server_support() \
                 and self.appear(DOSSIER_LIST, offset=(20, 20), interval=2):
             if attack_mode != 'current' \
@@ -495,7 +495,7 @@ class OpsiAshBeacon(Meta):
                     logger.info('[META — бой] Архив не выбран')
             self.appear_then_click(ASH_QUIT, offset=(10, 10), interval=2)
             return True
-        # 未知页面
+        # Неизвестная страница
         else:
             return True
 
@@ -530,10 +530,10 @@ class OpsiAshBeacon(Meta):
         Returns:
             MetaState: 当前页面状态枚举值。
         """
-        # 未知页面
+        # Неизвестная страница
         if not self._in_meta_page():
             return MetaState.UNDEFINED
-        # 信标或档案页面
+        # Страница маяка или архива
         elif self.appear(BEACON_LIST, offset=(20, 20)) \
                 or self.appear(DOSSIER_LIST, offset=(20, 20)):
             if self.appear(HELP_ENTER, offset=(30, 30)):
@@ -678,26 +678,26 @@ class AshBeaconAssist(Meta):
         logger.hr('Бой поддержки META', level=2)
 
         def expected_end():
-            # 误入战斗准备页面，点击返回
+            # При случайном входе на экран подготовки к бою нажимаем «Назад»
             if self.appear(BATTLE_PREPARATION, offset=(30, 30), interval=2):
                 logger.info('[META — поддержка] Случайно открыт экран подготовки к бою')
                 self.device.click(BACK_ARROW)
                 return False
-            # 协助后被重定向到自己的未完成信标，切换回信标列表
+            # После помощи могли перенаправить на собственный незавершённый маяк; возвращаемся к списку маяков
             if self.appear_then_click(BEACON_LIST, offset=(-20, -5, 300, 5), interval=2):
                 return False
-            # 回到 META 主页面，点击信标入口
+            # Вернулись на главную страницу META — нажимаем вход в маяк
             if self.appear(ASH_SHOWDOWN, offset=(30, 30), interval=2):
                 logger.info('[META — поддержка] Бой завершён, выполнен возврат на экран противостояния META')
                 self.device.click(META_MAIN_BEACON_ENTRANCE)
-            # 已回到协助页面
+            # Уже вернулись на страницу поддержки
             if self._in_meta_assist_page():
                 logger.info('[META — поддержка] Бой завершён, выполнен возврат на нужную страницу')
                 return True
 
             return False
 
-        # 执行战斗
+        # Выполняем бой
         combat = AshCombat(config=self.config, device=self.device)
         combat.combat(expected_end=expected_end, save_get_items=False, emotion_reduce=False)
 
@@ -708,7 +708,7 @@ class AshBeaconAssist(Meta):
         等待信标等级数字显示后，通过 OCR 读取等级，
         不满足则翻页查找，最多尝试 5 次。
         """
-        # 等待 BEACON_TIER 显示——进入信标列表时等级数字不会立即出现
+        # Ждём появления BEACON_TIER: при входе в список маяков уровень отображается не сразу
         tier = self.config.OpsiAshAssist_Tier
         logger.info(f'[META — поддержка] Поиск маяка META уровня {tier}.')
         for n in range(10):
@@ -718,7 +718,7 @@ class AshBeaconAssist(Meta):
             self.device.screenshot()
             if n >= 9:
                 logger.warning('[META — поддержка] Истекло время ожидания отображения уровня маяка')
-        # 选择信标
+        # Выбираем маяк
         current = -1
         for _ in range(5):
             current = OCR_BEACON_TIER.ocr(self.device.image)
