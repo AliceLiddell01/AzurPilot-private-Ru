@@ -107,6 +107,8 @@ def contract_compatibility_issues(
     """Проверить требования пакета без догадок о несовместимых версиях."""
 
     issues: list[str] = list(server_compatibility_issues(expected, actual))
+    # Эти identity-поля обязательны; необязательные version-поля сравниваются
+    # ниже только при наличии.
     for field in ("contract_schema_version", "product_family"):
         expected_value = expected.get(field)
         actual_value = actual.get(field)

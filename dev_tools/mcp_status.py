@@ -892,6 +892,8 @@ def _surface_status(
     result["status"] = (
         "ready"
         if version_state == "compatible" and source_state in {"aligned", "unknown"}
+        else "partial"
+        if version_state == "compatible" and source_state == "modified"
         else "drift"
     )
     if result["status"] == "drift":
@@ -995,6 +997,7 @@ async def collect_status_async(
         )
     )
     remote = remote_probe or _probe_remote
+    codex_config = _load_codex_config(repository_root)
     servers: dict[str, dict[str, object]] = {}
     for name in SERVER_NAMES:
         expected = expected_versions.get(name)
@@ -1036,7 +1039,7 @@ async def collect_status_async(
         codex_result: dict[str, object]
         if name == "azurpilot-dev":
             codex_result = _codex_entry_status(
-                _load_codex_config(repository_root),
+                codex_config,
                 name,
                 expected_command="uv",
                 expected_args=(
@@ -1082,7 +1085,7 @@ async def collect_status_async(
             "error_type": _safe_type_name(exc),
         }
     docker_client = _codex_entry_status(
-        _load_codex_config(repository_root),
+        codex_config,
         DOCKER_CLIENT_PROFILE_NAME,
         expected_command=DOCKER_CLIENT_COMMAND,
         expected_args=DOCKER_CLIENT_ARGS,
@@ -1441,7 +1444,10 @@ def _human_surface_cell(surface: object, *, expected_version: object = None) -> 
         if isinstance(version, str) and _VERSION_RE.fullmatch(version):
             return f"{version} OK"
         return "OK"
-    if surface_status == "drift" and surface.get("source_status") == "modified":
+    if (
+        surface_status in {"drift", "partial"}
+        and surface.get("source_status") == "modified"
+    ):
         version = surface.get("server_version") or expected_version
         if isinstance(version, str) and _VERSION_RE.fullmatch(version):
             return f"{version} MODIFIED"

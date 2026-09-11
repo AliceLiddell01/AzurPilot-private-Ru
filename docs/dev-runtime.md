@@ -131,7 +131,9 @@ uv run --locked --no-sync python -m dev_tools.mcp_status --json --strict
 
 `--strict` возвращает non-zero для подтверждённого drift или недоступной
 обязательной поверхности. Доступный metadata endpoint без наблюдаемого status
-token остаётся `UNKNOWN` и не маскируется под `OK`.
+token остаётся `UNKNOWN` и не маскируется под `OK`. Незакоммиченные изменения
+source сохраняются как `source_status=modified` и дают `PARTIAL`, чтобы не
+смешивать их с подтверждённым version drift.
 
 Collector выполняет только local `initialize`/`tools/list` и
 `dev_get_contract`/`game_get_contract`, HTTPS GET protected-resource metadata

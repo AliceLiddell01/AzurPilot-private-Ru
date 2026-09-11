@@ -240,6 +240,24 @@ def test_status_marks_source_drift_and_strict_fails(monkeypatch) -> None:
     assert status._strict_failure(report, None)
 
 
+def test_modified_working_tree_is_partial_and_preserves_source_status() -> None:
+    revision = "a" * 40
+    surface = status._surface_status(
+        _local_result("azurpilot-dev", "3.0.0", revision),
+        expected_version="3.0.0",
+        expected_revision=revision,
+        working_tree="modified",
+    )
+
+    assert surface["status"] == "partial"
+    assert surface["source_status"] == "modified"
+    assert surface["reason_code"] == "LOCAL_CONTRACT_READY"
+    assert (
+        status._human_surface_cell(surface, expected_version="3.0.0")
+        == "3.0.0 MODIFIED"
+    )
+
+
 def test_docker_probe_timeout_is_reported_without_waiting_for_the_probe(
     monkeypatch,
 ) -> None:
@@ -472,15 +490,18 @@ def test_exported_profile_contains_secret_references_but_no_secret_values() -> N
     )
     profile = json.loads(path.read_text(encoding="utf-8"))
     sensitive_keys = {
-        "access_token",
-        "api_key",
-        "password",
-        "pat_token",
-        "secret_value",
-        "token",
-        "client_secret",
-        "authorization",
-        "bearer_token",
+        re.sub(r"[^a-z0-9]", "", key.casefold())
+        for key in (
+            "access_token",
+            "api_key",
+            "password",
+            "pat_token",
+            "secret_value",
+            "token",
+            "client_secret",
+            "authorization",
+            "bearer_token",
+        )
     }
     secret_value_patterns = (
         re.compile(r"\b(?:sk|rk|xox[baprs])-[A-Za-z0-9_-]{12,}\b"),
@@ -508,16 +529,17 @@ def test_exported_profile_contains_secret_references_but_no_secret_values() -> N
         )
 
     for key, value in walk(profile):
-        if key.casefold() in sensitive_keys:
+        normalized_key = re.sub(r"[^a-z0-9]", "", key.casefold())
+        if normalized_key in sensitive_keys:
             assert is_secret_reference(value), key
         assert not is_literal_secret(value), key
 
     synthetic = {
         "token": "se://docker/token",
         "nested": [
-            {"client_secret": "sk-" + ("x" * 20)},
+            {"clientSecret": "sk-" + ("x" * 20)},
             {"authorization": "ghp_" + ("x" * 20)},
-            {"bearer_token": "pat_" + ("x" * 20)},
+            {"bearerToken": "pat_" + ("x" * 20)},
             {"jwt": "eyJ" + ("a" * 12) + "." + ("b" * 12) + "." + ("c" * 12)},
         ],
     }
