@@ -123,6 +123,12 @@ uv run --locked --no-sync python -m dev_tools.mcp_status --json
 uv run --locked --no-sync python -m dev_tools.mcp_status --json --strict
 ```
 
+Без `--json` вывод предназначен для оператора: сначала показывается таблица
+версий и transport surfaces, затем отдельные блоки Docker MCP Gateway, Secrets
+и ChatGPT action cache. Неготовые поверхности получают короткий статус
+`UNKNOWN`, `UNAVAILABLE` или `DEGRADED`, а точный `reason_code` выводится только
+в компактном блоке `Notes`.
+
 Collector выполняет только local `initialize`/`tools/list` и
 `dev_get_contract`/`game_get_contract`, HTTPS GET protected-resource metadata
 без credentials, а также read-only Docker MCP Toolkit profile queries. В

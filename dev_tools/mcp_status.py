@@ -1398,67 +1398,261 @@ def _strict_failure(
     return emission is not None and not emission.emitted
 
 
-def _print_human(report: Mapping[str, object], emission: MetricEmission | None) -> None:
-    print(
-        f"MCP status: {report.get('status')} ({report.get('reason_code')}); "
-        f"source={report.get('source', {}).get('revision', UNKNOWN_SOURCE_REVISION) if isinstance(report.get('source'), Mapping) else UNKNOWN_SOURCE_REVISION}"
+_HUMAN_STATUS_LABELS = {
+    "ready": "OK",
+    "configured": "OK",
+    "partial": "PARTIAL",
+    "degraded": "DEGRADED",
+    "drift": "DRIFT",
+    "invalid": "INVALID",
+    "missing": "MISSING",
+    "not_configured": "NOT CONFIGURED",
+    "not_observable": "UNKNOWN",
+    "unavailable": "UNAVAILABLE",
+}
+
+
+def _human_status_label(value: object) -> str:
+    if not isinstance(value, str):
+        return "UNKNOWN"
+    return _HUMAN_STATUS_LABELS.get(value, value.upper().replace("_", " "))
+
+
+def _human_reason(value: object) -> str:
+    return (
+        value if isinstance(value, str) and _SAFE_TOKEN.fullmatch(value) else "UNKNOWN"
     )
+
+
+def _human_surface_cell(surface: object, *, expected_version: object = None) -> str:
+    if not isinstance(surface, Mapping):
+        return "UNKNOWN"
+    surface_status = surface.get("status")
+    if surface_status in {"ready", "configured"}:
+        version = surface.get("server_version") or expected_version
+        if isinstance(version, str) and _VERSION_RE.fullmatch(version):
+            return f"{version} OK"
+        return "OK"
+    if surface_status == "drift" and surface.get("source_status") == "modified":
+        version = surface.get("server_version") or expected_version
+        if isinstance(version, str) and _VERSION_RE.fullmatch(version):
+            return f"{version} MODIFIED"
+    if (
+        surface_status == "not_configured"
+        and surface.get("reason_code") == "CODEX_GAME_SURFACE_EXTERNAL"
+    ):
+        return "EXTERNAL"
+    return _human_status_label(surface_status)
+
+
+def _human_protocol(item: Mapping[str, object]) -> str:
+    surface = item.get("local_direct")
+    protocol = surface.get("protocol_version") if isinstance(surface, Mapping) else None
+    return (
+        protocol
+        if isinstance(protocol, str) and _SAFE_TOKEN.fullmatch(protocol)
+        else "UNKNOWN"
+    )
+
+
+def _print_human_table(headers: Sequence[str], rows: Sequence[Sequence[str]]) -> None:
+    widths = [len(header) for header in headers]
+    for row in rows:
+        for index, value in enumerate(row):
+            widths[index] = max(widths[index], len(value))
+    print(
+        "  ".join(header.ljust(widths[index]) for index, header in enumerate(headers))
+    )
+    print("  ".join("-" * width for width in widths))
+    for row in rows:
+        print("  ".join(value.ljust(widths[index]) for index, value in enumerate(row)))
+
+
+def _print_human_notes(notes: Sequence[str]) -> None:
+    if not notes:
+        return
+    print()
+    print("Notes")
+    print("-----")
+    for note in notes:
+        print(f"- {note}")
+
+
+def _print_human(report: Mapping[str, object], emission: MetricEmission | None) -> None:
+    print("AzurPilot MCP Status")
+    print("====================")
+
+    source = report.get("source")
+    source_revision = (
+        source.get("revision", UNKNOWN_SOURCE_REVISION)
+        if isinstance(source, Mapping)
+        else UNKNOWN_SOURCE_REVISION
+    )
+    source_revision = (
+        source_revision[:12]
+        if isinstance(source_revision, str)
+        and source_revision != UNKNOWN_SOURCE_REVISION
+        else UNKNOWN_SOURCE_REVISION
+    )
+    working_tree = (
+        source.get("working_tree", "unknown")
+        if isinstance(source, Mapping)
+        else "unknown"
+    )
+    version_guard = report.get("version_guard")
+    print(
+        f"OVERALL   {_human_status_label(report.get('status'))} "
+        f"({_human_reason(report.get('reason_code'))})"
+    )
+    print(f"SOURCE    {source_revision} ({working_tree})")
+    if isinstance(version_guard, Mapping):
+        print(
+            f"VERSION   {_human_status_label(version_guard.get('status'))} "
+            f"({_human_reason(version_guard.get('reason_code'))})"
+        )
+
+    rows: list[list[str]] = []
+    notes: list[str] = []
     servers = report.get("servers")
     if isinstance(servers, Mapping):
         for name, item in servers.items():
-            if not isinstance(item, Mapping):
+            if not isinstance(name, str) or not isinstance(item, Mapping):
                 continue
-            expected = item.get("expected_version", "unknown")
-            print(f"  {name}: expected={expected}")
-            for surface_name in ("local_direct", "codex", "remote"):
+            expected_version = item.get("expected_version", "unknown")
+            local = item.get("local_direct")
+            source_cell = _human_surface_cell(local, expected_version=expected_version)
+            codex_cell = _human_surface_cell(
+                item.get("codex"), expected_version=expected_version
+            )
+            remote_cell = _human_surface_cell(
+                item.get("remote"), expected_version=expected_version
+            )
+            rows.append(
+                [name, source_cell, codex_cell, remote_cell, _human_protocol(item)]
+            )
+            for surface_name, label in (
+                ("local_direct", "Source"),
+                ("codex", "Codex path"),
+                ("remote", "ChatGPT backend"),
+            ):
                 surface = item.get(surface_name)
-                if isinstance(surface, Mapping):
-                    print(
-                        f"    {surface_name}: {surface.get('status')} "
-                        f"({surface.get('reason_code')})"
+                if isinstance(surface, Mapping) and surface.get("status") not in {
+                    "ready",
+                    "configured",
+                }:
+                    surface_cell = _human_surface_cell(
+                        surface, expected_version=expected_version
                     )
+                    notes.append(
+                        f"{name} / {label}: "
+                        f"{surface_cell} "
+                        f"({_human_reason(surface.get('reason_code'))})"
+                    )
+
+    print()
+    _print_human_table(
+        ("SERVER", "SOURCE", "CODEX PATH", "CHATGPT BACKEND", "PROTOCOL"),
+        rows,
+    )
+
     docker = report.get("docker_mcp")
     if isinstance(docker, Mapping):
-        print(f"  docker_mcp: {docker.get('status')} ({docker.get('reason_code')})")
-        secret_engine = docker.get("secret_engine")
-        if isinstance(secret_engine, Mapping):
-            print(
-                f"    secret_engine: {secret_engine.get('status')} "
-                f"({secret_engine.get('reason_code')}); "
-                f"cli={secret_engine.get('cli_status')}, "
-                f"keychain={secret_engine.get('keychain_status')}, "
-                f"rpc={secret_engine.get('rpc_status')}"
-            )
-            for surface_name in (
-                "secret_store",
-                "container_runtime_secret_injection",
-                "gateway_secret_injection",
-                "host_pass_resolution",
-            ):
-                surface = secret_engine.get(surface_name)
-                if isinstance(surface, Mapping):
-                    print(
-                        f"    {surface_name}: {surface.get('status')} "
-                        f"({surface.get('reason_code')})"
-                    )
+        print()
+        print("Docker MCP Gateway")
+        print("------------------")
+        profile_id = docker.get("profile_id", CANONICAL_DOCKER_PROFILE_ID)
+        profile_name = docker.get("profile_name", CANONICAL_DOCKER_PROFILE_NAME)
+        print(f"Version: {docker.get('version', 'UNKNOWN')}")
+        print(f"Profile: {profile_id} ({profile_name})")
+        print(f"Status: {_human_status_label(docker.get('status'))}")
+        server_count = docker.get("server_count")
+        if isinstance(server_count, int):
+            print(f"Servers: {server_count}/{len(THIRD_PARTY_SERVERS)}")
+
         third_party = docker.get("third_party")
         if isinstance(third_party, Mapping):
-            for name, item in third_party.items():
-                if isinstance(item, Mapping):
-                    print(
-                        f"    {name}: {item.get('status')} ({item.get('reason_code')})"
+            docker_rows: list[list[str]] = []
+            for name in THIRD_PARTY_SERVERS:
+                item = third_party.get(name)
+                if not isinstance(item, Mapping):
+                    continue
+                policy = "read-only" if item.get("read_only") is True else "UNKNOWN"
+                tool_count = item.get("tool_count")
+                tools = (
+                    f"{tool_count} tools"
+                    if isinstance(tool_count, int)
+                    and item.get("tools_observable") is not False
+                    else "catalog unknown"
+                )
+                docker_rows.append(
+                    [name, _human_status_label(item.get("status")), policy, tools]
+                )
+                if item.get("status") not in {"ready"}:
+                    notes.append(
+                        f"Docker {name}: "
+                        f"{_human_status_label(item.get('status'))} "
+                        f"({_human_reason(item.get('reason_code'))})"
                     )
+            if docker_rows:
+                print()
+                _print_human_table(("SERVER", "STATUS", "POLICY", "TOOLS"), docker_rows)
+
+        secret_engine = docker.get("secret_engine")
+        if isinstance(secret_engine, Mapping):
+            print()
+            print("Secrets")
+            print("-------")
+            for label, key in (
+                ("Secret store", "secret_store"),
+                ("CLI", "cli_status"),
+                ("Keychain", "keychain_status"),
+                ("Engine RPC", "rpc_status"),
+                ("Runtime injection", "container_runtime_secret_injection"),
+                ("Gateway injection", "gateway_secret_injection"),
+                ("Host pass", "host_pass_resolution"),
+            ):
+                value = secret_engine.get(key)
+                status_value = (
+                    value.get("status") if isinstance(value, Mapping) else value
+                )
+                print(f"{label + ':':20} {_human_status_label(status_value)}")
+                if status_value not in {"ready", "configured"}:
+                    reason = (
+                        value.get("reason_code")
+                        if isinstance(value, Mapping)
+                        else secret_engine.get("reason_code")
+                    )
+                    notes.append(
+                        f"Secrets {label}: {_human_status_label(status_value)} "
+                        f"({_human_reason(reason)})"
+                    )
+
     chatgpt = report.get("chatgpt")
     if isinstance(chatgpt, Mapping):
-        print(f"  chatgpt: {chatgpt.get('status')} ({chatgpt.get('reason_code')})")
-    version_guard = report.get("version_guard")
-    if isinstance(version_guard, Mapping):
-        print(
-            f"  version_guard: {version_guard.get('status')} "
-            f"({version_guard.get('reason_code')})"
-        )
+        chatgpt_status = _human_status_label(chatgpt.get("status"))
+        print()
+        print("ChatGPT action cache")
+        print("--------------------")
+        print(f"{'AzurPilot Development:':24} {chatgpt_status}")
+        print(f"{'AzurPilot Game:':24} {chatgpt_status}")
+        if chatgpt_status != "OK":
+            notes.append(
+                f"ChatGPT action cache: {chatgpt_status} "
+                f"({_human_reason(chatgpt.get('reason_code'))})"
+            )
+
     if emission is not None:
-        print(f"  metrics: {emission.reason_code}; samples={emission.sample_count}")
+        print()
+        print("Metrics")
+        print("-------")
+        print(
+            f"Status: {_human_status_label('ready' if emission.emitted else 'unavailable')}"
+        )
+        print(f"Samples: {emission.sample_count}")
+        if not emission.emitted:
+            notes.append(f"Metrics: {_human_reason(emission.reason_code)}")
+
+    _print_human_notes(notes)
 
 
 def _parser() -> argparse.ArgumentParser:

@@ -81,6 +81,133 @@ def test_status_json_model_records_exact_local_identity(monkeypatch) -> None:
     assert report["chatgpt"]["status"] == "not_observable"
 
 
+def test_human_status_uses_compact_tables_and_sections(capsys) -> None:
+    revision = "a" * 40
+    report = {
+        "status": "partial",
+        "reason_code": "MCP_STATUS_PARTIAL",
+        "source": {"revision": revision, "working_tree": "clean"},
+        "version_guard": {
+            "status": "ready",
+            "reason_code": "MCP_VERSION_GUARD_READY",
+        },
+        "servers": {
+            "azurpilot-dev": {
+                "expected_version": "3.0.0",
+                "local_direct": _local_result(
+                    "azurpilot-dev", "3.0.0", revision
+                ),
+                "codex": {
+                    "status": "configured",
+                    "reason_code": "CODEX_SERVER_CONFIGURED",
+                },
+                "remote": {
+                    "status": "not_configured",
+                    "reason_code": "REMOTE_PUBLIC_URL_NOT_CONFIGURED",
+                },
+            },
+            "azurpilot-game": {
+                "expected_version": "1.0.0",
+                "local_direct": _local_result(
+                    "azurpilot-game", "1.0.0", revision
+                ),
+                "codex": {
+                    "status": "not_configured",
+                    "reason_code": "CODEX_GAME_SURFACE_EXTERNAL",
+                },
+                "remote": {
+                    "status": "unavailable",
+                    "reason_code": "REMOTE_METADATA_UNAVAILABLE",
+                },
+            },
+        },
+        "docker_mcp": {
+            "status": "ready",
+            "reason_code": "DOCKER_PROFILE_READY",
+            "version": "v0.43.3",
+            "profile_id": "azurpilot-development",
+            "profile_name": "AzurPilot Development",
+            "server_count": 5,
+            "third_party": {
+                "grafana": {
+                    "status": "ready",
+                    "read_only": True,
+                    "tool_count": 17,
+                    "tools_observable": True,
+                },
+                "context7": {
+                    "status": "not_observable",
+                    "reason_code": "DOCKER_SERVER_TOOLS_NOT_OBSERVABLE",
+                    "read_only": True,
+                    "tool_count": 0,
+                    "tools_observable": False,
+                },
+                "docker-docs": {
+                    "status": "ready",
+                    "read_only": True,
+                    "tool_count": 0,
+                    "tools_observable": True,
+                },
+                "dockerhub": {
+                    "status": "ready",
+                    "read_only": True,
+                    "tool_count": 11,
+                    "tools_observable": True,
+                },
+                "semgrep": {
+                    "status": "ready",
+                    "read_only": True,
+                    "tool_count": 3,
+                    "tools_observable": True,
+                },
+            },
+            "secret_engine": {
+                "status": "partial",
+                "reason_code": "DOCKER_SECRET_ENGINE_RPC_UNAVAILABLE",
+                "cli_status": "ready",
+                "keychain_status": "ready",
+                "rpc_status": "unavailable",
+                "secret_store": {
+                    "status": "ready",
+                    "reason_code": "DOCKER_SECRET_STORE_READY",
+                },
+                "container_runtime_secret_injection": {
+                    "status": "not_observable",
+                    "reason_code": "CONTAINER_RUNTIME_SECRET_INJECTION_NOT_PROBED",
+                },
+                "gateway_secret_injection": {
+                    "status": "not_observable",
+                    "reason_code": "GATEWAY_SECRET_INJECTION_NOT_PROBED",
+                },
+                "host_pass_resolution": {
+                    "status": "degraded",
+                    "reason_code": "DOCKER_SECRET_ENGINE_RPC_UNAVAILABLE",
+                },
+            },
+        },
+        "chatgpt": {
+            "status": "not_observable",
+            "reason_code": "CHATGPT_ACTION_SNAPSHOT_NOT_OBSERVABLE",
+        },
+    }
+
+    status._print_human(report, None)
+    output = capsys.readouterr().out
+
+    assert "AzurPilot MCP Status" in output
+    assert "SERVER" in output and "CHATGPT BACKEND" in output
+    assert "azurpilot-dev" in output
+    assert "3.0.0 OK" in output
+    assert "EXTERNAL" in output
+    assert "Docker MCP Gateway" in output
+    assert "Status: OK" in output
+    assert "context7" in output and "catalog unknown" in output
+    assert "ChatGPT action cache" in output
+    assert "MCP_STATUS_PARTIAL" in output
+    assert "local_direct" not in output
+    assert "reason_code" not in output
+
+
 def test_status_marks_source_drift_and_strict_fails(monkeypatch) -> None:
     expected_revision = "a" * 40
     monkeypatch.setattr(
