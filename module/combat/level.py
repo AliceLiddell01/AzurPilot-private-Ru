@@ -22,7 +22,7 @@ from module.base.decorator import Config
 from module.logger import logger
 from module.ocr.ocr import Digit
 
-# 白色和遮罩后的参考颜色
+# Эталонные цвета: белый и после наложения маски
 COLOR_WHITE = (255, 255, 255)
 COLOR_MASKED = (107, 105, 107)
 
@@ -130,26 +130,26 @@ class Level(ModuleBase):
 
 class LevelOcr(Digit):
     def pre_process(self, image):
-        # 检查红色通道最大值以判断图像是否被遮罩。
-        # 被遮罩时红色通道最大值不超过 COLOR_MASKED[0]=107。
-        # 先裁剪再检查，去除"需要修理"图标同时保留字符 'V' 的上半部分。
+        # Проверяем максимум красного канала, чтобы определить, наложена ли на изображение маска.
+        # При наложенной маске максимум красного канала не превышает COLOR_MASKED[0]=107.
+        # Сначала обрезаем изображение, чтобы убрать значок «требуется ремонт» и сохранить верхнюю половину символа 'V'.
         max_red = image[:8, :, 0].max()
         if max_red <= COLOR_MASKED[0]:
-            # 低血量舰船的遮罩将 COLOR_WHITE=(255, 255, 255) 变为 COLOR_MASKED=(107, 105, 107)
-            # 通过乘以标量将所有通道恢复。
+            # Маска корабля с низким HP преобразует COLOR_WHITE=(255, 255, 255) в COLOR_MASKED=(107, 105, 107)
+            # Восстанавливаем все каналы умножением на скаляр.
             scalar = np.mean(COLOR_WHITE) / np.mean(COLOR_MASKED)
             image = cv2.addWeighted(image, scalar, image, 0, 0)
 
-        # 转灰度前处理字符的蓝色背景。
-        # 背景是半透明的，将 (0, 0, 0) 变为 (33, 65, 115)，(255, 255, 255) 变为 (107, 138, 189)。
-        # 使用中点 (70, 102, 152)。
+        # Перед переводом в оттенки серого обрабатываем синий фон символов.
+        # Фон полупрозрачный: (0, 0, 0) превращается в (33, 65, 115), а (255, 255, 255) — в (107, 138, 189).
+        # Используем среднюю точку (70, 102, 152).
         bg = (70, 102, 152)
-        # BT.601 亮度转换
+        # Преобразование яркости BT.601
         luma_trans = (0.299, 0.587, 0.114)
         luma_bg = np.dot(bg, luma_trans)
         image = cv2.subtract(image, bg).dot(luma_trans).round().astype(np.uint8)
         image = cv2.subtract(255, cv2.multiply(image, 255 / (255 - luma_bg)))
-        # 找到 'L' 以去除 'LV.' 前缀。如果未找到 'L' 则返回空图像。
+        # Ищем 'L', чтобы удалить префикс 'LV.'. Если 'L' не найден, возвращаем пустое изображение.
         if server.server != 'jp':
             letter_l = np.nonzero(image[9:15, :].max(axis=0) < 127)[0]
             if len(letter_l):
@@ -159,7 +159,7 @@ class LevelOcr(Digit):
         else:
             letter_l = np.nonzero(image[5:11, :].max(axis=0) < 63)[0]
             if len(letter_l):
-                first_digit = letter_l[0] + 23  # 船坞中最大尺寸，海域网格中最小尺寸
+                first_digit = letter_l[0] + 23  # Максимальный размер в доке, минимальный — в сетке области
                 if first_digit + 3 < 70:  # LV_GRID_MAIN.button_shape[0] = 46
                     image = image[:, first_digit:]
                     image = cv2.copyMakeBorder(image, 2, 2, 2, 2, cv2.BORDER_CONSTANT, value=(255, 255, 255))
@@ -170,8 +170,8 @@ class LevelOcr(Digit):
         result = result.replace('I', '1').replace('D', '0').replace('S', '5')
         result = result.replace('B', '8')
 
-        # 不记录修正日志，因为等级通常为空
-        # 如: [23, 0, 0, 100, 0, 0]
+        # Не логируем исправления, поскольку значения уровней часто пустые
+        # Например: [23, 0, 0, 100, 0, 0]
         result = int(result) if result else 0
 
         return result
