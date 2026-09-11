@@ -23,7 +23,7 @@ from module.ocr.ocr import Digit
 from module.ui.assets import BACK_ARROW, DAILY_CHECK
 from module.ui.page import page_campaign_menu, page_daily
 
-# 每日任务列表
+# Список ежедневных заданий
 DAILY_MISSION_LIST = [DAILY_MISSION_1, DAILY_MISSION_2, DAILY_MISSION_3]
 if server.server != 'jp':
     OCR_REMAIN = Digit(OCR_REMAIN, threshold=128, alphabet='01234')
@@ -89,14 +89,14 @@ class Daily(Combat):
             int: 舰队索引，1 到 6。
         """
         if self.emergency_module_development:
-            # daily_current 含义
-            # 1 限时兵装训练 Emergency Module Development
-            # 2 商船护送 Escort Mission
-            # 3 海域突进 Advance Mission
-            # 4 斩首行动 Fierce Assault
-            # 5 战术研修 Tactical Training
-            # 6 破交作战 Supply Line Disruption
-            # 7 兵装训练 Module Development
+            # Значение daily_current
+            # 1 Временная тренировка вооружения Emergency Module Development
+            # 2 Сопровождение торговых судов Escort Mission
+            # 3 Прорыв в морской зоне Advance Mission
+            # 4 Операция по обезглавливанию Fierce Assault
+            # 5 Тактическая подготовка Tactical Training
+            # 6 Нарушение линий снабжения Supply Line Disruption
+            # 7 Тренировка вооружения Module Development
             fleets = [
                 0,
                 self.config.Daily_EmergencyModuleDevelopmentFleet,
@@ -104,7 +104,7 @@ class Daily(Combat):
                 self.config.Daily_AdvanceMissionFleet,
                 self.config.Daily_FierceAssaultFleet,
                 self.config.Daily_TacticalTrainingFleet,
-                0,  # 破交作战，需要手动完成或通过每日跳过
+                0,  # Supply Line Disruption нужно пройти вручную или пропустить через Daily Skip
                 self.config.Daily_ModuleDevelopmentFleet,
                 0
             ]
@@ -120,20 +120,20 @@ class Daily(Combat):
                 0
             ]
         else:
-            # daily_current 含义
-            # 1 战术研修 Tactical Training
-            # 2 破交作战 Supply Line Disruption
-            # 3 兵装训练 Module Development
-            # 4 (未开放)
-            # 5 商船护送 Escort Mission
-            # 6 海域突进 Advance Mission
-            # 7 斩首行动 Fierce Assault
+            # Значение daily_current
+            # 1 Тактическая подготовка Tactical Training
+            # 2 Нарушение линий снабжения Supply Line Disruption
+            # 3 Тренировка вооружения Module Development
+            # 4 (недоступно)
+            # 5 Сопровождение торговых судов Escort Mission
+            # 6 Прорыв в морской зоне Advance Mission
+            # 7 Операция по обезглавливанию Fierce Assault
             fleets = [
                 0,
                 self.config.Daily_TacticalTrainingFleet,
-                0,  # 破交作战，需要手动完成或通过每日跳过
+                0,  # Supply Line Disruption нужно пройти вручную или пропустить через Daily Skip
                 self.config.Daily_ModuleDevelopmentFleet,
-                0,  # 空
+                0,  # Пусто
                 self.config.Daily_EscortMissionFleet,
                 self.config.Daily_AdvanceMissionFleet,
                 self.config.Daily_FierceAssaultFleet,
@@ -144,7 +144,7 @@ class Daily(Combat):
                 self.config.Daily_TacticalTraining,
                 self.config.Daily_SupplyLineDisruption,
                 self.config.Daily_ModuleDevelopment,
-                0,  # 空
+                0,  # Пусто
                 self.config.Daily_EscortMission,
                 self.config.Daily_AdvanceMission,
                 self.config.Daily_FierceAssault,
@@ -223,7 +223,7 @@ class Daily(Combat):
                 logger.info('Ежедневный пропуск подлодок не разблокирован; пропуск')
                 self.ui_click(click_button=BACK_ARROW, check_button=daily_enter_check, skip_first_screenshot=True)
                 break
-            # 执行经典每日任务
+            # Выполняем классическое ежедневное задание
             self.ui_ensure_index(fleet, letter=OCR_DAILY_FLEET_INDEX, prev_button=DAILY_FLEET_PREV,
                                  next_button=DAILY_FLEET_NEXT, fast=False, skip_first_screenshot=True)
             self.combat(emotion_reduce=False, save_get_items=False, expected_end=daily_end, balance_hp=False)
@@ -274,7 +274,7 @@ class Daily(Combat):
             if self.handle_popup_confirm('DAILY_SKIP'):
                 continue
 
-            # 结束
+            # Завершение
             if self.appear(DAILY_SKIP, offset=(20, 20)):
                 if reward_received:
                     return False
@@ -342,7 +342,7 @@ class Daily(Combat):
             else:
                 self.daily_execute(remain=remain, stage=stage, fleet=fleet)
                 self.daily_check()
-                # 打完一次之后每日任务的顺序会乱掉, 退出再进入来重置顺序.
+                # После одного боя порядок ежедневных заданий сбивается; выходим и заходим снова, чтобы его сбросить.
                 self.ui_goto(page_campaign_menu)
                 break
 
@@ -369,5 +369,5 @@ class Daily(Combat):
         """
         self.daily_run()
 
-        # 不能停留在 page_daily，因为顺序会乱掉。
+        # Нельзя оставаться на page_daily, потому что порядок заданий собьётся.
         self.config.task_delay(server_update=True)
