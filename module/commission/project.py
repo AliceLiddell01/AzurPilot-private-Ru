@@ -58,7 +58,7 @@ def crop_suffix_image(image, area):
     if not len(columns):
         return None
 
-    # 从最右侧文字向左回看，尽量完整包含罗马数字后缀。
+    # Идём влево от крайнего правого символа, стараясь целиком захватить суффикс с римской цифрой.
     threshold = 250
     look_back = 10
     for i in range(columns[-1], 0, -1):
@@ -99,35 +99,35 @@ class Commission:
     支持 CN/EN/JP/TW 四个服务器，通过 `@Config.when` 装饰器分发不同的解析逻辑。
     """
 
-    # 进入委托详情的按钮
+    # Кнопка входа в детали комиссии
     button: Button
-    # OCR 识别出的委托名称
+    # Название комиссии, распознанное OCR
     name: str
-    # 委托名称是否解析成功
+    # Успешно ли разобрано название комиссии
     valid: bool
-    # 裁剪出的后缀图像，黑字白底；无后缀时为 None
+    # Вырезанное изображение суффикса: чёрный текст на белом фоне; None при отсутствии суффикса
     suffix_image: np.ndarray
-    # 后缀图像哈希，仅用于日志；无后缀时为空字符串
+    # Хеш изображения суффикса только для логирования; пустая строка при отсутствии суффикса
     suffix_hash: str
-    # 委托类型名称，定义在 project_data.py 中
-    # 值: major_comm, daily_resource, urgent_cube, ...
+    # Название типа комиссии, определённое в project_data.py
+    # Значения: major_comm, daily_resource, urgent_cube, ...
     genre: str
-    # 委托状态
-    # 值: finished, running, pending
+    # Состояние комиссии
+    # Значения: finished, running, pending
     status: str
-    # 委托执行时长
+    # Длительность выполнения комиссии
     duration: timedelta
-    # 过期时间，仅紧急委托有值，其他委托为 None
+    # Время до истечения; задаётся только для срочных комиссий, иначе None
     expire: timedelta
-    # 过滤器用分类
-    # 值: major|daily|extra|urgent|night
+    # Категория для фильтра
+    # Значения: major|daily|extra|urgent|night
     category_str: str
-    # 过滤器用类型
-    # 值: resource|chip|event|drill|part|cube|oil|book|retrofit|box|gem|ship
+    # Тип для фильтра
+    # Значения: resource|chip|event|drill|part|cube|oil|book|retrofit|box|gem|ship
     genre_str: str
-    # 时长（小时），如 0.5, 1, 1.16, 2.5
+    # Длительность в часах, например 0.5, 1, 1.16, 2.5
     duration_hour: str
-    # 时长（HH:MM 格式），如 1:30, 1:45, 2:00, 8:00, 12:00
+    # Длительность в формате HH:MM, например 1:30, 1:45, 2:00, 8:00, 12:00
     duration_hm: str
 
     def __init__(self, image, y, config):
@@ -171,30 +171,30 @@ class Commission:
 
         解析内容：名称、后缀、时长、过期时间、状态。
         """
-        # 名称识别——EN 服名称较长，使用更宽的裁剪区域
+        # Распознавание названия: на EN-сервере названия длиннее, поэтому используем более широкую область обрезки
         area = area_offset((131, 23, 430, 53), self.area[0:2])
         button = Button(area=area, color=(), button=area, name='COMMISSION')
         ocr = Ocr(button, lang='azur_lane')
         self.button = button
         result = ocr.ocr(self.image).upper()
-        # 修正常见 OCR 识别错误
+        # Исправляем типичные ошибки OCR
         result = result.replace('DALY', 'DAILY')
         result = result.replace('NVB', 'NYB')
         result = result.replace('PYEIN', 'VEIN').replace('YEIN', 'VEIN')
         self.name = result
         self.genre = self.commission_name_parse(self.name)
 
-        # 后缀图像识别
+        # Распознавание изображения суффикса
         self.suffix_image = crop_suffix_image(self.image, self.button.area)
         self.suffix_hash = image_hash(self.suffix_image)
 
-        # 执行时长
+        # Длительность выполнения
         area = area_offset((290, 68, 390, 95), self.area[0:2])
         button = Button(area=area, color=(), button=area, name='DURATION')
         ocr = Duration(button)
         self.duration = ocr.ocr(self.image)
 
-        # 过期时间——仅紧急委托有
+        # Время до истечения — только у срочных комиссий
         area = area_offset((-49, 68, -45, 84), self.area[0:2])
         button = Button(area=area, color=(189, 65, 66),
                         button=area, name='IS_URGENT')
@@ -206,7 +206,7 @@ class Commission:
         else:
             self.expire = timedelta(seconds=0)
 
-        # 状态识别——通过 RGB 颜色通道判断
+        # Распознавание состояния по цветовым каналам RGB
         area = area_offset((179, 71, 187, 93), self.area[0:2])
         dic = {
             0: 'finished',
@@ -225,28 +225,28 @@ class Commission:
         JP 服 OCR 使用日文模型，需修正阵营缩写识别错误。
         解析内容：名称、后缀、时长、过期时间、状态。
         """
-        # 名称识别
+        # Распознавание названия
         area = area_offset((176, 23, 420, 53), self.area[0:2])
         button = Button(area=area, color=(), button=area, name='COMMISSION')
         ocr = Ocr(button, letter=(201, 201, 201), lang='jp')
         self.button = button
         result = ocr.ocr(self.image).upper()
-        # 修正阵营缩写：NB -> NYB，BW -> BIW
+        # Исправляем сокращения фракций: NB -> NYB, BW -> BIW
         result = result.replace('NB', 'BYB').replace('BW', 'BIW')
         self.name = result
         self.genre = self.commission_name_parse(self.name)
 
-        # 后缀图像识别
+        # Распознавание изображения суффикса
         self.suffix_image = crop_suffix_image(self.image, self.button.area)
         self.suffix_hash = image_hash(self.suffix_image)
 
-        # 执行时长
+        # Длительность выполнения
         area = area_offset((290, 68, 390, 95), self.area[0:2])
         button = Button(area=area, color=(), button=area, name='DURATION')
         ocr = Duration(button)
         self.duration = ocr.ocr(self.image)
 
-        # 过期时间——仅紧急委托有
+        # Время до истечения — только у срочных комиссий
         area = area_offset((-49, 68, -45, 84), self.area[0:2])
         button = Button(area=area, color=(189, 65, 66),
                         button=area, name='IS_URGENT')
@@ -258,7 +258,7 @@ class Commission:
         else:
             self.expire = timedelta(seconds=0)
 
-        # 状态识别——通过 RGB 颜色通道判断
+        # Распознавание состояния по цветовым каналам RGB
         area = area_offset((179, 71, 187, 93), self.area[0:2])
         dic = {
             0: 'finished',
@@ -277,32 +277,32 @@ class Commission:
         TW 服繁体中文 OCR 需要修正特定字符的识别错误。
         解析内容：名称、后缀、时长、过期时间、状态。
         """
-        # 名称识别
+        # Распознавание названия
         area = area_offset((176, 23, 420, 53), self.area[0:2])
         button = Button(area=area, color=(), button=area, name='COMMISSION')
         ocr = Ocr(button, lang='tw', threshold=256)
         self.button = button
         result = ocr.ocr(self.image).upper()
-        # 训练数据集中没有"艦"字，用"鑑"/"盤"替代后修正
+        # В обучающем наборе нет иероглифа "艦"; он заменён на "鑑"/"盤", после чего исправляется здесь
         result = result.replace('鑑', '艦').replace('盤', '艦')
-        # 修正"支援土蒙爾島" -> "支援土豪爾島"
+        # Исправляем "支援土蒙爾島" -> "支援土豪爾島"
         result = result.replace('土蒙爾', '土豪爾')
-        # 修正"资源原" -> "资源"
+        # Исправляем "资源原" -> "资源"
         result = result.replace('源原', '源')
         self.name = result
         self.genre = self.commission_name_parse(self.name)
 
-        # 后缀图像识别
+        # Распознавание изображения суффикса
         self.suffix_image = crop_suffix_image(self.image, self.button.area)
         self.suffix_hash = image_hash(self.suffix_image)
 
-        # 执行时长
+        # Длительность выполнения
         area = area_offset((290, 68, 390, 95), self.area[0:2])
         button = Button(area=area, color=(), button=area, name='DURATION')
         ocr = Duration(button)
         self.duration = ocr.ocr(self.image)
 
-        # 过期时间——仅紧急委托有
+        # Время до истечения — только у срочных комиссий
         area = area_offset((-49, 68, -45, 84), self.area[0:2])
         button = Button(area=area, color=(189, 65, 66),
                         button=area, name='IS_URGENT')
@@ -314,7 +314,7 @@ class Commission:
         else:
             self.expire = timedelta(seconds=0)
 
-        # 状态识别——通过 RGB 颜色通道判断
+        # Распознавание состояния по цветовым каналам RGB
         area = area_offset((179, 71, 187, 93), self.area[0:2])
         dic = {
             0: 'finished',
@@ -333,28 +333,28 @@ class Commission:
         CN 服同样裁剪名称右侧后缀图像，用于后续相似度匹配。
         解析内容：名称、后缀、时长、过期时间、状态。
         """
-        # 名称识别
+        # Распознавание названия
         area = area_offset((176, 23, 420, 53), self.area[0:2])
         button = Button(area=area, color=(), button=area, name='COMMISSION')
         ocr = Ocr(button, lang='cnocr', threshold=256)
         self.button = button
         result = ocr.ocr(self.image).upper()
-        # 修正"资源原" -> "资源"
+        # Исправляем "资源原" -> "资源"
         result = result.replace('源原', '源')
         self.name = result
         self.genre = self.commission_name_parse(self.name)
 
-        # 后缀图像识别
+        # Распознавание изображения суффикса
         self.suffix_image = crop_suffix_image(self.image, self.button.area)
         self.suffix_hash = image_hash(self.suffix_image)
 
-        # 执行时长
+        # Длительность выполнения
         area = area_offset((290, 68, 390, 95), self.area[0:2])
         button = Button(area=area, color=(), button=area, name='DURATION')
         ocr = Duration(button)
         self.duration = ocr.ocr(self.image)
 
-        # 过期时间——仅紧急委托有
+        # Время до истечения — только у срочных комиссий
         area = area_offset((-49, 68, -45, 84), self.area[0:2])
         button = Button(area=area, color=(189, 65, 66),
                         button=area, name='IS_URGENT')
@@ -366,7 +366,7 @@ class Commission:
         else:
             self.expire = timedelta(seconds=0)
 
-        # 状态识别——通过 RGB 颜色通道判断
+        # Распознавание состояния по цветовым каналам RGB
         area = area_offset((179, 71, 187, 93), self.area[0:2])
         dic = {
             0: 'finished',
@@ -476,7 +476,7 @@ class Commission:
         Returns:
             解析后的 timedelta 实例，解析失败时返回 None。
         """
-        # OCR 常将 0 识别为 D，此处修正
+        # OCR часто распознаёт 0 как D; исправляем это здесь
         string = string.replace('D', '0')
         result = re.search(r'(\d+):(\d+):(\d+)', string)
         if not result:
@@ -528,7 +528,7 @@ class Commission:
         import jellyfish
         min_key = ''
         min_distance = 100
-        # 移除 ASCII 字符，只保留日文字符进行匹配
+        # Удаляем ASCII-символы, оставляя для сопоставления только японские символы
         string = re.sub(r'[\x00-\x7F]', '', string)
         for key, value in dictionary_jp.items():
             for keyword in value:
@@ -598,7 +598,7 @@ class Commission:
         Returns:
             是否为活动委托。
         """
-        # 当前活动委托：粉黄色渐变（度假村复刻 / Idol Master 活动风格）
+        # Текущая комиссия события: розово-жёлтый градиент (стиль повтора Resort / события Idol Master)
         area = area_offset((5, 5, 30, 30), self.area[0:2])
         if color_similar(color1=get_color(self.image, area), color2=(235, 173, 161), threshold=30):
             return True
