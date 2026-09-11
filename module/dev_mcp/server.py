@@ -89,15 +89,6 @@ _TIMELINE_INPUT = {
     },
     "additionalProperties": False,
 }
-_LOGS_INPUT = {
-    "type": "object",
-    "properties": {
-        "session_id": _SESSION_ID,
-        "cursor": {"type": "string", "minLength": 1, "maxLength": 2048},
-        "limit": {"type": "integer", "minimum": 1, "maximum": 200},
-    },
-    "additionalProperties": False,
-}
 _SMOKE_INPUT = SmokeSpec.model_json_schema()
 _SMOKE_ID_INPUT = {
     "type": "object",
@@ -308,7 +299,6 @@ def tool_definitions() -> list[Tool]:
         "dev_recover": "Выполнить существующее безопасное восстановление development target с проверкой владения.",
         "dev_get_evidence": "Получить ограниченную сводку диагностики указанной DevSession.",
         "dev_get_timeline": "Получить ограниченную каноническую хронологию выполнения указанной DevSession.",
-        "dev_get_logs": "Получить ограниченный журнал указанной DevSession только в пределах её сессии.",
         "dev_get_screenshot": "Получить текущий кадр активной DevSession как вложение изображения MCP.",
         "dev_list_smoke_capabilities": "Получить реестр поддерживаемых возможностей SmokeSpec только для чтения.",
         "dev_validate_smoke": "Проверить строгий SmokeSpec и предварительные условия без создания SmokeRun.",
@@ -343,7 +333,6 @@ def tool_definitions() -> list[Tool]:
         "dev_stop_session": _STOP_INPUT,
         "dev_get_evidence": _SESSION_INPUT,
         "dev_get_timeline": _TIMELINE_INPUT,
-        "dev_get_logs": _LOGS_INPUT,
         "dev_validate_smoke": _SMOKE_INPUT,
         "dev_start_smoke": _SMOKE_INPUT,
         "dev_get_smoke": _SMOKE_ID_INPUT,
@@ -359,7 +348,7 @@ def tool_definitions() -> list[Tool]:
         "dev_get_control_operation": _CONTROL_ID_INPUT,
     }
     mutating = {"dev_start_session", "dev_stop_session", "dev_cleanup", "dev_recover", "dev_cancel_smoke", "dev_start_smoke"}
-    additive = {"dev_get_evidence", "dev_get_logs", "dev_get_screenshot", "dev_submit_smoke_evaluation", "dev_capture_smoke_game_checkpoint"}
+    additive = {"dev_get_evidence", "dev_get_screenshot", "dev_submit_smoke_evaluation", "dev_capture_smoke_game_checkpoint"}
     control_annotations = {
         "dev_start_game": _CONTROL_START,
         "dev_start_emulator": _CONTROL_START,

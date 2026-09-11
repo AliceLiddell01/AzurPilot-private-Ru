@@ -654,9 +654,10 @@ thread-safe in-memory ring до incident-а. PNG/JPG не отправляютс
 bounded queue/retry policy, но gameplay, WebUI и console продолжают работу.
 При реальном исключении `save_error_log()` использует накопленный sanitized
 context и создаёт только incident bundle; сбой записи этого bundle не маскирует
-исходную ошибку. Dev Runtime сохраняет отдельный stdout/stderr evidence в
-`config/state/dev-runtime-gui.log`, а явные benchmark/debug-инструменты могут
-создавать собственные артефакты вне application runtime contract.
+исходную ошибку. Dev Runtime не создаёт локальную копию normal application
+logs: для поиска app logs используется отдельный read-only Grafana MCP через
+`query_loki_logs`, а bounded incident context остаётся независимым локальным
+evidence.
 
 Portable base Compose не содержит Windows drive letters, WSL paths,
 host.docker.internal, захардкоженные IP, host networking или публичные

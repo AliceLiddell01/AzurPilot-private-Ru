@@ -127,9 +127,9 @@ while not stopping:
             launcher_created_at = launcher.create_time()
 
             identity = backend.capture(launcher_pid)
-            assert identity is not None, environment.log_file.read_text(
-                encoding="utf-8",
-                errors="replace",
+            assert identity is not None, (
+                "Windows venv redirector не создал дочерний процесс: "
+                f"launcher_pid={launcher_pid}, launcher_argv={launcher.cmdline()}"
             )
             assert identity.pid != launcher_pid, (
                 "Windows venv redirector не был adopted: "

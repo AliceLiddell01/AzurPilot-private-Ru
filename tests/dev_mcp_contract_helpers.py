@@ -3,9 +3,9 @@ from __future__ import annotations
 EXPECTED_CONTRACT = {
     "contract_schema_version": 1,
     "product_family": "AzurPilot",
-    "dev_mcp_api_version": 2,
-    "smoke_spec_schema_version": 1,
-    "smoke_result_schema_version": 1,
+    "dev_mcp_api_version": 3,
+    "smoke_spec_schema_version": 2,
+    "smoke_result_schema_version": 2,
     "feature_flags": {
         "task_sandbox": True,
         "evidence_api": True,

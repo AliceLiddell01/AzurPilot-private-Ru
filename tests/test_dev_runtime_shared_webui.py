@@ -34,7 +34,6 @@ class SharedLifecycle:
         self.active = False
         self.session_id: str | None = None
         self.owner = RuntimeOwnerIdentity(pid=7001, created_at=8001.0)
-        self.log_file = root / "log" / "ap.txt"
 
     def start_profile(self, *, session_id: str, idempotency_key: str | None = None) -> RuntimeControlResult:
         self.active = True
@@ -122,7 +121,7 @@ def _manager(tmp_path: Path) -> tuple[DevSessionManager, SharedLifecycle]:
     return manager, shared
 
 
-def test_dev_runtime_uses_existing_shared_webui_and_never_owns_server(tmp_path: Path) -> None:
+def test_shared_stop_does_not_create_local_application_log_copy(tmp_path: Path) -> None:
     manager, shared = _manager(tmp_path)
 
     started = manager.start()
@@ -137,7 +136,7 @@ def test_dev_runtime_uses_existing_shared_webui_and_never_owns_server(tmp_path: 
     assert stopped.ok is True
     assert stopped.state == "stopped"
     assert shared.active is False
-    assert not (tmp_path / "config" / "state" / "dev-runtime-gui.log").exists()
+    assert not list(tmp_path.resolve().rglob("*.log"))
 
 
 def test_shared_status_distinguishes_missing_lifecycle_matcher(tmp_path: Path) -> None:
@@ -440,18 +439,3 @@ def test_shared_recovery_closes_marker_after_worker_registry_unregister(
     assert persisted is not None
     assert persisted.state is DevSessionState.STOPPED
     assert persisted.process is None
-
-
-def test_shared_runtime_uses_dev_runtime_evidence_log_path(tmp_path: Path) -> None:
-    assert SharedWebUIRuntime(tmp_path).log_file == (
-        tmp_path / "config" / "state" / "dev-runtime-gui.log"
-    )
-
-
-def test_shared_manager_falls_back_to_environment_log_for_outside_target(
-    tmp_path: Path,
-) -> None:
-    manager, shared = _manager(tmp_path)
-    shared.log_file = tmp_path.parent / "outside.log"
-
-    assert manager._evidence_log_path() == manager.environment.log_file

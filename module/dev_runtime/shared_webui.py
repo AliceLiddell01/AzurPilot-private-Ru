@@ -37,12 +37,6 @@ class SharedWebUIRuntime:
             self._profile_name = DevTargetRegistry.load(self.repository_root).profile_name
         return self._profile_name
 
-    @property
-    def log_file(self) -> Path:
-        # Dev Runtime сохраняет только собственный bounded stdout/stderr
-        # evidence-файл; application logger больше не создаёт log/*.txt.
-        return self.repository_root / "config" / "state" / "dev-runtime-gui.log"
-
     def ensure_webui(self) -> RuntimeOwnerIdentity:
         return self._client().ensure_owner()
 
