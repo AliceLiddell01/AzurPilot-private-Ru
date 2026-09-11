@@ -32,10 +32,10 @@ from rapidocr.utils.process_img import resize_image_within_bounds
 from module.logger import logger
 
 
-# 项目根目录和 NCNN 模型目录
+# Корень проекта и каталог моделей NCNN
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MODEL_ROOT = REPO_ROOT / "bin/ocr_models/ncnn"
-# 模型输入尺寸：3 通道 x 48 高 x 320 宽
+# Размер входа модели: 3 канала x высота 48 x ширина 320
 REC_IMAGE_SHAPE = (3, 48, 320)
 INPUT_NAME = "in0"
 OUTPUT_NAME = "out0"
