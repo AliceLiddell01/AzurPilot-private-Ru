@@ -2211,7 +2211,9 @@ class EvidenceStore:
         current_task = manifest.get("current_task") if active_owned and manifest.get("stopped_at") is None else None
         observability = _validate_observability_context(manifest["observability"])
         if manifest.get("stopped_at") is None:
-            observability["upper_bound_utc"] = _utc_timestamp(self.now().astimezone(UTC).isoformat())
+            start_at = datetime.fromisoformat(str(observability["start_utc"]))
+            upper_bound = max(self.now().astimezone(UTC), start_at)
+            observability["upper_bound_utc"] = _utc_timestamp(upper_bound.isoformat())
             observability = _validate_observability_context(observability, allow_upper_bound=True)
         started_at = datetime.fromisoformat(manifest["started_at"])
         stopped_at = manifest["stopped_at"]

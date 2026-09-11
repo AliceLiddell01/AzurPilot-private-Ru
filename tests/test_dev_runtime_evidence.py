@@ -139,7 +139,11 @@ def test_v2_evidence_manifest_migrates_without_file_log_metadata(
     assert "legacy_observability_environment_unknown" in migrated["evidence_health"]["reasons"]
 
 
-def test_read_only_evidence_methods_do_not_persist_legacy_migration(tmp_path: Path) -> None:
+def test_read_only_evidence_methods_do_not_persist_legacy_migration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OTEL_RESOURCE_ATTRIBUTES", raising=False)
     store = _store(tmp_path)
     screenshot = store.persist_screenshot(np.zeros((1, 1, 3), dtype=np.uint8), timestamp=_TIME)
     screenshot_id = screenshot.result.details["screenshot"]["screenshot_id"]
@@ -158,6 +162,15 @@ def test_read_only_evidence_methods_do_not_persist_legacy_migration(tmp_path: Pa
     persisted = store.read_persisted_screenshot(screenshot_id)
     assert persisted.result.ok is True
     assert store.manifest_path.read_bytes() == legacy_bytes
+
+
+def test_active_observability_upper_bound_is_not_before_start(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    store.now = lambda: datetime(2026, 8, 29, tzinfo=UTC)
+
+    summary = store.summary(active_owned=True)
+
+    assert summary["observability"]["upper_bound_utc"] == _TIME
 
 
 def test_evidence_rejects_unsafe_observability_context(tmp_path: Path) -> None:
