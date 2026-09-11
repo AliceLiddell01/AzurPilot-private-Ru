@@ -38,7 +38,7 @@ class CampaignOcr(ModuleBase):
     """
     stage_entrance = {}
     campaign_chapter: str = '0'
-    # 关卡入口的大致区域，用于加速模板匹配
+    # Примерная область входов на этапы для ускорения сопоставления шаблонов
     _stage_detect_area = (87, 117, 1151, 636)
 
     @staticmethod
@@ -66,18 +66,18 @@ class CampaignOcr(ModuleBase):
 
     @staticmethod
     def _campaign_ocr_result_process(result):
-        # OCR 结果可能为 '7--2'，因为游戏中使用的是 '–' 而非 '-'
+        # Результат OCR может быть '7--2', поскольку в игре используется '–', а не '-'
         result = result.replace('--', '-').replace('--', '-').lstrip('-')
 
-        # 修正 OCR 将 '1' 误识别为 'I' 的情况，如 'I1-1'、'1I-1'、'I-I' 等
-        # 同时保留 'isp-2'、'sp1' 等含字母的正常结果
+        # Исправляем случаи, когда OCR распознаёт '1' как 'I', например 'I1-1', '1I-1', 'I-I'
+        # При этом сохраняем нормальные результаты с буквами, например 'isp-2' и 'sp1'
         def replace_func(match):
             segment = match.group(0)
             return segment.replace('I', '1')
 
         result = re.sub(r'[0-9I]+-[0-9I]+', replace_func, result, count=1)
 
-        # 将 '72' 转换为 '7-2'
+        # Преобразуем '72' в '7-2'
         if len(result) == 2 and result[0].isdigit():
             result = '-'.join(result)
 
@@ -141,11 +141,11 @@ class CampaignOcr(ModuleBase):
             button_name = button.crop(area=name_area, image=image)
             name = extract_letters(button_name.image, letter=name_letter, threshold=name_thresh)
             button_name = button_name.crop(area=self._extract_stage_name(name))
-            # 对每个 Button 实例：
-            # button.area: 关卡名称区域，如 '3-4'。临时替换用于 OCR。
-            # button.color: 关卡图标颜色，如 'CLEAR' 和 '%'。
-            # button.button: 关卡图标区域，如 'CLEAR' 和 '%'。
-            # button.name: 'STAGE'，无实际意义的名称。
+            # Для каждого экземпляра Button:
+            # button.area: область имени этапа, например '3-4'; временно подменяется для OCR.
+            # button.color: цвет значка этапа, например 'CLEAR' и '%'.
+            # button.button: область значка этапа, например 'CLEAR' и '%'.
+            # button.name: 'STAGE', техническое имя без практического значения.
             button.load_color(image)
             button.area = button_name.area
             digits.append(button)
@@ -233,7 +233,7 @@ class CampaignOcr(ModuleBase):
                 image, self._stage_image_gray,
                 name_offset=(75, 9), name_size=(60, 16)
             )
-            # 2024.04.11 游戏客户端出现 bug，TEMPLATE_STAGE_CLEAR 周围出现随机损坏的素材
+            # В клиенте игры от 2024-04-11 появился баг: вокруг TEMPLATE_STAGE_CLEAR случайно повреждаются ресурсы
             # digits += self.campaign_match_multi(
             #     TEMPLATE_STAGE_CLEAR_SMALL,
             #     image, self._stage_image_gray,
@@ -348,12 +348,12 @@ class CampaignOcr(ModuleBase):
             # ['0F', 'F-IB', 'IGI']
             raise CampaignNameError
 
-        # OCR 完成后恢复按钮属性。
-        # 这些按钮将作为 `MapOperation.enter_map()` 的关卡入口。
-        # button.area: 关卡图标区域，如 'CLEAR' 和 '%'。
-        # button.color: 关卡图标颜色。
-        # button.button: 关卡图标区域。
-        # button.name: 关卡名称，来自 OCR 结果。
+        # После завершения OCR восстанавливаем атрибуты кнопок.
+        # Эти кнопки будут использоваться как входы на этапы в `MapOperation.enter_map()`.
+        # button.area: область значка этапа, например 'CLEAR' и '%'.
+        # button.color: цвет значка этапа.
+        # button.button: область значка этапа.
+        # button.name: имя этапа из результата OCR.
         for name, button in zip(result, buttons):
             button.area = button.button
             button.name = name
