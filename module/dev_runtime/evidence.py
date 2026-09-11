@@ -50,6 +50,8 @@ EVIDENCE_HEALTH_COMPLETE = "complete"
 EVIDENCE_HEALTH_DEGRADED = "degraded"
 EVIDENCE_HEALTH_CORRUPT = "corrupt"
 EVIDENCE_HEALTH_UNAVAILABLE = "unavailable"
+_LEGACY_OBSERVABILITY_ENVIRONMENT = "unknown"
+_LEGACY_OBSERVABILITY_DEGRADED_REASON = "legacy_observability_environment_unknown"
 
 _MAX_SESSION_LENGTH = 128
 _MAX_MANIFEST_BYTES = 512 * 1024
@@ -738,13 +740,16 @@ def _observability_context(
     root_tasks: object,
     start_utc: object,
     end_utc: object = None,
+    deployment_environment: object | None = None,
 ) -> dict[str, object]:
     """Сформировать только координаты для поиска application logs в Grafana MCP."""
 
     return {
         "source": _OBSERVABILITY_SOURCE,
         "service_name": _OBSERVABILITY_SERVICE_NAME,
-        "deployment_environment": _deployment_environment(),
+        "deployment_environment": (
+            _deployment_environment() if deployment_environment is None else deployment_environment
+        ),
         "component": _OBSERVABILITY_COMPONENT,
         "profile": profile,
         "root_tasks": root_tasks,
@@ -1120,7 +1125,20 @@ def _migrate_legacy_manifest(value: object) -> object:
         root_tasks=value.get("root_tasks"),
         start_utc=value.get("started_at"),
         end_utc=value.get("stopped_at"),
+        deployment_environment=_LEGACY_OBSERVABILITY_ENVIRONMENT,
     )
+    health = value.get("evidence_health")
+    if isinstance(health, Mapping):
+        migrated_health = dict(health)
+        reasons = health.get("reasons")
+        if isinstance(reasons, list):
+            migrated_reasons = list(reasons)
+            if _LEGACY_OBSERVABILITY_DEGRADED_REASON not in migrated_reasons:
+                migrated_reasons.append(_LEGACY_OBSERVABILITY_DEGRADED_REASON)
+            migrated_health["reasons"] = migrated_reasons
+            if migrated_health.get("status") == EVIDENCE_HEALTH_COMPLETE:
+                migrated_health["status"] = EVIDENCE_HEALTH_DEGRADED
+            migrated["evidence_health"] = migrated_health
     return migrated
 
 
@@ -2232,12 +2250,14 @@ class EvidenceStore:
         environment: DevEnvironment,
         session_id: str,
         *,
+        now: Callable[[], datetime] | None = None,
         profile_name: str | None = None,
         validate_profile: bool = True,
     ) -> EvidenceStore:
         return cls(
             environment,
             validate_session_id(session_id),
+            now=now,
             profile_name=profile_name,
             validate_profile=validate_profile,
         )
@@ -2276,30 +2296,33 @@ class EvidenceStore:
                             session_id,
                             validate_profile=False,
                         )
-                        manifest = store._manifest_locked()
-                        events, timeline_truncated = store._timeline_locked()
-                        if manifest["timeline"] != _timeline_metadata(events, truncated=timeline_truncated):
-                            raise EvidenceCorrupt(
-                                "DEV_EVIDENCE_CORRUPT",
-                                "Метаданные хронологии не соответствуют событиям",
-                            )
-                        health = manifest["evidence_health"]
-                        if isinstance(health, Mapping) and health.get("status") == EVIDENCE_HEALTH_CORRUPT:
-                            raise EvidenceCorrupt(
-                                "DEV_EVIDENCE_CORRUPT",
-                                "Повреждённую сессию нельзя удалять автоматически",
-                            )
-                        screenshots = manifest["screenshots"]
-                        if isinstance(screenshots, Mapping) and screenshots.get("latest") is not None:
-                            latest = screenshots["latest"]
-                            if not isinstance(latest, Mapping) or not isinstance(latest.get("screenshot_id"), str):
+                        with _exclusive_lock(store.lock_path, environment.repository_root):
+                            manifest = store._manifest_locked()
+                            events, timeline_truncated = store._timeline_locked()
+                            if manifest["timeline"] != _timeline_metadata(events, truncated=timeline_truncated):
                                 raise EvidenceCorrupt(
                                     "DEV_EVIDENCE_CORRUPT",
-                                    "Последний снимок экрана имеет неверную структуру",
+                                    "Метаданные хронологии не соответствуют событиям",
                                 )
-                            store._read_screenshot_metadata_locked(latest["screenshot_id"])
-                        stat_result = path.stat()
-                        size = _safe_tree_size(path, environment.repository_root)
+                            health = manifest["evidence_health"]
+                            if isinstance(health, Mapping) and health.get("status") == EVIDENCE_HEALTH_CORRUPT:
+                                raise EvidenceCorrupt(
+                                    "DEV_EVIDENCE_CORRUPT",
+                                    "Повреждённую сессию нельзя удалять автоматически",
+                                )
+                            screenshots = manifest["screenshots"]
+                            if isinstance(screenshots, Mapping) and screenshots.get("latest") is not None:
+                                latest = screenshots["latest"]
+                                if not isinstance(latest, Mapping) or not isinstance(
+                                    latest.get("screenshot_id"), str
+                                ):
+                                    raise EvidenceCorrupt(
+                                        "DEV_EVIDENCE_CORRUPT",
+                                        "Последний снимок экрана имеет неверную структуру",
+                                    )
+                                store._read_screenshot_metadata_locked(latest["screenshot_id"])
+                            stat_result = path.stat()
+                            size = _safe_tree_size(path, environment.repository_root)
                     except (EvidenceError, OSError, ValueError):
                         success = False
                         continue

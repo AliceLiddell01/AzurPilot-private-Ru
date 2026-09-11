@@ -102,7 +102,14 @@ def test_evidence_summary_exposes_bounded_loki_correlation_context(
     assert "logs" not in persisted
 
 
-def test_v2_evidence_manifest_migrates_without_file_log_metadata(tmp_path: Path) -> None:
+def test_v2_evidence_manifest_migrates_without_file_log_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "OTEL_RESOURCE_ATTRIBUTES",
+        "service.name=azurpilot,deployment.environment.name=production",
+    )
     store = _store(tmp_path)
     manifest = json.loads(store.manifest_path.read_text(encoding="utf-8"))
     manifest["schema_version"] = 2
@@ -127,6 +134,9 @@ def test_v2_evidence_manifest_migrates_without_file_log_metadata(tmp_path: Path)
     assert "logs" not in migrated
     assert "dev-runtime-gui.log" not in json.dumps(migrated, ensure_ascii=False)
     assert "password=secret" not in json.dumps(migrated, ensure_ascii=False)
+    assert migrated["observability"]["deployment_environment"] == "unknown"
+    assert migrated["evidence_health"]["status"] == "degraded"
+    assert "legacy_observability_environment_unknown" in migrated["evidence_health"]["reasons"]
 
 
 def test_evidence_rejects_unsafe_observability_context(tmp_path: Path) -> None:

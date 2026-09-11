@@ -246,6 +246,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             store = EvidenceStore.for_session(
                 self.environment,
                 session_id,
+                now=self.now,
                 profile_name=profile_name,
                 validate_profile=validate_profile,
             )

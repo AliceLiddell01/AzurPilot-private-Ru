@@ -53,10 +53,11 @@ tool_timeout_sec = 180
 Базовые инструменты Dev Runtime (без Smoke Harness и Runtime Control): `dev_preflight`, `dev_doctor`, `dev_get_contract`, `dev_list_tasks`,
 `dev_plan_session`, `dev_start_session`, `dev_status`, `dev_stop_session`,
 `dev_cleanup`, `dev_recover`, `dev_get_evidence`, `dev_get_timeline`,
-`dev_get_screenshot`. Только для чтения работают `preflight`,
-`doctor`, каталог, `plan`, `status`, `evidence` и `timeline`. `screenshot`
-могут дополнять состояние и сохранять локальные артефакты, но не изменяют жизненный цикл
-и не являются разрушительными. `dev_start_session` всегда
+`dev_get_screenshot`. Только для чтения работают `preflight`, `doctor`, каталог,
+`plan`, `status` и `timeline`. `dev_get_evidence` при необходимости атомарно
+мигрирует legacy-манифест и поэтому не относится к безусловно read-only операциям.
+Инструмент `screenshot` может дополнять состояние и сохранять локальные артефакты,
+но не изменяет жизненный цикл и не является разрушительным. `dev_start_session` всегда
 работает в режиме с учётом задач и требует `root_tasks`; `stop` по умолчанию очищает
 состояние планировщика, а
 `preserve_task_state=true` является явным диагностическим исключением и требует
@@ -343,7 +344,7 @@ symlink/junction. Состояния выполнения (`created`, `preparing
 фиксирует `before` после target/task preparation и до первого запуска target
 process. Отдельная pre-execution lock сериализует callback, первый запуск и
 операции `stop`/`recover`/`cleanup`, но общая coordination lock не удерживается
-на время потенциально долгого read-only checkpoint. Runtime читается только через публичные методы Evidence API `evidence`,
+на время потенциально долгого диагностического checkpoint. Runtime читается только через публичные методы Evidence API `evidence`,
 `timeline`, `status` и снимка экрана.
 Он не вызывает gameplay handlers, `Device`, Game MCP или raw scheduler.
 После ошибки сначала сохраняется первичная ошибка продукта, затем выполняются

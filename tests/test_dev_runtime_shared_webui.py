@@ -136,7 +136,7 @@ def test_shared_stop_does_not_create_local_application_log_copy(tmp_path: Path) 
     assert stopped.ok is True
     assert stopped.state == "stopped"
     assert shared.active is False
-    assert not list((tmp_path / "config" / "state").glob("*.log"))
+    assert not list(tmp_path.resolve().rglob("*.log"))
 
 
 def test_shared_status_distinguishes_missing_lifecycle_matcher(tmp_path: Path) -> None:

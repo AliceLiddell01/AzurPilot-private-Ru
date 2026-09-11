@@ -359,6 +359,7 @@ def _real_runtime_manager(
     tmp_path: Path,
     *,
     screenshot_provider: Callable[[str], object] | None = None,
+    runtime_now: datetime | None = None,
 ) -> tuple[DevSessionManager, _SyntheticProcessBackend]:
     root = tmp_path.resolve()
     (root / "module").mkdir()
@@ -385,6 +386,7 @@ def _real_runtime_manager(
         dev_target=DevTarget("ap"),
     )
     backend = _SyntheticProcessBackend()
+    effective_now = runtime_now or datetime(2026, 8, 29, tzinfo=UTC)
     manager = DevSessionManager(
         environment,
         process_backend=backend,
@@ -392,7 +394,7 @@ def _real_runtime_manager(
         storage_probe=lambda _environment: (True, "storage ready"),
         port_probe=lambda _host, _port: False,
         readiness_probe=lambda _environment, _identity: (True, "ready"),
-        now=lambda: datetime(2026, 8, 29, tzinfo=UTC),
+        now=lambda: effective_now,
         session_id_factory=lambda: "sandbox-session",
         screenshot_provider=screenshot_provider,
         ready_timeout=0.01,
@@ -508,6 +510,8 @@ def test_manager_is_lazy_and_allowed_tools_delegate_exact_arguments() -> None:
 
 def test_invalid_and_privileged_arguments_are_rejected_before_manager_creation() -> None:
     adapter, manager, factory_calls = _adapter_with_factory()
+    # Имя намеренно собрано по частям, чтобы отрицательный тест не создавал
+    # публичную ссылку на удалённый инструмент.
     legacy_log_tool = "dev_get_" + "logs"
 
     invalid_calls = [
@@ -1018,9 +1022,11 @@ def test_real_status_preserves_task_lifecycle_and_policy_snapshot(tmp_path: Path
 
 
 def test_real_evidence_tools_expose_lifecycle_timeline_observability_and_image(tmp_path: Path) -> None:
+    runtime_now = datetime(2026, 8, 29, tzinfo=UTC)
     manager, _backend = _real_runtime_manager(
         tmp_path,
         screenshot_provider=lambda _session_id: np.zeros((2, 3, 3), dtype=np.uint8),
+        runtime_now=runtime_now,
     )
     adapter = DevMcpAdapter(lambda: manager)
 
@@ -1040,7 +1046,7 @@ def test_real_evidence_tools_expose_lifecycle_timeline_observability_and_image(t
             "root_tasks": ["RootTask"],
             "start_utc": "2026-08-29T00:00:00+00:00",
             "end_utc": None,
-            "upper_bound_utc": evidence["details"]["observability"]["upper_bound_utc"],
+            "upper_bound_utc": runtime_now.isoformat(),
         }
         assert "logs" not in evidence["details"]
         assert evidence["details"]["current_task"] is None
