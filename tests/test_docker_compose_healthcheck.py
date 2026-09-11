@@ -302,7 +302,11 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
         path.stem: json.loads(path.read_text(encoding="utf-8"))
         for path in sorted(dashboard_root.glob("*.json"))
     }
-    assert set(dashboards) == {"azurpilot-overview", "azurpilot-errors"}
+    assert set(dashboards) == {
+        "azurpilot-overview",
+        "azurpilot-errors",
+        "azurpilot-mcp-status",
+    }
     assert dashboards["azurpilot-overview"]["uid"] == "azurpilot-overview"
     assert dashboards["azurpilot-overview"]["title"] == "AzurPilot Overview"
     assert dashboards["azurpilot-overview"]["refresh"] == "5s"
@@ -313,6 +317,9 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
     assert dashboards["azurpilot-errors"]["uid"] == "azurpilot-errors"
     assert dashboards["azurpilot-errors"]["title"] == "AzurPilot Errors / Incidents"
     assert dashboards["azurpilot-errors"]["refresh"] == "5s"
+    assert dashboards["azurpilot-mcp-status"]["uid"] == "azurpilot-mcp-status"
+    assert dashboards["azurpilot-mcp-status"]["title"] == "AzurPilot MCP Status"
+    assert dashboards["azurpilot-mcp-status"]["refresh"] == "30s"
 
     allowed_datasources = {"prometheus", "loki", "tempo", "-100", "-- Mixed --"}
     for dashboard in dashboards.values():
@@ -344,6 +351,14 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
     assert "round(" not in overview_text
     assert "increase(" not in overview_text
     assert "clamp_min" not in overview_text
+
+    mcp_status_text = json.dumps(
+        dashboards["azurpilot-mcp-status"], ensure_ascii=False
+    )
+    assert "azurpilot_mcp_endpoint_up" in mcp_status_text
+    assert "azurpilot_mcp_gateway_server_up" in mcp_status_text
+    assert "azurpilot_mcp_version_drift" in mcp_status_text
+    assert "azurpilot_mcp_last_probe_timestamp_seconds" in mcp_status_text
 
     overview_panels = {
         panel["id"]: panel for panel in dashboards["azurpilot-overview"]["panels"]

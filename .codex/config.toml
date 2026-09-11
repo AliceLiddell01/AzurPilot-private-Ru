@@ -11,3 +11,12 @@ enabled = true
 required = false
 startup_timeout_sec = 5
 tool_timeout_sec = 180
+
+[mcp_servers.MCP_DOCKER]
+command = "docker"
+args = ["mcp", "gateway", "run", "--profile", "azurpilot-development"]
+cwd = "."
+enabled = true
+required = false
+startup_timeout_sec = 20
+tool_timeout_sec = 180

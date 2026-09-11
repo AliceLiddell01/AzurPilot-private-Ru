@@ -14,8 +14,11 @@ description: "Безопасный cross-surface workflow для Development Run
 
 Первым read-only вызовом каждой новой сессии запрашивай `dev_get_contract`.
 Сравнивай `details.contract` с `compatibility.json` этого пакета по следующим
-полям: `product_family`, `dev_mcp_api_version`, `smoke_spec_schema_version`,
-`smoke_result_schema_version` и `contract_schema_version`.
+полям: `product_family`, `server_name`, `server_version`,
+`smoke_spec_schema_version`, `smoke_result_schema_version` и
+`contract_schema_version`. `required_mcp_servers` проверяется как bounded
+SemVer range, а `dev_mcp_api_version` остаётся отдельной версией внутренней
+схемы контракта и проверяется только если она явно объявлена старым пакетом.
 Сопоставляй `compatibility.json.required_feature_flags` с
 `runtime contract.feature_flags`, `required_capability_families` с
 `runtime contract.capability_families`, а `result_outcomes` с

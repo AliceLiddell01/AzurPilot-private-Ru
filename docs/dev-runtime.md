@@ -84,12 +84,52 @@ tool_timeout_sec = 180
 после чего очищаются от чувствительных данных.
 
 `dev_get_contract` — read-only граница совместимости для canonical-пакета
-`AzurPilot`. Она возвращает только `contract_schema_version`, семейство продукта,
-версии Dev MCP/Smoke schemas, feature flags,
-capability families и result outcomes. В контракте нет путей, секретов или
-сведений об окружении;
-плагин сравнивает его с `plugins/azurpilot/compatibility.json` и при любом
-несовпадении останавливается с `PLUGIN_RUNTIME_INCOMPATIBLE` до mutating calls.
+`AzurPilot`. Она возвращает `server_name`, SemVer `server_version`, bounded
+`source_revision`, `contract_schema_version`, семейство продукта, версии Dev
+MCP/Smoke schemas, feature flags, capability families и result outcomes.
+В контракте нет путей, секретов или произвольных сведений об окружении;
+плагин сравнивает server identity/version с
+`plugins/azurpilot/compatibility.json.required_mcp_servers` как bounded SemVer
+range и при любом несовпадении останавливается с
+`PLUGIN_RUNTIME_INCOMPATIBLE` до mutating calls.
+
+Канонические server versions находятся в
+`config/mcp-versions.toml`: `azurpilot-dev` — `3.0.0`, `azurpilot-game` —
+`1.0.0`. Это identity MCP implementation, а `dev_mcp_api_version` и
+`game_mcp_api_version` остаются отдельными версиями внутренних схем.
+
+Политика изменения SemVer для server identity фиксирована отдельно от
+protocol/schema версий:
+
+- `PATCH` — совместимое исправление реализации, runtime или security без изменения
+  публичной capability/schema semantics;
+- `MINOR` — аддитивный tool, capability или optional field без удаления и изменения
+  смысла существующего контракта;
+- `MAJOR` — удаление или переименование tool/capability/field, несовместимое изменение
+  схемы либо изменение семантики существующего поведения;
+- несвязанные изменения репозитория не требуют bump server version.
+
+`contract_schema_version`, protocol versions, tool count и `source_revision` остаются
+отдельными диагностическими полями и не подменяют server identity. Совместимость
+плагина задаётся bounded SemVer range в
+`plugins/azurpilot/compatibility.json`; перед mutating calls несовместимый runtime
+отбрасывается fail-closed.
+
+Для bounded проверки всех поверхностей используй read-only collector:
+
+```text
+uv run --locked --no-sync python -m dev_tools.mcp_status
+uv run --locked --no-sync python -m dev_tools.mcp_status --json
+uv run --locked --no-sync python -m dev_tools.mcp_status --json --strict
+```
+
+Collector выполняет только local `initialize`/`tools/list` и
+`dev_get_contract`/`game_get_contract`, HTTPS GET protected-resource metadata
+без credentials, а также read-only Docker MCP Toolkit profile queries. В
+JSON не попадают URL, headers, secrets, paths или полное окружение. Snapshot
+операций ChatGPT намеренно имеет состояние
+`CHATGPT_ACTION_SNAPSHOT_NOT_OBSERVABLE`; его нельзя заменять synthetic или
+локальным evidence.
 
 Для stdio stdout зарезервирован JSON-RPC протоколом и не содержит журналов оператора,
 баннеров или отладочного вывода. Диагностические сообщения идут только в stderr.

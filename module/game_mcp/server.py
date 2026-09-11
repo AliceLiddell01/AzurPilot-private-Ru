@@ -40,11 +40,13 @@ from module.game_mcp.contract import (
     GAME_MCP_NO_ARGUMENT_TOOLS,
     GAME_MCP_READ_SCOPE,
     GAME_MCP_SCOPES,
+    GAME_MCP_SERVER_NAME,
 )
 from module.mcp_shared.auth import current_access_token
+from module.mcp_shared.versioning import server_version
 
-SERVER_NAME = "azurpilot-game"
-SERVER_VERSION = str(GAME_MCP_API_VERSION)
+SERVER_NAME = GAME_MCP_SERVER_NAME
+SERVER_VERSION = server_version(SERVER_NAME)
 GAME_MCP_COMMAND = "uv"
 GAME_MCP_ARGS = ("run", "--locked", "--no-sync", "python", "-m", "module.game_mcp")
 GAME_MCP_REQUIRED_SCOPE = GAME_MCP_READ_SCOPE
@@ -464,6 +466,15 @@ _CONTRACT_OUTPUT = {
             "const": CONTRACT_SCHEMA_VERSION,
         },
         "product_family": {"type": "string", "maxLength": 128},
+        "server_name": {"type": "string", "maxLength": 128},
+        "server_version": {
+            "type": "string",
+            "pattern": r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$",
+        },
+        "source_revision": {
+            "type": "string",
+            "pattern": r"^(?:unknown|[a-f0-9]{7,64})$",
+        },
         "game_mcp_api_version": {
             "type": "integer",
             "const": GAME_MCP_API_VERSION,
@@ -512,6 +523,9 @@ _CONTRACT_OUTPUT = {
     "required": [
         "contract_schema_version",
         "product_family",
+        "server_name",
+        "server_version",
+        "source_revision",
         "game_mcp_api_version",
         "tool_count",
         "tool_catalog_sha256",

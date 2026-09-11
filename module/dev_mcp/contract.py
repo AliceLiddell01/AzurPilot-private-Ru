@@ -9,10 +9,12 @@ from module.dev_runtime.smoke import (
     SMOKE_STATE_SCHEMA_VERSION,
     SmokeOutcome,
 )
+from module.mcp_shared.versioning import server_version, source_revision
 
 CONTRACT_SCHEMA_VERSION = 1
 DEV_MCP_API_VERSION = 3
 PRODUCT_FAMILY = "AzurPilot"
+DEV_MCP_SERVER_NAME = "azurpilot-dev"
 DEV_MCP_REQUIRED_SCOPE = "azurpilot:dev"
 
 DEV_MCP_FEATURE_FLAGS = {
@@ -46,6 +48,9 @@ def contract_payload() -> dict[str, object]:
     return {
         "contract_schema_version": CONTRACT_SCHEMA_VERSION,
         "product_family": PRODUCT_FAMILY,
+        "server_name": DEV_MCP_SERVER_NAME,
+        "server_version": server_version(DEV_MCP_SERVER_NAME),
+        "source_revision": source_revision(),
         "dev_mcp_api_version": DEV_MCP_API_VERSION,
         "smoke_spec_schema_version": SMOKE_SCHEMA_VERSION,
         "smoke_result_schema_version": SMOKE_STATE_SCHEMA_VERSION,
@@ -81,10 +86,34 @@ def contract_compatibility_issues(
         "smoke_spec_schema_version",
         "smoke_result_schema_version",
     ):
+        if field not in expected:
+            continue
         expected_value = expected.get(field)
         actual_value = actual.get(field)
         if type(actual_value) is not type(expected_value) or actual_value != expected_value:
             issues.append(field)
+
+    expected_servers = expected.get("required_mcp_servers")
+    if not isinstance(expected_servers, Mapping) or len(expected_servers) != 1:
+        issues.append("required_mcp_servers")
+    else:
+        server_name = actual.get("server_name")
+        server_version_value = actual.get("server_version")
+        if not isinstance(server_name, str) or not isinstance(server_version_value, str):
+            issues.append("server_identity")
+        else:
+            expected_range = expected_servers.get(server_name)
+            if not isinstance(expected_range, str):
+                issues.append("server_name")
+            else:
+                try:
+                    from module.mcp_shared.versioning import version_satisfies
+
+                    compatible = version_satisfies(server_version_value, expected_range)
+                except ValueError:
+                    compatible = False
+                if not compatible:
+                    issues.append("server_version")
 
     expected_flags = expected.get("required_feature_flags")
     actual_flags = actual.get("feature_flags")
@@ -120,10 +149,11 @@ def contract_compatibility_issues(
 __all__ = [
     "CONTRACT_SCHEMA_VERSION",
     "DEV_MCP_API_VERSION",
-    "DEV_MCP_REQUIRED_SCOPE",
     "DEV_MCP_CAPABILITY_FAMILIES",
     "DEV_MCP_FEATURE_FLAGS",
+    "DEV_MCP_REQUIRED_SCOPE",
     "DEV_MCP_RESULT_OUTCOMES",
+    "DEV_MCP_SERVER_NAME",
     "PRODUCT_FAMILY",
     "contract_compatibility_issues",
     "contract_payload",

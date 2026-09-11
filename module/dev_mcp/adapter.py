@@ -340,6 +340,9 @@ _SAFE_CONTRACT_KEYS = frozenset(
     {
         "contract_schema_version",
         "product_family",
+        "server_name",
+        "server_version",
+        "source_revision",
         "dev_mcp_api_version",
         "smoke_spec_schema_version",
         "smoke_result_schema_version",
@@ -669,6 +672,9 @@ _SAFE_DATABASE_REPAIR_KEYS = frozenset({"repair_id", "available"})
 _CONTRACT_CHILD_SCHEMAS: dict[str, str | None] = {
     "contract_schema_version": "int",
     "product_family": "string",
+    "server_name": "string",
+    "server_version": "string",
+    "source_revision": "string",
     "dev_mcp_api_version": "int",
     "smoke_spec_schema_version": "int",
     "smoke_result_schema_version": "int",

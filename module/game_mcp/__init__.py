@@ -13,6 +13,7 @@ from module.game_mcp.contract import (
     GAME_MCP_CONTROL_SCOPE,
     GAME_MCP_READ_SCOPE,
     GAME_MCP_SCOPES,
+    GAME_MCP_SERVER_NAME,
     contract_payload,
     contract_result,
 )
@@ -25,6 +26,7 @@ __all__ = (
     "GAME_MCP_READ_SCOPE",
     "GAME_MCP_READ_TOOL_NAMES",
     "GAME_MCP_SCOPES",
+    "GAME_MCP_SERVER_NAME",
     "GAME_MCP_TOOL_NAMES",
     "GameMcpAdapter",
     "GameMcpResponse",

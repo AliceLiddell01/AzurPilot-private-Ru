@@ -108,6 +108,7 @@ from module.game_mcp.server import (
     GAME_MCP_ARGS,
     GAME_MCP_COMMAND,
     GAME_MCP_REQUIRED_SCOPE,
+    SERVER_VERSION,
     create_server,
     tool_definitions,
 )
@@ -388,6 +389,8 @@ def _backend() -> SimpleNamespace:
 
 def test_contract_and_tool_catalog_are_game_specific_and_scope_separated() -> None:
     contract = contract_payload()
+    assert contract["server_name"] == "azurpilot-game"
+    assert contract["server_version"] == SERVER_VERSION == "1.0.0"
     assert contract["game_mcp_api_version"] == 1
     assert {
         "ready",
@@ -1837,7 +1840,10 @@ def test_stdio_entrypoint_exposes_game_contract_and_tools() -> None:
                 stdio_client(parameters) as (read_stream, write_stream),
                 ClientSession(read_stream, write_stream) as session,
             ):
-                await session.initialize()
+                initialized = await session.initialize()
+                assert initialized.server_info is not None
+                assert initialized.server_info.name == "azurpilot-game"
+                assert initialized.server_info.version == SERVER_VERSION
                 assert (await session.list_tools()).tools[0].name == "game_get_contract"
                 result = await session.call_tool("game_get_contract", {})
                 assert result.structured_content["code"] == "GAME_MCP_CONTRACT_READY"

@@ -2,7 +2,9 @@
   "contract_schema_version": 1,
   "product_family": "AzurPilot",
   "plugin_version": "0.1.0+codex.20260903132550",
-  "dev_mcp_api_version": 3,
+  "required_mcp_servers": {
+    "azurpilot-dev": ">=3.0.0,<4.0.0"
+  },
   "smoke_spec_schema_version": 2,
   "smoke_result_schema_version": 2,
   "required_feature_flags": {
