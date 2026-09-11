@@ -19,8 +19,8 @@ class CoalitionScuttleCombat(CoalitionCombat):
     """联盟沉船战斗结算处理，优先识别沉船专用结算按钮并处理确认弹窗。"""
 
     triggered_normal_end = False
-    _is_shipwreck = False  # 当前战斗是否为沉船D评价
-    _is_s_rank = False  # 当前战斗是否为S评价
+    _is_shipwreck = False  # Является ли текущий бой затоплением с оценкой D
+    _is_s_rank = False  # Получена ли в текущем бою оценка S
 
     def auto_search_combat_execute(self, emotion_reduce=True, fleet_index=1, expected_end=None):
         """
@@ -43,8 +43,8 @@ class CoalitionScuttleCombat(CoalitionCombat):
         self.device.stuck_record_clear()
         self.device.click_record_clear()
 
-        # 联盟沉船仅在第一场战斗时扣减2心情（关卡进入代价）
-        # 后续战斗（2/3/4队）不再扣减，与游戏服务端行为一致
+        # При коалиционном затоплении снимаем 2 морали только в первом бою (стоимость входа на этап)
+        # В последующих боях (флоты 2/3/4) мораль не уменьшается, как и на стороне игрового сервера
         if emotion_reduce:
             self.emotion.reduce(fleet_index)
 
@@ -74,7 +74,7 @@ class CoalitionScuttleCombat(CoalitionCombat):
             if self.handle_mission_popup_ack():
                 continue
 
-            # 结束条件
+            # Условие завершения
             if self.is_in_auto_search_menu() or self._handle_auto_search_menu_missing():
                 self.device.screenshot_interval_set()
                 raise CampaignEnd
@@ -84,14 +84,14 @@ class CoalitionScuttleCombat(CoalitionCombat):
             if self.handle_get_ship():
                 continue
 
-            # D评价沉船：不额外扣减心情
+            # Затопление с оценкой D: дополнительно мораль не уменьшаем
             if self.appear_then_click(OPTS_INFO_D, offset=(30, 30), interval=2):
                 self._withdraw = True
                 self._is_shipwreck = True
                 break
-            # D评价结算界面：S/A/B评价的动画过渡帧可能短暂误匹配D评价模板，
-            # 但只有真正的沉船才会出现OPTS_INFO_D弹窗。
-            # 此处不设置沉船标记（未经过OPTS_INFO_D确认），让后续S/A/B条件覆盖。
+            # На экране результатов с оценкой D переходные кадры анимации S/A/B могут кратковременно ошибочно совпасть с шаблоном D,
+            # но только при настоящем затоплении появляется окно OPTS_INFO_D.
+            # Поэтому здесь не выставляем признак затопления без подтверждения через OPTS_INFO_D, чтобы последующие условия S/A/B могли его переопределить.
             if self.appear(BATTLE_STATUS_D) or self.appear(EXP_INFO_D):
                 break
             if confirm_timer.reached():
@@ -101,13 +101,13 @@ class CoalitionScuttleCombat(CoalitionCombat):
                 confirm_timer.reset()
                 break
 
-            # A/B/S评价：联盟沉船中不额外扣减心情
-            # 游戏服务端只在整个关卡进入时扣1次2点，不按战斗结算类型扣减
+            # Оценка A/B/S: при коалиционном затоплении дополнительно мораль не уменьшаем
+            # Игровой сервер снимает 2 морали только один раз при входе на этап, а не при каждом внутреннем результате боя
             if self.appear(BATTLE_STATUS_A) or self.appear(BATTLE_STATUS_B) \
                     or self.appear(EXP_INFO_A) or self.appear(EXP_INFO_B):
                 break
 
-            # S评价或自动搜索运行中
+            # Оценка S или выполняется автоматический поиск
             if self.appear(BATTLE_STATUS_S) or self.appear(EXP_INFO_S) \
                     or self.is_auto_search_running():
                 self._is_s_rank = True
@@ -136,7 +136,7 @@ class CoalitionScuttleCombat(CoalitionCombat):
                 logger.hr(f'{self.FUNCTION_NAME_BASE}{self.battle_count}', level=2)
                 self._is_shipwreck = False
                 self._is_s_rank = False
-                # 仅第一场战斗扣减2心情（关卡进入代价），后续战斗不再扣减
+                # Только первый бой снимает 2 морали (стоимость входа на этап); последующие бои мораль не уменьшают
                 self.auto_search_combat_execute(
                     emotion_reduce=self.battle_count == 0,
                     fleet_index=1,
@@ -176,7 +176,7 @@ class CoalitionScuttleCombat(CoalitionCombat):
                 self.device.sleep((0.25, 0.5))
             self.device.click(OPTS_INFO_D)
             return True
-        # 沉船结算后的确认按钮
+        # Кнопка подтверждения после результатов затопления
         if self.appear_then_click(SCUTTLE_CONFIRM, offset=(20, 20), interval=2):
             return True
         if super().handle_battle_status(drop=drop):
@@ -238,7 +238,7 @@ class CoalitionScuttleCombat(CoalitionCombat):
             if self.appear_then_click(COALITION_REWARD_CONFIRM, offset=(20, 20), interval=2):
                 status_clicked = False
                 continue
-            # 沉船结算确认按钮
+            # Кнопка подтверждения результатов затопления
             if self.appear_then_click(SCUTTLE_CONFIRM, offset=(20, 20), interval=2):
                 continue
             if self.handle_get_ship():
@@ -287,7 +287,7 @@ class CoalitionScuttleRun(Coalition, CoalitionScuttleCombat):
         if stage == 'sp':
             self.config.override(Coalition_Fleet='multi')
 
-        # 联盟沉船：整个关卡只扣1次2点心情，不按内部战斗次数预估
+        # Коалиционное затопление: весь этап снимает только 2 морали один раз, независимо от числа внутренних боёв
         try:
             self.emotion.check_reduce(battle=1)
         except ScriptEnd:
@@ -341,38 +341,38 @@ class CoalitionScuttleRun(Coalition, CoalitionScuttleCombat):
         self.run_limit = self.config.StopCondition_RunCount
 
         while 1:
-            # 达到指定运行次数则结束
+            # Завершаем после достижения заданного числа запусков
             if total and self.run_count == total:
                 break
             if self.event_time_limit_triggered():
                 self.config.task_stop()
 
-            # 日志输出
+            # Вывод в лог
             logger.hr(f'Коалиция: {event}_{mode}', level=2)
             if self.config.StopCondition_RunCount > 0:
                 logger.info(f'Осталось запусков: {self.config.StopCondition_RunCount}')
             else:
                 logger.info(f'Счётчик: {self.run_count}')
 
-            # 无燃油图标时，先在战役菜单检查停止条件
+            # Если значка топлива нет, сначала проверяем условия остановки в меню кампании
             if not self._coalition_has_oil_icon:
                 from module.ui.page import page_campaign_menu
                 self.ui_goto(page_campaign_menu)
                 if self.triggered_stop_condition(oil_check=True, coin_check=True):
                     break
 
-            # 确保进入联盟页面
+            # Убеждаемся, что открыта страница коалиции
             self.device.stuck_record_clear()
             self.device.click_record_clear()
             self.ui_goto_coalition()
             self.disable_event_on_raid()
             self.coalition_ensure_mode(event, 'battle')
 
-            # 检查 PT 和金币停止条件
+            # Проверяем условия остановки по PT и монетам
             if self.triggered_stop_condition(pt_check=True, coin_check=True):
                 break
 
-            # 执行战斗
+            # Выполняем бой
             self.device.stuck_record_clear()
             self.device.click_record_clear()
             try:
@@ -382,21 +382,21 @@ class CoalitionScuttleRun(Coalition, CoalitionScuttleCombat):
                 logger.info(str(e))
                 break
 
-            # 战斗结束后更新计数
+            # После боя обновляем счётчики
             self.run_count += 1
             if self.config.StopCondition_RunCount:
                 self.config.StopCondition_RunCount -= 1
 
-            # SP关卡仅S评价视为已通过，延迟至服务器刷新
-            # A/B/C/D评价均视为未通过，继续出击
+            # На этапе SP только оценка S считается успешным прохождением и откладывает задачу до обновления сервера
+            # Оценки A/B/C/D считаются неудачными; продолжаем попытки
             if mode == 'sp' and self._is_s_rank and not self._is_shipwreck:
                 logger.info('SP пройден с оценкой S')
                 self.config.task_delay(server_update=True)
                 self.config.task_stop()
 
-            # 检查停止条件
+            # Проверяем условия остановки
             if self.triggered_stop_condition(pt_check=True, coin_check=True):
                 break
-            # 检查调度器是否切换了任务
+            # Проверяем, переключил ли планировщик задачу
             if self.config.task_switched():
                 self.config.task_stop()
