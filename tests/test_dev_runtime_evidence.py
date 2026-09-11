@@ -137,7 +137,11 @@ def test_v2_evidence_manifest_migrates_without_file_log_metadata(
     assert "legacy_observability_environment_unknown" in migrated["evidence_health"]["reasons"]
 
 
-def test_v2_evidence_migration_bounds_legacy_health_reason(tmp_path: Path) -> None:
+def test_v2_evidence_migration_bounds_legacy_health_reason(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OTEL_RESOURCE_ATTRIBUTES", raising=False)
     store = _store(tmp_path)
     manifest = json.loads(store.manifest_path.read_text(encoding="utf-8"))
     manifest["schema_version"] = 2

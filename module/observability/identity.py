@@ -23,6 +23,13 @@ class ObservabilityIdentity:
     deployment_environment: str
 
 
+def _is_reparse_point(path: Path) -> bool:
+    try:
+        return path.is_symlink() or bool(getattr(path, "is_junction", lambda: False)())
+    except OSError:
+        return True
+
+
 def _is_repository_root(candidate: Path) -> bool:
     return (candidate / "gui.py").is_file() and (candidate / "module").is_dir()
 
@@ -62,7 +69,7 @@ def _local_resource_attributes(repository_root: Path | None) -> str | None:
         return None
     env_path = repository_root / ".env"
     try:
-        if not env_path.is_file():
+        if _is_reparse_point(env_path) or not env_path.is_file():
             return None
         with env_path.open("rb") as stream:
             raw = stream.read(_MAX_ENV_BYTES + 1)

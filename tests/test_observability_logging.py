@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from opentelemetry.sdk._logs.export import InMemoryLogRecordExporter
 
 import module.observability.bootstrap as bootstrap_module
@@ -250,6 +251,23 @@ def test_resource_identity_is_shared_by_bootstrap_and_evidence_sources(
     assert resolve_observability_identity(repository_root=repository_root).deployment_environment == "local"
     for key in _OTEL_ENVIRONMENT_KEYS:
         monkeypatch.delenv(key, raising=False)
+
+
+def test_resource_identity_ignores_reparse_point_dotenv(tmp_path):
+    repository_root = tmp_path / "identity-repository"
+    (repository_root / "module").mkdir(parents=True)
+    (repository_root / "gui.py").write_text("", encoding="utf-8")
+    external_env = tmp_path / "external.env"
+    external_env.write_text(
+        "OTEL_RESOURCE_ATTRIBUTES=deployment.environment.name=external\n",
+        encoding="utf-8",
+    )
+    try:
+        (repository_root / ".env").symlink_to(external_env)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"symlink недоступен: {exc}")
+
+    assert resolve_observability_identity(repository_root=repository_root).deployment_environment == "local"
 
 
 def test_application_logging_disabled_flag_wins_over_endpoint(monkeypatch):

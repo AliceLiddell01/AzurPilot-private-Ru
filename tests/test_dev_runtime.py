@@ -104,7 +104,12 @@ class FakeProcessBackend:
         self.alive = False
         return True
 
-    def read_startup_failure(self, _pid: int) -> process_module.StartupFailureDiagnostics | None:
+    def read_startup_failure(
+        self,
+        _pid: int,
+        *,
+        close: bool = True,
+    ) -> process_module.StartupFailureDiagnostics | None:
         failure = self.startup_failure
         self.startup_failure = None
         return failure
@@ -734,6 +739,35 @@ def test_startup_stderr_capture_is_bounded_and_sanitized() -> None:
     assert len(diagnostics.message) <= process_module.MAX_SANITIZED_TEXT + 1
     assert "password=secret" not in diagnostics.message
     assert "C:\\private\\token.txt" not in diagnostics.message
+
+
+def test_startup_stderr_discard_keeps_live_pipe_draining() -> None:
+    class BlockingStream:
+        def __init__(self) -> None:
+            self.started = threading.Event()
+            self.released = threading.Event()
+            self.closed = False
+
+        def read(self, _size: int) -> bytes:
+            self.started.set()
+            self.released.wait(timeout=2)
+            if self.closed:
+                raise ValueError("stream closed")
+            return b""
+
+        def close(self) -> None:
+            self.closed = True
+            self.released.set()
+
+    stream = BlockingStream()
+    capture = process_module._StartupStderrCapture(stream)
+    try:
+        assert stream.started.wait(timeout=1)
+        capture.discard()
+        assert stream.closed is False
+    finally:
+        stream.released.set()
+        capture.close()
 
 
 def test_process_launch_keeps_stdout_discarded_and_stderr_bounded(

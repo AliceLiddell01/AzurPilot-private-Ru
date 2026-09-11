@@ -444,14 +444,22 @@ class DevSessionManager(DevDiagnosticsMixin):
         except Exception:
             active_store.mark_degraded("error_record_failed")
 
-    def _read_startup_failure(self, pid: int | None) -> dict[str, object] | None:
+    def _read_startup_failure(
+        self,
+        pid: int | None,
+        *,
+        close: bool = True,
+    ) -> dict[str, object] | None:
         if pid is None:
             return None
         reader = getattr(self.process_backend, "read_startup_failure", None)
         if not callable(reader):
             return None
         try:
-            diagnostics = reader(pid)
+            try:
+                diagnostics = reader(pid, close=close)
+            except TypeError:
+                diagnostics = reader(pid)
         except Exception:
             return None
         if not isinstance(diagnostics, StartupFailureDiagnostics):
@@ -2614,7 +2622,10 @@ class DevSessionManager(DevDiagnosticsMixin):
                             process_cleanup_confirmed = self.process_backend.force_stop(identity)
                         else:
                             process_cleanup_confirmed = False
-                    startup_failure = self._read_startup_failure(pid)
+                    startup_failure = self._read_startup_failure(
+                        pid,
+                        close=process_cleanup_confirmed,
+                    )
                     failure_code = "DEV_LAUNCH_FAILED"
                     session.state = DevSessionState.FAILED
                     session.updated_at = self._timestamp()
@@ -2707,7 +2718,8 @@ class DevSessionManager(DevDiagnosticsMixin):
                 )
                 cleanup = self._stop_owned_process(latest.process)
                 startup_failure = self._read_startup_failure(
-                    latest.process.pid if latest.process is not None else None
+                    latest.process.pid if latest.process is not None else None,
+                    close=cleanup,
                 )
                 latest.state = DevSessionState.FAILED
                 latest.updated_at = self._timestamp()
