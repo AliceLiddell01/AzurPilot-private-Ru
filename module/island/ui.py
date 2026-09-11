@@ -202,7 +202,7 @@ class IslandUI(UI):
         return False
 
     def ui_additional(self, get_ship=True):
-        # 处理宿舍菜单页面的通知弹窗
+        # Обрабатываем всплывающее уведомление на странице меню общежития
         if self.appear(MAINTENANCE_ANNOUNCE, offset=(100, 50)):
             for _ in self.loop():
                 enabled = self.image_color_count(
@@ -218,7 +218,7 @@ class IslandUI(UI):
             self.appear_then_click(MAINTENANCE_ANNOUNCE, offset=(100, 50), interval=2)
             return True
         
-        # 处理岛屿页面的信息弹窗
+        # Обрабатываем информационное всплывающее окно на странице Острова
         if self.appear_then_click(ISLAND_INFO_EXIT, offset=(30, 30), interval=3):
             return True
 
