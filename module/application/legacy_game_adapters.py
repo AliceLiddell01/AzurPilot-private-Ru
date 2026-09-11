@@ -11,15 +11,16 @@ import re
 import shutil
 import subprocess
 from collections.abc import Callable, Mapping, Sequence
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime, timedelta
 from io import BytesIO
 from math import isfinite
 from pathlib import Path
 from threading import Lock
 from time import monotonic, sleep
-from typing import NamedTuple
+from typing import NamedTuple, NoReturn
 
 from module.application.errors import (
+    ApplicationError,
     OperationFailedError,
     OwnershipAmbiguousError,
     PostconditionFailedError,
@@ -27,6 +28,7 @@ from module.application.errors import (
 )
 from module.application.game_models import (
     ConfigUpdateRequest,
+    CurrentTaskSnapshot,
     DashboardResources,
     GameApplicationState,
     GameLoginState,
@@ -35,16 +37,34 @@ from module.application.game_models import (
     thaw_payload,
 )
 from module.application.game_ports import GameConfigMetadata
-from module.application.game_validation import (
-    INVALID_NAME_CHARS,
-    MAX_NAME_LENGTH,
-    UNKNOWN_TASK,
-)
+from module.application.game_validation import INVALID_NAME_CHARS, MAX_NAME_LENGTH
 from module.application.host_lock import (
     application_host_lock,
     ensure_host_runtime_root,
     host_scoped_lock_path,
 )
+from module.application.runtime_control import (
+    RuntimeControlError,
+    RuntimeControlOperation,
+    RuntimeControlResult,
+    RuntimeOwnerIdentity,
+    SharedWebUIBootstrapper,
+    WebUIControlClient,
+)
+from module.application.runtime_execution import (
+    RuntimeExecutionReader,
+    RuntimeStateReader,
+    WorkerIdentityEvidence,
+    WorkerIdentityReader,
+    WorkerIdentityStatus,
+)
+from module.application.runtime_state import RuntimeStateStore
+from module.application.scheduler_runtime import (
+    SchedulerRuntimeStateReader,
+    scheduler_entry_sort_key,
+)
+from module.config.profile import profile_identity_from_name
+from module.observability.incident import incident_directory_time_key
 
 _MAX_LOG_LINES = 10_000
 _MAX_LOG_BYTES = 2 * 1024 * 1024
@@ -58,7 +78,6 @@ _ADB_PATH_CANDIDATES = (
     Path("bin/adb/adb.exe"),
     Path("bin/adb/adb"),
 )
-_SCHEDULER_FALLBACK_NEXT_RUN = datetime.fromisoformat("2050-01-01")
 _ADB_DEVICE_STATES = frozenset({"device", "offline", "unauthorized"})
 _GAME_PACKAGE_RE = re.compile(
     r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$"
@@ -92,10 +111,26 @@ _ADB_RESTART_READY_MAX_ATTEMPTS = 60
 _EMULATOR_STATE_TIMEOUT_SECONDS = 5.0
 _EMULATOR_STATE_RETRY_INTERVAL_SECONDS = 0.1
 _EMULATOR_STATE_MAX_ATTEMPTS = 60
-_TASK_LOG_PATTERNS = (
-    re.compile(r"调度器: 开始任务\s*[`'\" ](.*?)[`'\" ]"),
-    re.compile(r"<<<\s*Run task\s*(.*?)\s*>>>")
-)
+def _handover_operation_failure(
+    message: str,
+    cause: BaseException,
+    *,
+    step: str,
+) -> OperationFailedError:
+    """Сохранить ограниченную причину generic handover failure для control-plane."""
+
+    error = OperationFailedError(message)
+    error.handover_step = step
+    error.cause_type = type(cause).__name__
+    try:
+        cause_message = str(cause).strip()
+    except Exception:  # noqa: BLE001 - диагностический текст не должен менять fail-closed путь.
+        cause_message = ""
+    if cause_message:
+        error.cause_message = cause_message[:512]
+    if isinstance(cause, ApplicationError):
+        error.cause_code = str(getattr(cause, "code", "application_error"))
+    return error
 
 
 def _adb_host_lock(server_identity: str | None = None):
@@ -116,17 +151,9 @@ class _AdbDevice(NamedTuple):
 
 
 def _scheduler_sort_key(entry: SchedulerEntry) -> tuple[int, float, str]:
-    """Упорядочить datetime по абсолютному времени, fallback — по тексту."""
+    """Использовать общий ключ сортировки raw и legacy scheduler readers."""
 
-    value = entry.next_run
-    if isinstance(value, datetime):
-        moment = (
-            value.astimezone(UTC)
-            if value.tzinfo is not None
-            else value.replace(tzinfo=UTC)
-        )
-        return (0, moment.timestamp(), "")
-    return (1, 0.0, str(value))
+    return scheduler_entry_sort_key(entry)
 
 
 def legacy_current_time() -> datetime:
@@ -139,15 +166,17 @@ def legacy_current_time() -> datetime:
 def _safe_instance_name(value: object) -> str:
     if not isinstance(value, str):
         raise TypeError("instance должен быть строкой")
-    value = value.strip()
-    if (
-        not value
-        or value in {".", ".."}
-        or len(value) > MAX_NAME_LENGTH
-        or any(char in INVALID_NAME_CHARS for char in value)
-    ):
+    normalized = value.strip()
+    identity = profile_identity_from_name(normalized)
+    if identity is None:
         raise ValueError("instance содержит недопустимое значение")
-    return value
+    return identity.name
+
+
+def _is_reparse_point(path: Path) -> bool:
+    return path.is_symlink() or (
+        hasattr(path, "is_junction") and path.is_junction()
+    )
 
 
 def _safe_segment(value: object) -> str:
@@ -322,10 +351,17 @@ class LegacyConfigAdapter:
         *,
         config_factory: Callable[[str], object] | None = None,
         updater_factory: Callable[[], object] | None = None,
+        scheduler_state_reader: SchedulerRuntimeStateReader | None = None,
+        repository_root: Path | None = None,
     ) -> None:
         self._metadata = metadata
         self._config_factory = config_factory
         self._updater_factory = updater_factory
+        self._scheduler_state_reader = scheduler_state_reader or (
+            SchedulerRuntimeStateReader(repository_root or _REPOSITORY_ROOT)
+            if config_factory is None and updater_factory is None
+            else None
+        )
 
     def read_config(
         self,
@@ -354,6 +390,11 @@ class LegacyConfigAdapter:
         instance: str,
         schedulable_tasks: Sequence[str],
     ) -> tuple[SchedulerEntry, ...]:
+        if self._scheduler_state_reader is not None:
+            return self._scheduler_state_reader.read_queue(
+                _safe_instance_name(instance),
+                schedulable_tasks,
+            )
         data = self.read_config(instance)
         entries = []
         for task in schedulable_tasks:
@@ -362,9 +403,22 @@ class LegacyConfigAdapter:
             if not isinstance(raw_task, Mapping):
                 continue
             scheduler = raw_task.get("Scheduler")
-            if not isinstance(scheduler, Mapping) or scheduler.get("Enable") is not True:
+            if scheduler is None:
                 continue
-            next_run = scheduler.get("NextRun", _SCHEDULER_FALLBACK_NEXT_RUN)
+            if not isinstance(scheduler, Mapping):
+                raise ValueError(  # noqa: TRY004 - сохраняем legacy adapter contract.
+                    f"Scheduler state задачи {task} имеет неверный тип"
+                )
+            if "Enable" not in scheduler or type(scheduler["Enable"]) is not bool:
+                raise ValueError(f"Scheduler.Enable задачи {task} отсутствует или имеет неверный тип")
+            enabled = scheduler["Enable"]
+            if "NextRun" not in scheduler:
+                if enabled is not True:
+                    continue
+                raise ValueError(f"Scheduler.NextRun задачи {task} отсутствует")
+            if enabled is not True:
+                continue
+            next_run = scheduler["NextRun"]
             entries.append(SchedulerEntry(task=task, next_run=next_run))
         return tuple(sorted(entries, key=_scheduler_sort_key))
 
@@ -469,7 +523,7 @@ class LegacyConfigAdapter:
 
 
 class LegacyRuntimeLogAdapter:
-    """Безопасный bounded reader файлов runtime-журнала."""
+    """Безопасный bounded reader incident fallback и старых runtime-журналов."""
 
     def __init__(
         self,
@@ -488,32 +542,18 @@ class LegacyRuntimeLogAdapter:
         path = self._find_log_file(instance)
         return self._read_bounded_tail(path, limit)
 
-    def read_current_task(self, instance: str) -> str:
-        try:
-            for window in (500, _MAX_LOG_LINES):
-                lines = self.read_tail(instance, window)
-                for line in reversed(lines):
-                    for pattern in _TASK_LOG_PATTERNS:
-                        match = pattern.search(line)
-                        if match:
-                            candidate = match.group(1).strip(" `'\"")
-                            if candidate:
-                                return candidate
-                            break
-                if len(lines) < window:
-                    break
-        except FileNotFoundError:
-            return UNKNOWN_TASK
-        return UNKNOWN_TASK
-
     def _find_log_file(self, instance: str) -> Path:
         instance = _safe_instance_name(instance)
+        incident_path = self._find_incident_log_file(instance)
+        if incident_path is not None:
+            return incident_path
         current_date = self._date_provider()
         if not isinstance(current_date, date):
             raise TypeError("date_provider вернул не date")
         date_prefix = current_date.strftime("%Y-%m-%d")
         previous_prefix = (current_date - timedelta(days=1)).strftime("%Y-%m-%d")
         candidates = (
+            self._safe_candidate(f"{instance}.txt"),
             self._safe_candidate(f"{date_prefix}_{instance}.txt"),
             self._safe_candidate(f"{previous_prefix}_{instance}.txt"),
         )
@@ -521,6 +561,38 @@ class LegacyRuntimeLogAdapter:
             if candidate.is_file():
                 return candidate
         raise FileNotFoundError
+
+    def _find_incident_log_file(self, instance: str) -> Path | None:
+        root = self._log_root
+        if _is_reparse_point(root):
+            raise ValueError("log root не должен быть ссылкой")
+        error_root = root / "error"
+        if not error_root.exists():
+            return None
+        if _is_reparse_point(error_root):
+            raise ValueError("каталог incident-ов не должен быть ссылкой")
+        profile_root = error_root / instance
+        if not profile_root.exists():
+            return None
+        if _is_reparse_point(profile_root):
+            raise ValueError("каталог profile incident-ов не должен быть ссылкой")
+        candidates: list[tuple[tuple[int, int], Path]] = []
+        try:
+            folders = tuple(profile_root.iterdir())
+        except OSError:
+            return None
+        for folder in folders:
+            if not folder.is_dir() or _is_reparse_point(folder):
+                continue
+            time_key = incident_directory_time_key(folder.name)
+            if time_key is None:
+                continue
+            log_path = folder / "log.txt"
+            if log_path.is_file() and not _is_reparse_point(log_path):
+                candidates.append((time_key, log_path))
+        if not candidates:
+            return None
+        return max(candidates, key=lambda item: item[0])[1]
 
     @staticmethod
     def _read_bounded_tail(path: Path, limit: int) -> tuple[str, ...]:
@@ -547,20 +619,82 @@ class LegacyRuntimeLogAdapter:
 
     def _safe_candidate(self, filename: str) -> Path:
         root = self._log_root
-        if root.is_symlink() or (
-            hasattr(root, "is_junction") and root.is_junction()
-        ):
+        if _is_reparse_point(root):
             raise ValueError("log root не должен быть ссылкой")
         resolved_root = root.resolve(strict=False)
         candidate = root / filename
-        if candidate.is_symlink() or (
-            hasattr(candidate, "is_junction") and candidate.is_junction()
-        ):
+        if _is_reparse_point(candidate):
             raise ValueError("файл журнала не должен быть ссылкой")
         resolved = candidate.resolve(strict=False)
         if resolved.parent != resolved_root:
             raise ValueError("файл журнала находится вне разрешённого root")
         return candidate
+
+
+class LegacyWorkerIdentityReader:
+    """Проверить точную identity worker через существующий owner registry."""
+
+    def read_worker_identity(self, profile: str) -> WorkerIdentityEvidence:
+        try:
+            from module.webui import worker_registry
+
+            record = worker_registry.get_worker_read_only(profile)
+        except Exception:  # noqa: BLE001 - runtime reader обязан закрыть ошибку.
+            return WorkerIdentityEvidence(WorkerIdentityStatus.UNKNOWN)
+        if record is None:
+            return WorkerIdentityEvidence(WorkerIdentityStatus.ABSENT)
+        if not isinstance(record, dict):
+            return WorkerIdentityEvidence(WorkerIdentityStatus.UNKNOWN)
+        try:
+            matches = worker_registry.process_matches(record)
+            pid = record["pid"]
+            created_at = record["created_at"]
+            if matches is not True:
+                return WorkerIdentityEvidence(WorkerIdentityStatus.UNKNOWN)
+            if (
+                isinstance(pid, bool)
+                or not isinstance(pid, int)
+                or pid <= 0
+                or isinstance(created_at, bool)
+                or not isinstance(created_at, (int, float))
+                or created_at <= 0
+                or not isfinite(float(created_at))
+            ):
+                return WorkerIdentityEvidence(WorkerIdentityStatus.UNKNOWN)
+        except (KeyError, TypeError, ValueError, OverflowError, RuntimeError):
+            return WorkerIdentityEvidence(WorkerIdentityStatus.UNKNOWN)
+        return WorkerIdentityEvidence(
+            WorkerIdentityStatus.VERIFIED,
+            pid=pid,
+            created_at=float(created_at),
+        )
+
+
+class LegacyRuntimeExecutionReader:
+    """Собрать reader подтверждённого выполнения из state store и owner registry."""
+
+    def __init__(
+        self,
+        repository_root: Path | str | None = None,
+        *,
+        state_store: RuntimeStateReader | None = None,
+        worker_identity_reader: WorkerIdentityReader | None = None,
+    ) -> None:
+        if state_store is None and repository_root is None:
+            raise ValueError("Требуется repository_root или state_store")
+        if state_store is not None and repository_root is not None:
+            raise ValueError("repository_root нельзя совмещать с state_store")
+        self._reader = RuntimeExecutionReader(
+            state_store
+            if state_store is not None
+            else RuntimeStateStore(repository_root),
+            worker_identity_reader
+            if worker_identity_reader is not None
+            else LegacyWorkerIdentityReader(),
+        )
+
+    def read_current_task(self, profile: str) -> CurrentTaskSnapshot:
+        return self._reader.read_current_task(profile)
 
 
 class LegacyScreenshotAdapter:
@@ -862,6 +996,116 @@ class LegacyGameApplicationAdapter:
                     if callable(release_resource):
                         release_resource()
 
+    def return_to_main(self, instance: str) -> bool:
+        """Вернуть уже запущенную игру на главный экран через существующий UI flow."""
+
+        instance = _safe_instance_name(instance)
+        device: object | None = None
+        step = "config"
+        with _adb_host_lock():
+            try:
+                config = self._make_config(instance)
+                step = "device"
+                device = self._device_factory(config)
+                step = "initial_screenshot"
+                screenshot = getattr(device, "screenshot", None)
+                if not callable(screenshot):
+                    raise OperationFailedError(
+                        "Device owner не предоставил свежий screenshot для handover."
+                    )
+                screenshot()
+                step = "ui"
+                ui = self._ui_factory(config, device)
+                is_in_main = getattr(ui, "is_in_main", None)
+                goto_main = getattr(ui, "ui_goto_main", None)
+                if not callable(is_in_main) or not callable(goto_main):
+                    raise OperationFailedError(
+                        "UI owner не предоставил существующие ui_goto_main/is_in_main."
+                    )
+                step = "main_check_before_navigation"
+                current = is_in_main()
+                if type(current) is not bool:
+                    raise OperationFailedError(
+                        "UI owner вернул некорректное состояние главного экрана."
+                    )
+                if current is not True:
+                    step = "goto_main"
+                    goto_main()
+                    step = "post_navigation_screenshot"
+                    screenshot()
+                step = "main_check_after_navigation"
+                confirmed = is_in_main()
+                if type(confirmed) is not bool:
+                    raise OperationFailedError(
+                        "UI owner вернул некорректное состояние главного экрана."
+                    )
+                if confirmed is not True:
+                    raise PostconditionFailedError(
+                        "UI не подтвердил главный экран после handover."
+                    )
+                return True
+            except ApplicationError as exc:
+                exc.handover_step = step
+                raise
+            except Exception as exc:  # noqa: BLE001 - handover boundary fails closed.
+                raise _handover_operation_failure(
+                    "Не удалось вернуть игру на главный экран через существующий UI flow.",
+                    exc,
+                    step=step,
+                ) from None
+            finally:
+                if device is not None:
+                    release_resource = getattr(device, "release_resource", None)
+                    if callable(release_resource):
+                        release_resource()
+
+    def is_in_main(self, instance: str) -> bool:
+        """Получить свежую authoritative проверку текущего главного экрана."""
+
+        instance = _safe_instance_name(instance)
+        device: object | None = None
+        step = "config"
+        with _adb_host_lock():
+            try:
+                config = self._make_config(instance)
+                step = "device"
+                device = self._device_factory(config)
+                step = "screenshot"
+                screenshot = getattr(device, "screenshot", None)
+                if not callable(screenshot):
+                    raise OperationFailedError(
+                        "Device owner не предоставил свежий screenshot для main check."
+                    )
+                screenshot()
+                step = "ui"
+                ui = self._ui_factory(config, device)
+                method = getattr(ui, "is_in_main", None)
+                if not callable(method):
+                    raise OperationFailedError(
+                        "UI owner не предоставил authoritative main check."
+                    )
+                step = "main_check"
+                result = method()
+                if type(result) is not bool:
+                    raise OperationFailedError(
+                        "UI owner вернул некорректное состояние главного экрана."
+                    )
+                return result
+            except ApplicationError as exc:
+                exc.handover_step = step
+                raise
+            except Exception as exc:  # noqa: BLE001 - main check fails closed.
+                raise _handover_operation_failure(
+                    "Не удалось подтвердить главный экран через существующий UI flow.",
+                    exc,
+                    step=step,
+                ) from None
+            finally:
+                if device is not None:
+                    release_resource = getattr(device, "release_resource", None)
+                    if callable(release_resource):
+                        release_resource()
+
     def _read_state(self, instance: str) -> GameApplicationState:
         app, package = self._make_app_control(instance, include_package=True)
         foreground: bool | None
@@ -1110,39 +1354,206 @@ class LegacyProcessManagerAdapter:
         *,
         manager_factory: Callable[[str], object] | None = None,
         function_factory: Callable[[str], str] | None = None,
+        repository_root: Path | str | None = None,
+        control_client: WebUIControlClient | None = None,
+        operation_id: str | None = None,
+        session_id: str | None = None,
     ) -> None:
         self._manager_factory = manager_factory
         self._function_factory = function_factory
+        self._repository_root = Path(repository_root or _REPOSITORY_ROOT).resolve()
+        self._operation_id = operation_id
+        self._session_id = session_id
+        self._control_client = control_client
 
     def is_running(self, instance: str) -> bool:
-        manager = self._manager(instance)
-        value = manager.alive
-        if type(value) is not bool:
-            raise TypeError("ProcessManager.alive должен быть bool")
-        return value
+        instance = _safe_instance_name(instance)
+        if self._manager_factory is not None:
+            manager = self._manager(instance)
+            value = manager.alive
+            if type(value) is not bool:
+                raise TypeError("ProcessManager.alive должен быть bool")
+            return value
+        from module.webui import worker_registry
+
+        try:
+            record = worker_registry.get_worker_read_only(instance)
+        except RuntimeError as exc:
+            raise OwnershipAmbiguousError(
+                "Нельзя подтвердить registry worker без риска скрыть неизвестное состояние."
+            ) from exc
+        if record is None:
+            return False
+        try:
+            matches = worker_registry.process_matches(record)
+        except RuntimeError as exc:
+            raise OwnershipAmbiguousError(
+                "Нельзя подтвердить identity worker без риска PID reuse."
+            ) from exc
+        if matches is None:
+            return False
+        if matches is not True:
+            raise OwnershipAmbiguousError(
+                "Запись worker указывает на другой процесс; lifecycle отклонён."
+            )
+        return True
 
     def start_instance(self, instance: str) -> bool:
         instance = _safe_instance_name(instance)
-        manager = self._manager(instance)
-        function = self._function_factory(instance) if self._function_factory else self._default_function(instance)
-        manager.start(func=function)  # type: ignore[attr-defined]
+        session_id = self._session_id_value()
+        if self._manager_factory is not None:
+            manager = self._manager(instance)
+            function = self._function_factory(instance) if self._function_factory else self._default_function(instance)
+            manager.start(  # type: ignore[attr-defined]
+                func=function,
+                operation_id=self._operation_id or os.environ.get("AZURPILOT_RUNTIME_OPERATION_ID"),
+                session_id=session_id,
+            )
+            return self.is_running(instance)
+        try:
+            result = self._control().call(
+                RuntimeControlOperation.START_PROFILE,
+                instance,
+                session_id=session_id,
+            )
+        except RuntimeControlError as exc:
+            self._raise_for_code(exc.code, str(exc), operation="запуска")
+        self._raise_for_result(result, operation="запуска")
         return self.is_running(instance)
 
     def stop_instance(self, instance: str) -> bool:
         instance = _safe_instance_name(instance)
-        manager = self._manager(instance)
-        stopped = manager.stop()  # type: ignore[attr-defined]
-        if type(stopped) is not bool:
-            raise TypeError("ProcessManager.stop должен вернуть bool")
-        return stopped and not self.is_running(instance)
+        session_id = self._session_id_value()
+        if self._manager_factory is not None:
+            manager = self._manager(instance)
+            stopped = manager.stop()  # type: ignore[attr-defined]
+            if type(stopped) is not bool:
+                raise TypeError("ProcessManager.stop должен вернуть bool")
+            return stopped and not self.is_running(instance)
+        try:
+            result = self._control().call(
+                RuntimeControlOperation.STOP_PROFILE,
+                instance,
+                session_id=session_id,
+            )
+        except RuntimeControlError as exc:
+            self._raise_for_code(exc.code, str(exc), operation="остановки")
+        self._raise_for_result(result, operation="остановки")
+        return not self.is_running(instance)
+
+    def _session_id_value(self) -> str | None:
+        return self._session_id or os.environ.get("AZURPILOT_DEV_SESSION_ID")
+
+    @property
+    def lifecycle_mutation_lock_owned_externally(self) -> bool:
+        """Вернуть, передаёт ли lifecycle mutation внешнему WebUI owner."""
+
+        return self._manager_factory is None
+
+    def _control(self) -> WebUIControlClient:
+        if self._control_client is None:
+            owner_reader = self._owner_reader
+            owner_matches = self._owner_matches
+            bootstrapper = SharedWebUIBootstrapper(
+                self._repository_root,
+                owner_reader=owner_reader,
+                owner_matches=owner_matches,
+            )
+            self._control_client = WebUIControlClient(
+                self._repository_root,
+                owner_reader=owner_reader,
+                owner_matches=owner_matches,
+                bootstrapper=bootstrapper,
+            )
+        return self._control_client
+
+    @staticmethod
+    def _owner_reader() -> RuntimeOwnerIdentity | None:
+        from module.webui.worker_registry import get_owner_record_read_only
+
+        record = get_owner_record_read_only()
+        return None if record is None else RuntimeOwnerIdentity.from_value(record)
+
+    @staticmethod
+    def _owner_matches(owner: RuntimeOwnerIdentity) -> bool:
+        from module.webui.worker_registry import process_matches
+
+        try:
+            return process_matches(owner.as_dict()) is True
+        except RuntimeError:
+            return False
+
+    @staticmethod
+    def _raise_for_result(result: RuntimeControlResult, *, operation: str) -> None:
+        if result.ok:
+            return
+        try:
+            LegacyProcessManagerAdapter._raise_for_code(
+                result.code,
+                result.message,
+                operation=operation,
+            )
+        except OperationFailedError as error:
+            # Сохранить typed control-plane cause до public Game MCP boundary.
+            # Transport adapter решит, какие из этих bounded details можно
+            # показать оператору.
+            error.runtime_code = result.code
+            error.runtime_message = result.message
+            error.runtime_details = dict(result.details)
+            raise
+
+    @staticmethod
+    def _raise_for_code(code: str, message: str, *, operation: str) -> NoReturn:
+        if code in {
+            "RUNTIME_OWNER_UNAVAILABLE",
+            "RUNTIME_OWNER_STALE",
+            "RUNTIME_OWNER_CHANGED",
+            "RUNTIME_OWNER_UNKNOWN",
+            "RUNTIME_OWNERSHIP_MISMATCH",
+        }:
+            raise OwnershipAmbiguousError(message)
+        if code in {
+            "RUNTIME_RESOURCE_BUSY",
+            "RUNTIME_OPERATION_BUSY",
+            "RUNTIME_RESOURCE_LEASE_UNAVAILABLE",
+        }:
+            from module.application.errors import ResourceBusyError
+
+            raise ResourceBusyError(message)
+        if code in {
+            "RUNTIME_PROFILE_INVALID",
+            "RUNTIME_PRECONDITION_FAILED",
+            "RUNTIME_HANDOVER_NOTIFICATION_FAILED",
+            "RUNTIME_HANDOVER_QUIESCE_FAILED",
+            "RUNTIME_HANDOVER_TIMEOUT",
+            "RUNTIME_HANDOVER_MAIN_FAILED",
+            "RUNTIME_HANDOVER_MAIN_UNCONFIRMED",
+            "RUNTIME_HANDOVER_STATE_UNKNOWN",
+            "RUNTIME_HANDOVER_STATE_STALE",
+            "RUNTIME_STATE_UNKNOWN",
+            "RUNTIME_STATE_SCHEMA_MISMATCH",
+            "RUNTIME_STATE_CORRUPT",
+            "RUNTIME_STATE_RECONCILIATION_REQUIRED",
+            "RUNTIME_STATE_UNREADABLE",
+            "RUNTIME_STATE_TOO_LARGE",
+            "RUNTIME_SESSION_REQUIRED",
+            "RUNTIME_CONTROL_EXPIRED",
+        }:
+            raise PreconditionFailedError(message)
+        if code in {"RUNTIME_POSTCONDITION_FAILED", "RUNTIME_START_UNCONFIRMED", "RUNTIME_STOP_UNCONFIRMED"}:
+            raise PostconditionFailedError(message)
+        if code.startswith("RUNTIME_"):
+            raise OperationFailedError(f"Не удалось выполнить операцию {operation}: {code}: {message}")
+        raise OperationFailedError(f"Не удалось выполнить операцию {operation}: {code}: {message}")
 
     def _manager(self, instance: str) -> object:
         instance = _safe_instance_name(instance)
-        if self._manager_factory is not None:
-            return self._manager_factory(instance)
-        from module.webui.process_manager import ProcessManager
-
-        return ProcessManager.get_manager(instance)
+        manager_factory = self._manager_factory
+        if manager_factory is None:
+            raise PreconditionFailedError(
+                "Стандартный ProcessManager недоступен вне процесса WebUI owner"
+            )
+        return manager_factory(instance)
 
     @staticmethod
     def _default_function(instance: str) -> str:
@@ -1522,7 +1933,9 @@ __all__ = [
     "LegacyEmulatorAdapter",
     "LegacyGameApplicationAdapter",
     "LegacyProcessManagerAdapter",
+    "LegacyRuntimeExecutionReader",
     "LegacyRuntimeLogAdapter",
     "LegacyScreenshotAdapter",
+    "LegacyWorkerIdentityReader",
     "legacy_current_time",
 ]

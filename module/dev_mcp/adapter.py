@@ -119,6 +119,7 @@ _SAFE_DETAIL_KEYS = frozenset(
         "excluded_tasks",
         "field",
         "host",
+        "handover",
         "items",
         "lifecycle",
         "lifecycle_marked_cleanup_pending",
@@ -398,6 +399,26 @@ _SAFE_TASK_PLAN_KEYS = frozenset(
     {"root_tasks", "excluded_tasks", "catalog"}
 )
 _SAFE_ERROR_KEYS = frozenset({"type", "code", "message", "field", "tasks"})
+_SAFE_HANDOVER_KEYS = frozenset(
+    {"ok", "code", "message", "profile", "operation_id", "phases", "details"}
+)
+_SAFE_HANDOVER_DETAILS_KEYS = frozenset(
+    {
+        "busy",
+        "freshness",
+        "notification",
+        "grace_period",
+        "failed_phase",
+        "hook_error",
+        "handover_step",
+        "cause_type",
+        "cause_code",
+        "cause_message",
+        "cause",
+    }
+)
+_SAFE_HANDOVER_NOTIFICATION_KEYS = frozenset({"attempted", "outcome", "confirmed"})
+_SAFE_HANDOVER_GRACE_PERIOD_KEYS = frozenset({"expired"})
 
 _SAFE_EVIDENCE_HEALTH_KEYS = frozenset({"status", "reasons"})
 _SAFE_GIT_SNAPSHOT_KEYS = frozenset(
@@ -708,6 +729,10 @@ _SCHEMA_KEYS = {
     "smoke_schema": _SAFE_SMOKE_SCHEMA_KEYS,
     "smoke_capability": _SAFE_SMOKE_CAPABILITY_KEYS,
     "smoke_result": _SAFE_SMOKE_RESULT_KEYS,
+    "handover": _SAFE_HANDOVER_KEYS,
+    "handover_details": _SAFE_HANDOVER_DETAILS_KEYS,
+    "handover_notification": _SAFE_HANDOVER_NOTIFICATION_KEYS,
+    "handover_grace_period": _SAFE_HANDOVER_GRACE_PERIOD_KEYS,
     "runtime_target": _SAFE_RUNTIME_TARGET_KEYS,
     "runtime_emulator": _SAFE_RUNTIME_EMULATOR_KEYS,
     "runtime_adb": _SAFE_RUNTIME_ADB_KEYS,
@@ -770,6 +795,7 @@ _DETAIL_CHILD_SCHEMAS: dict[str, str | None] = {
     "git_snapshot": "git_snapshot",
     "head": "string",
     "health": "evidence_health",
+    "handover": "handover",
     "height": "int",
     "host": "string",
     "items": "log_items",
@@ -1002,6 +1028,37 @@ _ERROR_CHILD_SCHEMAS: dict[str, str | None] = {
     "message": "string",
     "field": "string",
     "tasks": "string_list",
+}
+
+_HANDOVER_CHILD_SCHEMAS: dict[str, str | None] = {
+    "ok": "bool",
+    "code": "string",
+    "message": "string",
+    "profile": "string",
+    "operation_id": "string",
+    "phases": "string_list",
+    "details": "handover_details",
+}
+_HANDOVER_DETAILS_CHILD_SCHEMAS: dict[str, str | None] = {
+    "busy": "bool",
+    "freshness": "string",
+    "notification": "handover_notification",
+    "grace_period": "handover_grace_period",
+    "failed_phase": "string",
+    "hook_error": "string",
+    "handover_step": "string",
+    "cause_type": "string",
+    "cause_code": "string",
+    "cause_message": "string",
+    "cause": "error",
+}
+_HANDOVER_NOTIFICATION_CHILD_SCHEMAS: dict[str, str | None] = {
+    "attempted": "bool",
+    "outcome": "string",
+    "confirmed": "bool",
+}
+_HANDOVER_GRACE_PERIOD_CHILD_SCHEMAS: dict[str, str | None] = {
+    "expired": "bool",
 }
 
 _EVIDENCE_SUMMARY_CHILD_SCHEMAS: dict[str, str | None] = {
@@ -1415,6 +1472,10 @@ _SCHEMA_CHILD_SCHEMAS = {
     "task_catalog": _TASK_CATALOG_CHILD_SCHEMAS,
     "task_plan": _TASK_PLAN_CHILD_SCHEMAS,
     "error": _ERROR_CHILD_SCHEMAS,
+    "handover": _HANDOVER_CHILD_SCHEMAS,
+    "handover_details": _HANDOVER_DETAILS_CHILD_SCHEMAS,
+    "handover_notification": _HANDOVER_NOTIFICATION_CHILD_SCHEMAS,
+    "handover_grace_period": _HANDOVER_GRACE_PERIOD_CHILD_SCHEMAS,
     "evidence_summary": _EVIDENCE_SUMMARY_CHILD_SCHEMAS,
     "evidence_health": _EVIDENCE_HEALTH_CHILD_SCHEMAS,
     "git_snapshot": _GIT_SNAPSHOT_CHILD_SCHEMAS,

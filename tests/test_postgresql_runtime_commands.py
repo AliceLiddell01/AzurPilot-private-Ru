@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -64,23 +64,207 @@ def test_backup_is_verified_and_published_create_only(
 
     with (
         patch.object(postgresql_runtime.shutil, "which", side_effect=["pg_dump", "pg_restore"]),
+        patch.object(
+            postgresql_runtime.DatabaseSettings,
+            "from_environment",
+            return_value=_settings("migrator-password", user="azurpilot_migrator"),
+        ),
         patch.object(postgresql_runtime, "_run_hidden", side_effect=run_hidden),
     ):
         postgresql_runtime._backup(
-            _settings("test-password"), output, "Archlinux", repository
+            _settings("test-password"),
+            output,
+            "Archlinux",
+            repository,
+            transport="native",
         )
 
     assert output.stat().st_size == 2048
     assert calls[0][0][0] == "pg_dump"
+    assert "azurpilot_migrator" in calls[0][0]
     assert "PGPASSWORD" not in calls[0][1]
     assert calls[0][1]["PGPASSFILE"] == "C:/secure/pgpass.conf"
     assert calls[1][0][:2] == ["pg_restore", "--list"]
+    assert calls[1][1] is not None
+    assert "PGPASSWORD" not in calls[1][1]
     assert not tuple(output.parent.glob("*.tmp"))
 
     with pytest.raises(RuntimeError, match="уже существует"):
         postgresql_runtime._backup(
-            _settings(), output, "Archlinux", repository
+            _settings(), output, "Archlinux", repository, transport="native"
         )
+
+
+def test_wsl_backup_formats_rollback_restore_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    output = tmp_path / "backups" / "rollback.dump"
+    calls: list[tuple[list[str], dict[str, str] | None]] = []
+    monkeypatch.setenv("AZURPILOT_WSL_PGPASSFILE", "/etc/azurpilot/pgpass")
+    monkeypatch.setattr(
+        postgresql_runtime,
+        "_wsl_path",
+        lambda _path: "/mnt/c/temporary/rollback.dump",
+    )
+
+    def run_hidden(
+        arguments: list[str],
+        *,
+        stdin: object = None,
+        stdout: object = None,
+        environment: dict[str, str] | None = None,
+    ) -> None:
+        del stdin
+        calls.append((arguments, environment))
+        if hasattr(stdout, "write"):
+            stdout.write(b"x" * 2048)
+
+    with (
+        patch.object(
+            postgresql_runtime.DatabaseSettings,
+            "from_environment",
+            return_value=_settings("migrator-password", user="azurpilot_migrator"),
+        ),
+        patch.object(postgresql_runtime, "_run_hidden", side_effect=run_hidden),
+    ):
+        postgresql_runtime._backup(
+            _settings("test-password"),
+            output,
+            "Archlinux",
+            repository,
+            transport="wsl",
+        )
+
+    assert output.stat().st_size == 2048
+    assert calls[0][0][0:4] == ["wsl.exe", "--distribution", "Archlinux", "--exec"]
+    assert calls[1][0][0:4] == ["wsl.exe", "--distribution", "Archlinux", "--exec"]
+    assert calls[0][0][calls[0][0].index("--username") + 1] == "azurpilot_migrator"
+    assert calls[1][0][-2] == "--list"
+    assert calls[1][0][-1] == "/mnt/c/temporary/rollback.dump"
+    assert "temporary-wsl" not in calls[1][0][-1]
+    assert calls[0][1] is not None
+    assert calls[1][1] is calls[0][1]
+    assert "PGPASSWORD" not in calls[0][1]
+
+
+def test_wsl_path_converts_windows_path():
+    assert (
+        postgresql_runtime._wsl_path(PureWindowsPath("C:/temporary/backup.dump"))
+        == "/mnt/c/temporary/backup.dump"
+    )
+
+
+def test_native_backup_does_not_fall_back_to_wsl(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    output = tmp_path / "backups" / "native.dump"
+    with (
+        patch.object(
+            postgresql_runtime.DatabaseSettings,
+            "from_environment",
+            return_value=_settings("migrator-password", user="azurpilot_migrator"),
+        ),
+        patch.object(postgresql_runtime.shutil, "which", return_value=None),
+        pytest.raises(RuntimeError, match="Native pg_dump"),
+    ):
+        postgresql_runtime._backup(
+            _settings("test-password"),
+            output,
+            "Archlinux",
+            repository,
+            transport="native",
+        )
+
+
+def test_docker_backup_requires_marker_endpoint(tmp_path: Path, monkeypatch):
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    monkeypatch.setattr(
+        postgresql_runtime,
+        "_compose_arguments",
+        lambda *_arguments: ["docker", "compose", "port"],
+    )
+    monkeypatch.setattr(
+        postgresql_runtime.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            returncode=0, stdout="127.0.0.1:5432\n", stderr=""
+        ),
+    )
+
+    postgresql_runtime._require_docker_endpoint(_settings(), repository)
+
+    monkeypatch.setattr(
+        postgresql_runtime.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            returncode=0, stdout="127.0.0.1:6543\n", stderr=""
+        ),
+    )
+    with pytest.raises(StorageConfigurationError, match="endpoint"):
+        postgresql_runtime._require_docker_endpoint(_settings(), repository)
+
+
+def test_docker_backup_uses_container_postgres_without_migrator_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    output = tmp_path / "backups" / "docker.dump"
+    calls: list[tuple[list[str], dict[str, str] | None]] = []
+
+    monkeypatch.setattr(
+        postgresql_runtime,
+        "_compose_arguments",
+        lambda _repository, *arguments: ["docker", "compose", *arguments],
+    )
+    monkeypatch.setattr(
+        postgresql_runtime.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            returncode=0, stdout="127.0.0.1:5432\n", stderr=""
+        ),
+    )
+
+    def run_hidden(
+        arguments: list[str],
+        *,
+        stdin: object = None,
+        stdout: object = None,
+        environment: dict[str, str] | None = None,
+    ) -> None:
+        del stdin
+        calls.append((arguments, environment))
+        if hasattr(stdout, "write"):
+            stdout.write(b"x" * 2048)
+
+    with (
+        patch.object(
+            postgresql_runtime.DatabaseSettings,
+            "from_environment",
+            side_effect=AssertionError("Docker backup не должен читать migrator settings"),
+        ),
+        patch.object(postgresql_runtime, "_run_hidden", side_effect=run_hidden),
+    ):
+        postgresql_runtime._backup(
+            _settings("test-password"),
+            output,
+            "Archlinux",
+            repository,
+            transport="docker",
+        )
+
+    assert output.stat().st_size == 2048
+    assert calls[0][0][0:3] == ["docker", "compose", "exec"]
+    assert "--user" in calls[0][0]
+    assert calls[0][0][calls[0][0].index("--user") + 1] == "postgres"
+    assert "--username" in calls[0][0]
+    assert calls[0][0][calls[0][0].index("--username") + 1] == "postgres"
+    assert not tuple(output.parent.glob("*.tmp"))
 
 
 def test_upgrade_removes_application_password_for_passwordless_migrator(monkeypatch):

@@ -33,23 +33,52 @@ Marketplace создаётся Plugin Creator в `.agents/plugins/marketplace.js
 активный skill через текущий Codex UI.
 
 Для ChatGPT public HTTPS используй внешний OAuth/OIDC provider и Caddy reverse
-proxy. Конфигурация и credentials хранятся вне репозитория. Сначала проверь
+proxy. Канонический Caddyfile хранится в репозитории, а runtime state и
+credentials — вне него. Сначала проверь
 локальный remote entrypoint:
 
 ```text
 uv run --locked --no-sync python -m module.dev_mcp.remote doctor
-uv run --locked --no-sync python -m module.dev_mcp.remote
-caddy validate --config docs/dev-mcp/Caddyfile
-caddy run --config docs/dev-mcp/Caddyfile
+uv run --locked --no-sync python -m module.game_mcp.remote doctor
 ```
 
-В подключённом ChatGPT-приложении укажи `https://<public-host>/mcp` в URL mode и
-выбери OAuth. Backend принимает только loopback, а наружу должны быть доступны
+Для ручного запуска backend используй отдельный постоянный терминал или службу
+для каждого процесса:
+
+```text
+uv run --locked --no-sync python -m module.dev_mcp.remote serve
+```
+
+```text
+uv run --locked --no-sync python -m module.game_mcp.remote serve
+```
+
+Обе команды блокируют свой терминал. В текущем Windows-развёртывании
+процессами Dev/Game MCP на стороне host уже владеет scheduled supervisor,
+поэтому второй экземпляр запускать не нужно.
+
+После готовности владельца backend-процессов на стороне host выполни
+Compose-проверки в отдельном терминале:
+
+```text
+docker compose --env-file .env --file infrastructure/observability/compose.yaml --profile remote-ingress config --quiet
+docker compose --env-file .env --file infrastructure/observability/compose.yaml --profile remote-ingress up --detach --wait caddy
+docker compose --env-file .env --file infrastructure/observability/compose.yaml --profile remote-ingress exec caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+uv run --locked --no-sync python -m dev_tools.infrastructure_doctor --repository-root . doctor
+uv run --locked --no-sync python -m dev_tools.infrastructure_doctor --repository-root . probe
+```
+
+В подключённом ChatGPT-приложении укажи `https://<dev-public-host>/mcp` в URL mode и
+выбери OAuth. Для Game MCP укажи отдельный `https://<game-public-host>/mcp` и
+создай DNS-запись для `<game-public-host>` типа A, AAAA или CNAME на его публичный
+адрес. Backend принимает только
+loopback, а наружу должны быть доступны
 только 443 и, для ACME/redirect, 80; его внутренний порт, Caddy admin, WebUI,
 PostgreSQL, ADB и emulator не публикуются. Обязательные переменные и Caddy
-шаблон описаны в `docs/dev-runtime.md` и
-`docs/dev-mcp/Caddyfile.example`; перед запуском сохрани локальную копию
-`docs/dev-mcp/Caddyfile` с собственным host.
+конфигурация описаны в `docs/dev-runtime.md` и
+`infrastructure/caddy/Caddyfile`. Задай `AZURPILOT_CADDY_HOST` и
+`AZURPILOT_GAME_MCP_PUBLIC_HOST` в локальном `.env`; host-side Dev/Game MCP сохраняют loopback binding, а Caddy работает
+только как Compose service профиля `remote-ingress`.
 
 Если write tools недоступны по плану или политике продукта, это не повод
 создавать небезопасный fallback: верни

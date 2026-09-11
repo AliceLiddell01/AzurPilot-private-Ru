@@ -129,11 +129,8 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
     assert 'LlmModel:\n    value: ""' in llm_argument
     assert "if not api_key or not api_base or not model:" in llm_runtime
     assert "max_tokens=1200" in llm_runtime
-    assert "_read_log_tail(logger.log_file)" in llm_runtime
-    assert "max_bytes=64 * 1024" in llm_runtime
-    assert "max_lines=200" in llm_runtime
-    assert "stream.read(max_bytes)" in llm_runtime
-    assert ".readlines()" not in llm_runtime
+    assert "logger.get_diagnostic_context(last_failure=True)" in llm_runtime
+    assert "logger.log_file" not in llm_runtime
     assert "Предустановленного провайдера нет" in llm_ru_i18n
     for token in (
         "xiaomimimo" + ".com",

@@ -60,18 +60,24 @@ _SELECTOR_FORBIDDEN = "".join(
 ) + r"\x00-\x1f\x7f"
 _SELECTOR_CHARACTER = rf"[^{_SELECTOR_FORBIDDEN}]"
 _SELECTOR_EDGE = rf"[^\s{_SELECTOR_FORBIDDEN}]"
-_PROFILE_PATTERN = (
+_TASK_PATTERN = (
     rf"^{_SELECTOR_EDGE}"
     rf"(?:{_SELECTOR_CHARACTER}{{0,{MAX_NAME_LENGTH - 2}}}"
     rf"{_SELECTOR_EDGE})?$"
 )
+_PROFILE_FORBIDDEN = "".join(
+    re.escape(char)
+    for char in sorted(INVALID_NAME_CHARS | {"'"})
+) + r"\x00-\x1f\x7f"
+_PROFILE_CHARACTER = rf"[^{_PROFILE_FORBIDDEN}]"
+_PROFILE_EDGE = rf"[^\s{_PROFILE_FORBIDDEN}]"
+_PROFILE_PATTERN = rf"^{_PROFILE_EDGE}(?:{_PROFILE_CHARACTER}*{_PROFILE_EDGE})?$"
 _PROFILE_INPUT = {
     "type": "object",
     "properties": {
         "profile": {
             "type": "string",
             "minLength": 1,
-            "maxLength": MAX_NAME_LENGTH,
             "pattern": _PROFILE_PATTERN,
         }
     },
@@ -85,7 +91,7 @@ _TASK_INPUT = {
             "type": "string",
             "minLength": 1,
             "maxLength": MAX_NAME_LENGTH,
-            "pattern": _PROFILE_PATTERN,
+            "pattern": _TASK_PATTERN,
         }
     },
     "required": ["task"],
@@ -192,7 +198,6 @@ _PROFILE_OUTPUT = {
         "profile": {
             "type": "string",
             "minLength": 1,
-            "maxLength": MAX_NAME_LENGTH,
         }
     },
     "required": ["profile"],
@@ -551,8 +556,22 @@ _REQUEST_CONTEXT_OUTPUT = {
     "additionalProperties": False,
 }
 _DETAILS_COMMON_OUTPUT = {"tool": {"type": "string", "maxLength": 128}}
+_FAILURE_CAUSE_OUTPUT = {
+    "type": "object",
+    "properties": {
+        "code": {"type": "string", "maxLength": 128},
+        "message": {"type": "string", "maxLength": 4096},
+        "details": {
+            "type": "object",
+            "maxProperties": 32,
+            "additionalProperties": _JSON_VALUE,
+        },
+    },
+    "required": ["code", "message", "details"],
+    "additionalProperties": False,
+}
 _PROFILE_DETAILS_OUTPUT = {
-    "profile": {"type": "string", "minLength": 1, "maxLength": MAX_NAME_LENGTH},
+    "profile": {"type": "string", "minLength": 1},
 }
 _SELECTION_OUTPUT = {
     "type": "array",
@@ -606,12 +625,24 @@ _COMMON_OUTPUT_PROPERTIES = {
 }
 
 
-def _output_schema(details: dict[str, Any]) -> dict[str, Any]:
+def _output_schema(
+    details: dict[str, Any],
+    *,
+    include_failure_cause: bool = False,
+) -> dict[str, Any]:
+    common_details = dict(_DETAILS_COMMON_OUTPUT)
+    if include_failure_cause:
+        common_details["cause"] = _FAILURE_CAUSE_OUTPUT
     return {
         "type": "object",
         "properties": {
             **_COMMON_OUTPUT_PROPERTIES,
-            "details": _details_output(details),
+            "details": {
+                "type": "object",
+                "properties": {**common_details, **details},
+                "maxProperties": 32,
+                "additionalProperties": False,
+            },
         },
         "required": ["ok", "code", "message", "state", "details"],
         "additionalProperties": False,
@@ -726,7 +757,8 @@ _OUTPUT_SCHEMAS = {
                 "type": "string",
                 "enum": ["started", "already_running"],
             },
-        }
+        },
+        include_failure_cause=True,
     ),
     "game_stop_profile": _output_schema(
         {
@@ -735,7 +767,8 @@ _OUTPUT_SCHEMAS = {
                 "type": "string",
                 "enum": ["stopped", "already_stopped"],
             },
-        }
+        },
+        include_failure_cause=True,
     ),
     "game_trigger_task": _output_schema(
         {
@@ -743,7 +776,8 @@ _OUTPUT_SCHEMAS = {
             "task": {"type": "string", "maxLength": MAX_NAME_LENGTH},
             "scheduled_at": {"type": "string", "maxLength": 128},
             "verified": {"type": "boolean", "const": True},
-        }
+        },
+        include_failure_cause=True,
     ),
     "game_clear_scheduler_queue": _output_schema(
         {
@@ -755,7 +789,8 @@ _OUTPUT_SCHEMAS = {
             },
             "cleared_count": {"type": "integer", "minimum": 0, "maximum": 512},
             "verified": {"type": "boolean", "const": True},
-        }
+        },
+        include_failure_cause=True,
     ),
     "game_update_config": _output_schema(
         {
@@ -764,13 +799,15 @@ _OUTPUT_SCHEMAS = {
             "group": {"type": "string", "maxLength": MAX_NAME_LENGTH},
             "argument": {"type": "string", "maxLength": MAX_NAME_LENGTH},
             "verified": {"type": "boolean", "const": True},
-        }
+        },
+        include_failure_cause=True,
     ),
     "game_restart_emulator": _output_schema(
         {
             **_PROFILE_DETAILS_OUTPUT,
             "verified": {"type": "boolean", "const": True},
-        }
+        },
+        include_failure_cause=True,
     ),
     "game_restart_runtime": _output_schema(
         {
@@ -784,7 +821,8 @@ _OUTPUT_SCHEMAS = {
                 "type": "string",
                 "enum": ["emulator_restart", "game_start"],
             },
-        }
+        },
+        include_failure_cause=True,
     ),
     "game_login_runtime": _output_schema(
         {
@@ -796,13 +834,15 @@ _OUTPUT_SCHEMAS = {
             "logged_in": {"type": "boolean", "const": True},
             "main": {"type": "boolean", "const": True},
             "phase": {"type": "string", "enum": ["login"]},
-        }
+        },
+        include_failure_cause=True,
     ),
     "game_restart_adb": _output_schema(
         {
             **_PROFILE_DETAILS_OUTPUT,
             "verified": {"type": "boolean", "const": True},
-        }
+        },
+        include_failure_cause=True,
     ),
 }
 _READ_ONLY = ToolAnnotations(
@@ -895,7 +935,7 @@ def tool_definitions() -> list[Tool]:
         "game_list_profiles": "Перечислить канонические профили AzurPilot без путей и секретов.",
         "game_get_profile_status": "Получить статус выбранного профиля AzurPilot.",
         "game_get_resources": "Получить ограниченный снимок игровых ресурсов выбранного профиля.",
-        "game_get_current_task": "Получить текущую задачу запущенного профиля.",
+        "game_get_current_task": "Получить подтверждённое состояние текущего выполнения профиля.",
         "game_get_scheduler_queue": "Получить read-only очередь scheduler выбранного профиля.",
         "game_list_tasks": "Получить каталог игровых задач и краткую локализованную справку.",
         "game_get_task_help": "Получить bounded metadata и справку одной игровой задачи.",

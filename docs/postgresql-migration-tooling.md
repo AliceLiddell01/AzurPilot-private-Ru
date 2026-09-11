@@ -1,11 +1,11 @@
 # Offline migration tooling PostgreSQL
 
-## Offline-граница Stage 3 и production-режим Stage 4
+## Offline-режим и production cutover
 
-Stage 3 добавляет только автономный конвейер чтения legacy-хранилищ,
+Offline tooling содержит только автономный конвейер чтения legacy-хранилищ,
 транзакционного импорта в заранее подготовленную PostgreSQL schema v1 и
-reconciliation. Stage 4 использует тот же importer для final maintenance
-cutover, не превращая его в runtime dependency. Production entry points никогда
+reconciliation. Production cutover использует тот же importer для final
+maintenance cutover, не превращая его в runtime dependency. Production entry points никогда
 не открывают legacy SQLite.
 
 Конвейер разделён на три слоя:
@@ -24,7 +24,7 @@ singleton. Legacy SQLite открывается через URI `mode=ro&immutabl
 
 ## Семантика переноса
 
-Поддерживаются доказанные Stage 1 семейства: CL1 monthly aggregates, Akashi AP,
+Поддерживаются доказанные legacy-семейства: CL1 monthly aggregates, Akashi AP,
 AP/currency snapshots, commission parent/items, Meow samples/aggregates,
 Siren stats/events, AP notification state, `resource_snapshots` с 12 typed
 resource columns и `opsi_items` one-to-one. Aggregate не превращается в
@@ -61,8 +61,8 @@ factual report. `inspect` не требует PostgreSQL и не пишет sour
 Report нельзя создавать непосредственно как `config/<name>.json`: корень
 `config/*.json` является profile namespace и такой target отклоняется до записи.
 Для локального persistent state используется `config/state/`, а фактические
-cutover reports по-прежнему предпочтительно хранить во внешней Stage-owned
-директории.
+cutover reports по-прежнему предпочтительно хранить во внешней директории
+migration tooling.
 `full-rehearsal` дополнительно требует `--scratch-database`,
 `AZURPILOT_POSTGRES_DISPOSABLE=1` и точное совпадение guard-переменных host,
 port, database, user и scratch database. `pg_dump`/`pg_restore` берутся из PATH
@@ -101,8 +101,8 @@ Semantic parity сверяет import ledger и реальные строки do
 commission children. Report не содержит raw identifiers, DSN/user/password,
 credential paths, decrypted CL1 payload, абсолютные пользовательские paths или
 произвольные DBAPI/SQL exceptions. Report по фактическим данным хранится только
-во временной Stage-owned директории и удаляется после извлечения безопасной
-сводки.
+во временной внешней директории migration tooling и удаляется после извлечения
+безопасной сводки.
 
 ## Проверка и CI
 

@@ -1,0 +1,19 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "AzurPilot PostgreSQL",
+      "Group": "AzurPilot",
+      "Host": "postgres",
+      "Port": 5432,
+      "MaintenanceDB": "postgres",
+      "Username": "azurpilot_migrator",
+      "SSLMode": "prefer",
+      "ConnectionParameters": {
+        "sslmode": "prefer",
+        "connect_timeout": 10
+      },
+      "Shared": false,
+      "Comment": "Локальный Docker PostgreSQL; application database выбирается отдельно."
+    }
+  }
+}

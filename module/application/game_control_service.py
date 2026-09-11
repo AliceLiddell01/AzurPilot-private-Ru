@@ -63,6 +63,7 @@ from module.application.game_validation import (
     validated_segment,
 )
 from module.application.ports import InstanceRuntimeReader
+from module.config.profile import profile_identity_from_name
 
 _GAME_START_TIMEOUT_SECONDS = 60.0
 _GAME_START_RETRY_INTERVAL_SECONDS = 0.5
@@ -73,10 +74,9 @@ _GAME_LOGIN_TIMEOUT_SECONDS = 120.0
 def _control_profile(value: object) -> str | None:
     if isinstance(value, (ConfigUpdateRequest, ScheduleTaskRequest)):
         value = value.instance
-    if not isinstance(value, str):
-        return None
-    normalized = value.strip()
-    return normalized or None
+    normalized = value.strip() if isinstance(value, str) else value
+    identity = profile_identity_from_name(normalized) if isinstance(normalized, str) else None
+    return None if identity is None else identity.name
 
 
 def _profile_mutation[**ControlParameters, ControlReturn](
@@ -94,7 +94,10 @@ def _profile_mutation[**ControlParameters, ControlReturn](
     ) -> ControlReturn:
         value = args[0] if args else kwargs.get("request", kwargs.get("instance"))
         profile = _control_profile(value)
-        if profile is None:
+        if profile is None or (
+            method.__name__ in {"start_instance", "stop_instance"}
+            and self.lifecycle_mutation_lock_owned_externally
+        ):
             return method(self, *args, **kwargs)
         with profile_mutation_lock(
             profile,
@@ -142,6 +145,10 @@ class GameControlService:
         self._config_writer = config_writer
         self._scheduler_tasks = scheduler_tasks
         self._lifecycle = lifecycle
+        self._lifecycle_mutation_lock_owned_externally = (
+            getattr(lifecycle, "lifecycle_mutation_lock_owned_externally", False)
+            is True
+        )
         self._emulator = emulator
         self._adb = adb
         self._application = application
@@ -180,6 +187,12 @@ class GameControlService:
         self._game_login_timeout_seconds = game_login_timeout_seconds
         self._monotonic = monotonic_clock or monotonic
         self._sleep = sleep_fn or sleep
+
+    @property
+    def lifecycle_mutation_lock_owned_externally(self) -> bool:
+        """Вернуть, владеет ли внешний lifecycle owner profile mutation lock."""
+
+        return self._lifecycle_mutation_lock_owned_externally
 
     @_profile_mutation
     def update_config(self, request: ConfigUpdateRequest) -> ConfigUpdateResult:

@@ -98,6 +98,7 @@ def test_concurrent_stop_wins_over_stale_start_readiness(tmp_path: Path) -> None
     manager = DevSessionManager(
         environment,
         process_backend=backend,
+        shared_webui=False,
         storage_probe=lambda _environment: (True, "storage ready"),
         port_probe=lambda _host, _port: False,
         readiness_probe=delayed_ready,

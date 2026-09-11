@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
 from threading import Event, Thread
+from unittest.mock import patch
 
 import pytest
 
@@ -16,6 +17,7 @@ from module.application import (
     OperationFailedError,
     OwnershipAmbiguousError,
     PostconditionFailedError,
+    PreconditionFailedError,
     host_lock,
     legacy_game_adapters,
 )
@@ -28,7 +30,14 @@ from module.application.legacy_game_adapters import (
     LegacyProcessManagerAdapter,
     LegacyRuntimeLogAdapter,
     LegacyScreenshotAdapter,
+    LegacyWorkerIdentityReader,
 )
+from module.application.runtime_control import (
+    RuntimeControlError,
+    RuntimeControlOperation,
+    RuntimeControlResult,
+)
+from module.application.runtime_execution import WorkerIdentityStatus
 
 ARGS = {
     "Main": {
@@ -124,6 +133,7 @@ def test_legacy_config_adapter_reads_redacted_data_and_limits_scheduler_mutation
         "Event": {
             "Scheduler": {"Enable": False, "NextRun": datetime(2026, 8, 31, 13, tzinfo=UTC)},
         },
+        "DisabledMissing": {"Scheduler": {"Enable": False}},
         "Other": {"Scheduler": {"Enable": True}},
         "Dashboard": {"Oil": {"Value": 10, "Limit": 100, "Record": datetime(2026, 8, 31, tzinfo=UTC)}},
     }
@@ -144,7 +154,7 @@ def test_legacy_config_adapter_reads_redacted_data_and_limits_scheduler_mutation
     snapshot = adapter.read_config("ap")
     assert snapshot["Main"]["General"]["Secret"] == REDACTED_CONFIG_VALUE  # type: ignore[index]
     assert adapter.read_config("ap", "Main")["General"]["Count"] == 1  # type: ignore[index]
-    queue = adapter.read_scheduler_queue("ap", ("Main", "Event"))
+    queue = adapter.read_scheduler_queue("ap", ("Main", "Event", "DisabledMissing"))
     assert tuple(item.task for item in queue) == ("Main",)
     resources = adapter.read_resources("ap")
     assert resources.items[0].label == "Нефть"
@@ -207,6 +217,17 @@ def test_legacy_config_adapter_sorts_scheduler_datetimes_by_timestamp():
     assert tuple(item.task for item in queue) == ("Main", "Event")
 
 
+def test_legacy_config_adapter_rejects_non_mapping_scheduler_state():
+    data = {"Main": {"Scheduler": []}}
+    adapter = LegacyConfigAdapter(
+        GeneratedTaskCatalogAdapter(ARGS, I18N),
+        updater_factory=lambda: _Updater(data),
+    )
+
+    with pytest.raises(ValueError, match="Scheduler state"):
+        adapter.read_scheduler_queue("ap", ("Main",))
+
+
 def test_legacy_log_adapter_is_bounded_and_root_safe(tmp_path: Path):
     log_root = tmp_path / "log"
     log_root.mkdir()
@@ -219,8 +240,6 @@ def test_legacy_log_adapter_is_bounded_and_root_safe(tmp_path: Path):
 
     assert adapter.read_tail("ap", 2) == ("new\n", "<<< Run task Event >>>\n")
     assert adapter.read_tail("ap", 0) == ()
-    assert adapter.read_current_task("ap") == "Event"
-    assert adapter.read_current_task("secondary") == "Unknown"
     log_file.write_bytes(b"x" * (2 * 1024 * 1024) + b"\nlast\n")
     assert adapter.read_tail("ap", 1) == ("last\n",)
     with pytest.raises(ValueError):
@@ -239,7 +258,91 @@ def test_legacy_log_adapter_falls_back_to_previous_calendar_date(tmp_path: Path)
         date_provider=lambda: date(2026, 8, 31),
     )
 
-    assert adapter.read_current_task("ap") == "Main"
+    assert adapter.read_tail("ap", 1) == ("<<< Run task Main >>>\n",)
+
+
+def test_legacy_log_adapter_reads_latest_incident_fallback(tmp_path: Path):
+    incident_root = tmp_path / "log" / "error" / "ap"
+    first = incident_root / "2026-08-31_00-00-00.000_RuntimeError"
+    second = incident_root / "2026-09-01_00-00-00.000_RuntimeError"
+    first.mkdir(parents=True)
+    second.mkdir()
+    (first / "log.txt").write_text("old incident\n", encoding="utf-8")
+    (second / "log.txt").write_text("latest incident\n", encoding="utf-8")
+
+    adapter = LegacyRuntimeLogAdapter(tmp_path / "log")
+
+    assert adapter.read_tail("ap", 1) == ("latest incident\n",)
+
+
+def test_legacy_log_adapter_orders_mixed_incident_formats_by_actual_time(
+    tmp_path: Path,
+):
+    incident_root = tmp_path / "log" / "error" / "ap"
+    legacy = incident_root / "1800000000000"
+    current = incident_root / "2026-09-01_00-00-00.000_RuntimeError"
+    legacy.mkdir(parents=True)
+    current.mkdir()
+    (legacy / "log.txt").write_text("legacy latest\n", encoding="utf-8")
+    (current / "log.txt").write_text("current older\n", encoding="utf-8")
+
+    adapter = LegacyRuntimeLogAdapter(tmp_path / "log")
+
+    assert adapter.read_tail("ap", 1) == ("legacy latest\n",)
+
+
+@pytest.mark.parametrize(
+    "created_at",
+    [True, float("nan"), float("inf"), float("-inf"), 0, -1],
+)
+def test_legacy_worker_identity_rejects_invalid_created_at(created_at):
+    from module.webui import worker_registry
+
+    reader = LegacyWorkerIdentityReader()
+    with (
+        patch.object(
+            worker_registry,
+            "get_worker_read_only",
+            return_value={"pid": 123, "created_at": created_at},
+        ),
+        patch.object(worker_registry, "process_matches", return_value=True),
+    ):
+        evidence = reader.read_worker_identity("ap")
+
+    assert evidence.status is WorkerIdentityStatus.UNKNOWN
+
+
+@pytest.mark.parametrize("pid", [True, 0, -1])
+def test_legacy_worker_identity_rejects_invalid_pid(pid: object):
+    from module.webui import worker_registry
+
+    reader = LegacyWorkerIdentityReader()
+    with (
+        patch.object(
+            worker_registry,
+            "get_worker_read_only",
+            return_value={"pid": pid, "created_at": 123.0},
+        ),
+        patch.object(worker_registry, "process_matches", return_value=True),
+    ):
+        evidence = reader.read_worker_identity("ap")
+
+    assert evidence.status is WorkerIdentityStatus.UNKNOWN
+
+
+def test_legacy_worker_identity_does_not_treat_corrupt_registry_as_absent():
+    from module.webui import worker_registry
+
+    reader = LegacyWorkerIdentityReader()
+
+    with patch.object(
+        worker_registry,
+        "get_worker_read_only",
+        side_effect=RuntimeError("registry unavailable"),
+    ):
+        evidence = reader.read_worker_identity("ap")
+
+    assert evidence.status is WorkerIdentityStatus.UNKNOWN
 
 
 def test_legacy_screenshot_lifecycle_and_emulator_adapters_use_narrow_owners(monkeypatch):
@@ -269,9 +372,17 @@ def test_legacy_screenshot_lifecycle_and_emulator_adapters_use_narrow_owners(mon
         def __init__(self) -> None:
             self.alive = False
             self.calls: list[str] = []
+            self.start_context: list[tuple[str | None, str | None]] = []
 
-        def start(self, *, func: str) -> None:
+        def start(
+            self,
+            *,
+            func: str,
+            operation_id: str | None = None,
+            session_id: str | None = None,
+        ) -> None:
             self.calls.append(func)
+            self.start_context.append((operation_id, session_id))
             self.alive = True
 
         def stop(self) -> bool:
@@ -280,6 +391,8 @@ def test_legacy_screenshot_lifecycle_and_emulator_adapters_use_narrow_owners(mon
             return True
 
     manager = Manager()
+    monkeypatch.setenv("AZURPILOT_RUNTIME_OPERATION_ID", "operation-env")
+    monkeypatch.setenv("AZURPILOT_DEV_SESSION_ID", "session-env")
     lifecycle = LegacyProcessManagerAdapter(
         manager_factory=lambda instance: manager,
         function_factory=lambda instance: "Main",
@@ -287,6 +400,7 @@ def test_legacy_screenshot_lifecycle_and_emulator_adapters_use_narrow_owners(mon
     assert lifecycle.start_instance("secondary") is True
     assert lifecycle.stop_instance("secondary") is True
     assert manager.calls == ["Main", "stop"]
+    assert manager.start_context == [("operation-env", "session-env")]
 
     events: list[str] = []
 
@@ -314,6 +428,58 @@ def test_legacy_screenshot_lifecycle_and_emulator_adapters_use_narrow_owners(mon
         is True
     )
     assert events == ["stop", "start"]
+
+
+def test_legacy_process_manager_translates_direct_control_errors() -> None:
+    class FailingControl:
+        def call(self, *args: object, **kwargs: object) -> object:
+            raise RuntimeControlError("RUNTIME_OWNER_UNAVAILABLE", "owner недоступен")
+
+    for method_name in ("start_instance", "stop_instance"):
+        lifecycle = LegacyProcessManagerAdapter(control_client=FailingControl())
+        with pytest.raises(OwnershipAmbiguousError, match="owner недоступен"):
+            getattr(lifecycle, method_name)("secondary")
+
+
+def test_legacy_process_manager_requires_owner_manager_for_direct_adapter() -> None:
+    lifecycle = LegacyProcessManagerAdapter(manager_factory=None)
+
+    with pytest.raises(PreconditionFailedError, match="ProcessManager недоступен"):
+        lifecycle._manager("secondary")
+
+
+def test_legacy_process_manager_translates_unknown_control_code_to_operation_error() -> None:
+    with pytest.raises(OperationFailedError, match="FUTURE_CONTROL_CODE: future control result"):
+        LegacyProcessManagerAdapter._raise_for_code(
+            "FUTURE_CONTROL_CODE",
+            "future control result",
+            operation="запуска",
+        )
+
+
+def test_legacy_process_manager_preserves_typed_runtime_control_cause() -> None:
+    result = RuntimeControlResult(
+        ok=False,
+        code="RUNTIME_CONTROL_EXPIRED",
+        message="Срок действия runtime control request истёк после выполнения operation",
+        operation=RuntimeControlOperation.START_PROFILE,
+        profile="ap",
+        request_id="request-runtime-cause",
+        idempotency_key="key-runtime-cause",
+        details={
+            "cause": {
+                "code": "RUNTIME_STATE_SCHEMA_MISMATCH",
+                "message": "Runtime state сохранён в несовместимой schema version",
+            }
+        },
+    )
+
+    with pytest.raises(PreconditionFailedError) as error:
+        LegacyProcessManagerAdapter._raise_for_result(result, operation="запуска")
+
+    assert error.value.runtime_code == "RUNTIME_CONTROL_EXPIRED"
+    assert error.value.runtime_message == result.message
+    assert error.value.runtime_details == result.details
 
 
 def test_typed_emulator_failures_distinguish_ownership_operation_and_postcondition(

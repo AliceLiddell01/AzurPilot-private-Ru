@@ -780,31 +780,6 @@
       "save_and_upload": "Save and Upload"
     }
   },
-  "Log": {
-    "_info": {
-      "name": "Log",
-      "help": "It will take effect after the scheduler is restarted."
-    },
-    "LogKeepCount": {
-      "name": "Log Retention Count",
-      "help": "Log expiration time (days)"
-    },
-    "LogBackUpMethod": {
-      "name": "Expired Log Processing Method",
-      "help": "The backup directory is ./log/bak",
-      "delete": "delete",
-      "zip": "Compress backup",
-      "copy": "copy backup"
-    },
-    "ZipMethod": {
-      "name": "Compression format",
-      "help": "",
-      "bz2": "bz2",
-      "gzip": "gzip",
-      "xz": "xz",
-      "zip": "zip"
-    }
-  },
   "Retirement": {
     "_info": {
       "name": "Retirement settings",
@@ -5862,6 +5837,7 @@
       "Pending": "in queue",
       "Waiting": "Waiting",
       "NoTask": "No tasks",
+      "StateUnavailable": "State unavailable",
       "Stat": "Statistics"
     },
     "Dashboard": {

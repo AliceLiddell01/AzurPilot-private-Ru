@@ -4,13 +4,19 @@
 使用与结果判断、仓库物品的滚动浏览以及存储界面的导航逻辑。
 提供维修结果枚举（成功/数量不足/超时）用于状态判断。
 """
-from enum import Enum
 import time
+from enum import Enum
+
+import cv2
 
 from module.base.timer import Timer
-from module.base.utils import area_offset, crop, rgb2gray
+from module.base.utils import _template_match_image_info, area_offset, crop, rgb2gray
 from module.combat.assets import GET_ITEMS_1, GET_ITEMS_2
-from module.exception import ScriptError
+from module.exception import (
+    OpsiStorageError,
+    OpsiStorageTemplateMatchError,
+    TemplateMatchError,
+)
 from module.handler.assets import GET_MISSION, POPUP_CANCEL
 from module.logger import logger
 from module.os.globe_operation import GlobeOperation
@@ -36,6 +42,21 @@ SCROLL_STORAGE = Scroll(STORATE_SCROLL, color=(247, 211, 66))
 
 
 class StorageHandler(GlobeOperation, ZoneManager):
+    @staticmethod
+    def _match_storage_template(template, image, similarity):
+        """Выполнить поиск шаблона и классифицировать ошибку OpenCV для Storage."""
+        try:
+            return template.match_multi(image, similarity=similarity)
+        except TemplateMatchError as error:
+            raise OpsiStorageTemplateMatchError(
+                f'Не удалось распознать шаблон хранилища {template.name}: {error}'
+            ) from error
+        except cv2.error as error:
+            raise OpsiStorageTemplateMatchError(
+                f'Не удалось распознать шаблон хранилища {template.name}: '
+                f'источник {_template_match_image_info(image)}'
+            ) from error
+
     def is_in_storage(self):
         return self.appear(STORAGE_CHECK, offset=(20, 20))
 
@@ -155,8 +176,8 @@ class StorageHandler(GlobeOperation, ZoneManager):
                 SCROLL_STORAGE.set_bottom(main=self, skip_first_screenshot=True)
 
             image = rgb2gray(self.device.image)
-            items = TEMPLATE_STORAGE_LOGGER.match_multi(image, similarity=0.5)
-            items.extend(TEMPLATE_STORAGE_LOGGER_UNLOCK.match_multi(image, similarity=0.75))
+            items = self._match_storage_template(TEMPLATE_STORAGE_LOGGER, image, similarity=0.5)
+            items.extend(self._match_storage_template(TEMPLATE_STORAGE_LOGGER_UNLOCK, image, similarity=0.75))
             logger.attr('Количество регистраторов координат', len(items))
 
             if len(items):
@@ -185,7 +206,7 @@ class StorageHandler(GlobeOperation, ZoneManager):
         for sample_type in sample_types:
             for _ in self.loop():
                 image = rgb2gray(self.device.image)
-                items = sample_type.match_multi(image, similarity=0.75)
+                items = self._match_storage_template(sample_type, image, similarity=0.75)
                 logger.attr('Количество образцов', len(items))
 
                 if len(items):
@@ -370,7 +391,7 @@ class StorageHandler(GlobeOperation, ZoneManager):
         elif item == 'REPAIR_PACK':
             return TEMPLATE_STORAGE_REPAIR_PACK
         else:
-            raise ScriptError(f'Unknown storage item: {item}')
+            raise OpsiStorageError(f'Неизвестный предмет хранилища: {item}')
 
     def storage_checkout_item(self, item, skip_obscure_hazard_2=False, skip_first_screenshot=True):
         """
@@ -399,7 +420,11 @@ class StorageHandler(GlobeOperation, ZoneManager):
         confirm_timer = Timer(0.6, count=2).start()
         for _ in self.loop():
             image = rgb2gray(self.device.image)
-            items = self._storage_item_to_template(item).match_multi(image, similarity=0.75)
+            items = self._match_storage_template(
+                self._storage_item_to_template(item),
+                image,
+                similarity=0.75,
+            )
             logger.attr(f'Хранилище_{item}', len(items))
 
             if len(items):

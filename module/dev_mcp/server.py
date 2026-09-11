@@ -23,14 +23,13 @@ from mcp.types import (
 )
 
 from module.dev_mcp.adapter import DEV_MCP_TOOL_NAMES, DevMcpAdapter, DevMcpResponse
-from module.dev_mcp.contract import DEV_MCP_API_VERSION
+from module.dev_mcp.contract import DEV_MCP_API_VERSION, DEV_MCP_REQUIRED_SCOPE
 from module.dev_runtime.smoke import SmokeSpec
 
 SERVER_NAME = "azurpilot-dev"
 SERVER_VERSION = str(DEV_MCP_API_VERSION)
 DEV_MCP_COMMAND = "uv"
 DEV_MCP_ARGS = ("run", "--locked", "--no-sync", "python", "-m", "module.dev_mcp")
-DEV_MCP_REQUIRED_SCOPE = "azurpilot:dev"
 _NO_ARGUMENT_TOOLS = frozenset(
     {
         "dev_preflight",

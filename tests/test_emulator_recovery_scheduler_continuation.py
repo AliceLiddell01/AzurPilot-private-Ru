@@ -34,6 +34,10 @@ class SchedulerContinuationTests(unittest.TestCase):
         manual_scan.process_next.return_value = None
         manual_scan.has_pending.return_value = False
         script.__dict__['fleet_manual_scan'] = manual_scan
+        # Этот unit test проверяет продолжение scheduler и не моделирует
+        # активную DevSession с process-shared runtime state.
+        script._record_dev_runtime_task_started = lambda _task: None
+        script._record_dev_runtime_task_finished = lambda _task: None
         return script
 
     def test_recoverable_incident_continues_to_next_task_and_normal_success_resets_budgets(self):
@@ -42,6 +46,7 @@ class SchedulerContinuationTests(unittest.TestCase):
         with (
             patch('module.config.utils.is_oobe_needed', return_value=False),
             patch('alas.del_cached_property'),
+            patch('alas.logger.configure_runtime_logging'),
             patch.object(script, 'get_next_task', side_effect=['TaskA', 'TaskB', SystemExit]),
             patch.object(script, 'run', side_effect=['recoverable', True]) as run_task,
             patch('alas.handle_notify'),
@@ -70,6 +75,7 @@ class SchedulerContinuationTests(unittest.TestCase):
         with (
             patch('module.config.utils.is_oobe_needed', return_value=False),
             patch('alas.del_cached_property'),
+            patch('alas.logger.configure_runtime_logging'),
             patch.object(script, 'get_next_task', return_value='TaskA') as get_next_task,
             patch.object(script, 'run', side_effect=fail_with_transport_loss) as run_task,
             patch('alas.handle_notify'),

@@ -1,4 +1,4 @@
-"""Offline CLI для PostgreSQL Stage 3 без production wiring."""
+"""Offline CLI для PostgreSQL migration без production wiring."""
 
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ from module.persistence.legacy import LegacySourceReader, create_consistent_snap
 from module.persistence.legacy.reader import LegacySourceError
 from module.persistence.local_environment import load_local_postgres_environment
 from module.persistence.migration_target import PostgresMigrationTarget
+from module.persistence.schema import EXPECTED_ALEMBIC_HEAD
 
 
 def _has_link_component(root: Path, path: Path) -> bool:
@@ -87,8 +88,13 @@ def _require_disposable(settings: DatabaseSettings, scratch: str | None = None) 
         "database": settings.database,
         "user": settings.user,
     }
-    if os.environ.get("AZURPILOT_POSTGRES_DISPOSABLE") != "1" or expected != actual:
+    if (
+        os.environ.get("AZURPILOT_POSTGRES_DISPOSABLE") != "1"
+        or expected != actual
+    ):
         raise LegacySourceError("DISPOSABLE_TARGET_NOT_CONFIRMED")
+    if settings.user != "azurpilot_migrator":
+        raise LegacySourceError("RESTORE_ROLE_NOT_CONFIRMED")
     if scratch is not None:
         expected_scratch = os.environ.get(
             "AZURPILOT_POSTGRES_DISPOSABLE_SCRATCH_DATABASE"
@@ -132,6 +138,7 @@ def _require_production_cutover(
 
 
 def _run_pg(executable: str, arguments: list[str]) -> None:
+    command = _pg_command(executable, arguments)
     environment = os.environ.copy()
     environment.pop("PGPASSWORD", None)
     passfile = environment.get("PGPASSFILE") or environment.get(
@@ -141,6 +148,28 @@ def _run_pg(executable: str, arguments: list[str]) -> None:
         environment["PGPASSFILE"] = passfile
     else:
         environment.pop("PGPASSFILE", None)
+    run_options: dict[str, object] = {}
+    if os.name == "nt":
+        run_options["creationflags"] = subprocess.CREATE_NO_WINDOW
+    try:
+        result = subprocess.run(
+            command,
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            # Raw stderr может содержать DSN, пути или значения окружения.
+            stderr=subprocess.DEVNULL,
+            check=False,
+            timeout=180,
+            **run_options,
+        )
+    except subprocess.TimeoutExpired:
+        raise LegacySourceError("POSTGRES_BACKUP_COMMAND_FAILED") from None
+    if result.returncode != 0:
+        raise LegacySourceError("POSTGRES_BACKUP_COMMAND_FAILED")
+
+
+def _pg_command(executable: str, arguments: list[str]) -> list[str]:
     command = [executable, *arguments]
     if executable.startswith("wsl:"):
         tool = executable.removeprefix("wsl:")
@@ -163,25 +192,41 @@ def _run_pg(executable: str, arguments: list[str]) -> None:
             tool,
             *converted,
         ]
+    return command
+
+
+def _run_pg_capture(executable: str, arguments: list[str]) -> str:
+    environment = os.environ.copy()
+    environment.pop("PGPASSWORD", None)
+    passfile = environment.get("PGPASSFILE") or environment.get(
+        "AZURPILOT_POSTGRES_PGPASSFILE"
+    )
+    if passfile:
+        environment["PGPASSFILE"] = passfile
+    else:
+        environment.pop("PGPASSFILE", None)
     run_options: dict[str, object] = {}
     if os.name == "nt":
         run_options["creationflags"] = subprocess.CREATE_NO_WINDOW
     try:
         result = subprocess.run(
-            command,
+            _pg_command(executable, arguments),
             env=environment,
             stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            # Raw stderr может содержать DSN, пути или значения окружения.
+            stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             check=False,
             timeout=180,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
             **run_options,
         )
     except subprocess.TimeoutExpired:
         raise LegacySourceError("POSTGRES_BACKUP_COMMAND_FAILED") from None
     if result.returncode != 0:
         raise LegacySourceError("POSTGRES_BACKUP_COMMAND_FAILED")
+    return result.stdout.strip()
 
 
 def _pg_tool(name: str) -> str:
@@ -200,6 +245,8 @@ def _dump_restore(
     scratch_database: str,
     dump_path: Path,
 ) -> DatabaseSettings:
+    if settings.user != "azurpilot_migrator":
+        raise LegacySourceError("RESTORE_ROLE_NOT_CONFIRMED")
     dump = _pg_tool("pg_dump")
     restore = _pg_tool("pg_restore")
     common = [
@@ -232,12 +279,132 @@ def _dump_restore(
             "--if-exists",
             "--no-owner",
             "--no-acl",
+            "--role",
+            "azurpilot_owner",
             "--dbname",
             scratch_database,
             str(dump_path),
         ],
     )
+    psql = _pg_tool("psql")
+    grant_script = (
+        Path(__file__).resolve().parents[1]
+        / "infrastructure/observability/postgres/grant-app.sql"
+    )
+    _run_pg(
+        psql,
+        [
+            *common,
+            "--dbname",
+            scratch_database,
+            "--set",
+            "ON_ERROR_STOP=1",
+            "--file",
+            str(grant_script),
+        ],
+    )
+    _validate_restore_contract(psql, common, scratch_database)
     return replace(settings, database=scratch_database)
+
+
+_RESTORE_CONTRACT_QUERY = f"""
+SELECT array_to_string(ARRAY[
+    ((SELECT r.rolname
+      FROM pg_database AS d
+      JOIN pg_roles AS r ON r.oid = d.datdba
+      WHERE d.datname = current_database()) = 'azurpilot_owner')::text,
+    ((SELECT r.rolname
+      FROM pg_namespace AS n
+      JOIN pg_roles AS r ON r.oid = n.nspowner
+      WHERE n.nspname = 'azurpilot') = 'azurpilot_owner')::text,
+    (NOT EXISTS (
+        SELECT 1
+        FROM pg_class AS c
+        JOIN pg_namespace AS n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'azurpilot'
+          AND c.relkind IN ('r', 'p')
+          AND pg_get_userbyid(c.relowner) <> 'azurpilot_owner'
+    ))::text,
+    (NOT EXISTS (
+        SELECT 1
+        FROM pg_class AS c
+        JOIN pg_namespace AS n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'azurpilot'
+          AND c.relkind = 'S'
+          AND pg_get_userbyid(c.relowner) <> 'azurpilot_owner'
+    ))::text,
+    (NOT EXISTS (
+        SELECT 1
+        FROM pg_proc AS p
+        JOIN pg_namespace AS n ON n.oid = p.pronamespace
+        WHERE n.nspname = 'azurpilot'
+          AND p.prokind IN ('f', 'p')
+          AND pg_get_userbyid(p.proowner) <> 'azurpilot_owner'
+    ))::text,
+    (pg_has_role('azurpilot_migrator', 'azurpilot_owner', 'member'))::text,
+    (has_database_privilege('azurpilot_migrator', current_database(), 'CONNECT'))::text,
+    (has_schema_privilege('azurpilot_migrator', 'azurpilot', 'USAGE'))::text,
+    (has_database_privilege('azurpilot_app', current_database(), 'CONNECT'))::text,
+    (has_schema_privilege('azurpilot_app', 'azurpilot', 'USAGE'))::text,
+    (NOT EXISTS (
+        SELECT 1
+        FROM pg_class AS c
+        JOIN pg_namespace AS n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'azurpilot'
+          AND c.relkind IN ('r', 'p')
+          AND NOT (
+              has_table_privilege('azurpilot_app', c.oid, 'SELECT')
+              AND has_table_privilege('azurpilot_app', c.oid, 'INSERT')
+              AND has_table_privilege('azurpilot_app', c.oid, 'UPDATE')
+              AND has_table_privilege('azurpilot_app', c.oid, 'DELETE')
+          )
+    ))::text,
+    (NOT EXISTS (
+        SELECT 1
+        FROM pg_class AS c
+        JOIN pg_namespace AS n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'azurpilot'
+          AND c.relkind = 'S'
+          AND NOT (
+              has_sequence_privilege('azurpilot_app', c.oid, 'USAGE')
+              AND has_sequence_privilege('azurpilot_app', c.oid, 'SELECT')
+              AND has_sequence_privilege('azurpilot_app', c.oid, 'UPDATE')
+          )
+    ))::text,
+    (EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'plpgsql'))::text,
+    (EXISTS (
+        SELECT 1
+        FROM pg_catalog.pg_tables
+        WHERE schemaname = 'public' AND tablename = 'alembic_version'
+    ))::text,
+    (EXISTS (
+        SELECT 1
+        FROM public.alembic_version
+        WHERE version_num = '{EXPECTED_ALEMBIC_HEAD}'
+    ))::text
+], '|')
+"""
+
+
+def _validate_restore_contract(
+    psql: str,
+    common: list[str],
+    scratch_database: str,
+) -> None:
+    output = _run_pg_capture(
+        psql,
+        [
+            *common,
+            "--dbname",
+            scratch_database,
+            "--tuples-only",
+            "--no-align",
+            "--command",
+            _RESTORE_CONTRACT_QUERY,
+        ],
+    )
+    if output != "|".join("true" for _ in range(15)):
+        raise LegacySourceError("RESTORE_CONTRACT_NOT_CONFIRMED")
 
 
 def _write_report(payload: str, path: Path | None, source_root: Path) -> None:

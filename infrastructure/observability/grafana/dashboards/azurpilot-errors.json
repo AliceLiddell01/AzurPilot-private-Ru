@@ -1,0 +1,355 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": false,
+  "description": "Разбор ошибок, локальных incident bundles и связанных Tempo spans через Loki/Tempo correlation.",
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": true,
+      "keepTime": true,
+      "targetBlank": false,
+      "title": "Обзор AzurPilot",
+      "type": "link",
+      "url": "/d/azurpilot-overview?from=${__from}&to=${__to}"
+    }
+  ],
+  "panels": [
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "direction": "backward",
+          "editorMode": "code",
+          "expr": "sum(count_over_time({service_name=\"azurpilot\", deployment_environment_name=~\"${environment:regex}\"} | detected_level = \"error\" | azurpilot_profile =~ \"${profile:regex}\" | azurpilot_task =~ \"${task:regex}\" [$__range]))",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ],
+      "description": "LogQL фильтрует Environment, Profile и Task по structured metadata. При Task=All записи без task context остаются видимыми; конкретный Task показывает только записи с совпадающим task.",
+      "title": "Ошибки в Loki",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 16,
+        "x": 8,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "limit": 20,
+          "query": "{ resource.service.name = \"azurpilot\" && name = \"azurpilot.task.run\" && span:status = error && resource.deployment.environment.name =~ \"${environment:regex}\" && span.azurpilot.profile =~ \"${profile:regex}\" && span.azurpilot.task =~ \"${task:regex}\" } with (most_recent=true)",
+          "queryType": "traceql",
+          "refId": "A",
+          "tableType": "traces"
+        }
+      ],
+      "title": "Ошибочные traces",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
+      "id": 3,
+      "options": {
+        "deduplicationOptions": {
+          "labels": false,
+          "maxDeduplicationRows": 100,
+          "interval": "none"
+        },
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLines": true
+      },
+      "targets": [
+        {
+          "direction": "backward",
+          "editorMode": "code",
+          "expr": "{service_name=\"azurpilot\", deployment_environment_name=~\"${environment:regex}\"} | detected_level = \"error\" | azurpilot_profile =~ \"${profile:regex}\" | azurpilot_task =~ \"${task:regex}\"",
+          "maxLines": 200,
+          "queryType": "range",
+          "refId": "A"
+        }
+      ],
+      "description": "LogQL фильтрует Environment, Profile и Task по structured metadata. При Task=All записи без task context остаются видимыми; конкретный Task показывает только записи с совпадающим task.",
+      "title": "Ошибки / incidents: Loki",
+      "type": "logs"
+    },
+    {
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 17
+      },
+      "id": 4,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "limit": 20,
+          "query": "{ resource.service.name = \"azurpilot\" && name = \"azurpilot.task.run\" && duration > 500ms && resource.deployment.environment.name =~ \"${environment:regex}\" && span.azurpilot.profile =~ \"${profile:regex}\" && span.azurpilot.task =~ \"${task:regex}\" } with (most_recent=true)",
+          "queryType": "traceql",
+          "refId": "A",
+          "tableType": "spans"
+        }
+      ],
+      "description": "Показываются matched root spans canonical azurpilot.task.run с duration > 500ms.",
+      "title": "Медленные traces / операции",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 17
+      },
+      "id": 5,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "limit": 50,
+          "query": "{ resource.service.name = \"azurpilot\" && name = \"azurpilot.task.run\" && resource.deployment.environment.name =~ \"${environment:regex}\" && span.azurpilot.profile =~ \"${profile:regex}\" && span.azurpilot.task =~ \"${task:regex}\" } >> { name = \"azurpilot.device.screenshot\" || name = \"azurpilot.ocr.process\" } with (most_recent=true)",
+          "queryType": "traceql",
+          "refId": "A",
+          "tableType": "spans"
+        }
+      ],
+      "description": "Фильтры Environment, Profile и Task применяются к родительскому azurpilot.task.run; оператор >> возвращает дочерние azurpilot.device.screenshot и azurpilot.ocr.process spans.",
+      "title": "Длительности screenshot / OCR spans",
+      "type": "table"
+    },
+    {
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 27
+      },
+      "id": 6,
+      "options": {
+        "content": "### Локальный incident store\n\n`log/error/<canonical-profile>/...` остаётся автономным fallback с локальными `incident.json`, `log.txt` и снимками. Grafana показывает только доставленные в Loki/Tempo сигналы: отсутствие backend не удаляет локальный bundle и не превращает filesystem path в telemetry payload.",
+        "mode": "markdown"
+      },
+      "title": "Локальные incidents",
+      "type": "text"
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 39,
+  "tags": [
+    "azurpilot",
+    "observability",
+    "incidents"
+  ],
+  "templating": {
+    "list": [
+      {
+        "allValue": ".*",
+        "current": {},
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(azurpilot_task_run_total, deployment_environment_name)",
+        "includeAll": true,
+        "label": "Environment",
+        "multi": true,
+        "name": "environment",
+        "options": [],
+        "query": "label_values(azurpilot_task_run_total, deployment_environment_name)",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {},
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(azurpilot_task_run_total, azurpilot_profile)",
+        "includeAll": true,
+        "label": "Profile",
+        "multi": true,
+        "name": "profile",
+        "options": [],
+        "query": "label_values(azurpilot_task_run_total, azurpilot_profile)",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {},
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(azurpilot_task_run_total, azurpilot_task)",
+        "includeAll": true,
+        "label": "Task",
+        "multi": true,
+        "name": "task",
+        "options": [],
+        "query": "label_values(azurpilot_task_run_total, azurpilot_task)",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "title": "AzurPilot Errors / Incidents",
+  "uid": "azurpilot-errors",
+  "version": 1
+}

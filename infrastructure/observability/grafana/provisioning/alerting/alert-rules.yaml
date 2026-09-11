@@ -1,0 +1,68 @@
+apiVersion: 1
+
+deleteRules:
+  - orgId: 1
+    uid: azurpilot-task-duration-p95
+
+groups:
+  - orgId: 1
+    name: AzurPilot
+    folder: AzurPilot
+    interval: 1m
+    rules:
+      - uid: azurpilot-task-failures
+        title: Ошибки scheduler task за 15 минут
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: sum(rate(azurpilot_task_run_total{azurpilot_task_outcome="failure"}[15m])) or vector(0)
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 0
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - A
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: threshold
+        dashboardUid: azurpilot-overview
+        panelId: 3
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        annotations:
+          description: За последние 15 минут был хотя бы один failure scheduler task; alert срабатывает после 5 минут ненулевого потока.
+          summary: Ошибки scheduler task за 15 минут
+        labels:
+          severity: warning
+          source: azurpilot
+        isPaused: false

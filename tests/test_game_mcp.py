@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import os
 import shutil
 import struct
 import zlib
@@ -33,6 +34,7 @@ from module.application import (
     ConfigUpdateRequest,
     ConfigUpdateResult,
     CurrentTaskSnapshot,
+    CurrentTaskState,
     DashboardResource,
     DashboardResources,
     EmulatorRestartResult,
@@ -42,6 +44,7 @@ from module.application import (
     FleetStateRequest,
     FleetStateResult,
     GameLoginResult,
+    GameReadService,
     GameRuntimeRestartResult,
     InstanceReference,
     InstanceStatus,
@@ -70,8 +73,16 @@ from module.application import (
 )
 from module.application.errors import GameRuntimePhaseError
 from module.application.game_control_lock import profile_mutation_lock
-from module.application.game_validation import UNKNOWN_TASK
 from module.application.instance_identity import runtime_instance_identity
+from module.application.legacy_game_adapters import (
+    LegacyProcessManagerAdapter,
+    LegacyRuntimeExecutionReader,
+)
+from module.application.runtime_control import (
+    RuntimeControlOperation,
+    RuntimeControlResult,
+)
+from module.application.runtime_state import RuntimeStateStore
 from module.application.storage_models import InstanceIdentity
 from module.formation.model import (
     FleetSelection,
@@ -381,6 +392,7 @@ def test_contract_and_tool_catalog_are_game_specific_and_scope_separated() -> No
     assert {
         "ready",
         "running",
+        "idle",
         "stopped",
         "warning",
         "updating",
@@ -546,9 +558,10 @@ def test_output_schemas_are_scoped_to_their_tool_details() -> None:
         "game_get_config": {"config", "profile", "task", "tool"},
         "game_get_recent_logs": {"lines", "profile", "tool", "truncated"},
         "game_get_screenshot": {"profile", "screenshot", "tool"},
-        "game_start_profile": {"outcome", "profile", "tool"},
-        "game_stop_profile": {"outcome", "profile", "tool"},
+        "game_start_profile": {"cause", "outcome", "profile", "tool"},
+        "game_stop_profile": {"cause", "outcome", "profile", "tool"},
         "game_trigger_task": {
+            "cause",
             "profile",
             "scheduled_at",
             "task",
@@ -556,6 +569,7 @@ def test_output_schemas_are_scoped_to_their_tool_details() -> None:
             "verified",
         },
         "game_clear_scheduler_queue": {
+            "cause",
             "cleared_count",
             "cleared_tasks",
             "profile",
@@ -564,15 +578,17 @@ def test_output_schemas_are_scoped_to_their_tool_details() -> None:
         },
         "game_update_config": {
             "argument",
+            "cause",
             "group",
             "profile",
             "task",
             "tool",
             "verified",
         },
-        "game_restart_emulator": {"profile", "tool", "verified"},
+        "game_restart_emulator": {"cause", "profile", "tool", "verified"},
         "game_restart_runtime": {
             "adb_ready",
+            "cause",
             "emulator_verified",
             "game_foreground",
             "game_running",
@@ -583,6 +599,7 @@ def test_output_schemas_are_scoped_to_their_tool_details() -> None:
         },
         "game_login_runtime": {
             "adb_ready",
+            "cause",
             "game_foreground",
             "game_running",
             "logged_in",
@@ -592,7 +609,7 @@ def test_output_schemas_are_scoped_to_their_tool_details() -> None:
             "tool",
             "verified",
         },
-        "game_restart_adb": {"profile", "tool", "verified"},
+        "game_restart_adb": {"cause", "profile", "tool", "verified"},
     }
     actual = {
         tool.name: set(tool.output_schema["properties"]["details"]["properties"])
@@ -699,6 +716,110 @@ def test_profile_selector_allows_internal_spaces_and_rejects_unsafe_edges() -> N
         assert not validator.is_valid(unsafe)
 
 
+def test_profile_selector_accepts_canonical_name_without_local_length_cap() -> None:
+    profile = "a" * 129
+    backend = _backend()
+    backend.instances.list_instances = lambda: (InstanceReference(profile),)
+    backend.read.get_current_running_task = lambda _profile: CurrentTaskSnapshot(
+        profile, None, CurrentTaskState.IDLE
+    )
+    adapter = GameMcpAdapter(lambda: backend)
+
+    result = adapter.call("game_get_current_task", {"profile": profile})
+    structured = result.structured if isinstance(result, GameMcpResponse) else result
+    profile_schema = next(
+        tool.input_schema["properties"]["profile"]
+        for tool in tool_definitions()
+        if tool.name == "game_get_current_task"
+    )
+
+    assert structured["code"] == "GAME_CURRENT_TASK_IDLE"
+    assert structured["details"] == {"profile": profile, "task": None}
+    assert Draft202012Validator(profile_schema).is_valid(profile)
+
+
+def test_canonical_profile_reaches_game_mcp_through_authoritative_runtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    profile = "a" * 129
+    worker_registry_file = tmp_path / "cache" / "webui-workers.json"
+    worker_registry_file.parent.mkdir(parents=True)
+    from module.webui import worker_registry
+
+    created_at = worker_registry._process_created_at(os.getpid())
+    worker_registry_file.write_text(
+        json.dumps(
+            {
+                "owner_created_at": None,
+                "owner_pid": None,
+                "workers": {
+                    profile: {
+                        "pid": os.getpid(),
+                        "created_at": created_at,
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(worker_registry, "WORKER_REGISTRY_FILE", worker_registry_file)
+    monkeypatch.setattr(
+        worker_registry,
+        "DEFAULT_WORKER_REGISTRY_FILE",
+        worker_registry_file,
+    )
+    monkeypatch.setattr(
+        worker_registry,
+        "LEGACY_WORKER_REGISTRY_FILE",
+        tmp_path / "config" / "webui-workers.json",
+    )
+
+    RuntimeStateStore(tmp_path).mark_worker_started(
+        profile,
+        worker_pid=os.getpid(),
+        worker_created_at=created_at,
+    )
+    instances = SimpleNamespace(list_instance_names=lambda: (profile,))
+    read_service = GameReadService(
+        instances,
+        object(),
+        object(),
+        object(),
+        object(),
+        runtime_execution_reader=LegacyRuntimeExecutionReader(tmp_path),
+    )
+    backend = _backend()
+    backend.instances.list_instances = lambda: (InstanceReference(profile),)
+    backend.read = read_service
+
+    result = GameMcpAdapter(lambda: backend).call(
+        "game_get_current_task",
+        {"profile": profile},
+    )
+
+    assert result["code"] == "GAME_CURRENT_TASK_IDLE"
+    assert result["details"] == {"profile": profile, "task": None}
+
+
+def test_game_mcp_current_task_ignores_stale_run_task_log() -> None:
+    backend = _backend()
+    backend.read.get_current_running_task = lambda _profile: CurrentTaskSnapshot(
+        "alpha", None, CurrentTaskState.IDLE
+    )
+    backend.read.get_recent_logs = lambda _profile, _limit: RuntimeLogTail(
+        "alpha", ("<<< Run task Event >>>\n",)
+    )
+    adapter = GameMcpAdapter(lambda: backend)
+
+    logs = adapter.call("game_get_recent_logs", {"profile": "alpha", "lines": 1})
+    current = adapter.call("game_get_current_task", {"profile": "alpha"})
+
+    assert logs["details"]["lines"] == ["<<< Run task Event >>>\n"]
+    assert current["code"] == "GAME_CURRENT_TASK_IDLE"
+    assert current["details"] == {"profile": "alpha", "task": None}
+
+
 def test_result_sequence_bounds_preserve_data_or_fail_explicitly() -> None:
     for count in (255, 256, 257, 512):
         result = _result(
@@ -773,6 +894,51 @@ def test_adapter_hides_backend_factory_failures() -> None:
     assert result["code"] == "GAME_SERVICE_UNAVAILABLE"
     assert result["details"] == {"tool": "game_list_profiles"}
     assert "private backend path" not in json.dumps(result, ensure_ascii=False)
+
+
+def test_game_control_result_preserves_runtime_state_cause() -> None:
+    backend = _backend()
+
+    class FailingControl:
+        def start_instance(self, profile: str) -> LifecycleResult:
+            result = RuntimeControlResult(
+                ok=False,
+                code="RUNTIME_CONTROL_EXPIRED",
+                message="Срок действия runtime control request истёк после выполнения operation",
+                operation=RuntimeControlOperation.START_PROFILE,
+                profile=profile,
+                request_id="request-game-cause",
+                idempotency_key="key-game-cause",
+                details={
+                    "cause": {
+                        "code": "RUNTIME_STATE_SCHEMA_MISMATCH",
+                        "message": "Runtime state сохранён в несовместимой schema version",
+                    }
+                },
+            )
+            LegacyProcessManagerAdapter._raise_for_result(result, operation="запуска")
+            raise AssertionError("control result должен завершить операцию ошибкой")
+
+        def stop_instance(self, profile: str) -> LifecycleResult:
+            raise AssertionError("stop не должен вызываться")
+
+    backend.control = FailingControl()
+    result = GameMcpAdapter(lambda: backend).call(
+        "game_start_profile",
+        {"profile": "alpha"},
+    )
+
+    assert result["code"] == "GAME_PRECONDITION_FAILED"
+    assert result["details"]["cause"] == {
+        "code": "RUNTIME_CONTROL_EXPIRED",
+        "message": "Срок действия runtime control request истёк после выполнения operation",
+        "details": {
+            "cause": {
+                "code": "RUNTIME_STATE_SCHEMA_MISMATCH",
+                "message": "Runtime state сохранён в несовместимой schema version",
+            }
+        },
+    }
 
 
 def test_control_scope_is_checked_before_backend_factory_and_arguments() -> None:
@@ -1030,7 +1196,8 @@ def test_adapter_does_not_hold_lifecycle_lock_during_dispatch() -> None:
     finally:
         release.set()
         first_thread.join(timeout=5)
-        second_thread.join(timeout=5)
+        if second_thread.ident is not None:
+            second_thread.join(timeout=5)
 
     assert not first_thread.is_alive()
     assert not second_thread.is_alive()
@@ -1138,6 +1305,30 @@ def test_independent_adapters_share_mutation_lock_for_one_profile(
     assert not second_thread.is_alive()
     assert len(results) == 2
     assert all(result["code"] == "GAME_PROFILE_STARTED" for result in results)
+
+
+def test_adapter_does_not_hold_lock_while_external_lifecycle_owner_runs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    backend = _backend()
+
+    class _ExternalControl(_Control):
+        lifecycle_mutation_lock_owned_externally = True
+
+    backend.control = _ExternalControl()
+
+    def fail_lock(*args: object, **kwargs: object) -> object:
+        raise AssertionError("внешний lifecycle owner не должен ждать profile lock")
+
+    monkeypatch.setattr(game_mcp_adapter, "profile_mutation_lock", fail_lock)
+
+    result = GameMcpAdapter(
+        lambda: backend,
+        mutation_lock_root=tmp_path,
+    ).call("game_start_profile", {"profile": "alpha"})
+
+    assert result["code"] == "GAME_PROFILE_STARTED"
 
 
 def test_adapter_returns_busy_when_mutation_lock_times_out(
@@ -1280,11 +1471,13 @@ def test_server_cancellation_while_waiting_for_lock_does_not_retry(
     asyncio.run(scenario())
 
 
-def test_adapter_allows_mutations_for_different_profiles_in_parallel(
+def test_adapter_serializes_mutations_for_different_profiles(
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     backend = _backend()
-    both_entered = Event()
+    first_entered = Event()
+    second_requested = Event()
     release = Event()
     state_lock = Lock()
     active_count = 0
@@ -1296,8 +1489,7 @@ def test_adapter_allows_mutations_for_different_profiles_in_parallel(
             with state_lock:
                 active_count += 1
                 max_active = max(max_active, active_count)
-                if active_count == 2:
-                    both_entered.set()
+                first_entered.set()
             release.wait(5)
             with state_lock:
                 active_count -= 1
@@ -1307,26 +1499,40 @@ def test_adapter_allows_mutations_for_different_profiles_in_parallel(
     adapter = GameMcpAdapter(lambda: backend, mutation_lock_root=tmp_path)
     results: list[dict[str, object]] = []
 
+    original_lock = game_mcp_adapter.profile_mutation_lock
+
+    def observed_lock(profile: str, **kwargs: object):
+        if profile == "beta":
+            second_requested.set()
+        return original_lock(profile, **kwargs)
+
+    monkeypatch.setattr(game_mcp_adapter, "profile_mutation_lock", observed_lock)
+
     def call_start(profile: str) -> None:
         results.append(adapter.call("game_start_profile", {"profile": profile}))
 
-    threads = [
-        Thread(target=call_start, args=("alpha",)),
-        Thread(target=call_start, args=("beta",)),
-    ]
-    for thread in threads:
-        thread.start()
+    first_thread = Thread(target=call_start, args=("alpha",))
+    second_thread = Thread(target=call_start, args=("beta",))
+    first_thread.start()
     try:
-        assert both_entered.wait(5)
+        assert first_entered.wait(5)
+        second_thread.start()
+        assert second_requested.wait(5)
+        with state_lock:
+            assert active_count == 1
     finally:
         release.set()
-        for thread in threads:
-            thread.join(timeout=5)
+        first_thread.join(timeout=5)
+        second_thread.join(timeout=5)
 
+    threads = [
+        first_thread,
+        second_thread,
+    ]
     assert all(not thread.is_alive() for thread in threads)
     assert len(results) == 2
     assert all(result["code"] == "GAME_PROFILE_STARTED" for result in results)
-    assert max_active == 2
+    assert max_active == 1
 
 
 def test_adapter_rejects_bad_selectors_unknown_profiles_and_unknown_tasks() -> None:
@@ -1488,19 +1694,52 @@ def test_adapter_preserves_unknown_morale_state() -> None:
     assert slot["baseline"] is None
 
 
-def test_adapter_preserves_unknown_current_task_state() -> None:
+@pytest.mark.parametrize(
+    ("state", "code", "result_state"),
+    (
+        (
+            CurrentTaskState.IDLE,
+            "GAME_CURRENT_TASK_IDLE",
+            "idle",
+        ),
+        (
+            CurrentTaskState.UNKNOWN,
+            "GAME_CURRENT_TASK_UNKNOWN",
+            "unknown",
+        ),
+    ),
+)
+def test_adapter_preserves_non_running_current_task_state(
+    state: CurrentTaskState,
+    code: str,
+    result_state: str,
+) -> None:
     backend = _backend()
     backend.read.get_current_running_task = lambda _profile: CurrentTaskSnapshot(
-        "alpha", UNKNOWN_TASK
+        "alpha", None, state
     )
     adapter = GameMcpAdapter(lambda: backend)
 
     result = adapter.call("game_get_current_task", {"profile": "alpha"})
 
     assert result["ok"] is True
-    assert result["code"] == "GAME_DATA_UNKNOWN"
-    assert result["state"] == "unknown"
-    assert result["details"] == {"profile": "alpha", "task": UNKNOWN_TASK}
+    assert result["code"] == code
+    assert result["state"] == result_state
+    assert result["details"] == {"profile": "alpha", "task": None}
+
+
+def test_adapter_preserves_stopped_current_task_contract() -> None:
+    backend = _backend()
+    backend.read.get_current_running_task = lambda _profile: CurrentTaskSnapshot(
+        "alpha", None, CurrentTaskState.STOPPED
+    )
+    adapter = GameMcpAdapter(lambda: backend)
+
+    result = adapter.call("game_get_current_task", {"profile": "alpha"})
+
+    assert result["ok"] is False
+    assert result["code"] == "GAME_PROFILE_NOT_RUNNING"
+    assert result["state"] == "failed"
 
 
 def test_adapter_does_not_claim_empty_fleet_snapshots_are_complete() -> None:

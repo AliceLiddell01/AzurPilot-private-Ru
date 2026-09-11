@@ -37,6 +37,7 @@ from module.dev_mcp.remote import (
     RemoteConfigError,
     RequestTimeoutMiddleware,
     create_remote_app,
+    doctor,
     run_remote_server,
 )
 from module.dev_mcp.server import (
@@ -697,17 +698,42 @@ def test_remote_metadata_is_public_but_has_exact_cors_and_no_wildcard() -> None:
 
 
 def test_caddy_template_uses_loopback_backend_without_public_admin_or_forbidden_ports() -> None:
-    template = (_REPOSITORY_ROOT / "docs" / "dev-mcp" / "Caddyfile.example").read_text(encoding="utf-8")
+    template = (_REPOSITORY_ROOT / "infrastructure" / "caddy" / "Caddyfile").read_text(encoding="utf-8")
 
     assert "admin 127.0.0.1:2019" in template
-    assert "reverse_proxy 127.0.0.1:8765" in template
-    assert "Cache-Control \"no-store\"" in template
+    assert "reverse_proxy host.docker.internal:8765" in template
+    assert "reverse_proxy host.docker.internal:8766" in template
+    assert 'Cache-Control "no-store"' in template
     assert "response_header_timeout 195s" in template
     assert "header_up Authorization" not in template
     assert "file_server" not in template
     assert "0.0.0.0" not in template
     for forbidden_port in ("25549", "5432"):
         assert forbidden_port not in template
+
+
+def test_remote_doctor_does_not_require_host_caddy(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    values = {
+        "AZURPILOT_DEV_MCP_PUBLIC_URL": _AUDIENCE,
+        "AZURPILOT_DEV_MCP_OAUTH_ISSUER": _ISSUER,
+        "AZURPILOT_DEV_MCP_OAUTH_AUDIENCE": _AUDIENCE,
+        "AZURPILOT_DEV_MCP_OAUTH_JWKS_URL": _JWKS_URL,
+        "AZURPILOT_DEV_MCP_OAUTH_SUBJECT": "user-1",
+    }
+    for name, value in values.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("PATH", "")
+
+    assert doctor() == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == {
+        "ok": True,
+        "code": "REMOTE_CONFIG_READY",
+        "bind_host_loopback": True,
+        "public_https_path": True,
+    }
 
 
 def test_remote_backend_uses_fixed_port(monkeypatch: pytest.MonkeyPatch) -> None:

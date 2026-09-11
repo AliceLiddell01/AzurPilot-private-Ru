@@ -216,18 +216,33 @@ class RuntimeLogTail:
         return "".join(self.lines)
 
 
+class CurrentTaskState(StrEnum):
+    """Нормализованное состояние текущего scheduler execution."""
+
+    RUNNING = "running"
+    IDLE = "idle"
+    STOPPED = "stopped"
+    UNKNOWN = "unknown"
+
+
 @dataclass(frozen=True, slots=True)
 class CurrentTaskSnapshot:
-    """Последняя определённая задача текущего runtime."""
+    """Подтверждённое состояние текущего execution профиля."""
 
     instance: str
-    task: str
+    task: str | None
+    state: CurrentTaskState = CurrentTaskState.RUNNING
 
     def __post_init__(self) -> None:
         if not isinstance(self.instance, str) or not self.instance:
             raise ValueError("instance должен быть непустой строкой")
-        if not isinstance(self.task, str) or not self.task:
-            raise ValueError("task должен быть непустой строкой")
+        if not isinstance(self.state, CurrentTaskState):
+            raise TypeError("state должен быть CurrentTaskState")
+        if self.state is CurrentTaskState.RUNNING:
+            if not isinstance(self.task, str) or not self.task:
+                raise ValueError("running task должен быть непустой строкой")
+        elif self.task is not None:
+            raise ValueError("Неактивное состояние не должно содержать task")
 
 
 @dataclass(frozen=True, slots=True)
@@ -474,6 +489,7 @@ __all__ = [
     "ConfigUpdateRequest",
     "ConfigUpdateResult",
     "CurrentTaskSnapshot",
+    "CurrentTaskState",
     "DashboardResource",
     "DashboardResources",
     "EmulatorRestartResult",

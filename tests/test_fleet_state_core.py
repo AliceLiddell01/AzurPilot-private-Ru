@@ -13,8 +13,12 @@ from module.application.fleet_state import (
     FleetStateRequest,
     FleetStateService,
 )
-from module.application.instance_identity import runtime_instance_identity
+from module.application.instance_identity import (
+    resolve_runtime_instance,
+    runtime_instance_identity,
+)
 from module.application.storage_models import InstanceIdentity
+from module.config.profile import ProfileIdentity
 from module.dock_inventory.model import CanonicalShipIdentity, IdentityStatus, ShipForm
 from module.formation.model import (
     SUPPORTED_SURFACE_FLEET_INDICES,
@@ -443,3 +447,16 @@ def test_runtime_identity_contract_remains_shared():
     digest, identity_id = runtime_instance_identity("profile")
     assert len(digest) == 64
     assert isinstance(identity_id, UUID)
+
+
+def test_runtime_identity_registration_uses_resolved_canonical_name(monkeypatch):
+    instances = _Instances()
+    uow = _Uow(instances, _FleetRepository())
+    monkeypatch.setattr(
+        "module.application.instance_identity.profile_identity_from_name",
+        lambda _name: ProfileIdentity("canonical-profile"),
+    )
+
+    resolve_runtime_instance(uow, "alias-profile")
+
+    assert list(instances._by_alias.values())[0].name == "canonical-profile"
