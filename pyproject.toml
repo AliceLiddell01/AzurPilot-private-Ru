@@ -28,7 +28,7 @@ dependencies = [
     "rich==12.6.0",
     "zerorpc==0.6.3",
     "pyzmq==27.1.0",
-    "onepush==1.2.0",
+    "onepush==1.10.0",
     "psutil==7.2.2",
     "chardet==5.1.0",
     "matplotlib==3.11.0",

@@ -330,7 +330,7 @@ requires-dist = [
     { name = "ncnn", specifier = ">=1.0.20260114" },
     { name = "numba", specifier = "==0.66.0" },
     { name = "numpy", specifier = "==2.4.6" },
-    { name = "onepush", specifier = "==1.2.0" },
+    { name = "onepush", specifier = "==1.10.0" },
     { name = "onnxruntime", marker = "platform_machine == 'arm64' and sys_platform == 'darwin'", specifier = "==1.27.0" },
     { name = "onnxruntime", marker = "sys_platform == 'linux'", specifier = "==1.27.0" },
     { name = "onnxruntime-windowsml", marker = "sys_platform == 'win32'", specifier = "==1.27.1.202607110137" },
@@ -1504,14 +1504,15 @@ wheels = [
 
 [[package]]
 name = "onepush"
-version = "1.2.0"
+version = "1.10.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "requests" },
+    { name = "pycryptodome" },
+    { name = "requests", extra = ["socks"] },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/2d/c6/128f8a937f02c5e93769a68d949fe54a9038629a9fdcdbae6757e193c7e5/onepush-1.2.0.tar.gz", hash = "sha256:e1802eb6e97466d75afabd9549b08d2935e58537c4baf01be02a32e20830e867", size = 8162, upload-time = "2022-08-18T13:58:22.423Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/2a/bc/9f727c8abba09457e741ab7373b27b142aa1eae2944acd7f879db9f8d055/onepush-1.10.0.tar.gz", hash = "sha256:fd3c508b05341d7f2ea05b14a640defaebb3d9ddc5aafedf86d01b91ca9492b0", size = 13224, upload-time = "2026-09-07T06:01:54.099Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/29/bd/f7d7cdaadd192cba03bfcc020f6b2d6ad0af8b931108ea9d6807f788112d/onepush-1.2.0-py3-none-any.whl", hash = "sha256:cd4ae1dc5df7a23af1f9cf512fbf24d650d566c60256d9a6031d7c5be390465b", size = 15775, upload-time = "2022-08-18T13:58:20.189Z" },
+    { url = "https://files.pythonhosted.org/packages/54/50/869e6b690e0913e35ef2dd4bc8496e378266ff850401ecb4f08c4940d5db/onepush-1.10.0-py3-none-any.whl", hash = "sha256:afbf2524a52744f1cf1663fcd8375c9107289dfccd11fdbd92208ffb1293306d", size = 19937, upload-time = "2026-09-07T06:01:53.058Z" },
 ]
 
 [[package]]
@@ -2114,6 +2115,15 @@ wheels = [
 ]
 
 [[package]]
+name = "pysocks"
+version = "1.7.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/bd/11/293dd436aea955d45fc4e8a35b6ae7270f5b8e00b53cf6c024c83b657a11/PySocks-1.7.1.tar.gz", hash = "sha256:3f8804571ebe159c380ac6de37643bb4685970655d3bba243530d6558b799aa0", size = 284429, upload-time = "2019-09-20T02:07:35.714Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8d/59/b4572118e098ac8e46e399a1dd0f2d85403ce8bbaad9ec79373ed6badaf9/PySocks-1.7.1-py3-none-any.whl", hash = "sha256:2725bd0a9925919b9b51739eea5f9e2bae91e83288108a9ad338b2e3a4435ee5", size = 16725, upload-time = "2019-09-20T02:06:22.938Z" },
+]
+
+[[package]]
 name = "pytest"
 version = "9.1.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2283,6 +2293,11 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ac/c3/e2a2b89f2d3e2179abd6d00ebd70bff6273f37fb3e0cc209f48b39d00cbf/requests-2.34.2.tar.gz", hash = "sha256:f288924cae4e29463698d6d60bc6a4da69c89185ad1e0bcc4104f584e960b9ed", size = 142856, upload-time = "2026-05-14T19:25:27.735Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a0/f4/c67b0b3f1b9245e8d266f0f112c500d50e5b4e83cb6f3b71b6528104182a/requests-2.34.2-py3-none-any.whl", hash = "sha256:2a0d60c172f83ac6ab31e4554906c0f3b3588d37b5cb939b1c061f4907e278e0", size = 73075, upload-time = "2026-05-14T19:25:26.443Z" },
+]
+
+[package.optional-dependencies]
+socks = [
+    { name = "pysocks" },
 ]
 
 [[package]]
