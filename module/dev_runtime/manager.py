@@ -50,7 +50,12 @@ from module.dev_runtime.evidence import (
     EvidenceStore,
     validate_session_id,
 )
-from module.dev_runtime.process import ProcessBackend, _same_path
+from module.dev_runtime.process import (
+    ProcessBackend,
+    StartupFailureDiagnostics,
+    _same_path,
+)
+from module.dev_runtime.sanitizer import MAX_SANITIZED_TEXT, redact_text
 from module.dev_runtime.shared_webui import SharedWebUIRuntime
 from module.dev_runtime.target import (
     DevTarget,
@@ -235,37 +240,6 @@ class DevSessionManager(DevDiagnosticsMixin):
             return self.environment
         return replace(self.environment, dev_target=target)
 
-    def _evidence_log_path(self) -> Path:
-        """Вернуть фактический scoped log target текущего runtime mode."""
-
-        if self.shared_webui and self.shared_lifecycle is not None:
-            try:
-                candidate = getattr(self.shared_lifecycle, "log_file", None)
-            except (DevTargetError, OSError, RuntimeError):
-                return self.environment.log_file
-            if isinstance(candidate, (str, os.PathLike)):
-                try:
-                    candidate_path = Path(candidate)
-                    candidate_path.resolve().relative_to(
-                        self.environment.repository_root.resolve()
-                    )
-                except (OSError, RuntimeError, TypeError, ValueError):
-                    return self.environment.log_file
-                return candidate_path
-        return self.environment.log_file
-
-    def _relative_log_text(self, log_path: Path | None) -> str | None:
-        if log_path is None:
-            return None
-        try:
-            return str(
-                Path(log_path).resolve().relative_to(
-                    self.environment.repository_root.resolve()
-                )
-            )
-        except (OSError, RuntimeError, ValueError):
-            return str(log_path)
-
     def _evidence_for_session(
         self,
         session_id: str,
@@ -277,6 +251,7 @@ class DevSessionManager(DevDiagnosticsMixin):
             store = EvidenceStore.for_session(
                 self.environment,
                 session_id,
+                now=self.now,
                 profile_name=profile_name,
                 validate_profile=validate_profile,
             )
@@ -469,6 +444,41 @@ class DevSessionManager(DevDiagnosticsMixin):
         except Exception:
             active_store.mark_degraded("error_record_failed")
 
+    def _read_startup_failure(
+        self,
+        pid: int | None,
+        *,
+        close: bool = True,
+    ) -> dict[str, object] | None:
+        if pid is None:
+            return None
+        try:
+            diagnostics = self.process_backend.read_startup_failure(pid, close=close)
+        except Exception:
+            return None
+        if not isinstance(diagnostics, StartupFailureDiagnostics):
+            return None
+        diagnostics = StartupFailureDiagnostics(
+            message=redact_text(diagnostics.message, max_length=MAX_SANITIZED_TEXT),
+            truncated=diagnostics.truncated or len(diagnostics.message) > MAX_SANITIZED_TEXT,
+        )
+        self._evidence_error(
+            RuntimeError(diagnostics.message),
+            phase="startup_failure",
+        )
+        return diagnostics.as_dict()
+
+    def _discard_startup_failure(self, pid: int | None) -> None:
+        if pid is None:
+            return
+        discarder = getattr(self.process_backend, "discard_startup_failure", None)
+        if not callable(discarder):
+            return
+        try:
+            discarder(pid)
+        except Exception:
+            pass
+
     def _finalize_evidence_before_cleanup(
         self,
         session: DevSession,
@@ -478,7 +488,7 @@ class DevSessionManager(DevDiagnosticsMixin):
         cleanup_attempted: bool,
         reason: str,
     ) -> EvidenceStore | None:
-        """Закрыть log boundary до любой очистки task sandbox."""
+        """Закрыть evidence до любой очистки task sandbox."""
 
         store = self._evidence_store
         if store is not None and store.session_id != session.session_id:
@@ -545,7 +555,6 @@ class DevSessionManager(DevDiagnosticsMixin):
                 excluded_tasks=task_plan.excluded_tasks,
                 timestamp=session.created_at,
                 now=self.now,
-                log_file=self._evidence_log_path(),
             )
             self._evidence_store = store
             self._evidence_event(
@@ -697,44 +706,6 @@ class DevSessionManager(DevDiagnosticsMixin):
             True,
             "DEV_TIMELINE_READY",
             "Каноническая хронология выполнения прочитана",
-            current.state.value if current is not None and current.session_id == store.session_id else DevStatusKind.STOPPED.value,
-            store.session_id,
-            page,
-        )
-
-    def get_logs(
-        self,
-        *,
-        session_id: str | None = None,
-        cursor: str | None = None,
-        limit: int = 100,
-    ) -> DevResult:
-        current, store, error = self._evidence_target(session_id)
-        if error is not None:
-            return error
-        assert store is not None
-        active_owned = False
-        if current is not None and current.session_id == store.session_id:
-            if current.state is DevSessionState.RUNNING and current.process is not None:
-                active_owned = self._session_runtime_matches(current) is True
-        try:
-            page = store.logs_page(cursor=cursor, limit=limit, active_owned=active_owned)
-        except EvidenceCorrupt as exc:
-            store.mark_corrupt("log_corrupt")
-            return DevResult(
-                False,
-                exc.code,
-                str(exc),
-                DevStatusKind.CORRUPT.value,
-                store.session_id,
-                {"evidence_health": {"status": "corrupt", "reasons": ["log_corrupt"]}},
-            )
-        except EvidenceError as exc:
-            return DevResult(False, exc.code, str(exc), "failed", store.session_id)
-        return DevResult(
-            True,
-            "DEV_LOGS_READY",
-            "Журнал в пределах сессии прочитан",
             current.state.value if current is not None and current.session_id == store.session_id else DevStatusKind.STOPPED.value,
             store.session_id,
             page,
@@ -2581,12 +2552,6 @@ class DevSessionManager(DevDiagnosticsMixin):
                         "policy_prepared",
                         {"profile": self.environment.profile_name, "state": TASK_POLICY_ACTIVE},
                     )
-                    try:
-                        if self._evidence_store is not None:
-                            self._evidence_store.capture_log_boundary()
-                    except EvidenceError:
-                        pass
-
                 session.state = DevSessionState.STARTING
                 session.updated_at = self._timestamp()
                 session.last_code = "DEV_SESSION_STARTING"
@@ -2651,6 +2616,10 @@ class DevSessionManager(DevDiagnosticsMixin):
                             process_cleanup_confirmed = self.process_backend.force_stop(identity)
                         else:
                             process_cleanup_confirmed = False
+                    startup_failure = self._read_startup_failure(
+                        pid,
+                        close=process_cleanup_confirmed,
+                    )
                     failure_code = "DEV_LAUNCH_FAILED"
                     session.state = DevSessionState.FAILED
                     session.updated_at = self._timestamp()
@@ -2664,6 +2633,8 @@ class DevSessionManager(DevDiagnosticsMixin):
                         reason=failure_code,
                     )
                     failure_details: dict[str, object] = {}
+                    if startup_failure is not None:
+                        failure_details["startup_failure"] = startup_failure
                     if task_plan is not None:
                         task_cleanup = (
                             self._cleanup_task_state_locked(
@@ -2677,7 +2648,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                                 session=session,
                             )
                         )
-                        failure_details = {"cleanup": task_cleanup.as_dict()}
+                        failure_details["cleanup"] = task_cleanup.as_dict()
                         if not task_cleanup.ok:
                             failure_code = "DEV_CLEANUP_FAILED"
                     session.last_code = failure_code
@@ -2740,6 +2711,10 @@ class DevSessionManager(DevDiagnosticsMixin):
                     {"code": "DEV_READINESS_FAILED", "reason": reason, "phase": "readiness"},
                 )
                 cleanup = self._stop_owned_process(latest.process)
+                startup_failure = self._read_startup_failure(
+                    latest.process.pid if latest.process is not None else None,
+                    close=cleanup,
+                )
                 latest.state = DevSessionState.FAILED
                 latest.updated_at = self._timestamp()
                 failure_code = "DEV_READINESS_FAILED"
@@ -2754,6 +2729,8 @@ class DevSessionManager(DevDiagnosticsMixin):
                     reason=failure_code,
                 )
                 failure_details: dict[str, object] = {"cleanup_confirmed": cleanup}
+                if startup_failure is not None:
+                    failure_details["startup_failure"] = startup_failure
                 if task_plan is not None:
                     task_cleanup = (
                         self._cleanup_task_state_locked(
@@ -2802,6 +2779,9 @@ class DevSessionManager(DevDiagnosticsMixin):
             except RuntimeError:
                 owned = False
             if owned is not True:
+                self._discard_startup_failure(
+                    latest.process.pid if latest.process is not None else None
+                )
                 self._evidence_event(
                     "runtime_warning",
                     {"code": "DEV_OWNERSHIP_LOST", "phase": "readiness"},
@@ -2824,6 +2804,9 @@ class DevSessionManager(DevDiagnosticsMixin):
             latest.updated_at = self._timestamp()
             latest.last_code = "DEV_SESSION_READY"
             latest.last_message = "Dev-сессия готова"
+            self._discard_startup_failure(
+                latest.process.pid if latest.process is not None else None
+            )
             self._write_session(latest)
             self._evidence_event(
                 "session_ready",
@@ -2842,7 +2825,6 @@ class DevSessionManager(DevDiagnosticsMixin):
                     "host": self.environment.host,
                     "port": self.environment.port,
                     "profile": self.environment.profile_name,
-                    "log": self._relative_log_text(self._evidence_log_path()),
                 },
             )
 
@@ -3038,7 +3020,6 @@ class DevSessionManager(DevDiagnosticsMixin):
                             "runtime_mode": DevRuntimeMode.SHARED_WEBUI.value,
                         },
                     )
-                    log_path = self._evidence_log_path()
                     return self._session_result(
                         latest,
                         ok=True,
@@ -3048,7 +3029,6 @@ class DevSessionManager(DevDiagnosticsMixin):
                         details={
                             "runtime_mode": DevRuntimeMode.SHARED_WEBUI.value,
                             "profile": self.environment.profile_name,
-                            "log": self._relative_log_text(log_path),
                         },
                     )
 
@@ -3405,6 +3385,7 @@ class DevSessionManager(DevDiagnosticsMixin):
                     state=DevStatusKind.OWNERSHIP_MISMATCH,
                 )
             if matches is None:
+                self._discard_startup_failure(identity.pid)
                 return self._finish_stopped_locked(
                     session,
                     code="DEV_STALE_RECOVERED",
@@ -3427,6 +3408,8 @@ class DevSessionManager(DevDiagnosticsMixin):
             self._evidence_event("stop_requested", {"state": DevSessionState.STOPPING.value})
 
         stopped = self._stop_owned_process(identity)
+        if stopped:
+            self._discard_startup_failure(identity.pid if identity is not None else None)
         with self._locked_state():
             latest = self._read_session()
             if latest is None or latest.session_id != session.session_id:

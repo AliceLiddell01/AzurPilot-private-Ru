@@ -58,8 +58,17 @@ Smoke по умолчанию выполняй только этим поток�
 Не используй как стандартный smoke-путь `dev_start_session`, ручные
 `sleep`/клики, произвольное чтение логов, `dev_stop_session` или shell-команды.
 Низкоуровневые tools (`dev_preflight`, `dev_doctor`, `dev_status`,
-`dev_get_evidence`, `dev_get_timeline`, `dev_get_logs`, `dev_get_screenshot`)
+`dev_get_evidence`, `dev_get_timeline`, `dev_get_screenshot`)
 служат для диагностики и проверки доказательств, а не для обхода Harness.
+
+Для `PRODUCT_FAILED` сначала используй Dev evidence, timeline, screenshots и
+typed observations, затем отдельный read-only Grafana MCP: application logs
+ищутся только в Loki через `query_loki_logs`, traces — в Tempo, metrics — в
+Prometheus. Dev MCP не является Grafana proxy и не принимает LogQL, payload
+логов, локальные log-файлы, shell-команды или incident-артефакты как замену
+этим поверхностям. Если Grafana/observability недоступна, явно укажи это как
+ограничение и продолжай только со структурированным Dev evidence; локального
+fallback для normal application logs нет.
 
 SmokeSpec должен оставаться фиксированным и безопасным: никаких shell/eval,
 HTTP, SQL, ADB/input, искусственных sleep/retry, patch-команд и произвольных
@@ -104,7 +113,8 @@ Runtime control не принимает профиль, serial, package, ком�
 точный source, подтверждённый cleanup и полное evidence. Остальные outcomes
 маршрутизируй так:
 
-- `PRODUCT_FAILED`: разбери evidence/timeline/logs, исправь продукт и создай
+- `PRODUCT_FAILED`: разбери evidence/timeline/screenshots/typed observations,
+  затем Grafana Loki/Tempo/Prometheus, исправь продукт и создай
   новый run; не меняй исходный SmokeSpec.
 - `HARNESS_FAILED`: диагностируй Harness; продукт и спецификацию не меняй.
 - `EVIDENCE_INCOMPLETE`: нельзя объявлять PASS.

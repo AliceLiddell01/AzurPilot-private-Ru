@@ -93,16 +93,6 @@ class _FakeManager:
         self.calls.append(("get_timeline", (session_id, after_sequence, limit)))
         return _result("DEV_TIMELINE_READY")
 
-    def get_logs(
-        self,
-        *,
-        session_id: str | None = None,
-        cursor: str | None = None,
-        limit: int = 100,
-    ) -> DevResult:
-        self.calls.append(("get_logs", (session_id, cursor, limit)))
-        return _result("DEV_LOGS_READY")
-
     def get_screenshot(self):
         self.calls.append(("get_screenshot", None))
         return EvidenceScreenshot(_result("DEV_SCREENSHOT_READY"))
@@ -369,6 +359,7 @@ def _real_runtime_manager(
     tmp_path: Path,
     *,
     screenshot_provider: Callable[[str], object] | None = None,
+    runtime_now: datetime | None = None,
 ) -> tuple[DevSessionManager, _SyntheticProcessBackend]:
     root = tmp_path.resolve()
     (root / "module").mkdir()
@@ -395,6 +386,7 @@ def _real_runtime_manager(
         dev_target=DevTarget("ap"),
     )
     backend = _SyntheticProcessBackend()
+    effective_now = runtime_now or datetime(2026, 8, 29, tzinfo=UTC)
     manager = DevSessionManager(
         environment,
         process_backend=backend,
@@ -402,7 +394,7 @@ def _real_runtime_manager(
         storage_probe=lambda _environment: (True, "storage ready"),
         port_probe=lambda _host, _port: False,
         readiness_probe=lambda _environment, _identity: (True, "ready"),
-        now=lambda: datetime(2026, 8, 29, tzinfo=UTC),
+        now=lambda: effective_now,
         session_id_factory=lambda: "sandbox-session",
         screenshot_provider=screenshot_provider,
         ready_timeout=0.01,
@@ -438,10 +430,6 @@ def test_manager_is_lazy_and_allowed_tools_delegate_exact_arguments() -> None:
     assert adapter.call(
         "dev_get_timeline",
         {"session_id": "session-1", "after_sequence": 2, "limit": 3},
-    )["ok"] is True
-    assert adapter.call(
-        "dev_get_logs",
-        {"session_id": "session-1", "cursor": "cursor", "limit": 4},
     )["ok"] is True
     assert adapter.call("dev_get_screenshot", {})["ok"] is True
     smoke_spec = {
@@ -500,7 +488,6 @@ def test_manager_is_lazy_and_allowed_tools_delegate_exact_arguments() -> None:
         ("recover", None),
         ("get_evidence", None),
         ("get_timeline", ("session-1", 2, 3)),
-        ("get_logs", ("session-1", "cursor", 4)),
         ("get_screenshot", None),
         ("list_smoke_capabilities", None),
         ("validate_smoke", "adapter-smoke"),
@@ -523,6 +510,9 @@ def test_manager_is_lazy_and_allowed_tools_delegate_exact_arguments() -> None:
 
 def test_invalid_and_privileged_arguments_are_rejected_before_manager_creation() -> None:
     adapter, manager, factory_calls = _adapter_with_factory()
+    # Имя намеренно собрано по частям, чтобы отрицательный тест не создавал
+    # публичную ссылку на удалённый инструмент.
+    legacy_log_tool = "dev_get_" + "logs"
 
     invalid_calls = [
         ("dev_plan_session", {}),
@@ -538,8 +528,7 @@ def test_invalid_and_privileged_arguments_are_rejected_before_manager_creation()
         ("dev_get_evidence", {"session_id": "../foreign"}),
         ("dev_get_timeline", {"after_sequence": -1}),
         ("dev_get_timeline", {"limit": 201}),
-        ("dev_get_logs", {"cursor": ""}),
-        ("dev_get_logs", {"path": "C:\\private\\logs"}),
+        (legacy_log_tool, {}),
         ("dev_validate_smoke", {"name": "bad", "objective": "bad", "profile": "ap"}),
         (
             "dev_validate_smoke",
@@ -567,7 +556,9 @@ def test_invalid_and_privileged_arguments_are_rejected_before_manager_creation()
     for tool_name, arguments in invalid_calls:
         result = adapter.call(tool_name, arguments)
         assert result["ok"] is False
-        assert result["code"] == "DEV_MCP_INPUT_INVALID"
+        assert result["code"] == (
+            "DEV_MCP_UNKNOWN_TOOL" if tool_name == legacy_log_tool else "DEV_MCP_INPUT_INVALID"
+        )
 
     assert factory_calls == []
     assert manager.calls == []
@@ -619,25 +610,50 @@ def test_serializer_allowlists_result_and_redacts_sensitive_details() -> None:
             "session_id": "session-1",
             "details": {
                 "profile": "ap",
-                "relative_log": "config/state/dev-runtime-gui.log",
-            "repository_root": "C:\\private\\repo",
-            "policy_file": "C:\\private\\policy.json",
-            "command_line": ["python", "gui.py"],
-            "api_key": "secret-api-key",
-            "apiKey": "secret-api-key",
-            "x-api-key": "secret-api-key",
-        },
+                "observability": {
+                    "source": "grafana_loki",
+                    "service_name": "azurpilot",
+                    "deployment_environment": "local",
+                    "profile": "ap",
+                    "root_tasks": ["RootTask"],
+                    "start_utc": "2026-08-29T00:00:00+00:00",
+                    "end_utc": None,
+                },
+                "startup_failure": {
+                    "message": "ImportError: password=secret C:\\private\\module.py",
+                    "truncated": True,
+                },
+                "repository_root": "C:\\private\\repo",
+                "policy_file": "C:\\private\\policy.json",
+                "command_line": ["python", "gui.py"],
+                "api_key": "secret-api-key",
+                "apiKey": "secret-api-key",
+                "x-api-key": "secret-api-key",
+            },
             "unexpected": "must not cross boundary",
         }
     )
 
     assert result["message"] == "готово [путь скрыт]"
-    assert result["details"] == {"relative_log": "config/state/dev-runtime-gui.log"}
+    assert result["details"] == {
+        "observability": {
+            "source": "grafana_loki",
+            "service_name": "azurpilot",
+            "deployment_environment": "local",
+            "profile": "ap",
+            "root_tasks": ["RootTask"],
+            "start_utc": "2026-08-29T00:00:00+00:00",
+            "end_utc": None,
+        },
+        "startup_failure": {
+            "message": "ImportError: password=*** [путь скрыт]",
+            "truncated": True,
+        },
+    }
     assert "api_key" not in result["details"]
     assert "apiKey" not in result["details"]
     assert "x-api-key" not in result["details"]
     assert "unexpected" not in result
-
 
 def test_serializer_preserves_smoke_result_and_active_conflict_state() -> None:
     result = serialize_dev_result(
@@ -649,7 +665,7 @@ def test_serializer_preserves_smoke_result_and_active_conflict_state() -> None:
             "details": {
                 "conflict_state": "running",
                 "result": {
-                    "schema_version": 1,
+                    "schema_version": 2,
                     "smoke_id": "smoke-1",
                     "outcome": "PASS",
                 },
@@ -659,7 +675,7 @@ def test_serializer_preserves_smoke_result_and_active_conflict_state() -> None:
 
     assert result["details"]["conflict_state"] == "running"
     assert result["details"]["result"] == {
-        "schema_version": 1,
+        "schema_version": 2,
         "smoke_id": "smoke-1",
         "outcome": "PASS",
     }
@@ -1011,10 +1027,12 @@ def test_real_status_preserves_task_lifecycle_and_policy_snapshot(tmp_path: Path
         assert stopped["ok"] is True
 
 
-def test_real_evidence_tools_expose_lifecycle_timeline_logs_and_image(tmp_path: Path) -> None:
+def test_real_evidence_tools_expose_lifecycle_timeline_observability_and_image(tmp_path: Path) -> None:
+    runtime_now = datetime(2026, 8, 29, tzinfo=UTC)
     manager, _backend = _real_runtime_manager(
         tmp_path,
         screenshot_provider=lambda _session_id: np.zeros((2, 3, 3), dtype=np.uint8),
+        runtime_now=runtime_now,
     )
     adapter = DevMcpAdapter(lambda: manager)
 
@@ -1025,7 +1043,17 @@ def test_real_evidence_tools_expose_lifecycle_timeline_logs_and_image(tmp_path: 
         assert evidence["ok"] is True
         assert "profile" not in evidence["details"]
         assert evidence["details"]["git_snapshot"]["available"] is False
-        assert evidence["details"]["logs"]["available"] is True
+        assert evidence["details"]["observability"] == {
+            "source": "grafana_loki",
+            "service_name": "azurpilot",
+            "deployment_environment": "local",
+            "profile": "ap",
+            "root_tasks": ["RootTask"],
+            "start_utc": "2026-08-29T00:00:00+00:00",
+            "end_utc": None,
+            "upper_bound_utc": runtime_now.isoformat(),
+        }
+        assert "logs" not in evidence["details"]
         assert evidence["details"]["current_task"] is None
         assert "cleanup" in evidence["details"]
         assert set(evidence["details"]["cleanup"]) == {
@@ -1049,16 +1077,6 @@ def test_real_evidence_tools_expose_lifecycle_timeline_logs_and_image(tmp_path: 
             "session_ready",
         ]
         assert timeline["details"]["more"] is False
-
-        manager.environment.log_file.write_text(
-            "новая запись password=секрет\n",
-            encoding="utf-8",
-        )
-        logs = adapter.call("dev_get_logs", {"limit": 10})
-        assert logs["ok"] is True
-        assert logs["details"]["items"] == [
-            {"text": "новая запись password=***", "truncated": False}
-        ]
 
         screenshot = adapter.call("dev_get_screenshot")
         assert screenshot.structured["ok"] is True

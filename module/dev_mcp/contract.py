@@ -11,7 +11,7 @@ from module.dev_runtime.smoke import (
 )
 
 CONTRACT_SCHEMA_VERSION = 1
-DEV_MCP_API_VERSION = 2
+DEV_MCP_API_VERSION = 3
 PRODUCT_FAMILY = "AzurPilot"
 DEV_MCP_REQUIRED_SCOPE = "azurpilot:dev"
 

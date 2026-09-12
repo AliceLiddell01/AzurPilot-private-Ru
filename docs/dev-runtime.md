@@ -53,10 +53,11 @@ tool_timeout_sec = 180
 Базовые инструменты Dev Runtime (без Smoke Harness и Runtime Control): `dev_preflight`, `dev_doctor`, `dev_get_contract`, `dev_list_tasks`,
 `dev_plan_session`, `dev_start_session`, `dev_status`, `dev_stop_session`,
 `dev_cleanup`, `dev_recover`, `dev_get_evidence`, `dev_get_timeline`,
-`dev_get_logs` и `dev_get_screenshot`. Только для чтения работают `preflight`,
-`doctor`, каталог, `plan`, `status` и `timeline`. `evidence`, `logs` и `screenshot`
-могут дополнять состояние и сохранять локальные артефакты, но не изменяют жизненный цикл
-и не являются разрушительными. `dev_start_session` всегда
+`dev_get_screenshot`. Только для чтения работают `preflight`, `doctor`, каталог,
+`plan`, `status` и `timeline`. `dev_get_evidence` при необходимости атомарно
+мигрирует legacy-манифест и поэтому не относится к безусловно read-only операциям.
+Инструмент `screenshot` может дополнять состояние и сохранять локальные артефакты,
+но не изменяет жизненный цикл и не является разрушительным. `dev_start_session` всегда
 работает в режиме с учётом задач и требует `root_tasks`; `stop` по умолчанию очищает
 состояние планировщика, а
 `preserve_task_state=true` является явным диагностическим исключением и требует
@@ -97,7 +98,7 @@ capability families и result outcomes. В контракте нет путей,
 
 Сессия с учётом задач создаёт отдельный игнорируемый каталог
 `config/state/dev-runtime-runs/<session-id>/`. В нём хранятся только ограниченные
-`manifest.json`, атомарный `timeline.json`, метаданные границы общего журнала и
+`manifest.json` с bounded observability-контекстом, атомарный `timeline.json` и
 локальные PNG/метаданные явных запросов снимка экрана. Диагностика привязана к текущей
 рабочей копии, точному `session_id` и настроенному development target; MCP не принимает
 пути, `profile`, `instance` или произвольные имена файлов. Хранение ограничено
@@ -105,11 +106,17 @@ capability families и result outcomes. В контракте нет путей,
 
 Манифест сохраняет временные метки жизненного цикла в UTC, корневые и исключённые
 задачи, локальный снимок Git только для чтения (`HEAD`, `branch`/`detached`, изменённые отслеживаемые пути),
-состояние с машинными причинами, сводку хронологии, доступность журнала, метаданные
-снимка экрана, последнюю структурированную ошибку и результат очистки. Снимок Git использует только
+состояние с машинными причинами, сводку хронологии, bounded-координаты для поиска
+application logs через Grafana MCP, метаданные снимка экрана, последнюю структурированную
+ошибку и результат очистки. Снимок Git использует только
 фиксированные локальные команды без сети, удалённых репозиториев, данных пользователя и содержимого
 неотслеживаемых файлов. Ошибка Git переводит диагностику в `degraded`, но не блокирует
 обычный жизненный цикл.
+
+Текущая схема persistent evidence — v3. При чтении совместимый старый v2-манифест
+однократно мигрируется атомарно: legacy file-log metadata отбрасывается, а вместо неё
+создаётся bounded observability-контекст; содержимое старых логов не восстанавливается
+и не публикуется. Неполный или повреждённый манифест отклоняется fail-closed.
 
 Хронология записывается только на канонических границах выполнения: создание и
 готовность `session`, подготовка `policy`, запуск процесса, начало/возврат `task`,
@@ -118,15 +125,16 @@ capability families и result outcomes. В контракте нет путей,
 задание сообщается только для активной сессии с подтверждённым владением; после `stop` оно равно
 `none`, а последняя задача остаётся в хронологии.
 
-`dev_get_logs` читает только диапазон фактического профильного журнала
-`log/<development-profile>.txt`, зафиксированный при старте сессии с учётом задач
-`session`, а при подтверждённом завершении — также по конечную границу завершения.
-Предыдущие сессии не выдаются; замена, усечение, отсутствие файла, некорректный UTF-8,
-повреждённая физическая строка и повреждённый `cursor` превращаются в ограниченный
-результат диагностики с причиной состояния. Страница журнала использует ограниченные
-`limit`, `cursor`, `more` и `truncated`; длинная физическая строка читается ограниченным
-префиксом целиком, без выдачи её продолжения отдельной строкой. Пути и учётные данные
-проходят общий слой очистки только для dev-контура.
+Dev MCP не является proxy для Grafana и не читает Loki, локальные log-файлы или
+incident-артефакты. `dev_get_evidence` возвращает только bounded observability-координаты:
+`source=grafana_loki`, `service_name=azurpilot`, deployment environment, profile,
+root tasks и UTC start/end (для активной сессии — bounded upper bound). `component`
+не является обязательной координатой Evidence: role/component может отличаться у
+разных entrypoint-ов и остаётся только structured metadata application log, если
+оно действительно присутствует в OTel записи.
+Payload логов и LogQL наружу не передаются. Application logs ищутся отдельным
+read-only Grafana MCP через `query_loki_logs`; если observability недоступна,
+используется только структурированное evidence без локального fallback.
 
 `dev_get_screenshot` — только явное наблюдение активной сессии с подтверждённым
 владением. Рабочий процесс обслуживает запрос текущим кадром из уже существующего пути
@@ -137,7 +145,7 @@ capability families и result outcomes. В контракте нет путей,
 `ImageContent`, без base64 в обычном JSON.
 
 Обработчик MCP остаётся тонким: он валидирует строгую схему и вызывает единый
-API `DevSessionManager` и отдельный `RuntimeControlManager`. Чтение артефактов, Git, журнала, владения и снимка экрана
+API `DevSessionManager` и отдельный `RuntimeControlManager`. Чтение evidence, Git, владения и снимка экрана
 делается внутри слоя выполнения и диагностики. В обычном рабочем процессе перехватчики —
 лёгкая пустая операция; transport boundary остаётся отдельной от runtime
 composition и не добавляет игровых или production task handlers.
@@ -332,6 +340,17 @@ symlink/junction. Состояния выполнения (`created`, `preparing
 `HARNESS_FAILED`, `EVIDENCE_INCOMPLETE`, `TIMEOUT`, `INVALIDATED` и
 `CANCELLED`. Одновременно разрешён только один активный запуск.
 
+Текущие `SmokeSpec` и `SmokeRun` schema имеют версию 2. Read-only store содержит
+bounded adapter для исторических v1 `spec/state/result`: удалённые file-log
+capabilities и `session_log` refs отбрасываются из актуальной модели, исходные
+файлы не переписываются, а legacy run не блокирует новый v2 запуск. Повреждённая
+или будущая неизвестная schema не мигрируется и завершается fail-closed.
+
+До фиксации телеметрии отдельный process backend сохраняет только ограниченный и
+санитизированный `stderr` startup-попытки standalone DevSession. Поток дренируется
+конкурентно, чтобы не создать deadlock; при успешной готовности и обычной остановке
+буфер отбрасывается. Это не локальный log reader и не fallback для application logs.
+
 Длительная часть запускается отдельным Python проекта через
 `module.dev_runtime.smoke_supervisor`; команда, рабочий каталог и личность
 исполняемого файла проверяются точно. Для game-backed Smoke supervisor вызывает
@@ -339,8 +358,8 @@ symlink/junction. Состояния выполнения (`created`, `preparing
 фиксирует `before` после target/task preparation и до первого запуска target
 process. Отдельная pre-execution lock сериализует callback, первый запуск и
 операции `stop`/`recover`/`cleanup`, но общая coordination lock не удерживается
-на время потенциально долгого read-only checkpoint. Runtime читается только через публичные методы Evidence API `evidence`,
-`timeline`, `logs`, `status` и снимка экрана.
+на время потенциально долгого диагностического checkpoint. Runtime читается только через публичные методы Evidence API `evidence`,
+`timeline`, `status` и снимка экрана.
 Он не вызывает gameplay handlers, `Device`, Game MCP или raw scheduler.
 После ошибки сначала сохраняется первичная ошибка продукта, затем выполняются
 stop, очистка Task Sandbox, сброс scheduler, восстановление только объявленных
@@ -349,8 +368,7 @@ overrides и проверки orphan/source.
 Встроенный `SmokeCapabilityRegistry` предоставляет типизированные условия:
 наличие/отсутствие события, запуск/отсутствие task, зависимость с provenance,
 ошибка выполнения и ожидаемая безопасная ошибка, полнота evidence, состояние
-runtime/port, значение и восстановление config, длительность и ограниченный
-фрагмент журнала сессии. Каждый результат содержит `PASS`/`FAIL`/`PENDING`/
+runtime/port, значение и восстановление config и длительность. Каждый результат содержит `PASS`/`FAIL`/`PENDING`/
 `UNAVAILABLE` и явные ссылки на Evidence API. Negative assertions не
 проходят до закрытия окна наблюдения; необъявленная structured runtime error и
 неполная evidence health блокируют PASS.

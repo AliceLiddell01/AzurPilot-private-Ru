@@ -37,6 +37,12 @@ from module.observability._shared import (
     _safe_exception_message,
     _safe_message_argument,
 )
+from module.observability.identity import (
+    OBSERVABILITY_REPOSITORY_ROOT_ENV,
+    ObservabilityIdentity,
+    is_repository_root,
+    resolve_observability_identity,
+)
 from module.observability.metrics import (
     MetricsConfig,
     MetricsRuntime,
@@ -57,7 +63,6 @@ from module.observability.scheduler import reset_scheduler_state_after_fork
 
 _TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 _SUPPORTED_PROTOCOL = "http/protobuf"
-_DEFAULT_ENVIRONMENT = "local"
 _DEFAULT_HANDLER_LEVEL = logging.INFO
 _DEFAULT_EXPORT_TIMEOUT_MILLIS = 1_000
 _MAX_EXPORT_TIMEOUT_MILLIS = 5_000
@@ -85,7 +90,6 @@ _OTEL_INTERNAL_LOGGERS = (
     "opentelemetry.instrumentation.logging",
 )
 _OTEL_ENV_NAME_RE = re.compile(r"^OTEL_[A-Z0-9_]+$")
-_REPOSITORY_ROOT_ENV = "AZURPILOT_REPOSITORY_ROOT"
 _OTLP_HEADER_ENV_NAMES = frozenset(
     {
         "OTEL_EXPORTER_OTLP_HEADERS",
@@ -478,26 +482,22 @@ def _read_signal_config(
     return True, signal_endpoint or None
 
 
-def _is_repository_root(candidate: Path) -> bool:
-    return (candidate / "gui.py").is_file() and (candidate / "module").is_dir()
-
-
 def _application_repository_root() -> Path | None:
     """Найти repository root, переданный runtime worker-у."""
 
-    configured = os.environ.get(_REPOSITORY_ROOT_ENV, "").strip()
+    configured = os.environ.get(OBSERVABILITY_REPOSITORY_ROOT_ENV, "").strip()
     if configured:
         try:
             candidate = Path(configured).resolve()
         except (OSError, RuntimeError):
             candidate = None
-        if candidate is not None and _is_repository_root(candidate):
+        if candidate is not None and is_repository_root(candidate):
             return candidate
     try:
         module_root = Path(__file__).resolve().parents[2]
     except (OSError, RuntimeError):
         return None
-    return module_root if _is_repository_root(module_root) else None
+    return module_root if is_repository_root(module_root) else None
 
 
 def _load_local_otlp_environment() -> dict[str, str]:
@@ -748,21 +748,22 @@ def _read_config() -> _ObservabilityConfig | None:
     )
 
 
+def _observability_identity() -> ObservabilityIdentity:
+    return resolve_observability_identity(
+        repository_root=_application_repository_root(),
+        allow_default_root=False,
+    )
+
+
 def _deployment_environment() -> str:
-    raw = os.environ.get("OTEL_RESOURCE_ATTRIBUTES", "")
-    for item in raw.split(","):
-        key, separator, value = item.partition("=")
-        if separator and key.strip() == "deployment.environment.name":
-            safe_value = _safe_context_value(value.strip())
-            if safe_value:
-                return safe_value
-    return _DEFAULT_ENVIRONMENT
+    return _observability_identity().deployment_environment
 
 
 def _resource_attributes() -> dict[str, str]:
+    identity = _observability_identity()
     attributes = {
-        "service.name": "azurpilot",
-        "deployment.environment.name": _deployment_environment(),
+        "service.name": identity.service_name,
+        "deployment.environment.name": identity.deployment_environment,
         "telemetry.sdk.language": "python",
         "telemetry.sdk.name": "opentelemetry",
     }

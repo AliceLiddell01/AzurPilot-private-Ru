@@ -474,10 +474,6 @@ class DevEnvironment:
         return self.repository_root / "config" / "state" / "dev-runtime-pre-execution.lock"
 
     @property
-    def log_file(self) -> Path:
-        return self.repository_root / "config" / "state" / "dev-runtime-gui.log"
-
-    @property
     def profile_file(self) -> Path:
         target = self.dev_target
         if target is None:  # pragma: no cover - защищено __post_init__
