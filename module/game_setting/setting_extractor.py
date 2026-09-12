@@ -70,7 +70,7 @@ class LuaSetting:
     """
     raw: str
     typ: str  # "Int", "String", "Float"
-    code: str  # 如 "AUTOFIGHT_BATTERY_SAVEMODE, 0" 或 "world_help_progress"
+    code: str  # Например, "AUTOFIGHT_BATTERY_SAVEMODE, 0" или "world_help_progress".
 
     duplicate = False
 
