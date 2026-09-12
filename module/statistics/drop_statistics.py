@@ -165,26 +165,26 @@ class DropStatistics:
 
 
 if __name__ == '__main__':
-    # 掉落截图文件夹，默认为 './screenshots'
+    # Каталог со скриншотами наград; по умолчанию './screenshots'
     DropStatistics.DROP_FOLDER = './screenshots'
-    # 模板文件夹，用于加载和保存模板
-    # 路径为 {DROP_FOLDER}/{TEMPLATE_FOLDER}
-    # 若文件夹不存在，会自动从 './assets/stats_basic' 复制
+    # Каталог шаблонов для загрузки и сохранения шаблонов
+    # Путь: {DROP_FOLDER}/{TEMPLATE_FOLDER}
+    # Если каталог отсутствует, он автоматически копируется из './assets/stats_basic'
     DropStatistics.TEMPLATE_FOLDER = 'campaign_13_1_template'
-    # 'cpu' 或 'gpu'，默认 'cpu'
-    # 使用 'gpu' 可加速预测，但需安装 GPU 版本的 mxnet
+    # 'cpu' или 'gpu'; по умолчанию 'cpu'
+    # 'gpu' ускоряет распознавание, но требует GPU-версии mxnet
     DropStatistics.CNOCR_CONTEXT = 'cpu'
-    # 输出 CSV 文件名
-    # 路径为 {DROP_FOLDER}/{CSV_FILE}
+    # Имя выходного CSV-файла
+    # Путь: {DROP_FOLDER}/{CSV_FILE}
     DropStatistics.CSV_FILE = 'drop_results.csv'
-    # 为 True 时，提取前删除已有文件
+    # При True существующий файл удаляется перед извлечением
     DropStatistics.CSV_OVERWRITE = True
-    # 通常为 'utf-8'
-    # 导出到 Excel 中文乱码时使用 'gbk'
+    # Обычно 'utf-8'
+    # Используйте 'gbk', если китайский текст отображается в Excel некорректно
     DropStatistics.CSV_ENCODING = 'gbk'
-    # DROP_FOLDER 下要导出的关卡名称列表
-    # 路径为 {DROP_FOLDER}/{CAMPAIGN}
-    # 以下仅为示例，请根据实际情况修改
+    # Список кампаний в DROP_FOLDER, данные которых нужно экспортировать
+    # Путь: {DROP_FOLDER}/{CAMPAIGN}
+    # Ниже только пример; измените в соответствии с реальной конфигурацией
     CAMPAIGNS = ['campaign_13_1']
 
     stat = DropStatistics()
