@@ -78,12 +78,12 @@ class RaidDaily(RaidRun):
                     break
                 super().run(name=name, mode=mode, total=1)
 
-        # 如果配置了 EX 难度，始终最后执行，因此不使用阶段过滤
+        # Если настроена сложность EX, всегда выполняем её последней, поэтому не используем фильтрацию этапов
         stages = [stage.lower().strip()\
             for stage in\
             self.config.RaidDaily_StageFilter.split('>')]
         if 'ex' in stages:
-            # 领取通关任意难度 5 次和 10 次的突袭门票奖励
+            # Забираем награды в виде рейдовых билетов за 5 и 10 прохождений любой сложности
             self.ui_goto_main()
             Reward(self.config, self.device).reward_mission(
                    daily=self.config.Reward_CollectMission,
