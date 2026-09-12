@@ -1,15 +1,157 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "description": [
-    "Stage 1: dependencyDashboardApproval временно удерживает обычные обновления до проверки inventory.",
-    "Stage 2 должен удалить или ослабить этот gate, сохранив Dashboard, лимиты и последовательную обработку major updates."
+    "Stage 2: обычные patch/minor обновления создают отдельные PR без предварительного Dashboard approval.",
+    "Major updates и временный high-risk набор остаются видимыми в Dependency Dashboard до отдельной проверки.",
+    "Automerge отключён; security remediation сохраняет отдельный быстрый путь."
   ],
   "dependencyDashboard": true,
-  "dependencyDashboardApproval": true,
+  "dependencyDashboardApproval": false,
   "automerge": false,
   "prConcurrentLimit": 4,
   "prHourlyLimit": 2,
+  "commitHourlyLimit": 2,
   "separateMultipleMajor": true,
+  "major": {
+    "dependencyDashboardApproval": true
+  },
+  "packageRules": [
+    {
+      "description": "Временно удерживать device/ADB stack до Stage 3: пакеты используются в device control, runtime control и локальном uiautomator2 cache; требуется platform-specific compatibility проверка.",
+      "matchPackageNames": [
+        "adbutils",
+        "uiautomator2",
+        "uiautomator2cache"
+      ],
+      "dependencyDashboardApproval": true
+    },
+    {
+      "description": "Временно удерживать WebUI/runtime и MCP integration до Stage 3: пакеты участвуют в ASGI lifecycle, WebUI, authenticated MCP transport и OpenAI integration; нужен отдельный API compatibility audit.",
+      "matchPackageNames": [
+        "aiofiles",
+        "anyio",
+        "mcp",
+        "openai",
+        "pydantic",
+        "pywebio",
+        "starlette",
+        "uvicorn"
+      ],
+      "dependencyDashboardApproval": true
+    },
+    {
+      "description": "Временно удерживать OCR/CV/numerical и WindowsML stack до Stage 3: пакеты связаны с моделями, backend selection и platform markers для Windows, Linux и Darwin ARM64; требуется acceptance по соответствующим backend.",
+      "matchPackageNames": [
+        "ncnn",
+        "numba",
+        "numpy",
+        "onnxruntime",
+        "onnxruntime-windowsml",
+        "opencv-python",
+        "pillow",
+        "rapidocr",
+        "scipy",
+        "windowsml"
+      ],
+      "dependencyDashboardApproval": true
+    },
+    {
+      "description": "Временно удерживать process/notification integration до Stage 3: обновления затрагивают worker lifecycle, file watching и внешние каналы уведомлений; требуется targeted runtime и provider audit.",
+      "matchPackageNames": [
+        "onepush",
+        "pypresence",
+        "psutil",
+        "watchdog"
+      ],
+      "dependencyDashboardApproval": true
+    },
+    {
+      "description": "Временно удерживать abandoned/possibly-unused и coupled packages до Stage 3: inventory отмечает replacement/usage investigation либо packaging override; обновление не должно скрывать отдельную migration работу.",
+      "matchPackageNames": [
+        "chardet",
+        "importlib-resources",
+        "packaging",
+        "pip",
+        "pyzmq",
+        "setuptools",
+        "wrapt",
+        "zerorpc"
+      ],
+      "dependencyDashboardApproval": true
+    },
+    {
+      "description": "Временно удерживать uv toolchain до Stage 3: project uv, CI astral-sh/uv и Docker bootstrap image ghcr.io/astral-sh/uv должны оставаться согласованными с локальным Build contract; переход между pre-1.0 minor releases требует отдельной проверки.",
+      "matchManagers": [
+        "pep621",
+        "github-actions",
+        "dockerfile"
+      ],
+      "matchDatasources": [
+        "pypi",
+        "github-releases",
+        "docker"
+      ],
+      "matchPackageNames": [
+        "uv",
+        "astral-sh/uv",
+        "ghcr.io/astral-sh/uv"
+      ],
+      "dependencyDashboardApproval": true
+    },
+    {
+      "description": "Приоритет первой low/medium-risk волны для CI test tooling: доступный non-major Playwright должен использовать ограниченный PR budget раньше обычных updates.",
+      "matchManagers": [
+        "pep621"
+      ],
+      "matchDatasources": [
+        "pypi"
+      ],
+      "matchDepTypes": [
+        "dependency-groups"
+      ],
+      "matchPackageNames": [
+        "playwright"
+      ],
+      "matchUpdateTypes": [
+        "pinDigest",
+        "pin",
+        "digest",
+        "patch",
+        "minor"
+      ],
+      "prPriority": 10
+    },
+    {
+      "description": "Приоритет первой low/medium-risk волны для GitHub Actions tooling: non-major обновления используемых CI actions должны использовать ограниченный PR budget раньше обычных updates.",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchDatasources": [
+        "github-tags"
+      ],
+      "matchDepTypes": [
+        "action"
+      ],
+      "matchPackageNames": [
+        "actions/checkout",
+        "actions/setup-python",
+        "actions/upload-artifact",
+        "astral-sh/setup-uv",
+        "docker/setup-buildx-action",
+        "docker/login-action",
+        "docker/metadata-action",
+        "docker/build-push-action"
+      ],
+      "matchUpdateTypes": [
+        "pinDigest",
+        "pin",
+        "digest",
+        "patch",
+        "minor"
+      ],
+      "prPriority": 10
+    }
+  ],
   "vulnerabilityAlerts": {
     "enabled": true,
     "dependencyDashboardApproval": false,
