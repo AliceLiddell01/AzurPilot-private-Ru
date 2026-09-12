@@ -230,7 +230,7 @@ class OpsiStatisticsMixin(WebUIMixinBase):
         except Exception:
             loop_eff = "-"
 
-        # 获取侵蚀1的平均时长
+        # Получаем среднюю продолжительность боя на уровне коррозии 1.
         try:
             exp_stats = get_ship_exp_stats(instance_name=instance_name)
             avg_cl1_battle_time = exp_stats.get_average_battle_time()
@@ -238,7 +238,7 @@ class OpsiStatisticsMixin(WebUIMixinBase):
             exp_per_hour = exp_stats.get_exp_per_hour()
             today_stats = exp_stats.get_today_stats()
 
-            # 今日统计
+            # Статистика за сегодня.
             if today_stats:
                 today_battles = today_stats.get("battle_count", 0)
                 today_exp = today_stats.get("total_exp_gained", 0)
