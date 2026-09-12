@@ -1,0 +1,24 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": [
+    "Stage 1: dependencyDashboardApproval временно удерживает обычные обновления до проверки inventory.",
+    "Stage 2 должен удалить или ослабить этот gate, сохранив Dashboard, лимиты и последовательную обработку major updates."
+  ],
+  "enabledManagers": [
+    "pep621",
+    "github-actions",
+    "dockerfile",
+    "docker-compose"
+  ],
+  "dependencyDashboard": true,
+  "dependencyDashboardApproval": true,
+  "automerge": false,
+  "prConcurrentLimit": 4,
+  "prHourlyLimit": 2,
+  "separateMultipleMajor": true,
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "dependencyDashboardApproval": false,
+    "prConcurrentLimit": 1
+  }
+}
