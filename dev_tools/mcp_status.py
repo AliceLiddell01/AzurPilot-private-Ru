@@ -115,8 +115,16 @@ MCP_ROUTE_POLICY: dict[str, dict[str, object]] = {
         "credential_evidence": "not_required_for_public_probe",
     },
 }
-DIRECT_THIRD_PARTY_SERVERS = ("context7", "docker-docs", "semgrep")
-GATEWAY_REQUIRED_SERVERS = ("grafana", "dockerhub")
+DIRECT_THIRD_PARTY_SERVERS = tuple(
+    name
+    for name in THIRD_PARTY_SERVERS
+    if MCP_ROUTE_POLICY[name].get("gateway_required") is not True
+)
+GATEWAY_REQUIRED_SERVERS = tuple(
+    name
+    for name in THIRD_PARTY_SERVERS
+    if MCP_ROUTE_POLICY[name].get("gateway_required") is True
+)
 DOCKERHUB_READ_ONLY_TOOLS = frozenset(
     {
         "checkRepository",
@@ -236,6 +244,9 @@ _REQUIRED_PROFILE_ERRORS = frozenset(
         "DOCKER_PROFILE_SERVER_SET_INVALID",
         "DOCKER_PROFILE_SERVER_TYPE_INVALID",
         "DOCKER_PROFILE_IMAGE_NOT_PINNED",
+        "DOCKER_PROFILE_HOST_ACCESS_INVALID",
+        "DOCKER_PROFILE_SNAPSHOT_HOST_ACCESS_INVALID",
+        "DOCKER_PROFILE_WRITE_TOOL_EXPOSED",
         "DOCKER_PROFILE_GRAFANA_CONFIG_INVALID",
         "DOCKER_PROFILE_GRAFANA_WRITE_MODE_INVALID",
         "DOCKER_PROFILE_SECRET_PROVIDER_INVALID",
@@ -2141,11 +2152,15 @@ def _canonical_status(
             continue
         route = direct_routes.get(name)
         route_status = route.get("status") if isinstance(route, Mapping) else None
-        if name == "context7" and route_status == "not_observable":
-            if route.get("reason_code") == "DIRECT_USER_SCOPED_ACCEPTANCE_EXTERNAL":
+        if name == "context7":
+            if (
+                route_status == "not_observable"
+                and route.get("reason_code")
+                == "DIRECT_USER_SCOPED_ACCEPTANCE_EXTERNAL"
+            ):
                 external_evidence_pending = True
-            else:
-                failures.append("partial")
+            elif route_status != "ready":
+                _record_failure(route_status, failures=failures)
             continue
         if policy.get("collector_required") is True and route_status != "ready":
             _record_failure(route_status, failures=failures)

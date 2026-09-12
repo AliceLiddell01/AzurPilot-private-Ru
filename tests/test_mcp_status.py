@@ -547,6 +547,42 @@ def test_canonical_route_gate_ignores_optional_gateway_drift() -> None:
     assert status._strict_failure(report, None) is False
 
 
+def test_user_scoped_context7_external_evidence_is_explicitly_allowed() -> None:
+    async def local(name: str, root: Path, revision: str) -> dict[str, object]:
+        return _local_result(name, _versions()[name], revision)
+
+    async def remote(name: str) -> dict[str, object]:
+        return _remote_ready(name)
+
+    async def direct(name: str, config: object) -> dict[str, object]:
+        if name == "context7":
+            return {
+                "status": "not_observable",
+                "reason_code": "DIRECT_USER_SCOPED_ACCEPTANCE_EXTERNAL",
+            }
+        return {
+            "status": "ready",
+            "reason_code": "DIRECT_TEST_ROUTE_READY",
+            "runtime_reachable": True,
+            "runtime_ready": True,
+        }
+
+    report = asyncio.run(
+        status.collect_status_async(
+            Path(__file__).resolve().parents[1],
+            local_probe=local,
+            remote_probe=remote,
+            docker_probe=_docker_ready,
+            direct_probe=direct,
+        )
+    )
+
+    assert report["external_evidence_pending"] is True
+    assert report["canonical_status"] == "ready"
+    assert report["status"] == "partial"
+    assert status._strict_failure(report, None) is False
+
+
 def test_canonical_route_gate_rejects_required_gateway_failure() -> None:
     docker = _docker_ready()
     docker["third_party"]["grafana"].update(
