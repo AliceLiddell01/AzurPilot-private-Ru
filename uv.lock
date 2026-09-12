@@ -365,7 +365,7 @@ requires-dist = [
     { name = "uv", specifier = "==0.11.32" },
     { name = "uvicorn", extras = ["standard"], specifier = "==0.44.0" },
     { name = "watchdog", specifier = ">=6.0.0" },
-    { name = "windowsml", marker = "sys_platform == 'win32'", specifier = "==2.1.74" },
+    { name = "windowsml", marker = "sys_platform == 'win32'", specifier = "==2.3.42" },
     { name = "wrapt", specifier = "==1.15.0" },
     { name = "zerorpc", specifier = "==0.6.3" },
 ]
@@ -2840,11 +2840,11 @@ wheels = [
 
 [[package]]
 name = "windowsml"
-version = "2.1.74"
+version = "2.3.42"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f4/85/d62b706d854ea0549656efcbcddb0d27a716b988543149c9cf32beca809b/windowsml-2.1.74-py3-none-win_amd64.whl", hash = "sha256:e36ed01f391d6ce4a0afb6e1beb81e2a2355da9522bdb6688aa87cbd9d52dd4f", size = 418026, upload-time = "2026-07-14T22:02:51.725Z" },
-    { url = "https://files.pythonhosted.org/packages/bb/dd/f398baf8889bfa96ffe6b28d25b0c100d22f9956873b0fea2e74e00116b8/windowsml-2.1.74-py3-none-win_arm64.whl", hash = "sha256:70f7a53e6dcb3237bf0c496a41b62798fb9a4009a18dc90fd9ddd1b3377edf60", size = 421159, upload-time = "2026-07-14T22:02:53.301Z" },
+    { url = "https://files.pythonhosted.org/packages/cb/3d/4002372b66f1c467a6645af80674c87d2b31992d5d3966295f375b83d84b/windowsml-2.3.42-py3-none-win_amd64.whl", hash = "sha256:1e1b1f5bb0a31416b8404f621cbf5aeaeb2f62f4049a2b1f53a918ff8a13bce0", size = 418974, upload-time = "2026-08-28T18:58:57.772Z" },
+    { url = "https://files.pythonhosted.org/packages/e7/d8/3ebb4e3570a9bef32d0646b38ee5054efef97bd54a3bb56a3ff14f7b7dcb/windowsml-2.3.42-py3-none-win_arm64.whl", hash = "sha256:6ba3bc169fe77dab1d09003364643eb70e7f55defd51a5802607a00c20e2a112", size = 420209, upload-time = "2026-08-28T18:58:59.369Z" },
 ]
 
 [[package]]
