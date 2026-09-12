@@ -18,7 +18,7 @@ import argparse
 import os
 import sys
 
-# 切换到项目根目录
+# Переходим в корневой каталог проекта.
 _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 os.chdir(_project_root)
 if _project_root not in sys.path:
@@ -66,7 +66,7 @@ def snapshot_from_config(instance: str = "alas"):
             if isinstance(value, int):
                 values[group_name] = value
 
-    # 调用记录快照
+    # Вызываем запись снимка.
     from module.statistics.resource_stats import record_resource_snapshot
     success = record_resource_snapshot(instance, values)
     if success:
@@ -110,16 +110,16 @@ def snapshot_from_ocr(instance: str = "alas"):
     image = device.image
     resources = {}
 
-    # --- OCR 读取各资源 ---
+    # --- Считываем ресурсы через OCR. ---
 
-    # 石油 & 物资 & 钻石 & 魔方 (主界面/出征界面)
+    # Нефть, монеты, кристаллы и кубы (главный экран / экран вылазки).
     from module.campaign.campaign_status import OCR_OIL, OCR_COIN
     from module.shop.assets import SHOP_GEMS
     from module.ocr.ocr import Digit
     from module.base.utils import color_similar, get_color
     from module.base.button import Button
 
-    # 石油 - 使用 campaign 现有 OCR
+    # Нефть — используем существующий OCR кампании.
     try:
         from module.campaign.assets import OCR_OIL as OIL_BTN
         oil_ocr = Digit(OIL_BTN, name="OCR_OIL", letter=(247, 247, 247), threshold=128)
@@ -130,7 +130,7 @@ def snapshot_from_ocr(instance: str = "alas"):
     except Exception as e:
         print(f"  ⚠️  石油 OCR 失败: {e}")
 
-    # 物资
+    # Монеты.
     try:
         from module.campaign.assets import OCR_COIN as COIN_BTN
         coin_ocr = Digit(COIN_BTN, name="OCR_COIN", letter=(239, 239, 239), threshold=128)
@@ -139,7 +139,7 @@ def snapshot_from_ocr(instance: str = "alas"):
             resources["Coin"] = coin_val
             print(f"  💰 物资 = {coin_val:,}")
         else:
-            # 尝试从物资上限格式读取
+            # Пытаемся прочитать значение из формата с лимитом монет.
             coin_full = Digit(COIN_BTN, name="OCR_COIN_FULL", letter=(165, 165, 165), threshold=128)
             coin_val2 = coin_full.ocr(image)
             if isinstance(coin_val2, int) and coin_val2 > 0:
@@ -148,7 +148,7 @@ def snapshot_from_ocr(instance: str = "alas"):
     except Exception as e:
         print(f"  ⚠️  物资 OCR 失败: {e}")
 
-    # 钻石 (主界面右上角)
+    # Кристаллы (правый верхний угол главного экрана).
     try:
         gem_ocr = Digit(SHOP_GEMS, letter=(255, 243, 82), name="OCR_GEM_MAIN")
         gem_val = gem_ocr.ocr(image)
@@ -158,7 +158,7 @@ def snapshot_from_ocr(instance: str = "alas"):
     except Exception as e:
         print(f"  ⚠️  钻石 OCR 失败: {e}")
 
-    # 魔方
+    # Кубы.
     try:
         from module.gacha.assets import OCR_GACHA_CUBE
         cube_ocr = Digit(OCR_GACHA_CUBE, letter=(145, 215, 255), name="OCR_CUBE_MAIN")
@@ -169,7 +169,7 @@ def snapshot_from_ocr(instance: str = "alas"):
     except Exception as e:
         print(f"  ⚠️  魔方 OCR 失败: {e}")
 
-    # 活动 Pt (如果有活动)
+    # Pt события (если событие активно).
     try:
         from module.campaign.assets import OCR_PT
         from module.campaign.campaign_status import PtOcr
@@ -185,7 +185,7 @@ def snapshot_from_ocr(instance: str = "alas"):
     except Exception as e:
         print(f"  ⚠️  活动Pt OCR 失败: {e}")
 
-    # 记录快照
+    # Записываем снимок.
     if not resources:
         print("\n❌ 未能从截图中读取到任何资源数值")
         print("   提示: 确保模拟器运行中，且游戏在主界面或出征界面")
