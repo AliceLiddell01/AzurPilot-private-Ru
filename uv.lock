@@ -348,7 +348,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "pygments", specifier = "==2.21.0" },
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.10.1,<3" },
-    { name = "pypresence", specifier = "==4.2.1" },
+    { name = "pypresence", specifier = "==4.6.2" },
     { name = "pywebio", specifier = "==1.7.1" },
     { name = "pyyaml", specifier = "==6.0.3" },
     { name = "pyzmq", specifier = "==27.1.0" },
@@ -2106,11 +2106,11 @@ wheels = [
 
 [[package]]
 name = "pypresence"
-version = "4.2.1"
+version = "4.6.2"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/58/df/be2dbd7ed2262791536278295d3c4e56d5c17d4291666f35fd6190a7f2ab/pypresence-4.2.1.tar.gz", hash = "sha256:691daf98c8189fd216d988ebfc67779e0f664211512d9843f37ab0d51d4de066", size = 10777, upload-time = "2021-11-13T21:09:55.788Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/22/ce/4ce38b7f36f4eec77b3d21a5885228bbe8ea6d5ea35ff0876f7889c3bbbd/pypresence-4.6.2.tar.gz", hash = "sha256:7e7e93de0e94a42314300ef6d15dd2c44c64ef74b7c749243bc226be2ab90687", size = 21335, upload-time = "2026-07-08T05:05:02.006Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c4/bf/8f56ebae9775a922774293f05235323b0c359dda5f07d6e81b726d6269b2/pypresence-4.2.1-py2.py3-none-any.whl", hash = "sha256:12197b5f51c21e3e555b17f85d3e55023f4ad83b6fff72cd6387659ffd484a02", size = 11817, upload-time = "2021-11-13T21:09:54.202Z" },
+    { url = "https://files.pythonhosted.org/packages/05/61/69bf5ed7393fc314b7129d509ec1bc9622ce98d7300a780d52fa3b95bc88/pypresence-4.6.2-py3-none-any.whl", hash = "sha256:6587e525a663699ca5fb8621ea147a9c264c135650c50afbccd7b5d9b4e28dc0", size = 13734, upload-time = "2026-07-08T05:05:00.67Z" },
 ]
 
 [[package]]
