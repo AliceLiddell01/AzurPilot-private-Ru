@@ -27,7 +27,7 @@ class CoreShop_250814(ShopClerk, ShopStatus):
         """
         return self.config.CoreShop_Filter.strip()
 
-    # 2025-08-14 新 UI
+    # Новый UI от 2025-08-14.
     @cached_property
     def shop_core_items(self):
         """加载核心商店商品模板和配置。
@@ -109,5 +109,5 @@ class CoreShop_250814(ShopClerk, ShopStatus):
 
         logger.hr('[Магазин — ядра] Магазин ядер', level=1)
 
-        # 执行购买操作
+        # Выполняем покупку.
         self.shop_buy()
