@@ -29,10 +29,10 @@ def translate():
     dict_lang = {UI_LOCALE: read_file(filepath_i18n(UI_LOCALE))}
     modified = {UI_LOCALE: {}}
 
-    list_path = []  # 完整路径，如 Menu.Task.name
-    list_group = []  # 一级键（菜单分组）
-    list_arg = []    # 二级键（任务名）
-    list_key = []    # 三级键（字段名）
+    list_path = []  # Полный путь, например Menu.Task.name
+    list_group = []  # Ключ первого уровня (группа меню)
+    list_arg = []    # Ключ второго уровня (имя задачи)
+    list_key = []    # Ключ третьего уровня (имя поля)
     for L, _ in deep_iter(dict_lang[UI_LOCALE], depth=3):
         list_path.append('.'.join(L))
         list_group.append(L[0])
@@ -91,7 +91,7 @@ def translate():
 
         if V.untranslated_only:
             while True:
-                # 调试：打印当前索引
+                # Отладка: выводим текущий индекс
                 key = deep_get(dict_lang[V.lang], list_path[V.idx])
                 if list_path[V.idx] == key or list_path[V.idx].split('.')[2] == key:
                     break
