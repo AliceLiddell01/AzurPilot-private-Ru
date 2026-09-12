@@ -134,7 +134,7 @@ class HomeMixin(WebUIMixinBase):
         aside = localstorage.get("aside")
         self._stored_aside = aside
 
-        # OOBE 初次设置向导：无用户配置时引导完成基本设置
+        # Мастер первичной настройки OOBE: при отсутствии пользовательской конфигурации проводим через базовую настройку.
         if is_oobe_needed():
             from module.webui.oobe import OOBEWizard
 
@@ -189,5 +189,5 @@ class HomeMixin(WebUIMixinBase):
 
         self._load_deferred_client_assets()
 
-        # 启动任务处理器
+        # Запускаем обработчик задач.
         self.task_handler.start()

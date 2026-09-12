@@ -19,7 +19,7 @@ class StatisticsPageMixin(WebUIMixinBase):
         if not hasattr(self, "_commission_income_period"):
             self._commission_income_period = "month"
 
-        # 独立 scope 使周期刷新不会清空其他统计区域。
+        # Отдельный scope не позволяет периодическому обновлению очищать другие области статистики.
         put_scope("ap_chart", [])
         self._render_ap_chart()
         self.task_handler.add(self._render_ap_chart, 60, True)

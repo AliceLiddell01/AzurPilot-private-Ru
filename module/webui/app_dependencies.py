@@ -16,7 +16,7 @@ from pathlib import Path
 from functools import partial
 from typing import Any, Callable, Dict, List, Optional, cast
 
-# 在导入 pywebio 之前导入伪造模块，避免加载不必要的 PIL 模块
+# Импортируем поддельный модуль до pywebio, чтобы не загружать ненужные модули PIL.
 from module.webui.fake_pil_module import import_fake_pil_module
 from module.base.device_id import get_device_id
 from module.config.time_source import now as current_time, status as time_source_status
@@ -126,8 +126,8 @@ from module.webui.widgets import (
 )
 from module.webui.dashboard_utils import get_dashboard_scope_id, get_group_scope_id
 
-# PyWebIO 1.7.1 未发布 PEP 561 类型信息，运行时装饰器还会扩展下列 API。
-# 在共享边界归一化为动态可调用对象，页面模块无需重复写类型忽略标记。
+# PyWebIO 1.7.1 не публикует типы PEP 561, а runtime-декораторы дополнительно расширяют перечисленные ниже API.
+# На общей границе приводим их к динамически вызываемым объектам, чтобы модулям страниц не пришлось повторять маркеры игнорирования типов.
 put_scope: Callable[..., Any] = cast(
     Callable[..., Any], getattr(pywebio_output, "put_scope")
 )
