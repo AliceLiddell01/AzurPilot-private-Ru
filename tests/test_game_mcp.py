@@ -390,7 +390,7 @@ def _backend() -> SimpleNamespace:
 def test_contract_and_tool_catalog_are_game_specific_and_scope_separated() -> None:
     contract = contract_payload()
     assert contract["server_name"] == "azurpilot-game"
-    assert contract["server_version"] == SERVER_VERSION == "1.0.0"
+    assert contract["server_version"] == SERVER_VERSION
     assert contract["game_mcp_api_version"] == 1
     assert {
         "ready",

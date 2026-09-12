@@ -302,6 +302,37 @@ def test_docker_probe_timeout_is_reported_without_waiting_for_the_probe(
     assert report["docker_mcp"]["reason_code"] == "DOCKER_PROBE_TIMEOUT"
 
 
+def test_semgrep_probe_timeout_is_reported_with_bounded_wait(monkeypatch) -> None:
+    monkeypatch.setattr(status, "SEMGREP_PROBE_TOTAL_TIMEOUT_SECONDS", 0.01)
+
+    async def local(name: str, root: Path, revision: str) -> dict[str, object]:
+        version = _versions()[name]
+        return _local_result(name, version, revision)
+
+    async def remote(name: str) -> dict[str, object]:
+        return _remote_ready(name)
+
+    async def semgrep_probe(root: Path) -> dict[str, object]:
+        await asyncio.sleep(0.1)
+        return {"status": "ready"}
+
+    started = time.monotonic()
+    report = asyncio.run(
+        status.collect_status_async(
+            Path(__file__).resolve().parents[1],
+            local_probe=local,
+            remote_probe=remote,
+            docker_probe=_docker_ready,
+            semgrep_probe=semgrep_probe,
+        )
+    )
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 0.5
+    assert report["semgrep_mcp"]["status"] == "unavailable"
+    assert report["semgrep_mcp"]["reason_code"] == "SEMGREP_LOCAL_PROBE_TIMEOUT"
+
+
 def test_metric_samples_have_bounded_static_labels() -> None:
     report = {
         "servers": {

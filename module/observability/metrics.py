@@ -342,7 +342,17 @@ def emit_metric_samples_once(
             name = getattr(sample, "name", None)
             value = getattr(sample, "value", None)
             attributes = getattr(sample, "attributes", None)
-            if not isinstance(name, str) or not isinstance(value, (int, float)):
+            if (
+                not isinstance(name, str)
+                or isinstance(value, bool)
+                or not isinstance(value, (int, float))
+            ):
+                raise ValueError("invalid metric sample")
+            try:
+                numeric_value = float(value)
+            except (OverflowError, ValueError) as exc:
+                raise ValueError("invalid metric sample") from exc
+            if not math.isfinite(numeric_value):
                 raise ValueError("invalid metric sample")
             if not isinstance(attributes, Mapping) or not all(
                 isinstance(key, str) and isinstance(item, str)
@@ -356,7 +366,7 @@ def emit_metric_samples_once(
                     unit="s" if name.endswith("_seconds") else "1",
                 )
                 instruments[name] = instrument
-            instrument.set(float(value), attributes=attributes)
+            instrument.set(numeric_value, attributes=attributes)
         return runtime.shutdown(timeout_millis)
     except Exception:
         try:
