@@ -80,11 +80,76 @@
       "dependencyDashboardApproval": true
     },
     {
-      "description": "Временно удерживать uv до Stage 3: версия должна оставаться согласованной с setup-uv в CI и локальным Build contract, а переход между pre-1.0 minor releases требует отдельной проверки.",
+      "description": "Временно удерживать uv toolchain до Stage 3: project uv, CI astral-sh/uv и Docker bootstrap image ghcr.io/astral-sh/uv должны оставаться согласованными с локальным Build contract; переход между pre-1.0 minor releases требует отдельной проверки.",
+      "matchManagers": [
+        "pep621",
+        "github-actions",
+        "dockerfile"
+      ],
+      "matchDatasources": [
+        "pypi",
+        "github-releases",
+        "docker"
+      ],
       "matchPackageNames": [
-        "uv"
+        "uv",
+        "astral-sh/uv",
+        "ghcr.io/astral-sh/uv"
       ],
       "dependencyDashboardApproval": true
+    },
+    {
+      "description": "Приоритет первой low/medium-risk волны для CI test tooling: доступный non-major Playwright должен использовать ограниченный PR budget раньше обычных updates.",
+      "matchManagers": [
+        "pep621"
+      ],
+      "matchDatasources": [
+        "pypi"
+      ],
+      "matchDepTypes": [
+        "dependency-groups"
+      ],
+      "matchPackageNames": [
+        "playwright"
+      ],
+      "matchUpdateTypes": [
+        "pinDigest",
+        "pin",
+        "digest",
+        "patch",
+        "minor"
+      ],
+      "prPriority": 10
+    },
+    {
+      "description": "Приоритет первой low/medium-risk волны для GitHub Actions tooling: non-major обновления используемых CI actions должны использовать ограниченный PR budget раньше обычных updates.",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchDatasources": [
+        "github-tags"
+      ],
+      "matchDepTypes": [
+        "action"
+      ],
+      "matchPackageNames": [
+        "actions/checkout",
+        "actions/setup-python",
+        "actions/upload-artifact",
+        "astral-sh/setup-uv",
+        "docker/setup-buildx-action",
+        "docker/login-action",
+        "docker/metadata-action",
+        "docker/build-push-action"
+      ],
+      "matchUpdateTypes": [
+        "pinDigest",
+        "pin",
+        "digest",
+        "patch",
+        "minor"
+      ],
+      "prPriority": 10
     }
   ],
   "vulnerabilityAlerts": {
