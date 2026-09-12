@@ -85,7 +85,7 @@ jobs:
       - name: Установить Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: "3.14.6"
+          python-version: "3.14.7"
 
       - name: Проверить структуру translation-only от PR base
         id: translation_gate
@@ -584,7 +584,7 @@ jobs:
       - name: Установить Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: "3.14.6"
+          python-version: "3.14.7"
 
       - name: Проверить uv.lock
         id: windows_lock
@@ -1121,7 +1121,7 @@ jobs:
       - name: Установить Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: "3.14.6"
+          python-version: "3.14.7"
 
       - name: Проверить uv.lock
         id: security_lock
