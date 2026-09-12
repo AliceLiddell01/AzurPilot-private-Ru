@@ -34,7 +34,7 @@ services:
       retries: 3
       start_period: 10s
   postgres:
-    image: postgres:18@sha256:06cad38a5d9f5d24b4d83d86def30795d5e4b757fedbf5281172b576dedcd941
+    image: postgres:18@sha256:4ef4dbc939d61acea57712655ddb4b4ab27419c913f94cca0cd57cb3ea3c2280
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
@@ -63,7 +63,7 @@ services:
       retries: 12
       start_period: 30s
   postgres-bootstrap:
-    image: postgres:18@sha256:06cad38a5d9f5d24b4d83d86def30795d5e4b757fedbf5281172b576dedcd941
+    image: postgres:18@sha256:4ef4dbc939d61acea57712655ddb4b4ab27419c913f94cca0cd57cb3ea3c2280
     depends_on:
       postgres:
         condition: service_healthy
@@ -160,7 +160,7 @@ services:
         source: alloy-data
         target: /var/lib/alloy/data
   loki:
-    image: grafana/loki:3.7.4@sha256:87f0a067673756a3cede1bcbf0c74875f7df9b09fddb53e399d0c576f756cfcc
+    image: grafana/loki:3.7.7@sha256:d70e4659623f3e109af669cae76fe2a5dd5be54e2298fe8aed380d982fbc2500
     command:
       - -config.file=/etc/loki/config.yaml
     restart: unless-stopped
@@ -212,7 +212,7 @@ services:
       start_period: 20s
 
   tempo:
-    image: grafana/tempo:2.10.5@sha256:ee21727732c7a7199cb71c3eee9153bbf23f9b0b87619f0555a0cf21a67f1a33
+    image: grafana/tempo:2.10.8@sha256:f0561deb1c68ec44d6e6e7e4487f30106c4e5e768642077695b37958b105812a
     command:
       - -config.file=/etc/tempo/config.yaml
     restart: unless-stopped

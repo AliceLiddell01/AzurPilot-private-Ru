@@ -45,6 +45,7 @@ from module.dev_mcp.server import (
     DEV_MCP_COMMAND,
     DEV_MCP_REQUIRED_SCOPE,
     DEV_MCP_TOOL_NAMES,
+    SERVER_VERSION,
     tool_definitions,
 )
 
@@ -252,7 +253,10 @@ def test_remote_http_protocol_read_sequence_and_tool_auth_metadata() -> None:
         async with _client(app) as client:
             initialized = await client.post("/mcp", headers=_headers(), json=_initialize_payload())
             assert initialized.status_code == 200
-            assert initialized.json()["result"]["serverInfo"]["name"] == "azurpilot-dev"
+            assert initialized.json()["result"]["serverInfo"] == {
+                "name": "azurpilot-dev",
+                "version": SERVER_VERSION,
+            }
 
             notification = await client.post(
                 "/mcp",

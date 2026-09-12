@@ -50,6 +50,26 @@ startup_timeout_sec = 5
 tool_timeout_sec = 180
 ```
 
+Для задач репозитория рядом разрешены direct read-only routes, не проходящие
+через Docker MCP Gateway: `docker_docs_direct` использует официальный Docker
+Docs endpoint, а `semgrep_local_direct` запускает локальный `semgrep mcp -t
+stdio`. Context7 остаётся user-scoped `context7_mcp`, потому что его API key не
+должен попадать в repository config. `MCP_DOCKER` сохраняется как отдельный
+canonical profile path для Gateway acceptance и Grafana; direct route и
+Gateway evidence не смешиваются.
+
+Каноническая route policy для AzurPilot фиксирована так: `azurpilot-dev` и
+`azurpilot-game` используют project-scoped local stdio; Context7 — прямой
+user-scoped Codex MCP; Docker Docs — прямой project-scoped MCP; Semgrep —
+локальный `semgrep mcp -t stdio`; через Docker MCP Gateway обязательно
+проверяются только Grafana и Docker Hub. Записи Context7, Docker Docs и
+Semgrep в экспортированном Docker profile сохраняются как pilot/rollback
+artifact и могут иметь только optional Gateway observation. Их Gateway drift,
+отсутствие catalog или profile mismatch не меняют canonical health и `--strict`.
+Context7 acceptance из текущей Codex-сессии не наблюдаем репозиторным
+collector-ом и поэтому в JSON явно отмечается как внешнее evidence, а не
+синтетический `ready`.
+
 Базовые инструменты Dev Runtime (без Smoke Harness и Runtime Control): `dev_preflight`, `dev_doctor`, `dev_get_contract`, `dev_list_tasks`,
 `dev_plan_session`, `dev_start_session`, `dev_status`, `dev_stop_session`,
 `dev_cleanup`, `dev_recover`, `dev_get_evidence`, `dev_get_timeline`,
@@ -84,12 +104,84 @@ tool_timeout_sec = 180
 после чего очищаются от чувствительных данных.
 
 `dev_get_contract` — read-only граница совместимости для canonical-пакета
-`AzurPilot`. Она возвращает только `contract_schema_version`, семейство продукта,
-версии Dev MCP/Smoke schemas, feature flags,
-capability families и result outcomes. В контракте нет путей, секретов или
-сведений об окружении;
-плагин сравнивает его с `plugins/azurpilot/compatibility.json` и при любом
-несовпадении останавливается с `PLUGIN_RUNTIME_INCOMPATIBLE` до mutating calls.
+`AzurPilot`. Она возвращает `server_name`, SemVer `server_version`, bounded
+`source_revision`, `contract_schema_version`, семейство продукта, версии Dev
+MCP/Smoke schemas, feature flags, capability families и result outcomes.
+В контракте нет путей, секретов или произвольных сведений об окружении;
+плагин сравнивает server identity/version с
+`plugins/azurpilot/compatibility.json.required_mcp_servers` как bounded SemVer
+range и при любом несовпадении останавливается с
+`PLUGIN_RUNTIME_INCOMPATIBLE` до mutating calls.
+
+Канонические server versions находятся в
+`config/mcp-versions.toml`: `azurpilot-dev` — `3.0.0`, `azurpilot-game` —
+`1.0.0`. Это identity MCP implementation, а `dev_mcp_api_version` и
+`game_mcp_api_version` остаются отдельными версиями внутренних схем.
+
+Политика изменения SemVer для server identity фиксирована отдельно от
+protocol/schema версий:
+
+- `PATCH` — совместимое исправление реализации, runtime или security без изменения
+  публичной capability/schema semantics;
+- `MINOR` — аддитивный tool, capability или optional field без удаления и изменения
+  смысла существующего контракта;
+- `MAJOR` — удаление или переименование tool/capability/field, несовместимое изменение
+  схемы либо изменение семантики существующего поведения;
+- несвязанные изменения репозитория не требуют bump server version.
+
+`contract_schema_version`, protocol versions, tool count и `source_revision` остаются
+отдельными диагностическими полями и не подменяют server identity. Совместимость
+плагина задаётся bounded SemVer range в
+`plugins/azurpilot/compatibility.json`; перед mutating calls несовместимый runtime
+отбрасывается fail-closed.
+
+Для bounded проверки всех поверхностей используй read-only collector:
+
+```text
+uv run --locked --no-sync python -m dev_tools.mcp_status
+uv run --locked --no-sync python -m dev_tools.mcp_status --json
+uv run --locked --no-sync python -m dev_tools.mcp_status --json --strict
+```
+
+Без `--json` вывод предназначен для оператора: сначала показывается таблица
+ожидаемых и наблюдаемых transport surfaces, затем отдельные блоки Docker MCP
+Gateway, canonical direct routes, Secrets и ChatGPT action cache. Неготовые поверхности получают
+короткий статус `UNKNOWN`, `UNAVAILABLE` или `DEGRADED`, а точный
+`reason_code` выводится только в компактном блоке `Notes`.
+
+`--strict` возвращает non-zero для подтверждённого drift или недоступной
+обязательной canonical surface. Доступный metadata endpoint без наблюдаемого status
+token остаётся `UNKNOWN` и не маскируется под `OK`. Незакоммиченные изменения
+source сохраняются как `source_status=modified` и дают `PARTIAL`, чтобы не
+смешивать их с подтверждённым version drift.
+
+Collector выполняет local `initialize`/`tools/list` и
+`dev_get_contract`/`game_get_contract`, backend `initialize`/`tools/list` и
+bounded contract read для настроенных authenticated remote surfaces, HTTPS GET
+protected-resource metadata без credentials, локальный Semgrep MCP probe, а
+также read-only Docker MCP Toolkit profile/catalog queries и bounded Gateway
+tool calls. Profile config, Gateway runtime и client connection фиксируются
+раздельно; статическое описание сервера не считается runtime readiness. В JSON
+не попадают URL, headers, secrets, paths или полное окружение. Snapshot
+операций ChatGPT намеренно имеет состояние
+`CHATGPT_ACTION_SNAPSHOT_NOT_OBSERVABLE`; его нельзя заменять synthetic или
+локальным evidence.
+
+Для bounded периодического наблюдения используй operator-owned foreground
+`--watch` с интервалом `10..3600` секунд. Он не создаёт daemon, не запускает
+сам себя повторно и не выполняет auto-restart/retry storm; остановка —
+`Ctrl+C`. `--emit-metrics` использует canonical application observability
+runtime и публикует только low-cardinality status samples; последний timestamp
+означает только последний успешный canonical probe.
+
+Проверка Docker secret store внутри collector выполняет только read-only
+команды `docker pass --help`, `docker pass ls` и `docker pass plugins ls`.
+Они проверяют CLI/keychain и Secrets Engine RPC, но не раскрывают значения
+секретов и не доказывают отдельный `se://` injection в контейнер или Gateway.
+Host-side `docker pass` visibility является auxiliary observation и не входит
+в strict/global readiness. Для Grafana authoritative credential evidence —
+успешный bounded read-only tool call через Gateway; для публичного Docker Hub
+probe наличие credential не утверждается.
 
 Для stdio stdout зарезервирован JSON-RPC протоколом и не содержит журналов оператора,
 баннеров или отладочного вывода. Диагностические сообщения идут только в stderr.

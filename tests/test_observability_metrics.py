@@ -27,6 +27,7 @@ from module.observability.bootstrap import (
     configure_application_observability,
     shutdown_application_observability,
 )
+import module.observability.metrics as metrics
 from module.observability.metrics import (
     MetricsConfig,
     activate_metrics_runtime,
@@ -35,6 +36,35 @@ from module.observability.metrics import (
     get_active_metrics_runtime,
     scheduler_task_run,
 )
+
+
+@pytest.mark.parametrize("value", [True, float("nan"), float("inf"), float("-inf")])
+def test_emit_metric_samples_once_rejects_bool_and_non_finite_values(
+    monkeypatch, value
+) -> None:
+    class _Meter:
+        def create_gauge(self, *_args, **_kwargs):
+            raise AssertionError("invalid sample must not create an instrument")
+
+    class _Runtime:
+        provider = type("_Provider", (), {"get_meter": lambda _self, _name: _Meter()})()
+
+        def shutdown(self, _timeout_millis: int) -> bool:
+            return True
+
+    monkeypatch.setattr(
+        "module.observability.identity.resolve_observability_identity",
+        lambda **_kwargs: SimpleNamespace(
+            service_name="test-service", deployment_environment="test"
+        ),
+    )
+    monkeypatch.setattr(metrics, "build_metrics_runtime", lambda *_args, **_kwargs: _Runtime())
+
+    assert not metrics.emit_metric_samples_once(
+        [SimpleNamespace(name="test_metric", value=value, attributes={})],
+        endpoint="http://127.0.0.1:4318/v1/metrics",
+        timeout_millis=100,
+    )
 
 
 _OTEL_ENVIRONMENT_KEYS = (

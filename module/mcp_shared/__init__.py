@@ -20,6 +20,20 @@ from module.mcp_shared.remote import (
     StrictHostOriginMiddleware,
     create_remote_app,
 )
+from module.mcp_shared.versioning import (
+    MCP_VERSION_MANIFEST,
+    MCP_VERSION_MANIFEST_SCHEMA_VERSION,
+    SOURCE_REVISION_ENV,
+    UNKNOWN_SOURCE_REVISION,
+    SemVer,
+    VersioningError,
+    load_server_versions,
+    parse_version,
+    parse_version_range,
+    server_version,
+    source_revision,
+    version_satisfies,
+)
 
 __all__ = (
     "DEFAULT_ALLOWED_ORIGINS",
@@ -30,6 +44,10 @@ __all__ = (
     "DEFAULT_REQUEST_TIMEOUT_SECONDS",
     "DEFAULT_VERIFICATION_TIMEOUT_SECONDS",
     "MCP_PATH",
+    "MCP_VERSION_MANIFEST",
+    "MCP_VERSION_MANIFEST_SCHEMA_VERSION",
+    "SOURCE_REVISION_ENV",
+    "UNKNOWN_SOURCE_REVISION",
     "ConcurrencyLimitMiddleware",
     "FailSafeMiddleware",
     "OAuthBearerMiddleware",
@@ -38,6 +56,14 @@ __all__ = (
     "RemoteConfigError",
     "RequestBodyLimitMiddleware",
     "RequestTimeoutMiddleware",
+    "SemVer",
     "StrictHostOriginMiddleware",
+    "VersioningError",
     "create_remote_app",
+    "load_server_versions",
+    "parse_version",
+    "parse_version_range",
+    "server_version",
+    "source_revision",
+    "version_satisfies",
 )

@@ -87,8 +87,11 @@ PostgreSQL, ADB и emulator не публикуются. Обязательны�
 
 ## Контракт и smoke
 
-`compatibility.json` фиксирует ожидаемые версии API/Smoke schemas, required
-feature flags, capability families и result outcomes. Development Runtime
+`config/mcp-versions.toml` является единым источником SemVer identity для
+`azurpilot-dev` (`3.0.0`) и `azurpilot-game` (`1.0.0`).
+`compatibility.json` фиксирует bounded `required_mcp_servers` ranges, версии
+внутренних API/Smoke schemas, required feature flags, capability families и
+result outcomes. Development Runtime
 разрешает target через канонический registry: при отсутствии локального marker
 используется профиль по умолчанию из target policy (`ap` при успешной
 структурной проверке), а смена target требует явного согласия пользователя.
