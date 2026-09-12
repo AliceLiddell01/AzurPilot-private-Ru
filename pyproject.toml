@@ -35,7 +35,7 @@ dependencies = [
     "pycryptodome==3.23.0",
     "typing-extensions>=4.15.0",
     "pydantic>=2.12.5",
-    "rapidocr==3.9.0",
+    "rapidocr==3.9.2",
     "ncnn>=1.0.20260114",
     "onnxruntime-windowsml==1.27.1.202607110137; sys_platform == 'win32'",
     "windowsml==2.1.74; sys_platform == 'win32'",
