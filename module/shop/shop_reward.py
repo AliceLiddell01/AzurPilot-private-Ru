@@ -43,7 +43,7 @@ class RewardShop(ShopUI):
 
         依次处理功勋商店、舰队商店、核心商店、勋章商店。
         """
-        # 军需商店
+        # Магазин снабжения.
         self.ui_goto_shop()
         self.device.click_record_clear()
         self.shop_nav_250814.set(NAV_GENERAL, main=self)
@@ -61,7 +61,7 @@ class RewardShop(ShopUI):
         else:
             logger.info('[Магазин — гильдия] Магазин гильдии отключён; пропуск')
 
-        # 核心限定、核心月度、勋章、原型
+        # Лимитированный магазин ядер, ежемесячный магазин ядер, медали и прототипы.
         self.device.click_record_clear()
         self.shop_nav_250814.set(NAV_MONTHLY, main=self)
         self.shop_tab_250814.set(TAB_CORE_MONTHLY, main=self)
