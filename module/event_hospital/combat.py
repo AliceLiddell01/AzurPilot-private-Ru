@@ -96,7 +96,7 @@ class HospitalCombat(Combat, HospitalUI, CampaignEvent):
                 continue
             if self.handle_story_skip():
                 continue
-            # 处理舰队编成
+            # Обрабатываем формирование флота.
             if self.appear(RAID_FLEET_PREPARATION, offset=(30, 30), interval=2):
                 if self.handle_fleet_recommend(recommend=self.config.Hospital_UseRecommendFleet):
                     self.interval_clear(RAID_FLEET_PREPARATION)
@@ -106,7 +106,7 @@ class HospitalCombat(Combat, HospitalUI, CampaignEvent):
             if self.appear_then_click(HOSPITAL_BATTLE_PREPARE, offset=(20, 20), interval=2):
                 continue
 
-            # 战斗开始
+            # Бой начался.
             pause = self.is_combat_executing()
             if pause:
                 logger.attr('Боевой интерфейс', pause)
