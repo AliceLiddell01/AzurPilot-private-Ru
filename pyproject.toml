@@ -25,7 +25,7 @@ dependencies = [
     "aiohttp>=3.13.2",
     "aiortc>=1.14.0",
     "pypresence==4.2.1",
-    "rich==12.6.0",
+    "rich==13.9.4",
     "zerorpc==0.6.3",
     "pyzmq==27.1.0",
     "onepush==1.2.0",
