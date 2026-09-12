@@ -158,9 +158,9 @@ Source-scan Gitleaks выполняется по временному snapshot, 
 
 ## Dependency lock
 
-Обязательные Python-инструменты CI объявлены в `pyproject.toml` и разрешаются в `uv.lock`: `ruff` находится в group `dev`, а `pytest==9.1.1` и `playwright==1.55.0` — в group `ci`. Required jobs не используют `uv pip install` или `uv run --with` для обязательных инструментов.
+Обязательные Python-инструменты CI объявлены в `pyproject.toml` и разрешаются в `uv.lock`: `ruff` находится в group `dev`, а `pytest==9.1.1`, `httpx2==2.12.0` и `playwright==1.62.0` — в group `ci`. Required jobs не используют `uv pip install` или `uv run --with` для обязательных инструментов.
 
-`astral-sh/setup-uv` в required jobs устанавливает `uv 0.11.32`, совпадающий с закреплённой проектной зависимостью. Это исключает плавающую версию bootstrap-инструмента между CI-запусками.
+`astral-sh/setup-uv` в required jobs устанавливает `uv 0.12.13`, совпадающий с закреплённой проектной зависимостью. Это исключает плавающую версию bootstrap-инструмента между CI-запусками.
 
 ## Action pins и checkout
 

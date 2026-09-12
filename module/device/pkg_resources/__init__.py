@@ -1,47 +1,10 @@
-"""pkg_resources 兼容性补丁，避免导入 adbutils/uiautomator2 时的性能损失。"""
+"""Минимальный совместимый слой ``pkg_resources`` для старого device stack."""
 
+import importlib.metadata
 import os
-import re
 import sys
 
-from module.base.decorator import cached_property
 from module.logger import logger
-
-"""
-Importing pkg_resources is so slow, like 0.4 ~ 1.0s, just google it you will find it indeed really slow.
-Since it was some kind of standard library there is no way to modify it or speed it up.
-So here's a poor but fast implementation of pkg_resources returning the things in need.
-
-To patch:
-```
-# Patch pkg_resources before importing adbutils and uiautomator2
-from module.device.pkg_resources import get_distribution
-# Just avoid being removed by import optimization
-_ = get_distribution
-```
-"""
-# Inject sys.modules, pretend we have pkg_resources imported
-try:
-    sys.modules['pkg_resources'] = sys.modules['module.device.pkg_resources']
-except KeyError:
-    logger.error('[Устройство — совместимость] Не удалось применить исправление pkg_resources: модуль исправления отсутствует')
-
-
-def removesuffix(s, suffix):
-    """
-    Remove suffix of a string or bytes like `string.removesuffix(suffix)`, which is on Python3.9+
-
-    Args:
-        s (str, bytes):
-        suffix (str, bytes):
-
-    Returns:
-        str, bytes:
-    """
-    # s[:-0] is empty string, so we need to check if suffix is empty
-    if suffix and s.endswith(suffix):
-        return s[:-len(suffix)]
-    return s
 
 
 class FakeDistributionObject:
@@ -50,65 +13,44 @@ class FakeDistributionObject:
         self.version = version
 
     def __str__(self):
-        return f'{self.__class__.__name__}({self.dist}={self.version})'
+        return f"{self.__class__.__name__}({self.dist}={self.version})"
 
     __repr__ = __str__
 
 
-class PackageCache:
-    @cached_property
-    def site_packages(self):
-        # Just whatever library to locate the `site-packages` directory
-        import requests
-        path = os.path.abspath(os.path.join(requests.__file__, '../../'))
-        return path
-
-    @cached_property
-    def dict_installed_packages(self):
-        """
-        Returns:
-            dict: Key: str, package name
-                Value: FakeDistributionObject
-        """
-        dic = {}
-        for file in os.listdir(self.site_packages):
-            # mxnet_cu101-1.6.0.dist-info
-            # adbutils-0.11.0-py3.7.egg-info
-            res = re.match(r'^([a-zA-Z0-9._]+)-([a-zA-Z0-9._]+)-', file)
-            if res:
-                version = removesuffix(res.group(2), '.dist')
-                # version = res.group(2)
-                obj = FakeDistributionObject(
-                    dist=res.group(1),
-                    version=version,
-                )
-                dic[obj.dist] = obj
-
-        return dic
+class DistributionNotFound(Exception):
+    """Совместимое исключение отсутствующей package metadata."""
 
 
-PACKAGE_CACHE = PackageCache()
+# Зарегистрировать совместимый модуль до импорта adbutils и uiautomator2.
+try:
+    sys.modules["pkg_resources"] = sys.modules[__name__]
+except KeyError:
+    logger.error(
+        "[Устройство — совместимость] Не удалось зарегистрировать совместимый "
+        "модуль pkg_resources"
+    )
 
 
 def resource_filename(*args):
-    if args == ("adbutils", "binaries"):
-        path = os.path.abspath(os.path.join(PACKAGE_CACHE.site_packages, *args))
-        return path
+    """Вернуть путь к resource, который запрашивает adbutils."""
+    if args != ("adbutils", "binaries"):
+        return None
+
+    try:
+        distribution = importlib.metadata.distribution(args[0])
+    except importlib.metadata.PackageNotFoundError:
+        return None
+    return os.fspath(distribution.locate_file(os.path.join(*args)))
 
 
 def get_distribution(dist):
-    """Return a current distribution object for a Requirement or string"""
-    if dist == 'adbutils':
-        return PACKAGE_CACHE.dict_installed_packages.get(
-            'adbutils',
-            FakeDistributionObject('adbutils', '0.11.0'),
-        )
-    if dist == 'uiautomator2':
-        return PACKAGE_CACHE.dict_installed_packages.get(
-            'uiautomator2',
-            FakeDistributionObject('uiautomator2', '2.16.17'),
-        )
+    """Вернуть metadata установленной device-библиотеки."""
+    if dist not in {"adbutils", "uiautomator2"}:
+        return None
 
-
-class DistributionNotFound(Exception):
-    pass
+    try:
+        version = importlib.metadata.version(dist)
+    except importlib.metadata.PackageNotFoundError as exc:
+        raise DistributionNotFound(dist) from exc
+    return FakeDistributionObject(dist=dist, version=version)

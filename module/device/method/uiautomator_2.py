@@ -8,6 +8,11 @@ from functools import wraps
 from json.decoder import JSONDecodeError
 from subprocess import list2cmdline
 
+# Загрузить совместимый pkg_resources до библиотек устройства.
+from module.device.pkg_resources import get_distribution
+
+_ = get_distribution
+
 import uiautomator2 as u2
 from adbutils.errors import AdbError
 from lxml import etree

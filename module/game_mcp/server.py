@@ -1036,7 +1036,7 @@ def create_server(
 ) -> Server:
     """Создать MCP Server без сборки backend и без подключения к источникам.
 
-    `cache_hints` намеренно не задаются: в используемом MCP SDK 2.1.1
+    `cache_hints` намеренно не задаются: в используемом MCP SDK 2.2.0
     применяются безопасные defaults `ttlMs=0` и `cacheScope=private`. Для
     profile runtime data, logs, morale и screenshots это сохраняет актуальность
     и изоляцию данных.

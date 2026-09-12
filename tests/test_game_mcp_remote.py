@@ -7,7 +7,7 @@ import time
 from contextlib import asynccontextmanager
 from typing import Any
 
-import httpx
+import httpx2 as httpx
 import pytest
 from mcp.server.auth.provider import AccessToken
 from mcp_types import (

@@ -8,6 +8,11 @@ import socket
 import time
 import typing as t
 
+# Загрузить совместимый pkg_resources до библиотек устройства.
+from module.device.pkg_resources import get_distribution
+
+_ = get_distribution
+
 import uiautomator2 as u2
 import uiautomator2cache
 from adbutils import AdbTimeout

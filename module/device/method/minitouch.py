@@ -15,6 +15,11 @@ import time
 from functools import wraps
 from typing import List
 
+# Загрузить совместимый pkg_resources до библиотек устройства.
+from module.device.pkg_resources import get_distribution
+
+_ = get_distribution
+
 import websockets
 from adbutils.errors import AdbError
 from uiautomator2 import _Service
