@@ -20,14 +20,15 @@ from module.dev_mcp.server import (
     DEV_MCP_COMMAND,
     DEV_MCP_REQUIRED_SCOPE,
     SERVER_NAME,
+    SERVER_VERSION,
     _screenshot_call_result,
     create_server,
     tool_definitions,
 )
-from tests.dev_mcp_contract_helpers import EXPECTED_CONTRACT
 from module.dev_runtime import DevEnvironment, DevSessionManager
 from module.dev_runtime.game_bridge import GameObservationCapability
 from module.dev_runtime.target import DevTarget
+from tests.dev_mcp_contract_helpers import EXPECTED_CONTRACT
 
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 _FORBIDDEN_INPUT_FIELDS = {
@@ -390,7 +391,10 @@ def test_real_subprocess_protocol_has_clean_stdout_and_recovers_after_invalid_ca
                 },
             )
             assert initialize["id"] == 1
-            assert initialize["result"]["serverInfo"]["name"] == SERVER_NAME
+            assert initialize["result"]["serverInfo"] == {
+                "name": SERVER_NAME,
+                "version": SERVER_VERSION,
+            }
 
             assert process.stdin is not None
             process.stdin.write(

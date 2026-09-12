@@ -1,0 +1,7 @@
+schema_version = 1
+
+[servers.azurpilot-dev]
+version = "3.0.0"
+
+[servers.azurpilot-game]
+version = "1.0.0"

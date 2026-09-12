@@ -865,36 +865,108 @@ uv run --locked --no-sync python -m dev_tools.observability_mcp preflight
 uv run --locked --no-sync python -m dev_tools.observability_mcp runtime-tools
 ```
 
-На Windows Docker Desktop `docker mcp secret ls` и Gateway могут завершаться
-ошибкой вида:
+В отдельных host/sandbox-контекстах Docker Desktop команды Secrets Engine
+(`docker pass plugins ls`, `docker pass run`) и Gateway могут завершаться ошибкой
+вида:
 
 ```text
 secrets engine is not available: unavailable: dial unix ...docker-secrets-engine...engine.sock: connect: An invalid argument was supplied
 ```
 
-Сначала убедись, что Docker Desktop запущен, а доступные WSL distributions
-имеют рабочее состояние через `wsl --list --verbose`; имя конкретной
-distribution не является контрактом AzurPilot. Если после аварийного
-завершения Docker родительский каталог `docker-secrets-engine` содержит только
-нерабочий reparse-point socket, допустима recoverable-процедура: остановить
-Docker Desktop, переименовать ровно этот каталог в backup с timestamp, запустить
-Docker Desktop и проверить появление нового socket. Backup не удаляется
-автоматически; не используй `Remove-Item`, `git clean` или broad recursive
-delete.
+Сначала зафиксируй контекст проверки и разделяй независимые поверхности:
+`docker pass ls` может успешно читать Windows Credential Manager, но это только
+keychain evidence; оно не доказывает работоспособность Secrets Engine RPC.
+`docker pass run` внутри Codex Desktop sandbox может быть недоступен из-за
+изоляции host-side `engine.sock`, даже если тот же вызов во внешнем host shell
+работает. Это не является самостоятельным доказательством отказа всего secret
+store.
 
-Отдельная ошибка `docker mcp secret ls` может быть диагностическим warning, но
-она не оправдывает обход secret store. Успешность определяется реальными
-`initialize`, `tools/list` и read-only calls через тот же Gateway; `EOF` или
-`0 tools` означают `BLOCKED`.
-
-Переключение Docker Desktop с WSL2 backend на Hyper-V/VM не является заменой
-secret-store recovery. Такой режим имеет смысл проверять только если сама WSL
-integration не запускается; переход не должен ослаблять loopback bindings,
-secret policy или allowlist.
+Секретные ссылки `se://` проверяются отдельно по фактической container runtime
+injection и по разрешению секретов самим Docker MCP Gateway. Положительный
+`initialize`, `tools/list` и read-only call через Gateway имеет больший вес, чем
+отдельная host-side RPC probe; при этом профильный dry-run и фактическая текущая
+поверхность tools должны фиксироваться раздельно. Не выполняй socket reset,
+переименование каталогов, изменение ACL, credential rotation или смену backend
+только из-за sandbox-specific ошибки без нового подтверждённого owner/runtime
+диагноза.
 
 Одного созданного profile или прямого Grafana API недостаточно для Gateway/MCP
-acceptance. Required evidence — exact runtime allowlist, положительные reads
-через сам Gateway для datasources, Prometheus, Loki, dashboards, alert read и
-Tempo, отрицательная проверка Grafana write, а также завершённая cross-signal
-цепочка для одного реального task run. Если trace ID не найден, acceptance
-остаётся незавершённой и не маскируется независимыми backend pings.
+acceptance. Required evidence — exact runtime allowlist, положительные reads через
+сам Gateway, отрицательная проверка Grafana write и bounded evidence по каждой
+обязательной поверхности. `EOF`, отсутствие `initialize`/`tools/list` или нулевая
+фактическая поверхность tools означают `BLOCKED` для соответствующей поверхности;
+статический profile export не маскирует текущую runtime/auth ошибку.
+
+## MCP Platform status и Development profile
+
+Подробное решение Stage 2, границы Dev/Game и текущие Gateway acceptance
+ограничения собраны в tracked-документации
+[`docs/dev-runtime.md`](../../docs/dev-runtime.md) и в этом разделе.
+
+Этот раздел описывает bounded status collector и не меняет canonical transport
+Development/Game или authenticated public HTTPS для ChatGPT:
+
+```powershell
+uv run --locked --no-sync python -m dev_tools.mcp_status
+uv run --locked --no-sync python -m dev_tools.mcp_status --json
+uv run --locked --no-sync python -m dev_tools.mcp_status --json --strict
+uv run --locked --no-sync python -m dev_tools.mcp_status --json --emit-metrics
+uv run --locked --no-sync python -m dev_tools.mcp_status --watch --interval-seconds 60
+```
+
+Collector выполняет только bounded read-only MCP handshake/contract calls,
+protected resource metadata GET, локальный Semgrep probe, `docker mcp profile
+list`, фактический Gateway catalog и read-only Gateway tool calls. Он разделяет
+profile config, Gateway runtime, client connection и third-party server policy;
+статический profile или public-edge metadata не маскируют отсутствие runtime
+evidence. Канонические routes таковы: Dev/Game — local stdio, Context7 —
+user-scoped direct Codex MCP, Docker Docs — direct project MCP, Semgrep —
+local `semgrep mcp -t stdio`, а обязательные Docker Gateway routes — только
+Grafana и Docker Hub. Context7/Docker Docs/Semgrep в profile остаются
+optional pilot/rollback observations; их Gateway drift не входит в global health
+или `--strict`. User-scoped Context7 acceptance, выполненный в текущей Codex
+сессии, collector явно оставляет внешним evidence и не заменяет его
+синтетическим `ready`. Collector не выводит URL, headers, tokens, secret
+values, paths или полное окружение. `--strict` — fail-closed gate только для
+canonical routes и подтверждённого source/version drift.
+
+`--emit-metrics` — one-shot отправка через существующий OTel/Alloy/Prometheus
+path. Для bounded периодического наблюдения используй встроенный `--watch`;
+это operator-owned foreground lifecycle с bounded interval `10..3600` секунд:
+новый daemon, auto-restart и retry storm не создаются, остановка выполняется
+`Ctrl+C`. Новый metrics runtime не создаётся.
+При отсутствии `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`,
+`AZURPILOT_OBSERVABILITY_OTLP_ENDPOINT` или общего OTLP endpoint экспорт
+остаётся `MCP_METRICS_ENDPOINT_UNCONFIGURED`, а status без `--strict` не
+маскирует это как delivered.
+
+Canonical Docker Toolkit profile `azurpilot-development` содержит ровно пять
+third-party servers: `grafana`, `context7`, `docker-docs`, `dockerhub` и
+`semgrep`. Профиль экспортируется в
+`.docker/azurpilot-development-profile.json`; этот artifact является
+проверяемой копией фактического CLI state, а не заменой `docker mcp profile`
+команд. Для Docker Hub разрешены только read operations; `createRepository` и
+`updateRepositoryInfo` не входят в allowlist. Для Grafana используется
+`--disable-write` и allowlist без `alerting_manage_rules` и без dashboard,
+datasource, incident, annotation или plugin mutations. Remote documentation
+servers считаются read-only по своему catalog contract, а status validator
+фиксирует exact official endpoints для Context7, Docker Docs и Semgrep. Секреты
+остаются в Docker Desktop secret store и не записываются в export.
+
+Профиль подключается к Codex отдельным optional `MCP_DOCKER` entrypoint и не
+заменяет `azurpilot-dev`; Game остаётся standalone `AzurPilot Game` surface.
+Старый `azurpilot-observability` profile и его export сохраняются для
+rollback. Docker Gateway принимает catalog/OCI/file server references, но
+host-side `module.dev_mcp` и `module.game_mcp` не превращаются в OCI image
+автоматически. Context7, Docker Docs и локальный Semgrep также могут
+использоваться через настроенные direct read-only MCP routes; их прямой
+callable catalog проверяется отдельно и не подменяется статическим Gateway
+profile. API keys и secret references остаются вне Git и operator-facing
+evidence.
+
+Host-side `docker pass`/Secrets Engine probes являются auxiliary diagnostics и
+не являются readiness gate: они не доказывают `se://` injection. Успешный
+bounded read-only Grafana tool call через Gateway является authoritative
+evidence для Grafana credential path; публичный Docker Hub probe не заявляет
+наличие credential. Поэтому отсутствие host visibility само по себе не должно
+переводить canonical status в failure.

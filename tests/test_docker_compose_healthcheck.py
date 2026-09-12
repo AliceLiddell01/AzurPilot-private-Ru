@@ -302,7 +302,11 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
         path.stem: json.loads(path.read_text(encoding="utf-8"))
         for path in sorted(dashboard_root.glob("*.json"))
     }
-    assert set(dashboards) == {"azurpilot-overview", "azurpilot-errors"}
+    assert set(dashboards) == {
+        "azurpilot-overview",
+        "azurpilot-errors",
+        "azurpilot-mcp-status",
+    }
     assert dashboards["azurpilot-overview"]["uid"] == "azurpilot-overview"
     assert dashboards["azurpilot-overview"]["title"] == "AzurPilot Overview"
     assert dashboards["azurpilot-overview"]["refresh"] == "5s"
@@ -313,6 +317,9 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
     assert dashboards["azurpilot-errors"]["uid"] == "azurpilot-errors"
     assert dashboards["azurpilot-errors"]["title"] == "AzurPilot Errors / Incidents"
     assert dashboards["azurpilot-errors"]["refresh"] == "5s"
+    assert dashboards["azurpilot-mcp-status"]["uid"] == "azurpilot-mcp-status"
+    assert dashboards["azurpilot-mcp-status"]["title"] == "AzurPilot MCP Status"
+    assert dashboards["azurpilot-mcp-status"]["refresh"] == "30s"
 
     allowed_datasources = {"prometheus", "loki", "tempo", "-100", "-- Mixed --"}
     for dashboard in dashboards.values():
@@ -344,6 +351,29 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
     assert "round(" not in overview_text
     assert "increase(" not in overview_text
     assert "clamp_min" not in overview_text
+
+    mcp_queries = [
+        query
+        for panel in dashboards["azurpilot-mcp-status"]["panels"]
+        for target in panel.get("targets", [])
+        for query in (target.get("expr"), target.get("query"))
+        if isinstance(query, str)
+    ]
+    assert any("azurpilot_mcp_surface_runtime_ready" in query for query in mcp_queries)
+    assert (
+        'min(azurpilot_mcp_surface_runtime_ready{required_runtime="1"})'
+        in mcp_queries
+    )
+    assert any(
+        'surface="docker_gateway",required_runtime="1"' in query
+        for query in mcp_queries
+    )
+    assert any("azurpilot_mcp_version_drift" in query for query in mcp_queries)
+    assert any(
+        "azurpilot_mcp_last_successful_probe_timestamp_seconds" in query
+        for query in mcp_queries
+    )
+    assert any("azurpilot_mcp_observed_version_info" in query for query in mcp_queries)
 
     overview_panels = {
         panel["id"]: panel for panel in dashboards["azurpilot-overview"]["panels"]

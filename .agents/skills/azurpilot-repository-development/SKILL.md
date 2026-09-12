@@ -46,6 +46,11 @@ read-only задачи без изменения репозитория этот
    operator-facing комментарии, логи и диагностические сообщения: человеческий
    текст должен быть литературным русским, а идентификаторы и machine tokens —
    сохранены по контракту.
+   Для repository evidence Codex может без отдельного вопроса пользователю
+   использовать настроенные read-only Context7, Docker Docs, локальный Semgrep
+   и Grafana MCP. Это не даёт разрешения менять их profiles, secret store,
+   grants, dashboards/alerts или любые runtime/game state; при недоступной
+   surface сохраняй fail-closed evidence.
 5. Выполни релевантные проверки от дешёвых к дорогим: static/diff audit,
    syntax, lint, targeted tests, полный связанный набор, browser/live acceptance
    по необходимости и фактический secret scanner перед публикацией. Для точных

@@ -74,7 +74,10 @@ benchmark или night-commission handling и не выполняет input/conf
 Только read-only aliases эмулятора могут кратко кэшироваться внутри одного
 адаптера; свежий `adb devices` выполняется для каждого screenshot-запроса.
 
-Контракт и инструменты регистрируются в `module.game_mcp.server`. Текущий
+Контракт и инструменты регистрируются в `module.game_mcp.server`. Identity
+standalone server задаётся в `config/mcp-versions.toml`: имя
+`azurpilot-game`, SemVer `1.0.0`; `game_mcp_api_version=1` остаётся отдельной
+версией внутреннего read/control contract. Текущий
 read catalog включает contract, profiles, profile status, resources, current
 task, scheduler queue, task catalog/help, Fleet State, morale, redacted config,
 bounded logs и validated screenshot. Отдельный control catalog включает

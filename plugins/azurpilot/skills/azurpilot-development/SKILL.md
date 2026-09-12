@@ -14,8 +14,14 @@ description: "Безопасный cross-surface workflow для Development Run
 
 Первым read-only вызовом каждой новой сессии запрашивай `dev_get_contract`.
 Сравнивай `details.contract` с `compatibility.json` этого пакета по следующим
-полям: `product_family`, `dev_mcp_api_version`, `smoke_spec_schema_version`,
-`smoke_result_schema_version` и `contract_schema_version`.
+полям: `product_family`, `server_name`, `server_version`,
+`smoke_spec_schema_version`, `smoke_result_schema_version` и
+`contract_schema_version`. Для совместимости сначала используй runtime
+`server_name` как ключ в `required_mcp_servers`, затем проверь его
+`server_version` против найденного bounded SemVer range; эти два значения не
+дублируются отдельными полями в `compatibility.json`. `dev_mcp_api_version`
+остаётся отдельной версией внутренней схемы контракта и проверяется только если
+она явно объявлена старым пакетом.
 Сопоставляй `compatibility.json.required_feature_flags` с
 `runtime contract.feature_flags`, `required_capability_families` с
 `runtime contract.capability_families`, а `result_outcomes` с
@@ -143,6 +149,33 @@ server, Tunnel profile или второй MCP implementation. Сначала в
 текущая подписка или UI не позволяют write tools, зафиксируй точную причину
 `CHATGPT_WRITE_UNAVAILABLE_PRODUCT_LIMITATION`; read-only
 contract/diagnostics при этом остаются действительным результатом.
+
+## Разрешённые внешние read-only MCP
+
+В рамках задачи AzurPilot Codex может использовать без отдельного вопроса
+пользователю уже настроенные read-only MCP-поверхности, если они callable в
+текущей сессии:
+
+- прямой `context7_mcp` — поиск идентификатора библиотеки и актуальной
+  документации через доступные Context7 tools;
+- прямой Docker Docs MCP — чтение официальной документации через
+  `fetch_docker_docs`;
+- локальный Semgrep MCP — bounded анализ исходников и diff через
+  `semgrep_scan_local` или `semgrep_scan`; `security_check` используй только
+  если он опубликован текущим catalog;
+- подключённый Grafana MCP — только существующие read-only tools для Loki,
+  Tempo, Prometheus и datasource/catalog evidence.
+
+Предпочитай прямую Context7/Docker Docs/Semgrep surface Docker MCP Gateway,
+когда прямой маршрут callable. Наличие сервера или его записи в profile не
+считай доказательством готовности: сначала проверь текущий catalog и bounded
+read-only вызов. Если surface недоступна, зафиксируй точное ограничение и не
+заменяй её догадкой, бесконечным retry или обходным инструментом.
+
+Это разрешение не включает изменение MCP profile, secret store, OAuth/grants,
+репозитория, Grafana dashboards/alerts, AzurPilot runtime или игрового
+состояния. Секреты, API keys, tokens и Authorization headers не выводи и не
+записывай в evidence.
 
 ## Граница Game workflow
 

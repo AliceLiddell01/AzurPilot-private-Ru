@@ -9,8 +9,11 @@ import pytest
 from module.dev_mcp.contract import (
     contract_compatibility_issues,
     contract_payload,
+    server_compatibility_issues,
 )
 from module.dev_runtime.smoke import SMOKE_SCHEMA_VERSION, SMOKE_STATE_SCHEMA_VERSION
+from module.game_mcp.contract import contract_payload as game_contract_payload
+from module.mcp_shared.versioning import version_satisfies
 
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 _PLUGIN_ROOT = _REPOSITORY_ROOT / "plugins" / "azurpilot"
@@ -109,7 +112,17 @@ def test_plugin_compatibility_matches_runtime_contract() -> None:
 
     assert compatibility["product_family"] == runtime["product_family"] == "AzurPilot"
     assert compatibility["plugin_version"] == manifest["version"]
-    assert compatibility["dev_mcp_api_version"] == runtime["dev_mcp_api_version"] == 3
+    assert runtime["server_name"] == "azurpilot-dev"
+    assert version_satisfies(
+        runtime["server_version"], compatibility["required_mcp_servers"]["azurpilot-dev"]
+    )
+    game_runtime = game_contract_payload()
+    assert version_satisfies(
+        game_runtime["server_version"],
+        compatibility["required_mcp_servers"]["azurpilot-game"],
+    )
+    assert server_compatibility_issues(compatibility, game_runtime) == ()
+    assert runtime["dev_mcp_api_version"] == 3
     assert compatibility["smoke_spec_schema_version"] == runtime["smoke_spec_schema_version"] == SMOKE_SCHEMA_VERSION
     assert compatibility["smoke_result_schema_version"] == runtime["smoke_result_schema_version"] == SMOKE_STATE_SCHEMA_VERSION
     assert "profile" not in compatibility
@@ -125,9 +138,10 @@ def test_plugin_compatibility_matches_runtime_contract() -> None:
     [
         ("contract_schema_version", 2),
         ("product_family", "OtherProduct"),
-        ("dev_mcp_api_version", 0),
         ("smoke_spec_schema_version", 3),
         ("smoke_result_schema_version", 3),
+        ("server_name", "other-server"),
+        ("server_version", "4.0.0"),
     ],
 )
 def test_incompatible_contract_values_fail_closed(field: str, value: object) -> None:
@@ -154,6 +168,19 @@ def test_missing_required_contract_values_fail_closed() -> None:
     missing_outcome = contract_payload()
     missing_outcome["result_outcomes"].remove("CANCELLED")
     assert "result_outcomes" in contract_compatibility_issues(compatibility, missing_outcome)
+
+    for field in ("contract_schema_version", "product_family"):
+        missing_expected = _json(_COMPATIBILITY_PATH)
+        missing_expected.pop(field)
+        assert field in contract_compatibility_issues(
+            missing_expected, contract_payload()
+        )
+
+        missing_actual = contract_payload()
+        missing_actual.pop(field)
+        assert field in contract_compatibility_issues(
+            compatibility, missing_actual
+        )
 
 
 def test_compatibility_allows_additive_runtime_contract_values() -> None:
