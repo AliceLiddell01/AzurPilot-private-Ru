@@ -46,7 +46,7 @@ dependencies = [
     "uv==0.11.32",
     "lz4==4.4.5",
     "packaging==24.2",
-    "setuptools==75.8.2",
+    "setuptools==76.1.0",
     "importlib-resources==6.0.0",
     "importlib-metadata==8.9.0",
     "openai==2.30.0",
