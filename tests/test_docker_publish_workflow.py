@@ -47,7 +47,7 @@ def test_docker_publish_uses_pinned_node24_actions_and_minimal_permissions():
 
     expected_actions = (
         "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803",  # v6
-        "docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c",  # v4
+        "docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e",  # v4
         "docker/login-action@dbcb813823bdd20940b903addbd779551569679f",  # v4
         "docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302",  # v6
         "docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a",  # v7
