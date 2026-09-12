@@ -28,7 +28,7 @@ class GuildShop_250814(ShopClerk, ShopUI, ShopStatus):
         """
         return self.config.GuildShop_Filter.strip()
 
-    # 2025-08-14 新 UI
+    # Новый UI от 2025-08-14.
     @cached_property
     def shop_guild_items(self):
         """加载舰队商店商品模板和配置。
@@ -112,14 +112,14 @@ class GuildShop_250814(ShopClerk, ShopUI, ShopStatus):
 
         logger.hr('[Магазин — гильдия] Магазин гильдии', level=1)
 
-        # 执行购买操作，启用刷新时最多尝试 2 次
+        # Выполняем покупку; при включённом обновлении делаем не более двух попыток.
         refresh = self.config.GuildShop_Refresh
         for _ in range(2):
             success = self.shop_buy()
             if not success:
                 break
             if refresh:
-                # 刷新消耗 50，T4 部件箱价格 60
+                # Обновление стоит 50 монет, ящик деталей T4 — 60.
                 if self._currency >= 110:
                     if self.shop_refresh():
                         continue
