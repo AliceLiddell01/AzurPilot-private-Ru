@@ -31,7 +31,7 @@ class OpsiCrossMonth(MeowfficerTargetZoneMixin, OSMap):
         now = current_time()
         logger.attr('Следующий сброс Операции «Сирена»', next_reset)
 
-        # 检查开始时间
+        # Проверяем время начала
         if next_reset < now:
             raise ScriptError(f'Invalid OpsiNextReset: {next_reset} < {now}')
         if next_reset - now > timedelta(days=3):
@@ -41,7 +41,7 @@ class OpsiCrossMonth(MeowfficerTargetZoneMixin, OSMap):
             logger.error('До следующего сброса Операции «Сирена» более 10 минут: для межмесячных ежедневных заданий ещё слишком рано; задача остановлена')
             self.os_cross_month_end()
 
-        # 距离大世界重置还有 10 分钟
+        # До сброса Операции «Сирена» осталось 10 минут
         logger.hr('Межмесячные ежедневные задания: ожидание сброса Операции «Сирена»', level=1)
         logger.warning('AzurPilot ожидает следующего сброса Операции «Сирена»; во время ожидания не управляйте игрой вручную')
         while True:
@@ -67,17 +67,17 @@ class OpsiCrossMonth(MeowfficerTargetZoneMixin, OSMap):
             OpsiGeneral_DoRandomMapEvent=True,
             OpsiFleet_Fleet=self.config.cross_get('OpsiDaily.OpsiFleet.Fleet'),
             OpsiFleet_Submarine=False,
-            # 每日任务
+            # Ежедневные задания
             OpsiDaily_SkipSirenResearchMission=False,
             OpsiDaily_KeepMissionZone=False,
         )
         count = 0
         empty_trial = 0
         while True:
-            # 如果无法接收更多每日任务，先完成已有任务再重试
+            # Если больше нельзя принять ежедневные задания, сначала завершаем уже полученные и повторяем попытку
             success = self.os_mission_overview_accept()
-            # 重新初始化区域名称
-            # MISSION_ENTER 从右侧出现，需确认动画结束，否则会点击到 MAP_GOTO_GLOBE
+            # Повторно инициализируем название зоны
+            # MISSION_ENTER появляется справа; ждём завершения анимации, иначе клик попадёт в MAP_GOTO_GLOBE
             self.zone_init()
             if empty_trial >= 5:
                 logger.warning('Ежедневные задания+ Операции «Сирена» не обнаружены за 5 минут, ожидание остановлено')
@@ -97,12 +97,12 @@ class OpsiCrossMonth(MeowfficerTargetZoneMixin, OSMap):
             HOMO_EDGE_DETECT=False,
             STORY_OPTION=0,
             OpsiGeneral_UseLogger=True,
-            # 隐秘海域
+            # Скрытые зоны
             OpsiObscure_SkipHazard2Obscure=self.config.cross_get('OpsiObscure.OpsiObscure.SkipHazard2Obscure'),
             OpsiObscure_ForceRun=True,
             OpsiFleet_Fleet=self.config.cross_get('OpsiObscure.OpsiFleet.Fleet'),
             OpsiFleet_Submarine=False,
-            # 深渊坐标
+            # Абиссальные координаты
             OpsiFleetFilter_Filter=self.config.cross_get('OpsiAbyssal.OpsiFleetFilter.Filter'),
             OpsiAbyssal_ForceRun=True,
         )
@@ -140,7 +140,7 @@ class OpsiCrossMonth(MeowfficerTargetZoneMixin, OSMap):
             OpsiGeneral_BuyActionPointLimit=0,
             HOMO_EDGE_DETECT=True,
             STORY_OPTION=-2,
-            # 耄耋相接
+            # Настройки фарма мяуфицеров
             OpsiFleet_Fleet=self.config.cross_get('OpsiMeowfficerFarming.OpsiFleet.Fleet'),
             OpsiFleet_Submarine=False,
             OpsiMeowfficerFarming_ActionPointPreserve=0,

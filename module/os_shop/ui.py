@@ -16,7 +16,7 @@ from module.ui.navbar import Navbar
 from module.ui.scroll import AdaptiveScroll
 from module.ui.ui import UI
 
-# 大世界商店+滚动条配置
+# Настройка магазина Операции «Сирена»+ и полосы прокрутки
 OS_SHOP_SCROLL = AdaptiveScroll(
     OS_SHOP_SCROLL_AREA.button,
     parameters={
@@ -56,13 +56,13 @@ class OSShopUI(UI):
             else:
                 self.device.screenshot()
 
-            # 结束条件
+            # Условие завершения
             if self.appear(OS_SHOP_CHECK):
                 return True
             else:
                 logger.warning('Магазин Операции «Сирена»+ не появился, повторная попытка')
 
-            # 异常处理
+            # Обработка исключительной ситуации
             if ensure_timeout.reached():
                 raise GameStuckError('等待大世界商店+出现超时')
 

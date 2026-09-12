@@ -35,11 +35,11 @@ class GuildOperations(GuildBase):
             else:
                 self.device.screenshot()
 
-            # 结束
+            # Завершение
             if click_count > 5:
-                # 信息栏显示 `none4302`。
-                # 可能是因为大舰队作战已被其他军官开启。
-                # 重新进入大舰队页面应该可以修复此问题。
+                # В информационной строке отображается `none4302`.
+                # Возможно, операция гильдии уже была запущена другим офицером.
+                # Повторный вход на страницу гильдии должен исправить эту проблему.
                 logger.warning(
                     '[Гильдия — операция] Не удалось запустить/присоединиться к операции гильдии; '
                     'возможно, операция уже была открыта другим офицером')
@@ -103,14 +103,14 @@ class GuildOperations(GuildBase):
             logger.info(f'[Гильдия — операция] Текущая дата {today} >= лимита {limit}; новая операция не запускается')
             return False
 
-        # 硬编码选择奖励最丰厚的作战：所罗门海空战
+        # Жёстко выбираем операцию с наибольшей наградой: воздушно-морское сражение у Соломоновых островов
         if self.appear_then_click(GUILD_OPERATIONS_SOLOMON, offset=(20, 20), interval=3):
             return True
-        # 前往刚开启的新作战
-        # 页面切换示例：
+        # Переходим к только что запущенной новой операции
+        # Пример последовательности страниц:
         # - GUILD_OPERATIONS_SOLOMON
         # - GUILD_OPERATIONS_NEW
-        # - handle_popup_confirm(), 确认消耗大舰队资金
+        # - handle_popup_confirm(), подтверждение расходования средств гильдии
         # - GUILD_OPERATIONS_JOIN
         # - GUILD_OPERATIONS_ACTIVE_CHECK
         if self.appear_then_click(GUILD_OPERATIONS_NEW, offset=(20, 20), interval=3):
@@ -181,9 +181,9 @@ class GuildOperations(GuildBase):
         Pages:
             in: page_guild, guild operation, operation map (GUILD_OPERATIONS_ACTIVE_CHECK)
         """
-        # 整个作战任务链条所在的区域
+        # Область всей цепочки задач операции
         detection_area = (152, 135, 1280, 630)
-        # 向内偏移以避免点击边缘
+        # Смещаем внутрь, чтобы не нажимать по краям
         pad = 5
 
         list_expand = []
@@ -216,7 +216,7 @@ class GuildOperations(GuildBase):
         Returns:
             bool: 是否找到活跃派遣。
         """
-        # 整个作战任务链条所在的区域
+        # Область всей цепочки задач операции
         detection_area = (152, 135, 1280, 630)
         direction_vector = (-600, 0) if forward else (600, 0)
 
@@ -300,16 +300,16 @@ class GuildOperations(GuildBase):
         Pages:
             in: page_guild, guild operation, operation dispatch preparation (GUILD_DISPATCH_RECOMMEND)
         """
-        # 舰队切换，4 种情况
+        # Переключение флота: 4 варианта
         #          | 1 |
         #       | 1 | | 2 |
         #    | 1 | | 2 | | 3 |
         # | 1 | | 2 | | 3 | | 4 |
-        #   0  1  2  3  4  5  6   switch_grid 中的按钮
+        #   0  1  2  3  4  5  6   кнопки в switch_grid
         switch_grid = ButtonGrid(origin=(573.5, 381), delta=(20.5, 0), button_shape=(11, 24), grid_shape=(7, 1))
-        # 非活跃舰队切换的颜色
+        # Цвет переключателя неактивного флота
         color_active = (74, 117, 222)
-        # 当前舰队的颜色
+        # Цвет текущего флота
         color_inactive = (33, 48, 66)
 
         text = []
@@ -325,7 +325,7 @@ class GuildOperations(GuildBase):
                 text.append(f'[ {index} ]')
                 button = switch
 
-        # 日志示例：| 1 | | 2 | [ 3 ]
+        # Пример лога: | 1 | | 2 | [ 3 ]
         text = ' '.join(text)
         logger.attr('Отправляемый флот', text)
         if text.endswith(']'):
@@ -355,7 +355,7 @@ class GuildOperations(GuildBase):
                 logger.info('[Гильдия — операция] Отправляется первый флот; переключение пропущено')
             else:
                 self.device.click(button)
-                # 等待点击动画完成，否则会干扰 _guild_operations_get_dispatch() 的检测
+                # Ждём завершения анимации клика, иначе она помешает распознаванию в _guild_operations_get_dispatch()
                 self.device.sleep((0.5, 0.6))
                 continue
 
@@ -375,13 +375,13 @@ class GuildOperations(GuildBase):
                 self.device.screenshot()
 
             if self.appear(GUILD_DISPATCH_FLEET_UNFILLED, offset=(20, 20), interval=3):
-                # 此处不使用 offset，因为 GUILD_DISPATCH_FLEET_UNFILLED 仅在颜色上有差异
-                # 使用较长的 interval，因为游戏需要几秒钟来选择舰船
+                # Здесь не используем offset: GUILD_DISPATCH_FLEET_UNFILLED отличается только цветом
+                # Используем более длинный interval, поскольку игре требуется несколько секунд для выбора кораблей
                 self.device.click(GUILD_DISPATCH_RECOMMEND)
                 continue
             if not dispatched and self.appear(GUILD_DISPATCH_FLEET, offset=(20, 20), interval=3):
-                # GUILD_DISPATCH_FLEET 和 GUILD_DISPATCH_FLEET_UNFILLED 特征相同但颜色不同
-                # 通过检查背景蓝色进行二次确认
+                # GUILD_DISPATCH_FLEET и GUILD_DISPATCH_FLEET_UNFILLED имеют одинаковые признаки, но разные цвета
+                # Дополнительно подтверждаем по синему фону
                 if self.image_color_count(GUILD_DISPATCH_FLEET, color=(82, 93, 221), threshold=235, count=500):
                     self.device.click(GUILD_DISPATCH_FLEET)
                 else:
@@ -392,19 +392,19 @@ class GuildOperations(GuildBase):
                 dispatched = True
                 continue
 
-            # 结束
+            # Завершение
             if self.appear(GUILD_DISPATCH_IN_PROGRESS):
-                # 首次派遣时，会显示 GUILD_DISPATCH_IN_PROGRESS
+                # При первой отправке отображается GUILD_DISPATCH_IN_PROGRESS
                 logger.info('[Гильдия — операция] Флот отправлен; отправка выполняется')
                 break
             if dispatched and self.appear(GUILD_DISPATCH_FLEET, offset=(20, 20), interval=3):
-                # GUILD_DISPATCH_FLEET 和 GUILD_DISPATCH_FLEET_UNFILLED 特征相同但颜色不同
-                # 通过检查背景蓝色进行二次确认
+                # GUILD_DISPATCH_FLEET и GUILD_DISPATCH_FLEET_UNFILLED имеют одинаковые признаки, но разные цвета
+                # Дополнительно подтверждаем по синему фону
                 if self.image_color_count(GUILD_DISPATCH_FLEET, color=(82, 93, 221), threshold=235, count=500):
-                    # 后续派遣会显示 GUILD_DISPATCH_FLEET
-                    # 无法确认舰队是否已派遣，
-                    # 因为点击推荐后派遣前也会显示 GUILD_DISPATCH_FLEET
-                    # _guild_operations_dispatch() 会在未派遣时重试
+                    # При последующих отправках отображается GUILD_DISPATCH_FLEET
+                    # Невозможно подтвердить, был ли флот уже отправлен,
+                    # поскольку GUILD_DISPATCH_FLEET отображается и после рекомендации, но до отправки
+                    # _guild_operations_dispatch() повторит попытку, если отправка не состоялась
                     logger.info('[Гильдия — операция] Флот отправлен')
                     break
 
@@ -429,11 +429,11 @@ class GuildOperations(GuildBase):
                 self.device.click(GUILD_DISPATCH_CLOSE)
                 continue
             if self.appear(GUILD_DISPATCH_IN_PROGRESS, interval=2):
-                # 此处不使用 offset，GUILD_DISPATCH_IN_PROGRESS 是一个有颜色的按钮
+                # Здесь не используем offset: GUILD_DISPATCH_IN_PROGRESS — цветная кнопка
                 self.device.click(GUILD_DISPATCH_CLOSE)
                 continue
 
-            # 结束
+            # Завершение
             if self.appear(GUILD_OPERATIONS_ACTIVE_CHECK):
                 break
 
@@ -492,7 +492,7 @@ class GuildOperations(GuildBase):
                 continue
 
             if self.appear(GUILD_DISPATCH_FLEET, offset=(20, 20), interval=3):
-                # 即使舰队编队为空，按钮也不会显示为灰色
+                # Кнопка не становится серой, даже если состав флота пуст
                 if dispatch_count < 5:
                     self.device.click(GUILD_DISPATCH_FLEET)
                     dispatch_count += 1
@@ -506,7 +506,7 @@ class GuildOperations(GuildBase):
                 if self.info_bar_count() and self.appear_then_click(GUILD_DISPATCH_RECOMMEND_2, interval=3):
                     continue
 
-            # 仅在首次检测到时打印
+            # Логируем только при первом обнаружении
             if not is_loading:
                 if az.is_combat_loading():
                     self.device.screenshot_interval_set('combat')
@@ -516,7 +516,7 @@ class GuildOperations(GuildBase):
             if az.handle_combat_automation_confirm():
                 continue
 
-            # 结束
+            # Завершение
             pause = az.is_combat_executing()
             if pause:
                 logger.attr('Боевой интерфейс', pause)
@@ -561,10 +561,10 @@ class GuildOperations(GuildBase):
         if not entered:
             logger.info(f'[Гильдия — операция] Выполнение операции гильдии успешно: {entered}')
             return False
-        # 判断作战模式，目前有 3 种
+        # Определяем режим операции; сейчас их три
         operations_mode = self._guild_operations_get_mode()
 
-        # 根据检测到的模式执行对应操作
+        # Выполняем действие в соответствии с обнаруженным режимом
         result = True
         if operations_mode == 0:
             pass

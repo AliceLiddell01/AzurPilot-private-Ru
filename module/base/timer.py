@@ -184,12 +184,12 @@ class Timer:
         Returns:
             bool: 达到条件返回 True；计时器未启动时始终返回 True（用于首次快速尝试）。
         """
-        # 每次 reached() 调用计为一次访问
+        # Каждый вызов reached() считается одним обращением
         self._access += 1
         if self._start > 0:
             return self._access > self.count and time() - self._start > self.limit
         else:
-            # 未启动时返回 True，实现首次快速尝试
+            # До запуска возвращаем True для первой быстрой попытки
             return True
 
     def reset(self):

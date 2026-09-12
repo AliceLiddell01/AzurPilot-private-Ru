@@ -164,7 +164,7 @@ class OSAsh(UI, MapEventHandler):
             ocr_daily = DailyDigitCounter(
                 ASH_DAILY_STATUS, letter=(140, 142, 140), threshold=160, name='OCR_ASH_DAILY_STATUS')
         else:
-            # 大世界每日+任务领取或完成时，弹窗会遮挡信标状态
+            # При получении или завершении ежедневных заданий+ Операции «Сирена» всплывающее окно перекрывает состояние маяка
             logger.info('[META — бой] Состояние маяка перекрыто, повторная проверка позже')
             return 0
 
@@ -191,9 +191,9 @@ class OSAsh(UI, MapEventHandler):
         Returns:
             bool: 是否支持调用信标任务。
         """
-        # 信标任务的下次运行时间
+        # Время следующего запуска задачи маяка
         next_run = self.config.cross_get(keys="OpsiAshBeacon.Scheduler.NextRun", default=DEFAULT_TIME)
-        # 距下次执行时间超过 30 分钟
+        # До следующего запуска остаётся больше 30 минут
         if next_run - current_time() > timedelta(minutes=30):
             return True
         return False

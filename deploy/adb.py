@@ -6,9 +6,9 @@ from deploy.logger import logger
 from deploy.utils import *
 
 IGNORE_SERIAL = [
-    # 水冷显示屏，参见 https://github.com/LmeSzinc/AzurLaneAutoScript/issues/3412
+    # Дисплей жидкостного охлаждения, см. https://github.com/LmeSzinc/AzurLaneAutoScript/issues/3412
     'HRBDFUN',
-    # USB 网卡
+    # USB-сетевой адаптер
     '1234567890ABCDEF',
 ]
 
@@ -55,13 +55,13 @@ class AdbManager(DeployConfig):
             except ModuleNotFoundError as e:
                 message = str(e)
                 for module in ['apkutils2', 'progress']:
-                    # 常见的模块缺失错误
+                    # Типичная ошибка отсутствующего модуля
                     if module in message:
                         show_fix_tip(module)
                         exit(1)
                 raise
 
-            # 移除全局代理设置，否则 uiautomator2 会走代理
+            # Удаляем глобальные настройки прокси, иначе uiautomator2 будет использовать прокси
             for k in list(os.environ.keys()):
                 if k.lower().endswith('_proxy'):
                     del os.environ[k]
@@ -71,10 +71,10 @@ class AdbManager(DeployConfig):
                     continue
                 logger.info(f'Инициализация устройства {device}')
                 initer = init.Initer(device, loglevel=logging.DEBUG)
-                # MuMu X 没有 ro.product.cpu.abi，从 ro.product.cpu.abilist 中取第一个
+                # В MuMu X нет ro.product.cpu.abi, поэтому берём первое значение из ro.product.cpu.abilist
                 if initer.abi not in ['x86_64', 'x86', 'arm64-v8a', 'armeabi-v7a', 'armeabi']:
                     initer.abi = initer.abis[0]
-                # getprop 命令不存在时跳过
+                # Пропускаем устройство, если команда getprop недоступна
                 if 'getprop' in initer.abi:
                     logger.warning(f'Не удалось выполнить getprop на устройстве {device}, результат: {initer.abi}')
                     continue

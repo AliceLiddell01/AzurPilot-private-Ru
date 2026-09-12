@@ -66,11 +66,11 @@ class AzurLaneDaemon(DaemonBase, CampaignBase):
         while 1:
             self.device.screenshot()
 
-            # 如果正在执行战斗，跳过
+            # Если бой уже выполняется, пропускаем итерацию
             if self.is_combat_executing():
                 continue
 
-            # 战斗相关
+            # Обработка боя
             if self.combat_appear():
                 self.combat_preparation()
             try:
@@ -80,42 +80,42 @@ class AzurLaneDaemon(DaemonBase, CampaignBase):
             except CampaignEnd:
                 continue
 
-            # 地图操作
+            # Операции на карте
             if self.appear_then_click(MAP_AMBUSH_EVADE, offset=(20, 20)):
                 self.device.sleep(1)
                 continue
             if self.handle_mystery_items():
                 continue
 
-            # 地图准备
+            # Подготовка карты
             if self.config.Daemon_EnterMap:
                 if self.appear_then_click(MAP_PREPARATION, offset=(20, 20), interval=2):
                     continue
                 if self.appear_then_click(FLEET_PREPARATION, offset=(20, 50), interval=2):
                     continue
 
-            # 退役处理
+            # Обработка списания
             if self.handle_retirement():
                 continue
 
-            # 情绪管理
+            # Управление настроением
             pass
 
-            # 紧急委托
+            # Срочные комиссии
             if self.handle_urgent_commission():
                 continue
 
-            # 弹窗处理
+            # Обработка всплывающих окон
             if self.handle_guild_popup_cancel():
                 return True
             if self.handle_vote_popup():
                 continue
 
-            # 剧情跳过
+            # Пропуск сюжета
             if self.story_skip():
                 continue
 
-            # 结束条件：无自动结束条件，需手动停止
+            # Условие завершения: автоматического завершения нет, требуется ручная остановка
 
         return True
 

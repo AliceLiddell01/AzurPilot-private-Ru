@@ -14,13 +14,13 @@ class IslandJuuCoffee(IslandShopBase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        # 设置店铺类型
+        # Задаём тип магазина
         self.shop_type = "juu_coffee"
         self.time_prefix = "time_coffee"
         self.chef_config = self.config.IslandJuuCoffee_ChefFilter
         self.special_character = self.config.IslandJuuCoffee_Friedrich
 
-        # 设置商品列表
+        # Задаём список товаров
         self.shop_items = [
             {'name': 'iced_coffee', 'template': TEMPLATE_ICED_COFFEE, 'var_name': 'iced_coffee',
              'selection': SELECT_ICED_COFFEE, 'selection_check': SELECT_ICED_COFFEE_CHECK,
@@ -52,7 +52,7 @@ class IslandJuuCoffee(IslandShopBase):
              'post_action': POST_CHEESE},
         ]
 
-        # 设置套餐组成
+        # Задаём составы наборов
         self.meal_compositions = {
             'morning_light': {
                 'required': ['latte', 'omelette'],
@@ -68,16 +68,16 @@ class IslandJuuCoffee(IslandShopBase):
             }
         }
 
-        # 设置岗位按钮
+        # Задаём кнопки постов
         self.post_buttons = {
             'ISLAND_JUU_COFFEE_POST1': ISLAND_JUU_COFFEE_POST1,
             'ISLAND_JUU_COFFEE_POST2': ISLAND_JUU_COFFEE_POST2
         }
 
-        # 设置筛选资产
+        # Задаём ресурс фильтра
         self.filter_asset = 'juu_coffee'
 
-        # 设置配置前缀
+        # Задаём префиксы конфигурации
         self.setup_config(
             config_meal_prefix="IslandJuuCoffee_Meal",
             config_number_prefix="IslandJuuCoffee_MealNumber",
@@ -85,29 +85,29 @@ class IslandJuuCoffee(IslandShopBase):
             config_post_number="IslandJuuCoffee_PostNumber"
         )
 
-        # 设置滑动次数（JuuCoffee需要滑动两次）
-        self.post_manage_swipe_count = 2  # run方法中滑动2次450
+        # Задаём число прокруток (для JuuCoffee требуется две прокрутки)
+        self.post_manage_swipe_count = 2  # В методе run выполняются две прокрутки по 450
 
-        # 特殊材料：牛奶
+        # Особый материал: молоко
         self.milk_stock = 0
         self.special_materials = {'milk': 0}
 
-        # 初始化店铺
+        # Инициализируем магазин
         self.initialize_shop()
 
     def get_warehouse_counts(self):
         """覆盖：获取仓库数量，包括牛奶"""
-        # 先调用父类方法获取基础库存
+        # Сначала вызываем родительский метод для получения базовых запасов
         super().get_warehouse_counts()
 
-        # 额外获取milk数量（从牧场）
+        # Дополнительно получаем количество milk с ранчо
         self.warehouse_filter('ranch')
         image = self.device.screenshot()
         self.milk_stock = self.ocr_item_quantity(image, TEMPLATE_MILK)
         self.special_materials['milk'] = self.milk_stock
         logger.info(f"[Остров — Juu Coffee] Количество milk: {self.milk_stock}")
 
-        # 将牛奶库存也存入warehouse_counts，便于统一处理
+        # Сохраняем запас молока в warehouse_counts для унифицированной обработки
         self.warehouse_counts['milk'] = self.milk_stock
 
         return self.warehouse_counts
@@ -117,7 +117,7 @@ class IslandJuuCoffee(IslandShopBase):
         if batch_size <= 0:
             return 0
 
-        # latte需要2个牛奶
+        # Для latte требуется 2 единицы молока
         elif product == 'latte':
             milk_needed_per_batch = 2
             milk_available = self.milk_stock
@@ -125,7 +125,7 @@ class IslandJuuCoffee(IslandShopBase):
             batch_size = min(batch_size, max_by_milk)
             logger.info(f"[Остров — Juu Coffee] {product}: ограничение milk — доступно {milk_available}, на партию {milk_needed_per_batch}, максимум {max_by_milk}")
 
-        # strawberry_milkshake需要1个牛奶
+        # Для strawberry_milkshake требуется 1 единица молока
         elif product == 'strawberry_milkshake':
             milk_needed_per_batch = 1
             milk_available = self.milk_stock
@@ -133,7 +133,7 @@ class IslandJuuCoffee(IslandShopBase):
             batch_size = min(batch_size, max_by_milk)
             logger.info(f"[Остров — Juu Coffee] {product}: ограничение milk — доступно {milk_available}, на партию {milk_needed_per_batch}, максимум {max_by_milk}")
 
-        # cheese需要8个牛奶
+        # Для cheese требуется 8 единиц молока
         if product == 'cheese':
             milk_needed_per_batch = 8
             milk_available = self.milk_stock
@@ -192,10 +192,10 @@ class IslandJuuCoffee(IslandShopBase):
             return self.select_character(self.chef_config)
     def deduct_materials(self, product, number):
         """覆盖：扣除前置材料，包括牛奶和套餐原材料"""
-        # 先调用父类方法扣除套餐原材料
+        # Сначала вызываем родительский метод для списания сырья наборов
         super().deduct_materials(product, number)
 
-        # latte需要扣除牛奶
+        # Для latte списываем молоко
         if product == 'latte':
             milk_needed = number * 2
             self.milk_stock = max(0, self.milk_stock - milk_needed)
@@ -204,7 +204,7 @@ class IslandJuuCoffee(IslandShopBase):
                 self.warehouse_counts['milk'] = self.milk_stock
             logger.info(f"[Остров — Juu Coffee] Списание milk: milk -{milk_needed} (для производства {product})")
 
-        # strawberry_milkshake需要扣除牛奶
+        # Для strawberry_milkshake списываем молоко
         elif product == 'strawberry_milkshake':
             milk_needed = number * 1
             self.milk_stock = max(0, self.milk_stock - milk_needed)
@@ -212,7 +212,7 @@ class IslandJuuCoffee(IslandShopBase):
             if 'milk' in self.warehouse_counts:
                 self.warehouse_counts['milk'] = self.milk_stock
             logger.info(f"[Остров — Juu Coffee] Списание milk: milk -{milk_needed} (для производства {product})")
-        # cheese需要扣除牛奶
+        # Для cheese списываем молоко
         elif product == 'cheese':
             milk_needed = number * 8
             self.milk_stock = max(0, self.milk_stock - milk_needed)
@@ -225,32 +225,32 @@ class IslandJuuCoffee(IslandShopBase):
         """覆盖：根据牛奶库存调整需求"""
         result = requirements.copy()
 
-        # 计算所有需要牛奶的产品总需求
+        # Вычисляем общую потребность всех продуктов в молоке
         milk_demand = 0
 
-        # latte需求（每个需要2牛奶）
+        # Потребность latte: 2 единицы молока на штуку
         if 'latte' in result and result['latte'] > 0:
             milk_demand += result['latte'] * 2
 
-        # strawberry_milkshake需求（每个需要1牛奶）
+        # Потребность strawberry_milkshake: 1 единица молока на штуку
         if 'strawberry_milkshake' in result and result['strawberry_milkshake'] > 0:
             milk_demand += result['strawberry_milkshake'] * 1
 
-        # cheese需求（每个需要8牛奶）
+        # Потребность cheese: 8 единиц молока на штуку
         if 'cheese' in result and result['cheese'] > 0:
             milk_demand += result['cheese'] * 8
 
-        # 检查牛奶是否足够
+        # Проверяем, достаточно ли молока
         milk_available = self.milk_stock
 
         if milk_demand > milk_available:
             logger.info(f"[Остров — Juu Coffee] Недостаточно milk: общая потребность {milk_demand}, доступно {milk_available}")
 
-            # 按优先级调整需求（这里可以根据需要调整优先级）
-            # 例如：先满足latte，然后是strawberry_milkshake，最后是cheese
+            # Корректируем потребности по приоритету
+            # Например: сначала latte, затем strawberry_milkshake, в последнюю очередь cheese
             remaining_milk = milk_available
 
-            # 调整latte需求
+            # Корректируем потребность latte
             if 'latte' in result and result['latte'] > 0:
                 latte_needed = result['latte']
                 milk_for_latte = latte_needed * 2
@@ -265,7 +265,7 @@ class IslandJuuCoffee(IslandShopBase):
                     logger.info(f"[Остров — Juu Coffee] Milk достаточно для latte: списано {milk_for_latte}, остаток {remaining_milk}")
                     
 
-            # 调整strawberry_milkshake需求
+            # Корректируем потребность strawberry_milkshake
             if 'strawberry_milkshake' in result and result['strawberry_milkshake'] > 0:
                 milkshake_needed = result['strawberry_milkshake']
                 milk_for_milkshake = milkshake_needed * 1
@@ -279,7 +279,7 @@ class IslandJuuCoffee(IslandShopBase):
                     remaining_milk -= milk_for_milkshake
                     logger.info(f"[Остров — Juu Coffee] Milk достаточно для strawberry_milkshake: списано {milk_for_milkshake}, остаток {remaining_milk}")
 
-            # 调整cheese需求
+            # Корректируем потребность cheese
             if 'cheese' in result and result['cheese'] > 0:
                 cheese_needed = result['cheese']
                 milk_for_cheese = cheese_needed * 8
@@ -300,7 +300,7 @@ class IslandJuuCoffee(IslandShopBase):
         logger.info(f"=== IslandJuuCoffee: обработка требований к блюдам ===")
         logger.info(f"[Остров — Juu Coffee] Входные потребности: {source_products}")
 
-        # 调用父类方法
+        # Вызываем родительский метод
         result = super().process_meal_requirements(source_products)
 
         logger.info(f"[Остров — Juu Coffee] Результат: {result}")

@@ -22,7 +22,7 @@ import sqlite3
 import sys
 from datetime import datetime, timedelta
 
-# 切换到项目根目录
+# Переходим в корневой каталог проекта.
 _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 os.chdir(_project_root)
 if _project_root not in sys.path:
@@ -30,7 +30,7 @@ if _project_root not in sys.path:
 
 _DB = './config/azurstats_local.db'
 
-# 每种资源的模拟参数 (base, trend_per_day, amplitude, min_val, max_val)
+# Параметры симуляции каждого ресурса (base, trend_per_day, amplitude, min_val, max_val).
 RESOURCE_PROFILES = {
     'oil':          (15000, -800,   3000,  2000,  30000),
     'coin':         (80000,  2000,  8000,  5000,  200000),
@@ -57,7 +57,7 @@ def _generate_timeline(
         if random.random() < gap_prob:
             values.append(None)
             continue
-        # 基准 + 趋势 + 正弦波动 + 随机噪声
+        # Базовое значение + тренд + синусоидальные колебания + случайный шум.
         t = i / (n - 1) if n > 1 else 0
         v = base + trend * t * n / 24 + amp * math.sin(t * math.pi * 2 * random.uniform(0.5, 2.0))
         v += random.gauss(0, amp * noise)
@@ -92,7 +92,7 @@ def seed_snapshots(
         'action_point', 'yellow_coin', 'purple_coin',
     ]
 
-    # 为每种资源生成时间序列
+    # Генерируем временной ряд для каждого ресурса.
     series = {}
     for key in resource_keys:
         base, trend, amp, lo, hi = RESOURCE_PROFILES[key]
@@ -107,7 +107,7 @@ def seed_snapshots(
     print()
 
     if dry_run:
-        # 预览前 5 条
+        # Показываем первые 5 записей.
         print(f"{'时间':<20} {'石油':>8} {'物资':>8} {'钻石':>8} {'活动Pt':>8} {'魔方':>6} "
               f"{'核心':>6} {'勋章':>6} {'功勋':>6} {'舰队币':>8} {'行动力':>6} {'黄币':>6} {'紫币':>6}")
         print("-" * 110)
@@ -126,7 +126,7 @@ def seed_snapshots(
                 print(f"  {k:>12}: 全部为 None")
         return
 
-    # 写入数据库
+    # Записываем данные в базу.
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.execute("""

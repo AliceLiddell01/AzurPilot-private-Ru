@@ -4,8 +4,8 @@
 （黄币/紫币）的 OCR 数值追踪、任务类型识别、子任务冷却（CD）
 状态的实时计算，以及相关日志资源的记录。
 """
-# 此文件用于管理大世界（Operation Siren）模式下的状态信息。
-# 负责海域代币（黄币/紫币）的数值追踪、任务类型识别以及子任务冷却（CD）状态的实时计算。
+# Этот файл управляет состоянием режима Operation Siren.
+# Он отслеживает морские жетоны (жёлтые/фиолетовые), распознаёт типы задач и в реальном времени рассчитывает откат (CD) подзадач.
 import threading
 import typing as t
 from datetime import timedelta
@@ -110,7 +110,7 @@ class OSStatus(UI):
 
     def get_yellow_coins(self) -> int:
         yellow_coins = 0
-        timeout = Timer(5, count=10).start()  # 增加超时时间和重试次数
+        timeout = Timer(5, count=10).start()  # Увеличиваем тайм-аут и число повторных попыток
         last_valid_value = None
         
         for _ in self.loop():
@@ -136,10 +136,10 @@ class OSStatus(UI):
                 logger.info('[Операция «Сирена» — состояние] Жёлтые монеты равны 0: возможно, ошибка OCR или экран ещё не загрузился')
                 continue
             else:
-                # 验证识别稳定性：连续两次识别相同才确认
+                # Проверяем стабильность распознавания: подтверждаем значение только после двух одинаковых результатов подряд
                 if last_valid_value is None:
                     last_valid_value = current_value
-                    self.device.sleep(0.2)  # 短暂等待后再次验证
+                    self.device.sleep(0.2)  # Короткая пауза перед повторной проверкой
                 elif last_valid_value == current_value:
                     yellow_coins = current_value
                     break
@@ -147,13 +147,13 @@ class OSStatus(UI):
                     last_valid_value = current_value
                     self.device.sleep(0.2)
         
-        # 如果最终仍未获取到有效数值，使用上次缓存的值（线程安全）
+        # Если валидное значение так и не получено, используем последнее кэшированное значение (потокобезопасно)
         with self._cache_lock:
             if yellow_coins == 0:
                 logger.info(f'[Операция «Сирена» — состояние] Используется кэшированное значение жёлтых монет: {self._last_yellow_coins}')
                 yellow_coins = self._last_yellow_coins
             
-            # 缓存当前值用于降级
+            # Кэшируем текущее значение для резервного использования
             self._last_yellow_coins = yellow_coins
         
         LogRes(self.config).YellowCoin = yellow_coins
@@ -174,7 +174,7 @@ class OSStatus(UI):
         self._shop_purple_coins = self.get_purple_coins()
         logger.info(f'[Операция «Сирена» — состояние] Жёлтые монеты: {self._shop_yellow_coins}, фиолетовые монеты: {self._shop_purple_coins}')
 
-        # 记录凭证快照到数据库（用于 WebUI 凭证变化曲线图）
+        # Записываем снимок ваучеров в базу данных для графика их изменения в WebUI
         try:
             instance_name = getattr(self.config, 'config_name', 'default')
             source = 'cl1' if self.is_running_cl1_leveling else ('meow' if self.is_in_task_meow else 'other')
@@ -186,7 +186,7 @@ class OSStatus(UI):
                 purple_coins=self._shop_purple_coins,
                 source=source,
             )
-            # LogRes 已将值写入 config.modified，在此持久化
+            # LogRes уже записал значение в config.modified; здесь сохраняем его на диск
             self.config.save()
         except StorageError:
             raise

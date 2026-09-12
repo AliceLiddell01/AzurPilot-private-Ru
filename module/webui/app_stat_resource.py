@@ -117,7 +117,7 @@ class ResourceStatisticsMixin(WebUIMixinBase):
                 else:
                     series_map[key]["data"].append(None)
 
-        # 前向填充：用上一个有效值填补 None，避免折线图断点
+        # Прямое заполнение: заменяем None предыдущим корректным значением, чтобы не было разрывов линии графика.
         for key in series_map:
             prev = None
             filled = []

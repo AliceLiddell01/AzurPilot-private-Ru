@@ -52,7 +52,7 @@ class McpConfigHelper:
         task_args = self.args_data[task_name]
         task_i18n = self.i18n_data.get("Task", {}).get(task_name, {})
         
-        # 供 AI 使用的结构化数据
+        # Структурированные данные для использования AI.
         result = {
             "task_name": task_name,
             "display_name": task_i18n.get("name", task_name),
@@ -60,16 +60,16 @@ class McpConfigHelper:
             "groups": {}
         }
 
-        # 参数的国际化数据通常位于 i18n_data[task_name] 的顶层，
-        # 或位于 Task[task_name]（通用任务描述符）。
-        # AzurPilot 按任务级键组织国际化数据。
+        # Данные локализации параметров обычно находятся на верхнем уровне i18n_data[task_name]
+        # или в Task[task_name] (общий дескриптор задачи).
+        # AzurPilot организует данные локализации по ключам уровня задачи.
         spec_i18n = self.i18n_data.get(task_name, {})
 
         for group_name, group_data in task_args.items():
-            if group_name == "Storage":  # 跳过 Storage 组
+            if group_name == "Storage":  # Пропускаем группу Storage.
                 continue
                 
-            # 解析组的国际化元数据
+            # Разбираем метаданные локализации группы.
             group_meta = spec_i18n.get(group_name, {})
             info = group_meta.get("_info", {})
             group_display = info.get("name", group_name)
@@ -84,7 +84,7 @@ class McpConfigHelper:
             for arg_name, arg_meta in group_data.items():
                 arg_i18n = spec_i18n.get(group_name, {}).get(arg_name, {})
                 
-                # 选项翻译
+                # Переводы вариантов.
                 options = arg_meta.get("option", [])
                 translated_options = {}
                 for opt in options:
@@ -111,15 +111,15 @@ class McpConfigHelper:
         dashboard = config_data.get("Dashboard", {})
         resources = {}
         
-        # 获取 Dashboard 项的本地化名称
-        # 通常位于 i18n_data["Gui"]["Dashboard"] 中
+        # Получаем локализованные имена элементов Dashboard.
+        # Обычно они находятся в i18n_data["Gui"]["Dashboard"].
         dashboard_i18n = self.i18n_data.get("Gui", {}).get("Dashboard", {})
         
         for key, data in dashboard.items():
             if not isinstance(data, dict) or "Value" not in data:
                 continue
                 
-            # 尝试获取友好的显示名称
+            # Пытаемся получить понятное отображаемое имя.
             label = dashboard_i18n.get(key, key)
             
             res_item = {

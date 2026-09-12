@@ -5,9 +5,9 @@ import time
 from typing import Iterable, Union
 
 IS_WINDOWS = os.name == 'nt'
-# 其他进程正在读写时的最大重试次数，仅在 Windows 上生效
+# Максимальное число повторных попыток при чтении/записи другим процессом; действует только в Windows
 WINDOWS_MAX_ATTEMPT = 5
-# 重试之间的基础等待时间（秒）
+# Базовая задержка между повторными попытками (в секундах)
 WINDOWS_RETRY_DELAY = 0.05
 
 
@@ -17,7 +17,7 @@ def random_id():
     Returns:
         str: 随机 ID，如 "sTD2kF"。
     """
-    # 6 位随机字符（62^6 种组合）已足够避免冲突
+    # 6 случайных символов (62^6 комбинаций) достаточно для предотвращения коллизий
     return ''.join(random.sample(string.ascii_letters + string.digits, 6))
 
 
@@ -88,11 +88,11 @@ def replace_tmp(tmp: str, file: str):
         FileNotFoundError: 临时文件被意外删除。
     """
     if IS_WINDOWS:
-        # Windows 上其他进程正在读取时会抛出 PermissionError
+        # В Windows при чтении файла другим процессом возникает PermissionError
         last_error = None
         for attempt in range(WINDOWS_MAX_ATTEMPT):
             try:
-                # 原子操作
+                # Атомарная операция
                 os.replace(tmp, file)
                 return
             except PermissionError as e:
@@ -101,15 +101,15 @@ def replace_tmp(tmp: str, file: str):
                 time.sleep(delay)
                 continue
             except FileNotFoundError:
-                # 临时文件被意外删除
+                # Временный файл был неожиданно удалён
                 raise
             except Exception as e:
                 last_error = e
                 break
     else:
-        # Linux 和 Mac 允许在读取时替换
+        # Linux и macOS позволяют заменять файл во время чтения другим процессом
         try:
-            # 原子操作
+            # Атомарная операция
             os.replace(tmp, file)
             return
         except FileNotFoundError:
@@ -117,11 +117,11 @@ def replace_tmp(tmp: str, file: str):
         except Exception as e:
             last_error = e
 
-    # 失败时清理临时文件
+    # При ошибке удаляем временный файл
     try:
         os.unlink(tmp)
     except FileNotFoundError:
-        # 临时文件已被删除
+        # Временный файл уже удалён
         pass
     except:
         pass
@@ -139,11 +139,11 @@ def atomic_replace(replace_from: str, replace_to: str):
         FileNotFoundError: 源文件不存在。
     """
     if IS_WINDOWS:
-        # Windows 上其他进程正在读取时会抛出 PermissionError
+        # В Windows при чтении файла другим процессом возникает PermissionError
         last_error = None
         for attempt in range(WINDOWS_MAX_ATTEMPT):
             try:
-                # 原子操作
+                # Атомарная операция
                 os.replace(replace_from, replace_to)
                 return
             except PermissionError as e:
@@ -159,7 +159,7 @@ def atomic_replace(replace_from: str, replace_to: str):
         if last_error is not None:
             raise last_error from None
     else:
-        # Linux 和 Mac 直接替换
+        # В Linux и macOS заменяем напрямую
         os.replace(replace_from, replace_to)
 
 
@@ -177,7 +177,7 @@ def file_write(file: str, data: Union[str, bytes]):
         mode = 'wb'
         encoding = None
         newline = None
-        # 像 Pathlib 一样创建 memoryview
+        # Создаём memoryview аналогично pathlib
         data = memoryview(data)
     else:
         typename = str(type(data))
@@ -193,11 +193,11 @@ def file_write(file: str, data: Union[str, bytes]):
     try:
         with open(file, mode=mode, encoding=encoding, newline=newline) as f:
             f.write(data)
-            # 确保数据刷新到磁盘
+            # Гарантируем сброс данных на диск
             f.flush()
             os.fsync(f.fileno())
     except FileNotFoundError:
-        # 父目录不存在，先创建
+        # Родительского каталога нет — сначала создаём его
         directory = os.path.dirname(file)
         if directory:
             os.makedirs(directory, exist_ok=True)
@@ -218,14 +218,14 @@ def file_write_stream(file: str, data_generator):
     """
     data_iter = iter(data_generator)
 
-    # 尝试获取第一个数据块
+    # Пытаемся получить первый блок данных
     try:
         first_chunk = next(data_iter)
     except StopIteration:
-        # 生成器为空，不创建文件
+        # Генератор пуст — файл не создаём
         return
 
-    # 根据第一个数据块确定写入模式
+    # Определяем режим записи по типу первого блока данных
     if isinstance(first_chunk, str):
         mode = 'w'
         encoding = 'utf-8'
@@ -353,7 +353,7 @@ def file_read_bytes(file: str) -> bytes:
         bytes: 文件内容，文件不存在时返回空 bytes。
     """
     try:
-        # 读取整个文件时不使用 Python 缓冲以加速读取
+        # При чтении файла целиком отключаем буферизацию Python для ускорения
         # https://github.com/python/cpython/pull/122111
         with open(file, mode='rb', buffering=0) as f:
             return f.read()
@@ -400,7 +400,7 @@ def atomic_read_text(
         str: 文件内容。
     """
     if IS_WINDOWS:
-        # Windows 上其他进程正在替换时会抛出 PermissionError
+        # В Windows при замене файла другим процессом возникает PermissionError
         last_error = None
         for attempt in range(WINDOWS_MAX_ATTEMPT):
             try:
@@ -413,7 +413,7 @@ def atomic_read_text(
         if last_error is not None:
             raise last_error from None
     else:
-        # Linux 和 Mac 允许在替换时读取
+        # Linux и macOS позволяют читать файл во время замены
         return file_read_text(file, encoding=encoding, errors=errors)
 
 
@@ -435,7 +435,7 @@ def atomic_read_text_stream(
         str: 文件内容块。
     """
     if IS_WINDOWS:
-        # Windows 上其他进程正在替换时会抛出 PermissionError
+        # В Windows при замене файла другим процессом возникает PermissionError
         last_error = None
         for attempt in range(WINDOWS_MAX_ATTEMPT):
             try:
@@ -449,7 +449,7 @@ def atomic_read_text_stream(
         if last_error is not None:
             raise last_error from None
     else:
-        # Linux 和 Mac 允许在替换时读取
+        # Linux и macOS позволяют читать файл во время замены
         yield from file_read_text_stream(file, encoding=encoding, errors=errors, chunk_size=chunk_size)
         return
 
@@ -460,7 +460,7 @@ def atomic_read_bytes(file: str) -> bytes:
     Windows 上如果其他进程正在替换文件，会进行指数退避重试。
     """
     if IS_WINDOWS:
-        # Windows 上其他进程正在替换时会抛出 PermissionError
+        # В Windows при замене файла другим процессом возникает PermissionError
         last_error = None
         for attempt in range(WINDOWS_MAX_ATTEMPT):
             try:
@@ -473,7 +473,7 @@ def atomic_read_bytes(file: str) -> bytes:
         if last_error is not None:
             raise last_error from None
     else:
-        # Linux 和 Mac 允许在替换时读取
+        # Linux и macOS позволяют читать файл во время замены
         return file_read_bytes(file)
 
 
@@ -488,7 +488,7 @@ def atomic_read_bytes_stream(file: str, chunk_size: int = 8192) -> Iterable[byte
         bytes: 文件内容块。
     """
     if IS_WINDOWS:
-        # Windows 上其他进程正在替换时会抛出 PermissionError
+        # В Windows при замене файла другим процессом возникает PermissionError
         last_error = None
         for attempt in range(WINDOWS_MAX_ATTEMPT):
             try:
@@ -502,7 +502,7 @@ def atomic_read_bytes_stream(file: str, chunk_size: int = 8192) -> Iterable[byte
         if last_error is not None:
             raise last_error from None
     else:
-        # Linux 和 Mac 允许在替换时读取
+        # Linux и macOS позволяют читать файл во время замены
         yield from file_read_bytes_stream(file, chunk_size=chunk_size)
         return
 
@@ -512,7 +512,7 @@ def file_remove(file: str):
     try:
         os.unlink(file)
     except FileNotFoundError:
-        # 文件不存在，无需删除
+        # Файл не существует — удаление не требуется
         pass
 
 
@@ -523,7 +523,7 @@ def atomic_remove(file: str):
         file: 文件路径。
     """
     if IS_WINDOWS:
-        # Windows 上其他进程正在替换时会抛出 PermissionError
+        # В Windows при замене файла другим процессом возникает PermissionError
         last_error = None
         for attempt in range(WINDOWS_MAX_ATTEMPT):
             try:
@@ -536,8 +536,8 @@ def atomic_remove(file: str):
         if last_error is not None:
             raise last_error from None
     else:
-        # Linux 和 Mac 允许在其他进程读取时删除
-        # 目录条目会被移除，但文件占用的存储空间要等到原文件不再使用时才释放
+        # Linux и macOS позволяют удалить файл, пока другой процесс его читает
+        # Запись каталога удаляется сразу, но занятое файлом место освобождается только после прекращения использования исходного файла
         return file_remove(file)
 
 
@@ -553,31 +553,31 @@ def folder_rmtree(folder, may_symlinks=True):
         bool: 是否成功。
     """
     try:
-        # 如果是符号链接，直接删除链接本身
+        # Если это символическая ссылка, удаляем саму ссылку
         if may_symlinks and os.path.islink(folder):
             file_remove(folder)
             return True
-        # 遍历目录
+        # Обходим каталог
         with os.scandir(folder) as entries:
             for entry in entries:
                 if entry.is_dir(follow_symlinks=False):
                     folder_rmtree(entry.path, may_symlinks=False)
                 else:
-                    # 文件或符号链接，只删除链接本身
+                    # Файл или символическая ссылка — удаляем только саму ссылку/файл
                     try:
                         file_remove(entry.path)
                     except PermissionError:
-                        # 其他进程正在读写
+                        # Другой процесс выполняет чтение или запись
                         pass
 
     except FileNotFoundError:
-        # 目录不存在，无需清理
+        # Каталог не существует — очищать нечего
         return True
     except NotADirectoryError:
         file_remove(folder)
         return True
 
-    # 删除空目录，如果目录非空会抛出 OSError
+    # Удаляем пустой каталог; если он не пуст, будет выброшен OSError
     try:
         os.rmdir(folder)
         return True
@@ -600,7 +600,7 @@ def atomic_rmtree(folder: str):
     try:
         atomic_replace(folder, temp)
     except FileNotFoundError:
-        # 目录不存在，无需删除
+        # Каталог не существует — удаление не требуется
         return
     folder_rmtree(temp)
 
@@ -620,13 +620,13 @@ def atomic_failure_cleanup(folder: str, recursive: bool = False):
             for entry in entries:
                 if is_tmp_file(entry.name):
                     try:
-                        # 删除临时文件或目录
+                        # Удаляем временный файл или каталог
                         if entry.is_dir(follow_symlinks=False):
                             folder_rmtree(entry.path, may_symlinks=False)
                         else:
                             file_remove(entry.path)
                     except PermissionError:
-                        # 其他进程正在读写
+                        # Другой процесс выполняет чтение или запись
                         pass
                     except:
                         pass
@@ -639,10 +639,10 @@ def atomic_failure_cleanup(folder: str, recursive: bool = False):
                             pass
 
     except FileNotFoundError:
-        # 目录不存在，无需清理
+        # Каталог не существует — очищать нечего
         pass
     except NotADirectoryError:
         file_remove(folder)
     except:
-        # 忽略所有失败，临时文件残留不影响功能
+        # Игнорируем все ошибки: оставшиеся временные файлы не влияют на функциональность
         pass

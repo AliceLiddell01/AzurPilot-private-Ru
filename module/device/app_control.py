@@ -113,7 +113,7 @@ class AppControl(Adb, WSA, Uiautomator2):
         if interval is None:
             interval = 0.1
         elif isinstance(interval, (int, float)):
-            # 代码中手动设置时不限制
+            # При ручной настройке в коде ограничение не применяется
             pass
         else:
             logger.warning(f'[Устройство — приложение] Неизвестный интервал получения иерархии: {interval}')

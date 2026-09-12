@@ -28,7 +28,7 @@ class BattleStatusStatistics:
             str: 敌人名称，如 '中型主力舰队'。
         """
         result = self.ocr_object.ocr(image)
-        # 删除 OCR 误识别的字符
+        # Удаляем символы, ошибочно распознанные OCR.
         for letter in '-一个―~(':
             result = result.replace(letter, '')
 

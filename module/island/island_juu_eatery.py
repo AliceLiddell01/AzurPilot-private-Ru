@@ -14,13 +14,13 @@ class IslandJuuEatery(IslandShopBase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        # 设置店铺类型
+        # Задаём тип магазина
         self.shop_type = "juu_eatery"
         self.time_prefix = "time_eatery"
         self.chef_config = self.config.IslandJuuEatery_ChefFilter
         self.post_open_retry_swipe = True
 
-        # 设置商品列表
+        # Задаём список товаров
         self.shop_items = [
             {'name': 'apple_pie', 'template': TEMPLATE_APPLE_PIE, 'var_name': 'apple_pie',
              'selection': SELECT_APPLE_PIE, 'selection_check': SELECT_APPLE_PIE_CHECK,
@@ -55,7 +55,7 @@ class IslandJuuEatery(IslandShopBase):
              'post_action': POST_SEAFOOD_RICE},
         ]
 
-        # 设置套餐组成
+        # Задаём составы наборов
         self.meal_compositions = {
             'berry_orange': {
                 'required': ['strawberry_charlotte', 'orange_pie'],
@@ -71,16 +71,16 @@ class IslandJuuEatery(IslandShopBase):
             }
         }
 
-        # 设置岗位按钮
+        # Задаём кнопки постов
         self.post_buttons = {
             'ISLAND_JUU_EATERY_POST1': ISLAND_JUU_EATERY_POST1,
             'ISLAND_JUU_EATERY_POST2': ISLAND_JUU_EATERY_POST2
         }
 
-        # 设置筛选资产
+        # Задаём ресурс фильтра
         self.filter_asset = 'juu_eatery'
 
-        # 设置配置前缀
+        # Задаём префиксы конфигурации
         self.setup_config(
             config_meal_prefix="IslandJuuEatery_Meal",
             config_number_prefix="IslandJuuEatery_MealNumber",
@@ -88,23 +88,23 @@ class IslandJuuEatery(IslandShopBase):
             config_post_number="IslandJuuEatery_PostNumber"
         )
 
-        # 特殊材料：cheese 和 milk
+        # Особые материалы: cheese и milk
         self.cheese_stock = 0
-        self.milk_stock = 0  # 新增牛奶库存
+        self.milk_stock = 0  # Добавлен запас молока
         self.special_materials = {
             'cheese': 0,
-            'milk': 0  # 新增牛奶
+            'milk': 0  # Добавлено молоко
         }
 
-        # 初始化店铺
+        # Инициализируем магазин
         self.initialize_shop()
 
     def get_warehouse_counts(self):
         """覆盖：获取仓库数量，包括cheese和milk"""
-        # 先调用父类方法获取基础库存
+        # Сначала вызываем родительский метод для получения базовых запасов
         super().get_warehouse_counts()
 
-        # 获取cheese数量
+        # Получаем количество cheese
 
         self.warehouse_filter('juu_coffee')
         image = self.device.screenshot()
@@ -112,17 +112,17 @@ class IslandJuuEatery(IslandShopBase):
         self.special_materials['cheese'] = self.cheese_stock
         logger.info(f"[Остров — Juu Eatery] Количество cheese: {self.cheese_stock}")
 
-        # 将cheese库存也存入warehouse_counts，便于统一处理
+        # Сохраняем запас cheese в warehouse_counts для унифицированной обработки
         self.warehouse_counts['cheese'] = self.cheese_stock
 
-        # 获取milk数量
+        # Получаем количество milk
         self.warehouse_filter('ranch')
         image = self.device.screenshot()
         self.milk_stock = self.ocr_item_quantity(image, TEMPLATE_MILK)
         self.special_materials['milk'] = self.milk_stock
         logger.info(f"[Остров — Juu Eatery] Количество milk: {self.milk_stock}")
 
-        # 将milk库存也存入warehouse_counts，便于统一处理
+        # Сохраняем запас milk в warehouse_counts для унифицированной обработки
         self.warehouse_counts['milk'] = self.milk_stock
 
         return self.warehouse_counts
@@ -132,7 +132,7 @@ class IslandJuuEatery(IslandShopBase):
         if batch_size <= 0:
             return 0
 
-        # strawberry_charlotte需要2个芝士
+        # Для strawberry_charlotte требуется 2 единицы cheese
         if product == 'strawberry_charlotte':
             cheese_needed_per_batch = 2
             cheese_available = self.cheese_stock
@@ -141,7 +141,7 @@ class IslandJuuEatery(IslandShopBase):
             logger.info(
                 f"  {product}: ограничение cheese — доступно {cheese_available}, на партию {cheese_needed_per_batch}, максимум {max_by_cheese}")
 
-        # corn_cup需要1个牛奶
+        # Для corn_cup требуется 1 единица milk
         elif product == 'corn_cup':
             milk_needed_per_batch = 1
             milk_available = self.milk_stock
@@ -153,10 +153,10 @@ class IslandJuuEatery(IslandShopBase):
 
     def deduct_materials(self, product, number):
         """覆盖：扣除前置材料，包括芝士、牛奶和套餐原材料"""
-        # 先调用父类方法扣除套餐原材料
+        # Сначала вызываем родительский метод для списания сырья наборов
         super().deduct_materials(product, number)
 
-        # strawberry_charlotte需要扣除芝士
+        # Для strawberry_charlotte списываем cheese
         if product == 'strawberry_charlotte':
             cheese_needed = number * 2
             self.cheese_stock = max(0, self.cheese_stock - cheese_needed)
@@ -165,7 +165,7 @@ class IslandJuuEatery(IslandShopBase):
                 self.warehouse_counts['cheese'] = self.cheese_stock
             logger.info(f"[Остров — Juu Eatery] Списание cheese: cheese -{cheese_needed} (для производства {product})")
 
-        # corn_cup需要扣除牛奶
+        # Для corn_cup списываем milk
         elif product == 'corn_cup':
             milk_needed = number * 1
             self.milk_stock = max(0, self.milk_stock - milk_needed)
@@ -178,37 +178,37 @@ class IslandJuuEatery(IslandShopBase):
         """覆盖：根据芝士和牛奶库存调整需求"""
         result = requirements.copy()
 
-        # 处理strawberry_charlotte的芝士限制
+        # Обрабатываем ограничение strawberry_charlotte по cheese
         if 'strawberry_charlotte' in result and result['strawberry_charlotte'] > 0:
             strawberry_needed = result['strawberry_charlotte']
             cheese_needed = strawberry_needed * 2
             cheese_available = self.cheese_stock
 
             if cheese_available < cheese_needed:
-                # 调整需求
+                # Корректируем потребность
                 max_strawberry = cheese_available // 2
                 result['strawberry_charlotte'] = max_strawberry
                 logger.info(f"[Остров — Juu Eatery] Недостаточно cheese: потребность strawberry_charlotte скорректирована с {strawberry_needed} до {max_strawberry}")
 
-        # 处理corn_cup的牛奶限制
+        # Обрабатываем ограничение corn_cup по milk
         if 'corn_cup' in result and result['corn_cup'] > 0:
             corn_cup_needed = result['corn_cup']
             milk_needed = corn_cup_needed * 1
             milk_available = self.milk_stock
 
             if milk_available < milk_needed:
-                # 调整需求
+                # Корректируем потребность
                 max_corn_cup = milk_available // 1
                 result['corn_cup'] = max_corn_cup
                 logger.info(f"[Остров — Juu Eatery] Недостаточно milk: потребность corn_cup скорректирована с {corn_cup_needed} до {max_corn_cup}")
 
         return result
 
-    # 新增方法：处理特殊任务（如果需要）
+    # Новый метод: обработка особой задачи при необходимости
     def process_special_task(self):
         """处理特殊任务（如芝士消耗）"""
-        # 这里可以添加处理芝士相关任务的逻辑
-        # 例如：如果芝士过多，强制生产strawberry_charlotte来消耗芝士
+        # Здесь можно добавить логику обработки задач, связанных с cheese
+        # Например: при избытке cheese принудительно производить strawberry_charlotte для его расходования
         pass
 
 

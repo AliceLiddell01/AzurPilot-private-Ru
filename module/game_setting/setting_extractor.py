@@ -11,9 +11,9 @@ from tqdm import tqdm
 from module.base.decorator import cached_property
 from module.device.method.utils import removeprefix
 
-# PlayerPrefs 调用模式匹配正则
+# Регулярное выражение для сопоставления вызовов PlayerPrefs
 REGEX_SETTING = re.compile(r'PlayerPrefs.Get(\w{1,10})\((.*)\)')
-# 设置键名提取正则
+# Регулярное выражение для извлечения имени ключа настройки
 REGEX_SETTING_KEY = re.compile(r'"(.*?)"')
 
 
@@ -31,7 +31,7 @@ def _strip_code(string):
         if word == '(':
             nested += 1
         if word == ')':
-            # 遇到最外层右括号时结束
+            # Завершаем при достижении внешней закрывающей скобки
             if nested == 1:
                 yield word
                 return
@@ -70,7 +70,7 @@ class LuaSetting:
     """
     raw: str
     typ: str  # "Int", "String", "Float"
-    code: str  # 如 "AUTOFIGHT_BATTERY_SAVEMODE, 0" 或 "world_help_progress"
+    code: str  # Например, "AUTOFIGHT_BATTERY_SAVEMODE, 0" или "world_help_progress".
 
     duplicate = False
 
@@ -271,7 +271,7 @@ class SettingExtractor:
 
 
 if __name__ == '__main__':
-    # AzurLaneLuaScripts\CN 的路径
+    # Путь к AzurLaneLuaScripts\CN
     FOLDER = r''
     ex = SettingExtractor()
     ex.generate(FOLDER)

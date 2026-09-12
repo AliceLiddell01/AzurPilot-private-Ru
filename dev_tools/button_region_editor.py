@@ -23,8 +23,8 @@ import numpy as np
 from PIL import Image
 
 # ============================================================
-# 【在此处填写要处理的图片路径和目标区域坐标】
-# 格式: ("图片路径（相对项目根目录）", (x1, y1, x2, y2))
+# 【Здесь укажите пути к изображениям и координаты целевых областей】
+# Формат: ("путь к изображению относительно корня проекта", (x1, y1, x2, y2))
 # ============================================================
 TASKS = [
     # ("./assets/cn/island_daily_order/TEMPLATE_CHEESE.png", (905,335,950,380)),
@@ -50,12 +50,12 @@ def process_button_image(img_path, area):
         print(f"  [WARN] 图片尺寸不是 1280x720，实际为 {arr.shape[1]}x{arr.shape[0]}")
 
     x1, y1, x2, y2 = area
-    # 创建全黑画布
+    # Создаём полностью чёрный холст
     black = np.zeros_like(arr)
-    # 只复制区域内像素
+    # Копируем только пиксели внутри области
     black[y1:y2, x1:x2] = arr[y1:y2, x1:x2]
 
-    # 保存
+    # Сохраняем
     result = Image.fromarray(black, "RGB")
     result.save(img_path)
     print(f"  [OK] 已保存（区域外已置黑）: {img_path}")
@@ -72,7 +72,7 @@ def process_template_image(img_path, area):
 
     img = Image.open(img_path).convert("RGB")
     x1, y1, x2, y2 = area
-    # 裁剪区域
+    # Обрезаем область
     cropped = img.crop((x1, y1, x2, y2))
 
     cropped.save(img_path)
@@ -90,7 +90,7 @@ def run():
         print("[ERR] TASKS 列表为空，请先在脚本顶部填写要处理的图片路径和区域坐标。")
         sys.exit(1)
 
-    # 切换到项目根目录
+    # Переходим в корневой каталог проекта
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(script_dir)
     os.chdir(project_root)
@@ -101,21 +101,21 @@ def run():
     error_count = 0
 
     for img_path, area in TASKS:
-        # 校验区域坐标
+        # Проверяем координаты области
         x1, y1, x2, y2 = area
         if x1 < 0 or y1 < 0 or x2 > 1280 or y2 > 720 or x1 >= x2 or y1 >= y2:
             print(f"  [ERR] 无效区域坐标 {area}（图片尺寸 1280x720）: {img_path}")
             error_count += 1
             continue
 
-        # 检查图片是否存在
+        # Проверяем существование изображения
         abs_path = os.path.join(project_root, img_path)
         if not os.path.exists(abs_path):
             print(f"  [ERR] 文件不存在: {img_path}")
             error_count += 1
             continue
 
-        # 根据文件名判断类型
+        # Определяем тип по имени файла
         basename = os.path.basename(img_path)
         if basename.startswith("TEMPLATE_"):
             ok = process_template_image(abs_path, area)

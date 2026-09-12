@@ -87,7 +87,7 @@ class CounterOcr(Ocr):
             return [int(i) for i in parts]
 
 
-# 根据服务器选择不同的价格 OCR 配置
+# Выбираем конфигурацию OCR цены в зависимости от сервера
 COUNTER_OCR = CounterOcr([], threshold=96, name='Counter_ocr')
 if server.server in ['jp']:
     PRICE_OCR = PriceOcr([], letter=(245, 214, 58), threshold=32, name='Price_ocr')

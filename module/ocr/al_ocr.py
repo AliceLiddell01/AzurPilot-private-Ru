@@ -471,7 +471,7 @@ def _create_ocr(name):
     else:
         ocr_device = config.ocr_device
         allow_vendor_execution_providers = config.Optimization_OcrWindowsMlVendorEp
-        # Windows 下由 Windows ML 显式选择设备，不能交给 RapidOCR 默认 DirectML。
+        # В Windows устройство явно выбирается через Windows ML; нельзя оставлять RapidOCR стандартный DirectML.
         use_dml = False
         use_coreml = ocr_device == 'ane'
         version = _resolve_onnx_model_version(name)
@@ -505,7 +505,7 @@ def _create_ocr(name):
         )
 
 
-# 懒加载：模块级不再创建模型，首次 init() 时才加载
+# Ленивая загрузка: модель больше не создаётся на уровне модуля и загружается только при первом init()
 _model_cache = {}
 
 
@@ -566,7 +566,7 @@ def _create_det_ocr_for_onnx(name):
     """为 ONNX 后端创建完整的 RapidOCR 实例（检测 + 识别）。"""
     ocr_device = config.ocr_device
     allow_vendor_execution_providers = config.Optimization_OcrWindowsMlVendorEp
-    # Windows 下由 Windows ML 显式选择设备，不能交给 RapidOCR 默认 DirectML。
+    # В Windows устройство явно выбирается через Windows ML; нельзя оставлять RapidOCR стандартный DirectML.
     use_dml = False
     use_coreml = ocr_device == 'ane'
     model_path, rec_keys_path, ocr_version = _get_onnx_model_params(name)
@@ -753,7 +753,7 @@ class AlOcr:
 
                 return results
             else:
-                # ONNX：完整 RapidOCR 流水线（检测 + 识别一次调用）
+                # ONNX: полный конвейер RapidOCR (детекция + распознавание за один вызов)
                 res = self._det_model(img_fp, use_det=True, use_rec=True)
                 if isinstance(res, RapidOCROutput) and res.boxes is not None:
                     results = []

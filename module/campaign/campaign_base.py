@@ -215,14 +215,14 @@ class CampaignBase(CampaignUI, Map, AutoSearchCombat):
         """
         logger.hr(self.ENTRANCE, level=2)
 
-        # 进入地图
+        # Входим на карту.
         self.map_get_info()
         logger.attr('Число боёв на карте', self._map_battle)
         self.emotion.check_reduce(self._map_battle)
         self.ENTRANCE.area = self.ENTRANCE.button
         self.enter_map(self.ENTRANCE, mode=self.config.Campaign_Mode)
 
-        # 地图初始化
+        # Инициализируем карту.
         if not self.map_is_auto_search:
             self.handle_map_fleet_lock()
             self.map_init(self.MAP)
@@ -233,7 +233,7 @@ class CampaignBase(CampaignUI, Map, AutoSearchCombat):
             self.lv_reset()
             self.lv_get()
 
-        # 执行战斗
+        # Выполняем бои.
         for _ in range(20):
             try:
                 if not self.map_is_auto_search:
@@ -244,7 +244,7 @@ class CampaignBase(CampaignUI, Map, AutoSearchCombat):
                 logger.hr('Кампания завершена')
                 return True
 
-        # 异常处理
+        # Обрабатываем ошибки.
         logger.warning('[Кампания — основное] Функции боя исчерпаны')
         if self.config.Error_HandleError:
             logger.warning('[Кампания — основное] Ошибка сценария: функции боя исчерпаны; отступаю')

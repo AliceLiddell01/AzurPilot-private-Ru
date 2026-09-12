@@ -77,7 +77,7 @@ class CampaignBonusStatistics(GetItemsStatistics):
         Returns:
             Item: 修正后的物品实例。
         """
-        # 战役奖励芯片掉落 9~30+ 个，但有时 10 被识别为 1
+        # Чипы в награде кампании выпадают по 9–30+ штук, но иногда 10 распознаётся как 1.
         if item.name == 'Chip' and 0 < item.amount < 4:
             item.amount *= 10
 

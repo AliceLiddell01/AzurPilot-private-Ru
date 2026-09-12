@@ -11,12 +11,12 @@ class IslandGrill(IslandShopBase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        # 设置店铺类型
+        # Задаём тип магазина
         self.shop_type = "grill"
         self.time_prefix = "time_meal"
         self.chef_config = self.config.IslandGrill_ChefFilter
 
-        # 设置商品列表
+        # Задаём список товаров
         self.shop_items = [
             {'name': 'roasted_skewer', 'template': TEMPLATE_ROASTED_SKEWER, 'var_name': 'roasted_skewer',
              'selection': SELECT_ROASTED_SKEWER, 'selection_check': SELECT_ROASTED_SKEWER_CHECK,
@@ -44,7 +44,7 @@ class IslandGrill(IslandShopBase):
              'post_action': POST_DOUBLE_ENERGY},
         ]
 
-        # 设置套餐组成
+        # Задаём составы наборов
         self.meal_compositions = {
             'double_energy': {
                 'required': ['stir_fried_chicken', 'steak_bowl'],
@@ -56,16 +56,16 @@ class IslandGrill(IslandShopBase):
             }
         }
 
-        # 设置岗位按钮
+        # Задаём кнопки постов
         self.post_buttons = {
             'ISLAND_GRILL_POST1': ISLAND_GRILL_POST1,
             'ISLAND_GRILL_POST2': ISLAND_GRILL_POST2
         }
 
-        # 设置筛选资产
+        # Задаём ресурс фильтра
         self.filter_asset = 'grill'
 
-        # 设置配置前缀
+        # Задаём префиксы конфигурации
         self.setup_config(
             config_meal_prefix="IslandGrill_Meal",
             config_number_prefix="IslandGrill_MealNumber",
@@ -75,7 +75,7 @@ class IslandGrill(IslandShopBase):
 
         self.post_manage_swipe_count = 2
 
-        # 初始化店铺
+        # Инициализируем магазин
         self.initialize_shop()
 
     def test(self):

@@ -103,7 +103,7 @@ def patch_uiautomator2():
     with open(init_file, 'r', encoding='utf-8') as f:
         content = f.read()
 
-    # 修补 minicap_urls
+    # Исправляем minicap_urls
     res = re.search(r'self.minicap_urls', content)
     if res:
         content = re.sub(r'self.minicap_urls', '[]', content)
@@ -112,7 +112,7 @@ def patch_uiautomator2():
     else:
         logger.info(f'{init_file}: исправление minicap_urls не требуется')
 
-    # 修补 appdir
+    # Исправляем appdir
     res = re.search(r'appdir ?=(.*)\n', content)
     if res:
         prev = res.group(1).strip()
@@ -125,7 +125,7 @@ def patch_uiautomator2():
     else:
         logger.info(f'{init_file}: appdir не найден')
 
-    # 保存文件
+    # Сохраняем файл
     if modified:
         with open(init_file, 'w', encoding='utf-8') as f:
             f.write(content)

@@ -21,7 +21,7 @@ from module.ui.switch import Switch
 
 class FleetLockSwitch(Switch):
     def handle_additional(self, main):
-        # 游戏 bug：上一个已清除海域的 AUTO_SEARCH_REWARD 弹出
+        # Баг игры: появляется AUTO_SEARCH_REWARD из предыдущей уже очищенной области
         if main.appear_then_click(AUTO_SEARCH_REWARD, offset=(50, 50), interval=3):
             return True
         return False
@@ -91,7 +91,7 @@ class MapEventHandler(EnemySearchingHandler):
         return False
 
     def handle_os_game_tips(self):
-        # 关闭首次开启自动搜索时的游戏提示
+        # Закрываем игровую подсказку при первом включении автопоиска
         if self.appear_then_click(OS_GAME_TIPS, offset=(20, 20), interval=3):
             return True
 
@@ -100,7 +100,7 @@ class MapEventHandler(EnemySearchingHandler):
     def handle_ash_popup(self):
         name = 'ASH'
         # 2021.12.09
-        # 余烬弹窗不再显示红色文字，改为检测 "Ashes Coordinates" 文字
+        # В окне META больше нет красного текста; вместо него проверяем текст "Ashes Coordinates"
         if self.appear(POPUP_CONFIRM, offset=self._popup_offset) \
                 and self.appear(POPUP_CANCEL, offset=self._popup_offset, interval=2) \
                 and self.appear(ASH_POPUP_CHECK, offset=(20, 20)):
@@ -122,14 +122,14 @@ class MapEventHandler(EnemySearchingHandler):
         Returns:
             str: 已处理的事件名称。
         """
-        # 优先处理余烬信标弹窗，避免被 handle_popup_confirm 误点击确认进入 META 界面
-        # 余烬弹窗也包含 POPUP_CONFIRM 和 POPUP_CANCEL，若先匹配 DEPART_CONFIRM
-        # 会点击确认进入 META 界面，导致 auto search 循环无法识别而卡死
+        # Сначала обрабатываем окно маяка META, чтобы handle_popup_confirm не подтвердил переход на экран META по ошибке
+        # Окно META также содержит POPUP_CONFIRM и POPUP_CANCEL; если сначала совпадёт DEPART_CONFIRM,
+        # подтверждение откроет экран META, который цикл auto search не распознает и зависнет
         if self.handle_ash_popup():
             return 'ash_popup'
-        # 处理指挥猫搜寻时退出海域的确认弹窗 (issue #100)
-        # 这类弹窗会阻止其他操作,必须优先处理
-        # handle_popup_confirm 的 name 参数仅用于日志记录,实际识别使用通用的 POPUP_CONFIRM 按钮
+        # Обрабатываем окно подтверждения выхода из области при поиске Meowfficer (issue #100)
+        # Такие окна блокируют остальные действия, поэтому их нужно обрабатывать в первую очередь
+        # Параметр name в handle_popup_confirm используется только для логов; распознавание выполняется общей кнопкой POPUP_CONFIRM
         if self.handle_popup_confirm('DEPART_CONFIRM'):
             return 'depart_confirm'
         if self.handle_map_get_items(drop=drop):
@@ -159,7 +159,7 @@ class MapEventHandler(EnemySearchingHandler):
                 logger.warning('[Операция «Сирена» — событие] Истекло время ожидания варианта сюжета')
                 self._story_timeout.reset()
 
-                # 重启应用
+                # Перезапускаем приложение
                 self.device.app_stop()
                 self.device.app_start()
 
@@ -237,20 +237,20 @@ class MapEventHandler(EnemySearchingHandler):
                 confirm_timer.reset()
                 continue
             if self.appear_then_click(GLOBE_GOTO_MAP, offset=(20, 20), interval=2):
-                # 有时点击 AUTO_SEARCH_REWARD 后会意外进入地球仪地图
-                # 因为重复点击或点击到地图外部区域
+                # Иногда после нажатия AUTO_SEARCH_REWARD неожиданно открывается глобальная карта
+                # из-за повторного клика или клика за пределами области карты
                 confirm_timer.reset()
                 continue
-            # 不知为何进入了仓库，直接退出
-            # 等效于 is_in_storage，但此处无法继承 StorageHandler
-            # STORAGE_CHECK 是重复名称，这里是 os_handler/STORAGE_CHECK，不是 handler/STORAGE_CHECK
+            # По неизвестной причине открыт склад — просто выходим
+            # Эквивалентно is_in_storage, но здесь нельзя наследовать StorageHandler
+            # Имя STORAGE_CHECK повторяется: здесь это os_handler/STORAGE_CHECK, а не handler/STORAGE_CHECK
             if self.appear(STORAGE_CHECK, offset=(20, 20), interval=5):
                 logger.info(f'{STORAGE_CHECK} -> {BACK_ARROW}')
                 self.device.click(BACK_ARROW)
                 confirm_timer.reset()
                 continue
 
-            # 结束
+            # Завершение
             if self.is_in_map():
                 if confirm_timer.reached():
                     break
@@ -283,10 +283,10 @@ class MapEventHandler(EnemySearchingHandler):
         if self.appear(AUTO_SEARCH_REWARD, offset=(50, 50)):
             self.device.screenshot_interval_set()
             if self.os_auto_search_quit(drop=drop):
-                # 当前地图没有更多物品
+                # На текущей карте больше нет предметов
                 raise CampaignEnd
             else:
-                # 自动搜索已停止但地图未清除
+                # Автопоиск остановлен, но карта ещё не очищена
                 return True
 
         if enable is None:
@@ -296,7 +296,7 @@ class MapEventHandler(EnemySearchingHandler):
                 self.device.click(AUTO_SEARCH_OS_MAP_OPTION_OFF)
                 self.interval_reset(AUTO_SEARCH_OS_MAP_OPTION_OFF_DISABLED)
                 return True
-            # 游戏客户端有时会 bug，AUTO_SEARCH_OS_MAP_OPTION_OFF 灰显但仍可点击
+            # Иногда из-за бага клиента AUTO_SEARCH_OS_MAP_OPTION_OFF отображается серым, но всё равно нажимается
             if self.match_template_color(AUTO_SEARCH_OS_MAP_OPTION_OFF_DISABLED, offset=(5, 120), interval=3):
                 self.device.click(AUTO_SEARCH_OS_MAP_OPTION_OFF_DISABLED)
                 self.interval_reset(AUTO_SEARCH_OS_MAP_OPTION_OFF)
@@ -318,8 +318,8 @@ class MapEventHandler(EnemySearchingHandler):
         Returns:
             bool: 是否切换了锁定状态。
         """
-        # 舰队锁定取决于是否在地图上显示，而非地图状态
-        # 因为如果已在地图中，则没有地图状态
+        # Фиксация флота зависит от отображения на карте, а не от состояния карты
+        # поскольку при уже открытой карте отдельного состояния карты нет
         if not fleet_lock.appear(main=self):
             logger.info('[Операция «Сирена» — событие] Вариант фиксации флота не найден')
             return False

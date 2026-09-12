@@ -84,12 +84,6 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
     llm_runtime = (ROOT / "module/llm.py").read_text(encoding="utf-8")
     llm_ru_i18n = (ROOT / "module/config/i18n/ru-RU.json").read_text(encoding="utf-8")
     docker_compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
-    issue_labeler = (ROOT / ".github/workflows/ai-issue-labeler.yml").read_text(
-        encoding="utf-8"
-    )
-    issue_labeler_script = (ROOT / ".github/scripts/ai_issue_labeler.py").read_text(
-        encoding="utf-8"
-    )
     alas_utils = (ROOT / "assets/gui/js/alas-utils.js").read_text(encoding="utf-8")
     gui_argument = (ROOT / "module/config/argument/gui.yaml").read_text(encoding="utf-8")
     ru_i18n = (ROOT / "module/config/i18n/ru-RU.json").read_text(encoding="utf-8")
@@ -181,30 +175,9 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
     assert "module.base." + "api_client" not in combat_runtime
     assert "Api" + "Client" not in combat_runtime
 
-    # Labeler теперь GitHub-only: dormant GitCode transport/event compatibility удалена.
-    gitcode_token = "git" + "code"
-    assert gitcode_token not in issue_labeler_script.lower()
-    assert "LABELER_PLATFORM" not in issue_labeler
-    assert "GITHUB_REPOSITORY" in issue_labeler_script
-    assert "https://api.github.com" in issue_labeler_script
-
-    # AI labeler остаётся доступен, но запускается только вручную и не навязывает провайдера/модель.
-    assert "workflow_dispatch:" in issue_labeler
-    assert "required: true" in issue_labeler
-    assert "github.event.issue" not in issue_labeler
-    assert "- opened" not in issue_labeler
-    assert "- edited" not in issue_labeler
-    assert "AI_BASE_URL: ${{ vars.AI_LABELER_BASE_URL }}" in issue_labeler
-    assert "AI_MODEL: ${{ vars.AI_LABELER_MODEL }}" in issue_labeler
-    assert "AI_API_KEY: ${{ secrets.AI_LABELER_API_KEY }}" in issue_labeler
-    for token in (
-        "api.openai.com",
-        "gpt-4.1-mini",
-        "api.deepseek.com",
-        "deepseek-v4-flash",
-        "OPENAI_API_KEY",
-    ):
-        assert token not in issue_labeler
+    # Удалённый AI issue labeler не должен возвращаться в personal runtime.
+    assert not (ROOT / ".github/workflows/ai-issue-labeler.yml").exists()
+    assert not (ROOT / ".github/scripts/ai_issue_labeler.py").exists()
 
     # Старый встроенный Git-updater уже удалён из runtime: его CN-oriented UI residues не должны возвращаться.
     dead_deploy_gui_keys = (

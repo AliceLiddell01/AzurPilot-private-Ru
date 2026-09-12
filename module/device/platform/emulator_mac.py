@@ -52,7 +52,7 @@ class EmulatorMac(EmulatorBase):
         """
         path = path.lower()
 
-        # BlueStacks MIM（基于 Hyper-V）
+        # BlueStacks MIM (на базе Hyper-V)
         if 'bluestacksmim' in path or 'bluestacks_mim' in path:
             return cls.BlueStacksMIM
 
@@ -60,16 +60,16 @@ class EmulatorMac(EmulatorBase):
         if 'bluestacks' in path:
             if '/bluestacks.app/' in path or path.endswith('/bluestacks.app'):
                 return cls.BlueStacksAir
-            # 同时检查可执行文件
+            # Также проверяем исполняемый файл
             if 'bluestacks' in path and ('hd-player' in path or path.endswith('bluestacks')):
                 return cls.BlueStacksAir
 
         # MuMu Pro (Mac)
         if 'mumu' in path:
-            # 检查 MuMuEmulator（实际的模拟器进程）
+            # Проверяем MuMuEmulator (фактический процесс эмулятора)
             if 'mumuemulator' in path or 'mumu' in path and 'emulator' in path:
                 return cls.MuMuPro
-            # 同时检查 MuMuPlayer（旧版本）
+            # Также проверяем MuMuPlayer (старые версии)
             if '/mumu' in path and 'player' in path:
                 return cls.MuMuPro
 
@@ -94,10 +94,10 @@ class EmulatorMac(EmulatorBase):
         if exclude_names is None:
             exclude_names = []
 
-        # 首先尝试精确匹配
+        # Сначала пробуем точное совпадение
         for item in os.listdir(apps_dir):
             if item.lower() == search_name.lower():
-                # 检查排除项
+                # Проверяем исключения
                 excluded = False
                 for ex in exclude_names:
                     if item.lower() == ex.lower():
@@ -106,11 +106,11 @@ class EmulatorMac(EmulatorBase):
                 if not excluded:
                     return os.path.join(apps_dir, item)
 
-        # 然后尝试前缀匹配（优先选择更短/更简洁的名称）
+        # Затем пробуем совпадение по префиксу (предпочитаем более короткое и простое имя)
         matches = []
         for item in os.listdir(apps_dir):
             if item.lower().startswith(search_name.lower()):
-                # 检查排除项
+                # Проверяем исключения
                 excluded = False
                 for ex in exclude_names:
                     if item.lower().startswith(ex.lower()):
@@ -120,7 +120,7 @@ class EmulatorMac(EmulatorBase):
                     matches.append(item)
 
         if matches:
-            # 返回最短的匹配项（最可能是基础名称）
+            # Возвращаем самое короткое совпадение (скорее всего, это базовое имя)
             return os.path.join(apps_dir, min(matches, key=len))
 
         return ''
@@ -133,7 +133,7 @@ class EmulatorMac(EmulatorBase):
             EmulatorInstanceMac: 模拟器实例
         """
         if self == EmulatorMac.BlueStacksMIM:
-            # BlueStacks MIM (Hyper-V) 使用端口 5555 + 10*n
+            # BlueStacks MIM (Hyper-V) использует порт 5555 + 10*n
             app_path = self.find_app_bundle('BlueStacksMIM')
             if app_path:
                 yield EmulatorInstanceMac(
@@ -143,12 +143,12 @@ class EmulatorMac(EmulatorBase):
                 )
 
         elif self == EmulatorMac.BlueStacksAir:
-            # BlueStacks Air 通常使用端口 5555 + 10*n
-            # 默认实例: 127.0.0.1:5555
-            # 多实例: 127.0.0.1:5555, 5565, 5575 等
+            # BlueStacks Air обычно использует порт 5555 + 10*n
+            # Экземпляр по умолчанию: 127.0.0.1:5555
+            # Несколько экземпляров: 127.0.0.1:5555, 5565, 5575 и т. д.
             app_path = self.find_app_bundle('BlueStacks')
             if app_path:
-                # 尝试从配置文件中查找实例信息
+                # Пытаемся получить сведения об экземпляре из файла конфигурации
                 config_path = os.path.expanduser('~/Library/Preferences/com.bluestacks.blueStacks.plist')
                 if os.path.exists(config_path):
                     try:
@@ -157,7 +157,7 @@ class EmulatorMac(EmulatorBase):
                             capture_output=True, text=True
                         )
                         if result.returncode == 0 and result.stdout.strip():
-                            # 解析实例信息
+                            # Разбираем сведения об экземпляре
                             yield EmulatorInstanceMac(
                                 serial='127.0.0.1:5555',
                                 name='BlueStacksAir',
@@ -167,7 +167,7 @@ class EmulatorMac(EmulatorBase):
                     except Exception:
                         pass
 
-                # 默认实例
+                # Экземпляр по умолчанию
                 yield EmulatorInstanceMac(
                     serial='127.0.0.1:5555',
                     name='BlueStacksAir',
@@ -175,14 +175,14 @@ class EmulatorMac(EmulatorBase):
                 )
 
         elif self == EmulatorMac.MuMuPro:
-            # macOS 上的 MuMu Pro
-            # 使用 mumutool 获取实例列表和端口信息
+            # MuMu Pro на macOS
+            # Используем mumutool для получения списка экземпляров и сведений о портах
             app_path = self.find_app_bundle('MuMu')
             if app_path:
                 mumu_bin_path = os.path.join(app_path, 'Contents/MacOS/mumutool')
                 if os.path.exists(mumu_bin_path):
                     try:
-                        # 使用 'mumutool info all' 获取所有实例
+                        # Получаем все экземпляры через 'mumutool info all'
                         result = subprocess.run(
                             [mumu_bin_path, 'info', 'all'],
                             capture_output=True,
@@ -195,17 +195,17 @@ class EmulatorMac(EmulatorBase):
                                 if data.get('errcode') == 0 and 'return' in data:
                                     return_data = data['return']
                                     if 'results' in return_data:
-                                        # 多实例
+                                        # Несколько экземпляров
                                         devices = return_data['results']
                                     elif 'count' in return_data and return_data['count'] == 1:
-                                        # 单实例（不在 results 数组中）
+                                        # Один экземпляр (вне массива results)
                                         devices = [return_data]
                                     else:
                                         devices = []
 
                                     for dev in devices:
                                         index = dev.get('index', 0)
-                                        # 优先使用 adb_port，否则根据 index 计算
+                                        # Предпочитаем adb_port, иначе вычисляем порт по index
                                         adb_port = dev.get('adb_port', 16384 + index * 32)
                                         name = dev.get('name', f'MuMuPro-{index}')
                                         state = dev.get('state', 'unknown')
@@ -222,7 +222,7 @@ class EmulatorMac(EmulatorBase):
                     except (subprocess.TimeoutExpired, Exception) as e:
                         logger.debug(f'Не удалось выполнить команду `mumutool info all`: {e}')
 
-                # 回退：默认实例
+                # Fallback: экземпляр по умолчанию
                 yield EmulatorInstanceMac(
                     serial='127.0.0.1:16384',
                     name='MuMuPro',
@@ -238,7 +238,7 @@ class EmulatorMac(EmulatorBase):
         Yields:
             str: adb 二进制文件的绝对路径
         """
-        # 在常见位置查找 adb
+        # Ищем adb в типичных расположениях
         adb_locations = [
             self.abspath('../ADB/adb'),
             self.abspath('../../Android/SDK/platform-tools/adb'),
@@ -250,7 +250,7 @@ class EmulatorMac(EmulatorBase):
             if os.path.exists(adb_path):
                 yield adb_path
 
-        # 同时查找 BlueStacks/MuMu 自带的 adb
+        # Также ищем adb, поставляемый вместе с BlueStacks/MuMu
         if self == EmulatorMac.BlueStacksAir:
             app_path = self.find_app_bundle('BlueStacks')
             if app_path:
@@ -284,10 +284,10 @@ class EmulatorManagerMac(EmulatorManagerBase):
                     if not name:
                         continue
 
-                    # 检查 Mac 模拟器进程
+                    # Проверяем процессы эмуляторов Mac
                     name_lower = name.lower()
                     if 'bluestacks' in name_lower or 'mumu' in name_lower:
-                        # 尝试获取实际路径
+                        # Пытаемся получить фактический путь
                         try:
                             cmdline = proc.cmdline()
                             if cmdline:
@@ -309,29 +309,29 @@ class EmulatorManagerMac(EmulatorManagerBase):
         """
         emulators = []
 
-        # 检查 BlueStacks MIM (Hyper-V)
+        # Проверяем BlueStacks MIM (Hyper-V)
         app_path = EmulatorMac.find_app_bundle('BlueStacksMIM')
         if app_path:
             exe_path = app_path + '/Contents/MacOS/BlueStacks'
             if os.path.exists(exe_path):
                 emulators.append(EmulatorMac(exe_path))
 
-        # 检查 BlueStacks Air（非 MIM）
+        # Проверяем BlueStacks Air (не MIM)
         app_path = EmulatorMac.find_app_bundle('BlueStacks', exclude_names=['BlueStacksMIM'])
         if app_path:
             exe_path = app_path + '/Contents/MacOS/BlueStacks'
             if os.path.exists(exe_path):
                 emulators.append(EmulatorMac(exe_path))
 
-        # 检查 MuMu Pro
+        # Проверяем MuMu Pro
         app_path = EmulatorMac.find_app_bundle('MuMu')
         if app_path:
-            # 检查 MuMuEmulator（实际的模拟器进程）
+            # Проверяем MuMuEmulator (фактический процесс эмулятора)
             exe_path = app_path + '/Contents/MacOS/MuMuEmulator.app/Contents/MacOS/MuMuEmulator'
             if os.path.exists(exe_path):
                 emulators.append(EmulatorMac(exe_path))
             else:
-                # 回退到 MuMuPlayer（旧版本）
+                # Fallback на MuMuPlayer (старые версии)
                 exe_path = app_path + '/Contents/MacOS/MuMuPlayer'
                 if os.path.exists(exe_path):
                     emulators.append(EmulatorMac(exe_path))

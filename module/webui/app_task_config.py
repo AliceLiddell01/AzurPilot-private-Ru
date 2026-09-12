@@ -185,7 +185,7 @@ class TaskConfigMixin(WebUIMixinBase):
             value = deep_get(
                 config, [task, group_name, arg_name], output_kwargs["value"]
             )
-            # datetime 控件只能接收文本，避免 Pin 在重绘时丢失原始时间值。
+            # Элемент datetime принимает только текст, чтобы Pin не терял исходное значение времени при перерисовке.
             value = str(value) if isinstance(value, datetime) else value
             # Default value
             output_kwargs["value"] = value
@@ -259,7 +259,7 @@ class TaskConfigMixin(WebUIMixinBase):
             for path in watcher_paths:
                 self._bind_config_watcher(path)
 
-            # 在掉落记录组中显示可复制的设备ID
+            # Показываем копируемый ID устройства в группе DropRecord
             if group_name == "DropRecord":
                 device_id = DEMO_DEVICE_ID_TEXT if is_demo_mode() else get_device_id()
                 put_html(build_copyable_device_id(device_id))
@@ -435,8 +435,8 @@ class TaskConfigMixin(WebUIMixinBase):
                 )
                 widget_type = arg_def.get("type") if isinstance(arg_def, dict) else None
                 options = arg_def.get("option") if isinstance(arg_def, dict) else None
-                # YAML 参数定义允许省略类型；运行时解析器会处理 None，
-                # 这里保留原行为并向类型检查器声明该动态边界。
+                # В определении параметров YAML тип можно не указывать; runtime parser умеет обрабатывать None,
+                # поэтому сохраняем прежнее поведение и явно обозначаем эту динамическую границу для type checker.
                 v = parse_pin_value(
                     v, cast(str, valuetype), cast(str, widget_type), options
                 )
@@ -457,8 +457,8 @@ class TaskConfigMixin(WebUIMixinBase):
                         deep_set(config, set_key, set_value)
                         valid.append(set_key)
                         pin["_".join(set_key.split("."))] = to_pin_value(set_value)
-                    # ==================== 自定义弹窗逻辑 ====================
-                    # 当保存侵蚀1兑换凭证保留值为 0 时弹出提示
+                    # ==================== Логика пользовательского popup ====================
+                    # При сохранении значения резерва жетонов для зоны коррозии 1, равного 0, показываем предупреждение
                     try:
                         is_zero_preserve = int(cast(Any, v)) == 0
                     except (TypeError, ValueError):

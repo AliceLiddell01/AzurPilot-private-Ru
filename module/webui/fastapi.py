@@ -56,7 +56,7 @@ class HeaderMiddleware(BaseHTTPMiddleware):
             200 <= response.status_code < 300 or response.status_code == 304
         )
         if request.method in {"GET", "HEAD"} and is_static_asset and is_cacheable_response:
-            # 部分静态资源没有内容哈希，必须在每次使用前重新验证。
+            # У части статических ресурсов нет хеша содержимого, поэтому перед каждым использованием требуется повторная валидация.
             response.headers["Cache-Control"] = STATIC_ASSET_CACHE_CONTROL
         else:
             response.headers["Cache-Control"] = NO_CACHE_CONTROL
@@ -137,7 +137,7 @@ def asgi_app(
     patch_pywebio_websocket_connection()
     routes = webio_routes(
         applications,
-        # PyWebIO 支持 CDN 地址字符串，但其运行时类型推断仅保留了 bool。
+        # PyWebIO поддерживает строковый CDN-адрес, но его runtime-вывод типов сохраняет только bool.
         cdn=cast(Any, validated_cdn),
         allowed_origins=allowed_origins,
         check_origin=check_origin,
@@ -172,7 +172,7 @@ def asgi_app(
         logging.getLogger(__name__).error(f"Не удалось загрузить маршруты API: {e}")
 
     middleware = [
-        # 仅处理 HTTP 响应；WebSocket 不经过该中间件，Starlette 也会跳过 SSE。
+        # Обрабатываются только HTTP-ответы: WebSocket не проходит через этот middleware, а Starlette также пропускает SSE.
         Middleware(
             GZipMiddleware,
             minimum_size=HTTP_GZIP_MINIMUM_SIZE,

@@ -36,32 +36,32 @@ def retry(func):
                     time.sleep(retry_sleep(_))
                     init()
                 return func(self, *args, **kwargs)
-            # 无法处理
+            # Не удаётся обработать
             except RequestHumanTakeover:
                 break
-            # ADB 服务被终止时
+            # При остановке службы ADB
             except ConnectionResetError as e:
                 logger.error(str(f'[Устройство — Hermit] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.adb_reconnect()
-            # 无法发送请求时
+            # Когда не удаётся отправить запрос
             except requests.exceptions.ConnectionError as e:
                 logger.error(str(f'[Устройство — Hermit] Ошибка повторной попытки: {e}'))
                 text = str(e)
                 if 'Connection aborted' in text:
-                    # Hermit 未安装或未运行
+                    # Hermit не установлен или не запущен
                     # ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
                     def init():
                         self.adb_reconnect()
                         self.hermit_init()
                 else:
-                    # 连接丢失，ADB 服务被终止
+                    # Соединение потеряно, служба ADB остановлена
                     # HTTPConnectionPool(host='127.0.0.1', port=20269):
                     # Max retries exceeded with url: /click?x=500&y=500
                     def init():
                         self.adb_reconnect()
-            # ADB 错误
+            # Ошибка ADB
             except AdbError as e:
                 if handle_adb_error(e):
                     def init():
@@ -79,7 +79,7 @@ def retry(func):
                 def init():
                     self.adb_reconnect()
                     self.hermit_init()
-            # 未知异常，可能是图像损坏
+            # Неизвестное исключение, возможно повреждение изображения
             except Exception as e:
                 logger.exception(str(f'[Устройство — Hermit] Ошибка повторной попытки: {e}'))
 
@@ -119,18 +119,18 @@ class Hermit(Adb):
 
         logger.info('[Устройство — Hermit] Попытка запуска Hermit')
         if self.app_start_adb(self._hermit_package_name, allow_failure=True):
-            # 成功启动 hermit
+            # Hermit успешно запущен
             logger.info('[Устройство — Hermit] Hermit успешно запущен')
         else:
-            # Hermit 未安装
+            # Hermit не установлен
             logger.warning(f'[Устройство — Hermit] {self._hermit_package_name} не найден; выполняется установка Hermit')
             self.adb_command(['install', '-t', self.config.HERMIT_FILEPATH_LOCAL])
             self.app_start_adb(self._hermit_package_name)
 
-        # 启用辅助功能服务
+        # Включаем службу специальных возможностей
         self.hermit_enable_accessibility()
 
-        # 隐藏 Hermit
+        # Скрываем Hermit
         # 0 -->  "KEYCODE_UNKNOWN"
         # 1 -->  "KEYCODE_MENU"
         # 2 -->  "KEYCODE_SOFT_RIGHT"
@@ -140,7 +140,7 @@ class Hermit(Adb):
         # 6 -->  "KEYCODE_ENDCALL"
         self.adb_shell(['input', 'keyevent', '3'])
 
-        # 切换回碧蓝航线
+        # Переключаемся обратно в Azur Lane
         self.app_start_adb()
 
     def uninstall_hermit(self):
@@ -179,14 +179,14 @@ class Hermit(Adb):
             if appear_then_click('//*[@class="android.widget.Switch" and @checked="false"]'):
                 continue
             if appear_then_click('//*[@resource-id="android:id/button1"]'):
-                # 此处只做普通点击
-                # 一旦 hermit 获得辅助功能权限，就不能再使用 uiautomator，
-                # 否则 uiautomator 会接管权限。
+                # Здесь выполняем только обычное нажатие
+                # После получения Hermit разрешения службы специальных возможностей uiautomator больше нельзя использовать,
+                # иначе uiautomator перехватит разрешение.
                 break
             if appear('//*[@class="android.widget.Switch" and @checked="true"]'):
                 raise HermitError('[Устройство — Hermit] Служба специальных возможностей уже включена, но вернула ошибку')
 
-            # 超时
+            # Тайм-аут
             if timeout.reached():
                 logger.critical('[Устройство — Hermit] Не удалось открыть настройки службы специальных возможностей Hermit')
                 logger.critical(
@@ -197,7 +197,7 @@ class Hermit(Adb):
     @cached_property
     def hermit_session(self):
         session = requests.Session()
-        session.trust_env = False  # 忽略代理
+        session.trust_env = False  # Игнорируем прокси
         self._hermit_port = self.adb_forward('tcp:9999')
         return session
 
@@ -225,7 +225,7 @@ class Hermit(Adb):
                 logger.critical('[Устройство — Hermit] Hermit не поддерживается на текущем устройстве: требуется Android >= 7.0')
                 raise RequestHumanTakeover
             if 'accessibilityservice' in result:
-                # 尝试调用虚拟方法
+                # Пытаемся вызвать виртуальный метод
                 # 'boolean android.accessibilityservice.AccessibilityService.dispatchGesture(
                 #     android.accessibilityservice.GestureDescription,
                 #     android.accessibilityservice.AccessibilityService$GestureResultCallback,
@@ -234,8 +234,8 @@ class Hermit(Adb):
                 logger.error('[Устройство — Hermit] Нет доступа к службе специальных возможностей')
             raise e
 
-        # Hermit 请求仅需 2-4ms
-        # 添加 50ms 延迟因为游戏无法快速响应。
+        # Запрос Hermit занимает всего 2–4 ms
+        # Добавляем задержку 50 ms, потому что игра не успевает реагировать быстрее.
         self.sleep(0.05)
         return result
 

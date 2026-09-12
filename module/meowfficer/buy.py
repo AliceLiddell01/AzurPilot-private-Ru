@@ -52,7 +52,7 @@ class MeowfficerBuy(MeowfficerBase):
         remain, bought, total = MEOWFFICER.ocr(self.device.image)
         logger.attr('Мяуфицер — осталось покупок', remain)
 
-        # 检查购买状态
+        # Проверяем состояние покупок
         if total != BUY_MAX:
             logger.warning(f'[Мяуфицер — покупка] Некорректный лимит покупок: {total}; исправлено на {BUY_MAX}')
             total = BUY_MAX
@@ -65,7 +65,7 @@ class MeowfficerBuy(MeowfficerBase):
                 count -= bought
                 logger.info(f'[Мяуфицер — покупка] Сегодня уже куплено {bought}; осталось купить {count}')
 
-        # 检查金币
+        # Проверяем монеты
         coins = MEOWFFICER_COINS.ocr(self.device.image)
         if (coins < BUY_PRIZE) and (remain < total):
             logger.info('[Мяуфицер — покупка] Недостаточно монет даже для одной покупки; остановка')
@@ -160,12 +160,12 @@ class MeowfficerBuy(MeowfficerBase):
         """
         logger.hr('Мяуфицер — покупка из избытка', level=1)
 
-        # OCR识别剩余购买次数
+        # Распознаём через OCR оставшееся число покупок
         remain, bought, total = MEOWFFICER.ocr(self.device.image)
         logger.attr('Мяуфицер — осталось покупок', remain)
         logger.attr('Мяуфицер — уже куплено', bought)
 
-        # 每日限制检查
+        # Проверяем дневной лимит
         if total != BUY_MAX:
             logger.warning(f'[Мяуфицер — избыток] Некорректный лимит покупок: {total}; исправлено на {BUY_MAX}')
             total = BUY_MAX
@@ -175,7 +175,7 @@ class MeowfficerBuy(MeowfficerBase):
             logger.info(f'[Мяуфицер — избыток] Сегодня уже куплено {bought}; дневной лимит достигнут, пропуск')
             return
 
-        # OCR识别金币
+        # Распознаём монеты через OCR
         coins = MEOWFFICER_COINS.ocr(self.device.image)
         logger.attr('Мяуфицер — монеты', coins)
 
@@ -183,16 +183,16 @@ class MeowfficerBuy(MeowfficerBase):
             logger.info(f'[Мяуфицер — избыток] Монеты {coins} <= порога {overflow_coins}; пропуск')
             return
 
-        # 计算溢出购买数量
+        # Рассчитываем количество покупок из избытка
         today_left = total - bought
-        # 向上取整：需要购买多少个猫箱才能将金币降到阈值以下
+        # Округляем вверх: сколько ящиков нужно купить, чтобы опустить число монет ниже порога
         overflow_count = -(-(coins - overflow_coins) // BUY_PRIZE)
-        # 限制在今日剩余数量内
+        # Ограничиваем оставшимся на сегодня количеством
         count = min(overflow_count, today_left)
 
-        # 考虑首抽免费：如果剩余=总数（一个都没买），第一个免费
+        # Учитываем бесплатную первую покупку: если remain == total, первый ящик бесплатен
         free = 1 if remain == total else 0
-        # 检查金币是否足够
+        # Проверяем, достаточно ли монет
         affordable = coins // BUY_PRIZE + free
         if count > affordable:
             count = affordable
@@ -204,8 +204,8 @@ class MeowfficerBuy(MeowfficerBase):
 
         logger.info(f'[Мяуфицер — избыток] Количество покупок из избытка: {count} (расчёт избытка={overflow_count}, осталось сегодня={today_left})')
 
-        # 执行购买
-        # 传入总共需要达到的数量（已买 + 还需买），meow_choose 会自动计算差额
+        # Выполняем покупку
+        # Передаём целевое общее количество (уже куплено + ещё нужно); meow_choose сам вычислит разницу
         if self.meow_choose(count=count + bought):
             self.meow_confirm()
         else:

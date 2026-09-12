@@ -134,11 +134,11 @@ class Navbar:
         Returns:
             bool: 是否处理了遮挡物。
         """
-        # 通过名称判断导航栏是否属于商店模块
+        # По имени определяем, относится ли панель навигации к модулю магазина
         if self.name not in ['SHOP_BOTTOM_NAVBAR', 'GUILD_SIDE_NAVBAR']:
             return False
 
-        # 处理商店遮挡物
+        # Обрабатываем перекрывающие элементы магазина
         if main.appear(GET_SHIP, interval=1):
             main.device.click(SHOP_CLICK_SAFE_AREA)
             return True
@@ -198,8 +198,8 @@ class Navbar:
 
             active, minimum, maximum = self.get_info(main=main)
             logger.info(f'[UI — Навигация] Активный элемент: {active}, диапазон ({minimum}, {maximum})')
-            # 收到纯黑截图时会返回 None
-            # Active 为 None 可能是因为动画尚未加载完成
+            # При полностью чёрном снимке возвращается None
+            # Active может быть None, если анимация ещё не успела загрузиться
             if active is None or minimum is None or maximum is None:
                 continue
 

@@ -30,10 +30,10 @@ class ShipExperienceStatisticsMixin(WebUIMixinBase):
                 get_opsi_stats as get_opsi_stats_func,
             )
 
-            # 使用当前实例名称获取统计数据，确保不为空
+            # Получаем статистику для текущего имени инстанса и убеждаемся, что оно задано.
             instance_name = getattr(self, "alas_name", None)
             if not instance_name:
-                # 使用第一个可用的实例
+                # Используем первый доступный инстанс.
                 from module.config.utils import alas_instance
 
                 all_instances = alas_instance()
@@ -54,7 +54,7 @@ class ShipExperienceStatisticsMixin(WebUIMixinBase):
             exp_per_hour = stats.get_exp_per_hour()
             today_stats = stats.get_today_stats()
 
-            # 从daily_stats获取今日战斗场次
+            # Получаем число сегодняшних боёв из daily_stats.
             today_battles = today_stats.get("battle_count", 0) if today_stats else 0
 
             labels = [
@@ -72,7 +72,7 @@ class ShipExperienceStatisticsMixin(WebUIMixinBase):
             rows = []
             for ship in stats.data.get("ships", []):
                 progress = stats.calculate_progress(ship, target_level, current_battles)
-                # 使用今日daily_stats的battle_count作为已战斗场次
+                # Используем battle_count из сегодняшнего daily_stats как число уже проведённых боёв.
                 rows.append(
                     [
                         progress["position"],
@@ -80,7 +80,7 @@ class ShipExperienceStatisticsMixin(WebUIMixinBase):
                         progress["current_exp"],
                         progress["total_exp"],
                         progress["target_exp"],
-                        today_battles,  # 使用今日battle_count而非计算值
+                        today_battles,  # Используем сегодняшний battle_count вместо вычисленного значения.
                         progress["exp_needed"],
                         progress["battles_needed"],
                         progress["time_needed"],
@@ -102,7 +102,7 @@ class ShipExperienceStatisticsMixin(WebUIMixinBase):
                     )
                 )
 
-                # 显示效率统计
+                # Показываем статистику эффективности.
                 put_row(
                     [
                         put_text(
@@ -129,7 +129,7 @@ class ShipExperienceStatisticsMixin(WebUIMixinBase):
                     ]
                 )
 
-                # 显示今日统计
+                # Показываем статистику за сегодня.
                 if today_stats:
                     run_minutes = int(today_stats.get("total_run_time", 0) // 60)
                     put_row(

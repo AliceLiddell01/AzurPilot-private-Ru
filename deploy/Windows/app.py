@@ -36,7 +36,7 @@ class AppManager(DeployConfig):
                 logger.info('app.asar уже обновлён')
                 return False
             else:
-                # "Update app.asar" 关键字用于 AlasApp 判断是否有热更新
+                # Ключевая фраза "Update app.asar" используется AlasApp для определения наличия горячего обновления.
                 logger.info(f'Обновление app.asar [Update app.asar] {update} -----> {source}')
                 os.remove(source)
                 shutil.copy(update, source)

@@ -18,7 +18,7 @@ from module.os.map import OSMap
 
 
 class OpsiExplore(OSMap):
-    # 探索失败的区域 ID 列表
+    # Список ID зон, которые не удалось исследовать
     _os_explore_failed_zone = []
 
     def _os_explore_task_delay(self):
@@ -76,14 +76,14 @@ class OpsiExplore(OSMap):
         )
         full_order = [int(f.strip(' \t\r\n')) for f in self.config.OS_EXPLORE_FILTER.split('>')]
         total_zones = len(full_order)
-        # 转换用户输入
+        # Преобразуем пользовательский ввод
         try:
             last_zone = self.name_to_zone(self.config.OpsiExplore_LastZone).zone_id
         except ScriptError:
             logger.warning(f'[Операция «Сирена» — исследование] Недопустимое значение OpsiExplore_LastZone={self.config.OpsiExplore_LastZone}, исследование начато заново')
             last_zone = 0
 
-        # 从上次探索的区域继续
+        # Продолжаем с зоны, на которой остановилось предыдущее исследование
         if last_zone in full_order:
             index = full_order.index(last_zone)
             completed_count = index + 1
@@ -103,10 +103,10 @@ class OpsiExplore(OSMap):
         if not len(order):
             end()
 
-        # 开始探索
+        # Начинаем исследование
         self._os_explore_failed_zone = []
         for zone in order:
-            # 检查区域是否已解锁为安全海域
+            # Проверяем, разблокирована ли зона как безопасная
             if not self.globe_goto(zone, stop_if_safe=True):
                 completed_count += 1
                 if total_zones > 0:
@@ -115,10 +115,10 @@ class OpsiExplore(OSMap):
                 self.config.OpsiExplore_LastZone = zone
                 continue
 
-            # 运行区域
+            # Выполняем зону
             logger.hr(f'Операция «Сирена» — ежемесячное исследование+ {zone}', level=1)
             if not special_radar_active:
-                # 特殊雷达提供 90 个调谐样本，没有特殊雷达时使用仓库中的调谐样本强化舰队
+                # Особый радар даёт 90 образцов настройки; без него усиливаем флот образцами из хранилища
                 self.tuning_sample_use()
             self.fleet_set(self.config.OpsiFleet_Fleet)
             self.os_order_execute(
@@ -138,7 +138,7 @@ class OpsiExplore(OSMap):
             self.handle_after_auto_search()
             self.config.check_task_switch()
 
-            # 到达最后一个区域
+            # Достигнута последняя зона
             if zone == order[-1]:
                 end()
 

@@ -25,7 +25,7 @@ class GridPredictor:
         self.corner = corner
         self.config = config
 
-        # 直接计算比调用现有函数更快。
+        # Прямое вычисление быстрее вызова существующих функций.
         x0, y0, x1, y1, x2, y2, x3, y3 = corner.flatten()
         divisor = x0 - x1 + x2 - x3
         x = (x0 * x2 - x1 * x3) / divisor
@@ -129,7 +129,7 @@ class GridPredictor:
         area = self._image_center + np.array(area) * self._image_a
         image = crop(self.image, area=np.rint(area).astype(int), copy=False)
         if shape is not None:
-            # 使用 pillow 默认的重采样滤波器，即 BICUBIC。
+            # Используем стандартный фильтр ресемплинга Pillow — BICUBIC.
             image = cv2.resize(image, shape, interpolation=cv2.INTER_CUBIC)
         return image
 
@@ -167,7 +167,7 @@ class GridPredictor:
         cv2.cvtColor(image, cv2.COLOR_RGB2HSV, dst=image)
         lower = (h[0] / 2, s[0] * 2.55, v[0] * 2.55)
         upper = (h[1] / 2 + 1, s[1] * 2.55 + 1, v[1] * 2.55 + 1)
-        # 不要设置 `dst`，输出图像为 (50, 50) 但 `image` 为 (50, 50, 3)
+        # Не задаём `dst`: выходное изображение имеет форму (50, 50), а `image` — (50, 50, 3)
         image = cv2.inRange(image, lower, upper)
         count = cv2.countNonZero(image)
         return count
@@ -241,7 +241,7 @@ class GridPredictor:
         if TEMPLATE_ENEMY_BOSS.match(image, similarity=0.75):
             return True
 
-        # 小型 Boss 图标
+        # Маленький значок Boss
         if self.relative_hsv_count(area=(0.03, -0.15, 0.63, 0.15), h=(358 - 3, 358 + 3), shape=(50, 20)) > 100:
             image = self.relative_crop((0.03, -0.15, 0.63, 0.15), shape=(50, 20))
             image = color_similarity_2d(image, color=(255, 77, 82))
@@ -273,11 +273,11 @@ class GridPredictor:
         Returns:
             bool: True 表示是神秘事件。
         """
-        # 青色问号
+        # Бирюзовый знак вопроса
         if self.relative_rgb_count(
                 area=(-0.3, -2, 0.3, -0.6), color=(148, 255, 247), shape=(20, 50)) > 50:
             return True
-        # 白色背景
+        # Белый фон
         # if self.relative_rgb_count(
         #         area=(-0.7, -1.7, 0.7, -0.3), color=(239, 239, 239), shape=(50, 50)) > 700:
         #     return True
@@ -316,7 +316,7 @@ class GridPredictor:
         return False
 
     def predict_submarine_move(self):
-        # 检测潜艇移动模式下的橙色箭头。
+        # Определяем оранжевую стрелку в режиме перемещения подлодки.
         return self.relative_rgb_count((-0.5, -1, 0.5, 0), color=(231, 138, 49), shape=(60, 60)) > 200
 
     def predict_mob_move_icon(self):

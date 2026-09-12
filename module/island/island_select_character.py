@@ -23,14 +23,14 @@ class SelectCharacter(UI):
             name="SELECT_CHARACTER_GRID"
         )
 
-        # 定义状态检测区域（相对于每个角色按钮）
+        # Задаём области определения состояния относительно кнопки каждого персонажа
         self.character_area_relative = (25, 10, 125, 72)
         self.working_area_relative = (15, 65, 105, 95)
         self.stamina_area_relative = (18, 139, 58, 152)
         self.stamina_ocr_area_relative = (0, 136, 80, 155)
         self.selected_area_relative = (86, 1, 119, 12)
 
-        # 角色模板映射
+        # Карта шаблонов персонажей
         self.character_templates = {
             "WorkerJuu": TEMPLATE_WORKERJUU,
             "NewJersey": TEMPLATE_NEWJERSEY,
@@ -49,7 +49,7 @@ class SelectCharacter(UI):
             "Helena": TEMPLATE_HELENA,
             "Friedrich": TEMPLATE_FRIEDRICH,
             "Atago": TEMPLATE_ATAGO,
-            # ---- 版本更新新增角色 ----
+            # ---- Персонажи, добавленные в обновлении версии ----
             "Yixian": TEMPLATE_YIXIAN,
             "August": TEMPLATE_AUGUST,
             "Eugen": TEMPLATE_EUGEN,
@@ -68,7 +68,7 @@ class SelectCharacter(UI):
         results = []
 
         for row, col, button in self.select_character_grid.generate():
-            # 获取角色按钮区域
+            # Получаем область кнопки персонажа
             character_status = self._recognize_character_status(screenshot, button)
             if character_status:
                 results.append({
@@ -92,7 +92,7 @@ class SelectCharacter(UI):
         """
         results = []
 
-        # 过滤出需要识别的模板子集
+        # Фильтруем подмножество шаблонов, которые нужно распознать
         target_templates = {
             name: self.character_templates[name]
             for name in character_names
@@ -128,21 +128,21 @@ class SelectCharacter(UI):
             character_targets (dict, optional): 限定的角色模板字典 {name: template}，
                                                 为 None 时检查所有角色
         """
-        # 1. 识别角色身份
+        # 1. Распознаём персонажа
         character_name = self._recognize_character_identity(
             screenshot, button, character_targets=character_targets
         )
         if not character_name:
-            return None  # 该位置没有角色
+            return None  # В этой позиции нет персонажа
 
-        # 2. 识别是否工作中
+        # 2. Распознаём, находится ли персонаж в работе
         is_working = self._check_working_status(screenshot, button)
 
-        # 3. 识别当前体力值
+        # 3. Распознаём текущее значение выносливости
         stamina = self._get_stamina_value(screenshot, button)
         has_stamina = stamina >= 35
 
-        # 4. 识别是否已选中
+        # 4. Распознаём, выбран ли персонаж
         is_selected = self._check_selected_status(screenshot, button)
 
         return {
@@ -162,14 +162,14 @@ class SelectCharacter(UI):
             character_targets (dict, optional): 限定的角色模板字典 {name: template}，
                                                 为 None 时检查所有角色
         """
-        # 获取角色识别区域
+        # Получаем область распознавания персонажа
         char_area = self._get_absolute_area(button, self.character_area_relative)
         char_image = crop(screenshot, char_area)
 
-        # 确定要匹配的模板集合
+        # Определяем набор шаблонов для сопоставления
         templates_to_check = character_targets if character_targets is not None else self.character_templates
 
-        # 遍历目标角色模板进行匹配
+        # Перебираем шаблоны целевых персонажей и выполняем сопоставление
         best_match = None
         best_similarity = 0.0
 
@@ -186,7 +186,7 @@ class SelectCharacter(UI):
         working_area = self._get_absolute_area(button, self.working_area_relative)
         working_image = crop(screenshot, working_area)
 
-        # 匹配工作中模板
+        # Сопоставляем шаблон состояния работы
         similarity = TEMPLATE_CHARACTER_WORKING.match(working_image, similarity=0.85)
         return similarity >= 0.85
 
@@ -371,7 +371,7 @@ class SelectCharacter(UI):
         Returns:
             tuple: (row, col) 或 None
         """
-        # 如果传入了空列表，回退到全量匹配
+        # Если передан пустой список, возвращаемся к полному сопоставлению
         if not character_list:
             logger.info("[Остров] Список персонажей пуст; переход к полному сопоставлению")
             screenshot = self.device.screenshot()
@@ -389,7 +389,7 @@ class SelectCharacter(UI):
             screenshot = self.device.screenshot()
             return self.find_specific_character(screenshot, "WorkerJuu")
 
-        # 计算需要识别的角色集合（包含列表角色+最终回退的WorkerJuu）
+        # Вычисляем набор распознаваемых персонажей: список + WorkerJuu для окончательного fallback
         target_names = list(character_list)
         if "WorkerJuu" not in target_names:
             target_names.append("WorkerJuu")
@@ -397,43 +397,43 @@ class SelectCharacter(UI):
         screenshot = self.device.screenshot()
         target_characters = self.recognize_target_characters(screenshot, target_names)
 
-        # 构建角色名到状态的映射
+        # Строим отображение имени персонажа в его состояние
         character_dict = {}
         for char_info in target_characters:
             character_dict[char_info["character_name"]] = char_info
         logger.info(f"[Остров] Состояния персонажей после фильтра по скорости работы: {character_dict}")
-        # 优先按列表顺序检查指定角色
+        # Проверяем заданных персонажей по порядку приоритета в списке
         for char_name in character_list:
             if char_name in character_dict:
                 char_info = character_dict[char_name]
-                # 检查角色状态和配置可用性
+                # Проверяем состояние персонажа и доступность по конфигурации
                 if (not char_info["is_working"] and
                         char_info["has_stamina"]
                         ):
                     return char_info["grid_position"]
-        # 应用体力筛选
+        # Применяем фильтр выносливости
         logger.info("[Остров] Применение фильтра по выносливости")
         if not self.select_character_filter():
             return None
         screenshot = self.device.screenshot()
         target_characters = self.recognize_target_characters(screenshot, target_names)
 
-        # 构建角色名到状态的映射
+        # Строим отображение имени персонажа в его состояние
         character_dict = {}
         for char_info in target_characters:
             character_dict[char_info["character_name"]] = char_info
         logger.info(f"[Остров] Состояния персонажей после фильтра по выносливости: {character_dict}")
-        # 优先按列表顺序检查指定角色
+        # Проверяем заданных персонажей по порядку приоритета в списке
         for char_name in character_list:
             if char_name in character_dict:
                 char_info = character_dict[char_name]
-                # 检查角色状态和配置可用性
+                # Проверяем состояние персонажа и доступность по конфигурации
                 if (not char_info["is_working"] and
                         char_info["has_stamina"]
                         ):
                     return char_info["grid_position"]
 
-        # 如果没有找到可用角色，查找WorkerJuu
+        # Если доступный персонаж не найден, ищем WorkerJuu
         if "WorkerJuu" in character_dict:
             worker_info = character_dict["WorkerJuu"]
             return worker_info["grid_position"]
@@ -512,21 +512,21 @@ class SelectCharacter(UI):
         Returns:
             bool: 成功选择角色返回True，无角色可选返回False
         """
-        # 解析角色列表
+        # Разбираем список персонажей
         characters = self.parse_character_filter(character_list)
         if not characters:
             characters = ["WorkerJuu"]
 
         position = self._select_first_available_character(characters)
 
-        # 如果没有找到任何可用角色
+        # Если доступный персонаж не найден
         if position is None:
             return False
 
         row, col = position
         button = self.select_character_grid[row, col]
 
-        # 尝试点击选择，最多5次
+        # Пытаемся выбрать персонажа нажатием, максимум 5 раз
         max_attempts = 5
         attempts = 0
         target_positions = [(row, col)]

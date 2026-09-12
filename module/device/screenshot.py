@@ -8,8 +8,8 @@ import os
 import time
 from collections import deque
 from PIL import Image
-# 此文件定义了截图处理逻辑。
-# 管理各种截图捕获方式，并包含后台编码线程用于将图像序列化并通过 Base64 供 WebUI 实时渲染预览。
+# Этот файл определяет логику обработки снимков экрана.
+# Управляет различными способами захвата экрана и содержит фоновый поток кодирования для сериализации изображений в Base64 для предпросмотра WebUI в реальном времени.
 import base64
 import threading
 import queue as _queue
@@ -108,7 +108,7 @@ class Screenshot(Adb, WSA, DroidCast, AScreenCap, Scrcpy, NemuIpc, LDOpenGL):
                 self.image = self.resize_screenshot_to_720p(self.image)
 
             if self.config.Emulator_ScreenshotDedithering:
-                # 此操作大约需要 40-60ms
+                # Эта операция занимает около 40–60 ms
                 cv2.fastNlMeansDenoising(self.image, self.image, h=17, templateWindowSize=1, searchWindowSize=2)
             self.image = self._handle_orientated_image(self.image)
 
@@ -155,7 +155,7 @@ class Screenshot(Adb, WSA, DroidCast, AScreenCap, Scrcpy, NemuIpc, LDOpenGL):
         if width == 1280 and height == 720:
             return image
 
-        # 仅在非 1280x720 时旋转截图
+        # Поворачиваем снимок только при разрешении, отличном от 1280x720
         if self.orientation == 0:
             pass
         elif self.orientation == 1:
@@ -183,7 +183,7 @@ class Screenshot(Adb, WSA, DroidCast, AScreenCap, Scrcpy, NemuIpc, LDOpenGL):
         except ValueError:
             logger.error(f'[Устройство — снимок] Error_ScreenshotLength={self.config.Error_ScreenshotLength} не является целым числом')
             raise RequestHumanTakeover
-        # 限制在 1~400 范围内
+        # Ограничиваем диапазоном 1–400
         length = max(1, min(length, 400))
         return deque(maxlen=length)
 
@@ -241,7 +241,7 @@ class Screenshot(Adb, WSA, DroidCast, AScreenCap, Scrcpy, NemuIpc, LDOpenGL):
             if interval != origin:
                 logger.warning(f'[Устройство — снимок] Optimization.ScreenshotInterval скорректирован: {origin} → {interval}')
                 self.config.Optimization_ScreenshotInterval = interval
-            # 允许 nemu_ipc 使用更低的默认值
+            # Разрешаем nemu_ipc использовать более низкое значение по умолчанию
             if self.config.Emulator_ScreenshotMethod in ['nemu_ipc', 'ldopengl']:
                 interval = limit_in(origin, 0.001, 0.2)
         elif interval == 'combat':
@@ -251,12 +251,12 @@ class Screenshot(Adb, WSA, DroidCast, AScreenCap, Scrcpy, NemuIpc, LDOpenGL):
                 logger.warning(f'[Устройство — снимок] Optimization.CombatScreenshotInterval скорректирован: {origin} → {interval}')
                 self.config.Optimization_CombatScreenshotInterval = interval
         elif isinstance(interval, (int, float)):
-            # 代码中手动设置无限制
+            # В коде вручную задаётся отсутствие ограничений
             pass
         else:
             logger.warning(f'[Устройство — снимок] Неизвестный интервал снимков экрана: {interval}')
             raise ScriptError(f'[Устройство — снимок] Неизвестный интервал снимков экрана: {interval}')
-        # scrcpy 的截图间隔无意义，视频流会持续接收，无论是否使用。
+        # Интервал снимков scrcpy не имеет смысла: видеопоток принимается непрерывно независимо от использования
         if self.config.Emulator_ScreenshotMethod == 'scrcpy':
             interval = 0.1
 
@@ -294,7 +294,7 @@ class Screenshot(Adb, WSA, DroidCast, AScreenCap, Scrcpy, NemuIpc, LDOpenGL):
 
         orientated = False
         for _ in range(2):
-            # 检查屏幕分辨率
+            # Проверяем разрешение экрана
             width, height = image_size(self.image)
             logger.attr('Разрешение экрана', f'{width}x{height}')
             if width == 1280 and height == 720:
@@ -338,7 +338,7 @@ class Screenshot(Adb, WSA, DroidCast, AScreenCap, Scrcpy, NemuIpc, LDOpenGL):
         """
         if self._screen_black_checked:
             return True
-        # 检查屏幕颜色，某些模拟器可能会获取纯黑截图。
+        # Проверяем цвет экрана: некоторые эмуляторы могут возвращать полностью чёрный снимок.
         color = get_color(self.image, area=(0, 0, 1280, 720))
         if sum(color) < 1:
             if self.config.Emulator_Serial == 'wsa-0':

@@ -83,17 +83,17 @@ class StorageHandler(StorageUI):
         ocr = Digit(BOX_AMOUNT_OCR, letter=(239, 239, 239), name='OCR_SHOP_AMOUNT')
         index_offset = (40, 50)
 
-        # 等待 +/- 按钮出现
+        # Ждём появления кнопок +/-.
         timeout = Timer(1, count=3).start()
         for _ in self.loop():
-            # +/- 按钮可能位置偏移，使用 OCR 偏移量匹配
+            # Положение кнопок +/- может быть смещено; используем смещение OCR для сопоставления.
             if self.appear(AMOUNT_MINUS, offset=index_offset) and self.appear(AMOUNT_PLUS, offset=index_offset):
                 break
             if timeout.reached():
                 logger.warning('[Хранилище] Тайм-аут ожидания кнопок изменения количества')
                 break
 
-        # 等待 OCR 读取到合理数值
+        # Ждём, пока OCR распознает разумное значение.
         current = 0
         timeout = Timer(1, count=3).start()
         for _ in self.loop():
@@ -104,7 +104,7 @@ class StorageHandler(StorageUI):
                 logger.warning('[Хранилище] Тайм-аут ожидания количества ящиков')
                 break
 
-        # 通过多点击 +/- 按钮设置目标数量，类似 ui_ensure_index
+        # Устанавливаем целевое количество многократными нажатиями +/-, аналогично ui_ensure_index.
         logger.info(f'[Хранилище] Установка количества ящиков: {amount}')
         skip_first = True
         retry = Timer(1, count=2)
@@ -166,11 +166,11 @@ class StorageHandler(StorageUI):
         ])
 
         for _ in self.loop():
-            # 退出条件：已完成开箱且回到材料页面
+            # Условие выхода: открытие ящиков завершено и выполнен возврат на страницу материалов.
             if success and self._storage_in_material() and not self.appear(EQUIP_CONFIRM_2, offset=(20, 20)):
                 break
 
-            # 开箱流程
+            # Процесс открытия ящиков.
             if self._storage_in_material(interval=5):
                 self.device.click(button)
                 continue
@@ -187,8 +187,8 @@ class StorageHandler(StorageUI):
                 self.device.click(MATERIAL_ENTER)
                 self.interval_reset(MATERIAL_CHECK)
                 continue
-            # 使用 match_template_color 匹配 BOX_AMOUNT_CONFIRM
-            # 开箱动画会遮盖确认按钮，需要模板颜色匹配
+            # Для сопоставления BOX_AMOUNT_CONFIRM используем match_template_color.
+            # Анимация открытия ящика перекрывает кнопку подтверждения, поэтому требуется цветовое сопоставление шаблона.
             if self.match_template_color(BOX_AMOUNT_CONFIRM, offset=(20, 20), interval=5):
                 actual = self._handle_use_box_amount(amount)
                 self.device.click(BOX_AMOUNT_CONFIRM)
@@ -199,18 +199,18 @@ class StorageHandler(StorageUI):
                 self.interval_reset(MATERIAL_CHECK)
                 continue
             if self.appear_then_click(EQUIP_CONFIRM_2, offset=(20, 20), interval=5):
-                # GET_ITEMS_* 弹出较慢，需要重置其 interval
+                # GET_ITEMS_* появляется с задержкой, поэтому нужно сбросить его interval.
                 self.interval_reset(MATERIAL_CHECK)
                 self.interval_clear([GET_ITEMS_1, GET_ITEMS_2])
-                # 流程：EQUIP_CONFIRM_2 -> GET_ITEMS -> _storage_in_material
-                # 标记 EQUIP_CONFIRM_2 为最后一步
+                # Последовательность: EQUIP_CONFIRM_2 -> GET_ITEMS -> _storage_in_material.
+                # Помечаем EQUIP_CONFIRM_2 как последний шаг.
                 success = True
                 continue
 
-            # 仓库已满处理
+            # Обработка заполненного хранилища.
             if self.appear(EQUIPMENT_FULL, offset=(20, 20)):
                 logger.info('Хранилище заполнено')
-                # 关闭弹窗后抛出异常
+                # После закрытия всплывающего окна выбрасываем исключение.
                 self.ui_click(MATERIAL_ENTER, check_button=self._storage_in_material, appear_button=EQUIPMENT_FULL,
                               retry_wait=3, skip_first_screenshot=True)
                 raise StorageFull
@@ -288,7 +288,7 @@ class StorageHandler(StorageUI):
 
         if MATERIAL_SCROLL.appear(main=self):
             if rarity == 1:
-                # T1 箱子始终在列表底部
+                # Ящики T1 всегда находятся внизу списка.
                 MATERIAL_SCROLL.set_bottom(main=self)
             else:
                 MATERIAL_SCROLL.set_top(main=self)
@@ -369,7 +369,7 @@ class StorageHandler(StorageUI):
                 break
         amount = min(cumsum[-1], amount)
 
-        # 等待装备被选中
+        # Ждём выбора снаряжения.
         logger.info(f'[Хранилище] Один проход разбора, количество в хранилище: {amount}')
         timeout = Timer(1, count=2).start()
         prev_disassemble = 0
@@ -400,8 +400,8 @@ class StorageHandler(StorageUI):
                 self.device.screenshot()
 
             if click_count >= 3:
-                # 可能是因为没有选中装备，
-                # _storage_disassemble_equipment_execute() 会重新选取
+                # Возможно, снаряжение не было выбрано,
+                # _storage_disassemble_equipment_execute() выполнит выбор повторно.
                 logger.warning('[Хранилище] После 3 попыток не удалось подтвердить разбор')
                 disassembled = 0
                 break
@@ -413,7 +413,7 @@ class StorageHandler(StorageUI):
                 click_count += 1
                 continue
             if self.appear_then_click(DISASSEMBLE_POPUP_CONFIRM, offset=(-15, -5, 5, 70), interval=5):
-                # 2025.05.20 起拆解不再弹出 GET_ITEMS 页面
+                # Начиная с 2025.05.20 при разборе больше не появляется страница GET_ITEMS.
                 success = True
                 continue
             if self.handle_popup_confirm('DISASSEMBLE'):
@@ -489,7 +489,7 @@ class StorageHandler(StorageUI):
         """
         logger.hr('Разбор снаряжения', level=2)
         self.ui_goto_storage()
-        # 装备中开关不影响拆解，无需设置；筛选确认会自动等待仓库稳定
+        # Переключатель «в снаряжении» не влияет на разбор, поэтому настраивать его не нужно; подтверждение фильтра автоматически ждёт стабилизации хранилища.
         disassembled = 0
         while 1:
             logger.attr('Всего разобрано', f'{disassembled}/{amount}')
@@ -504,13 +504,13 @@ class StorageHandler(StorageUI):
                     logger.warning('[Хранилище] Больше нет доступных ящиков; разбор снаряжения завершён')
                     self.storage_has_boxes = False
                     break
-                # 2025.05.20 起箱中装备会自动拆解
+                # Начиная с 2025.05.20 снаряжение из ящиков разбирается автоматически.
                 disassembled += boxes
-                # 开箱成功，重新检查总量
+                # Ящики успешно открыты; повторно проверяем общее количество.
                 continue
             except StorageFull:
                 pass
-            # 仓库已满，进入拆解流程
+            # Хранилище заполнено; переходим к разбору.
             self._storage_enter_disassemble()
             equip = self._storage_disassemble_equipment_execute(rarity=rarity, amount=amount)
             disassembled += equip
@@ -596,14 +596,14 @@ class StorageHandler(StorageUI):
         if not self.appear(EQUIPMENT_FULL, offset=(30, 30), interval=2):
             return False
 
-        # 检测到 EQUIPMENT_FULL 弹窗，进入拆解流程
+        # Обнаружено окно EQUIPMENT_FULL; переходим к разбору.
         logger.info('[Хранилище] Обработка заполненного хранилища')
         self.ui_click(EQUIPMENT_FULL, check_button=DISASSEMBLE_CANCEL, skip_first_screenshot=True, retry_wait=3)
         disassembled = self._storage_disassemble_equipment_execute(rarity=rarity, amount=amount)
         if disassembled <= 0:
             logger.warning('[Хранилище] Хранилище заполнено, но разобрать снаряжение не удалось')
 
-        # 退出拆解页面，返回之前的页面
+        # Выходим со страницы разбора и возвращаемся на предыдущую страницу.
         skip_first_screenshot = True
         while 1:
             if skip_first_screenshot:
@@ -617,7 +617,7 @@ class StorageHandler(StorageUI):
                 self.device.click(BACK_ARROW)
                 continue
 
-            # 已离开仓库页面
+            # Страница хранилища уже покинута.
             if not self.appear(STORAGE_CHECK, offset=(30, 30)):
                 break
 
