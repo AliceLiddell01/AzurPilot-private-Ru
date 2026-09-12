@@ -32,14 +32,14 @@ class StorageBox(StorageHandler):
         """
         logger.info(f'[Хранилище — ящики] Установка количества ящиков')
 
-        # 与商店店员逻辑相同的数量输入处理
+        # Обрабатываем ввод количества так же, как в логике продавца магазина
         ocr = Digit(BOX_AMOUNT_OCR, letter=(239, 239, 239), name='OCR_SHOP_AMOUNT')
         index_offset = (40, 50)
 
-        # 等待数量按钮出现
+        # Ждём появления кнопок количества
         timeout = Timer(1, count=3).start()
         for _ in self.loop():
-            # 防止 +/- 按钮位置偏移，使用船坞 OCR 技巧精确解析
+            # Чтобы учесть смещение кнопок +/-, используем OCR-приём верфи для точного распознавания
             if self.appear(AMOUNT_MINUS, offset=index_offset) and self.appear(AMOUNT_PLUS, offset=index_offset) and \
                     self.appear(AMOUNT_MAX, offset=index_offset):
                 break
@@ -47,7 +47,7 @@ class StorageBox(StorageHandler):
                 logger.warning('[Хранилище — ящики] Тайм-аут ожидания кнопок количества')
                 break
 
-        # 等待 OCR 识别到正常数字
+        # Ждём, пока OCR распознает корректное число
         current = 0
         timeout = Timer(1, count=3).start()
         for _ in self.loop():
@@ -58,7 +58,7 @@ class StorageBox(StorageHandler):
                 logger.warning('[Хранилище — ящики] Тайм-аут ожидания количества ящиков')
                 break
 
-        # 设置数量，类似 ui_ensure_index 的逻辑
+        # Устанавливаем количество по логике, аналогичной ui_ensure_index
         logger.info(f'[Хранилище — ящики] Установка количества ящиков: {amount}')
         skip_first = True
         retry = Timer(1, count=2)
@@ -180,7 +180,7 @@ class StorageBox(StorageHandler):
             box_buttons = self._storage_box_template(rarity).match_multi(image, similarity=0.9)
             if box_buttons:
                 box_used = self._storage_use_multi_box(box_buttons)
-                # 拆解结束
+                # Разбор завершён
                 if box_used == -1:
                     used = 0
                     break
