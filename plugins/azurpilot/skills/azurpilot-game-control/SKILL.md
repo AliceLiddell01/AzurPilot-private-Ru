@@ -27,9 +27,11 @@ MCP и не превращается в произвольный shell/ADB ил�
 не указан, сначала вызови `game_list_profiles` и попроси выбрать профиль только
 при неоднозначности; не подставляй известное или историческое имя.
 
-Перед control workflow получи `game_get_contract`, если он доступен, и проверь
-`details.contract.server_name` как ключ в `compatibility.json.required_mcp_servers`,
-а `details.contract.server_version` — против найденного bounded SemVer range. При
+Перед control workflow получи `game_get_contract`, если он доступен. Сначала
+требуй точное значение `details.contract.server_name == "azurpilot-game"`, а
+затем проверь `details.contract.server_version` против bounded SemVer range из
+`compatibility.json.required_mcp_servers["azurpilot-game"]`. Не допускай
+`azurpilot-dev` или другой сервер через Game compatibility boundary. При
 отсутствующем или невалидном `details.contract` либо несовместимом runtime
 установи `STOP WRITES` и не подбирай другую схему или переименованный tool.
 

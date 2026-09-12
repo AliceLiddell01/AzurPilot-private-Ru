@@ -39,7 +39,7 @@ DOCKER_PROBE_TIMEOUT_SECONDS = 45.0
 DOCKER_COMMAND_TIMEOUT_SECONDS = 15.0
 METRICS_TIMEOUT_SECONDS = 5.0
 SEMGREP_PROBE_TIMEOUT_SECONDS = 20.0
-SEMGREP_SOURCE_LIMIT_BYTES = 16 * 1024
+SEMGREP_PROBE_TOTAL_TIMEOUT_SECONDS = 3 * SEMGREP_PROBE_TIMEOUT_SECONDS + 5.0
 MCP_STATUS_WATCH_MIN_INTERVAL_SECONDS = 10.0
 MCP_STATUS_WATCH_MAX_INTERVAL_SECONDS = 3600.0
 CANONICAL_DOCKER_PROFILE_ID = "azurpilot-development"
@@ -407,9 +407,7 @@ async def _probe_semgrep_local_mcp(root: Path) -> dict[str, object]:
             "transport": "stdio",
         }
     source_path = (root / "dev_tools" / "mcp_status.py").resolve()
-    try:
-        source = source_path.read_text(encoding="utf-8")[:SEMGREP_SOURCE_LIMIT_BYTES]
-    except (OSError, UnicodeError):
+    if not source_path.is_file():
         return {
             "status": "unavailable",
             "reason_code": "SEMGREP_LOCAL_SOURCE_UNAVAILABLE",
@@ -463,9 +461,7 @@ async def _probe_semgrep_local_mcp(root: Path) -> dict[str, object]:
                 }
             else:
                 arguments = {
-                    "code_files": [
-                        {"path": str(source_path), "content": source}
-                    ],
+                    "code_files": [{"path": str(source_path)}],
                     "config": "auto",
                 }
             scan_result = await asyncio.wait_for(
@@ -1812,7 +1808,7 @@ async def collect_status_async(
     semgrep = semgrep_probe or _probe_semgrep_local_mcp
     try:
         semgrep_result = await asyncio.wait_for(
-            semgrep(repository_root), timeout=SEMGREP_PROBE_TIMEOUT_SECONDS
+            semgrep(repository_root), timeout=SEMGREP_PROBE_TOTAL_TIMEOUT_SECONDS
         )
     except TimeoutError:
         semgrep_result = {
