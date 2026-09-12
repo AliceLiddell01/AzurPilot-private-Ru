@@ -76,11 +76,18 @@ acceptance зафиксированы в issue
 
 ## Acceptance state
 
-Deterministic tests и source/runtime contracts не доказывают физическую работу
-ADB. На текущем fix-loop Windows/MuMu/ADB runtime не подключён, поэтому внешний
-gate остаётся в состоянии **PENDING EXTERNAL ACCEPTANCE — Windows/MuMu/ADB
-smoke**. Перед переводом PR из Draft нужен контролируемый smoke на точном head.
-Канонический runner и минимальный безопасный сценарий:
+Deterministic tests и source/runtime contracts не доказывают полную физическую
+работу ADB. Штатный Dev MCP target сейчас доступен: Universal Smoke Harness
+выполнил bounded run `887b6b6a-7479-41f4-ba5e-c79e07048345` на exact head
+`1c4f30792d404c2eefbb14a486c375d8ae33442f`, profile `ap`; `DEV_SMOKE_PASS`, все
+5 assertions прошли, `resources` подтверждены в `before` и `final`, cleanup и
+source snapshot подтверждены. Этот результат доказывает запуск текущего Dev
+Runtime и typed MCP evidence, но не заменяет полный device acceptance по USB,
+TCP/emulator, MuMu, selector/input, screenshot/BGR, minitouch и reconnect.
+Поэтому внешний gate остаётся в состоянии **PENDING EXTERNAL ACCEPTANCE —
+Windows/MuMu/ADB smoke**. Перед переводом PR из Draft нужен контролируемый
+полный smoke на точном head. Канонический runner и минимальный безопасный
+сценарий:
 
 ```powershell
 uv run --locked --no-sync python -c "import module.device.pkg_resources; import adbutils, uiautomator2, zmq, zerorpc; from importlib import metadata; from module.device.pkg_resources import get_distribution, resource_filename; assert get_distribution('adbutils').version == metadata.version('adbutils'); assert get_distribution('uiautomator2').version == metadata.version('uiautomator2'); assert resource_filename('adbutils', 'binaries'); print('device imports: ok')"
