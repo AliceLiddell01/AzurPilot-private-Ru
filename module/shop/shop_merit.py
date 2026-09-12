@@ -27,7 +27,7 @@ class MeritShop_250814(ShopClerk, ShopUI, ShopStatus):
         """
         return self.config.MeritShop_Filter.strip()
 
-    # 2025-08-14 新 UI
+    # Новый UI от 2025-08-14.
     @cached_property
     def shop_merit_items(self):
         """加载功勋商店商品模板和配置。
@@ -78,14 +78,14 @@ class MeritShop_250814(ShopClerk, ShopUI, ShopStatus):
 
         按照过滤器配置购买功勋商店商品，支持刷新。
         """
-        # 过滤器为空时直接退出
+        # Если фильтр пуст, сразу выходим.
         if not self.shop_filter:
             return
 
-        # 调用时应已在功勋商店界面
+        # На момент вызова интерфейс магазина заслуг уже должен быть открыт.
         logger.hr('[Магазин — заслуги] Магазин заслуг', level=1)
 
-        # 执行购买操作，启用刷新时最多尝试 2 次
+        # Выполняем покупку; при включённом обновлении делаем не более двух попыток.
         refresh = self.config.MeritShop_Refresh
         for _ in range(2):
             success = self.shop_buy()
