@@ -30,7 +30,7 @@ dependencies = [
     "pyzmq==27.1.0",
     "onepush==1.2.0",
     "psutil==7.2.2",
-    "chardet==5.1.0",
+    "chardet==6.0.0.post1",
     "matplotlib==3.11.0",
     "pycryptodome==3.23.0",
     "typing-extensions>=4.15.0",
