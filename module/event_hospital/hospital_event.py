@@ -84,12 +84,12 @@ class HospitalEvent(Hospital, RaidRun):
             else:
                 self.device.screenshot()
 
-            # 到达舰队准备界面
+            # Достигли экрана подготовки флота
             if self.appear(RAID_FLEET_PREPARATION, offset=(30, 30)):
                 break
 
             if self.ui_page_appear(page_hospital):
-                # 入口出现时检查 PT 限制
+                # При появлении входа проверяем лимит PT
                 if self.event_pt_limit_triggered():
                     self.config.task_stop()
                 self.device.click(entrance)
@@ -147,29 +147,29 @@ class HospitalEvent(Hospital, RaidRun):
         self.run_count = 0
         self.run_limit = self.config.StopCondition_RunCount
         while 1:
-            # 达到总次数限制
+            # Достигнут общий лимит запусков
             if total and self.run_count == total:
                 break
             if self.event_time_limit_triggered():
                 self.config.task_stop()
 
-            # 日志
+            # Логирование
             logger.hr(f'Госпиталь: {name}_{mode}_{stage}', level=2)
             if self.config.StopCondition_RunCount > 0:
                 logger.info(f'Осталось запусков: {self.config.StopCondition_RunCount}')
             else:
                 logger.info(f'Счётчик: {self.run_count}')
 
-            # 停止条件检查
+            # Проверяем условия остановки
             if self.triggered_stop_condition():
                 break
 
-            # 确保 UI 状态
+            # Обеспечиваем корректное состояние UI
             self.device.stuck_record_clear()
             self.device.click_record_clear()
             self.ui_ensure(page_hospital)
 
-            # 执行突袭
+            # Выполняем рейд
             self.device.stuck_record_clear()
             self.device.click_record_clear()
             try:
@@ -184,13 +184,13 @@ class HospitalEvent(Hospital, RaidRun):
                 logger.info(str(e))
                 break
 
-            # 运行后处理
+            # Обработка после запуска
             self.run_count += 1
             if self.config.StopCondition_RunCount:
                 self.config.StopCondition_RunCount -= 1
-            # 停止条件检查
+            # Проверяем условия остановки
             if self.triggered_stop_condition():
                 break
-            # 调度器检查
+            # Проверяем переключение задачи планировщиком
             if self.config.task_switched():
                 self.config.task_stop()
