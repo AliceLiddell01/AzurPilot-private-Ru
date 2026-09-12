@@ -2,8 +2,8 @@
 从加密 SQLite 数据库中读取战斗数据，
 计算月度练级效率、资源投入和战斗次数等汇总指标。"""
 
-# 此文件专门用于统计分析大世界（Operation Siren）的月度练级效率与资源投入数据。
-# 负责从加密 SQLite 数据库中读取统计数据，并具备计算概况与详细指标的功能。
+# Этот файл предназначен для статистического анализа месячной эффективности прокачки и расхода ресурсов в Operation Siren.
+# Он читает статистику из зашифрованной базы SQLite и рассчитывает сводные и подробные показатели.
 from __future__ import annotations
 
 from datetime import datetime
@@ -26,7 +26,7 @@ class OpsiMonthStats:
             month = now.month
         key = f"{year:04d}-{month:02d}"
 
-        # 从数据库读取数据
+        # Читаем данные из базы данных
         data = get_monthly_stats(self._instance_name, year, month)
 
         total = int(data.get("battle_count", 0))
@@ -54,16 +54,16 @@ class OpsiMonthStats:
             month = now.month
         key = f"{year:04d}-{month:02d}"
 
-        # 从数据库读取数据
+        # Читаем данные из базы данных
         data = get_monthly_stats(self._instance_name, year, month)
 
-        # 基础数据
+        # Базовые данные
         battle_count = int(data.get("battle_count", 0))
         akashi_encounters = int(data.get("akashi_encounters", 0))
         akashi_ap = int(data.get("akashi_ap", 0))
         siren_research_devices = int(data["siren_research_devices"]["cl1"])
 
-        # 计算衍生指标
+        # Вычисляем производные показатели
         battle_rounds = battle_count // 2
         sortie_cost = battle_rounds * 120
 
@@ -159,7 +159,7 @@ def get_ap_timeline(
     if not snapshots:
         return []
 
-    # 按时间排序
+    # Сортируем по времени
     try:
         snapshots_sorted = sorted(snapshots, key=lambda e: e.get("ts", ""))
     except Exception:
