@@ -29,6 +29,27 @@ def _stub_semgrep_probe(monkeypatch) -> None:
     monkeypatch.setattr(status, "_probe_semgrep_local_mcp", probe)
 
 
+@pytest.fixture(autouse=True)
+def _stub_direct_route_probe(monkeypatch) -> None:
+    async def probe(name: str, config: object) -> dict[str, object]:
+        return {
+            "status": "ready",
+            "reason_code": "DIRECT_TEST_ROUTE_READY",
+            "runtime_reachable": True,
+            "runtime_ready": True,
+            "evidence_kind": "test_direct_probe",
+        }
+
+    monkeypatch.setattr(status, "_probe_direct_route", probe)
+
+
+@pytest.fixture(autouse=True)
+def _stub_source_snapshot(monkeypatch) -> None:
+    monkeypatch.setattr(
+        status, "_git_source_snapshot", lambda root: ("a" * 40, "clean")
+    )
+
+
 def _versions() -> dict[str, str]:
     return load_server_versions(Path(__file__).resolve().parents[1])
 
@@ -113,6 +134,7 @@ def _remote_ready(name: str) -> dict[str, object]:
             "runtime_reachable": True,
             "runtime_ready": True,
             "protocol_version": "2025-11-25",
+            "source_revision": "a" * 40,
         },
         "public_edge": {"status": "ready", "edge_reachable": True},
     }
@@ -348,6 +370,234 @@ def test_semgrep_result_without_json_payload_is_not_observable() -> None:
     }
 
 
+@pytest.mark.parametrize(
+    ("returncode", "stdout", "expected_status", "expected_reason"),
+    (
+        (1, "", "unavailable", "DOCKER_GATEWAY_TOOL_CALL_FAILED"),
+        (0, "not json", "unavailable", "DOCKER_GATEWAY_TOOL_RESULT_INVALID"),
+        (
+            0,
+            json.dumps({"isError": True, "content": [{"text": "hidden"}]}),
+            "unavailable",
+            "DOCKER_GATEWAY_TOOL_RESULT_ERROR",
+        ),
+        (
+            0,
+            "Tool call took: 1ms\n{" + '"total":3' + "}",
+            "ready",
+            "DOCKER_GATEWAY_READ_ONLY_CALL_READY",
+        ),
+    ),
+)
+def test_docker_gateway_tool_call_validates_bounded_json_result(
+    monkeypatch,
+    returncode: int,
+    stdout: str,
+    expected_status: str,
+    expected_reason: str,
+) -> None:
+    monkeypatch.setattr(
+        status,
+        "_run_process",
+        lambda *args, **kwargs: status.subprocess.CompletedProcess(
+            args[0], returncode, stdout, ""
+        ),
+    )
+
+    result = status._docker_gateway_tool_call("docker", "list_datasources", {})
+
+    assert result["status"] == expected_status
+    assert result["reason_code"] == expected_reason
+
+
+def test_docker_gateway_tool_call_rejects_oversized_result(monkeypatch) -> None:
+    monkeypatch.setattr(
+        status,
+        "_run_process",
+        lambda *args, **kwargs: status.subprocess.CompletedProcess(
+            args[0], 0, "{" + ("x" * status._MAX_JSON_BYTES) + "}", ""
+        ),
+    )
+
+    result = status._docker_gateway_tool_call("docker", "list_datasources", {})
+
+    assert result == {
+        "status": "unavailable",
+        "reason_code": "DOCKER_GATEWAY_TOOL_RESULT_TOO_LARGE",
+    }
+
+
+def test_codex_entry_requires_enabled_and_project_cwd() -> None:
+    config = {
+        "mcp_servers": {
+            "azurpilot-dev": {
+                "command": "uv",
+                "args": ["run", "--locked"],
+                "cwd": ".",
+                "enabled": True,
+            }
+        }
+    }
+
+    assert (
+        status._codex_entry_status(
+            config,
+            "azurpilot-dev",
+            expected_command="uv",
+            expected_args=("run", "--locked"),
+        )["status"]
+        == "configured"
+    )
+    for changed in (
+        {"enabled": False},
+        {"cwd": "C:/elsewhere"},
+        {"command": "python"},
+    ):
+        drifted = deepcopy(config)
+        drifted["mcp_servers"]["azurpilot-dev"].update(changed)
+        assert (
+            status._codex_entry_status(
+                drifted,
+                "azurpilot-dev",
+                expected_command="uv",
+                expected_args=("run", "--locked"),
+            )["status"]
+            == "drift"
+        )
+
+
+def test_remote_backend_provenance_is_compared_through_collect_path() -> None:
+    root = Path(__file__).resolve().parents[1]
+    expected = _versions()["azurpilot-dev"]
+
+    async def local(name: str, root: Path, revision: str) -> dict[str, object]:
+        return _local_result(name, _versions()[name], revision)
+
+    async def collect_remote(version: str, revision: str | None) -> dict[str, object]:
+        backend = {
+            "status": "ready",
+            "server_name": "azurpilot-dev",
+            "server_version": version,
+            "runtime_reachable": True,
+            "runtime_ready": True,
+            "protocol_version": "2025-11-25",
+        }
+        if revision is not None:
+            backend["source_revision"] = revision
+        return {
+            "remote_backend": backend,
+            "public_edge": {"status": "ready", "edge_reachable": True},
+        }
+
+    for version, revision, expected_status in (
+        (expected, "a" * 40, "ready"),
+        (expected, "b" * 40, "drift"),
+        ("99.0.0", "a" * 40, "drift"),
+        (expected, None, "partial"),
+    ):
+        async def remote(name: str, version=version, revision=revision):
+            result = await collect_remote(version, revision)
+            if name == "azurpilot-dev":
+                return result
+            return _remote_ready(name)
+
+        report = asyncio.run(
+            status.collect_status_async(
+                root,
+                local_probe=local,
+                remote_probe=remote,
+                docker_probe=_docker_ready,
+            )
+        )
+
+        observed = report["servers"]["azurpilot-dev"]["remote_backend"]
+        assert observed["status"] == expected_status
+
+
+def test_canonical_route_gate_ignores_optional_gateway_drift() -> None:
+    docker = _docker_ready()
+    for name in ("context7", "docker-docs", "semgrep"):
+        docker["third_party"][name].update(
+            {
+                "status": "drift",
+                "runtime_ready": False,
+                "runtime_reachable": True,
+            }
+        )
+        docker["gateway_runtime"]["servers"][name].update(
+            {"status": "drift", "runtime_ready": False}
+        )
+
+    async def local(name: str, root: Path, revision: str) -> dict[str, object]:
+        return _local_result(name, _versions()[name], revision)
+
+    async def remote(name: str) -> dict[str, object]:
+        return _remote_ready(name)
+
+    report = asyncio.run(
+        status.collect_status_async(
+            Path(__file__).resolve().parents[1],
+            local_probe=local,
+            remote_probe=remote,
+            docker_probe=lambda: docker,
+        )
+    )
+
+    assert report["canonical_status"] == "ready"
+    assert status._strict_failure(report, None) is False
+
+
+def test_canonical_route_gate_rejects_required_gateway_failure() -> None:
+    docker = _docker_ready()
+    docker["third_party"]["grafana"].update(
+        {"status": "unavailable", "runtime_ready": False}
+    )
+    docker["gateway_runtime"]["servers"]["grafana"].update(
+        {"status": "unavailable", "runtime_ready": False}
+    )
+
+    async def local(name: str, root: Path, revision: str) -> dict[str, object]:
+        return _local_result(name, _versions()[name], revision)
+
+    async def remote(name: str) -> dict[str, object]:
+        return _remote_ready(name)
+
+    report = asyncio.run(
+        status.collect_status_async(
+            Path(__file__).resolve().parents[1],
+            local_probe=local,
+            remote_probe=remote,
+            docker_probe=lambda: docker,
+        )
+    )
+
+    assert report["canonical_status"] == "partial"
+    assert status._strict_failure(report, None)
+
+
+def test_version_drift_metric_includes_source_drift() -> None:
+    samples = status.status_metric_samples(
+        {
+            "servers": {
+                "azurpilot-dev": {
+                    "expected_version": "3.0.0",
+                    "local_direct": {
+                        "status": "drift",
+                        "version_status": "compatible",
+                        "source_status": "drift",
+                    },
+                }
+            }
+        }
+    )
+
+    assert next(
+        sample
+        for sample in samples
+        if sample.name == "azurpilot_mcp_version_drift"
+    ).value == 1.0
+
+
 def test_metric_samples_have_bounded_static_labels() -> None:
     report = {
         "servers": {
@@ -370,7 +620,8 @@ def test_metric_samples_have_bounded_static_labels() -> None:
 
     assert samples
     assert all(
-        set(sample.attributes) <= {"server", "surface", "version", "protocol"}
+        set(sample.attributes)
+        <= {"server", "surface", "version", "protocol", "required_runtime"}
         for sample in samples
     )
     assert all("source_revision" not in sample.attributes for sample in samples)

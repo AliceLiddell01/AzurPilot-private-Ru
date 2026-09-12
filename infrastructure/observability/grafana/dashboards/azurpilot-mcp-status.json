@@ -73,13 +73,13 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "min(azurpilot_mcp_surface_runtime_ready)",
-          "legendFormat": "все MCP surfaces готовы",
+          "expr": "min(azurpilot_mcp_surface_runtime_ready{required_runtime=\"1\"})",
+          "legendFormat": "все обязательные canonical routes готовы",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "Готовность MCP surfaces",
+      "title": "Готовность обязательных MCP routes",
       "type": "stat"
     },
     {
@@ -227,13 +227,13 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "azurpilot_mcp_surface_runtime_ready{surface=\"docker_gateway\"}",
+          "expr": "azurpilot_mcp_surface_runtime_ready{surface=\"docker_gateway\",required_runtime=\"1\"}",
           "legendFormat": "{{server}}",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "Third-party servers в Docker Gateway",
+      "title": "Обязательные Gateway routes",
       "type": "timeseries"
     },
     {

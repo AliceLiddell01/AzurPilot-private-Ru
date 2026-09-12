@@ -58,6 +58,18 @@ stdio`. Context7 остаётся user-scoped `context7_mcp`, потому чт�
 canonical profile path для Gateway acceptance и Grafana; direct route и
 Gateway evidence не смешиваются.
 
+Каноническая route policy для AzurPilot фиксирована так: `azurpilot-dev` и
+`azurpilot-game` используют project-scoped local stdio; Context7 — прямой
+user-scoped Codex MCP; Docker Docs — прямой project-scoped MCP; Semgrep —
+локальный `semgrep mcp -t stdio`; через Docker MCP Gateway обязательно
+проверяются только Grafana и Docker Hub. Записи Context7, Docker Docs и
+Semgrep в экспортированном Docker profile сохраняются как pilot/rollback
+artifact и могут иметь только optional Gateway observation. Их Gateway drift,
+отсутствие catalog или profile mismatch не меняют canonical health и `--strict`.
+Context7 acceptance из текущей Codex-сессии не наблюдаем репозиторным
+collector-ом и поэтому в JSON явно отмечается как внешнее evidence, а не
+синтетический `ready`.
+
 Базовые инструменты Dev Runtime (без Smoke Harness и Runtime Control): `dev_preflight`, `dev_doctor`, `dev_get_contract`, `dev_list_tasks`,
 `dev_plan_session`, `dev_start_session`, `dev_status`, `dev_stop_session`,
 `dev_cleanup`, `dev_recover`, `dev_get_evidence`, `dev_get_timeline`,
@@ -133,12 +145,12 @@ uv run --locked --no-sync python -m dev_tools.mcp_status --json --strict
 
 Без `--json` вывод предназначен для оператора: сначала показывается таблица
 ожидаемых и наблюдаемых transport surfaces, затем отдельные блоки Docker MCP
-Gateway, Secrets и ChatGPT action cache. Неготовые поверхности получают
+Gateway, canonical direct routes, Secrets и ChatGPT action cache. Неготовые поверхности получают
 короткий статус `UNKNOWN`, `UNAVAILABLE` или `DEGRADED`, а точный
 `reason_code` выводится только в компактном блоке `Notes`.
 
 `--strict` возвращает non-zero для подтверждённого drift или недоступной
-обязательной поверхности. Доступный metadata endpoint без наблюдаемого status
+обязательной canonical surface. Доступный metadata endpoint без наблюдаемого status
 token остаётся `UNKNOWN` и не маскируется под `OK`. Незакоммиченные изменения
 source сохраняются как `source_status=modified` и дают `PARTIAL`, чтобы не
 смешивать их с подтверждённым version drift.
@@ -155,15 +167,21 @@ tool calls. Profile config, Gateway runtime и client connection фиксиру�
 `CHATGPT_ACTION_SNAPSHOT_NOT_OBSERVABLE`; его нельзя заменять synthetic или
 локальным evidence.
 
-Для bounded периодического наблюдения используй `--watch` с интервалом
-`10..3600` секунд. `--emit-metrics` использует canonical application
-observability runtime и публикует только low-cardinality status samples;
-последний timestamp означает только последний успешный probe.
+Для bounded периодического наблюдения используй operator-owned foreground
+`--watch` с интервалом `10..3600` секунд. Он не создаёт daemon, не запускает
+сам себя повторно и не выполняет auto-restart/retry storm; остановка —
+`Ctrl+C`. `--emit-metrics` использует canonical application observability
+runtime и публикует только low-cardinality status samples; последний timestamp
+означает только последний успешный canonical probe.
 
 Проверка Docker secret store внутри collector выполняет только read-only
 команды `docker pass --help`, `docker pass ls` и `docker pass plugins ls`.
 Они проверяют CLI/keychain и Secrets Engine RPC, но не раскрывают значения
 секретов и не доказывают отдельный `se://` injection в контейнер или Gateway.
+Host-side `docker pass` visibility является auxiliary observation и не входит
+в strict/global readiness. Для Grafana authoritative credential evidence —
+успешный bounded read-only tool call через Gateway; для публичного Docker Hub
+probe наличие credential не утверждается.
 
 Для stdio stdout зарезервирован JSON-RPC протоколом и не содержит журналов оператора,
 баннеров или отладочного вывода. Диагностические сообщения идут только в stderr.

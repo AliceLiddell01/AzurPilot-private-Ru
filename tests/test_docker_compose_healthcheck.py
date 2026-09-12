@@ -360,7 +360,14 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
         if isinstance(query, str)
     ]
     assert any("azurpilot_mcp_surface_runtime_ready" in query for query in mcp_queries)
-    assert "min(azurpilot_mcp_surface_runtime_ready)" in mcp_queries
+    assert (
+        'min(azurpilot_mcp_surface_runtime_ready{required_runtime="1"})'
+        in mcp_queries
+    )
+    assert any(
+        'surface="docker_gateway",required_runtime="1"' in query
+        for query in mcp_queries
+    )
     assert any("azurpilot_mcp_version_drift" in query for query in mcp_queries)
     assert any(
         "azurpilot_mcp_last_successful_probe_timestamp_seconds" in query

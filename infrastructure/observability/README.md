@@ -919,13 +919,22 @@ protected resource metadata GET, локальный Semgrep probe, `docker mcp p
 list`, фактический Gateway catalog и read-only Gateway tool calls. Он разделяет
 profile config, Gateway runtime, client connection и third-party server policy;
 статический profile или public-edge metadata не маскируют отсутствие runtime
-evidence. Collector не выводит URL, headers, tokens, secret values, paths или
-полное окружение. `--strict` — fail-closed gate для drift и недоступных
-обязательных surfaces.
+evidence. Канонические routes таковы: Dev/Game — local stdio, Context7 —
+user-scoped direct Codex MCP, Docker Docs — direct project MCP, Semgrep —
+local `semgrep mcp -t stdio`, а обязательные Docker Gateway routes — только
+Grafana и Docker Hub. Context7/Docker Docs/Semgrep в profile остаются
+optional pilot/rollback observations; их Gateway drift не входит в global health
+или `--strict`. User-scoped Context7 acceptance, выполненный в текущей Codex
+сессии, collector явно оставляет внешним evidence и не заменяет его
+синтетическим `ready`. Collector не выводит URL, headers, tokens, secret
+values, paths или полное окружение. `--strict` — fail-closed gate только для
+canonical routes и подтверждённого source/version drift.
 
 `--emit-metrics` — one-shot отправка через существующий OTel/Alloy/Prometheus
 path. Для bounded периодического наблюдения используй встроенный `--watch`;
-новый daemon или второй metrics runtime не создаётся.
+это operator-owned foreground lifecycle с bounded interval `10..3600` секунд:
+новый daemon, auto-restart и retry storm не создаются, остановка выполняется
+`Ctrl+C`. Новый metrics runtime не создаётся.
 При отсутствии `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`,
 `AZURPILOT_OBSERVABILITY_OTLP_ENDPOINT` или общего OTLP endpoint экспорт
 остаётся `MCP_METRICS_ENDPOINT_UNCONFIGURED`, а status без `--strict` не
@@ -954,3 +963,10 @@ host-side `module.dev_mcp` и `module.game_mcp` не превращаются в
 callable catalog проверяется отдельно и не подменяется статическим Gateway
 profile. API keys и secret references остаются вне Git и operator-facing
 evidence.
+
+Host-side `docker pass`/Secrets Engine probes являются auxiliary diagnostics и
+не являются readiness gate: они не доказывают `se://` injection. Успешный
+bounded read-only Grafana tool call через Gateway является authoritative
+evidence для Grafana credential path; публичный Docker Hub probe не заявляет
+наличие credential. Поэтому отсутствие host visibility само по себе не должно
+переводить canonical status в failure.
