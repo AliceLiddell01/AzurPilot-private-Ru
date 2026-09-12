@@ -20,3 +20,21 @@ enabled = true
 required = false
 startup_timeout_sec = 20
 tool_timeout_sec = 180
+
+# Прямые read-only routes для документации и локального security scan.
+# Секреты не хранятся в repository config; Context7 остаётся в user config.
+[mcp_servers.docker_docs_direct]
+url = "https://mcp-docs.docker.com/mcp"
+enabled = true
+required = false
+startup_timeout_sec = 20
+tool_timeout_sec = 120
+
+[mcp_servers.semgrep_local_direct]
+command = "semgrep"
+args = ["mcp", "-t", "stdio"]
+cwd = "."
+enabled = true
+required = false
+startup_timeout_sec = 20
+tool_timeout_sec = 120

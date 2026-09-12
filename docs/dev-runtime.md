@@ -50,6 +50,14 @@ startup_timeout_sec = 5
 tool_timeout_sec = 180
 ```
 
+Для задач репозитория рядом разрешены direct read-only routes, не проходящие
+через Docker MCP Gateway: `docker_docs_direct` использует официальный Docker
+Docs endpoint, а `semgrep_local_direct` запускает локальный `semgrep mcp -t
+stdio`. Context7 остаётся user-scoped `context7_mcp`, потому что его API key не
+должен попадать в repository config. `MCP_DOCKER` сохраняется как отдельный
+canonical profile path для Gateway acceptance и Grafana; direct route и
+Gateway evidence не смешиваются.
+
 Базовые инструменты Dev Runtime (без Smoke Harness и Runtime Control): `dev_preflight`, `dev_doctor`, `dev_get_contract`, `dev_list_tasks`,
 `dev_plan_session`, `dev_start_session`, `dev_status`, `dev_stop_session`,
 `dev_cleanup`, `dev_recover`, `dev_get_evidence`, `dev_get_timeline`,
@@ -124,10 +132,10 @@ uv run --locked --no-sync python -m dev_tools.mcp_status --json --strict
 ```
 
 Без `--json` вывод предназначен для оператора: сначала показывается таблица
-версий и transport surfaces, затем отдельные блоки Docker MCP Gateway, Secrets
-и ChatGPT action cache. Неготовые поверхности получают короткий статус
-`UNKNOWN`, `UNAVAILABLE` или `DEGRADED`, а точный `reason_code` выводится только
-в компактном блоке `Notes`.
+ожидаемых и наблюдаемых transport surfaces, затем отдельные блоки Docker MCP
+Gateway, Secrets и ChatGPT action cache. Неготовые поверхности получают
+короткий статус `UNKNOWN`, `UNAVAILABLE` или `DEGRADED`, а точный
+`reason_code` выводится только в компактном блоке `Notes`.
 
 `--strict` возвращает non-zero для подтверждённого drift или недоступной
 обязательной поверхности. Доступный metadata endpoint без наблюдаемого status
@@ -135,13 +143,22 @@ token остаётся `UNKNOWN` и не маскируется под `OK`. Н�
 source сохраняются как `source_status=modified` и дают `PARTIAL`, чтобы не
 смешивать их с подтверждённым version drift.
 
-Collector выполняет только local `initialize`/`tools/list` и
-`dev_get_contract`/`game_get_contract`, HTTPS GET protected-resource metadata
-без credentials, а также read-only Docker MCP Toolkit profile queries. В
-JSON не попадают URL, headers, secrets, paths или полное окружение. Snapshot
+Collector выполняет local `initialize`/`tools/list` и
+`dev_get_contract`/`game_get_contract`, backend `initialize`/`tools/list` и
+bounded contract read для настроенных authenticated remote surfaces, HTTPS GET
+protected-resource metadata без credentials, локальный Semgrep MCP probe, а
+также read-only Docker MCP Toolkit profile/catalog queries и bounded Gateway
+tool calls. Profile config, Gateway runtime и client connection фиксируются
+раздельно; статическое описание сервера не считается runtime readiness. В JSON
+не попадают URL, headers, secrets, paths или полное окружение. Snapshot
 операций ChatGPT намеренно имеет состояние
 `CHATGPT_ACTION_SNAPSHOT_NOT_OBSERVABLE`; его нельзя заменять synthetic или
 локальным evidence.
+
+Для bounded периодического наблюдения используй `--watch` с интервалом
+`10..3600` секунд. `--emit-metrics` использует canonical application
+observability runtime и публикует только low-cardinality status samples;
+последний timestamp означает только последний успешный probe.
 
 Проверка Docker secret store внутри collector выполняет только read-only
 команды `docker pass --help`, `docker pass ls` и `docker pass plugins ls`.
