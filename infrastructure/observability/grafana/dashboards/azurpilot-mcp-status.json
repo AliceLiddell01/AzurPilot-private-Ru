@@ -73,13 +73,13 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "sum(azurpilot_mcp_endpoint_up)",
-          "legendFormat": "доступные MCP endpoints",
+          "expr": "sum(azurpilot_mcp_surface_runtime_ready)",
+          "legendFormat": "готовые MCP surfaces",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "Доступность MCP endpoints",
+      "title": "Готовность MCP surfaces",
       "type": "stat"
     },
     {
@@ -119,13 +119,13 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "azurpilot_mcp_endpoint_up",
+          "expr": "azurpilot_mcp_surface_runtime_ready",
           "legendFormat": "{{server}} / {{surface}}",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "MCP endpoints по поверхности",
+      "title": "MCP runtime по поверхности",
       "type": "timeseries"
     },
     {
@@ -227,7 +227,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "azurpilot_mcp_gateway_server_up",
+          "expr": "azurpilot_mcp_surface_runtime_ready{surface=\"docker_gateway\"}",
           "legendFormat": "{{server}}",
           "range": true,
           "refId": "A"
@@ -291,13 +291,13 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "time() - max(azurpilot_mcp_last_probe_timestamp_seconds)",
-          "legendFormat": "возраст последнего probe",
+          "expr": "time() - max(azurpilot_mcp_last_successful_probe_timestamp_seconds)",
+          "legendFormat": "возраст последнего успешного probe",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "Возраст последнего MCP probe",
+      "title": "Возраст последнего успешного MCP probe",
       "type": "stat"
     },
     {
@@ -339,7 +339,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "azurpilot_mcp_version_info",
+          "expr": "azurpilot_mcp_observed_version_info",
           "legendFormat": "{{server}} {{surface}} v{{version}}",
           "range": true,
           "refId": "A"

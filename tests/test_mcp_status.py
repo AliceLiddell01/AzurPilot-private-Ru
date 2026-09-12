@@ -10,6 +10,27 @@ from pathlib import Path
 import pytest
 
 import dev_tools.mcp_status as status
+from module.mcp_shared.versioning import load_server_versions
+
+
+@pytest.fixture(autouse=True)
+def _stub_semgrep_probe(monkeypatch) -> None:
+    async def probe(root: Path) -> dict[str, object]:
+        return {
+            "status": "ready",
+            "reason_code": "SEMGREP_SCAN_READY",
+            "server_name": "Semgrep",
+            "server_version": "1.29.0",
+            "scan_tool": "semgrep_scan",
+            "runtime_reachable": True,
+            "runtime_ready": True,
+        }
+
+    monkeypatch.setattr(status, "_probe_semgrep_local_mcp", probe)
+
+
+def _versions() -> dict[str, str]:
+    return load_server_versions(Path(__file__).resolve().parents[1])
 
 
 def _local_result(name: str, version: str, revision: str) -> dict[str, object]:
@@ -26,19 +47,74 @@ def _local_result(name: str, version: str, revision: str) -> dict[str, object]:
 
 
 def _docker_ready() -> dict[str, object]:
+    profile_servers = {
+        name: {
+            "status": "ready",
+            "reason_code": "DOCKER_SERVER_PROFILE_CONFIGURED",
+            "configured": True,
+            "read_only": True,
+            "read_only_policy": {"status": "ready"},
+            "profile_tool_names": [],
+            "snapshot_tool_names": [],
+        }
+        for name in status.THIRD_PARTY_SERVERS
+    }
+    runtime_servers = {
+        name: {
+            "status": "ready",
+            "reason_code": "DOCKER_GATEWAY_READ_ONLY_CALL_READY",
+            "runtime_reachable": True,
+            "runtime_ready": True,
+            "tools_observable": True,
+        }
+        for name in status.THIRD_PARTY_SERVERS
+    }
+    third_party = {
+        name: {
+            **profile_servers[name],
+            "profile_config": profile_servers[name],
+            "gateway_runtime": runtime_servers[name],
+            "tools_observable": True,
+            "runtime_reachable": True,
+            "runtime_ready": True,
+            "status": "ready",
+        }
+        for name in status.THIRD_PARTY_SERVERS
+    }
     return {
         "status": "ready",
         "reason_code": "DOCKER_PROFILE_READY",
         "profile_id": status.CANONICAL_DOCKER_PROFILE_ID,
         "server_names": list(status.THIRD_PARTY_SERVERS),
-        "third_party": {
-            name: {
-                "status": "ready",
-                "reason_code": "DOCKER_SERVER_READ_ONLY",
-                "read_only": True,
-            }
-            for name in status.THIRD_PARTY_SERVERS
+        "profile_config": {
+            "status": "ready",
+            "reason_code": "DOCKER_PROFILE_READY",
+            "third_party": profile_servers,
         },
+        "gateway_runtime": {
+            "status": "ready",
+            "reason_code": "DOCKER_GATEWAY_RUNTIME_READY",
+            "runtime_reachable": True,
+            "runtime_ready": True,
+            "servers": runtime_servers,
+        },
+        "client_connection": {"status": "configured"},
+        "third_party": third_party,
+        "secret_engine": {"secret_store": {"status": "ready"}},
+    }
+
+
+def _remote_ready(name: str) -> dict[str, object]:
+    return {
+        "remote_backend": {
+            "status": "ready",
+            "server_name": name,
+            "server_version": _versions()[name],
+            "runtime_reachable": True,
+            "runtime_ready": True,
+            "protocol_version": "2025-11-25",
+        },
+        "public_edge": {"status": "ready", "edge_reachable": True},
     }
 
 
@@ -49,15 +125,11 @@ def test_status_json_model_records_exact_local_identity(monkeypatch) -> None:
     )
 
     async def local(name: str, root: Path, current_revision: str) -> dict[str, object]:
-        version = "3.0.0" if name == "azurpilot-dev" else "1.0.0"
+        version = _versions()[name]
         return _local_result(name, version, current_revision)
 
     async def remote(name: str) -> dict[str, object]:
-        return {
-            "status": "not_configured",
-            "reason_code": "REMOTE_PUBLIC_URL_NOT_CONFIGURED",
-            "endpoint_up": False,
-        }
+        return _remote_ready(name)
 
     report = asyncio.run(
         status.collect_status_async(
@@ -95,98 +167,43 @@ def test_human_status_uses_compact_tables_and_sections(capsys) -> None:
         },
         "servers": {
             "azurpilot-dev": {
-                "expected_version": "3.0.0",
+                "expected_version": _versions()["azurpilot-dev"],
                 "local_direct": _local_result(
-                    "azurpilot-dev", "3.0.0", revision
+                    "azurpilot-dev", _versions()["azurpilot-dev"], revision
                 ),
                 "codex": {
                     "status": "configured",
                     "reason_code": "CODEX_SERVER_CONFIGURED",
                 },
-                "remote": {
+                "remote_backend": {
+                    "status": "not_configured",
+                    "reason_code": "REMOTE_PUBLIC_URL_NOT_CONFIGURED",
+                },
+                "public_edge": {
                     "status": "not_configured",
                     "reason_code": "REMOTE_PUBLIC_URL_NOT_CONFIGURED",
                 },
             },
             "azurpilot-game": {
-                "expected_version": "1.0.0",
+                "expected_version": _versions()["azurpilot-game"],
                 "local_direct": _local_result(
-                    "azurpilot-game", "1.0.0", revision
+                    "azurpilot-game", _versions()["azurpilot-game"], revision
                 ),
                 "codex": {
                     "status": "not_configured",
                     "reason_code": "CODEX_GAME_SURFACE_EXTERNAL",
                 },
-                "remote": {
+                "remote_backend": {
+                    "status": "unavailable",
+                    "reason_code": "REMOTE_METADATA_UNAVAILABLE",
+                },
+                "public_edge": {
                     "status": "unavailable",
                     "reason_code": "REMOTE_METADATA_UNAVAILABLE",
                 },
             },
         },
-        "docker_mcp": {
-            "status": "ready",
-            "reason_code": "DOCKER_PROFILE_READY",
-            "version": "v0.43.3",
-            "profile_id": "azurpilot-development",
-            "profile_name": "AzurPilot Development",
-            "server_count": 5,
-            "third_party": {
-                "grafana": {
-                    "status": "ready",
-                    "read_only": True,
-                    "tool_count": 17,
-                    "tools_observable": True,
-                },
-                "context7": {
-                    "status": "not_observable",
-                    "reason_code": "DOCKER_SERVER_TOOLS_NOT_OBSERVABLE",
-                    "read_only": True,
-                    "tool_count": 0,
-                    "tools_observable": False,
-                },
-                "docker-docs": {
-                    "status": "ready",
-                    "read_only": True,
-                    "tool_count": 0,
-                    "tools_observable": True,
-                },
-                "dockerhub": {
-                    "status": "ready",
-                    "read_only": True,
-                    "tool_count": 11,
-                    "tools_observable": True,
-                },
-                "semgrep": {
-                    "status": "ready",
-                    "read_only": True,
-                    "tool_count": 3,
-                    "tools_observable": True,
-                },
-            },
-            "secret_engine": {
-                "status": "partial",
-                "reason_code": "DOCKER_SECRET_ENGINE_RPC_UNAVAILABLE",
-                "cli_status": "ready",
-                "keychain_status": "ready",
-                "rpc_status": "unavailable",
-                "secret_store": {
-                    "status": "ready",
-                    "reason_code": "DOCKER_SECRET_STORE_READY",
-                },
-                "container_runtime_secret_injection": {
-                    "status": "not_observable",
-                    "reason_code": "CONTAINER_RUNTIME_SECRET_INJECTION_NOT_PROBED",
-                },
-                "gateway_secret_injection": {
-                    "status": "not_observable",
-                    "reason_code": "GATEWAY_SECRET_INJECTION_NOT_PROBED",
-                },
-                "host_pass_resolution": {
-                    "status": "degraded",
-                    "reason_code": "DOCKER_SECRET_ENGINE_RPC_UNAVAILABLE",
-                },
-            },
-        },
+        "docker_mcp": _docker_ready(),
         "chatgpt": {
             "status": "not_observable",
             "reason_code": "CHATGPT_ACTION_SNAPSHOT_NOT_OBSERVABLE",
@@ -197,13 +214,13 @@ def test_human_status_uses_compact_tables_and_sections(capsys) -> None:
     output = capsys.readouterr().out
 
     assert "AzurPilot MCP Status" in output
-    assert "SERVER" in output and "CHATGPT BACKEND" in output
+    assert "SERVER" in output and "REMOTE BACKEND" in output
     assert "azurpilot-dev" in output
-    assert "3.0.0 OK" in output
+    assert f"{_versions()['azurpilot-dev']} OK" in output
     assert "EXTERNAL" in output
     assert "Docker MCP Gateway" in output
     assert "Status: OK" in output
-    assert "context7" in output and "catalog unknown" in output
+    assert "context7" in output
     assert "ChatGPT action cache" in output
     assert "MCP_STATUS_PARTIAL" in output
     assert "local_direct" not in output
@@ -217,15 +234,11 @@ def test_status_marks_source_drift_and_strict_fails(monkeypatch) -> None:
     )
 
     async def local(name: str, root: Path, current_revision: str) -> dict[str, object]:
-        version = "3.0.0" if name == "azurpilot-dev" else "1.0.0"
+        version = _versions()[name]
         return _local_result(name, version, "b" * 40)
 
     async def remote(name: str) -> dict[str, object]:
-        return {
-            "status": "not_configured",
-            "reason_code": "REMOTE_PUBLIC_URL_NOT_CONFIGURED",
-            "endpoint_up": False,
-        }
+        return _remote_ready(name)
 
     report = asyncio.run(
         status.collect_status_async(
@@ -243,8 +256,8 @@ def test_status_marks_source_drift_and_strict_fails(monkeypatch) -> None:
 def test_modified_working_tree_is_partial_and_preserves_source_status() -> None:
     revision = "a" * 40
     surface = status._surface_status(
-        _local_result("azurpilot-dev", "3.0.0", revision),
-        expected_version="3.0.0",
+        _local_result("azurpilot-dev", _versions()["azurpilot-dev"], revision),
+        expected_version=_versions()["azurpilot-dev"],
         expected_revision=revision,
         working_tree="modified",
     )
@@ -253,8 +266,10 @@ def test_modified_working_tree_is_partial_and_preserves_source_status() -> None:
     assert surface["source_status"] == "modified"
     assert surface["reason_code"] == "LOCAL_CONTRACT_READY"
     assert (
-        status._human_surface_cell(surface, expected_version="3.0.0")
-        == "3.0.0 MODIFIED"
+        status._human_surface_cell(
+            surface, expected_version=_versions()["azurpilot-dev"]
+        )
+        == f"{_versions()['azurpilot-dev']} MODIFIED"
     )
 
 
@@ -264,15 +279,11 @@ def test_docker_probe_timeout_is_reported_without_waiting_for_the_probe(
     monkeypatch.setattr(status, "DOCKER_PROBE_TIMEOUT_SECONDS", 0.001)
 
     async def local(name: str, root: Path, revision: str) -> dict[str, object]:
-        version = "3.0.0" if name == "azurpilot-dev" else "1.0.0"
+        version = _versions()[name]
         return _local_result(name, version, revision)
 
     async def remote(name: str) -> dict[str, object]:
-        return {
-            "status": "not_configured",
-            "reason_code": "REMOTE_PUBLIC_URL_NOT_CONFIGURED",
-            "endpoint_up": False,
-        }
+        return _remote_ready(name)
 
     def docker_probe() -> dict[str, object]:
         time.sleep(0.05)
@@ -323,23 +334,88 @@ def test_metric_samples_have_bounded_static_labels() -> None:
         for value in sample.attributes.values()
     )
     assert any(
-        sample.name == "azurpilot_mcp_version_info"
+        sample.name == "azurpilot_mcp_observed_version_info"
         and sample.attributes["server"] == "docker-gateway"
         and sample.attributes["version"] == "0.43.3"
         for sample in samples
     )
     assert any(
-        sample.name == "azurpilot_mcp_endpoint_up"
+        sample.name == "azurpilot_mcp_surface_configured"
         and sample.attributes["surface"] == "codex"
         and sample.value == 1.0
         for sample in samples
     )
     assert any(
-        sample.name == "azurpilot_mcp_version_info"
+        sample.name == "azurpilot_mcp_expected_version_info"
         and sample.attributes["surface"] == "codex"
         and sample.value == 1.0
         for sample in samples
     )
+
+
+def test_metric_samples_keep_configured_distinct_from_reachable_and_observed() -> None:
+    report = {
+        "servers": {
+            "azurpilot-dev": {
+                "expected_version": "3.0.0",
+                "codex": {"status": "configured"},
+            }
+        },
+        "probe": {"last_successful_probe_timestamp_seconds": None},
+    }
+
+    samples = status.status_metric_samples(report)
+
+    assert next(
+        sample
+        for sample in samples
+        if sample.name == "azurpilot_mcp_surface_configured"
+        and sample.attributes["surface"] == "codex"
+    ).value == 1.0
+    assert next(
+        sample
+        for sample in samples
+        if sample.name == "azurpilot_mcp_surface_reachable"
+        and sample.attributes["surface"] == "codex"
+    ).value == 0.0
+    assert next(
+        sample
+        for sample in samples
+        if sample.name == "azurpilot_mcp_surface_runtime_ready"
+        and sample.attributes["surface"] == "codex"
+    ).value == 0.0
+    assert not any(
+        sample.name == "azurpilot_mcp_observed_version_info"
+        and sample.attributes["surface"] == "codex"
+        for sample in samples
+    )
+    assert not any(
+        sample.name == "azurpilot_mcp_last_successful_probe_timestamp_seconds"
+        for sample in samples
+    )
+
+
+def test_emit_metrics_delegates_to_canonical_observability_runtime(monkeypatch) -> None:
+    monkeypatch.setenv(
+        "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "http://127.0.0.1:4318/v1/metrics"
+    )
+    captured: dict[str, object] = {}
+
+    def emit(samples, **kwargs):
+        captured["samples"] = tuple(samples)
+        captured.update(kwargs)
+        return True
+
+    monkeypatch.setattr(
+        "module.observability.metrics.emit_metric_samples_once", emit
+    )
+
+    result = status.emit_metrics({"servers": {}, "docker_mcp": {"third_party": {}}})
+
+    assert result == status.MetricEmission(True, "MCP_METRICS_EXPORTED", 0)
+    assert captured["endpoint"] == "http://127.0.0.1:4318/v1/metrics"
+    assert captured["timeout_millis"] == 5000
+    assert isinstance(captured["repository_root"], Path)
 
 
 def test_metrics_are_fail_open_when_otlp_endpoint_is_not_configured(
@@ -357,7 +433,7 @@ def test_metrics_are_fail_open_when_otlp_endpoint_is_not_configured(
     assert result.reason_code == "MCP_METRICS_ENDPOINT_UNCONFIGURED"
 
 
-def test_strict_allows_unobservable_remote_metadata_and_optional_catalogs() -> None:
+def test_strict_rejects_unobservable_remote_metadata_and_optional_catalogs() -> None:
     report = {
         "status": "partial",
         "source": {"working_tree": "clean"},
@@ -365,7 +441,8 @@ def test_strict_allows_unobservable_remote_metadata_and_optional_catalogs() -> N
         "servers": {
             "azurpilot-dev": {
                 "local_direct": {"status": "ready"},
-                "remote": {"status": "not_observable"},
+                "remote_backend": {"status": "not_observable"},
+                "public_edge": {"status": "ready"},
             }
         },
         "docker_mcp": {
@@ -383,7 +460,7 @@ def test_strict_allows_unobservable_remote_metadata_and_optional_catalogs() -> N
         },
     }
 
-    assert not status._strict_failure(report, None)
+    assert status._strict_failure(report, None)
 
 
 def test_secret_engine_status_separates_keychain_from_rpc(monkeypatch) -> None:
@@ -592,10 +669,7 @@ def test_timeout_injected_local_probe_is_reported_without_payload(monkeypatch) -
         raise TimeoutError("do not publish this message")
 
     async def remote(name: str) -> dict[str, object]:
-        return {
-            "status": "not_configured",
-            "reason_code": "REMOTE_PUBLIC_URL_NOT_CONFIGURED",
-        }
+        return _remote_ready(name)
 
     report = asyncio.run(
         status.collect_status_async(

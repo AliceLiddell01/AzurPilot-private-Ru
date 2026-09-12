@@ -277,6 +277,95 @@ def build_metrics_runtime(
         raise
 
 
+def emit_metric_samples_once(
+    samples: Iterable[object],
+    *,
+    endpoint: str,
+    timeout_millis: int,
+    headers: Mapping[str, str] | None = None,
+    repository_root: Any | None = None,
+) -> bool:
+    """Отправить bounded one-shot samples через canonical metrics runtime.
+
+    Внешние диагностические команды не создают собственный OTel bootstrap:
+    resource identity, exporter и provider проходят через тот же boundary, что
+    и application metrics. Runtime остаётся локальным этой операции и после
+    flush завершается.
+    """
+
+    from opentelemetry.sdk.resources import Resource
+
+    from module.observability.identity import resolve_observability_identity
+
+    class _NoopReporter:
+        def report(self, _message: str, _exc: BaseException | None = None) -> None:
+            return None
+
+    try:
+        identity = resolve_observability_identity(repository_root=repository_root)
+        resolved_headers = headers
+        if resolved_headers is None:
+            from opentelemetry.util.re import parse_env_headers
+
+            headers_raw = os.environ.get(
+                "OTEL_EXPORTER_OTLP_METRICS_HEADERS"
+            ) or os.environ.get("OTEL_EXPORTER_OTLP_HEADERS", "")
+            resolved_headers = (
+                dict(parse_env_headers(headers_raw, liberal=True))
+                if headers_raw
+                else None
+            )
+        resource = Resource.create(
+            {
+                "service.name": identity.service_name,
+                "deployment.environment.name": identity.deployment_environment,
+            }
+        )
+        runtime = build_metrics_runtime(
+            MetricsConfig(
+                endpoint=endpoint,
+                timeout_millis=timeout_millis,
+                export_interval_millis=max(timeout_millis, 60_000),
+                export_timeout_millis=timeout_millis,
+                headers=resolved_headers,
+            ),
+            resource=resource,
+            reporter=_NoopReporter(),
+        )
+    except Exception:
+        return False
+
+    instruments: dict[str, Any] = {}
+    try:
+        meter = runtime.provider.get_meter(_METRIC_SCOPE_NAME)
+        for sample in samples:
+            name = getattr(sample, "name", None)
+            value = getattr(sample, "value", None)
+            attributes = getattr(sample, "attributes", None)
+            if not isinstance(name, str) or not isinstance(value, (int, float)):
+                raise ValueError("invalid metric sample")
+            if not isinstance(attributes, Mapping) or not all(
+                isinstance(key, str) and isinstance(item, str)
+                for key, item in attributes.items()
+            ):
+                raise ValueError("invalid metric attributes")
+            instrument = instruments.get(name)
+            if instrument is None:
+                instrument = meter.create_gauge(
+                    name,
+                    unit="s" if name.endswith("_seconds") else "1",
+                )
+                instruments[name] = instrument
+            instrument.set(float(value), attributes=attributes)
+        return runtime.shutdown(timeout_millis)
+    except Exception:
+        try:
+            runtime.shutdown(timeout_millis)
+        except Exception:
+            pass
+        return False
+
+
 def activate_metrics_runtime(runtime: MetricsRuntime) -> None:
     global _active_runtime
     with _runtime_lock:
@@ -415,6 +504,7 @@ __all__ = (
     "activate_metrics_runtime",
     "build_metrics_runtime",
     "deactivate_metrics_runtime",
+    "emit_metric_samples_once",
     "get_active_metrics_runtime",
     "mark_task_stopped",
     "reset_metrics_runtime_after_fork",

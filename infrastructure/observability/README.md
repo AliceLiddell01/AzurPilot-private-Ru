@@ -903,7 +903,7 @@ acceptance. Required evidence — exact runtime allowlist, положитель�
 ограничения собраны в tracked-документации
 [`docs/dev-runtime.md`](../../docs/dev-runtime.md) и в этом разделе.
 
-Stage 2 добавляет bounded status collector и не меняет canonical transport
+Этот раздел описывает bounded status collector и не меняет canonical transport
 Development/Game или authenticated public HTTPS для ChatGPT:
 
 ```powershell
@@ -911,16 +911,21 @@ uv run --locked --no-sync python -m dev_tools.mcp_status
 uv run --locked --no-sync python -m dev_tools.mcp_status --json
 uv run --locked --no-sync python -m dev_tools.mcp_status --json --strict
 uv run --locked --no-sync python -m dev_tools.mcp_status --json --emit-metrics
+uv run --locked --no-sync python -m dev_tools.mcp_status --watch --interval-seconds 60
 ```
 
-Collector выполняет только read-only MCP handshake/contract calls, protected
-resource metadata GET и `docker mcp profile list`. Он не выводит URL,
-headers, tokens, secret values, paths или полное окружение. `--strict` —
-fail-closed gate для drift и недоступных обязательных surfaces.
+Collector выполняет только bounded read-only MCP handshake/contract calls,
+protected resource metadata GET, локальный Semgrep probe, `docker mcp profile
+list`, фактический Gateway catalog и read-only Gateway tool calls. Он разделяет
+profile config, Gateway runtime, client connection и third-party server policy;
+статический profile или public-edge metadata не маскируют отсутствие runtime
+evidence. Collector не выводит URL, headers, tokens, secret values, paths или
+полное окружение. `--strict` — fail-closed gate для drift и недоступных
+обязательных surfaces.
 
 `--emit-metrics` — one-shot отправка через существующий OTel/Alloy/Prometheus
-path. Периодический владелец — внешний Task Scheduler или cron, который
-вызывает эту команду; новый daemon или второй metrics runtime не создаётся.
+path. Для bounded периодического наблюдения используй встроенный `--watch`;
+новый daemon или второй metrics runtime не создаётся.
 При отсутствии `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`,
 `AZURPILOT_OBSERVABILITY_OTLP_ENDPOINT` или общего OTLP endpoint экспорт
 остаётся `MCP_METRICS_ENDPOINT_UNCONFIGURED`, а status без `--strict` не
@@ -944,6 +949,8 @@ servers считаются read-only по своему catalog contract, а stat
 Старый `azurpilot-observability` profile и его export сохраняются для
 rollback. Docker Gateway принимает catalog/OCI/file server references, но
 host-side `module.dev_mcp` и `module.game_mcp` не превращаются в OCI image
-автоматически: до отдельной упаковки AzurPilot используется split boundary —
-third-party diagnostics через Docker Gateway, AzurPilot Dev/Game через их
-прямые local/HTTPS entrypoints.
+автоматически. Context7, Docker Docs и локальный Semgrep также могут
+использоваться через настроенные direct read-only MCP routes; их прямой
+callable catalog проверяется отдельно и не подменяется статическим Gateway
+profile. API keys и secret references остаются вне Git и operator-facing
+evidence.

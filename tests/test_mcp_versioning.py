@@ -21,7 +21,7 @@ from module.mcp_shared.versioning import (
 def test_manifest_is_the_single_source_for_server_semver() -> None:
     versions = load_server_versions(Path(__file__).resolve().parents[1])
 
-    assert versions == {"azurpilot-dev": "3.0.0", "azurpilot-game": "1.0.0"}
+    assert set(versions) == {"azurpilot-dev", "azurpilot-game"}
     assert contract_payload()["server_version"] == versions["azurpilot-dev"]
     assert game_contract_payload()["server_version"] == versions["azurpilot-game"]
 

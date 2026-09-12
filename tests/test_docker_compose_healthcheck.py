@@ -359,13 +359,13 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
         for query in (target.get("expr"), target.get("query"))
         if isinstance(query, str)
     ]
-    assert any("azurpilot_mcp_endpoint_up" in query for query in mcp_queries)
-    assert any("azurpilot_mcp_gateway_server_up" in query for query in mcp_queries)
+    assert any("azurpilot_mcp_surface_runtime_ready" in query for query in mcp_queries)
     assert any("azurpilot_mcp_version_drift" in query for query in mcp_queries)
     assert any(
-        "azurpilot_mcp_last_probe_timestamp_seconds" in query
+        "azurpilot_mcp_last_successful_probe_timestamp_seconds" in query
         for query in mcp_queries
     )
+    assert any("azurpilot_mcp_observed_version_info" in query for query in mcp_queries)
 
     overview_panels = {
         panel["id"]: panel for panel in dashboards["azurpilot-overview"]["panels"]

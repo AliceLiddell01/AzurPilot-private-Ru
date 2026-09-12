@@ -2,24 +2,25 @@
 
 Команда намеренно не вызывает mutating MCP tools, не печатает окружение и не
 сохраняет ответы внешних endpoint-ов. Docker Toolkit используется только для
-``version`` и ``profile list``.
+bounded version/profile/catalog checks и read-only tool probes.
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 import os
 import re
 import shutil
 import subprocess
+import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from contextlib import suppress
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit, urlunsplit
 from urllib.request import Request, urlopen
@@ -34,8 +35,13 @@ from module.mcp_shared.versioning import (
 STATUS_SCHEMA_VERSION = 1
 STATUS_TIMEOUT_SECONDS = 20.0
 REMOTE_TIMEOUT_SECONDS = 5.0
-DOCKER_PROBE_TIMEOUT_SECONDS = 20.0
+DOCKER_PROBE_TIMEOUT_SECONDS = 45.0
+DOCKER_COMMAND_TIMEOUT_SECONDS = 15.0
 METRICS_TIMEOUT_SECONDS = 5.0
+SEMGREP_PROBE_TIMEOUT_SECONDS = 20.0
+SEMGREP_SOURCE_LIMIT_BYTES = 16 * 1024
+MCP_STATUS_WATCH_MIN_INTERVAL_SECONDS = 10.0
+MCP_STATUS_WATCH_MAX_INTERVAL_SECONDS = 3600.0
 CANONICAL_DOCKER_PROFILE_ID = "azurpilot-development"
 CANONICAL_DOCKER_PROFILE_NAME = "AzurPilot Development"
 CANONICAL_GRAFANA_PROFILE_URL = "http://host.docker.internal:3000"
@@ -47,7 +53,7 @@ _SAFE_TOKEN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 _VERSION_RE = re.compile(r"^v?[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$")
 _SHA_RE = re.compile(r"^[0-9a-f]{7,64}$")
 _URL_SCHEMES = frozenset({"https"})
-_MAX_JSON_BYTES = 64 * 1024
+_MAX_JSON_BYTES = 256 * 1024
 _MAX_TOOLS = 256
 
 SERVER_NAMES = ("azurpilot-dev", "azurpilot-game")
@@ -103,8 +109,28 @@ SEMGREP_READ_ONLY_TOOLS = frozenset(
         "semgrep_rule_schema",
         "get_supported_languages",
         "semgrep_findings",
+        "semgrep_scan_with_custom_rule",
+        "semgrep_scan",
+        "semgrep_scan_local",
+        "security_check",
+        "get_abstract_syntax_tree",
     }
 )
+SEMGREP_LOCAL_SCAN_TOOLS = frozenset(
+    {"semgrep_scan", "semgrep_scan_local", "semgrep_scan_with_custom_rule"}
+)
+SEMGREP_CLOUD_TOOLS = frozenset({"security_check", "semgrep_findings"})
+DOCKER_RUNTIME_PROBE_TOOLS = {
+    "grafana": ("list_datasources",),
+    "dockerhub": ("getPersonalNamespace",),
+    "context7": ("resolve-library-id", "resolve_library_id"),
+    "docker-docs": ("search", "search_docker_docs"),
+    "semgrep": ("get_supported_languages",),
+}
+DOCKER_RUNTIME_PROBE_ARGUMENTS: dict[str, dict[str, str]] = {
+    "context7": {"libraryName": "python"},
+    "docker-docs": {"query": "Docker MCP"},
+}
 _KNOWN_WRITE_TOOLS = frozenset(
     {
         "alerting_manage_routing",
@@ -233,12 +259,10 @@ def _git_source_snapshot(root: Path) -> tuple[str, str]:
     return revision, "clean" if not status_result.stdout.strip() else "modified"
 
 
-def _child_environment(revision: str) -> dict[str, str]:
+def _child_environment() -> dict[str, str]:
+    """Подготовить bounded окружение без синтетической source provenance."""
+
     environment = dict(os.environ)
-    if revision != UNKNOWN_SOURCE_REVISION:
-        environment["AZURPILOT_SOURCE_REVISION"] = revision
-    else:
-        environment.pop("AZURPILOT_SOURCE_REVISION", None)
     environment.setdefault("PYTHONUTF8", "1")
     environment.setdefault("PYTHONIOENCODING", "utf-8")
     return environment
@@ -271,7 +295,7 @@ async def _probe_local_stdio(
         command=executable,
         args=["run", "--locked", "--no-sync", "python", "-m", module_name],
         cwd=root,
-        env=_child_environment(revision),
+        env=_child_environment(),
     )
     try:
         async with (
@@ -322,6 +346,7 @@ async def _probe_local_stdio(
     return {
         "status": "ready",
         "reason_code": "LOCAL_CONTRACT_READY",
+        "evidence_kind": "representative_local_probe",
         "server_name": observed_name,
         "server_version": observed_version,
         "protocol_version": protocol,
@@ -336,7 +361,162 @@ async def _probe_local_stdio(
     }
 
 
-def _safe_remote_url(value: str) -> tuple[str, str] | None:
+def _semgrep_executable() -> str | None:
+    return shutil.which("semgrep.exe") or shutil.which("semgrep")
+
+
+def _semgrep_result_summary(result: object) -> dict[str, object]:
+    """Свести scan result к bounded evidence без публикации исходного payload."""
+
+    is_error = getattr(result, "is_error", None)
+    content = getattr(result, "content", None)
+    if is_error is True or not isinstance(content, list):
+        return {"status": "unavailable", "reason_code": "SEMGREP_SCAN_FAILED"}
+    for item in content:
+        text = getattr(item, "text", None)
+        if not isinstance(text, str) or len(text) > _MAX_JSON_BYTES:
+            continue
+        try:
+            payload = json.loads(text)
+        except (UnicodeError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, Mapping):
+            continue
+        results = payload.get("results")
+        if isinstance(results, list):
+            return {
+                "status": "ready",
+                "reason_code": "SEMGREP_SCAN_READY",
+                "finding_count": min(len(results), _MAX_TOOLS),
+            }
+    return {
+        "status": "ready",
+        "reason_code": "SEMGREP_SCAN_READY",
+        "finding_count": None,
+    }
+
+
+async def _probe_semgrep_local_mcp(root: Path) -> dict[str, object]:
+    """Выполнить bounded local Semgrep MCP scan через фактический stdio route."""
+
+    executable = _semgrep_executable()
+    if executable is None:
+        return {
+            "status": "unavailable",
+            "reason_code": "SEMGREP_LOCAL_COMMAND_UNAVAILABLE",
+            "transport": "stdio",
+        }
+    source_path = (root / "dev_tools" / "mcp_status.py").resolve()
+    try:
+        source = source_path.read_text(encoding="utf-8")[:SEMGREP_SOURCE_LIMIT_BYTES]
+    except (OSError, UnicodeError):
+        return {
+            "status": "unavailable",
+            "reason_code": "SEMGREP_LOCAL_SOURCE_UNAVAILABLE",
+            "transport": "stdio",
+        }
+
+    from mcp.client.session import ClientSession
+    from mcp.client.stdio import StdioServerParameters, stdio_client
+
+    parameters = StdioServerParameters(
+        command=executable,
+        args=["mcp", "-t", "stdio"],
+        cwd=root,
+        env=_child_environment(),
+    )
+    try:
+        async with (
+            stdio_client(parameters) as (read_stream, write_stream),
+            ClientSession(read_stream, write_stream) as session,
+        ):
+            initialized = await asyncio.wait_for(
+                session.initialize(), timeout=SEMGREP_PROBE_TIMEOUT_SECONDS
+            )
+            listed = await asyncio.wait_for(
+                session.list_tools(), timeout=SEMGREP_PROBE_TIMEOUT_SECONDS
+            )
+            tool_items = getattr(listed, "tools", None)
+            tool_names = _bounded_tool_names(
+                [getattr(item, "name", None) for item in tool_items]
+                if isinstance(tool_items, list)
+                else None
+            )
+            scan_tool = next(
+                (name for name in ("semgrep_scan_local", "semgrep_scan") if name in tool_names),
+                None,
+            )
+            if scan_tool is None:
+                return {
+                    "status": "not_observable",
+                    "reason_code": "SEMGREP_LOCAL_SCAN_TOOL_NOT_OBSERVABLE",
+                    "transport": "stdio",
+                    "tool_count": len(tool_names),
+                    "tool_catalog_sha256": hashlib.sha256(
+                        "\n".join(tool_names).encode("utf-8")
+                    ).hexdigest(),
+                }
+            if scan_tool == "semgrep_scan_local":
+                arguments = {
+                    "code_files": [{"path": str(source_path)}],
+                    "config": "auto",
+                }
+            else:
+                arguments = {
+                    "code_files": [
+                        {"path": str(source_path), "content": source}
+                    ],
+                    "config": "auto",
+                }
+            scan_result = await asyncio.wait_for(
+                session.call_tool(scan_tool, arguments),
+                timeout=SEMGREP_PROBE_TIMEOUT_SECONDS,
+            )
+    except TimeoutError:
+        return {
+            "status": "unavailable",
+            "reason_code": "SEMGREP_LOCAL_PROBE_TIMEOUT",
+            "transport": "stdio",
+        }
+    except Exception as exc:  # noqa: BLE001 - boundary exposes type, not payload.
+        return {
+            "status": "unavailable",
+            "reason_code": "SEMGREP_LOCAL_PROBE_FAILED",
+            "transport": "stdio",
+            "error_type": _safe_type_name(exc),
+        }
+
+    server_info = getattr(initialized, "server_info", None)
+    observed_name = getattr(server_info, "name", None)
+    observed_version = getattr(server_info, "version", None)
+    if (
+        not isinstance(observed_name, str)
+        or not isinstance(observed_version, str)
+        or not _SAFE_IDENTIFIER.fullmatch(observed_name)
+        or not _VERSION_RE.fullmatch(observed_version)
+    ):
+        return {
+            "status": "unavailable",
+            "reason_code": "SEMGREP_LOCAL_IDENTITY_INVALID",
+            "transport": "stdio",
+        }
+    summary = _semgrep_result_summary(scan_result)
+    return {
+        **summary,
+        "transport": "stdio",
+        "server_name": observed_name,
+        "server_version": observed_version,
+        "scan_tool": scan_tool,
+        "tool_count": len(tool_names),
+        "tool_catalog_sha256": hashlib.sha256(
+            "\n".join(tool_names).encode("utf-8")
+        ).hexdigest(),
+        "runtime_reachable": True,
+        "runtime_ready": summary.get("status") == "ready",
+    }
+
+
+def _safe_remote_url(value: str) -> tuple[str, str, str] | None:
     try:
         parsed = urlsplit(value.strip())
     except ValueError:
@@ -348,15 +528,16 @@ def _safe_remote_url(value: str) -> tuple[str, str] | None:
     if parsed.path.rstrip("/") not in {"", "/mcp"}:
         return None
     origin = urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
+    endpoint = urlunsplit((parsed.scheme, parsed.netloc, parsed.path or "/mcp", "", ""))
     metadata = f"{origin}/.well-known/oauth-protected-resource/mcp"
-    return origin, metadata
+    return origin, metadata, endpoint
 
 
 def _remote_metadata_request(url: str) -> tuple[str, str]:
     parsed = _safe_remote_url(url)
     if parsed is None:
         return "unavailable", "REMOTE_URL_INVALID"
-    _origin, metadata_url = parsed
+    _origin, metadata_url, _endpoint = parsed
     request = Request(
         metadata_url,
         headers={"Accept": "application/json", "User-Agent": "azurpilot-mcp-status/1"},
@@ -379,7 +560,130 @@ def _remote_metadata_request(url: str) -> tuple[str, str]:
         return "unavailable", "REMOTE_METADATA_INVALID"
     if not isinstance(payload, dict):
         return "unavailable", "REMOTE_METADATA_INVALID"
-    return "not_observable", "REMOTE_STATUS_TOKEN_UNAVAILABLE"
+    return "ready", "REMOTE_PUBLIC_EDGE_METADATA_READY"
+
+
+def _remote_access_token(server_name: str) -> str | None:
+    """Получить explicit bearer token без публикации его значения."""
+
+    suffix = server_name.removeprefix("azurpilot-").upper()
+    direct_name = f"AZURPILOT_{suffix}_MCP_ACCESS_TOKEN"
+    file_name = f"{direct_name}_FILE"
+    direct = os.environ.get(direct_name, "").strip()
+    if direct:
+        return direct[:8192]
+    token_path = os.environ.get(file_name, "").strip()
+    if not token_path:
+        return None
+    try:
+        value = Path(token_path).read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return None
+    value = value.strip()
+    return value[:8192] if value else None
+
+
+async def _probe_remote_backend(
+    server_name: str, endpoint: str, token: str
+) -> dict[str, object]:
+    """Проверить authenticated remote MCP, а не только его public edge."""
+
+    try:
+        import httpx2
+        from mcp.client.session import ClientSession
+        from mcp.client.streamable_http import streamable_http_client
+    except ImportError:
+        return {
+            "status": "unavailable",
+            "reason_code": "REMOTE_MCP_CLIENT_UNAVAILABLE",
+        }
+
+    module_name, contract_tool = SERVER_MODULES[server_name]
+    del module_name
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with (  # noqa: SIM117
+            httpx2.AsyncClient(
+                headers=headers,
+                timeout=REMOTE_TIMEOUT_SECONDS,
+                follow_redirects=False,
+            ) as http_client,
+            streamable_http_client(
+                endpoint, http_client=http_client, terminate_on_close=True
+            ) as (read_stream, write_stream),
+        ):
+            # Сессия зависит от уже открытых потоков, поэтому contexts нельзя объединить.
+            async with ClientSession(read_stream, write_stream) as session:
+                initialized = await asyncio.wait_for(
+                    session.initialize(), timeout=REMOTE_TIMEOUT_SECONDS
+                )
+                listed = await asyncio.wait_for(
+                    session.list_tools(), timeout=REMOTE_TIMEOUT_SECONDS
+                )
+                contract_result = await asyncio.wait_for(
+                    session.call_tool(contract_tool, {}),
+                    timeout=REMOTE_TIMEOUT_SECONDS,
+                )
+    except TimeoutError:
+        return {
+            "status": "unavailable",
+            "reason_code": "REMOTE_BACKEND_PROBE_TIMEOUT",
+        }
+    except Exception as exc:  # noqa: BLE001 - boundary exposes type, not payload.
+        return {
+            "status": "unavailable",
+            "reason_code": "REMOTE_BACKEND_PROBE_FAILED",
+            "error_type": _safe_type_name(exc),
+        }
+
+    server_info = getattr(initialized, "server_info", None)
+    observed_name = getattr(server_info, "name", None)
+    observed_version = getattr(server_info, "version", None)
+    protocol = getattr(initialized, "protocol_version", None)
+    tool_items = getattr(listed, "tools", None)
+    tool_names = _bounded_tool_names(
+        [getattr(item, "name", None) for item in tool_items]
+        if isinstance(tool_items, list)
+        else None
+    )
+    try:
+        contract = _extract_contract(contract_result)
+    except StatusError:
+        return {
+            "status": "unavailable",
+            "reason_code": "REMOTE_BACKEND_CONTRACT_INVALID",
+        }
+    if (
+        not isinstance(observed_name, str)
+        or observed_name != server_name
+        or not isinstance(observed_version, str)
+        or not _VERSION_RE.fullmatch(observed_version)
+        or not isinstance(protocol, str)
+        or not _SAFE_TOKEN.fullmatch(protocol)
+        or not tool_names
+        or contract.get("server_name") != server_name
+        or contract.get("server_version") != observed_version
+    ):
+        return {
+            "status": "unavailable",
+            "reason_code": "REMOTE_BACKEND_IDENTITY_INVALID",
+        }
+    return {
+        "status": "ready",
+        "reason_code": "REMOTE_BACKEND_READY",
+        "evidence_kind": "authenticated_remote_probe",
+        "runtime_reachable": True,
+        "runtime_ready": True,
+        "server_name": observed_name,
+        "server_version": observed_version,
+        "protocol_version": protocol,
+        "contract_schema_version": contract.get("contract_schema_version"),
+        "source_revision": _safe_sha(contract.get("source_revision")),
+        "tool_count": len(tool_names),
+        "tool_catalog_sha256": hashlib.sha256(
+            "\n".join(tool_names).encode("utf-8")
+        ).hexdigest(),
+    }
 
 
 async def _probe_remote(server_name: str) -> dict[str, object]:
@@ -389,15 +693,49 @@ async def _probe_remote(server_name: str) -> dict[str, object]:
     url = os.environ.get(env_name, "").strip()
     if not url:
         return {
-            "status": "not_configured",
-            "reason_code": "REMOTE_PUBLIC_URL_NOT_CONFIGURED",
-            "endpoint_up": False,
+            "remote_backend": {
+                "status": "not_configured",
+                "reason_code": "REMOTE_PUBLIC_URL_NOT_CONFIGURED",
+                "runtime_reachable": False,
+                "runtime_ready": False,
+            },
+            "public_edge": {
+                "status": "not_configured",
+                "reason_code": "REMOTE_PUBLIC_URL_NOT_CONFIGURED",
+                "edge_reachable": False,
+            },
         }
     status, code = await asyncio.to_thread(_remote_metadata_request, url)
-    return {
+    parsed = _safe_remote_url(url)
+    public_edge = {
         "status": status,
         "reason_code": code,
-        "endpoint_up": status != "unavailable",
+        "edge_reachable": status == "ready",
+        "evidence_kind": "public_edge_metadata",
+    }
+    if parsed is None:
+        return {
+            "remote_backend": {
+                "status": "unavailable",
+                "reason_code": "REMOTE_URL_INVALID",
+                "runtime_reachable": False,
+                "runtime_ready": False,
+            },
+            "public_edge": public_edge,
+        }
+    token = _remote_access_token(server_name)
+    if not token:
+        backend = {
+            "status": "not_configured",
+            "reason_code": "REMOTE_BACKEND_TOKEN_NOT_CONFIGURED",
+            "runtime_reachable": False,
+            "runtime_ready": False,
+        }
+    else:
+        backend = await _probe_remote_backend(server_name, parsed[2], token)
+    return {
+        "remote_backend": backend,
+        "public_edge": public_edge,
     }
 
 
@@ -594,11 +932,28 @@ def _docker_server_name(server: Mapping[str, object]) -> str | None:
     )
 
 
+def _snapshot_tool_names(server: Mapping[str, object]) -> tuple[str, ...]:
+    snapshot = server.get("snapshot")
+    snapshot_server = snapshot.get("server") if isinstance(snapshot, Mapping) else None
+    snapshot_tools = (
+        snapshot_server.get("tools") if isinstance(snapshot_server, Mapping) else None
+    )
+    if not isinstance(snapshot_tools, list) or len(snapshot_tools) > _MAX_TOOLS:
+        return ()
+    names = [
+        item.get("name")
+        for item in snapshot_tools
+        if isinstance(item, Mapping)
+    ]
+    return _bounded_tool_names(names)
+
+
 def _docker_server_status(server: Mapping[str, object]) -> dict[str, object]:
     name = _docker_server_name(server)
     if name is None:
         return {"status": "invalid", "reason_code": "DOCKER_SERVER_ID_INVALID"}
     tools = _bounded_tool_names(server.get("tools"))
+    snapshot_tools = _snapshot_tool_names(server)
     snapshot = server.get("snapshot")
     snapshot_server = snapshot.get("server") if isinstance(snapshot, Mapping) else None
     command = (
@@ -615,25 +970,24 @@ def _docker_server_status(server: Mapping[str, object]) -> dict[str, object]:
     if expected_tools is not None:
         allowlist_status = "ready" if set(tools) == expected_tools else "drift"
     disable_write = "--disable-write" in command_names
-    server_type = server.get("type")
     tools_observable = bool(tools)
     read_only = not writes and (
         disable_write if name == "grafana" else allowlist_status != "drift"
     )
-    if server_type == "remote" and not tools:
-        read_only = True
-    return {
-        "status": "ready"
-        if read_only and allowlist_status != "drift" and tools_observable
-        else "not_observable"
-        if read_only and allowlist_status != "drift"
-        else "drift",
-        "reason_code": "DOCKER_SERVER_READ_ONLY"
-        if read_only and tools_observable
-        else "DOCKER_SERVER_TOOLS_NOT_OBSERVABLE"
+    policy_status = "ready" if read_only else "drift"
+    policy_reason = (
+        "DOCKER_SERVER_READ_ONLY_POLICY_READY"
         if read_only
+        else "DOCKER_SERVER_WRITE_OR_ALLOWLIST_DRIFT"
+    )
+    return {
+        "status": "ready" if read_only and allowlist_status != "drift" else "drift",
+        "reason_code": "DOCKER_SERVER_PROFILE_CONFIGURED"
+        if read_only and allowlist_status != "drift"
         else "DOCKER_SERVER_WRITE_OR_ALLOWLIST_DRIFT",
+        "configured": True,
         "tool_count": len(tools),
+        "snapshot_tool_count": len(snapshot_tools),
         "write_tools_exposed": writes,
         "read_only": read_only,
         "allowlist_status": allowlist_status,
@@ -641,6 +995,258 @@ def _docker_server_status(server: Mapping[str, object]) -> dict[str, object]:
         and "@sha256:" in str(server.get("image")),
         "disable_write": disable_write,
         "tools_observable": tools_observable,
+        "profile_tool_names": list(tools),
+        "snapshot_tool_names": list(snapshot_tools),
+        "runtime_reachable": False,
+        "runtime_ready": False,
+        "read_only_policy": {
+            "status": policy_status,
+            "reason_code": policy_reason,
+        },
+    }
+
+
+def _docker_gateway_tools(executable: str) -> dict[str, object]:
+    """Получить реальный Gateway catalog через тот же CLI, что использует клиент."""
+
+    arguments = (
+        executable,
+        "mcp",
+        "tools",
+        "ls",
+        "--format=json",
+        "--gateway-arg=--profile",
+        f"--gateway-arg={CANONICAL_DOCKER_PROFILE_ID}",
+        "--gateway-arg=--watch=false",
+    )
+    try:
+        result = _run_process(
+            arguments, timeout=DOCKER_COMMAND_TIMEOUT_SECONDS, command=executable
+        )
+    except StatusError as exc:
+        return {
+            "status": "unavailable",
+            "reason_code": f"DOCKER_GATEWAY_TOOLS_{exc.code}",
+            "runtime_reachable": False,
+            "runtime_ready": False,
+        }
+    if result.returncode != 0:
+        return {
+            "status": "unavailable",
+            "reason_code": "DOCKER_GATEWAY_TOOLS_LIST_FAILED",
+            "runtime_reachable": False,
+            "runtime_ready": False,
+        }
+    if len(result.stdout.encode("utf-8", errors="replace")) > _MAX_JSON_BYTES:
+        return {
+            "status": "unavailable",
+            "reason_code": "DOCKER_GATEWAY_TOOLS_CATALOG_TOO_LARGE",
+            "runtime_reachable": False,
+            "runtime_ready": False,
+        }
+    try:
+        payload = json.loads(result.stdout)
+    except (UnicodeError, json.JSONDecodeError):
+        return {
+            "status": "unavailable",
+            "reason_code": "DOCKER_GATEWAY_TOOLS_CATALOG_INVALID",
+            "runtime_reachable": False,
+            "runtime_ready": False,
+        }
+    if not isinstance(payload, list):
+        return {
+            "status": "unavailable",
+            "reason_code": "DOCKER_GATEWAY_TOOLS_CATALOG_INVALID",
+            "runtime_reachable": False,
+            "runtime_ready": False,
+        }
+    names = _bounded_tool_names(
+        [item.get("name") for item in payload if isinstance(item, Mapping)]
+    )
+    if not names:
+        return {
+            "status": "not_observable",
+            "reason_code": "DOCKER_GATEWAY_TOOLS_NOT_OBSERVABLE",
+            "runtime_reachable": True,
+            "runtime_ready": False,
+        }
+    return {
+        "status": "ready",
+        "reason_code": "DOCKER_GATEWAY_TOOLS_READY",
+        "runtime_reachable": True,
+        "runtime_ready": False,
+        "tool_count": len(names),
+        "tool_names": list(names),
+        "tool_catalog_sha256": hashlib.sha256(
+            "\n".join(names).encode("utf-8")
+        ).hexdigest(),
+    }
+
+
+def _docker_gateway_tool_call(
+    executable: str, tool_name: str, arguments: Mapping[str, str]
+) -> dict[str, object]:
+    if not _SAFE_IDENTIFIER.fullmatch(tool_name):
+        return {"status": "invalid", "reason_code": "DOCKER_TOOL_NAME_INVALID"}
+    call_arguments = tuple(
+        f"{key}={value}"
+        for key, value in arguments.items()
+        if _SAFE_IDENTIFIER.fullmatch(key) and isinstance(value, str) and len(value) <= 256
+    )
+    if len(call_arguments) != len(arguments):
+        return {"status": "invalid", "reason_code": "DOCKER_TOOL_ARGUMENT_INVALID"}
+    command = (
+        executable,
+        "mcp",
+        "tools",
+        "call",
+        tool_name,
+        *call_arguments,
+        "--format=json",
+        "--gateway-arg=--profile",
+        f"--gateway-arg={CANONICAL_DOCKER_PROFILE_ID}",
+        "--gateway-arg=--watch=false",
+    )
+    try:
+        result = _run_process(
+            command, timeout=DOCKER_COMMAND_TIMEOUT_SECONDS, command=executable
+        )
+    except StatusError as exc:
+        return {
+            "status": "unavailable",
+            "reason_code": f"DOCKER_GATEWAY_TOOL_CALL_{exc.code}",
+        }
+    if result.returncode != 0:
+        return {
+            "status": "unavailable",
+            "reason_code": "DOCKER_GATEWAY_TOOL_CALL_FAILED",
+        }
+    return {
+        "status": "ready",
+        "reason_code": "DOCKER_GATEWAY_READ_ONLY_CALL_READY",
+        "tool_name": tool_name,
+    }
+
+
+def _docker_gateway_runtime(
+    executable: str,
+    profile_config_servers: Mapping[str, Mapping[str, object]],
+) -> dict[str, object]:
+    catalog = _docker_gateway_tools(executable)
+    if catalog.get("status") != "ready":
+        return {
+            **catalog,
+            "servers": {
+                name: {
+                    "status": "not_observable",
+                    "reason_code": "DOCKER_GATEWAY_CATALOG_NOT_READY",
+                    "runtime_reachable": catalog.get("runtime_reachable") is True,
+                    "runtime_ready": False,
+                    "tools_observable": False,
+                }
+                for name in THIRD_PARTY_SERVERS
+            },
+        }
+    catalog_names = set(catalog.get("tool_names", ()))
+    declared_names: dict[str, set[str]] = {
+        name: set(
+            profile_server.get("profile_tool_names", ())
+            if isinstance(profile_server, Mapping)
+            else ()
+        )
+        | set(
+            profile_server.get("snapshot_tool_names", ())
+            if isinstance(profile_server, Mapping)
+            else ()
+        )
+        for name, profile_server in profile_config_servers.items()
+    }
+    runtime_servers: dict[str, dict[str, object]] = {}
+    candidates: dict[str, tuple[str, Mapping[str, object], bool]] = {}
+    for name in THIRD_PARTY_SERVERS:
+        configured = profile_config_servers.get(name, {})
+        policy = (
+            configured.get("read_only_policy")
+            if isinstance(configured, Mapping)
+            else None
+        )
+        policy_ready = isinstance(policy, Mapping) and policy.get("status") == "ready"
+        candidate = next(
+            (
+                tool
+                for tool in DOCKER_RUNTIME_PROBE_TOOLS[name]
+                if tool in catalog_names
+                and (
+                    tool in declared_names.get(name, set())
+                    or not any(
+                        tool in other_names
+                        for other_name, other_names in declared_names.items()
+                        if other_name != name
+                    )
+                )
+            ),
+            None,
+        )
+        if candidate is None:
+            runtime_servers[name] = {
+                "status": "not_observable",
+                "reason_code": "DOCKER_SERVER_RUNTIME_TOOL_NOT_OBSERVABLE",
+                "runtime_reachable": True,
+                "runtime_ready": False,
+                "tools_observable": False,
+                "read_only_policy": policy
+                if isinstance(policy, Mapping)
+                else {"status": "unknown"},
+            }
+            continue
+        candidates[name] = (
+            candidate,
+            policy if isinstance(policy, Mapping) else {},
+            policy_ready,
+        )
+
+    if candidates:
+        with ThreadPoolExecutor(
+            max_workers=len(candidates), thread_name_prefix="mcp-status-docker"
+        ) as executor:
+            futures = {
+                name: executor.submit(
+                    _docker_gateway_tool_call,
+                    executable,
+                    candidate,
+                    DOCKER_RUNTIME_PROBE_ARGUMENTS.get(name, {}),
+                )
+                for name, (candidate, _, _) in candidates.items()
+            }
+            calls = {
+                name: future.result()
+                for name, future in futures.items()
+            }
+    else:
+        calls = {}
+
+    for name, (_, policy, policy_ready) in candidates.items():
+        call = calls[name]
+        ready = policy_ready and call.get("status") == "ready"
+        runtime_servers[name] = {
+            **call,
+            "status": "ready" if ready else call.get("status", "unavailable"),
+            "runtime_reachable": True,
+            "runtime_ready": ready,
+            "tools_observable": True,
+            "read_only_policy": policy,
+        }
+    all_ready = all(
+        item.get("runtime_ready") is True for item in runtime_servers.values()
+    )
+    return {
+        **catalog,
+        "status": "ready" if all_ready else "partial",
+        "reason_code": "DOCKER_GATEWAY_RUNTIME_READY"
+        if all_ready
+        else "DOCKER_GATEWAY_RUNTIME_PARTIAL",
+        "runtime_ready": all_ready,
+        "servers": runtime_servers,
     }
 
 
@@ -775,17 +1381,17 @@ def _docker_status() -> dict[str, object]:
             "version": version,
             "profile_id": CANONICAL_DOCKER_PROFILE_ID,
             "server_names": [],
+            "profile_config": {
+                "status": "not_configured",
+                "reason_code": "DOCKER_PROFILE_NOT_CONFIGURED",
+            },
+            "gateway_runtime": {
+                "status": "not_configured",
+                "reason_code": "DOCKER_PROFILE_NOT_CONFIGURED",
+                "runtime_reachable": False,
+                "runtime_ready": False,
+            },
             "third_party": {},
-            "secret_engine": secret_engine,
-        }
-    try:
-        validate_development_profile(profile)
-    except StatusError as exc:
-        return {
-            "status": "drift",
-            "reason_code": exc.code,
-            "version": version,
-            "profile_id": CANONICAL_DOCKER_PROFILE_ID,
             "secret_engine": secret_engine,
         }
     raw_servers = profile.get("servers")
@@ -795,7 +1401,23 @@ def _docker_status() -> dict[str, object]:
             "reason_code": "DOCKER_PROFILE_SERVERS_INVALID",
             "version": version,
             "profile_id": CANONICAL_DOCKER_PROFILE_ID,
+            "profile_config": {
+                "status": "invalid",
+                "reason_code": "DOCKER_PROFILE_SERVERS_INVALID",
+            },
+            "gateway_runtime": {
+                "status": "unavailable",
+                "reason_code": "DOCKER_PROFILE_SERVERS_INVALID",
+                "runtime_reachable": False,
+                "runtime_ready": False,
+            },
+            "secret_engine": secret_engine,
         }
+    profile_config_error: str | None = None
+    try:
+        validate_development_profile(profile)
+    except StatusError as exc:
+        profile_config_error = exc.code
     server_statuses: dict[str, dict[str, object]] = {}
     for item in raw_servers:
         if isinstance(item, Mapping):
@@ -804,44 +1426,85 @@ def _docker_status() -> dict[str, object]:
                 server_statuses[name] = _docker_server_status(item)
     profile_name = profile.get("name")
     exact_servers = set(server_statuses) == _PROFILE_SERVER_SET
-    third_party = {
+    profile_third_party = {
         name: server_statuses.get(
             name,
             {"status": "missing", "reason_code": "DOCKER_SERVER_NOT_PRESENT"},
         )
         for name in THIRD_PARTY_SERVERS
     }
-    secret_store = secret_engine.get("secret_store")
-    secret_store_ready = (
-        isinstance(secret_store, Mapping)
-        and secret_store.get("status") == "ready"
+    profile_config_status = (
+        "ready"
+        if profile_config_error is None
+        and exact_servers
+        and all(item.get("status") == "ready" for item in profile_third_party.values())
+        else "drift"
     )
-    profile_status = all(
-        item.get("status") == "ready"
-        or (
-            name not in _REQUIRED_TOOL_SETS
-            and item.get("status") == "not_observable"
-        )
-        for name, item in third_party.items()
-    ) and secret_store_ready
-    profile_partial = exact_servers and all(
-        item.get("status") in {"ready", "not_observable"}
-        for item in third_party.values()
-    )
-    profile_read_only = exact_servers and all(
-        item.get("read_only") is True for item in third_party.values()
-    )
-    return {
-        "status": "ready"
-        if exact_servers and profile_status
-        else "partial"
-        if profile_partial
-        else "drift",
+    profile_config = {
+        "status": profile_config_status,
         "reason_code": "DOCKER_PROFILE_READY"
-        if exact_servers and profile_status
-        else "DOCKER_PROFILE_PARTIAL"
-        if profile_partial
-        else "DOCKER_PROFILE_DRIFT",
+        if profile_config_status == "ready"
+        else profile_config_error or "DOCKER_PROFILE_DRIFT",
+        "profile_id": CANONICAL_DOCKER_PROFILE_ID,
+        "server_names": sorted(server_statuses),
+        "server_count": len(server_statuses),
+        "third_party": profile_third_party,
+        "read_only": exact_servers
+        and all(item.get("read_only") is True for item in profile_third_party.values()),
+    }
+    gateway_runtime = _docker_gateway_runtime(executable, profile_third_party)
+    runtime_third_party = gateway_runtime.get("servers")
+    if not isinstance(runtime_third_party, Mapping):
+        runtime_third_party = {}
+    third_party: dict[str, dict[str, object]] = {}
+    for name in THIRD_PARTY_SERVERS:
+        configured = profile_third_party.get(name, {})
+        runtime = runtime_third_party.get(name, {})
+        if not isinstance(configured, Mapping):
+            configured = {}
+        if not isinstance(runtime, Mapping):
+            runtime = {}
+        item = {
+            **configured,
+            "profile_config": configured,
+            "gateway_runtime": runtime,
+            "configured": configured.get("configured") is True,
+            "tools_observable": runtime.get("tools_observable") is True,
+            "runtime_reachable": runtime.get("runtime_reachable") is True,
+            "runtime_ready": runtime.get("runtime_ready") is True,
+            "read_only_policy": configured.get(
+                "read_only_policy", {"status": "unknown"}
+            ),
+        }
+        item["status"] = (
+            "ready"
+            if item["runtime_ready"] is True
+            else runtime.get("status", "not_observable")
+        )
+        item["reason_code"] = runtime.get(
+            "reason_code", configured.get("reason_code", "DOCKER_SERVER_NOT_OBSERVABLE")
+        )
+        third_party[name] = item
+    secret_store = secret_engine.get("secret_store")
+    secret_store_ready = isinstance(secret_store, Mapping) and secret_store.get(
+        "status"
+    ) == "ready"
+    gateway_ready = gateway_runtime.get("runtime_ready") is True
+    if profile_config_status != "ready":
+        overall_status = "drift"
+        overall_reason = "DOCKER_PROFILE_DRIFT"
+    elif not gateway_ready:
+        overall_status = "partial"
+        overall_reason = "DOCKER_GATEWAY_RUNTIME_PARTIAL"
+    elif not secret_store_ready:
+        overall_status = "partial"
+        overall_reason = "DOCKER_SECRET_STORE_UNAVAILABLE"
+    else:
+        overall_status = "ready"
+        overall_reason = "DOCKER_PROFILE_READY"
+    return {
+        "status": overall_status,
+        "reason_code": overall_reason,
         "version": version,
         "profile_id": CANONICAL_DOCKER_PROFILE_ID,
         "profile_name": profile_name
@@ -850,7 +1513,10 @@ def _docker_status() -> dict[str, object]:
         "server_names": sorted(server_statuses),
         "third_party": third_party,
         "server_count": len(server_statuses),
-        "read_only": profile_read_only,
+        "profile_config": profile_config,
+        "gateway_runtime": gateway_runtime,
+        "read_only": profile_config.get("read_only") is True
+        and gateway_ready,
         "secret_engine": secret_engine,
     }
 
@@ -876,24 +1542,31 @@ def _surface_status(
         )
     except ValueError:
         version_state = "drift"
-    source_state = (
-        "modified"
-        if working_tree != "clean"
-        else "aligned"
-        if expected_revision != UNKNOWN_SOURCE_REVISION
-        and observed_revision == expected_revision
-        else "unknown"
-        if expected_revision == UNKNOWN_SOURCE_REVISION
-        or observed_revision == UNKNOWN_SOURCE_REVISION
-        else "drift"
-    )
+    if probe.get("evidence_kind") == "representative_local_probe":
+        source_state = "not_applicable"
+    else:
+        source_state = (
+            "modified"
+            if working_tree != "clean"
+            else "aligned"
+            if expected_revision != UNKNOWN_SOURCE_REVISION
+            and observed_revision == expected_revision
+            else "unknown"
+            if expected_revision == UNKNOWN_SOURCE_REVISION
+            or observed_revision == UNKNOWN_SOURCE_REVISION
+            else "drift"
+        )
     result["version_status"] = version_state
     result["source_status"] = source_state
+    result["runtime_reachable"] = True
+    result["runtime_ready"] = version_state == "compatible" and working_tree == "clean"
     result["status"] = (
         "ready"
-        if version_state == "compatible" and source_state in {"aligned", "unknown"}
+        if version_state == "compatible" and source_state in {"aligned", "unknown", "not_applicable"}
+        and working_tree == "clean"
         else "partial"
-        if version_state == "compatible" and source_state == "modified"
+        if version_state == "compatible"
+        and (source_state == "modified" or working_tree != "clean")
         else "drift"
     )
     if result["status"] == "drift":
@@ -970,6 +1643,55 @@ def _version_guard(
 LocalProbe = Callable[[str, Path, str], Awaitable[dict[str, object]]]
 RemoteProbe = Callable[[str], Awaitable[dict[str, object]]]
 DockerProbe = Callable[[], dict[str, object]]
+SemgrepProbe = Callable[[Path], Awaitable[dict[str, object]]]
+
+
+def _split_remote_result(result: object) -> dict[str, object]:
+    """Нормализовать legacy injected probe, не смешивая edge и backend."""
+
+    if isinstance(result, Mapping) and (
+        isinstance(result.get("remote_backend"), Mapping)
+        or isinstance(result.get("public_edge"), Mapping)
+    ):
+        return dict(result)
+    if isinstance(result, Mapping):
+        legacy = dict(result)
+        edge_status = "ready" if legacy.get("endpoint_up") is True else legacy.get("status")
+        return {
+            "remote_backend": legacy,
+            "public_edge": {
+                "status": edge_status,
+                "reason_code": legacy.get(
+                    "reason_code", "REMOTE_PUBLIC_EDGE_NOT_OBSERVABLE"
+                ),
+                "edge_reachable": edge_status == "ready",
+                "evidence_kind": "public_edge_metadata",
+            },
+        }
+    return {
+        "remote_backend": {
+            "status": "unavailable",
+            "reason_code": "REMOTE_PROBE_PAYLOAD_INVALID",
+        },
+        "public_edge": {
+            "status": "unavailable",
+            "reason_code": "REMOTE_PROBE_PAYLOAD_INVALID",
+            "edge_reachable": False,
+        },
+    }
+
+
+def _timestamp_from_iso(value: object) -> float | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    timestamp = parsed.timestamp()
+    return timestamp if timestamp >= 0 else None
 
 
 async def collect_status_async(
@@ -978,6 +1700,7 @@ async def collect_status_async(
     local_probe: LocalProbe | None = None,
     remote_probe: RemoteProbe | None = None,
     docker_probe: DockerProbe | None = None,
+    semgrep_probe: SemgrepProbe | None = None,
     now: Callable[[], str] = _utc_now,
 ) -> dict[str, object]:
     repository_root = Path(root or Path(__file__).resolve().parents[1]).resolve()
@@ -1029,13 +1752,21 @@ async def collect_status_async(
             working_tree=working_tree,
         )
         try:
-            remote_result = await remote(name)
+            remote_result = await asyncio.wait_for(
+                remote(name), timeout=STATUS_TIMEOUT_SECONDS
+            )
+        except TimeoutError:
+            remote_result = {
+                "status": "unavailable",
+                "reason_code": "REMOTE_PROBE_TIMEOUT",
+            }
         except Exception as exc:  # noqa: BLE001 - injected probes are untrusted.
             remote_result = {
                 "status": "unavailable",
                 "reason_code": "REMOTE_PROBE_FAILED",
                 "error_type": _safe_type_name(exc),
             }
+        remote_result = _split_remote_result(remote_result)
         codex_result: dict[str, object]
         if name == "azurpilot-dev":
             codex_result = _codex_entry_status(
@@ -1054,18 +1785,45 @@ async def collect_status_async(
             if codex_result["status"] == "configured":
                 codex_result = {
                     **codex_result,
-                    "probe_status": local_result.get("status"),
+                    "runtime_reachable": False,
+                    "runtime_ready": False,
+                    "evidence_kind": "configuration_only",
                 }
         else:
             codex_result = {
                 "status": "not_configured",
                 "reason_code": "CODEX_GAME_SURFACE_EXTERNAL",
+                "runtime_reachable": False,
+                "runtime_ready": False,
+                "evidence_kind": "configuration_only",
             }
         servers[name] = {
             "expected_version": expected,
+            "expected": {
+                "server_version": expected,
+                "source_revision": revision,
+                "working_tree": working_tree,
+            },
             "local_direct": local_result,
             "codex": codex_result,
-            "remote": remote_result,
+            "remote_backend": remote_result.get("remote_backend", {}),
+            "public_edge": remote_result.get("public_edge", {}),
+        }
+    semgrep = semgrep_probe or _probe_semgrep_local_mcp
+    try:
+        semgrep_result = await asyncio.wait_for(
+            semgrep(repository_root), timeout=SEMGREP_PROBE_TIMEOUT_SECONDS
+        )
+    except TimeoutError:
+        semgrep_result = {
+            "status": "unavailable",
+            "reason_code": "SEMGREP_LOCAL_PROBE_TIMEOUT",
+        }
+    except Exception as exc:  # noqa: BLE001 - status boundary hides subprocess details.
+        semgrep_result = {
+            "status": "unavailable",
+            "reason_code": "SEMGREP_LOCAL_PROBE_FAILED",
+            "error_type": _safe_type_name(exc),
         }
     version_guard = _version_guard(repository_root, expected_versions)
     try:
@@ -1090,7 +1848,11 @@ async def collect_status_async(
         expected_command=DOCKER_CLIENT_COMMAND,
         expected_args=DOCKER_CLIENT_ARGS,
     )
-    docker = {**docker, "codex": docker_client}
+    docker = {
+        **docker,
+        "codex": docker_client,
+        "client_connection": docker_client,
+    }
     chatgpt = {
         "status": "not_observable",
         "reason_code": "CHATGPT_ACTION_SNAPSHOT_NOT_OBSERVABLE",
@@ -1099,23 +1861,35 @@ async def collect_status_async(
         any(
             surface.get("status") == "drift"
             for item in servers.values()
-            for surface in (item.get("local_direct"), item.get("codex"))
+            for surface in (
+                item.get("local_direct"),
+                item.get("codex"),
+                item.get("remote_backend"),
+                item.get("public_edge"),
+            )
             if isinstance(surface, Mapping)
         )
         or docker_client.get("status") == "drift"
+        or isinstance(docker.get("profile_config"), Mapping)
+        and docker["profile_config"].get("status") == "drift"
     )
     unavailable = any(
         surface.get("status") in {"unavailable", "invalid"}
         for item in servers.values()
-        for surface in (item.get("local_direct"), item.get("remote"))
+        for surface in (
+            item.get("local_direct"),
+            item.get("remote_backend"),
+            item.get("public_edge"),
+        )
         if isinstance(surface, Mapping)
     )
     unknown = any(
-        isinstance(item.get("remote"), Mapping)
-        and item["remote"].get("status") == "not_observable"
+        isinstance(item.get(key), Mapping)
+        and item[key].get("status") in {"not_observable", "not_configured"}
         for item in servers.values()
         if isinstance(item, Mapping)
-    )
+        for key in ("remote_backend", "public_edge")
+    ) or semgrep_result.get("status") != "ready"
     status = (
         "drift"
         if drift or version_guard.get("status") == "drift"
@@ -1127,9 +1901,16 @@ async def collect_status_async(
         or docker.get("status") != "ready"
         else "ready"
     )
+    generated_at = now()
+    probe = {
+        "attempted_at": generated_at,
+        "last_successful_probe_timestamp_seconds": _timestamp_from_iso(generated_at)
+        if status == "ready"
+        else None,
+    }
     return {
         "schema_version": STATUS_SCHEMA_VERSION,
-        "generated_at": now(),
+        "generated_at": generated_at,
         "status": status,
         "reason_code": "MCP_STATUS_READY"
         if status == "ready"
@@ -1140,6 +1921,8 @@ async def collect_status_async(
         "servers": servers,
         "version_guard": version_guard,
         "docker_mcp": docker,
+        "semgrep_mcp": semgrep_result,
+        "probe": probe,
         "chatgpt": chatgpt,
     }
 
@@ -1164,7 +1947,7 @@ _METRIC_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,127}$")
 
 
 def status_metric_samples(report: Mapping[str, object]) -> tuple[MetricSample, ...]:
-    """Построить bounded samples без SHA, URL, токенов и диагностических payload."""
+    """Построить bounded samples без SHA, URL, токенов и payload."""
 
     samples: list[MetricSample] = []
     servers = report.get("servers")
@@ -1181,12 +1964,18 @@ def status_metric_samples(report: Mapping[str, object]) -> tuple[MetricSample, .
                 expected_version
             ):
                 continue
-            for surface_name in ("local_direct", "codex", "remote"):
+            for surface_name in (
+                "local_direct",
+                "codex",
+                "remote_backend",
+                "public_edge",
+            ):
                 surface = value.get(surface_name)
                 if not isinstance(surface, Mapping):
                     continue
                 status = surface.get("status")
                 protocol = surface.get("protocol_version")
+                observed_version = surface.get("server_version")
                 attributes = {
                     "server": server_name,
                     "surface": surface_name,
@@ -1195,17 +1984,68 @@ def status_metric_samples(report: Mapping[str, object]) -> tuple[MetricSample, .
                     if isinstance(protocol, str) and _SAFE_TOKEN.fullmatch(protocol)
                     else "unknown",
                 }
-                surface_ok = status in {"ready", "configured"}
-                endpoint_up = (
-                    1.0 if surface_ok or surface.get("endpoint_up") is True else 0.0
+                configured = status not in {"not_configured", None}
+                reachable = surface.get("runtime_reachable") is True or (
+                    surface_name == "public_edge"
+                    and surface.get("edge_reachable") is True
                 )
+                runtime_ready = surface.get("runtime_ready") is True or (
+                    surface_name == "local_direct" and status == "ready"
+                )
+                endpoint_up = reachable
                 samples.append(
-                    MetricSample("azurpilot_mcp_endpoint_up", endpoint_up, attributes)
+                    MetricSample(
+                        "azurpilot_mcp_surface_configured",
+                        1.0 if configured else 0.0,
+                        attributes,
+                    )
                 )
                 samples.append(
                     MetricSample(
-                        "azurpilot_mcp_version_info",
-                        1.0 if surface_ok else 0.0,
+                        "azurpilot_mcp_endpoint_up",
+                        1.0 if endpoint_up else 0.0,
+                        attributes,
+                    )
+                )
+                samples.append(
+                    MetricSample(
+                        "azurpilot_mcp_surface_reachable",
+                        1.0 if reachable else 0.0,
+                        attributes,
+                    )
+                )
+                samples.append(
+                    MetricSample(
+                        "azurpilot_mcp_surface_runtime_ready",
+                        1.0 if runtime_ready else 0.0,
+                        attributes,
+                    )
+                )
+                if isinstance(observed_version, str) and _VERSION_RE.fullmatch(
+                    observed_version
+                ):
+                    observed_attributes = {
+                        **attributes,
+                        "version": observed_version.removeprefix("v"),
+                    }
+                    samples.append(
+                        MetricSample(
+                            "azurpilot_mcp_observed_version_info",
+                            1.0,
+                            observed_attributes,
+                        )
+                    )
+                    samples.append(
+                        MetricSample(
+                            "azurpilot_mcp_version_info",
+                            1.0,
+                            observed_attributes,
+                        )
+                    )
+                samples.append(
+                    MetricSample(
+                        "azurpilot_mcp_expected_version_info",
+                        1.0,
                         attributes,
                     )
                 )
@@ -1225,27 +2065,51 @@ def status_metric_samples(report: Mapping[str, object]) -> tuple[MetricSample, .
                 or server_name not in THIRD_PARTY_SERVERS
             ):
                 continue
-            ready = isinstance(value, Mapping) and value.get("status") == "ready"
+            configured = isinstance(value, Mapping) and value.get("configured") is True
+            reachable = isinstance(value, Mapping) and value.get(
+                "runtime_reachable"
+            ) is True
+            ready = isinstance(value, Mapping) and value.get("runtime_ready") is True
+            attributes = {
+                "server": server_name,
+                "surface": "docker_gateway",
+                "version": "unknown",
+                "protocol": "unknown",
+            }
+            samples.append(
+                MetricSample(
+                    "azurpilot_mcp_surface_configured",
+                    1.0 if configured else 0.0,
+                    attributes,
+                )
+            )
+            samples.append(
+                MetricSample(
+                    "azurpilot_mcp_surface_reachable",
+                    1.0 if reachable else 0.0,
+                    attributes,
+                )
+            )
+            samples.append(
+                MetricSample(
+                    "azurpilot_mcp_surface_runtime_ready",
+                    1.0 if ready else 0.0,
+                    attributes,
+                )
+            )
             samples.append(
                 MetricSample(
                     "azurpilot_mcp_gateway_server_up",
                     1.0 if ready else 0.0,
-                    {
-                        "server": server_name,
-                        "surface": "docker_gateway",
-                        "version": "unknown",
-                        "protocol": "unknown",
-                    },
+                    attributes,
                 )
             )
     docker_version = docker.get("version") if isinstance(docker, Mapping) else None
     if isinstance(docker_version, str) and _VERSION_RE.fullmatch(docker_version):
         samples.append(
             MetricSample(
-                "azurpilot_mcp_version_info",
-                1.0
-                if isinstance(docker, Mapping) and docker.get("status") == "ready"
-                else 0.0,
+                "azurpilot_mcp_observed_version_info",
+                1.0,
                 {
                     "server": "docker-gateway",
                     "surface": "docker_gateway",
@@ -1254,13 +2118,20 @@ def status_metric_samples(report: Mapping[str, object]) -> tuple[MetricSample, .
                 },
             )
         )
-    samples.append(
-        MetricSample(
-            "azurpilot_mcp_last_probe_timestamp_seconds",
-            datetime.now(UTC).timestamp(),
-            {},
-        )
+    probe = report.get("probe")
+    successful_timestamp = (
+        probe.get("last_successful_probe_timestamp_seconds")
+        if isinstance(probe, Mapping)
+        else None
     )
+    if isinstance(successful_timestamp, (int, float)) and successful_timestamp >= 0:
+        samples.append(
+            MetricSample(
+                "azurpilot_mcp_last_successful_probe_timestamp_seconds",
+                float(successful_timestamp),
+                {},
+            )
+        )
     for sample in samples:
         if (
             not _METRIC_NAME_RE.fullmatch(sample.name)
@@ -1296,59 +2167,15 @@ def emit_metrics(report: Mapping[str, object]) -> MetricEmission:
     if not endpoint:
         return MetricEmission(False, "MCP_METRICS_ENDPOINT_UNCONFIGURED", len(samples))
     try:
-        from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
-            OTLPMetricExporter,
-        )
-        from opentelemetry.sdk.metrics import MeterProvider
-        from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
-        from opentelemetry.sdk.resources import Resource
-        from opentelemetry.util.re import parse_env_headers
+        from module.observability.metrics import emit_metric_samples_once
 
-        headers_raw = os.environ.get(
-            "OTEL_EXPORTER_OTLP_METRICS_HEADERS"
-        ) or os.environ.get("OTEL_EXPORTER_OTLP_HEADERS", "")
-        headers = (
-            dict(parse_env_headers(headers_raw, liberal=True)) if headers_raw else None
-        )
-        exporter = OTLPMetricExporter(
+        flushed = emit_metric_samples_once(
+            samples,
             endpoint=endpoint,
-            timeout=METRICS_TIMEOUT_SECONDS,
-            headers=headers,
+            timeout_millis=int(METRICS_TIMEOUT_SECONDS * 1000),
+            repository_root=Path(__file__).resolve().parents[1],
         )
-        reader = PeriodicExportingMetricReader(
-            exporter,
-            export_interval_millis=60_000,
-            export_timeout_millis=int(METRICS_TIMEOUT_SECONDS * 1000),
-        )
-        provider = MeterProvider(
-            metric_readers=(reader,),
-            resource=Resource.create(
-                {
-                    "service.name": "azurpilot-mcp-status",
-                    "deployment.environment.name": "development",
-                }
-            ),
-            shutdown_on_exit=False,
-        )
-        instruments: dict[str, Any] = {}
-        for sample in samples:
-            instrument = instruments.get(sample.name)
-            if instrument is None:
-                instrument = provider.get_meter("azurpilot.mcp.status").create_gauge(
-                    sample.name,
-                    unit="1"
-                    if sample.name != "azurpilot_mcp_last_probe_timestamp_seconds"
-                    else "s",
-                )
-                instruments[sample.name] = instrument
-            instrument.set(sample.value, attributes=sample.attributes)
-        flushed = bool(
-            provider.force_flush(timeout_millis=int(METRICS_TIMEOUT_SECONDS * 1000))
-        )
-        provider.shutdown(timeout_millis=int(METRICS_TIMEOUT_SECONDS * 1000))
     except Exception:  # noqa: BLE001 - status command must not expose headers/errors.
-        with suppress(Exception):
-            provider.shutdown()  # type: ignore[has-type, possibly-undefined]
         return MetricEmission(False, "MCP_METRICS_EXPORT_FAILED", len(samples))
     return MetricEmission(
         flushed,
@@ -1370,20 +2197,45 @@ def _strict_failure(
         return True
     servers = report.get("servers")
     if isinstance(servers, Mapping):
+        dev_item = servers.get("azurpilot-dev")
+        if not isinstance(dev_item, Mapping):
+            return True
+        dev_codex = dev_item.get("codex")
+        if not isinstance(dev_codex, Mapping) or dev_codex.get("status") != "configured":
+            return True
         for item in servers.values():
             if not isinstance(item, Mapping):
                 return True
-            for key in ("local_direct", "remote"):
+            local = item.get("local_direct")
+            if not isinstance(local, Mapping) or local.get("status") != "ready":
+                return True
+            for key in ("remote_backend", "public_edge"):
                 surface = item.get(key)
-                if isinstance(surface, Mapping) and surface.get("status") in {
-                    "unavailable",
-                    "drift",
-                    "invalid",
-                }:
+                if not isinstance(surface, Mapping) or surface.get("status") != "ready":
                     return True
+    else:
+        return True
+    semgrep = report.get("semgrep_mcp")
+    if not isinstance(semgrep, Mapping) or semgrep.get("status") != "ready":
+        return True
+    if semgrep.get("scan_tool") not in SEMGREP_LOCAL_SCAN_TOOLS:
+        return True
     docker = report.get("docker_mcp")
     if isinstance(docker, Mapping):
-        if docker.get("status") not in {"ready", "partial"}:
+        if docker.get("status") != "ready":
+            return True
+        profile_config = docker.get("profile_config")
+        if not isinstance(profile_config, Mapping) or profile_config.get("status") != "ready":
+            return True
+        gateway_runtime = docker.get("gateway_runtime")
+        if not isinstance(gateway_runtime, Mapping) or gateway_runtime.get(
+            "runtime_ready"
+        ) is not True:
+            return True
+        client_connection = docker.get("client_connection")
+        if not isinstance(client_connection, Mapping) or client_connection.get(
+            "status"
+        ) != "configured":
             return True
         third_party = docker.get("third_party")
         if not isinstance(third_party, Mapping):
@@ -1392,11 +2244,14 @@ def _strict_failure(
             item = third_party.get(name)
             if not isinstance(item, Mapping):
                 return True
-            item_status = item.get("status")
-            if name in _REQUIRED_TOOL_SETS:
-                if item_status != "ready":
-                    return True
-            elif item_status not in {"ready", "not_observable"}:
+            if item.get("configured") is not True:
+                return True
+            if item.get("runtime_reachable") is not True:
+                return True
+            if item.get("runtime_ready") is not True or item.get("status") != "ready":
+                return True
+            policy = item.get("read_only_policy")
+            if not isinstance(policy, Mapping) or policy.get("status") != "ready":
                 return True
         secret_engine = docker.get("secret_engine")
         secret_store = (
@@ -1406,6 +2261,8 @@ def _strict_failure(
         )
         if not isinstance(secret_store, Mapping) or secret_store.get("status") != "ready":
             return True
+    else:
+        return True
     return emission is not None and not emission.emitted
 
 
@@ -1440,7 +2297,7 @@ def _human_surface_cell(surface: object, *, expected_version: object = None) -> 
         return "UNKNOWN"
     surface_status = surface.get("status")
     if surface_status in {"ready", "configured"}:
-        version = surface.get("server_version") or expected_version
+        version = surface.get("server_version")
         if isinstance(version, str) and _VERSION_RE.fullmatch(version):
             return f"{version} OK"
         return "OK"
@@ -1533,21 +2390,47 @@ def _print_human(report: Mapping[str, object], emission: MetricEmission | None) 
             if not isinstance(name, str) or not isinstance(item, Mapping):
                 continue
             expected_version = item.get("expected_version", "unknown")
+            expected = item.get("expected")
+            expected_source = (
+                expected.get("source_revision")
+                if isinstance(expected, Mapping)
+                else source_revision
+            )
+            if not isinstance(expected_source, str):
+                expected_source = UNKNOWN_SOURCE_REVISION
+            expected_source = (
+                expected_source[:12]
+                if expected_source != UNKNOWN_SOURCE_REVISION
+                else UNKNOWN_SOURCE_REVISION
+            )
             local = item.get("local_direct")
-            source_cell = _human_surface_cell(local, expected_version=expected_version)
+            expected_cell = f"{expected_version} / {expected_source}"
+            local_cell = _human_surface_cell(local, expected_version=expected_version)
             codex_cell = _human_surface_cell(
                 item.get("codex"), expected_version=expected_version
             )
-            remote_cell = _human_surface_cell(
-                item.get("remote"), expected_version=expected_version
+            backend_cell = _human_surface_cell(
+                item.get("remote_backend"), expected_version=expected_version
+            )
+            edge_cell = _human_surface_cell(
+                item.get("public_edge"), expected_version=expected_version
             )
             rows.append(
-                [name, source_cell, codex_cell, remote_cell, _human_protocol(item)]
+                [
+                    name,
+                    expected_cell,
+                    local_cell,
+                    codex_cell,
+                    backend_cell,
+                    edge_cell,
+                    _human_protocol(item),
+                ]
             )
             for surface_name, label in (
                 ("local_direct", "Source"),
                 ("codex", "Codex path"),
-                ("remote", "ChatGPT backend"),
+                ("remote_backend", "Remote backend"),
+                ("public_edge", "Public edge"),
             ):
                 surface = item.get(surface_name)
                 if isinstance(surface, Mapping) and surface.get("status") not in {
@@ -1565,7 +2448,15 @@ def _print_human(report: Mapping[str, object], emission: MetricEmission | None) 
 
     print()
     _print_human_table(
-        ("SERVER", "SOURCE", "CODEX PATH", "CHATGPT BACKEND", "PROTOCOL"),
+        (
+            "SERVER",
+            "EXPECTED/SOURCE",
+            "LOCAL/DIRECT",
+            "CODEX PATH",
+            "REMOTE BACKEND",
+            "PUBLIC EDGE",
+            "PROTOCOL",
+        ),
         rows,
     )
 
@@ -1579,6 +2470,27 @@ def _print_human(report: Mapping[str, object], emission: MetricEmission | None) 
         print(f"Version: {docker.get('version', 'UNKNOWN')}")
         print(f"Profile: {profile_id} ({profile_name})")
         print(f"Status: {_human_status_label(docker.get('status'))}")
+        profile_config = docker.get("profile_config")
+        if isinstance(profile_config, Mapping):
+            print(
+                "Profile config: "
+                f"{_human_status_label(profile_config.get('status'))} "
+                f"({_human_reason(profile_config.get('reason_code'))})"
+            )
+        gateway_runtime = docker.get("gateway_runtime")
+        if isinstance(gateway_runtime, Mapping):
+            print(
+                "Gateway runtime: "
+                f"{_human_status_label(gateway_runtime.get('status'))} "
+                f"({_human_reason(gateway_runtime.get('reason_code'))})"
+            )
+        client_connection = docker.get("client_connection")
+        if isinstance(client_connection, Mapping):
+            print(
+                "Client connection: "
+                f"{_human_status_label(client_connection.get('status'))} "
+                f"({_human_reason(client_connection.get('reason_code'))})"
+            )
         server_count = docker.get("server_count")
         if isinstance(server_count, int):
             print(f"Servers: {server_count}/{len(THIRD_PARTY_SERVERS)}")
@@ -1590,18 +2502,44 @@ def _print_human(report: Mapping[str, object], emission: MetricEmission | None) 
                 item = third_party.get(name)
                 if not isinstance(item, Mapping):
                     continue
-                policy = "read-only" if item.get("read_only") is True else "UNKNOWN"
-                tool_count = item.get("tool_count")
+                profile_item = item.get("profile_config")
+                runtime_item = item.get("gateway_runtime")
+                policy_item = item.get("read_only_policy")
+                policy = (
+                    _human_status_label(policy_item.get("status"))
+                    if isinstance(policy_item, Mapping)
+                    else "UNKNOWN"
+                )
+                tool_count = (
+                    runtime_item.get("tool_count")
+                    if isinstance(runtime_item, Mapping)
+                    else None
+                )
                 tools = (
                     f"{tool_count} tools"
                     if isinstance(tool_count, int)
-                    and item.get("tools_observable") is not False
+                    and isinstance(runtime_item, Mapping)
+                    and runtime_item.get("tools_observable") is not False
                     else "catalog unknown"
                 )
                 docker_rows.append(
-                    [name, _human_status_label(item.get("status")), policy, tools]
+                    [
+                        name,
+                        _human_status_label(
+                            profile_item.get("status")
+                            if isinstance(profile_item, Mapping)
+                            else "unknown"
+                        ),
+                        _human_status_label(
+                            runtime_item.get("status")
+                            if isinstance(runtime_item, Mapping)
+                            else "unknown"
+                        ),
+                        policy,
+                        tools,
+                    ]
                 )
-                if item.get("status") not in {"ready"}:
+                if item.get("runtime_ready") is not True:
                     notes.append(
                         f"Docker {name}: "
                         f"{_human_status_label(item.get('status'))} "
@@ -1609,7 +2547,10 @@ def _print_human(report: Mapping[str, object], emission: MetricEmission | None) 
                     )
             if docker_rows:
                 print()
-                _print_human_table(("SERVER", "STATUS", "POLICY", "TOOLS"), docker_rows)
+                _print_human_table(
+                    ("SERVER", "PROFILE CONFIG", "GATEWAY RUNTIME", "POLICY", "TOOLS"),
+                    docker_rows,
+                )
 
         secret_engine = docker.get("secret_engine")
         if isinstance(secret_engine, Mapping):
@@ -1686,32 +2627,82 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Однократно отправить status metrics через OTel.",
     )
+    parser.add_argument(
+        "--watch",
+        action="store_true",
+        help="Повторять bounded status probe до остановки процесса.",
+    )
+    parser.add_argument(
+        "--interval-seconds",
+        type=float,
+        default=60.0,
+        help="Интервал --watch в секундах (10..3600).",
+    )
     parser.add_argument("--repository-root", type=Path, default=Path("."))
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
-    report = collect_status(arguments.repository_root)
-    emission = emit_metrics(report) if arguments.emit_metrics else None
-    if emission is not None:
-        report = {
-            **report,
-            "metrics": {
-                "emitted": emission.emitted,
-                "reason_code": emission.reason_code,
-                "sample_count": emission.sample_count,
-            },
-        }
-    if arguments.as_json:
+    if not (
+        MCP_STATUS_WATCH_MIN_INTERVAL_SECONDS
+        <= arguments.interval_seconds
+        <= MCP_STATUS_WATCH_MAX_INTERVAL_SECONDS
+    ):
         print(
-            json.dumps(
-                report, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-            )
+            "Интервал --watch должен быть от "
+            f"{MCP_STATUS_WATCH_MIN_INTERVAL_SECONDS:g} до "
+            f"{MCP_STATUS_WATCH_MAX_INTERVAL_SECONDS:g} секунд."
         )
-    else:
-        _print_human(report, emission)
-    return 2 if arguments.strict and _strict_failure(report, emission) else 0
+        return 2
+
+    def run_once() -> tuple[dict[str, object], MetricEmission | None]:
+        report = collect_status(arguments.repository_root)
+        emission = emit_metrics(report) if arguments.emit_metrics else None
+        if emission is not None:
+            report = {
+                **report,
+                "metrics": {
+                    "emitted": emission.emitted,
+                    "reason_code": emission.reason_code,
+                    "sample_count": emission.sample_count,
+                },
+            }
+        return report, emission
+
+    if not arguments.watch:
+        report, emission = run_once()
+        if arguments.as_json:
+            print(
+                json.dumps(
+                    report, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+                )
+            )
+        else:
+            _print_human(report, emission)
+        return 2 if arguments.strict and _strict_failure(report, emission) else 0
+
+    last_failure = False
+    try:
+        while True:
+            report, emission = run_once()
+            last_failure = _strict_failure(report, emission) if arguments.strict else False
+            if arguments.as_json:
+                print(
+                    json.dumps(
+                        report,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ),
+                    flush=True,
+                )
+            else:
+                _print_human(report, emission)
+                print()
+            time.sleep(arguments.interval_seconds)
+    except KeyboardInterrupt:
+        return 2 if arguments.strict and last_failure else 0
 
 
 if __name__ == "__main__":

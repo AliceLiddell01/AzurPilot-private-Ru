@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from module.mcp_shared.versioning import source_revision
+from module.mcp_shared.versioning import server_version, source_revision
 
 EXPECTED_CONTRACT = {
     "contract_schema_version": 1,
     "product_family": "AzurPilot",
     "server_name": "azurpilot-dev",
-    "server_version": "3.0.0",
+    "server_version": server_version("azurpilot-dev"),
     "source_revision": source_revision(),
     "dev_mcp_api_version": 3,
     "smoke_spec_schema_version": 2,
