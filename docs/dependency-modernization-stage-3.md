@@ -78,8 +78,8 @@ acceptance зафиксированы в issue
 
 Deterministic tests и source/runtime contracts не доказывают полную физическую
 работу ADB. Штатный Dev MCP target сейчас доступен: Universal Smoke Harness
-выполнил bounded run `887b6b6a-7479-41f4-ba5e-c79e07048345` на exact head
-`1c4f30792d404c2eefbb14a486c375d8ae33442f`, profile `ap`; `DEV_SMOKE_PASS`, все
+выполнил bounded run `a8589616-a705-405d-9540-d0db84e12044` на exact head
+`a586bdae11a13068e13575ebc51c27e4d26f3720`, profile `ap`; `DEV_SMOKE_PASS`, все
 5 assertions прошли, `resources` подтверждены в `before` и `final`, cleanup и
 source snapshot подтверждены. Этот результат доказывает запуск текущего Dev
 Runtime и typed MCP evidence, но не заменяет полный device acceptance по USB,
