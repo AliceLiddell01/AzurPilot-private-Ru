@@ -339,7 +339,7 @@ requires-dist = [
     { name = "opentelemetry-exporter-otlp-proto-http", specifier = "==1.44.0" },
     { name = "opentelemetry-instrumentation-logging", specifier = "==0.65b0" },
     { name = "opentelemetry-sdk", specifier = "==1.44.0" },
-    { name = "packaging", specifier = "==24.2" },
+    { name = "packaging", specifier = "==25.0" },
     { name = "pillow", specifier = "==12.3.0" },
     { name = "pip", specifier = "==26.0.1" },
     { name = "psutil", specifier = "==7.2.2" },
