@@ -9,7 +9,7 @@ dependencies = [
     "opencv-python==5.0.0.93",
     "imageio==2.37.4",
     "imageio-ffmpeg==0.6.0",
-    "adbutils==0.11.0",
+    "adbutils==0.16.2",
     "uiautomator2==2.16.17",
     "uiautomator2cache==0.3.0.1",
     "wrapt==1.15.0",
