@@ -333,7 +333,7 @@ requires-dist = [
     { name = "onepush", specifier = "==1.2.0" },
     { name = "onnxruntime", marker = "platform_machine == 'arm64' and sys_platform == 'darwin'", specifier = "==1.27.0" },
     { name = "onnxruntime", marker = "sys_platform == 'linux'", specifier = "==1.27.0" },
-    { name = "onnxruntime-windowsml", marker = "sys_platform == 'win32'", specifier = "==1.27.1.202607110137" },
+    { name = "onnxruntime-windowsml", marker = "sys_platform == 'win32'", specifier = "==1.28.0.202607272323" },
     { name = "openai", specifier = "==2.30.0" },
     { name = "opencv-python", specifier = "==5.0.0.93" },
     { name = "opentelemetry-exporter-otlp-proto-http", specifier = "==1.44.0" },
@@ -1534,7 +1534,7 @@ wheels = [
 
 [[package]]
 name = "onnxruntime-windowsml"
-version = "1.27.1.202607110137"
+version = "1.28.0.202607272323"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "flatbuffers" },
@@ -1543,8 +1543,8 @@ dependencies = [
     { name = "protobuf" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e8/c0/ddeafb4d50468a72e9b0b9adaf8cd95137052db85a0274cbd4b6e645a8ce/onnxruntime_windowsml-1.27.1.202607110137-cp314-cp314-win_amd64.whl", hash = "sha256:9fede36a96faa866026ad8b255cfed1a240fe6791df56c3144317363fb78cb98", size = 26337463, upload-time = "2026-07-15T21:39:09.763Z" },
-    { url = "https://files.pythonhosted.org/packages/89/6c/ef53b1388c914c9b9f7f218700dbc1f8322adb269defa32f5306c70d2a7d/onnxruntime_windowsml-1.27.1.202607110137-cp314-cp314-win_arm64.whl", hash = "sha256:44fdd8fee52fedb52e84147765159509f467efe81d27a6254550444803324821", size = 25747474, upload-time = "2026-07-15T21:39:12.683Z" },
+    { url = "https://files.pythonhosted.org/packages/06/76/fbf1fe6a9202efe6f2e4f4d0822636a4a794a3004c0e1c324c24c5aaa14d/onnxruntime_windowsml-1.28.0.202607272323-cp314-cp314-win_amd64.whl", hash = "sha256:eda53a2fda798d23d32cb6457b91bf5400808ece2a9d7d787e2cbb204deb916b", size = 26782481, upload-time = "2026-08-17T21:06:26.171Z" },
+    { url = "https://files.pythonhosted.org/packages/ab/ca/b04d83e7d6b1e18a27cb84ed13a2627fa399085c94707af188e70c1bde00/onnxruntime_windowsml-1.28.0.202607272323-cp314-cp314-win_arm64.whl", hash = "sha256:e2db20fbe431915a0d3288581493672c0d388ab2c928668451b286347f2f91e1", size = 26169822, upload-time = "2026-08-17T21:06:29.971Z" },
 ]
 
 [[package]]
