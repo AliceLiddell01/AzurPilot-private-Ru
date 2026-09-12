@@ -78,10 +78,10 @@ acceptance зафиксированы в issue
 
 Deterministic tests и source/runtime contracts не доказывают полную физическую
 работу ADB. Штатный Dev MCP target сейчас доступен: Universal Smoke Harness
-выполнил bounded run `a8589616-a705-405d-9540-d0db84e12044` на exact head
-`a586bdae11a13068e13575ebc51c27e4d26f3720`, profile `ap`; `DEV_SMOKE_PASS`, все
-5 assertions прошли, `resources` подтверждены в `before` и `final`, cleanup и
-source snapshot подтверждены. Этот результат доказывает запуск текущего Dev
+выполнил bounded run на clean source snapshot, profile `ap`; `DEV_SMOKE_PASS`,
+все 5 assertions прошли, `resources` подтверждены в `before` и `final`, cleanup
+и source snapshot подтверждены. Immutable run id, spec hash и exact head
+зафиксированы в PR description. Этот результат доказывает запуск текущего Dev
 Runtime и typed MCP evidence, но не заменяет полный device acceptance по USB,
 TCP/emulator, MuMu, selector/input, screenshot/BGR, minitouch и reconnect.
 Поэтому внешний gate остаётся в состоянии **PENDING EXTERNAL ACCEPTANCE —
