@@ -8,6 +8,11 @@ import time
 import typing as t
 from time import sleep
 
+# Загрузить совместимый pkg_resources до библиотек устройства.
+from module.device.pkg_resources import get_distribution
+
+_ = get_distribution
+
 import numpy as np
 from adbutils import AdbError, Network
 

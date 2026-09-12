@@ -62,12 +62,12 @@ $script:ShortcutOnlyParameter = $ShortcutOnly
 $script:SyncTimeoutSecondsParameter = $SyncTimeoutSeconds
 $script:NoShortcutParameter = $NoShortcut
 
-$script:ExpectedUvVersion = '0.11.32'
+$script:ExpectedUvVersion = '0.12.13'
 $script:ExpectedPythonVersion = '3.14.6'
 $script:ExpectedAdbVersion = '37.0.0'
 
-$script:UvArchiveUrl = 'https://releases.astral.sh/github/uv/releases/download/0.11.32/uv-x86_64-pc-windows-msvc.zip'
-$script:UvArchiveSha256 = 'ACFDE570451CFDB8689FA159A138EE805BA4E241C466432750302C86254B0984'
+$script:UvArchiveUrl = 'https://releases.astral.sh/github/uv/releases/download/0.12.13/uv-x86_64-pc-windows-msvc.zip'
+$script:UvArchiveSha256 = 'A86C9DC7BAD9B03F388583B7187C05FE9951C2E0D392217E8FD43D97787F6EC2'
 $script:UvArchiveName = 'uv-x86_64-pc-windows-msvc.zip'
 
 $script:AdbArchiveUrl = 'https://dl.google.com/android/repository/platform-tools_r37.0.0-win.zip'

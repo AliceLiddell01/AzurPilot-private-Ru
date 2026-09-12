@@ -10,6 +10,11 @@ import time
 import typing as t
 from functools import wraps
 
+# Загрузить совместимый pkg_resources до библиотек устройства.
+from module.device.pkg_resources import get_distribution
+
+_ = get_distribution
+
 import cv2
 import numpy as np
 import requests

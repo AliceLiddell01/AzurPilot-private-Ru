@@ -6,6 +6,7 @@ import copy
 # 此文件定义了 WebUI 中使用的各种自定义交互图形组件（Widgets）。
 # 包含彩色实时日志渲染器（RichLog）、状态感知切换按钮以及图标按钮组等高度定制化的可视化组件。
 import html
+import io
 import json
 import pywebio.pin
 import random
@@ -100,6 +101,7 @@ class RichLog:
         self.scope = scope
         self.font_width = font_width
         self.console = HTMLConsole(
+            file=io.StringIO(),
             force_terminal=False,
             force_interactive=False,
             width=80,
@@ -126,8 +128,7 @@ class RichLog:
             self.terminal_theme = LIGHT_TERMINAL_THEME
 
     def render(self, renderable: ConsoleRenderable) -> str:
-        with self.console.capture():
-            self.console.print(renderable)
+        self.console.print(renderable)
 
         html = self.console.export_html(
             theme=self.terminal_theme,

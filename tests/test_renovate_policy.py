@@ -54,7 +54,7 @@ def _resolved_dashboard_approval(
     return config["dependencyDashboardApproval"] is True
 
 
-def test_uv_coupling_identities_remain_dashboard_approved() -> None:
+def test_uv_coupling_identities_follow_normal_dashboard_policy() -> None:
     config = _load_config()
     identities = (
         {
@@ -82,28 +82,30 @@ def test_uv_coupling_identities_remain_dashboard_approved() -> None:
 
     for dependency in identities:
         package_name = dependency["packageName"]
-        assert _resolved_dashboard_approval(config, dependency) is True, package_name
+        assert _resolved_dashboard_approval(config, dependency) is False, package_name
         assert _resolved_priority(config, dependency) == 0, package_name
 
-    uv_rule = next(
-        rule
+    assert not any(
+        dependency["packageName"] in rule.get("matchPackageNames", [])
+        and rule.get("dependencyDashboardApproval") is True
         for rule in config["packageRules"]
-        if "uv" in rule.get("matchPackageNames", [])
+        for dependency in identities
     )
-    assert set(uv_rule["matchPackageNames"]) == {
-        "uv",
-        "astral-sh/uv",
-        "ghcr.io/astral-sh/uv",
-    }
-    assert "astral-sh/setup-uv" not in uv_rule["matchPackageNames"]
 
 
 def test_first_wave_priority_is_explicit_and_non_major() -> None:
     config = _load_config()
     assert config["dependencyDashboardApproval"] is False
-    assert config["major"]["dependencyDashboardApproval"] is True
+    assert config["dependencyDashboard"] is True
+    assert config["prConcurrentLimit"] == 4
+    assert config["prHourlyLimit"] == 2
+    assert config["separateMultipleMajor"] is True
     assert config["automerge"] is False
     assert config["vulnerabilityAlerts"]["dependencyDashboardApproval"] is False
+    assert not any(
+        rule.get("dependencyDashboardApproval") is True
+        for rule in config["packageRules"]
+    )
 
     first_wave = (
         {
@@ -151,7 +153,7 @@ def test_first_wave_priority_is_explicit_and_non_major() -> None:
         "depType": "project.dependencies",
         "updateType": "minor",
     }
-    assert _resolved_dashboard_approval(config, protected_uv) is True
+    assert _resolved_dashboard_approval(config, protected_uv) is False
     assert _resolved_priority(config, protected_uv) == 0
 
     priority_rules = [

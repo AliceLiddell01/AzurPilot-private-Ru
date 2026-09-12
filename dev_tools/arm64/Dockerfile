@@ -8,7 +8,7 @@ ENV PATH=/app/AzurLaneAutoScript/.venv/bin:${PATH}
 
 WORKDIR /app/AzurLaneAutoScript
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.12.13 /uv /usr/local/bin/uv
 COPY pyproject.toml uv.lock ./
 
 RUN apt-get update && \

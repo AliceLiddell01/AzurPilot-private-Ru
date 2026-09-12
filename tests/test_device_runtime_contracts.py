@@ -27,10 +27,10 @@ class DeviceRuntimeContractTests(unittest.TestCase):
         pyproject = _text("pyproject.toml")
         lock = _text("uv.lock")
 
-        self.assertIn('"adbutils==0.11.0"', pyproject)
-        self.assertIn('"uiautomator2==2.16.17"', pyproject)
-        self.assertRegex(lock, r'name = "adbutils"\s+version = "0\.11\.0"')
-        self.assertRegex(lock, r'name = "uiautomator2"\s+version = "2\.16\.17"')
+        self.assertIn('"adbutils==1.2.15"', pyproject)
+        self.assertIn('"uiautomator2==2.16.26"', pyproject)
+        self.assertRegex(lock, r'name = "adbutils"\s+version = "1\.2\.15"')
+        self.assertRegex(lock, r'name = "uiautomator2"\s+version = "2\.16\.26"')
 
     def test_adb_target_and_android_readiness_are_explicit(self) -> None:
         connection_attr = _text("module/device/connection_attr.py")

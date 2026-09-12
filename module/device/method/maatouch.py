@@ -12,6 +12,11 @@ import threading
 import time
 from functools import wraps
 
+# Загрузить совместимый pkg_resources до библиотек устройства.
+from module.device.pkg_resources import get_distribution
+
+_ = get_distribution
+
 from adbutils.errors import AdbError
 
 from module.base.decorator import cached_property, del_cached_property, has_cached_property

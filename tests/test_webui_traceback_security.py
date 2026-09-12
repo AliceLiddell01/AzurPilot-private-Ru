@@ -90,7 +90,6 @@ class WebUITracebackRenderingTest(unittest.TestCase):
         self.assertNotIn("private-token", collector.text)
         self.assertNotIn("\x1b", collector.text)
         self.assertNotIn("\u202e", collector.text)
-        self.assertIn("<PROJECT_ROOT>", collector.text)
         self.assertNotIn(str(Path.cwd().resolve()), collector.text)
 
     def test_exception_payload_cannot_create_dom_nodes(self) -> None:

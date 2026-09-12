@@ -7,6 +7,11 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
+# Загрузить совместимый pkg_resources до библиотек устройства.
+from module.device.pkg_resources import get_distribution
+
+_ = get_distribution
+
 import adbutils
 import uiautomator2 as u2
 from adbutils import AdbClient, AdbDevice

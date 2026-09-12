@@ -73,7 +73,7 @@ class PackageCache:
         dic = {}
         for file in os.listdir(self.site_packages):
             # mxnet_cu101-1.6.0.dist-info
-            # adbutils-0.11.0-py3.7.egg-info
+            # adbutils-1.2.15-py3.7.egg-info
             res = re.match(r'^([a-zA-Z0-9._]+)-([a-zA-Z0-9._]+)-', file)
             if res:
                 version = removesuffix(res.group(2), '.dist')
@@ -101,12 +101,12 @@ def get_distribution(dist):
     if dist == 'adbutils':
         return PACKAGE_CACHE.dict_installed_packages.get(
             'adbutils',
-            FakeDistributionObject('adbutils', '0.11.0'),
+            FakeDistributionObject('adbutils', '1.2.15'),
         )
     if dist == 'uiautomator2':
         return PACKAGE_CACHE.dict_installed_packages.get(
             'uiautomator2',
-            FakeDistributionObject('uiautomator2', '2.16.17'),
+            FakeDistributionObject('uiautomator2', '2.16.26'),
         )
 
 

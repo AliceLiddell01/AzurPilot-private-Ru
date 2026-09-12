@@ -126,7 +126,8 @@ from module.webui.widgets import (
 )
 from module.webui.dashboard_utils import get_dashboard_scope_id, get_group_scope_id
 
-# PyWebIO 1.7.1 未发布 PEP 561 类型信息，运行时装饰器还会扩展下列 API。
+# PyWebIO 1.8.4 не публикует PEP 561 типовую информацию, а runtime-декораторы
+# расширяют следующий API.
 # 在共享边界归一化为动态可调用对象，页面模块无需重复写类型忽略标记。
 put_scope: Callable[..., Any] = cast(
     Callable[..., Any], getattr(pywebio_output, "put_scope")
