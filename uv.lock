@@ -361,7 +361,7 @@ requires-dist = [
     { name = "starlette", specifier = "==0.49.1" },
     { name = "typing-extensions", specifier = ">=4.15.0" },
     { name = "uiautomator2", specifier = "==2.16.17" },
-    { name = "uiautomator2cache", specifier = "==0.3.0.1" },
+    { name = "uiautomator2cache", specifier = "==0.3.1" },
     { name = "uv", specifier = "==0.11.32" },
     { name = "uvicorn", extras = ["standard"], specifier = "==0.44.0" },
     { name = "watchdog", specifier = ">=6.0.0" },
@@ -2629,10 +2629,10 @@ wheels = [
 
 [[package]]
 name = "uiautomator2cache"
-version = "0.3.0.1"
+version = "0.3.1"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/de/2e/b8aae9827e724c958d90326ec0fac293dab1cb4d8d431e58fdf264ce981b/uiautomator2cache-0.3.0.1-py3-none-any.whl", hash = "sha256:18e4184e1a5841bb25cfe4e8b2c2b6b014bcdb556d7ece213845389b802225b3", size = 12903697, upload-time = "2023-04-08T15:15:26.36Z" },
+    { url = "https://files.pythonhosted.org/packages/15/63/97cab943afefb379c421ccd9ec890b0c2acbe0c3a1f7963e0022900f6f17/uiautomator2cache-0.3.1-py3-none-any.whl", hash = "sha256:cad9930b37e0ab57e13fedd090b8956871c8d857c95408f0ea5f0844c0ac53f8", size = 17143599, upload-time = "2024-07-01T16:46:10.752Z" },
 ]
 
 [[package]]
