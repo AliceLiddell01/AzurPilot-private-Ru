@@ -64,11 +64,11 @@ def __retry_internal(f, exceptions=Exception, tries=-1, delay=0, max_delay=None,
         except exceptions as e:
             _tries -= 1
             if not _tries:
-                # 与原版不同，抛出原始异常
+                # В отличие от оригинальной версии, выбрасываем исходное исключение.
                 raise e
 
             if logger is not None:
-                # 与原版不同，显示异常详情
+                # В отличие от оригинальной версии, показываем подробности исключения.
                 logger.exception(e)
                 logger.warning(f'{type(e).__name__}({e}), повторная попытка через {_delay} с...')
 
