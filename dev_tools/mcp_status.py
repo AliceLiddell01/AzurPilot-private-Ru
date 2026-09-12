@@ -35,7 +35,7 @@ from module.mcp_shared.versioning import (
 STATUS_SCHEMA_VERSION = 1
 STATUS_TIMEOUT_SECONDS = 20.0
 REMOTE_TIMEOUT_SECONDS = 5.0
-DOCKER_PROBE_TIMEOUT_SECONDS = 45.0
+DOCKER_PROBE_TIMEOUT_SECONDS = 90.0
 DOCKER_COMMAND_TIMEOUT_SECONDS = 15.0
 METRICS_TIMEOUT_SECONDS = 5.0
 SEMGREP_PROBE_TIMEOUT_SECONDS = 20.0
@@ -280,7 +280,7 @@ def _extract_contract(result: object) -> Mapping[str, object]:
 
 
 async def _probe_local_stdio(
-    server_name: str, *, root: Path, revision: str
+    server_name: str, *, root: Path
 ) -> dict[str, object]:
     """Выполнить initialize, tools/list и ровно один read-only contract call."""
 
@@ -390,8 +390,8 @@ def _semgrep_result_summary(result: object) -> dict[str, object]:
                 "finding_count": min(len(results), _MAX_TOOLS),
             }
     return {
-        "status": "ready",
-        "reason_code": "SEMGREP_SCAN_READY",
+        "status": "not_observable",
+        "reason_code": "SEMGREP_SCAN_RESULT_NOT_OBSERVABLE",
         "finding_count": None,
     }
 
@@ -1711,9 +1711,7 @@ async def collect_status_async(
         }
     revision, working_tree = _git_source_snapshot(repository_root)
     local = local_probe or (
-        lambda name, path, current_revision: _probe_local_stdio(
-            name, root=path, revision=current_revision
-        )
+        lambda name, path, _current_revision: _probe_local_stdio(name, root=path)
     )
     remote = remote_probe or _probe_remote
     codex_config = _load_codex_config(repository_root)
@@ -2158,8 +2156,11 @@ class MetricEmission:
 def emit_metrics(report: Mapping[str, object]) -> MetricEmission:
     """Однократно отправить status samples через существующий OTel/Alloy path."""
 
+    try:
+        samples = status_metric_samples(report)
+    except StatusError as exc:
+        return MetricEmission(False, exc.code, 0)
     endpoint = _metrics_endpoint()
-    samples = status_metric_samples(report)
     if not endpoint:
         return MetricEmission(False, "MCP_METRICS_ENDPOINT_UNCONFIGURED", len(samples))
     try:

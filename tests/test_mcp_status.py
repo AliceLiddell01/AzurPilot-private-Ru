@@ -289,6 +289,7 @@ def test_docker_probe_timeout_is_reported_without_waiting_for_the_probe(
         time.sleep(0.05)
         return _docker_ready()
 
+    started = time.monotonic()
     report = asyncio.run(
         status.collect_status_async(
             Path(__file__).resolve().parents[1],
@@ -297,7 +298,9 @@ def test_docker_probe_timeout_is_reported_without_waiting_for_the_probe(
             docker_probe=docker_probe,
         )
     )
+    elapsed = time.monotonic() - started
 
+    assert elapsed < 0.5
     assert report["docker_mcp"]["status"] == "unavailable"
     assert report["docker_mcp"]["reason_code"] == "DOCKER_PROBE_TIMEOUT"
 
@@ -331,6 +334,18 @@ def test_semgrep_probe_timeout_is_reported_with_bounded_wait(monkeypatch) -> Non
     assert elapsed < 0.5
     assert report["semgrep_mcp"]["status"] == "unavailable"
     assert report["semgrep_mcp"]["reason_code"] == "SEMGREP_LOCAL_PROBE_TIMEOUT"
+
+
+def test_semgrep_result_without_json_payload_is_not_observable() -> None:
+    result = type("_Result", (), {"is_error": False, "content": []})()
+
+    summary = status._semgrep_result_summary(result)
+
+    assert summary == {
+        "status": "not_observable",
+        "reason_code": "SEMGREP_SCAN_RESULT_NOT_OBSERVABLE",
+        "finding_count": None,
+    }
 
 
 def test_metric_samples_have_bounded_static_labels() -> None:
@@ -447,6 +462,21 @@ def test_emit_metrics_delegates_to_canonical_observability_runtime(monkeypatch) 
     assert captured["endpoint"] == "http://127.0.0.1:4318/v1/metrics"
     assert captured["timeout_millis"] == 5000
     assert isinstance(captured["repository_root"], Path)
+
+
+def test_emit_metrics_returns_bounded_error_for_invalid_samples(monkeypatch) -> None:
+    monkeypatch.setenv(
+        "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "http://127.0.0.1:4318/v1/metrics"
+    )
+
+    def invalid_samples(_report: object) -> tuple[object, ...]:
+        raise status.StatusError("MCP_METRIC_ATTRIBUTES_INVALID")
+
+    monkeypatch.setattr(status, "status_metric_samples", invalid_samples)
+
+    assert status.emit_metrics({}) == status.MetricEmission(
+        False, "MCP_METRIC_ATTRIBUTES_INVALID", 0
+    )
 
 
 def test_metrics_are_fail_open_when_otlp_endpoint_is_not_configured(

@@ -12,6 +12,7 @@ CONTRACT_SCHEMA_VERSION = 1
 GAME_MCP_API_VERSION = 1
 PRODUCT_FAMILY = "AzurPilot"
 GAME_MCP_SERVER_NAME = "azurpilot-game"
+GAME_MCP_SERVER_VERSION = server_version(GAME_MCP_SERVER_NAME)
 GAME_MCP_READ_SCOPE = "azurpilot:game.read"
 GAME_MCP_CONTROL_SCOPE = "azurpilot:game.control"
 GAME_MCP_SCOPES = (GAME_MCP_READ_SCOPE, GAME_MCP_CONTROL_SCOPE)
@@ -138,7 +139,7 @@ def contract_payload() -> dict[str, object]:
         "contract_schema_version": CONTRACT_SCHEMA_VERSION,
         "product_family": PRODUCT_FAMILY,
         "server_name": GAME_MCP_SERVER_NAME,
-        "server_version": server_version(GAME_MCP_SERVER_NAME),
+        "server_version": GAME_MCP_SERVER_VERSION,
         "source_revision": source_revision(),
         "game_mcp_api_version": GAME_MCP_API_VERSION,
         "tool_count": len(GAME_MCP_TOOL_NAMES),
@@ -193,6 +194,7 @@ __all__ = (
     "GAME_MCP_RESULT_STATES",
     "GAME_MCP_SCOPES",
     "GAME_MCP_SERVER_NAME",
+    "GAME_MCP_SERVER_VERSION",
     "GAME_MCP_TOOL_NAMES",
     "GAME_MCP_TOOL_REQUIRED_SCOPES",
     "PRODUCT_FAMILY",

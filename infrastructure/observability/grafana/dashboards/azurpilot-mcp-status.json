@@ -73,8 +73,8 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "sum(azurpilot_mcp_surface_runtime_ready)",
-          "legendFormat": "готовые MCP surfaces",
+          "expr": "min(azurpilot_mcp_surface_runtime_ready)",
+          "legendFormat": "все MCP surfaces готовы",
           "range": true,
           "refId": "A"
         }

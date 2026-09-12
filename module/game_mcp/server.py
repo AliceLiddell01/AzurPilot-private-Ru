@@ -41,12 +41,12 @@ from module.game_mcp.contract import (
     GAME_MCP_READ_SCOPE,
     GAME_MCP_SCOPES,
     GAME_MCP_SERVER_NAME,
+    GAME_MCP_SERVER_VERSION,
 )
 from module.mcp_shared.auth import current_access_token
-from module.mcp_shared.versioning import server_version
 
 SERVER_NAME = GAME_MCP_SERVER_NAME
-SERVER_VERSION = server_version(SERVER_NAME)
+SERVER_VERSION = GAME_MCP_SERVER_VERSION
 GAME_MCP_COMMAND = "uv"
 GAME_MCP_ARGS = ("run", "--locked", "--no-sync", "python", "-m", "module.game_mcp")
 GAME_MCP_REQUIRED_SCOPE = GAME_MCP_READ_SCOPE

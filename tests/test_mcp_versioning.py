@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+import module.dev_mcp.contract as dev_contract
+import module.game_mcp.contract as game_contract
 from module.dev_mcp.contract import contract_payload
 from module.game_mcp.contract import contract_payload as game_contract_payload
 from module.mcp_shared.versioning import (
@@ -24,6 +26,20 @@ def test_manifest_is_the_single_source_for_server_semver() -> None:
     assert set(versions) == {"azurpilot-dev", "azurpilot-game"}
     assert contract_payload()["server_version"] == versions["azurpilot-dev"]
     assert game_contract_payload()["server_version"] == versions["azurpilot-game"]
+
+
+def test_contract_versions_are_startup_snapshots(monkeypatch) -> None:
+    monkeypatch.setattr(dev_contract, "server_version", lambda _name: "9.9.9")
+    monkeypatch.setattr(game_contract, "server_version", lambda _name: "9.9.9")
+
+    assert (
+        dev_contract.contract_payload()["server_version"]
+        == dev_contract.DEV_MCP_SERVER_VERSION
+    )
+    assert (
+        game_contract.contract_payload()["server_version"]
+        == game_contract.GAME_MCP_SERVER_VERSION
+    )
 
 
 def test_semver_precedence_follows_semver_without_build_metadata() -> None:
