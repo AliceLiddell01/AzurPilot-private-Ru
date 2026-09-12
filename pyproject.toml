@@ -47,7 +47,7 @@ dependencies = [
     "lz4==4.4.5",
     "packaging==24.2",
     "setuptools==75.8.2",
-    "importlib-resources==6.0.0",
+    "importlib-resources==6.5.2",
     "importlib-metadata==8.9.0",
     "openai==2.30.0",
     "mcp==2.1.1",
