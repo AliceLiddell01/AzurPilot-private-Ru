@@ -5,8 +5,8 @@
 对 group_name 进行清洗，确保生成的 scope_id 是有效的标识符。
 """
 
-# Dashboard scope ID 管理工具
-# 用于集中管理 dashboard 相关的 scope 命名，避免重复创建和命名冲突
+# Инструмент управления scope ID Dashboard
+# Централизованно управляет именованием scope для dashboard, предотвращая повторное создание и конфликты имён
 
 import re
 
@@ -21,7 +21,7 @@ class DashboardScopeManager:
     3. 提供一致的前缀管理，方便将来修改
     """
     
-    # Dashboard scope 的统一前缀
+    # Единый префикс scope для Dashboard
     DASHBOARD_PREFIX = "dashboard_"
     
     @classmethod
@@ -46,18 +46,18 @@ class DashboardScopeManager:
         if not group_name:
             return "unknown"
         
-        # 替换空格和特殊字符为下划线
-        # 保留字母、数字、下划线和连字符
+        # Заменяем пробелы и специальные символы подчёркиваниями
+        # Сохраняем буквы, цифры, подчёркивания и дефисы
         sanitized = re.sub(r'[^\w\-]', '_', group_name)
         
-        # 确保不以数字开头（如果以数字开头，添加前缀）
+        # Не допускаем начало с цифры: при необходимости добавляем префикс
         if sanitized and sanitized[0].isdigit():
             sanitized = f"group_{sanitized}"
         
-        # 移除连续的下划线
+        # Удаляем повторяющиеся подчёркивания
         sanitized = re.sub(r'_+', '_', sanitized)
         
-        # 移除首尾的下划线
+        # Удаляем подчёркивания в начале и конце
         sanitized = sanitized.strip('_')
         
         return sanitized or "unknown"
@@ -100,7 +100,7 @@ class DashboardScopeManager:
         sanitized_name = cls.sanitize_group_name(group_name)
         return f"{sanitized_name}_group"
     
-    # 已注册的 scope ID 集合，用于检测冲突
+    # Набор зарегистрированных scope ID для обнаружения конфликтов
     _registered_ids: set = set()
     
     @classmethod
@@ -138,7 +138,7 @@ class DashboardScopeManager:
         cls._registered_ids.clear()
 
 
-# 便捷函数，直接导入使用
+# Удобная функция для непосредственного импорта и использования
 def get_dashboard_scope_id(group_name: str) -> str:
     """
     便捷函数：生成 dashboard 的 scope ID
