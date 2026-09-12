@@ -67,7 +67,7 @@ dev = [
     "ruff",
 ]
 ci = [
-    "playwright==1.55.0",
+    "playwright==1.62.0",
     "pytest==9.1.1",
 ]
 
