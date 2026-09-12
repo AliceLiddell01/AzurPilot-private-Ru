@@ -48,7 +48,7 @@ dependencies = [
     "packaging==24.2",
     "setuptools==75.8.2",
     "importlib-resources==6.0.0",
-    "importlib-metadata==8.0.0",
+    "importlib-metadata==8.9.0",
     "openai==2.30.0",
     "mcp==2.1.1",
     "pyjwt[crypto]>=2.10.1,<3",
