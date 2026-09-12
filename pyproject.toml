@@ -24,6 +24,7 @@ dependencies = [
     "aiortc>=1.15.0",
     "pypresence==4.6.2",
     "rich==15.0.0",
+    "pyzmq==27.2.0",
     "zerorpc==0.6.3",
     "onepush==1.10.0",
     "psutil==7.2.2",

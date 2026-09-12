@@ -10,6 +10,7 @@
   "automerge": false,
   "prConcurrentLimit": 4,
   "prHourlyLimit": 2,
+  "commitHourlyLimit": 2,
   "separateMultipleMajor": true,
   "packageRules": [
     {

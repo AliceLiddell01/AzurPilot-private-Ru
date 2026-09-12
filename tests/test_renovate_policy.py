@@ -99,6 +99,7 @@ def test_first_wave_priority_is_explicit_and_non_major() -> None:
     assert config["dependencyDashboard"] is True
     assert config["prConcurrentLimit"] == 4
     assert config["prHourlyLimit"] == 2
+    assert config["commitHourlyLimit"] == 2
     assert config["separateMultipleMajor"] is True
     assert config["automerge"] is False
     assert config["vulnerabilityAlerts"]["dependencyDashboardApproval"] is False
