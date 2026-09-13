@@ -18,6 +18,7 @@ concurrency:
 
 env:
   PYTHONUTF8: "1"
+  PYTHONWARNINGS: "ignore:'return' in a 'finally' block:SyntaxWarning:onepush.core"
 
 jobs:
   python:
@@ -332,6 +333,8 @@ jobs:
             --log-file "${artifact_dir}/pytest.log" \
             -- uv run --locked --group ci python -m pytest \
               -q \
+              --dist=loadfile \
+              -n 8 \
               --cov=module \
               --cov=campaign \
               --cov=tools \
