@@ -142,7 +142,8 @@ def test_pgadmin_is_loopback_only_and_preconfigured_for_postgres():
             encoding="utf-8"
         )
     )
-    pgadmin_block = yaml.safe_load(compose)["services"]["pgadmin"]
+    compose_data = yaml.safe_load(compose)
+    pgadmin_block = compose_data["services"]["pgadmin"]
     server = servers["Servers"]["1"]
 
     assert pgadmin_block["image"].startswith("dpage/pgadmin4:9.17@sha256:")
@@ -162,7 +163,7 @@ def test_pgadmin_is_loopback_only_and_preconfigured_for_postgres():
     assert "postgres_bootstrap_password" not in pgadmin_block["secrets"]
     assert "postgres_migrator_password" not in pgadmin_block["secrets"]
     assert pgadmin_block["secrets"] == ["pgadmin_admin_password", "pgadmin_pgpass"]
-    assert yaml.safe_load(compose)["volumes"]["pgadmin-data"]["name"] == "azurpilot-pgadmin-data"
+    assert compose_data["volumes"]["pgadmin-data"]["name"] == "azurpilot-pgadmin-data"
     assert server == {
         "Name": "AzurPilot PostgreSQL",
         "Group": "AzurPilot",

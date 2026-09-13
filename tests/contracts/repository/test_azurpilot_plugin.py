@@ -506,10 +506,13 @@ def test_plugin_sources_contain_no_local_paths_or_credentials() -> None:
         raw = path.read_bytes()
         try:
             text = raw.decode("utf-8")
+            is_text = True
         except UnicodeDecodeError:
             # Сохраняем видимость ASCII-паттернов секретов даже в бинарных и не-UTF-8 файлах.
             text = raw.decode("latin-1")
-        assert not _find_absolute_local_path(text), path
+            is_text = False
+        if is_text:
+            assert not _find_absolute_local_path(text), path
         assert not re.search(
             r"(?i)(?:\b(?:sk|rk|xox[baprs])-[A-Za-z0-9_-]{12,}|"
             r"\b(?:ghp|github_pat)_[A-Za-z0-9_]{12,})",

@@ -8,14 +8,18 @@
 import importlib.util
 import sys
 import unittest
+from pathlib import Path
 
-from tools.paths import REPOSITORY_ROOT
+_BOOTSTRAP_ROOT = Path(__file__).resolve().parents[2]
+if str(_BOOTSTRAP_ROOT) not in sys.path:
+    sys.path.insert(0, str(_BOOTSTRAP_ROOT))
 
+from tools.paths import REPOSITORY_ROOT  # noqa: E402
 TEST_FILE = REPOSITORY_ROOT / 'tests/application/test_alas_error_handling.py'
 TEST_METHODS = (
     'test_stuck_restarts_only_game_and_reports_recoverable_after_health_success',
-    'test_failed_game_restart_is_not_masked_as_recoverable',
-    'test_threshold_stops_recovery_loop_without_touching_emulator',
+    'test_failed_game_restart_without_emulator_recovery_policy_remains_failure',
+    'test_threshold_stops_recovery_loop_without_new_emulator_escalation',
 )
 
 

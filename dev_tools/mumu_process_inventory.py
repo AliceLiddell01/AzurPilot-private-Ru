@@ -309,11 +309,11 @@ def main() -> int:
 
     if getattr(instance, "type", "") != "MuMuPlayer12":
         raise RuntimeError(
-            f"Inventory предназначен для современного MuMu family; получен {instance.type}."
+            f"Инвентаризация предназначена для современного семейства MuMu; получен {instance.type}."
         )
     if getattr(instance, "MuMuPlayer12_id", None) is None:
         raise RuntimeError(
-            f"Не удалось получить instance id из имени {instance.name!r}; fail closed."
+            f"Не удалось получить идентификатор instance из имени {instance.name!r}; выполнение остановлено."
         )
 
     rows = collect_processes(instance)

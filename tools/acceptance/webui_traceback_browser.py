@@ -21,7 +21,7 @@ def apply_runtime_styles(page: Page) -> None:
 
 def metrics(page: Page) -> dict[str, object]:
     return page.locator(".rich-traceback-container").evaluate(
-        """element => {
+        """(element, minimumContrast) => {
             const pre = element.querySelector('pre');
             const preStyle = getComputedStyle(pre);
             const containerStyle = getComputedStyle(element);
@@ -86,7 +86,7 @@ def metrics(page: Page) -> dict[str, object]:
                 (left, right) => left.ratio - right.ratio
             );
             const lowContrastSamples = contrastSamples.filter(
-                sample => sample.ratio < 4.5
+                sample => sample.ratio < minimumContrast
             );
 
             return {
@@ -125,7 +125,8 @@ def metrics(page: Page) -> dict[str, object]:
                 low_contrast_samples: lowContrastSamples,
                 text: element.textContent,
             };
-        }"""
+        }""",
+        MIN_TEXT_CONTRAST,
     )
 
 

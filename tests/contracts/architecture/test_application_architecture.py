@@ -79,6 +79,9 @@ class _ScopeCollector(ast.NodeVisitor):
         if value is None:
             value = _constant_mapping_keys(value_node, self.bindings)
         if value is None:
+            for target in targets:
+                if isinstance(target, ast.Name):
+                    self.bindings.pop(target.id, None)
             return
         for target in targets:
             if isinstance(target, ast.Name):

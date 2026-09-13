@@ -17,16 +17,17 @@ _TRACKED_GUARD_ROOTS = {"tests", "scripts"}
 class RepositoryHygieneTests(unittest.TestCase):
     def test_tests_and_scripts_do_not_encode_roadmap_stage_numbers(self) -> None:
         completed = subprocess.run(
-            ["git", "ls-files", "--", "tests", "scripts"],
+            ["git", "ls-files", "-z", "--", "tests", "scripts"],
             cwd=ROOT,
             check=True,
             capture_output=True,
-            text=True,
         )
         offenders: list[str] = []
 
-        for relative in completed.stdout.splitlines():
-            path = Path(relative)
+        for relative in completed.stdout.split(b"\0"):
+            if not relative:
+                continue
+            path = Path(relative.decode("utf-8"))
             if not path.parts or path.parts[0] not in _TRACKED_GUARD_ROOTS:
                 continue
             if path.suffix.lower() not in _TRACKED_GUARD_SUFFIXES:

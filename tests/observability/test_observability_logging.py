@@ -797,12 +797,13 @@ def test_shutdown_is_bounded_even_when_provider_blocks():
             time.sleep(0.2)
 
     target = _new_logger("observability-timeout")
+    provider = SlowProvider()
     handler = _SanitizedOTelHandler(
         logging.Handler(),
-        SlowProvider(),
+        provider,
         reporter=type("Reporter", (), {"report": lambda *_args, **_kwargs: None})(),
     )
-    runtime = _Runtime(target=target, provider=SlowProvider(), handler=handler)
+    runtime = _Runtime(target=target, provider=provider, handler=handler)
     started = time.monotonic()
     assert not _shutdown_runtime(runtime, timeout_millis=25)
     assert time.monotonic() - started < 0.35

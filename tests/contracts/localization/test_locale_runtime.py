@@ -44,6 +44,16 @@ def active_canonical_strings(data):
 
 
 class LocaleRuntimeTests(unittest.TestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        catalog_before = dict(lang.dic_lang)
+
+        def restore_catalog() -> None:
+            lang.dic_lang.clear()
+            lang.dic_lang.update(catalog_before)
+
+        self.addCleanup(restore_catalog)
+
     def test_single_explicit_runtime_locale(self) -> None:
         self.assertEqual(UI_LOCALE, "ru-RU")
         self.assertEqual(lang.LANG, UI_LOCALE)

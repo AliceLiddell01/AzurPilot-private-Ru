@@ -1,47 +1,20 @@
-from tests.support.paths import REPOSITORY_ROOT
-
+import re
 from pathlib import Path
 
+import yaml
+
+from tests.support.paths import REPOSITORY_ROOT
 
 ROOT = REPOSITORY_ROOT
 WORKFLOW = ROOT / ".github/workflows/docker-publish.yml"
 
 
 def _all_job_permissions(source: str) -> dict[str, dict[str, str] | None]:
-    lines = source.splitlines()
-    jobs_start = lines.index("jobs:") + 1
-    jobs: dict[str, dict[str, str] | None] = {}
-    current_job: str | None = None
-    index = jobs_start
-
-    while index < len(lines):
-        line = lines[index]
-        stripped = line.strip()
-        indent = len(line) - len(line.lstrip())
-
-        if stripped and indent == 2 and stripped.endswith(":"):
-            current_job = stripped[:-1]
-            jobs[current_job] = None
-        elif current_job is not None and line == "    permissions:":
-            permissions: dict[str, str] = {}
-            index += 1
-            while index < len(lines):
-                permission_line = lines[index]
-                if not permission_line.strip():
-                    index += 1
-                    continue
-                permission_indent = len(permission_line) - len(permission_line.lstrip())
-                if permission_indent <= 4:
-                    index -= 1
-                    break
-                key, value = permission_line.strip().split(":", 1)
-                permissions[key] = value.strip()
-                index += 1
-            jobs[current_job] = permissions
-
-        index += 1
-
-    return jobs
+    workflow = yaml.safe_load(source)
+    return {
+        name: job.get("permissions")
+        for name, job in workflow["jobs"].items()
+    }
 
 
 def test_docker_publish_uses_pinned_node24_actions_and_minimal_permissions():
@@ -64,6 +37,4 @@ def test_docker_publish_uses_pinned_node24_actions_and_minimal_permissions():
             "packages": "write",
         }
     }
-    assert "@v2" not in source
-    assert "@v3" not in source
-    assert "@v4" not in source
+    assert not re.search(r"uses:\s*\S+@v\d", source)
