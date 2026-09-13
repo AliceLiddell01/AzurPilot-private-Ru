@@ -91,8 +91,8 @@ uv run --locked --no-sync python -m tools.acceptance.device --profile alas --ser
 что `serial` относится к ожидаемому Windows/MuMu target. Runner сам проверяет
 `adb get-state`, Android boot readiness, package readiness, ADB shell и RGB
 скриншот; дополнительные флаги проверяют preview, настроенный control backend
-(`minitouch` handshake без касания), безопасный `KEYCODE_BACK` и target-explicit
-reconnect/recovery. Для ручного интерактивного запуска нужно убрать
+(`minitouch` handshake без касания), контрольный probe без игрового ввода и
+target-explicit reconnect/recovery. Для ручного интерактивного запуска нужно убрать
 `--non-interactive` и подтвердить каждый шаг. Установка APK, очистка app data,
 покупки, бой, task queue, clipboard, пользовательский текст и `adb kill-server`
 runner'ом запрещены. В отчёт нельзя включать реальные serial, credentials или
