@@ -259,6 +259,36 @@ class OcrRpcRuntimeTests(unittest.TestCase):
             client.close()
             self._stop_server(stop_event, thread)
 
+    def test_socket_setup_failure_is_wrapped_and_socket_is_closed(self) -> None:
+        image = np.zeros((4, 4, 3), dtype=np.uint8)
+
+        class _Socket:
+            def __init__(self) -> None:
+                self.closed = False
+
+            def setsockopt(self, option, _value) -> None:
+                if option == zmq.SNDTIMEO:
+                    raise zmq.error.ZMQError("ошибка настройки сокета")
+
+            def close(self, *, linger) -> None:
+                self.closed = True
+
+        class _Context:
+            def __init__(self) -> None:
+                self.socket_instance = _Socket()
+
+            def socket(self, _socket_type):
+                return self.socket_instance
+
+        context = _Context()
+        client = _ZmqRpcClient("127.0.0.1:22268", context=context)
+        try:
+            with self.assertRaises(OcrRpcTransportError):
+                client("ocr", "azur_lane", image)
+            self.assertTrue(context.socket_instance.closed)
+        finally:
+            client.close()
+
     def test_timeout_unavailable_fallback_and_concurrent_requests(self) -> None:
         image = np.zeros((4, 4, 3), dtype=np.uint8)
         model = _RpcModel()
@@ -289,6 +319,7 @@ class OcrRpcRuntimeTests(unittest.TestCase):
         proxy = ModelProxy("azur_lane")
         proxy.client = unavailable
         proxy.online = True
+        original_online = ModelProxy.online
         ModelProxy.online = True
         try:
             with patch.dict(
@@ -299,6 +330,7 @@ class OcrRpcRuntimeTests(unittest.TestCase):
             self.assertFalse(proxy.online)
             self.assertEqual(len(fallback.calls), 1)
         finally:
+            ModelProxy.online = original_online
             unavailable.close()
 
     def test_server_restart_releases_loopback_endpoint(self) -> None:

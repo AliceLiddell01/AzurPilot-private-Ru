@@ -524,12 +524,13 @@ class _ZmqRpcClient:
                 raise OcrRpcTransportError("Клиент OCR RPC уже закрыт.")
         control, binary_frames = _encode_call(method, lang, args)
         request_id = _request_id_from_frames([control])
-        socket = self.context.socket(zmq.DEALER)
-        socket.setsockopt(zmq.LINGER, 0)
-        socket.setsockopt(zmq.SNDTIMEO, max(int(self.timeout * 1000), 1))
-        socket.setsockopt(zmq.RCVTIMEO, max(int(self.timeout * 1000), 1))
-        socket.setsockopt(zmq.MAXMSGSIZE, MAX_RPC_RESPONSE_BYTES)
+        socket = None
         try:
+            socket = self.context.socket(zmq.DEALER)
+            socket.setsockopt(zmq.LINGER, 0)
+            socket.setsockopt(zmq.SNDTIMEO, max(int(self.timeout * 1000), 1))
+            socket.setsockopt(zmq.RCVTIMEO, max(int(self.timeout * 1000), 1))
+            socket.setsockopt(zmq.MAXMSGSIZE, MAX_RPC_RESPONSE_BYTES)
             socket.connect(self.endpoint)
             socket.send_multipart([control, *binary_frames])
             response_frames = socket.recv_multipart()
@@ -542,7 +543,8 @@ class _ZmqRpcClient:
                 f"Транспорт OCR RPC недоступен для метода {method}."
             ) from exc
         finally:
-            socket.close(linger=0)
+            if socket is not None:
+                socket.close(linger=0)
 
         if not response_frames:
             raise OcrRpcProtocolError("OCR RPC вернул пустой ответ.")
