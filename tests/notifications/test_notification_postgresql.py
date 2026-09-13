@@ -58,11 +58,14 @@ REQUIRED_ENV = (
     "AZURPILOT_POSTGRES_DATABASE",
     "AZURPILOT_POSTGRES_USER",
 )
-pytestmark = pytest.mark.skipif(
-    any(not os.environ.get(name) for name in REQUIRED_ENV)
-    or os.environ.get("AZURPILOT_POSTGRES_DISPOSABLE") != "1",
-    reason="требуется явно настроенная disposable PostgreSQL database",
-)
+pytestmark = [
+    pytest.mark.xdist_group("postgresql"),
+    pytest.mark.skipif(
+        any(not os.environ.get(name) for name in REQUIRED_ENV)
+        or os.environ.get("AZURPILOT_POSTGRES_DISPOSABLE") != "1",
+        reason="требуется явно настроенная disposable PostgreSQL database",
+    ),
+]
 
 NOW = datetime(2026, 9, 10, 12, 0, tzinfo=UTC)
 

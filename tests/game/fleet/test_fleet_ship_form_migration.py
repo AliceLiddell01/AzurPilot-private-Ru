@@ -24,11 +24,14 @@ _REQUIRED_ENV = (
     "CI_POSTGRES_MIGRATOR_USER",
     "CI_POSTGRES_MIGRATOR_PASSWORD",
 )
-pytestmark = pytest.mark.skipif(
-    any(not os.environ.get(name) for name in _REQUIRED_ENV)
-    or os.environ.get("AZURPILOT_POSTGRES_DISPOSABLE") != "1",
-    reason="требуется явно настроенная disposable PostgreSQL CI DB",
-)
+pytestmark = [
+    pytest.mark.xdist_group("postgresql"),
+    pytest.mark.skipif(
+        any(not os.environ.get(name) for name in _REQUIRED_ENV)
+        or os.environ.get("AZURPILOT_POSTGRES_DISPOSABLE") != "1",
+        reason="требуется явно настроенная disposable PostgreSQL CI DB",
+    ),
+]
 
 
 def _admin_connection(database: str = "postgres"):

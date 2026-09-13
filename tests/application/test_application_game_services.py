@@ -34,6 +34,8 @@ from module.application.game_validation import validate_config_value
 from module.application.ports import RuntimeSnapshot
 from module.application.resource_lease import game_runtime_lease
 
+pytestmark = pytest.mark.xdist_group("game_runtime")
+
 
 class _Instances:
     def __init__(self, *, running: bool = True) -> None:

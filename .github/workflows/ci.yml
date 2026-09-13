@@ -18,7 +18,7 @@ concurrency:
 
 env:
   PYTHONUTF8: "1"
-  PYTHONWARNINGS: "ignore:'return' in a 'finally' block:SyntaxWarning:onepush.core"
+  PYTHONWARNINGS: "ignore:'return' in a 'finally' block:SyntaxWarning"
 
 jobs:
   python:
@@ -331,9 +331,11 @@ jobs:
             --label "Полный pytest" \
             --heartbeat-seconds 60 \
             --log-file "${artifact_dir}/pytest.log" \
-            -- uv run --locked --group ci python -m pytest \
+            -- uv run --locked --group ci python \
+              -W "ignore:'return' in a 'finally' block:SyntaxWarning" \
+              -m pytest \
               -q \
-              --dist=loadfile \
+              --dist=loadgroup \
               -n 8 \
               --cov=module \
               --cov=campaign \
@@ -903,6 +905,8 @@ jobs:
               '--group'
               'ci'
               'python'
+              '-W'
+              "ignore:'return' in a 'finally' block:SyntaxWarning"
               '-m'
               'pytest'
               '-q'

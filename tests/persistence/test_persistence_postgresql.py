@@ -50,11 +50,14 @@ REQUIRED_ENV = (
     "AZURPILOT_POSTGRES_USER",
 )
 ROOT = REPOSITORY_ROOT
-pytestmark = pytest.mark.skipif(
-    any(not os.environ.get(name) for name in REQUIRED_ENV)
-    or os.environ.get("AZURPILOT_POSTGRES_DISPOSABLE") != "1",
-    reason="требуется явно настроенная disposable PostgreSQL database",
-)
+pytestmark = [
+    pytest.mark.xdist_group("postgresql"),
+    pytest.mark.skipif(
+        any(not os.environ.get(name) for name in REQUIRED_ENV)
+        or os.environ.get("AZURPILOT_POSTGRES_DISPOSABLE") != "1",
+        reason="требуется явно настроенная disposable PostgreSQL database",
+    ),
+]
 
 
 def _increment_worker(instance_id: str, loops: int) -> None:

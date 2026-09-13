@@ -81,7 +81,7 @@ Coverage и mutation testing не являются текущими обязат
 ```bash
 uv sync --locked --group ci
 uv run --locked --no-sync python -m pytest -q \
-  --dist=loadfile -n 8 \
+  --dist=loadgroup -n 8 \
   --cov=module --cov=campaign --cov=tools --cov-branch \
   --cov-report=term-missing tests
 ```
@@ -107,10 +107,16 @@ Translation structural step получает SHA из `pull_request.base.sha` и
 `tests/contracts/localization/test_runtime_russianization_audit.py` проверяет текущее дерево на каждом PR и не зависит от historical SHA или base snapshot. Он запрещает CJK и неклассифицированные English-only предложения в deterministic display sinks и защищает `ru-RU`, `en`, Global package, `assets/en`, EN metadata и OCR namespace `azur_lane`. Узкие semantic allowances относятся к техническим, machine и game значениям; broad file/directory ignores отсутствуют.
 
 Для локального и CI-прогона используется один canonical режим `pytest-xdist`:
-`uv run --locked --no-sync python -m pytest -q --dist=loadfile -n 8 tests` после
-установки locked-группы `ci`. Job `Python` передаёт те же `--dist=loadfile -n 8`
-в полный coverage suite. Отдельные process-heavy `unittest` и marker-only
-acceptance steps сохраняют собственный последовательный режим.
+`uv run --locked --no-sync python -m pytest -q --dist=loadgroup -n 8 tests` после
+установки locked-группы `ci`. Job `Python` передаёт те же `--dist=loadgroup -n 8`
+в полный coverage suite. Модули, которые очищают общую disposable PostgreSQL
+schema, объединены маркером `xdist_group("postgresql")`, поэтому `loadgroup`
+не допускает гонок между ними; concurrency-тесты внутри отдельного модуля
+остаются параллельными. Тесты, использующие общий host-wide игровой runtime
+lease, объединены маркером `xdist_group("game_runtime")`; их внутренние потоки
+и процессы по-прежнему проверяют concurrency. Отдельные process-heavy
+`unittest` и marker-only acceptance steps сохраняют собственный последовательный
+режим.
 
 Structural parity ниже применяется только к explicit translation PR. Feature, bugfix и refactor меняют functionality согласно Declared Scope и обычным product tests, но не освобождаются от permanent runtime-localization audit.
 

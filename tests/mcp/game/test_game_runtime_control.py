@@ -22,6 +22,8 @@ from module.application.errors import GameRuntimePhaseError
 from module.application.legacy_game_adapters import LegacyGameApplicationAdapter
 from module.application.ports import RuntimeSnapshot
 
+pytestmark = pytest.mark.xdist_group("game_runtime")
+
 
 class _Instances:
     def list_instance_names(self) -> tuple[str, ...]:

@@ -115,6 +115,8 @@ from module.game_mcp.server import (
     tool_definitions,
 )
 
+pytestmark = pytest.mark.xdist_group("game_runtime")
+
 
 def _png_1x1() -> bytes:
     def chunk(kind: bytes, data: bytes) -> bytes:

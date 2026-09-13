@@ -36,11 +36,14 @@ REQUIRED_ENV = (
     "AZURPILOT_POSTGRES_DATABASE",
     "AZURPILOT_POSTGRES_USER",
 )
-pytestmark = pytest.mark.skipif(
-    any(not os.environ.get(name) for name in REQUIRED_ENV)
-    or os.environ.get("AZURPILOT_POSTGRES_DISPOSABLE") != "1",
-    reason="требуется явно настроенная disposable PostgreSQL DB",
-)
+pytestmark = [
+    pytest.mark.xdist_group("postgresql"),
+    pytest.mark.skipif(
+        any(not os.environ.get(name) for name in REQUIRED_ENV)
+        or os.environ.get("AZURPILOT_POSTGRES_DISPOSABLE") != "1",
+        reason="требуется явно настроенная disposable PostgreSQL DB",
+    ),
+]
 
 
 @pytest.fixture

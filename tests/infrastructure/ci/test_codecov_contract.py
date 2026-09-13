@@ -20,7 +20,7 @@ def test_ci_generates_branch_coverage_and_uploads_with_oidc() -> None:
     assert "--cov=campaign" in workflow
     assert "--cov=tools" in workflow
     assert "--cov-branch" in workflow
-    assert "--dist=loadfile" in workflow
+    assert "--dist=loadgroup" in workflow
     assert "-n 8" in workflow
     assert "--cov-report=xml:\"${artifact_dir}/coverage.xml\"" in workflow
     assert re.search(r"uses: codecov/codecov-action@[0-9a-f]{40} # v5", workflow)

@@ -23,6 +23,7 @@ from module.application.resource_lease import (
 )
 
 _REPOSITORY_ROOT = REPOSITORY_ROOT
+pytestmark = pytest.mark.xdist_group("game_runtime")
 
 
 def _lock_holder(path: Path, *, crash: bool = False) -> subprocess.Popen[str]:

@@ -22,18 +22,21 @@ from module.persistence import DatabaseSettings, LazyEngine
 from module.persistence.dorm_morale_repositories import PostgresDormMoraleRepository
 from module.persistence.schema import app_instance, dorm_morale_scan_run, metadata
 
-pytestmark = pytest.mark.skipif(
-    any(
-        not os.environ.get(name)
-        for name in (
-            "AZURPILOT_POSTGRES_HOST",
-            "AZURPILOT_POSTGRES_DATABASE",
-            "AZURPILOT_POSTGRES_USER",
+pytestmark = [
+    pytest.mark.xdist_group("postgresql"),
+    pytest.mark.skipif(
+        any(
+            not os.environ.get(name)
+            for name in (
+                "AZURPILOT_POSTGRES_HOST",
+                "AZURPILOT_POSTGRES_DATABASE",
+                "AZURPILOT_POSTGRES_USER",
+            )
         )
-    )
-    or os.environ.get("AZURPILOT_POSTGRES_DISPOSABLE") != "1",
-    reason="требуется явно настроенная disposable PostgreSQL DB",
-)
+        or os.environ.get("AZURPILOT_POSTGRES_DISPOSABLE") != "1",
+        reason="требуется явно настроенная disposable PostgreSQL DB",
+    ),
+]
 
 
 def _scan(*, finished_at, key):
