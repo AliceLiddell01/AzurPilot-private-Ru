@@ -28,8 +28,9 @@ from module.persistence.config import (
 from module.persistence.database import LazyEngine, StorageHealthChecker
 from module.persistence.local_environment import load_local_postgres_environment
 from module.persistence.schema import EXPECTED_ALEMBIC_HEAD
+from tools.paths import REPOSITORY_ROOT
 
-_REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+_REPOSITORY_ROOT = REPOSITORY_ROOT
 
 
 def _run_hidden(

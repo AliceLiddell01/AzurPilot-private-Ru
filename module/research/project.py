@@ -225,7 +225,7 @@ def parse_time(string):
     Returns:
         timedelta: 解析后的时间间隔对象，解析失败返回 None。
     """
-    result = re.search('(\d+):(\d+):(\d+)', string)
+    result = re.search(r'(\d+):(\d+):(\d+)', string)
     if not result:
         logger.warning(f'[Исследование — время] Некорректная строка времени: {string}')
         return None

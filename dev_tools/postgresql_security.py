@@ -11,6 +11,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from tools.paths import REPOSITORY_ROOT
+
 
 @dataclass(frozen=True, slots=True)
 class SecurityPosture:
@@ -131,22 +133,31 @@ def validate_posture(posture: SecurityPosture) -> None:
 
 
 _DEFAULT_COMPOSE_FILE = (
-    Path(__file__).resolve().parents[1] / "infrastructure/observability/compose.yaml"
+    REPOSITORY_ROOT / "infrastructure/observability/compose.yaml"
 )
 
 
-def _docker_compose_arguments(compose_file: Path, *arguments: str) -> list[str]:
+def _compose_repository_root(repository_root: Path | None = None) -> Path:
+    """Вернуть явный корень Compose-среды с каноническим ``.env``."""
+
+    selected_root = repository_root if repository_root is not None else REPOSITORY_ROOT
+    resolved_root = selected_root.resolve(strict=True)
+    if not (resolved_root / ".env").is_file():
+        raise SecurityPostureError("DOCKER_ENV_UNAVAILABLE")
+    return resolved_root
+
+
+def _docker_compose_arguments(
+    compose_file: Path,
+    *arguments: str,
+    repository_root: Path | None = None,
+) -> list[str]:
     executable = shutil.which("docker.exe") or shutil.which("docker")
     if executable is None:
         raise SecurityPostureError("DOCKER_CLI_UNAVAILABLE")
     compose_file = compose_file.resolve(strict=True)
-    parents = compose_file.parents
-    if len(parents) < 3:
-        raise SecurityPostureError("DOCKER_COMPOSE_LAYOUT_UNSUPPORTED")
-    repository_root = parents[2]
+    repository_root = _compose_repository_root(repository_root)
     env_file = repository_root / ".env"
-    if not env_file.is_file():
-        raise SecurityPostureError("DOCKER_ENV_UNAVAILABLE")
     return [
         executable,
         "compose",
@@ -177,6 +188,7 @@ def _read_posture(
     *,
     deployment: str = "docker",
     compose_file: str | Path = _DEFAULT_COMPOSE_FILE,
+    repository_root: str | Path | None = None,
     service: str = "postgres",
 ) -> SecurityPosture:
     query = """
@@ -202,6 +214,9 @@ SELECT json_build_object(
     options: dict[str, object] = {}
     if os.name == "nt":
         options["creationflags"] = subprocess.CREATE_NO_WINDOW
+    resolved_repository_root = (
+        Path(repository_root) if repository_root is not None else None
+    )
     host_binding_loopback = True
     if deployment == "docker":
         compose_path = Path(compose_file)
@@ -222,6 +237,7 @@ SELECT json_build_object(
             "--quiet",
             "--command",
             query,
+            repository_root=resolved_repository_root,
         )
         port_result = subprocess.run(
             _docker_compose_arguments(
@@ -229,6 +245,7 @@ SELECT json_build_object(
                 "port",
                 service,
                 "5432",
+                repository_root=resolved_repository_root,
             ),
             stdin=subprocess.DEVNULL,
             capture_output=True,
@@ -298,6 +315,7 @@ def audit(
     *,
     deployment: str = "docker",
     compose_file: str | Path = _DEFAULT_COMPOSE_FILE,
+    repository_root: str | Path | None = None,
     service: str = "postgres",
 ) -> None:
     validate_posture(
@@ -305,6 +323,7 @@ def audit(
             distro,
             deployment=deployment,
             compose_file=compose_file,
+            repository_root=repository_root,
             service=service,
         )
     )
@@ -317,6 +336,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--distro", default="Archlinux")
     parser.add_argument("--deployment", choices=("docker", "wsl"), default="docker")
     parser.add_argument("--compose-file", default=str(_DEFAULT_COMPOSE_FILE))
+    parser.add_argument(
+        "--repository-root",
+        type=Path,
+        help="Явный корень Compose-среды для нестандартного compose-файла.",
+    )
     parser.add_argument("--service", default="postgres")
     return parser
 
@@ -328,6 +352,7 @@ def main(argv: list[str] | None = None) -> int:
             arguments.distro,
             deployment=arguments.deployment,
             compose_file=arguments.compose_file,
+            repository_root=arguments.repository_root,
             service=arguments.service,
         )
     except (OSError, subprocess.SubprocessError, SecurityPostureError) as exc:

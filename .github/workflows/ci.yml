@@ -24,6 +24,9 @@ jobs:
     name: Python
     runs-on: ubuntu-24.04
     timeout-minutes: 40
+    permissions:
+      contents: read
+      id-token: write
     env:
       CI_POSTGRES_ADMIN_USER: azurpilot_ci_admin
       CI_POSTGRES_ADMIN_PASSWORD: ci-admin-${{ github.run_id }}-${{ github.run_attempt }}
@@ -318,8 +321,6 @@ jobs:
       - name: Запустить полный pytest
         id: python_pytest
         timeout-minutes: 25
-        env:
-          AZURPILOT_PYTEST_PARALLEL: "0"
         shell: bash
         run: |
           set -euo pipefail
@@ -329,10 +330,37 @@ jobs:
             --label "Полный pytest" \
             --heartbeat-seconds 60 \
             --log-file "${artifact_dir}/pytest.log" \
-            -- uv run --locked --group ci python -m pytest \
+            -- uv run --locked --group ci python \
+              -m pytest \
               -q \
+              --dist=loadgroup \
+              -n auto \
+              --cov=module \
+              --cov=campaign \
+              --cov=tools \
+              --cov-branch \
+              --cov-report=xml:"${artifact_dir}/coverage.xml" \
+              --cov-report=term-missing:skip-covered \
               --junitxml="${artifact_dir}/pytest.xml" \
               tests
+
+      - name: Загрузить coverage в Codecov
+        id: python_codecov
+        if: ${{ !cancelled() }}
+        timeout-minutes: 10
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5.5.5
+        with:
+          files: ${{ runner.temp }}/azurpilot-ci-python/coverage.xml
+          fail_ci_if_error: true
+          use_oidc: true
+
+      - name: Удалить временные файлы Codecov
+        id: python_codecov_cleanup
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f -- codecov codecov.SHA256SUM codecov.SHA256SUM.sig
 
       - name: Проверить migration importer и dump/restore
         id: python_migration_rehearsal
@@ -345,7 +373,7 @@ jobs:
           mkdir -p "$dump_dir"
           trap 'rm -f -- "$dump_path"; rmdir -- "$dump_dir" 2>/dev/null || true' EXIT
           export PGPASSWORD="${AZURPILOT_POSTGRES_PASSWORD}"
-          uv run --locked python -m pytest -q tests/test_postgresql_migration.py
+          uv run --locked python -m pytest -q tests/persistence/test_postgresql_migration.py
           docker run --rm --network host \
             -e PGPASSWORD \
             -v "${dump_dir}:/evidence" \
@@ -853,12 +881,12 @@ jobs:
               '-m'
               'unittest'
               '-v'
-              'tests.test_webui_no_reload_recovery'
-              'tests.test_device_acceptance'
-              'tests.test_powershell_contracts'
-              'tests.test_deploy_set'
-              'tests.test_webui_deploy_settings'
-              'tests.test_persistence_contracts'
+              'tests.webui.test_webui_no_reload_recovery'
+              'tests.device.test_device_acceptance'
+              'tests.platform.powershell.test_powershell_contracts'
+              'tests.infrastructure.tooling.test_deploy_set'
+              'tests.webui.test_webui_deploy_settings'
+              'tests.persistence.test_persistence_contracts'
           )
           & $pythonExecutable @runnerArguments
           $runnerExitCode = $LASTEXITCODE
@@ -890,12 +918,8 @@ jobs:
               'windows_integration'
               'tests'
           )
-          # Маркер выбирает тесты только из одного файла; общий file-sharding
-          # иначе получает пустые shard-ы с pytest exit 5.
-          $env:AZURPILOT_PYTEST_PARALLEL = '0'
           & $pythonExecutable @runnerArguments
           $runnerExitCode = $LASTEXITCODE
-          Remove-Item Env:AZURPILOT_PYTEST_PARALLEL -ErrorAction SilentlyContinue
 
           if ($runnerExitCode -ne 0) {
               throw ('Windows capability tests завершились с кодом {0}.' -f $runnerExitCode)
@@ -904,7 +928,7 @@ jobs:
           $pwshCommand = Get-Command pwsh -CommandType Application -ErrorAction Stop | Select-Object -First 1
           $robocopyCommand = Get-Command robocopy -CommandType Application -ErrorAction Stop | Select-Object -First 1
           $tarCommand = Get-Command tar -CommandType Application -ErrorAction Stop | Select-Object -First 1
-          $updaterTest = Join-Path -Path $PWD -ChildPath 'tests/powershell/Test-Update-AzurPilot.ps1'
+          $updaterTest = Join-Path -Path $PWD -ChildPath 'tools/acceptance/powershell/Test-Update-AzurPilot.ps1'
           $updater = Join-Path -Path $PWD -ChildPath 'scripts/Update-AzurPilot.ps1'
           $projectPython = Join-Path -Path $PWD -ChildPath '.venv/Scripts/python.exe'
           $updaterLog = Join-Path -Path $env:RUNNER_TEMP -ChildPath 'azurpilot-ci-windows/updater-regressions.log'
@@ -940,7 +964,7 @@ jobs:
               throw ('Изолированные регрессии Update-AzurPilot завершились с кодом {0}.' -f $runnerExitCode)
           }
 
-          $lifecycleTest = Join-Path -Path $PWD -ChildPath 'tests/powershell/Test-AzurPilotLifecycle.ps1'
+          $lifecycleTest = Join-Path -Path $PWD -ChildPath 'tools/acceptance/powershell/Test-AzurPilotLifecycle.ps1'
           $lifecycleModule = Join-Path -Path $PWD -ChildPath 'scripts/lib/AzurPilot.Lifecycle.psm1'
           $stopScript = Join-Path -Path $PWD -ChildPath 'scripts/Stop-AzurPilot.ps1'
           $lifecycleLog = Join-Path -Path $env:RUNNER_TEMP -ChildPath 'azurpilot-ci-windows/lifecycle-regressions.log'
@@ -1334,22 +1358,22 @@ jobs:
             --heartbeat-seconds 60 \
             --log-file "${RUNNER_TEMP}/azurpilot-ci-security/security-regressions.log" \
             -- uv run --locked python -m unittest -v \
-              tests.test_binary_log_audit \
-              tests.test_binary_log_audit_arguments \
-              tests.test_exception_context_audit \
-              tests.test_event_datamine_security \
-              tests.test_device_security \
-              tests.test_ocr_debug_privacy \
-              tests.test_ocr_rpc_security \
-              tests.test_ocr_rpc_runtime \
-              tests.test_ocr_acceptance \
-              tests.test_opsi_zone_ocr_acceptance \
-              tests.test_persistence_contracts
+              tests.contracts.security.test_binary_log_audit \
+              tests.contracts.security.test_binary_log_audit_arguments \
+              tests.contracts.security.test_exception_context_audit \
+              tests.event.test_event_datamine_security \
+              tests.contracts.security.test_device_security \
+              tests.ocr.test_ocr_debug_privacy \
+              tests.ocr.test_ocr_rpc_security \
+              tests.ocr.test_ocr_rpc_runtime \
+              tests.ocr.test_ocr_acceptance \
+              tests.operation_siren.test_opsi_zone_ocr_acceptance \
+              tests.persistence.test_persistence_contracts
           uv run --locked python -m pytest -q \
-            tests/test_postgresql_security.py \
-            tests/test_postgresql_runtime_contracts.py \
-            tests/test_postgresql_runtime_commands.py \
-            tests/test_postgresql_cutover.py
+            tests/persistence/test_postgresql_security.py \
+            tests/persistence/test_postgresql_runtime_contracts.py \
+            tests/persistence/test_postgresql_runtime_commands.py \
+            tests/persistence/test_postgresql_cutover.py
 
       - name: Установить закреплённый browser runner
         id: security_browser_install
@@ -1373,7 +1397,7 @@ jobs:
             --label "WebUI traceback security regression" \
             --heartbeat-seconds 60 \
             --log-file "${RUNNER_TEMP}/azurpilot-ci-security/webui-traceback.log" \
-            -- uv run --locked python -m unittest -v tests.test_webui_traceback_security
+            -- uv run --locked python -m unittest -v tests.webui.test_webui_traceback_security
 
       - name: Запустить браузерную DOM security regression
         id: security_browser
@@ -1407,7 +1431,7 @@ jobs:
 
           set +e
           timeout --signal=TERM --kill-after=15s 10m \
-            uv run --locked python tests/run_webui_traceback_browser.py \
+            uv run --locked python -m tools.acceptance.webui_traceback_browser \
               > "${browser_dir}/report.json" \
               2> "${artifact_dir}/browser.stderr.log"
           browser_exit_code=$?

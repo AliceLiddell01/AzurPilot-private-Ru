@@ -21,6 +21,7 @@ from module.persistence.legacy.reader import LegacySourceError
 from module.persistence.local_environment import load_local_postgres_environment
 from module.persistence.migration_target import PostgresMigrationTarget
 from module.persistence.schema import EXPECTED_ALEMBIC_HEAD
+from tools.paths import REPOSITORY_ROOT
 
 
 def _has_link_component(root: Path, path: Path) -> bool:
@@ -288,8 +289,7 @@ def _dump_restore(
     )
     psql = _pg_tool("psql")
     grant_script = (
-        Path(__file__).resolve().parents[1]
-        / "infrastructure/observability/postgres/grant-app.sql"
+        REPOSITORY_ROOT / "infrastructure/observability/postgres/grant-app.sql"
     )
     _run_pg(
         psql,
@@ -414,7 +414,7 @@ def _write_report(payload: str, path: Path | None, source_root: Path) -> None:
     try:
         parent = path.parent.resolve(strict=True)
         protected_config_roots = {
-            (Path(__file__).resolve().parents[1] / "config").resolve(),
+            (REPOSITORY_ROOT / "config").resolve(),
             (source_root / "config").resolve(),
         }
     except OSError as exc:
@@ -536,7 +536,7 @@ def main(argv: list[str] | None = None) -> int:
                 _require_production_cutover(
                     settings, arguments.scratch_database, arguments.confirm
                 )
-            with tempfile.TemporaryDirectory(prefix="azurpilot-stage3-") as temporary:
+            with tempfile.TemporaryDirectory(prefix="azurpilot-migration-") as temporary:
                 temp_root = Path(temporary).resolve(strict=True)
                 snapshot = temp_root / "snapshot"
                 snapshot.mkdir()

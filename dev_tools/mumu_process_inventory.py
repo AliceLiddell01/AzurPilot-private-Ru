@@ -1,4 +1,4 @@
-"""Read-only диагностика процессов MuMu для безопасного Stage 2 recovery.
+"""Read-only диагностика процессов MuMu для безопасной recovery-диагностики.
 
 Скрипт не завершает процессы, не запускает и не останавливает эмулятор,
 не меняет конфигурацию AzurPilot и не выполняет ADB-команды. Он только
@@ -20,6 +20,7 @@ from pathlib import Path
 
 import psutil
 
+from tools.paths import REPOSITORY_ROOT
 
 MUMU_PROCESS_HINT = re.compile(r"(?i)(mumu|nemu|muvm)")
 WINDOWS_PROFILE_ROOT = re.compile(
@@ -43,7 +44,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--repository",
-        default=r"C:\AzurPilot",
+        default=str(REPOSITORY_ROOT),
         help="Путь к рабочему дереву AzurPilot.",
     )
     parser.add_argument(
@@ -308,7 +309,7 @@ def main() -> int:
 
     if getattr(instance, "type", "") != "MuMuPlayer12":
         raise RuntimeError(
-            f"Stage 2 inventory предназначен для современного MuMu family; получен {instance.type}."
+            f"Inventory предназначен для современного MuMu family; получен {instance.type}."
         )
     if getattr(instance, "MuMuPlayer12_id", None) is None:
         raise RuntimeError(

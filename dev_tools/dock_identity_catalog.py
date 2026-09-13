@@ -14,6 +14,8 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from tools.paths import REPOSITORY_ROOT
+
 SOURCE_REPOSITORY = "wess09/AzurPilot"
 SOURCE_COMMIT = "42ffc9566870ce3074c12d4faabf19bfaaafaf71"
 SOURCE_PATH = "assets/ship/ship_data.json"
@@ -32,7 +34,7 @@ SELECTION_CONTRACT = (
     "supplemental Lua blob"
 )
 CATALOG_PATH = (
-    Path(__file__).parents[1] / "assets" / "ship" / "dock_identity_catalog.json"
+    REPOSITORY_ROOT / "assets" / "ship" / "dock_identity_catalog.json"
 )
 
 
