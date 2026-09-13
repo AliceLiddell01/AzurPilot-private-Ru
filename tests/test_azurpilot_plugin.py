@@ -103,16 +103,22 @@ def test_plugin_manifest_and_generated_marketplace_are_canonical() -> None:
 def test_routing_reference_keeps_plugin_and_mcp_registration_separate() -> None:
     routing = _ROUTING_PATH.read_text(encoding="utf-8")
 
-    for required in (
-        "`azurpilot-dev`",
-        "`azurpilot-game`",
-        "direct local stdio",
-        "module.dev_mcp",
-        "module.game_mcp",
-        "project-scoped",
-        "не является Codex fallback",
-    ):
-        assert required in routing
+    assert re.search(
+        r"(?m)^\| Development \| `azurpilot-dev` \| direct local stdio \| `module\.dev_mcp` \| none \|$",
+        routing,
+    )
+    assert re.search(
+        r"(?m)^\| Game \| `azurpilot-game` \| direct local stdio \| `module\.game_mcp` \| none \|$",
+        routing,
+    )
+    assert ".codex/config.toml" in routing
+    assert re.search(r"(?is)(trust|доверен).*(untrusted|недоверен)", routing)
+    assert "source_config" in routing
+    assert "effective_codex_registration" in routing
+    assert re.search(r"(?is)(not[_ ]observable|не наблюдаем)", routing)
+    assert "Connected App" in routing
+    assert "OAuth" in routing
+    assert re.search(r"(?is)(remote|удалённ).*(fallback|подмен)", routing)
 
 
 def test_plugin_compatibility_matches_runtime_contract() -> None:
@@ -155,15 +161,21 @@ def test_project_config_declares_both_canonical_direct_routes() -> None:
     expected_startup_timeouts = {"azurpilot-dev": 5, "azurpilot-game": 10}
     for name, module_name in expected_modules.items():
         entry = servers[name]
-        assert entry == {
-            "command": "uv",
-            "args": ["run", "--locked", "--no-sync", "python", "-m", module_name],
-            "cwd": ".",
-            "enabled": True,
-            "required": False,
-            "startup_timeout_sec": expected_startup_timeouts[name],
-            "tool_timeout_sec": 180,
-        }
+        assert entry["command"] == "uv"
+        assert entry["args"] == [
+            "run",
+            "--locked",
+            "--no-sync",
+            "python",
+            "-m",
+            module_name,
+        ]
+        assert entry["cwd"] == "."
+        assert entry["enabled"] is True
+        assert entry["required"] is False
+        assert entry["startup_timeout_sec"] == expected_startup_timeouts[name]
+        assert entry["tool_timeout_sec"] == 180
+        assert "url" not in entry
 
 
 @pytest.mark.parametrize(

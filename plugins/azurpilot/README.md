@@ -25,6 +25,12 @@ remote runtime остаются внешними по отношению к pack
   URL `https://<public-host>/mcp`, Caddy и внешний OAuth/OIDC provider; это тот
   же backend family, а не Codex fallback и не второй runtime.
 
+Project trust — обязательная часть direct Codex маршрута: в `untrusted` checkout
+Codex пропускает `.codex/config.toml`, plugin не выполняет automatic trust и не
+подменяет route Connected App или remote surface. Диагностика отдельно сообщает
+`source_config` и `effective_codex_registration`; tracked TOML не является
+доказательством live registration.
+
 Полная матрица маршрутизации находится в
 [references/mcp-routing.md](references/mcp-routing.md). Отсутствующий direct
 catalog или несовместимый contract обрабатывается fail-closed; remote

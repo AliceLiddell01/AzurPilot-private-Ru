@@ -54,6 +54,7 @@ _SHA_RE = re.compile(r"^[0-9a-f]{7,64}$")
 _URL_SCHEMES = frozenset({"https"})
 _MAX_JSON_BYTES = 256 * 1024
 _MAX_TOOLS = 256
+_MAX_SKILL_BYTES = 64 * 1024
 
 SERVER_NAMES = ("azurpilot-dev", "azurpilot-game")
 SERVER_MODULES = {
@@ -283,6 +284,84 @@ def _safe_type_name(value: object) -> str:
     return name if _SAFE_IDENTIFIER.fullmatch(name) else "UnknownError"
 
 
+def _codex_skill_status(skill_path: Path, expected_name: str) -> dict[str, object]:
+    """Проверить bounded metadata одного skill без исполнения его содержимого."""
+
+    if not skill_path.exists():
+        return {
+            "status": "drift",
+            "reason_code": "CODEX_PLUGIN_SKILL_FILE_MISSING",
+        }
+    if not skill_path.is_file():
+        return {
+            "status": "unavailable",
+            "reason_code": "CODEX_PLUGIN_SKILL_FILE_UNAVAILABLE",
+        }
+    try:
+        raw_skill = skill_path.read_bytes()
+    except OSError:
+        return {
+            "status": "unavailable",
+            "reason_code": "CODEX_PLUGIN_SKILL_FILE_UNAVAILABLE",
+        }
+    if len(raw_skill) > _MAX_SKILL_BYTES:
+        return {
+            "status": "invalid",
+            "reason_code": "CODEX_PLUGIN_SKILL_TOO_LARGE",
+        }
+    try:
+        content = raw_skill.decode("utf-8")
+    except UnicodeDecodeError:
+        return {
+            "status": "invalid",
+            "reason_code": "CODEX_PLUGIN_SKILL_FRONTMATTER_INVALID",
+        }
+    frontmatter_match = re.match(
+        r"\A---\r?\n(?P<frontmatter>.*?)\r?\n---(?:\r?\n|\Z)",
+        content,
+        re.DOTALL,
+    )
+    if frontmatter_match is None:
+        return {
+            "status": "invalid",
+            "reason_code": "CODEX_PLUGIN_SKILL_FRONTMATTER_INVALID",
+        }
+    try:
+        import yaml
+    except ImportError:
+        return {
+            "status": "unavailable",
+            "reason_code": "CODEX_PLUGIN_SKILL_VALIDATOR_UNAVAILABLE",
+        }
+    try:
+        metadata = yaml.safe_load(frontmatter_match.group("frontmatter"))
+    except yaml.YAMLError:
+        return {
+            "status": "invalid",
+            "reason_code": "CODEX_PLUGIN_SKILL_FRONTMATTER_INVALID",
+        }
+    if not isinstance(metadata, Mapping):
+        return {
+            "status": "invalid",
+            "reason_code": "CODEX_PLUGIN_SKILL_FRONTMATTER_INVALID",
+        }
+    if metadata.get("name") != expected_name:
+        return {
+            "status": "drift",
+            "reason_code": "CODEX_PLUGIN_SKILL_NAME_DRIFT",
+        }
+    description = metadata.get("description")
+    if not isinstance(description, str) or not description.strip():
+        return {
+            "status": "invalid",
+            "reason_code": "CODEX_PLUGIN_SKILL_DESCRIPTION_INVALID",
+        }
+    return {
+        "status": "ready",
+        "reason_code": "CODEX_PLUGIN_SKILL_VALID",
+    }
+
+
 def _codex_plugin_status(root: Path) -> dict[str, object]:
     """Проверить routing metadata plugin без загрузки Connected App state."""
 
@@ -354,6 +433,12 @@ def _codex_plugin_status(root: Path) -> dict[str, object]:
             "status": "drift",
             "reason_code": "CODEX_PLUGIN_SKILLS_DRIFT",
         }
+    for skill_name in sorted(PLUGIN_REQUIRED_SKILLS):
+        skill_status = _codex_skill_status(
+            skills_root / skill_name / "SKILL.md", skill_name
+        )
+        if skill_status.get("status") != "ready":
+            return {**skill_status, "skill": skill_name}
     return {
         "status": "ready",
         "reason_code": "CODEX_PLUGIN_ROUTING_READY",
@@ -951,6 +1036,7 @@ def _codex_entry_status(
         command != expected_command
         or not isinstance(args, list)
         or tuple(args) != tuple(expected_args)
+        or "url" in entry
         or entry.get("enabled") is not True
         or entry.get("cwd") != expected_cwd
         or (
@@ -972,6 +1058,7 @@ def _codex_entry_status(
         "reason_code": "CODEX_SERVER_CONFIGURED",
         "enabled": True,
         "cwd": expected_cwd,
+        "transport": "stdio",
     }
 
 
@@ -991,6 +1078,69 @@ def _codex_url_entry_status(
         "status": "configured",
         "reason_code": "CODEX_SERVER_CONFIGURED",
         "enabled": True,
+    }
+
+
+def _codex_effective_registration_status(name: str) -> dict[str, object]:
+    """Вернуть честный статус, когда текущий subprocess не видит Codex session."""
+
+    return {
+        "status": "not_observable",
+        "reason_code": "CODEX_EFFECTIVE_REGISTRATION_NOT_OBSERVABLE",
+        "evidence_kind": "external_live_codex_session",
+        "server_name": name,
+        "canonical_route": "direct_local_stdio",
+        "transport": "stdio",
+        "runtime_reachable": False,
+        "runtime_ready": False,
+    }
+
+
+def _codex_source_summary(entries: Mapping[str, object]) -> dict[str, object]:
+    statuses = [
+        item.get("status") if isinstance(item, Mapping) else None
+        for item in entries.values()
+    ]
+    if all(status == "configured" for status in statuses) and statuses:
+        status = "ready"
+        reason_code = "CODEX_SOURCE_CONFIG_READY"
+    elif any(status in {"drift", "invalid"} for status in statuses):
+        status = "drift"
+        reason_code = "CODEX_SOURCE_CONFIG_DRIFT"
+    else:
+        status = "partial"
+        reason_code = "CODEX_SOURCE_CONFIG_PARTIAL"
+    return {
+        "status": status,
+        "reason_code": reason_code,
+        "evidence_kind": "repository_source_config",
+        "path": ".codex/config.toml",
+        "servers": dict(entries),
+    }
+
+
+def _codex_effective_summary(entries: Mapping[str, object]) -> dict[str, object]:
+    statuses = [
+        item.get("status") if isinstance(item, Mapping) else None
+        for item in entries.values()
+    ]
+    if all(status == "ready" for status in statuses) and statuses:
+        status = "ready"
+        reason_code = "CODEX_EFFECTIVE_REGISTRATION_READY"
+    elif any(status in {"drift", "invalid"} for status in statuses):
+        status = "drift"
+        reason_code = "CODEX_EFFECTIVE_REGISTRATION_DRIFT"
+    elif all(status == "not_observable" for status in statuses) and statuses:
+        status = "not_observable"
+        reason_code = "CODEX_EFFECTIVE_REGISTRATION_NOT_OBSERVABLE"
+    else:
+        status = "partial"
+        reason_code = "CODEX_EFFECTIVE_REGISTRATION_PARTIAL"
+    return {
+        "status": status,
+        "reason_code": reason_code,
+        "evidence_kind": "external_live_codex_session",
+        "servers": dict(entries),
     }
 
 
@@ -2262,8 +2412,13 @@ def _canonical_status(
                 failures=failures,
             )
         codex = item.get("codex")
+        source_config = (
+            codex.get("source_config") if isinstance(codex, Mapping) else None
+        )
         _record_required_failure(
-            codex.get("status") if isinstance(codex, Mapping) else None,
+            source_config.get("status")
+            if isinstance(source_config, Mapping)
+            else None,
             expected="configured",
             failures=failures,
         )
@@ -2359,6 +2514,8 @@ async def collect_status_async(
     direct = direct_probe or _probe_direct_route
     codex_config = _load_codex_config(repository_root)
     servers: dict[str, dict[str, object]] = {}
+    codex_source_entries: dict[str, dict[str, object]] = {}
+    codex_effective_entries: dict[str, dict[str, object]] = {}
     for name in SERVER_NAMES:
         expected = expected_versions.get(name)
         if expected is None:
@@ -2416,7 +2573,7 @@ async def collect_status_async(
                     source_mode="remote",
                 ),
             }
-        codex_result = _codex_entry_status(
+        codex_source_result = _codex_entry_status(
             codex_config,
             name,
             expected_command="uv",
@@ -2425,13 +2582,14 @@ async def collect_status_async(
             expected_tool_timeout_sec=CODEX_SERVER_TIMEOUTS[name][1],
             expected_required=False,
         )
-        if codex_result["status"] == "configured":
-            codex_result = {
-                **codex_result,
-                "runtime_reachable": False,
-                "runtime_ready": False,
-                "evidence_kind": "configuration_only",
-            }
+        codex_source_result = {
+            **codex_source_result,
+            "evidence_kind": "repository_source_config",
+            "source_path": ".codex/config.toml",
+        }
+        codex_effective_result = _codex_effective_registration_status(name)
+        codex_source_entries[name] = codex_source_result
+        codex_effective_entries[name] = codex_effective_result
         servers[name] = {
             "expected_version": expected,
             "expected": {
@@ -2440,7 +2598,10 @@ async def collect_status_async(
                 "working_tree": working_tree,
             },
             "local_direct": local_result,
-            "codex": codex_result,
+            "codex": {
+                "source_config": codex_source_result,
+                "effective_codex_registration": codex_effective_result,
+            },
             "remote_backend": remote_result.get("remote_backend", {}),
             "public_edge": remote_result.get("public_edge", {}),
         }
@@ -2525,6 +2686,9 @@ async def collect_status_async(
         "codex": docker_client,
         "client_connection": docker_client,
     }
+    codex_source = _codex_source_summary(codex_source_entries)
+    codex_effective = _codex_effective_summary(codex_effective_entries)
+    effective_codex_registration_pending = codex_effective.get("status") != "ready"
     chatgpt = {
         "status": "not_observable",
         "reason_code": "CHATGPT_ACTION_SNAPSHOT_NOT_OBSERVABLE",
@@ -2541,7 +2705,11 @@ async def collect_status_async(
         "drift"
         if canonical_status == "drift"
         else "partial"
-        if canonical_status != "ready" or external_evidence_pending
+        if (
+            canonical_status != "ready"
+            or external_evidence_pending
+            or effective_codex_registration_pending
+        )
         else "ready"
     )
     generated_at = now()
@@ -2563,7 +2731,10 @@ async def collect_status_async(
         "canonical_status": canonical_status,
         "canonical_reason_code": canonical_reason,
         "external_evidence_pending": external_evidence_pending,
+        "effective_codex_registration_pending": effective_codex_registration_pending,
         "source": {"revision": revision, "working_tree": working_tree},
+        "source_config": codex_source,
+        "effective_codex_registration": codex_effective,
         "plugin": plugin,
         "servers": servers,
         "route_policy": {
@@ -2617,13 +2788,23 @@ def status_metric_samples(report: Mapping[str, object]) -> tuple[MetricSample, .
                 expected_version
             ):
                 continue
-            for surface_name in (
-                "local_direct",
-                "codex",
-                "remote_backend",
-                "public_edge",
-            ):
-                surface = value.get(surface_name)
+            codex = value.get("codex")
+            codex_source = (
+                codex.get("source_config") if isinstance(codex, Mapping) else None
+            )
+            codex_effective = (
+                codex.get("effective_codex_registration")
+                if isinstance(codex, Mapping)
+                else None
+            )
+            surface_entries = (
+                ("local_direct", value.get("local_direct")),
+                ("codex_source", codex_source),
+                ("codex_effective", codex_effective),
+                ("remote_backend", value.get("remote_backend")),
+                ("public_edge", value.get("public_edge")),
+            )
+            for surface_name, surface in surface_entries:
                 if not isinstance(surface, Mapping):
                     continue
                 status = surface.get("status")
@@ -2637,16 +2818,23 @@ def status_metric_samples(report: Mapping[str, object]) -> tuple[MetricSample, .
                     if isinstance(protocol, str) and _SAFE_TOKEN.fullmatch(protocol)
                     else "unknown",
                     "required_runtime": "1"
-                    if surface_name == "local_direct"
+                    if surface_name in {"local_direct", "codex_effective"}
                     else "0",
                 }
-                configured = status not in {"not_configured", None}
+                configured = (
+                    status == "configured"
+                    if surface_name == "codex_source"
+                    else status == "ready"
+                    if surface_name == "codex_effective"
+                    else status not in {"not_configured", None}
+                )
                 reachable = surface.get("runtime_reachable") is True or (
                     surface_name == "public_edge"
                     and surface.get("edge_reachable") is True
                 )
                 runtime_ready = surface.get("runtime_ready") is True or (
-                    surface_name == "local_direct" and status == "ready"
+                    surface_name in {"local_direct", "codex_effective"}
+                    and status == "ready"
                 )
                 endpoint_up = reachable
                 samples.append(
@@ -2910,6 +3098,15 @@ def _strict_failure(
     plugin = report.get("plugin")
     if not isinstance(plugin, Mapping) or plugin.get("status") != "ready":
         return True
+    source_config = report.get("source_config")
+    if not isinstance(source_config, Mapping) or source_config.get("status") != "ready":
+        return True
+    effective_codex = report.get("effective_codex_registration")
+    if (
+        not isinstance(effective_codex, Mapping)
+        or effective_codex.get("status") != "ready"
+    ):
+        return True
     servers = report.get("servers")
     if isinstance(servers, Mapping):
         for name in SERVER_NAMES:
@@ -2917,7 +3114,19 @@ def _strict_failure(
             if not isinstance(item, Mapping):
                 return True
             codex = item.get("codex")
-            if not isinstance(codex, Mapping) or codex.get("status") != "configured":
+            if not isinstance(codex, Mapping):
+                return True
+            codex_source = codex.get("source_config")
+            if (
+                not isinstance(codex_source, Mapping)
+                or codex_source.get("status") != "configured"
+            ):
+                return True
+            codex_effective = codex.get("effective_codex_registration")
+            if (
+                not isinstance(codex_effective, Mapping)
+                or codex_effective.get("status") != "ready"
+            ):
                 return True
             local = item.get("local_direct")
             if not isinstance(local, Mapping) or local.get("status") != "ready":
@@ -3116,7 +3325,7 @@ def _print_human(report: Mapping[str, object], emission: MetricEmission | None) 
     canonical_status = report.get("canonical_status")
     if canonical_status is not None:
         print(
-            f"CANONICAL {_human_status_label(canonical_status)} "
+            f"CANONICAL SOURCE {_human_status_label(canonical_status)} "
             f"({_human_reason(report.get('canonical_reason_code'))})"
         )
     print(f"SOURCE    {source_revision} ({working_tree})")
@@ -3130,6 +3339,18 @@ def _print_human(report: Mapping[str, object], emission: MetricEmission | None) 
         print(
             f"PLUGIN    {_human_status_label(plugin.get('status'))} "
             f"({_human_reason(plugin.get('reason_code'))})"
+        )
+    source_config = report.get("source_config")
+    if isinstance(source_config, Mapping):
+        print(
+            f"CODEX SOURCE     {_human_status_label(source_config.get('status'))} "
+            f"({_human_reason(source_config.get('reason_code'))})"
+        )
+    effective_codex = report.get("effective_codex_registration")
+    if isinstance(effective_codex, Mapping):
+        print(
+            f"CODEX EFFECTIVE  {_human_status_label(effective_codex.get('status'))} "
+            f"({_human_reason(effective_codex.get('reason_code'))})"
         )
 
     rows: list[list[str]] = []
@@ -3156,8 +3377,22 @@ def _print_human(report: Mapping[str, object], emission: MetricEmission | None) 
             local = item.get("local_direct")
             expected_cell = f"{expected_version} / {expected_source}"
             local_cell = _human_surface_cell(local, expected_version=expected_version)
-            codex_cell = _human_surface_cell(
-                item.get("codex"), expected_version=expected_version
+            codex_value = item.get("codex")
+            codex_source = (
+                codex_value.get("source_config")
+                if isinstance(codex_value, Mapping)
+                else None
+            )
+            codex_effective = (
+                codex_value.get("effective_codex_registration")
+                if isinstance(codex_value, Mapping)
+                else None
+            )
+            codex_source_cell = _human_surface_cell(
+                codex_source, expected_version=expected_version
+            )
+            codex_effective_cell = _human_surface_cell(
+                codex_effective, expected_version=expected_version
             )
             backend_cell = _human_surface_cell(
                 item.get("remote_backend"), expected_version=expected_version
@@ -3170,19 +3405,20 @@ def _print_human(report: Mapping[str, object], emission: MetricEmission | None) 
                     name,
                     expected_cell,
                     local_cell,
-                    codex_cell,
+                    codex_source_cell,
+                    codex_effective_cell,
                     backend_cell,
                     edge_cell,
                     _human_protocol(item),
                 ]
             )
-            for surface_name, label in (
-                ("local_direct", "Local/direct"),
-                ("codex", "Codex path"),
-                ("remote_backend", "Remote backend"),
-                ("public_edge", "Public edge"),
+            for surface_name, label, surface in (
+                ("local_direct", "Local/direct", local),
+                ("codex_source", "Codex source", codex_source),
+                ("codex_effective", "Codex effective", codex_effective),
+                ("remote_backend", "Remote backend", item.get("remote_backend")),
+                ("public_edge", "Public edge", item.get("public_edge")),
             ):
-                surface = item.get(surface_name)
                 if isinstance(surface, Mapping) and surface.get("status") not in {
                     "ready",
                     "configured",
@@ -3202,7 +3438,8 @@ def _print_human(report: Mapping[str, object], emission: MetricEmission | None) 
             "SERVER",
             "EXPECTED/SOURCE",
             "LOCAL/DIRECT",
-            "CODEX PATH",
+            "CODEX SOURCE",
+            "CODEX EFFECTIVE",
             "REMOTE BACKEND",
             "PUBLIC EDGE",
             "PROTOCOL",

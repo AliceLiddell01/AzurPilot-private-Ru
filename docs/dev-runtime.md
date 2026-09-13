@@ -64,6 +64,32 @@ startup_timeout_sec = 10
 tool_timeout_sec = 180
 ```
 
+### Trust и effective registration
+
+Trust проекта является обязательным предварительным условием для этих
+project-scoped routes. В `untrusted` checkout Codex пропускает project-scoped
+`.codex/config.toml`; plugin не меняет trust, а диагностика не выполняет
+automatic trust и не переключается на remote fallback. Поэтому наличие
+корректного tracked config не доказывает регистрацию route в текущей Codex
+task.
+
+Проверяй direct surface в read-only порядке: trust проекта → effective
+registration `azurpilot-dev` и `azurpilot-game` → MCP `initialize` и
+`tools/list` → backend contract и callable catalog. В
+`dev_tools.mcp_status` это отражено двумя независимыми полями:
+
+- `source_config` — структурная проверка `.codex/config.toml` как repository
+  source;
+- `effective_codex_registration` — authoritative live evidence из новой или
+  перезагруженной trusted Codex task.
+
+`not_observable`/pending для effective registration не является `ready` и
+должно оставаться видимым до live acceptance. Collector не сканирует human
+output `codex mcp list` и не подменяет отсутствующее effective evidence
+синтетическим статусом. Connected App, OAuth, authenticated remote surface и
+Reconnect не являются fallback для direct local stdio; они проверяются только
+для явно выбранного ChatGPT/public маршрута.
+
 Для задач репозитория рядом разрешены direct read-only routes, не проходящие
 через Docker MCP Gateway: `docker_docs_direct` использует официальный Docker
 Docs endpoint, а `semgrep_local_direct` запускает локальный `semgrep mcp -t
