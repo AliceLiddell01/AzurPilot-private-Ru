@@ -11,7 +11,11 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from tools.paths import REPOSITORY_ROOT
+_BOOTSTRAP_ROOT = Path(__file__).resolve().parents[1]
+if str(_BOOTSTRAP_ROOT) not in sys.path:
+    sys.path.insert(0, str(_BOOTSTRAP_ROOT))
+
+from tools.paths import REPOSITORY_ROOT  # noqa: E402
 
 
 @dataclass(frozen=True, slots=True)
