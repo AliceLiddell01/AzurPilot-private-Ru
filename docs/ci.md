@@ -54,12 +54,71 @@ uv run --locked ruff check . --select E9,F63,F7,F82 --ignore F821,F722
 
 Job `Python` не содержит ручного реестра модулей: `pytest` автоматически собирает весь каталог `tests/`. Тесты, которым требуется реальное устройство, эмулятор или игровой аккаунт, должны проверять только локальный контракт либо оставаться в `tools/acceptance/`.
 
+## Test platform
+
+Тестовые модули сгруппированы по доменам под `tests/`: прикладной слой,
+контракты, Event, game, MCP, persistence, runtime, WebUI и платформенные
+проверки. Повторно используемые test-only helpers находятся в `tests/support/`,
+а данные — в `tests/fixtures/<domain>/`. Общий `tests/conftest.py` содержит
+только действительно глобальную изоляцию process-global PIL; domain-specific
+fixtures размещаются рядом с владельцем.
+
+Для адресного запуска используется путь домена, например
+`uv run --locked --no-sync python -m pytest -q tests/runtime`. Перемещение
+файла не должно менять его collection semantics: постоянный layout-контракт
+проверяет отсутствие root-level `test_*.py`, наличие support/fixture roots и
+границу `tools/acceptance/`.
+
+В проекте зарегистрирован только marker `windows_integration`, потому что
+остальные устойчивые границы выражаются каталогами и не требуют дублирующего
+ручного реестра markers. `--strict-markers` включён в `pytest.ini`.
+
+Coverage и mutation testing не являются текущими обязательными gates: в
+зафиксированной `ci`-группе есть диагностический `pytest-cov`, но coverage не
+является обязательным CI gate и глобальный порог не задан. Локальный line/branch
+отчёт запускается так (после установки locked-группы `ci`):
+
+```bash
+uv sync --locked --group ci
+uv run --locked --no-sync python -m pytest -q \
+  --dist=loadgroup -n auto \
+  --cov=module --cov=campaign --cov=tools --cov-branch \
+  --cov-report=term-missing tests
+```
+
+Порог coverage не понижается и исключения не добавляются. Mutation runner в
+lock не вводился: для representative pure-domain scope выполнена ручная
+feasibility-оценка, а полномасштабный mutation gate не оправдан
+стоимостью для текущей mixed device/MCP/runtime suite. Coverage report служит
+диагностикой uncovered modules и fail-closed ветвей, а не заменой содержательных
+регрессионных тестов.
+
+Python job сохраняет тот же полный suite и дополнительно публикует XML-отчёт в
+Codecov через pinned `codecov/codecov-action@v5.5.5` с GitHub Actions OIDC.
+Upload не использует repository token или секрет в исходниках. Репозиторный
+`codecov.yml` оставляет project/patch statuses выключенными до отдельного
+решения о baseline и порогах; PR comment остаётся доступным для диагностики.
+
 Translation structural step получает SHA из `pull_request.base.sha` и
 `pull_request.head.sha`, сравнивает changed production Python через локальный
 `git diff` и запрещает translation PR менять workflow, verifier или его tests.
 В production scope входят точки входа, `module/**/*.py` и `campaign/**/*.py`.
 
-`tests/test_runtime_russianization_audit.py` проверяет текущее дерево на каждом PR и не зависит от historical SHA или base snapshot. Он запрещает CJK и неклассифицированные English-only предложения в deterministic display sinks и защищает `ru-RU`, `en`, Global package, `assets/en`, EN metadata и OCR namespace `azur_lane`. Узкие semantic allowances относятся к техническим, machine и game значениям; broad file/directory ignores отсутствуют.
+`tests/contracts/localization/test_runtime_russianization_audit.py` проверяет текущее дерево на каждом PR и не зависит от historical SHA или base snapshot. Он запрещает CJK и неклассифицированные English-only предложения в deterministic display sinks и защищает `ru-RU`, `en`, Global package, `assets/en`, EN metadata и OCR namespace `azur_lane`. Узкие semantic allowances относятся к техническим, machine и game значениям; broad file/directory ignores отсутствуют.
+
+Для локального и CI-прогона используется один canonical режим `pytest-xdist`:
+`uv run --locked --no-sync python -m pytest -q --dist=loadgroup -n auto tests` после
+установки locked-группы `ci`. Job `Python` передаёт те же `--dist=loadgroup -n auto`
+в полный coverage suite. Worker count определяется runner'ом через `-n auto`,
+поэтому permanent contract не зависит от workstation-specific числа. Модули,
+которые очищают общую disposable PostgreSQL
+schema, объединены маркером `xdist_group("postgresql")`, поэтому `loadgroup`
+не допускает гонок между ними; concurrency-тесты внутри отдельного модуля
+остаются параллельными. Тесты, использующие общий host-wide игровой runtime
+lease, объединены маркером `xdist_group("game_runtime")`; их внутренние потоки
+и процессы по-прежнему проверяют concurrency. Отдельные process-heavy
+`unittest` и marker-only acceptance steps сохраняют собственный последовательный
+режим.
 
 Structural parity ниже применяется только к explicit translation PR. Feature, bugfix и refactor меняют functionality согласно Declared Scope и обычным product tests, но не освобождаются от permanent runtime-localization audit.
 

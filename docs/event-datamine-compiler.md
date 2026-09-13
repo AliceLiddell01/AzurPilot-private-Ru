@@ -171,7 +171,7 @@ uv run python -m dev_tools.event_datamine_fixture `
   --repository AzurLaneTools/AzurLaneLuaScripts `
   --revision <full-sha> `
   --now <server-local-iso-datetime> `
-  --output .\tests\fixtures\event_datamine\current_en
+  --output .\tests\fixtures\event\datamine\current_en
 ```
 
 Исторический extractor с явным activity ID остаётся инструментом golden/regression. `--maps-output` включается отдельно. Map modules не генерируются, если structural artifact содержит blocking findings или если обязательная runtime-policy карты не подтверждена.

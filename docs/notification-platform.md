@@ -208,14 +208,14 @@ producer игрового события, а критическая application 
 
 Текущие тестовые seams:
 
-- tests/test_scheduler_core_runtime_messages.py и
-  tests/test_alas_error_handling.py patch-ят alas.handle_notify и
+- tests/runtime/test_scheduler_core_runtime_messages.py и
+  tests/application/test_alas_error_handling.py patch-ят alas.handle_notify и
   alas.notify_webui;
-- tests/test_application_runtime_handover.py проверяет, что ACCEPTED не
+- tests/application/test_application_runtime_handover.py проверяет, что ACCEPTED не
   проходит handover;
-- tests/test_webui_runtime_control_owner.py использует injected notifier и
+- tests/webui/test_webui_runtime_control_owner.py использует injected notifier и
   NotificationOutcome.DELIVERED;
-- tests/test_shared_webui_localization_contracts.py проверяет наличие
+- tests/runtime/test_shared_webui_localization_contracts.py проверяет наличие
   notification routes.
 
 ### [Факт] Config inventory

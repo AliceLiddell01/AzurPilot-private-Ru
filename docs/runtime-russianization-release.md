@@ -32,7 +32,8 @@ Final translation closure выполнен PR `#68`; production diff менял 
 
 ## Permanent integrity
 
-`dev_tools/runtime_russianization_audit.py` и `tests/test_runtime_russianization_audit.py` обеспечивают:
+`dev_tools/runtime_russianization_audit.py` и
+`tests/contracts/localization/test_runtime_russianization_audit.py` обеспечивают:
 
 - CJK runtime regression protection в доказанных display sinks;
 - ordinary operator English protection в deterministic sink contract;
