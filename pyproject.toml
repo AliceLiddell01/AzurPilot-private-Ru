@@ -10,7 +10,7 @@ dependencies = [
     "imageio==2.37.4",
     "imageio-ffmpeg==0.6.0",
     "adbutils==1.2.15",
-    "uiautomator2==2.16.26",
+    "uiautomator2==3.7.0",
     "uiautomator2cache==0.3.1",
     "jellyfish==1.2.1",
     "pyyaml==6.0.3",
