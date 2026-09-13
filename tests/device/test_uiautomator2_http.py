@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import io
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, PropertyMock, patch
 
 import requests
 from PIL import Image
@@ -88,6 +88,32 @@ def test_http_adapter_window_size_accepts_flat_device_info_fields():
 
     with patch.object(device.http, "post", return_value=response):
         assert device.window_size() == (1080, 1920)
+
+
+def test_http_adapter_initializes_settings_for_inherited_coordinate_controls():
+    device = HttpUiautomator2("http://127.0.0.1:7912")
+    rpc = Mock()
+
+    with (
+        patch.object(HttpUiautomator2, "jsonrpc", new_callable=PropertyMock, return_value=rpc),
+        patch.object(device, "window_size", return_value=(100, 200)),
+    ):
+        device.click(0.5, 0.25)
+
+    assert device.settings["wait_timeout"] == 20.0
+    rpc.click.assert_called_once_with(50, 50)
+
+
+def test_http_adapter_stream_shell_propagates_bounded_timeout():
+    device = HttpUiautomator2("http://127.0.0.1:7912")
+    response = FakeResponse()
+
+    with patch.object(device.http, "get", return_value=response) as get:
+        assert device.shell(["logcat"], stream=True, timeout=7) is response
+
+    assert get.call_args.args == ("/shell/stream",)
+    assert get.call_args.kwargs["timeout"] == (10, 7)
+    assert get.call_args.kwargs["stream"] is True
 
 
 def test_http_adapter_keeps_service_and_input_operations_on_same_endpoint():

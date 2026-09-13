@@ -18,6 +18,7 @@ import requests
 import uiautomator2 as u2
 from PIL import Image
 from uiautomator2.abstract import ShellResponse
+from uiautomator2.settings import Settings
 from uiautomator2.utils import list2cmdline
 
 
@@ -39,7 +40,7 @@ class _HttpSession(requests.Session):
 class _HttpService:
     """Минимальный service API, совместимый с endpoint старого агента."""
 
-    def __init__(self, name: str, device: "HttpUiautomator2") -> None:
+    def __init__(self, name: str, device: HttpUiautomator2) -> None:
         self.name = name
         self.device = device
         self.service_url = f"/services/{name}"
@@ -79,6 +80,8 @@ class HttpUiautomator2(u2.Device):
         self._device_server_port = port
         self._process = None
         self._http = _HttpSession(serial)
+        # Нужен для унаследованных click/swipe и не запускает локальный u2.jar.
+        self.settings = Settings(self)
 
     @property
     def http(self) -> _HttpSession:
@@ -140,7 +143,7 @@ class HttpUiautomator2(u2.Device):
                 response = self.http.get(
                     "/shell/stream",
                     params={"command": command},
-                    timeout=None,
+                    timeout=(10, timeout or 60),
                     stream=True,
                 )
                 response.raise_for_status()
@@ -157,8 +160,8 @@ class HttpUiautomator2(u2.Device):
             response.raise_for_status()
             data = response.json()
             if not isinstance(data, dict):
-                raise ValueError("Ответ HTTP shell не является объектом")
-        except (requests.RequestException, ValueError) as exc:
+                raise TypeError("Ответ HTTP shell не является объектом")
+        except (requests.RequestException, TypeError, ValueError) as exc:
             raise u2.DeviceError(f"Ошибка HTTP shell uiautomator2: {exc}") from exc
 
         exit_code = int(data.get("exitCode", 1 if data.get("error") else 0))
