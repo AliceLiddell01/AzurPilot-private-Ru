@@ -248,11 +248,11 @@ def test_human_status_uses_compact_tables_and_sections(capsys) -> None:
     assert "azurpilot-dev" in output
     assert f"{_versions()['azurpilot-dev']} OK" in output
     assert "PLUGIN" in output
-    assert "remote-only" in output
+    assert "только удалённый маршрут" in output
     assert "Docker MCP Gateway" in output
     assert "Status: OK" in output
     assert "context7" in output
-    assert "ChatGPT action cache" in output
+    assert "Кэш действий ChatGPT" in output
     assert "MCP_STATUS_PARTIAL" in output
     assert "local_direct" not in output
     assert "reason_code" not in output
@@ -483,6 +483,8 @@ def test_codex_game_entry_uses_direct_local_stdio_command() -> None:
                 "args": list(status.CODEX_SERVER_ARGS["azurpilot-game"]),
                 "cwd": ".",
                 "enabled": True,
+                "startup_timeout_sec": status.CODEX_SERVER_TIMEOUTS["azurpilot-game"][0],
+                "tool_timeout_sec": status.CODEX_SERVER_TIMEOUTS["azurpilot-game"][1],
             }
         }
     }
@@ -492,9 +494,42 @@ def test_codex_game_entry_uses_direct_local_stdio_command() -> None:
         "azurpilot-game",
         expected_command="uv",
         expected_args=status.CODEX_SERVER_ARGS["azurpilot-game"],
+        expected_startup_timeout_sec=status.CODEX_SERVER_TIMEOUTS["azurpilot-game"][0],
+        expected_tool_timeout_sec=status.CODEX_SERVER_TIMEOUTS["azurpilot-game"][1],
     )
 
     assert result["status"] == "configured"
+
+
+def test_codex_direct_entries_require_canonical_timeouts() -> None:
+    for name, startup_timeout in status.CODEX_SERVER_TIMEOUTS.items():
+        config = {
+            "mcp_servers": {
+                name: {
+                    "command": "uv",
+                    "args": list(status.CODEX_SERVER_ARGS[name]),
+                    "cwd": ".",
+                    "enabled": True,
+                    "startup_timeout_sec": startup_timeout[0],
+                    "tool_timeout_sec": startup_timeout[1],
+                }
+            }
+        }
+        expected = {
+            "expected_command": "uv",
+            "expected_args": status.CODEX_SERVER_ARGS[name],
+            "expected_startup_timeout_sec": startup_timeout[0],
+            "expected_tool_timeout_sec": startup_timeout[1],
+        }
+        assert status._codex_entry_status(config, name, **expected)["status"] == "configured"
+        for field in ("startup_timeout_sec", "tool_timeout_sec"):
+            drifted = deepcopy(config)
+            drifted["mcp_servers"][name][field] += 1
+            assert status._codex_entry_status(drifted, name, **expected)["status"] == "drift"
+
+        missing = deepcopy(config)
+        missing["mcp_servers"][name].pop("startup_timeout_sec")
+        assert status._codex_entry_status(missing, name, **expected)["status"] == "drift"
 
 
 def test_codex_plugin_status_rejects_legacy_app_registration(tmp_path: Path) -> None:

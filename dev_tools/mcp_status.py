@@ -64,6 +64,10 @@ CODEX_SERVER_ARGS = {
     name: ("run", "--locked", "--no-sync", "python", "-m", module_name)
     for name, (module_name, _contract_tool) in SERVER_MODULES.items()
 }
+CODEX_SERVER_TIMEOUTS: dict[str, tuple[int, int]] = {
+    "azurpilot-dev": (5, 180),
+    "azurpilot-game": (10, 180),
+}
 PLUGIN_RELATIVE_ROOT = Path("plugins") / "azurpilot"
 PLUGIN_REQUIRED_SKILLS = frozenset(
     {
@@ -930,6 +934,8 @@ def _codex_entry_status(
     expected_command: str,
     expected_args: Sequence[str],
     expected_cwd: str = ".",
+    expected_startup_timeout_sec: int | None = None,
+    expected_tool_timeout_sec: int | None = None,
 ) -> dict[str, object]:
     servers = config.get("mcp_servers")
     entry = servers.get(name) if isinstance(servers, Mapping) else None
@@ -946,6 +952,14 @@ def _codex_entry_status(
         or tuple(args) != tuple(expected_args)
         or entry.get("enabled") is not True
         or entry.get("cwd") != expected_cwd
+        or (
+            expected_startup_timeout_sec is not None
+            and entry.get("startup_timeout_sec") != expected_startup_timeout_sec
+        )
+        or (
+            expected_tool_timeout_sec is not None
+            and entry.get("tool_timeout_sec") != expected_tool_timeout_sec
+        )
     ):
         return {"status": "drift", "reason_code": "CODEX_SERVER_CONFIG_DRIFT"}
     return {
@@ -2402,6 +2416,8 @@ async def collect_status_async(
             name,
             expected_command="uv",
             expected_args=CODEX_SERVER_ARGS[name],
+            expected_startup_timeout_sec=CODEX_SERVER_TIMEOUTS[name][0],
+            expected_tool_timeout_sec=CODEX_SERVER_TIMEOUTS[name][1],
         )
         if codex_result["status"] == "configured":
             codex_result = {
@@ -3345,13 +3361,13 @@ def _print_human(report: Mapping[str, object], emission: MetricEmission | None) 
     if isinstance(chatgpt, Mapping):
         chatgpt_status = _human_status_label(chatgpt.get("status"))
         print()
-        print("ChatGPT action cache (remote-only)")
-        print("---------------------------------")
-        print(f"{'AzurPilot Development (remote):':32} {chatgpt_status}")
-        print(f"{'AzurPilot Game (remote):':32} {chatgpt_status}")
+        print("Кэш действий ChatGPT (только удалённый маршрут)")
+        print("-----------------------------------------------")
+        print(f"{'AzurPilot Development (удалённый):':36} {chatgpt_status}")
+        print(f"{'AzurPilot Game (удалённый):':36} {chatgpt_status}")
         if chatgpt_status != "OK":
             notes.append(
-                f"ChatGPT remote action cache: {chatgpt_status} "
+                f"Удалённый кэш действий ChatGPT: {chatgpt_status} "
                 f"({_human_reason(chatgpt.get('reason_code'))})"
             )
 
