@@ -11,6 +11,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from tools.paths import REPOSITORY_ROOT
+
 
 @dataclass(frozen=True, slots=True)
 class SecurityPosture:
@@ -131,8 +133,17 @@ def validate_posture(posture: SecurityPosture) -> None:
 
 
 _DEFAULT_COMPOSE_FILE = (
-    Path(__file__).resolve().parents[1] / "infrastructure/observability/compose.yaml"
+    REPOSITORY_ROOT / "infrastructure/observability/compose.yaml"
 )
+
+
+def _compose_repository_root(compose_file: Path) -> Path:
+    """Найти корень среды по .env без зависимости от глубины пути."""
+
+    for candidate in (compose_file.parent, *compose_file.parents):
+        if (candidate / ".env").is_file():
+            return candidate
+    raise SecurityPostureError("DOCKER_ENV_UNAVAILABLE")
 
 
 def _docker_compose_arguments(compose_file: Path, *arguments: str) -> list[str]:
@@ -140,10 +151,7 @@ def _docker_compose_arguments(compose_file: Path, *arguments: str) -> list[str]:
     if executable is None:
         raise SecurityPostureError("DOCKER_CLI_UNAVAILABLE")
     compose_file = compose_file.resolve(strict=True)
-    parents = compose_file.parents
-    if len(parents) < 3:
-        raise SecurityPostureError("DOCKER_COMPOSE_LAYOUT_UNSUPPORTED")
-    repository_root = parents[2]
+    repository_root = _compose_repository_root(compose_file)
     env_file = repository_root / ".env"
     if not env_file.is_file():
         raise SecurityPostureError("DOCKER_ENV_UNAVAILABLE")

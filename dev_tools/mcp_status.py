@@ -30,6 +30,7 @@ from module.mcp_shared.versioning import (
     load_server_versions,
     version_satisfies,
 )
+from tools.paths import REPOSITORY_ROOT
 
 STATUS_SCHEMA_VERSION = 1
 STATUS_TIMEOUT_SECONDS = 20.0
@@ -2496,7 +2497,7 @@ async def collect_status_async(
     direct_probe: DirectProbe | None = None,
     now: Callable[[], str] = _utc_now,
 ) -> dict[str, object]:
-    repository_root = Path(root or Path(__file__).resolve().parents[1]).resolve()
+    repository_root = Path(root or REPOSITORY_ROOT).resolve()
     try:
         expected_versions = load_server_versions(repository_root)
     except VersioningError:
@@ -3072,7 +3073,7 @@ def emit_metrics(report: Mapping[str, object]) -> MetricEmission:
             samples,
             endpoint=endpoint,
             timeout_millis=int(METRICS_TIMEOUT_SECONDS * 1000),
-            repository_root=Path(__file__).resolve().parents[1],
+            repository_root=REPOSITORY_ROOT,
         )
     except Exception:  # noqa: BLE001 - status command must not expose headers/errors.
         return MetricEmission(False, "MCP_METRICS_EXPORT_FAILED", len(samples))

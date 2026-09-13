@@ -6,10 +6,10 @@ import argparse
 import json
 import sys
 from contextlib import redirect_stdout
-from pathlib import Path
 
+from tools.paths import REPOSITORY_ROOT
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+_PROJECT_ROOT = REPOSITORY_ROOT
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 

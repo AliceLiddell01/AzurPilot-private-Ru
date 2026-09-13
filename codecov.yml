@@ -1,0 +1,15 @@
+codecov:
+  branch: personal/stable
+  require_ci_to_pass: true
+
+coverage:
+  precision: 2
+  round: down
+  status:
+    project: off
+    patch: off
+
+comment:
+  layout: "header, diff, files, footer"
+  behavior: default
+  require_changes: false

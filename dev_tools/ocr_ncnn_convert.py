@@ -12,8 +12,9 @@ from pathlib import Path
 
 import numpy as np
 
+from tools.paths import REPOSITORY_ROOT
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = REPOSITORY_ROOT
 MODEL_ROOT = REPO_ROOT / "bin/ocr_models"
 DEFAULT_OUTPUT_DIR = MODEL_ROOT / "ncnn"
 INPUT_SHAPE = (1, 3, 48, 320)

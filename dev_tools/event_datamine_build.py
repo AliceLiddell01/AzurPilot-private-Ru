@@ -36,6 +36,7 @@ from module.event_datamine.runtime_policy import (
     validate_runtime_template_assets,
 )
 from module.event_datamine.source import ShareCfgLoader, SourceSnapshot
+from tools.paths import REPOSITORY_ROOT
 
 
 def verify_git_revision(root: Path, revision: str) -> None:
@@ -389,7 +390,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--asset-root",
         type=Path,
-        default=Path(__file__).resolve().parents[1] / "assets",
+        default=REPOSITORY_ROOT / "assets",
     )
     parser.add_argument("--maps-output", type=Path)
     parser.add_argument("--overwrite", action="store_true")
