@@ -35,6 +35,8 @@ from module.observability.tracing import (
     trace_operation,
 )
 
+pytestmark = pytest.mark.usefixtures("isolate_repository_environment")
+
 _OTEL_ENVIRONMENT_KEYS = (
     "OTEL_EXPORTER_OTLP_HEADERS",
     "OTEL_EXPORTER_OTLP_LOGS_HEADERS",

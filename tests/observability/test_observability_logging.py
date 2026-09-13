@@ -34,6 +34,8 @@ from module.observability.bootstrap import (
 )
 from module.observability.identity import resolve_observability_identity
 
+pytestmark = pytest.mark.usefixtures("isolate_repository_environment")
+
 _ROOT = REPOSITORY_ROOT
 _OTEL_ENVIRONMENT_KEYS = (
     "OTEL_EXPORTER_OTLP_HEADERS",
@@ -70,6 +72,14 @@ _OTEL_ENVIRONMENT_KEYS = (
     "OTEL_TRACES_SAMPLER",
     "OTEL_TRACES_SAMPLER_ARG",
 )
+
+
+def test_observability_tests_use_semantic_environment_fixture() -> None:
+    repository_root = Path(os.environ["AZURPILOT_REPOSITORY_ROOT"])
+
+    assert repository_root.name == "observability-repository"
+    assert (repository_root / "module").is_dir()
+    assert (repository_root / "gui.py").is_file()
 
 
 def _configure_test_environment(monkeypatch):

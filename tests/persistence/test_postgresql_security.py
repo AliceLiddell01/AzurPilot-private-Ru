@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+from dev_tools import postgresql_security
 from dev_tools.postgresql_security import (
     SecurityPosture,
     SecurityPostureError,
+    _docker_compose_arguments,
     _docker_port_is_loopback,
     _read_posture,
     validate_posture,
@@ -227,6 +230,74 @@ def test_docker_port_loopback_accepts_bracketed_ipv6(
     assert _docker_port_is_loopback(output) is expected
 
 
+def _compose_file(repository_root: Path) -> Path:
+    compose_file = repository_root / "infrastructure" / "observability" / "compose.yaml"
+    compose_file.parent.mkdir(parents=True)
+    compose_file.write_text("name: test\n", encoding="utf-8")
+    return compose_file
+
+
+def _env_file_argument(arguments: list[str]) -> str:
+    return arguments[arguments.index("--env-file") + 1]
+
+
+def test_docker_compose_uses_canonical_root_env_not_nested_env(tmp_path, monkeypatch):
+    repository_root = tmp_path / "repository"
+    compose_file = _compose_file(repository_root)
+    root_env = repository_root / ".env"
+    root_env.write_text("ROOT=value\n", encoding="utf-8")
+    (compose_file.parent / ".env").write_text("NESTED=value\n", encoding="utf-8")
+    monkeypatch.setattr(postgresql_security, "REPOSITORY_ROOT", repository_root)
+    monkeypatch.setattr(postgresql_security.shutil, "which", lambda _name: "docker.exe")
+
+    arguments = _docker_compose_arguments(compose_file, "config")
+
+    assert _env_file_argument(arguments) == str(root_env.resolve())
+
+
+def test_docker_compose_ignores_unrelated_ancestor_env(tmp_path, monkeypatch):
+    (tmp_path / ".env").write_text("ANCESTOR=value\n", encoding="utf-8")
+    repository_root = tmp_path / "repository"
+    compose_file = _compose_file(repository_root)
+    root_env = repository_root / ".env"
+    root_env.write_text("ROOT=value\n", encoding="utf-8")
+    monkeypatch.setattr(postgresql_security, "REPOSITORY_ROOT", repository_root)
+    monkeypatch.setattr(postgresql_security.shutil, "which", lambda _name: "docker.exe")
+
+    arguments = _docker_compose_arguments(compose_file, "config")
+
+    assert _env_file_argument(arguments) == str(root_env.resolve())
+
+
+def test_docker_compose_requires_canonical_root_env(tmp_path, monkeypatch):
+    repository_root = tmp_path / "repository"
+    compose_file = _compose_file(repository_root)
+    monkeypatch.setattr(postgresql_security, "REPOSITORY_ROOT", repository_root)
+    monkeypatch.setattr(postgresql_security.shutil, "which", lambda _name: "docker.exe")
+
+    with pytest.raises(SecurityPostureError, match="DOCKER_ENV_UNAVAILABLE"):
+        _docker_compose_arguments(compose_file, "config")
+
+
+def test_docker_compose_custom_path_requires_explicit_repository_root(tmp_path, monkeypatch):
+    compose_file = tmp_path / "custom" / "compose.yaml"
+    compose_file.parent.mkdir()
+    compose_file.write_text("name: custom\n", encoding="utf-8")
+    repository_root = tmp_path / "custom-environment"
+    repository_root.mkdir()
+    root_env = repository_root / ".env"
+    root_env.write_text("ROOT=value\n", encoding="utf-8")
+    monkeypatch.setattr(postgresql_security.shutil, "which", lambda _name: "docker.exe")
+
+    arguments = _docker_compose_arguments(
+        compose_file,
+        "config",
+        repository_root=repository_root,
+    )
+
+    assert _env_file_argument(arguments) == str(root_env.resolve())
+
+
 def test_docker_posture_rejects_unavailable_service(tmp_path, monkeypatch):
     compose_file = tmp_path / "infrastructure" / "observability" / "compose.yaml"
     compose_file.parent.mkdir(parents=True)
@@ -242,7 +313,10 @@ def test_docker_posture_rejects_unavailable_service(tmp_path, monkeypatch):
 
     with pytest.raises(SecurityPostureError, match="DOCKER_SERVICE_UNAVAILABLE"):
         _read_posture(
-            deployment="docker", compose_file=compose_file, service="postgres"
+            deployment="docker",
+            compose_file=compose_file,
+            repository_root=tmp_path,
+            service="postgres",
         )
 
 
@@ -285,7 +359,10 @@ def test_docker_posture_reads_loopback_compose_binding(tmp_path, monkeypatch):
     )
 
     posture = _read_posture(
-        deployment="docker", compose_file=compose_file, service="postgres"
+        deployment="docker",
+        compose_file=compose_file,
+        repository_root=tmp_path,
+        service="postgres",
     )
 
     assert posture.deployment == "docker"

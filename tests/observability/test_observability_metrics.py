@@ -37,6 +37,8 @@ from module.observability.metrics import (
     scheduler_task_run,
 )
 
+pytestmark = pytest.mark.usefixtures("isolate_repository_environment")
+
 
 @pytest.mark.parametrize("value", [True, float("nan"), float("inf"), float("-inf")])
 def test_emit_metric_samples_once_rejects_bool_and_non_finite_values(

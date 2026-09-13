@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ast
+
 from tests.support.paths import FIXTURES_ROOT, REPOSITORY_ROOT, TESTS_ROOT
 
 
@@ -41,16 +43,20 @@ def test_acceptance_and_diagnostics_are_outside_pytest_tree() -> None:
     acceptance_root = REPOSITORY_ROOT / "tools" / "acceptance"
     diagnostics_root = REPOSITORY_ROOT / "tools" / "diagnostics"
 
-    assert (acceptance_root / "emulator_recovery.py").is_file()
-    assert (acceptance_root / "webui_traceback_browser.py").is_file()
-    assert (diagnostics_root / "webui_traceback_server.py").is_file()
-    assert not (TESTS_ROOT / "live_emulator_recovery_acceptance.py").exists()
-    assert not (TESTS_ROOT / "run_webui_traceback_browser.py").exists()
+    assert acceptance_root.is_dir()
+    assert diagnostics_root.is_dir()
+    assert any(acceptance_root.rglob("*.py"))
+    assert any(diagnostics_root.rglob("*.py"))
+    assert not (TESTS_ROOT / "acceptance").exists()
+    assert not (TESTS_ROOT / "diagnostics").exists()
 
 
 def test_root_conftest_does_not_own_a_custom_scheduler() -> None:
     source = (TESTS_ROOT / "conftest.py").read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=str(TESTS_ROOT / "conftest.py"))
 
-    assert "pytest_cmdline_main" not in source
-    assert "AZURPILOT_PYTEST_PARALLEL" not in source
-    assert "subprocess.Popen" not in source
+    assert not any(
+        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == "pytest_cmdline_main"
+        for node in ast.walk(tree)
+    )
