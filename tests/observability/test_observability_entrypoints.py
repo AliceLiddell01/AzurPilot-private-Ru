@@ -1,6 +1,7 @@
 """Регрессии явной настройки журналирования на границах процессов."""
 
 import sys
+import types
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -82,6 +83,8 @@ def test_gui_supervisor_bootstraps_parent_before_worker_creation() -> None:
 def test_ocr_rpc_server_bootstraps_process_role_before_binding() -> None:
     events = []
     server = Mock()
+    models = types.ModuleType("module.ocr.models")
+    models.OcrModel = type("OcrModel", (), {})
     run_result = object()
     server.run.side_effect = lambda **kwargs: (
         events.append(("run", kwargs)),
@@ -104,6 +107,7 @@ def test_ocr_rpc_server_bootstraps_process_role_before_binding() -> None:
                 server,
             )[1],
         ) as server_factory,
+        patch.dict(sys.modules, {"module.ocr.models": models}),
     ):
         result = ocr_rpc.start_ocr_server(port=23457)
 
