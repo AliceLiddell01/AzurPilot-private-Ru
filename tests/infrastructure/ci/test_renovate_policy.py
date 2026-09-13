@@ -32,12 +32,14 @@ def _matches_patterns(value: str | None, patterns: object) -> bool:
     if isinstance(patterns, str):
         patterns = (patterns,)
     if not isinstance(patterns, (list, tuple)) or not patterns:
-        return True
+        return False
 
     positive_patterns = []
+    has_string_pattern = False
     for pattern in patterns:
         if not isinstance(pattern, str):
             continue
+        has_string_pattern = True
         negated = pattern.startswith("!")
         raw_pattern = pattern[1:] if negated else pattern
         if negated and _raw_pattern_matches(raw_pattern, value):
@@ -45,8 +47,11 @@ def _matches_patterns(value: str | None, patterns: object) -> bool:
         if not negated:
             positive_patterns.append(raw_pattern)
 
-    return not positive_patterns or any(
-        _raw_pattern_matches(pattern, value) for pattern in positive_patterns
+    return has_string_pattern and (
+        not positive_patterns
+        or any(
+            _raw_pattern_matches(pattern, value) for pattern in positive_patterns
+        )
     )
 
 
@@ -113,6 +118,8 @@ def test_renovate_matching_supports_glob_regex_and_negation() -> None:
         {"matchPackageNames": ["docker/*", "!docker/setup-buildx-action"]},
         dependency,
     )
+    assert not _matches({"matchPackageNames": []}, dependency)
+    assert not _matches({"matchPackageNames": [None]}, dependency)
 
 
 def test_renovate_priority_uses_last_matching_rule_value() -> None:

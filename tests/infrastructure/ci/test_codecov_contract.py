@@ -115,8 +115,8 @@ def test_ci_generates_branch_coverage_and_uploads_with_oidc() -> None:
         "codecov.SHA256SUM.sig",
     ]
 
-    assert "PYTHONWARNINGS" not in workflow.get("env", {})
-    assert "PYTHONWARNINGS" not in job.get("env", {})
+    assert not _contains_key(workflow.get("env"), "PYTHONWARNINGS")
+    assert not _contains_key(job.get("env"), "PYTHONWARNINGS")
 
 def test_ci_group_contains_locked_coverage_dependency() -> None:
     project = tomllib.loads(_read("pyproject.toml"))

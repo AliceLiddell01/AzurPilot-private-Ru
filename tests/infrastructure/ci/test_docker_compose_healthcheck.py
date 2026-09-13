@@ -3,6 +3,7 @@ from tests.support.paths import REPOSITORY_ROOT
 import json
 from pathlib import Path
 
+import pytest
 import yaml
 
 ROOT = REPOSITORY_ROOT
@@ -250,7 +251,8 @@ def test_tempo_mcp_is_enabled_without_a_host_port():
     assert tempo_config["query_frontend"]["metrics"]["max_duration"] == "168h"
 
 
-def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
+@pytest.fixture
+def grafana_contract() -> dict[str, object]:
     compose_path = ROOT / "infrastructure/observability/compose.yaml"
     compose_data = yaml.safe_load(compose_path.read_text(encoding="utf-8"))
     grafana_volumes = compose_data["services"]["grafana"]["volumes"]
@@ -259,6 +261,37 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
         for volume in grafana_volumes
         if volume["type"] == "bind"
     }
+
+    provider_path = (
+        ROOT
+        / "infrastructure/observability/grafana/provisioning/dashboards/providers.yaml"
+    )
+    provider = yaml.safe_load(provider_path.read_text(encoding="utf-8"))
+
+    dashboard_root = ROOT / "infrastructure/observability/grafana/dashboards"
+    dashboards = {
+        path.stem: json.loads(path.read_text(encoding="utf-8"))
+        for path in sorted(dashboard_root.glob("*.json"))
+    }
+
+    alerting_path = (
+        ROOT
+        / "infrastructure/observability/grafana/provisioning/alerting/alert-rules.yaml"
+    )
+    alerting = yaml.safe_load(alerting_path.read_text(encoding="utf-8"))
+    return {
+        "mounted_targets": mounted_targets,
+        "provider": provider,
+        "dashboards": dashboards,
+        "alerting": alerting,
+        "alerting_text": alerting_path.read_text(encoding="utf-8"),
+    }
+
+
+def test_grafana_operator_dashboard_mounts_are_provisioned_as_code(
+    grafana_contract: dict[str, object],
+):
+    mounted_targets = grafana_contract["mounted_targets"]
     assert (
         "./grafana/dashboards",
         "/var/lib/grafana/dashboards",
@@ -275,11 +308,12 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
         True,
     ) in mounted_targets
 
-    provider_path = (
-        ROOT
-        / "infrastructure/observability/grafana/provisioning/dashboards/providers.yaml"
-    )
-    provider = yaml.safe_load(provider_path.read_text(encoding="utf-8"))
+
+def test_grafana_dashboard_provider_and_files_are_provisioned_as_code(
+    grafana_contract: dict[str, object],
+):
+    provider = grafana_contract["provider"]
+    dashboards = grafana_contract["dashboards"]
     assert provider == {
         "apiVersion": 1,
         "providers": [
@@ -298,12 +332,6 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
                 },
             }
         ],
-    }
-
-    dashboard_root = ROOT / "infrastructure/observability/grafana/dashboards"
-    dashboards = {
-        path.stem: json.loads(path.read_text(encoding="utf-8"))
-        for path in sorted(dashboard_root.glob("*.json"))
     }
     assert set(dashboards) == {
         "azurpilot-overview",
@@ -340,6 +368,11 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
         assert "task_run_id" not in dashboard_text
         assert "trace_id" not in dashboard_text
 
+
+def test_grafana_dashboard_queries_are_provisioned_as_code(
+    grafana_contract: dict[str, object],
+):
+    dashboards = grafana_contract["dashboards"]
     overview_text = json.dumps(dashboards["azurpilot-overview"], ensure_ascii=False)
     assert "azurpilot_task_run_total" in overview_text
     assert "quantile_over_time(span:duration, .50)" in overview_text
@@ -350,7 +383,7 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
     assert "with (most_recent=true)" in overview_text
     assert "count_over_time()" in overview_text
     assert "deployment.environment.name" in overview_text
-    assert "deployment_environment_name=~\\\"${environment:regex}\\\"" in overview_text
+    assert 'deployment_environment_name=~\\"${environment:regex}\\"' in overview_text
     assert "round(" not in overview_text
     assert "increase(" not in overview_text
     assert "clamp_min" not in overview_text
@@ -385,12 +418,6 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
     assert 'deployment_environment_name=~"${environment:regex}"' in overview_loki_expr
     assert '| azurpilot_profile =~ "${profile:regex}"' in overview_loki_expr
     assert '| azurpilot_task =~ "${task:regex}"' in overview_loki_expr
-    assert {
-        variable["name"] for variable in dashboards["azurpilot-overview"]["templating"]["list"]
-    } == {"environment", "profile", "task"}
-    assert {
-        variable["name"] for variable in dashboards["azurpilot-errors"]["templating"]["list"]
-    } == {"environment", "profile", "task"}
     for panel_id in (1, 3, 4, 5):
         target = overview_panels[panel_id]["targets"][0]
         assert target["datasource"]["uid"] == "tempo"
@@ -398,6 +425,42 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
         assert target["queryType"] == "traceql"
         assert 'name = "azurpilot.task.run"' in target["query"]
         assert "count_over_time()" in target["query"]
+
+    error_panel_ids = {panel["id"] for panel in dashboards["azurpilot-errors"]["panels"]}
+    assert error_panel_ids >= {1, 2, 3, 4, 5}
+    for panel in dashboards["azurpilot-errors"]["panels"]:
+        panel_text = json.dumps(panel, ensure_ascii=False)
+        if panel["id"] in {1, 3}:
+            assert 'deployment_environment_name=~\\"${environment:regex}\\"' in panel_text
+            assert 'azurpilot_profile =~ \\"${profile:regex}\\"' in panel_text
+            assert 'azurpilot_task =~ \\"${task:regex}\\"' in panel_text
+        if panel["id"] in {2, 4, 5}:
+            assert "resource.deployment.environment.name" in panel_text
+        if panel["id"] == 4:
+            assert 'name = \\"azurpilot.task.run\\"' in panel_text
+            assert "duration > 500ms" in panel_text
+        if panel["id"] == 5:
+            assert 'name = \\"azurpilot.task.run\\"' in panel_text
+            assert " >> " in panel_text
+            assert "родительскому azurpilot.task.run" in panel_text
+
+
+def test_grafana_dashboard_templating_and_layout_are_provisioned_as_code(
+    grafana_contract: dict[str, object],
+):
+    dashboards = grafana_contract["dashboards"]
+    overview_panels = {
+        panel["id"]: panel for panel in dashboards["azurpilot-overview"]["panels"]
+    }
+    assert {
+        variable["name"]
+        for variable in dashboards["azurpilot-overview"]["templating"]["list"]
+    } == {"environment", "profile", "task"}
+    assert {
+        variable["name"]
+        for variable in dashboards["azurpilot-errors"]["templating"]["list"]
+    } == {"environment", "profile", "task"}
+
     success_share = overview_panels[2]
     assert success_share["datasource"]["uid"] == "-- Mixed --"
     assert {target["refId"] for target in success_share["targets"]} == {
@@ -421,6 +484,7 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
     assert success_share["targets"][4]["expression"] == "$C * ($D > 0) / ($D + ($D == 0)) * 100"
     assert success_share["fieldConfig"]["defaults"]["noValue"] == "нет данных"
     assert "noValue" not in success_share["options"]
+
     assert overview_panels[7]["type"] == "bargauge"
     assert overview_panels[7]["targets"][0]["metricsQueryType"] == "instant"
     assert "count_over_time() by (span.azurpilot.task.outcome)" in overview_panels[7]["targets"][0]["query"]
@@ -446,6 +510,7 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
     assert overview_panels[9]["targets"][0]["metricsQueryType"] == "range"
     assert overview_panels[9]["targets"][0]["step"] == "1m"
     assert "count_over_time() by (span.azurpilot.profile" in overview_panels[9]["targets"][0]["query"]
+
     logs_grid = overview_panels[10]["gridPos"]
     traces_grid = overview_panels[11]["gridPos"]
     alerts_grid = overview_panels[12]["gridPos"]
@@ -477,36 +542,19 @@ def test_grafana_operator_dashboards_and_alerts_are_provisioned_as_code():
         "Field": True,
         "time": True,
     }
-    error_panel_ids = {panel["id"] for panel in dashboards["azurpilot-errors"]["panels"]}
-    assert error_panel_ids >= {1, 2, 3, 4, 5}
-    for panel in dashboards["azurpilot-errors"]["panels"]:
-        panel_text = json.dumps(panel, ensure_ascii=False)
-        if panel["id"] in {1, 3}:
-            assert "deployment_environment_name=~\\\"${environment:regex}\\\"" in panel_text
-            assert 'azurpilot_profile =~ \\"${profile:regex}\\"' in panel_text
-            assert 'azurpilot_task =~ \\"${task:regex}\\"' in panel_text
-        if panel["id"] in {2, 4, 5}:
-            assert "resource.deployment.environment.name" in panel_text
-        if panel["id"] == 4:
-            assert 'name = \\"azurpilot.task.run\\"' in panel_text
-            assert "duration > 500ms" in panel_text
-        if panel["id"] == 5:
-            assert 'name = \\"azurpilot.task.run\\"' in panel_text
-            assert " >> " in panel_text
-            assert "родительскому azurpilot.task.run" in panel_text
 
-    alerting_path = (
-        ROOT
-        / "infrastructure/observability/grafana/provisioning/alerting/alert-rules.yaml"
-    )
-    alerting = yaml.safe_load(alerting_path.read_text(encoding="utf-8"))
+
+def test_grafana_alerting_is_provisioned_as_code(
+    grafana_contract: dict[str, object],
+):
+    alerting = grafana_contract["alerting"]
+    alerting_text = grafana_contract["alerting_text"]
     assert alerting["apiVersion"] == 1
     assert alerting["deleteRules"] == [
         {"orgId": 1, "uid": "azurpilot-task-duration-p95"}
     ]
     rules = alerting["groups"][0]["rules"]
     assert {rule["uid"] for rule in rules} == {"azurpilot-task-failures"}
-    alerting_text = alerting_path.read_text(encoding="utf-8")
     assert "azurpilot_task=" not in alerting_text
     assert "azurpilot_profile=" not in alerting_text
     for rule in rules:
