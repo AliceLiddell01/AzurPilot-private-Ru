@@ -3,9 +3,9 @@ import os
 from functools import wraps
 
 import inflection
-from cached_property import cached_property
 
 from alas import AzurLaneAutoScript
+from module.base.decorator import cached_property
 from module.exception import RequestHumanTakeover
 from module.logger import logger
 from submodule.AlasFpyBridge.module.config.config import FgoConfig

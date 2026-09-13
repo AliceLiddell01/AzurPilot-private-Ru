@@ -61,7 +61,7 @@ def _locked_versions() -> dict[str, str]:
 class DeviceRuntimeContractTests(unittest.TestCase):
     def test_external_device_dependencies_remain_pinned(self) -> None:
         locked_versions = _locked_versions()
-        pinned_dependencies = ("adbutils", "uiautomator2", "uiautomator2cache")
+        pinned_dependencies = ("adbutils", "uiautomator2")
 
         for name in pinned_dependencies:
             with self.subTest(name=name):
@@ -69,7 +69,7 @@ class DeviceRuntimeContractTests(unittest.TestCase):
                 version = _pinned_version(specifier)
                 self.assertEqual(version, locked_versions[name])
 
-        for name, expected_major in {"adbutils": "1", "uiautomator2": "2"}.items():
+        for name, expected_major in {"adbutils": "2", "uiautomator2": "3"}.items():
             with self.subTest(compatibility_major=name):
                 version = _pinned_version(_direct_dependency_spec(name))
                 self.assertEqual(version.split(".", 1)[0], expected_major)
@@ -110,9 +110,12 @@ class DeviceRuntimeContractTests(unittest.TestCase):
 
     def test_adb_target_and_android_readiness_are_explicit(self) -> None:
         connection_attr = _text("module/device/connection_attr.py")
+        connection = _text("module/device/connection.py")
         acceptance = _text("tools/acceptance/device.py")
 
         self.assertIn("AdbDevice(self.adb_client, self.serial)", connection_attr)
+        self.assertIn("self.adb_client.list()", connection)
+        self.assertNotIn("self.adb_client._connect()", connection)
         self.assertIn('[adb, "-s", serial, *args]', acceptance)
         self.assertIn('"sys.boot_completed"', acceptance)
         self.assertIn("explicit_tcp_connect", acceptance)
@@ -136,10 +139,16 @@ class DeviceRuntimeContractTests(unittest.TestCase):
         uia = _text("module/device/method/uiautomator_2.py")
         functions = _functions("module/device/method/uiautomator_2.py")
 
-        self.assertIn("u2.connect(self.serial)", connection_attr)
-        self.assertIn("set_new_command_timeout(604800)", connection_attr)
-        self.assertIn("self.u2.http.post", uia)
+        self.assertIn("u2.connect_usb(self.adb)", connection_attr)
+        self.assertIn("HttpUiautomator2", connection_attr)
+        self.assertNotIn("set_new_command_timeout(604800)", connection_attr)
+        self.assertIn("def u2_shell_background", uia)
+        self.assertIn("self.u2.info", uia)
         self.assertIn("timeout=", uia)
+        minitouch = _text("module/device/method/minitouch.py")
+        self.assertIn("self.adb.shell(", minitouch)
+        self.assertIn("stream=True", minitouch)
+        self.assertNotIn("u2_shell_background([self.config.MINITOUCH_FILEPATH_REMOTE])", minitouch)
         for name in (
             "click_uiautomator2",
             "long_click_uiautomator2",
@@ -150,7 +159,7 @@ class DeviceRuntimeContractTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertIn(name, functions)
 
-    def test_screenshot_pipeline_keeps_bgr_and_backend_fallback_contracts(self) -> None:
+    def test_screenshot_pipeline_keeps_rgb_and_backend_fallback_contracts(self) -> None:
         screenshot = _text("module/device/screenshot.py")
         acceptance = _text("tools/acceptance/device.py")
 
@@ -158,8 +167,8 @@ class DeviceRuntimeContractTests(unittest.TestCase):
         self.assertIn("screenshot_method_override", screenshot)
         self.assertIn("def _handle_orientated_image", screenshot)
         self.assertIn("cv2.rotate", screenshot)
-        self.assertIn('"color_contract": "BGR"', acceptance)
-        self.assertIn("_validate_bgr_image", acceptance)
+        self.assertIn('"color_contract": "RGB"', acceptance)
+        self.assertIn("_validate_rgb_image", acceptance)
 
 
 if __name__ == "__main__":

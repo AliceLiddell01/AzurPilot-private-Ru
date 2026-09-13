@@ -426,7 +426,7 @@ class DeviceAcceptanceTests(unittest.TestCase):
             args.resolved_adb = "/private/tools/adb"
             args.partial_report = {
                 "status": "RUNNING",
-                "screenshot": {"color_contract": "BGR"},
+                "screenshot": {"color_contract": "RGB"},
             }
             raise subprocess.TimeoutExpired(
                 ["/private/tools/adb", "-s", "emulator-5554", "get-state"],
@@ -449,7 +449,7 @@ class DeviceAcceptanceTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 1)
         self.assertEqual(payload["status"], "FAIL")
-        self.assertEqual(payload["screenshot"]["color_contract"], "BGR")
+        self.assertEqual(payload["screenshot"]["color_contract"], "RGB")
         self.assertNotIn("emulator-5554", payload["error"])
         self.assertNotIn("/private/tools/adb", payload["error"])
         self.assertIn("<serial>", payload["error"])

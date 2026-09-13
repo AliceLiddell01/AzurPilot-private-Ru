@@ -31,7 +31,7 @@ def _result(phase: str, interval: float, stable: bool = True) -> IntervalResult:
         system_cpu_percent=20.0,
         rss_delta_mib=0.0,
         stable=stable,
-        frame_contract={"color_contract": "BGR"},
+        frame_contract={"color_contract": "RGB"},
     )
 
 
@@ -59,7 +59,7 @@ class ScreenshotIntervalBenchmarkTests(unittest.TestCase):
             process_cpu_seconds=0.05,
             system_cpu_percent=15.0,
             rss_delta_bytes=0,
-            frame_contract={"color_contract": "BGR"},
+            frame_contract={"color_contract": "RGB"},
         )
         self.assertTrue(result.stable)
         self.assertAlmostEqual(result.interval_p95_ms, 100.0)

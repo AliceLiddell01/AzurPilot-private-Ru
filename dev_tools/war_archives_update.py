@@ -4,9 +4,9 @@ import shutil
 from datetime import datetime
 from typing import List
 
-from cached_property import cached_property
 from tqdm import tqdm
 
+from module.base.decorator import cached_property
 from module.base.timer import timer
 from module.config.config_updater import ConfigGenerator, ConfigUpdater
 from module.logger import logger

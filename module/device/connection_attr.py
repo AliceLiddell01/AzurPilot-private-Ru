@@ -452,30 +452,13 @@ class ConnectionAttr:
 
     @cached_property
     def u2(self) -> u2.Device:
-        """获取 uiautomator2 设备实例。
-
-        根据连接类型选择不同的连接方式：
-        - HTTP 设备使用 u2.connect()
-        - 本地模拟器（emulator- 或 127.0.0.1:）使用 u2.connect_usb()
-        - 其他设备使用 u2.connect()
-
-        设置命令超时为 7 天（604800 秒）以保持长连接。
-
-        Returns:
-            u2.Device: uiautomator2 设备对象。
-        """
+        """Получить экземпляр uiautomator2 для текущего транспорта."""
         if self.is_over_http:
-            # Using uiautomator2_http
-            device = u2.connect(self.serial)
+            from module.device.method.uiautomator2_http import HttpUiautomator2
+
+            device = HttpUiautomator2(self.serial)
         else:
-            # Normal uiautomator2
-            if self.serial.startswith('emulator-') or self.serial.startswith('127.0.0.1:'):
-                device = u2.connect_usb(self.serial)
-            else:
-                device = u2.connect(self.serial)
+            device = u2.connect_usb(self.adb)
 
-        # Stay alive
-        device.set_new_command_timeout(604800)
-
-        logger.attr('u2.Device', f'Device(atx_agent_url={device._get_atx_agent_url()})')
+        logger.attr('u2.Device', type(device).__name__)
         return device

@@ -13,28 +13,14 @@ distributor:
         http:
           endpoint: "0.0.0.0:4318"
 
-ingester:
+live_store:
   max_block_duration: 5m
 
-metrics_generator:
-  storage:
-    path: /var/tempo/generator/wal
-  traces_storage:
-    path: /var/tempo/generator/traces
-  processor:
-    local_blocks:
-      filter_server_spans: false
-      flush_to_storage: true
-
-overrides:
-  defaults:
-    metrics_generator:
-      processors:
-        - local-blocks
-
-compactor:
-  compaction:
-    block_retention: 168h
+backend_scheduler:
+  provider:
+    compaction:
+      compaction:
+        block_retention: 168h
 
 query_frontend:
   metrics:
@@ -45,6 +31,8 @@ query_frontend:
 storage:
   trace:
     backend: local
+    block:
+      version: vParquet4
     wal:
       path: /var/tempo/wal
     local:

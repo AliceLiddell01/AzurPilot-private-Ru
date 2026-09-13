@@ -8,9 +8,8 @@ from datetime import timedelta
 from module.config.time_source import now as current_time
 
 import numpy as np
-from cached_property import cached_property
-
 from module.base.button import ButtonGrid
+from module.base.decorator import cached_property
 from module.base.timer import Timer
 from module.base.utils import area_offset, crop, image_color_count, rgb2gray
 from module.island.assets import (

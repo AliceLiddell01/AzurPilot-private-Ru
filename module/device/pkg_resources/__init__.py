@@ -3,6 +3,7 @@
 import importlib.metadata
 import os
 import sys
+from pathlib import Path
 
 from module.logger import logger
 
@@ -33,15 +34,15 @@ except KeyError:
 
 
 def resource_filename(*args):
-    """Вернуть путь к resource, который запрашивает adbutils."""
-    if args != ("adbutils", "binaries"):
+    """Вернуть путь к ресурсу из установленного device distribution."""
+    if len(args) < 2 or args[0] not in {"adbutils", "uiautomator2"}:
         return None
 
     try:
         distribution = importlib.metadata.distribution(args[0])
     except importlib.metadata.PackageNotFoundError:
         return None
-    return os.fspath(distribution.locate_file(os.path.join(*args)))
+    return os.fspath(distribution.locate_file(Path(*args)))
 
 
 def get_distribution(dist):

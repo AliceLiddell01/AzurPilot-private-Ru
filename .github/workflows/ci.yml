@@ -67,7 +67,7 @@ jobs:
           --health-retries 5
     steps:
       - name: Получить exact head
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         timeout-minutes: 10
         with:
           fetch-depth: 1
@@ -80,13 +80,13 @@ jobs:
           test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
 
       - name: Установить uv
-        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10
         with:
           enable-cache: true
           version: "0.12.13"
 
       - name: Установить Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.14.7"
 
@@ -348,7 +348,7 @@ jobs:
         id: python_codecov
         if: ${{ !cancelled() }}
         timeout-minutes: 10
-        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5.5.5
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
         with:
           files: ${{ runner.temp }}/azurpilot-ci-python/coverage.xml
           fail_ci_if_error: true
@@ -569,7 +569,7 @@ jobs:
           }
 
       - name: Получить exact head
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         timeout-minutes: 10
         with:
           fetch-depth: 1
@@ -604,13 +604,13 @@ jobs:
           }
 
       - name: Установить uv
-        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10
         with:
           enable-cache: true
           version: "0.12.13"
 
       - name: Установить Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.14.7"
 
@@ -1107,7 +1107,7 @@ jobs:
     timeout-minutes: 40
     steps:
       - name: Получить exact head
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         timeout-minutes: 10
         with:
           fetch-depth: 1
@@ -1137,13 +1137,13 @@ jobs:
           fi
 
       - name: Установить uv
-        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10
         with:
           enable-cache: true
           version: "0.12.13"
 
       - name: Установить Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.14.7"
 

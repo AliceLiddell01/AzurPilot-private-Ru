@@ -235,19 +235,19 @@ def test_tempo_mcp_is_enabled_without_a_host_port():
             for volume in service.get("volumes", [])
         )
     assert {str(port) for port in tempo["expose"]} >= {"3200", "4317", "4318"}
-    assert tempo_config["query_frontend"]["mcp_server"] == {"enabled": True}
-    assert tempo_config["metrics_generator"]["storage"]["path"] == "/var/tempo/generator/wal"
-    assert (
-        tempo_config["metrics_generator"]["traces_storage"]["path"]
-        == "/var/tempo/generator/traces"
-    )
-    assert tempo_config["metrics_generator"]["processor"]["local_blocks"] == {
-        "filter_server_spans": False,
-        "flush_to_storage": True,
+    assert "metrics_generator" not in tempo_config
+    assert "overrides" not in tempo_config
+    assert tempo_config["live_store"] == {"max_block_duration": "5m"}
+    assert tempo_config["backend_scheduler"]["provider"]["compaction"]["compaction"] == {
+        "block_retention": "168h"
     }
-    assert tempo_config["overrides"]["defaults"]["metrics_generator"]["processors"] == [
-        "local-blocks"
-    ]
+    assert tempo_config["storage"]["trace"] == {
+        "backend": "local",
+        "block": {"version": "vParquet4"},
+        "wal": {"path": "/var/tempo/wal"},
+        "local": {"path": "/var/tempo/blocks"},
+    }
+    assert tempo_config["query_frontend"]["mcp_server"] == {"enabled": True}
     assert tempo_config["query_frontend"]["metrics"]["max_duration"] == "168h"
 
 

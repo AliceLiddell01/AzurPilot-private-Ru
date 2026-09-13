@@ -21,7 +21,7 @@ def test_docker_publish_uses_pinned_node24_actions_and_minimal_permissions():
     source = WORKFLOW.read_text(encoding="utf-8")
 
     expected_actions = (
-        "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803",  # v6
+        "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",  # v7
         "docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e",  # v4
         "docker/login-action@dbcb813823bdd20940b903addbd779551569679f",  # v4
         "docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302",  # v6

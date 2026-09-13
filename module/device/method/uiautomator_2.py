@@ -1,12 +1,12 @@
 # 此文件实现了基于 uiautomator2 的设备交互逻辑。
 # 包含截图、模拟点击、长按、滑动、层级提取（dump）等控制移动端设备的核心操作。
-import base64
+import re
+import shlex
 import time
 import typing as t
 from dataclasses import dataclass
 from functools import wraps
 from json.decoder import JSONDecodeError
-from subprocess import list2cmdline
 
 # Загрузить совместимый pkg_resources до библиотек устройства.
 from module.device.pkg_resources import get_distribution
@@ -49,7 +49,7 @@ def retry(func):
 
                 def init():
                     self.adb_reconnect()
-            # 在 `device.set_new_command_timeout(604800)` 时
+            # При инициализации uiautomator2 server JSON может быть ещё не готов.
             # json.decoder.JSONDecodeError: Expecting value: line 1 column 2 (char 1)
             except JSONDecodeError as e:
                 logger.error(str(f'[Устройство — uiautomator2] Ошибка повторной попытки: {e}'))
@@ -137,23 +137,14 @@ class ShellBackgroundResponse:
 class Uiautomator2(Connection):
     @retry
     def screenshot_uiautomator2(self):
-        image = self.u2.screenshot(format='raw')
-        # 防止 None/空响应
-        if image is None or len(image) == 0:
+        image = self.u2.screenshot(format='pillow')
+        if image is None:
             raise ImageTruncated('Пустые данные изображения от uiautomator2')
-
-        image = np.frombuffer(image, np.uint8)
-        if image is None or image.size == 0:
-            raise ImageTruncated('Пустое изображение после чтения из буфера')
-
-        image = cv2.imdecode(image, cv2.IMREAD_COLOR)
-        if image is None:
-            raise ImageTruncated('Пустое изображение после cv2.imdecode')
-
-        cv2.cvtColor(image, cv2.COLOR_BGR2RGB, dst=image)
-        if image is None:
-            raise ImageTruncated('Пустое изображение после cv2.cvtColor')
-
+        if hasattr(image, 'convert'):
+            image = image.convert('RGB')
+        image = np.asarray(image).copy()
+        if image.ndim != 3 or image.shape[2] != 3 or image.size == 0:
+            raise ImageTruncated('Пустое изображение от uiautomator2')
         return image
 
     @retry
@@ -274,7 +265,7 @@ class Uiautomator2(Connection):
             else:
                 logger.error(result)
                 raise PackageNotInstalled(package_name)
-        elif 'inaccessible' in result:
+        elif 'inaccessible' in result.output:
             # /system/bin/sh: monkey: inaccessible or not found
             return False
         else:
@@ -301,7 +292,7 @@ class Uiautomator2(Connection):
         if not activity_name:
             try:
                 info = self.u2.app_info(package_name)
-            except u2.BaseError as e:
+            except u2.DeviceError as e:
                 if allow_failure:
                     return False
                 # BaseError('package "111" not found')
@@ -406,14 +397,7 @@ class Uiautomator2(Connection):
 
     def uninstall_uiautomator2(self):
         logger.info('[Устройство — uiautomator2] Удаление uiautomator2')
-        for file in [
-            'app-uiautomator.apk',
-            'app-uiautomator-test.apk',
-            'minitouch',
-            'minitouch.so',
-            'atx-agent',
-        ]:
-            self.adb_shell(["rm", f"/data/local/tmp/{file}"])
+        self.adb_shell(["rm", "/data/local/tmp/u2.jar"])
 
     @retry
     def resolution_uiautomator2(self, cal_rotation=True) -> t.Tuple[int, int]:
@@ -486,9 +470,13 @@ class Uiautomator2(Connection):
                 f'Не удалось определить разрешение из вывода `ADB wm size`; используется `/info` uiautomator2. Исходный вывод: {result!r}'
             )
 
-        # 回退到 uiautomator2 /info 接口
-        info = self.u2.http.get('/info').json()
-        w, h = info['display']['width'], info['display']['height']
+        # Резервный путь через публичное свойство info uiautomator2 3.x.
+        info = self.u2.info
+        display = info.get('display', info)
+        if 'width' in display and 'height' in display:
+            w, h = display['width'], display['height']
+        else:
+            w, h = info['displayWidth'], info['displayHeight']
         if cal_rotation:
             rotation = self.get_orientation()
             if (w > h) != (rotation % 2 == 1):
@@ -520,53 +508,80 @@ class Uiautomator2(Connection):
     @retry
     def proc_list_uiautomator2(self) -> t.List[ProcessInfo]:
         """
-        获取当前进程信息。
+        Получить сведения о текущих процессах.
         """
-        resp = self.u2.http.get("/proc/list", timeout=10)
-        resp.raise_for_status()
-        result = [
-            ProcessInfo(
-                pid=proc['pid'],
-                ppid=proc['ppid'],
-                thread_count=proc['threadCount'],
-                cmdline=' '.join(proc['cmdline']) if proc['cmdline'] is not None else '',
-                name=proc['name'],
-            ) for proc in resp.json()
-        ]
-        return result
+        if self.is_over_http:
+            resp = self.u2.http.get("/proc/list", timeout=10)
+            resp.raise_for_status()
+            return [
+                ProcessInfo(
+                    pid=proc['pid'],
+                    ppid=proc['ppid'],
+                    thread_count=proc['threadCount'],
+                    cmdline=' '.join(proc['cmdline']) if proc['cmdline'] is not None else '',
+                    name=proc['name'],
+                ) for proc in resp.json()
+            ]
+
+        processes = []
+        for line in self.adb_shell(['ps', '-A']).splitlines():
+            fields = line.split()
+            if len(fields) < 4:
+                continue
+            try:
+                pid = int(fields[1])
+                ppid = int(fields[2])
+            except (ValueError, IndexError):
+                continue
+            name = fields[-1]
+            processes.append(ProcessInfo(pid, ppid, 0, name, name))
+        return processes
 
     @retry
     def u2_shell_background(self, cmdline, timeout=10) -> ShellBackgroundResponse:
         """
         在后台运行命令。
 
-        注意此函数总是返回成功响应，
-        因为这是 ATX 中一个未经测试的隐藏方法。
+        HTTP-транспорт использует endpoint старого агента, локальный — ADB shell.
         """
+        command_args = None
         if isinstance(cmdline, (list, tuple)):
-            cmdline = list2cmdline(cmdline)
+            command_args = [str(argument) for argument in cmdline]
+            cmdline = shlex.join(command_args)
         elif isinstance(cmdline, str):
             cmdline = cmdline
         else:
             raise TypeError('Недопустимый тип cmdargs', type(cmdline))
 
-        data = dict(command=cmdline, timeout=str(timeout))
-        ret = self.u2.http.post("/shell/background", data=data, timeout=timeout + 10)
-        ret.raise_for_status()
+        if self.is_over_http:
+            data = dict(command=cmdline, timeout=str(timeout))
+            ret = self.u2.http.post("/shell/background", data=data, timeout=timeout + 10)
+            ret.raise_for_status()
+            resp = ret.json()
+            return ShellBackgroundResponse(
+                success=bool(resp.get('success', False)),
+                pid=resp.get('pid', 0),
+                description=resp.get('description', '')
+            )
 
-        resp = ret.json()
-        resp = ShellBackgroundResponse(
-            success=bool(resp.get('success', False)),
-            pid=resp.get('pid', 0),
-            description=resp.get('description', '')
-        )
-        return resp
+        command = shlex.join(command_args) if command_args is not None else cmdline
+        output = self.adb_shell(
+            ['sh', '-c', f'{command} >/dev/null 2>&1 & echo $!'],
+            timeout=timeout,
+        ).strip()
+        pid_match = re.search(r'(?m)^(\d+)\s*$', output)
+        pid = int(pid_match.group(1)) if pid_match else 0
+        return ShellBackgroundResponse(pid > 0, pid, output)
 
     def u2_set_fastinput_ime(self, enable: bool):
         self.u2.set_fastinput_ime(enable)
 
     def u2_current_ime(self):
-        return self.u2.current_ime()
+        current = self.u2.current_ime()
+        if isinstance(current, tuple):
+            return current
+        shown = 'mInputShown=true' in self.adb_shell(['dumpsys', 'input_method'])
+        return current, shown
 
     def u2_send_keys(self, text: str, clear: bool=False):
         self.u2.send_keys(text=text, clear=clear)

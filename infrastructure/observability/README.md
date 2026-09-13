@@ -14,7 +14,7 @@
 | postgres-bootstrap | одноразовое создание app/migrator ролей и прав | postgres:18 |
 | loki | хранение logs | grafana/loki:3.7.4 |
 | prometheus | хранение metrics и remote-write receiver | prom/prometheus:v3.14.0 |
-| tempo | хранение traces и OTLP receiver | grafana/tempo:2.10.5 |
+| tempo | хранение traces и OTLP receiver | grafana/tempo:3.0.3 |
 | grafana | локальная визуализация подключённых data sources | grafana/grafana:13.2.1 |
 | pgadmin | веб-администрирование PostgreSQL | dpage/pgadmin4:9.17 |
 
@@ -606,9 +606,9 @@ task context остаются видимыми; при выборе конкре
 в Loki являются structured metadata, а не index labels, поэтому Loki используется
 для фильтрации записей, но не для `label_values`-списков.
 
-Tempo metrics-generator использует `local-blocks` с persistent generator WAL и
-trace WAL; `query_frontend.metrics.max_duration` покрывает bounded operator
-window. Grafana instant query используется для exact counters и outcome graph в
+Tempo 3 использует локальные `vParquet4` blocks и trace WAL; metrics-generator
+в локальном профиле не включён. `query_frontend.metrics.max_duration` покрывает
+bounded operator window. Grafana instant query используется для exact counters и outcome graph в
 горизонтальном `bargauge` без синтетической временной оси,
 а bounded range query с reduce — для aggregate table. При отсутствии событий
 counters показывают нулевое значение, а success share остаётся `нет данных`,

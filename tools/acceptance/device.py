@@ -197,7 +197,7 @@ def _external_backend_evidence(report: dict[str, Any]) -> list[dict[str, Any]]:
             "evidence": [
                 "transport",
                 "package_readiness",
-                "png_screenshot_bgr",
+                "png_screenshot_rgb",
                 "target_explicit_reconnect",
             ],
             "limitations": "One configured target and package on this exact head.",
@@ -210,7 +210,7 @@ def _external_backend_evidence(report: dict[str, Any]) -> list[dict[str, Any]]:
             {
                 "backend": screenshot_backend,
                 "level": "REAL_ACCEPTANCE",
-                "evidence": ["two_consecutive_bgr_frames", "webui_fallback"],
+                "evidence": ["two_consecutive_rgb_frames", "webui_fallback"],
                 "limitations": "Configured screenshot backend only.",
             }
         )
@@ -365,19 +365,19 @@ def _detect_package(adb: str, serial: str, configured: str) -> str:
     return known[0]
 
 
-def _validate_bgr_image(image: Any) -> dict[str, Any]:
+def _validate_rgb_image(image: Any) -> dict[str, Any]:
     try:
         import numpy as np
     except ImportError as error:
         raise AcceptanceFailure(
-            "Для проверки BGR-контракта требуются установленные зависимости проекта."
+            "Для проверки RGB-контракта требуются установленные зависимости проекта."
         ) from error
     if not isinstance(image, np.ndarray) or image.ndim != 3 or image.shape[2] != 3:
-        raise AcceptanceFailure("Нарушен контракт numpy.ndarray BGR.")
+        raise AcceptanceFailure("Нарушен контракт numpy.ndarray RGB.")
     return {
         "array_shape": list(image.shape),
         "array_dtype": str(image.dtype),
-        "color_contract": "BGR",
+        "color_contract": "RGB",
     }
 
 
@@ -392,12 +392,13 @@ def _decode_screenshot(payload: bytes) -> dict[str, Any]:
         import numpy as np
     except ImportError as error:
         raise AcceptanceFailure(
-            "Для проверки BGR-контракта требуются установленные зависимости проекта."
+            "Для проверки RGB-контракта требуются установленные зависимости проекта."
         ) from error
     image = cv2.imdecode(np.frombuffer(payload, dtype=np.uint8), cv2.IMREAD_COLOR)
     if image is None:
         raise AcceptanceFailure("OpenCV не удалось декодировать PNG снимка экрана.")
-    metadata = _validate_bgr_image(image)
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    metadata = _validate_rgb_image(image)
     metadata.update(
         {
             "png_bytes": len(payload),
@@ -496,9 +497,9 @@ def _check_preview(profile: str, screenshot_backend: str) -> dict[str, Any]:
 
     try:
         device, first = init_screenshot_fallback(profile)
-        first_metadata = _validate_bgr_image(first)
+        first_metadata = _validate_rgb_image(first)
         second = device.screenshot()
-        second_metadata = _validate_bgr_image(second)
+        second_metadata = _validate_rgb_image(second)
     except Exception as error:
         raise AcceptanceFailure(
             "Не удалось подтвердить ни raw scrcpy, ни резервный preview через "

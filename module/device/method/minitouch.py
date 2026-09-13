@@ -22,7 +22,6 @@ _ = get_distribution
 
 import websockets
 from adbutils.errors import AdbError
-from uiautomator2 import _Service
 
 from module.base.decorator import Config, cached_property, del_cached_property, has_cached_property
 from module.base.timer import Timer
@@ -377,13 +376,6 @@ class MinitouchOccupiedError(Exception):
     pass
 
 
-class U2Service(_Service):
-    def __init__(self, name, u2obj):
-        self.name = name
-        self.u2obj = u2obj
-        self.service_url = self.u2obj.path2url("/services/" + name)
-
-
 def retry(func):
     @wraps(func)
     def retry_wrapper(self, *args, **kwargs):
@@ -482,6 +474,8 @@ def retry(func):
 class Minitouch(Connection):
     _minitouch_port: int = 0
     _minitouch_client: socket.socket = None
+    _minitouch_process = None
+    _minitouch_socket_file = None
     _minitouch_pid: int
     _minitouch_ws: websockets.WebSocketClientProtocol
     max_x: int
@@ -519,6 +513,30 @@ class Minitouch(Connection):
         self._minitouch_init_thread = thread
         thread.start()
 
+    def _close_minitouch_transport(self):
+        if self._minitouch_socket_file is not None:
+            try:
+                self._minitouch_socket_file.close()
+            except Exception as e:
+                logger.debug(f'[Устройство — minitouch] Ошибка закрытия потока протокола: {e}')
+            self._minitouch_socket_file = None
+        if self._minitouch_client is not None:
+            try:
+                self._minitouch_client.close()
+            except Exception as e:
+                logger.debug(f'[Устройство — minitouch] Ошибка закрытия клиента: {e}')
+            self._minitouch_client = None
+        if self._minitouch_process is not None:
+            try:
+                self._minitouch_process.close()
+            except Exception as e:
+                logger.debug(f'[Устройство — minitouch] Ошибка закрытия процесса: {e}')
+            self._minitouch_process = None
+
+    def release_resource(self):
+        self._close_minitouch_transport()
+        super().release_resource()
+
     @Config.when(DEVICE_OVER_HTTP=False)
     def minitouch_init(self):
         logger.hr('[Устройство — minitouch] Инициализация')
@@ -526,20 +544,17 @@ class Minitouch(Connection):
         max_contacts = 2
         max_pressure = 50
 
-        # 尝试关闭已有连接
-        if self._minitouch_client is not None:
-            try:
-                self._minitouch_client.close()
-            except Exception as e:
-                logger.error(str(f'[Устройство — minitouch] Ошибка инициализации управления: {e}'))
-            del self._minitouch_client
+        self._close_minitouch_transport()
 
         self.get_orientation()
 
+        # adb shell с stream=True удерживает процесс minitouch после закрытия
+        # команды shell; фоновой команды через `&` недостаточно на Android.
+        self._minitouch_process = self.adb.shell(
+            [self.config.MINITOUCH_FILEPATH_REMOTE],
+            stream=True,
+        )
         self._minitouch_port = self.adb_forward("localabstract:minitouch")
-
-        # 无需手动启动，minitouch 已由 uiautomator2 启动
-        # self.adb_shell([self.config.MINITOUCH_FILEPATH_REMOTE])
 
         retry_timeout = Timer(2).start()
         while 1:
@@ -548,14 +563,17 @@ class Minitouch(Connection):
             client.connect(('127.0.0.1', self._minitouch_port))
             self._minitouch_client = client
 
-            # 获取 minitouch 服务端信息
+            # Получить служебные строки minitouch.
             socket_out = client.makefile()
+            self._minitouch_socket_file = socket_out
 
             # v <version>
             # 协议版本，通常为 1，无需使用
             try:
                 out = socket_out.readline().replace("\n", "").replace("\r", "")
             except socket.timeout:
+                socket_out.close()
+                self._minitouch_socket_file = None
                 client.close()
                 raise MinitouchOccupiedError(
                     '[Устройство — minitouch] Истекло время подключения; вероятно, уже установлено другое соединение'
@@ -569,8 +587,11 @@ class Minitouch(Connection):
                 _, max_contacts, max_x, max_y, max_pressure, *_ = out.split(" ")
                 break
             except ValueError:
+                socket_out.close()
+                self._minitouch_socket_file = None
                 client.close()
                 if retry_timeout.reached():
+                    self._close_minitouch_transport()
                     raise MinitouchNotInstalledError(
                         '[Устройство — minitouch] Получены пустые данные; вероятно, minitouch не установлен'
                     )
@@ -588,7 +609,7 @@ class Minitouch(Connection):
         out = socket_out.readline().replace("\n", "").replace("\r", "")
         logger.info(out)
         _, pid = out.split(" ")
-        self._minitouch_pid = pid
+        self._minitouch_pid = int(pid)
 
         logger.info(
             '[Устройство — minitouch] Порт: {}, PID: {}'.format(self._minitouch_port, self._minitouch_pid)
@@ -638,7 +659,7 @@ class Minitouch(Connection):
         self.get_orientation()
 
         logger.info('[Устройство — minitouch] Остановка службы minitouch')
-        s = U2Service('minitouch', self.u2)
+        s = self.u2.service('minitouch')
         s.stop()
         while 1:
             if not s.running():

@@ -39,7 +39,7 @@ class Screenshot(Adb, WSA, DroidCast, AScreenCap, Scrcpy, NemuIpc, LDOpenGL):
     截图保存和间隔控制等统一接口。
 
     Attributes:
-        image (np.ndarray): 最近一次截取的屏幕图像，格式为 BGR numpy 数组。
+        image (np.ndarray): Последний снимок экрана в формате RGB numpy array.
         _screen_size_checked (bool): 屏幕分辨率是否已通过检查。
         _screen_black_checked (bool): 黑屏检测是否已通过。
         _screenshot_interval (Timer): 截图间隔计时器。

@@ -94,7 +94,7 @@ feasibility-оценка, а полномасштабный mutation gate не �
 регрессионных тестов.
 
 Python job сохраняет тот же полный suite и дополнительно публикует XML-отчёт в
-Codecov через pinned `codecov/codecov-action@v5.5.5` с GitHub Actions OIDC.
+Codecov через pinned `codecov/codecov-action@v7` с GitHub Actions OIDC.
 Upload не использует repository token или секрет в исходниках. Репозиторный
 `codecov.yml` оставляет project/patch statuses выключенными до отдельного
 решения о baseline и порогах; PR comment остаётся доступным для диагностики.

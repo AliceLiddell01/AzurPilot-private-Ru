@@ -1,9 +1,9 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "description": [
-    "Stage 3: обычные и major обновления создают отдельные PR в пределах контролируемого PR budget.",
-    "Dependency Dashboard остаётся control plane, а automerge отключён.",
-    "Security remediation сохраняет отдельный быстрый путь."
+    "Постоянный контракт dependency maintenance: обычные обновления проходят через контролируемый PR budget, а major releases рассматриваются отдельно.",
+    "Dependency Dashboard остаётся control plane, automerge отключён, а отдельные major PR позволяют не пропускать несовместимые API-переходы.",
+    "Security remediation сохраняет отдельный быстрый путь без ручного dashboard approval."
   ],
   "dependencyDashboard": true,
   "dependencyDashboardApproval": false,
@@ -12,61 +12,7 @@
   "prHourlyLimit": 2,
   "commitHourlyLimit": 2,
   "separateMultipleMajor": true,
-  "packageRules": [
-    {
-      "description": "Приоритет первой low/medium-risk волны для CI test tooling: доступный non-major Playwright должен использовать ограниченный PR budget раньше обычных updates.",
-      "matchManagers": [
-        "pep621"
-      ],
-      "matchDatasources": [
-        "pypi"
-      ],
-      "matchDepTypes": [
-        "dependency-groups"
-      ],
-      "matchPackageNames": [
-        "playwright"
-      ],
-      "matchUpdateTypes": [
-        "pinDigest",
-        "pin",
-        "digest",
-        "patch",
-        "minor"
-      ],
-      "prPriority": 10
-    },
-    {
-      "description": "Приоритет первой low/medium-risk волны для GitHub Actions tooling: non-major обновления используемых CI actions должны использовать ограниченный PR budget раньше обычных updates.",
-      "matchManagers": [
-        "github-actions"
-      ],
-      "matchDatasources": [
-        "github-tags"
-      ],
-      "matchDepTypes": [
-        "action"
-      ],
-      "matchPackageNames": [
-        "actions/checkout",
-        "actions/setup-python",
-        "actions/upload-artifact",
-        "astral-sh/setup-uv",
-        "docker/setup-buildx-action",
-        "docker/login-action",
-        "docker/metadata-action",
-        "docker/build-push-action"
-      ],
-      "matchUpdateTypes": [
-        "pinDigest",
-        "pin",
-        "digest",
-        "patch",
-        "minor"
-      ],
-      "prPriority": 10
-    }
-  ],
+  "packageRules": [],
   "vulnerabilityAlerts": {
     "enabled": true,
     "dependencyDashboardApproval": false,
