@@ -6,9 +6,14 @@ description: "Безопасный cross-surface workflow для Development Run
 # Рабочий процесс разработки AzurPilot
 
 Этот skill обслуживает Development workflow AzurPilot. Он работает с
-существующим `azurpilot-dev` и не добавляет второй MCP-сервер или
-самостоятельный transport. Developer-only capability `Game` доступна только
+project-scoped `azurpilot-dev` из `.codex/config.toml` через local stdio и не
+добавляет второй MCP-сервер или самостоятельный transport. Developer-only capability `Game` доступна только
 через односторонний Dev → neutral application bridge, привязанный к target.
+
+Каноническая Codex-команда: `uv run --locked --no-sync python -m
+module.dev_mcp`. Валидация `dev_get_contract` и текущего callable catalog
+обязательна; при mismatch действует `PLUGIN_RUNTIME_INCOMPATIBLE` и
+fail-closed правило ниже.
 
 ## Граница совместимости
 
@@ -185,7 +190,9 @@ observations через `module/application`. Это не standalone Game MCP и
 произвольный доступ к устройству и БД.
 
 Для обычной работы через Game MCP используй skill
-`azurpilot-game-control` и подключённое приложение `AzurPilot Game`. Если
+`azurpilot-game-control` и project-scoped route `azurpilot-game` из
+`.codex/config.toml`; ChatGPT/public Connected App относится только к отдельной
+remote surface. Если
 проблема относится к отсутствующему tool, каталогу, app/auth, runtime или
 postcondition, переключись в `azurpilot-troubleshooting`. Development skill не
 является универсальным fallback для Game operations и не создаёт MCP-to-MCP

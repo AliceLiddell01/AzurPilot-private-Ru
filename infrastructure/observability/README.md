@@ -954,7 +954,9 @@ servers считаются read-only по своему catalog contract, а stat
 остаются в Docker Desktop secret store и не записываются в export.
 
 Профиль подключается к Codex отдельным optional `MCP_DOCKER` entrypoint и не
-заменяет `azurpilot-dev`; Game остаётся standalone `AzurPilot Game` surface.
+заменяет direct routes `azurpilot-dev` и `azurpilot-game`; Game остаётся
+standalone `module.game_mcp` surface. Connected App/remote surface не является
+fallback для этих Codex routes.
 Старый `azurpilot-observability` profile и его export сохраняются для
 rollback. Docker Gateway принимает catalog/OCI/file server references, но
 host-side `module.dev_mcp` и `module.game_mcp` не превращаются в OCI image

@@ -13,6 +13,13 @@ import dev_tools.mcp_status as status
 from module.mcp_shared.versioning import load_server_versions
 
 
+_CANONICAL_PLUGIN_SKILLS = (
+    "azurpilot-development",
+    "azurpilot-game-control",
+    "azurpilot-troubleshooting",
+)
+
+
 @pytest.fixture(autouse=True)
 def _stub_semgrep_probe(monkeypatch) -> None:
     async def probe(root: Path) -> dict[str, object]:
@@ -164,8 +171,16 @@ def test_status_json_model_records_exact_local_identity(monkeypatch) -> None:
     )
 
     assert report["schema_version"] == 1
-    assert report["status"] == "ready"
+    assert report["status"] == "partial"
+    assert report["canonical_status"] == "ready"
     assert report["source"] == {"revision": revision, "working_tree": "clean"}
+    assert report["source_config"]["status"] == "ready"
+    assert report["source_config"]["evidence_kind"] == "repository_source_config"
+    assert report["effective_codex_registration"]["status"] == "not_observable"
+    assert (
+        report["effective_codex_registration"]["evidence_kind"]
+        == "external_live_codex_session"
+    )
     assert report["version_guard"] == {
         "status": "ready",
         "reason_code": "MCP_VERSION_GUARD_READY",
@@ -174,6 +189,15 @@ def test_status_json_model_records_exact_local_identity(monkeypatch) -> None:
         report["servers"]["azurpilot-dev"]["local_direct"]["version_status"]
         == "compatible"
     )
+    for name in ("azurpilot-dev", "azurpilot-game"):
+        codex = report["servers"][name]["codex"]
+        assert codex["source_config"]["status"] == "configured"
+        assert (
+            codex["source_config"]["evidence_kind"]
+            == "repository_source_config"
+        )
+        assert codex["effective_codex_registration"]["status"] == "not_observable"
+    assert report["plugin"]["status"] == "ready"
     assert report["chatgpt"]["status"] == "not_observable"
 
 
@@ -182,6 +206,14 @@ def test_human_status_uses_compact_tables_and_sections(capsys) -> None:
     report = {
         "status": "partial",
         "reason_code": "MCP_STATUS_PARTIAL",
+        "source_config": {
+            "status": "ready",
+            "reason_code": "CODEX_SOURCE_CONFIG_READY",
+        },
+        "effective_codex_registration": {
+            "status": "not_observable",
+            "reason_code": "CODEX_EFFECTIVE_REGISTRATION_NOT_OBSERVABLE",
+        },
         "source": {"revision": revision, "working_tree": "clean"},
         "version_guard": {
             "status": "ready",
@@ -194,8 +226,14 @@ def test_human_status_uses_compact_tables_and_sections(capsys) -> None:
                     "azurpilot-dev", _versions()["azurpilot-dev"], revision
                 ),
                 "codex": {
-                    "status": "configured",
-                    "reason_code": "CODEX_SERVER_CONFIGURED",
+                    "source_config": {
+                        "status": "configured",
+                        "reason_code": "CODEX_SERVER_CONFIGURED",
+                    },
+                    "effective_codex_registration": {
+                        "status": "not_observable",
+                        "reason_code": "CODEX_EFFECTIVE_REGISTRATION_NOT_OBSERVABLE",
+                    },
                 },
                 "remote_backend": {
                     "status": "not_configured",
@@ -212,8 +250,14 @@ def test_human_status_uses_compact_tables_and_sections(capsys) -> None:
                     "azurpilot-game", _versions()["azurpilot-game"], revision
                 ),
                 "codex": {
-                    "status": "not_configured",
-                    "reason_code": "CODEX_GAME_SURFACE_EXTERNAL",
+                    "source_config": {
+                        "status": "configured",
+                        "reason_code": "CODEX_SERVER_CONFIGURED",
+                    },
+                    "effective_codex_registration": {
+                        "status": "not_observable",
+                        "reason_code": "CODEX_EFFECTIVE_REGISTRATION_NOT_OBSERVABLE",
+                    },
                 },
                 "remote_backend": {
                     "status": "unavailable",
@@ -226,6 +270,10 @@ def test_human_status_uses_compact_tables_and_sections(capsys) -> None:
             },
         },
         "docker_mcp": _docker_ready(),
+        "plugin": {
+            "status": "ready",
+            "reason_code": "CODEX_PLUGIN_ROUTING_READY",
+        },
         "chatgpt": {
             "status": "not_observable",
             "reason_code": "CHATGPT_ACTION_SNAPSHOT_NOT_OBSERVABLE",
@@ -239,11 +287,14 @@ def test_human_status_uses_compact_tables_and_sections(capsys) -> None:
     assert "SERVER" in output and "REMOTE BACKEND" in output
     assert "azurpilot-dev" in output
     assert f"{_versions()['azurpilot-dev']} OK" in output
-    assert "EXTERNAL" in output
+    assert "PLUGIN" in output
+    assert "ИСТОЧНИК CODEX" in output
+    assert "АКТИВНАЯ РЕГИСТРАЦИЯ CODEX" in output
+    assert "только удалённый маршрут" in output
     assert "Docker MCP Gateway" in output
     assert "Status: OK" in output
     assert "context7" in output
-    assert "ChatGPT action cache" in output
+    assert "Кэш действий ChatGPT" in output
     assert "MCP_STATUS_PARTIAL" in output
     assert "local_direct" not in output
     assert "reason_code" not in output
@@ -452,6 +503,7 @@ def test_codex_entry_requires_enabled_and_project_cwd() -> None:
         {"enabled": False},
         {"cwd": "C:/elsewhere"},
         {"command": "python"},
+        {"url": "https://example.invalid/mcp"},
     ):
         drifted = deepcopy(config)
         drifted["mcp_servers"]["azurpilot-dev"].update(changed)
@@ -464,6 +516,163 @@ def test_codex_entry_requires_enabled_and_project_cwd() -> None:
             )["status"]
             == "drift"
         )
+
+
+@pytest.mark.parametrize(
+    ("name", "module_name", "startup_timeout"),
+    (
+        ("azurpilot-dev", "module.dev_mcp", 5),
+        ("azurpilot-game", "module.game_mcp", 10),
+    ),
+)
+def test_codex_direct_entries_validate_independent_contract_literals(
+    name: str, module_name: str, startup_timeout: int
+) -> None:
+    expected_args = ("run", "--locked", "--no-sync", "python", "-m", module_name)
+    config = {
+        "mcp_servers": {
+            name: {
+                "command": "uv",
+                "args": list(expected_args),
+                "cwd": ".",
+                "enabled": True,
+                "required": False,
+                "startup_timeout_sec": startup_timeout,
+                "tool_timeout_sec": 180,
+            }
+        }
+    }
+    expected = {
+        "expected_command": "uv",
+        "expected_args": expected_args,
+        "expected_startup_timeout_sec": startup_timeout,
+        "expected_tool_timeout_sec": 180,
+        "expected_required": False,
+    }
+
+    assert status._codex_entry_status(config, name, **expected)["status"] == "configured"
+    for field in ("startup_timeout_sec", "tool_timeout_sec"):
+        drifted = deepcopy(config)
+        drifted["mcp_servers"][name][field] += 1
+        assert status._codex_entry_status(drifted, name, **expected)["status"] == "drift"
+
+    for field, value in (
+        ("command", "python"),
+        ("args", ["run", "--locked", "--no-sync", "python", "-m", "other"]),
+        ("cwd", "C:/elsewhere"),
+        ("enabled", False),
+        ("required", True),
+    ):
+        drifted = deepcopy(config)
+        drifted["mcp_servers"][name][field] = value
+        assert status._codex_entry_status(drifted, name, **expected)["status"] == "drift"
+
+    missing = deepcopy(config)
+    missing["mcp_servers"][name].pop("startup_timeout_sec")
+    assert status._codex_entry_status(missing, name, **expected)["status"] == "drift"
+
+
+def _write_plugin_fixture(
+    root: Path,
+    *,
+    skill_contents: dict[str, str] | None = None,
+    manifest: dict[str, object] | None = None,
+) -> None:
+    plugin_root = root / "plugins" / "azurpilot"
+    (plugin_root / ".codex-plugin").mkdir(parents=True)
+    skills_root = plugin_root / "skills"
+    skills_root.mkdir()
+    contents = skill_contents or {}
+    for name in _CANONICAL_PLUGIN_SKILLS:
+        skill_dir = skills_root / name
+        skill_dir.mkdir()
+        skill_dir.joinpath("SKILL.md").write_text(
+            contents.get(
+                name,
+                f"---\nname: {name}\ndescription: Valid skill metadata.\n---\n\n# Skill\n",
+            ),
+            encoding="utf-8",
+        )
+    (plugin_root / ".codex-plugin" / "plugin.json").write_text(
+        json.dumps(
+            manifest
+            or {"name": "azurpilot", "skills": "./skills/", "version": "test"}
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_codex_plugin_status_rejects_missing_skill_file(tmp_path: Path) -> None:
+    _write_plugin_fixture(tmp_path)
+    (
+        tmp_path
+        / "plugins"
+        / "azurpilot"
+        / "skills"
+        / _CANONICAL_PLUGIN_SKILLS[0]
+        / "SKILL.md"
+    ).unlink()
+
+    result = status._codex_plugin_status(tmp_path)
+
+    assert result["status"] == "drift"
+    assert result["reason_code"] == "CODEX_PLUGIN_SKILL_FILE_MISSING"
+
+
+def test_codex_plugin_status_rejects_skill_name_drift(tmp_path: Path) -> None:
+    _write_plugin_fixture(
+        tmp_path,
+        skill_contents={
+            _CANONICAL_PLUGIN_SKILLS[0]: (
+                "---\nname: wrong-skill\ndescription: Present.\n---\n"
+            )
+        },
+    )
+
+    result = status._codex_plugin_status(tmp_path)
+
+    assert result["status"] == "drift"
+    assert result["reason_code"] == "CODEX_PLUGIN_SKILL_NAME_DRIFT"
+
+
+def test_codex_plugin_status_rejects_malformed_skill_frontmatter(tmp_path: Path) -> None:
+    _write_plugin_fixture(
+        tmp_path,
+        skill_contents={_CANONICAL_PLUGIN_SKILLS[0]: "# Missing frontmatter\n"},
+    )
+
+    result = status._codex_plugin_status(tmp_path)
+
+    assert result["status"] == "invalid"
+    assert result["reason_code"] == "CODEX_PLUGIN_SKILL_FRONTMATTER_INVALID"
+
+
+def test_codex_plugin_status_rejects_skill_without_description(tmp_path: Path) -> None:
+    _write_plugin_fixture(
+        tmp_path,
+        skill_contents={
+            _CANONICAL_PLUGIN_SKILLS[0]: "---\nname: azurpilot-development\n---\n"
+        },
+    )
+
+    result = status._codex_plugin_status(tmp_path)
+
+    assert result["status"] == "invalid"
+    assert result["reason_code"] == "CODEX_PLUGIN_SKILL_DESCRIPTION_INVALID"
+
+
+def test_codex_plugin_status_rejects_legacy_app_registration(tmp_path: Path) -> None:
+    _write_plugin_fixture(
+        tmp_path,
+        manifest={"name": "azurpilot", "skills": "./skills/", "apps": None},
+    )
+
+    result = status._codex_plugin_status(tmp_path)
+
+    assert result == {
+        "status": "drift",
+        "reason_code": "CODEX_PLUGIN_LEGACY_APP_DECLARED",
+    }
 
 
 def test_remote_backend_provenance_is_compared_through_collect_path() -> None:
@@ -544,7 +753,8 @@ def test_canonical_route_gate_ignores_optional_gateway_drift() -> None:
     )
 
     assert report["canonical_status"] == "ready"
-    assert status._strict_failure(report, None) is False
+    assert report["effective_codex_registration"]["status"] == "not_observable"
+    assert status._strict_failure(report, None)
 
 
 def test_user_scoped_context7_external_evidence_is_explicitly_allowed() -> None:
@@ -580,7 +790,8 @@ def test_user_scoped_context7_external_evidence_is_explicitly_allowed() -> None:
     assert report["external_evidence_pending"] is True
     assert report["canonical_status"] == "ready"
     assert report["status"] == "partial"
-    assert status._strict_failure(report, None) is False
+    assert report["effective_codex_registration"]["status"] == "not_observable"
+    assert status._strict_failure(report, None)
 
 
 def test_canonical_route_gate_rejects_required_gateway_failure() -> None:
@@ -645,8 +856,13 @@ def test_metric_samples_have_bounded_static_labels() -> None:
                     "version_status": "compatible",
                 },
                 "codex": {
-                    "status": "configured",
-                    "protocol_version": "2025-11-25",
+                    "source_config": {
+                        "status": "configured",
+                        "protocol_version": "2025-11-25",
+                    },
+                    "effective_codex_registration": {
+                        "status": "not_observable",
+                    },
                 },
             }
         },
@@ -674,13 +890,13 @@ def test_metric_samples_have_bounded_static_labels() -> None:
     )
     assert any(
         sample.name == "azurpilot_mcp_surface_configured"
-        and sample.attributes["surface"] == "codex"
+        and sample.attributes["surface"] == "codex_source"
         and sample.value == 1.0
         for sample in samples
     )
     assert any(
         sample.name == "azurpilot_mcp_expected_version_info"
-        and sample.attributes["surface"] == "codex"
+        and sample.attributes["surface"] == "codex_source"
         and sample.value == 1.0
         for sample in samples
     )
@@ -691,7 +907,10 @@ def test_metric_samples_keep_configured_distinct_from_reachable_and_observed() -
         "servers": {
             "azurpilot-dev": {
                 "expected_version": "3.0.0",
-                "codex": {"status": "configured"},
+                "codex": {
+                    "source_config": {"status": "configured"},
+                    "effective_codex_registration": {"status": "not_observable"},
+                },
             }
         },
         "probe": {"last_successful_probe_timestamp_seconds": None},
@@ -703,23 +922,23 @@ def test_metric_samples_keep_configured_distinct_from_reachable_and_observed() -
         sample
         for sample in samples
         if sample.name == "azurpilot_mcp_surface_configured"
-        and sample.attributes["surface"] == "codex"
+        and sample.attributes["surface"] == "codex_source"
     ).value == 1.0
     assert next(
         sample
         for sample in samples
         if sample.name == "azurpilot_mcp_surface_reachable"
-        and sample.attributes["surface"] == "codex"
+        and sample.attributes["surface"] == "codex_effective"
     ).value == 0.0
     assert next(
         sample
         for sample in samples
         if sample.name == "azurpilot_mcp_surface_runtime_ready"
-        and sample.attributes["surface"] == "codex"
+        and sample.attributes["surface"] == "codex_effective"
     ).value == 0.0
     assert not any(
         sample.name == "azurpilot_mcp_observed_version_info"
-        and sample.attributes["surface"] == "codex"
+        and sample.attributes["surface"] in {"codex_source", "codex_effective"}
         for sample in samples
     )
     assert not any(

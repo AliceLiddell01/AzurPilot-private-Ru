@@ -1,6 +1,6 @@
 ---
 name: azurpilot-game-control
-description: "Штатная работа через подключённое приложение `AzurPilot Game`: чтение и bounded control игровых профилей, задач и runtime по актуальному Game MCP contract."
+description: "Штатная работа через project-scoped `azurpilot-game`: чтение и bounded control игровых профилей, задач и runtime по актуальному Game MCP contract."
 ---
 
 # AzurPilot Game Control
@@ -13,9 +13,18 @@ redacted config, sanitized logs или screenshot, получить справк
 запустить или остановить профиль, поставить поддерживаемую scheduler task, изменить
 разрешённый параметр или выполнить опубликованное runtime-control действие.
 
-Источник действий — подключённое приложение `AzurPilot Game` и его фактический
-callable catalog. Этот skill не добавляет MCP-сервер, не вызывает Dev MCP через
-MCP и не превращается в произвольный shell/ADB или GUI automation слой.
+В обычной Codex-сессии источник действий — project-scoped `azurpilot-game`,
+зарегистрированный в `.codex/config.toml` и запущенный через direct local stdio:
+`uv run --locked --no-sync python -m module.game_mcp`. Проверяй фактический
+MCP callable catalog текущей сессии. Этот skill не добавляет MCP-сервер, не
+вызывает Dev MCP через MCP и не превращается в произвольный shell/ADB или GUI
+automation слой.
+
+Подключённое приложение `AzurPilot Game` и authenticated remote transport
+относятся только к явно выбранной ChatGPT/public surface. Они не являются
+fallback для обычного Codex route. Если direct route, catalog или contract
+недоступен, остановись fail-closed и передай проблему в
+`azurpilot-troubleshooting`; не выполняй Reconnect или другой remote refresh.
 
 Не используй его для Dev Runtime, Universal Smoke Harness, DevSession, Git/CI
 или для неизвестной ошибки слоя. В первом случае используй

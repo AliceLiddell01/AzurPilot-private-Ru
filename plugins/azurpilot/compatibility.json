@@ -1,7 +1,7 @@
 {
   "contract_schema_version": 1,
   "product_family": "AzurPilot",
-  "plugin_version": "0.1.0+codex.20260903132550",
+  "plugin_version": "0.1.0+codex.20260913065748",
   "required_mcp_servers": {
     "azurpilot-dev": ">=3.0.0,<4.0.0",
     "azurpilot-game": ">=1.0.0,<2.0.0"
