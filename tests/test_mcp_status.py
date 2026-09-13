@@ -483,6 +483,7 @@ def test_codex_game_entry_uses_direct_local_stdio_command() -> None:
                 "args": list(status.CODEX_SERVER_ARGS["azurpilot-game"]),
                 "cwd": ".",
                 "enabled": True,
+                "required": False,
                 "startup_timeout_sec": status.CODEX_SERVER_TIMEOUTS["azurpilot-game"][0],
                 "tool_timeout_sec": status.CODEX_SERVER_TIMEOUTS["azurpilot-game"][1],
             }
@@ -496,6 +497,7 @@ def test_codex_game_entry_uses_direct_local_stdio_command() -> None:
         expected_args=status.CODEX_SERVER_ARGS["azurpilot-game"],
         expected_startup_timeout_sec=status.CODEX_SERVER_TIMEOUTS["azurpilot-game"][0],
         expected_tool_timeout_sec=status.CODEX_SERVER_TIMEOUTS["azurpilot-game"][1],
+        expected_required=False,
     )
 
     assert result["status"] == "configured"
@@ -510,6 +512,7 @@ def test_codex_direct_entries_require_canonical_timeouts() -> None:
                     "args": list(status.CODEX_SERVER_ARGS[name]),
                     "cwd": ".",
                     "enabled": True,
+                    "required": False,
                     "startup_timeout_sec": startup_timeout[0],
                     "tool_timeout_sec": startup_timeout[1],
                 }
@@ -520,12 +523,17 @@ def test_codex_direct_entries_require_canonical_timeouts() -> None:
             "expected_args": status.CODEX_SERVER_ARGS[name],
             "expected_startup_timeout_sec": startup_timeout[0],
             "expected_tool_timeout_sec": startup_timeout[1],
+            "expected_required": False,
         }
         assert status._codex_entry_status(config, name, **expected)["status"] == "configured"
         for field in ("startup_timeout_sec", "tool_timeout_sec"):
             drifted = deepcopy(config)
             drifted["mcp_servers"][name][field] += 1
             assert status._codex_entry_status(drifted, name, **expected)["status"] == "drift"
+
+        required_drift = deepcopy(config)
+        required_drift["mcp_servers"][name]["required"] = True
+        assert status._codex_entry_status(required_drift, name, **expected)["status"] == "drift"
 
         missing = deepcopy(config)
         missing["mcp_servers"][name].pop("startup_timeout_sec")

@@ -936,6 +936,7 @@ def _codex_entry_status(
     expected_cwd: str = ".",
     expected_startup_timeout_sec: int | None = None,
     expected_tool_timeout_sec: int | None = None,
+    expected_required: bool | None = None,
 ) -> dict[str, object]:
     servers = config.get("mcp_servers")
     entry = servers.get(name) if isinstance(servers, Mapping) else None
@@ -959,6 +960,10 @@ def _codex_entry_status(
         or (
             expected_tool_timeout_sec is not None
             and entry.get("tool_timeout_sec") != expected_tool_timeout_sec
+        )
+        or (
+            expected_required is not None
+            and entry.get("required") is not expected_required
         )
     ):
         return {"status": "drift", "reason_code": "CODEX_SERVER_CONFIG_DRIFT"}
@@ -2418,6 +2423,7 @@ async def collect_status_async(
             expected_args=CODEX_SERVER_ARGS[name],
             expected_startup_timeout_sec=CODEX_SERVER_TIMEOUTS[name][0],
             expected_tool_timeout_sec=CODEX_SERVER_TIMEOUTS[name][1],
+            expected_required=False,
         )
         if codex_result["status"] == "configured":
             codex_result = {
