@@ -20,6 +20,10 @@ authorization scopes и runtime boundaries.
 uv run --locked --no-sync python -m module.game_mcp
 ```
 
+В Codex этот entrypoint регистрируется как project-scoped `azurpilot-game` в
+`.codex/config.toml`. Plugin package поставляет skill и metadata, но не
+регистрирует MCP и не добавляет Connected App fallback.
+
 Remote transport — authenticated Streamable HTTP через loopback backend:
 
 ```text
@@ -224,7 +228,10 @@ Login flow bounded по одному timeout и не имеет automatic retry;
 `UNKNOWN` для domain state — валидный результат чтения, а не подмена ошибки
 нулевым значением.
 
-Для обычной работы с игровым MCP используется `azurpilot-game-control`, а для
-снимков контракта, диагностики транспорта и подключённого приложения —
-`azurpilot-troubleshooting`. `azurpilot-development` остаётся developer-only
-интерфейсом Dev Runtime; Game и Dev MCP не объединяются в один контракт.
+Для обычной работы с игровым MCP через Codex используется
+`azurpilot-game-control` и direct local stdio route `azurpilot-game`, а для
+снимков контракта и диагностики транспорта — `azurpilot-troubleshooting`.
+Подключённое приложение относится только к явно выбранной ChatGPT/public
+remote surface и не является fallback. `azurpilot-development` остаётся
+developer-only интерфейсом Dev Runtime; Game и Dev MCP не объединяются в один
+контракт.

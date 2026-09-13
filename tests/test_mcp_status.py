@@ -174,6 +174,10 @@ def test_status_json_model_records_exact_local_identity(monkeypatch) -> None:
         report["servers"]["azurpilot-dev"]["local_direct"]["version_status"]
         == "compatible"
     )
+    assert (
+        report["servers"]["azurpilot-game"]["codex"]["status"] == "configured"
+    )
+    assert report["plugin"]["status"] == "ready"
     assert report["chatgpt"]["status"] == "not_observable"
 
 
@@ -212,8 +216,8 @@ def test_human_status_uses_compact_tables_and_sections(capsys) -> None:
                     "azurpilot-game", _versions()["azurpilot-game"], revision
                 ),
                 "codex": {
-                    "status": "not_configured",
-                    "reason_code": "CODEX_GAME_SURFACE_EXTERNAL",
+                    "status": "configured",
+                    "reason_code": "CODEX_SERVER_CONFIGURED",
                 },
                 "remote_backend": {
                     "status": "unavailable",
@@ -226,6 +230,10 @@ def test_human_status_uses_compact_tables_and_sections(capsys) -> None:
             },
         },
         "docker_mcp": _docker_ready(),
+        "plugin": {
+            "status": "ready",
+            "reason_code": "CODEX_PLUGIN_ROUTING_READY",
+        },
         "chatgpt": {
             "status": "not_observable",
             "reason_code": "CHATGPT_ACTION_SNAPSHOT_NOT_OBSERVABLE",
@@ -239,7 +247,8 @@ def test_human_status_uses_compact_tables_and_sections(capsys) -> None:
     assert "SERVER" in output and "REMOTE BACKEND" in output
     assert "azurpilot-dev" in output
     assert f"{_versions()['azurpilot-dev']} OK" in output
-    assert "EXTERNAL" in output
+    assert "PLUGIN" in output
+    assert "remote-only" in output
     assert "Docker MCP Gateway" in output
     assert "Status: OK" in output
     assert "context7" in output
@@ -464,6 +473,47 @@ def test_codex_entry_requires_enabled_and_project_cwd() -> None:
             )["status"]
             == "drift"
         )
+
+
+def test_codex_game_entry_uses_direct_local_stdio_command() -> None:
+    config = {
+        "mcp_servers": {
+            "azurpilot-game": {
+                "command": "uv",
+                "args": list(status.CODEX_SERVER_ARGS["azurpilot-game"]),
+                "cwd": ".",
+                "enabled": True,
+            }
+        }
+    }
+
+    result = status._codex_entry_status(
+        config,
+        "azurpilot-game",
+        expected_command="uv",
+        expected_args=status.CODEX_SERVER_ARGS["azurpilot-game"],
+    )
+
+    assert result["status"] == "configured"
+
+
+def test_codex_plugin_status_rejects_legacy_app_registration(tmp_path: Path) -> None:
+    plugin_root = tmp_path / "plugins" / "azurpilot"
+    (plugin_root / ".codex-plugin").mkdir(parents=True)
+    (plugin_root / "skills").mkdir()
+    for name in status.PLUGIN_REQUIRED_SKILLS:
+        (plugin_root / "skills" / name).mkdir()
+    (plugin_root / ".codex-plugin" / "plugin.json").write_text(
+        json.dumps({"name": "azurpilot", "skills": "./skills/", "apps": None}),
+        encoding="utf-8",
+    )
+
+    result = status._codex_plugin_status(tmp_path)
+
+    assert result == {
+        "status": "drift",
+        "reason_code": "CODEX_PLUGIN_LEGACY_APP_DECLARED",
+    }
 
 
 def test_remote_backend_provenance_is_compared_through_collect_path() -> None:

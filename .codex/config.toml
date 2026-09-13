@@ -12,6 +12,15 @@ required = false
 startup_timeout_sec = 5
 tool_timeout_sec = 180
 
+[mcp_servers.azurpilot-game]
+command = "uv"
+args = ["run", "--locked", "--no-sync", "python", "-m", "module.game_mcp"]
+cwd = "."
+enabled = true
+required = false
+startup_timeout_sec = 10
+tool_timeout_sec = 180
+
 [mcp_servers.MCP_DOCKER]
 command = "docker"
 args = ["mcp", "gateway", "run", "--profile", "azurpilot-development"]

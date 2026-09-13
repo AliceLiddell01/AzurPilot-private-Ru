@@ -60,6 +60,18 @@ SERVER_MODULES = {
     "azurpilot-dev": ("module.dev_mcp", "dev_get_contract"),
     "azurpilot-game": ("module.game_mcp", "game_get_contract"),
 }
+CODEX_SERVER_ARGS = {
+    name: ("run", "--locked", "--no-sync", "python", "-m", module_name)
+    for name, (module_name, _contract_tool) in SERVER_MODULES.items()
+}
+PLUGIN_RELATIVE_ROOT = Path("plugins") / "azurpilot"
+PLUGIN_REQUIRED_SKILLS = frozenset(
+    {
+        "azurpilot-development",
+        "azurpilot-game-control",
+        "azurpilot-troubleshooting",
+    }
+)
 THIRD_PARTY_SERVERS = (
     "grafana",
     "context7",
@@ -265,6 +277,89 @@ class StatusError(RuntimeError):
 def _safe_type_name(value: object) -> str:
     name = type(value).__name__
     return name if _SAFE_IDENTIFIER.fullmatch(name) else "UnknownError"
+
+
+def _codex_plugin_status(root: Path) -> dict[str, object]:
+    """Проверить routing metadata plugin без загрузки Connected App state."""
+
+    plugin_root = root / PLUGIN_RELATIVE_ROOT
+    manifest_path = plugin_root / ".codex-plugin" / "plugin.json"
+    try:
+        raw_manifest = manifest_path.read_bytes()
+    except OSError:
+        return {
+            "status": "unavailable",
+            "reason_code": "CODEX_PLUGIN_MANIFEST_UNAVAILABLE",
+        }
+    if len(raw_manifest) > _MAX_JSON_BYTES:
+        return {
+            "status": "invalid",
+            "reason_code": "CODEX_PLUGIN_MANIFEST_TOO_LARGE",
+        }
+    try:
+        manifest = json.loads(raw_manifest.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return {
+            "status": "invalid",
+            "reason_code": "CODEX_PLUGIN_MANIFEST_INVALID",
+        }
+    if not isinstance(manifest, Mapping) or manifest.get("name") != "azurpilot":
+        return {
+            "status": "invalid",
+            "reason_code": "CODEX_PLUGIN_MANIFEST_INVALID",
+        }
+    if manifest.get("skills") != "./skills/":
+        return {
+            "status": "drift",
+            "reason_code": "CODEX_PLUGIN_SKILLS_DRIFT",
+        }
+    if "apps" in manifest:
+        return {
+            "status": "drift",
+            "reason_code": "CODEX_PLUGIN_LEGACY_APP_DECLARED",
+        }
+    if "mcpServers" in manifest:
+        return {
+            "status": "drift",
+            "reason_code": "CODEX_PLUGIN_MCP_REGISTRATION_DUPLICATE",
+        }
+    if (plugin_root / ".app.json").exists():
+        return {
+            "status": "drift",
+            "reason_code": "CODEX_PLUGIN_LEGACY_APP_DISCOVERABLE",
+        }
+    if (plugin_root / ".mcp.json").exists():
+        return {
+            "status": "drift",
+            "reason_code": "CODEX_PLUGIN_MCP_REGISTRATION_DUPLICATE",
+        }
+    skills_root = plugin_root / "skills"
+    try:
+        skill_names = {
+            path.name
+            for path in skills_root.iterdir()
+            if path.is_dir() and not path.name.startswith(".")
+        }
+    except OSError:
+        return {
+            "status": "unavailable",
+            "reason_code": "CODEX_PLUGIN_SKILLS_UNAVAILABLE",
+        }
+    if skill_names != PLUGIN_REQUIRED_SKILLS:
+        return {
+            "status": "drift",
+            "reason_code": "CODEX_PLUGIN_SKILLS_DRIFT",
+        }
+    return {
+        "status": "ready",
+        "reason_code": "CODEX_PLUGIN_ROUTING_READY",
+        "plugin_version": manifest.get("version")
+        if isinstance(manifest.get("version"), str)
+        else "unknown",
+        "mcp_registration": "project_config",
+        "legacy_app_manifest": "absent",
+        "duplicate_mcp_manifest": "absent",
+    }
 
 
 def _safe_sha(value: object) -> str:
@@ -2106,6 +2201,14 @@ def _record_failure(status_value: object, *, failures: list[str]) -> None:
         failures.append("partial")
 
 
+def _record_required_failure(
+    status_value: object, *, expected: str, failures: list[str]
+) -> None:
+    if status_value == expected:
+        return
+    failures.append("drift" if status_value in {"drift", "invalid"} else "partial")
+
+
 def _canonical_status(
     *,
     servers: Mapping[str, object],
@@ -2113,6 +2216,7 @@ def _canonical_status(
     docker: Mapping[str, object],
     version_guard: Mapping[str, object],
     working_tree: str,
+    plugin: Mapping[str, object],
 ) -> tuple[str, str, bool]:
     """Оценить только canonical routes, отделяя внешнее Context7 evidence."""
 
@@ -2122,6 +2226,9 @@ def _canonical_status(
         _record_failure(version_guard.get("status"), failures=failures)
     if working_tree != "clean":
         failures.append("partial")
+    _record_required_failure(
+        plugin.get("status"), expected="ready", failures=failures
+    )
 
     for name in SERVER_NAMES:
         item = servers.get(name)
@@ -2130,17 +2237,17 @@ def _canonical_status(
             continue
         local = item.get("local_direct")
         if not isinstance(local, Mapping) or local.get("status") != "ready":
-            _record_failure(
+            _record_required_failure(
                 local.get("status") if isinstance(local, Mapping) else None,
+                expected="ready",
                 failures=failures,
             )
-        if name == "azurpilot-dev":
-            codex = item.get("codex")
-            if not isinstance(codex, Mapping) or codex.get("status") != "configured":
-                _record_failure(
-                    codex.get("status") if isinstance(codex, Mapping) else None,
-                    failures=failures,
-                )
+        codex = item.get("codex")
+        _record_required_failure(
+            codex.get("status") if isinstance(codex, Mapping) else None,
+            expected="configured",
+            failures=failures,
+        )
         remote_backend = item.get("remote_backend")
         if isinstance(remote_backend, Mapping) and remote_backend.get(
             "status"
@@ -2290,32 +2397,15 @@ async def collect_status_async(
                     source_mode="remote",
                 ),
             }
-        codex_result: dict[str, object]
-        if name == "azurpilot-dev":
-            codex_result = _codex_entry_status(
-                codex_config,
-                name,
-                expected_command="uv",
-                expected_args=(
-                    "run",
-                    "--locked",
-                    "--no-sync",
-                    "python",
-                    "-m",
-                    "module.dev_mcp",
-                ),
-            )
-            if codex_result["status"] == "configured":
-                codex_result = {
-                    **codex_result,
-                    "runtime_reachable": False,
-                    "runtime_ready": False,
-                    "evidence_kind": "configuration_only",
-                }
-        else:
+        codex_result = _codex_entry_status(
+            codex_config,
+            name,
+            expected_command="uv",
+            expected_args=CODEX_SERVER_ARGS[name],
+        )
+        if codex_result["status"] == "configured":
             codex_result = {
-                "status": "not_configured",
-                "reason_code": "CODEX_GAME_SURFACE_EXTERNAL",
+                **codex_result,
                 "runtime_reachable": False,
                 "runtime_ready": False,
                 "evidence_kind": "configuration_only",
@@ -2385,6 +2475,7 @@ async def collect_status_async(
             is True,
         }
     version_guard = _version_guard(repository_root, expected_versions)
+    plugin = _codex_plugin_status(repository_root)
     try:
         docker = await asyncio.wait_for(
             asyncio.to_thread(docker_probe or _docker_status),
@@ -2422,6 +2513,7 @@ async def collect_status_async(
         docker=docker,
         version_guard=version_guard,
         working_tree=working_tree,
+        plugin=plugin,
     )
     status = (
         "drift"
@@ -2450,6 +2542,7 @@ async def collect_status_async(
         "canonical_reason_code": canonical_reason,
         "external_evidence_pending": external_evidence_pending,
         "source": {"revision": revision, "working_tree": working_tree},
+        "plugin": plugin,
         "servers": servers,
         "route_policy": {
             name: _route_policy(name) for name in MCP_ROUTE_POLICY
@@ -2792,16 +2885,17 @@ def _strict_failure(
     source = report.get("source")
     if not isinstance(source, Mapping) or source.get("working_tree") != "clean":
         return True
+    plugin = report.get("plugin")
+    if not isinstance(plugin, Mapping) or plugin.get("status") != "ready":
+        return True
     servers = report.get("servers")
     if isinstance(servers, Mapping):
-        dev_item = servers.get("azurpilot-dev")
-        if not isinstance(dev_item, Mapping):
-            return True
-        dev_codex = dev_item.get("codex")
-        if not isinstance(dev_codex, Mapping) or dev_codex.get("status") != "configured":
-            return True
-        for item in servers.values():
+        for name in SERVER_NAMES:
+            item = servers.get(name)
             if not isinstance(item, Mapping):
+                return True
+            codex = item.get("codex")
+            if not isinstance(codex, Mapping) or codex.get("status") != "configured":
                 return True
             local = item.get("local_direct")
             if not isinstance(local, Mapping) or local.get("status") != "ready":
@@ -2935,11 +3029,6 @@ def _human_surface_cell(surface: object, *, expected_version: object = None) -> 
         version = surface.get("server_version") or expected_version
         if isinstance(version, str) and _VERSION_RE.fullmatch(version):
             return f"{version} MODIFIED"
-    if (
-        surface_status == "not_configured"
-        and surface.get("reason_code") == "CODEX_GAME_SURFACE_EXTERNAL"
-    ):
-        return "EXTERNAL"
     return _human_status_label(surface_status)
 
 
@@ -3013,6 +3102,12 @@ def _print_human(report: Mapping[str, object], emission: MetricEmission | None) 
         print(
             f"VERSION   {_human_status_label(version_guard.get('status'))} "
             f"({_human_reason(version_guard.get('reason_code'))})"
+        )
+    plugin = report.get("plugin")
+    if isinstance(plugin, Mapping):
+        print(
+            f"PLUGIN    {_human_status_label(plugin.get('status'))} "
+            f"({_human_reason(plugin.get('reason_code'))})"
         )
 
     rows: list[list[str]] = []
@@ -3250,13 +3345,13 @@ def _print_human(report: Mapping[str, object], emission: MetricEmission | None) 
     if isinstance(chatgpt, Mapping):
         chatgpt_status = _human_status_label(chatgpt.get("status"))
         print()
-        print("ChatGPT action cache")
-        print("--------------------")
-        print(f"{'AzurPilot Development:':24} {chatgpt_status}")
-        print(f"{'AzurPilot Game:':24} {chatgpt_status}")
+        print("ChatGPT action cache (remote-only)")
+        print("---------------------------------")
+        print(f"{'AzurPilot Development (remote):':32} {chatgpt_status}")
+        print(f"{'AzurPilot Game (remote):':32} {chatgpt_status}")
         if chatgpt_status != "OK":
             notes.append(
-                f"ChatGPT action cache: {chatgpt_status} "
+                f"ChatGPT remote action cache: {chatgpt_status} "
                 f"({_human_reason(chatgpt.get('reason_code'))})"
             )
 

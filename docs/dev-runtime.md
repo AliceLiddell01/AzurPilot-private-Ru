@@ -50,6 +50,20 @@ startup_timeout_sec = 5
 tool_timeout_sec = 180
 ```
 
+Game MCP регистрируется в том же project-scoped Codex config отдельным
+каноническим entrypoint:
+
+```toml
+[mcp_servers.azurpilot-game]
+command = "uv"
+args = ["run", "--locked", "--no-sync", "python", "-m", "module.game_mcp"]
+cwd = "."
+enabled = true
+required = false
+startup_timeout_sec = 10
+tool_timeout_sec = 180
+```
+
 Для задач репозитория рядом разрешены direct read-only routes, не проходящие
 через Docker MCP Gateway: `docker_docs_direct` использует официальный Docker
 Docs endpoint, а `semgrep_local_direct` запускает локальный `semgrep mcp -t
@@ -661,17 +675,16 @@ metadata, а `POST https://<dev-public-host>/mcp` без auth возвращае
 Canonical Plugin Creator package находится в `plugins/azurpilot/`; его
 machine-readable ID — `azurpilot`, а отображаемое имя — `AzurPilot`. Пакет
 поставляет три разделённых skill: `azurpilot-development`,
-`azurpilot-game-control` и `azurpilot-troubleshooting`. `.app.json` содержит
-только references на уже существующие приложения `AzurPilot Development
-Verified` и `AzurPilot Game`; accounts, OAuth scopes, approval policy и runtime
-остаются внешними по отношению к package. Второй MCP implementation и снятый
-transport не добавляются.
+`azurpilot-game-control` и `azurpilot-troubleshooting`. Plugin manifest содержит
+только skills и metadata: `.app.json` и `.mcp.json` отсутствуют. Единственный
+repository-level источник регистрации MCP для Codex — `.codex/config.toml`;
+второй MCP implementation и Connected App injection не добавляются.
 
-Codex использует project-scoped `azurpilot-dev` через local stdio Dev MCP, а
-обычные игровые операции выполняются через существующий Game MCP. ChatGPT
-использует соответствующее подключённое приложение через authenticated public
-HTTPS `/mcp`; канонический Caddyfile хранится в Git, а OAuth/OIDC provider,
-Caddy runtime state и credentials — вне Git.
+Codex использует project-scoped `azurpilot-dev` и `azurpilot-game` через local
+stdio Dev/Game MCP. ChatGPT/public использует соответствующее подключённое
+приложение через authenticated public HTTPS `/mcp`; канонический Caddyfile
+хранится в Git, а OAuth/OIDC provider, Caddy runtime state и credentials — вне
+Git. Remote surface не является Codex fallback.
 
 Основной workflow skill: `dev_get_contract` →
 `dev_list_smoke_capabilities` → строгий `SmokeSpec` → `dev_validate_smoke` →
@@ -683,9 +696,11 @@ PASS-result, exact source, подтверждённой очистке и пол
 или успех.
 
 `azurpilot-game-control` предназначен для обычных Game MCP read/control
-операций, а `azurpilot-troubleshooting` — для проверки contract, transport и
-подключённого приложения. `azurpilot-development` остаётся developer-only
-интерфейсом Dev Runtime и typed bridge; он не объединяет Game и Dev MCP.
+операций через `azurpilot-game` local stdio, а
+`azurpilot-troubleshooting` — для проверки direct contract/transport и, только
+для явно выбранной remote surface, подключённого приложения.
+`azurpilot-development` остаётся developer-only интерфейсом Dev Runtime и typed
+bridge; он не объединяет Game и Dev MCP.
 Ограничения ChatGPT Developer Mode
 или текущего плана на write tools фиксируются как
 `CHATGPT_WRITE_UNAVAILABLE_PRODUCT_LIMITATION`, а не

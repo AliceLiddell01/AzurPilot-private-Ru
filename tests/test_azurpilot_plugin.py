@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,7 @@ _REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 _PLUGIN_ROOT = _REPOSITORY_ROOT / "plugins" / "azurpilot"
 _MANIFEST_PATH = _PLUGIN_ROOT / ".codex-plugin" / "plugin.json"
 _APP_MANIFEST_PATH = _PLUGIN_ROOT / ".app.json"
+_CODEX_CONFIG_PATH = _REPOSITORY_ROOT / ".codex" / "config.toml"
 _COMPATIBILITY_PATH = _PLUGIN_ROOT / "compatibility.json"
 _SKILL_PATH = _PLUGIN_ROOT / "skills" / "azurpilot-development" / "SKILL.md"
 _GAME_SKILL_PATH = _PLUGIN_ROOT / "skills" / "azurpilot-game-control" / "SKILL.md"
@@ -32,6 +34,7 @@ _TROUBLESHOOTING_MATRIX_PATH = (
     / "references"
     / "diagnostic-matrix.md"
 )
+_ROUTING_PATH = _PLUGIN_ROOT / "references" / "mcp-routing.md"
 _ABSOLUTE_LOCAL_PATH = re.compile(r"(?<![A-Za-z0-9])(?:[A-Za-z]:[\\/]|\\\\|(?<![A-Za-z0-9/:.`])/(?!/))")
 _URL = re.compile(r"\b[A-Za-z][A-Za-z0-9+.-]*://[^\s`]+")
 _SAFE_CONTAINER_PATH = re.compile(r"(?<![A-Za-z0-9])(/etc/caddy/Caddyfile)(?![A-Za-z0-9])")
@@ -68,7 +71,7 @@ def test_plugin_manifest_and_generated_marketplace_are_canonical() -> None:
     assert isinstance(version, str)
     assert re.fullmatch(r"0\.1\.0\+codex\.\d{14}", version)
     assert manifest["skills"] == "./skills/"
-    assert manifest["apps"] == "./.app.json"
+    assert "apps" not in manifest
     assert "mcpServers" not in manifest
     assert interface["displayName"] == "AzurPilot"
     assert isinstance(interface["capabilities"], list)
@@ -79,18 +82,10 @@ def test_plugin_manifest_and_generated_marketplace_are_canonical() -> None:
     assert len(interface["defaultPrompt"]) <= 3
     assert all(len(prompt) <= 128 for prompt in interface["defaultPrompt"])
     assert "Game capability в этом пакете отсутствует" not in interface["longDescription"]
+    assert "AzurPilot Development Verified" not in interface["longDescription"]
+    assert "AzurPilot Game" not in interface["longDescription"]
 
-    app_manifest = _json(_APP_MANIFEST_PATH)
-    apps = app_manifest["apps"]
-    assert isinstance(apps, dict)
-    assert set(apps) == {"azurpilot-development-verified", "azurpilot-game"}
-    app_ids = [app["id"] for app in apps.values() if isinstance(app, dict)]
-    assert len(app_ids) == 2
-    assert all(
-        isinstance(app_id, str) and re.fullmatch(r"asdk_app_[a-z0-9]+", app_id)
-        for app_id in app_ids
-    )
-    assert len(set(app_ids)) == len(app_ids)
+    assert not _APP_MANIFEST_PATH.exists()
 
     marketplace = _json(_REPOSITORY_ROOT / ".agents" / "plugins" / "marketplace.json")
     assert marketplace["name"] == "personal"
@@ -103,6 +98,21 @@ def test_plugin_manifest_and_generated_marketplace_are_canonical() -> None:
     assert isinstance(entry, dict)
     assert entry["name"] == "azurpilot"
     assert entry["source"] == {"source": "local", "path": "./plugins/azurpilot"}
+
+
+def test_routing_reference_keeps_plugin_and_mcp_registration_separate() -> None:
+    routing = _ROUTING_PATH.read_text(encoding="utf-8")
+
+    for required in (
+        "`azurpilot-dev`",
+        "`azurpilot-game`",
+        "direct local stdio",
+        "module.dev_mcp",
+        "module.game_mcp",
+        "project-scoped",
+        "не является Codex fallback",
+    ):
+        assert required in routing
 
 
 def test_plugin_compatibility_matches_runtime_contract() -> None:
@@ -131,6 +141,29 @@ def test_plugin_compatibility_matches_runtime_contract() -> None:
     assert set(compatibility["required_capability_families"]).issubset(runtime["capability_families"])
     assert set(compatibility["result_outcomes"]).issubset(runtime["result_outcomes"])
     assert contract_compatibility_issues(compatibility, runtime) == ()
+
+
+def test_project_config_declares_both_canonical_direct_routes() -> None:
+    with _CODEX_CONFIG_PATH.open("rb") as stream:
+        config = tomllib.load(stream)
+
+    servers = config["mcp_servers"]
+    expected_modules = {
+        "azurpilot-dev": "module.dev_mcp",
+        "azurpilot-game": "module.game_mcp",
+    }
+    expected_startup_timeouts = {"azurpilot-dev": 5, "azurpilot-game": 10}
+    for name, module_name in expected_modules.items():
+        entry = servers[name]
+        assert entry == {
+            "command": "uv",
+            "args": ["run", "--locked", "--no-sync", "python", "-m", module_name],
+            "cwd": ".",
+            "enabled": True,
+            "required": False,
+            "startup_timeout_sec": expected_startup_timeouts[name],
+            "tool_timeout_sec": 180,
+        }
 
 
 @pytest.mark.parametrize(
@@ -251,6 +284,10 @@ def test_game_and_troubleshooting_skills_have_distinct_fail_closed_routes() -> N
     assert troubleshooting_skill.startswith("---\nname: azurpilot-troubleshooting\n")
     for required in (
         "AzurPilot Game",
+        "azurpilot-game",
+        "module.game_mcp",
+        ".codex/config.toml",
+        "direct local stdio",
         "game_get_contract",
         "game_list_profiles",
         "game_list_tasks",
@@ -267,9 +304,16 @@ def test_game_and_troubleshooting_skills_have_distinct_fail_closed_routes() -> N
         "STOP WRITES",
     ):
         assert required in game_skill
+    assert "Подключённое приложение `AzurPilot Game` и authenticated remote transport" in game_skill
+    assert "не являются" in game_skill and "fallback" in game_skill
     for required in (
         "AzurPilot Development Verified",
         "AzurPilot Game",
+        ".codex/config.toml",
+        "azurpilot-dev",
+        "azurpilot-game",
+        "local stdio",
+        "Connected App не является fallback",
         "dev_get_contract",
         "game_get_contract",
         "tool_count",
@@ -460,5 +504,5 @@ def test_plugin_sources_contain_no_local_paths_or_credentials() -> None:
         for token in forbidden_tokens:
             assert token not in text, (path, token)
 
-    assert (_PLUGIN_ROOT / ".app.json").is_file()
+    assert not (_PLUGIN_ROOT / ".app.json").exists()
     assert not (_PLUGIN_ROOT / ".mcp.json").exists()

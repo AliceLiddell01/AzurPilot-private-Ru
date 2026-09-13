@@ -9,18 +9,26 @@
 
 ## Архитектура
 
-Пакет не содержит `.mcp.json` и не регистрирует новый MCP implementation.
-`.app.json` содержит только references на уже существующие приложения
-`AzurPilot Development Verified` и `AzurPilot Game`; их accounts, OAuth scopes,
-approval policy и runtime остаются внешними по отношению к package.
+Пакет не содержит `.mcp.json`, `.app.json` или другой MCP registration source и
+не регистрирует новый MCP implementation. Plugin manifest поставляет только
+три skills и metadata. Единственным repository-level источником MCP-регистрации
+Codex является `.codex/config.toml`; accounts, OAuth scopes, approval policy и
+remote runtime остаются внешними по отношению к package.
 
 Канонические runtime — существующие `module.dev_mcp` и `module.game_mcp`.
 
 - Codex вызывает project-scoped `azurpilot-dev` напрямую через local stdio:
   `uv run --locked --no-sync python -m module.dev_mcp`.
-- ChatGPT использует подключённое приложение через authenticated public HTTPS
+- Codex вызывает project-scoped `azurpilot-game` напрямую через local stdio:
+  `uv run --locked --no-sync python -m module.game_mcp`.
+- ChatGPT/public использует отдельную remote surface через authenticated public HTTPS
   URL `https://<public-host>/mcp`, Caddy и внешний OAuth/OIDC provider; это тот
-  же adapter, а не второй runtime.
+  же backend family, а не Codex fallback и не второй runtime.
+
+Полная матрица маршрутизации находится в
+[references/mcp-routing.md](references/mcp-routing.md). Отсутствующий direct
+catalog или несовместимый contract обрабатывается fail-closed; remote
+Connected App не подменяет Codex route.
 
 Публикуемые данные должны оставаться workflow-only. Не добавляй в checkout
 ChatGPT app state, tunnel profiles, control-plane keys, screenshots, archives,

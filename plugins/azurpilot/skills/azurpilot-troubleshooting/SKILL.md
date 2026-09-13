@@ -1,6 +1,6 @@
 ---
 name: azurpilot-troubleshooting
-description: "Evidence-first диагностика AzurPilot Development/Game MCP, plugin/app, catalog, auth, runtime и postcondition mismatch с fail-closed recovery."
+description: "Evidence-first диагностика AzurPilot Development/Game MCP, plugin, catalog, auth, runtime и postcondition mismatch с fail-closed recovery."
 ---
 
 # Диагностика AzurPilot
@@ -8,9 +8,10 @@ description: "Evidence-first диагностика AzurPilot Development/Game M
 ## Назначение и граница
 
 Используй этот skill, когда непонятно, на каком слое возникла проблема:
-`AzurPilot Development Verified`, `AzurPilot Game`, plugin/connected app,
-callable catalog, permissions/OAuth, MCP transport, deployed runtime, backend,
-device/emulator или product postcondition.
+`azurpilot-dev`, `azurpilot-game`, plugin, callable catalog, permissions/OAuth,
+MCP transport, deployed runtime, backend, device/emulator или product
+postcondition. `AzurPilot Development Verified` и `AzurPilot Game` являются
+только явно выбранными ChatGPT/public remote surfaces.
 
 Это не универсальный fallback для обычной операции. Обычный Dev запрос остаётся
 в `azurpilot-development`, обычный Game запрос — в
@@ -54,12 +55,15 @@ Grafana dashboards/alerts, runtime или игровое состояние в �
 ## Рабочий процесс с приоритетом evidence
 
 1. Определи intended route: `Development`, `Game` или проблема именно
-   package/app/catalog.
-2. Выполни минимальное read-only наблюдение на соответствующей поверхности.
-   Для Game сначала проверь текущую callable surface. Если `game_get_contract`
+   package/catalog/remote app.
+2. Для обычного Codex workflow проверь project-scoped route из
+   `.codex/config.toml`: `azurpilot-dev` → `module.dev_mcp` или
+   `azurpilot-game` → `module.game_mcp`, оба через local stdio. Выполни
+   минимальное read-only наблюдение на соответствующей direct surface.
+   Если `game_get_contract`
    отсутствует или не поддерживается client catalog, зафиксируй
    `backend contract unavailable`: capability gap этим не доказан, mutation
-   запрещена, а диагностика остаётся на client/plugin/app/session layer. Если
+   запрещена, а диагностика остаётся на client/plugin/session layer; Connected App не является fallback. Если
    tool callable, получи актуальный contract и точные catalog tools; для Dev
    используй `dev_get_contract`, существующую compatibility validation с
    `compatibility.json` и доступные `dev_preflight`, `dev_doctor` или
@@ -69,7 +73,9 @@ Grafana dashboards/alerts, runtime или игровое состояние в �
 4. Сравни source/deployment/runtime только когда это релевантно: Git HEAD,
    backend PID/start time/cwd и contract/catalog fingerprint. Новый checkout не
    означает, что уже работающий процесс загрузил новый код.
-5. Выбери ровно один refresh/recovery для доказанно stale слоя. После него
+5. Выбери ровно один refresh/recovery для доказанно stale слоя. Для direct
+   Codex route это новый project-scoped task/process или штатное обновление
+   source/plugin, а не Reconnect Connected App. После него
    повторно проверь callable catalog и соответствующий backend contract. Для
    Development снова вызови `dev_get_contract` и прогони существующую
    compatibility validation; для Game снова вызови `game_get_contract`, если
@@ -105,16 +111,16 @@ contract.
 сопоставь его capability/action metadata с точной текущей callable surface. Если
 `game_get_contract` отсутствует или не поддерживается текущим catalog, верни
 `backend contract unavailable`: client snapshot не позволяет отличить
-отсутствующий backend capability от stale client/plugin/app/session, поэтому
+отсутствующий backend capability от stale client/plugin/session, поэтому
 capability gap не доказан. Mutation запрещена; диагностируй только
-client/plugin/app/session layer. Не выдумывай backend contract из документации
+client/plugin/session layer. Connected App не является fallback для direct Codex. Не выдумывай backend contract из документации
 или старого snapshot.
 
 Возвращай normal operation только после подтверждения обоих источников. При
 любом несовпадении contract и surface оставайся fail-closed.
 
 Ситуация «backend публикует новый tool, а текущая session его не видит»
-классифицируется как stale client/plugin/app/session snapshot после
+классифицируется как stale client/plugin/session snapshot после
 подтверждения backend contract. При разных каталогах у уже открытых клиентов
 используй диагноз `PER_SESSION_CALLABLE_SNAPSHOT_DRIFT` или эквивалентное
 описание. В обоих случаях:
@@ -153,18 +159,20 @@ capability gap, а не доказанный stale client. Зафиксируй 
 
 1. intent и выбранный workflow;
 2. skill routing;
-3. callable tool catalog клиента;
-4. plugin package/listing snapshot;
-5. connected app snapshot;
-6. app approval policy;
-7. OAuth/provider grant и scopes;
-8. MCP transport/listener/endpoint;
-9. running backend process;
-10. deployed checkout и Git HEAD;
-11. contract/catalog fingerprint;
-12. namespace/tool binding;
-13. backend application logic;
-14. external emulator/device/game и authoritative product postcondition.
+3. project `.codex/config.toml` и выбранный direct route;
+4. local stdio process;
+5. MCP `initialize`/`tools/list`;
+6. callable tool catalog клиента;
+7. plugin package/listing snapshot;
+8. remote Connected App snapshot и approval policy — только для явно
+   выбранного ChatGPT/public route;
+9. OAuth/provider grant и scopes — только для remote route;
+10. running backend process;
+11. deployed checkout и Git HEAD;
+12. contract/catalog fingerprint;
+13. namespace/tool binding;
+14. backend application logic;
+15. external emulator/device/game и authoritative product postcondition.
 
 `GAME_*` или `DEV_*` machine-readable response означает, что вызов достиг
 backend boundary. `Unknown tool`, platform block или отсутствие callable
@@ -180,8 +188,9 @@ binding до этого — другой слой и не Game/Dev backend failu
 | synced GitHub plugin source старый | `Sync now` для этого marketplace. |
 | individually imported plugin старый | `Refresh`, если такую операцию предоставляет surface. |
 | обновился только отображаемый список | не считать `Refresh plugin list` синхронизацией source. |
-| app Connected, но не callable в текущем chat/model/surface | проверить workspace/account/surface и открыть новый chat/task. |
-| provider grant/scope не соответствует action | штатный `Reconnect` с повторной проверкой запрошенных permissions. |
+| direct Codex route отсутствует или дрейфует в `.codex/config.toml` | исправить source-controlled project config, затем открыть новую Codex task/session и повторить direct handshake. |
+| remote app Connected, но не callable в явно выбранном ChatGPT/public route | проверить workspace/account/surface и открыть новый chat/task. Это не меняет Codex direct route. |
+| provider grant/scope не соответствует remote action | штатный `Reconnect` с повторной проверкой запрошенных permissions; только для remote route. |
 | fork/subtask/same-directory fork без гарантированного catalog refresh | не считать refresh и не считать действия выполненными. |
 
 Не выполняй все варианты подряд. Reconnect одного account не обновляет другие
@@ -191,7 +200,8 @@ scope. После двух безрезультатных штатных поп�
 
 ### Browser automation и fallback через Computer Use
 
-Для обычного plugin/app/browser refresh browser/UI automation — основной путь:
+Для явно выбранной ChatGPT/public remote plugin/app/browser surface
+browser/UI automation — основной путь:
 используй Codex in-app browser, Chrome/browser integration или другое доступное
 browser-native действие, если оно подходит текущей session. Если browser
 automation дважды зависает, получает AX/DOM timeout, не выполняет нужное действие
@@ -201,7 +211,7 @@ automation дважды зависает, получает AX/DOM timeout, не 
 evidence.
 
 Если в текущем Codex доступен `Computer Use`, используй его как один fallback для
-той же ограниченной client/plugin/app/browser recovery:
+той же ограниченной remote client/plugin/app/browser recovery:
 
 1. переключись на `Computer Use`;
 2. выбери уже открытое активное окно браузера либо сделай нужное browser window
@@ -212,12 +222,12 @@ evidence.
 4. не делай DOM/AX/CDP обязательной основой fallback — его смысл именно в
    visual/manual control текущего окна;
 5. после действия повтори тот же authoritative read-only verification:
-   plugin/app status, callable catalog, required tool, contract compatibility или
+   remote plugin/app status, callable catalog, required tool, contract compatibility или
    другой заранее выбранный postcondition.
 
 Сам запуск `Computer Use`, фокус окна, click, нажатие кнопки, открытие новой
 вкладки или движение страницы не являются доказательством refresh. Computer Use
-разрешён здесь только для recovery client/plugin/app/browser layer. Не используй
+разрешён здесь только для recovery remote client/plugin/app/browser layer. Не используй
 его как замену Game MCP mutation, ADB, shell, произвольным game clicks,
 `game_restart_runtime`, `game_login_runtime` или Dev Smoke; Game actions всё ещё
 идут через соответствующий MCP contract.
@@ -283,9 +293,10 @@ read-only tools; новый Smoke не запускай автоматическ
 ## Маршрутизация после диагноза
 
 ```text
-обычный Dev workflow → azurpilot-development → AzurPilot Development Verified
-обычный Game workflow → azurpilot-game-control → AzurPilot Game
-ошибка catalog/app/auth/runtime/postcondition → этот skill → соответствующий workflow
+обычный Dev workflow → azurpilot-development → `azurpilot-dev` → local stdio
+обычный Game workflow → azurpilot-game-control → `azurpilot-game` → local stdio
+ошибка catalog/plugin/auth/runtime/postcondition → этот skill → соответствующий workflow
+явный ChatGPT/public workflow → соответствующее Connected App → authenticated remote
 ```
 
 Development skill не становится fallback для Game operations. Game surface не

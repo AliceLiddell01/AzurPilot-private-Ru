@@ -63,13 +63,15 @@ WebUI не монтирует MCP transport; игровые и development endpo
 Plugin Creator. Его machine-readable ID — `azurpilot`, display name —
 `AzurPilot`; текущий пакет публикует три разделённых skill:
 `azurpilot-development`, `azurpilot-game-control` и
-`azurpilot-troubleshooting`. `.app.json` содержит только references на
-существующие приложения `AzurPilot Development Verified` и `AzurPilot Game`.
-Пакет не содержит ChatGPT app state, tunnel profile, credentials, screenshots,
-archives или runtime cache и не регистрирует второй MCP implementation.
+`azurpilot-troubleshooting`. Плагин поставляет только skills и metadata: в
+пакете отсутствуют `.app.json`, `.mcp.json` и MCP registration source. Пакет не
+содержит ChatGPT app state, tunnel profile, credentials, screenshots, archives
+или runtime cache и не регистрирует второй MCP implementation.
 
-Codex использует project-scoped `azurpilot-dev` через прямой local stdio и
-`module.dev_mcp`. ChatGPT использует подключённое приложение с
+Codex использует project-scoped `azurpilot-dev` и `azurpilot-game` через прямой
+local stdio и соответственно `module.dev_mcp` и `module.game_mcp`; единственный
+repository-level источник регистрации — `.codex/config.toml`. ChatGPT использует
+явно выбранное подключённое приложение с
 authenticated public URL `https://<public-host>/mcp`, Caddy reverse proxy в
 Docker Compose profile `remote-ingress` и внешним OAuth/OIDC provider; Caddy
 обращается к host-side loopback backend через `host.docker.internal`, custom
