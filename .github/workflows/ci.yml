@@ -348,7 +348,7 @@ jobs:
         id: python_codecov
         if: ${{ !cancelled() }}
         timeout-minutes: 10
-        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5.5.5
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6.0.2
         with:
           files: ${{ runner.temp }}/azurpilot-ci-python/coverage.xml
           fail_ci_if_error: true
