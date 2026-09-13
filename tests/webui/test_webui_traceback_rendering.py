@@ -204,7 +204,7 @@ class WebUITracebackRenderingTest(unittest.TestCase):
                 self.assertIn("<скрыто>", collector.text)
                 self.assertNotIn("private-token", collector.text)
                 self.assertNotIn("do-not-leak", collector.text)
-                self.assertIn("../../../assets/gui/css/alas.css", fixture)
+                self.assertIn("../../../../assets/gui/css/alas.css", fixture)
                 self.assertNotIn(str(Path.cwd().resolve()), collector.text)
 
 
