@@ -78,6 +78,18 @@ def test_project_uiautomator2_screenshot_boundary_returns_rgb_numpy_array():
     assert tuple(image[0, 0]) == (1, 2, 3)
 
 
+def test_http_adapter_window_size_accepts_flat_device_info_fields():
+    device = HttpUiautomator2("http://127.0.0.1:7912")
+    response = FakeResponse({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {"displayWidth": 1080, "displayHeight": 1920},
+    })
+
+    with patch.object(device.http, "post", return_value=response):
+        assert device.window_size() == (1080, 1920)
+
+
 def test_http_adapter_keeps_service_and_input_operations_on_same_endpoint():
     device = HttpUiautomator2("https://phone-cloud.example:7912")
     service = device.service("minitouch")

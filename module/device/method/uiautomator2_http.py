@@ -170,10 +170,12 @@ class HttpUiautomator2(u2.Device):
 
     def window_size(self):
         info = self.info
-        display = info.get("display", info)
         try:
-            return int(display["width"]), int(display["height"])
-        except (KeyError, TypeError, ValueError) as exc:
+            display = info.get("display", info)
+            if "width" in display and "height" in display:
+                return int(display["width"]), int(display["height"])
+            return int(info["displayWidth"]), int(info["displayHeight"])
+        except (AttributeError, KeyError, TypeError, ValueError) as exc:
             raise u2.DeviceError("HTTP uiautomator2 не вернул размер экрана") from exc
 
     def screenshot(self, filename=None, format="pillow", display_id=None):

@@ -30,7 +30,7 @@ from scipy.signal import find_peaks
 from module.device.pkg_resources import get_distribution
 from uiautomator2 import UiObject
 from uiautomator2.exceptions import XPathElementNotFoundError
-from uiautomator2.xpath import DeviceXPathSelector as XPathSelector
+from uiautomator2.xpath import DeviceXPathSelector as XPathSelector, PageSource
 # isort: on
 
 _ = get_distribution
@@ -423,4 +423,6 @@ class LoginHandler(UI):
 
 class XPS(XPathSelector):
     def __init__(self, xpath, parent, source):
+        if isinstance(source, str):
+            source = PageSource.parse(source)
         super().__init__(xpath, parent, source)

@@ -9,6 +9,7 @@ import re
 import tomllib
 import unittest
 from pathlib import Path
+from unittest.mock import Mock
 
 
 ROOT = REPOSITORY_ROOT
@@ -158,6 +159,18 @@ class DeviceRuntimeContractTests(unittest.TestCase):
         ):
             with self.subTest(name=name):
                 self.assertIn(name, functions)
+
+    def test_uiautomator2_recovery_reinitializes_cached_local_server(self) -> None:
+        from module.device.connection import Connection
+
+        device = Mock()
+        device.is_over_http = False
+        device.u2 = Mock()
+
+        Connection.install_uiautomator2(device)
+
+        device.u2.reset_uiautomator.assert_called_once_with()
+        device.uninstall_minicap.assert_called_once_with()
 
     def test_screenshot_pipeline_keeps_rgb_and_backend_fallback_contracts(self) -> None:
         screenshot = _text("module/device/screenshot.py")

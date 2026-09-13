@@ -68,7 +68,7 @@ PyPI публикует `0.6.3` с 2019 года, при этом upstream repos
 полного abandoned status. Большая замена transport не входит в Stage 3.
 Evidence-based audit, варианты loopback HTTP/process IPC, migration surface и
 acceptance зафиксированы в issue
-#258](https://github.com/AliceLiddell01/AzurPilot-private-Ru/issues/258). Issue
+[#258](https://github.com/AliceLiddell01/AzurPilot-private-Ru/issues/258). Issue
 остаётся открытым: этот Stage 3 PR не меняет transport и не объявляет
 `zerorpc` заменённым. Закрытие требует отдельного adapter/replacement,
 измерений, lifecycle- и malformed-payload acceptance.

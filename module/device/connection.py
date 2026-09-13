@@ -18,7 +18,7 @@ import uiautomator2 as u2
 from adbutils import AdbClient, AdbDevice, AdbTimeout, ForwardItem, ReverseItem
 from adbutils.errors import AdbError
 
-from module.base.decorator import Config, cached_property, del_cached_property, run_once
+from module.base.decorator import Config, cached_property, del_cached_property, has_cached_property, run_once
 from module.base.timer import Timer
 from module.base.utils import ensure_time
 from module.config.deep import deep_get
@@ -973,7 +973,10 @@ class Connection(ConnectionAttr):
             return
 
         logger.info('[Устройство — соединение] Инициализация uiautomator2 3.x')
-        _ = self.u2
+        if has_cached_property(self, 'u2'):
+            self.u2.reset_uiautomator()
+        else:
+            _ = self.u2
         self.uninstall_minicap()
 
     def uninstall_minicap(self):

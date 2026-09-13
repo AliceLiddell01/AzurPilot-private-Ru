@@ -4,6 +4,7 @@ import types
 from unittest.mock import Mock, patch
 
 import pytest
+from uiautomator2.xpath import PageSource
 
 from module.handler.login import LoginHandler, LoginHandlerTimeoutError
 
@@ -80,3 +81,11 @@ def test_login_flow_rejects_non_finite_timeout(timeout_seconds: float):
 
     with pytest.raises(ValueError, match="конечным"):
         handler._handle_app_login(timeout_seconds=timeout_seconds)
+
+
+def test_cn_xpath_source_is_parsed_for_uiautomator2_v3():
+    from module.handler.login import XPS
+
+    selector = XPS("//*[@text='ОК']", Mock(), "<hierarchy />")
+
+    assert isinstance(selector._source, PageSource)
