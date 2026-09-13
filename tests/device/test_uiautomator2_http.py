@@ -172,13 +172,19 @@ def test_http_adapter_keeps_service_input_and_recovery_on_same_endpoint():
     with patch.object(device, "shell", shell):
         device.set_fastinput_ime(True)
         device.send_keys("test", clear=True)
-        device.send_action(3)
+        device.send_action("done")
         device.clear_text()
 
-    assert shell.call_count == 5
-    assert shell.call_args_list[0].args[0] == ["ime", "enable", "com.github.uiautomator/.FastInputIME"]
-    assert shell.call_args_list[2].args[0][:3] == ["am", "broadcast", "-a"]
-    assert shell.call_args_list[2].args[0][-1] == "dGVzdA=="
+    commands = [call.args[0] for call in shell.call_args_list]
+    assert commands[:3] == [
+        ["ime", "enable", "com.github.uiautomator/.AdbKeyboard"],
+        ["ime", "set", "com.github.uiautomator/.AdbKeyboard"],
+        ["settings", "put", "secure", "default_input_method", "com.github.uiautomator/.AdbKeyboard"],
+    ]
+    assert ["am", "broadcast", "-a", "ADB_KEYBOARD_CLEAR_TEXT"] in commands
+    assert ["am", "broadcast", "-a", "ADB_KEYBOARD_INPUT_TEXT", "--es", "text", "dGVzdA=="] in commands
+    assert ["am", "broadcast", "-a", "ADB_KEYBOARD_HIDE"] in commands
+    assert ["am", "broadcast", "-a", "ADB_KEYBOARD_EDITOR_CODE", "--ei", "code", "6"] in commands
 
     service_mock = Mock()
     service_mock.stop.side_effect = u2.DeviceError("already stopped")

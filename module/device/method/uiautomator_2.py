@@ -628,17 +628,10 @@ class Uiautomator2(Connection):
         except Exception:
             output = ''
         cmdlines = _parse_batched_cmdlines(output)
-        fallback_process = next(
-            (
-                process for process in missing
-                if cmdlines and str(process.pid) not in cmdlines
-            ),
-            None,
-        )
 
         for process in missing:
             cmdline = cmdlines.get(str(process.pid))
-            if cmdline is None and process is fallback_process:
+            if cmdline is None:
                 try:
                     cmdline = self.adb_shell(
                         ['cat', f'/proc/{process.pid}/cmdline'],

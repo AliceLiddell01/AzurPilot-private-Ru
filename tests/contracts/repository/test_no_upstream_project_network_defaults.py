@@ -294,6 +294,9 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
         (ROOT / "deploy/Windows/adb.py").read_text(encoding="utf-8"),
         (ROOT / "deploy/patch.py").read_text(encoding="utf-8"),
         (ROOT / "module/device/connection.py").read_text(encoding="utf-8"),
+        (ROOT / "module/device/method/uiautomator_2.py").read_text(encoding="utf-8"),
+        (ROOT / "module/device/method/uiautomator2_http.py").read_text(encoding="utf-8"),
+        (ROOT / "module/device/method/uiautomator2_contract.py").read_text(encoding="utf-8"),
     ]
     hidden_u2_host = "tool.appetizer" + ".io"
     for source in u2_sources:

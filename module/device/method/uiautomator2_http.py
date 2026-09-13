@@ -12,7 +12,7 @@ import io
 import re
 import shlex
 from collections.abc import Sequence
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit, urlunsplit
 
 import cv2
 import numpy as np
@@ -27,6 +27,38 @@ HTTP_DEVICE_SERVER_PORT = 9008
 """Стандартный порт внешнего uiautomator2 HTTP protocol."""
 
 DEFAULT_WAIT_TIMEOUT = 20.0
+
+_ADB_KEYBOARD_IME = "com.github.uiautomator/.AdbKeyboard"
+_IME_ACTION_CODES = {
+    "go": 2,
+    "search": 3,
+    "send": 4,
+    "next": 5,
+    "done": 6,
+    "previous": 7,
+}
+
+
+def _effective_http_base_url(serial: str, port: int) -> str:
+    """Добавить порт протокола только к endpoint без явного порта."""
+    parsed = urlsplit(serial)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError(f"Требуется HTTP serial с адресом endpoint, получено {serial!r}")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("HTTP serial не должен содержать credentials")
+    try:
+        explicit_port = parsed.port
+    except ValueError as exc:
+        raise ValueError(f"Недопустимый порт в HTTP serial: {serial!r}") from exc
+    if explicit_port is not None:
+        return serial
+
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError(f"В HTTP serial отсутствует hostname: {serial!r}")
+    if ":" in hostname:
+        hostname = f"[{hostname}]"
+    return urlunsplit(parsed._replace(netloc=f"{hostname}:{port}"))
 
 
 class _HttpSession(requests.Session):
@@ -133,14 +165,12 @@ class HttpUiautomator2:
     """Стабильный phone-cloud adapter без наследования от ``u2.Device``."""
 
     def __init__(self, serial: str, port: int = HTTP_DEVICE_SERVER_PORT) -> None:
-        if not re.match(r"^https?://", serial):
-            raise ValueError(f"Требуется HTTP serial, получено {serial!r}")
         if type(port) is not int or not 1 <= port <= 65535:
             raise ValueError(f"Недопустимый порт HTTP device: {port!r}")
 
         self._serial = serial
         self._device_server_port = port
-        self._http = _HttpSession(serial)
+        self._http = _HttpSession(_effective_http_base_url(serial, port))
         self._jsonrpc = _JsonRpcProxy(self)
         self._wait_timeout = DEFAULT_WAIT_TIMEOUT
         self._xpath = XPathEntry(self)
@@ -412,24 +442,32 @@ class HttpUiautomator2:
         return ip if re.fullmatch(r"\d+\.\d+\.\d+\.\d+", ip) else None
 
     def set_fastinput_ime(self, enable: bool = True):
-        ime = "com.github.uiautomator/.FastInputIME"
-        if enable:
-            self.shell(["ime", "enable", ime])
-            self.shell(["ime", "set", ime])
-        else:
-            self.shell(["ime", "disable", ime])
+        if not enable:
+            return self.shell(["ime", "disable", _ADB_KEYBOARD_IME])
+        self.shell(["ime", "enable", _ADB_KEYBOARD_IME])
+        self.shell(["ime", "set", _ADB_KEYBOARD_IME])
+        return self.shell(["settings", "put", "secure", "default_input_method", _ADB_KEYBOARD_IME])
 
     def send_keys(self, text: str, clear: bool = False):
-        action = "ADB_SET_TEXT" if clear else "ADB_INPUT_TEXT"
+        self.set_fastinput_ime(True)
+        if clear:
+            self.shell(["am", "broadcast", "-a", "ADB_KEYBOARD_CLEAR_TEXT"])
         encoded = base64.b64encode(text.encode("utf-8")).decode("ascii")
-        return self.shell(["am", "broadcast", "-a", action, "--es", "text", encoded])
+        self.shell(["am", "broadcast", "-a", "ADB_KEYBOARD_INPUT_TEXT", "--es", "text", encoded])
+        return self.shell(["am", "broadcast", "-a", "ADB_KEYBOARD_HIDE"])
 
     def send_action(self, code=None):
+        self.set_fastinput_ime(True)
         if code is None:
             return self.shell(["am", "broadcast", "-a", "ADB_KEYBOARD_SMART_ENTER"])
+        if isinstance(code, str):
+            code = _IME_ACTION_CODES.get(code)
+        if not isinstance(code, int):
+            raise ValueError(f"Недопустимое IME-действие: {code!r}")
         return self.shell(["am", "broadcast", "-a", "ADB_KEYBOARD_EDITOR_CODE", "--ei", "code", str(code)])
 
     def clear_text(self):
+        self.set_fastinput_ime(True)
         return self.shell(["am", "broadcast", "-a", "ADB_KEYBOARD_CLEAR_TEXT"])
 
     def current_ime(self):

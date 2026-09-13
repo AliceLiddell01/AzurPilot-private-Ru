@@ -28,15 +28,15 @@
 
 Сохранены `dependencyDashboard: true`, `automerge: false`,
 `prConcurrentLimit: 4`, `prHourlyLimit: 2`, `commitHourlyLimit: 2`,
-`separateMultipleMajor: true` и отдельный vulnerability path. Regression-тест
+`separateMultipleMajor: false` и отдельный vulnerability path. Regression-тест
 проверяет каждый из этих ограничителей, включая независимый commit budget.
 
 ## Device runtime contract
 
-`module/device/pkg_resources` остаётся узким compatibility boundary для metadata
-и resources `adbutils`/`uiautomator2`: версии берутся через stdlib
-`importlib.metadata`, а пути — через установленную distribution metadata. Старые
-патчи `uiautomator2.init.Initer`, ATX Agent, minicap и `uiautomator2cache` удалены.
+`uiautomator2` и `adbutils` используют собственные current resource APIs; проектный
+`module/device/pkg_resources` shim и side-effect imports удалены после consumer
+audit. Версии берутся через stdlib `importlib.metadata`, а старые патчи
+`uiautomator2.init.Initer`, ATX Agent, minicap и `uiautomator2cache` удалены.
 
 Локальный transport создаётся через `u2.connect_usb(self.adb)`. Server 3.x
 самостоятельно подготавливает встроенный `u2.jar`; `minitouch` запускается
@@ -78,15 +78,13 @@ acceptance зафиксированы в issue
 Deterministic tests и source/runtime contracts не доказывают полную физическую
 работу ADB. В этом checkout Dev MCP smoke не запускался: доступный Game MCP
 контур не заменяет отдельный Dev MCP evidence. Реальный bounded device
-acceptance выполнен на локальном ADB/TCP target с profile `ap`; полный
-Windows/MuMu/USB gate и gameplay-сценарии не выполнялись. Состояние внешнего
-gate: **PENDING EXTERNAL ACCEPTANCE — Windows/MuMu/ADB smoke**. Перед переводом
-PR из Draft нужен контролируемый полный smoke на exact head. Канонический
-runner и минимальный безопасный сценарий:
+acceptance выполнен на локальном ADB/TCP target с profile `alas`; полная
+Windows/USB matrix и gameplay-сценарии не выполнялись. Канонический runner и
+минимальный безопасный сценарий:
 
 ```powershell
-uv run --locked --no-sync python -c "import module.device.pkg_resources; import adbutils, uiautomator2, zmq, zerorpc; from importlib import metadata; from module.device.pkg_resources import get_distribution, resource_filename; assert get_distribution('adbutils').version == metadata.version('adbutils'); assert get_distribution('uiautomator2').version == metadata.version('uiautomator2'); assert resource_filename('adbutils', 'binaries'); print('device imports: ok')"
-uv run --locked --no-sync python tools/acceptance/device.py --profile alas --serial "<serial>" --check-preview --check-control --check-reconnect --non-interactive --report "<report-path>"
+uv run --locked --no-sync python -c "import adbutils, uiautomator2, zmq, zerorpc; from importlib import metadata; assert metadata.version('adbutils') == '2.12.0'; assert metadata.version('uiautomator2') == '3.7.0'; print('device imports: ok')"
+uv run --locked --no-sync python -m tools.acceptance.device --profile alas --serial "<serial>" --check-preview --check-control --check-reconnect --report "<report-path>"
 ```
 
 Перед runner следует проверить import/init без direct `setuptools` и убедиться,
