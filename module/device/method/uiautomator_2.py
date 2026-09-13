@@ -206,6 +206,15 @@ def _process_info_from_http(payload: dict) -> ProcessInfo:
     )
 
 
+def _parse_batched_cmdlines(output: str) -> dict[str, str]:
+    cmdlines = {}
+    for line in output.splitlines():
+        pid, separator, cmdline = line.partition('|')
+        if separator and pid.strip().isdigit():
+            cmdlines[pid.strip()] = _normalise_process_text(cmdline)
+    return cmdlines
+
+
 class Uiautomator2(Connection):
     @retry
     def screenshot_uiautomator2(self):
@@ -602,17 +611,36 @@ class Uiautomator2(Connection):
         if not processes:
             processes = _parse_ps_output(self.adb_shell(['ps', '-A']))
 
-        for process in processes:
-            if process.cmdline:
-                continue
-            try:
-                cmdline = self.adb_shell(
-                    ['cat', f'/proc/{process.pid}/cmdline'],
-                    rstrip=False,
-                )
-            except Exception:
-                cmdline = ''
-            process.cmdline = _normalise_process_text(cmdline)
+        missing = [process for process in processes if not process.cmdline]
+        if not missing:
+            return processes
+
+        pid_list = ' '.join(str(process.pid) for process in missing)
+        script = (
+            f'for p in {pid_list}; do '
+            'printf "%s|" "$p"; '
+            'tr "\\000" " " < "/proc/$p/cmdline" 2>/dev/null; '
+            'printf "\\n"; '
+            'done'
+        )
+        try:
+            output = self.adb_shell(['sh', '-c', script], rstrip=False)
+        except Exception:
+            output = ''
+        cmdlines = _parse_batched_cmdlines(output)
+
+        for process in missing:
+            cmdline = cmdlines.get(str(process.pid))
+            if cmdline is None:
+                try:
+                    cmdline = self.adb_shell(
+                        ['cat', f'/proc/{process.pid}/cmdline'],
+                        rstrip=False,
+                    )
+                except Exception:
+                    cmdline = ''
+                cmdline = _normalise_process_text(cmdline)
+            process.cmdline = cmdline
         return processes
 
     @retry

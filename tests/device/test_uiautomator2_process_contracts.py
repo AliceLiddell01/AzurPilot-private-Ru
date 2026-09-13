@@ -25,26 +25,65 @@ def test_ps_parser_preserves_thread_count_name_and_full_command_line():
     assert process.cmdline == "app_process / ink.mol.droidcast_raw.Main"
 
 
-def test_local_process_listing_falls_back_and_reads_cmdline_when_ps_has_no_args():
+def test_local_process_listing_batches_cmdline_reads_when_ps_has_no_args():
     responses = {
         ("ps", "-A", "-o", "PID,PPID,NAME,CMDLINE"): "unsupported\n",
         ("ps", "-A"): (
             "USER PID PPID VSZ RSS WCHAN ADDR S NAME\n"
             "u0_a1 202 1 100 20 0 0 S app_process\n"
+            "u0_a1 203 1 100 20 0 0 S app_process\n"
         ),
-        ("cat", "/proc/202/cmdline"): "app_process\x00/\x00com.rayworks.droidcast.Main\x00",
     }
+    calls = []
 
     def adb_shell(command, **kwargs):
-        return responses[tuple(map(str, command))]
+        command = tuple(map(str, command))
+        calls.append((command, kwargs))
+        if command[:2] == ("sh", "-c"):
+            assert "/proc/$p/cmdline" in command[2]
+            assert "202" in command[2]
+            assert "203" in command[2]
+            return (
+                "202|app_process\x00/\x00com.rayworks.droidcast.Main\n"
+                "203|app_process\x00/\x00ink.mol.droidcast_raw.Main\n"
+            )
+        return responses[command]
 
     device = SimpleNamespace(is_over_http=False, adb_shell=adb_shell)
     processes = Uiautomator2.proc_list_uiautomator2.__wrapped__(device)
 
-    assert len(processes) == 1
-    assert processes[0].pid == 202
-    assert processes[0].thread_count is None
+    assert [process.pid for process in processes] == [202, 203]
+    assert [process.thread_count for process in processes] == [None, None]
+    assert [process.cmdline for process in processes] == [
+        "app_process / com.rayworks.droidcast.Main",
+        "app_process / ink.mol.droidcast_raw.Main",
+    ]
+    assert sum(command[:2] == ("sh", "-c") for command, _ in calls) == 1
+    assert not any(command[0] == "cat" for command, _ in calls)
+
+
+def test_local_process_listing_keeps_per_process_fallback_if_batch_read_fails():
+    calls = []
+
+    def adb_shell(command, **kwargs):
+        command = tuple(map(str, command))
+        calls.append(command)
+        if command == ("ps", "-A", "-o", "PID,PPID,NAME,CMDLINE"):
+            return "unsupported\n"
+        if command == ("ps", "-A"):
+            return "USER PID PPID VSZ RSS WCHAN ADDR S NAME\nu0_a1 202 1 100 20 0 0 S app_process\n"
+        if command[:2] == ("sh", "-c"):
+            raise RuntimeError("batch shell is unavailable")
+        if command == ("cat", "/proc/202/cmdline"):
+            return "app_process\x00/\x00com.rayworks.droidcast.Main\x00"
+        raise AssertionError(command)
+
+    device = SimpleNamespace(is_over_http=False, adb_shell=adb_shell)
+    processes = Uiautomator2.proc_list_uiautomator2.__wrapped__(device)
+
     assert processes[0].cmdline == "app_process / com.rayworks.droidcast.Main"
+    assert any(command[:2] == ("sh", "-c") for command in calls)
+    assert ("cat", "/proc/202/cmdline") in calls
 
 
 def test_http_process_listing_keeps_string_cmdline_as_one_value():
