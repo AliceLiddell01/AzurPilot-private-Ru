@@ -1,7 +1,6 @@
 """Регрессии явной настройки журналирования на границах процессов."""
 
 import sys
-import types
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -83,21 +82,11 @@ def test_gui_supervisor_bootstraps_parent_before_worker_creation() -> None:
 def test_ocr_rpc_server_bootstraps_process_role_before_binding() -> None:
     events = []
     server = Mock()
-    server.bind.side_effect = lambda uri: events.append(("bind", uri))
-    server.run.side_effect = lambda: events.append(("run",))
-
-    zerorpc = types.ModuleType("zerorpc")
-    zerorpc.Server = lambda _implementation: server
-    zmq = types.ModuleType("zmq")
-
-    class ZMQError(Exception):
-        pass
-
-    zmq.error = SimpleNamespace(ZMQError=ZMQError)
-    al_ocr = types.ModuleType("module.ocr.al_ocr")
-    al_ocr.AlOcr = type("AlOcr", (), {})
-    models = types.ModuleType("module.ocr.models")
-    models.OcrModel = type("OcrModel", (), {})
+    run_result = object()
+    server.run.side_effect = lambda **kwargs: (
+        events.append(("run", kwargs)),
+        run_result,
+    )[1]
 
     with (
         patch.object(
@@ -106,17 +95,17 @@ def test_ocr_rpc_server_bootstraps_process_role_before_binding() -> None:
             side_effect=lambda **kwargs: events.append(("logging", kwargs)),
         ),
         patch.object(ocr_rpc.logger, "info"),
-        patch.dict(
-            sys.modules,
-            {
-                "zerorpc": zerorpc,
-                "zmq": zmq,
-                "module.ocr.al_ocr": al_ocr,
-                "module.ocr.models": models,
-            },
-        ),
+        patch.object(ocr_rpc, "_OcrRpcService") as service_factory,
+        patch.object(
+            ocr_rpc,
+            "_OcrRpcServer",
+            side_effect=lambda port, service: (
+                events.append(("construct", port, service)),
+                server,
+            )[1],
+        ) as server_factory,
     ):
-        ocr_rpc.start_ocr_server(port=23457)
+        result = ocr_rpc.start_ocr_server(port=23457)
 
     assert events[0] == (
         "logging",
@@ -126,5 +115,8 @@ def test_ocr_rpc_server_bootstraps_process_role_before_binding() -> None:
             "observability_component": "ocr-rpc",
         },
     )
-    assert events[1] == ("bind", "tcp://127.0.0.1:23457")
-    assert events[2] == ("run",)
+    assert events[1][0:2] == ("construct", 23457)
+    assert events[2] == ("run", {"stop_event": None, "ready_event": None})
+    assert result is run_result
+    service_factory.assert_called_once()
+    server_factory.assert_called_once_with(23457, service_factory.return_value)
