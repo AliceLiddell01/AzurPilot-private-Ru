@@ -567,9 +567,7 @@ class Minitouch(Connection):
             try:
                 out = socket_out.readline().replace("\n", "").replace("\r", "")
             except socket.timeout:
-                socket_out.close()
-                self._minitouch_socket_file = None
-                client.close()
+                self._close_minitouch_transport()
                 raise MinitouchOccupiedError(
                     '[Устройство — minitouch] Истекло время подключения; вероятно, уже установлено другое соединение'
                 )

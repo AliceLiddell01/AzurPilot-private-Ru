@@ -26,6 +26,16 @@ class DeviceTouch(Protocol):
     def up(self, x: int | float, y: int | float) -> DeviceTouch: ...
 
 
+class DeviceHttp(Protocol):
+    """HTTP-операции, используемые общим контрактом устройства."""
+
+    def get(self, path: str, **kwargs: Any) -> Any: ...
+
+    def post(self, path: str, **kwargs: Any) -> Any: ...
+
+    def delete(self, path: str, **kwargs: Any) -> Any: ...
+
+
 class Uiautomator2Device(Protocol):
     """Минимальный общий API локального и phone-cloud транспорта."""
 
@@ -34,6 +44,9 @@ class Uiautomator2Device(Protocol):
 
     @property
     def info(self) -> dict[str, Any]: ...
+
+    @property
+    def http(self) -> DeviceHttp: ...
 
     @property
     def clipboard(self) -> str | None: ...

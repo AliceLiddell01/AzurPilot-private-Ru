@@ -8,6 +8,7 @@ import importlib
 import re
 import tomllib
 import unittest
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 
@@ -88,6 +89,34 @@ class DeviceRuntimeContractTests(unittest.TestCase):
         importlib.import_module("uiautomator2")
 
         self.assertFalse((ROOT / "module/device/pkg_resources/__init__.py").exists())
+
+    def test_minitouch_cleanup_closes_and_clears_all_transport_resources(self) -> None:
+        from module.device.method.minitouch import Minitouch
+
+        class Closable:
+            def __init__(self) -> None:
+                self.closed = False
+
+            def close(self) -> None:
+                self.closed = True
+
+        socket_file = Closable()
+        client = Closable()
+        process = Closable()
+        device = SimpleNamespace(
+            _minitouch_socket_file=socket_file,
+            _minitouch_client=client,
+            _minitouch_process=process,
+        )
+
+        Minitouch._close_minitouch_transport(device)
+
+        self.assertTrue(socket_file.closed)
+        self.assertTrue(client.closed)
+        self.assertTrue(process.closed)
+        self.assertIsNone(device._minitouch_socket_file)
+        self.assertIsNone(device._minitouch_client)
+        self.assertIsNone(device._minitouch_process)
 
     def test_scrcpy_keeps_separate_video_and_control_streams(self) -> None:
         core = _text("module/device/method/scrcpy/core.py")

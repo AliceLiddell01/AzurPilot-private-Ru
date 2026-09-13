@@ -11,8 +11,6 @@ def patch_trust_env(file):
     настройки. ``session.trust_env = False`` не влияет на команду pip, поэтому
     здесь при необходимости исправляется исходник requests.
 
-    Returns:
-        bool: признак выполненного исправления.
     """
     if os.path.exists(file):
         with open(file, 'r', encoding='utf-8') as f:

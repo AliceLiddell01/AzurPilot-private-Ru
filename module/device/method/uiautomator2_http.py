@@ -1,4 +1,4 @@
-"""Project-owned adapter for the phone-cloud uiautomator2 HTTP protocol.
+"""Адаптер проекта для HTTP-протокола phone-cloud uiautomator2.
 
 Локальный transport создаётся самим ``uiautomator2`` и использует ADB.
 Phone-cloud transport реализует только общий project contract через HTTP и
@@ -134,9 +134,9 @@ class HttpUiautomator2:
 
     def __init__(self, serial: str, port: int = HTTP_DEVICE_SERVER_PORT) -> None:
         if not re.match(r"^https?://", serial):
-            raise ValueError(f"HTTP serial is required, got {serial!r}")
+            raise ValueError(f"Требуется HTTP serial, получено {serial!r}")
         if type(port) is not int or not 1 <= port <= 65535:
-            raise ValueError(f"HTTP device port is invalid, got {port!r}")
+            raise ValueError(f"Недопустимый порт HTTP device: {port!r}")
 
         self._serial = serial
         self._device_server_port = port
@@ -211,7 +211,7 @@ class HttpUiautomator2:
         try:
             response = self.http.post("/jsonrpc/0", json=payload, timeout=timeout)
             if response.status_code == 410:
-                raise u2.SessionBrokenError("HTTP uiautomator2 service is unavailable")
+                raise u2.SessionBrokenError("HTTP-служба uiautomator2 недоступна")
             response.raise_for_status()
             data = response.json()
         except u2.SessionBrokenError:
