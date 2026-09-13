@@ -26,6 +26,8 @@ def test_ci_generates_branch_coverage_and_uploads_with_oidc() -> None:
     assert re.search(r"uses: codecov/codecov-action@[0-9a-f]{40} # v5", workflow)
     assert "use_oidc: true" in workflow
     assert "CODECOV_TOKEN" not in workflow
+    assert "id: python_codecov_cleanup" in workflow
+    assert "rm -f -- codecov codecov.SHA256SUM codecov.SHA256SUM.sig" in workflow
 
 
 def test_ci_group_contains_locked_coverage_dependency() -> None:

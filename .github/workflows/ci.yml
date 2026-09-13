@@ -356,6 +356,14 @@ jobs:
           fail_ci_if_error: true
           use_oidc: true
 
+      - name: Удалить временные файлы Codecov
+        id: python_codecov_cleanup
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f -- codecov codecov.SHA256SUM codecov.SHA256SUM.sig
+
       - name: Проверить migration importer и dump/restore
         id: python_migration_rehearsal
         timeout-minutes: 15
