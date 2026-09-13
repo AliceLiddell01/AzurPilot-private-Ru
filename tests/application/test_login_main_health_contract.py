@@ -80,3 +80,16 @@ def test_login_flow_rejects_non_finite_timeout(timeout_seconds: float):
 
     with pytest.raises(ValueError, match="конечным"):
         handler._handle_app_login(timeout_seconds=timeout_seconds)
+
+
+def test_cn_xpath_selector_exposes_project_compatible_source_contract():
+    from module.handler.login import XPS
+
+    selector = XPS(
+        "//*[@text='ОК']",
+        Mock(),
+        '<hierarchy><node text="ОК" bounds="[10,20][30,40]" /></hierarchy>',
+    )
+
+    assert selector.exists is True
+    assert selector.bounds == (10, 20, 30, 40)

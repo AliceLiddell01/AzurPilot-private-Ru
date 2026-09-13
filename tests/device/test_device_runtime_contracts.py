@@ -8,7 +8,8 @@ import importlib
 import re
 import tomllib
 import unittest
-from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 
 ROOT = REPOSITORY_ROOT
@@ -16,15 +17,6 @@ ROOT = REPOSITORY_ROOT
 
 def _text(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
-
-
-def _functions(path: str) -> set[str]:
-    tree = ast.parse(_text(path), filename=path)
-    return {
-        node.name
-        for node in ast.walk(tree)
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-    }
 
 
 def _dependency_name(specifier: str) -> str:
@@ -61,7 +53,7 @@ def _locked_versions() -> dict[str, str]:
 class DeviceRuntimeContractTests(unittest.TestCase):
     def test_external_device_dependencies_remain_pinned(self) -> None:
         locked_versions = _locked_versions()
-        pinned_dependencies = ("adbutils", "uiautomator2", "uiautomator2cache")
+        pinned_dependencies = ("adbutils", "uiautomator2")
 
         for name in pinned_dependencies:
             with self.subTest(name=name):
@@ -69,7 +61,7 @@ class DeviceRuntimeContractTests(unittest.TestCase):
                 version = _pinned_version(specifier)
                 self.assertEqual(version, locked_versions[name])
 
-        for name, expected_major in {"adbutils": "1", "uiautomator2": "2"}.items():
+        for name, expected_major in {"adbutils": "2", "uiautomator2": "3"}.items():
             with self.subTest(compatibility_major=name):
                 version = _pinned_version(_direct_dependency_spec(name))
                 self.assertEqual(version.split(".", 1)[0], expected_major)
@@ -92,31 +84,39 @@ class DeviceRuntimeContractTests(unittest.TestCase):
         zmq = importlib.import_module("zmq")
         self.assertTrue(zmq.__version__)
 
-    def test_pkg_resources_shim_uses_installed_metadata(self) -> None:
-        from importlib import metadata
+    def test_device_dependencies_import_without_project_compatibility_layer(self) -> None:
+        importlib.import_module("adbutils")
+        importlib.import_module("uiautomator2")
 
-        from module.device.pkg_resources import get_distribution, resource_filename
+        self.assertFalse((ROOT / "module/device/pkg_resources/__init__.py").exists())
 
-        for name in ("adbutils", "uiautomator2"):
-            with self.subTest(name=name):
-                self.assertEqual(
-                    get_distribution(name).version,
-                    metadata.version(name),
-                )
+    def test_minitouch_cleanup_closes_and_clears_all_transport_resources(self) -> None:
+        from module.device.method.minitouch import Minitouch
 
-        resource_path = resource_filename("adbutils", "binaries")
-        self.assertIsNotNone(resource_path)
-        self.assertTrue(Path(resource_path).is_dir())
+        class Closable:
+            def __init__(self) -> None:
+                self.closed = False
 
-    def test_adb_target_and_android_readiness_are_explicit(self) -> None:
-        connection_attr = _text("module/device/connection_attr.py")
-        acceptance = _text("tools/acceptance/device.py")
+            def close(self) -> None:
+                self.closed = True
 
-        self.assertIn("AdbDevice(self.adb_client, self.serial)", connection_attr)
-        self.assertIn('[adb, "-s", serial, *args]', acceptance)
-        self.assertIn('"sys.boot_completed"', acceptance)
-        self.assertIn("explicit_tcp_connect", acceptance)
-        self.assertIn("_wait_for_target_device", acceptance)
+        socket_file = Closable()
+        client = Closable()
+        process = Closable()
+        device = SimpleNamespace(
+            _minitouch_socket_file=socket_file,
+            _minitouch_client=client,
+            _minitouch_process=process,
+        )
+
+        Minitouch._close_minitouch_transport(device)
+
+        self.assertTrue(socket_file.closed)
+        self.assertTrue(client.closed)
+        self.assertTrue(process.closed)
+        self.assertIsNone(device._minitouch_socket_file)
+        self.assertIsNone(device._minitouch_client)
+        self.assertIsNone(device._minitouch_process)
 
     def test_scrcpy_keeps_separate_video_and_control_streams(self) -> None:
         core = _text("module/device/method/scrcpy/core.py")
@@ -131,26 +131,32 @@ class DeviceRuntimeContractTests(unittest.TestCase):
         self.assertIn("def keycode", control)
         self.assertIn("def text", control)
 
-    def test_uiautomator2_keeps_connection_and_operation_timeout_layers(self) -> None:
-        connection_attr = _text("module/device/connection_attr.py")
-        uia = _text("module/device/method/uiautomator_2.py")
-        functions = _functions("module/device/method/uiautomator_2.py")
+    def test_uiautomator2_missing_package_maps_to_package_not_installed(self) -> None:
+        import uiautomator2 as u2
 
-        self.assertIn("u2.connect(self.serial)", connection_attr)
-        self.assertIn("set_new_command_timeout(604800)", connection_attr)
-        self.assertIn("self.u2.http.post", uia)
-        self.assertIn("timeout=", uia)
-        for name in (
-            "click_uiautomator2",
-            "long_click_uiautomator2",
-            "swipe_uiautomator2",
-            "drag_uiautomator2",
-            "u2_send_keys",
-        ):
-            with self.subTest(name=name):
-                self.assertIn(name, functions)
+        from module.device.method.uiautomator_2 import Uiautomator2
+        from module.device.method.utils import PackageNotInstalled
 
-    def test_screenshot_pipeline_keeps_bgr_and_backend_fallback_contracts(self) -> None:
+        device = Mock()
+        device.package = "com.example.missing"
+        device.u2.app_info.side_effect = u2.AppNotFoundError("App not installed")
+
+        with self.assertRaises(PackageNotInstalled):
+            Uiautomator2._app_start_u2_am.__wrapped__(device)
+
+    def test_uiautomator2_recovery_reinitializes_cached_local_server(self) -> None:
+        from module.device.connection import Connection
+
+        device = Mock()
+        device.is_over_http = False
+        device.u2 = Mock()
+
+        Connection.install_uiautomator2(device)
+
+        device.u2.reset_uiautomator.assert_called_once_with()
+        device.uninstall_minicap.assert_called_once_with()
+
+    def test_screenshot_pipeline_keeps_rgb_and_backend_fallback_contracts(self) -> None:
         screenshot = _text("module/device/screenshot.py")
         acceptance = _text("tools/acceptance/device.py")
 
@@ -158,8 +164,8 @@ class DeviceRuntimeContractTests(unittest.TestCase):
         self.assertIn("screenshot_method_override", screenshot)
         self.assertIn("def _handle_orientated_image", screenshot)
         self.assertIn("cv2.rotate", screenshot)
-        self.assertIn('"color_contract": "BGR"', acceptance)
-        self.assertIn("_validate_bgr_image", acceptance)
+        self.assertIn('"color_contract": "RGB"', acceptance)
+        self.assertIn("_validate_rgb_image", acceptance)
 
 
 if __name__ == "__main__":

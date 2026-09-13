@@ -1,17 +1,12 @@
 # 此文件实现了基于 uiautomator2 的设备交互逻辑。
 # 包含截图、模拟点击、长按、滑动、层级提取（dump）等控制移动端设备的核心操作。
-import base64
+import re
+import shlex
 import time
 import typing as t
 from dataclasses import dataclass
 from functools import wraps
 from json.decoder import JSONDecodeError
-from subprocess import list2cmdline
-
-# Загрузить совместимый pkg_resources до библиотек устройства.
-from module.device.pkg_resources import get_distribution
-
-_ = get_distribution
 
 import uiautomator2 as u2
 from adbutils.errors import AdbError
@@ -49,7 +44,7 @@ def retry(func):
 
                 def init():
                     self.adb_reconnect()
-            # 在 `device.set_new_command_timeout(604800)` 时
+            # При инициализации uiautomator2 server JSON может быть ещё не готов.
             # json.decoder.JSONDecodeError: Expecting value: line 1 column 2 (char 1)
             except JSONDecodeError as e:
                 logger.error(str(f'[Устройство — uiautomator2] Ошибка повторной попытки: {e}'))
@@ -122,7 +117,7 @@ def retry(func):
 class ProcessInfo:
     pid: int
     ppid: int
-    thread_count: int
+    thread_count: int | None
     cmdline: str
     name: str
 
@@ -134,26 +129,103 @@ class ShellBackgroundResponse:
     description: str
 
 
+_PS_COMMAND_LINE_COLUMNS = {'ARGS', 'CMD', 'CMDLINE', 'COMMAND'}
+
+
+def _normalise_process_text(value: object) -> str:
+    return str(value).replace('\x00', ' ').strip()
+
+
+def _parse_process_int(value: object) -> int | None:
+    try:
+        return int(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_ps_output(output: str) -> list[ProcessInfo]:
+    """Разобрать варианты Android ``ps`` с сохранением command line."""
+    lines = [line.rstrip() for line in output.splitlines() if line.strip()]
+    if not lines:
+        return []
+
+    header_index = None
+    header = []
+    for index, line in enumerate(lines):
+        tokens = line.split()
+        upper_tokens = [token.upper() for token in tokens]
+        if 'PID' in upper_tokens and 'PPID' in upper_tokens:
+            header_index = index
+            header = upper_tokens
+            break
+
+    if header_index is None:
+        return []
+
+    pid_index = header.index('PID')
+    ppid_index = header.index('PPID')
+    thread_index = header.index('NLWP') if 'NLWP' in header else None
+    args_index = next(
+        (index for index, value in enumerate(header) if value in _PS_COMMAND_LINE_COLUMNS),
+        None,
+    )
+    name_index = header.index('NAME') if 'NAME' in header else args_index
+    processes = []
+    for line in lines[header_index + 1:]:
+        values = line.split(None, args_index) if args_index is not None else line.split()
+        required_indexes = [pid_index, ppid_index]
+        if any(index >= len(values) for index in required_indexes):
+            continue
+        pid = _parse_process_int(values[pid_index])
+        ppid = _parse_process_int(values[ppid_index])
+        if pid is None or ppid is None:
+            continue
+        thread_count = (
+            _parse_process_int(values[thread_index])
+            if thread_index is not None and thread_index < len(values)
+            else None
+        )
+        name = _normalise_process_text(values[name_index]) if name_index is not None and name_index < len(values) else ''
+        cmdline = _normalise_process_text(values[args_index]) if args_index is not None and args_index < len(values) else ''
+        processes.append(ProcessInfo(pid, ppid, thread_count, cmdline, name))
+    return processes
+
+
+def _process_info_from_http(payload: dict) -> ProcessInfo:
+    raw_cmdline = payload.get('cmdline')
+    if isinstance(raw_cmdline, (list, tuple)):
+        cmdline = _normalise_process_text(' '.join(map(str, raw_cmdline)))
+    else:
+        cmdline = _normalise_process_text(raw_cmdline) if raw_cmdline is not None else ''
+    return ProcessInfo(
+        pid=int(payload['pid']),
+        ppid=int(payload['ppid']),
+        thread_count=_parse_process_int(payload.get('threadCount')),
+        cmdline=cmdline,
+        name=_normalise_process_text(payload.get('name', '')),
+    )
+
+
+def _parse_batched_cmdlines(output: str) -> dict[str, str]:
+    cmdlines = {}
+    for line in output.splitlines():
+        pid, separator, cmdline = line.partition('|')
+        if separator and pid.strip().isdigit():
+            cmdlines[pid.strip()] = _normalise_process_text(cmdline)
+    return cmdlines
+
+
 class Uiautomator2(Connection):
     @retry
     def screenshot_uiautomator2(self):
-        image = self.u2.screenshot(format='raw')
-        # 防止 None/空响应
-        if image is None or len(image) == 0:
+        image = self.u2.screenshot(format='pillow')
+        if image is None:
             raise ImageTruncated('Пустые данные изображения от uiautomator2')
-
-        image = np.frombuffer(image, np.uint8)
-        if image is None or image.size == 0:
-            raise ImageTruncated('Пустое изображение после чтения из буфера')
-
-        image = cv2.imdecode(image, cv2.IMREAD_COLOR)
-        if image is None:
-            raise ImageTruncated('Пустое изображение после cv2.imdecode')
-
-        cv2.cvtColor(image, cv2.COLOR_BGR2RGB, dst=image)
-        if image is None:
-            raise ImageTruncated('Пустое изображение после cv2.cvtColor')
-
+        if hasattr(image, 'convert'):
+            image = image.convert('RGB')
+        image = np.asarray(image).copy()
+        if image.ndim != 3 or image.shape[2] != 3 or image.size == 0:
+            raise ImageTruncated('Пустое изображение от uiautomator2')
         return image
 
     @retry
@@ -274,7 +346,7 @@ class Uiautomator2(Connection):
             else:
                 logger.error(result)
                 raise PackageNotInstalled(package_name)
-        elif 'inaccessible' in result:
+        elif 'inaccessible' in result.output:
             # /system/bin/sh: monkey: inaccessible or not found
             return False
         else:
@@ -301,7 +373,12 @@ class Uiautomator2(Connection):
         if not activity_name:
             try:
                 info = self.u2.app_info(package_name)
-            except u2.BaseError as e:
+            except u2.AppNotFoundError as e:
+                if allow_failure:
+                    return False
+                logger.error(str(f'[Устройство — uiautomator2] Ошибка запуска приложения через uiautomator2: {e}'))
+                raise PackageNotInstalled(package_name) from e
+            except u2.DeviceError as e:
                 if allow_failure:
                     return False
                 # BaseError('package "111" not found')
@@ -406,14 +483,7 @@ class Uiautomator2(Connection):
 
     def uninstall_uiautomator2(self):
         logger.info('[Устройство — uiautomator2] Удаление uiautomator2')
-        for file in [
-            'app-uiautomator.apk',
-            'app-uiautomator-test.apk',
-            'minitouch',
-            'minitouch.so',
-            'atx-agent',
-        ]:
-            self.adb_shell(["rm", f"/data/local/tmp/{file}"])
+        self.adb_shell(["rm", "/data/local/tmp/u2.jar"])
 
     @retry
     def resolution_uiautomator2(self, cal_rotation=True) -> t.Tuple[int, int]:
@@ -486,9 +556,13 @@ class Uiautomator2(Connection):
                 f'Не удалось определить разрешение из вывода `ADB wm size`; используется `/info` uiautomator2. Исходный вывод: {result!r}'
             )
 
-        # 回退到 uiautomator2 /info 接口
-        info = self.u2.http.get('/info').json()
-        w, h = info['display']['width'], info['display']['height']
+        # Резервный путь через публичное свойство info uiautomator2 3.x.
+        info = self.u2.info
+        display = info.get('display', info)
+        if 'width' in display and 'height' in display:
+            w, h = display['width'], display['height']
+        else:
+            w, h = info['displayWidth'], info['displayHeight']
         if cal_rotation:
             rotation = self.get_orientation()
             if (w > h) != (rotation % 2 == 1):
@@ -520,53 +594,102 @@ class Uiautomator2(Connection):
     @retry
     def proc_list_uiautomator2(self) -> t.List[ProcessInfo]:
         """
-        获取当前进程信息。
+        Получить сведения о текущих процессах.
         """
-        resp = self.u2.http.get("/proc/list", timeout=10)
-        resp.raise_for_status()
-        result = [
-            ProcessInfo(
-                pid=proc['pid'],
-                ppid=proc['ppid'],
-                thread_count=proc['threadCount'],
-                cmdline=' '.join(proc['cmdline']) if proc['cmdline'] is not None else '',
-                name=proc['name'],
-            ) for proc in resp.json()
-        ]
-        return result
+        if self.is_over_http:
+            resp = self.u2.http.get("/proc/list", timeout=10)
+            resp.raise_for_status()
+            return [_process_info_from_http(proc) for proc in resp.json()]
+
+        try:
+            detailed_output = self.adb_shell([
+                'ps', '-A', '-o', 'PID,PPID,NAME,CMDLINE'
+            ])
+        except (AdbError, RuntimeError):
+            detailed_output = ''
+        processes = _parse_ps_output(detailed_output)
+        if not processes:
+            processes = _parse_ps_output(self.adb_shell(['ps', '-A']))
+
+        missing = [process for process in processes if not process.cmdline]
+        if not missing:
+            return processes
+
+        pid_list = ' '.join(str(process.pid) for process in missing)
+        script = (
+            f'for p in {pid_list}; do '
+            'printf "%s|" "$p"; '
+            'tr "\\000" " " < "/proc/$p/cmdline" 2>/dev/null; '
+            'printf "\\n"; '
+            'done'
+        )
+        try:
+            output = self.adb_shell(['sh', '-c', script], rstrip=False)
+        except Exception:
+            output = ''
+        cmdlines = _parse_batched_cmdlines(output)
+
+        for process in missing:
+            cmdline = cmdlines.get(str(process.pid))
+            if cmdline is None:
+                try:
+                    cmdline = self.adb_shell(
+                        ['cat', f'/proc/{process.pid}/cmdline'],
+                        rstrip=False,
+                    )
+                except Exception:
+                    cmdline = ''
+                cmdline = _normalise_process_text(cmdline)
+            process.cmdline = cmdline or ''
+        return processes
 
     @retry
     def u2_shell_background(self, cmdline, timeout=10) -> ShellBackgroundResponse:
         """
-        在后台运行命令。
+        Временно запустить argv программы в фоне.
 
-        注意此函数总是返回成功响应，
-        因为这是 ATX 中一个未经测试的隐藏方法。
+        Shell/background/redirection принадлежат runner'у. В ``cmdline``
+        передаются только аргументы программы.
         """
-        if isinstance(cmdline, (list, tuple)):
-            cmdline = list2cmdline(cmdline)
-        elif isinstance(cmdline, str):
-            cmdline = cmdline
-        else:
-            raise TypeError('Недопустимый тип cmdargs', type(cmdline))
+        if not isinstance(cmdline, (list, tuple)):
+            raise TypeError('u2_shell_background принимает только argv списка или кортежа')
+        command_args = [str(argument) for argument in cmdline]
+        if not command_args:
+            raise ValueError('u2_shell_background не принимает пустой argv')
+        command = shlex.join(command_args)
 
-        data = dict(command=cmdline, timeout=str(timeout))
-        ret = self.u2.http.post("/shell/background", data=data, timeout=timeout + 10)
-        ret.raise_for_status()
+        if self.is_over_http:
+            data = dict(command=command, timeout=str(timeout))
+            ret = self.u2.http.post("/shell/background", data=data, timeout=timeout + 10)
+            ret.raise_for_status()
+            resp = ret.json()
+            try:
+                pid = int(resp.get('pid', 0))
+            except (TypeError, ValueError, AttributeError):
+                pid = 0
+            return ShellBackgroundResponse(
+                success=bool(resp.get('success', False)) and pid > 0,
+                pid=pid,
+                description=str(resp.get('description', '')),
+            )
 
-        resp = ret.json()
-        resp = ShellBackgroundResponse(
-            success=bool(resp.get('success', False)),
-            pid=resp.get('pid', 0),
-            description=resp.get('description', '')
-        )
-        return resp
+        output = self.adb_shell(
+            ['sh', '-c', f'{command} >/dev/null 2>&1 & echo $!'],
+            timeout=timeout,
+        ).strip()
+        pid_match = re.search(r'(?m)^(\d+)\s*$', output)
+        pid = int(pid_match.group(1)) if pid_match else 0
+        return ShellBackgroundResponse(pid > 0, pid, output)
 
     def u2_set_fastinput_ime(self, enable: bool):
         self.u2.set_fastinput_ime(enable)
 
     def u2_current_ime(self):
-        return self.u2.current_ime()
+        current = self.u2.current_ime()
+        if isinstance(current, tuple):
+            return current
+        shown = 'mInputShown=true' in self.adb_shell(['dumpsys', 'input_method'])
+        return current, shown
 
     def u2_send_keys(self, text: str, clear: bool=False):
         self.u2.send_keys(text=text, clear=clear)

@@ -181,49 +181,20 @@ def test_uv_coupling_identities_follow_normal_dashboard_policy() -> None:
     )
 
 
-def test_first_wave_priority_is_explicit_and_non_major() -> None:
+def test_permanent_renovate_policy_avoids_major_update_ladders() -> None:
     config = _load_config()
     assert config["dependencyDashboardApproval"] is False
     assert config["dependencyDashboard"] is True
     assert config["prConcurrentLimit"] == 4
     assert config["prHourlyLimit"] == 2
     assert config["commitHourlyLimit"] == 2
-    assert config["separateMultipleMajor"] is True
+    assert config["separateMultipleMajor"] is False
     assert config["automerge"] is False
     assert config["vulnerabilityAlerts"]["dependencyDashboardApproval"] is False
     assert not any(
         rule.get("dependencyDashboardApproval") is True
         for rule in config["packageRules"]
     )
-
-    first_wave = (
-        {
-            "packageName": "playwright",
-            "manager": "pep621",
-            "datasource": "pypi",
-            "depType": "dependency-groups",
-            "updateType": "minor",
-        },
-        {
-            "packageName": "actions/checkout",
-            "manager": "github-actions",
-            "datasource": "github-tags",
-            "depType": "action",
-            "updateType": "digest",
-        },
-        {
-            "packageName": "docker/setup-buildx-action",
-            "manager": "github-actions",
-            "datasource": "github-tags",
-            "depType": "action",
-            "updateType": "digest",
-        },
-    )
-
-    for dependency in first_wave:
-        package_name = dependency["packageName"]
-        assert _resolved_dashboard_approval(config, dependency) is False, package_name
-        assert _resolved_priority(config, dependency) == 10, package_name
 
     ordinary_update = {
         "packageName": "matplotlib",
@@ -245,17 +216,19 @@ def test_first_wave_priority_is_explicit_and_non_major() -> None:
     assert _resolved_dashboard_approval(config, protected_uv) is False
     assert _resolved_priority(config, protected_uv) == 0
 
-    priority_rules = [
-        rule for rule in config["packageRules"] if rule.get("prPriority") == 10
-    ]
-    assert len(priority_rules) == 2
-    for rule in priority_rules:
-        update_types = rule.get("matchUpdateTypes")
-        assert update_types, rule
-        assert "major" not in update_types, rule
-    assert all(
-        set(rule["matchPackageNames"]).isdisjoint(
-            {"uv", "astral-sh/uv", "ghcr.io/astral-sh/uv"}
-        )
-        for rule in priority_rules
-    )
+    assert config["packageRules"] == []
+    description = " ".join(config["description"])
+    assert "Stage 3" not in description
+    assert "first" not in description.lower()
+    assert "low/medium-risk" not in description
+    assert "direct-to-latest" in description
+
+    major_update = {
+        "packageName": "uiautomator2",
+        "manager": "pep621",
+        "datasource": "pypi",
+        "depType": "project.dependencies",
+        "updateType": "major",
+    }
+    assert _resolved_dashboard_approval(config, major_update) is False
+    assert _resolved_priority(config, major_update) == 0

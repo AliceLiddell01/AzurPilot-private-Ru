@@ -422,7 +422,7 @@ def test_retention_and_private_ports_contract():
     assert loki["compactor"]["retention_enabled"] is True
     assert loki["compactor"]["working_directory"].startswith("/loki/")
     assert loki["limits_config"]["retention_period"] == "168h"
-    assert tempo["compactor"]["compaction"]["block_retention"] == "168h"
+    assert tempo["backend_scheduler"]["provider"]["compaction"]["compaction"]["block_retention"] == "168h"
     assert (
         "--storage.tsdb.retention.time=15d"
         in compose["services"]["prometheus"]["command"]

@@ -5,11 +5,6 @@ import json
 import time
 from functools import wraps
 
-# Загрузить совместимый pkg_resources до библиотек устройства.
-from module.device.pkg_resources import get_distribution
-
-_ = get_distribution
-
 import requests
 from adbutils.errors import AdbError
 

@@ -288,23 +288,24 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
     assert not (ROOT / "module/webui/event_calculator.py").exists()
     assert "Wiki" not in event_tools
 
-    # Старый uiautomator2 installer больше не переключается на скрытый внешний fallback.
+    # Device runtime использует встроенный uiautomator2 3.x server и не возвращает legacy installer.
     u2_sources = [
         (ROOT / "deploy/adb.py").read_text(encoding="utf-8"),
         (ROOT / "deploy/Windows/adb.py").read_text(encoding="utf-8"),
         (ROOT / "deploy/patch.py").read_text(encoding="utf-8"),
         (ROOT / "module/device/connection.py").read_text(encoding="utf-8"),
+        (ROOT / "module/device/method/uiautomator_2.py").read_text(encoding="utf-8"),
+        (ROOT / "module/device/method/uiautomator2_http.py").read_text(encoding="utf-8"),
+        (ROOT / "module/device/method/uiautomator2_contract.py").read_text(encoding="utf-8"),
     ]
     hidden_u2_host = "tool.appetizer" + ".io"
     for source in u2_sources:
         assert hidden_u2_host not in source
-    assert "uiautomator2cache" in u2_sources[2]
-    assert "if not cache_dir or not os.path.isdir(cache_dir):" in u2_sources[2]
-    assert "raise RuntimeError(message)" in u2_sources[2]
-    assert "внешний источник ресурсов" in u2_sources[2]
-    assert "внешний fallback отключён" in u2_sources[0]
-    assert "внешний fallback отключён" in u2_sources[1]
-    assert "внешний fallback отключён" in u2_sources[3]
+    for source in u2_sources:
+        assert "uiautomator2cache" not in source
+        assert "init.Initer" not in source
+        assert "set_atx_agent_addr" not in source
+        assert "внешний fallback" not in source
 
     # MAA updater сохраняет обновление, но использует только официальный GitHub API и release assets.
     compile(maa_updater, str(maa_updater_path), "exec")

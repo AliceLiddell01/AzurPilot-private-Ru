@@ -280,8 +280,9 @@ class DeviceAcceptanceTests(unittest.TestCase):
         self.assertEqual(device.removed, ["tcp:12345"])
 
     @mock.patch("tools.acceptance.device._check_configured_control_backend")
+    @mock.patch("tools.acceptance.device._confirm")
     @mock.patch("tools.acceptance.device._run_adb")
-    def test_noninteractive_control_never_sends_input(self, run_adb, backend_probe):
+    def test_control_never_sends_game_input(self, run_adb, confirm, backend_probe):
         backend_probe.return_value = {
             "status": "PASS",
             "backend": "minitouch",
@@ -290,12 +291,10 @@ class DeviceAcceptanceTests(unittest.TestCase):
         result = _check_control(
             "alas",
             "minitouch",
-            "adb",
-            "emulator-5554",
-            non_interactive=True,
         )
-        self.assertEqual(result["status"], "SERIALIZATION_ONLY")
-        self.assertIn("<serial>", result["serialized_command"])
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(result["action_transport"], "no_game_input")
+        confirm.assert_not_called()
         run_adb.assert_not_called()
 
 
@@ -426,7 +425,7 @@ class DeviceAcceptanceTests(unittest.TestCase):
             args.resolved_adb = "/private/tools/adb"
             args.partial_report = {
                 "status": "RUNNING",
-                "screenshot": {"color_contract": "BGR"},
+                "screenshot": {"color_contract": "RGB"},
             }
             raise subprocess.TimeoutExpired(
                 ["/private/tools/adb", "-s", "emulator-5554", "get-state"],
@@ -449,7 +448,7 @@ class DeviceAcceptanceTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 1)
         self.assertEqual(payload["status"], "FAIL")
-        self.assertEqual(payload["screenshot"]["color_contract"], "BGR")
+        self.assertEqual(payload["screenshot"]["color_contract"], "RGB")
         self.assertNotIn("emulator-5554", payload["error"])
         self.assertNotIn("/private/tools/adb", payload["error"])
         self.assertIn("<serial>", payload["error"])

@@ -57,9 +57,7 @@ class DeviceRuntimeMessageLocalizationTests(unittest.TestCase):
             ],
             "module/device/method/uiautomator_2.py": [
                 "Пустые данные изображения от uiautomator2",
-                "Пустое изображение после чтения из буфера",
-                "Пустое изображение после cv2.imdecode",
-                "Пустое изображение после cv2.cvtColor",
+                "Пустое изображение от uiautomator2",
             ],
             "module/device/platform/platform_windows.py": [
                 "Не удалось запустить неизвестный экземпляр эмулятора",

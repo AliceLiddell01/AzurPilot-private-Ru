@@ -1,7 +1,8 @@
 import os
 import json
 import ctypes
-from cached_property import cached_property
+
+from module.base.decorator import cached_property
 
 # MAA 子模块需要在 PIL 模块之前加载运行时依赖
 if os.name == 'nt':

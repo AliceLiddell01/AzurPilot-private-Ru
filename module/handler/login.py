@@ -24,16 +24,13 @@ from time import monotonic
 import numpy as np
 from scipy.signal import find_peaks
 
-# Эта последовательность импорта нужна для совместимости legacy dependencies.
+# Эти импорты сгруппированы рядом, потому что LoginHandler использует
+# публичные типы XPath и UiObject из uiautomator2.
 # isort: off
-# Исправить pkg_resources перед импортом adbutils и uiautomator2.
-from module.device.pkg_resources import get_distribution
 from uiautomator2 import UiObject
 from uiautomator2.exceptions import XPathElementNotFoundError
-from uiautomator2.xpath import XPath, XPathSelector
+from uiautomator2.xpath import DeviceXPathSelector as XPathSelector, PageSource
 # isort: on
-
-_ = get_distribution
 
 from module.base.button import Button
 from module.base.timer import Timer
@@ -416,11 +413,13 @@ class LoginHandler(UI):
 
     def get_cn_xp_hierarchy(self) -> tuple:
         d = self.device.u2
-        xp = XPath(d)
+        xp = d.xpath
         hierarchy = d.dump_hierarchy()
         return xp, hierarchy
 
 
 class XPS(XPathSelector):
     def __init__(self, xpath, parent, source):
-        super().__init__(parent, xpath, source)
+        if isinstance(source, str):
+            source = PageSource.parse(source)
+        super().__init__(xpath, parent, source)

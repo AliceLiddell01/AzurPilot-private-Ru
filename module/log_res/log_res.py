@@ -20,8 +20,7 @@
 
 from datetime import datetime
 
-from cached_property import cached_property
-
+from module.base.decorator import cached_property
 from module.application.resource_fields import RESOURCE_NAME_MAP
 from module.application.runtime_storage import get_runtime_storage
 from module.config.deep import deep_get
