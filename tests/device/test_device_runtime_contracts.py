@@ -160,6 +160,19 @@ class DeviceRuntimeContractTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertIn(name, functions)
 
+    def test_uiautomator2_missing_package_maps_to_package_not_installed(self) -> None:
+        import uiautomator2 as u2
+
+        from module.device.method.uiautomator_2 import Uiautomator2
+        from module.device.method.utils import PackageNotInstalled
+
+        device = Mock()
+        device.package = "com.example.missing"
+        device.u2.app_info.side_effect = u2.AppNotFoundError("App not installed")
+
+        with self.assertRaises(PackageNotInstalled):
+            Uiautomator2._app_start_u2_am.__wrapped__(device)
+
     def test_uiautomator2_recovery_reinitializes_cached_local_server(self) -> None:
         from module.device.connection import Connection
 

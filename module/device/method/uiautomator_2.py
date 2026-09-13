@@ -292,6 +292,11 @@ class Uiautomator2(Connection):
         if not activity_name:
             try:
                 info = self.u2.app_info(package_name)
+            except u2.AppNotFoundError as e:
+                if allow_failure:
+                    return False
+                logger.error(str(f'[Устройство — uiautomator2] Ошибка запуска приложения через uiautomator2: {e}'))
+                raise PackageNotInstalled(package_name) from e
             except u2.DeviceError as e:
                 if allow_failure:
                     return False
