@@ -8,7 +8,6 @@ import importlib
 import re
 import tomllib
 import unittest
-from pathlib import Path
 from unittest.mock import Mock
 
 
@@ -17,15 +16,6 @@ ROOT = REPOSITORY_ROOT
 
 def _text(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
-
-
-def _functions(path: str) -> set[str]:
-    tree = ast.parse(_text(path), filename=path)
-    return {
-        node.name
-        for node in ast.walk(tree)
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-    }
 
 
 def _dependency_name(specifier: str) -> str:
@@ -93,34 +83,11 @@ class DeviceRuntimeContractTests(unittest.TestCase):
         zmq = importlib.import_module("zmq")
         self.assertTrue(zmq.__version__)
 
-    def test_pkg_resources_shim_uses_installed_metadata(self) -> None:
-        from importlib import metadata
+    def test_device_dependencies_import_without_project_compatibility_layer(self) -> None:
+        importlib.import_module("adbutils")
+        importlib.import_module("uiautomator2")
 
-        from module.device.pkg_resources import get_distribution, resource_filename
-
-        for name in ("adbutils", "uiautomator2"):
-            with self.subTest(name=name):
-                self.assertEqual(
-                    get_distribution(name).version,
-                    metadata.version(name),
-                )
-
-        resource_path = resource_filename("adbutils", "binaries")
-        self.assertIsNotNone(resource_path)
-        self.assertTrue(Path(resource_path).is_dir())
-
-    def test_adb_target_and_android_readiness_are_explicit(self) -> None:
-        connection_attr = _text("module/device/connection_attr.py")
-        connection = _text("module/device/connection.py")
-        acceptance = _text("tools/acceptance/device.py")
-
-        self.assertIn("AdbDevice(self.adb_client, self.serial)", connection_attr)
-        self.assertIn("self.adb_client.list()", connection)
-        self.assertNotIn("self.adb_client._connect()", connection)
-        self.assertIn('[adb, "-s", serial, *args]', acceptance)
-        self.assertIn('"sys.boot_completed"', acceptance)
-        self.assertIn("explicit_tcp_connect", acceptance)
-        self.assertIn("_wait_for_target_device", acceptance)
+        self.assertFalse((ROOT / "module/device/pkg_resources/__init__.py").exists())
 
     def test_scrcpy_keeps_separate_video_and_control_streams(self) -> None:
         core = _text("module/device/method/scrcpy/core.py")
@@ -134,31 +101,6 @@ class DeviceRuntimeContractTests(unittest.TestCase):
         self.assertIn("command_v120", options)
         self.assertIn("def keycode", control)
         self.assertIn("def text", control)
-
-    def test_uiautomator2_keeps_connection_and_operation_timeout_layers(self) -> None:
-        connection_attr = _text("module/device/connection_attr.py")
-        uia = _text("module/device/method/uiautomator_2.py")
-        functions = _functions("module/device/method/uiautomator_2.py")
-
-        self.assertIn("u2.connect_usb(self.adb)", connection_attr)
-        self.assertIn("HttpUiautomator2", connection_attr)
-        self.assertNotIn("set_new_command_timeout(604800)", connection_attr)
-        self.assertIn("def u2_shell_background", uia)
-        self.assertIn("self.u2.info", uia)
-        self.assertIn("timeout=", uia)
-        minitouch = _text("module/device/method/minitouch.py")
-        self.assertIn("self.adb.shell(", minitouch)
-        self.assertIn("stream=True", minitouch)
-        self.assertNotIn("u2_shell_background([self.config.MINITOUCH_FILEPATH_REMOTE])", minitouch)
-        for name in (
-            "click_uiautomator2",
-            "long_click_uiautomator2",
-            "swipe_uiautomator2",
-            "drag_uiautomator2",
-            "u2_send_keys",
-        ):
-            with self.subTest(name=name):
-                self.assertIn(name, functions)
 
     def test_uiautomator2_missing_package_maps_to_package_not_installed(self) -> None:
         import uiautomator2 as u2

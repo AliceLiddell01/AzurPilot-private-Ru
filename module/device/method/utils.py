@@ -7,11 +7,6 @@ import socket
 import time
 import typing as t
 
-# Загрузить совместимый pkg_resources до библиотек устройства.
-from module.device.pkg_resources import get_distribution
-
-_ = get_distribution
-
 from adbutils import AdbConnection, AdbTimeout
 from lxml import etree
 

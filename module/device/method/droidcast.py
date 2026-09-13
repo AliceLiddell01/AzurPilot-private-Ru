@@ -10,11 +10,6 @@ import time
 import typing as t
 from functools import wraps
 
-# Загрузить совместимый pkg_resources до библиотек устройства.
-from module.device.pkg_resources import get_distribution
-
-_ = get_distribution
-
 import cv2
 import numpy as np
 import requests
@@ -31,6 +26,19 @@ from module.logger import logger
 
 class DroidCastVersionIncompatible(Exception):
     pass
+
+
+DROIDCAST_RAW_MAIN_CLASS = 'ink.mol.droidcast_raw.Main'
+
+
+def build_droidcast_raw_argv(remote_apk: str) -> list[str]:
+    """Собрать argv DroidCast_raw без shell-операторов."""
+    return [
+        f'CLASSPATH={remote_apk}',
+        'app_process',
+        '/',
+        DROIDCAST_RAW_MAIN_CLASS,
+    ]
 
 
 def retry(func):
@@ -176,16 +184,11 @@ class DroidCast(Uiautomator2):
 
         logger.info('[Устройство — DroidCast] Запуск APK DroidCast')
         # DroidCast_raw-release-1.1.apk
-        # CLASSPATH=/data/local/tmp/DroidCast_raw.apk app_process / ink.mol.droidcast_raw.Main > /dev/null
+        # Runner сам добавляет безопасные shell redirection и background.
         # adb shell CLASSPATH=/data/local/tmp/DroidCast_raw.apk app_process / ink.mol.droidcast_raw.Main
-        resp = self.u2_shell_background([
-            'CLASSPATH=/data/local/tmp/DroidCast_raw.apk',
-            'app_process',
-            '/',
-            'ink.mol.droidcast_raw.Main',
-            '>',
-            '/dev/null'
-        ])
+        resp = self.u2_shell_background(
+            build_droidcast_raw_argv(self.config.DROIDCAST_FILEPATH_REMOTE)
+        )
         logger.info(resp)
         del_cached_property(self, 'droidcast_session')
         _ = self.droidcast_session

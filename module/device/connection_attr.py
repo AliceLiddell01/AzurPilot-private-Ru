@@ -7,11 +7,6 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-# Загрузить совместимый pkg_resources до библиотек устройства.
-from module.device.pkg_resources import get_distribution
-
-_ = get_distribution
-
 import adbutils
 import uiautomator2 as u2
 from adbutils import AdbClient, AdbDevice
@@ -21,6 +16,7 @@ from module.config.config import AzurLaneConfig
 from module.config.env import IS_ON_PHONE_CLOUD
 from module.config.deep import deep_iter
 from module.device.method.utils import get_serial_pair
+from module.device.method.uiautomator2_contract import Uiautomator2Device
 from module.exception import RequestHumanTakeover
 from module.logger import logger
 
@@ -451,7 +447,7 @@ class ConnectionAttr:
         return AdbDevice(self.adb_client, self.serial)
 
     @cached_property
-    def u2(self) -> u2.Device:
+    def u2(self) -> Uiautomator2Device:
         """Получить экземпляр uiautomator2 для текущего транспорта."""
         if self.is_over_http:
             from module.device.method.uiautomator2_http import HttpUiautomator2

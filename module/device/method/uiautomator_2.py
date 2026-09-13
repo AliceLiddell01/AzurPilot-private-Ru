@@ -8,11 +8,6 @@ from dataclasses import dataclass
 from functools import wraps
 from json.decoder import JSONDecodeError
 
-# Загрузить совместимый pkg_resources до библиотек устройства.
-from module.device.pkg_resources import get_distribution
-
-_ = get_distribution
-
 import uiautomator2 as u2
 from adbutils.errors import AdbError
 from lxml import etree
@@ -122,7 +117,7 @@ def retry(func):
 class ProcessInfo:
     pid: int
     ppid: int
-    thread_count: int
+    thread_count: int | None
     cmdline: str
     name: str
 
@@ -132,6 +127,83 @@ class ShellBackgroundResponse:
     success: bool
     pid: int
     description: str
+
+
+_PS_COMMAND_LINE_COLUMNS = {'ARGS', 'CMD', 'CMDLINE', 'COMMAND'}
+
+
+def _normalise_process_text(value: object) -> str:
+    return str(value).replace('\x00', ' ').strip()
+
+
+def _parse_process_int(value: object) -> int | None:
+    try:
+        return int(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_ps_output(output: str) -> list[ProcessInfo]:
+    """Разобрать варианты Android ``ps`` с сохранением command line."""
+    lines = [line.rstrip() for line in output.splitlines() if line.strip()]
+    if not lines:
+        return []
+
+    header_index = None
+    header = []
+    for index, line in enumerate(lines):
+        tokens = line.split()
+        upper_tokens = [token.upper() for token in tokens]
+        if 'PID' in upper_tokens and 'PPID' in upper_tokens:
+            header_index = index
+            header = upper_tokens
+            break
+
+    if header_index is None:
+        return []
+
+    pid_index = header.index('PID')
+    ppid_index = header.index('PPID')
+    thread_index = header.index('NLWP') if 'NLWP' in header else None
+    args_index = next(
+        (index for index, value in enumerate(header) if value in _PS_COMMAND_LINE_COLUMNS),
+        None,
+    )
+    name_index = header.index('NAME') if 'NAME' in header else args_index
+    processes = []
+    for line in lines[header_index + 1:]:
+        values = line.split(None, args_index) if args_index is not None else line.split()
+        required_indexes = [pid_index, ppid_index]
+        if any(index >= len(values) for index in required_indexes):
+            continue
+        pid = _parse_process_int(values[pid_index])
+        ppid = _parse_process_int(values[ppid_index])
+        if pid is None or ppid is None:
+            continue
+        thread_count = (
+            _parse_process_int(values[thread_index])
+            if thread_index is not None and thread_index < len(values)
+            else None
+        )
+        name = _normalise_process_text(values[name_index]) if name_index is not None and name_index < len(values) else ''
+        cmdline = _normalise_process_text(values[args_index]) if args_index is not None and args_index < len(values) else ''
+        processes.append(ProcessInfo(pid, ppid, thread_count, cmdline, name))
+    return processes
+
+
+def _process_info_from_http(payload: dict) -> ProcessInfo:
+    raw_cmdline = payload.get('cmdline')
+    if isinstance(raw_cmdline, (list, tuple)):
+        cmdline = _normalise_process_text(' '.join(map(str, raw_cmdline)))
+    else:
+        cmdline = _normalise_process_text(raw_cmdline) if raw_cmdline is not None else ''
+    return ProcessInfo(
+        pid=int(payload['pid']),
+        ppid=int(payload['ppid']),
+        thread_count=_parse_process_int(payload.get('threadCount')),
+        cmdline=cmdline,
+        name=_normalise_process_text(payload.get('name', '')),
+    )
 
 
 class Uiautomator2(Connection):
@@ -518,58 +590,61 @@ class Uiautomator2(Connection):
         if self.is_over_http:
             resp = self.u2.http.get("/proc/list", timeout=10)
             resp.raise_for_status()
-            return [
-                ProcessInfo(
-                    pid=proc['pid'],
-                    ppid=proc['ppid'],
-                    thread_count=proc['threadCount'],
-                    cmdline=' '.join(proc['cmdline']) if proc['cmdline'] is not None else '',
-                    name=proc['name'],
-                ) for proc in resp.json()
-            ]
+            return [_process_info_from_http(proc) for proc in resp.json()]
 
-        processes = []
-        for line in self.adb_shell(['ps', '-A']).splitlines():
-            fields = line.split()
-            if len(fields) < 4:
+        try:
+            detailed_output = self.adb_shell([
+                'ps', '-A', '-o', 'PID,PPID,NAME,CMDLINE'
+            ])
+        except (AdbError, RuntimeError):
+            detailed_output = ''
+        processes = _parse_ps_output(detailed_output)
+        if not processes:
+            processes = _parse_ps_output(self.adb_shell(['ps', '-A']))
+
+        for process in processes:
+            if process.cmdline:
                 continue
             try:
-                pid = int(fields[1])
-                ppid = int(fields[2])
-            except (ValueError, IndexError):
-                continue
-            name = fields[-1]
-            processes.append(ProcessInfo(pid, ppid, 0, name, name))
+                cmdline = self.adb_shell(
+                    ['cat', f'/proc/{process.pid}/cmdline'],
+                    rstrip=False,
+                )
+            except Exception:
+                cmdline = ''
+            process.cmdline = _normalise_process_text(cmdline)
         return processes
 
     @retry
     def u2_shell_background(self, cmdline, timeout=10) -> ShellBackgroundResponse:
         """
-        在后台运行命令。
+        Временно запустить argv программы в фоне.
 
-        HTTP-транспорт использует endpoint старого агента, локальный — ADB shell.
+        Shell/background/redirection принадлежат runner'у. В ``cmdline``
+        передаются только аргументы программы.
         """
-        command_args = None
-        if isinstance(cmdline, (list, tuple)):
-            command_args = [str(argument) for argument in cmdline]
-            cmdline = shlex.join(command_args)
-        elif isinstance(cmdline, str):
-            cmdline = cmdline
-        else:
-            raise TypeError('Недопустимый тип cmdargs', type(cmdline))
+        if not isinstance(cmdline, (list, tuple)):
+            raise TypeError('u2_shell_background принимает только argv списка или кортежа')
+        command_args = [str(argument) for argument in cmdline]
+        if not command_args:
+            raise ValueError('u2_shell_background не принимает пустой argv')
+        command = shlex.join(command_args)
 
         if self.is_over_http:
-            data = dict(command=cmdline, timeout=str(timeout))
+            data = dict(command=command, timeout=str(timeout))
             ret = self.u2.http.post("/shell/background", data=data, timeout=timeout + 10)
             ret.raise_for_status()
             resp = ret.json()
+            try:
+                pid = int(resp.get('pid', 0))
+            except (TypeError, ValueError, AttributeError):
+                pid = 0
             return ShellBackgroundResponse(
-                success=bool(resp.get('success', False)),
-                pid=resp.get('pid', 0),
-                description=resp.get('description', '')
+                success=bool(resp.get('success', False)) and pid > 0,
+                pid=pid,
+                description=str(resp.get('description', '')),
             )
 
-        command = shlex.join(command_args) if command_args is not None else cmdline
         output = self.adb_shell(
             ['sh', '-c', f'{command} >/dev/null 2>&1 & echo $!'],
             timeout=timeout,

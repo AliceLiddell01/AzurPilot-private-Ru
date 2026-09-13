@@ -181,14 +181,14 @@ def test_uv_coupling_identities_follow_normal_dashboard_policy() -> None:
     )
 
 
-def test_permanent_renovate_policy_keeps_major_updates_deliberate() -> None:
+def test_permanent_renovate_policy_avoids_major_update_ladders() -> None:
     config = _load_config()
     assert config["dependencyDashboardApproval"] is False
     assert config["dependencyDashboard"] is True
     assert config["prConcurrentLimit"] == 4
     assert config["prHourlyLimit"] == 2
     assert config["commitHourlyLimit"] == 2
-    assert config["separateMultipleMajor"] is True
+    assert config["separateMultipleMajor"] is False
     assert config["automerge"] is False
     assert config["vulnerabilityAlerts"]["dependencyDashboardApproval"] is False
     assert not any(
@@ -221,6 +221,7 @@ def test_permanent_renovate_policy_keeps_major_updates_deliberate() -> None:
     assert "Stage 3" not in description
     assert "first" not in description.lower()
     assert "low/medium-risk" not in description
+    assert "direct-to-latest" in description
 
     major_update = {
         "packageName": "uiautomator2",

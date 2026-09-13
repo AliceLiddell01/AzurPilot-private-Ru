@@ -4,7 +4,6 @@ import types
 from unittest.mock import Mock, patch
 
 import pytest
-from uiautomator2.xpath import PageSource
 
 from module.handler.login import LoginHandler, LoginHandlerTimeoutError
 
@@ -83,9 +82,14 @@ def test_login_flow_rejects_non_finite_timeout(timeout_seconds: float):
         handler._handle_app_login(timeout_seconds=timeout_seconds)
 
 
-def test_cn_xpath_source_is_parsed_for_uiautomator2_v3():
+def test_cn_xpath_selector_exposes_project_compatible_source_contract():
     from module.handler.login import XPS
 
-    selector = XPS("//*[@text='ОК']", Mock(), "<hierarchy />")
+    selector = XPS(
+        "//*[@text='ОК']",
+        Mock(),
+        '<hierarchy><node text="ОК" bounds="[10,20][30,40]" /></hierarchy>',
+    )
 
-    assert isinstance(selector._source, PageSource)
+    assert selector.exists is True
+    assert selector.bounds == (10, 20, 30, 40)

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import io
-from unittest.mock import Mock, PropertyMock, patch
+from unittest.mock import Mock, patch
 
+import pytest
 import requests
+import uiautomator2 as u2
 from PIL import Image
 from uiautomator2.abstract import ShellResponse
 
@@ -34,14 +36,19 @@ def _png_bytes() -> bytes:
     return output.getvalue()
 
 
-def test_http_adapter_uses_explicit_jsonrpc_shell_and_rgb_pillow_screenshot_contracts():
+def test_http_adapter_uses_project_boundary_and_public_http_contract():
     device = HttpUiautomator2("http://127.0.0.1:7912")
+
+    assert not isinstance(device, u2.Device)
+    assert device.serial == "http://127.0.0.1:7912"
     assert device.http.trust_env is False
     assert device.path2url("/jsonrpc/0") == "http://127.0.0.1:7912/jsonrpc/0"
 
-    rpc_response = FakeResponse({"jsonrpc": "2.0", "id": 1, "result": {
-        "display": {"width": 2, "height": 3},
-    }})
+    rpc_response = FakeResponse({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {"display": {"width": 2, "height": 3}},
+    })
     with patch.object(device.http, "post", return_value=rpc_response) as post:
         assert device.info["display"] == {"width": 2, "height": 3}
         payload = post.call_args.kwargs["json"]
@@ -51,8 +58,7 @@ def test_http_adapter_uses_explicit_jsonrpc_shell_and_rgb_pillow_screenshot_cont
 
     shell_response = FakeResponse({"output": "ok\n", "exitCode": 0})
     with patch.object(device.http, "post", return_value=shell_response) as post:
-        result = device.shell(["echo", "ok"])
-        assert result == ShellResponse("ok\n", 0)
+        assert device.shell(["echo", "ok"]) == ShellResponse("ok\n", 0)
         assert post.call_args.args == ("/shell",)
         assert post.call_args.kwargs["data"]["command"] == "echo ok"
 
@@ -61,6 +67,47 @@ def test_http_adapter_uses_explicit_jsonrpc_shell_and_rgb_pillow_screenshot_cont
     assert image.mode == "RGB"
     assert image.size == (2, 3)
     assert image.getpixel((0, 0)) == (1, 2, 3)
+
+
+def test_http_adapter_coordinates_touch_and_swipe_through_jsonrpc():
+    device = HttpUiautomator2("http://127.0.0.1:7912")
+    device.window_size = Mock(return_value=(100, 200))
+    device.jsonrpc_call = Mock(return_value=True)
+
+    device.click(0.5, 0.25)
+    device.long_click(10, 20, duration=1.2)
+    device.swipe(0.1, 0.2, 90, 100, duration=0.5)
+    device.touch.down(0.1, 0.2).move(0.2, 0.3).up(0.3, 0.4)
+
+    calls = device.jsonrpc_call.call_args_list
+    assert calls[0].args == ("click", (50, 50), 10)
+    assert calls[1].args == ("click", (10, 20, 1200), 10)
+    assert calls[2].args == ("swipe", (10, 40, 90, 100, 100), 10)
+    assert [call.args for call in calls[3:]] == [
+        ("injectInputEvent", (0, 10, 40, 0), 10),
+        ("injectInputEvent", (2, 20, 60, 0), 10),
+        ("injectInputEvent", (1, 30, 80, 0), 10),
+    ]
+
+
+def test_http_adapter_xpath_uses_remote_hierarchy_and_project_coordinates():
+    device = HttpUiautomator2("http://127.0.0.1:7912")
+    hierarchy = (
+        '<hierarchy><node text="ОК" bounds="[10,20][30,40]" />'
+        "</hierarchy>"
+    )
+    device.jsonrpc_call = Mock(return_value=hierarchy)
+
+    selector = device.xpath('//*[@text="ОК"]')
+
+    assert selector.exists is True
+    assert selector.bounds == (10, 20, 30, 40)
+    selector.click()
+
+    methods = [call.args[0] for call in device.jsonrpc_call.call_args_list]
+    assert methods.count("dumpWindowHierarchy") >= 2
+    assert methods[-1] == "click"
+    assert device.jsonrpc_call.call_args_list[-1].args[1] == (20, 30)
 
 
 def test_project_uiautomator2_screenshot_boundary_returns_rgb_numpy_array():
@@ -78,33 +125,23 @@ def test_project_uiautomator2_screenshot_boundary_returns_rgb_numpy_array():
     assert tuple(image[0, 0]) == (1, 2, 3)
 
 
-def test_http_adapter_window_size_accepts_flat_device_info_fields():
+def test_http_adapter_window_size_accepts_nested_and_flat_device_info():
     device = HttpUiautomator2("http://127.0.0.1:7912")
-    response = FakeResponse({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "result": {"displayWidth": 1080, "displayHeight": 1920},
-    })
+    responses = [
+        FakeResponse({"jsonrpc": "2.0", "id": 1, "result": {
+            "display": {"width": 1080, "height": 1920},
+        }}),
+        FakeResponse({"jsonrpc": "2.0", "id": 1, "result": {
+            "displayWidth": 720, "displayHeight": 1280,
+        }}),
+    ]
 
-    with patch.object(device.http, "post", return_value=response):
+    with patch.object(device.http, "post", side_effect=responses):
         assert device.window_size() == (1080, 1920)
+        assert device.window_size() == (720, 1280)
 
 
-def test_http_adapter_initializes_settings_for_inherited_coordinate_controls():
-    device = HttpUiautomator2("http://127.0.0.1:7912")
-    rpc = Mock()
-
-    with (
-        patch.object(HttpUiautomator2, "jsonrpc", new_callable=PropertyMock, return_value=rpc),
-        patch.object(device, "window_size", return_value=(100, 200)),
-    ):
-        device.click(0.5, 0.25)
-
-    assert device.settings["wait_timeout"] == 20.0
-    rpc.click.assert_called_once_with(50, 50)
-
-
-def test_http_adapter_stream_shell_propagates_bounded_timeout():
+def test_http_adapter_stream_shell_keeps_bounded_timeout():
     device = HttpUiautomator2("http://127.0.0.1:7912")
     response = FakeResponse()
 
@@ -116,7 +153,7 @@ def test_http_adapter_stream_shell_propagates_bounded_timeout():
     assert get.call_args.kwargs["stream"] is True
 
 
-def test_http_adapter_keeps_service_and_input_operations_on_same_endpoint():
+def test_http_adapter_keeps_service_input_and_recovery_on_same_endpoint():
     device = HttpUiautomator2("https://phone-cloud.example:7912")
     service = device.service("minitouch")
 
@@ -142,3 +179,41 @@ def test_http_adapter_keeps_service_and_input_operations_on_same_endpoint():
     assert shell.call_args_list[0].args[0] == ["ime", "enable", "com.github.uiautomator/.FastInputIME"]
     assert shell.call_args_list[2].args[0][:3] == ["am", "broadcast", "-a"]
     assert shell.call_args_list[2].args[0][-1] == "dGVzdA=="
+
+    service_mock = Mock()
+    service_mock.stop.side_effect = u2.DeviceError("already stopped")
+    with patch.object(device, "service", return_value=service_mock):
+        device.reset_uiautomator()
+    service_mock.stop.assert_called_once_with()
+    service_mock.start.assert_called_once_with()
+
+
+def test_http_adapter_current_ime_uses_remote_shell():
+    device = HttpUiautomator2("https://phone-cloud.example:7912")
+    shell = Mock(return_value=ShellResponse("com.example/.Ime\n", 0))
+
+    with patch.object(device, "shell", shell):
+        assert device.current_ime() == "com.example/.Ime"
+
+    shell.assert_called_once_with(["settings", "get", "secure", "default_input_method"])
+
+
+def test_http_adapter_maps_rpc_and_network_failures_without_adb_fallback():
+    device = HttpUiautomator2("http://127.0.0.1:7912")
+
+    with patch.object(device.http, "post", side_effect=requests.ConnectionError("offline")):
+        with pytest.raises(u2.DeviceError, match="JSON-RPC"):
+            device.jsonrpc_call("deviceInfo", {})
+
+    error_response = FakeResponse(
+        {"jsonrpc": "2.0", "id": 1, "error": {
+            "code": -32000,
+            "message": "uiautomator.UiObjectNotFoundException: missing",
+        }}
+    )
+    with patch.object(device.http, "post", return_value=error_response):
+        with pytest.raises(u2.UiObjectNotFoundError):
+            device.jsonrpc_call("click", (1, 2))
+
+    with pytest.raises(u2.DeviceError, match="локальный AdbDevice"):
+        device.adb_device

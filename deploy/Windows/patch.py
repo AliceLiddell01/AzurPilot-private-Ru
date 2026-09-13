@@ -2,7 +2,6 @@ import os
 import re
 
 from deploy.Windows.logger import logger
-from deploy.uv import venv_python
 
 
 def patch_trust_env(file):
@@ -36,15 +35,8 @@ def check_running_directory():
         exit(1)
 
 
-def patch_uiautomator2():
-    """Оставить совместимую точку входа для uiautomator2 3.x."""
-    logger.info('uiautomator2 3.x использует встроенные ресурсы; legacy patch не требуется')
-
-
 def pre_checks():
     check_running_directory()
-
-    patch_uiautomator2()
 
 
 if __name__ == '__main__':

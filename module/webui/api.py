@@ -15,10 +15,6 @@ from time import sleep
 
 import cv2
 
-from module.device.pkg_resources import get_distribution
-
-_ = get_distribution
-
 from adbutils import AdbError, Network
 from starlette.responses import HTMLResponse, JSONResponse, StreamingResponse
 from starlette.routing import Route, WebSocketRoute
