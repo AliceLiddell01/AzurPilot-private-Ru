@@ -288,8 +288,8 @@ def test_human_status_uses_compact_tables_and_sections(capsys) -> None:
     assert "azurpilot-dev" in output
     assert f"{_versions()['azurpilot-dev']} OK" in output
     assert "PLUGIN" in output
-    assert "CODEX SOURCE" in output
-    assert "CODEX EFFECTIVE" in output
+    assert "ИСТОЧНИК CODEX" in output
+    assert "АКТИВНАЯ РЕГИСТРАЦИЯ CODEX" in output
     assert "только удалённый маршрут" in output
     assert "Docker MCP Gateway" in output
     assert "Status: OK" in output

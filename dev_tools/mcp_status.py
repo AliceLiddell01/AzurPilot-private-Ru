@@ -3325,7 +3325,7 @@ def _print_human(report: Mapping[str, object], emission: MetricEmission | None) 
     canonical_status = report.get("canonical_status")
     if canonical_status is not None:
         print(
-            f"CANONICAL SOURCE {_human_status_label(canonical_status)} "
+            f"КАНОНИЧЕСКИЙ ИСТОЧНИК {_human_status_label(canonical_status)} "
             f"({_human_reason(report.get('canonical_reason_code'))})"
         )
     print(f"SOURCE    {source_revision} ({working_tree})")
@@ -3343,13 +3343,14 @@ def _print_human(report: Mapping[str, object], emission: MetricEmission | None) 
     source_config = report.get("source_config")
     if isinstance(source_config, Mapping):
         print(
-            f"CODEX SOURCE     {_human_status_label(source_config.get('status'))} "
+            f"ИСТОЧНИК CODEX     {_human_status_label(source_config.get('status'))} "
             f"({_human_reason(source_config.get('reason_code'))})"
         )
     effective_codex = report.get("effective_codex_registration")
     if isinstance(effective_codex, Mapping):
         print(
-            f"CODEX EFFECTIVE  {_human_status_label(effective_codex.get('status'))} "
+            f"АКТИВНАЯ РЕГИСТРАЦИЯ CODEX  "
+            f"{_human_status_label(effective_codex.get('status'))} "
             f"({_human_reason(effective_codex.get('reason_code'))})"
         )
 
@@ -3414,8 +3415,12 @@ def _print_human(report: Mapping[str, object], emission: MetricEmission | None) 
             )
             for surface_name, label, surface in (
                 ("local_direct", "Local/direct", local),
-                ("codex_source", "Codex source", codex_source),
-                ("codex_effective", "Codex effective", codex_effective),
+                ("codex_source", "Источник Codex", codex_source),
+                (
+                    "codex_effective",
+                    "Активная регистрация Codex",
+                    codex_effective,
+                ),
                 ("remote_backend", "Remote backend", item.get("remote_backend")),
                 ("public_edge", "Public edge", item.get("public_edge")),
             ):
@@ -3438,8 +3443,8 @@ def _print_human(report: Mapping[str, object], emission: MetricEmission | None) 
             "SERVER",
             "EXPECTED/SOURCE",
             "LOCAL/DIRECT",
-            "CODEX SOURCE",
-            "CODEX EFFECTIVE",
+            "ИСТОЧНИК CODEX",
+            "РЕГИСТРАЦИЯ CODEX",
             "REMOTE BACKEND",
             "PUBLIC EDGE",
             "PROTOCOL",
