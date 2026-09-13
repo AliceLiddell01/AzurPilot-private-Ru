@@ -386,6 +386,29 @@ class OcrRpcRuntimeTests(unittest.TestCase):
         self.assertTrue(proxy.online)
         self.assertEqual(fallback.calls, [])
 
+    def test_invalid_online_atomic_alphabet_is_not_treated_as_transport_failure(
+        self,
+    ) -> None:
+        image = np.zeros((4, 4, 3), dtype=np.uint8)
+        fallback = _FallbackModel("must-not-run")
+        proxy = ModelProxy("azur_lane")
+        proxy.online = True
+        proxy.client = lambda *_args: self.fail(
+            "RPC-клиент не должен получить некорректный alphabet"
+        )
+
+        with (
+            patch.dict(
+                sys.modules,
+                {"module.ocr.models": self._models_module(fallback)},
+            ),
+            self.assertRaises(ValueError),
+        ):
+            proxy.atomic_ocr(image, "A" * (MAX_CANDIDATE_ALPHABET_LENGTH + 1))
+
+        self.assertTrue(proxy.online)
+        self.assertEqual(fallback.calls, [])
+
     def test_rpc_failure_switches_instance_to_local_fallback(self) -> None:
         image = np.zeros((4, 4, 3), dtype=np.uint8)
         fallback = _FallbackModel("fallback")

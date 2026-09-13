@@ -676,7 +676,7 @@ class ModelProxy:
             lambda: _get_local_model(self.lang).atomic_ocr(img_fp, cand_alphabet),
             lambda: (
                 encode_image_payload(img_fp),
-                cand_alphabet,
+                _validate_candidate_alphabet(cand_alphabet),
             ),
         )
 
@@ -690,7 +690,7 @@ class ModelProxy:
             ),
             lambda: (
                 encode_image_payload(img_fp),
-                cand_alphabet,
+                _validate_candidate_alphabet(cand_alphabet),
             ),
         )
 
@@ -704,7 +704,7 @@ class ModelProxy:
             ),
             lambda: (
                 _encode_batch(img_list),
-                cand_alphabet,
+                _validate_candidate_alphabet(cand_alphabet),
             ),
         )
 
