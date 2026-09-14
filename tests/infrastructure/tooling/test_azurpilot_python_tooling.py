@@ -226,8 +226,12 @@ def test_file_lock_closes_stream_when_initialization_fails(
         streams.append(stream)
         return stream
 
-    def failing_stat(_path: Path):
-        raise OSError("stat failed")
+    original_stat = Path.stat
+
+    def failing_stat(path: Path, *args: object, **kwargs: object):
+        if path == lock_path:
+            raise OSError("stat failed")
+        return original_stat(path, *args, **kwargs)
 
     monkeypatch.setattr(Path, "open", tracking_open)
     monkeypatch.setattr(Path, "stat", failing_stat)

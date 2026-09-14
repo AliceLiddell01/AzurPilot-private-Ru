@@ -354,7 +354,7 @@ def _render_human(
         for warning in result.warnings:
             console.print(f"⚠ {warning.message}")
         render_verbose(console)
-    except ImportError, OSError, RuntimeError, TypeError, ValueError:
+    except (ImportError, OSError, RuntimeError, TypeError, ValueError):
         stream.write(f"{'✓' if result.ok else '✗'} {result.message}\n")
         for warning in result.warnings:
             stream.write(f"⚠ {warning.message}\n")

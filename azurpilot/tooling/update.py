@@ -404,15 +404,15 @@ class UpdateService:
     def _rollback_environment(self, root: Path, journal) -> None:
         transaction_id = journal.transaction_id
         venv = root / ".venv"
-        if venv.exists() and not self._is_owned_environment(venv, transaction_id):
-            raise ToolingError(
-                ResultCode.TOOLING_ROLLBACK_UNKNOWN,
-                "Текущая `.venv` не принадлежит транзакции; откат остановлен без записи.",
-            )
         if is_unsafe_path(venv):
             raise ToolingError(
                 ResultCode.TOOLING_ROLLBACK_UNKNOWN,
                 "Текущая `.venv` имеет symlink/reparse point; откат остановлен.",
+            )
+        if venv.exists() and not self._is_owned_environment(venv, transaction_id):
+            raise ToolingError(
+                ResultCode.TOOLING_ROLLBACK_UNKNOWN,
+                "Текущая `.venv` не принадлежит транзакции; откат остановлен без записи.",
             )
         previous = Path(journal.previous_path) if journal.previous_path else None
         backup = Path(journal.backup_path) if journal.backup_path else None

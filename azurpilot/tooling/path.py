@@ -107,8 +107,19 @@ def _broadcast_environment_change() -> None:
     if os.name != "nt":
         return
     try:
-        result = ctypes.c_ulong()
-        sent = ctypes.windll.user32.SendMessageTimeoutW(
+        send_message_timeout = ctypes.windll.user32.SendMessageTimeoutW
+        send_message_timeout.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_uint,
+            ctypes.c_size_t,
+            ctypes.c_wchar_p,
+            ctypes.c_uint,
+            ctypes.c_uint,
+            ctypes.POINTER(ctypes.c_size_t),
+        ]
+        send_message_timeout.restype = ctypes.c_ssize_t
+        result = ctypes.c_size_t()
+        sent = send_message_timeout(
             _WINDOWS_BROADCAST,
             _WINDOWS_ENVIRONMENT_MESSAGE,
             0,

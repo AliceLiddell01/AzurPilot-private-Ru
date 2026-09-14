@@ -86,6 +86,11 @@ def _backup_process_environment(*, passfile: str | None = None) -> dict[str, str
         "LANG",
         "LC_ALL",
         "LC_CTYPE",
+        "DOCKER_HOST",
+        "DOCKER_CONTEXT",
+        "DOCKER_CONFIG",
+        "DOCKER_TLS_VERIFY",
+        "DOCKER_CERT_PATH",
     }
     environment = {
         key: value for key, value in os.environ.items() if key in allowed
@@ -222,7 +227,7 @@ def _backup(
     repository_root: Path,
     *,
     transport: str = "docker",
-) -> None:
+) -> Path:
     output = _validate_external_output(output, repository_root)
     passfile = os.environ.get("AZURPILOT_POSTGRES_MIGRATOR_PGPASSFILE") or os.environ.get(
         "AZURPILOT_POSTGRES_PGPASSFILE"
@@ -319,6 +324,7 @@ def _backup(
         os.link(temporary, output)
     finally:
         temporary.unlink(missing_ok=True)
+    return output
 
 
 def backup_for_repository(
@@ -344,11 +350,7 @@ def backup_for_repository(
         raise RuntimeError("Рабочий маркер backend отсутствует для резервного копирования.")
     settings = DatabaseSettings.from_backend_marker(marker)
     destination = Path(output).expanduser()
-    if path_has_link(destination) or path_has_link(destination.parent):
-        raise RuntimeError("Путь резервной копии PostgreSQL содержит symlink или reparse point.")
-    destination = destination.resolve(strict=False)
-    _backup(settings, destination, distro, root, transport=transport)
-    return destination
+    return _backup(settings, destination, distro, root, transport=transport)
 
 
 def _resolve_marker(value: str | Path) -> Path:

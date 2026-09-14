@@ -457,6 +457,9 @@ def _git(root: Path, *arguments: str) -> None:
 def test_update_uses_real_git_fast_forward_and_blocks_on_backup_failure(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    if shutil.which("git") is None:
+        pytest.skip("git недоступен в тестовой среде")
+
     origin = tmp_path / "origin.git"
     upstream = tmp_path / "upstream.git"
     root = tmp_path / "client"

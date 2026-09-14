@@ -71,21 +71,21 @@ def _probe_ready(
             return (200 <= status < 400), f"http_{status}"
     except urllib.error.HTTPError as exc:
         return (200 <= exc.code < 400) or exc.code in {401, 403}, f"http_{exc.code}"
-    except urllib.error.URLError, TimeoutError, OSError:
+    except (urllib.error.URLError, TimeoutError, OSError):
         return False, "no_http_response"
 
 
 def _process_is_descendant(pid: int, ancestor: ProcessIdentity) -> bool:
     try:
         process = psutil.Process(pid)
-    except psutil.NoSuchProcess, psutil.AccessDenied:
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
         return False
     for _ in range(16):
         if process.pid == ancestor.pid:
             return ancestor.matches(process)
         try:
             process = process.parent()
-        except psutil.NoSuchProcess, psutil.AccessDenied:
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
             return False
         if process is None:
             return False
@@ -224,6 +224,7 @@ class LifecycleService:
                 ResultCode.TOOLING_PRECONDITION_FAILED,
                 "Checkout не подготовлен для Start; выполните Build.",
             )
+
     def _ensure_infrastructure(
         self, root: Path, settings: DeploySettings, timeout_seconds: float
     ) -> tuple[ToolingWarning, ...]:

@@ -69,7 +69,7 @@ class FileLock:
                 self._stream = stream
                 self._locked = True
                 return True
-            except BlockingIOError, OSError:
+            except (BlockingIOError, OSError):
                 if time.monotonic() >= deadline:
                     stream.close()
                     return False
@@ -121,7 +121,7 @@ def observe_tcp_port(port: int) -> PortObservation:
     failed = False
     try:
         connections = psutil.net_connections(kind="tcp")
-    except psutil.AccessDenied, OSError:
+    except (psutil.AccessDenied, OSError):
         return PortObservation(port, (), True)
     for connection in connections:
         if connection.status != psutil.CONN_LISTEN:
@@ -279,7 +279,7 @@ def iter_processes_for_root(root: Path) -> Iterator[ProcessIdentity]:
                 argv=cmdline,
                 cwd=Path(cwd).resolve(strict=False),
             )
-        except psutil.Error, OSError, TypeError, ValueError:
+        except (psutil.Error, OSError, TypeError, ValueError):
             continue
 
 

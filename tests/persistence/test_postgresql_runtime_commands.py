@@ -30,6 +30,26 @@ def _settings(
     )
 
 
+def test_backup_environment_preserves_docker_endpoint_controls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    expected = {
+        "DOCKER_HOST": "unix:///run/docker.sock",
+        "DOCKER_CONTEXT": "desktop-linux",
+        "DOCKER_CONFIG": "/tmp/docker-config",
+        "DOCKER_TLS_VERIFY": "1",
+        "DOCKER_CERT_PATH": "/tmp/docker-certs",
+    }
+    for key, value in expected.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setenv("UNRELATED_SECRET", "не передавать")
+
+    environment = postgresql_runtime._backup_process_environment()
+
+    assert all(environment[key] == value for key, value in expected.items())
+    assert "UNRELATED_SECRET" not in environment
+
+
 def test_backup_rejects_repository_target(tmp_path: Path):
     repository = tmp_path / "repository"
     repository.mkdir()

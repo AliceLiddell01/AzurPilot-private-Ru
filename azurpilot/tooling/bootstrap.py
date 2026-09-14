@@ -47,7 +47,7 @@ def _expected_uv_version(root: Path) -> str | None:
         document = tomllib.loads(
             bounded_read_bytes(root / "pyproject.toml").decode("utf-8-sig")
         )
-    except OSError, UnicodeError, TypeError, ValueError, ToolingError:
+    except (OSError, UnicodeError, TypeError, ValueError, ToolingError):
         return None
     for dependency in document.get("project", {}).get("dependencies", ()):
         if isinstance(dependency, str) and dependency.lower().startswith("uv=="):
@@ -138,7 +138,7 @@ class BootstrapService:
                     max_output_bytes=8 * 1024,
                 )
             )
-        except OSError, ValueError, ToolingError:
+        except (OSError, ValueError, ToolingError):
             return None
 
     def sync(
@@ -226,7 +226,7 @@ class BuildService:
                     max_output_bytes=32 * 1024,
                 )
             )
-        except OSError, ValueError, ToolingError:
+        except (OSError, ValueError, ToolingError):
             return False
         return result.ok
 
@@ -590,7 +590,7 @@ class BuildService:
                 ) from error
             raise ToolingError(
                 ResultCode.TOOLING_ROLLBACK_UNKNOWN,
-                    "Build завершился с неоднозначной очисткой; повторное изменение запрещено до восстановления только для чтения.",
+                "Build завершился с неоднозначной очисткой; повторное изменение запрещено до восстановления только для чтения.",
                 operation_id=operation_id,
             ) from error
         finally:

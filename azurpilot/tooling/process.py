@@ -212,17 +212,17 @@ class ProcessIdentity:
         start_time = float(process.create_time())
         try:
             executable = _canonical(Path(process.exe()))
-        except psutil.AccessDenied, psutil.NoSuchProcess, OSError:
+        except (psutil.AccessDenied, psutil.NoSuchProcess, OSError):
             if fallback is None:
                 raise
             executable = fallback.launch_executable
         try:
             cmdline = tuple(str(item) for item in process.cmdline())
-        except psutil.AccessDenied, psutil.NoSuchProcess:
+        except (psutil.AccessDenied, psutil.NoSuchProcess):
             cmdline = fallback.launch_command if fallback else (str(executable),)
         try:
             cwd = _canonical(Path(process.cwd()))
-        except psutil.AccessDenied, psutil.NoSuchProcess, OSError:
+        except (psutil.AccessDenied, psutil.NoSuchProcess, OSError):
             if fallback is None:
                 raise
             cwd = fallback.cwd
@@ -245,7 +245,7 @@ class ProcessIdentity:
                 and tuple(str(item) for item in current.cmdline()) == self.argv
                 and _same_path(_canonical(Path(current.cwd())), self.cwd)
             )
-        except psutil.AccessDenied, psutil.NoSuchProcess, OSError:
+        except (psutil.AccessDenied, psutil.NoSuchProcess, OSError):
             return False
 
     def public_evidence(self) -> ProcessEvidence:
@@ -366,12 +366,12 @@ def _terminate_process(
         return
     try:
         descendants = tuple(psutil.Process(identity.pid).children(recursive=True))
-    except psutil.NoSuchProcess, psutil.AccessDenied:
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
         descendants = ()
     if os.name != "nt" and identity.process_group is not None:
         try:
             os.killpg(identity.process_group, signal.SIGTERM)
-        except ProcessLookupError, PermissionError:
+        except (ProcessLookupError, PermissionError):
             pass
     else:
         try:
@@ -381,7 +381,7 @@ def _terminate_process(
         for child in descendants:
             try:
                 child.terminate()
-            except psutil.NoSuchProcess, psutil.AccessDenied:
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
                 pass
     try:
         process.wait(timeout=2.0)
@@ -389,7 +389,7 @@ def _terminate_process(
         if os.name != "nt" and identity.process_group is not None:
             try:
                 os.killpg(identity.process_group, signal.SIGKILL)
-            except ProcessLookupError, PermissionError:
+            except (ProcessLookupError, PermissionError):
                 pass
         else:
             try:
@@ -399,10 +399,10 @@ def _terminate_process(
     for child in descendants:
         try:
             child.wait(timeout=2.0)
-        except psutil.TimeoutExpired, psutil.NoSuchProcess, psutil.AccessDenied:
+        except (psutil.TimeoutExpired, psutil.NoSuchProcess, psutil.AccessDenied):
             try:
                 child.kill()
-            except psutil.NoSuchProcess, psutil.AccessDenied:
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
                 pass
 
 
@@ -413,7 +413,7 @@ def _cleanup_process_instance(process: subprocess.Popen[bytes]) -> None:
         return
     try:
         descendants = tuple(psutil.Process(process.pid).children(recursive=True))
-    except psutil.NoSuchProcess, psutil.AccessDenied:
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
         descendants = ()
     if os.name != "nt":
         try:
@@ -428,7 +428,7 @@ def _cleanup_process_instance(process: subprocess.Popen[bytes]) -> None:
         for child in descendants:
             try:
                 child.terminate()
-            except psutil.NoSuchProcess, psutil.AccessDenied:
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
                 pass
     try:
         process.wait(timeout=2.0)
@@ -444,10 +444,10 @@ def _cleanup_process_instance(process: subprocess.Popen[bytes]) -> None:
     for child in descendants:
         try:
             child.wait(timeout=2.0)
-        except psutil.TimeoutExpired, psutil.NoSuchProcess, psutil.AccessDenied:
+        except (psutil.TimeoutExpired, psutil.NoSuchProcess, psutil.AccessDenied):
             try:
                 child.kill()
-            except psutil.NoSuchProcess, psutil.AccessDenied:
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
                 pass
 
 
@@ -610,26 +610,26 @@ class ProcessController:
             return False
         try:
             process = psutil.Process(identity.pid)
-        except psutil.NoSuchProcess, psutil.AccessDenied:
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
             return True
         try:
             descendants = tuple(process.children(recursive=True))
-        except psutil.NoSuchProcess, psutil.AccessDenied:
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
             descendants = ()
         if os.name != "nt" and identity.process_group is not None:
             try:
                 os.killpg(identity.process_group, signal.SIGTERM)
-            except ProcessLookupError, PermissionError:
+            except (ProcessLookupError, PermissionError):
                 pass
         else:
             try:
                 process.terminate()
-            except psutil.NoSuchProcess, psutil.AccessDenied:
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
                 pass
             for child in descendants:
                 try:
                     child.terminate()
-                except psutil.NoSuchProcess, psutil.AccessDenied:
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
                     pass
         deadline = time.monotonic() + timeout_seconds
         while time.monotonic() < deadline:
@@ -643,17 +643,17 @@ class ProcessController:
         if os.name != "nt" and identity.process_group is not None:
             try:
                 os.killpg(identity.process_group, signal.SIGKILL)
-            except ProcessLookupError, PermissionError:
+            except (ProcessLookupError, PermissionError):
                 pass
         else:
             try:
                 process.kill()
-            except psutil.NoSuchProcess, psutil.AccessDenied:
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
                 pass
         for child in descendants:
             try:
                 child.kill()
-            except psutil.NoSuchProcess, psutil.AccessDenied:
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
                 pass
         time.sleep(0.1)
         return not identity.matches() and not any(

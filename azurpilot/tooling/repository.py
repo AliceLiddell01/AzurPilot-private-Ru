@@ -84,10 +84,10 @@ class RepositoryResolver:
             return next(iter(unique.values()))
 
         installed = self._installation_candidates()
-        validated: list[ResolvedRepository] = []
+        validated_installations: list[ResolvedRepository] = []
         for candidate in installed:
             try:
-                validated.append(
+                validated_installations.append(
                     self._validate(
                         candidate, RootSource.INSTALLATION, min(len(installed), 8)
                     )
@@ -99,7 +99,9 @@ class RepositoryResolver:
                 }:
                     continue
                 raise
-        unique = {os.path.normcase(str(item.path)): item for item in validated}
+        unique = {
+            os.path.normcase(str(item.path)): item for item in validated_installations
+        }
         if not unique:
             raise RepositoryResolutionError(
                 ResultCode.TOOLING_REPOSITORY_NOT_FOUND,
