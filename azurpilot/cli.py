@@ -4,16 +4,19 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import io
+import json
 import os
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import TextIO
+from typing import Any, TextIO
 
 from pydantic import BaseModel
 
 from .tooling.bootstrap import BuildService
 from .tooling.contracts import (
+    CapabilityStatus,
     OperationState,
     ResultCode,
     ToolingResult,
@@ -27,7 +30,7 @@ from .tooling.update import UpdateService
 
 
 class CliInvocationError(Exception):
-    """Ошибка argv без побочного вывода argparse в machine mode."""
+    """Ошибка argv без побочного вывода argparse в машинном режиме."""
 
 
 class _ArgumentParser(argparse.ArgumentParser):
@@ -37,7 +40,7 @@ class _ArgumentParser(argparse.ArgumentParser):
 
 @dataclass
 class ServiceContainer:
-    """Injectable service boundary для CLI tests и будущих transport adapters."""
+    """Граница внедрения сервисов для CLI-тестов и будущих адаптеров транспорта."""
 
     doctor: DoctorService
     lifecycle: LifecycleService
@@ -65,50 +68,50 @@ def _add_common_options(
         dest="repository_root",
         metavar="PATH",
         default=default,
-        help="явно указать validated repository root",
+        help="явно указать проверенный корень репозитория",
     )
     parser.add_argument(
         "--json",
         action="store_true",
         default=argparse.SUPPRESS if suppress_defaults else False,
-        help="вывести один machine-readable JSON report",
+        help="вывести один машинно-читаемый JSON-отчёт",
     )
     parser.add_argument(
         "--no-color",
         action="store_true",
         default=argparse.SUPPRESS if suppress_defaults else False,
-        help="отключить ANSI и Rich colors",
+        help="отключить ANSI и цвета Rich",
     )
     parser.add_argument(
         "--verbose",
         action="store_true",
         default=argparse.SUPPRESS if suppress_defaults else False,
-        help="показать operation id и дополнительные детали",
+        help="показать идентификатор операции и дополнительные сведения",
     )
     parser.add_argument(
         "--debug",
         action="store_true",
         default=argparse.SUPPRESS if suppress_defaults else False,
-        help="синоним --verbose для operator diagnostics",
+        help="синоним --verbose для диагностики оператора",
     )
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = _ArgumentParser(
         prog="azur",
-        description="Безопасное cross-platform управление checkout AzurPilot.",
+        description="Безопасное кроссплатформенное управление checkout AzurPilot.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     _add_common_options(parser)
     subparsers = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
 
     doctor = subparsers.add_parser(
-        "doctor", help="read-only проверка project-bound capabilities"
+        "doctor", help="проверка возможностей проекта без изменений"
     )
     _add_common_options(doctor, suppress_defaults=True)
 
     start = subparsers.add_parser(
-        "start", help="запустить WebUI после ownership/readiness preflight"
+        "start", help="запустить WebUI после проверки владения и готовности"
     )
     _add_common_options(start, suppress_defaults=True)
     start.add_argument(
@@ -116,19 +119,27 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=60.0,
         metavar="SECONDS",
-        help="общий readiness deadline",
+        help="общий срок проверки готовности",
     )
     start.add_argument(
         "--browser",
         action="store_true",
-        help="открыть WebUI после подтверждённого readiness",
+        default=argparse.SUPPRESS,
+        help="открыть WebUI после подтверждённой готовности",
     )
     start.add_argument(
-        "--foreground", action="store_true", help="удерживать CLI до остановки backend"
+        "--no-browser",
+        dest="browser",
+        action="store_false",
+        default=argparse.SUPPRESS,
+        help="не открывать WebUI автоматически",
+    )
+    start.add_argument(
+        "--foreground", action="store_true", help="удерживать CLI до остановки службы WebUI"
     )
 
     stop = subparsers.add_parser(
-        "stop", help="остановить только exact owned WebUI process tree"
+        "stop", help="остановить только подтверждённое дерево WebUI"
     )
     _add_common_options(stop, suppress_defaults=True)
     stop.add_argument(
@@ -136,11 +147,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=30.0,
         metavar="SECONDS",
-        help="deadline остановки",
+        help="срок остановки",
     )
 
     build = subparsers.add_parser(
-        "build", help="подготовить Python environment без Git update"
+        "build", help="подготовить окружение Python без Git update"
     )
     _add_common_options(build, suppress_defaults=True)
     build.add_argument(
@@ -148,25 +159,50 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=30 * 60,
         metavar="SECONDS",
-        help="общий bootstrap deadline",
+        help="общий срок подготовки",
     )
-    build.add_argument(
-        "--shortcut", action="store_true", help="запросить optional shortcut capability"
+    shortcut_group = build.add_mutually_exclusive_group()
+    shortcut_group.add_argument(
+        "--shortcut",
+        dest="shortcut",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="создать или проверить ярлык Windows",
+    )
+    shortcut_group.add_argument(
+        "--no-shortcut",
+        dest="shortcut",
+        action="store_false",
+        default=argparse.SUPPRESS,
+        help="не изменять ярлык Windows",
     )
 
     repair = subparsers.add_parser(
-        "repair", help="диагностировать и транзакционно восстановить environment"
+        "repair", help="диагностировать и транзакционно восстановить окружение"
     )
     _add_common_options(repair, suppress_defaults=True)
     repair.add_argument(
-        "--diagnostic-only", action="store_true", help="не выполнять mutation"
+        "--diagnostic-only", action="store_true", help="не выполнять изменения"
+    )
+    repair_shortcut_group = repair.add_mutually_exclusive_group()
+    repair_shortcut_group.add_argument(
+        "--repair-shortcut",
+        dest="repair_shortcut",
+        action="store_true",
+        help="восстановить ярлык Windows после проверки окружения",
+    )
+    repair_shortcut_group.add_argument(
+        "--shortcut-only",
+        dest="shortcut_only",
+        action="store_true",
+        help="восстановить только ярлык Windows",
     )
     repair.add_argument(
         "--timeout",
         type=float,
         default=30 * 60,
         metavar="SECONDS",
-        help="общий repair deadline",
+        help="общий срок восстановления",
     )
 
     update = subparsers.add_parser(
@@ -177,13 +213,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--expected-branch", default=None, help="ожидаемая рабочая ветка"
     )
     update.add_argument("--remote", default=None, help="имя Git remote")
-    update.add_argument("--remote-branch", default=None, help="имя remote branch")
+    update.add_argument("--remote-branch", default=None, help="имя ветки remote")
+    update.add_argument(
+        "--expected-origin-url",
+        default=None,
+        help="ожидаемая каноническая идентичность настроенного remote",
+    )
     update.add_argument(
         "--timeout",
         type=float,
         default=30 * 60,
         metavar="SECONDS",
-        help="общий update deadline",
+        help="общий срок обновления",
     )
     return parser
 
@@ -218,7 +259,7 @@ def _unexpected_result() -> ToolingResult[BaseModel, BaseModel]:
         ok=False,
         code=ResultCode.TOOLING_UNEXPECTED,
         state=OperationState.UNKNOWN,
-        message="Операция завершилась непредвиденной ошибкой; postcondition не подтверждён.",
+        message="Операция завершилась непредвиденной ошибкой; постусловие не подтверждено.",
     )
 
 
@@ -235,30 +276,93 @@ def _render_human(
     no_color: bool,
     verbose: bool,
 ) -> None:
+    stream = stdout if result.ok else stderr
+
+    def render_verbose(console: Any) -> None:
+        if not verbose:
+            return
+        console.print(f"код: {result.code.value}")
+        console.print(f"состояние: {result.state.value}")
+        if result.operation_id:
+            console.print(f"идентификатор операции: {result.operation_id}")
+        for label, model in (("детали", result.details), ("доказательства", result.evidence)):
+            if model is not None:
+                console.print(
+                    f"{label}: "
+                    + json.dumps(
+                        model.model_dump(mode="json", exclude_none=True),
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    )
+                )
+
+    def status_label(status: CapabilityStatus) -> str:
+        return {
+            CapabilityStatus.READY: "готово",
+            CapabilityStatus.NOT_CONFIGURED: "не настроено",
+            CapabilityStatus.UNAVAILABLE: "недоступно",
+            CapabilityStatus.UNSUPPORTED: "не поддерживается",
+            CapabilityStatus.FAILED: "ошибка",
+        }[status]
+
+    def check_label(name: str) -> str:
+        return {
+            "repository": "Репозиторий",
+            "project_markers": "Маркеры проекта",
+            "python": "Python",
+            "git": "Git",
+            "runtime": "Среда выполнения",
+            "uv": "uv",
+            "project_environment": "Окружение проекта",
+            "deploy_config": "Конфигурация",
+            "console_script": "Консольная команда azur",
+            "console_path": "PATH",
+            "adb": "ADB",
+            "docker": "Docker/PostgreSQL",
+        }.get(name, name)
+
     try:
         from rich.console import Console
 
-        is_tty = bool(getattr(stdout, "isatty", lambda: False)())
+        is_tty = bool(getattr(stream, "isatty", lambda: False)())
         console = Console(
-            file=stdout,
+            file=stream,
             no_color=no_color or not is_tty or bool(os.environ.get("NO_COLOR")),
             force_terminal=False,
+            highlight=False,
         )
-        style = "green" if result.ok else "red"
-        console.print(
-            f"[{style}]{'OK' if result.ok else 'ERROR'}[/{style}] {result.message} [{result.code.value}]"
-        )
-        if result.operation_id and verbose:
-            console.print(f"operation_id: {result.operation_id}")
-        for warning in result.warnings:
+
+        checks = getattr(result.details, "checks", None)
+        if checks is not None:
+            from rich.table import Table
+
+            table = Table(title="AzurPilot Doctor", expand=True)
+            table.add_column("Проверка", no_wrap=True)
+            table.add_column("Состояние", no_wrap=True)
+            table.add_column("Результат", overflow="fold")
+            for check in checks:
+                state = status_label(check.status)
+                marker = "✓" if check.status is CapabilityStatus.READY else "⚠"
+                table.add_row(check_label(check.name), f"{marker} {state}", check.message)
+            console.print(table)
             console.print(
-                f"[yellow]WARN[/yellow] {warning.message} [{warning.code.value}]"
+                f"{'✓' if result.ok else '✗'} {result.message}"
             )
+        else:
+            console.print(f"{'✓' if result.ok else '✗'} {result.message}")
+
+        for warning in result.warnings:
+            console.print(f"⚠ {warning.message}")
+        render_verbose(console)
     except ImportError, OSError, RuntimeError, TypeError, ValueError:
-        stream = stdout if result.ok else stderr
-        stream.write(
-            f"{'OK' if result.ok else 'ERROR'}: {result.message} [{result.code.value}]\n"
-        )
+        stream.write(f"{'✓' if result.ok else '✗'} {result.message}\n")
+        for warning in result.warnings:
+            stream.write(f"⚠ {warning.message}\n")
+        if verbose:
+            stream.write(f"код: {result.code.value}\n")
+            stream.write(f"состояние: {result.state.value}\n")
+            if result.operation_id:
+                stream.write(f"идентификатор операции: {result.operation_id}\n")
         stream.flush()
 
 
@@ -273,18 +377,24 @@ def _dispatch(
         return services.lifecycle.start(
             root,
             timeout_seconds=args.timeout,
-            open_browser=args.browser,
+            open_browser=getattr(args, "browser", False),
             foreground=args.foreground,
         )
     if command == "stop":
         return services.lifecycle.stop(root, timeout_seconds=args.timeout)
     if command == "build":
         return services.build.build(
-            root, timeout_seconds=args.timeout, create_shortcut=args.shortcut
+            root,
+            timeout_seconds=args.timeout,
+            create_shortcut=getattr(args, "shortcut", None),
         )
     if command == "repair":
         return services.repair.repair(
-            root, diagnostic_only=args.diagnostic_only, timeout_seconds=args.timeout
+            root,
+            diagnostic_only=args.diagnostic_only,
+            repair_shortcut=getattr(args, "repair_shortcut", False),
+            shortcut_only=getattr(args, "shortcut_only", False),
+            timeout_seconds=args.timeout,
         )
     if command == "update":
         return services.update.update(
@@ -292,6 +402,7 @@ def _dispatch(
             expected_branch=args.expected_branch,
             remote_name=args.remote,
             remote_branch=args.remote_branch,
+            expected_origin_url=args.expected_origin_url,
             timeout_seconds=args.timeout,
         )
     raise CliInvocationError(f"неизвестная команда: {command}")
@@ -309,6 +420,15 @@ def main(
     args_list = list(argv) if argv is not None else sys.argv[1:]
     stdout = stdout or sys.stdout
     stderr = stderr or sys.stderr
+
+    for stream in (stdout, stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except (OSError, ValueError):
+                pass
+
     json_mode = _json_requested(args_list)
     parser = build_parser()
     try:
@@ -322,13 +442,21 @@ def main(
             _render_json(result, stdout)
         else:
             parser.print_usage(file=stderr)
-            stderr.write(f"Ошибка invocation: {error}\n")
+            stderr.write(f"Ошибка вызова: {error}\n")
         return int(exit_code_for(result.code))
 
     json_mode = bool(getattr(args, "json", False))
     verbose = bool(getattr(args, "verbose", False) or getattr(args, "debug", False))
     try:
-        result = _dispatch(args, services or ServiceContainer.create())
+        if json_mode:
+            # Сервисные границы могут использовать сторонние библиотеки с выводом.
+            # Машинный режим обязан вернуть ровно один документ в stdout.
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(
+                io.StringIO()
+            ):
+                result = _dispatch(args, services or ServiceContainer.create())
+        else:
+            result = _dispatch(args, services or ServiceContainer.create())
     except ToolingError as error:
         result = _error_result(error)
     except KeyboardInterrupt:
@@ -338,7 +466,7 @@ def main(
             state=OperationState.UNKNOWN,
             message="Операция прервана пользователем; итоговое состояние требует проверки.",
         )
-    except Exception:  # noqa: BLE001 - CLI обязан вернуть bounded unexpected envelope
+    except Exception:  # noqa: BLE001 - CLI обязан вернуть ограниченный envelope ошибки
         result = _unexpected_result()
 
     if json_mode:

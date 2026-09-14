@@ -1,13 +1,18 @@
-"""Структурированный Git adapter для Update и root validation."""
+"""Структурированный адаптер Git для Update и проверки корня репозитория."""
 
 from __future__ import annotations
 
+import hashlib
+import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from shutil import which
+from urllib.parse import urlsplit
 
 from .contracts import ResultCode
 from .errors import ToolingError
+from .filesystem import path_has_link
 from .process import ProcessResult, ProcessSpec, StructuredProcessRunner
 
 
@@ -18,7 +23,7 @@ class GitCommand:
 
 
 class GitClient:
-    """Git только через argv, cwd и bounded process result."""
+    """Git только через argv, cwd и ограниченный результат процесса."""
 
     def __init__(
         self, root: Path, runner: StructuredProcessRunner | None = None
@@ -34,7 +39,7 @@ class GitClient:
             )
         if any("\x00" in arg for arg in args):
             raise ToolingError(
-                ResultCode.TOOLING_INVALID_INVOCATION, "Git argument содержит NUL."
+                ResultCode.TOOLING_INVALID_INVOCATION, "Аргумент Git содержит NUL."
             )
         result = self.runner.run(
             ProcessSpec(
@@ -49,11 +54,11 @@ class GitClient:
         command = GitCommand(tuple(args), result)
         if result.timed_out:
             raise ToolingError(
-                ResultCode.TOOLING_TIMEOUT, "Git operation превысил deadline."
+                ResultCode.TOOLING_TIMEOUT, "Операция Git превысила установленный срок."
             )
         if result.returncode != 0:
             raise ToolingError(
-                ResultCode.TOOLING_GIT_FAILED, "Git operation завершился ошибкой."
+                ResultCode.TOOLING_GIT_FAILED, "Операция Git завершилась ошибкой."
             )
         return command
 
@@ -84,6 +89,28 @@ class GitClient:
 
     def remote_url(self, remote: str) -> str:
         return self.text("config", "--get", f"remote.{remote}.url")
+
+    def remote_push_url(self, remote: str) -> str | None:
+        """Прочитать именно политику отправки, не подменяя её адресом получения."""
+
+        try:
+            return self.text("config", "--get", f"remote.{remote}.pushurl")
+        except ToolingError as error:
+            if error.code is ResultCode.TOOLING_GIT_FAILED:
+                return None
+            raise
+
+    def remote_exists(self, remote: str) -> bool:
+        try:
+            self.run("remote", "get-url", remote)
+        except ToolingError as error:
+            if error.code is ResultCode.TOOLING_GIT_FAILED:
+                return False
+            raise
+        return True
+
+    def remote_identity(self, remote: str) -> str:
+        return canonical_remote_identity(self.remote_url(remote))
 
     def upstream(self) -> str:
         return self.text(
@@ -127,14 +154,14 @@ class GitClient:
         )
         if command.timed_out:
             raise ToolingError(
-                ResultCode.TOOLING_TIMEOUT, "Проверка Git ancestry превысила deadline."
+                ResultCode.TOOLING_TIMEOUT, "Проверка предка Git превысила установленный срок."
             )
         if command.returncode == 0:
             return True
         if command.returncode == 1:
             return False
         raise ToolingError(
-            ResultCode.TOOLING_GIT_FAILED, "Проверка Git ancestry завершилась ошибкой."
+            ResultCode.TOOLING_GIT_FAILED, "Проверка предка Git завершилась ошибкой."
         )
 
     def dependency_changed(self, before: str, after: str) -> bool:
@@ -148,6 +175,31 @@ class GitClient:
             "deploy/uv.py",
         )
         return bool(output)
+
+    def archive_dependencies(self, revision: str, destination: Path) -> None:
+        raw_destination = Path(destination).expanduser()
+        if path_has_link(raw_destination) or path_has_link(raw_destination.parent):
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "Архив зависимостей имеет небезопасный файловый путь.",
+            )
+        destination = raw_destination.resolve(strict=False)
+        if os.path.lexists(str(destination)):
+            raise ToolingError(
+                ResultCode.TOOLING_OPERATION_CONFLICT,
+                "Целевой архив зависимостей уже существует.",
+            )
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        self.run(
+            "archive",
+            "--format=tar",
+            f"--output={destination}",
+            revision,
+            "--",
+            "pyproject.toml",
+            "uv.lock",
+            timeout_seconds=60,
+        )
 
     def merge_ff_only(self, target: str) -> None:
         self.run("merge", "--ff-only", target, timeout_seconds=15 * 60)
@@ -169,10 +221,79 @@ class GitClient:
         )
 
 
+def canonical_remote_identity(value: str) -> str:
+    """Нормализовать SSH/HTTPS формы одного hosted repository.
+
+    Локальные fixture remotes тоже поддерживаются, но сравниваются только по
+    canonical path. URL с credentials, query или fragment запрещены.
+    """
+
+    if (
+        not value
+        or value != value.strip()
+        or "\x00" in value
+        or any(char.isspace() for char in value)
+    ):
+        raise ToolingError(
+            ResultCode.TOOLING_REMOTE_IDENTITY_UNVERIFIED,
+            "Идентичность Git remote пуста или имеет небезопасный формат.",
+        )
+    if "@" in value and "://" in value:
+        parsed = urlsplit(value)
+        if parsed.username or parsed.password:
+            raise ToolingError(
+                ResultCode.TOOLING_REMOTE_IDENTITY_UNVERIFIED,
+                "Идентичность Git remote содержит учётные данные.",
+            )
+    scp_match = re.fullmatch(r"[^/@:\s]+@(?P<host>[^/:\s]+):(?P<path>.+)", value)
+    if scp_match:
+        host = scp_match.group("host").casefold()
+        path = scp_match.group("path").strip("/")
+        if "?" in path or "#" in path:
+            raise ToolingError(
+                ResultCode.TOOLING_REMOTE_IDENTITY_UNVERIFIED,
+                "Идентичность Git remote содержит query или fragment.",
+            )
+        return _hosted_identity(host, path)
+    parsed = urlsplit(value)
+    if parsed.scheme in {"http", "https", "ssh", "git"}:
+        if parsed.username or parsed.password or parsed.query or parsed.fragment:
+            raise ToolingError(
+                ResultCode.TOOLING_REMOTE_IDENTITY_UNVERIFIED,
+                "Идентичность Git remote содержит учётные данные или дополнительные параметры.",
+            )
+        if not parsed.hostname or not parsed.path.strip("/"):
+            raise ToolingError(
+                ResultCode.TOOLING_REMOTE_IDENTITY_UNVERIFIED,
+                "Идентичность Git remote не содержит hosted repository.",
+            )
+        return _hosted_identity(parsed.hostname.casefold(), parsed.path)
+    path = Path(value).expanduser()
+    if path.is_absolute():
+        normalized = str(path.resolve(strict=False)).replace("\\", "/").rstrip("/").casefold()
+        return "local:" + hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:32]
+    raise ToolingError(
+        ResultCode.TOOLING_REMOTE_IDENTITY_UNVERIFIED,
+        "Идентичность Git remote нельзя доказать по известному hosted или local формату.",
+    )
+
+
+def _hosted_identity(host: str, raw_path: str) -> str:
+    path = "/".join(part for part in raw_path.replace("\\", "/").split("/") if part)
+    if path.casefold().endswith(".git"):
+        path = path[:-4]
+    if not path:
+        raise ToolingError(
+            ResultCode.TOOLING_REMOTE_IDENTITY_UNVERIFIED,
+            "Идентичность Git remote не содержит пути repository.",
+        )
+    return f"hosted:{host}/{path.casefold()}"
+
+
 def _is_sha(value: str) -> bool:
     return 40 <= len(value) <= 64 and all(
         character in "0123456789abcdef" for character in value.lower()
     )
 
 
-__all__ = ["GitClient", "GitCommand"]
+__all__ = ["GitClient", "GitCommand", "canonical_remote_identity"]

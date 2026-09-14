@@ -1,4 +1,4 @@
-"""Build/bootstrap service поверх существующего canonical `deploy.uv` seam."""
+"""Сервис Build/bootstrap поверх существующей канонической границы `deploy.uv`."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ import tomllib
 from pathlib import Path
 from secrets import token_hex
 
+from .adb import install_adb, resolve_adb
 from .config import load_deploy_settings, project_adb, project_python, project_uv
 from .contracts import (
     BuildDetails,
@@ -36,6 +37,7 @@ from .filesystem import (
 from .path import register_console_path
 from .process import ProcessSpec, StructuredProcessRunner, safe_environment
 from .repository import RepositoryResolver
+from .shortcut import ensure_shortcut
 
 _UV_VERSION_RE = re.compile(r"\buv\s+(?P<version>\d+\.\d+\.\d+)", re.IGNORECASE)
 
@@ -81,7 +83,7 @@ def _safe_marker_text(transaction_id: str) -> str:
 
 
 class BootstrapService:
-    """Проверка uv и вызов только разрешённого project sync seam."""
+    """Проверка uv и вызов только разрешённой границы синхронизации проекта."""
 
     def __init__(self, runner: StructuredProcessRunner | None = None) -> None:
         self.runner = runner or StructuredProcessRunner()
@@ -139,8 +141,19 @@ class BootstrapService:
         except OSError, ValueError, ToolingError:
             return None
 
-    def sync(self, root: Path, uv: Path, timeout_seconds: float) -> str:
-        """Использовать `deploy.uv` как canonical policy seam, не shell wrapper."""
+    def sync(
+        self,
+        root: Path,
+        uv: Path,
+        timeout_seconds: float,
+        *,
+        project_path: Path | None = None,
+        project_environment: Path | None = None,
+        python_executable: Path | None = None,
+        state_root: Path | None = None,
+        install_project: bool = True,
+    ) -> str:
+        """Использовать `deploy.uv` как каноническую границу политики без shell-обёртки."""
 
         output = io.StringIO()
         try:
@@ -149,6 +162,17 @@ class BootstrapService:
             environment = safe_environment(
                 {"PYTHONUTF8": "1", "PYTHONUNBUFFERED": "1"}
             )
+            options: dict[str, object] = {}
+            if project_path is not None:
+                options["project_path"] = project_path
+            if project_environment is not None:
+                options["project_environment"] = project_environment
+            if python_executable is not None:
+                options["python_executable"] = python_executable
+            if state_root is not None:
+                options["state_root"] = state_root
+            if project_path is not None or project_environment is not None:
+                options["install_project"] = install_project
             with contextlib.redirect_stdout(output):
                 sync_project_venv(
                     root=root,
@@ -156,10 +180,11 @@ class BootstrapService:
                     capture_output=True,
                     timeout=timeout_seconds,
                     environment=environment,
+                    **options,
                 )
         except TimeoutError as exc:
             raise ToolingError(
-                ResultCode.TOOLING_TIMEOUT, "Синхронизация uv превысила deadline."
+                ResultCode.TOOLING_TIMEOUT, "Синхронизация uv превысила установленный срок."
             ) from exc
         except (
             OSError,
@@ -170,13 +195,13 @@ class BootstrapService:
         ) as exc:
             raise ToolingError(
                 ResultCode.TOOLING_DEPENDENCY_UNAVAILABLE,
-                "Синхронизация project environment завершилась ошибкой.",
+                "Синхронизация окружения проекта завершилась ошибкой.",
             ) from exc
         return output.getvalue()[: 64 * 1024]
 
 
 class BuildService:
-    """Подготовка checkout без Git update и без удаления здоровой `.venv`."""
+    """Подготовка checkout без Git Update и без удаления исправной `.venv`."""
 
     def __init__(
         self,
@@ -205,6 +230,20 @@ class BuildService:
             return False
         return result.ok
 
+    @staticmethod
+    def _is_owned_venv(venv: Path, transaction_id: str) -> bool:
+        marker = venv / ".azurpilot-build-owned"
+        if is_unsafe_path(venv) or is_unsafe_path(marker) or not marker.is_file():
+            return False
+        try:
+            value = bounded_read_text(marker, max_bytes=4096)
+        except ToolingError:
+            return False
+        return any(
+            line.strip() == f"transaction_id={transaction_id}"
+            for line in value.splitlines()
+        )
+
     def _assert_stopped(self, root: Path) -> None:
         coordinator = RepositoryCoordinator.for_root(root)
         record = coordinator.read_lifecycle()
@@ -215,17 +254,21 @@ class BuildService:
                     ResultCode.TOOLING_PRECONDITION_FAILED,
                     "Build требует остановленного WebUI.",
                 )
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Старое состояние lifecycle не подтверждается текущим процессом; Build остановлен.",
+            )
         settings = load_deploy_settings(root)
         port = observe_tcp_port(settings.webui_port)
         if port.inspection_failed:
             raise ToolingError(
                 ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                "Нельзя подтвердить свободный WebUI port.",
+                "Нельзя подтвердить свободный порт WebUI.",
             )
         if port.pids:
             raise ToolingError(
                 ResultCode.TOOLING_PORT_CONFLICT,
-                "Build не выполняется при занятом WebUI port.",
+                "Build не выполняется при занятом порте WebUI.",
             )
 
     def _copy_template(self, root: Path) -> bool:
@@ -252,8 +295,13 @@ class BuildService:
         repository_root: str | Path | None = None,
         *,
         timeout_seconds: float = 30 * 60,
-        create_shortcut: bool = False,
+        create_shortcut: bool | None = None,
     ) -> ToolingResult[BuildDetails, BuildEvidence]:
+        if not 0 < timeout_seconds <= 24 * 60 * 60:
+            raise ToolingError(
+                ResultCode.TOOLING_INVALID_INVOCATION,
+                "Срок должен быть положительным и ограниченным числом.",
+            )
         resolved = self.resolver.resolve(repository_root)
         root = resolved.path
         operation_id = f"build-{token_hex(8)}"
@@ -267,8 +315,10 @@ class BuildService:
         config_created = False
         transaction = None
         venv = root / ".venv"
-        marker_path = venv / ".azurpilot-build-owned"
         venv_was_present = venv.exists() or is_unsafe_path(venv)
+        layout = RepositoryCoordinator.for_root(root).layout
+        journal_store = JournalStore(layout, "build")
+        shortcut_requested = os.name == "nt" if create_shortcut is None else create_shortcut
         try:
             self._assert_stopped(root)
             if (
@@ -278,7 +328,7 @@ class BuildService:
             ):
                 raise ToolingError(
                     ResultCode.TOOLING_PRECONDITION_FAILED,
-                    "Checkout не содержит обязательные Build markers.",
+                    "Checkout не содержит обязательные маркеры Build.",
                     operation_id=operation_id,
                 )
             if venv_was_present and (is_unsafe_path(venv) or not venv.is_dir()):
@@ -287,15 +337,9 @@ class BuildService:
                     ".venv имеет небезопасный тип.",
                     operation_id=operation_id,
                 )
-            update_journal = JournalStore(
-                RepositoryCoordinator.for_root(root).layout, "update"
-            ).active()
-            repair_journal = JournalStore(
-                RepositoryCoordinator.for_root(root).layout, "repair"
-            ).active()
-            build_journal = JournalStore(
-                RepositoryCoordinator.for_root(root).layout, "build"
-            ).active()
+            update_journal = JournalStore(layout, "update").active()
+            repair_journal = JournalStore(layout, "repair").active()
+            build_journal = journal_store.active()
             if (
                 update_journal is not None
                 or repair_journal is not None
@@ -303,11 +347,13 @@ class BuildService:
             ):
                 raise ToolingError(
                     ResultCode.TOOLING_OPERATION_CONFLICT,
-                    "Незавершённая transaction блокирует Build.",
+                    "Незавершённая транзакция блокирует Build.",
                     operation_id=operation_id,
                 )
             lock_hash = sha256_file(root / "uv.lock")
             template_hash = sha256_file(root / "config" / "deploy.template.yaml")
+            transaction = journal_store.create()
+            journal_store.save(transaction)
             config_created = self._copy_template(root)
             settings = load_deploy_settings(root)
             venv_created = not venv_was_present
@@ -319,13 +365,13 @@ class BuildService:
                 ):
                     raise ToolingError(
                         ResultCode.TOOLING_PRECONDITION_FAILED,
-                        "Существующая .venv неисправна; используйте repair.",
+                        "Существующая `.venv` неисправна; используйте Repair.",
                         operation_id=operation_id,
                     )
                 if not uv.is_file() or not self._run_health(uv, root, "--version"):
                     raise ToolingError(
                         ResultCode.TOOLING_PRECONDITION_FAILED,
-                        "Существующий uv в .venv не запускается; используйте repair.",
+                        "Существующий uv в `.venv` не запускается; используйте Repair.",
                         operation_id=operation_id,
                     )
                 if not self._run_health(
@@ -343,17 +389,11 @@ class BuildService:
                 ):
                     raise ToolingError(
                         ResultCode.TOOLING_PRECONDITION_FAILED,
-                        "Существующая .venv не согласована с uv.lock; используйте repair.",
+                        "Существующая `.venv` не согласована с uv.lock; используйте Repair.",
                         operation_id=operation_id,
                     )
                 bootstrap_source = "existing_environment"
             else:
-                transaction = JournalStore(
-                    RepositoryCoordinator.for_root(root).layout, "build"
-                ).create()
-                JournalStore(RepositoryCoordinator.for_root(root).layout, "build").save(
-                    transaction
-                )
                 venv.mkdir(parents=True, exist_ok=True)
                 ScopedPath(venv).atomic_write_text(
                     ".azurpilot-build-owned",
@@ -362,11 +402,14 @@ class BuildService:
                 uv, bootstrap_source = self.bootstrap.resolve_uv(root)
                 self.bootstrap.sync(root, uv, timeout_seconds)
                 transaction = transaction.model_copy(
-                    update={"phase": "environment_built", "backup_present": False}
+                    update={
+                        "phase": "environment_built",
+                        "backup_present": False,
+                        "ownership_confirmed": True,
+                        "venv_path": str(venv),
+                    }
                 )
-                JournalStore(RepositoryCoordinator.for_root(root).layout, "build").save(
-                    transaction
-                )
+                journal_store.save(transaction)
                 settings = load_deploy_settings(root)
                 python = project_python(root, settings)
                 if not python.is_file() or not self._run_health(
@@ -378,7 +421,7 @@ class BuildService:
                 ):
                     raise ToolingError(
                         ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                        "После bootstrap Python environment не подтверждён.",
+                        "После подготовки среда Python не подтверждена.",
                         operation_id=operation_id,
                     )
             if (
@@ -392,29 +435,37 @@ class BuildService:
                     operation_id=operation_id,
                 )
             adb_path = project_adb(root, settings)
-            adb_status = (
-                CapabilityStatus.READY
-                if adb_path.is_file() and self._run_health(adb_path, root, "version")
-                else CapabilityStatus.NOT_CONFIGURED
-            )
+            adb_version: str | None = None
+            if os.name == "nt":
+                adb_resolution = resolve_adb(root, settings, layout, self.runner)
+                adb_status = adb_resolution.status
+                adb_version = adb_resolution.version
+                if adb_resolution.path is not None:
+                    same_path = (
+                        adb_resolution.path.resolve(strict=False)
+                        == adb_path.resolve(strict=False)
+                    )
+                    if not same_path:
+                        install_adb(adb_resolution.path, adb_path.parent, root, self.runner)
+                    if not self._run_health(adb_path, root, "version"):
+                        raise ToolingError(
+                            ResultCode.TOOLING_ADB_FAILED,
+                            "После Build установленный ADB не прошёл проверку постусловия.",
+                            operation_id=operation_id,
+                        )
+            else:
+                adb_status = (
+                    CapabilityStatus.READY
+                    if adb_path.is_file() and self._run_health(adb_path, root, "version")
+                    else CapabilityStatus.NOT_CONFIGURED
+                )
             warnings: list[ToolingWarning] = []
-            if adb_status is not CapabilityStatus.READY:
+            if adb_status is CapabilityStatus.NOT_CONFIGURED:
                 warnings.append(
                     ToolingWarning(
                         code=WarningCode.TOOLING_ADB_NOT_CONFIGURED,
-                        message="ADB не настроен; Build не выполнял device action.",
+                        message="ADB не настроен; Build не выполнял действий с устройством.",
                     )
-                )
-            if create_shortcut:
-                warnings.append(
-                    ToolingWarning(
-                        code=WarningCode.TOOLING_SHORTCUT_UNSUPPORTED,
-                        message="Shortcut adapter не входит в этот cross-platform core increment.",
-                    )
-                )
-            if transaction is not None:
-                JournalStore(RepositoryCoordinator.for_root(root).layout, "build").save(
-                    transaction.model_copy(update={"phase": "completed"})
                 )
             console_path = register_console_path(python)
             if console_path.status is not CapabilityStatus.READY:
@@ -424,11 +475,55 @@ class BuildService:
                         message=console_path.message,
                     )
                 )
+            shortcut_status = CapabilityStatus.UNSUPPORTED
+            if shortcut_requested:
+                if os.name == "nt":
+                    shortcut = ensure_shortcut(
+                        root,
+                        python,
+                        layout,
+                        shortcut_path=(
+                            (
+                                root / settings.shortcut_path
+                                if settings.shortcut_path
+                                and not Path(settings.shortcut_path).is_absolute()
+                                else Path(settings.shortcut_path)
+                            )
+                            if settings.shortcut_path
+                            else None
+                        ),
+                        icon_path=(
+                            (
+                                root / settings.shortcut_icon
+                                if settings.shortcut_icon
+                                and not Path(settings.shortcut_icon).is_absolute()
+                                else Path(settings.shortcut_icon)
+                            )
+                            if settings.shortcut_icon
+                            else None
+                        ),
+                    )
+                    shortcut_status = shortcut.status
+                    transaction = transaction.model_copy(update={"phase": "shortcut_ready"})
+                    journal_store.save(transaction)
+                else:
+                    shortcut_status = CapabilityStatus.UNSUPPORTED
+                    warnings.append(
+                        ToolingWarning(
+                            code=WarningCode.TOOLING_SHORTCUT_UNSUPPORTED,
+                            message="Ярлык Windows не применяется на POSIX; используйте azur start.",
+                        )
+                    )
+            transaction = transaction.model_copy(update={"phase": "path_registered"})
+            journal_store.save(transaction)
+            transaction = transaction.model_copy(update={"phase": "completed"})
+            journal_store.save(transaction)
+            journal_store.retain_terminal()
             return ToolingResult[BuildDetails, BuildEvidence](
                 ok=True,
                 code=ResultCode.OK,
                 state=OperationState.READY,
-                message="Checkout подготовлен; здоровая `.venv` сохранена или создана с проверенным bootstrap.",
+                message="Checkout подготовлен; исправная `.venv` сохранена или создана с проверенной подготовкой.",
                 operation_id=operation_id,
                 details=BuildDetails(
                     status=OperationState.READY,
@@ -436,12 +531,14 @@ class BuildService:
                     config_created=config_created,
                     bootstrap_source=bootstrap_source,
                     adb_status=adb_status,
+                    adb_version=adb_version,
                     console_script=(
                         CapabilityStatus.READY
                         if console_path.installed
                         else CapabilityStatus.NOT_CONFIGURED
                     ),
                     path_registration=console_path.status,
+                    shortcut_status=shortcut_status,
                 ),
                 warnings=tuple(warnings),
                 evidence=BuildEvidence(
@@ -451,33 +548,51 @@ class BuildService:
                     transaction_id=transaction.transaction_id if transaction else None,
                 ),
             )
-        except Exception:
+        except Exception as error:
+            rollback_confirmed = True
             if config_created:
                 config = root / "config" / "deploy.yaml"
                 if config.exists() and not is_unsafe_path(config):
                     try:
                         config.unlink()
                     except OSError:
-                        pass
-            owned_partial = False
-            try:
-                owned_partial = (
-                    not venv_was_present
-                    and not is_unsafe_path(venv)
-                    and not is_unsafe_path(marker_path)
-                    and marker_path.is_file()
-                    and bounded_read_text(marker_path, max_bytes=4096).startswith(
-                        "schema_version=1"
-                    )
-                )
-            except (OSError, ToolingError):
-                owned_partial = False
-            if owned_partial:
+                        rollback_confirmed = False
+                elif config.exists():
+                    rollback_confirmed = False
+            if transaction is not None and not venv_was_present:
                 try:
-                    shutil.rmtree(venv)
-                except OSError:
-                    pass
-            raise
+                    if venv.exists():
+                        if not self._is_owned_venv(venv, transaction.transaction_id):
+                            rollback_confirmed = False
+                        else:
+                            shutil.rmtree(venv)
+                except (OSError, ToolingError):
+                    rollback_confirmed = False
+            if transaction is not None:
+                try:
+                    phase = "rolled_back" if rollback_confirmed else "rollback_unknown"
+                    transaction = transaction.model_copy(
+                        update={
+                            "phase": phase,
+                            "failure_reason": type(error).__name__,
+                        }
+                    )
+                    journal_store.save(transaction)
+                    if rollback_confirmed:
+                        journal_store.retain_terminal()
+                except (OSError, ToolingError, ValueError):
+                    rollback_confirmed = False
+            if rollback_confirmed:
+                raise ToolingError(
+                    ResultCode.TOOLING_APPLY_FAILED_ROLLED_BACK,
+                    "Build не завершён; подтверждённое частичное состояние очищено, повторный Build разрешён.",
+                    operation_id=operation_id,
+                ) from error
+            raise ToolingError(
+                ResultCode.TOOLING_ROLLBACK_UNKNOWN,
+                    "Build завершился с неоднозначной очисткой; повторное изменение запрещено до восстановления только для чтения.",
+                operation_id=operation_id,
+            ) from error
         finally:
             lock.release()
 

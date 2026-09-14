@@ -338,6 +338,9 @@ jobs:
               --cov=module \
               --cov=campaign \
               --cov=tools \
+              --cov=azurpilot \
+              --cov=deploy \
+              --cov=dev_tools \
               --cov-branch \
               --cov-report=xml:"${artifact_dir}/coverage.xml" \
               --cov-report=term-missing:skip-covered \
@@ -925,6 +928,32 @@ jobs:
               throw ('Windows capability tests завершились с кодом {0}.' -f $runnerExitCode)
           }
 
+          $toolingLogPath = Join-Path -Path $env:RUNNER_TEMP -ChildPath 'azurpilot-ci-windows/python-tooling.log'
+          $runnerArguments = @(
+              $runnerPath
+              '--label'
+              'Контрактные тесты Python tooling'
+              '--heartbeat-seconds'
+              '60'
+              '--log-file'
+              $toolingLogPath
+              '--'
+              $uvExecutable
+              'run'
+              '--locked'
+              'python'
+              '-m'
+              'pytest'
+              '-q'
+              'tests/infrastructure/tooling'
+          )
+          & $pythonExecutable @runnerArguments
+          $runnerExitCode = $LASTEXITCODE
+
+          if ($runnerExitCode -ne 0) {
+              throw ('Контрактные тесты Python tooling завершились с кодом {0}.' -f $runnerExitCode)
+          }
+
           $pwshCommand = Get-Command pwsh -CommandType Application -ErrorAction Stop | Select-Object -First 1
           $robocopyCommand = Get-Command robocopy -CommandType Application -ErrorAction Stop | Select-Object -First 1
           $tarCommand = Get-Command tar -CommandType Application -ErrorAction Stop | Select-Object -First 1
@@ -1138,12 +1167,12 @@ jobs:
           uv lock --check
           uv sync --locked --group ci
 
-      - name: Проверить cross-platform CLI и tooling contracts
+      - name: Проверить кроссплатформенный CLI и контракты tooling
         shell: bash
         run: |
           set -euo pipefail
           uv run --locked --no-sync python -m azurpilot --help
-          uv run --locked --no-sync python -m pytest -q tests/infrastructure/tooling/test_azurpilot_python_tooling.py
+          uv run --locked --no-sync python -m pytest -q tests/infrastructure/tooling
           uv run --locked --no-sync python -m azurpilot --json doctor --repository-root "$GITHUB_WORKSPACE" > "$RUNNER_TEMP/azurpilot-doctor.json"
           python - <<'PY'
           import json

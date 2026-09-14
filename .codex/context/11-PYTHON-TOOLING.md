@@ -73,12 +73,15 @@ launcher. `ScopedPath`, atomic writes, SHA-256, external
 для Build/Repair/Update/Lifecycle.
 
 `BuildService` сохраняет здоровую `.venv`, создаёт config только из template и
-использует существующий `deploy.uv` seam для bootstrap. `RepairService` сначала
-диагностирует, затем перемещает environment во внешний backup и при ошибке
-возвращает подтверждённый rollback либо `unknown`. `UpdateService` выполняет
-fetch и только `merge --ff-only`, отклоняет dirty/local-ahead/diverged state и
-оставляет dependency failure journal для read-only recovery. Database backup,
-ADB и Windows shortcut остаются typed optional capabilities с честным warning.
+использует существующую границу `deploy.uv` для подготовки. На Windows он также
+проверяет закреплённый ADB и пользовательский ярлык, если не указан
+`--no-shortcut`; POSIX возвращает `unsupported` для возможности только Windows.
+`RepairService` сначала диагностирует, затем перемещает среду во внешнюю
+резервную копию и при ошибке возвращает подтверждённый откат либо `unknown`.
+`UpdateService` выполняет fetch и только `merge --ff-only`, до изменения
+подтверждает каноническую идентичность remote и внешнюю логическую резервную
+копию PostgreSQL, отклоняет dirty/local-ahead/diverged state и оставляет журнал
+ошибки зависимостей для восстановления только для чтения.
 
 ### 1.2 Полный inventory legacy entrypoints
 

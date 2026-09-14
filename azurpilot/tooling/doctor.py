@@ -1,4 +1,4 @@
-"""Read-only диагностика фундаментальных project-bound capabilities."""
+"""Диагностика фундаментальных возможностей проекта без изменений."""
 
 from __future__ import annotations
 
@@ -19,7 +19,12 @@ from .contracts import (
     ToolingWarning,
     WarningCode,
 )
+from .errors import ToolingError
+from .git import GitClient, canonical_remote_identity
+from .infrastructure import InfrastructureService
+from .lifecycle import LifecycleService
 from .path import inspect_console_path
+from .process import StructuredProcessRunner
 from .repository import RepositoryResolver
 
 
@@ -28,10 +33,70 @@ def _check(name: str, status: CapabilityStatus, message: str) -> CapabilityCheck
 
 
 class DoctorService:
-    """Диагностика без запуска WebUI, MCP, устройства или Docker."""
+    """Диагностика проекта, Git, среды выполнения и инфраструктуры без изменений."""
 
-    def __init__(self, resolver: RepositoryResolver | None = None) -> None:
+    def __init__(
+        self,
+        resolver: RepositoryResolver | None = None,
+        runner: StructuredProcessRunner | None = None,
+        infrastructure: InfrastructureService | None = None,
+    ) -> None:
         self.resolver = resolver or RepositoryResolver()
+        self.runner = runner or self.resolver.runner
+        self.infrastructure = infrastructure or InfrastructureService(self.runner)
+
+    def _git_check(self, root: Path, settings) -> tuple[CapabilityStatus, str]:
+        try:
+            git = GitClient(root, self.runner)
+            branch = git.branch()
+            git.head()
+            tracking = git.upstream()
+            if not tracking:
+                return CapabilityStatus.FAILED, "Ветка отслеживания Git не настроена."
+            if git.active_operation():
+                return (
+                    CapabilityStatus.FAILED,
+                    "В Git обнаружена незавершённая операция.",
+                )
+            remote_url = git.remote_url(settings.git_remote)
+            if not settings.repository_url:
+                return (
+                    CapabilityStatus.NOT_CONFIGURED,
+                    "Каноническая идентичность репозитория не настроена.",
+                )
+            if canonical_remote_identity(remote_url) != canonical_remote_identity(
+                settings.repository_url
+            ):
+                return (
+                    CapabilityStatus.FAILED,
+                    "Идентичность Git remote не совпадает с каноническим репозиторием.",
+                )
+            dirty = bool(git.status_porcelain())
+            policy_suffix = (
+                f" Политика развертывания ожидает {settings.git_branch}."
+                if branch != settings.git_branch
+                else ""
+            )
+            suffix = " Рабочее дерево содержит изменения." if dirty else ""
+            return (
+                CapabilityStatus.READY,
+                f"Корень Git, ветка {branch}, отслеживание {tracking} и идентичность remote подтверждены.{policy_suffix}{suffix}",
+            )
+        except ToolingError as error:
+            return CapabilityStatus.UNAVAILABLE, error.message
+
+    def _runtime_check(self, root: Path) -> tuple[CapabilityStatus, str]:
+        try:
+            result = LifecycleService(
+                resolver=self.resolver,
+                runner=self.runner,
+                require_infrastructure=False,
+            ).inspect(root)
+        except ToolingError as error:
+            return CapabilityStatus.UNAVAILABLE, error.message
+        if result.ok:
+            return CapabilityStatus.READY, result.message
+        return CapabilityStatus.FAILED, result.message
 
     def run(
         self, repository_root: str | Path | None = None
@@ -41,7 +106,7 @@ class DoctorService:
         checks: list[CapabilityCheck] = []
         settings = load_deploy_settings(root)
         checks.append(
-            _check("repository", CapabilityStatus.READY, "Repository root подтверждён.")
+            _check("repository", CapabilityStatus.READY, "Корень репозитория подтверждён.")
         )
         checks.append(
             _check(
@@ -50,6 +115,9 @@ class DoctorService:
                 "Маркеры проекта подтверждены.",
             )
         )
+
+        git_status, git_message = self._git_check(root, settings)
+        checks.append(_check("git", git_status, git_message))
 
         version = sys.version_info
         python_ready = (version.major, version.minor, version.micro) >= (
@@ -74,7 +142,7 @@ class DoctorService:
             _check(
                 "uv",
                 CapabilityStatus.READY if uv_ready else CapabilityStatus.UNAVAILABLE,
-                "uv доступен для project operations." if uv_ready else "uv не найден.",
+                "uv доступен для операций проекта." if uv_ready else "uv не найден.",
             )
         )
 
@@ -88,9 +156,9 @@ class DoctorService:
             _check(
                 "project_environment",
                 python_env_status,
-                "Project .venv и Python найдены."
+                ".venv проекта и Python найдены."
                 if project_python_path.is_file()
-                else "Project .venv ещё не подготовлена.",
+                else ".venv проекта ещё не подготовлена.",
             )
         )
 
@@ -109,6 +177,9 @@ class DoctorService:
             )
         )
 
+        runtime_status, runtime_message = self._runtime_check(root)
+        checks.append(_check("runtime", runtime_status, runtime_message))
+
         console_path = inspect_console_path(project_python_path)
         checks.append(
             _check(
@@ -116,7 +187,7 @@ class DoctorService:
                 CapabilityStatus.READY
                 if console_path.installed
                 else CapabilityStatus.NOT_CONFIGURED,
-                "Console script установлен в project environment."
+                "Консольная команда установлена в окружении проекта."
                 if console_path.installed
                 else console_path.message,
             )
@@ -138,23 +209,21 @@ class DoctorService:
                 else CapabilityStatus.NOT_CONFIGURED,
                 "ADB найден."
                 if adb.is_file()
-                else "ADB не настроен; doctor не выполняет device action.",
+                else "ADB не настроен; doctor не выполняет действий с устройством.",
             )
         )
-        compose = root / "infrastructure" / "observability" / "compose.yaml"
-        env_file = root / ".env"
-        docker_ready = bool(
-            shutil.which("docker") and compose.is_file() and env_file.is_file()
-        )
+        if shutil.which("docker.exe") or shutil.which("docker"):
+            infrastructure = self.infrastructure.inspect(root, settings)
+            docker_status = infrastructure.compose
+            docker_message = infrastructure.message
+        else:
+            docker_status = CapabilityStatus.UNAVAILABLE
+            docker_message = "Docker CLI не найден в текущей среде."
         checks.append(
             _check(
                 "docker",
-                CapabilityStatus.READY
-                if docker_ready
-                else CapabilityStatus.UNAVAILABLE,
-                "Docker Compose contract доступен."
-                if docker_ready
-                else "Docker Compose capability недоступна в текущей среде.",
+                docker_status,
+                docker_message,
             )
         )
 
@@ -185,7 +254,7 @@ class DoctorService:
                     message=console_path.message,
                 )
             )
-        if not docker_ready:
+        if docker_status is not CapabilityStatus.READY:
             warnings.append(
                 ToolingWarning(
                     code=WarningCode.TOOLING_POSTGRES_UNAVAILABLE,

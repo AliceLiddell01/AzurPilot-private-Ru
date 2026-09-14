@@ -2,7 +2,7 @@
 
 Эти модели являются границей между сервисами, CLI и будущими transport adapters.
 Свободные словари намеренно не используются в operation payload: добавление
-неизвестного поля должно быть заметно в тестах и при чтении machine output.
+неизвестного поля должно быть заметно в тестах и при чтении машинного вывода.
 """
 
 from __future__ import annotations
@@ -39,12 +39,21 @@ class ResultCode(_StrEnum):
     TOOLING_REPOSITORY_INVALID = "TOOLING_REPOSITORY_INVALID"
     TOOLING_REPOSITORY_AMBIGUOUS = "TOOLING_REPOSITORY_AMBIGUOUS"
     TOOLING_PRECONDITION_FAILED = "TOOLING_PRECONDITION_FAILED"
+    TOOLING_REMOTE_IDENTITY_UNVERIFIED = "TOOLING_REMOTE_IDENTITY_UNVERIFIED"
+    TOOLING_BACKUP_REQUIRED = "TOOLING_BACKUP_REQUIRED"
+    TOOLING_BACKUP_FAILED = "TOOLING_BACKUP_FAILED"
     TOOLING_CAPABILITY_UNAVAILABLE = "TOOLING_CAPABILITY_UNAVAILABLE"
     TOOLING_CAPABILITY_UNSUPPORTED = "TOOLING_CAPABILITY_UNSUPPORTED"
     TOOLING_OPERATION_CONFLICT = "TOOLING_OPERATION_CONFLICT"
+    TOOLING_TRANSACTION_RECOVERY_REQUIRED = "TOOLING_TRANSACTION_RECOVERY_REQUIRED"
     TOOLING_PORT_CONFLICT = "TOOLING_PORT_CONFLICT"
     TOOLING_TIMEOUT = "TOOLING_TIMEOUT"
     TOOLING_CANCELLED = "TOOLING_CANCELLED"
+    TOOLING_PROCESS_EXITED = "TOOLING_PROCESS_EXITED"
+    TOOLING_CLEANUP_UNKNOWN = "TOOLING_CLEANUP_UNKNOWN"
+    TOOLING_INFRASTRUCTURE_FAILED = "TOOLING_INFRASTRUCTURE_FAILED"
+    TOOLING_ADB_FAILED = "TOOLING_ADB_FAILED"
+    TOOLING_SHORTCUT_FAILED = "TOOLING_SHORTCUT_FAILED"
     TOOLING_DEPENDENCY_UNAVAILABLE = "TOOLING_DEPENDENCY_UNAVAILABLE"
     TOOLING_APPLY_FAILED_ROLLED_BACK = "TOOLING_APPLY_FAILED_ROLLED_BACK"
     TOOLING_REPAIR_REQUIRED = "TOOLING_REPAIR_REQUIRED"
@@ -69,11 +78,12 @@ class OperationState(_StrEnum):
     CONFLICT = "conflict"
     FAILED = "failed"
     ROLLED_BACK = "rolled_back"
+    IN_FLIGHT = "in_flight"
     UNKNOWN = "unknown"
 
 
 class CapabilityStatus(_StrEnum):
-    """Состояние optional capability."""
+    """Состояние необязательной возможности."""
 
     READY = "ready"
     NOT_CONFIGURED = "not_configured"
@@ -83,7 +93,7 @@ class CapabilityStatus(_StrEnum):
 
 
 class RootSource(_StrEnum):
-    """Происхождение repository root."""
+    """Источник корня репозитория."""
 
     EXPLICIT = "explicit"
     CONFIGURED = "configured"
@@ -91,13 +101,14 @@ class RootSource(_StrEnum):
 
 
 class WarningCode(_StrEnum):
-    """Bounded предупреждения, не меняющие основной result code."""
+    """Ограниченные предупреждения, не меняющие основной код результата."""
 
     TOOLING_ADB_NOT_CONFIGURED = "TOOLING_ADB_NOT_CONFIGURED"
     TOOLING_CLI_NOT_ON_PATH = "TOOLING_CLI_NOT_ON_PATH"
     TOOLING_SHORTCUT_UNSUPPORTED = "TOOLING_SHORTCUT_UNSUPPORTED"
     TOOLING_POSTGRES_UNAVAILABLE = "TOOLING_POSTGRES_UNAVAILABLE"
     TOOLING_POSTGRES_BACKUP_NOT_RUN = "TOOLING_POSTGRES_BACKUP_NOT_RUN"
+    TOOLING_CADDY_NOT_CONFIGURED = "TOOLING_CADDY_NOT_CONFIGURED"
     TOOLING_BROWSER_NOT_OPENED = "TOOLING_BROWSER_NOT_OPENED"
     TOOLING_OUTPUT_TRUNCATED = "TOOLING_OUTPUT_TRUNCATED"
     TOOLING_LEGACY_COMPATIBILITY = "TOOLING_LEGACY_COMPATIBILITY"
@@ -149,6 +160,28 @@ class DoctorEvidence(ClosedModel):
     platform: str = Field(min_length=1, max_length=80)
 
 
+class RemoteIdentityEvidence(ClosedModel):
+    """Безопасное доказательство канонической идентичности без публикации учётных данных URL."""
+
+    configured: str = Field(min_length=1, max_length=256)
+    actual: str = Field(min_length=1, max_length=256)
+    equivalent: bool
+    tracking: str = Field(min_length=1, max_length=256)
+    upstream_push_policy: str = Field(min_length=1, max_length=80)
+
+
+class PostgreSqlBackupEvidence(ClosedModel):
+    """Минимальные сведения о логической резервной копии; абсолютный путь намеренно не хранится."""
+
+    backup_id: str = Field(min_length=8, max_length=120)
+    format: str = Field(default="custom", min_length=1, max_length=40)
+    validated: bool
+    external: bool
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    pre_head: str = Field(pattern=r"^[0-9a-f]{40,64}$")
+    provenance: str = Field(min_length=16, max_length=64)
+
+
 class ProcessEvidence(ClosedModel):
     pid: int | None = Field(default=None, ge=1)
     started_at: float | None = None
@@ -159,7 +192,7 @@ class ProcessEvidence(ClosedModel):
 
 
 class LifecycleRecord(ClosedModel):
-    """Внутренний state-файл lifecycle, содержащий полную ownership identity."""
+    """Внутренний файл состояния lifecycle, содержащий полную идентичность владения."""
 
     schema_version: int = Field(default=1, ge=1, le=1)
     root_identity: str = Field(
@@ -180,6 +213,8 @@ class LifecycleDetails(ClosedModel):
     pid: int | None = Field(default=None, ge=1)
     port: int = Field(ge=1, le=65535)
     readiness: str = Field(min_length=1, max_length=80)
+    cleanup_confirmed: bool = True
+    exit_status: int | None = None
 
 
 class LifecycleEvidence(ClosedModel):
@@ -196,6 +231,8 @@ class BuildDetails(ClosedModel):
     adb_status: CapabilityStatus
     console_script: CapabilityStatus
     path_registration: CapabilityStatus
+    adb_version: str | None = Field(default=None, max_length=40)
+    shortcut_status: CapabilityStatus = CapabilityStatus.UNSUPPORTED
 
 
 class BuildEvidence(ClosedModel):
@@ -210,6 +247,9 @@ class RepairDetails(ClosedModel):
     diagnostic_only: bool
     issues: tuple[str, ...] = Field(max_length=16)
     repaired: bool
+    recovery_reason: str | None = Field(default=None, max_length=120)
+    ownership_state: str | None = Field(default=None, max_length=40)
+    shortcut_status: CapabilityStatus = CapabilityStatus.UNSUPPORTED
 
 
 class RepairEvidence(ClosedModel):
@@ -225,6 +265,10 @@ class UpdateDetails(ClosedModel):
     remote: str = Field(min_length=1, max_length=80)
     dependency_changed: bool
     fast_forwarded: bool
+    backup_required: bool = False
+    backup_validated: bool = False
+    transaction_phase: str | None = Field(default=None, max_length=40)
+    recovery_action: str | None = Field(default=None, max_length=120)
 
 
 class UpdateEvidence(ClosedModel):
@@ -233,6 +277,8 @@ class UpdateEvidence(ClosedModel):
     post_head: str = Field(pattern=r"^[0-9a-f]{40,64}$")
     remote_head: str = Field(pattern=r"^[0-9a-f]{40,64}$")
     transaction_id: str | None = Field(default=None, max_length=80)
+    remote_identity: RemoteIdentityEvidence | None = None
+    postgres_backup: PostgreSqlBackupEvidence | None = None
 
 
 class GitEvidence(ClosedModel):
@@ -256,6 +302,15 @@ class TransactionJournal(ClosedModel):
     target_head: str | None = Field(default=None, max_length=64)
     backup_present: bool = False
     updated_at: str = Field(min_length=1, max_length=40)
+    candidate_path: str | None = Field(default=None, max_length=1024)
+    backup_path: str | None = Field(default=None, max_length=1024)
+    venv_path: str | None = Field(default=None, max_length=1024)
+    previous_path: str | None = Field(default=None, max_length=1024)
+    remote_name: str | None = Field(default=None, max_length=80)
+    remote_branch: str | None = Field(default=None, max_length=256)
+    backup_id: str | None = Field(default=None, max_length=120)
+    failure_reason: str | None = Field(default=None, max_length=240)
+    ownership_confirmed: bool = False
 
 
 class ToolingResult[TDetails: BaseModel, TEvidence: BaseModel](ClosedModel):
@@ -273,7 +328,7 @@ class ToolingResult[TDetails: BaseModel, TEvidence: BaseModel](ClosedModel):
 
 
 def exit_code_for(code: ResultCode, ok: bool = False) -> ExitCode:
-    """Преобразовать result code в стабильную категорию процесса."""
+    """Преобразовать код результата в стабильную категорию процесса."""
 
     if ok or code is ResultCode.OK:
         return ExitCode.SUCCESS
@@ -284,6 +339,9 @@ def exit_code_for(code: ResultCode, ok: bool = False) -> ExitCode:
         ResultCode.TOOLING_PORT_CONFLICT,
         ResultCode.TOOLING_UPDATE_LOCAL_AHEAD,
         ResultCode.TOOLING_UPDATE_DIVERGED,
+        ResultCode.TOOLING_REMOTE_IDENTITY_UNVERIFIED,
+        ResultCode.TOOLING_TRANSACTION_RECOVERY_REQUIRED,
+        ResultCode.TOOLING_CLEANUP_UNKNOWN,
     }:
         return ExitCode.OWNERSHIP_CONFLICT
     if code in {ResultCode.TOOLING_TIMEOUT, ResultCode.TOOLING_CANCELLED}:
@@ -292,6 +350,11 @@ def exit_code_for(code: ResultCode, ok: bool = False) -> ExitCode:
         ResultCode.TOOLING_DEPENDENCY_UNAVAILABLE,
         ResultCode.TOOLING_CAPABILITY_UNAVAILABLE,
         ResultCode.TOOLING_CAPABILITY_UNSUPPORTED,
+        ResultCode.TOOLING_BACKUP_REQUIRED,
+        ResultCode.TOOLING_BACKUP_FAILED,
+        ResultCode.TOOLING_INFRASTRUCTURE_FAILED,
+        ResultCode.TOOLING_ADB_FAILED,
+        ResultCode.TOOLING_SHORTCUT_FAILED,
     }:
         return ExitCode.DEPENDENCY_UNAVAILABLE
     if code is ResultCode.TOOLING_APPLY_FAILED_ROLLED_BACK:
@@ -320,7 +383,9 @@ __all__ = [
     "LifecycleEvidence",
     "LifecycleRecord",
     "OperationState",
+    "PostgreSqlBackupEvidence",
     "ProcessEvidence",
+    "RemoteIdentityEvidence",
     "RepairDetails",
     "RepairEvidence",
     "RepositoryDetails",

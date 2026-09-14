@@ -1,4 +1,4 @@
-"""Проверка и user-level регистрация project console script."""
+"""Проверка и регистрация консольной команды проекта на уровне пользователя."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ _WINDOWS_SMTO_ABORT_IF_HUNG = 0x0002
 
 @dataclass(frozen=True)
 class ConsolePathStatus:
-    """Bounded состояние installable script без публикации абсолютного пути."""
+    """Ограниченное состояние устанавливаемого скрипта без публикации абсолютного пути."""
 
     installed: bool
     current_shell: bool
@@ -30,7 +30,7 @@ class ConsolePathStatus:
 
 
 def console_script_path(python_executable: Path) -> Path:
-    """Получить script рядом с project Python executable."""
+    """Получить скрипт рядом с исполняемым файлом Python проекта."""
 
     name = "azur.exe" if os.name == "nt" else "azur"
     return canonical_path(python_executable.parent / name)
@@ -98,7 +98,7 @@ def _read_user_path() -> tuple[str, int]:
     if not isinstance(value, str) or len(value) > _MAX_USER_PATH_BYTES:
         raise ToolingError(
             ResultCode.TOOLING_PRECONDITION_FAILED,
-            "Пользовательский PATH превышает безопасный bounded размер.",
+            "Пользовательский PATH превышает безопасный ограниченный размер.",
         )
     return value, int(value_type)
 
@@ -124,7 +124,7 @@ def _broadcast_environment_change() -> None:
 
 
 def inspect_console_path(python_executable: Path) -> ConsolePathStatus:
-    """Проверить установку script и его доступность в текущем/user PATH."""
+    """Проверить установку скрипта и его доступность в текущем пользовательском PATH."""
 
     script = console_script_path(python_executable)
     installed = script.is_file()
@@ -142,7 +142,7 @@ def inspect_console_path(python_executable: Path) -> ConsolePathStatus:
             current_shell=False,
             user_scope=user_scope,
             status=CapabilityStatus.NOT_CONFIGURED,
-            message="Console script не найден; требуется установка package.",
+            message="Консольная команда не найдена; требуется установка пакета.",
         )
     if current_shell:
         return ConsolePathStatus(
@@ -150,7 +150,7 @@ def inspect_console_path(python_executable: Path) -> ConsolePathStatus:
             current_shell=True,
             user_scope=user_scope,
             status=CapabilityStatus.READY,
-            message="Console script project environment доступен через PATH текущего shell.",
+            message="Консольная команда доступна через PATH текущей оболочки проекта.",
         )
     if user_scope:
         return ConsolePathStatus(
@@ -158,19 +158,19 @@ def inspect_console_path(python_executable: Path) -> ConsolePathStatus:
             current_shell=False,
             user_scope=True,
             status=CapabilityStatus.READY,
-            message="Console script зарегистрирован в user PATH; откройте новый shell.",
+            message="Консольная команда зарегистрирована в PATH пользователя; откройте новую оболочку.",
         )
     return ConsolePathStatus(
         installed=True,
         current_shell=False,
         user_scope=user_scope,
         status=CapabilityStatus.NOT_CONFIGURED,
-        message="Console script установлен, но не зарегистрирован в PATH.",
+        message="Консольная команда установлена, но не зарегистрирована в PATH.",
     )
 
 
 def register_console_path(python_executable: Path) -> ConsolePathStatus:
-    """Зарегистрировать project bin только в user PATH, если это поддержано."""
+    """Зарегистрировать каталог команд проекта только в PATH пользователя, если это поддержано."""
 
     before = inspect_console_path(python_executable)
     if not before.installed:
@@ -183,12 +183,12 @@ def register_console_path(python_executable: Path) -> ConsolePathStatus:
             status=(
                 CapabilityStatus.READY
                 if before.current_shell
-                else CapabilityStatus.UNSUPPORTED
+                else CapabilityStatus.NOT_CONFIGURED
             ),
             message=(
                 before.message
                 if before.current_shell
-                else "Автоматическая регистрация PATH не имеет единого shell-контракта на POSIX."
+                else "Автоматическая регистрация PATH не имеет единого контракта оболочки на POSIX."
             ),
         )
 
@@ -197,7 +197,7 @@ def register_console_path(python_executable: Path) -> ConsolePathStatus:
         if path_has_link(directory) or not directory.is_dir():
             raise ToolingError(
                 ResultCode.TOOLING_PRECONDITION_FAILED,
-                "Каталог console script имеет небезопасный тип.",
+                "Каталог консольной команды имеет небезопасный тип.",
             )
         old_path, value_type = _read_user_path()
         entries = old_path.split(os.pathsep) if old_path else []
@@ -206,7 +206,7 @@ def register_console_path(python_executable: Path) -> ConsolePathStatus:
             if len(new_path) > _MAX_USER_PATH_BYTES:
                 raise ToolingError(
                     ResultCode.TOOLING_PRECONDITION_FAILED,
-                    "Пользовательский PATH превысит безопасный bounded размер.",
+                    "Пользовательский PATH превысит безопасный ограниченный размер.",
                 )
             import winreg
 
@@ -222,7 +222,7 @@ def register_console_path(python_executable: Path) -> ConsolePathStatus:
         if not _contains_in_path(after_path, directory):
             raise ToolingError(
                 ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                "Регистрация console script в user PATH не подтверждена.",
+                "Регистрация консольной команды в PATH пользователя не подтверждена.",
             )
     except (AttributeError, ImportError, OSError, ToolingError, TypeError, ValueError):
         return ConsolePathStatus(
@@ -230,7 +230,7 @@ def register_console_path(python_executable: Path) -> ConsolePathStatus:
             current_shell=before.current_shell,
             user_scope=False,
             status=CapabilityStatus.FAILED,
-            message="Не удалось зарегистрировать console script в user PATH.",
+            message="Не удалось зарегистрировать консольную команду в PATH пользователя.",
         )
 
     return inspect_console_path(python_executable)

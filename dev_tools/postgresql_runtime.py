@@ -1,4 +1,4 @@
-"""Fail-closed эксплуатационные команды production PostgreSQL."""
+"""Эксплуатационные команды PostgreSQL с fail-closed поведением."""
 
 from __future__ import annotations
 
@@ -29,6 +29,7 @@ from module.persistence.database import LazyEngine, StorageHealthChecker
 from module.persistence.local_environment import load_local_postgres_environment
 from module.persistence.schema import EXPECTED_ALEMBIC_HEAD
 from tools.paths import REPOSITORY_ROOT
+from azurpilot.tooling.filesystem import is_unsafe_path, path_has_link
 
 _REPOSITORY_ROOT = REPOSITORY_ROOT
 
@@ -57,6 +58,43 @@ def _run_hidden(
         raise RuntimeError("Эксплуатационная команда PostgreSQL завершилась ошибкой.")
 
 
+def _backup_process_environment(*, passfile: str | None = None) -> dict[str, str]:
+    """Передать процессу резервного копирования только системные переменные и PGPASSFILE."""
+
+    allowed = {
+        "PATH",
+        "PATHEXT",
+        "SYSTEMROOT",
+        "WINDIR",
+        "ProgramData",
+        "ProgramFiles",
+        "ProgramFiles(x86)",
+        "CommonProgramFiles",
+        "CommonProgramFiles(x86)",
+        "PROGRAMDATA",
+        "PROGRAMFILES",
+        "PROGRAMFILES(X86)",
+        "COMMONPROGRAMFILES",
+        "COMMONPROGRAMFILES(X86)",
+        "TEMP",
+        "TMP",
+        "TMPDIR",
+        "HOME",
+        "USERPROFILE",
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+    }
+    environment = {
+        key: value for key, value in os.environ.items() if key in allowed
+    }
+    if passfile:
+        environment["PGPASSFILE"] = passfile
+    return environment
+
+
 def _pg_dump_arguments(settings: DatabaseSettings) -> list[str]:
     return [
         "--host",
@@ -83,7 +121,7 @@ def _wsl_path(path: Path) -> str:
 def _docker_executable() -> str:
     executable = shutil.which("docker.exe") or shutil.which("docker")
     if executable is None:
-        raise RuntimeError("Docker CLI недоступен для PostgreSQL backup.")
+        raise RuntimeError("Docker CLI недоступен для резервного копирования PostgreSQL.")
     return executable
 
 
@@ -118,13 +156,14 @@ def _require_docker_endpoint(
 ) -> None:
     if marker_settings.host not in {"127.0.0.1", "localhost", "::1"}:
         raise StorageConfigurationError(
-            "Docker PostgreSQL endpoint marker не ограничен loopback."
+            "Конечная точка PostgreSQL из маркера Docker не ограничена loopback."
         )
     options: dict[str, object] = {}
     if os.name == "nt":
         options["creationflags"] = subprocess.CREATE_NO_WINDOW
     result = subprocess.run(
         _compose_arguments(repository_root, "port", "postgres", "5432"),
+        env=_backup_process_environment(),
         stdin=subprocess.DEVNULL,
         capture_output=True,
         text=True,
@@ -133,31 +172,34 @@ def _require_docker_endpoint(
         **options,
     )
     if result.returncode != 0:
-        raise RuntimeError("Docker Compose PostgreSQL endpoint недоступен.")
+        raise RuntimeError("Конечная точка PostgreSQL Docker Compose недоступна.")
     bindings = [line.strip() for line in result.stdout.splitlines() if line.strip()]
     if not bindings:
-        raise RuntimeError("Docker Compose PostgreSQL endpoint не опубликован.")
+        raise RuntimeError("Конечная точка PostgreSQL Docker Compose не опубликована.")
     for binding in bindings:
         host_port = binding.rsplit(":", 1)
         if len(host_port) != 2:
             raise StorageConfigurationError(
-                "Docker PostgreSQL endpoint не совпадает с production marker."
+                "Конечная точка PostgreSQL Docker не совпадает с рабочим маркером."
             )
         host = host_port[0].strip("[]")
         try:
             port = int(host_port[1])
         except ValueError as exc:
             raise StorageConfigurationError(
-                "Docker PostgreSQL endpoint содержит некорректный port."
+                "Конечная точка PostgreSQL Docker содержит некорректный порт."
             ) from exc
         if host not in {"127.0.0.1", "localhost", "::1"} or port != marker_settings.port:
             raise StorageConfigurationError(
-                "Docker PostgreSQL endpoint не совпадает с production marker."
+                "Конечная точка PostgreSQL Docker не совпадает с рабочим маркером."
             )
 
 
 def _validate_external_output(output: Path, repository_root: Path) -> Path:
-    output = output.resolve()
+    output = Path(output).expanduser()
+    if path_has_link(output) or path_has_link(output.parent):
+        raise RuntimeError("Путь резервной копии PostgreSQL содержит symlink или reparse point.")
+    output = output.resolve(strict=False)
     repository_root = repository_root.resolve(strict=True)
     try:
         output.relative_to(repository_root)
@@ -166,7 +208,9 @@ def _validate_external_output(output: Path, repository_root: Path) -> Path:
     else:
         raise RuntimeError("Резервная копия PostgreSQL должна находиться вне репозитория.")
     output.parent.mkdir(parents=True, exist_ok=True)
-    if output.exists():
+    if is_unsafe_path(output) or not output.parent.is_dir():
+        raise RuntimeError("Каталог резервной копии PostgreSQL небезопасен.")
+    if os.path.lexists(str(output)):
         raise RuntimeError("Файл резервной копии уже существует.")
     return output
 
@@ -180,10 +224,10 @@ def _backup(
     transport: str = "docker",
 ) -> None:
     output = _validate_external_output(output, repository_root)
-    environment = os.environ.copy()
-    environment.pop("PGPASSWORD", None)
-    environment.pop("AZURPILOT_POSTGRES_PASSWORD", None)
-    environment.pop("AZURPILOT_POSTGRES_MIGRATOR_PASSWORD", None)
+    passfile = os.environ.get("AZURPILOT_POSTGRES_MIGRATOR_PGPASSFILE") or os.environ.get(
+        "AZURPILOT_POSTGRES_PGPASSFILE"
+    )
+    environment = _backup_process_environment(passfile=passfile)
 
     if transport == "docker":
         _require_docker_endpoint(settings, repository_root)
@@ -217,16 +261,11 @@ def _backup(
         if transport == "native":
             native = shutil.which("pg_dump")
             if native is None:
-                raise RuntimeError("Native pg_dump недоступен для PostgreSQL backup.")
-            passfile = environment.get(
-                "AZURPILOT_POSTGRES_MIGRATOR_PGPASSFILE"
-            ) or environment.get("AZURPILOT_POSTGRES_PGPASSFILE")
-            if passfile:
-                environment["PGPASSFILE"] = passfile
+                raise RuntimeError("Системный pg_dump недоступен для резервного копирования PostgreSQL.")
             arguments = [native, *_pg_dump_arguments(maintenance)]
             restore = shutil.which("pg_restore")
             if restore is None:
-                raise RuntimeError("Native pg_restore недоступен для PostgreSQL backup.")
+                raise RuntimeError("Системный pg_restore недоступен для резервного копирования PostgreSQL.")
             restore_arguments = [restore, "--list", "{temporary}"]
         else:
             arguments = [
@@ -249,7 +288,7 @@ def _backup(
                 "{temporary_wsl}",
             ]
     else:
-        raise ValueError("Транспорт PostgreSQL backup не поддерживается.")
+        raise ValueError("Транспорт резервного копирования PostgreSQL не поддерживается.")
 
     descriptor, temporary_name = tempfile.mkstemp(
         prefix=output.name + ".", suffix=".tmp", dir=output.parent
@@ -282,6 +321,36 @@ def _backup(
         temporary.unlink(missing_ok=True)
 
 
+def backup_for_repository(
+    repository_root: str | Path,
+    output: str | Path,
+    *,
+    transport: str = "docker",
+    distro: str = "Archlinux",
+) -> Path:
+    """Создать и проверить logical backup для произвольного checkout.
+
+    В отличие от CLI-обёртки функция не использует глобальный
+    ``tools.paths.REPOSITORY_ROOT``: это важно для disposable update fixtures.
+    Секреты берутся только canonical PostgreSQL seam и не попадают в argv.
+    """
+
+    raw_root = Path(repository_root).expanduser()
+    if path_has_link(raw_root):
+        raise RuntimeError("Корень репозитория для резервного копирования содержит symlink или reparse point.")
+    root = raw_root.resolve(strict=True)
+    marker = root / DEFAULT_BACKEND_MARKER_PATH
+    if path_has_link(marker) or not marker.is_file():
+        raise RuntimeError("Рабочий маркер backend отсутствует для резервного копирования.")
+    settings = DatabaseSettings.from_backend_marker(marker)
+    destination = Path(output).expanduser()
+    if path_has_link(destination) or path_has_link(destination.parent):
+        raise RuntimeError("Путь резервной копии PostgreSQL содержит symlink или reparse point.")
+    destination = destination.resolve(strict=False)
+    _backup(settings, destination, distro, root, transport=transport)
+    return destination
+
+
 def _resolve_marker(value: str | Path) -> Path:
     marker = Path(value)
     if marker == DEFAULT_BACKEND_MARKER_PATH:
@@ -306,11 +375,11 @@ def _require_upgrade_endpoint_match(
     marker_settings: DatabaseSettings,
     migrator_settings: DatabaseSettings,
 ) -> None:
-    """Разрешить только штатную migrator-роль на production marker endpoint."""
+    """Разрешить только штатную роль migrator на конечной точке рабочего маркера."""
 
     if migrator_settings.user != "azurpilot_migrator":
         raise StorageConfigurationError(
-            "Production schema upgrade требует роль azurpilot_migrator."
+            "Обновление рабочей схемы требует роль azurpilot_migrator."
         )
     if (
         marker_settings.host != migrator_settings.host
@@ -320,7 +389,7 @@ def _require_upgrade_endpoint_match(
         or marker_settings.runtime_timezone != migrator_settings.runtime_timezone
     ):
         raise StorageConfigurationError(
-            "Migrator endpoint не совпадает с production backend marker."
+            "Конечная точка migrator не совпадает с рабочим маркером backend."
         )
 
 
@@ -333,7 +402,7 @@ def _require_upgrade_marker_revision(
     scripts = ScriptDirectory.from_config(configuration)
     if set(scripts.get_heads()) != {EXPECTED_ALEMBIC_HEAD}:
         raise StorageConfigurationError(
-            "Alembic graph не соответствует ожидаемому production schema head."
+            "Граф Alembic не соответствует ожидаемому заголовку рабочей схемы."
         )
     allowed_revisions = {
         script.revision
@@ -343,7 +412,7 @@ def _require_upgrade_marker_revision(
     allowed_revisions.add(EXPECTED_ALEMBIC_HEAD)
     if marker_head not in allowed_revisions:
         raise StorageConfigurationError(
-            "Production backend marker содержит неизвестный или недопустимый schema head."
+            "Рабочий маркер backend содержит неизвестный или недопустимый заголовок схемы."
         )
 
 
@@ -402,7 +471,7 @@ def _upgrade(
 
 
 def _run_schema_upgrade_process(marker: Path) -> None:
-    """Выполнить migrator upgrade в отдельном процессе, не меняя app environment."""
+    """Выполнить обновление migrator в отдельном процессе, не меняя среду приложения."""
 
     environment = os.environ.copy()
     environment["PYTHONUTF8"] = "1"
@@ -435,21 +504,21 @@ def _run_schema_upgrade_process(marker: Path) -> None:
         )
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError(
-            "Штатный schema upgrade PostgreSQL превысил 180 секунд."
+            "Штатное обновление схемы PostgreSQL превысило 180 секунд."
         ) from exc
     if result.returncode != 0:
         details = (result.stderr or result.stdout).strip()
-        if details.startswith("Ошибка production PostgreSQL:"):
-            details = details.removeprefix("Ошибка production PostgreSQL:").strip()
+        if details.startswith("Ошибка рабочего PostgreSQL:"):
+            details = details.removeprefix("Ошибка рабочего PostgreSQL:").strip()
         if not details:
             details = f"код завершения {result.returncode}"
-        raise RuntimeError(f"Штатный schema upgrade PostgreSQL не выполнен: {details}")
+        raise RuntimeError(f"Штатное обновление схемы PostgreSQL не выполнено: {details}")
 
 
 def _prepare(
     marker: Path = _REPOSITORY_ROOT / DEFAULT_BACKEND_MARKER_PATH,
 ) -> None:
-    """Подготовить production PostgreSQL к запуску без смешивания app/migrator ролей."""
+    """Подготовить рабочий PostgreSQL к запуску без смешивания ролей приложения и migrator."""
 
     local = load_local_postgres_environment(
         _REPOSITORY_ROOT / ".env",
@@ -469,20 +538,20 @@ def _prepare(
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Эксплуатационные команды production PostgreSQL AzurPilot."
+        description="Эксплуатационные команды рабочего PostgreSQL AzurPilot."
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    health = subparsers.add_parser("health", help="Проверить marker, доступ и schema head.")
+    health = subparsers.add_parser("health", help="Проверить маркер, доступ и заголовок схемы.")
     health.add_argument("--marker", default=str(DEFAULT_BACKEND_MARKER_PATH))
 
     prepare = subparsers.add_parser(
         "prepare",
-        help="Подготовить schema и проверить app-доступ перед запуском.",
+        help="Подготовить схему и проверить доступ приложения перед запуском.",
     )
     prepare.add_argument("--marker", default=str(DEFAULT_BACKEND_MARKER_PATH))
 
-    backup = subparsers.add_parser("backup", help="Создать проверяемый custom dump.")
+    backup = subparsers.add_parser("backup", help="Создать проверяемый пользовательский дамп.")
     backup.add_argument("--marker", default=str(DEFAULT_BACKEND_MARKER_PATH))
     backup.add_argument("--output", required=True)
     backup.add_argument("--distro", default="Archlinux")
@@ -490,7 +559,7 @@ def _parser() -> argparse.ArgumentParser:
         "--transport",
         choices=("docker", "native", "wsl"),
         default="docker",
-        help="Источник pg_dump: Docker Compose по умолчанию или rollback-транспорт.",
+        help="Источник pg_dump: Docker Compose по умолчанию или транспорт отката.",
     )
     backup.add_argument("--repository-root", default=".")
 
@@ -529,14 +598,14 @@ def main(argv: list[str] | None = None) -> int:
             raise RuntimeError("Неизвестная эксплуатационная команда.")
     except (CommandError, SQLAlchemyError):
         print(
-            "Ошибка production PostgreSQL: операция с базой данных завершилась ошибкой.",
+            "Ошибка рабочего PostgreSQL: операция с базой данных завершилась ошибкой.",
             file=sys.stderr,
         )
         return 1
     except (OSError, RuntimeError, StorageError, ValueError) as exc:
-        print(f"Ошибка production PostgreSQL: {exc}", file=sys.stderr)
+        print(f"Ошибка рабочего PostgreSQL: {exc}", file=sys.stderr)
         return 1
-    print("Операция production PostgreSQL завершена успешно.")
+    print("Операция рабочего PostgreSQL завершена успешно.")
     return 0
 
 

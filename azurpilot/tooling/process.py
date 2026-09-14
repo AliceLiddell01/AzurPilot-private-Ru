@@ -1,4 +1,4 @@
-"""Структурированный запуск процессов с bounded output и ownership evidence."""
+"""Структурированный запуск процессов с ограниченным выводом и доказательством владения."""
 
 from __future__ import annotations
 
@@ -58,7 +58,7 @@ def _redact_argument(value: str) -> str:
 
 
 def _is_absolute_path(value: str) -> bool:
-    """Распознать POSIX, Windows drive и UNC paths без раскрытия значения."""
+    """Распознать POSIX-, Windows- и UNC-пути без раскрытия значения."""
 
     return os.path.isabs(value) or bool(
         re.match(r"^(?:[A-Za-z]:[\\/]|\\\\)", value)
@@ -66,7 +66,7 @@ def _is_absolute_path(value: str) -> bool:
 
 
 def _windows_venv_runtime(executable: Path) -> Path | None:
-    """Найти реальный Python runtime за Windows venv redirector."""
+    """Найти фактическую среду Python за перенаправителем Windows venv."""
 
     if os.name != "nt":
         return None
@@ -109,14 +109,14 @@ def _windows_venv_runtime(executable: Path) -> Path | None:
 
 
 def public_argv(argv: Sequence[str]) -> tuple[str, ...]:
-    """Сделать argv пригодным для evidence, не публикуя очевидные secrets."""
+    """Сделать argv пригодным для доказательств, не публикуя очевидные секреты."""
 
     return tuple(_redact_argument(str(item)) for item in argv[:32])
 
 
 @dataclass(frozen=True)
 class ProcessSpec:
-    """Валидированная команда без shell parsing."""
+    """Проверенная команда без разбора через shell."""
 
     executable: str | Path
     argv: tuple[str, ...] = ()
@@ -134,7 +134,7 @@ class ProcessSpec:
         if self.timeout_seconds <= 0 or self.timeout_seconds > 24 * 60 * 60:
             raise ValueError("timeout_seconds должен быть положительным и ограниченным")
         if self.max_output_bytes <= 0 or self.max_output_bytes > 16 * 1024 * 1024:
-            raise ValueError("max_output_bytes должен быть bounded")
+            raise ValueError("max_output_bytes должен быть ограниченным")
         if any(not isinstance(item, str) or "\x00" in item for item in self.argv):
             raise ValueError("argv должен содержать безопасные строки")
         if any(len(item) > 4096 for item in self.argv):
@@ -177,7 +177,7 @@ class ProcessSpec:
 
     @property
     def launch_environment(self) -> dict[str, str]:
-        """Собрать окружение и связать base runtime с ожидаемым venv."""
+        """Собрать окружение и связать базовую среду выполнения с ожидаемым venv."""
 
         resolved = self.resolved_executable
         runtime = _windows_venv_runtime(resolved)
@@ -279,7 +279,7 @@ class ProcessResult:
 
 @dataclass
 class RunningProcess:
-    """Процесс, оставленный работать после bounded readiness wait."""
+    """Процесс, оставленный работать после ограниченного ожидания готовности."""
 
     process: subprocess.Popen[bytes]
     identity: ProcessIdentity
@@ -300,6 +300,16 @@ def _safe_environment(extra: Mapping[str, str]) -> dict[str, str]:
         "PATHEXT",
         "SYSTEMROOT",
         "WINDIR",
+        "ProgramData",
+        "ProgramFiles",
+        "ProgramFiles(x86)",
+        "CommonProgramFiles",
+        "CommonProgramFiles(x86)",
+        "PROGRAMDATA",
+        "PROGRAMFILES",
+        "PROGRAMFILES(X86)",
+        "COMMONPROGRAMFILES",
+        "COMMONPROGRAMFILES(X86)",
         "TEMP",
         "TMP",
         "TMPDIR",
@@ -332,15 +342,15 @@ def _safe_environment(extra: Mapping[str, str]) -> dict[str, str]:
         ):
             raise ValueError("недопустимое имя переменной окружения")
         if key not in allowed_explicit and not key.startswith(allowed_prefixes):
-            raise ValueError(f"переменная окружения {key!r} запрещена policy")
+            raise ValueError(f"переменная окружения {key!r} запрещена политикой")
         if len(key) > 128 or len(str(value)) > 4096:
-            raise ValueError("переменная окружения превышает bounded размер")
+            raise ValueError("переменная окружения превышает ограниченный размер")
         result[str(key)] = str(value)
     return result
 
 
 def safe_environment(extra: Mapping[str, str] | None = None) -> dict[str, str]:
-    """Вернуть bounded environment policy для внешнего canonical adapter."""
+    """Вернуть ограниченную политику окружения для внешнего канонического адаптера."""
 
     return _safe_environment(extra or {})
 
@@ -454,7 +464,7 @@ class StructuredProcessRunner:
     """Единая точка запуска Git, uv и project entrypoints."""
 
     def start(self, spec: ProcessSpec) -> RunningProcess:
-        """Создать долгоживущий process без shell и без неограниченного capture."""
+        """Создать долгоживущий процесс без shell и без неограниченного захвата вывода."""
 
         executable = spec.launch_executable
         creationflags = 0
@@ -513,7 +523,7 @@ class StructuredProcessRunner:
             _cleanup_process_instance(process)
             raise ProcessExecutionError(
                 code=ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                message="Не удалось подтвердить identity созданного процесса.",
+                message="Не удалось подтвердить идентичность созданного процесса.",
             ) from exc
 
         stdout_buffer = bytearray()

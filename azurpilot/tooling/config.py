@@ -14,7 +14,7 @@ from .filesystem import bounded_read_text, canonical_path
 
 @dataclass(frozen=True)
 class DeploySettings:
-    """Только значения, необходимые базовым operational services."""
+    """Только значения, необходимые базовым операционным службам."""
 
     source_path: Path | None
     webui_host: str = "127.0.0.1"
@@ -26,6 +26,11 @@ class DeploySettings:
     git_remote: str = "origin"
     git_branch: str = "personal/stable"
     repository_url: str | None = None
+    upstream_remote: str = "upstream"
+    upstream_push_url: str = "DISABLED"
+    postgres_backup_root: str | None = None
+    shortcut_path: str | None = None
+    shortcut_icon: str | None = None
 
 
 def _mapping(value: Any, label: str) -> dict[str, Any]:
@@ -34,7 +39,7 @@ def _mapping(value: Any, label: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ToolingError(
             ResultCode.TOOLING_PRECONDITION_FAILED,
-            f"Секция {label} должна быть mapping.",
+            f"Секция {label} должна быть отображением.",
         )
     return value
 
@@ -58,7 +63,7 @@ def _boolean(section: dict[str, Any], key: str, default: bool) -> bool:
     if not isinstance(value, bool):
         raise ToolingError(
             ResultCode.TOOLING_PRECONDITION_FAILED,
-            f"Параметр {key} должен быть boolean.",
+            f"Параметр {key} должен иметь логический тип.",
         )
     return value
 
@@ -74,7 +79,7 @@ def _port(section: dict[str, Any], key: str, default: int) -> int:
 
 
 def load_deploy_settings(root: Path, *, allow_template: bool = False) -> DeploySettings:
-    """Загрузить только безопасную operational subset из YAML."""
+    """Загрузить только безопасный набор операционных параметров из YAML."""
 
     root = canonical_path(root)
     config_path = root / "config" / "deploy.yaml"
@@ -99,7 +104,7 @@ def load_deploy_settings(root: Path, *, allow_template: bool = False) -> DeployS
     if not isinstance(document, dict):
         raise ToolingError(
             ResultCode.TOOLING_PRECONDITION_FAILED,
-            "Корень deploy YAML должен быть mapping.",
+            "Корень deploy YAML должен быть отображением.",
         )
     deploy = _mapping(document.get("Deploy"), "Deploy")
     python = _mapping(deploy.get("Python"), "Deploy.Python")
@@ -118,6 +123,11 @@ def load_deploy_settings(root: Path, *, allow_template: bool = False) -> DeployS
         git_remote=_string(git, "Remote", "origin") or "origin",
         git_branch=_string(git, "Branch", "personal/stable") or "personal/stable",
         repository_url=_string(git, "Repository"),
+        upstream_remote=_string(git, "UpstreamRemote", "upstream") or "upstream",
+        upstream_push_url=_string(git, "UpstreamPushUrl", "DISABLED") or "DISABLED",
+        postgres_backup_root=_string(git, "PostgreSqlBackupRoot"),
+        shortcut_path=_string(deploy, "ShortcutPath"),
+        shortcut_icon=_string(deploy, "ShortcutIcon"),
     )
 
 

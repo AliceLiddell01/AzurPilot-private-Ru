@@ -1,4 +1,4 @@
-"""Безопасные файловые примитивы и внешнее хранилище transaction journal."""
+"""Безопасные файловые примитивы и внешнее хранилище журнала транзакций."""
 
 from __future__ import annotations
 
@@ -20,16 +20,18 @@ from .errors import ToolingError
 
 MAX_FILE_BYTES = 16 * 1024 * 1024
 MAX_JOURNAL_BYTES = 256 * 1024
+MAX_TRANSACTION_ENTRIES = 128
+TERMINAL_TRANSACTION_RETENTION = 32
 
 
 def canonical_path(path: str | os.PathLike[str]) -> Path:
-    """Вернуть canonical path без доверия к текущему working directory."""
+    """Вернуть канонический путь без доверия к текущему рабочему каталогу."""
 
     return Path(path).expanduser().resolve(strict=False)
 
 
 def path_identity(path: Path) -> str:
-    """Стабильный неперсональный идентификатор пути для evidence/state."""
+    """Стабильный неперсональный идентификатор пути для доказательств и состояния."""
 
     value = os.path.normcase(str(canonical_path(path))).encode("utf-8")
     return hashlib.sha256(value).hexdigest()
@@ -47,7 +49,7 @@ def _is_reparse_or_symlink(path: Path) -> bool:
 
 
 def _contains_link(path: Path) -> bool:
-    """Проверить исходный путь до resolve, чтобы symlink не исчез из evidence."""
+    """Проверить исходный путь до resolve, чтобы symlink не исчез из доказательств."""
 
     current = Path(os.path.abspath(path))
     while True:
@@ -59,7 +61,7 @@ def _contains_link(path: Path) -> bool:
 
 
 def is_unsafe_path(path: str | os.PathLike[str]) -> bool:
-    """Проверить один filesystem object на symlink/reparse point."""
+    """Проверить один объект файловой системы на symlink/reparse point."""
 
     return _is_reparse_or_symlink(Path(path))
 
@@ -79,14 +81,14 @@ def _is_within(candidate: Path, parent: Path) -> bool:
 
 
 class ScopedPath:
-    """Проверка, что операция остаётся в разрешённом non-symlink scope."""
+    """Проверить, что операция остаётся в разрешённой области без symlink."""
 
     def __init__(self, root: Path) -> None:
         self.root = canonical_path(root)
         if not self.root.is_dir():
             raise ToolingError(
                 ResultCode.TOOLING_REPOSITORY_INVALID,
-                "Scope root не является каталогом.",
+                "Корень области не является каталогом.",
             )
 
     def resolve(
@@ -97,13 +99,13 @@ class ScopedPath:
         if _contains_link(raw_absolute):
             raise ToolingError(
                 ResultCode.TOOLING_PRECONDITION_FAILED,
-                "Symlink, junction или reparse point запрещён в файловом scope.",
+                "Symlink, junction или reparse point запрещён в файловой области.",
             )
         resolved = canonical_path(raw_absolute)
         if not _is_within(resolved, self.root):
             raise ToolingError(
                 ResultCode.TOOLING_PRECONDITION_FAILED,
-                "Файловая операция вышла за разрешённый scope.",
+                "Файловая операция вышла за разрешённую область.",
             )
         current = resolved
         missing: list[Path] = []
@@ -120,7 +122,7 @@ class ScopedPath:
         ):
             raise ToolingError(
                 ResultCode.TOOLING_PRECONDITION_FAILED,
-                "Symlink, junction или reparse point запрещён в файловом scope.",
+                "Symlink, junction или reparse point запрещён в файловой области.",
             )
         if not allow_missing and not resolved.exists():
             raise ToolingError(
@@ -225,6 +227,14 @@ def sha256_file(path: Path) -> str:
 
 
 def _default_state_base() -> Path:
+    def safe_base(value: Path) -> Path:
+        if path_has_link(value):
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "Корень состояния содержит symlink или reparse point.",
+            )
+        return canonical_path(value)
+
     configured = os.environ.get("AZURPILOT_STATE_HOME")
     if configured:
         candidate = Path(configured).expanduser()
@@ -233,23 +243,23 @@ def _default_state_base() -> Path:
                 ResultCode.TOOLING_PRECONDITION_FAILED,
                 "AZURPILOT_STATE_HOME должен быть абсолютным путём.",
             )
-        return canonical_path(candidate)
+        return safe_base(candidate)
     if os.name == "nt":
         base = os.environ.get("LOCALAPPDATA") or os.environ.get("PROGRAMDATA")
         if base:
-            return canonical_path(Path(base) / "AzurPilot")
+            return safe_base(Path(base) / "AzurPilot")
     xdg = os.environ.get("XDG_STATE_HOME")
     if xdg:
-        return canonical_path(Path(xdg) / "azurpilot")
+        return safe_base(Path(xdg) / "azurpilot")
     home = Path.home()
     if home:
-        return canonical_path(home / ".local" / "state" / "azurpilot")
-    return canonical_path(Path(tempfile.gettempdir()) / "azurpilot-state")
+        return safe_base(home / ".local" / "state" / "azurpilot")
+    return safe_base(Path(tempfile.gettempdir()) / "azurpilot-state")
 
 
 @dataclass(frozen=True)
 class StateLayout:
-    """Внешние locks/state/transactions для одной repository identity."""
+    """Внешние блокировки, состояние и транзакции для одной идентичности репозитория."""
 
     repository_root: Path
     base: Path
@@ -262,7 +272,7 @@ class StateLayout:
         if _is_within(base, root) or _is_within(root, base):
             raise ToolingError(
                 ResultCode.TOOLING_PRECONDITION_FAILED,
-                "State root не может пересекаться с repository root.",
+                "Корень состояния не может пересекаться с корнем репозитория.",
             )
         return cls(root, base, path_identity(root)[:24])
 
@@ -274,10 +284,18 @@ class StateLayout:
     def transactions_directory(self) -> Path:
         return self.repository_directory / "transactions"
 
+    @property
+    def backups_directory(self) -> Path:
+        return self.repository_directory / "backups"
+
+    @property
+    def bootstrap_cache_directory(self) -> Path:
+        return self.repository_directory / "bootstrap-cache"
+
     def path(self, name: str) -> Path:
         if not name or Path(name).name != name:
             raise ToolingError(
-                ResultCode.TOOLING_PRECONDITION_FAILED, "Недопустимое имя state-файла."
+                ResultCode.TOOLING_PRECONDITION_FAILED, "Недопустимое имя файла состояния."
             )
         return self.repository_directory / name
 
@@ -285,14 +303,29 @@ class StateLayout:
         if _contains_link(self.base):
             raise ToolingError(
                 ResultCode.TOOLING_PRECONDITION_FAILED,
-                "State root содержит symlink или reparse point.",
+                "Корень состояния содержит symlink или reparse point.",
             )
-        self.transactions_directory.mkdir(parents=True, exist_ok=True)
-        for directory in (self.repository_directory, self.transactions_directory):
+        directories = (
+            self.repository_directory,
+            self.transactions_directory,
+            self.backups_directory,
+            self.bootstrap_cache_directory,
+        )
+        for directory in directories:
+            if path_has_link(directory) or (
+                directory.exists() and not directory.is_dir()
+            ):
+                raise ToolingError(
+                    ResultCode.TOOLING_PRECONDITION_FAILED,
+                    "Каталог состояния имеет небезопасный тип.",
+                )
+        for directory in directories:
+            directory.mkdir(parents=True, exist_ok=True)
+        for directory in directories:
             if _is_reparse_or_symlink(directory) or not directory.is_dir():
                 raise ToolingError(
                     ResultCode.TOOLING_PRECONDITION_FAILED,
-                    "State directory имеет небезопасный тип.",
+                    "Каталог состояния имеет небезопасный тип.",
                 )
         return self.repository_directory
 
@@ -305,7 +338,7 @@ class JournalStore:
 
     def __init__(self, layout: StateLayout, operation: str) -> None:
         if not operation or "/" in operation or "\\" in operation:
-            raise ValueError("operation должен быть коротким идентификатором")
+            raise ValueError("Операция должна быть коротким идентификатором")
         self.layout = layout
         self.operation = operation
 
@@ -326,9 +359,44 @@ class JournalStore:
     def _directory(self, transaction_id: str) -> Path:
         if Path(transaction_id).name != transaction_id or len(transaction_id) > 80:
             raise ToolingError(
-                ResultCode.TOOLING_PRECONDITION_FAILED, "Недопустимый transaction id."
+                ResultCode.TOOLING_PRECONDITION_FAILED, "Недопустимый идентификатор транзакции."
             )
         return self.layout.transactions_directory / transaction_id
+
+    def _validate_journal_paths(
+        self, journal: TransactionJournal, directory: Path
+    ) -> None:
+        expected_venv = canonical_path(self.layout.repository_root / ".venv")
+        expected_paths = {
+            "candidate_path": canonical_path(directory / "candidate"),
+            "backup_path": canonical_path(directory / "venv-backup"),
+            "previous_path": canonical_path(directory / "venv-previous"),
+        }
+        if journal.venv_path is not None:
+            raw_venv = Path(journal.venv_path).expanduser()
+            if (
+                not raw_venv.is_absolute()
+                or path_has_link(raw_venv)
+                or canonical_path(raw_venv) != expected_venv
+            ):
+                raise ToolingError(
+                    ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                    "Журнал транзакции указывает на неожиданный путь `.venv`.",
+                )
+        for field, expected in expected_paths.items():
+            value = getattr(journal, field)
+            if value is None:
+                continue
+            raw_value = Path(value).expanduser()
+            if (
+                not raw_value.is_absolute()
+                or path_has_link(raw_value)
+                or canonical_path(raw_value) != expected
+            ):
+                raise ToolingError(
+                    ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                    "Журнал транзакции содержит неожиданный файловый путь.",
+                )
 
     def save(self, journal: TransactionJournal) -> Path:
         if journal.operation != self.operation:
@@ -336,12 +404,18 @@ class JournalStore:
                 ResultCode.TOOLING_PRECONDITION_FAILED,
                 "Журнал относится к другой операции.",
             )
+        if journal.root_identity != path_identity(self.layout.repository_root):
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "Журнал относится к другому корню репозитория.",
+            )
         self.layout.ensure()
         directory = self._directory(journal.transaction_id)
+        self._validate_journal_paths(journal, directory)
         if directory.exists() and _is_reparse_or_symlink(directory):
             raise ToolingError(
                 ResultCode.TOOLING_PRECONDITION_FAILED,
-                "Transaction directory содержит symlink или reparse point.",
+                "Каталог транзакции содержит symlink или reparse point.",
             )
         directory.mkdir(parents=True, exist_ok=True)
         scope = ScopedPath(directory)
@@ -351,45 +425,44 @@ class JournalStore:
         data = updated.model_dump_json(indent=2).encode("utf-8")
         return scope.atomic_write_bytes("journal.json", data)
 
-    def active(self) -> TransactionJournal | None:
+    def _read_entries(self) -> list[tuple[Path, TransactionJournal]]:
         root = self.layout.transactions_directory
         if _is_reparse_or_symlink(root):
             raise ToolingError(
                 ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                "Transaction root имеет небезопасный тип.",
+                "Корень транзакции имеет небезопасный тип.",
             )
         if not root.exists():
-            return None
+            return []
         if _is_reparse_or_symlink(root) or not root.is_dir():
             raise ToolingError(
                 ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                "Transaction root имеет небезопасный тип.",
+                "Корень транзакции имеет небезопасный тип.",
             )
         try:
             entries = sorted(root.iterdir())
         except OSError as exc:
             raise ToolingError(
                 ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                "Не удалось просмотреть transaction state.",
+                "Не удалось просмотреть состояние транзакции.",
             ) from exc
+        if len(entries) > MAX_TRANSACTION_ENTRIES:
+            raise ToolingError(
+                ResultCode.TOOLING_OPERATION_CONFLICT,
+                "Число каталогов транзакций превышает безопасный предел сканирования.",
+            )
         if any(not item.is_dir() or _is_reparse_or_symlink(item) for item in entries):
             raise ToolingError(
                 ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                "Transaction root содержит неожиданный или небезопасный объект.",
+                "Корень транзакции содержит неожиданный или небезопасный объект.",
             )
-        children = entries
-        if len(children) > 32:
-            raise ToolingError(
-                ResultCode.TOOLING_OPERATION_CONFLICT,
-                "Число transaction-каталогов превышает лимит.",
-            )
-        active: list[TransactionJournal] = []
-        for directory in children:
+        journals: list[tuple[Path, TransactionJournal]] = []
+        for directory in entries:
             journal_path = directory / "journal.json"
             if not journal_path.exists():
                 raise ToolingError(
                     ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                    "Обнаружен transaction-каталог без журнала; продолжение запрещено.",
+                    "Обнаружен каталог транзакции без журнала; продолжение запрещено.",
                 )
             try:
                 raw = bounded_read_text(journal_path, max_bytes=MAX_JOURNAL_BYTES)
@@ -397,12 +470,57 @@ class JournalStore:
             except Exception as exc:
                 raise ToolingError(
                     ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                    "Transaction journal повреждён или имеет неизвестную схему.",
+                    "Журнал транзакции повреждён или имеет неизвестную схему.",
                 ) from exc
-            if journal.operation != self.operation:
+            if (
+                directory.name != journal.transaction_id
+                or journal.operation not in {"build", "repair", "update"}
+            ):
+                raise ToolingError(
+                    ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                    "Журнал транзакции не соответствует своему каталогу или операции.",
+                )
+            self._validate_journal_paths(journal, directory)
+            if journal.root_identity != path_identity(self.layout.repository_root):
+                raise ToolingError(
+                    ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                    "Журнал транзакции относится к другому корню репозитория.",
+                )
+            if journal.phase in {"completed", "rolled_back"}:
+                journals.append((directory, journal))
                 continue
-            if journal.phase not in {"completed", "rolled_back"}:
-                active.append(journal)
+            if journal.phase not in {
+                "initialized",
+                "candidate_validated",
+                "backup_ready",
+                "environment_synchronized",
+                "environment_built",
+                "adb_ready",
+                "shortcut_ready",
+                "path_registered",
+                "rebuild_started",
+                "merge_pending",
+                "merged",
+                "merge_failed",
+                "dependency_failed",
+                "verification_failed",
+                "rollback_unknown",
+            }:
+                raise ToolingError(
+                    ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                    "Журнал транзакции имеет неизвестную фазу; продолжение запрещено.",
+                )
+            journals.append((directory, journal))
+        return journals
+
+    def active(self) -> TransactionJournal | None:
+        journals = self._read_entries()
+        active = [
+            journal
+            for _, journal in journals
+            if journal.operation == self.operation
+            and journal.phase not in {"completed", "rolled_back"}
+        ]
         if len(active) > 1:
             raise ToolingError(
                 ResultCode.TOOLING_OPERATION_CONFLICT,
@@ -410,13 +528,75 @@ class JournalStore:
             )
         return active[0] if active else None
 
+    def terminal(self) -> tuple[tuple[Path, TransactionJournal], ...]:
+        """Вернуть историю завершённых операций после строгой проверки всех записей состояния."""
+
+        return tuple(
+            (directory, journal)
+            for directory, journal in self._read_entries()
+            if journal.operation == self.operation
+            and journal.phase in {"completed", "rolled_back"}
+        )
+
+    def retain_terminal(self, limit: int = TERMINAL_TRANSACTION_RETENTION) -> None:
+        """Удалить только старые принадлежащие журналы завершённых операций после полной проверки."""
+
+        if not 1 <= limit <= TERMINAL_TRANSACTION_RETENTION:
+            raise ValueError("Срок хранения завершённых операций должен быть от 1 до 32")
+        history = sorted(
+            self.terminal(),
+            key=lambda item: item[1].updated_at,
+            reverse=True,
+        )
+        for directory, journal in history[limit:]:
+            if journal.root_identity != path_identity(self.layout.repository_root):
+                raise ToolingError(
+                    ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                    "Удаление истории транзакции не подтверждает владение.",
+                )
+            self.remove_owned(journal.transaction_id)
+
     def remove_owned(self, transaction_id: str) -> None:
         directory = self._directory(transaction_id)
         if not directory.exists() or _is_reparse_or_symlink(directory):
             raise ToolingError(
                 ResultCode.TOOLING_PRECONDITION_FAILED,
-                "Удаление transaction scope не подтверждено.",
+                "Удаление области транзакции не подтверждено.",
             )
+        journal_path = directory / "journal.json"
+        try:
+            journal = TransactionJournal.model_validate_json(
+                bounded_read_text(journal_path, max_bytes=MAX_JOURNAL_BYTES)
+            )
+        except Exception as exc:
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Удаление области транзакции требует исправного журнала.",
+            ) from exc
+        if (
+            journal.operation != self.operation
+            or journal.transaction_id != transaction_id
+            or directory.name != journal.transaction_id
+            or journal.root_identity != path_identity(self.layout.repository_root)
+            or journal.phase not in {"completed", "rolled_back"}
+        ):
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "Удаление разрешено только для принадлежащей завершённой транзакции.",
+            )
+        self._validate_journal_paths(journal, directory)
+        try:
+            for item in directory.rglob("*"):
+                if _is_reparse_or_symlink(item):
+                    raise ToolingError(
+                        ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                        "Область транзакции содержит symlink или reparse point.",
+                    )
+        except OSError as exc:
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Не удалось проверить область транзакции перед удалением.",
+            ) from exc
         shutil.rmtree(directory)
 
 
@@ -427,13 +607,15 @@ def json_bytes(model: BaseModel) -> bytes:
     if len(data) > MAX_JOURNAL_BYTES:
         raise ToolingError(
             ResultCode.TOOLING_PRECONDITION_FAILED,
-            "JSON result превышает допустимый размер.",
+            "JSON-результат превышает допустимый размер.",
         )
     return data
 
 
 __all__ = [
     "MAX_FILE_BYTES",
+    "MAX_TRANSACTION_ENTRIES",
+    "TERMINAL_TRANSACTION_RETENTION",
     "JournalStore",
     "ScopedPath",
     "StateLayout",

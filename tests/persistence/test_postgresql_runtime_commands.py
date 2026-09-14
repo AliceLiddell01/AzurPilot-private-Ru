@@ -169,7 +169,7 @@ def test_native_backup_does_not_fall_back_to_wsl(
             return_value=_settings("migrator-password", user="azurpilot_migrator"),
         ),
         patch.object(postgresql_runtime.shutil, "which", return_value=None),
-        pytest.raises(RuntimeError, match="Native pg_dump"),
+        pytest.raises(RuntimeError, match="Системный pg_dump"),
     ):
         postgresql_runtime._backup(
             _settings("test-password"),
@@ -205,7 +205,7 @@ def test_docker_backup_requires_marker_endpoint(tmp_path: Path, monkeypatch):
             returncode=0, stdout="127.0.0.1:6543\n", stderr=""
         ),
     )
-    with pytest.raises(StorageConfigurationError, match="endpoint"):
+    with pytest.raises(StorageConfigurationError, match="Конечная точка"):
         postgresql_runtime._require_docker_endpoint(_settings(), repository)
 
 
@@ -497,7 +497,7 @@ def test_runtime_command_redacts_sqlalchemy_diagnostics(capsys):
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err == (
-        "Ошибка production PostgreSQL: операция с базой данных завершилась ошибкой.\n"
+        "Ошибка рабочего PostgreSQL: операция с базой данных завершилась ошибкой.\n"
     )
     assert "secret" not in captured.err
 

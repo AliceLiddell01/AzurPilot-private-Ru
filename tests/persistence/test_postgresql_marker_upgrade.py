@@ -382,7 +382,7 @@ def test_runtime_upgrade_rejects_unknown_marker_head_before_reconciliation(
 
     with pytest.raises(
         StorageConfigurationError,
-        match="неизвестный или недопустимый schema head",
+        match="неизвестный или недопустимый заголовок схемы",
     ):
         postgresql_runtime._upgrade(tmp_path / "storage_backend.json")
 
