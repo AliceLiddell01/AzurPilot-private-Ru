@@ -483,7 +483,7 @@ def dependency_sync_service(
         try:
             request = request_queue.get(timeout=1)
         except queue.Empty:
-            # 启动器强制结束 gui.py 时不会执行 finally，此处避免遗留服务。
+            # При принудительном завершении gui.py лаунчером finally не выполняется; здесь предотвращаем оставленный сервис.
             if parent is not None and not parent.is_alive():
                 return
             continue
