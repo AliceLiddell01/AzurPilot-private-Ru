@@ -77,14 +77,14 @@ class Camera(MapOperation):
         vector = np.array(vector)
         name = 'MAP_SWIPE_' + '_'.join([str(int(round(x))) for x in vector])
         if np.any(np.abs(vector) > self.config.MAP_SWIPE_DROP):
-            # 地图网格适配
+            # Адаптация к сетке карты
             if self.config.DEVICE_CONTROL_METHOD == 'minitouch':
                 distance = self.view.swipe_base * self.config.MAP_SWIPE_MULTIPLY_MINITOUCH
             elif self.config.DEVICE_CONTROL_METHOD == 'MaaTouch':
                 distance = self.view.swipe_base * self.config.MAP_SWIPE_MULTIPLY_MAATOUCH
             else:
                 distance = self.view.swipe_base * self.config.MAP_SWIPE_MULTIPLY
-            # 优化滑动路径
+            # Оптимизируем траекторию свайпа
             if self.config.MAP_SWIPE_OPTIMIZE:
                 whitelist, blacklist = self.get_swipe_area_opt(vector)
             else:
@@ -93,12 +93,12 @@ class Camera(MapOperation):
             vector = distance * vector
             vector = -vector
             self.device.swipe_vector(vector, name=name, box=box, whitelist_area=whitelist, blacklist_area=blacklist)
-            # 不知道为什么初始提交中有一个 sleep
+            # Неизвестно, зачем в исходном коммите был этот sleep
             # self.device.sleep(0.3)
             self.update(wait_swipe=True)
             return True
         else:
-            # 舍弃滑动
+            # Отбрасываем свайп
             # self.update(camera=False)
             return False
 
@@ -166,7 +166,7 @@ class Camera(MapOperation):
                 return False
             elif self.appear(GET_ITEMS_1, offset=5):
                 logger.warning('[Карта — камера] Экран получения предметов вызвал ошибку перспективы')
-                # 此处不要使用 handle_mystery()，因为大世界会覆盖它。
+                # Здесь не используем handle_mystery(), потому что Operation Siren переопределяет его.
                 self.device.click(GET_ITEMS_1)
                 return False
             elif self.appear(GET_ITEMS_1_RYZA, offset=(-20, -100, 20, 20)):
@@ -222,7 +222,7 @@ class Camera(MapOperation):
                                   skip_first_screenshot=True)
                     return False
             elif 'opsi' in self.config.task.command.lower() and self.handle_popup_confirm('OPSI'):
-                # 在大世界中始终确认弹窗，与 os_map_goto_globe() 中的弹窗相同
+                # В Operation Siren всегда подтверждаем всплывающее окно — такое же, как в os_map_goto_globe()
                 logger.warning('[Карта — камера] Всплывающее окно вызвало ошибку перспективы')
                 return False
             elif self.appear(PORT_SUPPLY_CHECK, offset=(20, 20)):
@@ -238,7 +238,7 @@ class Camera(MapOperation):
                 logger.warning(string)
                 x, y = string.split('=')[1].strip('() ').split(',')
                 self._map_swipe((-int(x.strip()), -int(y.strip())))
-            # 最后检查游戏是否在运行
+            # В последнюю очередь проверяем, запущена ли игра
             elif not self.device.app_is_running():
                 logger.error('[Карта — камера] Попытка обновить камеру после выхода из игры')
                 raise GameNotRunningError
@@ -296,7 +296,7 @@ class Camera(MapOperation):
         """
         error_confirm = Timer(5, count=10).start()
         swipe_wait_timeout = Timer(0.35, count=1).start()
-        # 假设已经滑动过
+        # Предполагаем, что свайп уже выполнялся
         swiped = True
         if wait_swipe:
             try:
@@ -309,21 +309,21 @@ class Camera(MapOperation):
             prev_center_offset = None
 
         def is_grid_center():
-            # 是否聚焦在格子中心
-            # 参见 focus_to_grid_center
+            # Сфокусирован ли вид на центре клетки
+            # См. focus_to_grid_center
             if np.any(np.abs(self.view.center_offset - 0.5) > self.config.MAP_GRID_CENTER_TOLERANCE):
                 return False
             return True
 
         def is_still_prev():
-            # 是否与之前的视图相同
+            # Совпадает ли текущий вид с предыдущим
             if prev_center_offset is None:
                 return False
             return np.linalg.norm(self.view.center_offset - prev_center_offset) < 0.001
 
         while 1:
-            # Camera.update() 没有 skip_first_screenshot
-            # 等待 swipe_wait_timeout 时不设置截图间隔
+            # У Camera.update() нет skip_first_screenshot
+            # Во время ожидания swipe_wait_timeout не задаём интервал скриншотов
             if not swipe_wait_timeout.reached():
                 self.device._screenshot_interval.clear()
             self.device.screenshot()
@@ -340,8 +340,8 @@ class Camera(MapOperation):
                     continue
                 logger.attr('Смещение центра обзора', self.view.center_offset)
                 if wait_swipe and not swipe_wait_timeout.reached() and success:
-                    # 如果第一张截图仍然是之前的视图
-                    # 必须先离开格子中心再重新聚焦
+                    # Если первый скриншот всё ещё показывает предыдущий вид
+                    # Сначала нужно покинуть центр клетки, а затем сфокусироваться заново
                     if is_still_prev():
                         swiped = False
                     if is_grid_center():
@@ -356,7 +356,7 @@ class Camera(MapOperation):
                     if success:
                         break
                     else:
-                        # MapDetectionError 已在 _update_view() 中处理，再次更新
+                        # MapDetectionError уже обработан в _update_view(); обновляем ещё раз
                         error_confirm.reset()
                         continue
             except MapDetectionError:
@@ -367,7 +367,7 @@ class Camera(MapOperation):
                 else:
                     continue
 
-        # 计算视图数据
+        # Вычисляем данные вида
         self._update_view_data()
 
     def predict(self):
@@ -684,8 +684,8 @@ class Camera(MapOperation):
         def local_to_area(local_grid, pad=0):
             result = []
             for local in local_grid:
-                # 预测滑动后格子的位置。
-                # 滑动应在此结束，以防止将滑动视为点击。
+                # Предсказываем положение клетки после свайпа.
+                # Свайп должен завершаться здесь, чтобы его не приняли за клик.
                 area = area_offset((0, 0, 1, 1), offset=-map_vector)
                 corner = local.grid2screen(area2corner(area))
                 area = trapezoid2area(corner, pad=pad)
