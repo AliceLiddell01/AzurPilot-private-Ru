@@ -4,8 +4,8 @@
 包含坐标偏移、颜色/模板识别逻辑以及模拟点击的具体实现方案。
 """
 
-# 此文件定义了 Alas 视觉交互系统的核心基类：Button（按钮）及相关网格。
-# 它是所有 UI 交互的基本单位，包含了坐标偏移、颜色/模板识别逻辑以及模拟点击的具体实现方案。
+# Этот файл определяет основные классы визуального взаимодействия Alas: Button (кнопка) и связанные сетки.
+# Это базовая единица всех UI-взаимодействий: смещения координат, распознавание цветов/шаблонов и эмуляция кликов.
 import os
 import traceback
 import typing as t
@@ -303,7 +303,7 @@ class Button(Resource):
 
         if self.is_gif:
             for template in self.image_binary:
-                # 模板匹配
+                # Сопоставление с шаблоном
                 res = template_match(image_binary, template, name=self.name)
                 _, sim, _, point = cv2.minMaxLoc(res)
                 self._button_offset = area_offset(self._button, offset[:2] + np.array(point))
@@ -311,7 +311,7 @@ class Button(Resource):
                     return True
             return False
         else:
-            # 模板匹配
+            # Сопоставление с шаблоном
             res = template_match(image_binary, self.image_binary, name=self.name)
             _, sim, _, point = cv2.minMaxLoc(res)
             self._button_offset = area_offset(self._button, offset[:2] + np.array(point))
