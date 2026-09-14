@@ -279,7 +279,7 @@ class StorageHandler(GlobeOperation, ZoneManager):
         """
         self.interval_clear(POPUP_CANCEL)
         self.device.click_record_clear()
-        # 超时保护：维修箱耗尽时游戏弹出"道具不足"弹窗，若未被识别则超时退出
+        # Защита по тайм-ауту: если ремонтные наборы закончились, игра показывает «Недостаточно предметов»; если окно не распознано, выходим по тайм-ауту
         timeout = Timer(15, count=30).start()
         while 1:
             if skip_first_screenshot:
@@ -297,12 +297,12 @@ class StorageHandler(GlobeOperation, ZoneManager):
             if self.handle_popup_cancel('STORAGE_REPAIR_FULL_CANCEL'):
                 logger.info('[Операция «Сирена» — хранилище] Этот корабль не требует ремонта')
                 return RepairResult.SUCCESS
-            # 处理"道具不足"弹窗：维修箱数量不足时游戏弹出此提示，需点击取消退出
-            # 截图显示弹窗标题为"信息 INFORMATION"，内容为"道具不足"，底部有取消按钮
+            # Обрабатываем окно «Недостаточно предметов»: при нехватке ремонтных наборов игра показывает это сообщение; нажимаем отмену и выходим
+            # На скриншоте заголовок окна — «Информация INFORMATION», содержимое — «Недостаточно предметов», внизу есть кнопка отмены
             if self.appear_then_click(POPUP_CANCEL, offset=(20, 20), interval=2):
                 logger.warning('[Операция «Сирена» — хранилище] Недостаточно ремонтных наборов, корабль пропущен')
                 return RepairResult.PACK_INSUFFICIENT
-            # 超时保护：防止未知弹窗导致死循环
+            # Защита по тайм-ауту: предотвращает бесконечный цикл при неизвестном всплывающем окне
             if timeout.reached():
                 logger.warning('[Операция «Сирена» — хранилище] Истекло время подтверждения использования ремонтного набора: неизвестное окно или зависшее состояние')
                 return RepairResult.TIMEOUT
