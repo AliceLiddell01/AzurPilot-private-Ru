@@ -25,8 +25,15 @@ $supervisorModule = 'module.mcp_shared.local_http_supervisor'
 $statusCommand = @('-u', '-m', $supervisorModule, 'status')
 
 function Get-LocalMcpSupervisorStatus {
-    $statusOutput = & $pythonExecutable @statusCommand 2>$null
-    $statusExitCode = $LASTEXITCODE
+    $statusOutput = $null
+    $statusExitCode = $null
+    Push-Location -LiteralPath $repositoryRoot
+    try {
+        $statusOutput = & $pythonExecutable @statusCommand 2>$null
+        $statusExitCode = $LASTEXITCODE
+    } finally {
+        Pop-Location
+    }
     if ($statusExitCode -ne 0) {
         throw "Не удалось получить статус local MCP supervisor (exit code $statusExitCode)"
     }
