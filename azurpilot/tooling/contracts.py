@@ -7,13 +7,9 @@
 
 from __future__ import annotations
 
-from enum import Enum, IntEnum
+from enum import IntEnum, StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
-
-
-class _StrEnum(str, Enum):
-    """Строковый enum, совместимый с JSON и обычным Python 3.14."""
 
 
 class ExitCode(IntEnum):
@@ -30,7 +26,7 @@ class ExitCode(IntEnum):
     UNEXPECTED = 30
 
 
-class ResultCode(_StrEnum):
+class ResultCode(StrEnum):
     """Стабильные machine-readable причины результата."""
 
     OK = "OK"
@@ -67,7 +63,7 @@ class ResultCode(_StrEnum):
     TOOLING_UNEXPECTED = "TOOLING_UNEXPECTED"
 
 
-class OperationState(_StrEnum):
+class OperationState(StrEnum):
     """Состояние операции в общем envelope."""
 
     READY = "ready"
@@ -82,7 +78,7 @@ class OperationState(_StrEnum):
     UNKNOWN = "unknown"
 
 
-class CapabilityStatus(_StrEnum):
+class CapabilityStatus(StrEnum):
     """Состояние необязательной возможности."""
 
     READY = "ready"
@@ -92,7 +88,7 @@ class CapabilityStatus(_StrEnum):
     FAILED = "failed"
 
 
-class RootSource(_StrEnum):
+class RootSource(StrEnum):
     """Источник корня репозитория."""
 
     EXPLICIT = "explicit"
@@ -100,7 +96,7 @@ class RootSource(_StrEnum):
     INSTALLATION = "installation"
 
 
-class WarningCode(_StrEnum):
+class WarningCode(StrEnum):
     """Ограниченные предупреждения, не меняющие основной код результата."""
 
     TOOLING_ADB_NOT_CONFIGURED = "TOOLING_ADB_NOT_CONFIGURED"

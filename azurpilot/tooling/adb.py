@@ -52,7 +52,10 @@ def is_healthy(
     parent = path.parent
     if is_unsafe_path(parent):
         return False
-    if any(is_unsafe_path(parent / name) or not (parent / name).is_file() for name in ADB_FILES[1:]):
+    if os.name == "nt" and any(
+        is_unsafe_path(parent / name) or not (parent / name).is_file()
+        for name in ADB_FILES[1:]
+    ):
         return False
     try:
         result = runner.run(

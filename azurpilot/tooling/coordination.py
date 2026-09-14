@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import os
+import socket
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -112,17 +114,58 @@ class PortObservation:
     port: int
     pids: tuple[int, ...]
     inspection_failed: bool = False
+    listener_present: bool | None = False
+    pid_unknown: bool = False
+
+
+def _probe_tcp_port_without_pid(port: int) -> PortObservation:
+    """Определить занятость порта bind-проверкой без раскрытия PID."""
+
+    addresses = [
+        (socket.AF_INET, "127.0.0.1"),
+        (socket.AF_INET, "0.0.0.0"),
+    ]
+    if socket.has_ipv6:
+        addresses.extend(
+            (
+                (socket.AF_INET6, "::1"),
+                (socket.AF_INET6, "::"),
+            )
+        )
+    listener_present = False
+    for family, host in addresses:
+        try:
+            with socket.socket(family, socket.SOCK_STREAM) as probe:
+                probe.bind((host, port))
+        except OSError as error:
+            if error.errno == errno.EADDRINUSE:
+                listener_present = True
+                continue
+            return PortObservation(
+                port=port,
+                pids=(),
+                inspection_failed=True,
+                listener_present=None,
+                pid_unknown=True,
+            )
+    return PortObservation(
+        port=port,
+        pids=(),
+        listener_present=listener_present,
+        pid_unknown=True,
+    )
 
 
 def observe_tcp_port(port: int) -> PortObservation:
     if not 1 <= port <= 65535:
         raise ValueError("port вне диапазона")
     pids: set[int] = set()
-    failed = False
+    listener_present = False
+    pid_unknown = False
     try:
         connections = psutil.net_connections(kind="tcp")
     except (psutil.AccessDenied, OSError):
-        return PortObservation(port, (), True)
+        return _probe_tcp_port_without_pid(port)
     for connection in connections:
         if connection.status != psutil.CONN_LISTEN:
             continue
@@ -131,11 +174,17 @@ def observe_tcp_port(port: int) -> PortObservation:
         except AttributeError:
             continue
         if local_port == port:
+            listener_present = True
             if connection.pid is None:
-                failed = True
+                pid_unknown = True
             else:
                 pids.add(int(connection.pid))
-    return PortObservation(port, tuple(sorted(pids)), failed)
+    return PortObservation(
+        port=port,
+        pids=tuple(sorted(pids)),
+        listener_present=listener_present,
+        pid_unknown=pid_unknown,
+    )
 
 
 @dataclass(frozen=True)

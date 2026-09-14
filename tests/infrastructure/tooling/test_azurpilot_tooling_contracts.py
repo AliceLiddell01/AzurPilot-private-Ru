@@ -30,6 +30,7 @@ from azurpilot.tooling.contracts import (
     CapabilityStatus,
     DoctorDetails,
     DoctorEvidence,
+    OperationState,
     PostgreSqlBackupEvidence,
     RepositoryRootEvidence,
     ResultCode,
@@ -220,6 +221,7 @@ def test_lifecycle_keeps_state_when_termination_is_not_confirmed(
         service.start(root, timeout_seconds=10)
 
     assert error.value.code is ResultCode.TOOLING_CLEANUP_UNKNOWN
+    assert error.value.state is OperationState.IN_FLIGHT
     assert coordinator.record is not None
     assert coordinator.cleared is False
 

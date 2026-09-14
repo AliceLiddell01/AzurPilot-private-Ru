@@ -540,16 +540,19 @@ class StructuredProcessRunner:
             if stream is None:
                 return
             read = stream.read
-            while True:
-                chunk = read(8192)
-                if not chunk:
-                    return
-                with output_locks[index]:
-                    remaining = spec.max_output_bytes - len(buffer)
-                    if remaining > 0:
-                        buffer.extend(chunk[:remaining])
-                    if len(chunk) > remaining:
-                        truncated[index] = True
+            try:
+                while True:
+                    chunk = read(8192)
+                    if not chunk:
+                        return
+                    with output_locks[index]:
+                        remaining = spec.max_output_bytes - len(buffer)
+                        if remaining > 0:
+                            buffer.extend(chunk[:remaining])
+                        if len(chunk) > remaining:
+                            truncated[index] = True
+            except (OSError, ValueError):
+                return
 
         threads = [
             threading.Thread(
@@ -583,19 +586,27 @@ class StructuredProcessRunner:
         finally:
             for thread in threads:
                 thread.join(timeout=3.0)
+            for stream in (process.stdout, process.stderr):
+                if stream is not None:
+                    try:
+                        stream.close()
+                    except (OSError, ValueError):
+                        pass
 
-        stdout, stdout_was_truncated = _bounded_text(
-            bytes(stdout_buffer), spec.max_output_bytes
-        )
-        stderr, stderr_was_truncated = _bounded_text(
-            bytes(stderr_buffer), spec.max_output_bytes
-        )
+        with output_locks[0]:
+            stdout_data = bytes(stdout_buffer)
+            stdout_was_drained_truncated = truncated[0]
+        with output_locks[1]:
+            stderr_data = bytes(stderr_buffer)
+            stderr_was_drained_truncated = truncated[1]
+        stdout, stdout_was_truncated = _bounded_text(stdout_data, spec.max_output_bytes)
+        stderr, stderr_was_truncated = _bounded_text(stderr_data, spec.max_output_bytes)
         return ProcessResult(
             returncode=process.returncode,
             stdout=stdout,
             stderr=stderr,
-            stdout_truncated=truncated[0] or stdout_was_truncated,
-            stderr_truncated=truncated[1] or stderr_was_truncated,
+            stdout_truncated=stdout_was_drained_truncated or stdout_was_truncated,
+            stderr_truncated=stderr_was_drained_truncated or stderr_was_truncated,
             timed_out=timed_out,
             pid=process.pid,
             identity=identity,

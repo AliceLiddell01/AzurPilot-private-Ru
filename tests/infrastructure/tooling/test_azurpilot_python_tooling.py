@@ -6,17 +6,22 @@ import io
 import json
 import os
 import signal
+import socket
+import subprocess
 import sys
 import time
 from pathlib import Path
 from types import SimpleNamespace
 
+import psutil
 import pytest
 from pydantic import ValidationError
 
+import azurpilot.tooling.coordination as tooling_coordination
 import azurpilot.tooling.path as tooling_path
 import azurpilot.tooling.process as tooling_process
 from azurpilot.cli import main
+from azurpilot.tooling import adb as tooling_adb
 from azurpilot.tooling import bootstrap as tooling_bootstrap
 from azurpilot.tooling import doctor as tooling_doctor
 from azurpilot.tooling.config import DeploySettings, project_python
@@ -27,7 +32,7 @@ from azurpilot.tooling.contracts import (
     RootSource,
     ToolingResult,
 )
-from azurpilot.tooling.coordination import FileLock
+from azurpilot.tooling.coordination import FileLock, observe_tcp_port
 from azurpilot.tooling.doctor import DoctorService
 from azurpilot.tooling.errors import RepositoryResolutionError, ToolingError
 from azurpilot.tooling.filesystem import ScopedPath, StateLayout
@@ -167,6 +172,122 @@ def test_process_runner_classifies_timeout() -> None:
     )
     assert result.timed_out
     assert time.monotonic() - started < 8
+
+
+def test_process_runner_closes_output_streams_after_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeStream:
+        def __init__(self, chunk: bytes) -> None:
+            self.chunk = chunk
+            self.closed = False
+            self.reads = 0
+
+        def read(self, _size: int) -> bytes:
+            self.reads += 1
+            return self.chunk if self.reads == 1 else b""
+
+        def close(self) -> None:
+            self.closed = True
+
+    class FakeProcess:
+        pid = 12345
+        returncode: int | None = None
+
+        def __init__(self) -> None:
+            self.stdout = FakeStream(b"stdout")
+            self.stderr = FakeStream(b"stderr")
+            self.wait_calls = 0
+
+        def wait(self, timeout: float | None = None) -> None:
+            self.wait_calls += 1
+            if self.wait_calls == 1:
+                raise subprocess.TimeoutExpired("fake", timeout)
+            self.returncode = -15
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+    process = FakeProcess()
+    identity = tooling_process.ProcessIdentity(
+        pid=process.pid,
+        start_time=1.0,
+        executable=Path(sys.executable),
+        argv=(sys.executable, "-c", "pass"),
+        cwd=REPOSITORY_ROOT,
+    )
+    monkeypatch.setattr(
+        tooling_process.subprocess,
+        "Popen",
+        lambda *_args, **_kwargs: process,
+    )
+    monkeypatch.setattr(
+        tooling_process.ProcessIdentity,
+        "capture",
+        classmethod(lambda _cls, _pid, _fallback: identity),
+    )
+    monkeypatch.setattr(tooling_process, "_terminate_process", lambda *_args: None)
+
+    result = tooling_process.StructuredProcessRunner().run(
+        tooling_process.ProcessSpec(
+            executable=sys.executable,
+            argv=("-c", "pass"),
+            cwd=REPOSITORY_ROOT,
+            timeout_seconds=0.1,
+        )
+    )
+
+    assert result.timed_out
+    assert process.stdout.closed
+    assert process.stderr.closed
+
+
+def test_tcp_port_observation_falls_back_when_pid_listing_is_denied(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen()
+    port = int(listener.getsockname()[1])
+
+    def deny_connections(**_kwargs: object) -> object:
+        raise psutil.AccessDenied(pid=None)
+
+    monkeypatch.setattr(
+        tooling_coordination.psutil, "net_connections", deny_connections
+    )
+    try:
+        occupied = observe_tcp_port(port)
+        assert occupied.listener_present is True
+        assert occupied.pid_unknown
+        assert occupied.pids == ()
+    finally:
+        listener.close()
+
+    free = observe_tcp_port(port)
+    assert free.listener_present is False
+    assert free.pid_unknown
+    assert not free.inspection_failed
+
+
+def test_posix_adb_health_does_not_require_windows_dlls(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    adb = tmp_path / "bin" / "adb"
+    adb.parent.mkdir()
+    adb.write_bytes(b"adb")
+
+    class FakeRunner:
+        def run(self, spec: object) -> SimpleNamespace:
+            assert getattr(spec, "executable") == adb
+            return SimpleNamespace(
+                ok=True,
+                stdout="Android Debug Bridge version 1.0.41\nVersion 37.0.0",
+                stderr="",
+            )
+
+    monkeypatch.setattr(tooling_adb, "os", SimpleNamespace(name="posix"))
+    assert tooling_adb.is_healthy(adb, tmp_path, FakeRunner())
 
 
 @pytest.mark.skipif(os.name != "nt", reason="требуется Windows venv redirector")

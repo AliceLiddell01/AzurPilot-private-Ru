@@ -131,12 +131,12 @@ class RepairService:
             )
         settings = load_deploy_settings(root)
         port = observe_tcp_port(settings.webui_port)
-        if port.inspection_failed:
+        if port.inspection_failed or port.listener_present is None:
             raise ToolingError(
                 ResultCode.TOOLING_VERIFICATION_UNKNOWN,
                 "Нельзя подтвердить свободный порт WebUI.",
             )
-        if port.pids:
+        if port.listener_present or port.pids:
             raise ToolingError(
                 ResultCode.TOOLING_PORT_CONFLICT,
                 "Repair не выполняется при занятом порте WebUI.",

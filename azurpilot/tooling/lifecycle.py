@@ -125,10 +125,14 @@ class LifecycleService:
         identity: ProcessIdentity | None = None
         if record is not None:
             identity = coordinator.identity_from_record(record)  # type: ignore[arg-type]
-        if observation.inspection_failed:
+        if observation.inspection_failed or observation.listener_present is None:
             return _PortState(observation, "unknown", False), identity
-        if not observation.pids:
+        if not observation.listener_present and not observation.pids:
             return _PortState(observation, "free", False), identity
+        if observation.pid_unknown:
+            if not observation.pids and identity is not None and identity.matches():
+                return _PortState(observation, "azurpilot", True), identity
+            return _PortState(observation, "foreign", False), identity
         if identity is not None and identity.matches():
             ownership = all(
                 _process_is_descendant(pid, identity) for pid in observation.pids
@@ -254,6 +258,7 @@ class LifecycleService:
         while True:
             confirmed = (
                 not observation.inspection_failed
+                and observation.listener_present is False
                 and not observation.pids
                 and running.poll() is not None
             )
@@ -273,6 +278,7 @@ class LifecycleService:
         while True:
             confirmed = (
                 not observation.inspection_failed
+                and observation.listener_present is False
                 and not observation.pids
                 and not identity.matches()
             )
@@ -341,8 +347,11 @@ class LifecycleService:
             if running.poll() is not None:
                 return False, "process_exited"
             observation = observe_tcp_port(settings.webui_port)
-            if observation.inspection_failed:
+            if observation.inspection_failed or observation.listener_present is None:
                 return False, "port_identity_unavailable"
+            if observation.pid_unknown:
+                if observation.pids or not running.identity.matches():
+                    return False, "foreign_listener"
             if observation.pids and not all(
                 _process_is_descendant(pid, running.identity)
                 for pid in observation.pids
@@ -525,6 +534,7 @@ class LifecycleService:
                     raise ToolingError(
                         ResultCode.TOOLING_CLEANUP_UNKNOWN,
                         "Готовность WebUI не подтверждена, а остановку и освобождение порта нельзя доказать; состояние lifecycle сохранено.",
+                        state=OperationState.IN_FLIGHT,
                         operation_id=operation_id,
                         details=self._lifecycle_details(
                             settings,
