@@ -29,7 +29,7 @@ LEGACY_TEMPORARY_TRANSACTION_SUFFIX_PATTERN = re.compile(
 TEMPORARY_TRANSACTION_SUFFIX_PATTERN = re.compile(r'^\.alas-tmp-[0-9a-f]{16}\.tmp$')
 STORY_SPEED_VALUE = 9
 
-# 仅维护经过当前五服 Lua 源码验证的设置。不要根据 setting_generated.py 泛化写入。
+# Поддерживаем только настройки, подтверждённые текущим Lua-кодом для пяти серверов. Не обобщать запись на основании setting_generated.py.
 RECOMMENDED_INT_SETTINGS = {
     'fps_limit': 60,
     'world_flag_story_tips': 1,
@@ -196,7 +196,7 @@ def update_player_prefs_xml(content: bytes) -> tuple[bytes, PlayerPrefsChanges]:
     for name, value in RECOMMENDED_STRING_SETTINGS.items():
         static_changed += _set_string(root, entries, name, value)
 
-    # 剧情速度按玩家 ID 分键存储；只更新已存在的键，不能猜测或新建账号后缀。
+    # Скорость сюжета хранится в ключах по ID игрока; обновляем только существующие ключи, не угадываем и не создаём суффиксы аккаунтов.
     story_speed_keys = tuple(sorted(
         name for name in entries if STORY_SPEED_KEY_PATTERN.fullmatch(name)
     ))
