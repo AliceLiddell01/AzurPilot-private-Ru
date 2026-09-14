@@ -37,7 +37,7 @@ class Reward(UI):
         logger.hr('Получение наград')
         logger.info(f'[Награды — получение] Нефть={oil}, монеты={coin}, опыт={exp}')
         confirm_timer = Timer(1, count=3).start()
-        # 设置点击间隔为 0.3 秒，因为游戏无法响应过快的点击。
+        # Устанавливаем интервал кликов 0,3 с, потому что игра не успевает обрабатывать слишком быстрые нажатия.
         click_timer = Timer(0.3)
         for _ in self.loop():
             if oil and click_timer.reached() and self.appear_then_click(OIL, offset=(20, 50), interval=60):
@@ -175,7 +175,7 @@ class Reward(UI):
                 logger.info('[Награды — задания] Сбор наград за задания завершён')
                 break
             elif state in [MISSION_MULTI, MISSION_SINGLE]:
-                # 清除以下资源的已有间隔计时器
+                # Сбрасываем существующие таймеры интервалов для следующих ресурсов
                 self.interval_clear([GET_ITEMS_1, GET_ITEMS_2, MISSION_MULTI, MISSION_SINGLE, GET_SHIP])
                 self._reward_mission_claim_click()
                 state = self._reward_mission_claim_receive()
