@@ -249,10 +249,13 @@ explicit --repository-root
 `git rev-parse --show-toplevel` согласованы, root не выходит за допустимый
 containment boundary, а набор AzurPilot markers (`pyproject.toml` с project
 name, `uv.lock`, `module/` и `deploy/`) подтверждает именно этот repository.
-При наличии нескольких разных кандидатов или конфликте identity CLI не
-выбирает один молча. Невалидный explicit root не заменяется cwd или следующим
-fallback; операция завершается стабильным code вроде
-`TOOLING_REPOSITORY_NOT_FOUND` после его schema/ownership validation.
+Кандидаты оцениваются по уровням приоритета. Как только текущий уровень даёт
+ровно один validated root, кандидаты lower-priority уровней не сравниваются с
+ним и не могут его обесценить. Конфликт или несколько разных validated
+кандидатов блокируют выбор только внутри одного уровня; это также относится к
+повторенным или неоднозначным explicit значениям. Невалидный explicit root не
+заменяется cwd или следующим fallback: операция завершается стабильным code
+вроде `TOOLING_REPOSITORY_NOT_FOUND` после его schema/ownership validation.
 
 `azur --help`, version и другие project-independent команды могут работать без
 root. `azur doctor`, `start`, `stop`, `build`, `repair`, `update`, `mcp status` и
@@ -898,8 +901,9 @@ runtime evidence. Physical device, MuMu, ADB, gameplay и visual acceptance
    возвращают typed `unsupported`/`unavailable` при отсутствии.
 2. **Repository discovery:** `--repository-root` имеет высший приоритет, затем
    validated user/machine configuration, затем проверенная installation identity
-   и safe discovery; недоказанный root или конфликт кандидатов завершаются
-   стабильным reason code без молчаливого fallback на cwd.
+   и safe discovery; первый уровень с ровно одним validated root побеждает,
+   конфликты проверяются только внутри одного уровня, а недоказанный explicit
+   root завершается стабильным reason code без молчаливого fallback на cwd.
 3. **Typed results:** `details` и `evidence` не являются свободными
    `dict[str, Any]`; используются generic/operation-specific DTO, versioned
    closed schemas, bounded fields, stable codes и общая model для service, CLI
