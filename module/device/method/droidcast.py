@@ -28,6 +28,19 @@ class DroidCastVersionIncompatible(Exception):
     pass
 
 
+DROIDCAST_RAW_MAIN_CLASS = 'ink.mol.droidcast_raw.Main'
+
+
+def build_droidcast_raw_argv(remote_apk: str) -> list[str]:
+    """Собрать argv DroidCast_raw без shell-операторов."""
+    return [
+        f'CLASSPATH={remote_apk}',
+        'app_process',
+        '/',
+        DROIDCAST_RAW_MAIN_CLASS,
+    ]
+
+
 def retry(func):
     @wraps(func)
     def retry_wrapper(self, *args, **kwargs):
@@ -42,16 +55,16 @@ def retry(func):
                     time.sleep(retry_sleep(_))
                     init()
                 return func(self, *args, **kwargs)
-            # Не обрабатывается
+            # 无法处理
             except RequestHumanTakeover:
                 break
-            # Когда служба ADB остановлена
+            # ADB 服务被终止时
             except ConnectionResetError as e:
                 logger.error(str(f'[Устройство — DroidCast] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.adb_reconnect()
-            # Ошибка ADB
+            # ADB 错误
             except AdbError as e:
                 if handle_adb_error(e):
                     def init():
@@ -62,13 +75,13 @@ def retry(func):
                         self.adb_reconnect()
                 else:
                     break
-            # Приложение не установлено
+            # 应用未安装
             except PackageNotInstalled as e:
                 logger.error(str(f'[Устройство — DroidCast] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.detect_package()
-            # DroidCast не запущен
+            # DroidCast 未运行
             # requests.exceptions.ConnectionError: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
             # ReadTimeout: HTTPConnectionPool(host='127.0.0.1', port=20482): Read timed out. (read timeout=3)
             except (requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout) as e:
@@ -76,23 +89,23 @@ def retry(func):
 
                 def init():
                     self.droidcast_init()
-            # Несовместимая версия DroidCast
+            # DroidCast 版本不兼容
             except DroidCastVersionIncompatible as e:
                 logger.error(str(f'[Устройство — DroidCast] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.droidcast_init()
-            # Данные изображения обрезаны
+            # 图像数据截断
             except ImageTruncated as e:
                 from module.device.method.utils import handle_image_truncated
                 handle_image_truncated(self, e)
 
                 def init():
                     pass
-            # Не обрабатывается — исключение нужно пробросить выше, чтобы запустить перезапуск эмулятора
+            # 无法处理 - 必须向上抛出以触发模拟器重启
             except EmulatorNotRunningError:
                 raise
-            # Неизвестное исключение
+            # 未知异常
             except Exception as e:
                 logger.exception(str(f'[Устройство — DroidCast] Ошибка повторной попытки: {e}'))
 
@@ -121,7 +134,7 @@ class DroidCast(Uiautomator2):
     @cached_property
     def droidcast_session(self):
         session = requests.Session()
-        session.trust_env = False  # Игнорировать прокси
+        session.trust_env = False  # 忽略代理
         self._droidcast_port = self.adb_forward('tcp:53516')
         return session
 
@@ -171,16 +184,11 @@ class DroidCast(Uiautomator2):
 
         logger.info('[Устройство — DroidCast] Запуск APK DroidCast')
         # DroidCast_raw-release-1.1.apk
-        # CLASSPATH=/data/local/tmp/DroidCast_raw.apk app_process / ink.mol.droidcast_raw.Main > /dev/null
+        # Runner сам добавляет безопасные shell redirection и background.
         # adb shell CLASSPATH=/data/local/tmp/DroidCast_raw.apk app_process / ink.mol.droidcast_raw.Main
-        resp = self.u2_shell_background([
-            'CLASSPATH=/data/local/tmp/DroidCast_raw.apk',
-            'app_process',
-            '/',
-            'ink.mol.droidcast_raw.Main',
-            '>',
-            '/dev/null'
-        ])
+        resp = self.u2_shell_background(
+            build_droidcast_raw_argv(self.config.DROIDCAST_FILEPATH_REMOTE)
+        )
         logger.info(resp)
         del_cached_property(self, 'droidcast_session')
         _ = self.droidcast_session
@@ -200,7 +208,7 @@ class DroidCast(Uiautomator2):
             w, h = self.resolution_uiautomator2(cal_rotation=False)
             self.get_orientation()
             # 720, 1280
-            # mumu12 > 3.5.6 всегда считается устройством в портретной ориентации
+            # mumu12 > 3.5.6 始终为竖屏设备
             self.droidcast_width, self.droidcast_height = w, h
             logger.info(f'Разрешение DroidCast: {(w, h)}')
 
@@ -252,15 +260,15 @@ class DroidCast(Uiautomator2):
 
         resp = self.droidcast_session.get(self.droidcast_raw_url(), timeout=3)
         image = resp.content
-        # DroidCast_raw возвращает bitmap RGB565
+        # DroidCast_raw 返回 RGB565 位图
 
-        # Не допускаем TypeError в np.frombuffer из-за пустого содержимого
+        # 防止空内容导致 np.frombuffer 抛出 TypeError
         if image is None or len(image) == 0:
             raise ImageTruncated('Пустые данные изображения от DroidCast_raw')
 
-        # DroidCast вернул короткое сообщение об ошибке вместо исходных данных bitmap
-        # Например: b':(  Failed to generate the screenshot on device / emulator: ...'
-        # Бросаем ConnectionError, чтобы обработчик повторных попыток сразу вызвал droidcast_init
+        # DroidCast 返回了短错误信息而非原始位图数据
+        # 例如 b':(  Failed to generate the screenshot on device / emulator: ...'
+        # 抛出 ConnectionError 以在重试处理器中立即触发 droidcast_init
         if len(image) < 500:
             logger.warning(f'[Устройство — DroidCast] Некорректный снимок экрана; получено {len(image)} байт')
             raise requests.exceptions.ConnectionError(f'[Устройство — DroidCast] Ошибка службы; получено {len(image)} байт')
@@ -270,13 +278,13 @@ class DroidCast(Uiautomator2):
             if rotate:
                 arr = arr.reshape(shape)
                 # arr = cv2.rotate(arr, cv2.ROTATE_90_CLOCKWISE)
-                # Немного быстрее?
+                # 稍微快一点？
                 arr = cv2.transpose(arr)
                 cv2.flip(arr, 1, dst=arr)
             else:
                 arr = arr.reshape(shape)
         except ValueError as e:
-            # Пробуем загрузить как формат `DroidCast`
+            # 尝试作为 `DroidCast` 格式加载
             image = np.frombuffer(image, np.uint8)
             if image is not None:
                 image = cv2.imdecode(image, cv2.IMREAD_COLOR)
@@ -286,7 +294,7 @@ class DroidCast(Uiautomator2):
             # ValueError: cannot reshape array of size 0 into shape (720,1280)
             raise ImageTruncated(str(e)+'\nЕсли разрешение эмулятора отличается от 1280x720, установите разрешение 1280x720')
 
-        # Преобразуем RGB565 в RGB888
+        # 将 RGB565 转换为 RGB888
         # https://blog.csdn.net/happy08god/article/details/10516871
 
         # r = (arr & 0b1111100000000000) >> (11 - 3)
@@ -300,9 +308,9 @@ class DroidCast(Uiautomator2):
         # b = b.astype(np.uint8)
         # image = cv2.merge([r, g, b])
 
-        # Делает то же самое, что код выше, но занимает около 2.7 мс вместо 16 мс.
-        # Важно: cv2.convertScaleAbs в 5 раз быстрее cv2.multiply, а cv2.add в 8 раз быстрее cv2.convertScaleAbs
-        # Важно: cv2.convertScaleAbs выполняет округление
+        # 与上方代码功能相同，但耗时约 2.7ms 而非 16ms。
+        # 注意 cv2.convertScaleAbs 比 cv2.multiply 快 5 倍，cv2.add 比 cv2.convertScaleAbs 快 8 倍
+        # 注意 cv2.convertScaleAbs 包含四舍五入
         tmp = np.empty_like(arr)
         cv2.bitwise_and(arr, 0b1111100000000000, dst=tmp)
         r = cv2.convertScaleAbs(tmp, alpha=0.0040283203125)  # 0.00390625 * 1.03125
@@ -325,7 +333,7 @@ class DroidCast(Uiautomator2):
 
             try:
                 resp = self.droidcast_session.get(self.droidcast_url('/'), timeout=3)
-                # Маршрут `/` недоступен, но 404 означает, что запуск завершён
+                # 路由 `/` 不可用，但 404 表示启动已完成
                 if resp.status_code == 404:
                     logger.attr('Состояние DroidCast', 'в сети')
                     return True

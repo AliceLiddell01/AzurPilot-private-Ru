@@ -5,10 +5,17 @@ description: "Безопасный cross-surface workflow для Development Run
 
 # Рабочий процесс разработки AzurPilot
 
-Этот skill обслуживает Development workflow AzurPilot. Он работает с
-существующим `azurpilot-dev` и не добавляет второй MCP-сервер или
-самостоятельный transport. Developer-only capability `Game` доступна только
+Этот skill обслуживает Development workflow AzurPilot. В standalone Codex CLI
+он работает с project-scoped `azurpilot-dev` из `.codex/config.toml` через
+local stdio. Codex Desktop при Windows stdio bootstrap failure использует
+отдельный authenticated loopback alias `azurpilot_dev`; protocol identity
+остаётся `azurpilot-dev`. Developer-only capability `Game` доступна только
 через односторонний Dev → neutral application bridge, привязанный к target.
+
+Каноническая Codex-команда: `uv run --locked --no-sync python -m
+module.dev_mcp`. Валидация `dev_get_contract` и текущего callable catalog
+обязательна; при mismatch действует `PLUGIN_RUNTIME_INCOMPATIBLE` и
+fail-closed правило ниже.
 
 ## Граница совместимости
 
@@ -135,9 +142,12 @@ Runtime control не принимает профиль, serial, package, ком�
 
 ## Поверхности подключения
 
-В Codex используй project-scoped `azurpilot-dev` через прямой local stdio:
-`uv run --locked --no-sync python -m module.dev_mcp`. Это тот же существующий
-Dev MCP с явно настроенным development target; public HTTPS для Codex не нужен. Git, source snapshot и
+В standalone Codex CLI используй project-scoped `azurpilot-dev` через прямой
+local stdio: `uv run --locked --no-sync python -m module.dev_mcp`. В Codex
+Desktop используй только проверенный alias `azurpilot_dev` через loopback
+local HTTP и требуй `transport=local_http`, `authenticated=true`,
+`local_authority=true`. Это тот же существующий Dev MCP с явно настроенным
+development target; public HTTPS для Codex не нужен. Git, source snapshot и
 проверки выполняй по правилам репозитория.
 
 В ChatGPT используй подключённое приложение, соответствующее этому
@@ -185,7 +195,9 @@ observations через `module/application`. Это не standalone Game MCP и
 произвольный доступ к устройству и БД.
 
 Для обычной работы через Game MCP используй skill
-`azurpilot-game-control` и подключённое приложение `AzurPilot Game`. Если
+`azurpilot-game-control` и project-scoped route `azurpilot-game` из
+`.codex/config.toml`; ChatGPT/public Connected App относится только к отдельной
+remote surface. Если
 проблема относится к отсутствующему tool, каталогу, app/auth, runtime или
 postcondition, переключись в `azurpilot-troubleshooting`. Development skill не
 является универсальным fallback для Game operations и не создаёт MCP-to-MCP

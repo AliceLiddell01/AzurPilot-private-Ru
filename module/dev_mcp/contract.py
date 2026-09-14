@@ -65,16 +65,19 @@ def contract_payload() -> dict[str, object]:
     }
 
 
-def contract_result() -> dict[str, object]:
+def contract_result(*, request_context: Mapping[str, object] | None = None) -> dict[str, object]:
     """Вернуть безопасный результат read-only инструмента контракта."""
 
+    details: dict[str, object] = {"contract": contract_payload()}
+    if request_context is not None:
+        details["request_context"] = dict(request_context)
     return {
         "ok": True,
         "code": "DEV_MCP_CONTRACT_READY",
         "message": "Контракт совместимости AzurPilot Dev MCP готов",
         "state": "ready",
         "session_id": None,
-        "details": {"contract": contract_payload()},
+        "details": details,
     }
 
 

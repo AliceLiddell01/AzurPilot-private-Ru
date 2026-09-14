@@ -11,12 +11,6 @@ import cv2
 from lxml import etree
 
 from module.device.env import IS_WINDOWS, IS_MACINTOSH
-# 在导入 adbutils 和 uiautomator2 之前修补 pkg_resources
-from module.device.pkg_resources import get_distribution
-
-# 防止被导入优化器移除
-_ = get_distribution
-
 from module.base.timer import Timer
 from module.config.time_source import now as current_time
 from module.config.utils import get_server_next_update

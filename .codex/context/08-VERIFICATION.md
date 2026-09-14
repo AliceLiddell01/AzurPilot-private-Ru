@@ -155,7 +155,7 @@ required CI, relevant diff и review blockers. Успешный CI или CodeRa
 
 ### Runtime localization integrity
 
-Общий pytest suite запускает `tests/test_runtime_russianization_audit.py`. Тест выполняет permanent semantic audit текущих production consumer sites и Global/EN identity, а self-tests обязаны доказывать обе стороны контракта:
+Общий pytest suite запускает `tests/contracts/localization/test_runtime_russianization_audit.py`. Тест выполняет permanent semantic audit текущих production consumer sites и Global/EN identity, а self-tests обязаны доказывать обе стороны контракта:
 
 - FAIL: CJK operator prose, обычное untranslated English предложение, foreign locale/server/package/assets/OCR alias;
 - PASS: русский контекст, ADB/OCR/API/URL/path/package/game identifiers, deferred exception text и feature structure вне display sink.

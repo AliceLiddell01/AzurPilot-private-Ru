@@ -212,7 +212,7 @@ services:
       start_period: 20s
 
   tempo:
-    image: grafana/tempo:2.10.8@sha256:f0561deb1c68ec44d6e6e7e4487f30106c4e5e768642077695b37958b105812a
+    image: grafana/tempo:3.0.3@sha256:0296560ac66f8a3600d7fb3014a52c189d4d9c3549ad6ff441bf2409855d68d5
     command:
       - -config.file=/etc/tempo/config.yaml
     restart: unless-stopped

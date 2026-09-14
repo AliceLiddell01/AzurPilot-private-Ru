@@ -28,7 +28,6 @@ from tools.acceptance.device import (
     _resolve_serial,
     _run_adb,
     _safe_text,
-    _validate_bgr_image,
     _validate_profile_name,
 )
 from module.ocr.privacy import (
@@ -76,13 +75,19 @@ def _config_path(profile: str) -> Path:
     return Path("config") / f"{profile}.json"
 
 
+def _validate_ocr_image(image: np.ndarray) -> None:
+    """Проверить форму OpenCV-изображения для OCR acceptance."""
+    if image.ndim != 3 or image.shape[2] != 3:
+        raise AcceptanceFailure("OCR acceptance получил изображение с недопустимой формой.")
+
+
 def _decode_png(payload: bytes) -> np.ndarray:
     if not payload.startswith(b"\x89PNG\r\n\x1a\n"):
         raise AcceptanceFailure("ADB screencap не вернул корректный PNG.")
     image = cv2.imdecode(np.frombuffer(payload, dtype=np.uint8), cv2.IMREAD_COLOR)
     if image is None:
         raise AcceptanceFailure("OpenCV не смог декодировать снимок экрана.")
-    _validate_bgr_image(image)
+    _validate_ocr_image(image)
     return image
 
 

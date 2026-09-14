@@ -31,9 +31,8 @@ import re
 import typing as t
 from copy import deepcopy
 
-from cached_property import cached_property
-
 from deploy.utils import DEPLOY_TEMPLATE, poor_yaml_read, poor_yaml_write
+from module.base.decorator import cached_property
 from module.base.timer import timer
 from module.config.deep import deep_default, deep_get, deep_iter, deep_set
 from module.config.locale import EVENT_NAME_FALLBACK_ORDER, EVENT_NAME_SOURCE, UI_LOCALE

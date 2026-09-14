@@ -32,7 +32,8 @@ Final translation closure выполнен PR `#68`; production diff менял 
 
 ## Permanent integrity
 
-`dev_tools/runtime_russianization_audit.py` и `tests/test_runtime_russianization_audit.py` обеспечивают:
+`dev_tools/runtime_russianization_audit.py` и
+`tests/contracts/localization/test_runtime_russianization_audit.py` обеспечивают:
 
 - CJK runtime regression protection в доказанных display sinks;
 - ordinary operator English protection в deterministic sink contract;
@@ -56,7 +57,7 @@ Acceptance выполнялась на изолированном clean checkout
 | WebUI `ru-RU` | PASS | login, Home/navigation/settings DOM на русском до и после restart | Один desktop viewport |
 | Global identity | PASS | server `en`, Global package, `assets/en`, foreign fallback guard | Один поддерживаемый package |
 | ADB | PASS | target-explicit transport, boot complete, package readiness, reconnect | Один MuMu target |
-| Screenshot/BGR | PASS | ADB PNG 1280×720 `uint8` BGR; два последовательных `nemu_ipc` кадра | scrcpy дал handshake без видеоблока; fallback проверен |
+| Screenshot/RGB | PASS | ADB PNG 1280×720 `uint8` RGB; два последовательных `nemu_ipc` кадра | scrcpy дал handshake без видеоблока; fallback проверен |
 | Safe control | PASS | minitouch handshake и один target-explicit `KEYCODE_BACK` | Touch по игровым координатам не отправлялся |
 | Compact OCR | PASS | bundled `sets_num` 1000/1000; live screenshot дал пять safe numeric values; DML+CPU providers | Значения сверялись только на безопасном статическом экране |
 | General English OCR | PASS | live screen: 27 detections и 12 ожидаемых safe UI labels | Chat/profile/UID не публиковались |

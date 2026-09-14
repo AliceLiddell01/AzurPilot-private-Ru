@@ -9,9 +9,9 @@ from __future__ import annotations
 import json
 import statistics
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 import cv2
 import numpy as np
@@ -19,11 +19,16 @@ import numpy as np
 from module.combat.assets import GET_ITEMS_1, GET_ITEMS_2
 from module.device.screenshot import Screenshot
 from module.ocr.ocr import Digit, Ocr
-from module.os.assets import MAP_NAME, MEOWFFICER_SEARCHING_PERCENTAGE, ZONE_DANGEROUS, ZONE_SAFE
+from module.os.assets import (
+    MAP_NAME,
+    MEOWFFICER_SEARCHING_PERCENTAGE,
+    ZONE_DANGEROUS,
+    ZONE_SAFE,
+)
 from module.os_handler.assets import ACTION_POINT_REMAIN_OS, MAP_WORLD
+from tools.paths import REPOSITORY_ROOT
 
-
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = REPOSITORY_ROOT
 CANONICAL_SIZE = (1280, 720)
 SOURCE_RESOLUTIONS = ((1600, 900), (1920, 1080), (2560, 1440), (3840, 2160))
 EMBED_ORIGIN = (360, 220)
@@ -49,8 +54,8 @@ BUTTON_ASSETS = {
 }
 
 DIRECT_ASSETS = {
-    "data_logger_current": ROOT / "tests/fixtures/opsi_data_logger_storage_en_current.png",
-    "data_logger_legacy": ROOT / "tests/fixtures/opsi_data_logger_storage_en_legacy.png",
+    "data_logger_current": ROOT / "tests/fixtures/operation_siren/opsi_data_logger_storage_en_current.png",
+    "data_logger_legacy": ROOT / "tests/fixtures/operation_siren/opsi_data_logger_storage_en_legacy.png",
     "data_logger_template": ROOT / "assets/en/os_handler/TEMPLATE_STORAGE_LOGGER_UNLOCK.png",
 }
 
@@ -358,7 +363,7 @@ def timing_rows(iterations: int = DEFAULT_TIMING_ITERATIONS) -> list[dict]:
                 normalizer(source)
                 samples.append((time.perf_counter() - started) * 1000.0)
             ordered = sorted(samples)
-            p95_index = min(len(ordered) - 1, int(round(0.95 * (len(ordered) - 1))))
+            p95_index = min(len(ordered) - 1, round(0.95 * (len(ordered) - 1)))
             rows.append(
                 {
                     "candidate": candidate,

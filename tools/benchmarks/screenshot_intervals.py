@@ -26,7 +26,7 @@ from tools.acceptance.device import (
     _resolve_adb,
     _resolve_serial,
     _safe_text,
-    _validate_bgr_image,
+    _validate_rgb_image,
     _validate_profile_name,
 )
 
@@ -275,7 +275,7 @@ def _benchmark_interval(
             starts.append(started)
             ends.append(ended)
             if frame_contract is None:
-                frame_contract = _validate_bgr_image(image)
+                frame_contract = _validate_rgb_image(image)
     except Exception as exc:  # noqa: BLE001 - один кандидат должен дать отчёт.
         error = f"{type(exc).__name__}: {_safe_text(str(exc))}"
 

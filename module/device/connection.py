@@ -3,7 +3,6 @@
 
 import ipaddress
 import json
-import logging
 import re
 import socket
 import subprocess
@@ -14,7 +13,7 @@ import uiautomator2 as u2
 from adbutils import AdbClient, AdbDevice, AdbTimeout, ForwardItem, ReverseItem
 from adbutils.errors import AdbError
 
-from module.base.decorator import Config, cached_property, del_cached_property, run_once
+from module.base.decorator import Config, cached_property, del_cached_property, has_cached_property, run_once
 from module.base.timer import Timer
 from module.base.utils import ensure_time
 from module.config.deep import deep_get
@@ -653,7 +652,7 @@ class Connection(ConnectionAttr):
             args.append("norebind")
         args.append(remote + ";" + local)
         cmd = ":".join(args)
-        with self.adb_client._connect() as c:
+        with self.adb_client.make_connection() as c:
             c.send_command(f'host:transport:{self.serial}')
             c.check_okay()
             c.send_command(cmd)
@@ -692,7 +691,7 @@ class Connection(ConnectionAttr):
             local (str): 本地地址，如 'tcp:2437'。
         """
         try:
-            with self.adb_client._connect() as c:
+            with self.adb_client.make_connection() as c:
                 list_cmd = f"host-serial:{self.serial}:killforward:{local}"
                 c.send_command(list_cmd)
                 c.check_okay()
@@ -714,7 +713,7 @@ class Connection(ConnectionAttr):
             local (str): 本地地址，如 'tcp:2437'。
         """
         try:
-            with self.adb_client._connect() as c:
+            with self.adb_client.make_connection() as c:
                 c.send_command(f"host:transport:{self.serial}")
                 c.check_okay()
                 list_cmd = f"reverse:killforward:{local}"
@@ -963,18 +962,16 @@ class Connection(ConnectionAttr):
         )
 
     def install_uiautomator2(self):
-        """初始化 uiautomator2 并移除 minicap。"""
-        logger.info('[Устройство — соединение] Установка uiautomator2')
-        init = u2.init.Initer(self.adb, loglevel=logging.DEBUG)
-        # MuMu X 没有 ro.product.cpu.abi，从 ro.product.cpu.abilist 中选取 abi
-        if init.abi not in ['x86_64', 'x86', 'arm64-v8a', 'armeabi-v7a', 'armeabi']:
-            init.abi = init.abis[0]
-        init.set_atx_agent_addr('127.0.0.1:7912')
-        try:
-            init.install()
-        except ConnectionError:
-            logger.error('[Устройство — соединение] Не удалось установить ресурсы uiautomator2; внешний fallback отключён')
-            raise
+        """Инициализировать встроенный uiautomator2 3.x server и убрать minicap."""
+        if self.is_over_http:
+            logger.info('[Устройство — соединение] HTTP uiautomator2 использует уже доступный endpoint')
+            return
+
+        logger.info('[Устройство — соединение] Инициализация uiautomator2 3.x')
+        if has_cached_property(self, 'u2'):
+            self.u2.reset_uiautomator()
+        else:
+            _ = self.u2
         self.uninstall_minicap()
 
     def uninstall_minicap(self):
@@ -985,20 +982,16 @@ class Connection(ConnectionAttr):
 
     @Config.when(DEVICE_OVER_HTTP=False)
     def restart_atx(self):
-        """重启 ATX 服务。
-
-        Minitouch 同一时间只支持一个连接，重启 ATX 以踢掉现有连接。
-        """
-        logger.info('[Устройство — соединение] Перезапуск ATX')
-        atx_agent_path = '/data/local/tmp/atx-agent'
-        self.adb_shell([atx_agent_path, 'server', '--stop'])
-        self.adb_shell([atx_agent_path, 'server', '--nouia', '-d', '--addr', '127.0.0.1:7912'])
+        """Перезапустить встроенный uiautomator2 server."""
+        logger.info('[Устройство — соединение] Перезапуск uiautomator2')
+        self.u2.reset_uiautomator()
 
     @Config.when(DEVICE_OVER_HTTP=True)
     def restart_atx(self):
-        logger.warning(
-            f'[Устройство — соединение] Устройство подключено по HTTP: {self.serial}; restart_atx() пропущен. Возможно, потребуется вручную перезапустить ATX'
+        logger.info(
+            f'[Устройство — соединение] Перезапуск HTTP uiautomator2 для устройства {self.serial}'
         )
+        self.u2.reset_uiautomator()
 
     @staticmethod
     def sleep(second):
@@ -1060,16 +1053,8 @@ class Connection(ConnectionAttr):
         """
         devices = []
         try:
-            with self.adb_client._connect() as c:
-                c.send_command("host:devices")
-                c.check_okay()
-                output = c.read_string_block()
-                for line in output.splitlines():
-                    parts = line.strip().split("\t")
-                    if len(parts) != 2:
-                        continue
-                    device = AdbDeviceWithStatus(self.adb_client, parts[0], parts[1])
-                    devices.append(device)
+            for info in self.adb_client.list():
+                devices.append(AdbDeviceWithStatus(self.adb_client, info.serial, info.state))
         except ConnectionResetError as e:
             # 仅在国内用户中出现
             # ConnectionResetError: [WinError 10054] 远程主机强迫关闭了一个现有的连接。

@@ -8,9 +8,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import inflection
-from cached_property import cached_property
 
-from module.base.decorator import del_cached_property
+from module.base.decorator import cached_property, del_cached_property
 from module.base.ssh import clear_ssh_host_key
 from module.config.config import AzurLaneConfig, TaskEnd
 from module.config.deep import deep_get, deep_set

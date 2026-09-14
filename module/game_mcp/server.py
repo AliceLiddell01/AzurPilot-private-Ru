@@ -543,7 +543,7 @@ _REQUEST_CONTEXT_OUTPUT = {
     "properties": {
         "transport": {
             "type": "string",
-            "enum": ["local_stdio", "remote_http"],
+            "enum": ["local_stdio", "local_http", "remote_http"],
         },
         "authenticated": {"type": "boolean"},
         "local_authority": {"type": "boolean"},
@@ -1036,7 +1036,7 @@ def create_server(
 ) -> Server:
     """Создать MCP Server без сборки backend и без подключения к источникам.
 
-    `cache_hints` намеренно не задаются: в используемом MCP SDK 2.1.1
+    `cache_hints` намеренно не задаются: в используемом MCP SDK 2.2.0
     применяются безопасные defaults `ttlMs=0` и `cacheScope=private`. Для
     profile runtime data, logs, morale и screenshots это сохраняет актуальность
     и изоляцию данных.

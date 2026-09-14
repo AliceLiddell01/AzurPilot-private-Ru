@@ -33,7 +33,9 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from module.mcp_shared.auth import (
     reset_current_access_token,
+    reset_current_transport,
     set_current_access_token,
+    set_current_transport,
 )
 
 logger = logging.getLogger(__name__)
@@ -508,9 +510,11 @@ class OAuthBearerMiddleware:
         child_scope = dict(scope)
         child_scope["azurpilot.access_token"] = access_token
         context_token = set_current_access_token(access_token)
+        transport_token = set_current_transport("remote_http")
         try:
             await self.app(child_scope, receive, send)
         finally:
+            reset_current_transport(transport_token)
             reset_current_access_token(context_token)
 
     @staticmethod
@@ -691,7 +695,7 @@ class RequestTimeoutMiddleware:
             if not response_started:
                 await _send_error(send, 504, "request_timeout")
             elif not response_completed:
-                logger.warning("Истёк timeout remote MCP после начала HTTP-ответа")
+                logger.warning("Истёк timeout MCP HTTP после начала HTTP-ответа")
                 await send(
                     {"type": "http.response.body", "body": b"", "more_body": False}
                 )
@@ -718,7 +722,7 @@ class FailSafeMiddleware:
         try:
             await self.app(scope, receive, guarded_send)
         except Exception as exc:  # noqa: BLE001 - HTTP boundary hides details.
-            logger.error("Ошибка обработки remote MCP-запроса: %s", type(exc).__name__)
+            logger.error("Ошибка обработки MCP HTTP-запроса: %s", type(exc).__name__)
             if not response_started:
                 await _send_error(send, 500, "server_error")
 

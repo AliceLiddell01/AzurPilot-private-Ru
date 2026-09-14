@@ -14,8 +14,9 @@ from pathlib import Path
 
 import psutil
 
+from tools.paths import REPOSITORY_ROOT
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = REPOSITORY_ROOT
 CONFIG_DIR = ROOT / "config"
 SENSITIVE_MARKERS = (
     "-----BEGIN " + "PRIVATE KEY-----",

@@ -4,8 +4,9 @@ CSS 样式管理、时间格式转换等功能，
 
 # 此文件提供了 WebUI 相关的底层工具函数。
 # 包含 LocalStorage 读写、JavaScript 代码注入执行、CSS 样式管理、时间格式转换以及维持 UI 刷新的任务调度控制器。
-import datetime
 import base64
+import datetime
+import io
 import operator
 import re
 import sys
@@ -124,12 +125,12 @@ def render_webui_traceback(exc_info, *, dark_theme: bool) -> str:
 
     traceback_console = Console(
         color_system="truecolor",
+        file=io.StringIO(),
         tab_size=2,
         record=True,
         width=WEBUI_TRACEBACK_WIDTH,
     )
-    with traceback_console.capture():
-        traceback_console.print(renderable)
+    traceback_console.print(renderable)
 
     theme = DARK_TERMINAL_THEME if dark_theme else LIGHT_TERMINAL_THEME
     return traceback_console.export_html(

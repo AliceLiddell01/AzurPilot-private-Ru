@@ -19,8 +19,8 @@ from pathlib import Path, PurePosixPath
 PROTECTED_PATHS = {
     ".github/workflows/ci.yml",
     "dev_tools/translation_structural_gate.py",
-    "tests/test_translation_structural_gate.py",
-    "tests/test_translation_structural_gate_display_sinks.py",
+    "tests/contracts/localization/test_translation_structural_gate.py",
+    "tests/contracts/localization/test_translation_structural_gate_display_sinks.py",
 }
 ENTRY_POINTS = {"alas.py", "gui.py"}
 LOGGER_METHODS = {

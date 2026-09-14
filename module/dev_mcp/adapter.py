@@ -20,15 +20,48 @@ from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from module.dev_mcp.contract import contract_result
+from module.dev_mcp.contract import DEV_MCP_REQUIRED_SCOPE, contract_result
 from module.dev_runtime.contracts import DevEnvironment
 from module.dev_runtime.evidence import EvidenceScreenshot, validate_session_id
 from module.dev_runtime.sanitizer import MAX_SANITIZED_TEXT, redact_text
 from module.dev_runtime.smoke import SmokeSpec
 from module.dev_runtime.target import DevTargetError, DevTargetRegistry
 from module.dev_runtime.task_sandbox import TaskSandboxError
+from module.mcp_shared.auth import current_access_token, current_transport
 
 logger = logging.getLogger(__name__)
+
+
+def _request_context() -> dict[str, object]:
+    """Собрать bounded контекст authority без principal и token данных."""
+
+    access_token = current_access_token()
+    if access_token is None:
+        return {
+            "transport": "local_stdio",
+            "authenticated": False,
+            "local_authority": True,
+            "granted_scopes": [],
+            "read_allowed": True,
+            "control_allowed": True,
+        }
+    scopes = getattr(access_token, "scopes", ())
+    if isinstance(scopes, (str, bytes)):
+        scopes = ()
+    else:
+        scopes = tuple(scope for scope in scopes if isinstance(scope, str))
+    local = current_transport() == "local_http"
+    return {
+        "transport": "local_http" if local else "remote_http",
+        "authenticated": True,
+        "local_authority": local,
+        "granted_scopes": [DEV_MCP_REQUIRED_SCOPE]
+        if DEV_MCP_REQUIRED_SCOPE in scopes
+        else [],
+        "read_allowed": DEV_MCP_REQUIRED_SCOPE in scopes,
+        "control_allowed": DEV_MCP_REQUIRED_SCOPE in scopes,
+    }
+
 
 DEV_MCP_TOOL_NAMES = (
     "dev_preflight",
@@ -319,6 +352,7 @@ _SAFE_DETAIL_KEYS = frozenset(
         "owner",
         "freshness",
         "reason_code",
+        "request_context",
     }
 )
 
@@ -349,6 +383,16 @@ _SAFE_CONTRACT_KEYS = frozenset(
         "feature_flags",
         "capability_families",
         "result_outcomes",
+    }
+)
+_SAFE_REQUEST_CONTEXT_KEYS = frozenset(
+    {
+        "transport",
+        "authenticated",
+        "local_authority",
+        "granted_scopes",
+        "read_allowed",
+        "control_allowed",
     }
 )
 _SAFE_FEATURE_FLAG_KEYS = frozenset(
@@ -682,6 +726,14 @@ _CONTRACT_CHILD_SCHEMAS: dict[str, str | None] = {
     "capability_families": "string_list",
     "result_outcomes": "string_list",
 }
+_REQUEST_CONTEXT_CHILD_SCHEMAS: dict[str, str | None] = {
+    "transport": "string",
+    "authenticated": "bool",
+    "local_authority": "bool",
+    "granted_scopes": "string_list",
+    "read_allowed": "bool",
+    "control_allowed": "bool",
+}
 _FEATURE_FLAG_CHILD_SCHEMAS: dict[str, str | None] = {
     "task_sandbox": "bool",
     "evidence_api": "bool",
@@ -700,6 +752,7 @@ _SCHEMA_KEYS = {
     "details": _SAFE_DETAIL_KEYS,
     "result": _SAFE_RESULT_KEYS,
     "contract": _SAFE_CONTRACT_KEYS,
+    "request_context": _SAFE_REQUEST_CONTEXT_KEYS,
     "feature_flags": _SAFE_FEATURE_FLAG_KEYS,
     "preflight_check": _SAFE_PREFLIGHT_CHECK_KEYS,
     "task_lifecycle": _SAFE_TASK_LIFECYCLE_KEYS,
@@ -973,6 +1026,7 @@ _DETAIL_CHILD_SCHEMAS: dict[str, str | None] = {
     "owner": "string",
     "freshness": "string",
     "reason_code": "string",
+    "request_context": "request_context",
 }
 
 _RESULT_CHILD_SCHEMAS: dict[str, str | None] = {
@@ -1463,6 +1517,7 @@ _SCHEMA_CHILD_SCHEMAS = {
     "details": _DETAIL_CHILD_SCHEMAS,
     "result": _RESULT_CHILD_SCHEMAS,
     "contract": _CONTRACT_CHILD_SCHEMAS,
+    "request_context": _REQUEST_CONTEXT_CHILD_SCHEMAS,
     "feature_flags": _FEATURE_FLAG_CHILD_SCHEMAS,
     "task_lifecycle": {
         "mode": "string",
@@ -2221,7 +2276,7 @@ class DevMcpAdapter:
         if parsed is None:
             return _input_error(tool_name)
         if tool_name == "dev_get_contract":
-            return serialize_dev_result(contract_result())
+            return serialize_dev_result(contract_result(request_context=_request_context()))
 
         self._manager_lock.acquire()
         redirect_stack = ExitStack()
