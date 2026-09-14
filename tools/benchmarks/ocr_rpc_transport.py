@@ -224,6 +224,7 @@ def _start_server(transport: str) -> tuple[_ServerHandle, Any]:
     )
     process = context.Process(target=target, args=arguments)
     process.start()
+    root_identity: _ProcessIdentity | None = None
     try:
         root_identity = _identity(psutil.Process(process.pid))
         _wait_ready(process, ready_event)
@@ -239,17 +240,18 @@ def _start_server(transport: str) -> tuple[_ServerHandle, Any]:
             client = _ZmqRpcClient(address, timeout=SERVER_TIMEOUT_SECONDS)
         if client.hello() != "hello":
             raise BenchmarkError("Synthetic OCR server вернул неверный hello.")
+        assert root_identity is not None
         return _ServerHandle(process, root_identity, stop_event), client
-    except Exception:
-        handle = _ServerHandle(
-            process,
-            _identity(psutil.Process(process.pid))
-            if process.is_alive()
-            else _ProcessIdentity(process.pid, 0.0, "", ()),
-            stop_event,
-        )
-        if process.is_alive() and handle.root_identity.created_at:
-            handle.close()
+    except Exception as exc:
+        if root_identity is None:
+            exc.add_note(
+                "Benchmark cleanup incomplete: process identity was not confirmed."
+            )
+        else:
+            try:
+                _ServerHandle(process, root_identity, stop_event).close()
+            except Exception as cleanup_exc:  # noqa: BLE001
+                exc.add_note(f"Benchmark cleanup failed: {cleanup_exc}")
         raise
 
 
