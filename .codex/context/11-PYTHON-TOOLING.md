@@ -43,6 +43,13 @@ contract. Само расширение файла не является осн�
 Ниже перечислены все tracked `.ps1`, `.psm1`, `.sh` и BAT-wrapper, найденные в
 текущем checkout. Кандидат на будущий Python adapter не равен кандидату на
 удаление: сначала должен быть доказан новый owner, parity и отсутствие call site.
+Project-owned PowerShell/Shell wrapper может оставаться только временным
+compatibility artifact на период parity/cutover. После миграции callers и
+подтверждения parity его retirement/removal обязателен; бессрочный wrapper или
+неявный fallback не является допустимым target state. Исключение —
+runtime-native contract внешней среды, например PostgreSQL image initialization
+hook, когда shell является естественной частью runtime и перенос на Python не
+даёт архитектурной пользы.
 
 | Артефакт | Назначение и entrypoint | Caller и внешние зависимости | Mutations и safety contract | Failure/recovery, tests и future owner |
 | --- | --- | --- | --- | --- |
@@ -53,14 +60,14 @@ contract. Само расширение файла не является осн�
 | `scripts/Build-AzurPilot.ps1` | Подготавливает уже полученный checkout и локальный shortcut | README/installer workflow; PowerShell, pinned uv/ADB bootstrap archives, SHA-256, Python, `deploy.uv`, COM | Не клонирует и не обновляет Git; создаёт `config/deploy.yaml` из template, при необходимости строит `.venv`, проверяет imports/ADB/frozen lock, удаляет только созданное partial state при отказе | Bootstrap cache, hashes и test failpoints; сохранение существующего здорового окружения; PowerShell/Windows gates. Будущий owner: `tooling.bootstrap` + artifact/ADB/platform adapters |
 | `scripts/lib/AzurPilot.Lifecycle.psm1` | Общий Windows ownership contract для Start/Stop | Импортируется обоими скриптами; CIM/NetTCP, process tree, named mutex/event | Сравнивает exact repository, project Python, `gui.py`, command line и parent chain; `taskkill.exe /PID /T /F` только после подтверждённого ownership и creation date | `Free`/`Foreign`/`AzurPilot`, safe fallback и no generic kill; lifecycle acceptance. Будущий owner: `platform.windows.process` и `platform.windows.coordination` |
 | `scripts/lib/AzurPilot.Shortcut.psm1` | Создаёт и проверяет `.lnk` на Start-команду | Repair/Build и Windows COM `WScript.Shell` | Формирует `pwsh -File scripts\Start-AzurPilot.ps1 -FromShortcut`, проверяет target/cwd/icon, пишет temp и делает atomic replace с backup | Restore on failure, local/all-users modes и admin boundary; shortcut checks в Repair/Build. Будущий owner: `platform.windows.shortcut`; COM остаётся platform adapter |
-| `scripts/Start-Codex-Local-Mcp.ps1` | Тонкий Windows wrapper для `module.mcp_shared.local_http_supervisor` | Ручной Desktop setup; project `.venv` Python, user environment tokens | Запускает supervisor hidden, пишет ignored state/logs, ждёт `127.0.0.1:8775/8776` и `LOCAL_MCP_READY`; не управляет игровым lifecycle | Bounded readiness и failure при отсутствии token/process; contract/runtime MCP tests. Будущий owner: `tooling.mcp.local_http` или сохранённый compatibility wrapper |
+| `scripts/Start-Codex-Local-Mcp.ps1` | Тонкий Windows wrapper для `module.mcp_shared.local_http_supervisor` | Ручной Desktop setup; project `.venv` Python, user environment tokens | Запускает supervisor hidden, пишет ignored state/logs, ждёт `127.0.0.1:8775/8776` и `LOCAL_MCP_READY`; не управляет игровым lifecycle | Bounded readiness и failure при отсутствии token/process; contract/runtime MCP tests. Будущий owner: `tooling.mcp.local_http`; `.ps1` допускается только временно для parity/cutover и затем подлежит обязательному retirement/removal |
 | `tools/acceptance/powershell/Test-AzurPilotLifecycle.ps1` | Изолированный Windows smoke ownership/mutex/event/foreign-port/fallback | Запускается вручную и из Windows CI; временный fixture checkout | Проверяет только synthetic processes и cleanup fixture, не production game/device | Нет device side effects; результат заменяет не parser/PSScriptAnalyzer, а дополняет их. Будущий owner: Python process/coordination acceptance при сохранении Windows compatibility gate |
 | `tools/acceptance/powershell/Test-Update-AzurPilot.ps1` | Изолированный harness для Update transaction/recovery | Ручной и CI Windows run; local bare producer/client, fake venv and failpoints | Проверяет no-op, fast-forward, dirty/local-ahead/diverged, dependency transaction, journal corruption/orphan/conflict, network failure | Cleanup fixture и explicit `KeepFixtures`; это source of parity, а не runtime command. Будущий owner: Python delivery integration suite |
-| `deploy/docker/deploy-image.sh` | Полноценный Linux Docker deployment: checkout, image, container, WebUI readiness и URL | Linux Bash, `git`, `curl`, Docker, apt/yum/dnf/systemd при установке; отдельные Docker volumes/config | Может установить host tools, clone/update `personal/stable` через `merge --ff-only`, build image, remove old container, run bind-mounted checkout/venv volume; optional public/private URL output | `set -euo pipefail`, interactive prompts, bounded curl/log readiness; нет Python parity; `tests/contracts/repository/test_no_upstream_project_network_defaults.py` проверяет часть routing. Будущий owner: `tooling.deploy` + Linux/Docker adapters, только после отдельной Linux parity |
+| `deploy/docker/deploy-image.sh` | Полноценный Linux Docker deployment: checkout, image, container, WebUI readiness и URL | Linux Bash, `git`, `curl`, Docker, apt/yum/dnf/systemd при установке; отдельные Docker volumes/config | Может установить host tools, clone/update `personal/stable` через `merge --ff-only`, build image, remove old container, run bind-mounted checkout/venv volume; optional public/private URL output | `set -euo pipefail`, interactive prompts, bounded curl/log readiness; нет Python parity; `tests/contracts/repository/test_no_upstream_project_network_defaults.py` проверяет часть routing. Будущий owner: `tooling.deploy` + Linux/Docker adapters; shell wrapper — только временный parity/cutover слой с обязательным retirement/removal после миграции callers |
 | `deploy/docker/Docker-run.sh` | Старый Linux wrapper с update/build/run path | Bash, `git`, Docker, host ADB; использует string `eval`, stash/pull origin master и XDG lock | Может менять checkout через stash/pull и убивать container; не соответствует current `personal/stable` lifecycle safety | Нет основания считать его эквивалентом `deploy-image.sh`; сначала provenance/call-site audit, затем migration или removal decision. Будущий owner: не механический port, а отдельный redesign |
 | `infrastructure/observability/postgres/bootstrap/01-bootstrap.sh` | Image-native PostgreSQL roles/schema/default privileges bootstrap | Docker official PostgreSQL image, `/run/secrets`, `psql`, `.pgpass` mode 600 | Создаёт/изменяет DB roles, passwords, ownership и grants внутри container; secrets не печатает | Strict Bash, cleanup temporary `.pgpass`, `ON_ERROR_STOP`; покрывается Compose/PostgreSQL gates. Будущий owner: container hook или эквивалентный image-native contract, не общий host tooling |
 | `infrastructure/observability/postgres/init/01-bootstrap.sh` | Image-native `pg_hba.conf` local auth normalization | PostgreSQL init container, `psql`, `awk`, `mv`, file mode | Пишет temporary HBA, atomic move и reload; действует только внутри DB image | Strict Bash и trap cleanup; перенос в Python допустим лишь вместе с эквивалентом init image contract и отдельной DB acceptance |
-| `deploy/launcher/Alas.bat` | Старый Windows wrapper: добавляет `.venv`/embedded Git в PATH, вызывает `python -m deploy.installer`, затем `gui.py --electron` | BAT, project `.venv`, Python; `deploy.installer` в текущем checkout отсутствует | Передаёт управление отсутствующему legacy installer; не является текущим Start owner | `deploy/Readme.md` всё ещё ссылается на этот путь; бинарный launcher и installer artifacts требуют отдельного provenance audit. Не удалять в этом изменении |
+| `deploy/launcher/Alas.bat` | Старый Windows wrapper: добавляет `.venv`/embedded Git в PATH, вызывает `python -m deploy.installer`, затем `gui.py --electron` | BAT, project `.venv`, Python; `deploy.installer` в текущем checkout отсутствует | Передаёт управление отсутствующему legacy installer; не является текущим Start owner | `deploy/Readme.md` всё ещё ссылается на этот путь; бинарный launcher и installer artifacts требуют отдельного provenance audit. Допускается только как временный compatibility path до cutover; после миграции callers и parity — обязательное retirement/removal |
 | `dev_tools/alas2.bat` | Retired tombstone | BAT; сообщает о переходе на `.venv`/uv или Rust launcher | Ничего не запускает и завершается с ненулевым кодом | Удаление или оставление — отдельное compatibility decision после проверки внешних shortcuts, не часть tooling migration |
 
 Полный список файлов этой группы: `scripts/Build-AzurPilot.ps1`,
@@ -225,6 +232,61 @@ path. В durable документации используются роли (`<r
 WSL review clone, user config), а не личные usernames или рабочие абсолютные
 пути.
 
+#### 2.3.1 Deterministic repository-root resolution
+
+Установленный CLI может быть вызван не из repository cwd. Для project-bound
+операций root разрешается строго в таком порядке:
+
+```text
+explicit --repository-root
+  → validated user/machine configuration
+  → project-local installation identity / safe discovery
+  → stable failure with a machine-readable reason code
+```
+
+Каждый кандидат сначала приводится к canonical absolute path и проверяется как
+обычный non-bare Git worktree: каталог существует, `.git` и
+`git rev-parse --show-toplevel` согласованы, root не выходит за допустимый
+containment boundary, а набор AzurPilot markers (`pyproject.toml` с project
+name, `uv.lock`, `module/` и `deploy/`) подтверждает именно этот repository.
+При наличии нескольких разных кандидатов или конфликте identity CLI не
+выбирает один молча. Невалидный explicit root не заменяется cwd или следующим
+fallback; операция завершается стабильным code вроде
+`TOOLING_REPOSITORY_NOT_FOUND` после его schema/ownership validation.
+
+`azur --help`, version и другие project-independent команды могут работать без
+root. `azur doctor`, `start`, `stop`, `build`, `repair`, `update`, `mcp status` и
+`coderabbit` сначала получают validated root; вызов вне checkout корректен,
+если root найден через указанную цепочку, и fail-closed, если нет. Текущий cwd
+не считается доверенным только по факту нахождения процесса в этом каталоге.
+
+Project-local installation identity означает проверяемую связь executable,
+Python environment/package metadata и repository markers. Safe discovery может
+подняться от такой доверенной installation boundary к root, но не должен
+угадывать root по произвольному `sys.path`, имени процесса или случайному cwd.
+В результат включаются provenance (`explicit`, `configured` или
+`installation`) и bounded identity evidence; секреты и личные пути не
+публикуются.
+
+Будущий package получает доступ к существующим `module/`, `deploy/` и другим
+seams через один объявленный source/package boundary: переходный distribution
+может включать `azurpilot` вместе с явно перечисленными существующими пакетами,
+а project-specific config/data берётся из validated root. Динамическое
+копирование дерева, добавление непроверенного cwd в import path и вторая
+реализация запрещены. `deploy.uv`, `deploy.atomic`, `module.dev_runtime` и
+`module.mcp_shared` остаются canonical seams: новый adapter импортирует их из
+того же source tree, а последующее перемещение выполняется один раз с
+compatibility re-export, но не копированием.
+
+Текущий `tool.uv.package = false` означает, что package/console script пока не
+существует и `uv run` работает с project-local modules. Позже потребуются
+`tool.uv.package = true`, явный `project.scripts.azur`, package discovery/source
+layout для `azurpilot` и переходных `module`/`deploy`, import/install audit,
+wheel/editable-install checks и CI parity на Windows/Linux/macOS. Это не
+требует новых dependencies само по себе; lock меняется только при фактическом
+изменении dependency graph. До этой работы никаких package assumptions в
+runtime не добавляется.
+
 ### 2.4 Structured process invocation
 
 Общий process port должен принимать:
@@ -251,20 +313,45 @@ adapter с тем же требованием ownership.
 
 ### 2.5 Stable result/error contract
 
-Все transport adapters преобразуют service result в одну bounded модель:
+Все transport adapters преобразуют service result в один небольшой transport-
+neutral envelope. Концептуальная форма допускает generic или отдельные DTO:
 
-```json
+```text
+ToolingResult[TDetails, TEvidence]
+```
+
+Например, `StartResult`, `DoctorResult`, `UpdateResult` и
+`CodeRabbitReviewResult` могут иметь собственные `TDetails`/`TEvidence`, но не
+собственный несогласованный envelope:
+
+```jsonc
 {
   "ok": true,
   "code": "TOOLING_OPERATION_READY",
   "state": "ready",
   "message": "Операция подтверждена",
   "operation_id": null,
-  "details": {},
-  "warnings": [],
-  "evidence": {}
+  "details": {
+    "schema": "StartDetails.v1",
+    "repository_root_source": "configured",
+    "readiness": "ready"
+  },
+  "warnings": [{ "code": "WARNING_CODE", "message": "Короткое пояснение" }],
+  "evidence": {
+    "schema": "LifecycleEvidence.v1",
+    "ownership": "confirmed"
+  }
 }
 ```
+
+`details` и `evidence` не являются `dict[str, Any]` и не превращаются в
+произвольные словари. Каждый operation-specific payload обязан иметь
+версионированную typed schema с явными типами, bounded количеством/размером
+полей и запретом неизвестных свойств (`additionalProperties: false` или
+эквивалентный closed-schema режим). Расширения допустимы только через явно
+определённую версию/namespace; произвольные extra properties по умолчанию
+отклоняются. `warnings` также является bounded списком typed warning DTO, а не
+неограниченным логом.
 
 Обязательные свойства контракта:
 
@@ -272,10 +359,19 @@ adapter с тем же требованием ownership.
 - `state` — конечное состояние (`ready`, `running`, `failed`, `unknown`,
   `rolled_back`, `conflict`, `unavailable` и ограниченный согласованный набор);
 - `message` — русская operator-facing фраза без секретов;
-- `details` — bounded redacted metadata, не raw stdout/stderr и не полный config;
+- `details` — конкретный operation-specific DTO, bounded и redacted; не raw
+  stdout/stderr, не полный config и не arbitrary map;
 - `operation_id` — только для долгой операции, которую можно безопасно читать и
   завершать по immutable request;
-- `evidence` — exact head/identity/hash только там, где публикация разрешена.
+- `evidence` — конкретный operation-specific evidence DTO с exact
+  head/identity/hash только там, где публикация разрешена; raw logs и secrets
+  запрещены.
+
+Одна model/schema используется service, CLI `--json`, MCP tool schema и
+contract tests. JSON schema должна быть нормальной machine-readable схемой с
+bounded enums/strings/arrays и стабильной версией, а не документацией поверх
+свободного JSON. Service result не зависит от Rich, ANSI, TTY или MCP SDK;
+transport adapter отвечает только за сериализацию, rendering и exit mapping.
 
 Будущий CLI сохраняет compatibility mapping старых exit codes, но внутри
 использует semantic error codes. Предлагаемая общая numeric категория: `0` —
@@ -327,17 +423,33 @@ generator и CI.
 
 | Вариант | Плюсы | Ограничения для проекта | Решение |
 | --- | --- | --- | --- |
-| `argparse` | Стандартная библиотека, нет новой зависимости, зрелые nested subparsers, простой тест через `argv` | Completion и rich command registry придётся оформить самостоятельно | Рекомендуется для первой реализации |
-| Click | Хорошие groups/options/completion и CLI testing helpers | Новая runtime dependency, decorator-heavy boundary, нужно отдельно зафиксировать JSON/error semantics | Не вводить автоматически; рассмотреть при доказанной потребности |
-| Typer | Type hints, удобные nested commands и completion | Дополнительная dependency поверх Click, version/typing coupling, migration не оправдана для текущего scope | Не использовать на этапе contract discovery |
+| `argparse` | Стандартная библиотека, нет новой зависимости, зрелые nested subparsers, простой тест через `argv` | Completion и rich command registry придётся оформить самостоятельно | Предпочтительный baseline для первого implementation vertical slice |
+| Click | Хорошие groups/options/completion и CLI testing helpers | Новая runtime dependency, decorator-heavy boundary, нужно отдельно зафиксировать JSON/error semantics | Рассмотреть на vertical slice при доказанном выигрыше |
+| Typer | Type hints, удобные nested commands и completion | Дополнительная dependency поверх Click, version/typing coupling | Рассмотреть только по результатам vertical slice, не выбирать автоматически |
+
+`argparse + Rich` остаётся текущей рекомендацией, а не необратимым решением.
+Окончательный parser/framework можно подтвердить на первом implementation
+vertical slice. Оценка должна покрывать nested commands, современный `--help`,
+shell completion, discoverability, typing, testability, интеграцию с Rich,
+JSON/error semantics, startup cost и долгосрочную поддержку. Следующий
+implementation increment может доказанно выбрать Click, Typer или другой
+вариант, если он улучшает постоянный CLI contract без новой деградации
+machine/API boundaries и с обоснованной
+dependency policy.
 
 Независимо от framework обязательны: deterministic command registry, `--help`,
 `--json`, `--no-color`/`NO_COLOR`, stdin/stdout/stderr separation, injectable
-service dependencies и отсутствие side effect при импорте.
+service dependencies, отсутствие side effect при импорте и строгая граница
+между presentation layer и service layer. Ни один parser не получает право
+владеть policy или подменять typed service result.
 
 ## 4. CLI UX contract
 
 ### 4.1 Единый стиль
+
+Human CLI — полноценный пользовательский интерфейс, а не набор раскрашенных
+`print()` вызовов. Rich остаётся естественным presentation layer для этого
+интерфейса, но не определяет service policy или machine contract.
 
 - Human output предназначен для terminal; machine output — для `--json`.
 - При `--json` stdout содержит только один bounded JSON report на операцию;
@@ -345,8 +457,17 @@ service dependencies и отсутствие side effect при импорте.
   завершается переводом строки.
 - Цвет включается только для TTY, отключается при `NO_COLOR`, `--no-color` и
   redirected output. Нельзя кодировать состояние только цветом.
-- Rich остаётся допустимым renderer, но не service dependency и не источником
-  machine contract. Table, progress и spinner отключаются в non-TTY/JSON.
+- Presentation использует ясную визуальную hierarchy, compact panels/tables
+  там, где они действительно помогают, consistent status markers и actionable
+  next actions. Не нужны огромные banners, повторяющиеся заголовки и visual
+  noise.
+- Layout учитывает terminal width и должен оставаться читаемым в Windows
+  Terminal и распространённых Linux/macOS terminals. Rich-компоненты не
+  должны разъезжаться при узком окне.
+- Progress/spinner разрешены только для реально длительной операции и только в
+  TTY; в non-TTY/JSON они отключаются либо заменяются bounded status events в
+  stderr. Rich не является обязательной service dependency и не источником
+  machine contract.
 - Ошибка всегда содержит code, краткую причину и конкретное действие. Секреты,
   bearer values, cookies, full environment, absolute user paths и raw external
   payload не печатаются.
@@ -356,6 +477,11 @@ service dependencies и отсутствие side effect при импорте.
 - stdout/stderr кодируются UTF-8 с явной политикой replacement для внешнего
   вывода; исходный raw stdout/stderr можно сохранить только в защищённом
   bounded diagnostic artifact.
+
+`--json` полностью независим от Rich, ANSI, TTY, terminal width и human layout:
+его schema, поля, ordering policy и machine-readable codes не меняются из-за
+способа отображения. Presentation snapshots допустимы только как отдельный
+human-UX test и не являются частью API contract.
 
 ### 4.2 Mockups
 
@@ -398,7 +524,7 @@ Docker Gateway  configured     ready            —                    OK
 ```
 
 Фактические версии, route identity и reason codes берутся из текущего report;
-mockup не является baseline или committed evidence.
+mockup не является API contract или committed evidence.
 
 `azur coderabbit review`:
 
@@ -430,12 +556,12 @@ Project Python не найден или не подтверждён в теку�
 | Update PS | `tooling.update` + `delivery` + Git/uv/PostgreSQL adapters | README, Repair guard, Update harness, Git rules, PostgreSQL CI | High-risk redesign; journal/backup semantics нельзя упрощать | fast-forward only, branch/remote/ref checks, clean tree, dependency transaction failpoints, DB backup, crash recovery, exact postcondition и no blind retry |
 | Repair PS | `tooling.repair` | README, Update transaction guard, Repair diagnostics/Windows CI | Service extraction с rollback, не generic reinstall | external transaction root, ACL/path safety, backup hash, restore/rollback states, diagnostic-only no writes, shortcut parity |
 | Shortcut PS module | `platform.windows.shortcut` | Build/Repair, `.lnk` and README | Platform-specific adapter | COM target/cwd/icon/arguments, atomic replace, restore, local/all-users permissions |
-| `Start-Codex-Local-Mcp.ps1` | `tooling.mcp.local_http` | `.codex/config.toml`, supervisor, MCP runtime tests | Thin wrapper can become CLI adapter | two exact services, token source, `/ready`, owner identity, cleanup and no duplicate process |
+| `Start-Codex-Local-Mcp.ps1` | `tooling.mcp.local_http` | `.codex/config.toml`, supervisor, MCP runtime tests | Только временный parity/cutover adapter; после миграции callers и подтверждения parity — обязательное retirement/removal | two exact services, token source, `/ready`, owner identity, cleanup и отсутствие duplicate process |
 | `dev_tools/mcp_status.py` | `tooling.mcp_status` service + CLI renderer | MCP tests, `docs/dev-runtime.md`, observability docs, plugin routing | Mostly mechanical extraction of collector/model; renderer remains transport-specific | same bounded probe order, reason codes, redaction, `source_config` vs `effective` distinction, strict/watch/metrics semantics |
-| `deploy/docker/deploy-image.sh` | `tooling.deploy` + Linux/Docker adapters | deployment docs and repository contract tests | Redesign: interactive deployment and host package installation are not generic lifecycle | Linux parity, safe checkout/update, Docker ownership, network/volume behavior, readiness and rollback/diagnostic path |
+| `deploy/docker/deploy-image.sh` | `tooling.deploy` + Linux/Docker adapters | deployment docs and repository contract tests | Redesign: interactive deployment and host package installation are not generic lifecycle; shell wrapper — только временный parity/cutover слой | Linux parity, safe checkout/update, Docker ownership, network/volume behavior, readiness and rollback/diagnostic path; после миграции callers wrapper retirement/removal обязателен |
 | `deploy/docker/Docker-run.sh` | no automatic target; separate legacy decision | Possible external operator shortcuts; repository search | Redesign or retirement, not port | provenance, zero supported callers, replacement acceptance and explicit removal decision |
 | PostgreSQL init/bootstrap `.sh` | container-native hook or equivalent image contract | Compose, PostgreSQL/Alembic/backup gates | Not a host tooling migration | equivalent roles, HBA, secrets, atomicity, image startup order and DB acceptance |
-| `Alas.bat`, `alas2.bat`, installer binaries/docs | compatibility wrapper or explicit removal | `deploy/Readme.md`, root binaries/icon, external shortcuts | Documentation/provenance decision | valid replacement, user-facing migration notice, installer ownership, no hidden caller, hygiene/security pass |
+| `Alas.bat`, `alas2.bat`, installer binaries/docs | временный compatibility path до cutover или explicit removal; постоянный project-owned wrapper запрещён | `deploy/Readme.md`, root binaries/icon, external shortcuts | Documentation/provenance decision | valid replacement, user-facing migration notice, installer ownership, no hidden caller, hygiene/security pass; после parity wrapper retirement/removal обязателен |
 | PowerShell acceptance harnesses | Python parity harness plus retained Windows gates | `.github/workflows/ci.yml`, PSScriptAnalyzer/parser | Tests migrate last; current tests stay during parity | deterministic fixture equivalence, failure/recovery matrix and Windows execution evidence |
 
 Механические части: вызов existing `deploy.uv`, bounded filesystem/hash helpers,
@@ -642,22 +768,51 @@ failure. Остальные gates, secret scan и draft PR не пропуска
 
 ## 10. Cross-platform contract
 
+Core Python tooling/CLI и external/product capabilities — разные контракты.
+Целевой core contract: **Windows + Linux + macOS**. Это относится к
+`azur --help`, `azur doctor`, configuration, filesystem primitives, structured
+process layer, Git integration, JSON/machine output и CLI rendering. Core
+семантика, DTO, reason codes, deadlines и отсутствие side effect при импорте
+должны быть одинаковыми на всех трёх ОС, с отдельными native adapters там, где
+различается системный механизм.
+
+### 10.1 Core CLI/tooling
+
 | Surface | Windows | Linux | macOS | Общая гарантия |
 | --- | --- | --- | --- | --- |
-| Core Python | Python 3.14 project `.venv`, `Scripts/python.exe`, hidden child windows | Python 3.14 `.venv/bin/python`, POSIX signals/locks | Python 3.14, `spawn` semantics и Mach-port ограничения | одинаковые DTO, reason codes, deadline и no side effect on import |
-| Process ownership | PID + creation time + executable + exact argv/cwd + parent chain; `taskkill` only after evidence | PID + start time + executable/argv/cwd + process group | PID + start time + executable/argv/cwd; no Windows APIs | PID/port/name alone не дают права на stop |
-| Files/locks | reparse/junction, ACL, atomic replace, COM shortcut | symlink, mount/path containment, POSIX lock, atomic replace | symlink/path containment, POSIX lock, `spawn` cleanup | scoped path, bounded IO, journal and fail-closed ambiguity |
-| Git/uv | PowerShell compatibility remains during parity; `uv` project policy | structured Git/uv commands; native Docker deployment | structured Git/uv; no WSL assumption | no force/reset/clean/destructive fallback; exact SHA verification |
-| Docker/PostgreSQL | Docker Desktop/Compose and loopback ports are optional capabilities | native Docker deployment and image hooks | Docker Desktop optional | capability probe reports unavailable, never silently skips required mutation |
-| ADB/device | Windows/MuMu path is current product acceptance | adapter may be unsupported/explicitly unavailable | adapter may be unsupported/explicitly unavailable | no game/device action from generic `doctor` or delivery |
-| WSL/CodeRabbit | Windows calls Linux-native review adapter only through explicit WSL boundary | native review adapter if configured | unsupported unless separately configured | no machine path hardcode, no review in implementation checkout |
+| Core Python/CLI | Python 3.14, project `.venv`, `Scripts/python.exe`, hidden child windows | Python 3.14, `.venv/bin/python`, POSIX signals/locks | Python 3.14, `spawn` semantics и macOS process restrictions | одни request/result schemas, reason codes, deadlines и no side effect on import |
+| Process ownership | PID + creation time + executable + exact argv/cwd + parent chain; `taskkill` only after evidence | PID + start time + executable/argv/cwd + process group | PID + start time + executable/argv/cwd + process group | PID/port/name alone не дают права на stop |
+| Files/locks | reparse/junction, ACL, atomic replace | symlink, mount/path containment, POSIX lock, atomic replace | symlink/path containment, POSIX lock, atomic replace | scoped path, bounded IO, journal и fail-closed ambiguity |
+| Git/uv integration | structured Git/uv; PowerShell остаётся только compatibility adapter на parity | structured Git/uv; native Docker — отдельная capability | structured Git/uv; no WSL assumption | no force/reset/clean/destructive fallback; exact SHA verification |
+| Human/machine output | Windows Terminal и redirected UTF-8 streams | распространённые Linux terminals и redirected streams | распространённые macOS terminals и redirected streams | Rich presentation отделён от stable JSON/machine contract |
 
-Будущая CI matrix сохраняет `Python`, `Windows`, `Security` как required contexts.
-Python проверяет full suite, compile, generators, lock and Ruff; Windows — Parser,
-PSScriptAnalyzer, lifecycle/update compatibility and Windows regressions; Security
-— Gitleaks tracked/history scope, risky files, security/privacy/browser tests.
-macOS добавляется только при заявленном product support, а не как побочный эффект
-переноса CLI.
+Core test strategy должна включать platform-neutral contract tests и
+соответствующие Windows/Linux/macOS runners для core surface, а native adapter
+tests — только для реально заявленных integrations. Текущие required contexts
+репозитория (`Python`, `Windows`, `Security`) сохраняются; расширение CI на
+macOS для core tooling является отдельной implementation/release work package,
+но отсутствие такого runner сейчас не превращает core contract в
+platform-specific.
+
+### 10.2 External/product capabilities
+
+Внешние и продуктовые возможности остаются capability-dependent. ADB,
+конкретный emulator/device backend, Docker backend, WSL, Windows shortcut/COM,
+PostgreSQL deployment hooks и CodeRabbit могут быть доступны только на части
+ОС или при отдельной конфигурации. Таблица фиксирует границу, а не обещает
+наличие конкретного backend:
+
+| Capability | Windows | Linux | macOS | Если capability отсутствует |
+| --- | --- | --- | --- | --- |
+| Docker/PostgreSQL | Docker Desktop/Compose optional | native Docker/image hooks optional | Docker Desktop optional | typed `unsupported`/`unavailable` с постоянным reason code; required mutation не пропускается молча |
+| ADB/device/emulator | текущий product acceptance для Windows/MuMu | только если отдельный adapter действительно настроен | только если отдельный adapter действительно настроен | generic `doctor` не выполняет game/device action; отсутствие backend не маскируется как success |
+| WSL/shortcut integration | WSL и COM shortcut — Windows-specific adapters | WSL shortcut path не предполагается; native adapter возможен отдельно | unsupported, если отдельная integration не заявлена | capability result остаётся `unsupported`/`unavailable`, без попытки использовать чужую OS boundary |
+| CodeRabbit/review backend | explicit WSL boundary или configured external backend | native review adapter, если configured | configured external backend, если поддержан | bounded `CODERABBIT_UNAVAILABLE` или другой owned code; core CLI продолжает честно работать |
+
+Нельзя выводить поддержку emulator/device backend из того, что core CLI
+запускается на этой ОС. Capability probe обязан различать `unsupported`,
+`unavailable`, `not_configured` и подтверждённую готовность, если эти состояния
+нужны конкретной operation schema.
 
 PowerShell gates нельзя удалить в момент появления Python command. Каждая команда
 должна пройти dual-run/parity на Windows, затем отдельное решение может изменить
@@ -711,14 +866,69 @@ runtime evidence. Physical device, MuMu, ADB, gameplay и visual acceptance
   adapters;
 - `module/application` и existing runtime owners переиспользуются через ports,
   но не дублируются и не смешиваются с Git/WSL/CodeRabbit;
-- `argparse` — default для первой CLI implementation при отсутствии новой
-  dependency;
+- core CLI/tooling проектируется для Windows/Linux/macOS, а external/product
+  capabilities остаются capability-dependent;
+- repository root для project-bound CLI разрешается deterministic chain с
+  explicit/configured/installation provenance и fail-closed failure;
+- общий result envelope мал и стабилен, а `details`/`evidence` — только typed,
+  versioned, bounded и closed-schema operation payload;
+- project-owned PowerShell/Shell wrappers — временный parity/cutover слой с
+  обязательным retirement/removal после миграции callers; runtime-native hooks
+  внешней среды остаются отдельным исключением;
+- `argparse + Rich` — предпочтительная рекомендация для первого vertical slice,
+  но parser/framework не закреплён необратимо;
+- human CLI является полноценным terminal UI, а presentation layer остаётся
+  отдельно от service и machine/JSON contract;
 - `mcp_status` переиспользуется как collector/model, а render/exit остаются
   transport-aware;
 - CodeRabbit и WSL — внешние configured integrations с exact committed review,
   не repository hardcode;
 - Windows/PowerShell и native container contracts остаются до доказанной parity;
 - ambiguous result всегда fail-closed и требует read-only recovery.
+
+### 12.1 Разрешённые follow-up неоднозначности
+
+В этом follow-up разрешены шесть пунктов (несмотря на ошибочное упоминание
+«пяти» в исходном prompt):
+
+1. **Cross-platform:** core CLI/tooling имеет целевой baseline Windows + Linux +
+   macOS; ADB, emulator/device, Docker, WSL, shortcut/COM и другие
+   external/product capabilities не обещаются без фактического adapter и
+   возвращают typed `unsupported`/`unavailable` при отсутствии.
+2. **Repository discovery:** `--repository-root` имеет высший приоритет, затем
+   validated user/machine configuration, затем проверенная installation identity
+   и safe discovery; недоказанный root или конфликт кандидатов завершаются
+   стабильным reason code без молчаливого fallback на cwd.
+3. **Typed results:** `details` и `evidence` не являются свободными
+   `dict[str, Any]`; используются generic/operation-specific DTO, versioned
+   closed schemas, bounded fields, stable codes и общая model для service, CLI
+   JSON, MCP schema и tests.
+4. **Legacy wrappers:** project-owned `.ps1`/`.psm1`/`.sh` compatibility
+   wrappers живут только до parity/cutover, миграции callers и проверки
+   postcondition; после этого retirement/removal обязателен. PostgreSQL
+   image-native initialization hooks не являются таким host wrapper.
+5. **Framework:** `argparse + Rich` остаётся baseline recommendation без новой
+   dependency; окончательный parser можно выбрать на первом vertical slice по
+   nested commands, help, completion, discoverability, typing, testability,
+   Rich, JSON/error semantics, startup cost и долгосрочной поддержке.
+6. **UX:** human CLI проектируется как современный terminal UI с hierarchy,
+   compact layout, width awareness, status/action guidance и TTY-only progress;
+   Rich/ANSI/layout никогда не меняют независимый `--json` contract.
+
+### 12.2 Намеренно отложено до implementation stage
+
+- фактическая реализация `azur`, `python -m azurpilot`, `project.scripts` и
+  переключение `tool.uv.package = true`;
+- окончательная схема user/machine repository registry и platform-specific
+  discovery, после проверки installation identity на поддерживаемых ОС;
+- выбор concrete generic/DTO API, JSON Schema generator, limits и schema
+  versioning для каждого operation payload;
+- первый vertical slice и окончательный выбор `argparse`, Click, Typer или
+  другого framework с измеримыми UX/API результатами;
+- dual-run, caller migration, parity/recovery acceptance и обязательное
+  удаление временных project-owned wrappers;
+- macOS CI runner и конкретные product capabilities (ADB, emulator, Docker,
+  WSL, shortcut), если они действительно будут заявлены продуктом.
 
 Не реализовано этим документом: пакет `azurpilot`, команда `azur`, изменения
 `pyproject.toml`, миграция любого legacy script, удаление файлов, изменение
