@@ -26,6 +26,8 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 _DEV_TOKEN_ENV = "AZURPILOT_DEV_LOCAL_MCP_TOKEN"
 _GAME_TOKEN_ENV = "AZURPILOT_GAME_LOCAL_MCP_TOKEN"
 
+pytestmark = pytest.mark.xdist_group(name="local-http-supervisor")
+
 _SERVICE_TEMPLATE = """
 from __future__ import annotations
 
