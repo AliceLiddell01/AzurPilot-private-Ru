@@ -37,7 +37,7 @@ class Perspective:
     """
     image: np.ndarray
     config: AzurLaneConfig
-    # 四条边缘线，bool 类型或具有 __bool__ 属性
+    # Четыре граничные линии: тип bool или объект с __bool__
     left_edge: Lines
     right_edge: Lines
     lower_edge: Lines
@@ -68,10 +68,10 @@ class Perspective:
         start_time = time.time()
         self.image = image
 
-        # 图像初始化
+        # Инициализация изображения
         image = self.load_image(image)
 
-        # 线段检测
+        # Обнаружение линий
         inner_h = self.detect_lines(
             image,
             is_horizontal=True,
@@ -103,13 +103,13 @@ class Perspective:
             pad=self.config.DETECTING_AREA[3] - self.config.DETECTING_AREA[1]
         ).move(*self.config.DETECTING_AREA[:2])
 
-        # 线段预清洗
+        # Предварительная очистка линий
         horizontal = inner_h.add(edge_h).group()
         vertical = inner_v.add(edge_v).group()
         edge_h = edge_h.group()
         edge_v = edge_v.group()
         if not self.config.TRUST_EDGE_LINES:
-            # 实验性，减少边缘线。
+            # Экспериментально: уменьшаем количество граничных линий.
             edge_h = edge_h.delete(inner_h, threshold=self.config.TRUST_EDGE_LINES_THRESHOLD)
             edge_v = edge_v.delete(inner_v, threshold=self.config.TRUST_EDGE_LINES_THRESHOLD)
         self.horizontal = horizontal
@@ -119,7 +119,7 @@ class Perspective:
         if not self.vertical:
             raise MapDetectionError('Вертикальные линии не обнаружены')
 
-        # 计算透视
+        # Вычисляем перспективу
         self.crossings = self.horizontal.cross(self.vertical)
         self.vanish_point = optimize.brute(self._vanish_point_value, self.config.VANISH_POINT_RANGE)
         distance_point_x = optimize.brute(self._distant_point_value, self.config.DISTANCE_POINT_X_RANGE)[0]
@@ -129,14 +129,14 @@ class Perspective:
         if np.linalg.norm(np.subtract(self.vanish_point, self.distant_point)) < 10:
             raise MapDetectionError('Точка схода и дальняя точка расположены слишком близко')
 
-        # 重新生成线段。在 mid_cleanse 函数添加后已无用。
+        # Повторное построение линий. После добавления функции mid_cleanse больше не используется.
         # self.horizontal = self.crossings.link(None, is_horizontal=True).group()
         # self.vertical = self.crossings.link(self.vanish_point).group()
         # self.draw(self.crossings.link(self.distant_point))
         # print(edge_h)
         # print(inner_h.group())
 
-        # 线段清洗
+        # Очистка линий
         # self.draw()
         self.map_inner = get_map_inner(self.crossings.points)
         self.horizontal, self.lower_edge, self.upper_edge = self.line_cleanse(
@@ -281,7 +281,7 @@ class Perspective:
         Returns:
             float: 代价值。
         """
-        # 加 0.001 避免 log10(0)。
+        # Добавляем 0.001, чтобы избежать log10(0).
         distance = np.sum(np.log10(np.abs(self.vertical.distance_to_point(point)) + 0.001))
         return distance
 
@@ -297,7 +297,7 @@ class Perspective:
         """
         links = self.crossings.link((x[0], self.vanish_point[1]))
         mid = np.sort(links.mid)
-        distance = np.sum(np.log10(np.diff(mid) + 0.001))  # 加 0.001 避免 log10(0)。
+        distance = np.sum(np.log10(np.diff(mid) + 0.001))  # Добавляем 0.001, чтобы избежать log10(0).
         return distance
 
     def mid_cleanse(self, mids, is_horizontal, threshold=3):
@@ -332,12 +332,12 @@ class Perspective:
             使用激活函数来鼓励重合线段组，忽略错误线段。
             """
             x, y = point
-            # 不要使用:
+            # Не использовать:
             # distance = coincident.distance_to_point(point)
             distance = np.abs(x - coincident.get_x(y))
             # print((distance * 1).astype(int).reshape(len(mids), np.diff(self.config.ERROR_LINES_TOLERANCE)[0]+1))
 
-            # 激活函数
+            # Функция активации
             # distance = 1 / (1 + np.exp(16 / distance - distance))
             distance = 1 / (1 + np.exp(encourage / distance) / distance)
             distance = np.sum(distance)
@@ -346,14 +346,14 @@ class Perspective:
         if is_horizontal:
             mids = convert_to_x(mids)
 
-        # 绘制线段
+        # Рисуем линии
         lines = []
         for index, mid in enumerate(mids):
             for n in range(self.config.ERROR_LINES_TOLERANCE[0], self.config.ERROR_LINES_TOLERANCE[1] + 1):
                 theta = np.arctan(index + n)
                 rho = mid * np.cos(theta)
                 lines.append([rho, theta])
-        # 拟合中值
+        # Аппроксимируем средние значения
         coincident = Lines(np.vstack(lines), is_horizontal=False)
         # print(np.round(np.sort(coincident.get_x(128))).astype(int))
         mid_diff_range = self.config.MID_DIFF_RANGE_H if is_horizontal else self.config.MID_DIFF_RANGE_V
@@ -367,7 +367,7 @@ class Perspective:
                 'горизонталь' if is_horizontal else 'вертикаль',
                 str(coincident_point)))
 
-        # 检测区域的边界
+        # Границы области обнаружения
         if is_horizontal:
             border = Points(
                 [[self.config.SCREEN_CENTER[0], self.config.DETECTING_AREA[1]],
@@ -383,7 +383,7 @@ class Perspective:
         left, right = border
         # print(mids)
         # print(np.diff(mids))
-        # 填充中值
+        # Заполняем средние значения
         mids = np.arange(-25, 25) * coincident_point[1] + coincident_point[0]
         mids = mids[(mids > left - threshold) & (mids < right + threshold)]
         # print(mids)
@@ -396,24 +396,24 @@ class Perspective:
         origin = lines.mid
         clean = self.mid_cleanse(origin, is_horizontal=lines.is_horizontal, threshold=threshold)
 
-        # 清洗边缘
+        # Очищаем границы
         edge = edge.mid
         inner = inner.mid
-        inner_clean = [l for l in inner if np.any(np.abs(l - clean) < 5)]  # 用正确的内部线段删除错误的边缘线段。
+        inner_clean = [l for l in inner if np.any(np.abs(l - clean) < 5)]  # Используем корректные внутренние линии для удаления ошибочных граничных линий.
         if len(inner_clean) > 0:
             edge = edge[(edge > np.max(inner_clean) - threshold) | (edge < np.min(inner_clean) + threshold)]
         edge = [c for c in clean if np.any(np.abs(c - edge) < 5)]
 
-        # 分离边缘
+        # Отделяем границы
         lower, upper = separate_edges(edge, inner=self.map_inner[1] if lines.is_horizontal else self.map_inner[0])
 
-        # 裁剪中值
+        # Обрезаем средние значения
         if lower:
             clean = clean[clean > lower - threshold]
         if upper:
             clean = clean[clean < upper + threshold]
 
-        # 中值转线段
+        # Преобразуем средние значения в линии
         if lines.is_horizontal:
             lines = Points([[self.config.SCREEN_CENTER[0], y] for y in clean]) \
                 .link(None, is_horizontal=True)
