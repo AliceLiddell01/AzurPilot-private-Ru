@@ -150,11 +150,15 @@ def _terminate_owned_tree(
         raise BenchmarkError(
             "Нельзя перечислить exact descendants benchmark process."
         ) from exc
-    targets = [
-        (candidate, _identity(candidate))
-        for candidate in [*descendants, root]
-        if candidate.is_running()
-    ]
+    targets = []
+    for candidate in [*descendants, root]:
+        try:
+            if not candidate.is_running():
+                continue
+            targets.append((candidate, _identity(candidate)))
+        except OSError, psutil.Error:
+            # Процесс мог завершиться между enumeration и снятием identity.
+            continue
     for candidate, expected in reversed(targets):
         if _identity_matches(candidate, expected):
             candidate.terminate()
