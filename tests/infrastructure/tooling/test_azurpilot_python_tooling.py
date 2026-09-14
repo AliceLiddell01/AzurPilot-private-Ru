@@ -8,12 +8,14 @@ import os
 import sys
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
 
 import azurpilot.tooling.path as tooling_path
 from azurpilot.cli import main
+from azurpilot.tooling import bootstrap as tooling_bootstrap
 from azurpilot.tooling.contracts import (
     DoctorDetails,
     RepositoryRootEvidence,
@@ -277,6 +279,32 @@ def test_console_path_inspection_fails_closed_for_wrong_path_command(
     assert status.installed is True
     assert status.current_shell is False
     assert status.status.value != "ready"
+
+
+def test_bootstrap_accepts_same_minor_external_uv_for_missing_environment(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    external_uv = tmp_path / ("uv.exe" if os.name == "nt" else "uv")
+    external_uv.write_bytes(b"uv")
+
+    class ProbeRunner:
+        def run(self, _spec: ProcessSpec) -> SimpleNamespace:
+            return SimpleNamespace(ok=True, stdout="uv 0.12.1\n")
+
+    monkeypatch.delenv("AZURPILOT_BOOTSTRAP_UV", raising=False)
+    monkeypatch.setattr(
+        tooling_bootstrap,
+        "project_uv",
+        lambda *_args: tmp_path / "missing-uv",
+    )
+    monkeypatch.setattr(tooling_bootstrap.shutil, "which", lambda _name: str(external_uv))
+
+    resolved, source = tooling_bootstrap.BootstrapService(ProbeRunner()).resolve_uv(
+        REPOSITORY_ROOT
+    )
+
+    assert resolved == external_uv.resolve()
+    assert source == "PATH"
 
 
 def test_state_layout_is_external(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

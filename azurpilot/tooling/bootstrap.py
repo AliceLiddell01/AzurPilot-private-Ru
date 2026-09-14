@@ -53,6 +53,29 @@ def _expected_uv_version(root: Path) -> str | None:
     return None
 
 
+def _version_tuple(value: str) -> tuple[int, int, int] | None:
+    parts = value.split(".")
+    if len(parts) != 3 or any(not part.isdigit() for part in parts):
+        return None
+    return (int(parts[0]), int(parts[1]), int(parts[2]))
+
+
+def _uv_version_is_compatible(
+    actual: str, expected: str | None, source: str
+) -> bool:
+    actual_tuple = _version_tuple(actual)
+    if actual_tuple is None:
+        return False
+    if expected is None:
+        return True
+    expected_tuple = _version_tuple(expected)
+    if expected_tuple is None:
+        return False
+    return actual_tuple == expected_tuple or (
+        source == "PATH" and actual_tuple[:2] == expected_tuple[:2]
+    )
+
+
 def _safe_marker_text(transaction_id: str) -> str:
     return f"schema_version=1\ntransaction_id={transaction_id}\n"
 
@@ -92,8 +115,8 @@ class BootstrapService:
             if not result.ok:
                 continue
             match = _UV_VERSION_RE.search(result.stdout)
-            if expected is not None and (
-                match is None or match.group("version") != expected
+            if match is None or not _uv_version_is_compatible(
+                match.group("version"), expected, source
             ):
                 continue
             return candidate, source
