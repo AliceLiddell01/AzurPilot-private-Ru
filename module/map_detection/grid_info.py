@@ -53,18 +53,18 @@ class GridInfo:
     maze_nearby = None  # SelectedGrids
 
     enemy_scale = 0
-    enemy_genre = None  # Light, Main, Carrier, Treasure, Enemy(未知)
+    enemy_genre = None  # Light, Main, Carrier, Treasure, Enemy(неизвестно)
 
     is_cleared = False
     is_caught_by_siren = False
-    is_carrier = False  # 是否为神秘事件中刷新的航母
-    is_movable = False  # 是否为可移动敌人
-    is_mechanism_trigger = False  # 机关是否已触发
-    is_mechanism_block = False  # 是否被机关阻挡
+    is_carrier = False  # Является ли авианосцем, появившимся из таинственного события
+    is_movable = False  # Является ли подвижным противником
+    is_mechanism_trigger = False  # Активирован ли механизм
+    is_mechanism_block = False  # Заблокировано ли механизмом
     mechanism_trigger = None  # SelectedGrids
     mechanism_block = None  # SelectedGrids
-    mechanism_wait = 2  # 等待机关解锁动画的秒数
-    is_fortress = False  # 机械要塞
+    mechanism_wait = 2  # Время ожидания анимации разблокировки механизма в секундах
+    is_fortress = False  # Механическая крепость
     is_flare = False
     is_missile_attack = False
     may_bouncing_enemy = False
@@ -110,7 +110,7 @@ class GridInfo:
         if self.is_siren:
             if not self.enemy_genre:
                 return 'SU'
-            # enemy_genre 的格式类似 "Siren_xxx"
+            # Формат enemy_genre похож на "Siren_xxx"
             name = self.enemy_genre[6:]
             if '_' in name:
                 _, _, name = name.partition('_')
@@ -194,8 +194,8 @@ class GridInfo:
         Returns:
             bool: 是否合并成功。
         """
-        # 潜艇可能出现在任何位置，因此合并信息没有成功/失败之分
-        # 但期望潜艇在刷新点处能被尽早发现
+        # Подлодка может появиться в любом месте, поэтому слияние информации не делится на успешное и неуспешное
+        # Но желательно как можно раньше обнаружить подлодку в точке появления
         if info.is_submarine:
             if self.is_submarine_spawn_point:
                 self.is_submarine = True
@@ -213,8 +213,8 @@ class GridInfo:
                 if info.is_current_fleet:
                     self.is_current_fleet = True
                 if mode == 'init' and info.is_enemy:
-                    # 在初始扫描时，允许网格同时为 is_fleet 和 is_enemy
-                    # 以便 fixup_submarine_fleet 获取信息
+                    # При начальном сканировании разрешаем клетке одновременно быть is_fleet и is_enemy
+                    # Чтобы fixup_submarine_fleet мог получить информацию
                     pass
                 else:
                     return True
@@ -241,14 +241,14 @@ class GridInfo:
                 return False
         if info.is_enemy:
             if self.is_fortress:
-                # 要塞可以是普通敌人
+                # Крепость может быть обычным противником
                 return True
             elif not self.is_land and (self.may_enemy or self.is_carrier or mode == 'decoy'):
                 self.is_enemy = True
                 if info.enemy_scale and not self.enemy_scale:
                     self.enemy_scale = info.enemy_scale
                 if info.enemy_scale == 3 and self.enemy_scale == 2:
-                    # 但允许 3 覆盖 2
+                    # Но разрешаем 3 заменять 2
                     self.enemy_scale = info.enemy_scale
                 if info.enemy_genre and not (info.enemy_genre == 'Enemy' and self.enemy_genre):
                     self.enemy_genre = info.enemy_genre
@@ -289,7 +289,7 @@ class GridInfo:
             elif self.may_enemy:
                 self.is_enemy = True
                 return True
-            # 允许错误的预测
+            # Разрешаем ошибочный прогноз
             # else:
             #     return False
 
