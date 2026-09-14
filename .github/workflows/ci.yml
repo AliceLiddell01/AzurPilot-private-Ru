@@ -1101,6 +1101,68 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  macos:
+    name: macOS core tooling
+    runs-on: macos-14
+    timeout-minutes: 25
+    steps:
+      - name: Получить exact head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        timeout-minutes: 10
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Проверить exact head
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+
+      - name: Установить uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          enable-cache: true
+          version: "0.12.13"
+
+      - name: Установить Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.14.7"
+
+      - name: Проверить locked package environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv lock --check
+          uv sync --locked --group ci
+
+      - name: Проверить cross-platform CLI и tooling contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run --locked --no-sync python -m azurpilot --help
+          uv run --locked --no-sync python -m pytest -q tests/infrastructure/tooling/test_azurpilot_python_tooling.py
+          uv run --locked --no-sync python -m azurpilot --json doctor --repository-root "$GITHUB_WORKSPACE" > "$RUNNER_TEMP/azurpilot-doctor.json"
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          report = json.loads((Path(os.environ["RUNNER_TEMP"]) / "azurpilot-doctor.json").read_text(encoding="utf-8"))
+          assert report["schema_version"] == 1
+          assert report["ok"] is True
+          assert report["code"] == "OK"
+          PY
+
+      - name: Проверить чистоту рабочего дерева
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          test -z "$(git status --porcelain)"
+
   security:
     name: Security
     runs-on: ubuntu-24.04

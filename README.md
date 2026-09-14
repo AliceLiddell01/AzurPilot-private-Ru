@@ -39,6 +39,53 @@ AzurPilot — инструмент автоматизации для мобил�
 
 ### Отдельные команды запуска и обслуживания
 
+Основной cross-platform интерфейс — устанавливаемая команда `azur` и
+эквивалентный модуль `python -m azurpilot`. Сервисы используют validated
+repository root, общий typed result envelope, bounded process execution и
+внешние locks/journals.
+
+`azur build` после успешной подготовки регистрирует каталог project console
+script только в user-level `PATH` Windows. Поэтому после открытия нового
+терминала команда работает из любого каталога без активации `.venv`:
+
+```powershell
+Set-Location C:\Users\KykLa
+azur doctor
+```
+
+Если установка ещё не подготовлена и `azur` пока недоступен, bootstrap
+запускается один раз из checkout через внешний `uv`:
+
+```powershell
+uv --project C:\AzurPilot run --locked --no-sync azur build
+```
+
+Открытые до регистрации PATH окна PowerShell не получают изменения окружения
+задним числом; для них нужен новый shell. `azur doctor` не меняет PATH, а
+проверяет наличие package, user-level регистрации и доступность команды в
+текущем shell. Эквивалентный прямой вызов для автоматизации —
+`python -m azurpilot` в установленной среде.
+
+```text
+azur doctor
+azur build
+azur start
+azur stop
+azur repair [--diagnostic-only]
+azur update
+```
+
+Для machine integration добавьте `--json`: stdout содержит ровно один JSON
+report без Rich/ANSI. `--repository-root PATH` имеет высший приоритет; без него
+root берётся только из валидированной конфигурации или installation identity.
+CWD сам по себе не считается доказательством проекта. `azur doctor` отдельно
+показывает наличие console script и его user-level registration; сам doctor
+остаётся read-only.
+
+Ниже перечислены сохраняемые legacy PowerShell wrappers. Они пока остаются
+compatibility/parity-слоем Windows, но Python service не делегирует им runtime
+операции. Удаление wrappers требует отдельного dual-run, parity и cutover.
+
 ```text
 scripts/
 ├── Start-AzurPilot.ps1
@@ -60,7 +107,9 @@ scripts/
 
 ### Один владелец обновления
 
-Обновление пользовательской установки выполняет только `Update-AzurPilot.ps1`.
+Обновление пользовательской установки выполняет только сервис `azur update`.
+`Update-AzurPilot.ps1` временно сохраняется как Windows parity-wrapper до
+отдельного dual-run/cutover решения.
 
 Из WebUI и Python runtime удалены:
 
@@ -149,31 +198,33 @@ First-party сообщения инфраструктуры переведены
 
 ## Быстрый запуск
 
-После подготовленной установки откройте **AzurPilot** в меню «Пуск».
+После подготовленной установки выполните `azur build`, затем `azur start`.
+Перед первым запуском `azur doctor` показывает состояние project-bound и
+optional capabilities.
 
-Ярлык запускает PowerShell 7, затем `scripts\Start-AzurPilot.ps1`, ожидает готовность WebUI и открывает:
+`azur start` ожидает подтверждённые process identity и WebUI readiness:
 
 ```text
 http://127.0.0.1:25548/
 ```
 
-Ручной диагностический запуск:
+Запуск вручную:
 
-```powershell
-pwsh -NoLogo -NoProfile -File "C:\AzurPilot\scripts\Start-AzurPilot.ps1"
+```text
+azur start
 ```
 
-Запуск без автоматического открытия браузера:
+Запуск с открытием браузера:
 
-```powershell
-pwsh -NoLogo -NoProfile -File "C:\AzurPilot\scripts\Start-AzurPilot.ps1" -NoBrowser
+```text
+azur start --browser
 ```
 
 > [!NOTE]
 > Закрытие вкладки браузера само по себе не останавливает backend. `Ctrl+C` останавливает AzurPilot только в том окне Start, которое само запустило backend. Если Start сообщил, что открыл уже работающий WebUI, используйте штатную команду Stop:
 >
-> ```powershell
-> pwsh -NoLogo -NoProfile -File "C:\AzurPilot\scripts\Stop-AzurPilot.ps1"
+> ```text
+> azur stop
 > ```
 >
 > Повторный Stop безопасен и сообщает, что AzurPilot уже остановлен. Команда проверяет точный checkout, project Python, `gui.py` и дерево процессов; процесс, который лишь занял тот же порт, она не завершает.
@@ -184,26 +235,36 @@ pwsh -NoLogo -NoProfile -File "C:\AzurPilot\scripts\Start-AzurPilot.ps1" -NoBrow
 
 ### Обновление
 
-```powershell
-pwsh -NoLogo -NoProfile -File "C:\AzurPilot\scripts\Update-AzurPilot.ps1"
+```text
+azur update
 ```
 
 ### Диагностика и восстановление
 
-```powershell
-pwsh -NoLogo -NoProfile -File "C:\AzurPilot\scripts\Repair-AzurPilot.ps1"
+```text
+azur repair
 ```
 
 Только диагностика:
 
-```powershell
-pwsh -NoLogo -NoProfile -File "C:\AzurPilot\scripts\Repair-AzurPilot.ps1" -DiagnosticOnly
+```text
+azur repair --diagnostic-only
 ```
 
 ### Первоначальная подготовка checkout
 
+```text
+azur build
+```
+
+Legacy wrappers доступны для parity-проверок Windows:
+
 ```powershell
-pwsh -NoLogo -NoProfile -File "C:\AzurPilot\scripts\Build-AzurPilot.ps1"
+pwsh -NoLogo -NoProfile -File "scripts/Start-AzurPilot.ps1"
+pwsh -NoLogo -NoProfile -File "scripts/Stop-AzurPilot.ps1"
+pwsh -NoLogo -NoProfile -File "scripts/Update-AzurPilot.ps1"
+pwsh -NoLogo -NoProfile -File "scripts/Repair-AzurPilot.ps1"
+pwsh -NoLogo -NoProfile -File "scripts/Build-AzurPilot.ps1"
 ```
 
 ## Основные гарантии

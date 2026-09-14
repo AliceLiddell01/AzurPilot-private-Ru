@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Union
@@ -171,8 +172,8 @@ def _resolve_uv(root: Path, bootstrap_uv: Optional[PathLikeArg] = None) -> Path:
     )
 
 
-def _uv_python_env(root: Path):
-    env = os.environ.copy()
+def _uv_python_env(root: Path, base_environment: Mapping[str, str] | None = None):
+    env = dict(base_environment) if base_environment is not None else os.environ.copy()
     env.pop("UV_PYTHON", None)
     env["UV_PYTHON_INSTALL_DIR"] = str(venv_python_install_dir(root))
     env["UV_CACHE_DIR"] = str(root / ".uv-cache")
@@ -333,8 +334,9 @@ def _ensure_self_contained_python(
     uv: Path,
     outputs: Optional[list[str]] = None,
     deadline: float | None = None,
+    base_environment: Mapping[str, str] | None = None,
 ):
-    env = _uv_python_env(root)
+    env = _uv_python_env(root, base_environment=base_environment)
     if _venv_python_works(root) and _managed_python_executable(root):
         return
 
@@ -422,6 +424,7 @@ def sync_project_venv(
     bootstrap_uv: Optional[PathLikeArg] = None,
     capture_output: bool = False,
     timeout: float | None = None,
+    environment: Mapping[str, str] | None = None,
 ) -> Optional[UvCommandResult]:
     """在单一总时限内准备解释器、虚拟环境并同步项目依赖。"""
     root = root or project_root()
@@ -437,7 +440,13 @@ def sync_project_venv(
     deadline = time.monotonic() + timeout if timeout is not None else None
 
     try:
-        _ensure_self_contained_python(root, uv, outputs=outputs, deadline=deadline)
+        _ensure_self_contained_python(
+            root,
+            uv,
+            outputs=outputs,
+            deadline=deadline,
+            base_environment=environment,
+        )
         command = [
             uv,
             "sync",
@@ -452,7 +461,7 @@ def sync_project_venv(
         _run_and_collect(
             command,
             root,
-            _uv_python_env(root),
+            _uv_python_env(root, base_environment=environment),
             outputs,
             _remaining_timeout(deadline, command),
         )

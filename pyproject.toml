@@ -2,6 +2,7 @@
 name = "azurpilot"
 version = "0.0.0"
 requires-python = ">=3.14.6,<3.15"
+description = "Cross-platform AzurPilot tooling and runtime"
 dependencies = [
     "numpy==2.5.3",
     "scipy==1.18.1",
@@ -66,4 +67,28 @@ ci = [
 ]
 
 [tool.uv]
-package = false
+package = true
+
+[project.scripts]
+azur = "azurpilot.cli:main"
+
+[build-system]
+requires = ["setuptools>=78.1.1"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["alas", "gui"]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = [
+    "azurpilot*",
+    "campaign*",
+    "deploy*",
+    "dev_tools*",
+    "module*",
+    "submodule*",
+    "tools*",
+]
+namespaces = true
