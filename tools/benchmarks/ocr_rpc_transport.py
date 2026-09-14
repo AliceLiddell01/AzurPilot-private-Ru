@@ -128,6 +128,13 @@ def _identity_matches(process: psutil.Process, expected: _ProcessIdentity) -> bo
     )
 
 
+def _is_running(process: psutil.Process) -> bool:
+    try:
+        return process.is_running()
+    except OSError, psutil.Error:
+        return False
+
+
 def _terminate_owned_tree(
     process: multiprocessing.Process,
     expected_root: _ProcessIdentity,
@@ -164,18 +171,18 @@ def _terminate_owned_tree(
             candidate.terminate()
     deadline = time.monotonic() + SERVER_TIMEOUT_SECONDS
     while time.monotonic() < deadline:
-        if all(not candidate.is_running() for candidate, _expected in targets):
+        if all(not _is_running(candidate) for candidate, _expected in targets):
             break
         time.sleep(0.05)
     for candidate, expected in reversed(targets):
         try:
-            if candidate.is_running() and _identity_matches(candidate, expected):
+            if _is_running(candidate) and _identity_matches(candidate, expected):
                 candidate.kill()
         except psutil.NoSuchProcess:
             continue
     process.join(timeout=SERVER_TIMEOUT_SECONDS)
     if process.is_alive() or any(
-        candidate.is_running() for candidate, _expected in targets
+        _is_running(candidate) for candidate, _expected in targets
     ):
         raise BenchmarkError("Benchmark process tree не завершилось в заданный срок.")
 
@@ -245,13 +252,13 @@ def _start_server(transport: str) -> tuple[_ServerHandle, Any]:
     except Exception as exc:
         if root_identity is None:
             exc.add_note(
-                "Benchmark cleanup incomplete: process identity was not confirmed."
+                "Очистка benchmark не завершена: identity процесса не подтверждена."
             )
         else:
             try:
                 _ServerHandle(process, root_identity, stop_event).close()
             except Exception as cleanup_exc:  # noqa: BLE001
-                exc.add_note(f"Benchmark cleanup failed: {cleanup_exc}")
+                exc.add_note(f"Очистка benchmark завершилась ошибкой: {cleanup_exc}")
         raise
 
 
@@ -335,7 +342,10 @@ def _benchmark_transport(
                     raise BenchmarkError("Повторный synthetic OCR ответ неверен.")
             repeated_samples.append((time.perf_counter() - started) * 1000)
         measurements = {
-            "startup_readiness": _stats(startup_samples),
+            "startup_readiness": {
+                **_stats(startup_samples),
+                "includes_initial_hello": True,
+            },
             "single": _measure(single, runs=runs, iterations=iterations),
             "batch": {
                 "batch_size": batch_size,

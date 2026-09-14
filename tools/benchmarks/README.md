@@ -23,8 +23,13 @@ OCR-модель и измеряет только сериализацию, tran
 ```powershell
 uv run --locked --no-sync python -m tools.benchmarks.ocr_rpc_transport `
   --transport new --repo-root C:\AzurPilot --output <new-report.json>
+
 <baseline-python> -m tools.benchmarks.ocr_rpc_transport `
   --transport old --repo-root <baseline-checkout> --output <old-report.json>
+
 uv run --locked --no-sync python -m tools.benchmarks.ocr_rpc_transport `
   --compare <old-report.json> <new-report.json>
 ```
+
+Поле `startup_readiness` включает запуск процесса, readiness и первичный
+`hello()` handshake.
