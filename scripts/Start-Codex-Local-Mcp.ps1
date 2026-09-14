@@ -1,4 +1,5 @@
 ﻿$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
 
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $pythonExecutable = Join-Path $repositoryRoot '.venv\Scripts\python.exe'
@@ -22,8 +23,26 @@ $stderrLog = Join-Path $stateDirectory 'supervisor.stderr.log'
 
 $supervisorModule = 'module.mcp_shared.local_http_supervisor'
 $statusCommand = @('-u', '-m', $supervisorModule, 'status')
+
+function Get-LocalMcpSupervisorStatus {
+    $statusOutput = & $pythonExecutable @statusCommand 2>$null
+    $statusExitCode = $LASTEXITCODE
+    if ($statusExitCode -ne 0) {
+        throw "Не удалось получить статус local MCP supervisor (exit code $statusExitCode)"
+    }
+    $statusText = $statusOutput -join [Environment]::NewLine
+    if ([string]::IsNullOrWhiteSpace($statusText)) {
+        throw 'Статус local MCP supervisor не вернул JSON'
+    }
+    try {
+        return $statusText | ConvertFrom-Json
+    } catch {
+        throw 'Статус local MCP supervisor содержит некорректный JSON'
+    }
+}
+
 try {
-    $existingStatus = (& $pythonExecutable @statusCommand 2>$null | ConvertFrom-Json)
+    $existingStatus = Get-LocalMcpSupervisorStatus
     if ($existingStatus.ok -eq $true -and $existingStatus.code -eq 'LOCAL_MCP_SUPERVISOR_READY') {
         exit 0
     }
@@ -49,10 +68,10 @@ do {
     $ready = $true
     $supervisorReady = $false
     try {
-        $statusPayload = (& $pythonExecutable @statusCommand 2>$null | ConvertFrom-Json)
+        $statusPayload = Get-LocalMcpSupervisorStatus
         $supervisorReady = $statusPayload.ok -eq $true -and $statusPayload.code -eq 'LOCAL_MCP_SUPERVISOR_READY'
     } catch {
-        $supervisorReady = $false
+        throw "Не удалось проверить статус local MCP supervisor после запуска: $($_.Exception.Message)"
     }
     foreach ($service in $services) {
         try {
