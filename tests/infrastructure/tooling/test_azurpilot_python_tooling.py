@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import signal
 import sys
 import time
 from pathlib import Path
@@ -14,6 +15,7 @@ import pytest
 from pydantic import ValidationError
 
 import azurpilot.tooling.path as tooling_path
+import azurpilot.tooling.process as tooling_process
 from azurpilot.cli import main
 from azurpilot.tooling import bootstrap as tooling_bootstrap
 from azurpilot.tooling import doctor as tooling_doctor
@@ -241,6 +243,23 @@ def test_file_lock_closes_stream_when_initialization_fails(
 
     assert len(streams) == 1
     assert streams[0].closed
+
+
+def test_process_group_signal_never_targets_current_group(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[int, int]] = []
+    fake_os = SimpleNamespace(
+        name="posix",
+        getpgid=lambda _pid: 42,
+        killpg=lambda group, signal_number: calls.append((group, signal_number)),
+    )
+    monkeypatch.setattr(tooling_process, "os", fake_os)
+
+    assert not tooling_process._signal_process_group(42, signal.SIGTERM)
+    assert calls == []
+    assert tooling_process._signal_process_group(43, signal.SIGTERM)
+    assert calls == [(43, signal.SIGTERM)]
 
 
 def test_doctor_treats_missing_deploy_config_as_diagnostic(

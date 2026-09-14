@@ -171,7 +171,7 @@ def _extract_archive(archive: Path, destination: Path) -> Path:
                     )
                 if member.is_dir():
                     continue
-                if member.external_attr & 0o170000 == 0o120000:
+                if (member.external_attr >> 16) & 0o170000 == 0o120000:
                     raise ToolingError(
                         ResultCode.TOOLING_ADB_FAILED,
                         "Архив ADB содержит symlink.",
@@ -334,6 +334,22 @@ def install_adb(
     staging = Path(tempfile.mkdtemp(prefix="adb-install-", dir=str(destination_directory)))
     rollback = Path(tempfile.mkdtemp(prefix="adb-rollback-", dir=str(destination_directory)))
     replaced: list[str] = []
+
+    def _restore(names: list[str]) -> None:
+        try:
+            for name in reversed(names):
+                target = destination_directory / name
+                saved = rollback / name
+                if saved.is_file():
+                    os.replace(saved, target)
+                else:
+                    target.unlink(missing_ok=True)
+        except OSError as rollback_error:
+            raise ToolingError(
+                ResultCode.TOOLING_ROLLBACK_UNKNOWN,
+                "Установка ADB не завершена, а восстановление старых файлов не подтверждено.",
+            ) from rollback_error
+
     try:
         for name in ADB_FILES:
             source_file = source.parent / name
@@ -356,34 +372,10 @@ def install_adb(
             os.replace(staging / name, target)
             replaced.append(name)
     except ToolingError:
-        try:
-            for name in reversed(replaced):
-                target = destination_directory / name
-                saved = rollback / name
-                if saved.is_file():
-                    os.replace(saved, target)
-                else:
-                    target.unlink(missing_ok=True)
-        except OSError as rollback_error:
-            raise ToolingError(
-                ResultCode.TOOLING_ROLLBACK_UNKNOWN,
-                "Установка ADB не завершена, а восстановление старых файлов не подтверждено.",
-            ) from rollback_error
+        _restore(replaced)
         raise
     except (OSError, shutil.Error) as exc:
-        try:
-            for name in reversed(replaced):
-                target = destination_directory / name
-                saved = rollback / name
-                if saved.is_file():
-                    os.replace(saved, target)
-                else:
-                    target.unlink(missing_ok=True)
-        except OSError as rollback_error:
-            raise ToolingError(
-                ResultCode.TOOLING_ROLLBACK_UNKNOWN,
-                "Установка ADB не завершена, а восстановление старых файлов не подтверждено.",
-            ) from rollback_error
+        _restore(replaced)
         raise ToolingError(
             ResultCode.TOOLING_ADB_FAILED,
             "Не удалось атомарно сохранить ADB в среде проекта.",

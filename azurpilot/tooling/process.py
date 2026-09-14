@@ -355,6 +355,18 @@ def safe_environment(extra: Mapping[str, str] | None = None) -> dict[str, str]:
     return _safe_environment(extra or {})
 
 
+def _signal_process_group(process_group: int | None, signal_number: int) -> bool:
+    if os.name == "nt" or process_group is None:
+        return False
+    try:
+        if process_group == os.getpgid(0):
+            return False
+        os.killpg(process_group, signal_number)
+    except OSError:
+        return False
+    return True
+
+
 def _terminate_process(
     process: subprocess.Popen[bytes], identity: ProcessIdentity
 ) -> None:
@@ -368,12 +380,7 @@ def _terminate_process(
         descendants = tuple(psutil.Process(identity.pid).children(recursive=True))
     except (psutil.NoSuchProcess, psutil.AccessDenied):
         descendants = ()
-    if os.name != "nt" and identity.process_group is not None:
-        try:
-            os.killpg(identity.process_group, signal.SIGTERM)
-        except (ProcessLookupError, PermissionError):
-            pass
-    else:
+    if not _signal_process_group(identity.process_group, signal.SIGTERM):
         try:
             process.terminate()
         except OSError:
@@ -386,12 +393,7 @@ def _terminate_process(
     try:
         process.wait(timeout=2.0)
     except subprocess.TimeoutExpired:
-        if os.name != "nt" and identity.process_group is not None:
-            try:
-                os.killpg(identity.process_group, signal.SIGKILL)
-            except (ProcessLookupError, PermissionError):
-                pass
-        else:
+        if not _signal_process_group(identity.process_group, signal.SIGKILL):
             try:
                 process.kill()
             except OSError:
@@ -415,12 +417,14 @@ def _cleanup_process_instance(process: subprocess.Popen[bytes]) -> None:
         descendants = tuple(psutil.Process(process.pid).children(recursive=True))
     except (psutil.NoSuchProcess, psutil.AccessDenied):
         descendants = ()
+    process_group = None
     if os.name != "nt":
         try:
-            os.killpg(os.getpgid(process.pid), signal.SIGTERM)
-        except (OSError, ProcessLookupError):
+            process_group = os.getpgid(process.pid)
+        except OSError:
             pass
-    else:
+    group_signaled = _signal_process_group(process_group, signal.SIGTERM)
+    if not group_signaled:
         try:
             process.terminate()
         except OSError:
@@ -433,10 +437,11 @@ def _cleanup_process_instance(process: subprocess.Popen[bytes]) -> None:
     try:
         process.wait(timeout=2.0)
     except subprocess.TimeoutExpired:
-        try:
-            process.kill()
-        except OSError:
-            pass
+        if not _signal_process_group(process_group, signal.SIGKILL):
+            try:
+                process.kill()
+            except OSError:
+                pass
         try:
             process.wait(timeout=2.0)
         except subprocess.TimeoutExpired:
@@ -616,12 +621,7 @@ class ProcessController:
             descendants = tuple(process.children(recursive=True))
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             descendants = ()
-        if os.name != "nt" and identity.process_group is not None:
-            try:
-                os.killpg(identity.process_group, signal.SIGTERM)
-            except (ProcessLookupError, PermissionError):
-                pass
-        else:
+        if not _signal_process_group(identity.process_group, signal.SIGTERM):
             try:
                 process.terminate()
             except (psutil.NoSuchProcess, psutil.AccessDenied):
@@ -640,12 +640,7 @@ class ProcessController:
         descendants_running = any(_is_process_running(child) for child in descendants)
         if not identity.matches() and not descendants_running:
             return True
-        if os.name != "nt" and identity.process_group is not None:
-            try:
-                os.killpg(identity.process_group, signal.SIGKILL)
-            except (ProcessLookupError, PermissionError):
-                pass
-        else:
+        if not _signal_process_group(identity.process_group, signal.SIGKILL):
             try:
                 process.kill()
             except (psutil.NoSuchProcess, psutil.AccessDenied):

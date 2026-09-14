@@ -364,6 +364,13 @@ def ensure_shortcut(
         os.replace(temporary, path)
         if not _same_spec(_read_shell_link(path), expected):
             raise ToolingError(ResultCode.TOOLING_SHORTCUT_FAILED, "Постусловие ярлыка не подтверждено.")
+        if backup_created:
+            if path_has_link(backup_directory):
+                raise ToolingError(
+                    ResultCode.TOOLING_ROLLBACK_UNKNOWN,
+                    "Каталог резервной копии ярлыка стал небезопасным после записи.",
+                )
+            shutil.rmtree(backup_directory)
     except (OSError, ToolingError, ValueError) as error:
         try:
             if backup_created and backup_path.is_file():

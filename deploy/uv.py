@@ -512,7 +512,7 @@ def sync_project_venv(
         command.append("--no-dev")
         if not install_project:
             command.append("--no-install-project")
-        command += _uv_index_args(project)
+        command += _uv_index_args(root)
         _run_and_collect(
             command,
             root,

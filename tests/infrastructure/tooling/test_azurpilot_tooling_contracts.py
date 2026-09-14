@@ -6,6 +6,7 @@ import io
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import zipfile
@@ -368,6 +369,19 @@ def test_adb_archive_rejects_traversal_path(tmp_path: Path) -> None:
     assert not (tmp_path / "outside.txt").exists()
 
 
+def test_adb_archive_rejects_symlink_member(tmp_path: Path) -> None:
+    archive = tmp_path / "platform-tools.zip"
+    member = zipfile.ZipInfo("platform-tools/adb.exe")
+    member.external_attr = (stat.S_IFLNK | 0o777) << 16
+    with zipfile.ZipFile(archive, "w") as bundle:
+        bundle.writestr(member, b"outside-target")
+
+    with pytest.raises(ToolingError) as error:
+        tooling_adb._extract_archive(archive, tmp_path / "extracted")
+
+    assert error.value.code is ResultCode.TOOLING_ADB_FAILED
+
+
 def test_update_environment_move_failure_is_reported_as_confirmed_noop(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -412,6 +426,7 @@ def test_external_candidate_sync_targets_candidate_venv_layout(
     source_python = tmp_path / ("python.exe" if os.name == "nt" else "python")
     source_python.write_bytes(b"python")
     calls: list[list[str]] = []
+    index_roots: list[Path] = []
 
     def fake_run(command: list[object], *_args: object) -> None:
         values = [str(item) for item in command]
@@ -425,7 +440,11 @@ def test_external_candidate_sync_targets_candidate_venv_layout(
 
     monkeypatch.setattr(deploy_uv, "_deploy_bool", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(deploy_uv, "_resolve_uv", lambda *_args, **_kwargs: Path("uv"))
-    monkeypatch.setattr(deploy_uv, "_uv_index_args", lambda *_args: [])
+    def fake_index_args(path: Path) -> list[str]:
+        index_roots.append(path)
+        return []
+
+    monkeypatch.setattr(deploy_uv, "_uv_index_args", fake_index_args)
     monkeypatch.setattr(deploy_uv, "_run_and_collect", fake_run)
 
     deploy_uv.sync_project_venv(
@@ -442,6 +461,7 @@ def test_external_candidate_sync_targets_candidate_venv_layout(
     python_name = "python.exe" if os.name == "nt" else "python"
     assert str(candidate_environment / directory / python_name) in sync_command
     assert "--no-install-project" in sync_command
+    assert index_roots == [root]
 
 
 def _git(root: Path, *arguments: str) -> None:
