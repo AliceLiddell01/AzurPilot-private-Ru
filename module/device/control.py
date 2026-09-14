@@ -24,7 +24,7 @@ class Control(Hermit, Minitouch, Scrcpy, MaaTouch, NemuIpc):
     提供统一的点击、长按、滑动、拖拽接口。
     """
     def handle_control_check(self, button):
-        # 将在 Device 中被重写
+        # Будет переопределено в Device
         pass
 
     @cached_property
@@ -132,14 +132,14 @@ class Control(Hermit, Minitouch, Scrcpy, MaaTouch, NemuIpc):
         elif method in ['minitouch', 'MaaTouch', 'scrcpy', 'nemu_ipc']:
             logger.debug('[Устройство — управление] Свайп %s → %s' % (point2str(*p1), point2str(*p2)))
         else:
-            # ADB 需要更慢的速度，否则滑动可能无效
+            # Для ADB нужна меньшая скорость, иначе свайп может не сработать
             duration *= 2.5
             logger.debug('[Устройство — управление] Свайп %s → %s, длительность %s' % (point2str(*p1), point2str(*p2), duration))
 
         if distance_check:
             if np.linalg.norm(np.subtract(p1, p2)) < 10:
-                # 需要滑动一定距离，否则碧蓝航线会将其视为点击
-                # uiautomator2 需要 >= 6px，minitouch 需要 >= 5px
+                # Нужна минимальная длина свайпа, иначе Azur Lane распознает его как нажатие
+                # Для uiautomator2 требуется >= 6 px, для minitouch — >= 5 px
                 logger.debug('[Устройство — управление] Длина свайпа меньше 10 px; команда отброшена')
                 return
 
