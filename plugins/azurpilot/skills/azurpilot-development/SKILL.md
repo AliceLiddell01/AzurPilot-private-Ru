@@ -5,9 +5,11 @@ description: "Безопасный cross-surface workflow для Development Run
 
 # Рабочий процесс разработки AzurPilot
 
-Этот skill обслуживает Development workflow AzurPilot. Он работает с
-project-scoped `azurpilot-dev` из `.codex/config.toml` через local stdio и не
-добавляет второй MCP-сервер или самостоятельный transport. Developer-only capability `Game` доступна только
+Этот skill обслуживает Development workflow AzurPilot. В standalone Codex CLI
+он работает с project-scoped `azurpilot-dev` из `.codex/config.toml` через
+local stdio. Codex Desktop при Windows stdio bootstrap failure использует
+отдельный authenticated loopback alias `azurpilot_dev`; protocol identity
+остаётся `azurpilot-dev`. Developer-only capability `Game` доступна только
 через односторонний Dev → neutral application bridge, привязанный к target.
 
 Каноническая Codex-команда: `uv run --locked --no-sync python -m
@@ -140,9 +142,12 @@ Runtime control не принимает профиль, serial, package, ком�
 
 ## Поверхности подключения
 
-В Codex используй project-scoped `azurpilot-dev` через прямой local stdio:
-`uv run --locked --no-sync python -m module.dev_mcp`. Это тот же существующий
-Dev MCP с явно настроенным development target; public HTTPS для Codex не нужен. Git, source snapshot и
+В standalone Codex CLI используй project-scoped `azurpilot-dev` через прямой
+local stdio: `uv run --locked --no-sync python -m module.dev_mcp`. В Codex
+Desktop используй только проверенный alias `azurpilot_dev` через loopback
+local HTTP и требуй `transport=local_http`, `authenticated=true`,
+`local_authority=true`. Это тот же существующий Dev MCP с явно настроенным
+development target; public HTTPS для Codex не нужен. Git, source snapshot и
 проверки выполняй по правилам репозитория.
 
 В ChatGPT используй подключённое приложение, соответствующее этому

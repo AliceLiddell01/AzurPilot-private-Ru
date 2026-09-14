@@ -1275,6 +1275,8 @@ def _request_context(
 ) -> dict[str, object]:
     """Собрать bounded контекст полномочий без principal и token данных."""
 
+    from module.mcp_shared.auth import current_transport
+
     scopes = (
         tuple(explicit_scopes)
         if explicit_scopes is not None
@@ -1290,6 +1292,15 @@ def _request_context(
             "control_allowed": True,
         }
     granted = [scope for scope in GAME_MCP_SCOPES if scope in scopes]
+    if current_transport() == "local_http":
+        return {
+            "transport": "local_http",
+            "authenticated": True,
+            "local_authority": True,
+            "granted_scopes": granted,
+            "read_allowed": GAME_MCP_READ_SCOPE in scopes,
+            "control_allowed": GAME_MCP_CONTROL_SCOPE in scopes,
+        }
     return {
         "transport": "remote_http",
         "authenticated": True,

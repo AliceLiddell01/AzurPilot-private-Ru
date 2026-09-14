@@ -13,9 +13,11 @@ redacted config, sanitized logs или screenshot, получить справк
 запустить или остановить профиль, поставить поддерживаемую scheduler task, изменить
 разрешённый параметр или выполнить опубликованное runtime-control действие.
 
-В обычной Codex-сессии источник действий — project-scoped `azurpilot-game`,
+В standalone Codex CLI источник действий — project-scoped `azurpilot-game`,
 зарегистрированный в `.codex/config.toml` и запущенный через direct local stdio:
-`uv run --locked --no-sync python -m module.game_mcp`. Проверяй фактический
+`uv run --locked --no-sync python -m module.game_mcp`. Codex Desktop при
+Windows stdio bootstrap failure использует authenticated loopback alias
+`azurpilot_game`; protocol identity остаётся `azurpilot-game`. Проверяй фактический
 MCP callable catalog текущей сессии. Этот skill не добавляет MCP-сервер, не
 вызывает Dev MCP через MCP и не превращается в произвольный shell/ADB или GUI
 automation слой.
@@ -115,7 +117,9 @@ envelope.
 `STOP WRITES` и передай выполнение в `azurpilot-troubleshooting`; не продолжай
 без подтверждённых scopes и preconditions из актуального contract.
 
-Перед control action проверь профиль, требуемый scope и precondition из
+Для Desktop сначала проверь, что `azurpilot_game` отвечает через local HTTP с
+`transport=local_http`, `authenticated=true` и `local_authority=true`; remote
+`codex_apps` не является заменой. Перед control action проверь профиль, требуемый scope и precondition из
 contract. Выполняй одну осознанную mutation за раз, с явным `<profile>` и без
 автоматического retry (automatic retry запрещён). После ответа проверь authoritative postcondition,
 который требует именно этот tool:

@@ -543,7 +543,7 @@ _REQUEST_CONTEXT_OUTPUT = {
     "properties": {
         "transport": {
             "type": "string",
-            "enum": ["local_stdio", "remote_http"],
+            "enum": ["local_stdio", "local_http", "remote_http"],
         },
         "authenticated": {"type": "boolean"},
         "local_authority": {"type": "boolean"},

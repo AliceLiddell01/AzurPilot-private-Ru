@@ -1,15 +1,15 @@
-"""
-Copy from pywebio.platform.fastapi
-"""
+"""Совместимый адаптер PyWebIO для AzurPilot WebUI."""
 
 import asyncio
 import logging
 import os
 from collections.abc import Mapping
+from contextlib import asynccontextmanager
+from inspect import isawaitable
 from typing import Any, cast
 
-import uvicorn
 import pywebio.platform.fastapi as pywebio_fastapi
+import uvicorn
 from pywebio.platform.fastapi import (
     STATIC_PATH,
     Session,
@@ -45,18 +45,39 @@ DISABLED_API_ROUTE_PATHS = {
 }
 
 
+async def _run_lifecycle_handlers(handlers) -> None:
+    """Выполнить legacy startup/shutdown handlers с поддержкой async callable."""
+    for handler in handlers:
+        result = handler()
+        if isawaitable(result):
+            await result
+
+
+def _legacy_lifespan(on_startup, on_shutdown):
+    """Преобразовать lifecycle API PyWebIO в lifespan API Starlette 1.6+."""
+
+    @asynccontextmanager
+    async def lifespan(_app):
+        await _run_lifecycle_handlers(on_startup)
+        try:
+            yield
+        finally:
+            await _run_lifecycle_handlers(on_shutdown)
+
+    return lifespan
+
+
 class HeaderMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         response = await call_next(request)
         path = request.url.path
-        is_static_asset = path.startswith("/static/assets/") or path.startswith(
-            "/pywebio_static/"
-        )
+        is_static_asset = path.startswith(("/static/assets/", "/pywebio_static/"))
         is_cacheable_response = (
             200 <= response.status_code < 300 or response.status_code == 304
         )
         if request.method in {"GET", "HEAD"} and is_static_asset and is_cacheable_response:
-            # 部分静态资源没有内容哈希，必须在每次使用前重新验证。
+            # У части статических ресурсов нет хеша содержимого, поэтому их нужно
+            # перепроверять при каждом использовании.
             response.headers["Cache-Control"] = STATIC_ASSET_CACHE_CONTROL
         else:
             response.headers["Cache-Control"] = NO_CACHE_CONTROL
@@ -74,10 +95,11 @@ async def robots_txt(request):
 
 class SafeWebSocketConnection(pywebio_fastapi.WebSocketConnection):
     """
-    Starlette/websockets 不允许同一连接并发 send。
+    Starlette/websockets не разрешают параллельную отправку через одно соединение.
 
-    PyWebIO 默认实现会为每条消息创建独立 task，页面一次触发多条输出时，
-    底层 drain 可能断言失败并打印 "Task exception was never retrieved"。
+    Стандартная реализация PyWebIO создаёт отдельную task для каждого сообщения;
+    при нескольких выводах за одно событие нижележащий drain может завершиться
+    с AssertionError и вывести "Task exception was never retrieved".
     """
 
     def __init__(self, websocket, ioloop):
@@ -129,6 +151,15 @@ def asgi_app(
     static_mounts: Mapping[str, str] | None = None,
     **starlette_settings,
 ):
+    on_startup = tuple(starlette_settings.pop("on_startup", ()) or ())
+    on_shutdown = tuple(starlette_settings.pop("on_shutdown", ()) or ())
+    if on_startup or on_shutdown:
+        if starlette_settings.get("lifespan") is not None:
+            raise TypeError(
+                "Нельзя одновременно передавать on_startup/on_shutdown и lifespan."
+            )
+        starlette_settings["lifespan"] = _legacy_lifespan(on_startup, on_shutdown)
+
     debug = bool(os.environ.get("PYWEBIO_DEBUG", debug))
     Session.debug = debug
     validated_cdn: str | bool = cdn_validation(cdn, "warn")
@@ -137,7 +168,7 @@ def asgi_app(
     patch_pywebio_websocket_connection()
     routes = webio_routes(
         applications,
-        # PyWebIO 支持 CDN 地址字符串，但其运行时类型推断仅保留了 bool。
+        # PyWebIO принимает строковый CDN, хотя его runtime-аннотация оставляет только bool.
         cdn=cast(Any, validated_cdn),
         allowed_origins=allowed_origins,
         check_origin=check_origin,
@@ -172,7 +203,7 @@ def asgi_app(
         logging.getLogger(__name__).error(f"Не удалось загрузить маршруты API: {e}")
 
     middleware = [
-        # 仅处理 HTTP 响应；WebSocket 不经过该中间件，Starlette 也会跳过 SSE。
+        # Обрабатываем только HTTP-ответы; WebSocket и SSE проходят мимо middleware.
         Middleware(
             GZipMiddleware,
             minimum_size=HTTP_GZIP_MINIMUM_SIZE,

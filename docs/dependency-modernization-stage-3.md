@@ -18,8 +18,8 @@
 - Удалены неиспользуемые прямые зависимости `chardet`, `importlib-metadata`,
   `importlib-resources`, `packaging`, `retrying`, `setuptools` и `wrapt`.
   `pyzmq==27.2.0` сохранён как direct runtime dependency: production-код
-  `module/ocr/rpc.py` напрямую импортирует `zmq` и обрабатывает
-  `zmq.error.ZMQError`.
+  `module/ocr/rpc.py` напрямую импортирует `zmq` и использует его для
+  loopback OCR transport с обработкой `zmq.error.ZMQError`.
 - MCP/OpenAI и Starlette используют пакет `httpx2`; он явно закреплён в CI-группе,
   а remote MCP-тесты переведены на тот же API без скрытой транзитивной зависимости.
 - `uv 0.12.13` согласован с CI, Windows bootstrap и Docker bootstrap image.
@@ -55,23 +55,46 @@ acceptance matrix должна быть сверена с exact-head evidence. �
 проверены локальный ADB target, TCP reconnect, selector/input API, RGB
 screenshots, `minitouch` handshake и uiautomator2 control; отдельные USB,
 MuMu и полные gameplay-сценарии этим bounded запуском не доказаны.
+Для текущего Stage 4 отдельный длительный `alas` live run намеренно не
+запускается до external ChatGPT review и повторной проверки exact head.
 
-## Решение по zerorpc
+## Результат Stage 4: замена zerorpc
 
-`zerorpc==0.6.3` остаётся реально используемой runtime dependency OCR RPC.
-`ModelProxy`/`ModelProxyFactory` используют loopback client с bounded timeout и
-локальным fallback, а `start_ocr_server` — server lifecycle и
-`zmq.error.ZMQError`. Lockfile подтверждает coupling `zerorpc → pyzmq`.
+`zerorpc==0.6.3` удалён из runtime dependency и lockfile. `ModelProxy`/
+`ModelProxyFactory` сохранили прежнюю границу методов, loopback-only адрес,
+bounded timeout и локальный fallback, а `start_ocr_server` получил собственный
+`pyzmq` ROUTER/DEALER transport. Управляющие кадры используют ограниченный JSON,
+изображения и бинарные значения — безопасные bounded frames; pickle и публичные
+или wildcard listeners не используются.
 
-PyPI публикует `0.6.3` с 2019 года, при этом upstream repository содержит более
-поздние изменения; это release lag и bounded legacy-risk, а не доказательство
-полного abandoned status. Большая замена transport не входит в Stage 3.
-Evidence-based audit, варианты loopback HTTP/process IPC, migration surface и
-acceptance зафиксированы в issue
-[#258](https://github.com/AliceLiddell01/AzurPilot-private-Ru/issues/258). Issue
-остаётся открытым: этот Stage 3 PR не меняет transport и не объявляет
-`zerorpc` заменённым. Закрытие требует отдельного adapter/replacement,
-измерений, lifecycle- и malformed-payload acceptance.
+Для выбора транспорта сопоставлены loopback HTTP и stdlib process IPC. Прямой
+`pyzmq` сохранён как минимальный вариант: он уже был direct runtime dependency,
+сохраняет существующий endpoint и бинарный путь ndarray без нового HTTP-слоя
+или pickle-based framing. Контракт ограничивает JSON control frame, бинарные
+кадры, batch, nesting, timeout и lifecycle; rollback выполняется возвратом к
+предыдущему commit без изменения `OcrClientAddress` и `OcrServerPort`.
+
+Lockfile удаляет только цепочку, принадлежавшую `zerorpc`: `future`, `gevent`,
+`msgpack`, `zope-event` и `zope-interface`; `pyzmq` остаётся прямой зависимостью.
+Issue [#258](https://github.com/AliceLiddell01/AzurPilot-private-Ru/issues/258)
+остаётся открытым до публикации и merge этого изменения, после чего его
+acceptance matrix должна быть сверена с exact-head evidence.
+
+### Transport benchmark
+
+Для Stage 4 добавлен bounded synthetic benchmark
+`tools.benchmarks.ocr_rpc_transport`. Он сравнивает pre-migration
+`zerorpc==0.6.3` с replacement `pyzmq==27.2.0` на одинаковом ndarray wire
+payload без загрузки OCR-модели: startup/readiness, single request, batch и
+повторяющаяся последовательность запросов. Для каждой метрики используются
+несколько прогонов и median; результат также сохраняет Python, platform,
+package versions и exact Git HEAD. Benchmark не содержит performance threshold
+и не меняет production ports `8775/8776` или игровой state.
+
+Запуск baseline выполняется из detached checkout base SHA в его старом
+`uv`-окружении, replacement — из текущего checkout с `pyzmq`; два JSON report
+сопоставляются командой `--compare`. Числа и verdict последнего exact-head
+запуска публикуются в PR #272, а generated reports остаются вне Git.
 
 ## Acceptance state
 
@@ -83,7 +106,7 @@ Windows/USB matrix и gameplay-сценарии не выполнялись. К�
 минимальный безопасный сценарий:
 
 ```powershell
-uv run --locked --no-sync python -c "import adbutils, uiautomator2, zmq, zerorpc; from importlib import metadata; assert metadata.version('adbutils') == '2.12.0'; assert metadata.version('uiautomator2') == '3.7.0'; print('device imports: ok')"
+uv run --locked --no-sync python -c "import adbutils, uiautomator2, zmq; from importlib import metadata; assert metadata.version('adbutils') == '2.12.0'; assert metadata.version('uiautomator2') == '3.7.0'; print('device imports: ok')"
 uv run --locked --no-sync python -m tools.acceptance.device --profile alas --serial "<serial>" --check-preview --check-control --check-reconnect --report "<report-path>"
 ```
 

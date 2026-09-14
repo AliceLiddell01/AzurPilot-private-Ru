@@ -62,6 +62,18 @@ SERVER_MODULES = {
     "azurpilot-dev": ("module.dev_mcp", "dev_get_contract"),
     "azurpilot-game": ("module.game_mcp", "game_get_contract"),
 }
+CODEX_LOCAL_HTTP_REGISTRATION_KEYS = {
+    "azurpilot-dev": "azurpilot_dev",
+    "azurpilot-game": "azurpilot_game",
+}
+CODEX_LOCAL_HTTP_URLS = {
+    "azurpilot-dev": "http://127.0.0.1:8775/mcp",
+    "azurpilot-game": "http://127.0.0.1:8776/mcp",
+}
+CODEX_LOCAL_HTTP_TOKEN_ENV_VARS = {
+    "azurpilot-dev": "AZURPILOT_DEV_LOCAL_MCP_TOKEN",
+    "azurpilot-game": "AZURPILOT_GAME_LOCAL_MCP_TOKEN",
+}
 CODEX_SERVER_ARGS = {
     name: ("run", "--locked", "--no-sync", "python", "-m", module_name)
     for name, (module_name, _contract_tool) in SERVER_MODULES.items()
@@ -1064,7 +1076,14 @@ def _codex_entry_status(
 
 
 def _codex_url_entry_status(
-    config: Mapping[str, object], name: str, *, expected_url: str
+    config: Mapping[str, object],
+    name: str,
+    *,
+    expected_url: str,
+    expected_bearer_token_env_var: str | None = None,
+    expected_startup_timeout_sec: int | None = None,
+    expected_tool_timeout_sec: int | None = None,
+    expected_required: bool | None = None,
 ) -> dict[str, object]:
     servers = config.get("mcp_servers")
     entry = servers.get(name) if isinstance(servers, Mapping) else None
@@ -1073,12 +1092,42 @@ def _codex_url_entry_status(
             "status": "not_configured",
             "reason_code": "CODEX_SERVER_NOT_CONFIGURED",
         }
-    if entry.get("url") != expected_url or entry.get("enabled") is not True:
+    if (
+        entry.get("url") != expected_url
+        or entry.get("enabled") is not True
+        or (
+            expected_bearer_token_env_var is not None
+            and entry.get("bearer_token_env_var") != expected_bearer_token_env_var
+        )
+        or (
+            expected_startup_timeout_sec is not None
+            and entry.get("startup_timeout_sec") != expected_startup_timeout_sec
+        )
+        or (
+            expected_tool_timeout_sec is not None
+            and entry.get("tool_timeout_sec") != expected_tool_timeout_sec
+        )
+        or (
+            expected_required is not None
+            and entry.get("required") is not expected_required
+        )
+        or "command" in entry
+        or "args" in entry
+        or "cwd" in entry
+    ):
         return {"status": "drift", "reason_code": "CODEX_SERVER_CONFIG_DRIFT"}
     return {
         "status": "configured",
         "reason_code": "CODEX_SERVER_CONFIGURED",
         "enabled": True,
+        "transport": "local_http"
+        if expected_bearer_token_env_var is not None
+        else "http",
+        **(
+            {"bearer_token_env_var": expected_bearer_token_env_var}
+            if expected_bearer_token_env_var is not None
+            else {}
+        ),
     }
 
 
@@ -2437,8 +2486,7 @@ def _canonical_status(
         if name == "context7":
             if (
                 route_status == "not_observable"
-                and route.get("reason_code")
-                == "DIRECT_USER_SCOPED_ACCEPTANCE_EXTERNAL"
+                and route.get("reason_code") == "DIRECT_USER_SCOPED_ACCEPTANCE_EXTERNAL"
             ):
                 external_evidence_pending = True
             elif route_status != "ready":
@@ -2588,6 +2636,23 @@ async def collect_status_async(
             "evidence_kind": "repository_source_config",
             "source_path": ".codex/config.toml",
         }
+        local_http_key = CODEX_LOCAL_HTTP_REGISTRATION_KEYS[name]
+        local_http_source_result = _codex_url_entry_status(
+            codex_config,
+            local_http_key,
+            expected_url=CODEX_LOCAL_HTTP_URLS[name],
+            expected_bearer_token_env_var=CODEX_LOCAL_HTTP_TOKEN_ENV_VARS[name],
+            expected_startup_timeout_sec=10,
+            expected_tool_timeout_sec=180,
+            expected_required=False,
+        )
+        local_http_source_result = {
+            **local_http_source_result,
+            "evidence_kind": "repository_source_config",
+            "source_path": ".codex/config.toml",
+            "canonical_server_name": name,
+            "registration_key": local_http_key,
+        }
         codex_effective_result = _codex_effective_registration_status(name)
         codex_source_entries[name] = codex_source_result
         codex_effective_entries[name] = codex_effective_result
@@ -2601,6 +2666,7 @@ async def collect_status_async(
             "local_direct": local_result,
             "codex": {
                 "source_config": codex_source_result,
+                "local_http_source_config": local_http_source_result,
                 "effective_codex_registration": codex_effective_result,
             },
             "remote_backend": remote_result.get("remote_backend", {}),

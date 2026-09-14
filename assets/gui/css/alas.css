@@ -800,22 +800,29 @@ pre.rich-traceback-code code {
     padding-right: .25rem;
 }
 
-*[style*="--loading-grow--"] {
-    width: 1.5rem;
-    height: 1.5rem;
-}
-
-*[style*="--loading-border--"] {
-    width: 1.5rem;
-    height: 1.5rem;
-    border: .2em solid currentColor;
-    border-right-color: transparent;
-}
-
+*[style*="--loading-grow--"],
+*[style*="--loading-border--"],
 *[style*="--loading-border-fill--"] {
     width: 1.5rem;
     height: 1.5rem;
-    border: .2em solid currentColor;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+}
+
+*[style*="--loading-grow--"] .spinner-grow,
+*[style*="--loading-border--"] .spinner-border,
+*[style*="--loading-border-fill--"] .spinner-border {
+    width: 1.5rem;
+    height: 1.5rem;
+}
+
+/* Неактивный маркер не должен выглядеть как продолжающаяся загрузка. */
+*[style*="--loading-border-fill--"] .spinner-border {
+    border-right-color: currentColor;
+    -webkit-animation: none;
+    animation: none;
 }
 
 /**[style*="--dashboard-value--"] {*/
@@ -960,7 +967,8 @@ pre.rich-traceback-code code {
     table-layout: fixed !important;
 }
 
-/* 认证发生在业务壳层创建之前，保持独立的中性样式。 */
+/* Аутентификация происходит до создания оболочки приложения и остаётся
+   независимой нейтральной стилизацией. */
 body.alas-login-page {
     min-height: 100dvh;
     color: #202124;

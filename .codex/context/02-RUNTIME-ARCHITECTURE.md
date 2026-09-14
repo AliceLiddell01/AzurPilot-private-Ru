@@ -187,7 +187,11 @@ unknown/unavailable/missing required snapshot не может дать `PASS`.
 
 Standalone Game MCP находится в `module.game_mcp` и использует тот же
 нейтральный application/domain слой через собственную lazy composition root.
-Он работает через stateless stdio и authenticated Streamable HTTP, принимает
+Он работает через stateless stdio и authenticated Streamable HTTP. Для Codex
+Desktop предусмотрен отдельный strict-loopback local HTTP supervisor с
+`transport=local_http`, `local_authority=true` и user-level bearer token;
+public remote HTTP остаётся `transport=remote_http`, `local_authority=false`.
+Сервер принимает
 канонический `profile` в каждом target-dependent запросе и не импортирует Dev
 MCP или Dev Runtime. Его remote resource и scopes `azurpilot:game.read` и
 `azurpilot:game.control` отделены от Dev MCP, а общий transport/auth код

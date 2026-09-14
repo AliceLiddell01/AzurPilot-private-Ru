@@ -68,9 +68,13 @@ Plugin Creator. Его machine-readable ID — `azurpilot`, display name —
 содержит ChatGPT app state, tunnel profile, credentials, screenshots, archives
 или runtime cache и не регистрирует второй MCP implementation.
 
-Codex использует project-scoped `azurpilot-dev` и `azurpilot-game` через прямой
-local stdio и соответственно `module.dev_mcp` и `module.game_mcp`; единственный
-repository-level источник регистрации — `.codex/config.toml`. ChatGPT использует
+Standalone Codex CLI использует project-scoped `azurpilot-dev` и
+`azurpilot-game` через прямой local stdio и соответственно `module.dev_mcp` и
+`module.game_mcp`. Codex Desktop при Windows stdio bootstrap failure использует
+отдельные loopback aliases `azurpilot_dev` и `azurpilot_game` с bearer token из
+user environment и `transport=local_http`; protocol identities не меняются.
+Единственный repository-level источник регистрации — `.codex/config.toml`.
+ChatGPT использует
 явно выбранное подключённое приложение с
 authenticated public URL `https://<public-host>/mcp`, Caddy reverse proxy в
 Docker Compose profile `remote-ingress` и внешним OAuth/OIDC provider; Caddy

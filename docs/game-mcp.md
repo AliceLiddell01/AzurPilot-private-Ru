@@ -24,6 +24,27 @@ uv run --locked --no-sync python -m module.game_mcp
 `.codex/config.toml`. Plugin package поставляет skill и metadata, но не
 регистрирует MCP и не добавляет Connected App fallback.
 
+Codex Desktop при Windows stdio bootstrap failure использует отдельный
+защищённый loopback Streamable HTTP alias. Canonical stdio server и его
+protocol identity не меняются:
+
+```text
+uv run --locked --no-sync python -m module.mcp_shared.local_http_supervisor serve
+```
+
+Supervisor владеет одним Game process на `127.0.0.1:8776` и одним Dev process
+на `127.0.0.1:8775`, проверяет `/ready` и не записывает bearer tokens в marker.
+Токены передаются только через user-level environment
+`AZURPILOT_GAME_LOCAL_MCP_TOKEN` и `AZURPILOT_DEV_LOCAL_MCP_TOKEN`. В
+`.codex/config.toml` Desktop alias `azurpilot_game` указывает на
+`http://127.0.0.1:8776/mcp`, а alias `azurpilot_dev` — на
+`http://127.0.0.1:8775/mcp`; это registration keys, а не protocol identities.
+Остановка сверяет PID, время создания, executable, command и рабочий каталог,
+после чего завершает только exact supervisor tree и его descendants обычным
+process termination; console/group control events не используются.
+Local HTTP contract обязан сообщать `transport=local_http`,
+`authenticated=true` и `local_authority=true`.
+
 Remote transport — authenticated Streamable HTTP через loopback backend:
 
 ```text
@@ -229,7 +250,9 @@ Login flow bounded по одному timeout и не имеет automatic retry;
 нулевым значением.
 
 Для обычной работы с игровым MCP через Codex используется
-`azurpilot-game-control` и direct local stdio route `azurpilot-game`, а для
+`azurpilot-game-control` и canonical Game MCP: standalone CLI использует
+direct local stdio route `azurpilot-game`, а Codex Desktop — защищённый local
+HTTP alias `azurpilot_game`, а для
 снимков контракта и диагностики транспорта — `azurpilot-troubleshooting`.
 Подключённое приложение относится только к явно выбранной ChatGPT/public
 remote surface и не является fallback. `azurpilot-development` остаётся
