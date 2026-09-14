@@ -25,6 +25,7 @@
 | `08-VERIFICATION.md` | Режимы задач, локальные/CI gates, review checkpoints и Definition of Done |
 | `09-SOURCES-MAINTENANCE.md` | Источники истины и поддержка этой папки |
 | `10-GLOSSARY.md` | Термины и быстрые связи |
+| `11-PYTHON-TOOLING.md` | Текущее состояние и постоянный контракт будущего единого Python tooling |
 | `GIT-WORKFLOW.md` | Git lifecycle, ветки, PR, upstream, merge, rollback; читать по релевантным разделам |
 | `POWERSHELL-GIT-RULES.md` | Стандарт `.ps1`/`.psm1` с Git-командами; читать только для PowerShell/Git задач |
 | `MIGRATION-MAP.md` | Что было сохранено и отброшено из старых AI-файлов |
