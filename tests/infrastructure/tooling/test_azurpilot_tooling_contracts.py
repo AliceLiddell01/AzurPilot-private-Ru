@@ -23,6 +23,7 @@ from azurpilot.tooling import lifecycle as tooling_lifecycle
 from azurpilot.tooling import update as tooling_update
 from azurpilot.tooling.bootstrap import BuildService
 from azurpilot.tooling.config import DeploySettings
+from azurpilot.tooling.coordination import PortObservation
 from azurpilot.tooling.contracts import (
     CapabilityCheck,
     CapabilityStatus,
@@ -491,6 +492,11 @@ def test_update_uses_real_git_fast_forward_and_blocks_on_backup_failure(
     _git(root, "config", "remote.upstream.pushurl", "DISABLED")
     _git(root, "push", "origin", "fixture")
     _git(root, "branch", "--set-upstream-to", "origin/fixture")
+    monkeypatch.setattr(
+        tooling_update,
+        "observe_tcp_port",
+        lambda port: PortObservation(port=port, pids=()),
+    )
     subprocess.run(
         ["git", "clone", "--branch", "fixture", str(origin), str(producer)],
         check=True,
