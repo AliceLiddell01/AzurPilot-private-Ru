@@ -164,7 +164,6 @@ class DoctorService:
             "python",
             "uv",
             "project_environment",
-            "deploy_config",
         }
         healthy = all(
             item.status is CapabilityStatus.READY

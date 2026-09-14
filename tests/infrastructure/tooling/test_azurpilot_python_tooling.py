@@ -16,6 +16,8 @@ from pydantic import ValidationError
 import azurpilot.tooling.path as tooling_path
 from azurpilot.cli import main
 from azurpilot.tooling import bootstrap as tooling_bootstrap
+from azurpilot.tooling import doctor as tooling_doctor
+from azurpilot.tooling.config import DeploySettings
 from azurpilot.tooling.contracts import (
     DoctorDetails,
     RepositoryRootEvidence,
@@ -210,6 +212,47 @@ def test_file_lock_is_non_reentrant_across_instances(tmp_path: Path) -> None:
         first.release()
     assert second.acquire()
     second.release()
+
+
+def test_file_lock_closes_stream_when_initialization_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    lock_path = tmp_path / "state" / "operation.lock"
+    streams = []
+    original_open = Path.open
+
+    def tracking_open(path: Path, *args: object, **kwargs: object):
+        stream = original_open(path, *args, **kwargs)
+        streams.append(stream)
+        return stream
+
+    def failing_stat(_path: Path):
+        raise OSError("stat failed")
+
+    monkeypatch.setattr(Path, "open", tracking_open)
+    monkeypatch.setattr(Path, "stat", failing_stat)
+
+    with pytest.raises(OSError):
+        FileLock(lock_path).acquire()
+
+    assert len(streams) == 1
+    assert streams[0].closed
+
+
+def test_doctor_treats_missing_deploy_config_as_diagnostic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        tooling_doctor,
+        "load_deploy_settings",
+        lambda _root: DeploySettings(source_path=None),
+    )
+
+    result = DoctorService().run(REPOSITORY_ROOT)
+    checks = {item.name: item for item in result.details.checks}
+
+    assert result.ok
+    assert checks["deploy_config"].status.value == "not_configured"
 
 
 def test_cli_json_is_single_report_on_invocation_error() -> None:

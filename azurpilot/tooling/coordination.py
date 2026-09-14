@@ -46,10 +46,14 @@ class FileLock:
             )
         self.path.parent.mkdir(parents=True, exist_ok=True)
         stream = self.path.open("a+b")
-        stream.seek(0)
-        if self.path.stat().st_size == 0:
-            stream.write(b"0")
-            stream.flush()
+        try:
+            stream.seek(0)
+            if self.path.stat().st_size == 0:
+                stream.write(b"0")
+                stream.flush()
+        except OSError:
+            stream.close()
+            raise
         deadline = time.monotonic() + timeout_seconds
         while True:
             try:
