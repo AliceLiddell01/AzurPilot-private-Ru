@@ -1,5 +1,3 @@
-from tests.support.paths import REPOSITORY_ROOT
-
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,7 +6,7 @@ from urllib.parse import urljoin
 from starlette.testclient import TestClient
 
 from module.webui.fastapi import asgi_app
-
+from tests.support.paths import REPOSITORY_ROOT
 
 PROJECT_ROOT = REPOSITORY_ROOT
 
@@ -92,3 +90,28 @@ class TestWebUIStaticAssets(unittest.TestCase):
         )
         self.assertNotIn("fonts.googleapis.com", obs_overlay)
         self.assertNotIn("fonts.gstatic.com", obs_overlay)
+
+    def test_inactive_loading_marker_is_static_and_has_no_outer_square(self):
+        css = (PROJECT_ROOT / "assets/gui/css/alas.css").read_text(encoding="utf-8")
+
+        self.assertIn(
+            """*[style*="--loading-grow--"],
+*[style*="--loading-border--"],
+*[style*="--loading-border-fill--"] {
+    width: 1.5rem;
+    height: 1.5rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+}""",
+            css,
+        )
+        self.assertIn(
+            """*[style*="--loading-border-fill--"] .spinner-border {
+    border-right-color: currentColor;
+    -webkit-animation: none;
+    animation: none;
+}""",
+            css,
+        )
