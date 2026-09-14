@@ -254,7 +254,7 @@ class MailWhite(UI):
             if self._handle_mail_reward():
                 continue
 
-        # 成功删除邮件或无邮件可删时会出现 info_bar
+        # После успешного удаления писем или если удалять нечего, появляется info_bar
         return True
 
     def mail_claim(
@@ -317,7 +317,7 @@ class MailWhite(UI):
             logger.warning('Нечего получать')
             return False
 
-        # 必须使用白色主题 UI
+        # Необходимо использовать светлую тему UI
         self.ui_ensure(page_main)
         if self.appear(page_main_white.check_button, offset=(30, 30)):
             logger.info('Открыта светлая главная страница')
@@ -329,7 +329,7 @@ class MailWhite(UI):
             logger.warning('[Бонусы — почта] Неизвестная главная страница; невозможно открыть почту')
             return False
 
-        # 领取
+        # Получение наград
         self.mail_claim(
             merit=merit,
             maintenance=maintenance,
