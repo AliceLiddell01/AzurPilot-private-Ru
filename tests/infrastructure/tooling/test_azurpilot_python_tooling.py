@@ -17,7 +17,7 @@ import azurpilot.tooling.path as tooling_path
 from azurpilot.cli import main
 from azurpilot.tooling import bootstrap as tooling_bootstrap
 from azurpilot.tooling import doctor as tooling_doctor
-from azurpilot.tooling.config import DeploySettings
+from azurpilot.tooling.config import DeploySettings, project_python
 from azurpilot.tooling.contracts import (
     DoctorDetails,
     RepositoryRootEvidence,
@@ -253,6 +253,16 @@ def test_doctor_treats_missing_deploy_config_as_diagnostic(
 
     assert result.ok
     assert checks["deploy_config"].status.value == "not_configured"
+
+
+def test_default_project_python_keeps_venv_script_directory() -> None:
+    expected_directory = REPOSITORY_ROOT / ".venv" / (
+        "Scripts" if os.name == "nt" else "bin"
+    )
+
+    assert project_python(REPOSITORY_ROOT, DeploySettings(source_path=None)).parent == (
+        expected_directory
+    )
 
 
 def test_cli_json_is_single_report_on_invocation_error() -> None:

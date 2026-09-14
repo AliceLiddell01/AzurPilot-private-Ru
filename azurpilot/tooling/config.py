@@ -140,7 +140,10 @@ def project_python(root: Path, settings: DeploySettings | None = None) -> Path:
     )
     if settings.python_executable and configured.is_file():
         return configured
-    return canonical_path(platform_default)
+    # На POSIX `.venv/bin/python` обычно является symlink на базовый runtime.
+    # Для project console script нужен логический путь внутри venv; фактический
+    # executable разрешается и проверяется в StructuredProcessRunner.
+    return platform_default
 
 
 def project_uv(root: Path, settings: DeploySettings | None = None) -> Path:
