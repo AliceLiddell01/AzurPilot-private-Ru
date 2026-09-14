@@ -24,8 +24,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Any
 
-# 此文件定义了手动配置项。
-# 包含了非自动生成的硬编码设置，如资源文件路径、UI 按钮偏移量以及任务调度的默认优先级逻辑。
+# Этот файл определяет вручную поддерживаемые параметры конфигурации.
+# Здесь находятся негенерируемые жёстко заданные настройки: пути ресурсов, смещения UI-кнопок и логика приоритетов планировщика по умолчанию.
 from module.config.deep import deep_get
 from module.config.utils import *
 from module.config.task_priority import get_scheduler_tasks, merge_task_priority
@@ -438,7 +438,7 @@ class ManualConfig:
     # On minitouch, Screen swipe (200, 200) = Map swipe (382, 442)
     OS_GLOBE_SWIPE_MULTIPLY = (1.91, 2.21)
 
-    # 塞壬装置处理方法
+    # Способ обработки устройств Сирен
     # 'never', 'use_until_destroyed'
     OS_SIREN_DEVICE_USAGE = 'never'
 
