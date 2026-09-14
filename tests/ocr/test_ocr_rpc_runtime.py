@@ -280,8 +280,8 @@ class OcrRpcRuntimeTests(unittest.TestCase):
                 self.assertIn("Multipart", response_control["error"]["message"])
                 self.assertEqual(model.calls, [])
 
-                # The server drained the rejected multipart and kept its
-                # ROUTER socket usable for the next request.
+                # Сервер вычитал отклонённый multipart-запрос и сохранил
+                # ROUTER socket пригодным для следующего запроса.
                 self.assertEqual(client.hello(), "hello")
             finally:
                 client.close()
