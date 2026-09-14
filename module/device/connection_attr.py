@@ -172,8 +172,8 @@ class ConnectionAttr:
                     serial = f'127.0.0.1:{port}'
             except ValueError:
                 pass
-        # 夜神模拟器 127.0.0.1:62001
-        # MuMu模拟器12127.0.0.1:16384
+        # Эмулятор Nox 127.0.0.1:62001
+        # Эмулятор MuMu 12127.0.0.1:16384
         if '模拟' in serial:
             import re
             res = re.search(r'(127\.\d+\.\d+\.\d+:\d+)', serial)
@@ -385,8 +385,8 @@ class ConnectionAttr:
         """
         from module.webui.setting import State
 
-        # 统一使用绝对路径检查，避免相对路径导致的 CWD 问题
-        # deploy.yaml 中的路径是相对于项目根目录的
+        # Везде проверяем абсолютные пути, чтобы избежать проблем с CWD из-за относительных путей
+        # Пути в deploy.yaml задаются относительно корня проекта
         deploy_adb = State.deploy_config.AdbExecutable
         root = State.deploy_config.root_filepath
         deploy_adb_file = os.path.abspath(os.path.join(root, deploy_adb)).replace('\\', '/')
@@ -414,7 +414,7 @@ class ConnectionAttr:
             return os.path.abspath(path_adb).replace('\\', '/')
 
         # Download adb only when all local candidates are missing
-        # 使用绝对路径下载，确保后续实例能找到文件
+        # Загружаем по абсолютному пути, чтобы последующие экземпляры гарантированно нашли файл
         downloaded = self.download_adb_binary(deploy_adb_file)
         if downloaded:
             return downloaded
