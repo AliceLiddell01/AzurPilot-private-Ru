@@ -113,8 +113,8 @@ class VoucherShop(ShopClerk, ShopStatus):
             row = 2
         elif count == 1:
             y_list = vouchers[:, 1]
-            # +306, 裁剪区域顶部偏移 (_get_vouchers)
-            # -133, 从凭证图标顶部到商品顶部的偏移
+            # +306, смещение верхней границы области обрезки (_get_vouchers)
+            # -133, смещение от верхнего края значка жетона до верхнего края товара
             origin_y = y_list[0] + 306 - 133
             delta_y = 191
             row = 1
@@ -130,8 +130,8 @@ class VoucherShop(ShopClerk, ShopStatus):
             delta_y = 191
             row = 2
 
-        # 构建 ButtonGrid
-        # 原始网格参数:
+        # Создаём ButtonGrid
+        # Исходные параметры сетки:
         # shop_grid = ButtonGrid(
         #     origin=(463, 200), delta=(156, 191), button_shape=(99, 99), grid_shape=(5, 2), name='SHOP_GRID')
         if self.config.SERVER in ['cn', 'jp', 'tw']:
@@ -225,7 +225,7 @@ class VoucherShop(ShopClerk, ShopStatus):
         if self.handle_popup_confirm(name='SHOP_BUY_VOUCHER', offset=(20, 50)):
             return True
         if self.config.SERVER in ['cn', 'jp', 'tw']:
-            # 购买数量为 1 时显示"兑换"按钮
+            # При количестве покупки 1 отображается кнопка "兑换"
             if self.appear_then_click(SHOP_BUY_CONFIRM_AMOUNT, offset=(-20, -160, 20, -120), interval=3):
                 return True
 
@@ -286,7 +286,7 @@ class VoucherShop(ShopClerk, ShopStatus):
                 success = True
                 continue
 
-            # 结束条件
+            # Условие завершения
             if success and self.appear(BACK_ARROW, offset=(30, 30)):
                 return True
 
@@ -442,15 +442,15 @@ class VoucherShop(ShopClerk, ShopStatus):
 
         按照过滤器配置购买凭证商店商品，自动翻页直到列表底部。
         """
-        # 过滤器为空时直接退出
+        # Если фильтр пуст, сразу выходим
         if not self.shop_filter:
             return
 
-        # 调用时应已在凭证商店界面
+        # При вызове уже должны находиться в магазине жетонов
         logger.hr('[Магазин — жетоны] Магазин жетонов', level=1)
         self.wait_until_voucher_appear()
 
-        # 执行购买操作
+        # Выполняем покупку
         VOUCHER_SHOP_SCROLL.set_top(main=self)
         while 1:
             self.shop_buy()
@@ -471,14 +471,14 @@ class VoucherShop(ShopClerk, ShopStatus):
         Returns:
             bool: 是否成功购买
         """
-        # 替换过滤器
+        # Заменяем фильтр
         self.shop_filter = 'LoggerArchive'
 
-        # 调用时应已在凭证商店界面
+        # При вызове уже должны находиться в магазине жетонов
         logger.hr('[Магазин — жетоны] Разовая покупка в магазине жетонов', level=1)
         self.wait_until_voucher_appear()
 
-        # 执行购买操作
+        # Выполняем покупку
         items = self.shop_get_items()
         self.shop_currency()
         if self._currency <= 0:
