@@ -342,6 +342,21 @@ class LocalHttpSupervisor:
                 )
             time.sleep(0.05)
 
+    def _runtime_is_alive(self, service: LocalHttpService) -> bool:
+        """Проверить жизнь exact-owned runtime без zombie false-positive."""
+
+        if os.name != "nt":
+            launcher = self._children.get(service.name)
+            if launcher is not None:
+                # На POSIX завершившийся child может оставаться zombie, пока
+                # родитель не вызвал wait(). Popen.poll() видит это состояние
+                # точно для процесса, запущенного этим supervisor.
+                return launcher.poll() is None
+        try:
+            return self._runtime_processes[service.name].is_running()
+        except (KeyError, psutil.Error):
+            return False
+
     @staticmethod
     def _ready(service: LocalHttpService) -> bool:
         connection: http.client.HTTPConnection | None = None
@@ -375,12 +390,7 @@ class LocalHttpSupervisor:
         pending = {service.name: service for service in self.services}
         while pending:
             for name, service in tuple(pending.items()):
-                process = self._runtime_processes[name]
-                try:
-                    alive = process.is_running()
-                except psutil.Error:
-                    alive = False
-                if not alive:
+                if not self._runtime_is_alive(service):
                     raise LocalHttpSupervisorError(
                         f"Local MCP service {name} завершился до readiness"
                     )
@@ -631,11 +641,7 @@ class LocalHttpSupervisor:
             self._write_marker()
             while not stop_requested:
                 for service in self.services:
-                    try:
-                        alive = self._runtime_processes[service.name].is_running()
-                    except psutil.Error:
-                        alive = False
-                    if not alive:
+                    if not self._runtime_is_alive(service):
                         raise LocalHttpSupervisorError(
                             f"Local MCP service {service.name} неожиданно завершился"
                         )
