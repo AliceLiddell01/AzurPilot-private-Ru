@@ -1,0 +1,230 @@
+name: Temporary Comment Residual Scan
+
+on:
+  push:
+    branches:
+      - cleanup/remove-legacy-upstream-junk
+    paths:
+      - .github/workflows/_tmp_comment_residual_scan.yml
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Получить exact head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 1
+
+      - name: Проверить CJK в comment tokens
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p residual-scan
+          python3 - <<'PY'
+          from __future__ import annotations
+
+          import io
+          import json
+          import pathlib
+          import re
+          import subprocess
+          import tokenize
+          from collections import Counter
+
+          ROOT = pathlib.Path('.')
+          CJK = re.compile(r'[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]')
+          SKIP_PREFIXES = (
+              '.git/',
+              '.venv/',
+              'venv/',
+              'node_modules/',
+          )
+          SKIP_EXACT = {'.github/workflows/_tmp_comment_residual_scan.yml'}
+          PY_EXT = {'.py'}
+          HASH_EXT = {'.sh', '.bash', '.zsh', '.ps1', '.psm1', '.yaml', '.yml', '.toml', '.ini', '.cfg', '.properties'}
+          SLASH_EXT = {'.js', '.jsx', '.ts', '.tsx', '.java', '.kt', '.kts', '.go', '.rs', '.c', '.h', '.cc', '.cpp', '.hpp', '.cs', '.swift'}
+          CSS_EXT = {'.css', '.scss', '.less'}
+          SQL_EXT = {'.sql'}
+          HTML_EXT = {'.html', '.htm', '.xml', '.svg'}
+
+          tracked = subprocess.check_output(['git', 'ls-files', '-z']).split(b'\0')
+          paths = [p.decode('utf-8', 'surrogateescape') for p in tracked if p]
+          records: list[dict[str, object]] = []
+          scan_errors: list[dict[str, str]] = []
+
+          def add(path: str, line: int, text: str, syntax: str) -> None:
+              if CJK.search(text):
+                  records.append({'path': path, 'line': line, 'comment': text.rstrip('\n'), 'syntax': syntax})
+
+          def scan_python(path: str, data: bytes) -> None:
+              try:
+                  for tok in tokenize.tokenize(io.BytesIO(data).readline):
+                      if tok.type == tokenize.COMMENT:
+                          add(path, tok.start[0], tok.string, 'python-tokenize')
+              except Exception as exc:
+                  scan_errors.append({'path': path, 'error': f'{type(exc).__name__}: {exc}'})
+
+          def scan_hash(path: str, text: str) -> None:
+              for lineno, line in enumerate(text.splitlines(), 1):
+                  stripped = line.lstrip()
+                  if stripped.startswith('#'):
+                      add(path, lineno, stripped, 'hash-line')
+                      continue
+                  quote = None
+                  escaped = False
+                  for i, ch in enumerate(line):
+                      if escaped:
+                          escaped = False
+                          continue
+                      if ch == '\\':
+                          escaped = True
+                          continue
+                      if quote:
+                          if ch == quote:
+                              quote = None
+                          continue
+                      if ch in ('\"', "'"):
+                          quote = ch
+                          continue
+                      if ch == '#':
+                          add(path, lineno, line[i:], 'hash-inline')
+                          break
+
+          def scan_slash_or_block(path: str, text: str, allow_slash: bool = True, allow_css_block: bool = True) -> None:
+              in_block = False
+              block_start = 0
+              block_parts: list[str] = []
+              for lineno, line in enumerate(text.splitlines(), 1):
+                  i = 0
+                  quote = None
+                  escaped = False
+                  while i < len(line):
+                      if in_block:
+                          end = line.find('*/', i)
+                          if end == -1:
+                              block_parts.append(line[i:])
+                              break
+                          block_parts.append(line[i:end + 2])
+                          add(path, block_start, '\n'.join(block_parts), 'block')
+                          block_parts = []
+                          in_block = False
+                          i = end + 2
+                          continue
+                      ch = line[i]
+                      if escaped:
+                          escaped = False
+                          i += 1
+                          continue
+                      if ch == '\\':
+                          escaped = True
+                          i += 1
+                          continue
+                      if quote:
+                          if ch == quote:
+                              quote = None
+                          i += 1
+                          continue
+                      if ch in ('\"', "'", '`'):
+                          quote = ch
+                          i += 1
+                          continue
+                      if allow_slash and line.startswith('//', i):
+                          add(path, lineno, line[i:], 'slash-line')
+                          break
+                      if allow_css_block and line.startswith('/*', i):
+                          in_block = True
+                          block_start = lineno
+                          block_parts = [line[i:]]
+                          end = line.find('*/', i + 2)
+                          if end != -1:
+                              block_parts = [line[i:end + 2]]
+                              add(path, block_start, block_parts[0], 'block')
+                              block_parts = []
+                              in_block = False
+                              i = end + 2
+                              continue
+                          break
+                      i += 1
+              if in_block and block_parts:
+                  add(path, block_start, '\n'.join(block_parts), 'block-unterminated')
+
+          def scan_sql(path: str, text: str) -> None:
+              for lineno, line in enumerate(text.splitlines(), 1):
+                  pos = line.find('--')
+                  if pos != -1:
+                      add(path, lineno, line[pos:], 'sql-line')
+              scan_slash_or_block(path, text, allow_slash=False, allow_css_block=True)
+
+          def scan_html(path: str, text: str) -> None:
+              for match in re.finditer(r'<!--(.*?)-->', text, flags=re.S):
+                  line = text.count('\n', 0, match.start()) + 1
+                  add(path, line, match.group(0), 'html-comment')
+
+          scanned_files = 0
+          for path in paths:
+              if path in SKIP_EXACT or any(path.startswith(prefix) for prefix in SKIP_PREFIXES):
+                  continue
+              p = ROOT / path
+              if not p.is_file():
+                  continue
+              ext = p.suffix.lower()
+              if ext not in PY_EXT | HASH_EXT | SLASH_EXT | CSS_EXT | SQL_EXT | HTML_EXT:
+                  continue
+              scanned_files += 1
+              data = p.read_bytes()
+              if b'\0' in data[:8192]:
+                  continue
+              if ext in PY_EXT:
+                  scan_python(path, data)
+                  continue
+              text = data.decode('utf-8', errors='replace')
+              if ext in HASH_EXT:
+                  scan_hash(path, text)
+              elif ext in SLASH_EXT:
+                  scan_slash_or_block(path, text)
+              elif ext in CSS_EXT:
+                  scan_slash_or_block(path, text, allow_slash=False, allow_css_block=True)
+              elif ext in SQL_EXT:
+                  scan_sql(path, text)
+              elif ext in HTML_EXT:
+                  scan_html(path, text)
+
+          records.sort(key=lambda r: (str(r['path']), int(r['line'])))
+          counts = Counter(str(r['path']) for r in records)
+          payload = {
+              'head': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
+              'tracked_files': len(paths),
+              'scanned_source_files': scanned_files,
+              'candidate_comment_tokens': len(records),
+              'candidate_files': len(counts),
+              'scan_errors': scan_errors,
+              'per_file_counts': dict(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))),
+              'records': records,
+          }
+          pathlib.Path('residual-scan/residual.json').write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
+          pathlib.Path('residual-scan/summary.txt').write_text(
+              f"head={payload['head']}\ntracked_files={payload['tracked_files']}\nscanned_source_files={scanned_files}\n"
+              f"candidate_comment_tokens={len(records)}\ncandidate_files={len(counts)}\nscan_errors={len(scan_errors)}\n",
+              encoding='utf-8',
+          )
+          with pathlib.Path('residual-scan/candidates.tsv').open('w', encoding='utf-8') as fh:
+              for r in records:
+                  comment = str(r['comment']).replace('\t', '    ').replace('\n', '\\n')
+                  fh.write(f"{r['path']}\t{r['line']}\t{r['syntax']}\t{comment}\n")
+          print(pathlib.Path('residual-scan/summary.txt').read_text(encoding='utf-8'))
+          if scan_errors:
+              print(json.dumps(scan_errors, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Сохранить residual manifest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: comment-residual-manifest-${{ github.sha }}
+          path: residual-scan/
+          if-no-files-found: error
+          retention-days: 1
