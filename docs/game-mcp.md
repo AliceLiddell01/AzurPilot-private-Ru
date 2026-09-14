@@ -39,6 +39,9 @@ Supervisor владеет одним Game process на `127.0.0.1:8776` и од�
 `.codex/config.toml` Desktop alias `azurpilot_game` указывает на
 `http://127.0.0.1:8776/mcp`, а alias `azurpilot_dev` — на
 `http://127.0.0.1:8775/mcp`; это registration keys, а не protocol identities.
+Остановка сверяет PID, время создания, executable, command и рабочий каталог,
+после чего завершает только exact supervisor tree и его descendants обычным
+process termination; console/group control events не используются.
 Local HTTP contract обязан сообщать `transport=local_http`,
 `authenticated=true` и `local_authority=true`.
 

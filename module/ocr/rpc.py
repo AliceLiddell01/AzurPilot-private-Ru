@@ -63,7 +63,15 @@ class OcrRpcProtocolError(ValueError):
 
 
 class OcrRpcTransportError(ConnectionError):
-    """Недоступность loopback RPC-транспорта или истечение timeout."""
+    """Ошибка loopback RPC-транспорта с неизвестной фазой dispatch."""
+
+
+class OcrRpcPreDispatchError(OcrRpcTransportError):
+    """Транспорт недоступен до попытки отправить пользовательский запрос."""
+
+
+class OcrRpcAmbiguousError(OcrRpcTransportError):
+    """Результат запроса после dispatch нельзя достоверно установить."""
 
 
 class OcrRpcRemoteError(RuntimeError):
@@ -500,6 +508,68 @@ def _response_frame(
     return [control_frame, *binary_frames]
 
 
+class _OcrRpcMessageLimitError(OcrRpcProtocolError):
+    """Multipart превысил limit после bounded frame-by-frame чтения."""
+
+    def __init__(self, message: str, prefix: list[bytes]) -> None:
+        super().__init__(message)
+        self.prefix = prefix
+
+
+def _recv_multipart_bounded(
+    socket: Any,
+    *,
+    max_bytes: int,
+    max_frames: int,
+    max_frame_bytes: int = MAX_RPC_BINARY_FRAME_BYTES,
+    preserve_frames: int = 0,
+) -> list[bytes]:
+    """Прочитать multipart без накопления payload после превышения limit.
+
+    ZeroMQ ``ZMQ_MAXMSGSIZE`` ограничивает отдельный frame, а не aggregate
+    multipart. Поэтому aggregate и число кадров контролируются до добавления
+    очередного frame в результирующий список. После нарушения лимита остаток
+    текущего multipart дочитывается и отбрасывается, чтобы ROUTER мог
+    продолжить работу; сохраняется только небольшой prefix для error response.
+    """
+
+    frames: list[bytes] = []
+    prefix: list[bytes] = []
+    total_bytes = 0
+    frame_count = 0
+    violation: str | None = None
+
+    while True:
+        frame = socket.recv()
+        frame_count += 1
+        if not isinstance(frame, (bytes, bytearray, memoryview)):
+            if violation is None:
+                violation = "OCR RPC получил небинарный кадр."
+        else:
+            raw = bytes(frame)
+            if len(prefix) < preserve_frames:
+                prefix.append(raw)
+
+            if violation is None:
+                total_bytes += len(raw)
+                if len(raw) > max_frame_bytes:
+                    violation = "Бинарный кадр OCR RPC превышает допустимый размер."
+                elif frame_count > max_frames:
+                    violation = "RPC-сообщение OCR содержит слишком много кадров."
+                elif total_bytes > max_bytes:
+                    violation = "Multipart-сообщение OCR RPC превышает допустимый размер."
+                else:
+                    frames.append(raw)
+
+        more = bool(socket.getsockopt(zmq.RCVMORE))
+        if not more:
+            break
+
+    if violation is not None:
+        raise _OcrRpcMessageLimitError(violation, prefix)
+    return frames
+
+
 class _ZmqRpcClient:
     """Потокобезопасный клиент с отдельным DEALER-сокетом на запрос."""
 
@@ -521,37 +591,51 @@ class _ZmqRpcClient:
     def _request(self, method: str, lang: str | None, args: tuple[Any, ...]):
         with self._state_lock:
             if self._closed:
-                raise OcrRpcTransportError("Клиент OCR RPC уже закрыт.")
+                raise OcrRpcPreDispatchError("Клиент OCR RPC уже закрыт.")
         control, binary_frames = _encode_call(method, lang, args)
         request_id = _request_id_from_frames([control])
         socket = None
+        dispatch_attempted = False
         try:
             socket = self.context.socket(zmq.DEALER)
             socket.setsockopt(zmq.LINGER, 0)
             socket.setsockopt(zmq.SNDTIMEO, max(int(self.timeout * 1000), 1))
             socket.setsockopt(zmq.RCVTIMEO, max(int(self.timeout * 1000), 1))
-            socket.setsockopt(zmq.MAXMSGSIZE, MAX_RPC_RESPONSE_BYTES)
+            socket.setsockopt(zmq.MAXMSGSIZE, MAX_RPC_BINARY_FRAME_BYTES)
             socket.connect(self.endpoint)
+            # send_multipart may fail after a partial send. Treat the whole
+            # send attempt as ambiguous because the peer's dispatch state is
+            # not observable from this client socket.
+            dispatch_attempted = True
             socket.send_multipart([control, *binary_frames])
-            response_frames = socket.recv_multipart()
+            response_frames = _recv_multipart_bounded(
+                socket,
+                max_bytes=MAX_RPC_RESPONSE_BYTES,
+                max_frames=MAX_RPC_FRAMES + 1,
+            )
         except zmq.error.Again as exc:
-            raise OcrRpcTransportError(
-                f"Вызов OCR RPC {method} превысил timeout {self.timeout:.3g} с."
-            ) from exc
+            error_type = OcrRpcAmbiguousError if dispatch_attempted else OcrRpcPreDispatchError
+            message = (
+                f"Вызов OCR RPC {method} превысил timeout {self.timeout:.3g} с; "
+                "результат dispatch не подтверждён."
+                if dispatch_attempted
+                else f"Транспорт OCR RPC недоступен до dispatch метода {method}."
+            )
+            raise error_type(message) from exc
         except zmq.error.ZMQError as exc:
-            raise OcrRpcTransportError(
-                f"Транспорт OCR RPC недоступен для метода {method}."
-            ) from exc
+            error_type = OcrRpcAmbiguousError if dispatch_attempted else OcrRpcPreDispatchError
+            message = (
+                f"Транспорт OCR RPC не подтвердил результат dispatch метода {method}."
+                if dispatch_attempted
+                else f"Транспорт OCR RPC недоступен до dispatch метода {method}."
+            )
+            raise error_type(message) from exc
         finally:
             if socket is not None:
                 socket.close(linger=0)
 
         if not response_frames:
             raise OcrRpcProtocolError("OCR RPC вернул пустой ответ.")
-        if len(response_frames) - 1 > MAX_RPC_FRAMES:
-            raise OcrRpcProtocolError("Ответ OCR RPC содержит слишком много кадров.")
-        if sum(len(frame) for frame in response_frames) > MAX_RPC_RESPONSE_BYTES:
-            raise OcrRpcProtocolError("Ответ OCR RPC превышает допустимый размер.")
         response = _decode_json_frame(
             response_frames[0],
             limit=MAX_RPC_CONTROL_BYTES,
@@ -605,10 +689,23 @@ class ModelProxy:
         try:
             cls.client.hello()
             logger.info("Соединение с локальным сервером OCR установлено")
-        except Exception as exc:  # noqa: BLE001 — граница транспорта переходит в fallback при любой ошибке
+        except OcrRpcPreDispatchError as exc:
             cls.online = False
             logger.warning(
-                f"Локальный сервер OCR недоступен; используется локальная модель: {exc}"
+                "Локальный сервер OCR недоступен до dispatch; "
+                f"используется локальная модель: {exc}"
+            )
+        except OcrRpcAmbiguousError as exc:
+            cls.online = False
+            logger.warning(
+                "Результат handshake OCR не подтверждён; "
+                f"используется локальная модель для следующих вызовов: {exc}"
+            )
+        except OcrRpcTransportError as exc:
+            cls.online = False
+            logger.error(
+                "Транспорт OCR сообщил неклассифицированную ошибку; "
+                f"локальный fallback включён для следующих вызовов: {exc}"
             )
 
     @classmethod
@@ -630,13 +727,29 @@ class ModelProxy:
             args = args_factory()
             try:
                 return self.client(method, self.lang, *args)
-            except Exception as exc:  # noqa: BLE001 — граница транспорта переходит в fallback при любой ошибке
+            except OcrRpcPreDispatchError as exc:
                 self.online = False
                 type(self).online = False
                 logger.warning(
-                    f"Вызов OCR RPC {method} завершился ошибкой; "
+                    f"Вызов OCR RPC {method} не был dispatch'ен; "
                     f"используется локальная модель: {exc}"
                 )
+            except OcrRpcAmbiguousError as exc:
+                self.online = False
+                type(self).online = False
+                logger.error(
+                    f"Вызов OCR RPC {method} имеет неоднозначный результат после "
+                    f"dispatch; повтор запрещён: {exc}"
+                )
+                raise
+            except OcrRpcTransportError as exc:
+                self.online = False
+                type(self).online = False
+                logger.error(
+                    f"Вызов OCR RPC {method} завершился неклассифицированной "
+                    f"ошибкой транспорта; повтор запрещён: {exc}"
+                )
+                raise
         return fallback()
 
     def ocr(self, img_fp):
@@ -848,7 +961,7 @@ class _OcrRpcServer:
         socket = self.context.socket(zmq.ROUTER)
         self.socket = socket
         socket.setsockopt(zmq.LINGER, 0)
-        socket.setsockopt(zmq.MAXMSGSIZE, MAX_RPC_RESPONSE_BYTES)
+        socket.setsockopt(zmq.MAXMSGSIZE, MAX_RPC_BINARY_FRAME_BYTES)
         try:
             socket.bind(self.endpoint)
         except zmq.error.ZMQError as exc:
@@ -877,25 +990,36 @@ class _OcrRpcServer:
                 if not events:
                     continue
                 try:
-                    frames = socket.recv_multipart()
+                    frames = _recv_multipart_bounded(
+                        socket,
+                        max_bytes=MAX_RPC_RESPONSE_BYTES,
+                        max_frames=MAX_RPC_FRAMES + 2,
+                        preserve_frames=2,
+                    )
+                except _OcrRpcMessageLimitError as exc:
+                    self.service.metrics.record(success=False, duration_ms=0.0)
+                    if len(exc.prefix) >= 2:
+                        identity, request_control = exc.prefix[:2]
+                        response_frames = self._error_response(
+                            [request_control],
+                            "validation",
+                            str(exc),
+                        )
+                        try:
+                            socket.send_multipart([identity, *response_frames])
+                        except zmq.error.ZMQError as send_exc:
+                            logger.warning(
+                                f"Ответ на ограничение OCR RPC не отправлен: {send_exc}"
+                            )
+                    else:
+                        logger.warning(f"Повреждённое multipart OCR RPC: {exc}")
+                    continue
                 except zmq.error.ZMQError as exc:
                     logger.error(f"[OCR-RPC] Ошибка чтения запроса OCR: {exc}")
                     continue
                 if not frames:
                     continue
                 identity, *request_frames = frames
-                if sum(len(frame) for frame in request_frames) > MAX_RPC_RESPONSE_BYTES:
-                    response_frames = self._error_response(
-                        request_frames,
-                        "validation",
-                        "Запрос OCR RPC превышает допустимый размер.",
-                    )
-                    self.service.metrics.record(success=False, duration_ms=0.0)
-                    try:
-                        socket.send_multipart([identity, *response_frames])
-                    except zmq.error.ZMQError as exc:
-                        logger.warning(f"[OCR-RPC] Ответ OCR RPC не отправлен: {exc}")
-                    continue
                 started = time.perf_counter()
                 method = "unknown"
                 success = False

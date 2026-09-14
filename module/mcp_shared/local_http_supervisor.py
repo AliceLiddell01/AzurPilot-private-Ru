@@ -511,15 +511,19 @@ class LocalHttpSupervisor:
             pass
 
     @staticmethod
-    def _terminate_process(process: psutil.Process) -> None:
+    def _terminate_recorded_identity(expected: dict[str, object]) -> None:
+        pid = expected.get("pid")
+        if isinstance(pid, bool) or not isinstance(pid, int):
+            return
         try:
-            if not process.is_running():
+            process = psutil.Process(pid)
+            if not _identity_matches(process, expected) or not process.is_running():
                 return
             process.terminate()
             try:
                 process.wait(timeout=STOP_TIMEOUT_SECONDS)
             except psutil.TimeoutExpired:
-                if process.is_running():
+                if _identity_matches(process, expected) and process.is_running():
                     process.kill()
                     process.wait(timeout=STOP_TIMEOUT_SECONDS)
         except psutil.NoSuchProcess:
@@ -527,26 +531,63 @@ class LocalHttpSupervisor:
         except (psutil.Error, OSError, subprocess.SubprocessError):
             logger.error("Не удалось завершить owned local MCP process")
 
+    @classmethod
+    def _identity_tree(cls, expected: dict[str, object]) -> list[dict[str, object]]:
+        """Собрать exact identity корня и всех его текущих descendants."""
+
+        pid = expected.get("pid")
+        if isinstance(pid, bool) or not isinstance(pid, int):
+            return []
+        try:
+            root = psutil.Process(pid)
+            if not _identity_matches(root, expected):
+                return []
+            descendants = root.children(recursive=True)
+        except (psutil.Error, OSError, TypeError, ValueError):
+            return []
+
+        identities: list[dict[str, object]] = []
+        seen: set[tuple[int, float]] = set()
+
+        def add(identity: dict[str, object] | None) -> None:
+            if identity is None:
+                return
+            try:
+                key = (int(identity["pid"]), float(identity["created_at"]))
+            except (KeyError, TypeError, ValueError):
+                return
+            if key not in seen:
+                seen.add(key)
+                identities.append(identity)
+
+        for descendant in reversed(descendants):
+            add(_process_identity(descendant.pid))
+        add(expected)
+        return identities
+
+    @classmethod
+    def _terminate_process(cls, process: psutil.Process) -> None:
+        identity = _process_identity(process.pid)
+        if identity is None or not _identity_matches(process, identity):
+            return
+        for descendant in cls._identity_tree(identity):
+            cls._terminate_recorded_identity(descendant)
+
     def _stop_children(self) -> None:
         stopped_pids: set[int] = set()
         for process in tuple(self._runtime_processes.values()):
             if process.pid not in stopped_pids:
                 self._terminate_process(process)
                 stopped_pids.add(process.pid)
-        for process in tuple(self._children.values()):
-            if process.pid in stopped_pids or process.poll() is not None:
+        for launcher in tuple(self._children.values()):
+            if launcher.pid in stopped_pids or launcher.poll() is not None:
                 continue
             try:
-                process.terminate()
-                process.wait(timeout=STOP_TIMEOUT_SECONDS)
-            except subprocess.TimeoutExpired:
-                try:
-                    process.kill()
-                    process.wait(timeout=STOP_TIMEOUT_SECONDS)
-                except OSError, subprocess.SubprocessError:
-                    logger.error("Не удалось завершить owned local MCP process")
-            except OSError, subprocess.SubprocessError:
-                logger.error("Не удалось остановить owned local MCP process")
+                process = psutil.Process(launcher.pid)
+            except (psutil.Error, OSError, TypeError, ValueError):
+                continue
+            self._terminate_process(process)
+            stopped_pids.add(launcher.pid)
         self._children.clear()
         self._runtime_processes.clear()
 
@@ -722,7 +763,7 @@ class LocalHttpSupervisor:
 
     @staticmethod
     def _terminate_recorded_processes(payload: object) -> None:
-        """Завершить только recorded owner/service processes из marker."""
+        """Завершить только recorded owner/service trees из marker."""
 
         if not isinstance(payload, dict):
             return
@@ -736,32 +777,15 @@ class LocalHttpSupervisor:
         for item in records:
             if not isinstance(item, dict):
                 continue
-            process_keys = ("launcher_process",) if item is supervisor else (
-                "process",
-                "launcher_process",
-            )
-            for process_key in process_keys:
-                expected = item.get(process_key)
+            if item is supervisor:
+                expected_records = [item, item.get("launcher_process")]
+            else:
+                expected_records = [item.get("process"), item.get("launcher_process")]
+            for expected in expected_records:
                 if not isinstance(expected, dict):
                     continue
-                pid = expected.get("pid")
-                if isinstance(pid, bool) or not isinstance(pid, int):
-                    continue
-                try:
-                    process = psutil.Process(pid)
-                    if not _identity_matches(process, expected):
-                        continue
-                    process.terminate()
-                    try:
-                        process.wait(timeout=STOP_TIMEOUT_SECONDS)
-                    except psutil.TimeoutExpired:
-                        if _identity_matches(process, expected):
-                            process.kill()
-                            process.wait(timeout=STOP_TIMEOUT_SECONDS)
-                except psutil.NoSuchProcess:
-                    continue
-                except (psutil.Error, OSError, subprocess.SubprocessError):
-                    logger.error("Не удалось завершить записанный local MCP process")
+                for identity in LocalHttpSupervisor._identity_tree(expected):
+                    LocalHttpSupervisor._terminate_recorded_identity(identity)
 
     def stop(self) -> bool:
         """Остановить только supervisor с exact recorded identity."""
@@ -778,21 +802,18 @@ class LocalHttpSupervisor:
         try:
             process = psutil.Process(int(supervisor["pid"]))
         except psutil.Error, KeyError, TypeError, ValueError:
+            self._terminate_recorded_processes(payload)
+            self._remove_recorded_marker(payload)
             return False
         if not _identity_matches(process, supervisor):
+            self._terminate_recorded_processes(payload)
+            self._remove_recorded_marker(payload)
             return False
         try:
-            try:
-                if os.name == "nt" and hasattr(signal, "CTRL_BREAK_EVENT"):
-                    process.send_signal(signal.CTRL_BREAK_EVENT)
-                else:
-                    process.send_signal(signal.SIGTERM)
-            except (OSError, psutil.Error):
-                # CTRL_BREAK может быть недоставим из другого Windows process
-                # group; exact identity позволяет безопасно перейти к terminate.
-                if not _identity_matches(process, supervisor):
-                    return False
-                process.terminate()
+            # Не использовать console/group control events: на Windows такой
+            # сигнал может затронуть текущий Codex control plane. Exact
+            # identity уже подтверждена, поэтому завершаем только этот PID.
+            process.terminate()
             process.wait(timeout=STOP_TIMEOUT_SECONDS)
             return not process.is_running()
         except psutil.TimeoutExpired:
@@ -811,6 +832,8 @@ class LocalHttpSupervisor:
                 return not process.is_running()
             except (OSError, psutil.Error):
                 return False
+        except psutil.NoSuchProcess:
+            return True
         finally:
             self._terminate_recorded_processes(payload)
             self._remove_recorded_marker(payload)

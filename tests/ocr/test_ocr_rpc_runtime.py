@@ -21,6 +21,9 @@ from module.ocr.rpc import (
     MAX_RPC_BATCH_IMAGES,
     RPC_PROTOCOL_VERSION,
     ModelProxy,
+    OcrRpcAmbiguousError,
+    OcrRpcPreDispatchError,
+    OcrRpcProtocolError,
     OcrRpcRemoteError,
     OcrRpcTransportError,
     _encode_batch,
@@ -259,6 +262,31 @@ class OcrRpcRuntimeTests(unittest.TestCase):
             client.close()
             self._stop_server(stop_event, thread)
 
+    def test_aggregate_multipart_bound_is_enforced_before_materialization(self) -> None:
+        image = np.zeros((4, 4, 3), dtype=np.uint8)
+        model = _RpcModel()
+        with patch.object(ocr_rpc, "MAX_RPC_RESPONSE_BYTES", 512):
+            port, _service, stop_event, thread = self._start_server(model)
+            endpoint = f"tcp://127.0.0.1:{port}"
+            client = _ZmqRpcClient(f"127.0.0.1:{port}", timeout=1)
+            try:
+                control, _ = _encode_call("ocr", "azur_lane", (image,))
+                response = _raw_request(
+                    endpoint,
+                    [control, b"a" * 100, b"b" * 100, b"c" * 100, b"d" * 100],
+                )
+                response_control = json.loads(response[0].decode("utf-8"))
+                self.assertFalse(response_control["ok"])
+                self.assertIn("Multipart", response_control["error"]["message"])
+                self.assertEqual(model.calls, [])
+
+                # The server drained the rejected multipart and kept its
+                # ROUTER socket usable for the next request.
+                self.assertEqual(client.hello(), "hello")
+            finally:
+                client.close()
+                self._stop_server(stop_event, thread)
+
     def test_socket_setup_failure_is_wrapped_and_socket_is_closed(self) -> None:
         image = np.zeros((4, 4, 3), dtype=np.uint8)
 
@@ -296,7 +324,7 @@ class OcrRpcRuntimeTests(unittest.TestCase):
         client = _ZmqRpcClient(f"127.0.0.1:{port}", timeout=0.02)
         try:
             model.delay = 0.1
-            with self.assertRaises(OcrRpcTransportError):
+            with self.assertRaises(OcrRpcAmbiguousError):
                 client("ocr", "azur_lane", image)
             time.sleep(0.15)
             model.delay = 0
@@ -315,8 +343,11 @@ class OcrRpcRuntimeTests(unittest.TestCase):
             self._stop_server(stop_event, thread)
 
         fallback = _FallbackModel("fallback")
-        unavailable = _ZmqRpcClient(f"127.0.0.1:{_free_port()}", timeout=0.02)
         proxy = ModelProxy("azur_lane")
+
+        def unavailable(*_args):
+            raise OcrRpcPreDispatchError("сокет не создан в фикстуре")
+
         proxy.client = unavailable
         proxy.online = True
         original_online = ModelProxy.online
@@ -331,7 +362,6 @@ class OcrRpcRuntimeTests(unittest.TestCase):
             self.assertEqual(len(fallback.calls), 1)
         finally:
             ModelProxy.online = original_online
-            unavailable.close()
 
     def test_server_restart_releases_loopback_endpoint(self) -> None:
         port = _free_port()
@@ -448,7 +478,7 @@ class OcrRpcRuntimeTests(unittest.TestCase):
         proxy.online = True
 
         def fail(*_args):
-            raise RuntimeError("ошибка transport в фикстуре")
+            raise OcrRpcPreDispatchError("ошибка pre-dispatch в фикстуре")
 
         proxy.client = fail
         with patch.dict(
@@ -459,6 +489,120 @@ class OcrRpcRuntimeTests(unittest.TestCase):
 
         self.assertFalse(proxy.online)
         np.testing.assert_array_equal(fallback.calls[0], image)
+
+    def test_ambiguous_timeout_never_executes_local_fallback(self) -> None:
+        image = np.zeros((4, 4, 3), dtype=np.uint8)
+        remote_model = _RpcModel()
+        remote_model.delay = 0.1
+        port, _service, stop_event, thread = self._start_server(remote_model)
+        client = _ZmqRpcClient(f"127.0.0.1:{port}", timeout=0.02)
+        fallback = _FallbackModel("must-not-run")
+        proxy = ModelProxy("azur_lane")
+        proxy.client = client
+        proxy.online = True
+        original_online = ModelProxy.online
+        ModelProxy.online = True
+        try:
+            with (
+                patch.dict(
+                    sys.modules,
+                    {"module.ocr.models": self._models_module(fallback)},
+                ),
+                self.assertRaises(OcrRpcAmbiguousError),
+            ):
+                proxy.ocr(image)
+
+            time.sleep(0.15)
+            self.assertEqual([method for method, _args in remote_model.calls], ["ocr"])
+            self.assertEqual(fallback.calls, [])
+            self.assertFalse(proxy.online)
+        finally:
+            ModelProxy.online = original_online
+            client.close()
+            self._stop_server(stop_event, thread)
+
+    def test_remote_error_does_not_execute_local_fallback(self) -> None:
+        image = np.zeros((4, 4, 3), dtype=np.uint8)
+        remote_model = _RpcModel()
+        remote_model.fail_ocr = True
+        port, _service, stop_event, thread = self._start_server(remote_model)
+        client = _ZmqRpcClient(f"127.0.0.1:{port}", timeout=1)
+        fallback = _FallbackModel("must-not-run")
+        proxy = ModelProxy("azur_lane")
+        proxy.client = client
+        proxy.online = True
+        original_online = ModelProxy.online
+        ModelProxy.online = True
+        try:
+            with (
+                patch.dict(
+                    sys.modules,
+                    {"module.ocr.models": self._models_module(fallback)},
+                ),
+                self.assertRaises(OcrRpcRemoteError),
+            ):
+                proxy.ocr(image)
+
+            self.assertEqual(fallback.calls, [])
+            self.assertTrue(proxy.online)
+        finally:
+            ModelProxy.online = original_online
+            client.close()
+            self._stop_server(stop_event, thread)
+
+    def test_protocol_error_does_not_execute_local_fallback_or_mark_transport_offline(
+        self,
+    ) -> None:
+        fallback = _FallbackModel("must-not-run")
+        proxy = ModelProxy("azur_lane")
+        proxy.online = True
+
+        def malformed(*_args):
+            raise OcrRpcProtocolError("повреждённый ответ в фикстуре")
+
+        proxy.client = malformed
+        original_online = ModelProxy.online
+        ModelProxy.online = True
+        try:
+            with (
+                patch.dict(
+                    sys.modules,
+                    {"module.ocr.models": self._models_module(fallback)},
+                ),
+                self.assertRaises(OcrRpcProtocolError),
+            ):
+                proxy.ocr(np.zeros((4, 4, 3), dtype=np.uint8))
+
+            self.assertEqual(fallback.calls, [])
+            self.assertTrue(proxy.online)
+        finally:
+            ModelProxy.online = original_online
+
+    def test_unknown_transport_error_is_not_retried_locally(self) -> None:
+        fallback = _FallbackModel("must-not-run")
+        proxy = ModelProxy("azur_lane")
+        proxy.online = True
+
+        def unknown_transport(*_args):
+            raise OcrRpcTransportError("неизвестная фаза transport в фикстуре")
+
+        proxy.client = unknown_transport
+        original_online = ModelProxy.online
+        ModelProxy.online = True
+        try:
+            with (
+                patch.dict(
+                    sys.modules,
+                    {"module.ocr.models": self._models_module(fallback)},
+                ),
+                self.assertRaises(OcrRpcTransportError),
+            ):
+                proxy.ocr(np.zeros((4, 4, 3), dtype=np.uint8))
+
+            self.assertEqual(fallback.calls, [])
+            self.assertFalse(proxy.online)
+        finally:
+            ModelProxy.online = original_online
 
     def test_rpc_args_factory_is_lazy_while_offline(self) -> None:
         proxy = ModelProxy("azur_lane")

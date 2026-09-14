@@ -80,6 +80,22 @@ Issue [#258](https://github.com/AliceLiddell01/AzurPilot-private-Ru/issues/258)
 остаётся открытым до публикации и merge этого изменения, после чего его
 acceptance matrix должна быть сверена с exact-head evidence.
 
+### Transport benchmark
+
+Для Stage 4 добавлен bounded synthetic benchmark
+`tools.benchmarks.ocr_rpc_transport`. Он сравнивает pre-migration
+`zerorpc==0.6.3` с replacement `pyzmq==27.2.0` на одинаковом ndarray wire
+payload без загрузки OCR-модели: startup/readiness, single request, batch и
+повторяющаяся последовательность запросов. Для каждой метрики используются
+несколько прогонов и median; результат также сохраняет Python, platform,
+package versions и exact Git HEAD. Benchmark не содержит performance threshold
+и не меняет production ports `8775/8776` или игровой state.
+
+Запуск baseline выполняется из detached checkout base SHA в его старом
+`uv`-окружении, replacement — из текущего checkout с `pyzmq`; два JSON report
+сопоставляются командой `--compare`. Числа и verdict последнего exact-head
+запуска публикуются в PR #272, а generated reports остаются вне Git.
+
 ## Acceptance state
 
 Deterministic tests и source/runtime contracts не доказывают полную физическую
