@@ -59,7 +59,7 @@ class Template(Resource):
                     if channel == 3:
                         image = image[:, :, :3].copy()
                     elif len(image.shape) == 3:
-                        # 与第一帧保持通道数一致，取单通道
+                        # Сохраняем число каналов как у первого кадра, оставляя один канал
                         image = image[:, :, 0].copy()
 
                     image = self.pre_process(image)
@@ -220,18 +220,18 @@ class Template(Resource):
         """
         similarity = lower_template_match_similarity(similarity)
         if self.is_gif:
-            # 灰度化
+            # Преобразование в градации серого
             image_gray = image if image.ndim == 2 else cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-            # 二值化
+            # Бинаризация
             _, image_binary = cv2.threshold(image_gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
             return self._match_gif(image_binary, self.image_binary, similarity, name=self.name)
 
         else:
-            # 灰度化
+            # Преобразование в градации серого
             image_gray = image if image.ndim == 2 else cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-            # 二值化
+            # Бинаризация
             _, image_binary = cv2.threshold(image_gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
-            # 模板匹配
+            # Сопоставление с шаблоном
             res = template_match(image_binary, self.image_binary, name=self.name)
             _, sim, _, _ = cv2.minMaxLoc(res)
             return sim > similarity
@@ -339,7 +339,7 @@ class Template(Resource):
             )
             result = np.array(np.where(result > similarity)).T[:, ::-1]
 
-        # result: np.array([[x0, y0], [x1, y1], ...])  匹配位置坐标数组
+        # result: np.array([[x0, y0], [x1, y1], ...]) — массив координат позиций совпадений
         if scaling != 1.0:
             result = np.round(result / scaling).astype(int)
         result = Points(result).group(threshold=threshold)
