@@ -20,6 +20,13 @@ from module.mcp_shared.remote import (
     StrictHostOriginMiddleware,
     create_remote_app,
 )
+from module.mcp_shared.local_http import (
+    LocalBearerTokenMiddleware,
+    LocalHttpConfig,
+    LocalHttpConfigError,
+    LocalStrictHostOriginMiddleware,
+    create_local_http_app,
+)
 from module.mcp_shared.versioning import (
     MCP_VERSION_MANIFEST,
     MCP_VERSION_MANIFEST_SCHEMA_VERSION,
@@ -49,6 +56,10 @@ __all__ = (
     "SOURCE_REVISION_ENV",
     "UNKNOWN_SOURCE_REVISION",
     "ConcurrencyLimitMiddleware",
+    "LocalBearerTokenMiddleware",
+    "LocalHttpConfig",
+    "LocalHttpConfigError",
+    "LocalStrictHostOriginMiddleware",
     "FailSafeMiddleware",
     "OAuthBearerMiddleware",
     "OIDCTokenVerifier",
@@ -60,6 +71,7 @@ __all__ = (
     "StrictHostOriginMiddleware",
     "VersioningError",
     "create_remote_app",
+    "create_local_http_app",
     "load_server_versions",
     "parse_version",
     "parse_version_range",

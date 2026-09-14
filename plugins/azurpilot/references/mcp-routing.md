@@ -30,6 +30,8 @@ surface как fallback для direct route. Reconnect и refresh относят
 | --- | --- | --- | --- | --- |
 | Development | `azurpilot-dev` | direct local stdio | `module.dev_mcp` | none |
 | Game | `azurpilot-game` | direct local stdio | `module.game_mcp` | none |
+| Codex Desktop Development | `azurpilot_dev` | authenticated loopback local HTTP | `module.dev_mcp.local_http` | none |
+| Codex Desktop Game | `azurpilot_game` | authenticated loopback local HTTP | `module.game_mcp.local_http` | none |
 | Troubleshooting | read-only evidence соответствующего direct route | direct local stdio | соответствующий `module.*_mcp` | none |
 | ChatGPT/public | отдельная remote surface | authenticated HTTPS/remote | соответствующий `module.*_mcp.remote` той же backend family | не является Codex fallback |
 
@@ -39,6 +41,13 @@ surface как fallback для direct route. Reconnect и refresh относят
 azurpilot-dev  → uv run --locked --no-sync python -m module.dev_mcp
 azurpilot-game → uv run --locked --no-sync python -m module.game_mcp
 ```
+
+Codex Desktop aliases намеренно отличаются от protocol identities:
+`azurpilot_dev` → `http://127.0.0.1:8775/mcp` и
+`azurpilot_game` → `http://127.0.0.1:8776/mcp`. Их bearer tokens берутся из
+user-level environment; literal token в repository config запрещён.
+Supervisor `module.mcp_shared.local_http_supervisor` владеет обоими
+процессами, проверяет `/ready` и завершает только exact-owned children.
 
 Для обычной Codex-сессии отсутствие direct callable catalog или несовместимый
 contract означает fail-closed остановку и диагностику. Reconnect, OAuth или

@@ -574,6 +574,54 @@ def test_codex_direct_entries_validate_independent_contract_literals(
     assert status._codex_entry_status(missing, name, **expected)["status"] == "drift"
 
 
+def test_codex_local_http_entry_keeps_registration_alias_separate_from_identity() -> (
+    None
+):
+    config = {
+        "mcp_servers": {
+            "azurpilot_game": {
+                "url": "http://127.0.0.1:8776/mcp",
+                "bearer_token_env_var": "AZURPILOT_GAME_LOCAL_MCP_TOKEN",
+                "enabled": True,
+                "required": False,
+                "startup_timeout_sec": 10,
+                "tool_timeout_sec": 180,
+            }
+        }
+    }
+    result = status._codex_url_entry_status(
+        config,
+        "azurpilot_game",
+        expected_url="http://127.0.0.1:8776/mcp",
+        expected_bearer_token_env_var="AZURPILOT_GAME_LOCAL_MCP_TOKEN",
+        expected_startup_timeout_sec=10,
+        expected_tool_timeout_sec=180,
+        expected_required=False,
+    )
+    assert result == {
+        "status": "configured",
+        "reason_code": "CODEX_SERVER_CONFIGURED",
+        "enabled": True,
+        "transport": "local_http",
+        "bearer_token_env_var": "AZURPILOT_GAME_LOCAL_MCP_TOKEN",
+    }
+
+    drifted = deepcopy(config)
+    drifted["mcp_servers"]["azurpilot_game"]["bearer_token_env_var"] = "OTHER_TOKEN"
+    assert (
+        status._codex_url_entry_status(
+            drifted,
+            "azurpilot_game",
+            expected_url="http://127.0.0.1:8776/mcp",
+            expected_bearer_token_env_var="AZURPILOT_GAME_LOCAL_MCP_TOKEN",
+            expected_startup_timeout_sec=10,
+            expected_tool_timeout_sec=180,
+            expected_required=False,
+        )["status"]
+        == "drift"
+    )
+
+
 def _write_plugin_fixture(
     root: Path,
     *,

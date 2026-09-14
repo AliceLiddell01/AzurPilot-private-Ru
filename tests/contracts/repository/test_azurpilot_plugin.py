@@ -180,6 +180,35 @@ def test_project_config_declares_both_canonical_direct_routes() -> None:
         assert "url" not in entry
 
 
+def test_project_config_declares_separate_local_http_registration_aliases() -> None:
+    with _CODEX_CONFIG_PATH.open("rb") as stream:
+        config = tomllib.load(stream)
+
+    expected = {
+        "azurpilot_dev": (
+            "azurpilot-dev",
+            "http://127.0.0.1:8775/mcp",
+            "AZURPILOT_DEV_LOCAL_MCP_TOKEN",
+        ),
+        "azurpilot_game": (
+            "azurpilot-game",
+            "http://127.0.0.1:8776/mcp",
+            "AZURPILOT_GAME_LOCAL_MCP_TOKEN",
+        ),
+    }
+    for registration_key, (server_name, url, token_env_var) in expected.items():
+        entry = config["mcp_servers"][registration_key]
+        assert entry == {
+            "url": url,
+            "bearer_token_env_var": token_env_var,
+            "enabled": True,
+            "required": False,
+            "startup_timeout_sec": 10,
+            "tool_timeout_sec": 180,
+        }
+        assert registration_key != server_name
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [

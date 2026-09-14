@@ -21,6 +21,11 @@ remote runtime остаются внешними по отношению к pack
   `uv run --locked --no-sync python -m module.dev_mcp`.
 - Codex вызывает project-scoped `azurpilot-game` напрямую через local stdio:
   `uv run --locked --no-sync python -m module.game_mcp`.
+- Codex Desktop при Windows stdio bootstrap failure использует отдельный
+  authenticated loopback alias `azurpilot_game` на
+  `http://127.0.0.1:8776/mcp`; protocol identity остаётся `azurpilot-game`.
+- Аналогично Dev Desktop alias — `azurpilot_dev` на
+  `http://127.0.0.1:8775/mcp`, при сохранении identity `azurpilot-dev`.
 - ChatGPT/public использует отдельную remote surface через authenticated public HTTPS
   URL `https://<public-host>/mcp`, Caddy и внешний OAuth/OIDC provider; это тот
   же backend family, а не Codex fallback и не второй runtime.

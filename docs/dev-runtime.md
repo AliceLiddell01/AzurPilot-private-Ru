@@ -50,6 +50,19 @@ startup_timeout_sec = 5
 tool_timeout_sec = 180
 ```
 
+Codex Desktop при Windows stdio bootstrap failure использует отдельный
+защищённый loopback alias:
+
+```toml
+[mcp_servers.azurpilot_dev]
+url = "http://127.0.0.1:8775/mcp"
+bearer_token_env_var = "AZURPILOT_DEV_LOCAL_MCP_TOKEN"
+enabled = true
+required = false
+startup_timeout_sec = 10
+tool_timeout_sec = 180
+```
+
 Game MCP регистрируется в том же project-scoped Codex config отдельным
 каноническим entrypoint:
 
@@ -63,6 +76,27 @@ required = false
 startup_timeout_sec = 10
 tool_timeout_sec = 180
 ```
+
+Game Desktop alias регистрируется отдельно от canonical server identity:
+
+```toml
+[mcp_servers.azurpilot_game]
+url = "http://127.0.0.1:8776/mcp"
+bearer_token_env_var = "AZURPILOT_GAME_LOCAL_MCP_TOKEN"
+enabled = true
+required = false
+startup_timeout_sec = 10
+tool_timeout_sec = 180
+```
+
+`azurpilot-dev`/`azurpilot-game` — protocol identities и canonical stdio
+registration keys standalone route; `azurpilot_dev`/`azurpilot_game` — только
+Codex registration aliases local HTTP. Перед запуском Desktop supervisor
+`module.mcp_shared.local_http_supervisor` поднимает один Dev endpoint на
+`127.0.0.1:8775` и один Game endpoint на `127.0.0.1:8776`, используя только
+user-level bearer environment. Local HTTP request context обязан сохранять
+`local_authority=true`; public remote HTTP остаётся `remote_http` с
+`local_authority=false`.
 
 ### Trust и effective registration
 
@@ -98,8 +132,10 @@ stdio`. Context7 остаётся user-scoped `context7_mcp`, потому чт�
 canonical profile path для Gateway acceptance и Grafana; direct route и
 Gateway evidence не смешиваются.
 
-Каноническая route policy для AzurPilot фиксирована так: `azurpilot-dev` и
-`azurpilot-game` используют project-scoped local stdio; Context7 — прямой
+Каноническая route policy для AzurPilot фиксирована так: standalone route
+`azurpilot-dev` и `azurpilot-game` использует project-scoped local stdio, а
+Codex Desktop использует их отдельные local HTTP aliases
+`azurpilot_dev` и `azurpilot_game`; Context7 — прямой
 user-scoped Codex MCP; Docker Docs — прямой project-scoped MCP; Semgrep —
 локальный `semgrep mcp -t stdio`; через Docker MCP Gateway обязательно
 проверяются только Grafana и Docker Hub. Записи Context7, Docker Docs и
@@ -706,8 +742,10 @@ machine-readable ID — `azurpilot`, а отображаемое имя — `Azu
 repository-level источник регистрации MCP для Codex — `.codex/config.toml`;
 второй MCP implementation и Connected App injection не добавляются.
 
-Codex использует project-scoped `azurpilot-dev` и `azurpilot-game` через local
-stdio Dev/Game MCP. ChatGPT/public использует соответствующее подключённое
+Standalone Codex CLI использует project-scoped `azurpilot-dev` и
+`azurpilot-game` через local stdio Dev/Game MCP. Codex Desktop использует
+`azurpilot_dev` и `azurpilot_game` через loopback authenticated local HTTP;
+ChatGPT/public использует соответствующее подключённое
 приложение через authenticated public HTTPS `/mcp`; канонический Caddyfile
 хранится в Git, а OAuth/OIDC provider, Caddy runtime state и credentials — вне
 Git. Remote surface не является Codex fallback.
@@ -722,7 +760,8 @@ PASS-result, exact source, подтверждённой очистке и пол
 или успех.
 
 `azurpilot-game-control` предназначен для обычных Game MCP read/control
-операций через `azurpilot-game` local stdio, а
+операций через canonical `azurpilot-game` local stdio или Desktop alias
+`azurpilot_game`, а
 `azurpilot-troubleshooting` — для проверки direct contract/transport и, только
 для явно выбранной remote surface, подключённого приложения.
 `azurpilot-development` остаётся developer-only интерфейсом Dev Runtime и typed
