@@ -1,4 +1,4 @@
-/* 高级材质暗色覆盖层：需在 advanced-material-alas.css 之后加载。 */
+/* Тёмные overrides Advanced Material: загружать после advanced-material-alas.css. */
 
 :root {
 	--alas-apple-bg: #0b1220;
@@ -67,7 +67,7 @@ body {
 	border-right-color: rgba(148, 163, 184, 0.16) !important;
 }
 
-/* 实例侧边栏未使用菜单按钮类，需单独覆盖 Bootstrap 的深色文字。 */
+/* Боковая панель экземпляров не использует класс кнопки меню, поэтому тёмный текст Bootstrap нужно переопределить отдельно. */
 #pywebio-scope-aside .btn-aside {
 	color: var(--alas-apple-text-secondary) !important;
 }
