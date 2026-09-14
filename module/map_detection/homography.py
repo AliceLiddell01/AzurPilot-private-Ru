@@ -39,7 +39,7 @@ class Homography:
     """
     image: np.ndarray
     config: AzurLaneConfig
-    # 四条边缘线，bool 类型或具有 __bool__ 属性
+    # Четыре линии краёв: bool или объект с атрибутом __bool__
     left_edge: int
     right_edge: int
     lower_edge: int
@@ -87,7 +87,7 @@ class Homography:
         image = cv2.warpPerspective(mask, self.homo_data, self.homo_size)
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
         image = cv2.erode(image, kernel).astype('uint8')
-        # 移除边缘，透视变换可能产生锯齿
+        # Удаляем края: перспективное преобразование может создавать ступенчатые артефакты
         pad = 2
         image[:pad, :] = 0
         image[-pad:, :] = 0
@@ -147,12 +147,12 @@ class Homography:
         self.homo_storage = (size, [(x, y) for x, y in np.round(src_pts, 3)])
         logger.attr('Сохранение гомографии', self.homo_storage)
 
-        # 生成透视变换数据
+        # Формируем данные перспективного преобразования
         src_pts = np.array(src_pts) - self.config.DETECTING_AREA[:2]
         dst_pts = src_pts[0] + area2corner((0, 0, *np.multiply(size, self.config.HOMO_TILE)))
         homo = cv2.getPerspectiveTransform(src_pts.astype(np.float32), dst_pts.astype(np.float32))
 
-        # 重新生成以将图像对齐到左上角
+        # Пересоздаём преобразование, чтобы выровнять изображение по левому верхнему углу
         area = area2corner(self.config.DETECTING_AREA) - self.config.DETECTING_AREA[:2]
         transformed = perspective_transform(area, data=homo)
         if overflow:
@@ -182,20 +182,20 @@ class Homography:
         start_time = time.time()
         self.image = image
 
-        # 图像初始化
+        # Инициализация изображения
         image = rgb2gray(crop(image, self.config.DETECTING_AREA, copy=False))
 
-        # 透视变换
+        # Перспективное преобразование
         image_trans = cv2.warpPerspective(image, self.homo_data, self.homo_size)
 
-        # 边缘检测
+        # Обнаружение краёв
         image_edge = cv2.Canny(image_trans, *self.config.HOMO_CANNY_THRESHOLD)
         cv2.bitwise_and(image_edge, self.ui_mask_homo_stroke, dst=image_edge)
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
         cv2.morphologyEx(image_edge, cv2.MORPH_CLOSE, kernel, dst=image_edge)
         # Image.fromarray(image_edge, mode='L').show()
 
-        # 查找空闲瓦片
+        # Ищем свободную клетку
         if self.search_tile_center(image_edge, threshold_good=self.config.HOMO_CENTER_GOOD_THRESHOLD,
                                    threshold=self.config.HOMO_CENTER_THRESHOLD):
             pass
@@ -208,7 +208,7 @@ class Homography:
 
         self.homo_loca %= self.config.HOMO_TILE
 
-        # 检测地图边缘
+        # Обнаруживаем края карты
         self.lower_edge, self.upper_edge, self.left_edge, self.right_edge = False, False, False, False
         self._map_edge_count = (0, 0)
         if self.config.HOMO_EDGE_DETECT:
@@ -221,7 +221,7 @@ class Homography:
             cv2.bitwise_and(image_edge, self.ui_mask_homo_stroke, dst=image_edge)
             self.detect_edges(image_edge, hough_th=self.config.HOMO_EDGE_HOUGHLINES_THRESHOLD)
 
-        # 日志输出
+        # Вывод журнала
         time_cost = round(time.time() - start_time, 3)
         self._log_detection('[Карта — гомография] %s с  %s   Линии краёв: %s горизонтальных, %s вертикальных' % (
             float2str(time_cost), '_' if self.lower_edge else ' ',
@@ -318,15 +318,15 @@ class Homography:
         """
         location = np.array([])
         for kernel in close_kernel:
-            # 重新创建闭运算图像
+            # Заново создаём изображение после операции закрытия
             kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel, kernel))
             image_closed = cv2.morphologyEx(image, cv2.MORPH_CLOSE, kernel)
-            # 查找矩形
+            # Ищем прямоугольники
             contours, _ = cv2.findContours(image_closed, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
             rectangle = np.array([cv2.boundingRect(cv2.convexHull(cont).astype(np.float32)) for cont in contours])
 
             try:
-                # 筛选出正确的矩形
+                # Отбираем подходящие прямоугольники
                 rectangle = rectangle[(rectangle[:, 2] > 100) & (rectangle[:, 3] > 100)]
                 shape = rectangle[:, 2:]
                 diff = np.abs(shape - np.round(shape / self.config.HOMO_TILE) * self.config.HOMO_TILE)
