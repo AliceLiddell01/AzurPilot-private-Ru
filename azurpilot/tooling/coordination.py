@@ -37,6 +37,8 @@ class FileLock:
     def acquire(self, timeout_seconds: float = 0.0) -> bool:
         if timeout_seconds < 0 or timeout_seconds > 24 * 60 * 60:
             raise ValueError("timeout_seconds должен быть bounded")
+        if self._locked:
+            return True
         if path_has_link(self.path):
             raise ToolingError(
                 ResultCode.TOOLING_PRECONDITION_FAILED,

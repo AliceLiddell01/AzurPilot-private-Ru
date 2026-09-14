@@ -203,6 +203,7 @@ def test_file_lock_is_non_reentrant_across_instances(tmp_path: Path) -> None:
     first = FileLock(tmp_path / "state" / "operation.lock")
     second = FileLock(tmp_path / "state" / "operation.lock")
     assert first.acquire()
+    assert first.acquire()
     try:
         assert not second.acquire()
     finally:

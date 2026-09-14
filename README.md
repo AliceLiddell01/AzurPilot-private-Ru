@@ -57,7 +57,7 @@ azur doctor
 запускается один раз из checkout через внешний `uv`:
 
 ```powershell
-uv --project <repository-root> run --locked --no-sync azur build
+uv --project <repository-root> run --locked python -m azurpilot build
 ```
 
 Открытые до регистрации PATH окна PowerShell не получают изменения окружения
