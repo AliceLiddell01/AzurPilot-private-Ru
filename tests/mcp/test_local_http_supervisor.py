@@ -6,6 +6,7 @@ import socket
 import subprocess
 import sys
 import time
+from collections.abc import Iterator
 from pathlib import Path
 
 import psutil
@@ -329,7 +330,7 @@ def _test_owned_processes() -> list[str]:
 
 
 @pytest.fixture(autouse=True)
-def _assert_test_processes_are_clean() -> None:
+def _assert_test_processes_are_clean() -> Iterator[None]:
     assert not _test_owned_processes()
     yield
     assert not _test_owned_processes()

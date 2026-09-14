@@ -1,4 +1,4 @@
-"""Local loopback Streamable HTTP entrypoint для Dev MCP."""
+"""Точка входа локального Streamable HTTP для Dev MCP."""
 
 from __future__ import annotations
 

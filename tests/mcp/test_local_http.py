@@ -92,11 +92,7 @@ def _contract_call_payload(
 
 def test_local_http_config_is_strict_loopback_and_token_bounded() -> None:
     with pytest.raises(LocalHttpConfigError, match="127.0.0.1"):
-        _config(
-            server_name="azurpilot-game",
-            port=18776,
-            required_scope=GAME_MCP_REQUIRED_SCOPE,
-        ).__class__(
+        LocalHttpConfig(
             server_name="azurpilot-game",
             port=18776,
             required_scope=GAME_MCP_REQUIRED_SCOPE,
