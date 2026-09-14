@@ -138,7 +138,7 @@ hook, когда shell является естественной частью ru
 | `deploy/config.py`, `deploy/utils.py`, `deploy/set.py` | Legacy deploy config model, YAML patch/write and command-line configuration | Не создавать новую схему поверх generated config; source/config generation остаётся в `module/config/` и существующих generators |
 | `dev_tools/infrastructure_doctor.py`, `dev_tools/postgresql_runtime.py`, `dev_tools/observability_compose_migration.py` | Existing diagnostics and infrastructure operations | Их result/error contracts нужно переиспользовать через adapter; tooling не должен обходить PostgreSQL/Compose ownership |
 
-### 1.3 Call sites, documentation, shortcuts и installer references
+### 1.4 Call sites, documentation, shortcuts и installer references
 
 Найденные пользовательские и проектные references распределены между несколькими
 границами:

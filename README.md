@@ -49,7 +49,7 @@ script только в user-level `PATH` Windows. Поэтому после от
 терминала команда работает из любого каталога без активации `.venv`:
 
 ```powershell
-Set-Location C:\Users\KykLa
+Set-Location $HOME
 azur doctor
 ```
 
@@ -57,7 +57,7 @@ azur doctor
 запускается один раз из checkout через внешний `uv`:
 
 ```powershell
-uv --project C:\AzurPilot run --locked --no-sync azur build
+uv --project <repository-root> run --locked --no-sync azur build
 ```
 
 Открытые до регистрации PATH окна PowerShell не получают изменения окружения

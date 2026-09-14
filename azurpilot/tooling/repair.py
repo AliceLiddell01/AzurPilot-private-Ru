@@ -15,8 +15,6 @@ from .contracts import (
     RepairEvidence,
     ResultCode,
     ToolingResult,
-    ToolingWarning,
-    WarningCode,
 )
 from .coordination import RepositoryCoordinator, observe_tcp_port
 from .errors import ToolingError
@@ -306,12 +304,6 @@ class RepairService:
                         diagnostic_only=False,
                         issues=("операция Repair завершилась ошибкой",),
                         repaired=False,
-                    ),
-                    warnings=(
-                        ToolingWarning(
-                            code=WarningCode.TOOLING_LEGACY_COMPATIBILITY,
-                            message="Повторный запуск Repair после read-only диагностики допустим.",
-                        ),
                     ),
                     evidence=RepairEvidence(
                         repository=resolved.evidence,

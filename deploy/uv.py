@@ -457,7 +457,7 @@ def sync_project_venv(
         ]
         if (root / "uv.lock").exists():
             command.append("--frozen")
-        command += ["--no-dev", "--no-install-project"] + _uv_index_args(root)
+        command += ["--no-dev"] + _uv_index_args(root)
         _run_and_collect(
             command,
             root,

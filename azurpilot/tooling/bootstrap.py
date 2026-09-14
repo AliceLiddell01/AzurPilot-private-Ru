@@ -315,7 +315,6 @@ class BuildService:
                     str(python),
                     "--frozen",
                     "--no-dev",
-                    "--no-install-project",
                     "--dry-run",
                     timeout_seconds=min(180.0, timeout_seconds),
                 ):
