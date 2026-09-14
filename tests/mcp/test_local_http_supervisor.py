@@ -25,6 +25,7 @@ from module.mcp_shared.local_http_supervisor import (
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 _DEV_TOKEN_ENV = "AZURPILOT_DEV_LOCAL_MCP_TOKEN"
 _GAME_TOKEN_ENV = "AZURPILOT_GAME_LOCAL_MCP_TOKEN"
+_TEST_MODULE_PREFIX = "test_local_mcp_"
 
 pytestmark = pytest.mark.xdist_group(name="local-http-supervisor")
 
@@ -200,7 +201,11 @@ def _spec(
 ) -> dict[str, object]:
     return {
         "name": server_name,
-        "module": module_name,
+        "module": (
+            module_name
+            if module_name.startswith(_TEST_MODULE_PREFIX)
+            else f"{_TEST_MODULE_PREFIX}{module_name}"
+        ),
         "port": port,
         "token_env_var": token_env_var,
     }
