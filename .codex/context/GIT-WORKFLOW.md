@@ -67,7 +67,7 @@ Upstream: `wess09/AzurPilot`
 → безопасный preflight main checkout + base SHA
 → релевантный контекст
 → план
-→ для новой задачи: fetch origin → personal/stable → FF-only → codex/<task>
+→ для новой задачи: fetch origin → personal/stable → FF-only → <domain>/<unique-capability-name>
 → реализация логическими слоями
 → targeted checks
 → Codex adversarial self-review
@@ -252,19 +252,22 @@ origin/personal/stable
 
 Не используется как рабочая ветка. Изменения попадают только через PR и required gates.
 
-### `codex/*`
+### Capability branches
 
-Новые задачи:
+Новая capability использует уникальное имя без roadmap/stage номера. Для новой
+обычной работы default — ветка вида `<domain>/<unique-capability-name>`, заданная
+task contract. Одна задача — одна рабочая ветка. Ошибка теста или fix
+реализации не создаёт новую ветку.
 
-```text
-codex/<task>
-```
-
-Одна задача — одна рабочая ветка. Ошибка теста или fix реализации не создаёт новую ветку.
+`codex/*` остаётся compatibility/legacy namespace для уже опубликованных
+веток. Существующую `codex/*` branch можно продолжить только после проверки
+exact repository identity, task ownership и head; новые обычные задачи этот
+namespace не используют.
 
 ### `chatgpt/*`
 
-Legacy. Существующую ветку можно закончить, если она однозначно относится к задаче; новые задачи используют `codex/*`.
+Legacy. Существующую ветку можно закончить, если она однозначно относится к задаче и exact identity подтверждена; новые задачи используют формат
+`<domain>/<unique-capability-name>`.
 
 ### `sync/*`
 
@@ -323,11 +326,11 @@ Fork-only diff должен отсутствовать. Merge/squash/rebase comm
 fetch origin
 → switch personal/stable
 → fast-forward only до origin/personal/stable
-→ создать codex/<task>
+→ создать branch из task contract в формате <domain>/<unique-capability-name>
 → работать в C:\AzurPilot
 ```
 
-Если в checkout уже открыта однозначно относящаяся к незавершённой задаче `codex/*` branch, продолжать её после проверки exact head. После публикации feature-ветки оставлять checkout на ней, пока PR ожидает review; автоматически возвращаться на `personal/stable` не нужно.
+Если в checkout уже открыта однозначно относящаяся к незавершённой задаче `codex/*` или другая capability branch, продолжать её после проверки exact repository identity и head. После публикации feature-ветки оставлять checkout на ней, пока PR ожидает review; автоматически возвращаться на `personal/stable` не нужно.
 
 Disposable clone/worktree допустим только при реальной необходимости: параллельная разработка, опасный reproduction/experiment, несовместимое состояние зависимостей/runtime, destructive recovery testing или явный запрос пользователя. Он не является default и не должен использоваться для переноса обычного diff.
 
@@ -477,7 +480,33 @@ Commit должен быть логически цельным. Не дроби�
 
 PR обязателен для `master`, `personal/stable`, standard/extended задач, dependency/security-sensitive изменений и Start/Update/Repair/Build.
 
-PR body должен содержать только существенное: цель/scope, base SHA, ключевой diff, выполненные gates, migration/rollback и ограничения.
+PR body должен быть создан из typed structured model через временный внешний
+Markdown-файл и `--body-file`, а затем прочитан обратно. Обязательны разделы
+`Цель`, `Scope`, `Реализация`, `Проверки`, `CI`, `Security / secret scan`,
+`CodeRabbit review и disposition`, `Migration / rollback`, `Ограничения`.
+В body фиксируются repository/base/head identity, base SHA, подсистемы,
+фактически выполненные gates, security result, migration/rollback,
+ограничения и предполагаемый merge method. Inline shell body и implicit
+repository context запрещены.
+Body является полноценным русскоязычным отчётом для человека, а не коротким
+автоматическим summary: в каждой секции должны быть конкретные факты, а в
+scope, реализации, проверках, CI, security, rollback и ограничениях —
+маркированные пункты. English допускается только для technical identifiers,
+названий API/инструментов, protocol tokens, CI contexts и других специальных
+слов, которые нельзя безопасно переводить. Renderer обязан отклонять
+полупустой body до provider call.
+
+Для delivery допустим только manifest с закрытой схемой, exact repository,
+branch/base/head, preimage/postimage и allowlist paths. В index добавляются
+только declared paths; Gitleaks запускается по staged scope и exact committed
+range. Push — обычный explicit refspec без force/force-with-lease с
+последующей проверкой exact remote SHA. Неизвестный результат push переводится
+в read-only recovery без blind retry.
+
+GitHub PR проверяется с явными `--repo`, `--base`, `--head`, draft mode и
+read-back exact identity. CodeRabbit остаётся внешним checkpoint: review
+выполняется в permanent WSL2 Arch clone, findings и disposition сохраняются в
+PR body, а permanent clone не удаляется в post-merge cleanup.
 
 ### Внешнее ревью
 
@@ -612,7 +641,9 @@ product/live acceptance или blocking review threads. После merge rate li
 - human final review и отдельная текущая команда пользователя обязательны перед merge;
 - auto-merge допустим только после такой команды и при соблюдении остальных правил проекта.
 
-### `codex/*`
+### Capability branches
+
+Capability branches, включая explicit domain-prefixed branches, должны:
 
 - не использовать force push после публикации;
 - до merge сохранять draft PR и ветку для финального ревью;

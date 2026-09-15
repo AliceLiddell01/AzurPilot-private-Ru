@@ -39,6 +39,61 @@ AzurPilot — инструмент автоматизации для мобил�
 
 ### Отдельные команды запуска и обслуживания
 
+Основной кроссплатформенный интерфейс — устанавливаемая команда `azur` и
+эквивалентный модуль `python -m azurpilot`. Сервисы используют проверенный
+корень репозитория, общий типизированный конверт результата, ограниченный
+запуск процессов и внешние блокировки/журналы.
+
+`azur build` после успешной подготовки регистрирует каталог консольных команд
+проекта только в пользовательском `PATH` Windows. Поэтому после открытия нового
+терминала команда работает из любого каталога без активации `.venv`:
+
+```powershell
+Set-Location $HOME
+azur doctor
+```
+
+Если установка ещё не подготовлена и `azur` пока недоступен, bootstrap
+запускается один раз из checkout через внешний `uv`:
+
+```powershell
+uv --project <repository-root> run --locked python -m azurpilot build
+```
+
+Открытые до регистрации PATH окна PowerShell не получают изменения окружения
+задним числом; для них нужна новая оболочка. `azur doctor` не меняет PATH, а
+проверяет наличие пакета, регистрацию на уровне пользователя и доступность команды в
+текущей оболочке. Эквивалентный прямой вызов для автоматизации —
+`python -m azurpilot` в установленной среде.
+
+```text
+azur doctor
+azur build
+azur start
+azur stop
+azur repair [--diagnostic-only|--repair-shortcut|--shortcut-only]
+azur update
+```
+
+Для машинной интеграции добавьте `--json`: stdout содержит ровно один JSON
+отчёт без Rich/ANSI. `--repository-root PATH` имеет высший приоритет; без него
+корень берётся только из проверенной конфигурации или идентичности установки.
+CWD сам по себе не считается доказательством проекта. `azur doctor` отдельно
+показывает наличие консольной команды и её регистрации на уровне пользователя; сам doctor
+остаётся доступным только для чтения.
+
+На Windows `azur build` по умолчанию проверяет и устанавливает закреплённый ADB
+37.0.0 по SHA-256 и создаёт пользовательский ярлык `.lnk` в меню «Пуск».
+Флаг `azur build --no-shortcut` отключает только создание или проверку ярлыка.
+На POSIX ярлык Windows имеет типизированный статус `unsupported`; ADB использует
+штатное обнаружение и управление, предусмотренное для POSIX, а отсутствие
+настроенного ADB обозначается как `not_configured`.
+
+Ниже перечислены сохраняемые legacy PowerShell wrappers. Они пока остаются
+слоем совместимости и паритета Windows, но служба Python не делегирует им операции
+среды выполнения. Удаление wrappers требует отдельного двойного запуска, проверки
+паритета и переключения.
+
 ```text
 scripts/
 ├── Start-AzurPilot.ps1
@@ -60,7 +115,9 @@ scripts/
 
 ### Один владелец обновления
 
-Обновление пользовательской установки выполняет только `Update-AzurPilot.ps1`.
+Обновление пользовательской установки выполняет только сервис `azur update`.
+`Update-AzurPilot.ps1` временно сохраняется как Windows parity-wrapper до
+отдельного dual-run/cutover решения.
 
 Из WebUI и Python runtime удалены:
 
@@ -149,34 +206,41 @@ First-party сообщения инфраструктуры переведены
 
 ## Быстрый запуск
 
-После подготовленной установки откройте **AzurPilot** в меню «Пуск».
+После подготовленной установки выполните `azur build`, затем `azur start`.
+Перед первым запуском `azur doctor` показывает состояние project-bound и
+optional capabilities.
 
-Ярлык запускает PowerShell 7, затем `scripts\Start-AzurPilot.ps1`, ожидает готовность WebUI и открывает:
+`azur start` перед запуском WebUI выполняет проверяемую предварительную проверку
+Compose/PostgreSQL и штатную миграцию observability. Если публичный host Caddy не настроен,
+локальный WebUI запускается с ограниченным предупреждением; работающий PostgreSQL
+этой командой не останавливается.
+
+`azur start` ожидает подтверждённые идентичность процесса и готовность WebUI:
 
 ```text
 http://127.0.0.1:25548/
 ```
 
-Ручной диагностический запуск:
+Запуск вручную:
 
-```powershell
-pwsh -NoLogo -NoProfile -File "C:\AzurPilot\scripts\Start-AzurPilot.ps1"
+```text
+azur start
 ```
 
-Запуск без автоматического открытия браузера:
+Запуск с открытием браузера:
 
-```powershell
-pwsh -NoLogo -NoProfile -File "C:\AzurPilot\scripts\Start-AzurPilot.ps1" -NoBrowser
+```text
+azur start --browser
 ```
 
 > [!NOTE]
 > Закрытие вкладки браузера само по себе не останавливает backend. `Ctrl+C` останавливает AzurPilot только в том окне Start, которое само запустило backend. Если Start сообщил, что открыл уже работающий WebUI, используйте штатную команду Stop:
 >
-> ```powershell
-> pwsh -NoLogo -NoProfile -File "C:\AzurPilot\scripts\Stop-AzurPilot.ps1"
+> ```text
+> azur stop
 > ```
 >
-> Повторный Stop безопасен и сообщает, что AzurPilot уже остановлен. Команда проверяет точный checkout, project Python, `gui.py` и дерево процессов; процесс, который лишь занял тот же порт, она не завершает.
+> Повторный Stop безопасен и сообщает, что AzurPilot уже остановлен. Команда проверяет точный checkout, Python проекта, `gui.py` и дерево процессов; процесс, который лишь занял тот же порт, она не завершает.
 
 ## Обслуживание установки
 
@@ -184,35 +248,56 @@ pwsh -NoLogo -NoProfile -File "C:\AzurPilot\scripts\Start-AzurPilot.ps1" -NoBrow
 
 ### Обновление
 
-```powershell
-pwsh -NoLogo -NoProfile -File "C:\AzurPilot\scripts\Update-AzurPilot.ps1"
+```text
+azur update
 ```
 
 ### Диагностика и восстановление
 
-```powershell
-pwsh -NoLogo -NoProfile -File "C:\AzurPilot\scripts\Repair-AzurPilot.ps1"
+```text
+azur repair
 ```
 
 Только диагностика:
 
-```powershell
-pwsh -NoLogo -NoProfile -File "C:\AzurPilot\scripts\Repair-AzurPilot.ps1" -DiagnosticOnly
+```text
+azur repair --diagnostic-only
+```
+
+Проверка или восстановление пользовательского Windows ярлыка:
+
+```text
+azur repair --repair-shortcut
+azur repair --shortcut-only
 ```
 
 ### Первоначальная подготовка checkout
 
+```text
+azur build
+```
+
+Legacy wrappers доступны для parity-проверок Windows:
+
 ```powershell
-pwsh -NoLogo -NoProfile -File "C:\AzurPilot\scripts\Build-AzurPilot.ps1"
+pwsh -NoLogo -NoProfile -File "scripts/Start-AzurPilot.ps1"
+pwsh -NoLogo -NoProfile -File "scripts/Stop-AzurPilot.ps1"
+pwsh -NoLogo -NoProfile -File "scripts/Update-AzurPilot.ps1"
+pwsh -NoLogo -NoProfile -File "scripts/Repair-AzurPilot.ps1"
+pwsh -NoLogo -NoProfile -File "scripts/Build-AzurPilot.ps1"
 ```
 
 ## Основные гарантии
 
 - Обновления принимаются только из `origin/personal/stable`.
 - Разрешён только fast-forward без переписывания истории.
+- Перед любым изменением `azur update` подтверждает каноническую идентичность Git и
+  внешнюю проверенную логическую резервную копию PostgreSQL в формате `pg_dump -Fc`.
 - `Start`, `Repair` и `Build` не обновляют Git.
-- `Repair` использует backup, journal и rollback.
+- `Repair` использует резервную копию, журнал и откат.
 - `Build` проверяет bootstrap-артефакты по SHA-256.
+- Незавершённые операции сохраняют внешний журнал; неоднозначные сведения о
+  владении, откате или очистке блокируют повторное изменение до восстановления.
 - Существующий `config\deploy.yaml` не перезаписывается целиком при обычном чтении или точечном изменении.
 - Неизвестный процесс на порту `25548` не завершается автоматически.
 - Scheduler, очередь задач, worker lifecycle, startup-run и локальная ADB-логика сохранены.

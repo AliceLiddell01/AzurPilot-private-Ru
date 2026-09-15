@@ -29,3 +29,34 @@ Required contexts должны быть `Python`, `Windows`, `Security`. Ист�
 
 В PR report разделяй локальные результаты, exact-head CI, внешний review и
 ограничения среды. Не выдавай skipped/rate-limited status за substantive review.
+
+## Delivery и PR publication gates
+
+Для `azur delivery publish` manifest обязан быть closed-schema и содержать
+exact repository, expected branch/local HEAD, base SHA, remote ref,
+preimage/postimage и allowlist. Service не принимает unrelated staged paths,
+не использует `git add .`, force/force-with-lease или blind retry. Gitleaks
+запускается по staged index и exact committed range; рекурсивный scan всего
+checkout не является заменой scoped evidence.
+
+После push проверь `ls-remote` exact remote SHA. Timeout/unknown push оставляет
+external journal в `in_flight`/`unknown`, а recovery выполняет только
+read-only ref check.
+
+Для `azur pr publish` используй typed spec и structured body с обязательными
+разделами, temporary external Markdown file и `--body-file`. Каждый `gh pr`
+вызов получает explicit `--repo`; read-back должен подтвердить repository,
+base/head refs и SHAs, same-repository head и draft state. Duplicate,
+cross-repository, wrong-head или provider-unknown result блокируют publication.
+
+Structured body должен быть содержательным отчётом для человека: цель и scope,
+изменённые подсистемы и ключевые файлы, фактическая реализация, локальные и
+live-проверки, exact-head CI, security/secret result, CodeRabbit disposition,
+rollback/migration и ограничения. Не публикуй секции из одной общей фразы.
+Операторский текст пиши полностью на русском; английскими остаются только
+необходимые technical identifiers, названия инструментов, API, protocol tokens
+и CI contexts. Renderer отклоняет короткий body или секции без фактических
+маркированных пунктов до обращения к provider.
+
+Финальный live gate этого capability должен включать фактический human CLI
+вызов и agent CLI с `--json`; JSON выводится одним закрытым result envelope.

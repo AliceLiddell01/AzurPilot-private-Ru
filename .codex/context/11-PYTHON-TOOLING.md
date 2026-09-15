@@ -1,22 +1,28 @@
-# Единый Python tooling: текущее состояние и контракт будущей миграции
+# Единый Python tooling: текущее состояние и контракт миграции
 
 ## Назначение и границы
 
-Этот документ фиксирует постоянную архитектурную границу для будущего объединения
-инструментов запуска, обслуживания, диагностики, доставки и внешних интеграций
-AzurPilot в единый Python tooling. Он является контрактом проектирования, а не
-отчётом о разовом запуске и не описывает исторический этап разработки.
+Этот документ фиксирует постоянную архитектурную границу объединения
+инструментов запуска, обслуживания, диагностики и доставки AzurPilot в единый
+Python tooling. Реализованные части описаны как текущий контракт, а не как
+исторический отчёт о ручном запуске.
 
 Документ основан на фактическом коде текущей ветки, тестах, CI, `.codex/context/`,
 репозиторных skills и plugin package. При расхождении с кодом первичным остаётся
 код и исполняемый контракт.
 
-В рамках этой фиксации не выполняются:
+В текущем increment выполнены:
 
-- перенос `Start`/`Stop`/`Build`/`Repair`/`Update` в Python;
-- включение package installation или console entrypoint в `pyproject.toml`;
+- package installation, `project.scripts.azur` и `python -m azurpilot`;
+- Python services `doctor`/`start`/`stop`/`build`/`repair`/`update`;
+- shared typed result/error DTO, root resolver, process/filesystem/coordination primitives;
+- cross-platform core contract tests и отдельный macOS CI job.
+
+В рамках этой фиксации по-прежнему не выполняются:
+
 - изменение поведения `gui.py`, `alas.py`, WebUI, Dev MCP или Game MCP;
 - удаление PowerShell, Bash, BAT, native PostgreSQL hooks или бинарных launcher/installer artifacts;
+- миграция MCP/plugin и отдельный CodeRabbit adapter;
 - добавление runtime dependencies;
 - замена обязательных CI jobs или device/game acceptance.
 
@@ -38,7 +44,46 @@ contract. Само расширение файла не является осн�
 
 ## 1. Текущее состояние
 
-### 1.1 Полный inventory legacy entrypoints
+### 1.1 Реализованный Python package и CLI
+
+`pyproject.toml` является installable package через явный setuptools build
+backend, `tool.uv.package = true` и `project.scripts.azur =
+"azurpilot.cli:main"`. Source package `azurpilot/` содержит `argparse + Rich`
+presentation adapter и сервисы в `azurpilot.tooling`. `python -m azurpilot`
+использует тот же `main()` и не имеет отдельного поведения.
+
+Реализованные команды: `doctor`, `start`, `stop`, `build`, `repair` и `update`.
+Команды `mcp` и `coderabbit` намеренно не добавлены: MCP/plugin transport и
+CodeRabbit остаются отдельными поверхностями текущего проекта. Existing
+`module.*` entrypoints сохраняются без изменения.
+
+Root resolver использует только `--repository-root`, validated user/machine
+configuration или installation identity. Explicit/configured invalid root
+завершается без fallback на CWD. Machine result использует закрытые Pydantic
+DTO с bounded strings/arrays, `extra="forbid"`, operation-specific details и
+evidence. Human rendering отделён от JSON stdout.
+
+`StructuredProcessRunner` запускает только `shell=False` argv, ограничивает
+stdout/stderr, использует monotonic deadline и сохраняет PID/start time/exact
+executable/argv/cwd. На Windows project `.venv` Python redirector разрешается
+через bounded `pyvenv.cfg` к canonical base runtime с `__PYVENV_LAUNCHER__`,
+чтобы ownership и child-tree stop проверяли реальный процесс, а не transient
+launcher. `ScopedPath`, atomic writes, SHA-256, external
+`StateLayout`, `FileLock` и typed transaction journal дают общую safety boundary
+для Build/Repair/Update/Lifecycle.
+
+`BuildService` сохраняет здоровую `.venv`, создаёт config только из template и
+использует существующую границу `deploy.uv` для подготовки. На Windows он также
+проверяет закреплённый ADB и пользовательский ярлык, если не указан
+`--no-shortcut`; POSIX возвращает `unsupported` для возможности только Windows.
+`RepairService` сначала диагностирует, затем перемещает среду во внешнюю
+резервную копию и при ошибке возвращает подтверждённый откат либо `unknown`.
+`UpdateService` выполняет fetch и только `merge --ff-only`, до изменения
+подтверждает каноническую идентичность remote и внешнюю логическую резервную
+копию PostgreSQL, отклоняет dirty/local-ahead/diverged state и оставляет журнал
+ошибки зависимостей для восстановления только для чтения.
+
+### 1.2 Полный inventory legacy entrypoints
 
 Ниже перечислены все tracked `.ps1`, `.psm1`, `.sh` и BAT-wrapper, найденные в
 текущем checkout. Кандидат на будущий Python adapter не равен кандидату на
@@ -55,7 +100,7 @@ hook, когда shell является естественной частью ru
 | --- | --- | --- | --- | --- |
 | `scripts/Start-AzurPilot.ps1` | Владелец запуска подготовленного Windows checkout; запускает `gui.py`, ждёт WebUI readiness и при необходимости открывает браузер | Ярлык из `AzurPilot.Shortcut.psm1`, README и ручной `pwsh`; PowerShell 7.6, project Python, `gui.py`, `config/deploy.yaml`, Docker Compose | Repository-scoped mutex и stop event; preflight `infrastructure/observability/compose.yaml`, PostgreSQL, bootstrap и опциональный Caddy; не делает Git update и не синхронизирует `.venv`; exact process/port ownership | Bounded timeout, captured/redacted output, foreign-port fail-closed, owned process tree stop; стабильные exit categories в самом скрипте; `tests/platform/powershell/test_powershell_contracts.py`, lifecycle acceptance и README. Будущий owner: `tooling.lifecycle` + Windows platform adapter |
 | `scripts/Stop-AzurPilot.ps1` | Штатно останавливает backend текущего checkout | README, оператор и Start; PowerShell, project Python, `gui.py`, `scripts/lib` lifecycle contract | Stop event владельцу Start; ждёт порт, mutex и exact process; fallback допускается только после PID/executable/command/cwd/creation evidence; PostgreSQL не трогает | Чужой listener не останавливается, generic `Stop-Process` не используется; bounded wait и exit categories; lifecycle tests и Windows CI. Будущий owner: тот же lifecycle service, отдельный stop adapter |
-| `scripts/Update-AzurPilot.ps1` | Единственный владелец обычного пользовательского обновления | README, operator workflow и Repair precondition; Git, `uv`, `robocopy`, `tar`, Docker/PostgreSQL | Проверяет root, branch, remote, disabled upstream push, clean tree и отсутствие active operation; `fetch` + `merge --ff-only`; при изменении dependency files создаёт внешний candidate/backup/journal, синхронизирует `.venv`, делает PostgreSQL logical backup | Failpoints и recovery для `AfterBackup`, `AfterSync`, `AfterMerge`; ambiguous/corrupt journal блокирует автоматическое продолжение; `tools/acceptance/powershell/Test-Update-AzurPilot.ps1`, PowerShell contracts, CI. Будущий owner: `tooling.delivery` + Git/dependency/database adapters |
+| `scripts/Update-AzurPilot.ps1` | Единственный владелец обычного пользовательского обновления | README, operator workflow и Repair precondition; Git, `uv`, `robocopy`, `tar`, Docker/PostgreSQL | Проверяет root, branch, remote, disabled upstream push, clean tree и отсутствие active operation; `fetch` + `merge --ff-only`; при изменении dependency files создаёт внешний candidate/backup/journal, синхронизирует `.venv`, делает PostgreSQL logical backup | Failpoints и recovery для `AfterBackup`, `AfterSync`, `AfterMerge`; ambiguous/corrupt journal блокирует автоматическое продолжение; `tools/acceptance/powershell/Test-Update-AzurPilot.ps1`, PowerShell contracts, CI. `tooling.delivery` теперь владеет отдельной Git publication boundary; Update migration остаётся отдельной задачей |
 | `scripts/Repair-AzurPilot.ps1` | Диагностирует окружение и транзакционно восстанавливает существующую `.venv`; отдельно чинит shortcut | Operator/README; PowerShell, Python, `uv`, Docker/PostgreSQL, `robocopy`, external transaction root | Не меняет branch/remote/user data; не обходит незавершённый Update; move/backup `.venv`, rebuild через `deploy.uv`, restore auxiliary tools, hash/config validation, rollback; optional COM shortcut repair | Journal phases, multiple/missing backup fail-closed, rollback result различается; exit categories включают diagnostic/shortcut/elevation; PowerShell parser/PSScriptAnalyzer, tests и Windows CI. Будущий owner: `tooling.repair` поверх тех же delivery/process primitives |
 | `scripts/Build-AzurPilot.ps1` | Подготавливает уже полученный checkout и локальный shortcut | README/installer workflow; PowerShell, pinned uv/ADB bootstrap archives, SHA-256, Python, `deploy.uv`, COM | Не клонирует и не обновляет Git; создаёт `config/deploy.yaml` из template, при необходимости строит `.venv`, проверяет imports/ADB/frozen lock, удаляет только созданное partial state при отказе | Bootstrap cache, hashes и test failpoints; сохранение существующего здорового окружения; PowerShell/Windows gates. Будущий owner: `tooling.bootstrap` + artifact/ADB/platform adapters |
 | `scripts/lib/AzurPilot.Lifecycle.psm1` | Общий Windows ownership contract для Start/Stop | Импортируется обоими скриптами; CIM/NetTCP, process tree, named mutex/event | Сравнивает exact repository, project Python, `gui.py`, command line и parent chain; `taskkill.exe /PID /T /F` только после подтверждённого ownership и creation date | `Free`/`Foreign`/`AzurPilot`, safe fallback и no generic kill; lifecycle acceptance. Будущий owner: `platform.windows.process` и `platform.windows.coordination` |
@@ -82,7 +127,7 @@ hook, когда shell является естественной частью ru
 `infrastructure/observability/postgres/init/01-bootstrap.sh`,
 `deploy/launcher/Alas.bat` и `dev_tools/alas2.bat`.
 
-### 1.2 Python runtime, WebUI и deploy seams
+### 1.3 Python runtime, WebUI и deploy seams
 
 | Компонент | Фактический ownership | Что важно для будущего owner |
 | --- | --- | --- |
@@ -96,13 +141,13 @@ hook, когда shell является естественной частью ru
 | `deploy/config.py`, `deploy/utils.py`, `deploy/set.py` | Legacy deploy config model, YAML patch/write and command-line configuration | Не создавать новую схему поверх generated config; source/config generation остаётся в `module/config/` и существующих generators |
 | `dev_tools/infrastructure_doctor.py`, `dev_tools/postgresql_runtime.py`, `dev_tools/observability_compose_migration.py` | Existing diagnostics and infrastructure operations | Их result/error contracts нужно переиспользовать через adapter; tooling не должен обходить PostgreSQL/Compose ownership |
 
-### 1.3 Call sites, documentation, shortcuts и installer references
+### 1.4 Call sites, documentation, shortcuts и installer references
 
 Найденные пользовательские и проектные references распределены между несколькими
 границами:
 
-- `README.md` документирует Start/Stop/Update/Repair/Build, shortcut и ручные
-  `pwsh` команды; эти команды пока остаются каноническим Windows operator path.
+- `README.md` документирует Start/Stop/Update/Repair/Build и ручной запуск
+  `azur`; legacy `pwsh` команды остаются временным Windows parity/cutover path.
 - `deploy/Readme.md` содержит устаревшую ссылку на отсутствующий
   `deploy.installer` и на `deploy/launcher/Alas.bat`; это подтверждённый
   documentation drift, но его исправление не входит в архитектурную фиксацию.
@@ -181,9 +226,10 @@ azurpilot/
     bootstrap.py               # Build/uv/ADB preparation policy
     repair.py                  # diagnosis and transactional repair
     update.py                  # safe update orchestration
-    delivery.py                # validate -> remote verify pipeline
+    delivery.py                # allowlist -> commit -> remote verify pipeline
+    pull_request.py             # typed draft PR body/provider boundary
     mcp_status.py              # collector/model, без human rendering
-    coderabbit.py              # review backend boundary
+    coderabbit.py              # reserved external review boundary, not adapter
     ports.py                   # platform/integration Protocols
     adapters/
       windows.py
@@ -258,8 +304,8 @@ name, `uv.lock`, `module/` и `deploy/`) подтверждает именно �
 вроде `TOOLING_REPOSITORY_NOT_FOUND` после его schema/ownership validation.
 
 `azur --help`, version и другие project-independent команды могут работать без
-root. `azur doctor`, `start`, `stop`, `build`, `repair`, `update`, `mcp status` и
-`coderabbit` сначала получают validated root; вызов вне checkout корректен,
+root. `azur doctor`, `start`, `stop`, `build`, `repair` и `update` сначала
+получают validated root; вызов вне checkout корректен,
 если root найден через указанную цепочку, и fail-closed, если нет. Текущий cwd
 не считается доверенным только по факту нахождения процесса в этом каталоге.
 
@@ -271,24 +317,24 @@ Python environment/package metadata и repository markers. Safe discovery мож
 `installation`) и bounded identity evidence; секреты и личные пути не
 публикуются.
 
-Будущий package получает доступ к существующим `module/`, `deploy/` и другим
-seams через один объявленный source/package boundary: переходный distribution
-может включать `azurpilot` вместе с явно перечисленными существующими пакетами,
-а project-specific config/data берётся из validated root. Динамическое
-копирование дерева, добавление непроверенного cwd в import path и вторая
-реализация запрещены. `deploy.uv`, `deploy.atomic`, `module.dev_runtime` и
-`module.mcp_shared` остаются canonical seams: новый adapter импортирует их из
-того же source tree, а последующее перемещение выполняется один раз с
-compatibility re-export, но не копированием.
+Package получает доступ к существующим `module/`, `deploy/` и другим seams через
+один явно объявленный source/package boundary: setuptools discovery перечисляет
+`azurpilot` и переходные namespace packages, а project-specific config/data
+берётся из validated root. Динамическое копирование дерева, добавление
+непроверенного cwd в import path и вторая реализация запрещены. `deploy.uv`,
+`deploy.atomic`, `module.dev_runtime` и `module.mcp_shared` остаются canonical
+seams: новый adapter импортирует их из того же source tree.
 
-Текущий `tool.uv.package = false` означает, что package/console script пока не
-существует и `uv run` работает с project-local modules. Позже потребуются
-`tool.uv.package = true`, явный `project.scripts.azur`, package discovery/source
-layout для `azurpilot` и переходных `module`/`deploy`, import/install audit,
-wheel/editable-install checks и CI parity на Windows/Linux/macOS. Это не
-требует новых dependencies само по себе; lock меняется только при фактическом
-изменении dependency graph. До этой работы никаких package assumptions в
-runtime не добавляется.
+Текущий `tool.uv.package = true` и editable/wheel build проверены локально.
+`uv.lock` отражает только смену source проекта на editable; новых runtime
+dependencies не добавлено. `azur --help`, `python -m azurpilot --help` и
+`--json doctor` имеют общий CLI contract, а legacy `python -m module.*` пути
+сохраняются без миграции MCP/plugin. `doctor` также показывает наличие
+project console script и его user-level регистрацию. Успешный `azur build`
+добавляет project console script в user-level Windows `PATH`, а `doctor`
+остаётся read-only и только проверяет регистрацию и доступность в текущем
+shell. Уже открытый shell не изменяется дочерним процессом; после первой
+регистрации требуется новый shell.
 
 ### 2.4 Structured process invocation
 
@@ -396,13 +442,13 @@ request во время долгой работы.
 ### 3.1 Фактическая отправная точка
 
 В `pyproject.toml` проект имеет `name = "azurpilot"`, ограничение Python
-`>=3.14.6,<3.15` и `tool.uv.package = false`. Поэтому сейчас нет установленного
-package console script, а рабочими являются project-local команды вида
-`uv run --locked --no-sync python -m module.dev_mcp` и существующие Python
-modules/scripts. Переключение `package = true` само по себе не является
-миграцией: сначала нужны package layout, import audit, lock update и CI parity.
+`>=3.14.6,<3.15`, явный setuptools build backend, `tool.uv.package = true` и
+`project.scripts.azur = "azurpilot.cli:main"`. Distribution включает
+`azurpilot` и явно перечисленные переходные packages; project config/data
+разрешаются через validated repository root. Новых runtime dependencies не
+добавлено.
 
-Целевые compatibility entrypoints:
+Постоянные operational entrypoints:
 
 ```text
 azur doctor
@@ -411,16 +457,14 @@ azur stop
 azur build
 azur repair
 azur update
-azur mcp status
-azur coderabbit status|doctor|review
 
 python -m azurpilot <same command>
 ```
 
-В `pyproject.toml` это потребует явного `project.scripts.azur =
-"azurpilot.cli:main"`, но добавлять запись до готовности package нельзя. Во время
-перехода `python -m module.*` сохраняется как compatibility path для MCP,
-generator и CI.
+`mcp`/`coderabbit` не являются частью этого increment: существующие MCP/plugin
+и review surfaces остаются отдельными compatibility paths. Во время перехода
+`python -m module.*` сохраняется для MCP, generator и CI. `azur` не вызывает
+legacy `.ps1`/`.sh`/`.bat` wrappers; они остаются Windows parity/cutover слоем.
 
 ### 3.2 Выбор CLI framework
 
@@ -574,34 +618,54 @@ ownership, Git update, transaction recovery, Docker deployment, shortcut/COM,
 native PostgreSQL hooks и CodeRabbit/WSL boundary. Эти области имеют риск
 регрессии, который нельзя закрыть только unit test или совпадением exit code.
 
-## 6. Delivery Package: будущая безопасная граница
+## 6. Git Delivery и PR Publication: текущая безопасная граница
 
-Delivery — отдельный package/service, а не побочный режим `azur start` и не
-скрытая Git-команда MCP. Канонический pipeline:
+`azurpilot.tooling.delivery` — отдельный package/service, а не побочный режим
+`azur start` и не скрытая Git-команда MCP. `azurpilot.tooling.pull_request`
+отвечает только за typed draft PR provider boundary. Канонический pipeline:
 
 ```text
-validate
-  → prepare
-  → apply
-  → verify
-  → stage
+delivery validate
+  → explicit allowlist stage
+  → staged Gitleaks
   → commit
-  → push
-  → remote verify
+  → exact committed-range Gitleaks
+  → ordinary push
+  → exact remote verify
+  → journal status/recover при ambiguity
+
+pr prepare
+  → structured body render
+  → external body-file
+  → explicit gh --repo/--base/--head
+  → read-back identity/body digest
 ```
 
-### 6.1 Фазы
+### 6.1 Реализованные проверки
 
-| Фаза | Обязательная проверка | Запрещённое упрощение |
+| Boundary | Обязательная проверка | Fail-closed поведение |
 | --- | --- | --- |
-| `validate` | canonical repository root, trusted path, branch/ref, exact local HEAD, requested base/head, clean/in-flight state, user intent и allowlist paths | нельзя выводить root из текущего cwd без проверки и нельзя считать branch name доказательством HEAD |
-| `prepare` | внешний transaction root, unique operation id, snapshot/hash, ownership lock, candidate from exact ref, journal before mutation | нельзя хранить backup только внутри изменяемого checkout или перезаписывать ambiguous journal |
-| `apply` | только разрешённые paths/operations, path traversal check, symlink/junction/reparse rejection, atomic file replacement, bounded payload | нельзя `eval`, arbitrary shell, recursive delete по вычисленному пути или массовый copy без allowlist |
-| `verify` | exact files/hash, Git status, expected local HEAD, generated outputs, environment/readiness и product postcondition | `returncode == 0` недостаточен; verification failure не превращать в success |
-| `stage` | явный список staged paths, отсутствие secrets/binaries/logs/state, diff review | нельзя stage всего checkout или ignored/local state |
-| `commit` | explicit commit intent, declared scope, current HEAD unchanged, commit message contract | нельзя коммитить автоматически в результате read-only check или после in-flight ambiguity |
-| `push` | configured remote, exact branch, no force, no lease bypass, current commit equals verified local head | нельзя force push, silent remote change или blind retry после неизвестного результата |
-| `remote verify` | `ls-remote`/provider result подтверждает exact pushed SHA на exact ref; при mismatch — stop | нельзя считать HTTP acknowledgement или accepted queue delivered/pushed |
+| `delivery validate` | canonical root, hosted repository identity publication и base remotes, branch/ref, exact local HEAD, exact base/remote SHA, ancestry, active operation, preimage/postimage и staged allowlist | invalid manifest, unrelated staged path, traversal, symlink или mismatch блокируют operation |
+| `delivery publish` | explicit target paths, manifest-bound raw/Git-clean staged postimage, scoped Gitleaks index, typed commit parent/diff, exact committed range, ordinary push и `ls-remote` SHA | scanner finding, commit mismatch, remote conflict или unknown push сохраняются в journal; blind retry запрещён |
+| `delivery status/recover` | external typed journal и read-only remote ref check | in-flight/unknown не мутируются повторным push; требуется новый immutable request после recovery |
+| `pr prepare` | exact local/remote base/head, hosted remote identity и все обязательные body sections | body/spec/provider boundary с неверным exact identity отклоняется |
+| `pr publish/verify` | explicit `gh pr` repository, draft flag, candidate ambiguity check, temporary `--body-file`, provider read-back и body digest | cross-repository, wrong SHA, non-draft, duplicate или unknown provider result блокируют публикацию |
+
+`pull_request.py` строит не короткое summary, а полный русскоязычный PR report.
+В нём должны быть конкретные сведения о цели, scope и границах, подсистемах и
+файлах, реализации, локальных/live-проверках, exact-head CI,
+security/secret scan, CodeRabbit disposition, rollback/migration и ограничениях.
+Основные секции требуют маркированные факты; английский текст разрешён только
+для technical identifiers, имён инструментов/API, protocol tokens и CI contexts.
+Минимальная содержательность проверяется до записи временного `body-file`.
+
+Human `delivery validate` использует тот же typed result, что и JSON adapter, но
+рендерит его через Rich как bounded `Delivery Package`: repository, branch,
+сокращённые human SHA, base/remote ref, target count и изменения `A`/`M`/`D`.
+Он явно сообщает `Изменения не применены.`. Agent `--json` не выводит Rich/ANSI и
+сохраняет полный exact SHA, target set и typed evidence. После `pr edit` сервис
+всегда читает PR обратно; timeout/unknown без подтверждённого body остаётся
+`UNKNOWN/IN_FLIGHT` и не запускает повторную mutation.
 
 ### 6.2 Reusable primitives
 
@@ -823,7 +887,7 @@ PowerShell gates нельзя удалить в момент появления 
 required gate. Native Docker/PostgreSQL hooks и Linux deployment проверяются своим
 runtime, не Windows-only unit tests.
 
-## 11. Verification и Definition of Done для будущих increments
+## 11. Verification и Definition of Done
 
 ### 11.1 Проверки по уровням
 
@@ -843,6 +907,12 @@ runtime, не Windows-only unit tests.
    текущий repository development workflow;
 10. Gitleaks по tracked/staged content и history согласно текущему CI, без
     подмены ручным regex scan.
+
+Для Git Delivery/PR capability дополнительно требуются disposable bare-remote
+integration, negative allowlist/preimage/postimage checks, ordinary push с
+exact remote SHA, journal status/recovery и provider body read-back. Финальный
+live acceptance выполняется двумя способами: human `azur` output и один
+закрытый JSON envelope для agent-oriented CLI.
 
 Doc-only change не требует device/game smoke и не должен создавать synthetic
 runtime evidence. Physical device, MuMu, ADB, gameplay и visual acceptance
@@ -920,22 +990,17 @@ runtime evidence. Physical device, MuMu, ADB, gameplay и visual acceptance
    compact layout, width awareness, status/action guidance и TTY-only progress;
    Rich/ANSI/layout никогда не меняют независимый `--json` contract.
 
-### 12.2 Намеренно отложено до implementation stage
+### 12.2 Намеренно отложено до следующих increments
 
-- фактическая реализация `azur`, `python -m azurpilot`, `project.scripts` и
-  переключение `tool.uv.package = true`;
-- окончательная схема user/machine repository registry и platform-specific
-  discovery, после проверки installation identity на поддерживаемых ОС;
-- выбор concrete generic/DTO API, JSON Schema generator, limits и schema
-  versioning для каждого operation payload;
-- первый vertical slice и окончательный выбор `argparse`, Click, Typer или
-  другого framework с измеримыми UX/API результатами;
-- dual-run, caller migration, parity/recovery acceptance и обязательное
-  удаление временных project-owned wrappers;
-- macOS CI runner и конкретные product capabilities (ADB, emulator, Docker,
-  WSL, shortcut), если они действительно будут заявлены продуктом.
+- caller migration, dual-run parity и обязательное удаление временных
+  project-owned wrappers;
+- MCP/plugin transport migration и отдельный CodeRabbit/WSL adapter;
+- database backup/upgrade adapter, Docker-native deployment и device/game
+  acceptance;
+- Windows shortcut/COM adapter и другие platform-specific capabilities;
+- расширение operation schemas, JSON Schema publication и long-running
+  asynchronous transport, если их потребует следующий consumer.
 
-Не реализовано этим документом: пакет `azurpilot`, команда `azur`, изменения
-`pyproject.toml`, миграция любого legacy script, удаление файлов, изменение
-MCP/plugin/CI, изменение runtime behavior, новые dependencies, device/game
-acceptance и запуск следующей migration work package.
+Не входит в этот increment: удаление legacy файлов, изменение `gui.py`,
+`alas.py`, MCP/plugin behavior, device/game acceptance, PostgreSQL mutations и
+merge опубликованной ветки.

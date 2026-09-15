@@ -6,9 +6,18 @@
 
 1. перечитай base→head diff и выполни adversarial self-review;
 2. проведи доступный CodeRabbit checkpoint и разберись с каждым finding;
-3. создай содержательный commit и push в тематическую `codex/*` ветку;
-4. создай или обнови **draft PR** в `personal/stable` с scope, base SHA,
-   подсистемами, проверками, security result, rollback и ограничениями;
+3. создай содержательный commit и push в тематическую ветку из task contract
+   формата `domain/<unique-capability-name>`; уже опубликованную `codex/<legacy-capability>`
+   ветку продолжай только после проверки exact identity и head;
+4. создай или обнови **draft PR** в `personal/stable` через typed spec и
+   temporary body-file с explicit `--repo`, `--base`, `--head`; body обязан
+   содержать exact identity, scope, подсистемы, проверки, security result,
+   CodeRabbit disposition, rollback и ограничения. Body пиши на русском языке
+   и делай полноценным отчётом: каждая секция должна содержать конкретные
+   факты, а sections со scope/реализацией/проверками/CI/security/rollback/
+   ограничениями — маркированные списки, а не короткие общие фразы. Английский
+   допускается только для технических identifiers, API/tool names, protocol
+   tokens и других необходимых специальных слов;
 5. проверь required CI на exact head, отсутствие blocking review threads,
    итоговый diff и secret scan;
 6. установи состояние `READY_FOR_CHATGPT_REVIEW` и остановись.
@@ -55,6 +64,6 @@ review. Используй только разрешённый проектом 
 - переключи основной checkout на `personal/stable` и синхронизируй его обычным
   разрешённым способом;
 - безопасно удали task branch локально и на GitHub, если это допускает проект;
-- удали WSL2 Arch CodeRabbit review checkout и только временные ресурсы этой
-  задачи;
+- сохрани permanent WSL2 Arch CodeRabbit review checkout; удали только временные
+  resources этой задачи;
 - не трогай пользовательские unrelated files.
