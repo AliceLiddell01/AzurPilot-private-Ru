@@ -16,6 +16,27 @@ Workflow публикует три стабильных status contexts:
 
 Активный repository ruleset `Protect personal/stable` (ID `20179789`) применяется к `refs/heads/personal/stable` и требует именно эти три context со strict-проверкой актуальности ветки. Старые исторически зависимые required contexts отсутствуют. Ruleset также запрещает удаление ветки и non-fast-forward updates, требует pull request и разрешения review threads. Имена jobs являются публичным контрактом; переименование требует согласованного изменения ruleset.
 
+## Git delivery и draft PR
+
+Для безопасной публикации изменения используйте `azur delivery` с абсолютным
+closed-schema manifest. Manifest фиксирует repository identity, branch, exact
+local/base/remote SHA, preimage/postimage и allowlist paths. `validate` не
+меняет checkout; `publish` делает explicit staging только allowlist, staged
+Gitleaks, commit, exact committed-range Gitleaks, ordinary push и `ls-remote`
+проверку remote SHA. При timeout/неизвестном push используются `status` и
+`recover`; повторный push вслепую запрещён.
+
+После подтверждённого head подготовьте draft PR через `azur pr prepare` и
+`azur pr publish`. PR spec содержит exact repository/base/head и typed body;
+provider вызывается с explicit `gh --repo`, а Markdown передаётся через
+временный `--body-file`. После provider call сервис читает PR обратно и
+сверяет repository identity, base/head SHA, draft state и body digest.
+
+Финальный live acceptance capability выполняется двумя интерфейсами: обычный
+human output и `--json` для agent CLI. JSON должен содержать ровно один
+закрытый result envelope; он не заменяет required `Python`, `Windows` и
+`Security` contexts на exact PR head.
+
 Workflow также публикует дополнительную проверку `macOS core tooling` на
 `macos-14`. Она не входит в текущий required ruleset, но выполняет exact-head
 проверку, locked package sync, `azur --help`, JSON doctor и cross-platform
