@@ -22,6 +22,7 @@ from azurpilot.tooling import adb as tooling_adb
 from azurpilot.tooling import bootstrap as tooling_bootstrap
 from azurpilot.tooling import filesystem as tooling_filesystem
 from azurpilot.tooling import lifecycle as tooling_lifecycle
+from azurpilot.tooling import shortcut as tooling_shortcut
 from azurpilot.tooling import update as tooling_update
 from azurpilot.tooling.bootstrap import BuildService
 from azurpilot.tooling.config import DeploySettings, load_deploy_settings
@@ -920,6 +921,51 @@ def test_journal_removal_quarantines_transaction_outside_transaction_tree(
     assert len(removed_paths) == 1
     assert removed_paths[0].parent == layout.repository_directory
     assert removed_paths[0].parent != layout.transactions_directory
+
+
+def test_state_base_falls_back_when_home_directory_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    for variable in (
+        "AZURPILOT_STATE_HOME",
+        "LOCALAPPDATA",
+        "PROGRAMDATA",
+        "XDG_STATE_HOME",
+    ):
+        monkeypatch.delenv(variable, raising=False)
+
+    def unavailable_home() -> Path:
+        raise RuntimeError("home недоступен")
+
+    monkeypatch.setattr(
+        tooling_filesystem.Path, "home", staticmethod(unavailable_home)
+    )
+    monkeypatch.setattr(tooling_filesystem.tempfile, "gettempdir", lambda: str(tmp_path))
+
+    assert tooling_filesystem._default_state_base() == tmp_path / "azurpilot-state"
+
+
+def test_shortcut_backup_restore_copies_to_target_volume(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    backup = tmp_path / "state" / "backup.lnk"
+    target = tmp_path / "profile" / "AzurPilot.lnk"
+    backup.parent.mkdir(parents=True)
+    target.parent.mkdir(parents=True)
+    backup.write_bytes(b"previous shortcut")
+    copied_to: list[Path] = []
+    original_copy2 = tooling_shortcut.shutil.copy2
+
+    def track_copy(source: Path, destination: Path) -> None:
+        copied_to.append(Path(destination))
+        original_copy2(source, destination)
+
+    monkeypatch.setattr(tooling_shortcut.shutil, "copy2", track_copy)
+    tooling_shortcut._restore_backup(backup, target)
+
+    assert target.read_bytes() == b"previous shortcut"
+    assert len(copied_to) == 1
+    assert copied_to[0].parent == target.parent
 
 
 def test_adb_archive_rejects_traversal_path(tmp_path: Path) -> None:

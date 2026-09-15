@@ -293,6 +293,25 @@ def _same_spec(actual: ShortcutSpecification, expected: ShortcutSpecification) -
     )
 
 
+def _restore_backup(backup_path: Path, path: Path) -> None:
+    """Восстановить backup через локальный временный файл целевого тома."""
+
+    if not backup_path.is_file():
+        raise OSError("Резервная копия ярлыка отсутствует.")
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.stem}-restore-",
+        suffix=".lnk",
+        dir=str(path.parent),
+    )
+    os.close(descriptor)
+    temporary = Path(temporary_name)
+    try:
+        shutil.copy2(backup_path, temporary)
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def ensure_shortcut(
     root: Path,
     python_executable: Path,
@@ -373,9 +392,9 @@ def ensure_shortcut(
             shutil.rmtree(backup_directory)
     except (OSError, ToolingError, ValueError) as error:
         try:
-            if backup_created and backup_path.is_file():
-                os.replace(backup_path, path)
-            elif not backup_created:
+            if backup_created:
+                _restore_backup(backup_path, path)
+            else:
                 path.unlink(missing_ok=True)
         except OSError as rollback_error:
             raise ToolingError(

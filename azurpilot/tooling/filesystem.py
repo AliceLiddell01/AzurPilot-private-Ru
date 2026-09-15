@@ -251,7 +251,10 @@ def _default_state_base() -> Path:
     xdg = os.environ.get("XDG_STATE_HOME")
     if xdg:
         return safe_base(Path(xdg) / "azurpilot")
-    home = Path.home()
+    try:
+        home = Path.home()
+    except RuntimeError:
+        home = None
     if home:
         return safe_base(home / ".local" / "state" / "azurpilot")
     return safe_base(Path(tempfile.gettempdir()) / "azurpilot-state")
