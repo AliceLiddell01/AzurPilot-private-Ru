@@ -480,14 +480,11 @@ def _render_human(
                 f"{'✓' if result.ok else '✗'} {result.message}"
             )
         else:
-            preview_rendered = (
-                delivery_validation_preview
-                and _render_delivery_validation_preview(console, result)
-            )
-            if not preview_rendered:
+            if delivery_validation_preview:
                 console.print(f"{'✓' if result.ok else '✗'} {result.message}")
+                _render_delivery_validation_preview(console, result)
             else:
-                console.print(f"✓ {result.message}")
+                console.print(f"{'✓' if result.ok else '✗'} {result.message}")
 
         for warning in result.warnings:
             console.print(f"⚠ {warning.message}")

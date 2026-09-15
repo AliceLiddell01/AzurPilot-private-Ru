@@ -1270,6 +1270,7 @@ def test_cli_delivery_validate_human_mode_renders_read_only_preview() -> None:
     assert "Delivery Package" in output
     assert "README.md" in output
     assert "Изменения не применены." in output
+    assert output.rstrip().endswith("Изменения не применены.")
     assert "a" * 40 not in output
     assert "\x1b[" not in output
     assert stderr.getvalue() == ""
