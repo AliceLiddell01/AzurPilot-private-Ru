@@ -189,6 +189,17 @@ class GitClient:
             )
         return value
 
+    def filtered_working_blob(self, path: str) -> str:
+        """Получить blob SHA после штатных Git clean filters."""
+
+        value = self.text("hash-object", f"--path={path}", "--", path)
+        if not _is_sha(value):
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Filtered working-tree blob имеет неверный формат.",
+            )
+        return value
+
     def object_bytes(self, revision_path: str) -> bytes:
         """Прочитать Git blob без потери бинарных байтов."""
 
