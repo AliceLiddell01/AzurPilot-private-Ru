@@ -23,7 +23,7 @@ class EmulatorInfo(BaseModel):
     name: str = ''
     path: str = ''
 
-    # 用于 chinac.com 云手机平台的 API
+    # API для облачной платформы телефонов chinac.com
     # access_key: SecretStr = ''
     # secret: SecretStr = ''
 
@@ -114,9 +114,9 @@ class PlatformBase(Connection, EmulatorManagerBase):
         logger.hr('Удалённая команда SSH', level=1)
         target = f'{user}@{host}' if user else host
         clear_ssh_host_key(host, port)
-        # -n: 将 stdin 重定向到 /dev/null
-        # -T: 禁用伪终端分配
-        # BatchMode: 避免在密码提示时挂起
+        # -n: перенаправляет stdin в /dev/null
+        # -T: отключает выделение псевдотерминала
+        # BatchMode: не даёт зависнуть на запросе пароля
         cmd = [
             'ssh', '-n', '-T', '-p', str(port),
             '-o', 'StrictHostKeyChecking=no',
@@ -159,7 +159,7 @@ class PlatformBase(Connection, EmulatorManagerBase):
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
             )
 
-            # 缓存 stderr 输出，仅在失败时显示
+            # Кэшируем stderr и показываем его только при ошибке
             stderr_content = []
 
             import threading
@@ -178,7 +178,7 @@ class PlatformBase(Connection, EmulatorManagerBase):
             stdout_thread.start()
 
             try:
-                # 主线程等待进程退出
+                # Главный поток ожидает завершения процесса
                 process.wait(timeout=30)
             except subprocess.TimeoutExpired:
                 process.kill()
@@ -246,7 +246,7 @@ class PlatformBase(Connection, EmulatorManagerBase):
             path=data.path,
             name=data.name,
         )
-        # 将 emulator-5554 重定向到 127.0.0.1:5555
+        # Перенаправляем emulator-5554 на 127.0.0.1:5555
         serial = self.serial
         port_serial, _ = get_serial_pair(self.serial)
         if port_serial is not None:
@@ -259,7 +259,7 @@ class PlatformBase(Connection, EmulatorManagerBase):
             emulator=data.emulator,
         )
 
-        # 写入完整的模拟器数据
+        # Записываем полные данные эмулятора
         if instance is not None:
             new_info = dict(
                 emulator=instance.type,
@@ -301,7 +301,7 @@ class PlatformBase(Connection, EmulatorManagerBase):
                 name=name or '',
                 path=path or '',
             )
-            # 为 SSH 实例临时修改 type 属性
+            # Для SSH-экземпляра временно изменяем атрибут type
             instance.__dict__['type'] = 'SSH'
             logger.hr('Экземпляр эмулятора', level=2)
             logger.info(f'[Устройство — платформа] Найден экземпляр эмулятора через SSH: {instance}')
@@ -312,14 +312,14 @@ class PlatformBase(Connection, EmulatorManagerBase):
             logger.info(instance)
         search_args = dict(serial=serial)
 
-        # 按序列号搜索
+        # Ищем по серийному номеру
         select = instances.select(**search_args)
         if select.count == 0:
             logger.warning(f'[Устройство — платформа] Экземпляр эмулятора {search_args} не найден: недопустимый serial')
 
-            # MuMu12 serial 漂移修复（从原位置的死代码移到此处）
-            # MuMu12 运行时 serial 为 127.0.0.1:16384，停止后 .nemu 配置中可能为 127.0.0.1:7555
-            # 此时通过 serial 推算 instance_id，再按 id 匹配实例
+            # Исправление дрейфа serial MuMu12, перенесённое сюда из недостижимого кода
+            # Во время работы MuMu12 serial равен 127.0.0.1:16384, а после остановки в конфигурации .nemu он может стать 127.0.0.1:7555
+            # В этом случае вычисляем instance_id по serial и сопоставляем экземпляр по id
             instance_id = serial_to_id(serial)
             if instance_id is not None:
                 select_by_id = instances.select(MuMuPlayer12_id=instance_id)
@@ -327,15 +327,15 @@ class PlatformBase(Connection, EmulatorManagerBase):
                     instance = select_by_id[0]
                     logger.hr('Экземпляр эмулятора', level=2)
                     logger.info(f'[Устройство — эмулятор] Найден экземпляр эмулятора по ID MuMu12: настроенный serial {serial} → экземпляр {instance}: {instance}')
-                    # 更新实例的 serial 为配置中的值，确保后续启停命令使用正确的端口
+                    # Обновляем serial экземпляра значением из конфигурации, чтобы последующие команды запуска/остановки использовали правильный порт
                     instance.serial = serial
                     return instance
 
-            # Fallback: 当枚举列表中找不到实例时，尝试从配置中已知的信息直接构造实例
-            # 典型场景：电脑重启后，MuMu12 进程未运行，注册表/MuiCache 条目可能被清理，
-            # 导致 all_emulator_instances 中不包含 MuMu12 实例。
-            # 但配置中已保存了 EmulatorInfo_Emulator/name/path（来自上次成功运行），
-            # 利用这些信息可以直接构造实例并启动模拟器。
+            # Fallback: если экземпляр отсутствует в списке обнаруженных, пытаемся построить его напрямую из известных данных конфигурации
+            # Типичный случай: после перезагрузки компьютера процесс MuMu12 не запущен, а записи реестра/MuiCache могли быть очищены,
+            # поэтому all_emulator_instances не содержит экземпляр MuMu12.
+            # Но в конфигурации уже сохранены EmulatorInfo_Emulator/name/path от прошлого успешного запуска,
+            # поэтому по этим данным можно напрямую создать экземпляр и запустить эмулятор.
             if emulator and path and name and serial:
                 logger.info(f'[Устройство — эмулятор] Создание резервного экземпляра из конфигурации: emulator={emulator}, name={name}, path={path}, serial={serial}')
                 if os.path.exists(path):
@@ -344,12 +344,12 @@ class PlatformBase(Connection, EmulatorManagerBase):
                         name=name,
                         path=path,
                     )
-                    # 验证构造的实例类型是否与配置一致
-                    # 注意：基类 EmulatorInstanceBase 的 type 依赖 EmulatorBase，
-                    # 可能无法识别具体类型（返回空字符串），因此对空类型做兼容
+                    # Проверяем, совпадает ли тип созданного экземпляра с конфигурацией
+                    # Важно: type базового EmulatorInstanceBase зависит от EmulatorBase,
+                    # который может не распознать конкретный тип и вернуть пустую строку, поэтому пустой тип допускается
                     fallback_type = fallback.type
                     if fallback_type == emulator or not fallback_type:
-                        # 类型匹配或基类无法识别类型时，信任配置中的类型
+                        # Если тип совпадает или базовый класс не смог его определить, доверяем типу из конфигурации
                         fallback.__dict__['type'] = emulator
                         logger.hr('Экземпляр эмулятора', level=2)
                         logger.info(f'[Устройство — платформа] Найден экземпляр эмулятора по резервной конфигурации: {fallback}')
@@ -366,7 +366,7 @@ class PlatformBase(Connection, EmulatorManagerBase):
             logger.info(f'[Устройство — платформа] Найден экземпляр эмулятора: {instance}')
             return instance
 
-        # 在多个同序列号实例中，优先按模拟器类型搜索（用户最容易配置的选项，更可靠）
+        # Среди нескольких экземпляров с одинаковым serial сначала ищем по типу эмулятора — это самый простой и надёжный пользовательский параметр
         if emulator:
             search_args['type'] = emulator
             select = instances.select(**search_args)
@@ -379,7 +379,7 @@ class PlatformBase(Connection, EmulatorManagerBase):
                 logger.info(f'[Устройство — платформа] Найден экземпляр эмулятора: {instance}')
                 return instance
 
-        # 多个同序列号实例，按名称搜索
+        # Среди нескольких экземпляров с одинаковым serial ищем по имени
         if name:
             search_args['name'] = name
             select = instances.select(**search_args)
@@ -392,7 +392,7 @@ class PlatformBase(Connection, EmulatorManagerBase):
                 logger.info(f'[Устройство — платформа] Найден экземпляр эмулятора: {instance}')
                 return instance
 
-        # 多个同序列号和名称的实例，按路径搜索
+        # Среди нескольких экземпляров с одинаковыми serial и именем ищем по пути
         if path:
             search_args['path'] = path
             select = instances.select(**search_args)
@@ -405,14 +405,14 @@ class PlatformBase(Connection, EmulatorManagerBase):
                 logger.info(f'[Устройство — платформа] Найден экземпляр эмулятора: {instance}')
                 return instance
 
-        # 仍然有多个实例，从正在运行的模拟器中查找
+        # Если экземпляров всё ещё несколько, ищем среди запущенных эмуляторов
         running = remove_duplicated_path(list(self.iter_running_emulator()))
         logger.info('[Устройство — платформа] Запущенные эмуляторы')
         for exe in running:
             logger.info(exe)
         if len(running) == 1:
             logger.info('[Устройство — платформа] Запущен только один эмулятор')
-            # 等同于按路径搜索
+            # Эквивалент поиска по пути
             search_args['path'] = running[0]
             select = instances.select(**search_args)
             if select.count == 0:
@@ -424,6 +424,6 @@ class PlatformBase(Connection, EmulatorManagerBase):
                 logger.info(f'[Устройство — платформа] Найден экземпляр эмулятора: {instance}')
                 return instance
 
-        # 仍然有多个实例
+        # Экземпляров всё ещё несколько
         logger.warning(f'[Устройство — платформа] Найдено несколько экземпляров эмулятора: {search_args}')
         return None
