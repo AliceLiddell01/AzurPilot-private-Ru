@@ -390,6 +390,10 @@ def canonical_remote_identity(value: str) -> str:
                 "Идентичность Git remote не содержит hosted repository.",
             )
         return _hosted_identity(parsed.hostname.casefold(), parsed.path)
+    windows_absolute = re.fullmatch(r"[A-Za-z]:[\\/].*", value) is not None
+    if windows_absolute:
+        normalized = value.replace("\\", "/").rstrip("/").casefold()
+        return "local:" + hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:32]
     path = Path(value).expanduser()
     if path.is_absolute():
         normalized = str(path.resolve(strict=False)).replace("\\", "/").rstrip("/").casefold()
