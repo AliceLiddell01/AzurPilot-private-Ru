@@ -241,7 +241,7 @@ def classify_source_changes(paths: Iterable[str | Path]) -> SourceChangeClassifi
     normalized = tuple(
         sorted(
             {
-                str(Path(path).as_posix()).lstrip("./")
+                str(Path(path).as_posix()).removeprefix("./")
                 for path in paths
                 if str(path).strip()
             }
@@ -860,7 +860,9 @@ class McpSourceReconciler:
             raise ToolingError(ResultCode.TOOLING_INVALID_INVOCATION, "Неизвестная политика MCP bump.")
         return _build_bundle(resolved, requested_bump)
 
-    def check(self, root: Path | str) -> _BundleBuild:
+    def check(
+        self, root: Path | str, *, build: _BundleBuild | None = None
+    ) -> _BundleBuild:
         resolved = Path(root).resolve()
         try:
             current = load_mcp_bundle(resolved)
@@ -869,7 +871,7 @@ class McpSourceReconciler:
                 ResultCode.MCP_SOURCE_BUNDLE_INVALID,
                 "Canonical MCP bundle имеет неверный формат.",
             ) from exc
-        build = self.build(resolved, requested_bump="auto")
+        build = build or self.build(resolved, requested_bump="auto")
         expected_plugin = _render_plugin_compatibility(build.bundle)
         checks = (
             (resolved / "config" / "mcp-versions.toml", build.manifest_text),
@@ -957,7 +959,9 @@ class McpService:
         )
 
     @staticmethod
-    def _registration_state(root: Path) -> bool:
+    def _registration_state(
+        root: Path,
+    ) -> Literal["ready", "invalid", "unknown"]:
         """Проверить tracked route source без claims об effective session."""
 
         try:
@@ -965,8 +969,8 @@ class McpService:
 
             registration = first_party_source_registration(root)
         except (ImportError, OSError, UnicodeError, ValueError, ToolingError):
-            return False
-        return registration.get("status") == "ready"
+            return "unknown"
+        return "ready" if registration.get("status") == "ready" else "invalid"
 
     @staticmethod
     def _session_state(
@@ -984,11 +988,12 @@ class McpService:
         if len(revisions) != 1:
             return "not_observable"
         runtime_revision = next(iter(revisions))
+        if len(runtime_revision) < 40:
+            return "not_observable"
         try:
-            current_revision = GitClient(root).head()
-            changed_paths = GitClient(root).changed_paths(
-                runtime_revision, current_revision
-            )
+            git = GitClient(root)
+            current_revision = git.head()
+            changed_paths = git.changed_paths(runtime_revision, current_revision)
         except ToolingError:
             return "not_observable"
         classification = classify_source_changes(changed_paths)
@@ -1091,12 +1096,21 @@ class McpService:
         runtime_state, runtime = self._runtime_status(root, bundle)
         source_state = "ready"
         try:
-            self.source.check(root)
+            self.source.check(root, build=build)
         except ToolingError:
             source_state = "drift"
-        if not self._registration_state(root):
+        registration_state = self._registration_state(root)
+        if registration_state == "invalid":
             source_state = "invalid"
-        plugin_state = "ready" if source_state == "ready" else "drift"
+        elif registration_state == "unknown" and source_state == "ready":
+            source_state = "unknown"
+        plugin_state = (
+            "ready"
+            if source_state == "ready"
+            else "unknown"
+            if source_state == "unknown"
+            else "drift"
+        )
         session_state: Literal["current", "reload_required", "not_observable", "unknown"] = (
             "reload_required"
             if build.plugin_changed
@@ -1177,7 +1191,9 @@ class McpService:
                 message="MCP source registration не соответствует canonical route.",
                 details=details,
             )
-        if details.source_state != "ready":
+        if details.source_state == "unknown":
+            code = ResultCode.TOOLING_VERIFICATION_UNKNOWN
+        elif details.source_state != "ready":
             code = ResultCode.MCP_SOURCE_BUNDLE_DRIFT
         elif runtime_state == "conflict":
             code = ResultCode.TOOLING_PORT_CONFLICT
@@ -1486,7 +1502,11 @@ class McpService:
                 for name in MCP_SERVER_NAMES
                 if service_items.get(name, {}).get("ready") is not True
                 and isinstance(supervisors.get(name), dict)
-                and supervisors[name].get("code") == "LOCAL_MCP_SUPERVISOR_READY"
+                and supervisors[name].get("code")
+                in {
+                    "LOCAL_MCP_SUPERVISOR_READY",
+                    "LOCAL_MCP_SUPERVISOR_STOPPED",
+                }
             )
             if not stale_names:
                 raise ToolingError(
@@ -1494,6 +1514,8 @@ class McpService:
                     "Устаревший local MCP runtime не имеет безопасного exact owner.",
                 )
             for name in stale_names:
+                if supervisors[name].get("code") == "LOCAL_MCP_SUPERVISOR_STOPPED":
+                    continue
                 if not self._supervisor(root, name).stop():
                     raise ToolingError(
                         ResultCode.MCP_RUNTIME_STALE,

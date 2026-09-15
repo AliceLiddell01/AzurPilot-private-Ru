@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 import azurpilot.tooling.mcp as mcp_tooling
+import dev_tools.mcp_status as mcp_status
 from azurpilot.tooling.errors import ToolingError
 from dev_tools.mcp_status import first_party_source_registration
 from module.mcp_shared.catalog import tool_catalog_sha256_from_tools
@@ -78,6 +79,17 @@ def test_source_classification_maps_shared_and_plugin_changes() -> None:
     )
     assert classification.plugin_changed is True
     assert classification.skill_changed is True
+
+
+def test_source_classification_preserves_dot_prefixed_paths() -> None:
+    classification = mcp_tooling.classify_source_changes(
+        ("./.codex/config.toml", ".github/workflows/ci.yml")
+    )
+
+    assert classification.unknown_paths == (
+        ".codex/config.toml",
+        ".github/workflows/ci.yml",
+    )
 
 
 def test_shared_registration_model_reports_stdio_and_loopback_routes() -> None:
@@ -185,6 +197,28 @@ def test_auth_readiness_is_scoped_to_servers_being_started(monkeypatch) -> None:
     assert not mcp_tooling.McpService._auth_ready()
 
 
+@pytest.mark.parametrize(
+    ("registration", "expected"),
+    (({"status": "partial"}, "invalid"), (OSError("probe failed"), "unknown")),
+)
+def test_registration_state_distinguishes_unknown_probe(
+    registration: object, expected: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if isinstance(registration, BaseException):
+        def failed_probe(_root: Path) -> dict[str, object]:
+            raise registration
+
+        monkeypatch.setattr(mcp_status, "first_party_source_registration", failed_probe)
+    else:
+        monkeypatch.setattr(
+            mcp_status,
+            "first_party_source_registration",
+            lambda _root: registration,
+        )
+
+    assert mcp_tooling.McpService._registration_state(REPOSITORY_ROOT) == expected
+
+
 def test_runtime_source_revision_is_sanitized_before_status_model() -> None:
     server = load_mcp_bundle(REPOSITORY_ROOT).servers["azurpilot-game"]
 
@@ -195,6 +229,68 @@ def test_runtime_source_revision_is_sanitized_before_status_model() -> None:
     )
 
     assert status.source_revision is None
+
+
+def test_runtime_reconcile_can_start_service_with_stopped_supervisor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = mcp_tooling.McpService()
+    bundle = load_mcp_bundle(REPOSITORY_ROOT)
+    runtime_results = [
+        (
+            "stale",
+            {
+                "services": [
+                    {"server_name": "azurpilot-dev", "ready": False},
+                    {"server_name": "azurpilot-game", "ready": True},
+                ],
+                "supervisors": {
+                    "azurpilot-dev": {
+                        "code": "LOCAL_MCP_SUPERVISOR_STOPPED"
+                    },
+                    "azurpilot-game": {
+                        "code": "LOCAL_MCP_SUPERVISOR_READY"
+                    },
+                },
+            },
+        ),
+        (
+            "ready",
+            {
+                "services": [
+                    {"server_name": "azurpilot-dev", "ready": True},
+                    {"server_name": "azurpilot-game", "ready": True},
+                ],
+                "supervisors": {},
+            },
+        ),
+    ]
+    start_calls: list[tuple[str, ...]] = []
+
+    monkeypatch.setattr(service, "_bundle", lambda _root: bundle)
+    monkeypatch.setattr(
+        service,
+        "_runtime_status",
+        lambda _root, _bundle: runtime_results.pop(0),
+    )
+
+    def start_owned(
+        _root: Path,
+        _bundle: object,
+        *,
+        server_names: tuple[str, ...],
+    ) -> tuple[bool, dict[str, object]]:
+        start_calls.append(server_names)
+        return True, {}
+
+    monkeypatch.setattr(service, "_start_owned", start_owned)
+
+    result = service.reconcile(REPOSITORY_ROOT)
+
+    assert result.ok
+    assert start_calls == [("azurpilot-dev",)]
+    assert result.details is not None
+    assert result.details.restarted_servers == ("azurpilot-dev",)
 
 
 def test_reconciler_detects_unreconciled_source_without_mutating_repository(

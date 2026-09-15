@@ -518,7 +518,7 @@ def load_mcp_bundle(root: Path | str | None = None) -> McpBundle:
     for key, value in raw_sources.items():
         name = _string(key, "source_digests key", pattern=re.compile(r"[A-Z][A-Z0-9_]{0,63}"))
         source_digests[name] = _string(value, f"source_digests.{name}", pattern=_HASH_RE)
-    return McpBundle(
+    bundle = McpBundle(
         schema_version=MCP_VERSION_MANIFEST_SCHEMA_VERSION,
         bundle_revision=bundle_revision,
         plugin_version=plugin_version,
@@ -527,6 +527,11 @@ def load_mcp_bundle(root: Path | str | None = None) -> McpBundle:
         compatibility=MappingProxyType(compatibility),
         source_digests=MappingProxyType(source_digests),
     )
+    if required_ranges != bundle.required_mcp_servers:
+        raise VersioningError(
+            "compatibility.required_mcp_servers не совпадает с версиями servers"
+        )
+    return bundle
 
 
 def load_server_versions(root: Path | str | None = None) -> dict[str, str]:
