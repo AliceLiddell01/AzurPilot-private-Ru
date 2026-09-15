@@ -98,7 +98,7 @@ class GemsCampaignOverride(CampaignBase):
         if self.config.GemsFarming_IgnoreEmotionWarning or self.config.GemsFarming_ChangeVanguard == 'disabled':
             result = self.handle_popup_confirm('IGNORE_LOW_EMOTION')
             if result:
-                # 避免点击 AUTO_SEARCH_MAP_OPTION_OFF
+                # Не нажимаем AUTO_SEARCH_MAP_OPTION_OFF
                 self.interval_reset(AUTO_SEARCH_MAP_OPTION_OFF)
                 if self.config.GemsFarming_IgnoreEmotionWarning and self.config.GemsFarming_ChangeVanguard != 'disabled':
                     self.config.GEMS_EMOTION_TRIGGERED = True
@@ -187,7 +187,7 @@ class GemsEquipmentHandler(EquipmentCodeHandler):
                 skip_first_screenshot = False
             else:
                 self.device.screenshot()
-            # 结束条件
+            # Условие завершения
             if not self.appear(EMPTY_SHIP_R):
                 break
             else:
@@ -593,7 +593,7 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
                 if candidates:
                     return [candidates[0]]
 
-                # 恢复排序方式，因为已更改但未找到结果
+                # Восстанавливаем порядок сортировки: он был изменён, но результат не найден
                 self.dock_sort_method_dsc_set(False)
             logger.info('[Фарм самоцветов] UseEmotionFirst не нашёл подходящих кораблей; возвращаюсь к исходному способу выбора')
 
@@ -604,17 +604,17 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
         if not self.config.GemsFarming_AllowHighFlagshipLevel:
             ships = scanner.scan(self.device.image)
             if ships:
-                # 不需要更换当前舰船
+                # Текущий корабль менять не нужно
                 return ships
 
-            # 更换为任意舰船
+            # Заменяем на любой корабль
             scanner.set_limitation(fleet=0)
 
         if self.config.GemsFarming_CommonCV in ['custom', 'any', 'eagle']:
             candidates = self.find_custom_candidates(scanner, ship_type='cv')
 
             if candidates:
-                # 更换为指定舰船
+                # Заменяем на указанный корабль
                 return candidates
 
             return scanner.scan(self.device.image, output=False)
@@ -626,7 +626,7 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
                           if template.match(self.image_crop(ship.button, copy=False), similarity=SIM_VALUE)]
 
             if candidates:
-                # 更换为指定舰船
+                # Заменяем на указанный корабль
                 return candidates
 
             logger.info('[Фарм самоцветов] Указанный авианосец не найден; пробую обратный порядок.')
@@ -676,8 +676,8 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
 
         min_level, max_level = self.config.GemsFarming_VanguardLevelMin, self.config.GemsFarming_VanguardLevelMax
         
-        # 如果新设置保持在绝对默认值 (1, 125)，回退到旧逻辑
-        # 以防止破坏隐式依赖 100/70 的现有 GemsFarming 配置。
+        # Если новые настройки остались на абсолютных значениях по умолчанию (1, 125), возвращаемся к старой логике
+        # Это сохраняет существующие конфигурации GemsFarming, неявно зависящие от 100/70.
         if min_level <= 1 and max_level >= 125:
             if self.config.SERVER in ['cn']:
                 max_level = 100
@@ -730,14 +730,14 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
                     return candidates
 
         if self.config.GemsFarming_CommonDD in ['any', 'favourite', 'z20_or_z21', 'DDG']:
-            # 更换为任意舰船
+            # Заменяем на любой корабль
             return scanner.scan(self.device.image)
 
         elif self.config.GemsFarming_CommonDD == 'custom':
             candidates = self.find_custom_candidates(scanner, ship_type='dd')
 
             if candidates:
-                # 更换为指定舰船
+                # Заменяем на указанный корабль
                 return candidates
 
             return scanner.scan(self.device.image, output=False)
@@ -746,13 +746,13 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
             candidates = self.find_candidates(self.get_templates(self.config.GemsFarming_CommonDD), scanner)
 
             if candidates:
-                # 更换为指定舰船
+                # Заменяем на указанный корабль
                 return candidates
 
             logger.info('[Фарм самоцветов] Указанный эсминец не найден; пробую обратный порядок.')
             self.dock_sort_method_dsc_set(False)
 
-            # 更换为指定舰船
+            # Заменяем на указанный корабль
             candidates = self.find_candidates(self.get_templates(self.config.GemsFarming_CommonDD), scanner)
             return candidates
 
@@ -783,7 +783,7 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
                 if self.match_ship_to_template(ship, template):
                     matched_candidates.append((ship, i))
                     break
-        # 按情绪值（降序）和优先级索引（升序）排序
+        # Сортируем по настроению (по убыванию) и индексу приоритета (по возрастанию)
         matched_candidates.sort(key=lambda x: (x[0].emotion, -x[1]), reverse=True)
         return [x[0] for x in matched_candidates]
 
@@ -802,7 +802,7 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
                 if self.match_ship_to_template(ship, template):
                     matched_candidates.append((ship, i))
                     break
-        # 按情绪值（降序）、等级（升序）和优先级索引（升序）排序
+        # Сортируем по настроению (по убыванию), уровню (по возрастанию) и индексу приоритета (по возрастанию)
         matched_candidates.sort(key=lambda x: (x[0].emotion, -x[0].level, -x[1]), reverse=True)
         return [x[0] for x in matched_candidates]
 
@@ -922,7 +922,7 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
             if self.appear(self.page_fleet_check_button, offset=(30, 30), interval=5):
                 self.device.click(button)
                 continue
-            # 2025.05.29 进入船坞时游戏会弹出皮肤功能提示
+            # 2025.05.29 при входе в док игра показывает подсказку о функции скинов
             if self.handle_game_tips():
                 return False
         return True
@@ -1038,7 +1038,7 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
         Returns:
             bool: 是否触发停止条件。
         """
-        # 等级 32 限制
+        # Ограничение 32-го уровня
         if self._trigger_lv32 or (
                 self.change_flagship and self.campaign.config.LV32_TRIGGERED
                 and not self.config.GemsFarming_AllowHighFlagshipLevel):
@@ -1082,9 +1082,9 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
             total (int): 总运行次数限制。
         """
         self.config.STOP_IF_REACH_LV32 = self.change_flagship and not self.config.GemsFarming_AllowHighFlagshipLevel
-        # 初始检查旗舰等级。
-        # 如果启用了旗舰更换，在开始时强制更换旗舰。
-        # 解决脚本以 32 级旗舰启动但未退役的问题。
+        # Начальная проверка уровня флагмана.
+        # Если включена замена флагмана, принудительно меняем его при запуске.
+        # Это решает проблему запуска скрипта с флагманом 32-го уровня, который ещё не был отправлен в отставку.
         initial_check = (
             self.change_flagship
             and not self.config.GemsFarming_AllowHighFlagshipLevel
@@ -1132,7 +1132,7 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
                     from module.exception import GameStuckError
                     raise GameStuckError
 
-            # 结束条件
+            # Условие завершения
             if self._trigger_lv32 or self._trigger_emotion:
                 success = True
                 self.hard_mode_override()
@@ -1157,7 +1157,7 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
                 self.campaign.config.LV32_TRIGGERED = False
                 self.campaign.config.GEMS_EMOTION_TRIGGERED = False
 
-                # 调度器
+                # Планировщик
                 if self.config.task_switched():
                     self._trigger_emotion = False
                     self.campaign.ensure_auto_search_exit()
