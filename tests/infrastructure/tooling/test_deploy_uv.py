@@ -118,6 +118,8 @@ class TestUvCommandOutput(unittest.TestCase):
 
         self.assertEqual(110, ensure_python.call_args.kwargs["deadline"])
         self.assertEqual(5, run_sync.call_args.args[4])
+        self.assertIn("--no-dev", run_sync.call_args.args[0])
+        self.assertNotIn("--no-install-project", run_sync.call_args.args[0])
 
     def test_dependency_service_exits_when_parent_process_is_gone(self):
         requests = Mock()

@@ -1,4 +1,11 @@
 Deploy:
+  Git:
+    Remote: origin
+    Branch: personal/stable
+    Repository: git@github.com:AliceLiddell01/AzurPilot-private-Ru.git
+    UpstreamRemote: upstream
+    UpstreamPushUrl: DISABLED
+
   Python:
     PythonExecutable: ./.venv/Scripts/python.exe
     PypiMirror: null

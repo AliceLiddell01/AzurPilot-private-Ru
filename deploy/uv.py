@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Union
@@ -171,11 +172,16 @@ def _resolve_uv(root: Path, bootstrap_uv: Optional[PathLikeArg] = None) -> Path:
     )
 
 
-def _uv_python_env(root: Path):
-    env = os.environ.copy()
+def _uv_python_env(
+    root: Path,
+    base_environment: Mapping[str, str] | None = None,
+    state_root: Path | None = None,
+):
+    env = dict(base_environment) if base_environment is not None else os.environ.copy()
     env.pop("UV_PYTHON", None)
-    env["UV_PYTHON_INSTALL_DIR"] = str(venv_python_install_dir(root))
-    env["UV_CACHE_DIR"] = str(root / ".uv-cache")
+    state = state_root if state_root is not None else venv_path(root)
+    env["UV_PYTHON_INSTALL_DIR"] = str(state / "python")
+    env["UV_CACHE_DIR"] = str(state / ".uv-cache")
     env.setdefault("UV_NO_PROGRESS", "1")
     return env
 
@@ -333,8 +339,9 @@ def _ensure_self_contained_python(
     uv: Path,
     outputs: Optional[list[str]] = None,
     deadline: float | None = None,
+    base_environment: Mapping[str, str] | None = None,
 ):
-    env = _uv_python_env(root)
+    env = _uv_python_env(root, base_environment=base_environment)
     if _venv_python_works(root) and _managed_python_executable(root):
         return
 
@@ -422,8 +429,14 @@ def sync_project_venv(
     bootstrap_uv: Optional[PathLikeArg] = None,
     capture_output: bool = False,
     timeout: float | None = None,
+    environment: Mapping[str, str] | None = None,
+    project_environment: PathLikeArg | None = None,
+    project_path: PathLikeArg | None = None,
+    python_executable: PathLikeArg | None = None,
+    state_root: PathLikeArg | None = None,
+    install_project: bool = True,
 ) -> Optional[UvCommandResult]:
-    """在单一总时限内准备解释器、虚拟环境并同步项目依赖。"""
+    """Выполнить ограниченную синхронизацию текущей или внешней среды кандидата."""
     root = root or project_root()
     if not _deploy_bool(root, "InstallDependencies", default=True):
         output = "InstallDependencies отключён, синхронизация uv пропущена"
@@ -435,24 +448,80 @@ def sync_project_venv(
     uv = _resolve_uv(root, bootstrap_uv=bootstrap_uv)
     outputs = [] if capture_output else None
     deadline = time.monotonic() + timeout if timeout is not None else None
+    project = Path(project_path) if project_path is not None else root
+    state = Path(state_root) if state_root is not None else None
+    target_environment = (
+        Path(project_environment)
+        if project_environment is not None
+        else venv_path(root)
+    )
 
     try:
-        _ensure_self_contained_python(root, uv, outputs=outputs, deadline=deadline)
+        if project_environment is None:
+            _ensure_self_contained_python(
+                root,
+                uv,
+                outputs=outputs,
+                deadline=deadline,
+                base_environment=environment,
+            )
+            target_python = venv_python(root)
+        else:
+            target_environment = target_environment.resolve(strict=False)
+            target_environment.parent.mkdir(parents=True, exist_ok=True)
+            target_python = target_environment / (
+                "Scripts/python.exe" if os.name == "nt" else "bin/python"
+            )
+            source_python = (
+                Path(python_executable)
+                if python_executable is not None
+                else venv_python(root)
+            )
+            if not target_python.exists():
+                command = [
+                    uv,
+                    "venv",
+                    "--allow-existing",
+                    "--relocatable",
+                    "--python",
+                    source_python,
+                    target_environment,
+                ]
+                _run_and_collect(
+                    command,
+                    root,
+                    _uv_python_env(
+                        root,
+                        base_environment=environment,
+                        state_root=state,
+                    ),
+                    outputs,
+                    _remaining_timeout(deadline, command),
+                )
+            if not target_python.is_file():
+                raise RuntimeError("uv не создал среду Python для кандидата")
         command = [
             uv,
             "sync",
             "--project",
-            str(root),
+            str(project),
             "--python",
-            venv_python(root),
+            target_python,
         ]
-        if (root / "uv.lock").exists():
+        if (project / "uv.lock").exists():
             command.append("--frozen")
-        command += ["--no-dev", "--no-install-project"] + _uv_index_args(root)
+        command.append("--no-dev")
+        if not install_project:
+            command.append("--no-install-project")
+        command += _uv_index_args(root)
         _run_and_collect(
             command,
             root,
-            _uv_python_env(root),
+            _uv_python_env(
+                root,
+                base_environment=environment,
+                state_root=state,
+            ),
             outputs,
             _remaining_timeout(deadline, command),
         )

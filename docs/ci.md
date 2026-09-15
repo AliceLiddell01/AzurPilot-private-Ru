@@ -16,6 +16,12 @@ Workflow публикует три стабильных status contexts:
 
 Активный repository ruleset `Protect personal/stable` (ID `20179789`) применяется к `refs/heads/personal/stable` и требует именно эти три context со strict-проверкой актуальности ветки. Старые исторически зависимые required contexts отсутствуют. Ruleset также запрещает удаление ветки и non-fast-forward updates, требует pull request и разрешения review threads. Имена jobs являются публичным контрактом; переименование требует согласованного изменения ruleset.
 
+Workflow также публикует дополнительную проверку `macOS core tooling` на
+`macos-14`. Она не входит в текущий required ruleset, но выполняет exact-head
+проверку, locked package sync, `azur --help`, JSON doctor и cross-platform
+contract tests для Python tooling. Product-specific ADB, Docker, shortcut/COM и
+игровые acceptance по-прежнему capability-dependent и в этот core job не входят.
+
 ## Python
 
 Job выполняется на `ubuntu-24.04` с Python `3.14.6` и проверяет:
@@ -33,7 +39,7 @@ Job выполняется на `ubuntu-24.04` с Python `3.14.6` и прове�
   точного PR base;
 - `uv lock --check` и `uv sync --locked --group ci`;
 - Ruff для ошибок выполнения и импорта;
-- компиляцию основных Python entry points и каталогов;
+- компиляцию основных Python entry points и каталогов, включая `azurpilot` и `deploy`;
 - автоматическое обнаружение всего каталога `tests/` через `pytest 9.1.1`, зафиксированный в `uv.lock`;
 - permanent semantic runtime-localization audit: доказанные operator-facing sinks должны оставаться русскими, а runtime identity — только RU/Global/EN;
 - генераторы конфигурации и assets;

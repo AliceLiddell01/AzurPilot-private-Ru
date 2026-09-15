@@ -79,6 +79,14 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
 
+      - name: Подготовить Git-контекст для Doctor
+        shell: bash
+        run: |
+          set -euo pipefail
+          git update-ref refs/remotes/origin/personal/stable HEAD
+          git switch --create personal/stable
+          git branch --set-upstream-to=origin/personal/stable
+
       - name: Установить uv
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
@@ -299,6 +307,8 @@ jobs:
               Path("dev_tools"),
               Path("tests"),
               Path("tools"),
+              Path("azurpilot"),
+              Path("deploy"),
           )
           failed = False
           for root in roots:
@@ -338,6 +348,9 @@ jobs:
               --cov=module \
               --cov=campaign \
               --cov=tools \
+              --cov=azurpilot \
+              --cov=deploy \
+              --cov=dev_tools \
               --cov-branch \
               --cov-report=xml:"${artifact_dir}/coverage.xml" \
               --cov-report=term-missing:skip-covered \
@@ -601,6 +614,48 @@ jobs:
 
           if ($actualHeadValue -ne $expectedHead) {
               throw ('Получен неожиданный HEAD: {0}' -f $actualHeadValue)
+          }
+
+      - name: Подготовить Git-контекст для Doctor
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+
+          $gitCommand = Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1
+          $gitExecutable = $gitCommand.Path
+
+          $gitArguments = @(
+              'update-ref'
+              'refs/remotes/origin/personal/stable'
+              'HEAD'
+          )
+          & $gitExecutable @gitArguments
+          $gitExitCode = $LASTEXITCODE
+          if ($gitExitCode -ne 0) {
+              throw ('git update-ref завершился с кодом {0}.' -f $gitExitCode)
+          }
+
+          $gitArguments = @(
+              'switch'
+              '--create'
+              'personal/stable'
+          )
+          & $gitExecutable @gitArguments
+          $gitExitCode = $LASTEXITCODE
+          if ($gitExitCode -ne 0) {
+              throw ('git switch завершился с кодом {0}.' -f $gitExitCode)
+          }
+
+          $gitArguments = @(
+              'branch'
+              '--set-upstream-to=origin/personal/stable'
+          )
+          & $gitExecutable @gitArguments
+          $gitExitCode = $LASTEXITCODE
+          if ($gitExitCode -ne 0) {
+              throw ('git branch завершился с кодом {0}.' -f $gitExitCode)
           }
 
       - name: Установить uv
@@ -925,6 +980,32 @@ jobs:
               throw ('Windows capability tests завершились с кодом {0}.' -f $runnerExitCode)
           }
 
+          $toolingLogPath = Join-Path -Path $env:RUNNER_TEMP -ChildPath 'azurpilot-ci-windows/python-tooling.log'
+          $runnerArguments = @(
+              $runnerPath
+              '--label'
+              'Контрактные тесты Python tooling'
+              '--heartbeat-seconds'
+              '60'
+              '--log-file'
+              $toolingLogPath
+              '--'
+              $uvExecutable
+              'run'
+              '--locked'
+              'python'
+              '-m'
+              'pytest'
+              '-q'
+              'tests/infrastructure/tooling'
+          )
+          & $pythonExecutable @runnerArguments
+          $runnerExitCode = $LASTEXITCODE
+
+          if ($runnerExitCode -ne 0) {
+              throw ('Контрактные тесты Python tooling завершились с кодом {0}.' -f $runnerExitCode)
+          }
+
           $pwshCommand = Get-Command pwsh -CommandType Application -ErrorAction Stop | Select-Object -First 1
           $robocopyCommand = Get-Command robocopy -CommandType Application -ErrorAction Stop | Select-Object -First 1
           $tarCommand = Get-Command tar -CommandType Application -ErrorAction Stop | Select-Object -First 1
@@ -1100,6 +1181,78 @@ jobs:
           path: ${{ runner.temp }}/azurpilot-ci-windows
           if-no-files-found: error
           retention-days: 14
+
+  macos:
+    name: macOS core tooling
+    runs-on: macos-14
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - name: Получить exact head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        timeout-minutes: 10
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Проверить exact head
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+
+      - name: Подготовить Git-контекст для Doctor
+        shell: bash
+        run: |
+          set -euo pipefail
+          git update-ref refs/remotes/origin/personal/stable HEAD
+          git switch --create personal/stable
+          git branch --set-upstream-to=origin/personal/stable
+
+      - name: Установить uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          enable-cache: true
+          version: "0.12.13"
+
+      - name: Установить Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.14.7"
+
+      - name: Проверить locked package environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv lock --check
+          uv sync --locked --group ci
+
+      - name: Проверить кроссплатформенный CLI и контракты tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run --locked --no-sync python -m azurpilot --help
+          uv run --locked --no-sync python -m pytest -q tests/infrastructure/tooling
+          uv run --locked --no-sync python -m azurpilot --json doctor --repository-root "$GITHUB_WORKSPACE" > "$RUNNER_TEMP/azurpilot-doctor.json"
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          report = json.loads((Path(os.environ["RUNNER_TEMP"]) / "azurpilot-doctor.json").read_text(encoding="utf-8"))
+          assert report["schema_version"] == 1
+          assert report["ok"] is True
+          assert report["code"] == "OK"
+          PY
+
+      - name: Проверить чистоту рабочего дерева
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          test -z "$(git status --porcelain)"
 
   security:
     name: Security
