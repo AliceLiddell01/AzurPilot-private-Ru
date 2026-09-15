@@ -223,6 +223,11 @@ remote SHA, typed structured body и публикация через време�
 `--body-file`. После provider call выполняется read-back PR identity и полный
 body digest. Provider mismatch, cross-repository PR, duplicate candidate или
 неподтверждённый create являются blocking failure.
+Body должен быть подробным русскоязычным отчётом: цель, область и границы,
+подсистемы/файлы, фактическая реализация, локальные/live-проверки, exact-head
+CI, security/secret scan, CodeRabbit disposition, rollback/migration и
+ограничения. Короткие общие абзацы без фактов и маркированных списков не
+принимаются renderer-ом.
 
 В конце feature acceptance должны быть фактически выполнены оба интерфейса:
 человекочитаемый `azur delivery ...`/`azur pr ...` и agent-oriented invocation

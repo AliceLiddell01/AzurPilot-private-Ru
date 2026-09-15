@@ -34,6 +34,13 @@ provider вызывается с explicit `gh --repo`, а Markdown переда�
 Для read-back полей `baseRefOid` и других PR identity используется GitHub CLI
 `gh >= 2.63.0`; старый CLI с неизвестным JSON field даёт отдельный
 `TOOLING_PROVIDER_UNAVAILABLE`, а не generic provider rejection.
+PR body должен оставаться подробным русскоязычным отчётом, пригодным для
+человеческого чтения: конкретная цель, scope и границы, подсистемы и файлы,
+реализация, фактические проверки, exact-head CI, security, CodeRabbit
+disposition, rollback и ограничения. Для основных секций обязательны
+маркированные факты; короткое полупустое summary renderer отклоняет до
+provider call. Технические идентификаторы и названия инструментов сохраняются
+в исходном написании.
 
 Финальный live acceptance capability выполняется двумя интерфейсами: обычный
 human output и `--json` для agent CLI. JSON должен содержать ровно один

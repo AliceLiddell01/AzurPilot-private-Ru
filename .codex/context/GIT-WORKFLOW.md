@@ -486,6 +486,13 @@ Markdown-файл и `--body-file`, а затем прочитан обратн�
 фактически выполненные gates, security result, migration/rollback,
 ограничения и предполагаемый merge method. Inline shell body и implicit
 repository context запрещены.
+Body является полноценным русскоязычным отчётом для человека, а не коротким
+автоматическим summary: в каждой секции должны быть конкретные факты, а в
+scope, реализации, проверках, CI, security, rollback и ограничениях —
+маркированные пункты. English допускается только для technical identifiers,
+названий API/инструментов, protocol tokens, CI contexts и других специальных
+слов, которые нельзя безопасно переводить. Renderer обязан отклонять
+полупустой body до provider call.
 
 Для delivery допустим только manifest с закрытой схемой, exact repository,
 branch/base/head, preimage/postimage и allowlist paths. В index добавляются

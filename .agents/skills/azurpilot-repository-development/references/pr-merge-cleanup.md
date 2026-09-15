@@ -11,7 +11,12 @@
 4. создай или обнови **draft PR** в `personal/stable` через typed spec и
    temporary body-file с explicit `--repo`, `--base`, `--head`; body обязан
    содержать exact identity, scope, подсистемы, проверки, security result,
-   CodeRabbit disposition, rollback и ограничения;
+   CodeRabbit disposition, rollback и ограничения. Body пиши на русском языке
+   и делай полноценным отчётом: каждая секция должна содержать конкретные
+   факты, а sections со scope/реализацией/проверками/CI/security/rollback/
+   ограничениями — маркированные списки, а не короткие общие фразы. Английский
+   допускается только для технических identifiers, API/tool names, protocol
+   tokens и других необходимых специальных слов;
 5. проверь required CI на exact head, отсутствие blocking review threads,
    итоговый diff и secret scan;
 6. установи состояние `READY_FOR_CHATGPT_REVIEW` и остановись.

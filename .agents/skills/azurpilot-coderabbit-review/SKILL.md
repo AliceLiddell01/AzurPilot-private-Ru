@@ -109,6 +109,11 @@ head или auth; текст на скриншоте не является от�
   `confirmed`, `partially confirmed`, `false positive` или `insufficient
   evidence`; если PR уже создан, перенеси findings, impact, путь, disposition
   и fix head в structured PR body через `--body-file` и проверь read-back.
+  Обновляемый body должен оставаться полноценным русскоязычным PR-отчётом:
+  не заменяй существующие разделы короткой таблицей findings и не оставляй
+  общие однострочные описания; сохраняй цель, scope, реализацию, все проверки,
+  exact-head CI, security, rollback и ограничения. Специальные английские
+  слова допускаются только для technical identifiers и имён инструментов.
 
 ## Rate limit и результат
 

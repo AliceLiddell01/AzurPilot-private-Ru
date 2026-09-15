@@ -58,6 +58,28 @@ _BODY_HEADINGS = (
     "## Migration / rollback",
     "## Ограничения",
 )
+_BODY_CONTENT_MINIMUMS = (
+    ("goal", "Цель", 160),
+    ("scope", "Scope", 260),
+    ("implementation", "Реализация", 450),
+    ("checks", "Проверки", 360),
+    ("ci", "CI", 180),
+    ("security_secret_scan", "Security / secret scan", 200),
+    ("migration_rollback", "Migration / rollback", 160),
+    ("limitations", "Ограничения", 160),
+)
+_BODY_BULLET_FIELDS = frozenset(
+    {
+        "scope",
+        "implementation",
+        "checks",
+        "ci",
+        "security_secret_scan",
+        "migration_rollback",
+        "limitations",
+    }
+)
+_BODY_MINIMUM_TOTAL_CHARS = 2_000
 
 
 def _error(
@@ -93,7 +115,7 @@ def load_pr_spec(path: str | os.PathLike[str]) -> PrPublicationSpec:
 
 
 class PullRequestBodyRenderer:
-    """Рендерит только структурированную body-модель в deterministic Markdown."""
+    """Рендерит полный русскоязычный PR-отчёт из structured body model."""
 
     @classmethod
     def render(cls, body: PullRequestBody, *, base_sha: str, head_sha: str) -> str:
@@ -101,24 +123,24 @@ class PullRequestBodyRenderer:
         review = body.coderabbit_review
         if review is None:
             review_text = (
-                "CodeRabbit review ещё не запускался в этой точке lifecycle. "
-                "После создания draft PR review выполняется в permanent WSL2 Arch clone; "
+                "Проверка CodeRabbit ещё не выполнялась на этой точке lifecycle. "
+                "После создания draft PR проверка выполняется в постоянном WSL2 Arch clone; "
                 "результат и disposition будут добавлены отдельным обновлением body."
             )
         else:
             findings = list(review.findings)
             lines = [
-                f"Reviewed head: `{review.reviewed_head}`.",
+                f"Проверенный head: `{review.reviewed_head}`.",
                 f"Base SHA: `{review.base_sha}`.",
-                f"Findings: {len(findings)}.",
+                f"Количество findings: {len(findings)}.",
             ]
             if review.rate_limit:
-                lines.append(f"Rate limit: {review.rate_limit}")
+                lines.append(f"Ограничение rate limit: {review.rate_limit}")
             if findings:
                 lines.extend(
                     (
                         "",
-                        "| Severity | Path | Impact | Disposition | Resolution | Fix head |",
+                        "| Уровень | Путь | Влияние | Решение | Исправление | SHA исправления |",
                         "| --- | --- | --- | --- | --- | --- |",
                     )
                 )
@@ -134,7 +156,7 @@ class PullRequestBodyRenderer:
                     for finding in findings
                 )
             else:
-                lines.append("Blocking findings: нет.")
+                lines.append("Блокирующих findings нет.")
             review_text = "\n".join(lines)
 
         sections = (
@@ -147,7 +169,7 @@ class PullRequestBodyRenderer:
             ("CodeRabbit review и disposition", review_text),
             (
                 "Migration / rollback",
-                f"Предполагаемый merge method: `{body.merge_method}`.\n\n{body.migration_rollback}",
+                f"Предполагаемый способ merge: `{body.merge_method}`.\n\n{body.migration_rollback}",
             ),
             ("Ограничения", body.limitations),
         )
@@ -158,6 +180,41 @@ class PullRequestBodyRenderer:
 
     @classmethod
     def validate(cls, body: PullRequestBody, *, base_sha: str, head_sha: str) -> None:
+        values = {field: getattr(body, field) for field, _, _ in _BODY_CONTENT_MINIMUMS}
+        total_chars = sum(len(value.strip()) for value in values.values())
+        if total_chars < _BODY_MINIMUM_TOTAL_CHARS:
+            raise _error(
+                ResultCode.TOOLING_PR_BODY_INVALID,
+                "PR body слишком короткий: нужен полный содержательный отчёт, а не набор коротких тезисов.",
+            )
+        too_short = [
+            heading
+            for field, heading, minimum in _BODY_CONTENT_MINIMUMS
+            if len(values[field].strip()) < minimum
+        ]
+        if too_short:
+            raise _error(
+                ResultCode.TOOLING_PR_BODY_INVALID,
+                "Секции PR body недостаточно содержательны: "
+                + ", ".join(too_short)
+                + ".",
+            )
+        missing_bullets = [
+            heading
+            for field, heading, _ in _BODY_CONTENT_MINIMUMS
+            if field in _BODY_BULLET_FIELDS
+            and not any(
+                line.lstrip().startswith(("- ", "* "))
+                for line in values[field].splitlines()
+            )
+        ]
+        if missing_bullets:
+            raise _error(
+                ResultCode.TOOLING_PR_BODY_INVALID,
+                "В секциях PR body нужны маркированные факты: "
+                + ", ".join(missing_bullets)
+                + ".",
+            )
         review = body.coderabbit_review
         if review is not None and (
             review.base_sha != base_sha or review.reviewed_head != head_sha

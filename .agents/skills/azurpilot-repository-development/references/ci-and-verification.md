@@ -49,5 +49,14 @@ read-only ref check.
 base/head refs и SHAs, same-repository head и draft state. Duplicate,
 cross-repository, wrong-head или provider-unknown result блокируют publication.
 
+Structured body должен быть содержательным отчётом для человека: цель и scope,
+изменённые подсистемы и ключевые файлы, фактическая реализация, локальные и
+live-проверки, exact-head CI, security/secret result, CodeRabbit disposition,
+rollback/migration и ограничения. Не публикуй секции из одной общей фразы.
+Операторский текст пиши полностью на русском; английскими остаются только
+необходимые technical identifiers, названия инструментов, API, protocol tokens
+и CI contexts. Renderer отклоняет короткий body или секции без фактических
+маркированных пунктов до обращения к provider.
+
 Финальный live gate этого capability должен включать фактический human CLI
 вызов и agent CLI с `--json`; JSON выводится одним закрытым result envelope.

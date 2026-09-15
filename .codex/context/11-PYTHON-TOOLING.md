@@ -651,6 +651,14 @@ pr prepare
 | `pr prepare` | exact local/remote base/head, hosted remote identity и все обязательные body sections | body/spec/provider boundary с неверным exact identity отклоняется |
 | `pr publish/verify` | explicit `gh pr` repository, draft flag, candidate ambiguity check, temporary `--body-file`, provider read-back и body digest | cross-repository, wrong SHA, non-draft, duplicate или unknown provider result блокируют публикацию |
 
+`pull_request.py` строит не короткое summary, а полный русскоязычный PR report.
+В нём должны быть конкретные сведения о цели, scope и границах, подсистемах и
+файлах, реализации, локальных/live-проверках, exact-head CI,
+security/secret scan, CodeRabbit disposition, rollback/migration и ограничениях.
+Основные секции требуют маркированные факты; английский текст разрешён только
+для technical identifiers, имён инструментов/API, protocol tokens и CI contexts.
+Минимальная содержательность проверяется до записи временного `body-file`.
+
 ### 6.2 Reusable primitives
 
 Первый implementation должен выделить и протестировать:

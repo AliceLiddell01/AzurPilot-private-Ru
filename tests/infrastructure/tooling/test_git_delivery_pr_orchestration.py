@@ -251,14 +251,62 @@ def test_github_provider_classifies_unknown_json_field_as_unavailable(
 
 def test_structured_pr_body_contains_required_sections_and_exact_review_head() -> None:
     body = PullRequestBody(
-        goal="Цель изменения.",
-        scope="Scope изменения.",
-        implementation="Реализация.",
-        checks="Тесты.",
-        ci="Python, Windows, Security.",
-        security_secret_scan="Scoped scan.",
-        migration_rollback="Rollback: no migration.",
-        limitations="CodeRabbit выполняется внешним checkpoint.",
+        goal=(
+            "Добавить безопасную fail-closed публикацию Git-изменений и draft PR.\n\n"
+            "Оператор должен видеть не только результат команды, но и доказательства того, "
+            "какой repository, branch, base и head были проверены."
+        ),
+        scope=(
+            "В область изменения входят следующие подсистемы:\n"
+            "- typed delivery manifest и exact repository state;\n"
+            "- allowlist staging, scoped Gitleaks и ordinary push;\n"
+            "- structured PR body, provider read-back и human/JSON CLI.\n\n"
+            "За пределами области остаются MCP migration, игровые runtime-сценарии и merge."
+        ),
+        implementation=(
+            "Реализация разделена на несколько связанных границ:\n"
+            "- `azurpilot.tooling.delivery` проверяет preimage/postimage, staged scope, commit parent, "
+            "remote SHA и read-only recovery;\n"
+            "- `azurpilot.tooling.pull_request` строит body из typed model, пишет временный body-file, "
+            "вызывает `gh --repo` и сверяет identity после provider call;\n"
+            "- `azurpilot.tooling.git` сохраняет бинарные Git object bytes и не принимает усечённый stdout;\n"
+            "- CLI предоставляет одинаковую capability для человека и agent-oriented JSON."
+        ),
+        checks=(
+            "Проверены не только отдельные функции, но и сквозной сценарий:\n"
+            "- disposable bare remote с реальным commit/push и journal status;\n"
+            "- отказ при unrelated staged path и проверка exact identity;\n"
+            "- structured body, старый `gh` JSON field и truncated Git object;\n"
+            "- human output и один закрытый JSON envelope через live CLI;\n"
+            "- полный локальный pytest и финальные scoped secret scans."
+        ),
+        ci=(
+            "Exact-head CI проверяет текущий commit, а не только имя ветки:\n"
+            "- `Python` запускает полный pytest и project tooling checks;\n"
+            "- `Windows` выполняет Windows-specific parser и regression gates;\n"
+            "- `Security` выполняет security/privacy и secret checks;\n"
+            "- дополнительный `macOS core tooling` подтверждает кроссплатформенный CLI contract."
+        ),
+        security_secret_scan=(
+            "Secret scope ограничен фактическим изменением:\n"
+            "- staged Gitleaks проверяет только allowlist index;\n"
+            "- committed-range Gitleaks проверяет диапазон от base SHA до exact head;\n"
+            "- URL с credentials, secrets, logs и случайные артефакты не добавлялись;\n"
+            "- оба запуска завершились без findings."
+        ),
+        migration_rollback=(
+            "Схема данных и Alembic head не изменяются; миграция данных не требуется.\n"
+            "- До merge rollback — закрыть draft PR и удалить task branch после отдельного решения;\n"
+            "- при unknown push использовать только `delivery status/recover`, без blind retry;\n"
+            "- после merge откат выполняется обычным согласованным Git rollback-процессом."
+        ),
+        limitations=(
+            "Ограничения текущего checkpoint:\n"
+            "- PR остаётся Draft до финального ChatGPT review пользователя; merge не выполняется;\n"
+            "- physical device, MuMu, ADB и игровой acceptance в scope не входят;\n"
+            "- CodeRabbit является внешним review checkpoint в постоянном WSL2 Arch clone;\n"
+            "- provider требует GitHub CLI `gh >= 2.63.0` для поля `baseRefOid`."
+        ),
     )
     rendered = PullRequestBodyRenderer.render(
         body,
@@ -268,6 +316,24 @@ def test_structured_pr_body_contains_required_sections_and_exact_review_head() -
     assert all(heading in rendered for heading in PullRequestBodyRenderer.sections())
     assert rendered.endswith("\n")
     assert PullRequestBodyRenderer.body_sha256(rendered)
+
+
+def test_structured_pr_body_rejects_thin_operator_report() -> None:
+    body = PullRequestBody(
+        goal="Короткая цель.",
+        scope="Короткий scope.",
+        implementation="Короткая реализация.",
+        checks="Короткие проверки.",
+        ci="CI.",
+        security_secret_scan="Сканирование.",
+        migration_rollback="Откат.",
+        limitations="Ограничения.",
+    )
+
+    with pytest.raises(ToolingError) as error:
+        PullRequestBodyRenderer.render(body, base_sha="a" * 40, head_sha="b" * 40)
+
+    assert error.value.code is ResultCode.TOOLING_PR_BODY_INVALID
 
 
 def test_nested_cli_parser_exposes_delivery_and_pr_actions() -> None:
