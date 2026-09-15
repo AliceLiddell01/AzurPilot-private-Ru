@@ -15,6 +15,7 @@ from module.mcp_shared.versioning import (
     UNKNOWN_SOURCE_REVISION,
     SemVer,
     VersioningError,
+    load_mcp_bundle,
     load_server_versions,
     parse_version_range,
     source_revision,
@@ -28,6 +29,36 @@ def test_manifest_is_the_single_source_for_server_semver() -> None:
     assert set(versions) == {"azurpilot-dev", "azurpilot-game"}
     assert contract_payload()["server_version"] == versions["azurpilot-dev"]
     assert game_contract_payload()["server_version"] == versions["azurpilot-game"]
+
+
+def test_manifest_rejects_non_derived_required_server_range(tmp_path: Path) -> None:
+    source_manifest = REPOSITORY_ROOT / "config" / "mcp-versions.toml"
+    manifest = tmp_path / "config" / "mcp-versions.toml"
+    manifest.parent.mkdir()
+    content = source_manifest.read_text(encoding="utf-8")
+    expected_range = load_mcp_bundle(REPOSITORY_ROOT).required_mcp_servers[
+        "azurpilot-dev"
+    ]
+    manifest.write_text(
+        content.replace(
+            f'"azurpilot-dev" = "{expected_range}"',
+            '"azurpilot-dev" = "=0.0.0"',
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(VersioningError, match="required_mcp_servers"):
+        load_mcp_bundle(tmp_path)
+
+
+def test_manifest_rejects_non_utf8_bytes(tmp_path: Path) -> None:
+    manifest = tmp_path / "config" / "mcp-versions.toml"
+    manifest.parent.mkdir()
+    manifest.write_bytes(b"\xff")
+
+    with pytest.raises(VersioningError, match="UTF-8"):
+        load_mcp_bundle(tmp_path)
 
 
 def test_contract_versions_are_startup_snapshots(monkeypatch) -> None:

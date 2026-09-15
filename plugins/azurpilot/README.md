@@ -21,10 +21,10 @@ remote runtime остаются внешними по отношению к pack
   `uv run --locked --no-sync python -m module.dev_mcp`.
 - Codex вызывает project-scoped `azurpilot-game` напрямую через local stdio:
   `uv run --locked --no-sync python -m module.game_mcp`.
-- Codex Desktop при Windows stdio bootstrap failure использует отдельный
-  authenticated loopback alias `azurpilot_game` на
-  `http://127.0.0.1:8776/mcp`; protocol identity остаётся `azurpilot-game`.
-- Аналогично Dev Desktop alias — `azurpilot_dev` на
+- Codex Desktop может использовать first-class authenticated loopback route
+  `azurpilot_game` на `http://127.0.0.1:8776/mcp`; protocol identity остаётся
+  `azurpilot-game`. Этот route не является аварийным alias и выбирается явно.
+- Аналогичный first-class Dev route — `azurpilot_dev` на
   `http://127.0.0.1:8775/mcp`, при сохранении identity `azurpilot-dev`.
 - ChatGPT/public использует отдельную remote surface через authenticated public HTTPS
   URL `https://<public-host>/mcp`, Caddy и внешний OAuth/OIDC provider; это тот
@@ -40,6 +40,17 @@ Codex пропускает `.codex/config.toml`, plugin не выполняет 
 [references/mcp-routing.md](references/mcp-routing.md). Отсутствующий direct
 catalog или несовместимый contract обрабатывается fail-closed; remote
 Connected App не подменяет Codex route.
+
+Единый source of truth и lifecycle reconciliation доступны через
+`azur mcp status`, `azur mcp versions`, `azur mcp reconcile`, `azur mcp start`,
+`azur mcp stop` и `azur mcp restart`. `reconcile --source` обновляет только
+производные plugin metadata после проверки source sets; `reconcile --runtime`
+не изменяет tracked source. После успешного `azur update` reconciliation
+выполняется автоматически и является обязательным postcondition: ошибка source,
+runtime, ownership, port или readiness делает Update неуспешным. Изменение
+plugin/skill snapshot не маскируется под hot reload: session получает
+`MCP_RELOAD_REQUIRED`, а runtime restart должен быть подтверждён новым readiness
+и catalog evidence отдельно.
 
 Публикуемые данные должны оставаться workflow-only. Не добавляй в checkout
 ChatGPT app state, tunnel profiles, control-plane keys, screenshots, archives,
@@ -106,14 +117,24 @@ PostgreSQL, ADB и emulator не публикуются. Обязательны�
 
 ## Контракт и smoke
 
-`config/mcp-versions.toml` является единым источником SemVer identity для
-`azurpilot-dev` (`3.0.0`) и `azurpilot-game` (`1.0.0`).
-`compatibility.json` фиксирует bounded `required_mcp_servers` ranges, версии
-внутренних API/Smoke schemas, required feature flags, capability families и
-result outcomes. Development Runtime
+`config/mcp-versions.toml` является единым canonical bundle для SemVer/API
+identity обоих first-party servers, contract/tool catalog и source/plugin/skill
+revisions. `compatibility.json` — его производный plugin snapshot: он фиксирует
+bounded `required_mcp_servers` ranges, версии внутренних API/Smoke schemas,
+required feature flags, capability families, result outcomes, tool catalog hash,
+capability hash и contract revision. Development Runtime
 разрешает target через канонический registry: при отсутствии локального marker
 используется профиль по умолчанию из target policy (`ap` при успешной
 структурной проверке), а смена target требует явного согласия пользователя.
+Backend source sets — bounded explicit mapping реальных MCP application и
+persistence dependencies; management-only reconciliation/Git tooling не входит
+в identity backend. Plugin и skills имеют отдельные source revisions. Для CI и
+ручной проверки policy используй
+`uv run --locked --no-sync python -m dev_tools.mcp_compatibility_gate
+--base-commit <full-base-sha>`: gate отдельно проверяет current-tree integrity и
+base-to-head compatibility.
+Производные JSON-файлы plugin metadata сохраняются в UTF-8 без Unicode-экранирования,
+чтобы русские описания отображались как текст, а не как Unicode escape-последовательности.
 Имя target не передаётся через MCP. Skill сначала вызывает
 `dev_get_contract`; любое несовпадение даёт `PLUGIN_RUNTIME_INCOMPATIBLE` и
 запрещает mutating calls.

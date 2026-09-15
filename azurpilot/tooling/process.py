@@ -32,6 +32,17 @@ DOCKER_ENVIRONMENT_KEYS = frozenset(
         "DOCKER_CERT_PATH",
     }
 )
+MCP_LOCAL_TOKEN_ENVIRONMENT_KEYS = {
+    "azurpilot-dev": "AZURPILOT_DEV_LOCAL_MCP_TOKEN",
+    "azurpilot-game": "AZURPILOT_GAME_LOCAL_MCP_TOKEN",
+}
+MCP_LOCAL_SOURCE_DIGEST_ENVIRONMENT_KEYS = frozenset(
+    {
+        "AZURPILOT_DEV_MCP_SOURCE_SET_DIGEST",
+        "AZURPILOT_GAME_MCP_SOURCE_SET_DIGEST",
+    }
+)
+MCP_LOCAL_TEST_ENVIRONMENT_PREFIX = "TEST_LOCAL_MCP_"
 
 
 def _canonical(path: Path) -> Path:
@@ -134,6 +145,7 @@ class ProcessSpec:
     timeout_seconds: float = DEFAULT_PROCESS_TIMEOUT
     max_output_bytes: int = DEFAULT_OUTPUT_LIMIT
     env: Mapping[str, str] = field(default_factory=dict)
+    allow_test_environment: bool = False
     start_new_session: bool = True
     no_window: bool = True
 
@@ -194,7 +206,9 @@ class ProcessSpec:
         extra = dict(self.env)
         if runtime is not None:
             extra["__PYVENV_LAUNCHER__"] = str(resolved)
-        return _safe_environment(extra)
+        return _safe_environment(
+            extra, allow_test_environment=self.allow_test_environment
+        )
 
     @property
     def command(self) -> tuple[str, ...]:
@@ -304,7 +318,9 @@ class RunningProcess:
         return self.process.poll()
 
 
-def _safe_environment(extra: Mapping[str, str]) -> dict[str, str]:
+def _safe_environment(
+    extra: Mapping[str, str], *, allow_test_environment: bool = False
+) -> dict[str, str]:
     """Собрать минимальное окружение без автоматического наследования secrets."""
 
     allowed_exact = {
@@ -335,7 +351,9 @@ def _safe_environment(extra: Mapping[str, str]) -> dict[str, str]:
         "HOMEPATH",
         "LANG",
         "PYTHONUTF8",
+        "PYTHONIOENCODING",
         "PYTHONUNBUFFERED",
+        "AZURPILOT_SOURCE_REVISION",
         "NO_COLOR",
         "VIRTUAL_ENV",
     }
@@ -347,6 +365,10 @@ def _safe_environment(extra: Mapping[str, str]) -> dict[str, str]:
         "GH_PROMPT_DISABLED",
         "__PYVENV_LAUNCHER__",
     } | DOCKER_ENVIRONMENT_KEYS
+    allowed_explicit |= (
+        set(MCP_LOCAL_TOKEN_ENVIRONMENT_KEYS.values())
+        | MCP_LOCAL_SOURCE_DIGEST_ENVIRONMENT_KEYS
+    )
     result = {
         key: value
         for key, value in os.environ.items()
@@ -359,7 +381,14 @@ def _safe_environment(extra: Mapping[str, str]) -> dict[str, str]:
             character in key for character in "=\x00"
         ):
             raise ValueError("недопустимое имя переменной окружения")
-        if key not in allowed_explicit and not key.startswith(allowed_prefixes):
+        if (
+            key not in allowed_explicit
+            and not key.startswith(allowed_prefixes)
+            and not (
+                allow_test_environment
+                and key.startswith(MCP_LOCAL_TEST_ENVIRONMENT_PREFIX)
+            )
+        ):
             raise ValueError(f"переменная окружения {key!r} запрещена политикой")
         if len(key) > 128 or len(str(value)) > 4096:
             raise ValueError("переменная окружения превышает ограниченный размер")
@@ -724,6 +753,9 @@ __all__ = [
     "DEFAULT_OUTPUT_LIMIT",
     "DEFAULT_PROCESS_TIMEOUT",
     "DOCKER_ENVIRONMENT_KEYS",
+    "MCP_LOCAL_TEST_ENVIRONMENT_PREFIX",
+    "MCP_LOCAL_SOURCE_DIGEST_ENVIRONMENT_KEYS",
+    "MCP_LOCAL_TOKEN_ENVIRONMENT_KEYS",
     "ProcessController",
     "ProcessIdentity",
     "ProcessResult",

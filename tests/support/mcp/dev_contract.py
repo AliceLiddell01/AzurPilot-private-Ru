@@ -1,46 +1,26 @@
 from __future__ import annotations
 
-from module.mcp_shared.versioning import server_version, source_revision
+from module.mcp_shared.versioning import load_mcp_bundle, source_revision
+from tests.support.paths import REPOSITORY_ROOT
+
+
+_DEV_SERVER = load_mcp_bundle(REPOSITORY_ROOT).servers["azurpilot-dev"]
 
 EXPECTED_CONTRACT = {
-    "contract_schema_version": 1,
+    "contract_schema_version": _DEV_SERVER.contract_schema_version,
     "product_family": "AzurPilot",
-    "server_name": "azurpilot-dev",
-    "server_version": server_version("azurpilot-dev"),
+    "server_name": _DEV_SERVER.name,
+    "server_version": _DEV_SERVER.version,
     "source_revision": source_revision(),
-    "dev_mcp_api_version": 3,
-    "smoke_spec_schema_version": 2,
-    "smoke_result_schema_version": 2,
-    "feature_flags": {
-        "task_sandbox": True,
-        "evidence_api": True,
-        "universal_smoke_harness": True,
-        "external_visual_evaluation": True,
-        "runtime_control": True,
-        "game_lifecycle": True,
-        "emulator_lifecycle": True,
-        "adb_maintenance": True,
-        "game_observations": True,
-        "database_diagnostics": True,
-        "database_repairs": False,
-    },
-    "capability_families": [
-        "diagnostics",
-        "evidence",
-        "lifecycle",
-        "smoke",
-        "runtime_control",
-        "game",
-        "database",
-    ],
-    "result_outcomes": [
-        "PASS",
-        "PRODUCT_FAILED",
-        "PRECONDITION_FAILED",
-        "HARNESS_FAILED",
-        "EVIDENCE_INCOMPLETE",
-        "TIMEOUT",
-        "INVALIDATED",
-        "CANCELLED",
-    ],
+    "dev_mcp_api_version": _DEV_SERVER.api_version,
+    "tool_count": len(_DEV_SERVER.tool_names),
+    "tool_catalog_sha256": _DEV_SERVER.tool_catalog_sha256,
+    "authorization_scopes": list(_DEV_SERVER.authorization_scopes),
+    "smoke_spec_schema_version": _DEV_SERVER.smoke_spec_schema_version,
+    "smoke_result_schema_version": _DEV_SERVER.smoke_result_schema_version,
+    "feature_flags": dict(_DEV_SERVER.feature_flags),
+    "capability_families": list(_DEV_SERVER.capability_families),
+    "result_outcomes": list(_DEV_SERVER.result_vocabulary),
+    "capability_catalog_sha256": _DEV_SERVER.capability_catalog_sha256,
+    "contract_revision": _DEV_SERVER.contract_revision,
 }

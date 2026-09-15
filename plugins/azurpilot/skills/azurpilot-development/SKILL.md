@@ -7,9 +7,9 @@ description: "Безопасный cross-surface workflow для Development Run
 
 Этот skill обслуживает Development workflow AzurPilot. В standalone Codex CLI
 он работает с project-scoped `azurpilot-dev` из `.codex/config.toml` через
-local stdio. Codex Desktop при Windows stdio bootstrap failure использует
-отдельный authenticated loopback alias `azurpilot_dev`; protocol identity
-остаётся `azurpilot-dev`. Developer-only capability `Game` доступна только
+first-class local stdio. Codex Desktop также может явно выбрать
+authenticated loopback route `azurpilot_dev`; protocol identity остаётся
+`azurpilot-dev`, а transport route не меняет backend identity. Developer-only capability `Game` доступна только
 через односторонний Dev → neutral application bridge, привязанный к target.
 
 Каноническая Codex-команда: `uv run --locked --no-sync python -m
@@ -20,15 +20,14 @@ fail-closed правило ниже.
 ## Граница совместимости
 
 Первым read-only вызовом каждой новой сессии запрашивай `dev_get_contract`.
-Сравнивай `details.contract` с `compatibility.json` этого пакета по следующим
+Сравнивай `details.contract` с canonical bundle и его plugin snapshot по следующим
 полям: `product_family`, `server_name`, `server_version`,
 `smoke_spec_schema_version`, `smoke_result_schema_version` и
-`contract_schema_version`. Для совместимости сначала используй runtime
+`contract_schema_version`, `tool_count`, `tool_catalog_sha256`,
+`capability_catalog_sha256` и `contract_revision`. Для совместимости сначала используй runtime
 `server_name` как ключ в `required_mcp_servers`, затем проверь его
-`server_version` против найденного bounded SemVer range; эти два значения не
-дублируются отдельными полями в `compatibility.json`. `dev_mcp_api_version`
-остаётся отдельной версией внутренней схемы контракта и проверяется только если
-она явно объявлена старым пакетом.
+`server_version` против найденного bounded SemVer range. Не копируй versions,
+flags или catalog fingerprints в skill: их source of truth — bundle.
 Сопоставляй `compatibility.json.required_feature_flags` с
 `runtime contract.feature_flags`, `required_capability_families` с
 `runtime contract.capability_families`, а `result_outcomes` с
@@ -41,6 +40,15 @@ fail-closed правило ниже.
 `PLUGIN_RUNTIME_INCOMPATIBLE`. После этого не вызывай mutating tools, не
 подбирай переименованные инструменты и не угадывай схему. Допустимы только
 безопасные read-only диагностика и сообщение о несовместимости.
+
+Для проверки и lifecycle canonical bundle используй `azur mcp status`,
+`azur mcp versions`, `azur mcp reconcile`, `azur mcp start`, `azur mcp stop` и
+`azur mcp restart`. Изменение plugin/skill snapshot или открытой session не
+считай hot reload: зафиксируй `RELOAD_REQUIRED` и подтверди новую session или
+штатный owned restart отдельно. Разделяй `source_state`, `runtime_state`,
+`plugin_source_state` и `session_state`: остановленный runtime не доказывает
+актуальность plugin session, а `MCP_RELOAD_REQUIRED` является non-OK
+результатом reconciliation, пока reload не подтверждён.
 
 ## Универсальный Smoke Harness
 

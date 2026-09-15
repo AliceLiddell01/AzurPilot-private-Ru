@@ -101,8 +101,9 @@ benchmark или night-commission handling и не выполняет input/conf
 
 Контракт и инструменты регистрируются в `module.game_mcp.server`. Identity
 standalone server задаётся в `config/mcp-versions.toml`: имя
-`azurpilot-game`, SemVer `1.0.0`; `game_mcp_api_version=1` остаётся отдельной
-версией внутреннего read/control contract. Текущий
+`azurpilot-game` и его SemVer читаются только из canonical bundle;
+`game_mcp_api_version=1` остаётся отдельной версией внутреннего read/control
+contract. Текущий
 read catalog включает contract, profiles, profile status, resources, current
 task, scheduler queue, task catalog/help, Fleet State, morale, redacted config,
 bounded logs и validated screenshot. Отдельный control catalog включает
@@ -150,8 +151,15 @@ slot identity и unknown/ambiguous state. Morale сохраняет `EXACT`, `PR
 Локальный stdio и remote Streamable HTTP используют stateless
 self-describing request semantics MCP `2026-07-28`; backward-compatible
 initialize negotiation сохраняется только как совместимость SDK. Cache hints для инструментов явно
-не задаются: MCP SDK `2.1.1` по умолчанию использует `ttlMs=0` и
+не задаются: установленная project MCP SDK по умолчанию использует `ttlMs=0` и
 `cacheScope=private`, что сохраняет актуальность и изоляцию профильных данных.
+
+`azur mcp status` разделяет `source_state`, `runtime_state`,
+`plugin_source_state` и `session_state`. Runtime readiness не доказывает
+актуальность plugin session; подтверждённый plugin/skill drift возвращает
+`MCP_RELOAD_REQUIRED` с `reload_required=true`. `azur mcp reconcile --runtime`
+может перезапустить только доказанно owned backend и не заявляет, что session
+перезагружена.
 
 Read-инструменты имеют read-only annotations, а control-инструменты публикуют
 честные mutation/destructive/idempotency hints. Все инструменты используют

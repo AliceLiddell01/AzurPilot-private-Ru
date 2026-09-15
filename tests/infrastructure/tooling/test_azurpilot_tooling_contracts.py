@@ -31,6 +31,8 @@ from azurpilot.tooling.contracts import (
     CapabilityStatus,
     DoctorDetails,
     DoctorEvidence,
+    McpLifecycleDetails,
+    McpServerStatus,
     OperationState,
     PostgreSqlBackupEvidence,
     RepositoryRootEvidence,
@@ -54,6 +56,7 @@ from azurpilot.tooling.process import (
 from azurpilot.tooling.repair import RepairService
 from azurpilot.tooling.repository import ResolvedRepository
 from deploy import uv as deploy_uv
+from module.mcp_shared.versioning import load_server_versions
 from tests.support.paths import REPOSITORY_ROOT
 
 
@@ -102,6 +105,54 @@ def test_cli_human_output_uses_russian_operator_presentation() -> None:
     assert "✓" in stdout.getvalue()
     assert "AzurPilot Doctor" in stdout.getvalue()
     assert "[OK]" not in stdout.getvalue()
+    assert stderr.getvalue() == ""
+
+
+def test_cli_human_output_renders_mcp_lifecycle_services() -> None:
+    class McpStub:
+        def start(self, _root: object) -> ToolingResult[McpLifecycleDetails, McpLifecycleDetails]:
+            server_version = load_server_versions(REPOSITORY_ROOT)["azurpilot-dev"]
+            server = McpServerStatus(
+                server_name="azurpilot-dev",
+                expected_version=server_version,
+                observed_version=server_version,
+                status="ready",
+                source_set_digest="a" * 64,
+                tool_catalog_sha256="b" * 64,
+                capability_catalog_sha256="c" * 64,
+                contract_revision="d" * 64,
+                routes=("stdio", "loopback_http"),
+            )
+            details = McpLifecycleDetails(
+                action="start",
+                supervisor_code="LOCAL_MCP_SUPERVISOR_READY",
+                services=(server,),
+                ownership_confirmed=True,
+                readiness_confirmed=True,
+            )
+            return ToolingResult[McpLifecycleDetails, McpLifecycleDetails](
+                ok=True,
+                code=ResultCode.OK,
+                state=OperationState.READY,
+                message="MCP supervisor запущен.",
+                details=details,
+            )
+
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+
+    assert (
+        main(
+            ["mcp", "start"],
+            services=SimpleNamespace(mcp=McpStub()),
+            stdout=stdout,
+            stderr=stderr,
+        )
+        == 0
+    )
+    assert "AzurPilot MCP" in stdout.getvalue()
+    assert "azurpilot-dev" in stdout.getvalue()
+    assert "✓" in stdout.getvalue()
     assert stderr.getvalue() == ""
 
 
@@ -1190,6 +1241,9 @@ def test_update_uses_real_git_fast_forward_and_blocks_on_backup_failure(
         "    UpstreamPushUrl: DISABLED\n",
         encoding="utf-8",
     )
+    (root / "config" / "mcp-versions.toml").write_text(
+        "fixture = true\n", encoding="utf-8"
+    )
     _git(root, "add", ".")
     _git(root, "-c", "user.name=AzurPilot Test", "-c", "user.email=tooling@example.invalid", "commit", "-m", "initial")
     _git(root, "remote", "add", "origin", str(origin))
@@ -1236,12 +1290,63 @@ def test_update_uses_real_git_fast_forward_and_blocks_on_backup_failure(
 
     commit_remote("first\n")
     backup = SuccessfulBackup()
-    result = tooling_update.UpdateService(backup_service=backup).update(
-        root, timeout_seconds=60
-    )
+    mcp_calls: list[Path] = []
+
+    class SuccessfulMcp:
+        def reconcile(
+            self, updated_root: Path, **_kwargs: object
+        ) -> SimpleNamespace:
+            mcp_calls.append(updated_root)
+            return SimpleNamespace(
+                ok=True,
+                details=SimpleNamespace(
+                    restarted_servers=("azurpilot-dev",),
+                    reload_required=False,
+                    session_state="not_observable",
+                ),
+            )
+
+    result = tooling_update.UpdateService(
+        backup_service=backup,
+        mcp_service=SuccessfulMcp(),
+    ).update(root, timeout_seconds=60)
     assert result.ok
     assert result.details is not None and result.details.fast_forwarded
+    assert result.details.mcp_reconciliation == "restarted"
+    assert result.details.mcp_restarted_servers == ("azurpilot-dev",)
+    assert result.details.mcp_session_state == "not_observable"
+    assert result.details.mcp_reload_required is False
+    assert mcp_calls == [root]
     first_head = result.evidence.post_head if result.evidence is not None else ""
+
+    noop_calls: list[tuple[Path, tuple[str, ...]]] = []
+
+    class NoopMcp:
+        def reconcile(
+            self, updated_root: Path, **kwargs: object
+        ) -> SimpleNamespace:
+            noop_calls.append((updated_root, tuple(kwargs.get("changed_paths", ()))))
+            return SimpleNamespace(
+                ok=True,
+                details=SimpleNamespace(
+                    restarted_servers=(),
+                    reload_required=False,
+                    session_state="not_observable",
+                ),
+            )
+
+    noop_result = tooling_update.UpdateService(
+        backup_service=backup,
+        mcp_service=NoopMcp(),
+    ).update(root, timeout_seconds=60)
+    assert noop_result.ok
+    assert noop_result.details is not None
+    assert noop_result.details.fast_forwarded is False
+    assert noop_result.details.mcp_reconciliation == "ready"
+    assert noop_result.details.mcp_restarted_servers == ()
+    assert noop_result.details.mcp_session_state == "not_observable"
+    assert noop_result.details.mcp_reload_required is False
+    assert noop_calls == [(root, ())]
 
     commit_remote("second\n")
 
@@ -1259,6 +1364,155 @@ def test_update_uses_real_git_fast_forward_and_blocks_on_backup_failure(
     assert error.value.code is ResultCode.TOOLING_BACKUP_FAILED
     assert tooling_update.GitClient(root).head() == first_head
     assert not tooling_update.GitClient(root).status_porcelain()
+
+
+def test_update_surfaces_post_update_mcp_failure_as_error(tmp_path: Path) -> None:
+    root = tmp_path / "repository"
+    (root / "config").mkdir(parents=True)
+    (root / "config" / "mcp-versions.toml").write_text(
+        "schema_version = 2\n", encoding="utf-8"
+    )
+
+    class FailingMcp:
+        def reconcile(self, _root: Path, **_kwargs: object) -> object:
+            raise ToolingError(
+                ResultCode.MCP_RUNTIME_STALE,
+                "MCP runtime не согласован.",
+            )
+
+    with pytest.raises(ToolingError) as error:
+        tooling_update.UpdateService(
+            mcp_service=FailingMcp()
+        )._reconcile_mcp_after_update(root)
+
+    assert error.value.code is ResultCode.MCP_RUNTIME_STALE
+
+
+def test_update_skips_mcp_reconciliation_without_canonical_manifest(tmp_path: Path) -> None:
+    result = tooling_update.UpdateService()._reconcile_mcp_after_update(tmp_path)
+
+    assert result.state == "not_required"
+    assert result.session_state == "not_observable"
+
+
+def test_update_accepts_noop_mcp_reconciliation_without_backend_restart(
+    tmp_path: Path,
+) -> None:
+    manifest = tmp_path / "config" / "mcp-versions.toml"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text("schema_version = 2\n", encoding="utf-8")
+    calls: list[tuple[Path, tuple[str, ...]]] = []
+
+    class NoopMcp:
+        def reconcile(self, root: Path, **kwargs: object) -> object:
+            calls.append((root, tuple(kwargs.get("changed_paths", ()))))
+            return SimpleNamespace(
+                ok=True,
+                details=SimpleNamespace(
+                    restarted_servers=(),
+                    reload_required=False,
+                    session_state="not_observable",
+                ),
+            )
+
+    result = tooling_update.UpdateService(mcp_service=NoopMcp())._reconcile_mcp_after_update(
+        tmp_path,
+        changed_paths=("docs/README.md",),
+    )
+
+    assert result.state == "ready"
+    assert result.restarted_servers == ()
+    assert calls == [(tmp_path, ("docs/README.md",))]
+
+
+@pytest.mark.parametrize(
+    "code",
+    (
+        ResultCode.MCP_SOURCE_BUNDLE_INVALID,
+        ResultCode.MCP_SOURCE_BUNDLE_DRIFT,
+        ResultCode.MCP_ENVIRONMENT_STALE,
+        ResultCode.MCP_RUNTIME_STALE,
+        ResultCode.TOOLING_PORT_CONFLICT,
+        ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+    ),
+)
+def test_update_does_not_mask_mcp_postcondition_failures(
+    tmp_path: Path, code: ResultCode
+) -> None:
+    manifest = tmp_path / "config" / "mcp-versions.toml"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text("schema_version = 2\n", encoding="utf-8")
+
+    class FailingMcp:
+        def reconcile(self, _root: Path, **_kwargs: object) -> object:
+            raise ToolingError(code, "MCP postcondition не подтверждено.")
+
+    with pytest.raises(ToolingError) as error:
+        tooling_update.UpdateService(
+            mcp_service=FailingMcp()
+        )._reconcile_mcp_after_update(tmp_path)
+
+    assert error.value.code is code
+
+
+def test_update_does_not_mask_unknown_mcp_reconcile_result(
+    tmp_path: Path,
+) -> None:
+    manifest = tmp_path / "config" / "mcp-versions.toml"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text("schema_version = 2\n", encoding="utf-8")
+
+    class UnknownMcp:
+        def reconcile(self, _root: Path, **_kwargs: object) -> object:
+            return SimpleNamespace(
+                ok=False,
+                code=ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                message="MCP postcondition неизвестно.",
+                state=OperationState.UNKNOWN,
+                details=None,
+                evidence=None,
+            )
+
+    with pytest.raises(ToolingError) as error:
+        tooling_update.UpdateService(
+            mcp_service=UnknownMcp()
+        )._reconcile_mcp_after_update(tmp_path)
+
+    assert error.value.code is ResultCode.TOOLING_VERIFICATION_UNKNOWN
+
+
+def test_update_keeps_plugin_only_change_as_reload_without_backend_restart(
+    tmp_path: Path,
+) -> None:
+    manifest = tmp_path / "config" / "mcp-versions.toml"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text("schema_version = 2\n", encoding="utf-8")
+
+    class PluginOnlyMcp:
+        def reconcile(self, _root: Path, **kwargs: object) -> object:
+            assert tuple(kwargs["changed_paths"]) == ("plugins/azurpilot/README.md",)
+            return SimpleNamespace(
+                ok=False,
+                code=ResultCode.MCP_RELOAD_REQUIRED,
+                message="Plugin session требует reload.",
+                state=OperationState.FAILED,
+                details=SimpleNamespace(
+                    restarted_servers=(),
+                    reload_required=True,
+                    session_state="reload_required",
+                ),
+                evidence=None,
+            )
+
+    with pytest.raises(ToolingError) as error:
+        tooling_update.UpdateService(
+            mcp_service=PluginOnlyMcp()
+        )._reconcile_mcp_after_update(
+            tmp_path,
+            changed_paths=("plugins/azurpilot/README.md",),
+        )
+
+    assert error.value.code is ResultCode.MCP_RELOAD_REQUIRED
 
 
 def test_build_failed_transaction_can_retry_after_confirmed_cleanup(

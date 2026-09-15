@@ -13,18 +13,21 @@ automatic trust. Поэтому структурно корректный source
 что route зарегистрирован в текущей Codex-сессии.
 
 Read-only порядок проверки такой: trust проекта → effective registration обоих
-routes → MCP `initialize` и `tools/list` → соответствующий backend contract и
-callable catalog. `dev_tools.mcp_status` намеренно разделяет поля
+routes → negotiated MCP discovery через официальный SDK → `tools/list` →
+соответствующий backend contract и callable catalog. Для legacy-compatible
+server SDK сам выполняет штатный `initialize` fallback; plugin не реализует
+собственный parser и не подменяет discovery универсальным handshake.
+`dev_tools.mcp_status` намеренно разделяет поля
 `source_config` (доказательство tracked `.codex/config.toml`) и
 `effective_codex_registration` (только authoritative evidence из новой или
 перезагруженной trusted Codex task). Значение `not_observable` или pending для
 effective registration является честным ограничением наблюдаемости, а не
 `ready`; collector не заменяет это состояние синтетическим CLI scrape.
 
-При этой диагностике нельзя использовать Connected App, OAuth или remote
-surface как fallback для direct route. Reconnect и refresh относятся только к
-явно выбранной remote surface; project trust и effective registration должны
-быть подтверждены отдельно.
+При этой диагностике нельзя молча переключаться между transport routes и
+использовать Connected App, OAuth или remote surface как fallback для direct
+route. Reconnect и refresh относятся только к явно выбранной remote surface;
+project trust и effective registration должны быть подтверждены отдельно.
 
 | Workflow | Codex route | Transport | Backend implementation | Fallback |
 | --- | --- | --- | --- | --- |
@@ -53,3 +56,18 @@ Supervisor `module.mcp_shared.local_http_supervisor` владеет обоими
 contract означает fail-closed остановку и диагностику. Reconnect, OAuth или
 Connected App refresh относятся только к явно выбранной ChatGPT/public remote
 surface и не заменяют local stdio route.
+
+## Canonical bundle и lifecycle
+
+`config/mcp-versions.toml` — единственный source of truth для first-party
+server identity, API/contract schema, tool/capability fingerprints, source sets,
+plugin version и skill bundle revision. `plugins/azurpilot/compatibility.json`
+является производным snapshot. Проверка и безопасное согласование выполняются
+через `azur mcp status`, `azur mcp versions`, `azur mcp reconcile`,
+`azur mcp start`, `azur mcp stop` и `azur mcp restart`; runtime reconciliation
+не редактирует tracked source. Backend source sets — bounded explicit mapping
+реальных MCP application dependencies; management-only `azurpilot/tooling/mcp.py`
+не входит в runtime identity. При plugin/skill source drift `status` и
+`reconcile` возвращают `MCP_RELOAD_REQUIRED` с `reload_required=true`; hot reload
+не имитируется. Текущая целостность дополнительно проверяется против exact
+base SHA через `dev_tools.mcp_compatibility_gate`.

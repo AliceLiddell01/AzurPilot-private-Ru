@@ -7,9 +7,13 @@ import re
 import shutil
 import tarfile
 import tomllib
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from secrets import token_hex
+from typing import TYPE_CHECKING
+
+from pydantic import ValidationError
 
 from .bootstrap import BootstrapService
 from .config import load_deploy_settings, project_python
@@ -38,6 +42,9 @@ from .postgres import BackupOutcome, PostgreSqlBackupService
 from .process import ProcessSpec, StructuredProcessRunner, safe_environment
 from .repository import RepositoryResolver
 
+if TYPE_CHECKING:
+    from .mcp import McpService
+
 _SAFE_REMOTE_NAME_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 _SAFE_BRANCH_RE = re.compile(r"^[A-Za-z0-9._/-]{1,256}$")
 @dataclass(frozen=True)
@@ -47,6 +54,14 @@ class _Candidate:
     environment: Path
     previous: Path
     backup: Path
+
+
+@dataclass(frozen=True)
+class _McpReconciliation:
+    state: str
+    restarted_servers: tuple[str, ...]
+    reload_required: bool
+    session_state: str
 
 
 class UpdateService:
@@ -59,12 +74,71 @@ class UpdateService:
         bootstrap: BootstrapService | None = None,
         runner: StructuredProcessRunner | None = None,
         backup_service: PostgreSqlBackupService | None = None,
+        mcp_service: McpService | None = None,
     ) -> None:
         self.resolver = resolver or RepositoryResolver()
         self.git_factory = git_factory
         self.runner = runner or StructuredProcessRunner()
         self.bootstrap = bootstrap or BootstrapService(self.runner)
         self.backup_service = backup_service or PostgreSqlBackupService()
+        self.mcp_service = mcp_service
+
+    def _reconcile_mcp_after_update(
+        self, root: Path, *, changed_paths: Iterable[str] = ()
+    ) -> _McpReconciliation:
+        """Проверить обязательное MCP postcondition после Update."""
+
+        manifest = root / "config" / "mcp-versions.toml"
+        if not manifest.is_file():
+            return _McpReconciliation("not_required", (), False, "not_observable")
+        if self.mcp_service is None:
+            from .mcp import McpService
+
+            service = McpService(runner=self.runner)
+        else:
+            service = self.mcp_service
+        try:
+            result = service.reconcile(root, changed_paths=tuple(changed_paths))
+        except ToolingError:
+            raise
+        except (ValidationError, OSError) as error:
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "MCP reconciliation после Update завершилась с неизвестным postcondition.",
+            ) from error
+        if not result.ok:
+            raise ToolingError(
+                result.code,
+                result.message,
+                state=result.state,
+                details=result.details,
+                evidence=result.evidence,
+            )
+        details = result.details
+        if details is None:
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "MCP reconciliation вернула неполный результат.",
+            )
+        restarted = details.restarted_servers
+        reload_required = details.reload_required
+        session_state = (
+            "reload_required"
+            if details.session_state == "reload_required"
+            else "not_observable"
+        )
+        if reload_required or session_state == "reload_required":
+            raise ToolingError(
+                ResultCode.MCP_RELOAD_REQUIRED,
+                "После Update effective MCP session требует reload; postcondition не подтверждено.",
+                details=details,
+            )
+        return _McpReconciliation(
+            state="restarted" if restarted else "ready",
+            restarted_servers=restarted,
+            reload_required=reload_required,
+            session_state=session_state,
+        )
 
     def _assert_stopped(self, root: Path) -> None:
         coordinator = RepositoryCoordinator.for_root(root)
@@ -676,6 +750,7 @@ class UpdateService:
                 upstream_push_policy=push_url or "missing",
             )
             if pre_head == remote_head:
+                mcp_reconciliation = self._reconcile_mcp_after_update(root)
                 return ToolingResult[UpdateDetails, UpdateEvidence](
                     ok=True,
                     code=ResultCode.OK,
@@ -688,6 +763,10 @@ class UpdateService:
                         remote=remote,
                         dependency_changed=False,
                         fast_forwarded=False,
+                        mcp_reconciliation=mcp_reconciliation.state,
+                        mcp_restarted_servers=mcp_reconciliation.restarted_servers,
+                        mcp_session_state=mcp_reconciliation.session_state,
+                        mcp_reload_required=mcp_reconciliation.reload_required,
                     ),
                     evidence=UpdateEvidence(
                         repository=resolved.evidence,
@@ -810,6 +889,11 @@ class UpdateService:
                 transaction = transaction.model_copy(update={"phase": "completed"})
                 journal_store.save(transaction)
                 journal_store.retain_terminal()
+            changed_paths = git.changed_paths(pre_head, post_head)
+            mcp_reconciliation = self._reconcile_mcp_after_update(
+                root,
+                changed_paths=changed_paths,
+            )
             return ToolingResult[UpdateDetails, UpdateEvidence](
                 ok=True,
                 code=ResultCode.OK,
@@ -825,7 +909,12 @@ class UpdateService:
                     backup_required=True,
                     backup_validated=backup.evidence.validated,
                     transaction_phase="completed" if transaction else None,
+                    mcp_reconciliation=mcp_reconciliation.state,
+                    mcp_restarted_servers=mcp_reconciliation.restarted_servers,
+                    mcp_session_state=mcp_reconciliation.session_state,
+                    mcp_reload_required=mcp_reconciliation.reload_required,
                 ),
+                warnings=(),
                 evidence=UpdateEvidence(
                     repository=resolved.evidence,
                     pre_head=pre_head,

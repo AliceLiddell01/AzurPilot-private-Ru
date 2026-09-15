@@ -13,6 +13,7 @@ import http.client
 import json
 import logging
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -24,6 +25,17 @@ from typing import Any
 
 import psutil
 
+from azurpilot.tooling.coordination import FileLock
+from azurpilot.tooling.process import (
+    MCP_LOCAL_TEST_ENVIRONMENT_PREFIX,
+    ProcessController,
+    ProcessIdentity,
+    ProcessSpec,
+    RunningProcess,
+    StructuredProcessRunner,
+)
+from module.mcp_shared.versioning import SOURCE_REVISION_ENV
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_STARTUP_TIMEOUT_SECONDS = 20.0
@@ -32,6 +44,12 @@ STOP_TIMEOUT_SECONDS = 8.0
 _STATE_DIRECTORY = Path("config") / "state" / "local-mcp-http"
 _LOCK_NAME = "supervisor.lock"
 _MARKER_NAME = "supervisor.json"
+_SOURCE_REVISION_RE = re.compile(r"^[0-9a-fA-F]{7,64}$")
+_SOURCE_SET_DIGEST_RE = re.compile(r"^[0-9a-fA-F]{64}$")
+LOCAL_HTTP_SOURCE_SET_DIGEST_ENV_VARS = {
+    "azurpilot-dev": "AZURPILOT_DEV_MCP_SOURCE_SET_DIGEST",
+    "azurpilot-game": "AZURPILOT_GAME_MCP_SOURCE_SET_DIGEST",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,7 +87,7 @@ def _same_path(left: str | Path, right: str | Path) -> bool:
         return os.path.normcase(os.path.abspath(str(left))) == os.path.normcase(
             os.path.abspath(str(right))
         )
-    except OSError, TypeError, ValueError:
+    except (OSError, TypeError, ValueError):
         return False
 
 
@@ -98,50 +116,6 @@ def _ensure_state_directory(repository_root: Path) -> Path:
     return state_directory
 
 
-def _try_lock(path: Path):
-    """Захватить process-held lock без ожидания и вернуть открытый handle."""
-
-    try:
-        handle = path.open("a+b")
-        if path.stat().st_size == 0:
-            handle.write(b"\0")
-            handle.flush()
-            os.fsync(handle.fileno())
-        handle.seek(0)
-        if os.name == "nt":
-            import msvcrt
-
-            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
-        else:
-            import fcntl
-
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError, OSError:
-        try:
-            handle.close()
-        except UnboundLocalError:
-            pass
-        return None
-    return handle
-
-
-def _release_lock(handle: Any) -> None:
-    try:
-        handle.seek(0)
-        if os.name == "nt":
-            import msvcrt
-
-            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
-        else:
-            import fcntl
-
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-    except OSError, ValueError:
-        pass
-    finally:
-        handle.close()
-
-
 def _bounded_token_present(name: str) -> bool:
     value = os.environ.get(name, "")
     return bool(
@@ -151,36 +125,58 @@ def _bounded_token_present(name: str) -> bool:
     )
 
 
-def _process_identity(pid: int) -> dict[str, object] | None:
-    try:
-        process = psutil.Process(pid)
-        return {
-            "pid": int(pid),
-            "created_at": float(process.create_time()),
-            "executable": str(Path(process.exe()).absolute()),
-            "command": list(process.cmdline()),
-            "cwd": str(Path(process.cwd()).absolute()),
-        }
-    except psutil.Error, OSError, TypeError, ValueError:
+def _identity_to_marker(identity: ProcessIdentity) -> dict[str, object]:
+    """Сериализовать canonical ProcessIdentity в совместимый marker DTO."""
+
+    marker: dict[str, object] = {
+        "pid": identity.pid,
+        "created_at": identity.start_time,
+        "executable": str(identity.executable),
+        "command": list(identity.argv),
+        "cwd": str(identity.cwd),
+    }
+    if identity.process_group is not None:
+        marker["process_group"] = identity.process_group
+    return marker
+
+
+def _identity_from_marker(value: object) -> ProcessIdentity | None:
+    """Прочитать marker DTO без повторения identity/ownership алгоритма."""
+
+    if not isinstance(value, dict):
         return None
-
-
-def _identity_matches(actual: psutil.Process, expected: dict[str, object]) -> bool:
     try:
-        expected_pid = int(expected["pid"])
-        expected_created_at = float(expected["created_at"])
-        expected_executable = str(expected["executable"])
-        expected_command = tuple(str(item) for item in expected["command"])
-        expected_cwd = str(expected["cwd"])
-        return (
-            actual.pid == expected_pid
-            and abs(actual.create_time() - expected_created_at) < 0.01
-            and _same_path(actual.exe(), expected_executable)
-            and tuple(actual.cmdline()) == expected_command
-            and _same_path(actual.cwd(), expected_cwd)
+        pid = value["pid"]
+        created_at = value["created_at"]
+        executable = value["executable"]
+        command = value["command"]
+        cwd = value["cwd"]
+        process_group = value.get("process_group")
+        if (
+            isinstance(pid, bool)
+            or not isinstance(pid, int)
+            or not isinstance(created_at, (int, float))
+            or isinstance(created_at, bool)
+            or not isinstance(executable, str)
+            or not isinstance(command, list)
+            or any(not isinstance(item, str) for item in command)
+            or not isinstance(cwd, str)
+            or (
+                process_group is not None
+                and (isinstance(process_group, bool) or not isinstance(process_group, int))
+            )
+        ):
+            return None
+        return ProcessIdentity(
+            pid=pid,
+            start_time=float(created_at),
+            executable=Path(executable),
+            argv=tuple(command),
+            cwd=Path(cwd),
+            process_group=process_group,
         )
-    except psutil.Error, OSError, TypeError, ValueError, KeyError:
-        return False
+    except (TypeError, ValueError, KeyError, OSError):
+        return None
 
 
 class LocalHttpSupervisor:
@@ -193,6 +189,9 @@ class LocalHttpSupervisor:
         python_executable: Path | str | None = None,
         services: Iterable[LocalHttpService] = LOCAL_HTTP_SERVICES,
         startup_timeout_seconds: float = DEFAULT_STARTUP_TIMEOUT_SECONDS,
+        runner: StructuredProcessRunner | None = None,
+        state_namespace: str | None = None,
+        allow_test_environment: bool = False,
     ) -> None:
         self.repository_root = Path(repository_root).absolute()
         self.services = tuple(services)
@@ -202,12 +201,26 @@ class LocalHttpSupervisor:
             if python_executable
             else self._default_python()
         )
-        self.state_directory = _ensure_state_directory(self.repository_root)
+        state_directory = _ensure_state_directory(self.repository_root)
+        if state_namespace is not None:
+            if re.fullmatch(r"[a-z][a-z0-9-]{0,63}", state_namespace) is None:
+                raise LocalHttpSupervisorError(
+                    "Namespace local MCP supervisor имеет неверный формат"
+                )
+            state_directory = state_directory / state_namespace
+            state_directory.mkdir(parents=True, exist_ok=True)
+            if _is_reparse_point(state_directory):
+                raise LocalHttpSupervisorError(
+                    "Namespace local MCP supervisor не должен быть ссылкой или junction"
+                )
+        self.state_directory = state_directory
         self.lock_path = self.state_directory / _LOCK_NAME
         self.marker_path = self.state_directory / _MARKER_NAME
         self._lock_handle: Any | None = None
-        self._children: dict[str, subprocess.Popen[bytes]] = {}
-        self._runtime_processes: dict[str, psutil.Process] = {}
+        self.runner = runner or StructuredProcessRunner()
+        self.allow_test_environment = allow_test_environment
+        self._children: dict[str, RunningProcess] = {}
+        self._runtime_processes: dict[str, ProcessIdentity] = {}
 
     def _default_python(self) -> Path:
         relative = (
@@ -261,86 +274,45 @@ class LocalHttpSupervisor:
             service.module,
         ]
 
-    def _log_path(self, service: LocalHttpService) -> Path:
-        return self.state_directory / f"{service.name}.stderr.log"
-
-    def _spawn(self, service: LocalHttpService) -> subprocess.Popen[bytes]:
+    def _spawn(self, service: LocalHttpService) -> RunningProcess:
         command = self._command(service)
         try:
-            stderr = self._log_path(service).open("ab")
-            kwargs: dict[str, Any] = {
-                "cwd": str(self.repository_root),
-                "stdin": subprocess.DEVNULL,
-                "stdout": subprocess.DEVNULL,
-                "stderr": stderr,
-                "env": os.environ.copy(),
+            token = os.environ.get(service.token_env_var, "")
+            explicit_env = {
+                service.token_env_var: token,
+                "PYTHONUNBUFFERED": "1",
             }
-            if os.name == "nt":
-                kwargs["creationflags"] = getattr(
-                    subprocess, "CREATE_NEW_PROCESS_GROUP", 0
-                ) | getattr(subprocess, "CREATE_NO_WINDOW", 0)
-            else:
-                kwargs["start_new_session"] = True
-            process = subprocess.Popen(command, **kwargs)
-        except (OSError, subprocess.SubprocessError) as exc:
-            try:
-                stderr.close()
-            except UnboundLocalError:
-                pass
+            revision = os.environ.get(SOURCE_REVISION_ENV, "").strip().lower()
+            if _SOURCE_REVISION_RE.fullmatch(revision):
+                explicit_env[SOURCE_REVISION_ENV] = revision
+            digest_env = LOCAL_HTTP_SOURCE_SET_DIGEST_ENV_VARS.get(service.name)
+            digest = os.environ.get(digest_env or "", "").strip().lower()
+            if digest_env and _SOURCE_SET_DIGEST_RE.fullmatch(digest):
+                explicit_env[digest_env] = digest
+            environment = dict(explicit_env)
+            if self.allow_test_environment:
+                environment.update(
+                    {
+                        key: value
+                        for key, value in os.environ.items()
+                        if key.startswith(MCP_LOCAL_TEST_ENVIRONMENT_PREFIX)
+                    }
+                )
+            running = self.runner.start(
+                ProcessSpec(
+                    executable=self.python_executable,
+                    argv=tuple(command[1:]),
+                    cwd=self.repository_root,
+                    timeout_seconds=max(30.0, self.startup_timeout_seconds + 10.0),
+                    env=environment,
+                    allow_test_environment=self.allow_test_environment,
+                )
+            )
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
             raise LocalHttpSupervisorError(
                 f"Не удалось запустить owned local MCP service {service.name}"
             ) from exc
-        finally:
-            try:
-                stderr.close()
-            except UnboundLocalError:
-                pass
-        return process
-
-    def _effective_process(
-        self, service: LocalHttpService, launcher: subprocess.Popen[bytes]
-    ) -> psutil.Process:
-        """Найти фактический runtime-child Windows venv redirector."""
-
-        if os.name != "nt":
-            try:
-                return psutil.Process(launcher.pid)
-            except psutil.Error as exc:
-                raise LocalHttpSupervisorError(
-                    f"Нельзя получить identity local MCP service {service.name}"
-                ) from exc
-
-        deadline = time.monotonic() + min(self.startup_timeout_seconds, 10.0)
-        while True:
-            try:
-                parent = psutil.Process(launcher.pid)
-                candidates = parent.children(recursive=True)
-            except psutil.Error as exc:
-                raise LocalHttpSupervisorError(
-                    f"Нельзя перечислить runtime-child local MCP service {service.name}"
-                ) from exc
-            for candidate in sorted(
-                candidates, key=lambda item: item.create_time(), reverse=True
-            ):
-                try:
-                    command = tuple(str(item).strip() for item in candidate.cmdline())
-                    if (
-                        len(command) >= 4
-                        and command[-3:] == ("-u", "-m", service.module)
-                        and _same_path(candidate.cwd(), self.repository_root)
-                    ):
-                        return candidate
-                except (psutil.Error, OSError, TypeError):
-                    continue
-            if launcher.poll() is not None:
-                raise LocalHttpSupervisorError(
-                    f"Local MCP service {service.name} завершился до runtime-child"
-                )
-            if time.monotonic() >= deadline:
-                raise LocalHttpSupervisorError(
-                    f"Runtime-child local MCP service {service.name} не найден"
-                )
-            time.sleep(0.05)
+        return running
 
     def _runtime_is_alive(self, service: LocalHttpService) -> bool:
         """Проверить жизнь exact-owned runtime без zombie false-positive."""
@@ -353,12 +325,12 @@ class LocalHttpSupervisor:
                 # точно для процесса, запущенного этим supervisor.
                 return launcher.poll() is None
         try:
-            return self._runtime_processes[service.name].is_running()
+            return self._runtime_processes[service.name].matches()
         except (KeyError, psutil.Error):
             return False
 
     @staticmethod
-    def _ready(service: LocalHttpService) -> bool:
+    def _ready_payload(service: LocalHttpService) -> dict[str, object] | None:
         connection: http.client.HTTPConnection | None = None
         try:
             connection = http.client.HTTPConnection(
@@ -372,18 +344,36 @@ class LocalHttpSupervisor:
             response = connection.getresponse()
             body = response.read(16 * 1024)
             payload = json.loads(body.decode("utf-8"))
-            return (
+            if not (
                 response.status == 200
                 and payload.get("ok") is True
                 and payload.get("code") == "LOCAL_MCP_READY"
                 and payload.get("server_name") == service.name
                 and payload.get("transport") == "local_http"
-            )
-        except OSError, ValueError, TypeError, json.JSONDecodeError:
-            return False
+            ):
+                return None
+            return {
+                key: payload[key]
+                for key in (
+                    "server_name",
+                    "server_version",
+                    "source_revision",
+                    "source_set_digest",
+                    "tool_catalog_sha256",
+                    "capability_catalog_sha256",
+                    "contract_revision",
+                )
+                if key in payload
+            }
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            return None
         finally:
             if connection is not None:
                 connection.close()
+
+    @classmethod
+    def _ready(cls, service: LocalHttpService) -> bool:
+        return cls._ready_payload(service) is not None
 
     def _wait_ready(self) -> None:
         deadline = time.monotonic() + self.startup_timeout_seconds
@@ -419,12 +409,23 @@ class LocalHttpSupervisor:
             if connection is not None:
                 connection.close()
 
+    def port_conflicts(self) -> tuple[str, ...]:
+        """Вернуть first-party services, чьи loopback-порты уже заняты."""
+
+        return tuple(
+            service.name
+            for service in self.services
+            if self._port_is_in_use(service)
+        )
+
     def _supervisor_identity(self) -> dict[str, object]:
-        identity = _process_identity(os.getpid())
-        if identity is None:
+        try:
+            identity = ProcessIdentity.capture(os.getpid())
+        except (OSError, psutil.Error) as exc:
             raise LocalHttpSupervisorError(
                 "Нельзя подтвердить identity local MCP supervisor"
-            )
+            ) from exc
+        marker = _identity_to_marker(identity)
         if os.name == "nt":
             try:
                 parent = psutil.Process(os.getpid()).parent()
@@ -442,28 +443,25 @@ class LocalHttpSupervisor:
                     )
                     and _same_path(parent.exe(), self.python_executable)
                 ):
-                    launcher = _process_identity(parent.pid)
-                    if launcher is not None:
-                        identity["launcher_process"] = launcher
+                    launcher = ProcessIdentity.capture(parent.pid)
+                    marker["launcher_process"] = _identity_to_marker(launcher)
             except (psutil.Error, OSError, TypeError):
                 pass
-        return identity
+        return marker
 
     def _write_marker(self) -> None:
         service_processes = []
         for service in self.services:
-            runtime_process = self._runtime_processes[service.name]
-            process = _process_identity(runtime_process.pid)
-            if process is None:
+            try:
+                process = self._runtime_processes[service.name]
+                launcher = self._children[service.name].identity
+            except KeyError as exc:
                 raise LocalHttpSupervisorError(
                     f"Нельзя подтвердить identity local MCP service {service.name}"
-                )
-            launcher = _process_identity(self._children[service.name].pid)
-            if launcher is None:
-                raise LocalHttpSupervisorError(
-                    f"Нельзя подтвердить launcher local MCP service {service.name}"
-                )
-            service_processes.append((service, process, launcher))
+                ) from exc
+            service_processes.append(
+                (service, _identity_to_marker(process), _identity_to_marker(launcher))
+            )
         payload = {
             "schema_version": 1,
             "repository_root": str(self.repository_root),
@@ -490,10 +488,10 @@ class LocalHttpSupervisor:
     def _remove_owned_marker(self) -> None:
         try:
             payload = json.loads(self.marker_path.read_text(encoding="utf-8"))
-            supervisor = payload.get("supervisor", {})
-            if int(supervisor.get("pid", -1)) != os.getpid():
+            supervisor = _identity_from_marker(payload.get("supervisor"))
+            if supervisor is None or supervisor.pid != os.getpid():
                 return
-        except OSError, ValueError, TypeError, AttributeError:
+        except (OSError, ValueError, TypeError, AttributeError):
             return
         try:
             self.marker_path.unlink()
@@ -520,84 +518,24 @@ class LocalHttpSupervisor:
         except OSError:
             pass
 
-    @staticmethod
-    def _terminate_recorded_identity(expected: dict[str, object]) -> None:
-        pid = expected.get("pid")
-        if isinstance(pid, bool) or not isinstance(pid, int):
-            return
-        try:
-            process = psutil.Process(pid)
-            if not _identity_matches(process, expected) or not process.is_running():
-                return
-            process.terminate()
-            try:
-                process.wait(timeout=STOP_TIMEOUT_SECONDS)
-            except psutil.TimeoutExpired:
-                if _identity_matches(process, expected) and process.is_running():
-                    process.kill()
-                    process.wait(timeout=STOP_TIMEOUT_SECONDS)
-        except psutil.NoSuchProcess:
-            return
-        except (psutil.Error, OSError, subprocess.SubprocessError):
-            logger.error("Не удалось завершить owned local MCP process")
-
-    @classmethod
-    def _identity_tree(cls, expected: dict[str, object]) -> list[dict[str, object]]:
-        """Собрать exact identity корня и всех его текущих descendants."""
-
-        pid = expected.get("pid")
-        if isinstance(pid, bool) or not isinstance(pid, int):
-            return []
-        try:
-            root = psutil.Process(pid)
-            if not _identity_matches(root, expected):
-                return []
-            descendants = root.children(recursive=True)
-        except (psutil.Error, OSError, TypeError, ValueError):
-            return []
-
-        identities: list[dict[str, object]] = []
-        seen: set[tuple[int, float]] = set()
-
-        def add(identity: dict[str, object] | None) -> None:
-            if identity is None:
-                return
-            try:
-                key = (int(identity["pid"]), float(identity["created_at"]))
-            except (KeyError, TypeError, ValueError):
-                return
-            if key not in seen:
-                seen.add(key)
-                identities.append(identity)
-
-        for descendant in reversed(descendants):
-            add(_process_identity(descendant.pid))
-        add(expected)
-        return identities
-
-    @classmethod
-    def _terminate_process(cls, process: psutil.Process) -> None:
-        identity = _process_identity(process.pid)
-        if identity is None or not _identity_matches(process, identity):
-            return
-        for descendant in cls._identity_tree(identity):
-            cls._terminate_recorded_identity(descendant)
-
     def _stop_children(self) -> None:
         stopped_pids: set[int] = set()
-        for process in tuple(self._runtime_processes.values()):
-            if process.pid not in stopped_pids:
-                self._terminate_process(process)
-                stopped_pids.add(process.pid)
         for launcher in tuple(self._children.values()):
             if launcher.pid in stopped_pids or launcher.poll() is not None:
                 continue
-            try:
-                process = psutil.Process(launcher.pid)
-            except (psutil.Error, OSError, TypeError, ValueError):
+            if ProcessController.terminate(
+                launcher.identity, timeout_seconds=STOP_TIMEOUT_SECONDS
+            ):
+                stopped_pids.add(launcher.pid)
+        # Runtime identity сохраняется для marker и fallback, если процесс
+        # завершился между двумя наблюдениями.
+        for identity in tuple(self._runtime_processes.values()):
+            if identity.pid in stopped_pids:
                 continue
-            self._terminate_process(process)
-            stopped_pids.add(launcher.pid)
+            ProcessController.terminate(
+                identity, timeout_seconds=STOP_TIMEOUT_SECONDS
+            )
+            stopped_pids.add(identity.pid)
         self._children.clear()
         self._runtime_processes.clear()
 
@@ -609,10 +547,11 @@ class LocalHttpSupervisor:
         """
 
         _ensure_state_directory(self.repository_root)
-        lock_handle = _try_lock(self.lock_path)
-        if lock_handle is None:
+        self._lock_handle = None
+        coordination_lock = FileLock(self.lock_path)
+        if not coordination_lock.acquire(timeout_seconds=0):
             return False
-        self._lock_handle = lock_handle
+        self._lock_handle = coordination_lock
         stop_requested = False
 
         def request_stop(_signum: int, _frame: object) -> None:
@@ -623,7 +562,7 @@ class LocalHttpSupervisor:
         for signum in (signal.SIGINT, getattr(signal, "SIGBREAK", signal.SIGTERM)):
             try:
                 previous_handlers[signum] = signal.signal(signum, request_stop)
-            except ValueError, OSError:
+            except (ValueError, OSError):
                 pass
         try:
             self._validate()
@@ -634,9 +573,7 @@ class LocalHttpSupervisor:
                     )
                 launcher = self._spawn(service)
                 self._children[service.name] = launcher
-                self._runtime_processes[service.name] = self._effective_process(
-                    service, launcher
-                )
+                self._runtime_processes[service.name] = launcher.identity
             self._wait_ready()
             self._write_marker()
             while not stop_requested:
@@ -653,9 +590,10 @@ class LocalHttpSupervisor:
             for signum, handler in previous_handlers.items():
                 try:
                     signal.signal(signum, handler)
-                except ValueError, OSError:
+                except (ValueError, OSError):
                     pass
-            _release_lock(self._lock_handle)
+            if self._lock_handle is not None:
+                self._lock_handle.release()
             self._lock_handle = None
 
     def status(self) -> dict[str, object]:
@@ -663,7 +601,7 @@ class LocalHttpSupervisor:
 
         try:
             payload = json.loads(self.marker_path.read_text(encoding="utf-8"))
-        except OSError, ValueError, TypeError:
+        except (OSError, ValueError, TypeError):
             return {
                 "ok": False,
                 "code": "LOCAL_MCP_SUPERVISOR_STOPPED",
@@ -682,20 +620,14 @@ class LocalHttpSupervisor:
                 "code": "LOCAL_MCP_SUPERVISOR_MARKER_INVALID",
                 "repository_root": str(self.repository_root),
             }
-        supervisor_pid = supervisor.get("pid")
-        if isinstance(supervisor_pid, bool) or not isinstance(supervisor_pid, int):
+        supervisor_identity = _identity_from_marker(supervisor)
+        if supervisor_identity is None:
             return {
                 "ok": False,
                 "code": "LOCAL_MCP_SUPERVISOR_MARKER_INVALID",
                 "repository_root": str(self.repository_root),
             }
-        try:
-            supervisor_process = psutil.Process(supervisor_pid)
-        except (psutil.Error, OSError, TypeError, ValueError):
-            supervisor_process = None
-        if supervisor_process is None or not _identity_matches(
-            supervisor_process, supervisor
-        ):
+        if not supervisor_identity.matches():
             return {
                 "ok": False,
                 "code": "LOCAL_MCP_SUPERVISOR_STALE",
@@ -728,30 +660,22 @@ class LocalHttpSupervisor:
                     "repository_root": str(self.repository_root),
                 }
             child = item.get("process")
-            child_pid = child.get("pid") if isinstance(child, dict) else None
-            if (
-                isinstance(child_pid, bool)
-                or not isinstance(child_pid, int)
-                or not isinstance(child, dict)
-            ):
+            child_identity = _identity_from_marker(child)
+            if child_identity is None:
                 return {
                     "ok": False,
                     "code": "LOCAL_MCP_SUPERVISOR_MARKER_INVALID",
                     "repository_root": str(self.repository_root),
                 }
-            child_identity = _process_identity(child_pid)
-            alive = False
-            if child_identity is not None:
-                try:
-                    alive = _identity_matches(psutil.Process(child_pid), child)
-                except psutil.Error, OSError, TypeError, ValueError, KeyError:
-                    alive = False
+            alive = child_identity.matches()
+            ready_payload = self._ready_payload(expected_service) if alive else None
             services.append(
                 {
                     "server_name": expected_service.name,
                     "port": expected_service.port,
                     "alive": alive,
-                    "ready": bool(alive and self._ready(expected_service)),
+                    "ready": ready_payload is not None,
+                    **(ready_payload or {}),
                 }
             )
         ready = bool(services) and all(
@@ -763,7 +687,7 @@ class LocalHttpSupervisor:
             if ready
             else "LOCAL_MCP_SUPERVISOR_DEGRADED",
             "repository_root": str(self.repository_root),
-            "supervisor_pid": supervisor_pid,
+            "supervisor_pid": supervisor_identity.pid,
             "services": services,
         }
 
@@ -790,56 +714,40 @@ class LocalHttpSupervisor:
             for expected in expected_records:
                 if not isinstance(expected, dict):
                     continue
-                for identity in LocalHttpSupervisor._identity_tree(expected):
-                    LocalHttpSupervisor._terminate_recorded_identity(identity)
+                identity = _identity_from_marker(expected)
+                if identity is None:
+                    continue
+                ProcessController.terminate(
+                    identity, timeout_seconds=STOP_TIMEOUT_SECONDS
+                )
 
     def stop(self) -> bool:
         """Остановить только supervisor с exact recorded identity."""
 
         try:
             payload = json.loads(self.marker_path.read_text(encoding="utf-8"))
-        except OSError, ValueError, TypeError:
+        except (OSError, ValueError, TypeError):
             return False
         if payload.get("repository_root") != str(self.repository_root):
             return False
         supervisor = payload.get("supervisor")
         if not isinstance(supervisor, dict):
             return False
-        try:
-            process = psutil.Process(int(supervisor["pid"]))
-        except psutil.Error, KeyError, TypeError, ValueError:
+        identity = _identity_from_marker(supervisor)
+        if identity is None:
             self._terminate_recorded_processes(payload)
             self._remove_recorded_marker(payload)
             return False
-        if not _identity_matches(process, supervisor):
+        if not identity.matches():
             self._terminate_recorded_processes(payload)
             self._remove_recorded_marker(payload)
             return False
         try:
-            # Не использовать console/group control events: на Windows такой
-            # сигнал может затронуть текущий Codex control plane. Exact
-            # identity уже подтверждена, поэтому завершаем только этот PID.
-            process.terminate()
-            process.wait(timeout=STOP_TIMEOUT_SECONDS)
-            return not process.is_running()
-        except psutil.TimeoutExpired:
-            # Exact identity всё ещё подтверждена; fallback не ищет процессы по
-            # имени и не трогает чужие PID.
-            try:
-                if not _identity_matches(process, supervisor):
-                    return False
-                process.terminate()
-                try:
-                    process.wait(timeout=STOP_TIMEOUT_SECONDS)
-                except psutil.TimeoutExpired:
-                    if _identity_matches(process, supervisor):
-                        process.kill()
-                        process.wait(timeout=STOP_TIMEOUT_SECONDS)
-                return not process.is_running()
-            except (OSError, psutil.Error):
-                return False
-        except psutil.NoSuchProcess:
-            return True
+            # Общий ProcessController повторно проверяет exact identity,
+            # descendants и process group перед мягким и принудительным stop.
+            return ProcessController.terminate(
+                identity, timeout_seconds=STOP_TIMEOUT_SECONDS
+            )
         finally:
             self._terminate_recorded_processes(payload)
             self._remove_recorded_marker(payload)
@@ -855,8 +763,21 @@ def main() -> None:
         "command", choices=("serve", "status", "stop"), nargs="?", default="serve"
     )
     parser.add_argument("--root", type=Path, default=_default_repository_root())
+    parser.add_argument(
+        "--service",
+        choices=tuple(service.name for service in LOCAL_HTTP_SERVICES),
+        action="append",
+    )
     args = parser.parse_args()
-    supervisor = LocalHttpSupervisor(args.root)
+    selected_names = tuple(dict.fromkeys(args.service or ()))
+    selected_services = tuple(
+        service for service in LOCAL_HTTP_SERVICES if service.name in selected_names
+    )
+    supervisor = LocalHttpSupervisor(
+        args.root,
+        services=selected_services or LOCAL_HTTP_SERVICES,
+        state_namespace=(selected_names[0] if len(selected_names) == 1 else None),
+    )
     try:
         if args.command == "status":
             print(
@@ -882,6 +803,7 @@ def main() -> None:
 __all__ = (
     "DEFAULT_STARTUP_TIMEOUT_SECONDS",
     "LOCAL_HTTP_SERVICES",
+    "LOCAL_HTTP_SOURCE_SET_DIGEST_ENV_VARS",
     "LocalHttpService",
     "LocalHttpSupervisor",
     "LocalHttpSupervisorError",
