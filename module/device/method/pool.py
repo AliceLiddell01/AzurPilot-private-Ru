@@ -75,22 +75,22 @@ class Error(Outcome[NoReturn]):
         return f'Error({self.error!r})'
 
     def unwrap(self):
-        # 回溯信息会脱离上下文显示下面的 'raise' 行，因此给这个变量
-        # 取一个在脱离上下文时仍有意义的名字。
+        # Traceback показывает расположенную ниже строку 'raise' вне контекста, поэтому этой переменной
+        # даём имя, которое остаётся понятным и вне контекста.
         captured_error = self.error
         try:
             raise captured_error
         finally:
-            # 这里需要避免创建引用循环。Python 能正常回收循环引用，
-            # 所以即使创建了循环也不是世界末日，但循环垃圾回收器会
-            # 增加 Python 程序的延迟，创建的循环越多，回收器运行越频繁，
-            # 所以最好从一开始就避免创建循环。更多详情请参阅:
+            # Здесь нужно избежать создания цикла ссылок. Python умеет корректно собирать циклические ссылки,
+            # поэтому даже созданный цикл не катастрофичен, но циклический сборщик мусора
+            # увеличивает задержки программы Python: чем больше создаётся циклов, тем чаще запускается сборщик,
+            # поэтому лучше не создавать их изначально. Подробнее см.:
             #
             #    https://github.com/python-trio/trio/issues/1770
             #
-            # 具体来说，通过从 'unwrap' 方法的栈帧中删除这些局部变量，
-            # 可以避免 'captured_error' 对象的 __traceback__ 间接引用
-            # 'captured_error' 本身。
+            # В частности, удаление этих локальных переменных из frame метода 'unwrap'
+            # не позволяет __traceback__ объекта 'captured_error' косвенно ссылаться
+            # на сам 'captured_error'.
             del captured_error, self
 
 
@@ -132,8 +132,8 @@ class Job(Generic[ResultT]):
     # __slots__ = ('worker', 'func_args_kwargs', 'queue', 'mutex', 'finished')
 
     def __init__(self, worker, func_args_kwargs):
-        # 有 "worker" 属性表示任务正在进行中
-        # 没有 "worker" 属性表示任务已完成或被终止
+        # Наличие атрибута "worker" означает, что задача выполняется
+        # Отсутствие атрибута "worker" означает, что задача завершена или остановлена
         self.worker = worker
         self.func_args_kwargs = func_args_kwargs
 
@@ -151,7 +151,7 @@ class Job(Generic[ResultT]):
         """
         self.notify_get.acquire()
 
-        # 返回任务结果或抛出任务错误
+        # Возвращаем результат задачи или выбрасываем её ошибку
         item = self.queue.popleft()
         return item.unwrap()
 
@@ -163,7 +163,7 @@ class Job(Generic[ResultT]):
         注意当线程池已满时，JobTimeout 可能不会立即抛出。
         """
         if self.notify_get.acquire(timeout=timeout):
-            # 返回任务结果或抛出任务错误
+            # Возвращаем результат задачи или выбрасываем её ошибку
             item = self.queue.popleft()
             return item.unwrap()
         else:
@@ -175,7 +175,7 @@ class Job(Generic[ResultT]):
             try:
                 worker = self.worker
             except AttributeError:
-                # 尝试终止已完成的任务，不做任何操作
+                # Попытка остановить уже завершённую задачу ничего не делает
                 return
             worker.kill()
             del self.worker
@@ -192,12 +192,12 @@ class WorkerThread:
         """
         self.job: "Job | None" = None
         self.thread_pool = thread_pool
-        # 此 Lock 的使用方式非常规。
+        # Этот Lock используется нестандартным образом.
         #
-        # "未锁定" 表示有待处理的任务已分配给我们；
-        # "已锁定" 表示没有待处理的任务。
+        # "Разблокирован" означает, что нам назначена ожидающая задача;
+        # "Заблокирован" означает, что ожидающих задач нет.
         #
-        # 初始时没有任务，因此以锁定状态开始。
+        # Изначально задач нет, поэтому начинаем в заблокированном состоянии.
         self.worker_lock = Lock()
         self.worker_lock.acquire()
         self.default_name = f"Alasio thread {next(name_counter)}"
@@ -209,25 +209,25 @@ class WorkerThread:
         return f'{self.__class__.__name__}({self.default_name})'
 
     def _handle_job(self) -> None:
-        # 转换为局部变量，如果分配了新任务，`self.job` 会是另一个值
+        # Переносим в локальную переменную: если назначат новую задачу, `self.job` уже будет содержать другое значение
         job = self.job
         del self.job
         func, args, kwargs = job.func_args_kwargs
 
         result = capture(func, *args, **kwargs)
 
-        # 通知线程池我们已空闲，可以接受新任务。
-        # 在调用 'deliver' 之前执行，这样如果 'deliver' 触发了新任务，
-        # 可以分配给我们而不是创建新线程。
+        # Уведомляем пул потоков, что снова свободны и можем принять новую задачу.
+        # Делаем это до вызова 'deliver', чтобы, если 'deliver' породит новую задачу,
+        # её можно было назначить нам вместо создания нового потока.
         self.thread_pool.idle_workers[self] = None
         self.thread_pool.release_full_lock()
 
-        # 传递结果
+        # Передаём результат
         if isinstance(result, Error) and isinstance(result.error, _JobKill):
-            # 任务被终止
+            # Задача была остановлена
             pass
         else:
-            # 任务完成，放入结果并通知
+            # Задача завершена: помещаем результат и уведомляем ожидающего
             with job.put_lock:
                 job.queue.append(result)
                 del job.worker
@@ -236,20 +236,20 @@ class WorkerThread:
     def _work(self) -> None:
         while True:
             if self.worker_lock.acquire(timeout=WorkerPool.IDLE_TIMEOUT):
-                # 获取到任务
+                # Получили задачу
                 self._handle_job()
             else:
-                # 获取锁超时，可以退出。但存在竞态条件：
-                # 可能在即将退出时被分配了任务，因此需要检查。
+                # Ожидание lock истекло, можно завершаться. Но есть состояние гонки:
+                # задача могла быть назначена прямо перед выходом, поэтому нужно проверить.
                 try:
                     del self.thread_pool.idle_workers[self]
                 except KeyError:
-                    # 其他线程已将我们从空闲队列中移除，
-                    # 说明正在给我们分配任务 - 继续循环等待。
+                    # Другой поток уже удалил нас из очереди свободных,
+                    # значит, нам назначают задачу — продолжаем цикл ожидания.
                     self.thread_pool.release_full_lock()
                     continue
                 else:
-                    # 成功从空闲队列中移除自己，不会再有新任务，可以安全退出。
+                    # Успешно удалили себя из очереди свободных: новых задач уже не будет, можно безопасно завершаться.
                     del self.thread_pool.all_workers[self]
                     self.thread_pool.release_full_lock()
                     return
@@ -262,7 +262,7 @@ class WorkerThread:
         Returns:
             bool: 是否成功终止线程
         """
-        # 向线程发送 SystemExit
+        # Отправляем потоку SystemExit
         thread_id = ctypes.c_long(self.thread.ident)
         res = ctypes.pythonapi.PyThreadState_SetAsyncExc(
             thread_id, ctypes.py_object(_JobKill))
@@ -276,7 +276,7 @@ class WorkerThread:
             except AttributeError:
                 job = None
             logger.error(f'[Устройство] Не удалось завершить поток {self.thread.ident} из задачи {job}')
-            # 发送 SystemExit 失败，重置它
+            # Не удалось отправить SystemExit — сбрасываем его
             ctypes.pythonapi.PyThreadState_SetAsyncExc(thread_id, 0)
             return False
 
@@ -287,12 +287,12 @@ class WorkerPool:
     参考: https://github.com/python-trio/trio/issues/6
     """
 
-    # 线程空闲 10 秒后退出。
+    # Свободный поток завершается через 10 секунд.
     IDLE_TIMEOUT = 10
 
     def __init__(self, pool_size: int = 8):
-        # 线程池最多 8 个线程。
-        # Alasio 用于本地低频访问，默认线程池较小
+        # В пуле не более 8 потоков.
+        # Alasio используется для редкого локального доступа, поэтому пул по умолчанию небольшой
         self.pool_size = pool_size
 
         self.idle_workers: "dict[WorkerThread, None]" = {}
@@ -327,22 +327,22 @@ class WorkerPool:
         except KeyError:
             pass
 
-        # 达到最大线程数时等待
+        # При достижении максимального числа потоков ждём
         if len(self.all_workers) >= self.pool_size:
-            # 参见 release_full_lock()
+            # См. release_full_lock()
             self.notify_worker.release()
             self.notify_pool.acquire()
-            # 某个工作线程刚好空闲
+            # Один из рабочих потоков только что освободился
             try:
                 worker, _ = self.idle_workers.popitem()
                 return worker
             except KeyError:
                 pass
-            # 某个工作线程刚好退出
+            # Один из рабочих потоков только что завершился
             # if len(self.all_workers) < WorkerPool.MAX_WORKER:
             #     break
 
-        # 创建新工作线程
+        # Создаём новый рабочий поток
         worker = WorkerThread(self)
         # logger.info(f'New worker thread: {worker.default_name}')
         self.all_workers[worker] = None
