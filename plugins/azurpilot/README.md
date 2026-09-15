@@ -46,9 +46,11 @@ Connected App не подменяет Codex route.
 `azur mcp stop` и `azur mcp restart`. `reconcile --source` обновляет только
 производные plugin metadata после проверки source sets; `reconcile --runtime`
 не изменяет tracked source. После успешного `azur update` reconciliation
-выполняется автоматически. Изменение plugin/skill snapshot не маскируется под
-hot reload: session получает `RELOAD_REQUIRED`, а runtime restart должен быть
-подтверждён новым readiness и catalog evidence.
+выполняется автоматически и является обязательным postcondition: ошибка source,
+runtime, ownership, port или readiness делает Update неуспешным. Изменение
+plugin/skill snapshot не маскируется под hot reload: session получает
+`MCP_RELOAD_REQUIRED`, а runtime restart должен быть подтверждён новым readiness
+и catalog evidence отдельно.
 
 Публикуемые данные должны оставаться workflow-only. Не добавляй в checkout
 ChatGPT app state, tunnel profiles, control-plane keys, screenshots, archives,
@@ -124,6 +126,13 @@ capability hash и contract revision. Development Runtime
 разрешает target через канонический registry: при отсутствии локального marker
 используется профиль по умолчанию из target policy (`ap` при успешной
 структурной проверке), а смена target требует явного согласия пользователя.
+Backend source sets — bounded explicit mapping реальных MCP application и
+persistence dependencies; management-only reconciliation/Git tooling не входит
+в identity backend. Plugin и skills имеют отдельные source revisions. Для CI и
+ручной проверки policy используй
+`uv run --locked --no-sync python -m dev_tools.mcp_compatibility_gate
+--base-commit <full-base-sha>`: gate отдельно проверяет current-tree integrity и
+base-to-head compatibility.
 Производные JSON-файлы plugin metadata сохраняются в UTF-8 без Unicode-экранирования,
 чтобы русские описания отображались как текст, а не как Unicode escape-последовательности.
 Имя target не передаётся через MCP. Skill сначала вызывает

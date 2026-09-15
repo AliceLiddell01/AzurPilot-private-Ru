@@ -546,6 +546,7 @@ def _render_human(
                     ("source_state", "Source"),
                     ("runtime_state", "Runtime"),
                     ("plugin_state", "Plugin"),
+                    ("plugin_source_state", "Plugin source"),
                     ("session_state", "Session"),
                 ):
                     value = getattr(result.details, field, None)

@@ -79,7 +79,7 @@ def test_closed_result_rejects_unknown_properties() -> None:
         (ResultCode.MCP_SOURCE_BUNDLE_INVALID, ExitCode.PRECONDITION),
         (ResultCode.MCP_SOURCE_BUNDLE_DRIFT, ExitCode.PRECONDITION),
         (ResultCode.MCP_VERSION_BUMP_REQUIRED, ExitCode.PRECONDITION),
-        (ResultCode.MCP_ENVIRONMENT_STALE, ExitCode.ROLLBACK_UNKNOWN),
+        (ResultCode.MCP_ENVIRONMENT_STALE, ExitCode.PRECONDITION),
     ),
 )
 def test_mcp_result_codes_map_to_stable_exit_categories(

@@ -293,13 +293,17 @@ jobs:
         id: python_mcp_compatibility
         timeout-minutes: 5
         shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
         run: |
           set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$PR_BASE_SHA"
           python tools/ci_heartbeat.py \
             --label "Проверка целостности MCP bundle" \
             --heartbeat-seconds 0 \
             --log-file "${RUNNER_TEMP}/azurpilot-ci-python/mcp-compatibility.log" \
-            -- uv run --locked --no-sync python -m dev_tools.mcp_compatibility_gate
+            -- uv run --locked --no-sync python -m dev_tools.mcp_compatibility_gate \
+              --base-commit "$PR_BASE_SHA"
 
       - name: Проверить компиляцию Python
         id: python_compile

@@ -434,15 +434,11 @@ def _parse_server(name: str, raw: object) -> McpServerVersion:
     )
 
 
-def load_mcp_bundle(root: Path | str | None = None) -> McpBundle:
-    """Загрузить единственный строгий canonical MCP bundle."""
+def _parse_mcp_bundle_payload(payload: object) -> McpBundle:
+    """Преобразовать уже разобранный TOML в строгую модель bundle."""
 
-    path = _root(root) / MCP_VERSION_MANIFEST
-    try:
-        with path.open("rb") as stream:
-            payload = tomllib.load(stream)
-    except (OSError, tomllib.TOMLDecodeError) as exc:
-        raise VersioningError("Не удалось прочитать MCP version manifest") from exc
+    if not isinstance(payload, dict):
+        raise VersioningError("MCP bundle manifest должен иметь TOML table в корне")
     if set(payload) != {
         "schema_version",
         "bundle_revision",
@@ -534,6 +530,41 @@ def load_mcp_bundle(root: Path | str | None = None) -> McpBundle:
     return bundle
 
 
+def load_mcp_bundle_text(content: str) -> McpBundle:
+    """Загрузить строгий MCP bundle из UTF-8 TOML-текста."""
+
+    if not isinstance(content, str):
+        raise TypeError("content должен быть строкой")
+    try:
+        payload = tomllib.loads(content)
+    except tomllib.TOMLDecodeError as exc:
+        raise VersioningError("Не удалось разобрать MCP version manifest") from exc
+    return _parse_mcp_bundle_payload(payload)
+
+
+def load_mcp_bundle_bytes(content: bytes) -> McpBundle:
+    """Загрузить строгий MCP bundle из bounded Git blob."""
+
+    if not isinstance(content, bytes):
+        raise TypeError("content должен быть bytes")
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise VersioningError("MCP version manifest не является UTF-8") from exc
+    return load_mcp_bundle_text(text)
+
+
+def load_mcp_bundle(root: Path | str | None = None) -> McpBundle:
+    """Загрузить единственный строгий canonical MCP bundle."""
+
+    path = _root(root) / MCP_VERSION_MANIFEST
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise VersioningError("Не удалось прочитать MCP version manifest") from exc
+    return load_mcp_bundle_text(content)
+
+
 def load_server_versions(root: Path | str | None = None) -> dict[str, str]:
     """Загрузить canonical server versions через строгую bundle-модель."""
 
@@ -570,6 +601,8 @@ __all__ = (
     "SemVer",
     "VersioningError",
     "load_mcp_bundle",
+    "load_mcp_bundle_bytes",
+    "load_mcp_bundle_text",
     "load_server_versions",
     "parse_version",
     "parse_version_range",

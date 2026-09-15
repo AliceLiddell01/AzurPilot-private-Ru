@@ -198,6 +198,16 @@ version и skill bundle revision для `azurpilot-dev` и `azurpilot-game`.
 `plugins/azurpilot/compatibility.json` является производным snapshot и не
 создаёт второй источник версий.
 
+Source sets являются bounded explicit mapping фактических MCP call graph:
+`DEV_MCP_SOURCE_SET` включает Dev MCP, Dev Runtime и вызываемые application,
+persistence и operational dependencies; `GAME_MCP_SOURCE_SET` включает Game MCP,
+Game application/control/read services, legacy adapters и persistence
+dependencies; `SHARED_MCP_SOURCE_SET` содержит только общие transport/process/
+filesystem primitives и tooling contracts. Management-only reconciler, Git и
+repository tooling не являются backend runtime identity. Plugin metadata и
+skills вынесены в отдельные `PLUGIN_BUNDLE_SOURCE_SET` и
+`SKILL_BUNDLE_SOURCE_SET`.
+
 Политика изменения SemVer для server identity фиксирована отдельно от
 protocol/schema версий:
 
@@ -219,9 +229,16 @@ server identity. Совместимость плагина задаётся boun
 `azur mcp versions`, `azur mcp reconcile`, `azur mcp start`, `azur mcp stop` и
 `azur mcp restart`. Source reconciliation обновляет только производные
 metadata; runtime reconciliation не редактирует tracked source. Успешный
-`azur update` автоматически выполняет reconciliation. При изменении
-plugin/skill или открытой session фиксируется `RELOAD_REQUIRED`; hot reload не
-имитируется.
+`azur update` автоматически выполняет обязательную reconciliation и завершает
+Update неуспешно при неизвестном или нарушенном MCP postcondition. Status и
+reconcile разделяют `source_state`, `runtime_state`, `plugin_source_state` и
+`session_state`; при подтверждённом plugin/skill drift возвращается
+`MCP_RELOAD_REQUIRED`, а hot reload не имитируется.
+
+Для CI и ручной проверки base-to-head policy используй
+`uv run --locked --no-sync python -m dev_tools.mcp_compatibility_gate
+--base-commit <full-base-sha>`: current-tree integrity и сравнение с base —
+независимые проверки.
 
 Для bounded проверки всех поверхностей используй read-only collector:
 

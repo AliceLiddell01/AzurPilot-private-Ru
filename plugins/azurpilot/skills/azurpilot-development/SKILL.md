@@ -45,7 +45,10 @@ flags или catalog fingerprints в skill: их source of truth — bundle.
 `azur mcp versions`, `azur mcp reconcile`, `azur mcp start`, `azur mcp stop` и
 `azur mcp restart`. Изменение plugin/skill snapshot или открытой session не
 считай hot reload: зафиксируй `RELOAD_REQUIRED` и подтверди новую session или
-штатный owned restart отдельно.
+штатный owned restart отдельно. Разделяй `source_state`, `runtime_state`,
+`plugin_source_state` и `session_state`: остановленный runtime не доказывает
+актуальность plugin session, а `MCP_RELOAD_REQUIRED` является non-OK
+результатом reconciliation, пока reload не подтверждён.
 
 ## Универсальный Smoke Harness
 

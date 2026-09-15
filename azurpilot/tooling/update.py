@@ -7,6 +7,7 @@ import re
 import shutil
 import tarfile
 import tomllib
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from secrets import token_hex
@@ -20,11 +21,9 @@ from .contracts import (
     OperationState,
     RemoteIdentityEvidence,
     ResultCode,
-    ToolingWarning,
     ToolingResult,
     UpdateDetails,
     UpdateEvidence,
-    WarningCode,
 )
 from .coordination import RepositoryCoordinator, observe_tcp_port
 from .errors import ToolingError
@@ -63,7 +62,6 @@ class _McpReconciliation:
     restarted_servers: tuple[str, ...]
     reload_required: bool
     session_state: str
-    warning: ToolingWarning | None = None
 
 
 class UpdateService:
@@ -86,9 +84,9 @@ class UpdateService:
         self.mcp_service = mcp_service
 
     def _reconcile_mcp_after_update(
-        self, root: Path
+        self, root: Path, *, changed_paths: Iterable[str] = ()
     ) -> _McpReconciliation:
-        """Проверить MCP после source/environment update без source mutation."""
+        """Проверить обязательное MCP postcondition после Update."""
 
         manifest = root / "config" / "mcp-versions.toml"
         if not manifest.is_file():
@@ -100,39 +98,27 @@ class UpdateService:
         else:
             service = self.mcp_service
         try:
-            result = service.reconcile(root)
-            if not result.ok:
-                raise ToolingError(
-                    result.code,
-                    result.message,
-                    state=result.state,
-                    details=result.details,
-                    evidence=result.evidence,
-                )
-            details = result.details
-            if details is None:
-                raise ToolingError(
-                    ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                    "MCP reconciliation вернула неполный результат.",
-                )
-        except (ToolingError, ValidationError, OSError) as error:
-            reason = (
-                error.code.value
-                if isinstance(error, ToolingError)
-                else type(error).__name__
+            result = service.reconcile(root, changed_paths=tuple(changed_paths))
+        except ToolingError:
+            raise
+        except (ValidationError, OSError) as error:
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "MCP reconciliation после Update завершилась с неизвестным postcondition.",
+            ) from error
+        if not result.ok:
+            raise ToolingError(
+                result.code,
+                result.message,
+                state=result.state,
+                details=result.details,
+                evidence=result.evidence,
             )
-            return _McpReconciliation(
-                state="failed",
-                restarted_servers=(),
-                reload_required=False,
-                session_state="not_observable",
-                warning=ToolingWarning(
-                    code=WarningCode.MCP_RECONCILIATION_FAILED,
-                    message=(
-                        "MCP reconciliation после update не подтверждена "
-                        f"({reason}); проверьте `azur mcp status`."
-                    ),
-                ),
+        details = result.details
+        if details is None:
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "MCP reconciliation вернула неполный результат.",
             )
         restarted = details.restarted_servers
         reload_required = details.reload_required
@@ -141,6 +127,12 @@ class UpdateService:
             if details.session_state == "reload_required"
             else "not_observable"
         )
+        if reload_required or session_state == "reload_required":
+            raise ToolingError(
+                ResultCode.MCP_RELOAD_REQUIRED,
+                "После Update effective MCP session требует reload; postcondition не подтверждено.",
+                details=details,
+            )
         return _McpReconciliation(
             state="restarted" if restarted else "ready",
             restarted_servers=restarted,
@@ -892,7 +884,11 @@ class UpdateService:
                 transaction = transaction.model_copy(update={"phase": "completed"})
                 journal_store.save(transaction)
                 journal_store.retain_terminal()
-            mcp_reconciliation = self._reconcile_mcp_after_update(root)
+            changed_paths = git.changed_paths(pre_head, post_head)
+            mcp_reconciliation = self._reconcile_mcp_after_update(
+                root,
+                changed_paths=changed_paths,
+            )
             return ToolingResult[UpdateDetails, UpdateEvidence](
                 ok=True,
                 code=ResultCode.OK,
@@ -913,11 +909,7 @@ class UpdateService:
                     mcp_session_state=mcp_reconciliation.session_state,
                     mcp_reload_required=mcp_reconciliation.reload_required,
                 ),
-                warnings=(
-                    (mcp_reconciliation.warning,)
-                    if mcp_reconciliation.warning is not None
-                    else ()
-                ),
+                warnings=(),
                 evidence=UpdateEvidence(
                     repository=resolved.evidence,
                     pre_head=pre_head,

@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import tomllib
 import time
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
@@ -14,6 +15,7 @@ from typing import Literal
 
 from module.mcp_shared.catalog import (
     canonical_json,
+    capability_catalog_sha256,
     contract_revision,
     sha256_text,
     tool_catalog_sha256_from_tools,
@@ -28,6 +30,7 @@ from module.mcp_shared.versioning import (
     SemVer,
     VersioningError,
     load_mcp_bundle,
+    load_mcp_bundle_bytes,
     source_revision,
 )
 
@@ -65,19 +68,92 @@ PLUGIN_COMPATIBILITY_PATH = Path("plugins/azurpilot/compatibility.json")
 CODEX_CONFIG_PATH = Path(".codex/config.toml")
 
 SOURCE_SET_PATHS: Mapping[str, tuple[Path, ...]] = {
-    "DEV_MCP_SOURCE_SET": (Path("module/dev_mcp"), Path("module/dev_runtime")),
-    "GAME_MCP_SOURCE_SET": (Path("module/game_mcp"),),
+    # Эти пути отражают реальные import/lazy-import границы backend-ов. Здесь
+    # намеренно нет всего `module/application`: это предотвращает bump от
+    # несвязанных product domains, сохраняя application и domain providers,
+    # которые вызываются MCP adapter-ами.
+    "DEV_MCP_SOURCE_SET": (
+        Path("module/dev_mcp"),
+        Path("module/dev_runtime"),
+        Path("module/application/canonical_payload.py"),
+        Path("module/application/database_diagnostics.py"),
+        Path("module/application/errors.py"),
+        Path("module/application/fleet_manual_scan.py"),
+        Path("module/application/fleet_page.py"),
+        Path("module/application/game_models.py"),
+        Path("module/application/game_ports.py"),
+        Path("module/application/game_read_service.py"),
+        Path("module/application/game_validation.py"),
+        Path("module/application/legacy_adapters.py"),
+        Path("module/application/legacy_game_adapters.py"),
+        Path("module/application/models.py"),
+        Path("module/application/ports.py"),
+        Path("module/application/fleet_state.py"),
+        Path("module/application/instance_identity.py"),
+        Path("module/application/morale.py"),
+        Path("module/application/resource_fields.py"),
+        Path("module/application/runtime_control.py"),
+        Path("module/application/runtime_state.py"),
+        Path("module/application/runtime_storage.py"),
+        Path("module/application/storage_models.py"),
+        Path("module/application/storage_ports.py"),
+        Path("module/formation/model.py"),
+        Path("module/dock_inventory/model.py"),
+        Path("module/persistence"),
+        Path("module/config/profile.py"),
+        Path("module/config/time_sentinel.py"),
+        Path("module/config/constants.py"),
+        Path("deploy/atomic.py"),
+        Path("module/observability/identity.py"),
+    ),
+    "GAME_MCP_SOURCE_SET": (
+        Path("module/game_mcp"),
+        Path("module/application/canonical_payload.py"),
+        Path("module/application/database_diagnostics.py"),
+        Path("module/application/errors.py"),
+        Path("module/application/fleet_manual_scan.py"),
+        Path("module/application/fleet_page.py"),
+        Path("module/application/fleet_state.py"),
+        Path("module/application/game_control_lock.py"),
+        Path("module/application/game_control_service.py"),
+        Path("module/application/game_models.py"),
+        Path("module/application/game_ports.py"),
+        Path("module/application/game_read_service.py"),
+        Path("module/application/game_validation.py"),
+        Path("module/application/host_lock.py"),
+        Path("module/application/instance_identity.py"),
+        Path("module/application/legacy_adapters.py"),
+        Path("module/application/legacy_game_adapters.py"),
+        Path("module/application/models.py"),
+        Path("module/application/morale.py"),
+        Path("module/application/ports.py"),
+        Path("module/application/resource_fields.py"),
+        Path("module/application/runtime_control.py"),
+        Path("module/application/runtime_execution.py"),
+        Path("module/application/runtime_state.py"),
+        Path("module/application/runtime_storage.py"),
+        Path("module/application/scheduler_runtime.py"),
+        Path("module/application/services.py"),
+        Path("module/application/storage_models.py"),
+        Path("module/application/storage_ports.py"),
+        Path("module/formation/model.py"),
+        Path("module/dock_inventory/model.py"),
+        Path("module/persistence"),
+        Path("module/config/profile.py"),
+        Path("module/config/config.py"),
+        Path("module/config/config_updater.py"),
+        Path("module/config/time_source.py"),
+        Path("module/config/utils.py"),
+        Path("module/config/task_priority.py"),
+        Path("module/observability/incident.py"),
+    ),
     "SHARED_MCP_SOURCE_SET": (
         Path("module/mcp_shared"),
-        Path("azurpilot/tooling/config.py"),
         Path("azurpilot/tooling/coordination.py"),
         Path("azurpilot/tooling/contracts.py"),
         Path("azurpilot/tooling/errors.py"),
         Path("azurpilot/tooling/filesystem.py"),
-        Path("azurpilot/tooling/git.py"),
-        Path("azurpilot/tooling/mcp.py"),
         Path("azurpilot/tooling/process.py"),
-        Path("azurpilot/tooling/repository.py"),
     ),
     "PLUGIN_BUNDLE_SOURCE_SET": (
         Path("plugins/azurpilot/.codex-plugin"),
@@ -92,8 +168,8 @@ SERVER_SOURCE_SETS: Mapping[str, tuple[str, ...]] = {
     "azurpilot-game": ("GAME_MCP_SOURCE_SET", "SHARED_MCP_SOURCE_SET"),
 }
 TOKEN_ENVIRONMENT_KEYS = MCP_LOCAL_TOKEN_ENVIRONMENT_KEYS
-_PLUGIN_VERSION_RE = re.compile(r"^0\.1\.0\+codex\.[0-9]{14}$")
 _SHA_RE = re.compile(r"^[0-9a-f]{7,64}$")
+_REVISION_RE = re.compile(r"^[0-9a-f]{40,64}$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,8 +196,23 @@ class _BundleBuild:
     required_bump_servers: tuple[str, ...]
 
 
-def _safe_relative(path: Path) -> str:
-    return path.as_posix()
+@dataclass(frozen=True, slots=True)
+class McpBaseCompatibility:
+    """Результат независимой проверки base-to-head MCP политики."""
+
+    base_commit: str
+    changed_components: tuple[str, ...]
+    affected_servers: tuple[str, ...]
+    required_bump_servers: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _McpBaseline:
+    versions: Mapping[str, str]
+    bundle: McpBundle | None
+    plugin_version: str | None = None
+    bundle_revision: str | None = None
+    skill_bundle_revision: str | None = None
 
 
 def _files_for_source_set(root: Path, source_paths: Iterable[Path]) -> tuple[Path, ...]:
@@ -327,7 +418,7 @@ def _server_model(
     capability = dict(payload)
     capability["tool_catalog_sha256"] = descriptor_hash
     capability["tool_count"] = len(names)
-    capability_hash = _capability_hash(capability)
+    capability_hash = capability_catalog_sha256(capability)
     capability["capability_catalog_sha256"] = capability_hash
     capability["server_version"] = version
     revision = contract_revision(capability)
@@ -401,23 +492,6 @@ def _required_flags(value: object, label: str) -> Mapping[str, bool]:
     return dict(value)
 
 
-def _capability_hash(payload: Mapping[str, object]) -> str:
-    fields = {
-        key: payload[key]
-        for key in (
-            "authorization_scopes",
-            "feature_flags",
-            "capability_families",
-            "result_outcomes",
-            "result_states",
-            "read_only_guarantees",
-            "control_guarantees",
-        )
-        if key in payload
-    }
-    return sha256_text(canonical_json(fields))
-
-
 def _current_bundle(root: Path) -> McpBundle | None:
     try:
         return load_mcp_bundle(root)
@@ -479,6 +553,121 @@ def _public_change_kind(
     if additive_capabilities and old_names < new_names and existing_descriptors_unchanged:
         return "minor"
     return "major"
+
+
+def _base_public_contract_equal(
+    old: McpServerVersion, new: McpServerVersion
+) -> bool:
+    """Сравнить публичный контракт, не считая derived revision от версии."""
+
+    return all(
+        left == right
+        for left, right in (
+            (old.tool_catalog_sha256, new.tool_catalog_sha256),
+            (dict(old.tool_descriptor_hashes), dict(new.tool_descriptor_hashes)),
+            (old.capability_catalog_sha256, new.capability_catalog_sha256),
+            (old.api_version, new.api_version),
+            (old.contract_schema_version, new.contract_schema_version),
+            (old.authorization_scopes, new.authorization_scopes),
+            (dict(old.feature_flags), dict(new.feature_flags)),
+            (old.capability_families, new.capability_families),
+            (old.result_vocabulary, new.result_vocabulary),
+            (old.smoke_spec_schema_version, new.smoke_spec_schema_version),
+            (old.smoke_result_schema_version, new.smoke_result_schema_version),
+        )
+    )
+
+
+def _base_public_change_kind(
+    old: McpServerVersion | None,
+    new: McpServerVersion,
+    *,
+    source_changed: bool,
+) -> Literal["none", "patch", "minor", "major"]:
+    """Классифицировать base-to-head change без доверия к ручной версии."""
+
+    if old is None:
+        return "major"
+    if _base_public_contract_equal(old, new):
+        return "patch" if source_changed else "none"
+
+    old_names = set(old.tool_names)
+    new_names = set(new.tool_names)
+    additive_capabilities = (
+        old_names <= new_names
+        and set(old.capability_families) <= set(new.capability_families)
+        and set(old.result_vocabulary) <= set(new.result_vocabulary)
+        and all(
+            name in new.feature_flags and new.feature_flags[name] == value
+            for name, value in old.feature_flags.items()
+        )
+        and old.authorization_scopes == new.authorization_scopes
+        and old.api_version == new.api_version
+        and old.contract_schema_version == new.contract_schema_version
+        and old.smoke_spec_schema_version == new.smoke_spec_schema_version
+        and old.smoke_result_schema_version == new.smoke_result_schema_version
+    )
+    existing_descriptors_unchanged = (
+        set(old.tool_descriptor_hashes) == old_names
+        and set(new.tool_descriptor_hashes) == new_names
+        and all(
+            old.tool_descriptor_hashes[name] == new.tool_descriptor_hashes[name]
+            for name in old_names
+        )
+    )
+    if additive_capabilities and old_names < new_names and existing_descriptors_unchanged:
+        return "minor"
+    return "major"
+
+
+def _version_bump_kind(
+    old: str, new: str
+) -> Literal["none", "patch", "minor", "major", "invalid"]:
+    """Определить фактический SemVer bump без учёта build metadata."""
+
+    previous = SemVer.parse(old)
+    current = SemVer.parse(new)
+    previous_core = (previous.major, previous.minor, previous.patch)
+    current_core = (current.major, current.minor, current.patch)
+    if current_core < previous_core:
+        return "invalid"
+    if current.major < previous.major:
+        return "major"
+    if current.major > previous.major:
+        return "major"
+    if current.minor < previous.minor:
+        return "minor"
+    if current.minor > previous.minor:
+        return "minor"
+    if current.patch < previous.patch:
+        return "patch"
+    if current.patch > previous.patch:
+        return "patch"
+    return "none"
+
+
+def _legacy_baseline_versions(content: bytes) -> dict[str, str] | None:
+    """Прочитать только версии старого schema v1 для base compatibility gate."""
+
+    try:
+        payload = tomllib.loads(content.decode("utf-8"))
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError):
+        return None
+    if payload.get("schema_version") != 1:
+        return None
+    raw_servers = payload.get("servers")
+    if not isinstance(raw_servers, dict) or set(raw_servers) != set(MCP_SERVER_NAMES):
+        return None
+    versions: dict[str, str] = {}
+    try:
+        for name in MCP_SERVER_NAMES:
+            value = raw_servers[name]
+            if not isinstance(value, dict):
+                return None
+            versions[name] = str(SemVer.parse(value["version"]))
+    except (KeyError, TypeError, ValueError):
+        return None
+    return versions
 
 
 def _server_status_from_model(
@@ -900,6 +1089,174 @@ class McpSourceReconciler:
             )
         return build
 
+    @staticmethod
+    def _baseline(root: Path, base_commit: str) -> _McpBaseline:
+        if _REVISION_RE.fullmatch(base_commit) is None:
+            raise ToolingError(
+                ResultCode.TOOLING_INVALID_INVOCATION,
+                "Base commit MCP gate должен быть полным SHA.",
+            )
+        git = GitClient(root)
+        head = git.head()
+        if not git.is_ancestor(base_commit, head):
+            raise ToolingError(
+                ResultCode.MCP_SOURCE_BUNDLE_INVALID,
+                "Base commit не является предком текущего MCP HEAD.",
+            )
+        manifest_ref = f"{base_commit}:config/mcp-versions.toml"
+        if not git.object_exists(manifest_ref):
+            raise ToolingError(
+                ResultCode.MCP_SOURCE_BUNDLE_INVALID,
+                "Base commit не содержит canonical MCP version manifest.",
+            )
+        content = git.object_bytes(manifest_ref)
+        try:
+            bundle = load_mcp_bundle_bytes(content)
+        except VersioningError:
+            versions = _legacy_baseline_versions(content)
+            if versions is None:
+                raise ToolingError(
+                    ResultCode.MCP_SOURCE_BUNDLE_INVALID,
+                    "Base MCP version manifest имеет неизвестную схему.",
+                ) from None
+            plugin_version: str | None = None
+            bundle_revision: str | None = None
+            skill_bundle_revision: str | None = None
+            plugin_ref = f"{base_commit}:{PLUGIN_MANIFEST_PATH.as_posix()}"
+            try:
+                plugin_payload = json.loads(git.object_bytes(plugin_ref).decode("utf-8"))
+                if isinstance(plugin_payload, dict) and isinstance(
+                    plugin_payload.get("version"), str
+                ):
+                    plugin_version = plugin_payload["version"]
+            except (ToolingError, UnicodeDecodeError, json.JSONDecodeError):
+                pass
+            compatibility_ref = (
+                f"{base_commit}:{PLUGIN_COMPATIBILITY_PATH.as_posix()}"
+            )
+            try:
+                compatibility_payload = json.loads(
+                    git.object_bytes(compatibility_ref).decode("utf-8")
+                )
+                if isinstance(compatibility_payload, dict):
+                    if isinstance(compatibility_payload.get("bundle_revision"), str):
+                        bundle_revision = compatibility_payload["bundle_revision"]
+                    if isinstance(
+                        compatibility_payload.get("skill_bundle_revision"), str
+                    ):
+                        skill_bundle_revision = compatibility_payload[
+                            "skill_bundle_revision"
+                        ]
+            except (ToolingError, UnicodeDecodeError, json.JSONDecodeError):
+                pass
+            return _McpBaseline(
+                versions=versions,
+                bundle=None,
+                plugin_version=plugin_version,
+                bundle_revision=bundle_revision,
+                skill_bundle_revision=skill_bundle_revision,
+            )
+        return _McpBaseline(
+            versions={name: server.version for name, server in bundle.servers.items()},
+            bundle=bundle,
+            plugin_version=bundle.plugin_version,
+            bundle_revision=bundle.bundle_revision,
+            skill_bundle_revision=bundle.skill_bundle_revision,
+        )
+
+    def check_base_to_head(
+        self, root: Path | str, *, base_commit: str
+    ) -> McpBaseCompatibility:
+        """Проверить policy bump и generated bundle от конкретного base SHA."""
+
+        resolved = Path(root).resolve()
+        head = self.check(resolved)
+        baseline = self._baseline(resolved, base_commit)
+        git = GitClient(resolved)
+        changed_paths = git.changed_paths(base_commit, git.head())
+        classification = classify_source_changes(changed_paths)
+
+        required: list[str] = []
+        for name in MCP_SERVER_NAMES:
+            old_version = baseline.versions.get(name)
+            current_server = head.bundle.servers[name]
+            if old_version is None:
+                raise ToolingError(
+                    ResultCode.MCP_SOURCE_BUNDLE_INVALID,
+                    f"Base MCP manifest не содержит server {name}.",
+                )
+            source_changed = name in classification.affected_servers
+            if baseline.bundle is not None:
+                old_server = baseline.bundle.servers[name]
+                source_changed = source_changed or (
+                    old_server.source_set_digest != current_server.source_set_digest
+                )
+                kind = _base_public_change_kind(
+                    old_server,
+                    current_server,
+                    source_changed=source_changed,
+                )
+            else:
+                # Schema v1 не содержит fingerprints. Для него безопасно
+                # требовать patch при любом tracked backend change, но не
+                # придумывать breaking contract без исходного fingerprint.
+                kind = "patch" if source_changed else "none"
+            actual_bump = _version_bump_kind(old_version, current_server.version)
+            if actual_bump == "invalid":
+                raise ToolingError(
+                    ResultCode.MCP_SOURCE_BUNDLE_DRIFT,
+                    f"Версия MCP server {name} уменьшилась относительно base.",
+                )
+            rank = {"none": 0, "patch": 1, "minor": 2, "major": 3}
+            if rank[actual_bump] < rank[kind]:
+                required.append(name)
+                continue
+            if kind == "major" and actual_bump != "major":
+                required.append(name)
+
+        base_bundle = baseline.bundle
+        plugin_changed = "PLUGIN_BUNDLE_SOURCE_SET" in classification.changed_components
+        skill_changed = "SKILL_BUNDLE_SOURCE_SET" in classification.changed_components
+        if base_bundle is not None:
+            plugin_changed = plugin_changed or (
+                base_bundle.source_digests.get("PLUGIN_BUNDLE_SOURCE_SET")
+                != head.bundle.source_digests.get("PLUGIN_BUNDLE_SOURCE_SET")
+            )
+            skill_changed = skill_changed or (
+                base_bundle.source_digests.get("SKILL_BUNDLE_SOURCE_SET")
+                != head.bundle.source_digests.get("SKILL_BUNDLE_SOURCE_SET")
+            )
+        if plugin_changed and (
+            baseline.plugin_version == head.bundle.plugin_version
+            or baseline.bundle_revision == head.bundle.bundle_revision
+        ):
+            raise ToolingError(
+                ResultCode.MCP_SOURCE_BUNDLE_DRIFT,
+                "Изменение plugin source не обновило plugin и bundle revision.",
+            )
+        if skill_changed and (
+            baseline.skill_bundle_revision == head.bundle.skill_bundle_revision
+            or baseline.plugin_version == head.bundle.plugin_version
+            or baseline.bundle_revision == head.bundle.bundle_revision
+        ):
+            raise ToolingError(
+                ResultCode.MCP_SOURCE_BUNDLE_DRIFT,
+                "Изменение skill source не обновило skill и bundle revision.",
+            )
+
+        if required:
+            names = ", ".join(required)
+            raise ToolingError(
+                ResultCode.MCP_VERSION_BUMP_REQUIRED,
+                f"Base-to-head MCP compatibility требует version bump: {names}.",
+            )
+        return McpBaseCompatibility(
+            base_commit=base_commit,
+            changed_components=classification.changed_components,
+            affected_servers=classification.affected_servers,
+            required_bump_servers=tuple(required),
+        )
+
     def reconcile(self, root: Path | str, *, requested_bump: str | None = None) -> _BundleBuild:
         resolved = Path(root).resolve()
         build = self.build(resolved, requested_bump=requested_bump)
@@ -974,9 +1331,18 @@ class McpService:
 
     @staticmethod
     def _session_state(
-        root: Path, runtime: Mapping[str, object]
+        root: Path,
+        runtime: Mapping[str, object],
+        *,
+        changed_paths: Iterable[str | Path] = (),
     ) -> Literal["not_observable", "reload_required"]:
-        """Классифицировать plugin snapshot по revision работающего runtime."""
+        """Классифицировать plugin snapshot без claims об effective session."""
+
+        requested_paths = tuple(changed_paths)
+        if requested_paths:
+            classification = classify_source_changes(requested_paths)
+            if classification.plugin_changed or classification.skill_changed:
+                return "reload_required"
 
         revisions = {
             item.get("source_revision")
@@ -1074,7 +1440,32 @@ class McpService:
             "supervisors": supervisors,
         }
 
-    def _status_details(self, root: Path, *, action: Literal["status", "reconcile", "start", "stop", "restart"]):
+    @staticmethod
+    def _plugin_source_state(
+        root: Path, bundle: McpBundle
+    ) -> Literal["ready", "drift", "unknown"]:
+        """Проверить plugin/skill source отдельно от backend runtime."""
+
+        try:
+            digests = source_set_digests(root)
+        except ToolingError:
+            return "unknown"
+        return (
+            "drift"
+            if any(
+                digests.get(name) != bundle.source_digests.get(name)
+                for name in ("PLUGIN_BUNDLE_SOURCE_SET", "SKILL_BUNDLE_SOURCE_SET")
+            )
+            else "ready"
+        )
+
+    def _status_details(
+        self,
+        root: Path,
+        *,
+        action: Literal["status", "reconcile", "start", "stop", "restart"],
+        changed_paths: Iterable[str | Path] = (),
+    ):
         current = self._bundle(root)
         try:
             build = self.source.build(root, requested_bump="auto")
@@ -1104,17 +1495,19 @@ class McpService:
             source_state = "invalid"
         elif registration_state == "unknown" and source_state == "ready":
             source_state = "unknown"
-        plugin_state = (
-            "ready"
-            if source_state == "ready"
-            else "unknown"
-            if source_state == "unknown"
-            else "drift"
-        )
+        plugin_source_state = self._plugin_source_state(root, bundle)
+        if plugin_source_state == "drift":
+            plugin_state = "drift"
+        elif plugin_source_state == "unknown" or source_state == "unknown":
+            plugin_state = "unknown"
+        elif source_state == "ready":
+            plugin_state = "ready"
+        else:
+            plugin_state = "drift"
         session_state: Literal["current", "reload_required", "not_observable", "unknown"] = (
             "reload_required"
-            if build.plugin_changed
-            else self._session_state(root, runtime)
+            if plugin_source_state == "drift"
+            else self._session_state(root, runtime, changed_paths=changed_paths)
         )
         statuses: list[McpServerStatus] = []
         ready_services = {
@@ -1166,6 +1559,7 @@ class McpService:
             source_state=source_state,
             runtime_state=runtime_state,
             plugin_state=plugin_state,
+            plugin_source_state=plugin_source_state,
             session_state=session_state,
             bundle_revision=bundle.bundle_revision,
             plugin_version=bundle.plugin_version,
@@ -1193,6 +1587,8 @@ class McpService:
             )
         if details.source_state == "unknown":
             code = ResultCode.TOOLING_VERIFICATION_UNKNOWN
+        elif details.session_state == "reload_required":
+            code = ResultCode.MCP_RELOAD_REQUIRED
         elif details.source_state != "ready":
             code = ResultCode.MCP_SOURCE_BUNDLE_DRIFT
         elif runtime_state == "conflict":
@@ -1207,9 +1603,7 @@ class McpService:
             ok=code is ResultCode.OK,
             code=code,
             state=(
-                OperationState.READY
-                if code is ResultCode.OK
-                else OperationState.UNKNOWN
+                OperationState.READY if code is ResultCode.OK else OperationState.FAILED
             ),
             message=(
                 "MCP source, routes и bounded runtime status прочитаны."
@@ -1446,7 +1840,14 @@ class McpService:
             details=details,
         )
 
-    def reconcile(self, repository_root: str | Path | None = None, *, source: bool = False, bump: str | None = None) -> ToolingResult[McpReconcileDetails, McpLifecycleDetails]:
+    def reconcile(
+        self,
+        repository_root: str | Path | None = None,
+        *,
+        source: bool = False,
+        bump: str | None = None,
+        changed_paths: Iterable[str | Path] = (),
+    ) -> ToolingResult[McpReconcileDetails, McpLifecycleDetails]:
         root = self._root(repository_root)
         if source:
             build = self.source.reconcile(root, requested_bump=bump)
@@ -1461,6 +1862,17 @@ class McpService:
                 session_state="reload_required" if build.plugin_changed else "not_observable",
                 reload_required=build.plugin_changed,
             )
+            if build.plugin_changed:
+                return ToolingResult(
+                    ok=False,
+                    code=ResultCode.MCP_RELOAD_REQUIRED,
+                    state=OperationState.FAILED,
+                    message=(
+                        "Canonical MCP bundle согласован, но загруженная plugin/skill "
+                        "session требует reload; hot reload не выполнялся."
+                    ),
+                    details=details,
+                )
             return ToolingResult(
                 ok=True,
                 code=ResultCode.OK,
@@ -1481,8 +1893,10 @@ class McpService:
                 ResultCode.TOOLING_PORT_CONFLICT,
                 "Порт first-party local MCP уже занят чужим процессом.",
             )
-        session_state: Literal["current", "reload_required", "not_observable", "unknown"] = (
-            self._session_state(root, runtime)
+        session_state: Literal["current", "reload_required", "not_observable", "unknown"] = self._session_state(
+            root,
+            runtime,
+            changed_paths=changed_paths,
         )
         restarted: tuple[str, ...] = ()
         if runtime_state == "unknown":
@@ -1525,7 +1939,12 @@ class McpService:
                 root, bundle, server_names=stale_names
             )
             restarted = stale_names
-            runtime_state, _runtime = self._runtime_status(root, bundle)
+            runtime_state, runtime = self._runtime_status(root, bundle)
+            if runtime_state != "ready":
+                raise ToolingError(
+                    ResultCode.MCP_RUNTIME_STALE,
+                    "После restart readiness и exact MCP runtime postcondition не подтверждены.",
+                )
         details = McpReconcileDetails(
             mode="runtime",
             source_state="ready",
@@ -1537,6 +1956,14 @@ class McpService:
             session_state=session_state,
             reload_required=session_state == "reload_required",
         )
+        if session_state == "reload_required":
+            return ToolingResult(
+                ok=False,
+                code=ResultCode.MCP_RELOAD_REQUIRED,
+                state=OperationState.FAILED,
+                message="MCP runtime согласован, но effective plugin session требует reload.",
+                details=details,
+            )
         return ToolingResult(
             ok=True,
             code=ResultCode.OK,
@@ -1593,6 +2020,7 @@ __all__ = [
     "SOURCE_SET_NAMES",
     "SOURCE_SET_PATHS",
     "McpService",
+    "McpBaseCompatibility",
     "McpSourceReconciler",
     "SourceChangeClassification",
     "classify_source_changes",

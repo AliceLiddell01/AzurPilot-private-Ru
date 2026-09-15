@@ -12,21 +12,42 @@ from pathlib import Path
 import psutil
 import pytest
 
+from azurpilot.tooling.coordination import FileLock
+from azurpilot.tooling.process import ProcessIdentity
 import module.mcp_shared.local_http_supervisor as supervisor_module
 from module.mcp_shared.local_http_supervisor import (
     LocalHttpService,
     LocalHttpSupervisor,
     LocalHttpSupervisorError,
-    _identity_matches,
-    _process_identity,
-    _release_lock,
-    _try_lock,
+    _identity_from_marker,
+    _identity_to_marker,
 )
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 _DEV_TOKEN_ENV = "AZURPILOT_DEV_LOCAL_MCP_TOKEN"
 _GAME_TOKEN_ENV = "AZURPILOT_GAME_LOCAL_MCP_TOKEN"
 _TEST_MODULE_PREFIX = "test_local_mcp_"
+
+
+def _process_identity(pid: int) -> dict[str, object] | None:
+    try:
+        return _identity_to_marker(ProcessIdentity.capture(pid))
+    except (OSError, psutil.Error):
+        return None
+
+
+def _identity_matches(process: psutil.Process, expected: dict[str, object]) -> bool:
+    identity = _identity_from_marker(expected)
+    return identity is not None and identity.matches(process)
+
+
+def _try_lock(path: Path) -> FileLock | None:
+    lock = FileLock(path)
+    return lock if lock.acquire(timeout_seconds=0) else None
+
+
+def _release_lock(handle: FileLock) -> None:
+    handle.release()
 
 pytestmark = pytest.mark.xdist_group(name="local-http-supervisor")
 

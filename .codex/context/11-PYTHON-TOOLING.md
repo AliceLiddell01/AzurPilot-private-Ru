@@ -739,7 +739,7 @@ transport route молча. Long-running service operation
 | `.agents/skills/azurpilot-coderabbit-review` | canonical CodeRabbit review checkpoint | review выполняется в отдельном permanent WSL2 review checkout, не в implementation checkout |
 | `.agents/plugins/marketplace.json` | source-controlled local marketplace | package path остаётся source-only; plugin install не регистрирует MCP |
 | `.codex/config.toml` | repository-level project route | CLI/tooling может проверять source config, но не выдавать его за effective registration |
-| `config/mcp-versions.toml` | единственный canonical MCP bundle: SemVer/API/contract identity, catalog/source/plugin/skill revisions | один strict reader и bounded reconciliation; производный `compatibility.json` не создаёт второй source of truth |
+| `config/mcp-versions.toml` | единственный canonical MCP bundle: SemVer/API/contract identity, catalog/source/plugin/skill revisions | один strict reader и bounded reconciliation; производный `compatibility.json` не создаёт второй source of truth; CI дополнительно сравнивает с exact base SHA |
 
 Диагностическая matrix plugin закрепляет отдельные слои: intent → skill routing
 → project config/trust → local process → MCP handshake/catalog → plugin snapshot
@@ -751,7 +751,12 @@ Canonical MCP lifecycle остаётся в общем service layer и дост
 `azur mcp stop` и `azur mcp restart`. Source reconciliation изменяет только
 производные plugin metadata; runtime reconciliation не меняет tracked source.
 При stale plugin/skill/session требуется `RELOAD_REQUIRED`, а не скрытый hot
-reload.
+reload. Status и reconcile разделяют `source_state`, `runtime_state`,
+`plugin_source_state` и `session_state`; `MCP_RELOAD_REQUIRED` является
+неуспешным результатом, если подтверждён plugin/skill drift. Permanent gate
+запускается через
+`uv run --locked --no-sync python -m dev_tools.mcp_compatibility_gate
+--base-commit <full-base-sha>` и не содержит PR/SHA/branch-specific constants.
 
 ## 8. Reuse `dev_tools/mcp_status.py`
 

@@ -171,7 +171,6 @@ class WarningCode(StrEnum):
     TOOLING_BROWSER_NOT_OPENED = "TOOLING_BROWSER_NOT_OPENED"
     TOOLING_OUTPUT_TRUNCATED = "TOOLING_OUTPUT_TRUNCATED"
     TOOLING_LEGACY_COMPATIBILITY = "TOOLING_LEGACY_COMPATIBILITY"
-    MCP_RECONCILIATION_FAILED = "MCP_RECONCILIATION_FAILED"
 
 
 class ClosedModel(BaseModel):
@@ -581,15 +580,10 @@ class UpdateDetails(ClosedModel):
     recovery_action: str | None = Field(default=None, max_length=120)
     mcp_reconciliation: Literal["not_required", "ready", "restarted", "failed"] = "not_required"
     mcp_restarted_servers: tuple[str, ...] = Field(default_factory=tuple, max_length=2)
-    mcp_session_state: Literal["not_observable", "reload_required"] = "not_observable"
+    mcp_session_state: Literal[
+        "current", "not_observable", "reload_required", "unknown"
+    ] = "not_observable"
     mcp_reload_required: bool = False
-
-
-class McpFlag(ClosedModel):
-    """Одна bounded capability flag в operator evidence."""
-
-    name: str = Field(min_length=1, max_length=128)
-    value: bool
 
 
 class McpDigest(ClosedModel):
@@ -634,6 +628,7 @@ class McpStatusDetails(ClosedModel):
     source_state: Literal["ready", "drift", "invalid", "unknown"]
     runtime_state: Literal["ready", "stale", "stopped", "unknown", "conflict"]
     plugin_state: Literal["ready", "drift", "invalid", "unknown"]
+    plugin_source_state: Literal["ready", "drift", "unknown"]
     session_state: Literal["current", "reload_required", "not_observable", "unknown"]
     bundle_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
     plugin_version: str = Field(min_length=5, max_length=128)
@@ -795,9 +790,10 @@ def exit_code_for(code: ResultCode, ok: bool = False) -> ExitCode:
         ResultCode.TOOLING_ROLLBACK_UNKNOWN,
         ResultCode.TOOLING_VERIFICATION_UNKNOWN,
         ResultCode.TOOLING_SECRET_SCAN_FAILED,
-        ResultCode.MCP_ENVIRONMENT_STALE,
     }:
         return ExitCode.ROLLBACK_UNKNOWN
+    if code is ResultCode.MCP_ENVIRONMENT_STALE:
+        return ExitCode.PRECONDITION
     if code is ResultCode.TOOLING_UNEXPECTED:
         return ExitCode.UNEXPECTED
     return ExitCode.PRECONDITION
@@ -834,7 +830,6 @@ __all__ = [
     "LifecycleEvidence",
     "LifecycleRecord",
     "McpDigest",
-    "McpFlag",
     "McpLifecycleDetails",
     "McpReconcileDetails",
     "McpServerStatus",

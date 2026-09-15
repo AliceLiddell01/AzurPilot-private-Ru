@@ -65,5 +65,9 @@ plugin version и skill bundle revision. `plugins/azurpilot/compatibility.json`
 является производным snapshot. Проверка и безопасное согласование выполняются
 через `azur mcp status`, `azur mcp versions`, `azur mcp reconcile`,
 `azur mcp start`, `azur mcp stop` и `azur mcp restart`; runtime reconciliation
-не редактирует tracked source. При изменении plugin/skill или session snapshot
-возвращается `RELOAD_REQUIRED`, а hot reload не имитируется.
+не редактирует tracked source. Backend source sets — bounded explicit mapping
+реальных MCP application dependencies; management-only `azurpilot/tooling/mcp.py`
+не входит в runtime identity. При plugin/skill source drift `status` и
+`reconcile` возвращают `MCP_RELOAD_REQUIRED` с `reload_required=true`; hot reload
+не имитируется. Текущая целостность дополнительно проверяется против exact
+base SHA через `dev_tools.mcp_compatibility_gate`.

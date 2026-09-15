@@ -182,7 +182,11 @@ bundle находится в `config/mcp-versions.toml` и содержит serv
 identity, tool/capability fingerprints, source-set digests, plugin version и
 skill bundle revision. `azur mcp` выполняет status, versions, source/runtime
 reconciliation и owned lifecycle; runtime reconciliation не редактирует tracked
-source, а stale plugin/session классифицируется как `RELOAD_REQUIRED`.
+source, а stale plugin/session классифицируется как `RELOAD_REQUIRED`. Source
+sets — bounded explicit mapping фактических application/persistence call graph;
+management-only MCP/Git/repository tooling из backend identity исключено.
+Permanent compatibility gate отдельно проверяет current-tree integrity и
+base-to-head policy по переданному exact base SHA.
 
 Текущий development-контур предоставляет developer-only односторонний Game
 Bridge и диагностику базы данных. Game Bridge вызывает только нейтральные

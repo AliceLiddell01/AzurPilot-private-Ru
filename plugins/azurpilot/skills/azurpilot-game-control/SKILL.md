@@ -68,7 +68,9 @@ fallback для обычного Codex route. Если выбранный route,
 Для source/runtime reconciliation используй `azur mcp status`,
 `azur mcp versions`, `azur mcp reconcile`, `azur mcp start`, `azur mcp stop` и
 `azur mcp restart`. При session/plugin mismatch зафиксируй `RELOAD_REQUIRED`;
-не называй обновление tracked bundle или owned process hot reload.
+не называй обновление tracked bundle или owned process hot reload. Проверяй
+`plugin_source_state` отдельно от runtime; `MCP_RELOAD_REQUIRED` означает
+неуспешную reconciliation до подтверждения новой session.
 
 ## Модель состояния
 

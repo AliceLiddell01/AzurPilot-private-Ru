@@ -177,7 +177,7 @@ capability gap, а не доказанный stale client. Зафиксируй 
 15. external emulator/device/game и authoritative product postcondition.
 
 Состояния `MCP_RUNTIME_STALE`, `MCP_PLUGIN_RUNTIME_INCOMPATIBLE` и
-`MCP_RELOAD_REQUIRED` требуют read-only фиксации source/runtime/session
+`MCP_RELOAD_REQUIRED` требуют read-only фиксации source/runtime/plugin-source/session
 расхождения. Для доказанно owned runtime разрешён один штатный
 `azur mcp restart`; при изменении plugin/skill сначала требуется новая
 session или явное подтверждение reload, а hot reload не предполагается.

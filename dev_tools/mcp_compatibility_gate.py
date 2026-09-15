@@ -9,6 +9,7 @@ from pathlib import Path
 
 from azurpilot.tooling.contracts import exit_code_for
 from azurpilot.tooling.errors import ToolingError
+from azurpilot.tooling.git import GitClient
 from azurpilot.tooling.mcp import McpSourceReconciler
 
 
@@ -26,9 +27,13 @@ def _status_mark(ok: bool) -> str:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Проверить целостность first-party MCP bundle без runtime mutation."
+        description="Проверить целостность и base-to-head policy first-party MCP bundle."
     )
     parser.add_argument("--repository-root", type=Path, default=Path("."))
+    parser.add_argument(
+        "--base-commit",
+        help="Полный SHA base commit для проверки SemVer и bundle policy.",
+    )
     parser.add_argument("--json", action="store_true", dest="as_json")
     return parser
 
@@ -36,7 +41,17 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
     try:
-        build = McpSourceReconciler().check(arguments.repository_root)
+        reconciler = McpSourceReconciler()
+        build = reconciler.check(arguments.repository_root)
+        base_commit = arguments.base_commit
+        if base_commit is None:
+            base_commit = GitClient(Path(arguments.repository_root).resolve()).text(
+                "merge-base", "HEAD", "origin/personal/stable"
+            )
+        compatibility = reconciler.check_base_to_head(
+            arguments.repository_root,
+            base_commit=base_commit,
+        )
     except ToolingError as error:
         payload = {
             "ok": False,
@@ -53,6 +68,9 @@ def main(argv: list[str] | None = None) -> int:
         "code": "MCP_COMPATIBILITY_READY",
         "bundle_revision": build.bundle.bundle_revision,
         "plugin_version": build.bundle.plugin_version,
+        "base_commit": compatibility.base_commit,
+        "changed_components": list(compatibility.changed_components),
+        "affected_servers": list(compatibility.affected_servers),
         "servers": {
             name: build.bundle.servers[name].version
             for name in ("azurpilot-dev", "azurpilot-game")
