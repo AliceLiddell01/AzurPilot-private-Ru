@@ -31,6 +31,9 @@ Gitleaks, commit, exact committed-range Gitleaks, ordinary push и `ls-remote`
 provider вызывается с explicit `gh --repo`, а Markdown передаётся через
 временный `--body-file`. После provider call сервис читает PR обратно и
 сверяет repository identity, base/head SHA, draft state и body digest.
+Для read-back полей `baseRefOid` и других PR identity используется GitHub CLI
+`gh >= 2.63.0`; старый CLI с неизвестным JSON field даёт отдельный
+`TOOLING_PROVIDER_UNAVAILABLE`, а не generic provider rejection.
 
 Финальный live acceptance capability выполняется двумя интерфейсами: обычный
 human output и `--json` для agent CLI. JSON должен содержать ровно один

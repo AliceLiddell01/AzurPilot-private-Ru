@@ -22,10 +22,11 @@ from azurpilot.tooling.delivery import DeliveryService
 from azurpilot.tooling.errors import ToolingError
 from azurpilot.tooling.filesystem import path_identity
 from azurpilot.tooling.git import (
+    GitClient,
     canonical_remote_identity,
     repository_identity_from_remote,
 )
-from azurpilot.tooling.pull_request import PullRequestBodyRenderer
+from azurpilot.tooling.pull_request import GitHubProvider, PullRequestBodyRenderer
 from azurpilot.tooling.repository import ResolvedRepository
 
 
@@ -199,6 +200,53 @@ def test_remote_identity_accepts_ssh_https_equivalence_and_keeps_local_explicit(
     local = repository_identity_from_remote(r"C:\fixture\remote.git")
     assert local.host == "local"
     assert local.owner == "fixture"
+
+
+def test_git_object_bytes_rejects_truncated_stdout(tmp_path: Path) -> None:
+    class Runner:
+        def __init__(self) -> None:
+            self.spec = None
+
+        def run(self, spec: object) -> SimpleNamespace:
+            self.spec = spec
+            return SimpleNamespace(
+                returncode=0,
+                timed_out=False,
+                stdout_truncated=True,
+                stdout_bytes=b"partial",
+            )
+
+    runner = Runner()
+    client = GitClient(tmp_path, runner=runner)  # type: ignore[arg-type]
+
+    with pytest.raises(ToolingError) as error:
+        client.object_bytes("HEAD:large.bin")
+
+    assert error.value.code is ResultCode.TOOLING_VERIFICATION_UNKNOWN
+    assert runner.spec is not None
+    assert runner.spec.max_output_bytes == 16 * 1024 * 1024
+
+
+def test_github_provider_classifies_unknown_json_field_as_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Runner:
+        def run(self, _spec: object) -> SimpleNamespace:
+            return SimpleNamespace(
+                returncode=1,
+                timed_out=False,
+                stdout="",
+                stderr="Unknown JSON field: baseRefOid",
+            )
+
+    monkeypatch.setattr("azurpilot.tooling.pull_request.which", lambda _name: "gh")
+    provider = GitHubProvider(cwd=tmp_path, runner=Runner())  # type: ignore[arg-type]
+
+    with pytest.raises(ToolingError) as error:
+        provider._run(("pr", "view", "279", "--json", "baseRefOid"))
+
+    assert error.value.code is ResultCode.TOOLING_PROVIDER_UNAVAILABLE
+    assert "2.63.0" in str(error.value)
 
 
 def test_structured_pr_body_contains_required_sections_and_exact_review_head() -> None:

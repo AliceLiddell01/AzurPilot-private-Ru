@@ -901,7 +901,7 @@ def _parse_status(status_z: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
         code = item[:2]
         path = item[3:]
         dirty.add(path)
-        # `??` is untracked working-tree content, not an index mutation.
+        # Код `??` означает неотслеживаемое содержимое working tree, а не мутацию index.
         if code[0] not in {" ", "?"}:
             staged.add(path)
         if code[1] != " ":

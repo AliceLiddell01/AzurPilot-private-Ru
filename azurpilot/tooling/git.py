@@ -15,6 +15,8 @@ from .errors import ToolingError
 from .filesystem import path_has_link
 from .process import ProcessResult, ProcessSpec, StructuredProcessRunner
 
+_MAX_GIT_OBJECT_BYTES = 16 * 1024 * 1024
+
 
 @dataclass(frozen=True)
 class GitCommand:
@@ -32,7 +34,12 @@ class GitClient:
         self.runner = runner or StructuredProcessRunner()
         self.executable = which("git")
 
-    def run(self, *args: str, timeout_seconds: float = 60.0) -> GitCommand:
+    def run(
+        self,
+        *args: str,
+        timeout_seconds: float = 60.0,
+        max_output_bytes: int = 128 * 1024,
+    ) -> GitCommand:
         if self.executable is None:
             raise ToolingError(
                 ResultCode.TOOLING_CAPABILITY_UNAVAILABLE, "git не найден."
@@ -47,7 +54,7 @@ class GitClient:
                 argv=("-C", str(self.root), *args),
                 cwd=self.root,
                 timeout_seconds=timeout_seconds,
-                max_output_bytes=128 * 1024,
+                max_output_bytes=max_output_bytes,
                 env={"GIT_TERMINAL_PROMPT": "0", "GIT_OPTIONAL_LOCKS": "0"},
             )
         )
@@ -203,7 +210,17 @@ class GitClient:
     def object_bytes(self, revision_path: str) -> bytes:
         """Прочитать Git blob без потери бинарных байтов."""
 
-        return self.run("show", revision_path).result.stdout_bytes
+        command = self.run(
+            "show",
+            revision_path,
+            max_output_bytes=_MAX_GIT_OBJECT_BYTES,
+        )
+        if command.result.stdout_truncated:
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Git object прочитан не полностью из-за ограничения stdout.",
+            )
+        return command.result.stdout_bytes
 
     def object_sha256(self, revision_path: str) -> str:
         return hashlib.sha256(self.object_bytes(revision_path)).hexdigest()

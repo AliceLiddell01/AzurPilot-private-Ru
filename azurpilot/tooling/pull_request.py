@@ -35,6 +35,14 @@ from .repository import RepositoryResolver, ResolvedRepository
 _MAX_SPEC_BYTES = 512 * 1024
 _SAFE_REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,255}$")
 _SAFE_REMOTE = re.compile(r"^[A-Za-z0-9._-]{1,80}$")
+# `baseRefOid` in the requested `gh pr --json` fields requires gh >= 2.63.0.
+_MIN_GH_VERSION = "2.63.0"
+_UNKNOWN_JSON_FIELD_MARKERS = (
+    "unknown json field",
+    "unknown field",
+    "not a valid json field",
+    "invalid json field",
+)
 _PR_FIELDS = (
     "number,state,isDraft,body,baseRefName,baseRefOid,headRefName,headRefOid,"
     "headRepository,headRepositoryOwner,isCrossRepository"
@@ -231,6 +239,15 @@ class GitHubProvider:
                 state=OperationState.IN_FLIGHT,
             )
         if result.returncode != 0:
+            stderr = result.stderr.casefold()
+            if "--json" in args and any(
+                marker in stderr for marker in _UNKNOWN_JSON_FIELD_MARKERS
+            ):
+                raise _error(
+                    ResultCode.TOOLING_PROVIDER_UNAVAILABLE,
+                    "GitHub CLI gh не поддерживает поля PR JSON; требуется gh >= "
+                    f"{_MIN_GH_VERSION} (включая baseRefOid).",
+                )
             raise _error(
                 ResultCode.TOOLING_PROVIDER_FAILED,
                 "GitHub provider отклонил операцию; publication postcondition не доказано.",
