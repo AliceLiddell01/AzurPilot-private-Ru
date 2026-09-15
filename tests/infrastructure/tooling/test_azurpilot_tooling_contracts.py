@@ -20,6 +20,7 @@ import dev_tools.postgresql_runtime as tooling_postgresql_runtime
 from azurpilot.cli import build_parser, main
 from azurpilot.tooling import adb as tooling_adb
 from azurpilot.tooling import bootstrap as tooling_bootstrap
+from azurpilot.tooling import filesystem as tooling_filesystem
 from azurpilot.tooling import lifecycle as tooling_lifecycle
 from azurpilot.tooling import update as tooling_update
 from azurpilot.tooling.bootstrap import BuildService
@@ -879,6 +880,48 @@ def test_docker_environment_is_bounded_and_reused_by_inspect_and_start(
     assert "SOME_SECRET_TOKEN" not in tooling_postgresql_runtime._backup_process_environment()
 
 
+def test_docker_records_accept_object_array_and_ndjson_without_silent_parse_loss() -> None:
+    assert InfrastructureService._records(
+        '{"Service":"postgres","State":"running"}'
+    ) == [{"Service": "postgres", "State": "running"}]
+    assert InfrastructureService._records(
+        '[{"Service":"postgres"}, "ignored", {"Service":"caddy"}]'
+    ) == [{"Service": "postgres"}, {"Service": "caddy"}]
+    assert InfrastructureService._records(
+        '{"Service":"postgres"}\n"ignored"\n{"Service":"caddy"}\n'
+    ) == [{"Service": "postgres"}, {"Service": "caddy"}]
+
+    with pytest.raises(ToolingError) as error:
+        InfrastructureService._records('{"Service":"postgres"}\nnot-json\n')
+    assert error.value.code is ResultCode.TOOLING_INFRASTRUCTURE_FAILED
+
+
+def test_journal_removal_quarantines_transaction_outside_transaction_tree(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    layout = _layout(monkeypatch, tmp_path)
+    store = JournalStore(layout, "build")
+    transaction = store.create().model_copy(
+        update={"transaction_id": "build-quarantine-test", "phase": "completed"}
+    )
+    store.save(transaction)
+    removed_paths: list[Path] = []
+    monkeypatch.setattr(
+        tooling_filesystem.shutil,
+        "rmtree",
+        lambda path: removed_paths.append(Path(path)),
+    )
+
+    store.remove_owned(transaction.transaction_id)
+
+    assert not (
+        layout.transactions_directory / transaction.transaction_id
+    ).exists()
+    assert len(removed_paths) == 1
+    assert removed_paths[0].parent == layout.repository_directory
+    assert removed_paths[0].parent != layout.transactions_directory
+
+
 def test_adb_archive_rejects_traversal_path(tmp_path: Path) -> None:
     archive = tmp_path / "platform-tools.zip"
     destination = tmp_path / "extracted"
@@ -1003,6 +1046,7 @@ def test_external_candidate_sync_targets_candidate_venv_layout(
     directory = "Scripts" if os.name == "nt" else "bin"
     python_name = "python.exe" if os.name == "nt" else "python"
     assert str(candidate_environment / directory / python_name) in sync_command
+    assert "--relocatable" in calls[0]
     assert "--no-install-project" in sync_command
     assert index_roots == [root]
 
@@ -1200,6 +1244,125 @@ def test_build_failed_transaction_can_retry_after_confirmed_cleanup(
     directory = "Scripts" if os.name == "nt" else "bin"
     python_name = "python.exe" if os.name == "nt" else "python"
     assert (root / ".venv" / directory / python_name).is_file()
+
+
+def test_build_preserves_precondition_error_before_transaction_starts(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = tmp_path / "repository"
+    root.mkdir()
+    evidence = _repository_evidence()
+    resolver = SimpleNamespace(
+        resolve=lambda _root=None: ResolvedRepository(root, evidence)
+    )
+    expected = ToolingError(
+        ResultCode.TOOLING_PRECONDITION_FAILED,
+        "Остановка не подтверждена.",
+    )
+
+    def reject(_root: Path) -> None:
+        raise expected
+
+    service = BuildService(resolver=resolver, runner=SimpleNamespace())
+    monkeypatch.setattr(service, "_assert_stopped", reject)
+
+    with pytest.raises(ToolingError) as error:
+        service.build(root, create_shortcut=False)
+
+    assert error.value is expected
+    assert JournalStore(StateLayout.for_repository(root), "build").active() is None
+
+
+def test_update_verifies_project_install_after_replacing_environment(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repository"
+    venv = root / ".venv"
+    directory = "Scripts" if os.name == "nt" else "bin"
+    python_name = "python.exe" if os.name == "nt" else "python"
+    console_name = "azur.exe" if os.name == "nt" else "azur"
+    (venv / directory).mkdir(parents=True)
+    (venv / directory / python_name).write_bytes(b"python")
+    (venv / directory / console_name).write_bytes(b"azur")
+    (venv / ".azurpilot-update-owned").write_text(
+        "transaction_id=update-install-test\n", encoding="utf-8"
+    )
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    sync_calls: list[tuple[Path, Path, float]] = []
+
+    class FakeBootstrap:
+        def resolve_uv(self, _root: Path) -> tuple[Path, str]:
+            return Path("uv"), "test"
+
+        def sync(
+            self,
+            project_root: Path,
+            uv: Path,
+            timeout: float,
+            **_kwargs: object,
+        ) -> str:
+            sync_calls.append((project_root, uv, timeout))
+            return ""
+
+    class FakeRunner:
+        def run(self, _spec: object) -> SimpleNamespace:
+            return SimpleNamespace(ok=True, stdout="", stderr="", returncode=0)
+
+    service = tooling_update.UpdateService(
+        bootstrap=FakeBootstrap(), runner=FakeRunner()
+    )
+    journal = SimpleNamespace(
+        transaction_id="update-install-test", candidate_path=str(candidate)
+    )
+
+    service._verify_replaced_environment(
+        root, DeploySettings(source_path=None), journal
+    )
+
+    assert sync_calls == [(root, Path("uv"), 180.0)]
+
+
+def test_update_rejects_replaced_environment_without_project_console_script(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repository"
+    venv = root / ".venv"
+    directory = "Scripts" if os.name == "nt" else "bin"
+    python_name = "python.exe" if os.name == "nt" else "python"
+    (venv / directory).mkdir(parents=True)
+    (venv / directory / python_name).write_bytes(b"python")
+    (venv / ".azurpilot-update-owned").write_text(
+        "transaction_id=update-install-test\n", encoding="utf-8"
+    )
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+
+    class FakeBootstrap:
+        def resolve_uv(self, _root: Path) -> tuple[Path, str]:
+            return Path("uv"), "test"
+
+        def sync(self, *_args: object, **_kwargs: object) -> str:
+            return ""
+
+    service = tooling_update.UpdateService(
+        bootstrap=FakeBootstrap(),
+        runner=SimpleNamespace(
+            run=lambda _spec: SimpleNamespace(
+                ok=True, stdout="", stderr="", returncode=0
+            )
+        ),
+    )
+    journal = SimpleNamespace(
+        transaction_id="update-install-test", candidate_path=str(candidate)
+    )
+
+    with pytest.raises(ToolingError) as error:
+        service._verify_replaced_environment(
+            root, DeploySettings(source_path=None), journal
+        )
+
+    assert error.value.code is ResultCode.TOOLING_VERIFICATION_UNKNOWN
 
 
 @pytest.mark.skipif(os.name == "nt", reason="требуется POSIX symlink в venv")

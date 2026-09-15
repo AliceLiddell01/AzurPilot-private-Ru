@@ -482,6 +482,7 @@ def sync_project_venv(
                     uv,
                     "venv",
                     "--allow-existing",
+                    "--relocatable",
                     "--python",
                     source_python,
                     target_environment,

@@ -549,6 +549,12 @@ class BuildService:
                 ),
             )
         except Exception as error:
+            if (
+                isinstance(error, ToolingError)
+                and not config_created
+                and transaction is None
+            ):
+                raise
             rollback_confirmed = True
             if config_created:
                 config = root / "config" / "deploy.yaml"

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import io
 import json
 import os
@@ -295,6 +296,42 @@ def test_tcp_port_observation_falls_back_when_pid_listing_is_denied(
     assert free.listener_present is False
     assert free.pid_unknown
     assert not free.inspection_failed
+
+
+def test_tcp_port_observation_skips_unavailable_ipv6_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeSocket:
+        def __init__(self, family: int) -> None:
+            self.family = family
+
+        def __enter__(self) -> "FakeSocket":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def bind(self, _address: tuple[str, int]) -> None:
+            if self.family == socket.AF_INET6:
+                raise OSError(errno.EAFNOSUPPORT, "IPv6 недоступен")
+
+    monkeypatch.setattr(
+        tooling_coordination.psutil,
+        "net_connections",
+        lambda **_kwargs: (_ for _ in ()).throw(psutil.AccessDenied(pid=None)),
+    )
+    monkeypatch.setattr(tooling_coordination.socket, "has_ipv6", True)
+    monkeypatch.setattr(
+        tooling_coordination.socket,
+        "socket",
+        lambda family, _socket_type: FakeSocket(family),
+    )
+
+    observation = observe_tcp_port(29998)
+
+    assert observation.listener_present is False
+    assert observation.pid_unknown
+    assert not observation.inspection_failed
 
 
 def test_posix_adb_health_does_not_require_windows_dlls(

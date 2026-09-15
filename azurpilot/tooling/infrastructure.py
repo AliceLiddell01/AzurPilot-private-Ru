@@ -188,17 +188,30 @@ class InfrastructureService:
 
     @staticmethod
     def _records(raw: str) -> list[dict[str, object]]:
-        records: list[dict[str, object]] = []
-        for line in raw.splitlines():
-            if not line.strip():
-                continue
-            try:
-                value = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(value, dict):
-                records.append(value)
-        return records
+        if not raw.strip():
+            return []
+        try:
+            value = json.loads(raw)
+        except json.JSONDecodeError:
+            records: list[dict[str, object]] = []
+            for line in raw.splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    value = json.loads(line)
+                except json.JSONDecodeError as error:
+                    raise ToolingError(
+                        ResultCode.TOOLING_INFRASTRUCTURE_FAILED,
+                        "Вывод Docker Compose не является корректным JSON.",
+                    ) from error
+                if isinstance(value, dict):
+                    records.append(value)
+            return records
+        if isinstance(value, dict):
+            return [value]
+        if isinstance(value, list):
+            return [item for item in value if isinstance(item, dict)]
+        return []
 
     def ensure_started(
         self,

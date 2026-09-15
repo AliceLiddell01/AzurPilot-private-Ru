@@ -141,6 +141,11 @@ def _probe_tcp_port_without_pid(port: int) -> PortObservation:
             if error.errno == errno.EADDRINUSE:
                 listener_present = True
                 continue
+            if family == socket.AF_INET6 and error.errno in {
+                errno.EAFNOSUPPORT,
+                errno.EADDRNOTAVAIL,
+            }:
+                continue
             return PortObservation(
                 port=port,
                 pids=(),

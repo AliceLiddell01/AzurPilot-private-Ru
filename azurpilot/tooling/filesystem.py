@@ -597,7 +597,28 @@ class JournalStore:
                 ResultCode.TOOLING_VERIFICATION_UNKNOWN,
                 "Не удалось проверить область транзакции перед удалением.",
             ) from exc
-        shutil.rmtree(directory)
+        quarantine = self.layout.repository_directory / (
+            f".transaction-quarantine-{secrets.token_hex(16)}"
+        )
+        if os.path.lexists(str(quarantine)):
+            raise ToolingError(
+                ResultCode.TOOLING_OPERATION_CONFLICT,
+                "Область карантина транзакции уже занята; удаление остановлено.",
+            )
+        try:
+            os.replace(directory, quarantine)
+        except OSError as exc:
+            raise ToolingError(
+                ResultCode.TOOLING_ROLLBACK_UNKNOWN,
+                "Не удалось изолировать область транзакции перед удалением.",
+            ) from exc
+        try:
+            shutil.rmtree(quarantine)
+        except OSError as exc:
+            raise ToolingError(
+                ResultCode.TOOLING_ROLLBACK_UNKNOWN,
+                "Удаление изолированной области транзакции не подтверждено.",
+            ) from exc
 
 
 def json_bytes(model: BaseModel) -> bytes:

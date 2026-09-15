@@ -33,6 +33,7 @@ from .filesystem import (
     path_identity,
 )
 from .git import GitClient, canonical_remote_identity
+from .path import inspect_console_path
 from .postgres import BackupOutcome, PostgreSqlBackupService
 from .process import ProcessSpec, StructuredProcessRunner, safe_environment
 from .repository import RepositoryResolver
@@ -449,6 +450,13 @@ class UpdateService:
         python = project_python(venv.parent, settings)
         if not python.is_file():
             python = venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+        self.bootstrap.sync(root, uv, 180.0, install_project=True)
+        console_script = inspect_console_path(python)
+        if not console_script.installed:
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "После Update консольная команда azur не установлена в новой `.venv`.",
+            )
         result = self.runner.run(
             ProcessSpec(
                 executable=uv,
