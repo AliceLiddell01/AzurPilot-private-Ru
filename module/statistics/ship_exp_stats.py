@@ -12,8 +12,8 @@
 继承自 LIST_SHIP_EXP 数据，复用经验数据定义。
 """
 
-# 此文件用于统计舰船经验检测数据和战斗时间
-# 包含每日经验效率统计，用于预估升级时间
+# Этот файл используется для статистики данных проверки опыта кораблей и времени боя
+# Включает ежедневную статистику эффективности опыта для оценки времени прокачки
 
 from __future__ import annotations
 
@@ -36,16 +36,16 @@ class ShipExpStats:
     - 保存舰船检测数据
     """
     
-    # 每个位置的每场战斗经验值
+    # Опыт за бой для каждой позиции
     EXP_PER_BATTLE = {
-        1: 431,  # 旗舰
-        2: 288, 3: 288, 4: 288, 5: 288, 6: 288  # 其他位置
+        1: 431,  # Флагман
+        2: 288, 3: 288, 4: 288, 5: 288, 6: 288  # Остальные позиции
     }
-    AVG_EXP_PER_BATTLE = 312  # 平均每场经验
-    BATTLES_PER_ROUND = 2     # 侵蚀1每轮默认2场战斗
+    AVG_EXP_PER_BATTLE = 312  # Средний опыт за бой
+    BATTLES_PER_ROUND = 2     # По умолчанию 2 боя за проход зоны коррозии 1
     
-    MAX_BATTLE_TIME_SAMPLES = 100  # 保留最近100场战斗时间样本
-    MAX_DAILY_STATS_DAYS = 30      # 保留最近30天的统计
+    MAX_BATTLE_TIME_SAMPLES = 100  # Храним последние 100 образцов времени боя
+    MAX_DAILY_STATS_DAYS = 30      # Храним статистику за последние 30 дней
     
     def __init__(self, path: Path | None = None, instance_name: str | None = None):
         if path is None:
@@ -57,7 +57,7 @@ class ShipExpStats:
         self._instance_name = instance_name or "default"
         self.data = self._load()
         
-        # 当前战斗的开始时间
+        # Время начала текущего боя
         self._battle_start_time: float | None = None
     
     def _load(self) -> dict[str, Any]:
@@ -85,7 +85,7 @@ class ShipExpStats:
         except Exception as e:
             logger.warning(f'[Статистика — опыт] Не удалось сохранить данные опыта кораблей: {e}')
     
-    # ========== 战斗时间记录 ==========
+    # ========== Учёт времени боя ==========
     
     def on_battle_start(self) -> None:
         """战斗开始时调用（侵蚀1 / 耄耋相接等统一入口）"""
@@ -111,20 +111,20 @@ class ShipExpStats:
         duration = time.time() - self._battle_start_time
         self._battle_start_time = None
         
-        # 过滤异常值 (太短或太长的战斗)
+        # Фильтруем аномальные значения (слишком короткие или длинные бои)
         if duration < 1 or duration > 300:
             logger.debug(f'Длительность боя {duration:.1f} с вне допустимого диапазона; запись пропущена')
             return duration
         
-        # 记录战斗时间（根据来源分别统计）
+        # Записываем время боя отдельно для каждого источника
         source = "meow" if source == "meow" else "cl1"
         self._record_battle_time(duration, source=source)
         
-        # 计算本场经验 (使用平均值，因为每个位置经验不同)
-        # 旗舰 431 + 其他位置 288*5 = 1871, 平均 312
+        # Вычисляем опыт текущего боя (используем среднее, поскольку опыт зависит от позиции)
+        # Флагман 431 + остальные позиции 288*5 = 1871, среднее 312
         avg_exp = self.AVG_EXP_PER_BATTLE
         
-        # 每日经验效率用于侵蚀1练级预估，避免被耄耋相接耗时混入。
+        # Суточная эффективность опыта используется для оценки прокачки в зоне коррозии 1, чтобы не смешивать её с затратами времени Meowfficer Farming.
         if source == "cl1":
             self._update_daily_stats(exp_gained=avg_exp, battle_duration=duration)
 
@@ -138,10 +138,10 @@ class ShipExpStats:
             duration: 本场战斗时长（秒）
             source: 战斗来源 ("cl1" / "meow")
         """
-        # 不同来源使用不同的键，避免侵蚀1与耄耋相接混合统计
+        # Для разных источников используем разные ключи, чтобы не смешивать статистику зоны коррозии 1 и Meowfficer Farming
         if source == "meow":
             key = 'meow_battle_times'
-            default_avg = 52.0  # 默认值，后续会被真实样本覆盖
+            default_avg = 52.0  # Значение по умолчанию, позже заменяется реальными образцами
         else:
             key = 'battle_times'
             default_avg = 52.0
@@ -152,12 +152,12 @@ class ShipExpStats:
         samples = self.data[key]['samples']
         samples.append(round(duration, 2))
         
-        # 只保留最近N个样本
+        # Храним только последние N образцов
         if len(samples) > self.MAX_BATTLE_TIME_SAMPLES:
             self.data[key]['samples'] = samples[-self.MAX_BATTLE_TIME_SAMPLES:]
             samples = self.data[key]['samples']
         
-        # 更新平均值
+        # Обновляем среднее значение
         if samples:
             self.data[key]['average'] = round(sum(samples) / len(samples), 2)
         
@@ -171,18 +171,18 @@ class ShipExpStats:
         samples = self.data['round_times']['samples']
         samples.append(round(round_duration, 2))
         
-        # 只保留最近100个样本
+        # Храним только последние 100 образцов
         if len(samples) > 100:
             self.data['round_times']['samples'] = samples[-100:]
             samples = self.data['round_times']['samples']
         
-        # 更新平均值
+        # Обновляем среднее значение
         if samples:
             self.data['round_times']['average'] = round(sum(samples) / len(samples), 2)
         
         self._save()
     
-    # ========== 每日经验效率统计 ==========
+    # ========== Суточная статистика эффективности опыта ==========
     
     def _update_daily_stats(self, exp_gained: int, battle_duration: float) -> None:
         """
@@ -207,12 +207,12 @@ class ShipExpStats:
         stats['total_exp_gained'] += exp_gained
         stats['battle_count'] += 1
         
-        # 计算每小时经验效率
+        # Вычисляем эффективность опыта в час
         hours = stats['total_run_time'] / 3600
         if hours > 0:
             stats['exp_per_hour'] = round(stats['total_exp_gained'] / hours, 2)
         
-        # 清理旧数据
+        # Очищаем старые данные
         self._cleanup_old_daily_stats()
         
         self._save()
@@ -256,7 +256,7 @@ class ShipExpStats:
             )
             return round(exp_per_hour, 2)
 
-        return 22000.0  # 默认值
+        return 22000.0  # Значение по умолчанию
     
     def get_today_stats(self) -> dict[str, Any] | None:
         """获取今日统计数据"""
@@ -265,7 +265,7 @@ class ShipExpStats:
             return None
         return self.data['daily_stats'].get(today)
     
-    # ========== 舰船数据保存与进度计算 ==========
+    # ========== Сохранение данных кораблей и расчёт прогресса ==========
     
     def save_ship_data(
         self,
@@ -308,7 +308,7 @@ class ShipExpStats:
         Returns:
             进度数据字典
         """
-        # 处理等级边界 (1-125)
+        # Обрабатываем границы уровня (1–125)
         if target_level < 1:
             target_level = 1
         elif target_level > 125:
@@ -318,16 +318,16 @@ class ShipExpStats:
         current_total_exp = ship.get('total_exp', 0)
         exp_needed = max(0, target_exp - current_total_exp)
         
-        # 计算还需出击次数
+        # Вычисляем необходимое число оставшихся боёв
         position = ship.get('position', 1)
         exp_per_battle = self.EXP_PER_BATTLE.get(position, 288)
         battles_needed = math.ceil(exp_needed / exp_per_battle) if exp_needed > 0 else 0
         
-        # 计算已战斗场次 (自上次检测以来)
+        # Вычисляем число проведённых боёв с момента последней проверки
         battle_count_at_check = self.data.get('battle_count_at_check', 0)
         battles_done = max(0, current_battle_count - battle_count_at_check)
         
-        # 计算预估时间 (经验值*2/平均一轮时长)
+        # Вычисляем примерное время (опыт * 2 / средняя длительность прохода)
         avg_round_time = self.get_average_round_time()
         if avg_round_time > 0 and exp_needed > 0 and exp_per_battle > 0:
             ship_exp_per_hour = (
@@ -385,7 +385,7 @@ class ShipExpStats:
         return f"{minutes}分钟"
 
 
-# ========== 单例模式和便捷函数 ==========
+# ========== Singleton и вспомогательные функции ==========
 
 _stats_instances: dict[str, ShipExpStats] = {}
 
@@ -397,7 +397,7 @@ def get_ship_exp_stats(instance_name: str | None = None) -> ShipExpStats:
     if key not in _stats_instances:
         _stats_instances[key] = ShipExpStats(instance_name=instance_name)
     else:
-        # 刷新数据
+        # Обновляем данные
         _stats_instances[key].data = _stats_instances[key]._load()
     return _stats_instances[key]
 
