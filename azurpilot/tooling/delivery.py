@@ -617,11 +617,14 @@ class DeliveryService:
             )
         for target in context.targets:
             if target.postimage.exists:
-                staged_sha = context.git.object_sha256(f":{target.path}")
-                if staged_sha != target.postimage.sha256:
+                staged_blob = context.git.index_blob(target.path)
+                filtered_working_blob = context.git.filtered_working_blob(
+                    target.path
+                )
+                if staged_blob != filtered_working_blob:
                     raise _error(
                         ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                        f"Staged содержимое пути {target.path!r} не совпало с postimage.",
+                        f"Index path {target.path!r} не совпал с Git-clean working postimage.",
                     )
             else:
                 try:
