@@ -193,6 +193,11 @@ def _source_file_bytes(root: Path, path: Path) -> bytes:
         payload = dict(payload)
         payload.pop("version", None)
         return canonical_json(payload).encode("utf-8")
+    # Git может выдавать один и тот же blob с разными line endings из-за
+    # core.autocrlf. Дайджест source set должен описывать содержимое Git,
+    # а не локальную нормализацию checkout; бинарные файлы не преобразуем.
+    if b"\x00" not in raw:
+        return raw.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
     return raw
 
 

@@ -115,6 +115,24 @@ def test_catalog_hash_is_deterministic_and_includes_schema() -> None:
     )
 
 
+def test_source_digest_is_stable_across_text_checkout_line_endings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        mcp_tooling,
+        "SOURCE_SET_PATHS",
+        {"DEV_MCP_SOURCE_SET": (Path("source.txt"),)},
+    )
+    source = tmp_path / "source.txt"
+    source.write_bytes(b"first\r\nsecond\r\n")
+    crlf_digest = mcp_tooling.source_set_digest(tmp_path, "DEV_MCP_SOURCE_SET")
+
+    source.write_bytes(b"first\nsecond\n")
+    lf_digest = mcp_tooling.source_set_digest(tmp_path, "DEV_MCP_SOURCE_SET")
+
+    assert crlf_digest == lf_digest
+
+
 def test_semver_classifier_requires_explicit_major_for_breaking_change() -> None:
     server = load_mcp_bundle(REPOSITORY_ROOT).servers["azurpilot-game"]
     implementation_only = replace(server, source_set_digest="0" * 64)
