@@ -281,6 +281,8 @@ class ProcessResult:
     timed_out: bool
     pid: int
     identity: ProcessIdentity
+    stdout_bytes: bytes = b""
+    stderr_bytes: bytes = b""
 
     @property
     def ok(self) -> bool:
@@ -632,6 +634,8 @@ class StructuredProcessRunner:
             timed_out=timed_out,
             pid=process.pid,
             identity=identity,
+            stdout_bytes=stdout_data,
+            stderr_bytes=stderr_data,
         )
 
 

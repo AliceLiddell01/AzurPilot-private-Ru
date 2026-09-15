@@ -22,9 +22,11 @@ from .tooling.contracts import (
     ToolingResult,
     exit_code_for,
 )
+from .tooling.delivery import DeliveryService
 from .tooling.doctor import DoctorService
 from .tooling.errors import ToolingError
 from .tooling.lifecycle import LifecycleService
+from .tooling.pull_request import PullRequestService
 from .tooling.repair import RepairService
 from .tooling.update import UpdateService
 
@@ -47,6 +49,8 @@ class ServiceContainer:
     build: BuildService
     repair: RepairService
     update: UpdateService
+    delivery: DeliveryService
+    pull_request: PullRequestService
 
     @classmethod
     def create(cls) -> ServiceContainer:
@@ -56,6 +60,8 @@ class ServiceContainer:
             build=BuildService(),
             repair=RepairService(),
             update=UpdateService(),
+            delivery=DeliveryService(),
+            pull_request=PullRequestService(),
         )
 
 
@@ -226,6 +232,57 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="SECONDS",
         help="общий срок обновления",
     )
+
+    delivery = subparsers.add_parser(
+        "delivery", help="проверить или опубликовать allowlisted Git delivery"
+    )
+    delivery_subparsers = delivery.add_subparsers(
+        dest="delivery_command", required=True, metavar="ACTION"
+    )
+    delivery_validate = delivery_subparsers.add_parser(
+        "validate", help="только проверить manifest и exact repository state"
+    )
+    _add_common_options(delivery_validate, suppress_defaults=True)
+    delivery_validate.add_argument("manifest", metavar="MANIFEST")
+    delivery_publish = delivery_subparsers.add_parser(
+        "publish", help="staged scan, commit, scoped scan и ordinary push"
+    )
+    _add_common_options(delivery_publish, suppress_defaults=True)
+    delivery_publish.add_argument("manifest", metavar="MANIFEST")
+    for action in ("status", "recover"):
+        delivery_status = delivery_subparsers.add_parser(
+            action,
+            help=(
+                "прочитать delivery journal"
+                if action == "status"
+                else "выполнить только read-only recovery push state"
+            ),
+        )
+        _add_common_options(delivery_status, suppress_defaults=True)
+        delivery_status.add_argument("operation_id", metavar="OPERATION_ID")
+
+    pr = subparsers.add_parser(
+        "pr", help="подготовить, опубликовать или проверить draft PR"
+    )
+    pr_subparsers = pr.add_subparsers(
+        dest="pr_command", required=True, metavar="ACTION"
+    )
+    pr_prepare = pr_subparsers.add_parser(
+        "prepare", help="проверить spec, Git identity и structured PR body"
+    )
+    _add_common_options(pr_prepare, suppress_defaults=True)
+    pr_prepare.add_argument("spec", metavar="SPEC")
+    pr_publish = pr_subparsers.add_parser(
+        "publish", help="создать или подтвердить draft PR через gh"
+    )
+    _add_common_options(pr_publish, suppress_defaults=True)
+    pr_publish.add_argument("spec", metavar="SPEC")
+    pr_verify = pr_subparsers.add_parser(
+        "verify", help="прочитать PR и подтвердить exact identity/body"
+    )
+    _add_common_options(pr_verify, suppress_defaults=True)
+    pr_verify.add_argument("number", type=int, metavar="PR_NUMBER")
+    pr_verify.add_argument("--spec", required=True, metavar="SPEC")
     return parser
 
 
@@ -416,6 +473,22 @@ def _dispatch(
             expected_origin_url=args.expected_origin_url,
             timeout_seconds=args.timeout,
         )
+    if command == "delivery":
+        if args.delivery_command == "validate":
+            return services.delivery.validate(args.manifest, root)
+        if args.delivery_command == "publish":
+            return services.delivery.publish(args.manifest, root)
+        if args.delivery_command == "status":
+            return services.delivery.status(args.operation_id, root)
+        if args.delivery_command == "recover":
+            return services.delivery.recover(args.operation_id, root)
+    if command == "pr":
+        if args.pr_command == "prepare":
+            return services.pull_request.prepare(args.spec, root)
+        if args.pr_command == "publish":
+            return services.pull_request.publish(args.spec, root)
+        if args.pr_command == "verify":
+            return services.pull_request.verify(args.number, args.spec, root)
     raise CliInvocationError(f"неизвестная команда: {command}")
 
 

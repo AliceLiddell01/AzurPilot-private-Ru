@@ -207,6 +207,29 @@ Production/network acceptance выполняется после реализац
 
 Постоянный job `Security` проверяет текущие исходники и релевантный диапазон коммитов PR. Диагностика должна редактировать секреты и загружаться только при падении.
 
+## Git delivery и PR publication
+
+Для Git delivery обязателен typed closed-schema manifest с exact repository,
+expected branch/local HEAD, base SHA, remote ref, preimage/postimage и
+allowlist paths. Read-only `validate` не меняет checkout. Mutating `publish`
+добавляет только allowlist paths, подтверждает staged scope, выполняет scoped
+Gitleaks по index и exact committed range, создаёт commit с declared message,
+делает обычный explicit push без force/force-with-lease и после него проверяет
+exact remote SHA. Timeout или неизвестный push переводится в journal и
+read-only `recover`; blind retry запрещён.
+
+Для draft PR обязательны explicit repository/base/head identity, exact local и
+remote SHA, typed structured body и публикация через временный внешний файл с
+`--body-file`. После provider call выполняется read-back PR identity и полный
+body digest. Provider mismatch, cross-repository PR, duplicate candidate или
+неподтверждённый create являются blocking failure.
+
+В конце feature acceptance должны быть фактически выполнены оба интерфейса:
+человекочитаемый `azur delivery ...`/`azur pr ...` и agent-oriented invocation
+с `--json`; JSON обязан содержать ровно один закрытый result envelope. Это
+отдельное live-доказательство не заменяет required `Python`, `Windows`,
+`Security` CI на exact PR head.
+
 ## Definition of Done
 
 ### Pre-merge `READY_FOR_CHATGPT_REVIEW`

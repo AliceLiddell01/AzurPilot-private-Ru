@@ -10,7 +10,7 @@ from pathlib import Path
 from shutil import which
 from urllib.parse import urlsplit
 
-from .contracts import ResultCode
+from .contracts import RepositoryIdentity, ResultCode
 from .errors import ToolingError
 from .filesystem import path_has_link
 from .process import ProcessResult, ProcessSpec, StructuredProcessRunner
@@ -129,6 +129,114 @@ class GitClient:
                 "Remote HEAD имеет неверный формат.",
             )
         return value
+
+    def remote_ref(self, remote: str, branch: str) -> str | None:
+        """Прочитать exact remote ref без доверия к локальному tracking ref."""
+
+        output = self.text(
+            "ls-remote",
+            "--refs",
+            remote,
+            f"refs/heads/{branch}",
+            timeout_seconds=120.0,
+        )
+        if not output:
+            return None
+        rows = [line.split() for line in output.splitlines() if line.strip()]
+        if len(rows) != 1 or len(rows[0]) != 2 or rows[0][1] != f"refs/heads/{branch}":
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Git remote вернул неоднозначный exact ref.",
+            )
+        value = rows[0][0]
+        if not _is_sha(value):
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Git remote вернул SHA неверного формата.",
+            )
+        return value
+
+    def staged_paths(self) -> tuple[str, ...]:
+        """Получить только пути index, не расширяя scope до working tree."""
+
+        output = self.text("diff", "--cached", "--name-only", "-z", "--")
+        return tuple(sorted(path for path in output.split("\x00") if path))
+
+    def status_z(self) -> str:
+        """Получить bounded machine-readable status для snapshot."""
+
+        # Нельзя использовать text(): strip() уничтожает первый пробел в
+        # porcelain XY-коде и превращает unstaged ` M` в ложный staged `M`.
+        return self.run(
+            "status", "--porcelain=v1", "-z", "--untracked-files=all"
+        ).result.stdout
+
+    def index_blob(self, path: str) -> str:
+        value = self.text("rev-parse", f":{path}")
+        if not _is_sha(value):
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Index blob имеет неверный формат.",
+            )
+        return value
+
+    def working_blob(self, path: str) -> str:
+        value = self.text("hash-object", "--no-filters", "--", path)
+        if not _is_sha(value):
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Working-tree blob имеет неверный формат.",
+            )
+        return value
+
+    def object_bytes(self, revision_path: str) -> bytes:
+        """Прочитать Git blob без потери бинарных байтов."""
+
+        return self.run("show", revision_path).result.stdout_bytes
+
+    def object_sha256(self, revision_path: str) -> str:
+        return hashlib.sha256(self.object_bytes(revision_path)).hexdigest()
+
+    def stage(self, paths: tuple[str, ...]) -> None:
+        if not paths:
+            raise ToolingError(
+                ResultCode.TOOLING_INVALID_INVOCATION,
+                "Нельзя выполнить staging без явного списка путей.",
+            )
+        self.run("add", "--", *paths)
+
+    def unstage(self, paths: tuple[str, ...]) -> None:
+        if paths:
+            self.run("reset", "--", *paths)
+
+    def commit(self, message: str) -> str:
+        self.run("commit", "--message", message, timeout_seconds=120.0)
+        return self.head()
+
+    def commit_parent(self, commit: str) -> str:
+        value = self.text("rev-parse", f"{commit}^")
+        if not _is_sha(value):
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Parent commit имеет неверный формат.",
+            )
+        return value
+
+    def commit_paths(self, commit: str) -> tuple[str, ...]:
+        output = self.text(
+            "diff-tree",
+            "--no-commit-id",
+            "--name-only",
+            "-r",
+            "-z",
+            commit,
+            "--",
+        )
+        return tuple(sorted(path for path in output.split("\x00") if path))
+
+    def push(self, remote: str, local_branch: str, remote_branch: str) -> None:
+        refspec = f"refs/heads/{local_branch}:refs/heads/{remote_branch}"
+        self.run("push", "--porcelain", remote, refspec, timeout_seconds=15 * 60)
 
     def is_ancestor(self, ancestor: str, descendant: str) -> bool:
         if self.executable is None:
@@ -290,10 +398,39 @@ def _hosted_identity(host: str, raw_path: str) -> str:
     return f"hosted:{host}/{path.casefold()}"
 
 
+def repository_identity_from_remote(value: str) -> RepositoryIdentity:
+    """Извлечь typed identity hosted remote или явно обозначенного fixture remote."""
+
+    identity = canonical_remote_identity(value)
+    if identity.startswith("local:"):
+        return RepositoryIdentity(
+            host="local",
+            owner="fixture",
+            repository=identity.removeprefix("local:"),
+        )
+    if not identity.startswith("hosted:"):
+        raise ToolingError(
+            ResultCode.TOOLING_REMOTE_IDENTITY_UNVERIFIED,
+            "Для hosted repository требуется hosted Git remote.",
+        )
+    parts = identity.removeprefix("hosted:").split("/")
+    if len(parts) != 3:
+        raise ToolingError(
+            ResultCode.TOOLING_REMOTE_IDENTITY_UNVERIFIED,
+            "Hosted remote должен содержать ровно host, owner и repository.",
+        )
+    return RepositoryIdentity(host=parts[0], owner=parts[1], repository=parts[2])
+
+
 def _is_sha(value: str) -> bool:
     return 40 <= len(value) <= 64 and all(
         character in "0123456789abcdef" for character in value.lower()
     )
 
 
-__all__ = ["GitClient", "GitCommand", "canonical_remote_identity"]
+__all__ = [
+    "GitClient",
+    "GitCommand",
+    "canonical_remote_identity",
+    "repository_identity_from_remote",
+]

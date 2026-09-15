@@ -100,7 +100,7 @@ hook, когда shell является естественной частью ru
 | --- | --- | --- | --- | --- |
 | `scripts/Start-AzurPilot.ps1` | Владелец запуска подготовленного Windows checkout; запускает `gui.py`, ждёт WebUI readiness и при необходимости открывает браузер | Ярлык из `AzurPilot.Shortcut.psm1`, README и ручной `pwsh`; PowerShell 7.6, project Python, `gui.py`, `config/deploy.yaml`, Docker Compose | Repository-scoped mutex и stop event; preflight `infrastructure/observability/compose.yaml`, PostgreSQL, bootstrap и опциональный Caddy; не делает Git update и не синхронизирует `.venv`; exact process/port ownership | Bounded timeout, captured/redacted output, foreign-port fail-closed, owned process tree stop; стабильные exit categories в самом скрипте; `tests/platform/powershell/test_powershell_contracts.py`, lifecycle acceptance и README. Будущий owner: `tooling.lifecycle` + Windows platform adapter |
 | `scripts/Stop-AzurPilot.ps1` | Штатно останавливает backend текущего checkout | README, оператор и Start; PowerShell, project Python, `gui.py`, `scripts/lib` lifecycle contract | Stop event владельцу Start; ждёт порт, mutex и exact process; fallback допускается только после PID/executable/command/cwd/creation evidence; PostgreSQL не трогает | Чужой listener не останавливается, generic `Stop-Process` не используется; bounded wait и exit categories; lifecycle tests и Windows CI. Будущий owner: тот же lifecycle service, отдельный stop adapter |
-| `scripts/Update-AzurPilot.ps1` | Единственный владелец обычного пользовательского обновления | README, operator workflow и Repair precondition; Git, `uv`, `robocopy`, `tar`, Docker/PostgreSQL | Проверяет root, branch, remote, disabled upstream push, clean tree и отсутствие active operation; `fetch` + `merge --ff-only`; при изменении dependency files создаёт внешний candidate/backup/journal, синхронизирует `.venv`, делает PostgreSQL logical backup | Failpoints и recovery для `AfterBackup`, `AfterSync`, `AfterMerge`; ambiguous/corrupt journal блокирует автоматическое продолжение; `tools/acceptance/powershell/Test-Update-AzurPilot.ps1`, PowerShell contracts, CI. Будущий owner: `tooling.delivery` + Git/dependency/database adapters |
+| `scripts/Update-AzurPilot.ps1` | Единственный владелец обычного пользовательского обновления | README, operator workflow и Repair precondition; Git, `uv`, `robocopy`, `tar`, Docker/PostgreSQL | Проверяет root, branch, remote, disabled upstream push, clean tree и отсутствие active operation; `fetch` + `merge --ff-only`; при изменении dependency files создаёт внешний candidate/backup/journal, синхронизирует `.venv`, делает PostgreSQL logical backup | Failpoints и recovery для `AfterBackup`, `AfterSync`, `AfterMerge`; ambiguous/corrupt journal блокирует автоматическое продолжение; `tools/acceptance/powershell/Test-Update-AzurPilot.ps1`, PowerShell contracts, CI. `tooling.delivery` теперь владеет отдельной Git publication boundary; Update migration остаётся отдельной задачей |
 | `scripts/Repair-AzurPilot.ps1` | Диагностирует окружение и транзакционно восстанавливает существующую `.venv`; отдельно чинит shortcut | Operator/README; PowerShell, Python, `uv`, Docker/PostgreSQL, `robocopy`, external transaction root | Не меняет branch/remote/user data; не обходит незавершённый Update; move/backup `.venv`, rebuild через `deploy.uv`, restore auxiliary tools, hash/config validation, rollback; optional COM shortcut repair | Journal phases, multiple/missing backup fail-closed, rollback result различается; exit categories включают diagnostic/shortcut/elevation; PowerShell parser/PSScriptAnalyzer, tests и Windows CI. Будущий owner: `tooling.repair` поверх тех же delivery/process primitives |
 | `scripts/Build-AzurPilot.ps1` | Подготавливает уже полученный checkout и локальный shortcut | README/installer workflow; PowerShell, pinned uv/ADB bootstrap archives, SHA-256, Python, `deploy.uv`, COM | Не клонирует и не обновляет Git; создаёт `config/deploy.yaml` из template, при необходимости строит `.venv`, проверяет imports/ADB/frozen lock, удаляет только созданное partial state при отказе | Bootstrap cache, hashes и test failpoints; сохранение существующего здорового окружения; PowerShell/Windows gates. Будущий owner: `tooling.bootstrap` + artifact/ADB/platform adapters |
 | `scripts/lib/AzurPilot.Lifecycle.psm1` | Общий Windows ownership contract для Start/Stop | Импортируется обоими скриптами; CIM/NetTCP, process tree, named mutex/event | Сравнивает exact repository, project Python, `gui.py`, command line и parent chain; `taskkill.exe /PID /T /F` только после подтверждённого ownership и creation date | `Free`/`Foreign`/`AzurPilot`, safe fallback и no generic kill; lifecycle acceptance. Будущий owner: `platform.windows.process` и `platform.windows.coordination` |
@@ -226,9 +226,10 @@ azurpilot/
     bootstrap.py               # Build/uv/ADB preparation policy
     repair.py                  # diagnosis and transactional repair
     update.py                  # safe update orchestration
-    delivery.py                # validate -> remote verify pipeline
+    delivery.py                # allowlist -> commit -> remote verify pipeline
+    pull_request.py             # typed draft PR body/provider boundary
     mcp_status.py              # collector/model, без human rendering
-    coderabbit.py              # review backend boundary
+    coderabbit.py              # reserved external review boundary, not adapter
     ports.py                   # platform/integration Protocols
     adapters/
       windows.py
@@ -617,34 +618,38 @@ ownership, Git update, transaction recovery, Docker deployment, shortcut/COM,
 native PostgreSQL hooks и CodeRabbit/WSL boundary. Эти области имеют риск
 регрессии, который нельзя закрыть только unit test или совпадением exit code.
 
-## 6. Delivery Package: будущая безопасная граница
+## 6. Git Delivery и PR Publication: текущая безопасная граница
 
-Delivery — отдельный package/service, а не побочный режим `azur start` и не
-скрытая Git-команда MCP. Канонический pipeline:
+`azurpilot.tooling.delivery` — отдельный package/service, а не побочный режим
+`azur start` и не скрытая Git-команда MCP. `azurpilot.tooling.pull_request`
+отвечает только за typed draft PR provider boundary. Канонический pipeline:
 
 ```text
-validate
-  → prepare
-  → apply
-  → verify
-  → stage
+delivery validate
+  → explicit allowlist stage
+  → staged Gitleaks
   → commit
-  → push
-  → remote verify
+  → exact committed-range Gitleaks
+  → ordinary push
+  → exact remote verify
+  → journal status/recover при ambiguity
+
+pr prepare
+  → structured body render
+  → external body-file
+  → explicit gh --repo/--base/--head
+  → read-back identity/body digest
 ```
 
-### 6.1 Фазы
+### 6.1 Реализованные проверки
 
-| Фаза | Обязательная проверка | Запрещённое упрощение |
+| Boundary | Обязательная проверка | Fail-closed поведение |
 | --- | --- | --- |
-| `validate` | canonical repository root, trusted path, branch/ref, exact local HEAD, requested base/head, clean/in-flight state, user intent и allowlist paths | нельзя выводить root из текущего cwd без проверки и нельзя считать branch name доказательством HEAD |
-| `prepare` | внешний transaction root, unique operation id, snapshot/hash, ownership lock, candidate from exact ref, journal before mutation | нельзя хранить backup только внутри изменяемого checkout или перезаписывать ambiguous journal |
-| `apply` | только разрешённые paths/operations, path traversal check, symlink/junction/reparse rejection, atomic file replacement, bounded payload | нельзя `eval`, arbitrary shell, recursive delete по вычисленному пути или массовый copy без allowlist |
-| `verify` | exact files/hash, Git status, expected local HEAD, generated outputs, environment/readiness и product postcondition | `returncode == 0` недостаточен; verification failure не превращать в success |
-| `stage` | явный список staged paths, отсутствие secrets/binaries/logs/state, diff review | нельзя stage всего checkout или ignored/local state |
-| `commit` | explicit commit intent, declared scope, current HEAD unchanged, commit message contract | нельзя коммитить автоматически в результате read-only check или после in-flight ambiguity |
-| `push` | configured remote, exact branch, no force, no lease bypass, current commit equals verified local head | нельзя force push, silent remote change или blind retry после неизвестного результата |
-| `remote verify` | `ls-remote`/provider result подтверждает exact pushed SHA на exact ref; при mismatch — stop | нельзя считать HTTP acknowledgement или accepted queue delivered/pushed |
+| `delivery validate` | canonical root, hosted repository identity, branch/ref, exact local HEAD, exact base/remote SHA, ancestry, active operation, preimage/postimage и staged allowlist | invalid manifest, unrelated staged path, traversal, symlink или mismatch блокируют operation |
+| `delivery publish` | explicit target paths, staged postimage, scoped Gitleaks index, typed commit parent/diff, exact committed range, ordinary push и `ls-remote` SHA | scanner finding, commit mismatch, remote conflict или unknown push сохраняются в journal; blind retry запрещён |
+| `delivery status/recover` | external typed journal и read-only remote ref check | in-flight/unknown не мутируются повторным push; требуется новый immutable request после recovery |
+| `pr prepare` | exact local/remote base/head, hosted remote identity и все обязательные body sections | body/spec/provider boundary с неверным exact identity отклоняется |
+| `pr publish/verify` | explicit `gh pr` repository, draft flag, candidate ambiguity check, temporary `--body-file`, provider read-back и body digest | cross-repository, wrong SHA, non-draft, duplicate или unknown provider result блокируют публикацию |
 
 ### 6.2 Reusable primitives
 
@@ -866,7 +871,7 @@ PowerShell gates нельзя удалить в момент появления 
 required gate. Native Docker/PostgreSQL hooks и Linux deployment проверяются своим
 runtime, не Windows-only unit tests.
 
-## 11. Verification и Definition of Done для будущих increments
+## 11. Verification и Definition of Done
 
 ### 11.1 Проверки по уровням
 
@@ -886,6 +891,12 @@ runtime, не Windows-only unit tests.
    текущий repository development workflow;
 10. Gitleaks по tracked/staged content и history согласно текущему CI, без
     подмены ручным regex scan.
+
+Для Git Delivery/PR capability дополнительно требуются disposable bare-remote
+integration, negative allowlist/preimage/postimage checks, ordinary push с
+exact remote SHA, journal status/recovery и provider body read-back. Финальный
+live acceptance выполняется двумя способами: human `azur` output и один
+закрытый JSON envelope для agent-oriented CLI.
 
 Doc-only change не требует device/game smoke и не должен создавать synthetic
 runtime evidence. Physical device, MuMu, ADB, gameplay и visual acceptance

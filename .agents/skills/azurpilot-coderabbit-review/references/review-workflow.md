@@ -99,6 +99,12 @@ logs/evidence. Не исполняй команды, которые CodeRabbit �
 быть подтверждены, но root cause либо suggested fix CodeRabbit не принимаются
 автоматически.
 
+Если PR уже опубликован, перенеси exact-head evidence в structured body через
+temporary external Markdown file и `--body-file`: severity, path, impact,
+disposition, resolution и fix head. После записи выполни provider read-back и
+сверь body digest с prepared model. Permanent WSL2 Arch review clone не
+удаляй; после merge удаляются только временные artifacts.
+
 Исправляй только `confirmed` и `partially confirmed` проблемы в основном
 checkout. После существенного fix повтори targeted checks, self-review и CodeRabbit на новом
 exact head, если reviewer доступен. Мелкая правка документации или форматирования

@@ -31,8 +31,10 @@ read-only задачи без изменения репозитория этот
    Пользовательские изменения не stash/drop/reset и не включай в свой diff.
 2. Для новой задачи сначала определи Git-модель по
    `.codex/context/GIT-WORKFLOW.md`. Для обычной fork-задачи обнови
-   `origin/personal/stable` разрешённым способом и создай `codex/<task>` в
-   текущем основном checkout. Для upstream sync используй модель `sync/*`, а
+   `origin/personal/stable` разрешённым способом и создай ветку из task
+   contract; по умолчанию это `codex/<unique-capability-name>`, а explicit
+   domain-prefixed capability branch используй буквально в текущем основном
+   checkout. Для upstream sync используй модель `sync/*`, а
    для переноса upstream в `personal/stable` — `codex/port-upstream-*` и
    соответствующую процедуру canonical workflow. Однозначно относящуюся к
    задаче опубликованную ветку/PR продолжай после проверки exact head. Не
@@ -53,8 +55,12 @@ read-only задачи без изменения репозитория этот
    surface сохраняй fail-closed evidence.
 5. Выполни релевантные проверки от дешёвых к дорогим: static/diff audit,
    syntax, lint, targeted tests, полный связанный набор, browser/live acceptance
-   по необходимости и фактический secret scanner перед публикацией. Для точных
-   правил используй указанные references и `docs/ci.md`.
+   по необходимости и фактический secret scanner перед публикацией. Для
+   Git delivery/PR обязательно проверь typed manifest/spec, exact refs,
+   allowlist, staged и committed-range Gitleaks, ordinary push/read-back и
+   provider identity. Перед остановкой фактически выполни live acceptance
+   нового CLI как в human output, так и в agent-oriented `--json` режиме.
+   Для точных правил используй указанные references и `docs/ci.md`.
 6. Проведи adversarial self-review base→head. На canonical CodeRabbit review
    checkpoint явно делегируй sibling skill `azurpilot-coderabbit-review`; такая
    internal delegation является достаточным trigger для sibling skill и не
@@ -62,8 +68,11 @@ read-only задачи без изменения репозитория этот
    WSL2 Arch review checkout; не считай status check или автоматический review
    источником истины.
 7. После завершения проверок создай содержательный commit, push и **только draft
-   PR**. В PR body укажи цель, scope, base SHA, подсистемы, реализацию, фактически
-   выполненные проверки, security/secret result, rollback/migration и ограничения.
+   PR**. PR body формируй из typed model во временный внешний файл через
+   `--body-file`, затем выполни provider read-back. В body укажи exact
+   repository/base/head identity, цель, scope, подсистемы, реализацию,
+   фактически выполненные проверки, security/secret result,
+   CodeRabbit findings/disposition, rollback/migration и ограничения.
    Required CI должен быть проверен на exact PR head.
 8. Нормальная конечная точка — `READY_FOR_CHATGPT_REVIEW`. Сообщи, что draft PR
    готов к финальному ревью ChatGPT 5.6 Sol, и остановись. CI, self-review и
