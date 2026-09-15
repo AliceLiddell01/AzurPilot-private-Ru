@@ -898,14 +898,15 @@ def _parse_status(status_z: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
         code = item[:2]
         path = item[3:]
         dirty.add(path)
-        if code[0] != " ":
+        # `??` is untracked working-tree content, not an index mutation.
+        if code[0] not in {" ", "?"}:
             staged.add(path)
         if code[1] != " ":
             dirty.add(path)
         if code[0] in {"R", "C"} and index + 1 < len(items):
             index += 1
             dirty.add(items[index])
-            if code[0] != " ":
+            if code[0] not in {" ", "?"}:
                 staged.add(items[index])
         index += 1
     return tuple(sorted(dirty)), tuple(sorted(staged))
