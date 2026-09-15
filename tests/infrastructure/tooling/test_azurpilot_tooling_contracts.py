@@ -1190,6 +1190,9 @@ def test_update_uses_real_git_fast_forward_and_blocks_on_backup_failure(
         "    UpstreamPushUrl: DISABLED\n",
         encoding="utf-8",
     )
+    (root / "config" / "mcp-versions.toml").write_text(
+        "fixture = true\n", encoding="utf-8"
+    )
     _git(root, "add", ".")
     _git(root, "-c", "user.name=AzurPilot Test", "-c", "user.email=tooling@example.invalid", "commit", "-m", "initial")
     _git(root, "remote", "add", "origin", str(origin))
@@ -1236,11 +1239,31 @@ def test_update_uses_real_git_fast_forward_and_blocks_on_backup_failure(
 
     commit_remote("first\n")
     backup = SuccessfulBackup()
-    result = tooling_update.UpdateService(backup_service=backup).update(
-        root, timeout_seconds=60
-    )
+    mcp_calls: list[Path] = []
+
+    class SuccessfulMcp:
+        def reconcile(self, updated_root: Path) -> SimpleNamespace:
+            mcp_calls.append(updated_root)
+            return SimpleNamespace(
+                ok=True,
+                details=SimpleNamespace(
+                    restarted_servers=("azurpilot-dev",),
+                    reload_required=True,
+                    session_state="reload_required",
+                ),
+            )
+
+    result = tooling_update.UpdateService(
+        backup_service=backup,
+        mcp_service=SuccessfulMcp(),
+    ).update(root, timeout_seconds=60)
     assert result.ok
     assert result.details is not None and result.details.fast_forwarded
+    assert result.details.mcp_reconciliation == "restarted"
+    assert result.details.mcp_restarted_servers == ("azurpilot-dev",)
+    assert result.details.mcp_session_state == "reload_required"
+    assert result.details.mcp_reload_required is True
+    assert mcp_calls == [root]
     first_head = result.evidence.post_head if result.evidence is not None else ""
 
     commit_remote("second\n")

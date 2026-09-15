@@ -44,7 +44,7 @@ Prometheus и datasource evidence. Это дополнительное разр�
 и не разрешает mutation.
 
 Различай direct backend и Docker MCP Gateway: каталог profile, public-edge
-metadata и фактический `initialize`/`tools/list`/read-only call являются
+metadata и фактический negotiated discovery/`tools/list`/read-only call являются
 разными доказательствами. При наличии прямого callable маршрута предпочитай
 его проблемному Gateway. Если нужный сервер или tool не опубликован текущей
 сессией, верни fail-closed `unavailable/not_observable` с точной причиной и не
@@ -58,7 +58,8 @@ Grafana dashboards/alerts, runtime или игровое состояние в �
    package/catalog/remote app.
 2. Для обычного Codex workflow проверь project-scoped route из
    `.codex/config.toml`: `azurpilot-dev` → `module.dev_mcp` или
-   `azurpilot-game` → `module.game_mcp`, оба через local stdio. Выполни
+   `azurpilot-game` → `module.game_mcp`, оба через first-class local stdio;
+   Desktop loopback route выбирается явно и не является silent fallback. Выполни
    минимальное read-only наблюдение на соответствующей direct surface.
    Если `game_get_contract`
    отсутствует или не поддерживается client catalog, зафиксируй
@@ -161,7 +162,8 @@ capability gap, а не доказанный stale client. Зафиксируй 
 2. skill routing;
 3. project `.codex/config.toml` и выбранный direct route;
 4. local stdio process;
-5. MCP `initialize`/`tools/list`;
+5. MCP negotiated discovery/`tools/list` (официальный SDK сам поддерживает
+   legacy-compatible `initialize` fallback);
 6. callable tool catalog клиента;
 7. plugin package/listing snapshot;
 8. remote Connected App snapshot и approval policy — только для явно
@@ -173,6 +175,12 @@ capability gap, а не доказанный stale client. Зафиксируй 
 13. namespace/tool binding;
 14. backend application logic;
 15. external emulator/device/game и authoritative product postcondition.
+
+Состояния `MCP_RUNTIME_STALE`, `MCP_PLUGIN_RUNTIME_INCOMPATIBLE` и
+`MCP_RELOAD_REQUIRED` требуют read-only фиксации source/runtime/session
+расхождения. Для доказанно owned runtime разрешён один штатный
+`azur mcp restart`; при изменении plugin/skill сначала требуется новая
+session или явное подтверждение reload, а hot reload не предполагается.
 
 `GAME_*` или `DEV_*` machine-readable response означает, что вызов достиг
 backend boundary. `Unknown tool`, platform block или отсутствие callable

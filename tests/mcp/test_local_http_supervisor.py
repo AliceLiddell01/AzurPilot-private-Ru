@@ -148,6 +148,7 @@ supervisor = LocalHttpSupervisor(
     python_executable=Path(sys.executable),
     services=services,
     startup_timeout_seconds=5,
+    allow_test_environment=True,
 )
 try:
     result = supervisor.serve()

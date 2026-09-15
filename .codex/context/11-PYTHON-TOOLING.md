@@ -37,7 +37,7 @@ contract. Само расширение файла не является осн�
 | Версия Python и зависимости | `pyproject.toml`, `uv.lock`, локальная `.venv`, `uv` | Python API не должен подменять `uv` произвольным `pip`; lock и `uv` остаются явными интеграциями |
 | WebUI и планировщик | `gui.py`, `alas.py`, `module/webui/`, `module/application/` | tooling управляет lifecycle через typed service/adapter, не импортирует игровые handlers для запуска |
 | Development target | `module/dev_runtime/target.py`, `module/dev_runtime/target_policy.json`, marker в `config/state/` | target разрешается registry и explicit consent; произвольный профиль в команде или MCP не принимается |
-| MCP identity | `config/mcp-versions.toml`, `module/*_mcp/contract.py`, `plugins/azurpilot/compatibility.json` | CLI, MCP и tests используют одну model; значения версий не дублируются литералами |
+| MCP identity | canonical `config/mcp-versions.toml`; runtime projection `module/*_mcp/contract.py`; generated plugin snapshot `plugins/azurpilot/compatibility.json` | CLI, MCP и tests используют одну model; ручных копий версий не создаётся |
 | Project MCP registration | `.codex/config.toml` | plugin package не становится вторым registration source |
 | User/machine state | environment, user config, ignored `config/state/`, внешние transaction roots | секреты, cookies, process caches и личные пути не попадают в tracked source |
 | CI и release gates | `.github/workflows/ci.yml`, `docs/ci.md`, `.codex/context/08-VERIFICATION.md` | Python/Windows/Security сохраняются до доказанной parity; green CI не разрешает merge |
@@ -264,7 +264,8 @@ entrypoints до подтверждения нового package contract.
 Tracked configuration содержит только продуктовую политику и безопасные ссылки:
 
 - `pyproject.toml` и `uv.lock` — dependency contract;
-- `config/mcp-versions.toml` и plugin `compatibility.json` — MCP compatibility;
+- `config/mcp-versions.toml` — canonical MCP compatibility/version bundle;
+  plugin `compatibility.json` — его generated snapshot;
 - `module/dev_runtime/target_policy.json` — default target policy;
 - `config/argument/` и generated config — продуктовые параметры;
 - `.codex/config.toml` — project-scoped route declarations без literal tokens;
@@ -698,7 +699,7 @@ project Codex direct stdio
   azurpilot-dev  → uv run ... python -m module.dev_mcp
   azurpilot-game → uv run ... python -m module.game_mcp
 
-Windows Desktop compatibility aliases
+Windows Desktop first-class local HTTP routes
   azurpilot_dev  → authenticated loopback 127.0.0.1:8775
   azurpilot_game → authenticated loopback 127.0.0.1:8776
   оба процесса владеются module.mcp_shared.local_http_supervisor
@@ -720,8 +721,8 @@ read/control surface с profile, read/control scopes и lazy `GameMcpBackend`,
 transport и local supervisor.
 
 MCP adapter должен вызывать common service напрямую. MCP не запускает
-`azur` через subprocess, не scrape-ит human CLI output и не использует Connected
-App/remote surface как fallback direct Codex route. Long-running service operation
+`azur` через subprocess, не scrape-ит human CLI output и не переключает
+transport route молча. Long-running service operation
 возвращает persistent `operation_id`, а read tool читает authoritative state.
 
 ### 7.2 Skills, plugin и compatibility
@@ -738,12 +739,19 @@ App/remote surface как fallback direct Codex route. Long-running service oper
 | `.agents/skills/azurpilot-coderabbit-review` | canonical CodeRabbit review checkpoint | review выполняется в отдельном permanent WSL2 review checkout, не в implementation checkout |
 | `.agents/plugins/marketplace.json` | source-controlled local marketplace | package path остаётся source-only; plugin install не регистрирует MCP |
 | `.codex/config.toml` | repository-level project route | CLI/tooling может проверять source config, но не выдавать его за effective registration |
-| `config/mcp-versions.toml` | canonical server SemVer identity | один reader и bounded range validation |
+| `config/mcp-versions.toml` | единственный canonical MCP bundle: SemVer/API/contract identity, catalog/source/plugin/skill revisions | один strict reader и bounded reconciliation; производный `compatibility.json` не создаёт второй source of truth |
 
 Диагностическая matrix plugin закрепляет отдельные слои: intent → skill routing
 → project config/trust → local process → MCP handshake/catalog → plugin snapshot
 → remote/auth only for explicitly chosen remote route → backend/postcondition.
 Не смешивать эти слои при проектировании `azur doctor`.
+
+Canonical MCP lifecycle остаётся в общем service layer и доступен через
+`azur mcp status`, `azur mcp versions`, `azur mcp reconcile`, `azur mcp start`,
+`azur mcp stop` и `azur mcp restart`. Source reconciliation изменяет только
+производные plugin metadata; runtime reconciliation не меняет tracked source.
+При stale plugin/skill/session требуется `RELOAD_REQUIRED`, а не скрытый hot
+reload.
 
 ## 8. Reuse `dev_tools/mcp_status.py`
 
@@ -751,7 +759,7 @@ App/remote surface как fallback direct Codex route. Long-running service oper
 
 `dev_tools/mcp_status.py` уже разделён на четыре логические части:
 
-1. collector/probes: local stdio `initialize`/`tools/list`/contract call,
+1. collector/probes: local stdio negotiated discovery/`tools/list`/contract call,
    direct remote metadata, Semgrep local MCP, Docker executable/profile/gateway
    и third-party read-only probes;
 2. model: bounded report, status/reason code, source revision/working tree,

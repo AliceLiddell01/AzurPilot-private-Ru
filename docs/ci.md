@@ -79,6 +79,8 @@ Job выполняется на `ubuntu-24.04` с Python `3.14.6` и прове�
   точного PR base;
 - `uv lock --check` и `uv sync --locked --group ci`;
 - Ruff для ошибок выполнения и импорта;
+- permanent MCP compatibility gate: строгая проверка canonical
+  `config/mcp-versions.toml`, source-set digests и производных plugin metadata;
 - компиляцию основных Python entry points и каталогов, включая `azurpilot` и `deploy`;
 - автоматическое обнаружение всего каталога `tests/` через `pytest 9.1.1`, зафиксированный в `uv.lock`;
 - permanent semantic runtime-localization audit: доказанные operator-facing sinks должны оставаться русскими, а runtime identity — только RU/Global/EN;
@@ -91,6 +93,7 @@ Job выполняется на `ubuntu-24.04` с Python `3.14.6` и прове�
 uv lock --check
 uv sync --locked --group ci
 uv run --locked ruff check . --select E9,F63,F7,F82 --ignore F821,F722
+uv run --locked --no-sync python -m dev_tools.mcp_compatibility_gate
 ```
 
 Локальный эквивалент PostgreSQL/Alembic-цикла описан в

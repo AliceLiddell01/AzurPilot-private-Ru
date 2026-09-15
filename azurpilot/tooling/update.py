@@ -59,12 +59,50 @@ class UpdateService:
         bootstrap: BootstrapService | None = None,
         runner: StructuredProcessRunner | None = None,
         backup_service: PostgreSqlBackupService | None = None,
+        mcp_service: object | None = None,
     ) -> None:
         self.resolver = resolver or RepositoryResolver()
         self.git_factory = git_factory
         self.runner = runner or StructuredProcessRunner()
         self.bootstrap = bootstrap or BootstrapService(self.runner)
         self.backup_service = backup_service or PostgreSqlBackupService()
+        self.mcp_service = mcp_service
+
+    def _reconcile_mcp_after_update(
+        self, root: Path
+    ) -> tuple[str, tuple[str, ...], bool, str]:
+        """Проверить MCP после source/environment update без source mutation."""
+
+        manifest = root / "config" / "mcp-versions.toml"
+        if not manifest.is_file():
+            return "not_required", (), False, "not_observable"
+        if self.mcp_service is None:
+            from .mcp import McpService
+
+            service = McpService(runner=self.runner)
+        else:
+            service = self.mcp_service
+        result = service.reconcile(root)
+        if not result.ok:
+            raise ToolingError(
+                result.code,
+                result.message,
+                state=result.state,
+                details=result.details,
+                evidence=result.evidence,
+            )
+        details = result.details
+        restarted = tuple(getattr(details, "restarted_servers", ()))
+        reload_required = bool(getattr(details, "reload_required", False))
+        session_state = str(
+            getattr(details, "session_state", "not_observable")
+        )
+        return (
+            "restarted" if restarted else "ready",
+            restarted,
+            reload_required,
+            session_state,
+        )
 
     def _assert_stopped(self, root: Path) -> None:
         coordinator = RepositoryCoordinator.for_root(root)
@@ -810,6 +848,12 @@ class UpdateService:
                 transaction = transaction.model_copy(update={"phase": "completed"})
                 journal_store.save(transaction)
                 journal_store.retain_terminal()
+            (
+                mcp_state,
+                mcp_restarted,
+                mcp_reload_required,
+                mcp_session_state,
+            ) = self._reconcile_mcp_after_update(root)
             return ToolingResult[UpdateDetails, UpdateEvidence](
                 ok=True,
                 code=ResultCode.OK,
@@ -825,6 +869,10 @@ class UpdateService:
                     backup_required=True,
                     backup_validated=backup.evidence.validated,
                     transaction_phase="completed" if transaction else None,
+                    mcp_reconciliation=mcp_state,
+                    mcp_restarted_servers=mcp_restarted,
+                    mcp_session_state=mcp_session_state,
+                    mcp_reload_required=mcp_reload_required,
                 ),
                 evidence=UpdateEvidence(
                     repository=resolved.evidence,

@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 import logging
+import os
+import re
 import sys
 from typing import Any
 
 import uvicorn
 
 from module.dev_mcp.adapter import DevMcpAdapter
-from module.dev_mcp.contract import DEV_MCP_REQUIRED_SCOPE, DEV_MCP_SERVER_NAME
+from module.dev_mcp.contract import (
+    DEV_MCP_REQUIRED_SCOPE,
+    DEV_MCP_SERVER_NAME,
+    contract_payload,
+)
 from module.dev_mcp.server import create_server
 from module.mcp_shared.local_http import (
     LocalHttpConfig,
@@ -23,6 +29,8 @@ logger = logging.getLogger(__name__)
 
 DEV_MCP_LOCAL_HTTP_PORT = 8775
 DEV_MCP_LOCAL_HTTP_TOKEN_ENV_VAR = "AZURPILOT_DEV_LOCAL_MCP_TOKEN"
+DEV_MCP_SOURCE_SET_DIGEST_ENV_VAR = "AZURPILOT_DEV_MCP_SOURCE_SET_DIGEST"
+_SOURCE_SET_DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 def default_config() -> LocalHttpConfig:
@@ -45,10 +53,15 @@ def create_local_http_app(
 
     local_config = config or default_config()
     bound_adapter = adapter if adapter is not None else DevMcpAdapter()
+    metadata = contract_payload()
+    digest = os.environ.get(DEV_MCP_SOURCE_SET_DIGEST_ENV_VAR, "").strip().lower()
+    if _SOURCE_SET_DIGEST_RE.fullmatch(digest):
+        metadata["source_set_digest"] = digest
     return _create_local_http_app(
         create_server,
         bound_adapter,
         config=local_config,
+        identity_metadata=metadata,
     )
 
 
@@ -89,6 +102,7 @@ def main() -> None:
 __all__ = (
     "DEV_MCP_LOCAL_HTTP_PORT",
     "DEV_MCP_LOCAL_HTTP_TOKEN_ENV_VAR",
+    "DEV_MCP_SOURCE_SET_DIGEST_ENV_VAR",
     "LocalHttpConfig",
     "LocalHttpConfigError",
     "create_local_http_app",

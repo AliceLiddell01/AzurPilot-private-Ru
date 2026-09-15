@@ -27,6 +27,7 @@ from .tooling.delivery import DeliveryService
 from .tooling.doctor import DoctorService
 from .tooling.errors import ToolingError
 from .tooling.lifecycle import LifecycleService
+from .tooling.mcp import McpService
 from .tooling.pull_request import PullRequestService
 from .tooling.repair import RepairService
 from .tooling.update import UpdateService
@@ -52,17 +53,20 @@ class ServiceContainer:
     update: UpdateService
     delivery: DeliveryService
     pull_request: PullRequestService
+    mcp: McpService
 
     @classmethod
     def create(cls) -> ServiceContainer:
+        mcp = McpService()
         return cls(
             doctor=DoctorService(),
             lifecycle=LifecycleService(),
             build=BuildService(),
             repair=RepairService(),
-            update=UpdateService(),
+            update=UpdateService(mcp_service=mcp),
             delivery=DeliveryService(),
             pull_request=PullRequestService(),
+            mcp=mcp,
         )
 
 
@@ -284,6 +288,40 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common_options(pr_verify, suppress_defaults=True)
     pr_verify.add_argument("number", type=int, metavar="PR_NUMBER")
     pr_verify.add_argument("--spec", required=True, metavar="SPEC")
+
+    mcp = subparsers.add_parser(
+        "mcp", help="проверить и согласовать first-party MCP source/runtime"
+    )
+    mcp_subparsers = mcp.add_subparsers(
+        dest="mcp_command", required=True, metavar="ACTION"
+    )
+    for action in ("status", "versions", "start", "stop", "restart"):
+        command = mcp_subparsers.add_parser(
+            action,
+            help={
+                "status": "прочитать source, runtime, plugin и session state",
+                "versions": "прочитать canonical MCP bundle versions и hashes",
+                "start": "запустить owned loopback MCP supervisor",
+                "stop": "остановить owned loopback MCP supervisor",
+                "restart": "перезапустить owned loopback MCP supervisor",
+            }[action],
+        )
+        _add_common_options(command, suppress_defaults=True)
+    reconcile = mcp_subparsers.add_parser(
+        "reconcile", help="согласовать source bundle или owned runtime"
+    )
+    _add_common_options(reconcile, suppress_defaults=True)
+    reconcile.add_argument(
+        "--source",
+        action="store_true",
+        help="обновить tracked canonical manifest и derived plugin metadata",
+    )
+    reconcile.add_argument(
+        "--bump",
+        choices=("auto", "patch", "minor", "major"),
+        default=None,
+        help="явная политика server SemVer для доказанного contract change",
+    )
     return parser
 
 
@@ -480,7 +518,39 @@ def _render_human(
                 f"{'✓' if result.ok else '✗'} {result.message}"
             )
         else:
-            if delivery_validation_preview:
+            servers = getattr(result.details, "servers", None)
+            if servers is not None:
+                from rich.table import Table
+
+                table = Table(title="AzurPilot MCP", expand=True)
+                table.add_column("Backend", no_wrap=True)
+                table.add_column("Версия", no_wrap=True)
+                table.add_column("Состояние", no_wrap=True)
+                table.add_column("Transport", overflow="fold")
+                table.add_column("Revision", no_wrap=True)
+                for server in servers:
+                    table.add_row(
+                        str(getattr(server, "server_name", "unknown")),
+                        str(
+                            getattr(server, "observed_version", None)
+                            or getattr(server, "expected_version", "unknown")
+                        ),
+                        str(getattr(server, "status", "unknown")),
+                        ", ".join(getattr(server, "routes", ())) or "не наблюдается",
+                        _short_sha(getattr(server, "contract_revision", None)),
+                    )
+                console.print(table)
+                for field, label in (
+                    ("source_state", "Source"),
+                    ("runtime_state", "Runtime"),
+                    ("plugin_state", "Plugin"),
+                    ("session_state", "Session"),
+                ):
+                    value = getattr(result.details, field, None)
+                    if value is not None:
+                        console.print(f"{label}: {value}")
+                console.print(f"{'✓' if result.ok else '✗'} {result.message}")
+            elif delivery_validation_preview:
                 console.print(f"{'✓' if result.ok else '✗'} {result.message}")
                 _render_delivery_validation_preview(console, result)
             else:
@@ -556,6 +626,23 @@ def _dispatch(
             return services.pull_request.publish(args.spec, root)
         if args.pr_command == "verify":
             return services.pull_request.verify(args.number, args.spec, root)
+    if command == "mcp":
+        if args.mcp_command == "status":
+            return services.mcp.status(root)
+        if args.mcp_command == "versions":
+            return services.mcp.versions(root)
+        if args.mcp_command == "reconcile":
+            return services.mcp.reconcile(
+                root,
+                source=bool(getattr(args, "source", False)),
+                bump=getattr(args, "bump", None),
+            )
+        if args.mcp_command == "start":
+            return services.mcp.start(root)
+        if args.mcp_command == "stop":
+            return services.mcp.stop(root)
+        if args.mcp_command == "restart":
+            return services.mcp.restart(root)
     raise CliInvocationError(f"неизвестная команда: {command}")
 
 

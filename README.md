@@ -138,6 +138,27 @@ git fetch
 
 Локальные изменения и собственные commits не удаляются автоматически.
 
+### First-party MCP
+
+Dev и Game MCP используют один canonical bundle в
+`config/mcp-versions.toml`. Прямой project-scoped stdio и authenticated
+loopback HTTP для Codex Desktop являются равноправными transport routes одной
+backend identity; public и third-party MCP surfaces остаются отдельными и не
+подменяют их. Производные plugin metadata проверяются и согласуются через
+`azur mcp`, а успешный `azur update` автоматически выполняет такую проверку
+без изменения tracked source или plugin version.
+
+```text
+azur mcp status
+azur mcp versions
+azur mcp reconcile [--source|--runtime]
+azur mcp start | stop | restart
+```
+
+При изменении plugin/skill snapshot или уже открытой session возвращается
+`RELOAD_REQUIRED`/`reload_required`; новая session или штатный restart должны
+быть подтверждены отдельно.
+
 ### Приватность
 
 Из активной версии удалены:

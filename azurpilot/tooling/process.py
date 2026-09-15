@@ -32,6 +32,19 @@ DOCKER_ENVIRONMENT_KEYS = frozenset(
         "DOCKER_CERT_PATH",
     }
 )
+MCP_LOCAL_TOKEN_ENVIRONMENT_KEYS = frozenset(
+    {
+        "AZURPILOT_DEV_LOCAL_MCP_TOKEN",
+        "AZURPILOT_GAME_LOCAL_MCP_TOKEN",
+    }
+)
+MCP_LOCAL_SOURCE_DIGEST_ENVIRONMENT_KEYS = frozenset(
+    {
+        "AZURPILOT_DEV_MCP_SOURCE_SET_DIGEST",
+        "AZURPILOT_GAME_MCP_SOURCE_SET_DIGEST",
+    }
+)
+MCP_LOCAL_TEST_ENVIRONMENT_PREFIX = "TEST_LOCAL_MCP_"
 
 
 def _canonical(path: Path) -> Path:
@@ -335,7 +348,9 @@ def _safe_environment(extra: Mapping[str, str]) -> dict[str, str]:
         "HOMEPATH",
         "LANG",
         "PYTHONUTF8",
+        "PYTHONIOENCODING",
         "PYTHONUNBUFFERED",
+        "AZURPILOT_SOURCE_REVISION",
         "NO_COLOR",
         "VIRTUAL_ENV",
     }
@@ -347,6 +362,9 @@ def _safe_environment(extra: Mapping[str, str]) -> dict[str, str]:
         "GH_PROMPT_DISABLED",
         "__PYVENV_LAUNCHER__",
     } | DOCKER_ENVIRONMENT_KEYS
+    allowed_explicit |= (
+        MCP_LOCAL_TOKEN_ENVIRONMENT_KEYS | MCP_LOCAL_SOURCE_DIGEST_ENVIRONMENT_KEYS
+    )
     result = {
         key: value
         for key, value in os.environ.items()
@@ -359,7 +377,11 @@ def _safe_environment(extra: Mapping[str, str]) -> dict[str, str]:
             character in key for character in "=\x00"
         ):
             raise ValueError("недопустимое имя переменной окружения")
-        if key not in allowed_explicit and not key.startswith(allowed_prefixes):
+        if (
+            key not in allowed_explicit
+            and not key.startswith(allowed_prefixes)
+            and not key.startswith(MCP_LOCAL_TEST_ENVIRONMENT_PREFIX)
+        ):
             raise ValueError(f"переменная окружения {key!r} запрещена политикой")
         if len(key) > 128 or len(str(value)) > 4096:
             raise ValueError("переменная окружения превышает ограниченный размер")
@@ -724,6 +746,9 @@ __all__ = [
     "DEFAULT_OUTPUT_LIMIT",
     "DEFAULT_PROCESS_TIMEOUT",
     "DOCKER_ENVIRONMENT_KEYS",
+    "MCP_LOCAL_TEST_ENVIRONMENT_PREFIX",
+    "MCP_LOCAL_SOURCE_DIGEST_ENVIRONMENT_KEYS",
+    "MCP_LOCAL_TOKEN_ENVIRONMENT_KEYS",
     "ProcessController",
     "ProcessIdentity",
     "ProcessResult",

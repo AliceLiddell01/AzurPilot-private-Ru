@@ -28,8 +28,9 @@ MCP client
   → настроенный development target
 ```
 
-Dev MCP для Codex использует локальный транспорт stdio. Для ChatGPT существует
-отдельный `module.dev_mcp.remote` с authenticated HTTPS Streamable HTTP на `/mcp`;
+Dev MCP для Codex поддерживает два first-class local routes одной backend
+identity: direct stdio и authenticated loopback Streamable HTTP. Для ChatGPT
+существует отдельный `module.dev_mcp.remote` с authenticated HTTPS на `/mcp`;
 он не переиспользует Game MCP и не монтируется в WebUI. Game MCP остаётся
 отдельным продуктом с собственными tools, scopes и runtime adapters. Запуск
 обоих Dev MCP entrypoint-ов не создаёт
@@ -50,8 +51,8 @@ startup_timeout_sec = 5
 tool_timeout_sec = 180
 ```
 
-Codex Desktop при Windows stdio bootstrap failure использует отдельный
-защищённый loopback alias:
+Для Codex Desktop loopback route выбирается явно и не является аварийным
+fallback для stdio:
 
 ```toml
 [mcp_servers.azurpilot_dev]
@@ -90,8 +91,8 @@ tool_timeout_sec = 180
 ```
 
 `azurpilot-dev`/`azurpilot-game` — protocol identities и canonical stdio
-registration keys standalone route; `azurpilot_dev`/`azurpilot_game` — только
-Codex registration aliases local HTTP. Перед запуском Desktop supervisor
+registration keys standalone route; `azurpilot_dev`/`azurpilot_game` — отдельные
+Codex registration keys first-class local HTTP. Перед запуском Desktop supervisor
 `module.mcp_shared.local_http_supervisor` поднимает один Dev endpoint на
 `127.0.0.1:8775` и один Game endpoint на `127.0.0.1:8776`, используя только
 user-level bearer environment. Local HTTP request context обязан сохранять
@@ -103,13 +104,13 @@ user-level bearer environment. Local HTTP request context обязан сохр�
 Trust проекта является обязательным предварительным условием для этих
 project-scoped routes. В `untrusted` checkout Codex пропускает project-scoped
 `.codex/config.toml`; plugin не меняет trust, а диагностика не выполняет
-automatic trust и не переключается на remote fallback. Поэтому наличие
+automatic trust и не переключается на другой transport route. Поэтому наличие
 корректного tracked config не доказывает регистрацию route в текущей Codex
 task.
 
-Проверяй direct surface в read-only порядке: trust проекта → effective
-registration `azurpilot-dev` и `azurpilot-game` → MCP `initialize` и
-`tools/list` → backend contract и callable catalog. В
+Проверяй выбранную direct surface в read-only порядке: trust проекта → effective
+registration `azurpilot-dev` и `azurpilot-game` → negotiated MCP discovery через
+официальный SDK → `tools/list` → backend contract и callable catalog. В
 `dev_tools.mcp_status` это отражено двумя независимыми полями:
 
 - `source_config` — структурная проверка `.codex/config.toml` как repository
@@ -134,7 +135,7 @@ Gateway evidence не смешиваются.
 
 Каноническая route policy для AzurPilot фиксирована так: standalone route
 `azurpilot-dev` и `azurpilot-game` использует project-scoped local stdio, а
-Codex Desktop использует их отдельные local HTTP aliases
+Codex Desktop явно выбирает их отдельные first-class local HTTP routes
 `azurpilot_dev` и `azurpilot_game`; Context7 — прямой
 user-scoped Codex MCP; Docker Docs — прямой project-scoped MCP; Semgrep —
 локальный `semgrep mcp -t stdio`; через Docker MCP Gateway обязательно
@@ -182,17 +183,20 @@ collector-ом и поэтому в JSON явно отмечается как в
 `dev_get_contract` — read-only граница совместимости для canonical-пакета
 `AzurPilot`. Она возвращает `server_name`, SemVer `server_version`, bounded
 `source_revision`, `contract_schema_version`, семейство продукта, версии Dev
-MCP/Smoke schemas, feature flags, capability families и result outcomes.
+MCP/Smoke schemas, feature flags, capability families, result outcomes,
+`tool_count`, `tool_catalog_sha256`, `capability_catalog_sha256` и
+`contract_revision`.
 В контракте нет путей, секретов или произвольных сведений об окружении;
 плагин сравнивает server identity/version с
 `plugins/azurpilot/compatibility.json.required_mcp_servers` как bounded SemVer
 range и при любом несовпадении останавливается с
 `PLUGIN_RUNTIME_INCOMPATIBLE` до mutating calls.
 
-Канонические server versions находятся в
-`config/mcp-versions.toml`: `azurpilot-dev` — `3.0.0`, `azurpilot-game` —
-`1.0.0`. Это identity MCP implementation, а `dev_mcp_api_version` и
-`game_mcp_api_version` остаются отдельными версиями внутренних схем.
+Единый canonical bundle находится в `config/mcp-versions.toml`: он связывает
+SemVer/API/contract identity, catalog fingerprints, source-set digests, plugin
+version и skill bundle revision для `azurpilot-dev` и `azurpilot-game`.
+`plugins/azurpilot/compatibility.json` является производным snapshot и не
+создаёт второй источник версий.
 
 Политика изменения SemVer для server identity фиксирована отдельно от
 protocol/schema версий:
@@ -205,11 +209,19 @@ protocol/schema версий:
   схемы либо изменение семантики существующего поведения;
 - несвязанные изменения репозитория не требуют bump server version.
 
-`contract_schema_version`, protocol versions, tool count и `source_revision` остаются
-отдельными диагностическими полями и не подменяют server identity. Совместимость
-плагина задаётся bounded SemVer range в
+`contract_schema_version`, protocol versions, tool count, catalog hashes и
+`source_revision` остаются отдельными диагностическими полями и не подменяют
+server identity. Совместимость плагина задаётся bounded SemVer range в
 `plugins/azurpilot/compatibility.json`; перед mutating calls несовместимый runtime
 отбрасывается fail-closed.
+
+Проверка source и runtime выполняется командами `azur mcp status`,
+`azur mcp versions`, `azur mcp reconcile`, `azur mcp start`, `azur mcp stop` и
+`azur mcp restart`. Source reconciliation обновляет только производные
+metadata; runtime reconciliation не редактирует tracked source. Успешный
+`azur update` автоматически выполняет reconciliation. При изменении
+plugin/skill или открытой session фиксируется `RELOAD_REQUIRED`; hot reload не
+имитируется.
 
 Для bounded проверки всех поверхностей используй read-only collector:
 
@@ -231,8 +243,8 @@ token остаётся `UNKNOWN` и не маскируется под `OK`. Н�
 source сохраняются как `source_status=modified` и дают `PARTIAL`, чтобы не
 смешивать их с подтверждённым version drift.
 
-Collector выполняет local `initialize`/`tools/list` и
-`dev_get_contract`/`game_get_contract`, backend `initialize`/`tools/list` и
+Collector выполняет negotiated local discovery/`tools/list` и
+`dev_get_contract`/`game_get_contract`, backend discovery/`tools/list` и
 bounded contract read для настроенных authenticated remote surfaces, HTTPS GET
 protected-resource metadata без credentials, локальный Semgrep MCP probe, а
 также read-only Docker MCP Toolkit profile/catalog queries и bounded Gateway
@@ -565,7 +577,7 @@ Smoke Harness расширяет локальный stdio Dev MCP ровно с�
 `dev_submit_smoke_evaluation`. `dev_start_smoke` быстро возвращает `smoke_id`,
 не удерживая MCP request; результат читается через polling `dev_get_smoke`.
 Сервер остаётся без побочных действий при startup и сохраняет stdout только для
-MCP protocol. Remote entrypoint использует зафиксированный в проекте `mcp==2.1.1`
+MCP protocol. Remote entrypoint использует зафиксированный в проекте `mcp==2.2.0`
 и его `StreamableHTTPSessionManager` в stateless-режиме без event store; каждый
 HTTP request повторно проходит auth и не оставляет серверных session records.
 

@@ -9,6 +9,11 @@ from module.dev_runtime.smoke import (
     SMOKE_STATE_SCHEMA_VERSION,
     SmokeOutcome,
 )
+from module.mcp_shared.catalog import (
+    capability_catalog_sha256,
+    contract_revision,
+    tool_catalog_sha256_from_tools,
+)
 from module.mcp_shared.versioning import (
     server_version,
     source_revision,
@@ -50,19 +55,30 @@ DEV_MCP_RESULT_OUTCOMES = tuple(outcome.value for outcome in SmokeOutcome)
 def contract_payload() -> dict[str, object]:
     """Вернуть только стабильные поля публичной границы совместимости."""
 
-    return {
+    # Импорт выполняется лениво: server.py импортирует этот модуль при старте,
+    # поэтому ранний импорт каталога создал бы циклическую зависимость.
+    from module.dev_mcp.adapter import DEV_MCP_TOOL_NAMES
+    from module.dev_mcp.server import tool_definitions
+
+    payload: dict[str, object] = {
         "contract_schema_version": CONTRACT_SCHEMA_VERSION,
         "product_family": PRODUCT_FAMILY,
         "server_name": DEV_MCP_SERVER_NAME,
         "server_version": DEV_MCP_SERVER_VERSION,
         "source_revision": source_revision(),
         "dev_mcp_api_version": DEV_MCP_API_VERSION,
+        "tool_count": len(DEV_MCP_TOOL_NAMES),
+        "tool_catalog_sha256": tool_catalog_sha256_from_tools(tool_definitions()),
+        "authorization_scopes": [DEV_MCP_REQUIRED_SCOPE],
         "smoke_spec_schema_version": SMOKE_SCHEMA_VERSION,
         "smoke_result_schema_version": SMOKE_STATE_SCHEMA_VERSION,
         "feature_flags": dict(DEV_MCP_FEATURE_FLAGS),
         "capability_families": list(DEV_MCP_CAPABILITY_FAMILIES),
         "result_outcomes": list(DEV_MCP_RESULT_OUTCOMES),
     }
+    payload["capability_catalog_sha256"] = capability_catalog_sha256(payload)
+    payload["contract_revision"] = contract_revision(payload)
+    return payload
 
 
 def contract_result(*, request_context: Mapping[str, object] | None = None) -> dict[str, object]:
@@ -102,7 +118,68 @@ def server_compatibility_issues(
         compatible = version_satisfies(server_version_value, expected_range)
     except ValueError:
         compatible = False
-    return () if compatible else ("server_version",)
+    issues: list[str] = [] if compatible else ["server_version"]
+    expected_catalog = expected.get("servers")
+    expected_metadata = (
+        expected_catalog.get(server_name)
+        if isinstance(expected_catalog, Mapping)
+        else None
+    )
+    if isinstance(expected_metadata, Mapping):
+        actual_fields = {
+            "version": "server_version",
+            "api_version": (
+                "dev_mcp_api_version"
+                if server_name == "azurpilot-dev"
+                else "game_mcp_api_version"
+            ),
+            "contract_schema_version": "contract_schema_version",
+            "tool_count": "tool_count",
+            "tool_catalog_sha256": "tool_catalog_sha256",
+            "capability_catalog_sha256": "capability_catalog_sha256",
+            "contract_revision": "contract_revision",
+        }
+        for field, actual_field in actual_fields.items():
+            if actual.get(actual_field) != expected_metadata.get(field):
+                issues.append(f"servers.{server_name}.{field}")
+        required_flags = expected.get("required_feature_flags_by_server")
+        actual_flags = actual.get("feature_flags")
+        expected_flags = (
+            required_flags.get(server_name)
+            if isinstance(required_flags, Mapping)
+            else None
+        )
+        if isinstance(expected_flags, Mapping) and isinstance(actual_flags, Mapping):
+            for name, value in expected_flags.items():
+                if actual_flags.get(name) is not value:
+                    issues.append(f"servers.{server_name}.feature_flags.{name}")
+        required_families = expected.get("required_capability_families_by_server")
+        actual_families = actual.get("capability_families")
+        expected_family_values = (
+            required_families.get(server_name)
+            if isinstance(required_families, Mapping)
+            else None
+        )
+        if (
+            isinstance(expected_family_values, (list, tuple))
+            and isinstance(actual_families, (list, tuple))
+            and any(value not in actual_families for value in expected_family_values)
+        ):
+            issues.append(f"servers.{server_name}.capability_families")
+        required_vocabulary = expected.get("result_vocabulary_by_server")
+        actual_vocabulary = actual.get("result_states", actual.get("result_outcomes"))
+        expected_vocabulary = (
+            required_vocabulary.get(server_name)
+            if isinstance(required_vocabulary, Mapping)
+            else None
+        )
+        if (
+            isinstance(expected_vocabulary, (list, tuple))
+            and isinstance(actual_vocabulary, (list, tuple))
+            and any(value not in actual_vocabulary for value in expected_vocabulary)
+        ):
+            issues.append(f"servers.{server_name}.result_vocabulary")
+    return tuple(dict.fromkeys(issues))
 
 
 def contract_compatibility_issues(
