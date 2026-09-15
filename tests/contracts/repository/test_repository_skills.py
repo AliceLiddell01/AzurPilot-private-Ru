@@ -1,11 +1,11 @@
 from __future__ import annotations
-from tests.support.paths import REPOSITORY_ROOT
-
 
 import re
 from pathlib import Path
 
 import yaml
+
+from tests.support.paths import REPOSITORY_ROOT
 
 _REPOSITORY_ROOT = REPOSITORY_ROOT
 _SKILLS_ROOT = _REPOSITORY_ROOT / ".agents" / "skills"
@@ -277,6 +277,27 @@ def test_canonical_lifecycle_requires_final_review_before_merge() -> None:
     assert "auto-merge допустим после зелёных gates" not in combined
     assert "завершить прогон как ожидающий review" not in combined
     assert "READY_FOR_CHATGPT_REVIEW" in combined
+
+
+def test_new_capability_branch_contract_does_not_restore_codex_default() -> None:
+    current_sources = (
+        _REPOSITORY_ROOT / "AGENTS.md",
+        _REPOSITORY_ROOT / ".codex" / "context" / "GIT-WORKFLOW.md",
+        _SKILLS_ROOT / "azurpilot-repository-development" / "SKILL.md",
+        _SKILLS_ROOT
+        / "azurpilot-repository-development"
+        / "references"
+        / "pr-merge-cleanup.md",
+    )
+    combined = "\n".join(path.read_text(encoding="utf-8") for path in current_sources)
+    normalized = " ".join(combined.lower().replace("`", "").split())
+    assert "<domain>/<unique-capability-name>" in normalized
+    assert "codex/*" in normalized
+    assert "compatibility/legacy" in normalized
+    assert "codex/* не является default" in normalized
+    assert "новые обычные задачи этот namespace не используют" in normalized
+    assert "sync/*" in normalized
+    assert "new ordinary task" not in normalized
 
 
 def test_fast_track_and_retry_budget_preserve_pre_merge_gate() -> None:

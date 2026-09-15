@@ -281,6 +281,8 @@ class ProcessResult:
     timed_out: bool
     pid: int
     identity: ProcessIdentity
+    stdout_bytes: bytes = b""
+    stderr_bytes: bytes = b""
 
     @property
     def ok(self) -> bool:
@@ -320,6 +322,10 @@ def _safe_environment(extra: Mapping[str, str]) -> dict[str, str]:
         "PROGRAMFILES(X86)",
         "COMMONPROGRAMFILES",
         "COMMONPROGRAMFILES(X86)",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
         "TEMP",
         "TMP",
         "TMPDIR",
@@ -337,6 +343,8 @@ def _safe_environment(extra: Mapping[str, str]) -> dict[str, str]:
     allowed_explicit = allowed_exact | {
         "GIT_TERMINAL_PROMPT",
         "GIT_OPTIONAL_LOCKS",
+        "GH_PAGER",
+        "GH_PROMPT_DISABLED",
         "__PYVENV_LAUNCHER__",
     } | DOCKER_ENVIRONMENT_KEYS
     result = {
@@ -546,7 +554,24 @@ class StructuredProcessRunner:
 
         try:
             identity = ProcessIdentity.capture(process.pid, spec)
-        except (psutil.Error, OSError) as exc:
+        except (psutil.NoSuchProcess, OSError) as exc:
+            if process.poll() is None:
+                _cleanup_process_instance(process)
+                raise ProcessExecutionError(
+                    code=ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                    message="Не удалось подтвердить идентичность созданного процесса.",
+                ) from exc
+            # Одноразовый CLI может завершиться между Popen и psutil capture.
+            # Для уже завершённого процесса ownership recovery не выполняется;
+            # fallback нужен только чтобы сохранить bounded stdout/returncode.
+            identity = ProcessIdentity(
+                pid=process.pid,
+                start_time=time.time(),
+                executable=spec.launch_executable,
+                argv=spec.launch_command,
+                cwd=spec.cwd,
+            )
+        except psutil.Error as exc:
             _cleanup_process_instance(process)
             raise ProcessExecutionError(
                 code=ResultCode.TOOLING_VERIFICATION_UNKNOWN,
@@ -632,6 +657,8 @@ class StructuredProcessRunner:
             timed_out=timed_out,
             pid=process.pid,
             identity=identity,
+            stdout_bytes=stdout_data,
+            stderr_bytes=stderr_data,
         )
 
 

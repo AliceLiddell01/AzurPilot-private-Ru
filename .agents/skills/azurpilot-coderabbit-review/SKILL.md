@@ -105,6 +105,15 @@ head или auth; текст на скриншоте не является от�
   checks; false positive не закрывай фиктивным кодом.
 - Парси фактический результат CLI, отделяя findings от status-сообщений. Не
   называй skipped, disabled или rate-limited status substantive review.
+- Для каждого exact-head review подготовь disposition evidence в формате
+  `confirmed`, `partially confirmed`, `false positive` или `insufficient
+  evidence`; если PR уже создан, перенеси findings, impact, путь, disposition
+  и fix head в structured PR body через `--body-file` и проверь read-back.
+  Обновляемый body должен оставаться полноценным русскоязычным PR-отчётом:
+  не заменяй существующие разделы короткой таблицей findings и не оставляй
+  общие однострочные описания; сохраняй цель, scope, реализацию, все проверки,
+  exact-head CI, security, rollback и ограничения. Специальные английские
+  слова допускаются только для technical identifiers и имён инструментов.
 
 ## Rate limit и результат
 
@@ -117,4 +126,5 @@ Rate limit/cooldown CodeRabbit не является product blocker. Не жд�
 После существенного подтверждённого fix запусти повторный review, если CLI
 доступен. Заверши отчёт количеством issues по severity, путями и влиянием либо
 сообщением `CodeRabbit raised 0 issues.`; не приписывай CodeRabbit результаты
-собственного ручного self-review.
+собственного ручного self-review. Permanent WSL2 Arch clone сохраняй после
+review и после merge; удаляй только временные review artifacts.

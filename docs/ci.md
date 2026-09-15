@@ -16,6 +16,46 @@ Workflow публикует три стабильных status contexts:
 
 Активный repository ruleset `Protect personal/stable` (ID `20179789`) применяется к `refs/heads/personal/stable` и требует именно эти три context со strict-проверкой актуальности ветки. Старые исторически зависимые required contexts отсутствуют. Ruleset также запрещает удаление ветки и non-fast-forward updates, требует pull request и разрешения review threads. Имена jobs являются публичным контрактом; переименование требует согласованного изменения ruleset.
 
+## Git delivery и draft PR
+
+Для безопасной публикации изменения используйте `azur delivery` с абсолютным
+closed-schema manifest. Manifest фиксирует repository identity, branch, exact
+local/base/remote SHA, preimage/postimage и allowlist paths. `validate` не
+меняет checkout и в human mode показывает bounded Rich `Delivery Package` с
+точными repository/branch/base/head/remote evidence и изменениями `A`/`M`/`D`,
+завершая вывод строкой `Изменения не применены.`. В `--json` сохраняются полный
+target set, exact SHA и typed evidence без Rich/ANSI. `publish` связывает
+manifest raw postimage с сохранённым Git-clean candidate и staged index,
+повторно проверяя target перед commit; затем делает explicit staging только
+allowlist, staged Gitleaks, commit, exact committed-range Gitleaks, ordinary push
+и `ls-remote` проверку remote SHA. И publication remote, и `base_remote_name`
+должны иметь canonical identity manifest repository. При timeout/неизвестном
+push используются `status` и `recover`; повторный push вслепую запрещён.
+
+После подтверждённого head подготовьте draft PR через `azur pr prepare` и
+`azur pr publish`. PR spec содержит exact repository/base/head и typed body;
+provider вызывается с explicit `gh --repo`, а Markdown передаётся через
+временный `--body-file`. После каждого `edit`, включая timeout/unknown, сервис
+сначала читает PR обратно и только затем классифицирует postcondition; он
+сверяет repository identity, base/head SHA, draft state и body digest без
+blind retry или duplicate mutation.
+Для read-back полей `baseRefOid` и других PR identity используется GitHub CLI
+`gh >= 2.63.0`; старый CLI с неизвестным JSON field даёт отдельный
+`TOOLING_PROVIDER_UNAVAILABLE`, а не generic provider rejection.
+PR body должен оставаться подробным русскоязычным отчётом, пригодным для
+человеческого чтения: конкретная цель, scope и границы, подсистемы и файлы,
+реализация, фактические проверки, exact-head CI, security, CodeRabbit
+disposition, rollback и ограничения. Для основных секций обязательны
+маркированные факты; короткое полупустое summary renderer отклоняет до
+provider call. Технические идентификаторы и названия инструментов сохраняются
+в исходном написании.
+
+Финальный live acceptance capability выполняется двумя интерфейсами: обычный
+human output и `--json` для agent CLI. JSON должен содержать ровно один
+закрытый result envelope; он не заменяет required `Python`, `Windows` и
+`Security` contexts на exact PR head.
+Delivery journal сохраняет фактический scan scope и фазу операции вне checkout.
+
 Workflow также публикует дополнительную проверку `macOS core tooling` на
 `macos-14`. Она не входит в текущий required ruleset, но выполняет exact-head
 проверку, locked package sync, `azur --help`, JSON doctor и cross-platform
