@@ -1,4 +1,4 @@
-"""Канонизация MCP-каталогов и transport-neutral contract identity."""
+"""Канонизация MCP-каталогов и нейтральная к transport идентичность контракта."""
 
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ def _model_dump(value: object) -> object:
 
 
 def tool_descriptor(tool: object) -> dict[str, object]:
-    """Оставить только публичные поля MCP ``Tool`` для hash identity."""
+    """Оставить публичные поля MCP ``Tool`` для хеш-идентичности."""
 
     dumped = _model_dump(tool)
     if not isinstance(dumped, dict):
@@ -59,13 +59,13 @@ def tool_catalog_payload(tools: Iterable[object]) -> list[dict[str, object]]:
 
 
 def tool_catalog_sha256_from_tools(tools: Iterable[object]) -> str:
-    """Хешировать имена, input/output schemas, annotations и metadata."""
+    """Хешировать имена, входные/выходные схемы, аннотации и метаданные."""
 
     return sha256_text(canonical_json(tool_catalog_payload(tools)))
 
 
 def tool_descriptor_hashes_from_tools(tools: Iterable[object]) -> dict[str, str]:
-    """Вернуть hash каждого descriptor для доказательства additive changes."""
+    """Вернуть хеш каждого описания для доказательства добавочных изменений."""
 
     return {
         str(descriptor["name"]): sha256_text(canonical_json(descriptor))
@@ -85,7 +85,7 @@ def tool_names_from_tools(tools: Iterable[object]) -> tuple[str, ...]:
 def capability_catalog_sha256(
     payload: Mapping[str, object],
 ) -> str:
-    """Хешировать capability contract без transport/source metadata."""
+    """Хешировать контракт возможностей без transport/source метаданных."""
 
     fields = {
         key: payload[key]
@@ -104,7 +104,7 @@ def capability_catalog_sha256(
 
 
 def contract_revision(payload: Mapping[str, object]) -> str:
-    """Получить transport-neutral revision публичного backend-контракта."""
+    """Получить нейтральную к transport revision публичного backend-контракта."""
 
     identity = {
         key: payload[key]

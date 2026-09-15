@@ -314,15 +314,6 @@ class LocalHttpSupervisor:
             ) from exc
         return running
 
-    def _effective_process(
-        self, service: LocalHttpService, launcher: RunningProcess
-    ) -> ProcessIdentity:
-        """Найти фактический runtime-child за Windows venv redirector."""
-
-        # StructuredProcessRunner запускает фактический interpreter за
-        # Windows venv redirector и уже сохраняет exact ProcessIdentity.
-        return launcher.identity
-
     def _runtime_is_alive(self, service: LocalHttpService) -> bool:
         """Проверить жизнь exact-owned runtime без zombie false-positive."""
 
@@ -582,9 +573,7 @@ class LocalHttpSupervisor:
                     )
                 launcher = self._spawn(service)
                 self._children[service.name] = launcher
-                self._runtime_processes[service.name] = self._effective_process(
-                    service, launcher
-                )
+                self._runtime_processes[service.name] = launcher.identity
             self._wait_ready()
             self._write_marker()
             while not stop_requested:

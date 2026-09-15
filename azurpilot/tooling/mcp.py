@@ -194,6 +194,7 @@ class _BundleBuild:
     plugin_changed: bool
     skill_changed: bool
     required_bump_servers: tuple[str, ...]
+    failure_code: ResultCode | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1482,6 +1483,7 @@ class McpService:
                 plugin_changed=False,
                 skill_changed=False,
                 required_bump_servers=(),
+                failure_code=error.code,
             )
         bundle = build.bundle
         runtime_state, runtime = self._runtime_status(root, bundle)
@@ -1577,6 +1579,7 @@ class McpService:
         _build, runtime_state, _runtime, details = self._status_details(
             root, action="status"
         )
+        build_failure_code = getattr(_build, "failure_code", None)
         if details.source_state == "invalid":
             return ToolingResult(
                 ok=False,
@@ -1587,6 +1590,8 @@ class McpService:
             )
         if details.source_state == "unknown":
             code = ResultCode.TOOLING_VERIFICATION_UNKNOWN
+        elif build_failure_code is not None:
+            code = build_failure_code
         elif details.session_state == "reload_required":
             code = ResultCode.MCP_RELOAD_REQUIRED
         elif details.source_state != "ready":

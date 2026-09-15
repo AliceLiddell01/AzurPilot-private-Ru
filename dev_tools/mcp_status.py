@@ -568,12 +568,12 @@ def _extract_contract(result: object) -> Mapping[str, object]:
 async def _probe_local_stdio(
     server_name: str, *, root: Path, revision: str | None = None
 ) -> dict[str, object]:
-    """Выполнить negotiated discovery, tools/list и один contract call.
+    """Выполнить согласованное обнаружение, tools/list и один contract call.
 
-    ``Client(mode="auto")`` использует официальный SDK negotiation: для
-    современных серверов это discovery flow, для legacy-compatible серверов —
-    штатный ``initialize`` fallback. Сам collector не навязывает protocol
-    revision и не реализует MCP parser.
+    ``Client(mode="auto")`` использует согласованный discovery flow официального
+    SDK: для современных серверов это штатное обнаружение, для совместимых
+    legacy-серверов — штатный initialize fallback. Этот collector не навязывает
+    protocol revision и не реализует MCP parser.
     """
 
     from mcp.client import Client
@@ -922,8 +922,8 @@ async def _probe_remote_backend(
                 timeout=REMOTE_TIMEOUT_SECONDS,
                 follow_redirects=False,
             ) as http_client,
-            # Client(mode="auto") использует negotiated discovery и штатный
-            # legacy fallback текущего официального SDK.
+            # Client(mode="auto") использует согласованное обнаружение и
+            # штатный fallback для совместимых legacy-серверов.
             Client(
                 streamable_http_client(
                     endpoint,

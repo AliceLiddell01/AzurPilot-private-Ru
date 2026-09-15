@@ -346,6 +346,7 @@ class GitClient:
             "-z",
             f"{start}..{end}",
             "--",
+            max_output_bytes=_MAX_GIT_OBJECT_BYTES,
         )
         _require_complete(command, "Список изменённых Git paths")
         output = command.result.stdout

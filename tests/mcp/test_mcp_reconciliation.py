@@ -202,7 +202,7 @@ def test_status_preserves_plugin_drift_when_runtime_is_stopped(
     )
     monkeypatch.setattr(service, "_bundle", lambda _root: bundle)
     monkeypatch.setattr(service.source, "build", lambda _root, requested_bump: build)
-    monkeypatch.setattr(service.source, "check", lambda _root, build=None: build)
+    monkeypatch.setattr(service.source, "check", lambda _root, **_kwargs: build)
     monkeypatch.setattr(
         service,
         "_runtime_status",
@@ -232,31 +232,67 @@ def test_status_preserves_plugin_drift_when_runtime_is_stopped(
     assert result.details.reload_required is True
 
 
+def test_status_preserves_version_bump_required_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = mcp_tooling.McpService()
+    bundle = load_mcp_bundle(REPOSITORY_ROOT)
+
+    def fail_build(_root: Path, *, requested_bump: str | None = None):
+        del requested_bump
+        raise ToolingError(
+            ResultCode.MCP_VERSION_BUMP_REQUIRED,
+            "MCP version bump required",
+        )
+
+    monkeypatch.setattr(service, "_bundle", lambda _root: bundle)
+    monkeypatch.setattr(service.source, "build", fail_build)
+    monkeypatch.setattr(service.source, "check", lambda _root, **_kwargs: None)
+    monkeypatch.setattr(
+        service,
+        "_runtime_status",
+        lambda _root, _bundle: ("stopped", {"services": [], "supervisors": {}}),
+    )
+    monkeypatch.setattr(service, "_registration_state", lambda _root: "ready")
+
+    result = service.status(REPOSITORY_ROOT)
+
+    assert not result.ok
+    assert result.code is ResultCode.MCP_VERSION_BUMP_REQUIRED
+
+
 def test_reconcile_rejects_unknown_restart_postcondition(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     service = mcp_tooling.McpService()
     bundle = load_mcp_bundle(REPOSITORY_ROOT)
-    runtime_states = iter(
+    runtime_states = [
         (
-            (
-                "stale",
-                {
-                    "services": [
-                        {"server_name": name, "ready": False}
-                        for name in mcp_tooling.MCP_SERVER_NAMES
-                    ],
-                    "supervisors": {
-                        name: {"code": "LOCAL_MCP_SUPERVISOR_READY"}
-                        for name in mcp_tooling.MCP_SERVER_NAMES
-                    },
+            "stale",
+            {
+                "services": [
+                    {"server_name": name, "ready": False}
+                    for name in mcp_tooling.MCP_SERVER_NAMES
+                ],
+                "supervisors": {
+                    name: {"code": "LOCAL_MCP_SUPERVISOR_READY"}
+                    for name in mcp_tooling.MCP_SERVER_NAMES
                 },
-            ),
-            ("unknown", {"services": [], "supervisors": {}}),
-        )
-    )
+            },
+        ),
+        ("unknown", {"services": [], "supervisors": {}}),
+    ]
+    runtime_state_index = 0
+
+    def runtime_status(_root, _bundle):
+        nonlocal runtime_state_index
+        if runtime_state_index >= len(runtime_states):
+            raise AssertionError("runtime status вызван сверх ожидаемого числа раз")
+        result = runtime_states[runtime_state_index]
+        runtime_state_index += 1
+        return result
     monkeypatch.setattr(service, "_bundle", lambda _root: bundle)
-    monkeypatch.setattr(service, "_runtime_status", lambda _root, _bundle: next(runtime_states))
+    monkeypatch.setattr(service, "_runtime_status", runtime_status)
     monkeypatch.setattr(
         service,
         "_start_owned",

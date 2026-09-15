@@ -316,10 +316,10 @@ def create_local_http_app(
     if adapter is None:
         raise ValueError("create_local_http_app требует заранее собранный adapter")
     server = server_factory(adapter, abandon_on_cancel=True)
-    ready_metadata: dict[str, object] = {
-        "server_name": config.server_name,
-        "server_version": getattr(server, "version", None),
-    }
+    ready_metadata: dict[str, object] = {"server_name": config.server_name}
+    server_version = getattr(server, "version", None)
+    if isinstance(server_version, str) and server_version:
+        ready_metadata["server_version"] = server_version
     if identity_metadata is not None:
         for key in (
             "server_version",

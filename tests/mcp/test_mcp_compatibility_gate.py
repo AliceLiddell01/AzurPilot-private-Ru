@@ -81,6 +81,13 @@ def _run_gate(
     return code, json.loads(capsys.readouterr().out)
 
 
+def test_gate_requires_explicit_base_commit() -> None:
+    with pytest.raises(SystemExit) as error:
+        gate._parser().parse_args(["--json"])
+
+    assert error.value.code == 2
+
+
 def test_gate_rejects_breaking_change_with_patch_bump(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

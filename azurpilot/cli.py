@@ -18,6 +18,9 @@ from .tooling.bootstrap import BuildService
 from .tooling.contracts import (
     CapabilityStatus,
     DeliveryPhase,
+    McpLifecycleDetails,
+    McpStatusDetails,
+    McpVersionDetails,
     OperationState,
     ResultCode,
     ToolingResult,
@@ -518,10 +521,15 @@ def _render_human(
                 f"{'✓' if result.ok else '✗'} {result.message}"
             )
         else:
-            servers = getattr(result.details, "servers", None) or getattr(
-                result.details, "services", None
-            )
-            if servers is not None:
+            if isinstance(
+                result.details,
+                (McpLifecycleDetails, McpStatusDetails, McpVersionDetails),
+            ):
+                servers = (
+                    result.details.services
+                    if isinstance(result.details, McpLifecycleDetails)
+                    else result.details.servers
+                )
                 from rich.table import Table
 
                 table = Table(title="AzurPilot MCP", expand=True)

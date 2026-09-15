@@ -9,7 +9,6 @@ from pathlib import Path
 
 from azurpilot.tooling.contracts import exit_code_for
 from azurpilot.tooling.errors import ToolingError
-from azurpilot.tooling.git import GitClient
 from azurpilot.tooling.mcp import McpSourceReconciler
 
 
@@ -32,6 +31,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--repository-root", type=Path, default=Path("."))
     parser.add_argument(
         "--base-commit",
+        required=True,
         help="Полный SHA base commit для проверки SemVer и bundle policy.",
     )
     parser.add_argument("--json", action="store_true", dest="as_json")
@@ -43,14 +43,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         reconciler = McpSourceReconciler()
         build = reconciler.check(arguments.repository_root)
-        base_commit = arguments.base_commit
-        if base_commit is None:
-            base_commit = GitClient(Path(arguments.repository_root).resolve()).text(
-                "merge-base", "HEAD", "origin/personal/stable"
-            )
         compatibility = reconciler.check_base_to_head(
             arguments.repository_root,
-            base_commit=base_commit,
+            base_commit=arguments.base_commit,
         )
     except ToolingError as error:
         payload = {
