@@ -39,12 +39,12 @@ class GachaUI(UI):
             else:
                 self.device.screenshot()
 
-            # 结束条件——检测到任意一个目标按钮出现即可
+            # Условие завершения — достаточно появления любой целевой кнопки
             results = [self.appear(button) for button in GACHA_LOAD_ENSURE_BUTTONS]
             if any(results):
                 return True
 
-            # 超时异常——资源加载未完成
+            # Ошибка по тайм-ауту — ресурсы не успели загрузиться
             if ensure_timeout.reached():
                 logger.warning('[Строительство — UI] Тайм-аут ожидания загрузки ресурсов; загрузка не завершена')
                 return False

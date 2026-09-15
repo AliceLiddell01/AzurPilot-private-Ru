@@ -49,10 +49,10 @@ class PtOcr(Ocr):
         Returns:
             np.ndarray: 形状为 (width, height) 的灰度图像。
         """
-        # 取 RGB 三通道的最大值
+        # Берём максимальное значение из трёх каналов RGB
         r, g, b = cv2.split(cv2.subtract((255, 255, 255), image))
         image = cv2.min(cv2.min(r, g), b)
-        # 去除背景，将 0-192 映射到 0-255
+        # Удаляем фон, отображая диапазон 0–192 в 0–255
         image = cv2.multiply(image, 255 / 192)
 
         return image.astype(np.uint8)
@@ -71,14 +71,14 @@ class CampaignStatus(UI):
         """
         pt = OCR_PT.ocr(self.device.image)
 
-        # 首选匹配带前缀 X 的格式（历史上部分活动使用 ‘X1234’）
+        # В первую очередь ищем формат с префиксом X: исторически некоторые события использовали «X1234»
         res = re.search(r'X(\d+)', pt)
         if res:
             pt = int(res.group(1))
             logger.attr('Очки события', pt)
             LogRes(self.config).Pt = pt
         else:
-            # 回退：若 OCR 返回纯数字也接受（保留警告以便回溯）
+            # Резервный вариант: принимаем и чисто числовой результат OCR, сохраняя предупреждение для диагностики
             res2 = re.search(r'(\d+)', pt)
             if res2:
                 num = int(res2.group(1))
@@ -125,12 +125,12 @@ class CampaignStatus(UI):
         return _coin['Value']
 
     def _get_num(self, _button, name, letter=(247, 247, 247)):
-        # 更新偏移量
+        # Обновляем смещение
         _ = self.appear(OCR_OIL_CHECK)
 
         color = get_color(self.device.image, OCR_OIL_CHECK.button)
         if color_similar(color, OCR_OIL_CHECK.color):
-            # 原始颜色
+            # Исходный цвет
             if isinstance(_button, Ocr):
                 ocr = _button
             else:
@@ -139,7 +139,7 @@ class CampaignStatus(UI):
                 else:
                     ocr = Digit(_button, name=name, letter=(201, 201, 201), threshold=128)
         elif color_similar(color, (59, 59, 64)):
-            # 带黑色遮罩
+            # С чёрной маской
             ocr = Digit(_button, name=name, letter=(165, 165, 165), threshold=128)
         else:
             logger.warning('[Кампания — состояние] Неожиданный цвет OCR_OIL_CHECK')

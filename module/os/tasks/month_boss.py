@@ -74,16 +74,16 @@ class OpsiMonthBoss(OSMap):
                 logger.info("[Операция «Сирена» — ежемесячный босс] Адаптивность ниже уровня подавления, сначала необходимо усилить флот")
                 self.config.task_delay(server_update=True)
                 self.config.task_stop()
-            # 无需退出，复用当前状态
+            # Выходить не нужно — повторно используем текущее состояние
 
-        # 战斗
+        # Бой
         logger.hr("Переход к ежемесячному боссу", level=2)
         with self.config.temporary(_disable_task_switch=True):
             self.globe_goto(154)
             self.go_month_boss_room(is_normal=is_normal)
             result = self.boss_clear(has_fleet_step=True, is_month=True)
 
-            # 战斗结束
+            # Завершение боя
             logger.hr("Ремонт перед ежемесячным боссом", level=2)
             self.handle_fleet_repair_by_config(revert=False)
             self.handle_fleet_resolve(revert=False)

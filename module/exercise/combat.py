@@ -56,7 +56,7 @@ class ExerciseCombat(HpDaemon, OpponentChoose, ExerciseEquipment, Combat):
                 self.device.click(BATTLE_PREPARATION)
                 continue
 
-            # 结束
+            # Завершение
             pause = self.is_combat_executing()
             if pause:
                 logger.attr('Тема боевого интерфейса', pause)
@@ -75,14 +75,14 @@ class ExerciseCombat(HpDaemon, OpponentChoose, ExerciseEquipment, Combat):
         self.low_hp_confirm_timer = Timer(1.5, count=2).start()
         show_hp_timer = Timer(5)
         pause_interval = Timer(0.5, count=1)
-        # 暂停按钮用于识别战斗 UI 主题
+        # Кнопка паузы используется для определения темы боевого UI
         pause = None
         success = True
         end = False
-        battle_status_detected = False  # 是否在战斗结算画面
+        battle_status_detected = False  # находимся ли на экране результатов боя
         while 1:
             self.device.screenshot()
-            # 结束
+            # Завершение
             if self._in_exercise() or self.appear(BATTLE_PREPARATION, offset=(20, 20)):
                 logger.hr('Бой завершён')
                 if not end:
@@ -96,7 +96,7 @@ class ExerciseCombat(HpDaemon, OpponentChoose, ExerciseEquipment, Combat):
                     pause = p
             else:
                 self.low_hp_confirm_timer.reset()
-                # 结算 - S 或 D 评价
+                # Результат боя — оценка S или D
                 if self.appear(BATTLE_STATUS_S, interval=1):
                     logger.info(f'[Учения — бой] {BATTLE_STATUS_S} -> {CLICK_SAFE_AREA}')
                     self.device.click(CLICK_SAFE_AREA)
@@ -113,7 +113,7 @@ class ExerciseCombat(HpDaemon, OpponentChoose, ExerciseEquipment, Combat):
                     logger.info('[Учения — бой] Учения проиграны')
                     continue
 
-            # 仅在战斗结算后处理 GET_ITEMS_1
+            # Обрабатываем GET_ITEMS_1 только после экрана результатов боя
             if battle_status_detected and self.appear(GET_ITEMS_1, offset=(30, 30), interval=1):
                 logger.info(f'[Учения — бой] {GET_ITEMS_1} -> {CLICK_SAFE_AREA}')
                 self.device.click(CLICK_SAFE_AREA)
@@ -126,13 +126,13 @@ class ExerciseCombat(HpDaemon, OpponentChoose, ExerciseEquipment, Combat):
                 logger.info(f'[Учения — бой] {EXP_INFO_D} -> {CLICK_SAFE_AREA}')
                 self.device.click(CLICK_SAFE_AREA)
                 continue
-            # 最后的 D 评价画面
+            # Финальный экран оценки D
             if self.appear_then_click(OPTS_INFO_D, offset=(30, 30), interval=1):
                 success = True
                 end = True
                 logger.info('[Учения — бой] Учения проиграны')
                 continue
-            # 退出
+            # Выход
             if self.handle_combat_quit():
                 pause_interval.reset()
                 success = False
@@ -152,7 +152,7 @@ class ExerciseCombat(HpDaemon, OpponentChoose, ExerciseEquipment, Combat):
                     if show_hp_timer.reached():
                         show_hp_timer.reset()
                         self._show_hp()
-            # 弹窗处理
+            # Обработка всплывающих окон
             if self.handle_popup_confirm('EXERCISE_COMBAT_EXECUTE'):
                 continue
             if self.handle_urgent_commission():
@@ -192,7 +192,7 @@ class ExerciseCombat(HpDaemon, OpponentChoose, ExerciseEquipment, Combat):
                 opponent_timer.reset()
                 continue
 
-            # 结束
+            # Завершение
             if self.appear(BATTLE_PREPARATION, offset=(20, 20)):
                 break
 

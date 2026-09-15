@@ -60,7 +60,7 @@ class CampaignEvent(CampaignStatus):
             tasks (list[str]): 任务名称列表。
         """
         with self.config.multi_set():
-            # 禁用普通活动任务
+            # Отключаем обычные задачи события
             for task in tasks:
                 if task in GEMS_FARMINGS:
                     continue
@@ -72,7 +72,7 @@ class CampaignEvent(CampaignStatus):
                 keys = f'{task}.Emotion.Fleet2Onsen'
                 self.config.cross_set(keys=keys, value=False)
 
-            # 重置 GemsFarming
+            # Сбрасываем GemsFarming
             self._reset_gems_farming(tasks)
 
             logger.info(f'[Кампания события] Ограничение времени события сброшено')
@@ -88,7 +88,7 @@ class CampaignEvent(CampaignStatus):
         Pages:
             in: page_event or page_sp
         """
-        # 部分配置可能使用 "100,000" 这种带逗号的格式
+        # Некоторые конфигурации могут использовать формат с разделителем тысяч, например "100,000"
         limit = int(
             re.sub(r'[,.\'"，。]', '', str(self.config.EventGeneral_PtLimit))
         )
@@ -125,7 +125,7 @@ class CampaignEvent(CampaignStatus):
 
         coin = self.get_coin()
         if coin == 0:
-            # 避免 OCR 识别错误/返回零值
+            # Защита от ошибки OCR / нулевого результата
             logger.warning('[Кампания события] Монеты не найдены')
             return False
 
@@ -184,9 +184,9 @@ class CampaignEvent(CampaignStatus):
         coin = deep_get(self.config.data, 'Dashboard.Coin.Value')
         logger.attr('Количество монет', coin)
 
-        # 检查金币
+        # Проверяем монеты
         if coin == 0:
-            # 避免 OCR 识别错误/返回零值
+            # Защита от ошибки OCR / нулевого результата
             logger.warning('[Кампания события] Монеты не найдены')
             return False
         else:
@@ -227,7 +227,7 @@ class CampaignEvent(CampaignStatus):
             return True
 
     def ui_goto_event(self):
-        # 已在 page_event，跳过活动检查。
+        # Уже на page_event, поэтому проверку события пропускаем.
         if self.ui_get_current_page() == page_event:
             if self.appear(WAR_ARCHIVES_CAMPAIGN_CHECK, offset=(20, 20)):
                 logger.info('[Кампания события] Открыты Архивы')
@@ -236,13 +236,13 @@ class CampaignEvent(CampaignStatus):
                 logger.info('[Кампания события] Уже на странице события')
                 return True
         self.ui_goto(page_campaign_menu)
-        # 检查活动是否可用
+        # Проверяем доступность события
         if self.is_event_entrance_available():
             self.ui_goto(page_event)
             return True
 
     def ui_goto_sp(self):
-        # 已在 page_sp，跳过活动检查。
+        # Уже на page_sp, поэтому проверку события пропускаем.
         if self.ui_get_current_page() == page_sp:
             if self.appear(WAR_ARCHIVES_CAMPAIGN_CHECK, offset=(20, 20)):
                 logger.info('[Кампания события] Открыты Архивы')
@@ -251,19 +251,19 @@ class CampaignEvent(CampaignStatus):
                 logger.info('[Кампания события] Уже на странице SP')
                 return True
         self.ui_goto(page_campaign_menu)
-        # 检查活动是否可用
+        # Проверяем доступность события
         if self.is_event_entrance_available():
             self.ui_goto(page_sp)
             return True
 
     def ui_goto_coalition(self):
-        # 已在 page_coalition，跳过活动检查。
+        # Уже на page_coalition, поэтому проверку события пропускаем.
         if self.ui_get_current_page() == page_coalition:
             logger.info('[Кампания события] Уже на странице коллаборации')
             return True
         else:
             self.ui_goto(page_campaign_menu)
-            # 检查活动是否可用
+            # Проверяем доступность события
             if self.is_event_entrance_available():
                 self.ui_goto(page_coalition)
                 return True

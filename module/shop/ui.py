@@ -106,14 +106,14 @@ class ShopUI(UI):
         logger.info('[Магазин — UI] Обновление магазина')
         refreshed = False
 
-        # 点击刷新按钮，等待确认弹窗出现
+        # Нажимаем кнопку обновления и ждём появления окна подтверждения
         for _ in self.loop():
             if self.appear(POPUP_CONFIRM, offset=(30, 30)):
                 break
-            # SHOP_REFRESH_CHECK 是刷新图标
-            # SHOP_REFRESH 是带背景的刷新图标
+            # SHOP_REFRESH_CHECK — значок обновления
+            # SHOP_REFRESH — значок обновления с фоном
             if self.appear(SHOP_REFRESH_CHECK, offset=(30, 30), interval=3):
-                # SHOP_REFRESH 激活时有两种颜色状态
+                # У активного SHOP_REFRESH есть два цветовых состояния
                 if self.image_color_count(SHOP_REFRESH.button, color=(49, 142, 207), threshold=221, count=50):
                     self.device.click(SHOP_REFRESH)
                     continue
@@ -123,10 +123,10 @@ class ShopUI(UI):
                 if self.image_color_count(SHOP_REFRESH.button, color=(52, 74, 94), threshold=221, count=50):
                     logger.info('[Магазин — UI] Обновление недоступно')
                     break
-                # 不使用 continue，当作 SHOP_REFRESH 未匹配处理
+                # Не используем continue; обрабатываем как отсутствие совпадения SHOP_REFRESH
                 self.interval_clear(SHOP_REFRESH)
 
-        # 处理确认弹窗，等待返回商店主界面
+        # Обрабатываем окно подтверждения и ждём возврата на главный экран магазина
         for _ in self.loop():
             if self.appear(SHOP_BACK_ARROW, offset=(30, 30)):
                 break
@@ -168,6 +168,6 @@ class ShopUI(UI):
             if self.appear(page_munitions.check_button, offset=(20, 20)):
                 break
 
-            # 使用较大偏移量，因为学院中的摄像机可以移动
+            # Используем большой offset, поскольку камеру в академии можно перемещать
             if self.appear_then_click(ACADEMY_GOTO_MUNITIONS, offset=(200, 200), interval=5):
                 continue

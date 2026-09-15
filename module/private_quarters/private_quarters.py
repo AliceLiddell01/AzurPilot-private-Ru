@@ -95,11 +95,11 @@ class PrivateQuarters(PQInteract, PQShop):
             else:
                 self.device.screenshot()
 
-            # 结束条件：成功获取非零次数，或重试耗尽确认为零
+            # Условие завершения: получено ненулевое число попыток либо исчерпаны повторы и подтверждён ноль
             if count != 0 or retry == 0:
                 return count
 
-            # 计时器到期，重新读取每日次数
+            # По истечении таймера повторно считываем число ежедневных попыток
             if get_timer.reached():
                 count = self.status_get_daily_count()
                 get_timer.reset()
@@ -113,7 +113,7 @@ class PrivateQuarters(PQInteract, PQShop):
             in: 私人宿舍主页
             out: 私人宿舍商店 - 天狼星 - 礼物
         """
-        # 进入商店
+        # Входим в магазин
         self.ui_click(
             click_button=PRIVATE_QUARTERS_SHOP_ENTER,
             check_button=PRIVATE_QUARTERS_SHOP_CHECK,
@@ -122,10 +122,10 @@ class PrivateQuarters(PQInteract, PQShop):
             skip_first_screenshot=True
         )
 
-        # 切换到天狼星分区
+        # Переключаемся на раздел Сириус
         self.shop_left_navbar_ensure(2)
 
-        # 切换到礼物标签
+        # Переключаемся на вкладку подарков
         self.shop_bottom_navbar_ensure(2)
 
     def _pq_shop_exit(self):
@@ -157,13 +157,13 @@ class PrivateQuarters(PQInteract, PQShop):
         """
         logger.hr(f'[Личные покои] Получение еженедельных предметов', level=2)
 
-        # 进入商店
+        # Входим в магазин
         self._pq_shop_enter()
 
-        # 执行购买
+        # Выполняем покупку
         self.shop_buy()
 
-        # 退出商店
+        # Выходим из магазина
         self._pq_shop_exit()
 
     def pq_execute_interact(self, target_ship):
@@ -179,17 +179,17 @@ class PrivateQuarters(PQInteract, PQShop):
             in: 私人宿舍主页
             out: 私人宿舍主页
         """
-        # 校验目标是否可选
+        # Проверяем, доступна ли выбранная цель
         target_title = target_ship.title().replace('_', ' ')
         if target_ship not in self.available_targets:
             logger.error(f'Неподдерживаемый целевой корабль: {target_title}; подзадачу продолжить невозможно')
             return
 
-        # 进入目标房间，最多重试 3 次
+        # Входим в комнату цели, максимум 3 попытки
         if not self.pq_goto_room(target_ship, retry=3):
             return
 
-        # 执行互动流程
+        # Выполняем сценарий взаимодействия
         self.pq_interact()
 
     def pq_run(self, buy_roses, buy_cake, target_interact, target_ship):
@@ -215,14 +215,14 @@ class PrivateQuarters(PQInteract, PQShop):
                     f'взаимодействовать с кораблём={target_interact}, '
                     f'целевой корабль={target_title}')
 
-        # 进入商店购买每周物品
+        # Заходим в магазин за еженедельными предметами
         if self.shop_filter:
             if server.server not in ['tw']:
                 self.pq_shop_weekly_items()
             else:
                 logger.info(f'[Личные покои] Сервер {server.server} не поддерживает функцию магазина')
 
-        # 执行舰娘互动
+        # Выполняем взаимодействие с кораблём
         if target_interact:
             # Ensure target is supported for server
             # Update `not_supported_filter` to enable a target
@@ -230,13 +230,13 @@ class PrivateQuarters(PQInteract, PQShop):
                 logger.info(f'[Личные покои] Целевой корабль {target_ship} недоступен на сервере {server.server}')
                 return
 
-            # 获取每日剩余次数，为 0 则退出
+            # Получаем оставшееся число ежедневных попыток; при 0 выходим
             count = self._pq_get_daily_count(retry=3)
             if count == 0:
                 logger.info('Ежедневные попытки близости исчерпаны; выход из подзадачи')
                 return
 
-            # 执行互动
+            # Выполняем взаимодействие
             self.pq_execute_interact(target_ship)
 
     def run(self):

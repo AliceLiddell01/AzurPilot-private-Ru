@@ -105,7 +105,7 @@ class AkashiShop(OSStatus, OSShopUI, Selector, MapEventHandler):
         """
         self.os_shop_get_coins()
         items = self.os_shop_get_items_in_akashi()
-        # 商店物品不会立即出现，需要确认商店是否为空
+        # Товары магазина появляются не сразу, поэтому проверяем, действительно ли магазин пуст
         for _ in range(2):
             if not len(items) or any(not item.is_known_item() for item in items):
                 logger.warning('Магазин Акаши или список предметов пуст, выполняется подтверждение')

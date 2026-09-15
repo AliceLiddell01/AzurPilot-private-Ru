@@ -146,18 +146,18 @@ class CampaignWarArchives(CampaignRun, CampaignBase):
         if self.daily_run_limit_triggered():
             return True
 
-        # 必须在档案战役界面才能进行 OCR 检查
+        # OCR-проверку можно выполнять только на экране кампании Архивов
         if self.appear(WAR_ARCHIVES_CAMPAIGN_CHECK, offset=(20, 20)):
-            # 检查数据密钥是否已用尽
+            # Проверяем, исчерпаны ли ключи данных
             current, remain, total = DATA_KEY_CAMPAIGN.ocr(self.device.image)
             logger.info(f'[Архивы] Ключи данных: {current} / {total}, осталось: {current}')
             if remain == total:
                 logger.hr('[Архивы] Ключи данных исчерпаны')
-                # 仅在数据密钥用尽时才能延迟任务
+                # Откладывать задачу можно только после исчерпания ключей данных
                 self.config.task_delay(server_update=True)
                 return True
 
-        # 其他情况，检查通用停止条件
+        # В остальных случаях проверяем общие условия остановки
         return super().triggered_stop_condition(oil_check)
 
     def can_use_auto_search_continue(self):

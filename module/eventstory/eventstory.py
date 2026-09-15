@@ -54,16 +54,16 @@ class EventStory(CampaignUI, Combat, LoginHandler):
         if event in [
             'event_20251023_cn',
         ]:
-            # SP 活动使用 page_sp 页面
+            # SP-события используют страницу page_sp
             self.ui_ensure(page_sp)
         else:
-            # 大多数活动在 page_event 页面展示
+            # Большинство событий отображается на странице page_event
             self.ui_ensure(page_event)
         self.campaign_ensure_mode_20241219('story')
 
         state = 'unknown'
         for _ in range(3):
-            # 等待剧情状态就绪
+            # Ждём готовности состояния сюжета
             timeout = Timer(2, count=6).start()
             for _ in self.loop():
                 state = self.get_event_story_state()
@@ -74,8 +74,8 @@ class EventStory(CampaignUI, Combat, LoginHandler):
                     logger.warning('Тайм-аут ожидания состояния сюжета события')
                     break
             if state == 'unknown':
-                # 剧情页面被滑动过，找不到剧情入口
-                # 通过切换模式重置滑动位置
+                # Страница сюжета была прокручена, поэтому вход в сюжет не найден
+                # Переключаем режим, чтобы сбросить позицию прокрутки
                 self.campaign_ensure_mode_20241219('combat')
                 self.campaign_ensure_mode_20241219('story')
                 continue
@@ -99,13 +99,13 @@ class EventStory(CampaignUI, Combat, LoginHandler):
         sim, button = TEMPLATE_ALCHEMIST_STORY.match_result(image)
         if sim >= lower_template_match_similarity(0.85):
             button = button.move(area[:2])
-            # 下移点击区域至文字处
+            # Смещаем область клика вниз к тексту
             button = button.move((0, 44))
             return button
         sim, button = TEMPLATE_ALCHEMIST_BATTLE.match_result(image)
         if sim >= lower_template_match_similarity(0.85):
             button = button.move(area[:2])
-            # 下移点击区域至文字处
+            # Смещаем область клика вниз к тексту
             button = button.move((0, 44))
             return button
         return None
@@ -162,7 +162,7 @@ class EventStory(CampaignUI, Combat, LoginHandler):
             else:
                 self.device.screenshot()
 
-            # 结束条件检测
+            # Проверяем условия завершения
             if self.is_combat_executing() or self.is_combat_loading():
                 logger.info('[Сюжет события] Сюжет завершился переходом в бой')
                 return 'battle'
@@ -173,14 +173,14 @@ class EventStory(CampaignUI, Combat, LoginHandler):
                 logger.info('[Сюжет события] Сюжет завершён на REWARD_GOT')
                 return 'finish'
 
-            # 剧情跳过处理
+            # Обрабатываем пропуск сюжета
             if self.handle_story_skip():
                 self.interval_clear([STORY_MIDDLE, BATTLE_MIDDLE])
                 continue
             if self.handle_get_items():
                 continue
 
-            # 点击推进剧情
+            # Кликаем для продвижения сюжета
             if self.appear_then_click(STORY_FIRST, offset=(20, 20), interval=3):
                 self.story_skip_interval_clear()
                 self.popup_interval_clear()
@@ -207,8 +207,8 @@ class EventStory(CampaignUI, Combat, LoginHandler):
                 self.popup_interval_clear()
                 self.device.click_record_clear()
                 continue
-            # 深渊秘辛（event_20250814_cn）
-            # 全部剧情完成后弹出的 RPG 状态窗口
+            # «Тайны бездны» (event_20250814_cn)
+            # Окно состояния RPG, появляющееся после завершения всего сюжета
             if self.appear_then_click(POPUP_RPG_STATUS, offset=(20, 20), interval=3):
                 continue
 
@@ -229,7 +229,7 @@ class EventStory(CampaignUI, Combat, LoginHandler):
                 break
             result = self.event_story()
             if result == 'battle':
-                # 通过重启游戏跳过活动战斗，比等待战斗结束快得多
+                # Пропускаем бой события перезапуском игры — это значительно быстрее ожидания конца боя
                 logger.hr('Бой сюжета события', level=2)
                 self.config.override(Error_HandleError=True)
                 self.app_stop()
@@ -237,7 +237,7 @@ class EventStory(CampaignUI, Combat, LoginHandler):
                 self.app_start()
                 continue
             if result == 'finish':
-                # 剧情结束后返回主界面再进入，以关闭可能残留的 GET_ITEMS 弹窗
+                # После завершения сюжета возвращаемся на главный экран и заходим снова, чтобы закрыть возможное оставшееся окно GET_ITEMS
                 logger.hr('Сюжет события — завершение', level=2)
                 self.ui_goto_main()
                 self.ui_goto_event_story()
@@ -287,7 +287,7 @@ class EventStory(CampaignUI, Combat, LoginHandler):
         """
         event = self.config.cross_get('Event.Campaign.Event', '')
         if event in [
-            # 该活动的剧情入口在活动小游戏内，不在常规剧情页面
+            # У этого события вход в сюжет находится внутри мини-игры, а не на обычной странице сюжета
             'event_20260226_cn',
         ]:
             logger.info(f'[Сюжет события] У текущего события ({event}) нет сюжетной цепочки; остановка')

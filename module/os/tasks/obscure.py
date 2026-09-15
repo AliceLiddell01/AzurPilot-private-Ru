@@ -62,7 +62,7 @@ class OpsiObscure(CoinTaskMixin, OSMap):
         while True:
             self.clear_obscure()
 
-            # 非强制模式每次只清一个隐秘海域，保留 os_order_execute 写入的侦查/潜艇冷却。
+            # В обычном режиме очищаем только одну скрытую зону за запуск, сохраняя таймеры разведки/подлодок от os_order_execute.
             if not self.config.OpsiObscure_ForceRun:
                 break
             

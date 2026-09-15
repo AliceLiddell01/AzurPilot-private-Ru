@@ -9,7 +9,7 @@ from datetime import timedelta
 from module.config.time_source import now as current_time
 from module.logger import logger
 
-# 采集安全区域（无截图，固定坐标点击用于关闭弹窗）
+# Безопасная область сбора (без скриншота; фиксированные координаты для закрытия всплывающих окон)
 ISLAND_GATHER_SAFE_AREA = Button(
     area={'cn': (1080, 650, 1180, 700), 'en': (1080, 650, 1180, 700), 'jp': (1080, 650, 1180, 700), 'tw': (1080, 650, 1180, 700)},
     color={'cn': (0, 0, 0), 'en': (0, 0, 0), 'jp': (0, 0, 0), 'tw': (0, 0, 0)},
@@ -43,11 +43,11 @@ class IslandDailyGather(Island):
         """
         now = current_time()
 
-        # 无论何时运行，都执行采集
+        # Выполняем сбор независимо от времени запуска
         logger.info(f"[Остров — ежедневный сбор] Начало ежедневного сбора (текущее время: {now.strftime('%H:%M')})")
         self.dispatch_collection()
 
-        # 调度下次运行时间
+        # Планируем время следующего запуска
         next_run = self._schedule_next_run(now)
         self.config.task_delay(target=next_run)
         logger.info(f"[Остров — ежедневный сбор] Следующий запуск: {next_run}")
@@ -67,13 +67,13 @@ class IslandDailyGather(Island):
         evening = now.replace(hour=18, minute=0, second=0, microsecond=0)
 
         if now < morning:
-            # 凌晨3:10之前 → 下次下午6:00
+            # До 03:10 → следующий запуск в 18:00
             target = evening
         elif now < evening:
-            # 凌晨3:10 ~ 下午6:00之间 → 下次下午6:00
+            # Между 03:10 и 18:00 → следующий запуск в 18:00
             target = evening
         else:
-            # 下午6:00之后 → 下次次日凌晨3:10
+            # После 18:00 → следующий запуск в 03:10 следующего дня
             target = morning + timedelta(days=1)
 
         return target
@@ -84,26 +84,26 @@ class IslandDailyGather(Island):
         """
         logger.info("[Остров — ежедневный сбор] === Начало процесса сбора через UI ===")
 
-        # 1. 进入管理界面
+        # 1. Входим в интерфейс управления
         logger.info("[Остров — ежедневный сбор] Шаг 1: вход в управление")
         self.goto_management()
 
-        # 2. 进入管理 → 切换到"采集"页签
+        # 2. Входим в управление и переключаемся на вкладку сбора
         logger.info("[Остров — ежедневный сбор] Шаг 2: переключение на вкладку сбора")
         self.ui_goto(page_island_postmanage, get_ship=False)
         self.post_manage_mode_collection()
 
-        # 3. 检查并领取已有采集奖励（如果有的话）
+        # 3. Проверяем и получаем уже доступные награды за сбор
         logger.info("[Остров — ежедневный сбор] Шаг 3: проверка и получение доступных наград")
         self._claim_existing_rewards()
 
-        # 4. 点击"选择采集目标"按钮 → 切换开关 → 点击确定
-        #    如果所有采集物已采集完毕，确定时会弹出提示弹窗
+        # 4. Нажимаем «выбрать цели сбора» → переключаем toggle → подтверждаем
+        #    Если все ресурсы уже собраны, при подтверждении появится уведомление
         logger.info("[Остров — ежедневный сбор] Шаг 4: подтверждение выбора целей сбора")
         if self._handle_target_selection():
             worker_list = self._daily_gather_worker_list()
-            # 如果成功选择了采集目标，继续后续流程
-            # 5. 依次点击三个"+"按钮并选择角色
+            # Если цели сбора успешно выбраны, продолжаем дальнейший процесс
+            # 5. Последовательно нажимаем три кнопки «+» и выбираем персонажей
             character_selected = True
             for i in range(3):
                 logger.info(f"[Остров — ежедневный сбор] Шаг 5-{i+1}: нажатие кнопки + в слоте {i+1} и выбор персонажа")
@@ -113,21 +113,21 @@ class IslandDailyGather(Island):
                     break
 
             if character_selected:
-                # 6. 点击"出发"按钮
+                # 6. Нажимаем кнопку отправления
                 logger.info("[Остров — ежедневный сбор] Шаг 6: нажатие кнопки отправления")
                 self._click_depart()
 
-                # 7. 处理采集完成页面
+                # 7. Обрабатываем страницу завершения сбора
                 logger.info("[Остров — ежедневный сбор] Шаг 7: ожидание завершения сбора и закрытие страницы")
                 self._handle_collection_complete()
         else:
             logger.info("[Остров — ежедневный сбор] Все ресурсы уже собраны; последующие шаги пропущены")
 
-        # 8. 退出管理界面
+        # 8. Выходим из интерфейса управления
         self._exit_management()
         logger.info("[Остров — ежедневный сбор] === Процесс сбора через UI завершён ===")
 
-    # ==================== 步骤方法 ====================
+    # ==================== Методы этапов ====================
 
     def _claim_existing_rewards(self):
         """
@@ -146,7 +146,7 @@ class IslandDailyGather(Island):
                 self.device.click(ISLAND_POST_SAFE_AREA)
                 self.device.sleep(0.5)
                 continue
-            # 不再有可领取内容
+            # Больше нет доступного содержимого для получения
             break
 
     def _click_select_target(self):
@@ -155,11 +155,11 @@ class IslandDailyGather(Island):
         """
         while True:
             self.device.screenshot()
-            # 检查弹窗是否已经出现
+            # Проверяем, появилось ли всплывающее окно
             if self.appear(ISLAND_GATHER_TARGET_POPUP, offset=30):
                 logger.info("[Остров — ежедневный сбор] Окно выбора целей сбора появилось")
                 break
-            # 点击选择采集目标按钮
+            # Нажимаем кнопку выбора целей сбора
             if self.appear_then_click(ISLAND_GATHER_SELECT_TARGET, offset=30):
                 self.device.sleep(0.5)
                 continue
@@ -188,19 +188,19 @@ class IslandDailyGather(Island):
         for attempt in range(max_attempts):
             self.device.screenshot()
 
-            # 检查是否已激活
+            # Проверяем, активирован ли переключатель
             if self.appear(toggle_on, offset=10):
                 logger.info(f"[Остров — ежедневный сбор] {toggle_name} уже активен")
                 return True
 
-            # 检查是否未激活，点击切换
+            # Проверяем неактивное состояние и переключаем
             if self.appear(toggle_off, offset=10):
                 logger.info(f"[Остров — ежедневный сбор] {toggle_name} не активен; переключение")
                 self.device.click(toggle_off)
                 self.device.sleep(0.3)
                 continue
 
-            # 没有检测到任何状态，尝试点击开关默认位置
+            # Если состояние не распознано, пробуем нажать позицию переключателя по умолчанию
             self.device.click(toggle_off)
             self.device.sleep(0.3)
 
@@ -216,7 +216,7 @@ class IslandDailyGather(Island):
         for attempt in range(max_attempts):
             self.device.screenshot()
 
-            # 检查是否已全部采集弹窗出现
+            # Проверяем появление уведомления о том, что всё уже собрано
             if self.appear(ISLAND_GATHER_ALREADY_COLLECTED, offset=30):
                 logger.info("[Остров — ежедневный сбор] Обнаружено окно «всё уже собрано»")
                 return False
@@ -225,22 +225,22 @@ class IslandDailyGather(Island):
                 self.device.sleep(0.5)
                 continue
 
-            # 弹窗关闭后检测采集页签是否恢复
+            # После закрытия окна проверяем, восстановилась ли вкладка сбора
             if not self.appear(ISLAND_GATHER_TARGET_POPUP, offset=30):
                 logger.info("[Остров — ежедневный сбор] Окно закрыто; подтверждение успешно")
                 return True
 
             self.device.sleep(0.3)
 
-        # 尝试3次后还未关闭，可能是已全部采集弹窗遮盖了目标弹窗
+        # Если после трёх попыток окно не закрылось, его могло перекрыть уведомление «всё уже собрано»
         self.device.screenshot()
         if self.appear(ISLAND_GATHER_ALREADY_COLLECTED, offset=30):
             logger.info("[Остров — ежедневный сбор] Обнаружено окно «всё уже собрано»")
             return False
-        # 也可能是目标弹窗仍然开着但确定按钮失效
+        # Либо окно выбора целей всё ещё открыто, но кнопка подтверждения не сработала
         if self.appear(ISLAND_GATHER_TARGET_POPUP, offset=30):
             logger.warning("[Остров — ежедневный сбор] Истекло время нажатия подтверждения; окно выбора целей всё ещё открыто")
-            # 尝试通过安全区域关闭
+            # Пробуем закрыть через безопасную область
             self.device.click(ISLAND_GATHER_SAFE_AREA)
             self.device.sleep(0.3)
         return False
@@ -286,7 +286,7 @@ class IslandDailyGather(Island):
         plus_button = plus_buttons[index]
         worker_list = worker_list or []
 
-        # 点击"+"按钮，若页面动画或点击未生效则重试，避免无限等待。
+        # Нажимаем «+»; если из-за анимации или неудачного клика экран не открылся, повторяем без бесконечного ожидания
         for attempt in range(3):
             logger.info(f"[Остров — ежедневный сбор] Нажатие кнопки + для слота {index + 1}")
             self.device.click(plus_button)
@@ -297,10 +297,10 @@ class IslandDailyGather(Island):
             logger.warning(f"[Остров — ежедневный сбор] Не удалось открыть экран выбора персонажа для слота {index + 1}")
             return False
 
-        # 按"生活等级"进行升序排序
+        # Сортируем по «уровню жизни» по возрастанию
         self._sort_by_life_level()
 
-        # 选择体力达标且非工作中的角色
+        # Выбираем неработающего персонажа с достаточной выносливостью
         selected = False
         if index < len(worker_list):
             character = worker_list[index]
@@ -315,7 +315,7 @@ class IslandDailyGather(Island):
             self.device.sleep(0.3)
             return False
 
-        # 点击确认按钮完成选择
+        # Нажимаем кнопку подтверждения для завершения выбора
         self.device.sleep(0.3)
         if not self.confirm_selected_character_closed(f"Ежедневный сбор, слот {index + 1}"):
             self.device.click(SELECT_UI_BACK)
@@ -341,19 +341,19 @@ class IslandDailyGather(Island):
 
         按钮颜色不变仅箭头不同，截取按钮区域图像后匹配升序箭头模板来判断
         """
-        # 截取排序按钮区域，检测当前是否为升序
+        # Вырезаем область кнопки сортировки и проверяем текущий порядок
         self.device.screenshot()
         sort_area = crop(self.device.image, ISLAND_GATHER_SORT_LIFE.area)
         if TEMPLATE_GATHER_SORT_LIFE_ASC.match(sort_area, similarity=0.8):
             logger.info("[Остров — ежедневный сбор] Уже используется сортировка по уровню жизни по возрастанию")
             return
 
-        # 不是升序，点击排序按钮切换到升序
+        # Порядок не восходящий — нажимаем кнопку сортировки для переключения
         logger.info("[Остров — ежедневный сбор] Нажатие сортировки по уровню жизни для переключения на возрастание")
         self.device.click(ISLAND_GATHER_SORT_LIFE)
         self.device.sleep(0.3)
 
-        # 验证是否成功切换为升序
+        # Проверяем, что переключение на восходящий порядок прошло успешно
         self.device.screenshot()
         sort_area = crop(self.device.image, ISLAND_GATHER_SORT_LIFE.area)
         if TEMPLATE_GATHER_SORT_LIFE_ASC.match(sort_area, similarity=0.8):
@@ -473,17 +473,17 @@ class IslandDailyGather(Island):
         Returns:
             bool: True=成功选择目标可继续, False=已全部采集需退出
         """
-        # 点击"选择采集目标"按钮
+        # Нажимаем кнопку выбора целей сбора
         self._click_select_target()
 
-        # 在弹窗中将两个toggle开关切换至激活状态
+        # В окне переводим оба toggle-переключателя в активное состояние
         self._toggle_switches()
 
-        # 点击"确定"按钮（内部已检测已全部采集弹窗）
+        # Нажимаем кнопку подтверждения; проверка уведомления «всё уже собрано» выполняется внутри
         confirm_result = self._confirm_selection()
 
         if not confirm_result:
-            # 检测到已全部采集弹窗，点击安全区域关闭
+            # Обнаружено уведомление «всё уже собрано» — закрываем его нажатием безопасной области
             logger.info("[Остров — ежедневный сбор] Нажатие безопасной области для закрытия уведомления")
             self.device.click(ISLAND_GATHER_SAFE_AREA)
             self.device.sleep(0.5)
@@ -496,7 +496,7 @@ class IslandDailyGather(Island):
         """
         处理采集完成页面：等待采集完成，点击安全区域关闭完成界面
         """
-        max_wait = 30  # 最多等待30秒
+        max_wait = 30  # Ждём не более 30 секунд
         for i in range(max_wait):
             self.device.screenshot()
             if self.appear(ISLAND_GATHER_COMPLETE, offset=30):
@@ -514,7 +514,7 @@ class IslandDailyGather(Island):
         退出管理界面，返回到小岛主界面
         """
         logger.info("[Остров — ежедневный сбор] Выход из управления")
-        # 先点击安全区域关闭可能残留的弹窗
+        # Сначала нажимаем безопасную область, чтобы закрыть возможные оставшиеся окна
         for _ in range(3):
             self.device.screenshot()
             if self.appear(ISLAND_GATHER_ALREADY_COLLECTED, offset=30) or \
@@ -524,7 +524,7 @@ class IslandDailyGather(Island):
                 self.device.sleep(0.3)
             else:
                 break
-        # 使用ui_goto导航回小岛页面
+        # Через ui_goto возвращаемся на страницу острова
         self.ui_goto(page_island, get_ship=False)
         logger.info("[Остров — ежедневный сбор] Возврат на главную страницу острова завершён")
         return True

@@ -58,8 +58,8 @@ class Combat(Combat_, MapEventHandler):
         if self.is_combat_loading():
             return True
 
-        # 检查是否已在战斗执行中（暂停按钮可见）
-        # 处理自动搜索跳过战斗准备界面的情况
+        # Проверяем, не выполняется ли уже бой — видна кнопка паузы
+        # Обрабатываем случай, когда автопоиск пропускает экран подготовки к бою
         if self.is_combat_executing():
             return True
 
@@ -165,7 +165,7 @@ class Combat(Combat_, MapEventHandler):
             if self.handle_story_skip():
                 continue
 
-            # 结束
+            # Завершение
             pause = self.is_combat_executing()
             if pause:
                 logger.attr('Интерфейс боя', pause)
@@ -307,7 +307,7 @@ class Combat(Combat_, MapEventHandler):
         self.__os_combat_drop = drop
         if expected_end is None:
             expected_end = self._os_combat_expected_end
-        # 禁用 handle_get_items，仅使用 handle_map_get_items
+        # Отключаем handle_get_items и используем только handle_map_get_items
         self._disable_handle_get_items = True
         try:
             super().combat_status(drop=drop, expected_end=expected_end)
@@ -489,7 +489,7 @@ class Combat(Combat_, MapEventHandler):
         Raises:
             GameBugError: CL1 指标模式下战斗超过 5 分钟超时。
         """
-        # 保持战斗专注于状态转换；指标层决定此任务是否应产生 CL1/short-meow 计时样本。
+        # Бой отвечает только за переходы состояний; слой метрик решает, должна ли эта задача создавать выборку таймера CL1/short-meow.
         battle_timer_source = start_battle_timer(self.config)
         
         cl1_combat_timer = Timer(300, count=300)
@@ -504,7 +504,7 @@ class Combat(Combat_, MapEventHandler):
             if self.handle_combat_automation_confirm():
                 continue
 
-            # 结束
+            # Завершение
             if self.handle_os_auto_search_map_option(drop=drop):
                 self._clear_battle_status_s_timer()
                 break
@@ -537,13 +537,13 @@ class Combat(Combat_, MapEventHandler):
 
             if self.handle_submarine_call(submarine_mode):
                 continue
-            # 失败时不更改自动搜索选项
+            # При неудаче не меняем настройку автопоиска
             enable = success if success is not None else None
             if self.handle_os_auto_search_map_option(drop=drop, enable=enable):
                 battle_status_s_timer.clear()
                 continue
 
-            # 结束
+            # Завершение
             if self.is_in_map():
                 self.device.screenshot_interval_set()
                 break
@@ -563,7 +563,7 @@ class Combat(Combat_, MapEventHandler):
             
         logger.info('Бой окончен')
         
-        # 通过相同的指标源结束，避免 CL1 和 short-meow 样本意外共享存储键。
+        # Завершаем через тот же источник метрик, чтобы выборки CL1 и short-meow случайно не использовали общий ключ хранения.
         finish_battle_timer(self.config, battle_timer_source)
         
         return success

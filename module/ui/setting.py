@@ -15,20 +15,20 @@ from module.logger import logger
 class Setting:
     def __init__(self, name='Setting', main: ModuleBase = None):
         self.name = name
-        # Alas 模块对象
+        # Объект модуля Alas
         self.main: ModuleBase = main
-        # 设置选项前先重置为默认值
+        # Перед настройкой параметров сначала сбрасывать значения по умолчанию
         self.reset_first = True
-        # 是否需要取消已激活的选项
+        # Нужно ли снимать выбор с уже активных параметров
         self.need_deselect = False
-        # (设置名, 选项名): 选项按钮
+        # (имя настройки, имя параметра): кнопка параметра
         # {
         #     ('sort', 'rarity'): Button(),
         #     ('sort', 'level'): Button(),
         #     ('sort', 'total'): Button(),
         # }
         self.settings: t.Dict[(str, str), Button] = {}
-        # 设置名: 选项名
+        # Имя настройки: имя параметра
         # {
         #     'sort': 'rarity',
         #     'index': 'all',

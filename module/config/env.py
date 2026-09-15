@@ -6,5 +6,5 @@
 
 import os
 
-# 检测云手机环境变量
+# Проверяем переменную окружения облачного телефона.
 IS_ON_PHONE_CLOUD = os.environ.get("cloudphone", "") == "cloudphone"

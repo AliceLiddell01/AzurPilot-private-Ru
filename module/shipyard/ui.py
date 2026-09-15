@@ -28,7 +28,7 @@ class ShipyardNavbar(Navbar):
     def is_button_active(self, button, main):
         if main.image_color_count(button, color=(33, 113, 222), threshold=221, count=400):
             return True
-        # 奥丁肩部区域的颜色
+        # Цвет области плеча Одина
         if main.image_color_count(button, color=(41, 85, 165), threshold=221, count=400):
             return True
         return False
@@ -75,10 +75,10 @@ class ShipyardUI(UI):
         Returns:
             tuple: (plus 按钮, minus 按钮, OCR 识别的数值)
         """
-        # 游戏 UI 在此处较为复杂，DEV/FATE 与 MAX 按钮的有无会导致不同布局。
-        # 有 MAX 按钮时: | - |   0   | + | | MAX |
-        # 无 MAX 按钮时: | - |       0       | + |
-        # 动态检测并生成新的 OCR 区域。
+        # Здесь игровой UI довольно сложный: наличие DEV/FATE и кнопки MAX меняет раскладку.
+        # С кнопкой MAX: | - |   0   | + | | MAX |
+        # Без кнопки MAX: | - |       0       | + |
+        # Динамически определяем и формируем новую область OCR.
         append = self._shipyard_get_append()
         ocr = globals()[f'OCR_SHIPYARD_TOTAL_{append}']
         minus = globals()[f'SHIPYARD_MINUS_{append}']
@@ -139,7 +139,7 @@ class ShipyardUI(UI):
         Returns:
             int: OCR 识别的蓝图数量
         """
-        # index(config.SHIPYARD_INDEX) 从 1 开始
+        # index(config.SHIPYARD_INDEX) начинается с 1
         if index <= 0 or index > len(SHIPYARD_BP_COUNT_GRID.buttons):
             logger.warning(f'[Верфь — UI] Не удалось получить количество по индексу {index}')
             return -1
@@ -226,7 +226,7 @@ class ShipyardUI(UI):
         if self._shipyard_bottom_navbar.set(self, left=left, right=right, skip_first_screenshot=skip_first_screenshot):
             ensured = True
 
-        # 导航栏设置后，等待界面完全过渡
+        # После настройки панели навигации ждём полного завершения перехода интерфейса
         confirm_timer = Timer(1.5, count=3).start()
         while 1:
             if skip_first_screenshot:
@@ -234,7 +234,7 @@ class ShipyardUI(UI):
             else:
                 self.device.screenshot()
 
-            # 结束
+            # Завершение
             if self._shipyard_in_ui():
                 if confirm_timer.reached():
                     break
@@ -326,7 +326,7 @@ class ShipyardUI(UI):
                 self.device.screenshot()
 
             if ocr_timer.reached():
-                # 未能检测到正常退出，回退到 OCR 检查
+                # Не удалось определить обычный выход; откатываемся к проверке OCR
                 logger.warning('[Верфь — UI] Не удалось определить обычный выход; переход к проверке OCR')
                 _, _, current = self._shipyard_get_total()
                 if not current:
@@ -359,7 +359,7 @@ class ShipyardUI(UI):
                 confirm_timer.reset()
                 continue
 
-            # DEV 完成进入 FATE 时会弹出 FATE 信息
+            # При переходе из завершённого DEV в FATE появляется информация о FATE
             if self.appear_then_click(LOGIN_ANNOUNCE, offset=area_pad((-300, 127, -300, 127), pad=-50), interval=3):
                 self.interval_reset(button)
                 success = True
@@ -367,7 +367,7 @@ class ShipyardUI(UI):
                 confirm_timer.reset()
                 continue
 
-            # 结束
+            # Завершение
             if success and self._shipyard_in_ui():
                 if confirm_timer.reached():
                     break

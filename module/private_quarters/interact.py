@@ -19,7 +19,7 @@ from module.ui.ui import UI
 class PQInteract(UI):
     # Key: str, target ship name
     # Value: list[Button], button instances
-    #        (房间_Entrance, 页面_Locale)
+    #        (комната_Entrance, страница_Locale)
     available_targets = {
         'anchorage': (PRIVATE_QUARTERS_SHIP_ANCHORAGE, PRIVATE_QUARTERS_PAGE_LOCALE_BEACH),
         'noshiro': (PRIVATE_QUARTERS_SHIP_NOSHIRO, PRIVATE_QUARTERS_PAGE_LOCALE_BEACH),

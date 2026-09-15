@@ -69,7 +69,7 @@ class OSShop(PortShop, AkashiShop):
             SHOP_CLICK_SAFE_AREA
         ])
         set_amount_retry = 0
-        # 购买重试计数器，防止代币不足时无限重试点击商品和确认按钮
+        # Счётчик повторных попыток покупки: предотвращает бесконечные нажатия товара и подтверждения при нехватке валюты
         buy_retry = 0
         buy_retry_limit = 3
 
@@ -117,7 +117,7 @@ class OSShop(PortShop, AkashiShop):
                 self.device.click(button)
                 continue
 
-            # 结束条件
+            # Условие завершения
             if success and self.appear(PORT_SUPPLY_CHECK, offset=(20, 20)):
                 break
 
@@ -256,7 +256,7 @@ class OSShop(PortShop, AkashiShop):
         total_count = min(int(coins // item.price), item.count)
 
         set_to_max = False
-        # 所有物品平均数量（不含紫币）约为 8.9，因此使用 10 作为阈值
+        # Среднее количество всех товаров (кроме покупаемых за фиолетовые монеты) около 8.9, поэтому используем порог 10
         if count <= 10:
             if count - 1 > total_count - count:
                 set_to_max = True
@@ -271,7 +271,7 @@ class OSShop(PortShop, AkashiShop):
             limit = 10
 
         self.interval_clear(AMOUNT_MAX)
-        # amount_max_stall: 记录AMOUNT_MAX点击后数量未变化的次数，防止按钮无效时死循环
+        # amount_max_stall: число случаев, когда количество не изменилось после нажатия AMOUNT_MAX; предотвращает бесконечный цикл при неработающей кнопке
         amount_max_stall = 0
         amount_max_stall_limit = 5
         while set_to_max:
@@ -287,13 +287,13 @@ class OSShop(PortShop, AkashiShop):
             if current_amount > 1:
                 break
 
-            # AMOUNT_MAX点击后数量仍为1，说明按钮可能被游戏禁用（如商品只能逐个购买）
+            # Если после нажатия AMOUNT_MAX количество остаётся равным 1, кнопка, вероятно, отключена игрой (например, товар можно покупать только по одному)
             amount_max_stall += 1
             if amount_max_stall >= amount_max_stall_limit:
                 logger.info(f'[Магазин Операции «Сирена»] После {amount_max_stall} нажатий AMOUNT_MAX количество осталось равным {current_amount}; переход к AMOUNT_PLUS')
                 break
 
-        # 仅在已点击AMOUNT_MAX且数量成功增加时，才能读取游戏端实际允许的最大数量
+        # Только если AMOUNT_MAX уже нажали и количество успешно увеличилось, можно считать фактический игровой максимум
         if set_to_max:
             game_max = OCR_SHOP_AMOUNT.ocr(self.device.image)
             if game_max > 1 and limit > game_max:

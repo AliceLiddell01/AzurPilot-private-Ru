@@ -10,7 +10,7 @@ from module.os_shop.preset import OS_SHOP
 from module.os_shop.item import OSShopItem as Item
 from module.base.filter import Filter
 
-# 物品名称正则匹配规则
+# Правило regex-сопоставления названий товаров
 FILTER_REGEX = re.compile(
     '^(actionpoint|crystallizedheatresistantsteel|developmentmaterial'
     '|energystoragedevice|geardesignplan|gearpart|logger|metaredbook'

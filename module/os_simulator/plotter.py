@@ -101,7 +101,7 @@ class OSSimulatorPlotter:
         std_ap = history_multi_avg['ap_std']
         mean_coin = history_multi_avg['coin']
         std_coin = history_multi_avg['coin_std']
-        mean_crash = history_multi_avg['crash'] * 100.0  # 转为百分比
+        mean_crash = history_multi_avg['crash'] * 100.0  # Переводим в проценты.
 
         ax1.plot(times, mean_ap, color='blue', label='Средние очки действия', linewidth=2)
         ax1.fill_between(times, mean_ap - std_ap, mean_ap + std_ap, color='blue', alpha=0.2)

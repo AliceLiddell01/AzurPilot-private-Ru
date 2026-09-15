@@ -71,7 +71,7 @@ class Filter:
                 elif func(obj):
                     out.append(obj)
                 else:
-                    # 丢弃该对象
+                    # Отбрасываем этот объект
                     pass
 
         return out
@@ -108,8 +108,8 @@ class Filter:
 
             obj_val = obj.__getattribute__(attr)
             
-            # 允许通用物品（如没有特定 sub_genre 的 PlateT3）
-            # 匹配带有特定 sub_genre 的过滤规则
+            # Разрешаем универсальные предметы, например PlateT3 без конкретного sub_genre
+            # Они соответствуют правилам фильтра с конкретным sub_genre
             if attr == 'sub_genre' and obj_val is None:
                 continue
 
@@ -138,6 +138,6 @@ class Filter:
             return [result.group(index + 1) for index, attr in enumerate(self.attr)]
         else:
             logger.warning(f'[Фильтр] Некорректный фильтр: "{string}". Селектор не соответствует регулярному выражению и не является предустановкой.')
-            # 无效的过滤条件将被忽略
-            # 返回不可能匹配的值以确保被跳过
+            # Некорректные условия фильтра игнорируются
+            # Возвращаем заведомо несовпадающее значение, чтобы гарантированно пропустить условие
             return ['1nVa1d'] + [None] * (len(self.attr) - 1)

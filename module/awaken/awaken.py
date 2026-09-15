@@ -83,7 +83,7 @@ class Awaken(Dock):
         Returns:
             bool: 资源充足返回 True，不足返回 False，该资源不需要时返回 None
         """
-        # 如果 COST_ARRAY 不存在，COST_COIN 和 COST_CHIP 会右移 54px
+        # Если COST_ARRAY отсутствует, COST_COIN и COST_CHIP смещаются вправо на 54px
         if button.match(self.device.image, offset=(75, 20)):
             # Look down, see if there are red letters
             area = button.button
@@ -116,22 +116,22 @@ class Awaken(Dock):
         logger.attr('Стоимость пробуждения', {'coin': coin, 'chip': chip, 'array': array})
 
         def is_right_moved(button):
-            # 如果 COST_ARRAY 不存在，COST_COIN 和 COST_CHIP 会右移 54px
+            # Если COST_ARRAY отсутствует, COST_COIN и COST_CHIP смещаются вправо на 54px
             return button.button[0] - button.area[0] > 20
 
-        # 检查结果是否有效
+        # Проверяем корректность результата
         if array is not None:
             if not use_array:
                 logger.warning('[Пробуждение] Cognitive Array доступен, хотя его использование отключено')
                 return 'unexpected_array'
-            # 如果需要阵列，金币和芯片应该同时存在
+            # Если нужен Array, одновременно должны присутствовать Coin и Chip
             if coin is not None and not is_right_moved(COST_COIN) \
                     and chip is not None and not is_right_moved(COST_CHIP):
                 result = coin and chip and array
                 logger.attr('Ресурсов для пробуждения достаточно', result)
                 return result
         else:
-            # 如果不需要阵列，金币和芯片应该同时存在且右移
+            # Если Array не нужен, Coin и Chip должны присутствовать и быть смещены вправо
             if coin is not None and is_right_moved(COST_COIN) \
                     and chip is not None and is_right_moved(COST_CHIP):
                 result = coin and chip
@@ -191,7 +191,7 @@ class Awaken(Dock):
             if LEVEL_UP.match_luma(self.device.image):
                 logger.info(f'[Пробуждение] Однократное пробуждение завершено на {LEVEL_UP}')
                 return 'no_exp'
-            # 由于随机背景，降低相似度阈值
+            # Из-за случайного фона снижаем порог сходства
             if interval.reached() and AWAKENING.match_luma(self.device.image, similarity=0.7):
                 self.device.click(AWAKENING)
                 interval.reset()
@@ -208,7 +208,7 @@ class Awaken(Dock):
 
             result = self._get_awaken_cost(use_array)
             if result == 'unexpected_array':
-                # 这种情况不应该发生
+                # Эта ситуация возникать не должна
                 self.awaken_popup_close()
                 return result
             elif result is False:
@@ -216,10 +216,10 @@ class Awaken(Dock):
                 self.awaken_popup_close()
                 return 'insufficient'
             elif result is True:
-                # 资源充足
+                # Ресурсов достаточно
                 break
             elif result == 'invalid':
-                # 重试，同时检查超时
+                # Повторяем попытку, одновременно проверяя тайм-аут
                 pass
             else:
                 raise ScriptError(f'Неожиданный результат _get_awaken_cost: {result}')
@@ -228,11 +228,11 @@ class Awaken(Dock):
                 self.awaken_popup_close()
                 return 'timeout'
 
-        # 资源充足，确认觉醒
+        # Ресурсов достаточно — подтверждаем пробуждение
         logger.info('[Пробуждение] Подтверждение пробуждения')
         self.interval_clear(AWAKEN_CONFIRM)
-        # 觉醒弹窗在经验足够时需要 10 秒才出现，点击关闭需要 2 秒
-        # 因此此处超时设置较长
+        # При достаточном опыте окно пробуждения появляется только через 10 секунд, а закрытие кликом занимает 2 секунды
+        # Поэтому здесь используется более длинный тайм-аут
         timeout = Timer(30, count=30).start()
         finished = False
         skip_first_screenshot = True
@@ -242,7 +242,7 @@ class Awaken(Dock):
             else:
                 self.device.screenshot()
 
-            # 结束条件
+            # Условие завершения
             if timeout.reached():
                 logger.warning('[Пробуждение] Тайм-аут подтверждения пробуждения')
                 self.awaken_popup_close()
@@ -250,7 +250,7 @@ class Awaken(Dock):
             if finished and self.is_in_awaken():
                 logger.info('[Пробуждение] Пробуждение завершено')
                 break
-            # 点击操作
+            # Выполняем клики
             if self.appear_then_click(AWAKEN_CONFIRM, offset=(20, 20), interval=3):
                 continue
             if self.handle_popup_confirm('AWAKEN'):
@@ -327,20 +327,20 @@ class Awaken(Dock):
                     if result == 'success':
                         continue
                     if result in ['insufficient', 'no_exp']:
-                        # 直接返回原始结果
+                        # Сразу возвращаем исходный результат
                         return result
                     if result == 'unexpected_array':
-                        # 可能只是误入觉醒确认界面，重新执行 awaken_once 会重新检查
+                        # Возможно, по ошибке открыт экран подтверждения пробуждения; повторный awaken_once выполнит проверку заново
                         continue
                     if result == 'timeout':
-                        # 获取资源超时，重试应该能修复
+                        # Тайм-аут получения ресурсов; повторная попытка должна исправить ситуацию
                         continue
                     raise ScriptError(f'Неожиданный результат awaken_once: {result}')
             else:
-                # 获取等级超时，请求退出
+                # Тайм-аут получения уровня — запрашиваем выход
                 return 'timeout'
 
-        # 错误，请求退出
+        # Ошибка — запрашиваем выход
         logger.warning('[Пробуждение] Слишком много попыток пробуждения одного корабля')
         return 'timeout'
 
@@ -402,7 +402,7 @@ class Awaken(Dock):
         self.dock_filter_set(extra=extra)
 
         while 1:
-            # 在 page_dock 页面
+            # На странице page_dock
             if self.appear(DOCK_EMPTY, offset=(20, 20)):
                 logger.info('[Пробуждение] Цикл завершён: нет кораблей для пробуждения')
                 result = 'finish'
@@ -415,7 +415,7 @@ class Awaken(Dock):
                 result = 'finish'
                 break
 
-            # 在 is_in_awaken 页面
+            # На странице is_in_awaken
             result = self.awaken_ship(use_array)
             self.awaken_exit()
             # 'insufficient'、'no_exp'、'timeout'
@@ -433,25 +433,25 @@ class Awaken(Dock):
         return result
 
     def run(self):
-        # 优先执行觉醒+（使用心智阵列）
+        # Сначала выполняем Awaken+ с использованием Cognitive Array
         favourite = self.config.Awaken_Favourite
         if self.config.Awaken_LevelCap == 'level125':
-            # 使用心智阵列
+            # Используем Cognitive Array
             result = self.awaken_run(use_array=True, favourite=favourite)
-            # 使用心智芯片
+            # Используем Cognitive Chip
             if result != 'timeout':
                 self.awaken_run(favourite=favourite)
         elif self.config.Awaken_LevelCap == 'level120':
-            # 使用心智芯片
+            # Используем Cognitive Chip
             self.awaken_run(favourite=favourite)
         else:
             raise ScriptError(f'Неизвестное значение Awaken_LevelCap={self.config.Awaken_LevelCap}')
 
-        # 重置船坞筛选器
+        # Сбрасываем фильтры дока
         logger.hr('Завершение цикла пробуждения', level=1)
         if favourite:
             self.dock_favourite_set(wait_loading=False)
         self.dock_filter_set(wait_loading=False)
 
-        # 调度下一次运行
+        # Планируем следующий запуск
         self.config.task_delay(server_update=True)

@@ -15,7 +15,7 @@ from module.logger import logger
 from module.base.button import Button
 
 
-# 固定位置按钮 — 在产品选择界面不滑动时，荠菜的固定位置
+# Кнопка с фиксированной позицией — позиция shepherd_purse в интерфейсе выбора продукта без прокрутки
 FIXED_SELECT_SHEPHERD_PURSE = Button(
     area=(), color=(), button=(224, 151, 274, 209),
     file={'cn': '', 'en': '', 'jp': '', 'tw': ''}
@@ -24,23 +24,23 @@ FIXED_SELECT_SHEPHERD_PURSE = Button(
 
 class IslandManufacture(IslandShopBase):
     def __init__(self, *args, **kwargs):
-        # 先初始化基类
+        # Сначала инициализируем базовый класс
         IslandShopBase.__init__(self, *args, **kwargs)
 
-        # 设置店铺类型
+        # Задаём тип магазина
         self.shop_type = "manufacture"
         self.time_prefix = "time_manufacture"
 
-        # 设置滑动配置（岗位管理界面需要两次滑动）
+        # Задаём конфигурацию прокрутки (в управлении постами нужны две прокрутки)
         self.post_manage_swipe_count = 2
 
-        # === 初始化全局季节配置 ===
+        # === Инициализируем глобальную сезонную конфигурацию ===
         self._init_season_config()
 
-        # 设置筛选资产
+        # Задаём ресурс фильтра
         self.filter_asset = 'factory'
 
-        # 制造业产品配置
+        # Конфигурация продуктов производства
         self.manufacture = {
             'wood_processing': {
                 'items': [
@@ -49,7 +49,7 @@ class IslandManufacture(IslandShopBase):
                      'selection_check': SELECT_FILE_CABINET_CHECK, 'post_action': POST_FILE_CABINET},
                 ]
             },
-            #TEMPLATE_FILTER_ELEMENT 未添加
+            # TEMPLATE_FILTER_ELEMENT не добавлен
             'electronic_processing': {
                 'items': [
                     {'name': 'filter_element', 'template': TEMPLATE_FILE_CABINET,
@@ -81,7 +81,7 @@ class IslandManufacture(IslandShopBase):
                 ]
             }
         }
-        # 季节限定：手工类产品（荠菜干等）
+        # Сезонное ограничение: продукты ручного производства (сушёный shepherd_purse и т. п.)
         if self.is_seasonal_item_enabled('shepherd_purse'):
             self.manufacture['handmade']['items'].append(
                 {'name': 'shepherd_purse', 'template': TEMPLATE_SHEPHERD_PURSE,
@@ -90,18 +90,18 @@ class IslandManufacture(IslandShopBase):
             )
             logger.info("[Остров — производство] Сезонный товар shepherd_purse добавлен в список ручного производства")
 
-        # 根据配置初始化岗位按钮
+        # Инициализируем кнопки постов по конфигурации
         self.post_buttons = self._init_post_buttons()
 
-        # 将所有产品展平到一个列表中，供基类使用
+        # Разворачиваем все продукты в один список для использования базовым классом
         self.shop_items = []
         for category in self.manufacture.values():
             self.shop_items.extend(category['items'])
 
-        # 初始化需求列表（制造业不需要外部配置的需求）
+        # Инициализируем список потребностей (производству не нужны потребности из внешней конфигурации)
         self.post_products = []
 
-        # 设置配置（使用4个参数，删除任务相关配置）
+        # Задаём конфигурацию (4 параметра, конфигурация задач удалена)
         self.setup_config(
             config_meal_prefix="IslandManufacture_Meal",
             config_number_prefix="IslandManufacture_MealNumber",
@@ -109,7 +109,7 @@ class IslandManufacture(IslandShopBase):
             config_post_number="IslandManufacture_PostNumber"
         )
 
-        # 初始化店铺
+        # Инициализируем магазин
         self.initialize_shop()
 
     def _init_post_buttons(self):
@@ -149,7 +149,7 @@ class IslandManufacture(IslandShopBase):
         elif category == 'handmade':
             category_posts = ['ISLAND_HANDMADE_POST1', 'ISLAND_HANDMADE_POST2']
 
-        # 只返回实际存在的空闲岗位
+        # Возвращаем только реально существующие свободные посты
         return [post_id for post_id in category_posts
                 if post_id in self.posts and self.posts[post_id]['status'] == 'idle']
 
@@ -159,20 +159,20 @@ class IslandManufacture(IslandShopBase):
         荠菜使用固定坐标点击，不进行模板匹配和滑动。
         其他产品走父类逻辑（模板匹配 + 滑动查找）。
         """
-        # 荠菜 → 直接点击固定位置
+        # shepherd_purse → нажимаем непосредственно по фиксированной позиции
         if product_selection == FIXED_SELECT_SHEPHERD_PURSE:
             self.device.click(FIXED_SELECT_SHEPHERD_PURSE)
             self.device.sleep(0.5)
             return True
 
-        # 其他产品使用父类逻辑
+        # Для остальных продуктов используем родительскую логику
         return super().select_product(product_selection, product_selection_check)
 
     def select_product_with_material_check(self, post_id, product_list):
         """选择产品并检查材料是否充足（覆盖基类方法）"""
         post_button = self.posts[post_id]['button']
 
-        # 打开岗位
+        # Открываем пост
         self.post_close()
         self.post_open(post_button)
         self.device.sleep(0.5)
@@ -200,38 +200,38 @@ class IslandManufacture(IslandShopBase):
                     selection_check = product_info['selection_check']
                     logger.info(f"[Остров — производство] Попытка выбрать товар: {product_name}")
 
-                    # 点击产品选择按钮
+                    # Нажимаем кнопку выбора продукта
                     self.select_product(selection, selection_check)
                     self.device.sleep(0.5)
 
-                    # 检查确认按钮状态
+                    # Проверяем состояние кнопки подтверждения
                     image = self.device.screenshot()
                     area = (493, 597, 621, 643)
                     color = get_color(image, area)
 
-                    # 如果确认按钮是灰色（153, 156, 156），表示材料不足
+                    # Если кнопка подтверждения серая (153, 156, 156), материалов недостаточно
                     if color_similar(color, (153, 156, 156), 80):
                         logger.info(f"[Остров — производство] Недостаточно материалов; товар пропущен: {product_name}")
                         continue
                     else:
                         selected_product = product_info
-                        # 点击最大化生产数量
+                        # Устанавливаем максимальное количество производства
                         self.appear_then_click(POST_MAX)
-                        # 点击确认生产
+                        # Подтверждаем производство
                         self.device.click(POST_ADD_ORDER)
                         logger.info(f"[Остров — производство] Товар успешно выбран: {product_name}")
-                        break  # 跳出产品选择循环
+                        break  # Выходим из цикла выбора продукта
 
                 if not selected_product:
                     logger.info("[Остров — производство] Материалов недостаточно для всех товаров; возврат")
                     self.device.click(SELECT_UI_BACK)
                     self.device.sleep(0.3)
 
-                    # 清空该岗位的时间变量
+                    # Очищаем переменную времени этого поста
                     post_num = None
                     for post_key, post_info in self.posts.items():
                         if post_info['button'] == post_button:
-                            # 提取岗位编号
+                            # Извлекаем номер поста
                             if 'POST1' in post_key:
                                 post_num = 1
                             elif 'POST2' in post_key:
@@ -253,7 +253,7 @@ class IslandManufacture(IslandShopBase):
 
                 if selected_product:
                     self.post_open(post_button)
-                    # 获取生产时间和数量
+                    # Получаем время и количество производства
                     image = self.device.screenshot()
                     ocr_post_number = Digit(OCR_POST_NUMBER, letter=(57, 58, 60), threshold=100,
                                             alphabet='0123456789')
@@ -262,8 +262,8 @@ class IslandManufacture(IslandShopBase):
                     time_value = time_work.ocr(self.device.image)
                     finish_time = current_time() + time_value
 
-                    # 设置时间变量
-                    # 从post_id中提取数字
+                    # Задаём переменную времени
+                    # Извлекаем число из post_id
                     import re
                     match = re.search(r'POST(\d+)', post_id)
                     if match:
@@ -277,9 +277,9 @@ class IslandManufacture(IslandShopBase):
                     self.post_close()
                     return selected_product
 
-                break  # 跳出循环
+                break  # Выходим из цикла
 
-        return None  # 正常情况下不会执行到这里
+        return None  # В штатном режиме выполнение сюда не доходит
 
     def schedule_manufacture(self):
         """安排制造业生产（覆盖基类方法）"""
@@ -296,7 +296,7 @@ class IslandManufacture(IslandShopBase):
         idle_posts = self.get_idle_posts_by_category('wood_processing')
         if not idle_posts:
             return
-        # 木料加工只生产file_cabinet
+        # В обработке древесины производится только file_cabinet
         product_list = self.manufacture['wood_processing']['items']
         for post_id in idle_posts:
             self.select_product_with_material_check(post_id, product_list)
@@ -306,7 +306,7 @@ class IslandManufacture(IslandShopBase):
         idle_posts = self.get_idle_posts_by_category('electronic_processing')
         if not idle_posts:
             return
-        # 木料加工只生产file_cabinet
+        # В обработке древесины производится только file_cabinet
         product_list = self.manufacture['electronic_processing']['items']
         for post_id in idle_posts:
             self.select_product_with_material_check(post_id, product_list)
@@ -316,9 +316,9 @@ class IslandManufacture(IslandShopBase):
         idle_posts = self.get_idle_posts_by_category('industrial_production')
         if not idle_posts:
             return
-        # 检查库存iron_nail
+        # Проверяем запас iron_nail
         iron_nail_stock = self.warehouse_counts.get('iron_nail', 0)
-        # 根据规则选择产品
+        # Выбираем продукт по правилу
         if iron_nail_stock >= 20:
             product_list = [item for item in self.manufacture['industrial_production']['items']
                             if item['name'] == 'cutlery']
@@ -334,22 +334,22 @@ class IslandManufacture(IslandShopBase):
         idle_posts = self.get_idle_posts_by_category('handmade')
         if not idle_posts:
             return
-        # 检查库存leather
+        # Проверяем запас leather
         leather_stock = self.warehouse_counts.get('leather', 0)
-        # 构建产品选择列表（按优先级）
+        # Формируем список выбора продуктов по приоритету
         product_list = []
-        # 优先生产shepherd_purse
+        # В первую очередь производим shepherd_purse
         shepherd_purse_item = [item for item in self.manufacture['handmade']['items']
                            if item['name'] == 'shepherd_purse'][0]
         product_list.append(shepherd_purse_item)
 
-        # 如果leather库存>=10，则生产boot
+        # Если запас leather >= 10, производим boot
         if leather_stock >= 10:
             boot_item = [item for item in self.manufacture['handmade']['items']
                          if item['name'] == 'boot'][0]
             product_list.append(boot_item)
 
-        # 最后生产leather
+        # В последнюю очередь производим leather
         leather_item = [item for item in self.manufacture['handmade']['items']
                         if item['name'] == 'leather'][0]
         product_list.append(leather_item)
@@ -361,20 +361,20 @@ class IslandManufacture(IslandShopBase):
         """运行制造业逻辑（完全覆盖基类方法）"""
         self.island_error = False
 
-        # 第一步：检查岗位状态
+        # Шаг 1: проверяем состояние постов
         self.goto_postmanage()
         self.post_manage_mode(POST_MANAGE_PRODUCTION)
         self.post_close()
 
-        # 滑动以看到岗位
+        # Прокручиваем, чтобы увидеть посты
         for _ in range(self.post_manage_swipe_count):
             self.post_manage_up_swipe(450)
 
-        # 检查岗位状态
+        # Проверяем состояние постов
         time_vars = []
         post_index = 1
 
-        # 按顺序检查所有岗位
+        # Последовательно проверяем все посты
         for post_id in self.post_buttons.keys():
             time_var_name = f'{self.time_prefix}{post_index}'
             time_vars.append(time_var_name)
@@ -383,28 +383,28 @@ class IslandManufacture(IslandShopBase):
             post_index += 1
 
 
-        # 判断是否有需要安排的任务
+        # Проверяем, есть ли задачи для планирования
         idle_posts = self.get_idle_posts()
         if idle_posts:
             self.get_warehouse_counts()
-            # 如果有空闲岗位，重新进入岗位管理界面安排生产
+            # При наличии свободных постов повторно открываем управление постами и планируем производство
             logger.info(f"[Остров — производство] Свободных позиций: {len(idle_posts)}; начинается планирование производства")
 
-            # 重新进入岗位管理界面
+            # Повторно открываем управление постами
             self.goto_postmanage()
             self.post_manage_mode(POST_MANAGE_PRODUCTION)
             self.post_close()
 
-            # 滑动以看到岗位
+            # Прокручиваем, чтобы увидеть посты
             for _ in range(self.post_manage_swipe_count):
                 self.post_manage_up_swipe(450)
 
-            # 安排生产
+            # Планируем производство
             self.schedule_manufacture()
         else:
             logger.info("[Остров — производство] Свободных позиций нет; планирование производства пропущено")
 
-        # 设置任务延迟
+        # Задаём задержку задачи
         finish_times = []
         for var in time_vars:
             time_value = getattr(self, var)
@@ -419,7 +419,7 @@ class IslandManufacture(IslandShopBase):
             from module.exception import GameBugError
             raise GameBugError("Обнаружен Island ERROR1; требуется перезапуск")
 
-    # 以下方法重写以适配基类
+    # Следующие методы переопределены для совместимости с базовым классом
     def process_meal_requirements(self, source_products):
         """制造业不需要处理套餐需求"""
         return source_products
@@ -430,7 +430,7 @@ class IslandManufacture(IslandShopBase):
 
     def process_away_cook(self):
         """覆盖：制造业不需要常驻餐品模式"""
-        # 制造业有自己的生产规则，不依赖常驻餐品
+        # Производство использует собственные правила и не зависит от режима постоянного блюда
         self.to_post_products = {}
         logger.info("[Остров — производство] Используются встроенные правила производства; постоянные блюда не задаются")
 

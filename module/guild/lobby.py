@@ -23,13 +23,13 @@ class GuildLobby(GuildBase):
         Returns:
             Button: 进入大舰队报告的按钮，如果不存在则返回 None。
         """
-        # 在 GUILD_REPORT_AVAILABLE 区域内查找红色
+        # Ищем красный цвет в области GUILD_REPORT_AVAILABLE
         image = color_similarity_2d(self.image_crop(GUILD_REPORT_AVAILABLE, copy=False), color=(255, 8, 8))
         points = np.array(np.where(image > 221)).T[:, ::-1]
         if len(points):
-            # 红点的中心位置
+            # Координаты центра красной точки
             points = Points(points).group(threshold=40) + GUILD_REPORT_AVAILABLE.area[:2]
-            # 偏移到报告图标的中心
+            # Смещаемся к центру значка отчёта
             area = area_offset((-51, -45, -13, 0), offset=points[0])
             return Button(area=area, color=(255, 255, 255), button=area, name='GUILD_REPORT')
         else:
@@ -81,7 +81,7 @@ class GuildLobby(GuildBase):
                 confirm_timer.reset()
                 continue
 
-            # 结束
+            # Завершение
             if self.appear(GUILD_CHECK, offset=(20, 20)):
                 if confirm_timer.reached():
                     break

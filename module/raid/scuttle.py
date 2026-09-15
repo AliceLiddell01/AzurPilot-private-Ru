@@ -99,7 +99,7 @@ class RaidScuttleRun(RaidRun, RaidScuttleCombat, Dock):
             in: page_raid
             out: BATTLE_PREPARATION
         """
-        # 确保进入正确的 UI 页面
+        # Убеждаемся, что открыта правильная страница UI
         self.device.stuck_record_clear()
         self.device.click_record_clear()
         if not self.is_raid_rpg():
@@ -118,7 +118,7 @@ class RaidScuttleRun(RaidRun, RaidScuttleCombat, Dock):
                 self.device.click(entrance)
                 continue
 
-            # 结束条件：点击编队准备按钮
+            # Условие завершения: нажимаем кнопку подготовки флота
             if self.appear_then_click(RAID_FLEET_PREPARATION, offset=(20, 20), interval=5):
                 break
 
@@ -202,7 +202,7 @@ class RaidScuttleRun(RaidRun, RaidScuttleCombat, Dock):
         while 1:
             super().run(name=name, mode=mode, total=total)
 
-            # 正常结束后替换舰船
+            # После обычного завершения заменяем корабли
             if self.triggered_normal_end:
                 self.raid_enter_preparation(mode=mode, raid=name, skip_first_screenshot=False)
                 success = True
@@ -214,7 +214,7 @@ class RaidScuttleRun(RaidRun, RaidScuttleCombat, Dock):
                 self.enter_map_cancel(skip_first_screenshot=False)
                 self.triggered_normal_end = False
 
-                # 检查调度器是否切换了任务
+                # Проверяем, переключил ли планировщик задачу
                 if self.config.task_switched():
                     self.campaign.ensure_auto_search_exit()
                     self.config.task_stop()

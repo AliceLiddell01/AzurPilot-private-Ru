@@ -168,7 +168,7 @@ class Switch:
             else:
                 main.device.screenshot()
 
-            # 检测当前状态
+            # Определяем текущее состояние
             current = self.get(main=main)
             logger.log_suppressed(
                 logging.DEBUG,
@@ -177,41 +177,41 @@ class Switch:
                 payload=current,
             )
 
-            # 到达目标状态则退出
+            # Выходим после достижения целевого состояния
             if current == state:
                 logger.finish_suppressed(log_key)
                 return changed
 
-            # 处理额外弹窗
+            # Обрабатываем дополнительные окна
             if self.handle_additional(main=main):
                 continue
 
-            # 未知状态警告
+            # Предупреждение о неизвестном состоянии
             if current == 'unknown':
                 if unknown_timer.reached():
                     logger.warning(f'[UI — Переключатель] Состояние переключателя {self.name} не распознано; '
                                    f'ресурсы следует перепроверить')
                     has_unknown = True
                     unknown_timer.reset()
-                # 如果 unknown_timer 从未触发，不点击未知状态（可能是切换动画）。
-                # 如果 unknown_timer 曾触发过一次，则忽略未知状态直接点击目标状态
-                # （可能是尚未添加的新状态）。
-                # 通过忽略新状态，Switch.set() 仍可在已知状态间切换。
+                # Пока unknown_timer ни разу не сработал, не кликаем неизвестное состояние: это может быть анимация переключения.
+                # Если unknown_timer уже срабатывал, игнорируем неизвестное состояние и кликаем целевое
+                # — это может быть ещё не добавленное новое состояние.
+                # Благодаря игнорированию нового состояния Switch.set() всё ещё может переключаться между известными состояниями.
                 if not has_unknown:
                     continue
             else:
-                # 已知状态，重置计时器
+                # Состояние известно — сбрасываем таймер
                 unknown_timer.reset()
 
-            # 点击切换
+            # Выполняем переключение
             if click_timer.reached():
                 if self.is_selector:
-                    # 选择器模式：点击目标状态
+                    # Режим селектора: кликаем целевое состояние
                     click_state = state
                 else:
-                    # 开关模式：点击当前状态来切换到另一个状态
-                    # 但 'unknown' 不可点击，此时改为点击目标状态
-                    # 假设所有选择器状态共享同一位置
+                    # Режим переключателя: кликаем текущее состояние, чтобы перейти в другое
+                    # Но 'unknown' кликнуть нельзя, поэтому в этом случае кликаем целевое состояние
+                    # Предполагается, что все состояния селектора используют одну позицию
                     if current == 'unknown':
                         click_state = state
                     else:
@@ -243,7 +243,7 @@ class Switch:
             else:
                 main.device.screenshot()
 
-            # 检测当前状态
+            # Определяем текущее состояние
             current = self.get(main=main)
             logger.log_suppressed(
                 logging.DEBUG,
@@ -252,7 +252,7 @@ class Switch:
                 payload=current,
             )
 
-            # 检测到已知状态则退出
+            # Выходим, когда обнаружено известное состояние
             if current != 'unknown':
                 logger.finish_suppressed(log_key)
                 return True
@@ -261,6 +261,6 @@ class Switch:
                 logger.warning(f'{self.name}: превышено время ожидания активации')
                 return False
 
-            # 处理额外弹窗
+            # Обрабатываем дополнительные окна
             if self.handle_additional(main=main):
                 continue

@@ -73,7 +73,7 @@ def _collect_hardware_fingerprint() -> str:
             except Exception:
                 pass
 
-    # 已完全舍弃 MAC 地址依赖
+    # Зависимость от MAC-адреса полностью удалена
     parts.append(f'platform={platform.node()}-{platform.machine()}')
     
     return '|'.join(parts)
@@ -84,15 +84,15 @@ def generate_device_id() -> str:
     基于硬件指纹生成唯一设备ID
     """
     fingerprint = _collect_hardware_fingerprint()
-    # 傻逼玩意们 这他妈hash化了 传你妈的设备信息 弱智
-    # hash都TM不知道 你们是傻逼吗？
-    # sha256 怎么逆向出原始信息 你用的是领先几百年的超算吗？
+    # Данные устройства хешируются; исходная информация об устройстве не передаётся
+    # Хеш не содержит исходные данные в открытом виде
+    # SHA-256 не предназначен для обратного восстановления исходной информации
     device_id = hashlib.sha256(fingerprint.encode('utf-8')).hexdigest()[:32]
     return device_id
 
 
 _device_id: Optional[str] = None
-_old_device_id: Optional[str] = None # 用于记录迁移前的旧 ID
+_old_device_id: Optional[str] = None # Хранит старый ID до миграции
 _refresh_timer: Optional[threading.Timer] = None
 _REFRESH_INTERVAL = 300
 
@@ -119,7 +119,7 @@ def _init_device_id() -> str:
     project_root = Path(__file__).resolve().parents[2]
     device_id_file = project_root / 'log' / 'device_id.json'
     
-    # 自动识别变更并暂存旧 ID 用于数据库热迁移
+    # Автоматически обнаруживаем изменение и сохраняем старый ID для горячей миграции БД
     if device_id_file.exists():
         try:
             with device_id_file.open('r', encoding='utf-8') as f:
@@ -131,7 +131,7 @@ def _init_device_id() -> str:
         except Exception:
             pass
 
-    # 立即覆写新 ID
+    # Сразу перезаписываем новый ID
     _overwrite_device_id(device_id, device_id_file)
     logger.info(f'ID устройства инициализирован: {device_id[:8]}...')
     

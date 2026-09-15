@@ -15,8 +15,8 @@ HP 条颜色分析：
 继承自 ModuleBase，被 Exercise 组合使用。
 """
 
-# 此文件实现了演习（Exercise）模式下的血量实时监控逻辑。
-# 它通过图像识别计算攻守双方的 HP 百分比，并在己方血量过低时触发相应逻辑以保护单局胜率或撤退。
+# Этот файл реализует мониторинг здоровья в реальном времени для режима учений (Exercise).
+# Он вычисляет процент HP обеих сторон по изображению и при слишком низком здоровье союзников запускает защитную логику для сохранения шансов на победу или отступления.
 from module.base.base import ModuleBase
 from module.base.timer import Timer
 from module.base.utils import color_bar_percentage

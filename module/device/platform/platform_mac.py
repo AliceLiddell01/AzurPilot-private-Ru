@@ -38,7 +38,7 @@ class PlatformMac(PlatformBase, EmulatorManagerMac):
         Returns:
             subprocess.CompletedProcess 或 subprocess.Popen: 命令执行结果
         """
-        # 在 Mac 上使用 shell=True 执行复杂命令
+        # На Mac используем shell=True для выполнения сложных команд
         logger.info(f'[Устройство — эмулятор macOS] Выполнение команды: {command}')
         if wait:
             result = subprocess.run(
@@ -92,7 +92,7 @@ class PlatformMac(PlatformBase, EmulatorManagerMac):
                 name = proc.name()
                 if re.search(regex, name, re.IGNORECASE):
                     pid = proc.pid
-                    # 使用 sudo renice 设置优先级（需要管理员密码）
+                    # Используем sudo renice для установки приоритета (требуется пароль администратора)
                     result = subprocess.run(
                         f'sudo -n renice -n {priority} -p {pid}',
                         shell=True,
@@ -133,13 +133,13 @@ class PlatformMac(PlatformBase, EmulatorManagerMac):
         提升当前正在运行的模拟器的进程优先级。
         在 Alas 启动且检测到已有模拟器运行时调用。
         """
-        # 尝试提升 MuMu 进程优先级
+        # Пытаемся повысить приоритет процессов MuMu
         count = self.renice_process_by_regex(r'MuMuEmulator|MuMuPlayer', -20)
         if count > 0:
             logger.info(f'[Устройство — эмулятор macOS] Повышен приоритет процессов MuMu: {count}')
             return
 
-        # 尝试提升 BlueStacks 进程优先级
+        # Пытаемся повысить приоритет процессов BlueStacks
         count = self.renice_process_by_regex(r'BlueStacks', -20)
         if count > 0:
             logger.info(f'[Устройство — эмулятор macOS] Повышен приоритет процессов BlueStacks: {count}')
@@ -157,8 +157,8 @@ class PlatformMac(PlatformBase, EmulatorManagerMac):
         exe: str = instance.emulator.path
 
         if instance == EmulatorMac.BlueStacksAir:
-            # 使用 open 命令启动 BlueStacks Air 应用
-            # 先查找应用包
+            # Запускаем приложение BlueStacks Air командой open
+            # Сначала ищем пакет приложения
             app_path = EmulatorMac.find_app_bundle('BlueStacks')
             if app_path:
                 self.execute(f'open -a "{app_path}"', wait=False)
@@ -166,23 +166,23 @@ class PlatformMac(PlatformBase, EmulatorManagerMac):
                 raise Exception('[Устройство — эмулятор] Приложение BlueStacks Air не найдено')
 
         elif instance == EmulatorMac.MuMuPro:
-            # macOS 上的 MuMu 正确启动流程:
-            # 1. open -a MuMuPlayer.app - 启动主程序
-            # 2. mumutool open <index> - 启动模拟器实例
+            # Корректная последовательность запуска MuMu на macOS:
+            # 1. open -a MuMuPlayer.app — запускаем основную программу
+            # 2. mumutool open <index> — запускаем экземпляр эмулятора
             app_path = EmulatorMac.find_app_bundle('MuMu')
             if app_path:
-                # 步骤 1: 启动 MuMuPlayer 主程序
+                # Шаг 1: запускаем основную программу MuMuPlayer
                 self.execute(f'open -a "{app_path}"', wait=False)
                 time.sleep(3)
-                # 步骤 2: 使用 mumutool 启动指定的模拟器实例
+                # Шаг 2: запускаем нужный экземпляр эмулятора через mumutool
                 mumu_bin_path = os.path.join(app_path, 'Contents/MacOS/mumutool')
                 if os.path.exists(mumu_bin_path):
-                    # 使用 instance.index 打开指定实例
+                    # Используем instance.index для открытия нужного экземпляра
                     instance_index = getattr(instance, 'index', 0)
                     self.execute(f'"{mumu_bin_path}" open {instance_index}', wait=False)
                 else:
                     logger.warning(f'[Устройство — эмулятор macOS] mumutool не найден по пути {mumu_bin_path}; используется резервный способ')
-                    # 回退: 尝试 MuMuEmulator.app 结构
+                    # Резервный вариант: пробуем структуру MuMuEmulator.app
                     mumu_emulator_app = os.path.join(app_path, 'Contents/MacOS/MuMuEmulator.app')
                     if os.path.exists(mumu_emulator_app):
                         self.execute(f'open "{mumu_emulator_app}"', wait=False)
@@ -190,7 +190,7 @@ class PlatformMac(PlatformBase, EmulatorManagerMac):
                 raise Exception('[Устройство — эмулятор] Приложение MuMu Pro не найдено')
 
         else:
-            # 通用回退: 尝试通过路径打开
+            # Общий резервный вариант: пытаемся открыть по пути
             if os.path.exists(exe):
                 self.execute(f'open "{exe}"', wait=False)
             else:
@@ -204,30 +204,30 @@ class PlatformMac(PlatformBase, EmulatorManagerMac):
             instance: 模拟器实例
         """
         if instance == EmulatorMac.BlueStacksAir:
-            # 尝试查找并终止 BlueStacks 进程
+            # Пытаемся найти и завершить процессы BlueStacks
             killed = self.kill_process_by_regex(r'BlueStacks')
             if killed == 0:
-                # 回退: 使用 osascript 退出应用
+                # Резервный вариант: завершаем приложение через osascript
                 self.execute('osascript -e \'tell application "BlueStacks" to quit\'', wait=True)
 
         elif instance == EmulatorMac.MuMuPro:
-            # 使用 mumutool 关闭指定实例
+            # Закрываем указанный экземпляр через mumutool
             app_path = EmulatorMac.find_app_bundle('MuMu')
             if app_path:
                 mumu_bin_path = os.path.join(app_path, 'Contents/MacOS/mumutool')
                 if os.path.exists(mumu_bin_path):
-                    # 使用 instance.index 关闭指定实例
+                    # Используем instance.index для закрытия нужного экземпляра
                     instance_index = getattr(instance, 'index', 0)
                     self.execute(f'"{mumu_bin_path}" close {instance_index}', wait=True)
                     time.sleep(2)
 
-            # 注意: 不使用 osascript 退出，因为这会关闭所有实例
-            # 而是确保指定的进程已停止
-            # 仅终止特定的 MuMu 模拟器进程（如果仍在运行）
-            # 实例名称可用于定位特定实例的进程
+            # Важно: не используем osascript для выхода, поскольку он закроет все экземпляры
+            # Вместо этого убеждаемся, что нужный процесс остановлен
+            # Завершаем только конкретный процесс эмулятора MuMu, если он всё ещё работает
+            # Имя экземпляра можно использовать для поиска его процесса
 
         else:
-            # 通用回退: 按实例名称终止进程
+            # Общий резервный вариант: завершаем процесс по имени экземпляра
             if instance.name:
                 self.kill_process_by_regex(instance.name)
 
@@ -283,7 +283,7 @@ class PlatformMac(PlatformBase, EmulatorManagerMac):
                 return False
 
             try:
-                # 检查设备连接
+                # Проверяем подключение устройства
                 devices = self.list_device().select(serial=serial)
                 if devices:
                     device = devices.first_or_none()
@@ -294,12 +294,12 @@ class PlatformMac(PlatformBase, EmulatorManagerMac):
                         self.adb_client.connect(serial)
                         continue
                 else:
-                    # 尝试连接
+                    # Пытаемся подключиться
                     self.adb_client.connect(serial)
                     continue
                 show_online(devices.first_or_none())
 
-                # 检查命令可用性
+                # Проверяем доступность команд
                 try:
                     pong = self.adb_shell(['echo', 'pong'])
                 except Exception as e:
@@ -307,7 +307,7 @@ class PlatformMac(PlatformBase, EmulatorManagerMac):
                     continue
                 show_ping(pong)
 
-                # 检查碧蓝航线包名
+                # Проверяем имя пакета Azur Lane
                 packages = self.list_known_packages(show_log=False)
                 if len(packages):
                     pass
@@ -315,7 +315,7 @@ class PlatformMac(PlatformBase, EmulatorManagerMac):
                     continue
                 show_package(packages)
 
-                # 所有检查通过
+                # Все проверки пройдены
                 break
             except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError) as e:
                 logger.info(str(f'[Устройство — платформа macOS] Ошибка ожидания запуска эмулятора: {e}'))
@@ -332,13 +332,13 @@ class PlatformMac(PlatformBase, EmulatorManagerMac):
         logger.hr('[Устройство — эмулятор macOS] Запуск эмулятора', level=1)
         self.run_remote_ssh_command()
         for _ in range(3):
-            # 先停止
+            # Сначала останавливаем
             if not self._emulator_function_wrapper(self._emulator_stop):
                 return False
-            # 再启动
+            # Затем запускаем
             if self._emulator_function_wrapper(self._emulator_start):
-                # 成功
-                # 提升模拟器进程优先级
+                # Успешно
+                # Повышаем приоритет процесса эмулятора
                 self.boost_emulator_priority(self.emulator_instance)
                 if self.emulator_start_watch():
                     return True
@@ -348,7 +348,7 @@ class PlatformMac(PlatformBase, EmulatorManagerMac):
                 else:
                     return False
             else:
-                # 启动失败，停止后重试
+                # Запуск не удался: останавливаем и пробуем снова
                 if self._emulator_function_wrapper(self._emulator_stop):
                     continue
                 else:
@@ -361,12 +361,12 @@ class PlatformMac(PlatformBase, EmulatorManagerMac):
         """停止模拟器，最多重试 3 次。"""
         logger.hr('[Устройство — эмулятор macOS] Остановка эмулятора', level=1)
         for _ in range(3):
-            # 停止
+            # Останавливаем
             if self._emulator_function_wrapper(self._emulator_stop):
-                # 成功
+                # Успешно
                 return True
             else:
-                # 停止失败，启动后重试
+                # Остановка не удалась: запускаем и пробуем снова
                 if self._emulator_function_wrapper(self._emulator_start):
                     continue
                 else:

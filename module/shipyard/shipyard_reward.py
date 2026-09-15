@@ -31,7 +31,7 @@ from module.logger import logger
 from module.shipyard.ui import ShipyardUI
 from module.ui.page import page_main, page_shipyard
 
-# PR 蓝图价格阶梯：键为已购蓝图序号范围，值为对应单价（金币）
+# Шкала цен чертежей PR: ключ — диапазон порядковых номеров купленных чертежей, значение — цена за единицу (монеты)
 PRBP_BUY_PRIZE = {
     (1, 2):               0,
     (3, 4):               150,
@@ -39,7 +39,7 @@ PRBP_BUY_PRIZE = {
     (8, 9, 10):           600,
     (11, 12, 13, 14, 15): 1050,
 }
-# DR 蓝图价格阶梯：键为已购蓝图序号范围，值为对应单价（金币）
+# Шкала цен чертежей DR: ключ — диапазон порядковых номеров купленных чертежей, значение — цена за единицу (монеты)
 DRBP_BUY_PRIZE = {
     (1, 2):               0,
     (3, 4, 5, 6):         600,
@@ -185,8 +185,8 @@ class RewardShipyard(ShipyardUI):
 
             self._shipyard_buy_confirm('BP_BUY')
 
-            # 根据实际购买量（remain）扣除金币，同时更新 start
-            # 保存到 prev 供下次 _shipyard_pay_calc 使用
+            # Вычитаем монеты по фактически купленному количеству (remain) и одновременно обновляем start
+            # Сохраняем в prev для следующего вызова _shipyard_pay_calc
             start, _ = self._shipyard_pay_calc(prev, (count - remain))
             prev = start
 
@@ -236,8 +236,8 @@ class RewardShipyard(ShipyardUI):
             logger.info('Индекс корабля на верфи равен 0; пропуск')
             return False
 
-        # 船坞页面中金币 OCR 困难（文字和数字右对齐导致混淆）
-        # 改从主页面获取金币信息
+        # OCR монет на странице верфи ненадёжен из-за выравнивания текста и числа по правому краю
+        # Поэтому получаем данные о монетах с главной страницы
         self.ui_ensure(page_main)
         timeout = Timer(1, count=1).start()
         skip_first_screenshot = True

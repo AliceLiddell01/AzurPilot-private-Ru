@@ -19,8 +19,8 @@ dictionary_cn = {
     'urgent_gem': ['要员', '度假', '巡视'],
     'urgent_ship': ['观舰'],
 }
-# major_comm 必须排在 extra_cube 之后，
-# 因为 'Fleet Cargo Transport' 匹配 extra_cube，而 'Cargo Transport I' 匹配 major_comm
+# major_comm должен располагаться после extra_cube,
+# потому что 'Fleet Cargo Transport' соответствует extra_cube, а 'Cargo Transport I' — major_comm.
 dictionary_en = {
     'daily_resource': ['DAILY RESOURCE EXTRACTION'],
     'daily_chip': ['AWAKENING TACTICAL RESEARCH'],

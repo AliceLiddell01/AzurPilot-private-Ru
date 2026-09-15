@@ -22,16 +22,16 @@ from module.handler.enemy_searching import EnemySearchingHandler
 from module.logger import logger
 from module.map.assets import FLEET_PREPARATION_CHECK
 
-# 自动搜索设置按钮列表，对应游戏界面中的 6 个选项
+# Список кнопок настроек автопоиска, соответствующих 6 вариантам в интерфейсе игры
 AUTO_SEARCH_SETTINGS = [
-    AUTO_SEARCH_SET_MOB,       # 舰队1打道中，舰队2打Boss
-    AUTO_SEARCH_SET_BOSS,      # 舰队1打Boss，舰队2打道中
-    AUTO_SEARCH_SET_ALL,       # 舰队1全出击，舰队2待命
-    AUTO_SEARCH_SET_STANDBY,   # 舰队1待命，舰队2全出击
-    AUTO_SEARCH_SET_SUB_AUTO,  # 潜艇自动呼叫
-    AUTO_SEARCH_SET_SUB_STANDBY  # 潜艇待命
+    AUTO_SEARCH_SET_MOB,       # Флот 1 сражается с обычными врагами, флот 2 — с Boss
+    AUTO_SEARCH_SET_BOSS,      # Флот 1 сражается с Boss, флот 2 — с обычными врагами
+    AUTO_SEARCH_SET_ALL,       # Флот 1 выполняет все вылазки, флот 2 ожидает
+    AUTO_SEARCH_SET_STANDBY,   # Флот 1 ожидает, флот 2 выполняет все вылазки
+    AUTO_SEARCH_SET_SUB_AUTO,  # Автоматический вызов подлодок
+    AUTO_SEARCH_SET_SUB_STANDBY  # Подлодки ожидают
 ]
-# 设置名称到按钮索引的映射
+# Отображение имени настройки в индекс кнопки
 dic_setting_name_to_index = {
     'fleet1_mob_fleet2_boss': 0,
     'fleet1_boss_fleet2_mob': 1,
@@ -40,7 +40,7 @@ dic_setting_name_to_index = {
     'sub_auto_call': 4,
     'sub_standby': 5,
 }
-# 按钮索引到设置名称的反向映射
+# Обратное отображение индекса кнопки в имя настройки
 dic_setting_index_to_name = {v: k for k, v in dic_setting_name_to_index.items()}
 
 
@@ -203,7 +203,7 @@ class AutoSearchHandler(EnemySearchingHandler):
                 continue
 
     _auto_search_offset = (5, 5)
-    # 当 MULTIPLE_SORTIE 出现时向左偏移 213px
+    # При появлении MULTIPLE_SORTIE смещаем область на 213 px влево
     _auto_search_menu_offset = (250, 30)
 
     def is_auto_search_running(self):
@@ -252,7 +252,7 @@ class AutoSearchHandler(EnemySearchingHandler):
             bool: 是否执行了退出操作。
         """
         if self.appear(AUTO_SEARCH_MENU_EXIT, offset=self._auto_search_menu_offset, interval=2):
-            # 此处实现较粗糙
+            # Здесь реализация довольно грубая
             if drop:
                 drop.handle_add(main=self, before=4)
             self.device.click(AUTO_SEARCH_MENU_EXIT)
@@ -282,7 +282,7 @@ class AutoSearchHandler(EnemySearchingHandler):
                 if self.handle_auto_search_exit(drop=drop):
                     continue
 
-                # 结束条件
+                # Условие завершения
                 if self.is_in_stage():
                     break
 

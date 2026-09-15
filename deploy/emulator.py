@@ -168,7 +168,7 @@ class VirtualBoxEmulator:
                 logger.info(f'{bak} не существует, операция пропущена')
 
 
-# 夜神模拟器
+# Эмулятор Nox
 nox_player = VirtualBoxEmulator(
     name="Nox",
     root_path=".",
@@ -183,7 +183,7 @@ nox_player_64 = VirtualBoxEmulator(
     vbox_path="./BignoxVMS",
     vbox_name='.*.vbox$'
 )
-# 雷电模拟器
+# Эмулятор LDPlayer
 ld_player = VirtualBoxEmulator(
     name="LDPlayer",
     root_path=".",
@@ -205,7 +205,7 @@ ld_player_9 = VirtualBoxEmulator(
     vbox_path="./vms",
     vbox_name='.*.vbox$'
 )
-# 逍遥模拟器
+# Эмулятор MEmu
 memu_player = VirtualBoxEmulator(
     name="MEmu",
     root_path="../",
@@ -213,7 +213,7 @@ memu_player = VirtualBoxEmulator(
     vbox_path="./MemuHyperv VMs",
     vbox_name='.*.memu$'
 )
-# MuMu 模拟器
+# Эмулятор MuMu
 mumu_player = VirtualBoxEmulator(
     name="Nemu",
     root_path=".",
@@ -303,7 +303,7 @@ class EmulatorConnect:
         return devices
 
     def adb_kill(self):
-        # 直接杀进程，因为部分 ADB 不遵守 kill-server 协议
+        # Завершаем процесс напрямую, поскольку некоторые ADB не соблюдают протокол kill-server
         logger.info('Завершение всех известных процессов ADB')
         for exe in [
             'adb.exe',

@@ -21,7 +21,7 @@ from module.base.decorator import Config
 from module.config.utils import to_list
 from module.logger import logger
 
-# 前排侦察位置坐标（用于特定场景的 HP 检测）
+# Координаты позиций авангарда для проверки HP в отдельных сценариях
 SCOUT_POSITION = [
     (403, 421),
     (625, 369),
@@ -47,7 +47,7 @@ class HPBalancer(ModuleBase):
     fleet_show_index = 1
     _hp = {}
     _hp_has_ship = {}
-    # HP 条上显示的颜色。
+    # Цвета, отображаемые на полосе HP.
     COLOR_HP_GREEN = (156, 235, 57)
     COLOR_HP_RED = (99, 44, 24)
 
@@ -99,7 +99,7 @@ class HPBalancer(ModuleBase):
         return data
 
     def _hp_grid(self):
-        # 六个 HP 条的位置，根据不同服务器的战役界面调整
+        # Позиции шести полос HP с учётом различий интерфейса кампании между серверами
         if self.config.SERVER == 'en':
             return ButtonGrid(origin=(35, 190), delta=(0, 100), button_shape=(66, 4), grid_shape=(1, 6))
         elif self.config.SERVER == 'jp':
@@ -116,7 +116,7 @@ class HPBalancer(ModuleBase):
         Logs:
             [HP]  98% ____ ____  98%  98%  98%
         """
-        # 中文逗号修正
+        # Исправляем китайскую запятую
         weight = self.config.HpControl_HpBalanceWeight
         if '，' in self.config.HpControl_HpBalanceWeight:
             weight = self.config.HpControl_HpBalanceWeight.replace('，', ',')
@@ -218,7 +218,7 @@ class HPBalancer(ModuleBase):
                 yield tuple(np.nonzero(diff)[0])
         elif count == 0:
             # [0, 1, 2]
-            # 目标与原始排列相同，无需操作
+            # Целевой порядок совпадает с исходным, действий не требуется
             pass
 
     @Config.when(DEVICE_CONTROL_METHOD=None)
@@ -244,7 +244,7 @@ class HPBalancer(ModuleBase):
             yield tuple(np.nonzero(diff)[0])
         elif count == 0:
             # [0, 1, 2]
-            # 目标与原始排列相同，无需操作
+            # Целевой порядок совпадает с исходным, действий не требуется
             pass
 
     def hp_balance(self):

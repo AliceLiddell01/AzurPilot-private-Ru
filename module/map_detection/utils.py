@@ -406,11 +406,11 @@ def fit_points(points, mod, encourage=1):
         distance = np.linalg.norm(points - point, axis=1)
         return np.sum(1 / (1 + np.exp(encourage / distance) / distance))
 
-    # 快速局部最小化器
+    # Быстрый локальный минимизатор
     # result = optimize.minimize(cal_distance, np.mean(points, axis=0), method='SLSQP')
     # return result['x'] % mod
 
-    # 暴力全局最小化器
+    # Глобальный минимизатор полным перебором
     area = np.append(-mod - 10, mod + 10)
     result = optimize.brute(cal_distance, ((area[0], area[2]), (area[1], area[3])))
     return result % mod

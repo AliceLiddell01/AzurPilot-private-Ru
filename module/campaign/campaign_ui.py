@@ -45,8 +45,8 @@ MODE_SWITCH_2 = ModeSwitch('Mode_switch_2', offset=(30, 10))
 MODE_SWITCH_2.add_state('hard', SWITCH_2_HARD)
 MODE_SWITCH_2.add_state('ex', SWITCH_2_EX)
 
-# 活动模式切换从 20240725 变更为 20241219
-# 20241219 起趋于稳定，因此以该日期命名
+# Переключатель режима события изменён с версии 20240725 на 20241219
+# С версии 20241219 интерфейс стал стабильнее, поэтому используем эту дату в имени
 MODE_SWITCH_20241219 = ModeSwitch('Mode_switch_20241219', is_selector=True, offset=(30, 30))
 MODE_SWITCH_20241219.add_state('combat', SWITCH_20241219_COMBAT)
 MODE_SWITCH_20241219.add_state('story', SWITCH_20241219_STORY)
@@ -55,8 +55,8 @@ ASIDE_SWITCH_20241219.add_state('part1', CHAPTER_20241219_PART1)
 ASIDE_SWITCH_20241219.add_state('part2', CHAPTER_20241219_PART2)
 ASIDE_SWITCH_20241219.add_state('sp', CHAPTER_20241219_SP)
 ASIDE_SWITCH_20241219.add_state('ex', CHAPTER_20241219_EX)
-# 缩短 unknown_timer 以加快处理
-# 因为游戏 bug 导致战役撤退或完成后侧边指示器可能消失
+# Сокращаем unknown_timer для более быстрой обработки
+# Из-за бага игры боковой индикатор может исчезнуть после отступления или завершения кампании
 ASIDE_SWITCH_20241219.set_unknown_timer = Timer(0.6, count=2)
 
 ASIDE_SWITCH_20260326 = ModeSwitch('Aside_switch_20260326', is_selector=True, offset=(30, 30))
@@ -114,7 +114,7 @@ class CampaignUI(MapOperation, CampaignEvent, CampaignOcr):
         index = self._campaign_get_chapter_index(chapter)
         isdigit = is_digit_chapter(chapter)
 
-        # 复用 ui_ensure_index 的逻辑。
+        # Повторно используем логику ui_ensure_index.
         logger.hr("Проверка номера главы в UI")
         retry = Timer(1, count=2)
         error_confirm = Timer(0.2, count=0)
@@ -135,11 +135,11 @@ class CampaignUI(MapOperation, CampaignEvent, CampaignOcr):
             if diff == 0:
                 break
 
-            # 查找 D3 时可能误识别为 3-7
+            # При поиске D3 OCR может ошибочно распознать его как 3-7
             if not (isdigit == current_isdigit):
                 continue
 
-            # 14-4 可能因动画缓慢被 OCR 识别为 4-1，需要确认是否确实为 4-1
+            # Из-за медленной анимации 14-4 может распознаться OCR как 4-1; нужно подтвердить, что это действительно 4-1
             if index >= 11 and index % 10 == current:
                 error_confirm.start()
                 if not error_confirm.reached():
@@ -147,7 +147,7 @@ class CampaignUI(MapOperation, CampaignEvent, CampaignOcr):
             else:
                 error_confirm.reset()
 
-            # 切换章节
+            # Переключаем главу
             if retry.reached():
                 button = CHAPTER_NEXT if diff > 0 else CHAPTER_PREV
                 self.device.multi_click(button, n=abs(diff), interval=(0.2, 0.3))
@@ -291,7 +291,7 @@ class CampaignUI(MapOperation, CampaignEvent, CampaignOcr):
             Button: 关卡入口按钮。
         """
         entrance_name = name
-        # 特殊情况：d3_3 在 UI 中使用 d3 的入口，但加载 d3_3.py 中不同的战斗逻辑
+        # Особый случай: d3_3 использует в UI вход d3, но загружает другую боевую логику из d3_3.py
         search_name = name
         if name == 'd3_3':
             search_name = 'd3'
@@ -329,8 +329,8 @@ class CampaignUI(MapOperation, CampaignEvent, CampaignOcr):
             self.campaign_ensure_chapter(chapter)
             if mode == 'hard':
                 self.campaign_ensure_mode('hard')
-                # info_bar 可能显示：该地图的困难模式尚未开放。
-                # 英文服存在 bug，HM12 显示未开放但实际上可以进入。
+                # info_bar может показывать, что сложный режим этой карты ещё не открыт.
+                # На английском сервере есть баг: HM12 отображается как закрытый, хотя фактически в него можно войти.
                 self.handle_info_bar()
                 self.campaign_ensure_chapter(chapter)
             return True
@@ -425,8 +425,8 @@ class CampaignUI(MapOperation, CampaignEvent, CampaignOcr):
                 self.campaign_ensure_aside_20241219('sp')
                 self.campaign_ensure_chapter(chapter)
                 return True
-            # 部分活动将普通关卡命名为 SP1/SP2...
-            # 将其路由到 page_event 并保持默认侧边栏。
+            # Некоторые события называют обычные этапы SP1/SP2...
+            # Направляем их на page_event и сохраняем боковую панель по умолчанию.
             if chapter in ['sp']:
                 self.ui_goto_event()
                 self.campaign_ensure_mode_20241219('combat')
@@ -441,11 +441,11 @@ class CampaignUI(MapOperation, CampaignEvent, CampaignOcr):
         if self.config.MAP_CHAPTER_SWITCH_20241219_SP:
             if self._campaign_name_is_hard(f'{chapter}{stage}'):
                 self.config.override(Campaign_Mode='hard')
-            # (空)、normal、sp、(空)
+            # (пусто), normal, sp, (пусто)
             if chapter in ['sp', 't', 'ht']:
                 self.ui_goto_event()
                 self.campaign_ensure_mode_20241219('combat')
-                # normal 位于 part2 的位置
+                # normal расположен на позиции part2
                 self.campaign_ensure_aside_20241219('part2')
                 self.campaign_ensure_chapter(chapter)
                 return True
@@ -464,7 +464,7 @@ class CampaignUI(MapOperation, CampaignEvent, CampaignOcr):
                 if chapter in ['sp', 't', 'ht']:
                     self.ui_goto_event()
                     self.campaign_ensure_mode_20241219('combat')
-                    # normal 位于 part2 的位置
+                    # normal расположен на позиции part2
                     self.campaign_ensure_aside_20241219('part2')
                     self.campaign_ensure_chapter(chapter)
                     return True
@@ -526,7 +526,7 @@ class CampaignUI(MapOperation, CampaignEvent, CampaignOcr):
             name (str): 战役名称，如 '7-2'、'd3'、'sp3'。
             mode (str): 'normal' 或 'hard'。
         """
-        # 特殊情况：d3_3 在章节导航中使用 d3
+        # Особый случай: d3_3 использует d3 при навигации по главам
         chapter_name = name
         if name == 'd3_3':
             chapter_name = 'd3'

@@ -34,12 +34,12 @@ class EnemySearchingHandler(InfoHandler):
         stage_entrance: 关卡入口标识。
         map_is_100_percent_clear (bool): 地图是否已 100% 通关，在 fast_forward.py 中被覆盖。
     """
-    MAP_ENEMY_SEARCHING_OVERLAY_TRANSPARENCY_THRESHOLD = 0.5  # 通常值为 (0.70, 0.80)
+    MAP_ENEMY_SEARCHING_OVERLAY_TRANSPARENCY_THRESHOLD = 0.5  # Обычное значение: (0.70, 0.80)
     MAP_ENEMY_SEARCHING_TIMEOUT_SECOND = 5
     in_stage_timer = Timer(0.5, count=2)
     stage_entrance = None
 
-    map_is_100_percent_clear = False  # 将在 fast_forward.py 中被覆盖
+    map_is_100_percent_clear = False  # Будет переопределено в fast_forward.py
 
     def enemy_searching_color_initial(self):
         """初始化敌人搜索动画的颜色参考值。
@@ -116,7 +116,7 @@ class EnemySearchingHandler(InfoHandler):
         Returns:
             bool: 关卡入口是否可见（页面已完全加载）。
         """
-        # campaign_extract_name_image 位于 CampaignOcr 中
+        # campaign_extract_name_image находится в CampaignOcr
         try:
             if hasattr(self, 'campaign_extract_name_image'):
                 del_cached_property(self, '_stage_image')
@@ -191,7 +191,7 @@ class EnemySearchingHandler(InfoHandler):
             else:
                 timeout.reset()
 
-            # 关卡可能已经结束，尽管此处预期出现敌人搜索动画
+            # Этап мог уже завершиться, хотя здесь ожидается анимация поиска противника
             if self.handle_in_stage():
                 return True
             # immediately enter submarine combat in W16
@@ -203,7 +203,7 @@ class EnemySearchingHandler(InfoHandler):
                 timeout.reset()
                 continue
 
-            # 弹窗处理
+            # Обработка всплывающих окон
             if self.handle_vote_popup():
                 timeout.limit = 10
                 timeout.reset()
@@ -221,7 +221,7 @@ class EnemySearchingHandler(InfoHandler):
                 timeout.reset()
                 continue
 
-            # 结束条件
+            # Условие завершения
             if self.enemy_searching_appear():
                 appeared = True
             else:
@@ -258,14 +258,14 @@ class EnemySearchingHandler(InfoHandler):
             if not self.is_in_map():
                 timeout.reset()
 
-            # 关卡可能已经结束，尽管此处预期出现敌人搜索动画
+            # Этап мог уже завершиться, хотя здесь ожидается анимация поиска противника
             if self.handle_in_stage():
                 return True
             if self.handle_auto_search_exit(drop=drop):
                 timeout.reset()
                 continue
 
-            # 弹窗处理
+            # Обработка всплывающих окон
             if self.handle_vote_popup():
                 timeout.reset()
                 continue
@@ -279,7 +279,7 @@ class EnemySearchingHandler(InfoHandler):
                 timeout.reset()
                 continue
 
-            # 结束条件
+            # Условие завершения
             if timeout.reached():
                 logger.info('[Обработчик — поиск] На карте не появилась анимация поиска противника')
                 break

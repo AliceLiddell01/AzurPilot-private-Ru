@@ -16,7 +16,7 @@ TEMPLATE_MAP_WALK_OUT_OF_STEP.pre_process = info_letter_preprocess
 class AmbushHandler(Combat):
     """伏击和空袭处理器，通过红色覆盖层透明度检测事件。"""
     MAP_AMBUSH_OVERLAY_TRANSPARENCY_THRESHOLD = 0.40
-    MAP_AIR_RAID_OVERLAY_TRANSPARENCY_THRESHOLD = 0.35  # 通常值为 (0.50, 0.53)
+    MAP_AIR_RAID_OVERLAY_TRANSPARENCY_THRESHOLD = 0.35  # Обычное значение: (0.50, 0.53)
     MAP_AIR_RAID_CONFIRM_SECOND = 0.5
 
     def ambush_color_initial(self):
@@ -44,11 +44,11 @@ class AmbushHandler(Combat):
 
         while 1:
             self.device.screenshot()
-            # 超时处理
+            # Обработка тайм-аута
             if timeout.reached():
                 logger.warning('[Карта — засада] Истекло время обработки воздушного налёта; предполагается, что он исчез')
                 break
-            # 检测是否消失
+            # Проверяем, исчез ли налёт
             if self._air_raid_appear():
                 disappear.reset()
             else:
@@ -58,11 +58,11 @@ class AmbushHandler(Combat):
     def _handle_ambush_evade(self):
         """处理伏击回避事件。"""
         logger.info('[Карта — засада] Обнаружена засада')
-        # 等待 MAP_AMBUSH_EVADE 出现
+        # Ждём появления MAP_AMBUSH_EVADE
         self.wait_until_appear(MAP_AMBUSH_EVADE, offset=(30, 30))
         self.handle_info_bar()
 
-        # 点击 MAP_AMBUSH_EVADE
+        # Нажимаем MAP_AMBUSH_EVADE
         skip_first_screenshot = True
         while 1:
             if skip_first_screenshot:
@@ -70,14 +70,14 @@ class AmbushHandler(Combat):
             else:
                 self.device.screenshot()
 
-            # 结束条件
+            # Условие завершения
             if self.info_bar_count():
                 break
 
             if self.appear_then_click(MAP_AMBUSH_EVADE, offset=(30, 30), interval=3):
                 continue
 
-        # 处理回避成功和失败
+        # Обрабатываем успешное и неудачное уклонение
         image = info_letter_preprocess(self.image_crop(INFO_BAR_DETECT, copy=False))
         if TEMPLATE_AMBUSH_EVADE_SUCCESS.match(image):
             logger.attr('Уклонение от засады', 'Успешно')
@@ -93,10 +93,10 @@ class AmbushHandler(Combat):
     def _handle_ambush_attack(self):
         """处理伏击迎击事件。"""
         logger.info('[Карта — засада] Обнаружена засада')
-        # 等待 MAP_AMBUSH_ATTACK 出现
+        # Ждём появления MAP_AMBUSH_ATTACK
         self.wait_until_appear(MAP_AMBUSH_ATTACK, offset=(30, 30))
 
-        # 点击 MAP_AMBUSH_ATTACK
+        # Нажимаем MAP_AMBUSH_ATTACK
         skip_first_screenshot = True
         while 1:
             if skip_first_screenshot:
@@ -104,7 +104,7 @@ class AmbushHandler(Combat):
             else:
                 self.device.screenshot()
 
-            # 结束条件
+            # Условие завершения
             if self.combat_appear():
                 break
 
@@ -115,7 +115,7 @@ class AmbushHandler(Combat):
             if self.handle_retirement():
                 continue
 
-        # 进入战斗
+        # Входим в бой
         logger.attr('Уклонение от засады', 'Вступить в бой')
         self.combat(expected_end='no_searching', fleet_index=self.fleet_show_index)
 

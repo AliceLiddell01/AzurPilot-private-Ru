@@ -64,11 +64,11 @@ def insert_swipe(p0, p3, speed=15, min_distance=10):
 
     distance = np.linalg.norm(p3 - p0)
 
-    # 贝塞尔曲线的随机控制点
+    # Случайные контрольные точки кривой Безье
     p1 = 2 / 3 * p0 + 1 / 3 * p3 + random_theta() * random_rho(distance * 0.1)
     p2 = 1 / 3 * p0 + 2 / 3 * p3 + random_theta() * random_rho(distance * 0.1)
 
-    # 贝塞尔曲线上的随机 `t` 值，中间稀疏，两端密集
+    # Случайные значения `t` на кривой Безье: реже в середине, плотнее по краям
     segments = max(int(distance / speed) + 1, 5)
     lower = random_normal_distribution(-85, -60)
     upper = random_normal_distribution(80, 90)
@@ -77,7 +77,7 @@ def insert_swipe(p0, p3, speed=15, min_distance=10):
     ts = np.sign(ts) * abs(ts) ** 0.9
     ts = (ts - min(ts)) / (max(ts) - min(ts))
 
-    # 生成三次贝塞尔曲线
+    # Генерируем кубическую кривую Безье
     points = []
     prev = (-100, -100)
     for t in ts:
@@ -89,7 +89,7 @@ def insert_swipe(p0, p3, speed=15, min_distance=10):
         points.append(point)
         prev = point
 
-    # 删除过近的点
+    # Удаляем слишком близкие точки
     if len(points[1:]):
         distance = np.linalg.norm(np.subtract(points[1:], points[0]), axis=1)
         mask = np.append(True, distance > min_distance)
@@ -270,10 +270,10 @@ class CommandBuilder:
 
         self.max_x, self.max_y = max_x, max_y
         if not self.device.config.DEVICE_OVER_HTTP:
-            # 最大 X 和 Y 坐标可能（但通常不会）与显示尺寸匹配
+            # Максимальные координаты X и Y могут (хотя обычно не должны) совпадать с размером дисплея
             x, y = int(x / 1280 * max_x), int(y / 720 * max_y)
         else:
-            # HTTP 模式下 max_x 和 max_y 默认为 1280 和 720，跳过显示尺寸匹配
+            # В HTTP-режиме max_x и max_y по умолчанию равны 1280 и 720; масштабирование под размер дисплея пропускаем
             x, y = int(x), int(y)
         return x, y
 
@@ -385,10 +385,10 @@ def retry(func):
                     time.sleep(retry_sleep(_))
                     init()
                 return func(self, *args, **kwargs)
-            # 无法处理
+            # Необрабатываемая ошибка
             except RequestHumanTakeover:
                 break
-            # ADB 服务被终止时
+            # При остановке службы ADB
             except ConnectionResetError as e:
                 logger.error(str(f'[Устройство — minitouch] Ошибка повторной попытки: {e}'))
 
@@ -397,7 +397,7 @@ def retry(func):
                     if self._minitouch_port:
                         self.adb_forward_remove(f'tcp:{self._minitouch_port}')
                     del_cached_property(self, '_minitouch_builder')
-            # 模拟器关闭
+            # Эмулятор выключен
             except ConnectionAbortedError as e:
                 logger.error(str(f'[Устройство — minitouch] Ошибка повторной попытки: {e}'))
 
@@ -406,7 +406,7 @@ def retry(func):
                     if self._minitouch_port:
                         self.adb_forward_remove(f'tcp:{self._minitouch_port}')
                     del_cached_property(self, '_minitouch_builder')
-            # MinitouchNotInstalledError: 从 minitouch 收到空数据
+            # MinitouchNotInstalledError: от minitouch получены пустые данные
             except MinitouchNotInstalledError as e:
                 logger.error(str(f'[Устройство — minitouch] Ошибка повторной попытки: {e}'))
 
@@ -415,7 +415,7 @@ def retry(func):
                     if self._minitouch_port:
                         self.adb_forward_remove(f'tcp:{self._minitouch_port}')
                     del_cached_property(self, '_minitouch_builder')
-            # MinitouchOccupiedError: 连接 minitouch 超时
+            # MinitouchOccupiedError: истекло время подключения к minitouch
             except MinitouchOccupiedError as e:
                 logger.error(str(f'[Устройство — minitouch] Ошибка повторной попытки: {e}'))
 
@@ -424,7 +424,7 @@ def retry(func):
                     if self._minitouch_port:
                         self.adb_forward_remove(f'tcp:{self._minitouch_port}')
                     del_cached_property(self, '_minitouch_builder')
-            # ADB 错误
+            # Ошибка ADB
             except AdbError as e:
                 if handle_adb_error(e):
                     def init():
@@ -446,10 +446,10 @@ def retry(func):
 
                 def init():
                     del_cached_property(self, '_minitouch_builder')
-            # 无法处理 - 必须向上抛出以触发模拟器重启
+            # Необрабатываемая ошибка — обязательно пробрасываем выше, чтобы запустить перезапуск эмулятора
             except EmulatorNotRunningError:
                 raise
-            # 未知异常，可能是图像损坏
+            # Неизвестное исключение, возможно повреждение изображения
             except Exception as e:
                 logger.exception(str(f'[Устройство — minitouch] Ошибка повторной попытки: {e}'))
 
@@ -485,7 +485,7 @@ class Minitouch(Connection):
 
     @property
     def minitouch_builder(self):
-        # 等待初始化线程完成
+        # Ждём завершения потока инициализации
         if self._minitouch_init_thread is not None:
             self._minitouch_init_thread.join()
             del self._minitouch_init_thread
@@ -563,7 +563,7 @@ class Minitouch(Connection):
             self._minitouch_socket_file = socket_out
 
             # v <version>
-            # 协议版本，通常为 1，无需使用
+            # Версия протокола, обычно 1; использовать её не требуется
             try:
                 out = socket_out.readline().replace("\n", "").replace("\r", "")
             except socket.timeout:
@@ -589,7 +589,7 @@ class Minitouch(Connection):
                         '[Устройство — minitouch] Получены пустые данные; вероятно, minitouch не установлен'
                     )
                 else:
-                    # minitouch 可能启动没那么快
+                    # minitouch может запускаться не так быстро
                     self.sleep(1)
                     continue
 
@@ -672,9 +672,9 @@ class Minitouch(Connection):
 
         async def connect():
             ws = await websockets.connect(url)
-            # 启动 @minitouch 服务
+            # Запускаем службу @minitouch
             logger.info(await ws.recv())
-            # 连接 unix:@minitouch
+            # Подключаемся к unix:@minitouch
             logger.info(await ws.recv())
             return ws
 

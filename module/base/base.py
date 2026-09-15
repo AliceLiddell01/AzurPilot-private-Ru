@@ -8,8 +8,8 @@ from typing import Tuple, Union
 
 from module.base.button import Button
 from module.base.decorator import cached_property
-# 此文件定义了 Alas 逻辑模块的最高基类 ModuleBase。
-# 作为所有具体功能模块（如出击、大世界、每日任务等）的公共祖先，它整合了 UI 导航、任务循环控制及基本异常处理逻辑。
+# Этот файл определяет высший базовый класс логических модулей Alas — ModuleBase.
+# Как общий предок всех конкретных функциональных модулей, он объединяет UI-навигацию, управление циклами задач и базовую обработку исключений.
 from module.base.timer import Timer
 from module.base.utils import *
 from module.combat.emotion import Emotion
@@ -281,7 +281,7 @@ class ModuleBase:
                 self.device.sleep(self.config.WAIT_BEFORE_SAVING_SCREEN_SHOT)
                 self.device.screenshot()
                 self.device.save_screenshot(genre=genre)
-            self.device.sleep(0.1)  # 因为点击太快被多退役了一艘联动金船惨案QAQ
+            self.device.sleep(0.1)  # Трагический случай: из-за слишком быстрого клика отправили в отставку лишний золотой корабль коллаборации QAQ
             self.device.click(button)
         return appear
 
@@ -382,7 +382,7 @@ class ModuleBase:
         image = color_similarity_2d(self.image_crop(area, copy=False), color=color)
         points = np.array(np.where(image > color_threshold)).T[:, ::-1]
         if points.shape[0] < encourage ** 2:
-            # 匹配像素不足，无法生成有效按钮
+            # Недостаточно подходящих пикселей для создания корректной кнопки
             return None
 
         point = fit_points(points, mod=image_size(image), encourage=encourage)

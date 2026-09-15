@@ -14,8 +14,8 @@
 - SERVER_TO_TIMEZONE: 服务器到时区的映射
 """
 
-# 此文件提供了配置管理相关的通用工具函数。
-# 包含 JSON/YAML 读写、数据类型解析转换、服务器特定时间计算以及随机 ID 生成等底层功能。
+# Этот файл содержит общие вспомогательные функции для управления конфигурацией.
+# Здесь находятся низкоуровневые операции JSON/YAML, преобразование типов, серверное время и генерация случайных ID.
 import json
 import random
 import string
@@ -46,7 +46,7 @@ DEFAULT_CONFIG_NAME = 'ap'
 
 # https://stackoverflow.com/questions/8640959/how-can-i-control-what-scalar-form-pyyaml-uses-for-my-data/15423007
 def str_presenter(dumper, data):
-    if len(data.splitlines()) > 1:  # 多行字符串使用块样式
+    if len(data.splitlines()) > 1:  # Для многострочных строк используем блочный стиль
         return dumper.represent_scalar('tag:yaml.org,2002:str', data, style='|')
     return dumper.represent_scalar('tag:yaml.org,2002:str', data)
 
@@ -237,7 +237,7 @@ def parse_value(value, data):
         return value
 
     if data.get('type') == 'checkbox' and isinstance(value, list):
-        # PyWebIO checkbox 关闭时返回 []，打开时返回 [True]。
+        # Выключенный checkbox PyWebIO возвращает [], включённый — [True].
         return any(bool(v) for v in value)
 
     if data.get('type') == 'multiselect':
@@ -522,7 +522,7 @@ def get_nearest_weekday_date(target):
 
     days_ahead = target - server_now.weekday()
     if days_ahead <= 0:
-        # 目标日期已过，跳到下周
+        # Целевая дата уже прошла — переходим на следующую неделю
         days_ahead += 7
     server_reset = (server_now + timedelta(days=days_ahead)) \
         .replace(hour=0, minute=0, second=0, microsecond=0)
@@ -693,7 +693,7 @@ def is_good_gpu():
             line = line.strip()
             if line:
                 try:
-                    # AdapterRAM 单位为字节，1GB = 1073741824 字节
+                    # AdapterRAM указывается в байтах: 1 ГБ = 1073741824 байта
                     if int(line) >= 1073741824:
                         logger.info("[Конфигурация] Обнаружен производительный GPU")
                         return True

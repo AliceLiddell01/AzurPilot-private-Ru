@@ -28,10 +28,10 @@ def retry(func):
                     time.sleep(retry_sleep(_))
                     init()
                 return func(self, *args, **kwargs)
-            # 不可处理
+            # Не обрабатывается
             except RequestHumanTakeover:
                 break
-            # adb server 被终止时
+            # Когда adb server остановлен
             except ConnectionResetError as e:
                 logger.error(str(f'[Устройство — WSA] Ошибка повторной попытки: {e}'))
 
@@ -48,13 +48,13 @@ def retry(func):
                         self.adb_reconnect()
                 else:
                     break
-            # 包未安装
+            # Пакет не установлен
             except PackageNotInstalled as e:
                 logger.error(str(f'[Устройство — WSA] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.detect_package()
-            # 未知异常，可能是损坏的图像
+            # Неизвестное исключение; возможно повреждено изображение
             except Exception as e:
                 logger.exception(str(f'[Устройство — WSA] Ошибка повторной попытки: {e}'))
 
@@ -78,7 +78,7 @@ class WSA(Connection):
         Raises:
             OSError
         """
-        # 尝试: adb shell dumpsys activity top
+        # Пробуем: adb shell dumpsys activity top
         _activityRE = re.compile(
             r'ACTIVITY (?P<package>[^\s]+)/(?P<activity>[^/\s]+) \w+ pid=(?P<pid>\d+)'
         )
@@ -149,7 +149,7 @@ class WSA(Connection):
             display_id = int(display_id_list[0])
             return display_id
         except IndexError:
-            return 0  # 当游戏运行在 display 0 上时，其 display id 无法被找到
+            return 0  # Если игра работает на display 0, его display id определить невозможно
 
     @retry
     def display_resize_wsa(self, display):

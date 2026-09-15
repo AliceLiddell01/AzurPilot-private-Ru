@@ -40,19 +40,19 @@ def retry(func):
                     time.sleep(retry_sleep(_))
                     init()
                 return func(self, *args, **kwargs)
-            # 无法处理
+            # Не обрабатывается
             except RequestHumanTakeover:
                 break
-            # 无法处理 - 必须向上抛出以触发模拟器重启
+            # Не обрабатывается — исключение нужно пробросить выше, чтобы перезапустить эмулятор
             except EmulatorNotRunningError:
                 raise
-            # ADB 服务被终止时
+            # Когда служба ADB остановлена
             except ConnectionResetError as e:
                 logger.error(str(f'[Устройство — ADB] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.adb_reconnect()
-            # ADB 错误
+            # Ошибка ADB
             except AdbError as e:
                 if handle_adb_error(e):
                     def init():
@@ -63,20 +63,20 @@ def retry(func):
                         self.adb_reconnect()
                 else:
                     break
-            # 应用未安装
+            # Приложение не установлено
             except PackageNotInstalled as e:
                 logger.error(str(f'[Устройство — ADB] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.detect_package()
-            # 图像数据截断
+            # Данные изображения обрезаны
             except ImageTruncated as e:
                 from module.device.method.utils import handle_image_truncated
                 handle_image_truncated(self, e)
 
                 def init():
                     pass
-            # 未知异常
+            # Неизвестное исключение
             except Exception as e:
                 logger.exception(str(f'[Устройство — ADB] Ошибка повторной попытки: {e}'))
 
@@ -105,13 +105,13 @@ def load_screencap(data):
     Returns:
         解析后的 RGB 图像。
     """
-    # 加载数据
+    # Загружаем данные
     if data is None or len(data) < 12:
         raise ImageTruncated('Пустые или неполные данные screencap')
 
     header = np.frombuffer(data[0:12], dtype=np.uint32)
-    channel = 4  # screencap 发送 RGBA 格式图像
-    width, height, _ = header  # 通常为 1280, 720, 1
+    channel = 4  # screencap передаёт изображение в формате RGBA
+    width, height, _ = header  # Обычно 1280, 720, 1
 
     if data is None or len(data) == 0:
         raise ImageTruncated('Пустые данные изображения от screencap')
@@ -235,12 +235,12 @@ class Adb(Connection):
         Note:
             reset_uiautomator 函数依赖此方法，因此不能在此使用 jsonrpc。
         """
-        # 相关 issue: https://github.com/openatx/uiautomator2/issues/200
+        # Связанный issue: https://github.com/openatx/uiautomator2/issues/200
         # $ adb shell dumpsys window windows
-        # 输出示例:
+        # Пример вывода:
         #   mCurrentFocus=Window{41b37570 u0 com.incall.apps.launcher/com.incall.apps.launcher.Launcher}
         #   mFocusedApp=AppWindowToken{422df168 token=Token{422def98 ActivityRecord{422dee38 u0 com.example/.UI.play.PlayActivity t14}}}
-        # 正则表达式
+        # Регулярные выражения
         #   r'mFocusedApp=.*ActivityRecord{\w+ \w+ (?P<package>.*)/(?P<activity>.*) .*'
         #   r'mCurrentFocus=Window{\w+ \w+ (?P<package>.*)/(?P<activity>.*)\}')
         _focusedRE = re.compile(
@@ -250,7 +250,7 @@ class Adb(Connection):
         if m:
             return m.group('package')
 
-        # 尝试: adb shell dumpsys activity top
+        # Пробуем: adb shell dumpsys activity top
         _activityRE = re.compile(
             r'ACTIVITY (?P<package>[^\s]+)/(?P<activity>[^/\s]+) \w+ pid=(?P<pid>\d+)'
         )
@@ -259,7 +259,7 @@ class Adb(Connection):
         ret = None
         for m in ms:
             ret = m.group('package')
-        if ret:  # 取最后一个结果
+        if ret:  # Берём последний результат
             return ret
         raise OSError('[Устройство] Не удалось определить активное приложение')
 
@@ -342,7 +342,7 @@ class Adb(Connection):
         if self.is_local_network_device and self.is_waydroid:
             cmd += ['--windowingMode', '4']
         ret = self.adb_shell(cmd)
-        # 无效 Activity
+        # Недопустимая Activity
         # Starting: Intent { act=android.intent.action.MAIN cat=[android.intent.category.LAUNCHER] cmp=... }
         # Error type 3
         # Error: Activity class {.../...} does not exist.
@@ -352,12 +352,12 @@ class Adb(Connection):
             else:
                 logger.error(ret)
                 return False
-        # 已在运行
+        # Уже запущено
         # Warning: Activity not started, intent has been delivered to currently running top-most instance.
         if 'Warning: Activity not started' in ret:
             logger.info('Activity приложения запущена')
             return True
-        # 权限拒绝
+        # Отказ в разрешении
         # Starting: Intent { act=android.intent.action.MAIN cat=[android.intent.category.LAUNCHER] cmp=com.YoStarEN.AzurLane/com.manjuu.azurlane.MainActivity }
         # java.lang.SecurityException: Permission Denial: ...
         if 'Permission Denial' in ret:
@@ -367,11 +367,11 @@ class Adb(Connection):
                 logger.error(ret)
                 logger.error('[Устройство — ADB] Отказ в разрешении при запуске приложения; вероятно, указана недопустимая Activity')
                 return False
-        # 启动成功
+        # Запуск успешен
         # Starting: Intent...
         return True
 
-    # 不使用 @retry 装饰器，因为 _app_start_adb_am 和 _app_start_adb_monkey 已经有 @retry
+    # Не используем декоратор @retry, поскольку _app_start_adb_am и _app_start_adb_monkey уже имеют @retry
     # @retry
     def app_start_adb(self, package_name=None, activity_name=None, allow_failure=False):
         """
@@ -423,10 +423,10 @@ class Adb(Connection):
         Returns:
             解析后的 XML 层级结构。
         """
-        # 删除已有文件
+        # Удаляем существующий файл
         # self.adb_shell(['rm', '/data/local/tmp/hierarchy.xml'])
 
-        # 导出层级结构
+        # Экспортируем иерархию
         for _ in range(2):
             response = self.adb_shell(['uiautomator', 'dump', '--compressed', temp])
             if 'hierchary' in response:
@@ -434,12 +434,12 @@ class Adb(Connection):
                 break
             else:
                 # <None>
-                # 必须终止 uiautomator2
+                # Нужно остановить uiautomator2
                 self.app_stop_adb('com.github.uiautomator')
                 self.app_stop_adb('com.github.uiautomator.test')
                 continue
 
-        # 从设备读取
+        # Читаем с устройства
         content = b''
         for chunk in self.adb.sync.iter_content(temp):
             if chunk:
@@ -447,6 +447,6 @@ class Adb(Connection):
             else:
                 break
 
-        # 使用 lxml 解析
+        # Разбираем через lxml
         hierarchy = etree.fromstring(content)
         return hierarchy

@@ -25,9 +25,9 @@ class BattlePass(Combat, UI):
             in: page_reward
         """
         if self.appear(REWARD_GOTO_BATTLE_PASS, offset=(50, 150)):
-            # 从 REWARD_GOTO_BATTLE_PASS 加载按钮偏移，因为入口可能不在最上方。
+            # Загружаем смещение кнопки из REWARD_GOTO_BATTLE_PASS, потому что вход может находиться не в самом верху.
             BATTLE_PASS_RED_DOT.load_offset(REWARD_GOTO_BATTLE_PASS)
-            # 此处不使用 self.appear()，因为红点是透明的，颜色会随背景变化。
+            # Здесь не используем self.appear(): красная точка прозрачная, поэтому её цвет меняется вместе с фоном.
             r, _, _ = get_color(self.device.image, BATTLE_PASS_RED_DOT.button)
             if r > BATTLE_PASS_RED_DOT.color[0] - 40:
                 logger.info('[Бонусы — боевой пропуск] Найдена красная точка боевого пропуска')
@@ -99,7 +99,7 @@ class BattlePass(Combat, UI):
                     confirm_timer.reset()
                     continue
             if self.handle_popup_confirm('BATTLE_PASS'):
-                # 锁定新 META 舰船
+                # Блокировка нового корабля META
                 confirm_timer.reset()
                 continue
             if self.handle_get_items():
@@ -115,7 +115,7 @@ class BattlePass(Combat, UI):
                 confirm_timer.reset()
                 continue
 
-            # 结束
+            # Завершение
             if self.appear(BATTLE_PASS_CHECK, offset=(20, 20)) \
                     and not self.appear(REWARD_RECEIVE, offset=(20, 20)) \
                     and not self.appear(REWARD_RECEIVE_WHITE, offset=(20, 20)):

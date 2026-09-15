@@ -4,8 +4,8 @@
 包含行动力数值的 OCR 识别、适应性属性读取、药剂（AP Box）库存解析，
 以及自动购买或使用补给品的交互逻辑。
 """
-# 此文件处理大世界（Operation Siren）模式下的行动力（Action Point, AP）管理。
-# 包含行动力数值 OCR 识别、药剂（AP Box）库存解析以及自动购买或使用补给的交互逻辑。
+# Этот файл обрабатывает очки действия (Action Point, AP) в режиме Операции «Сирена» (Operation Siren).
+# Включает OCR очков действия, разбор запасов контейнеров AP и автоматическую покупку или использование припасов.
 from datetime import timedelta
 
 import module.config.server as server
@@ -38,7 +38,7 @@ class ActionPointBuyCounter(DigitCounter):
     def after_process(self, result):
         result = super().after_process(result)
 
-        # 可能的结果: 0/5, 05
+        # Возможные результаты: 0/5, 05
         if result == '05':
             result = '0/5'
 
@@ -46,11 +46,11 @@ class ActionPointBuyCounter(DigitCounter):
 
 
 if server.server != 'jp':
-    # ACTION_POINT_BUY_REMAIN 中的字符不是碧蓝航线通常使用的数字字体
+    # Шрифт символов в ACTION_POINT_BUY_REMAIN отличается от обычного цифрового шрифта Azur Lane
     OCR_ACTION_POINT_BUY_REMAIN = ActionPointBuyCounter(
         ACTION_POINT_BUY_REMAIN, letter=(148, 247, 99), lang='azur_lane', name='OCR_ACTION_POINT_BUY_REMAIN')
 else:
-    # 日服中 ACTION_POINT_BUY_REMAIN 的数字颜色为白色，国服和国际服为浅绿色
+    # На JP-сервере цифры ACTION_POINT_BUY_REMAIN белые, а на CN и EN — светло-зелёные
     OCR_ACTION_POINT_BUY_REMAIN = ActionPointBuyCounter(
         ACTION_POINT_BUY_REMAIN, letter=(255, 255, 255), lang='azur_lane', name='OCR_ACTION_POINT_BUY_REMAIN')
 
@@ -83,7 +83,7 @@ ACTION_POINTS_COST = {
     6: 40,
 }
 ACTION_POINTS_COST_OBSCURE = {
-    1: 10,  # CL1 实际上没有隐秘海域
+    1: 10,  # В CL1 фактически нет скрытых зон
     2: 10,
     3: 20,
     4: 20,
@@ -93,7 +93,7 @@ ACTION_POINTS_COST_OBSCURE = {
 ACTION_POINTS_COST_ABYSSAL = {
     1: 80,
     2: 80,
-    3: 80,  # CL4 以下实际上没有深渊海域
+    3: 80,  # Ниже CL4 фактически нет бездонных зон
     4: 80,
     5: 100,
     6: 100,
@@ -215,7 +215,7 @@ class ActionPointHandler(UI, MapEventHandler):
         self._action_point_current = current
         self._action_point_box = box
         self._action_point_total = total
-        # 处理超出上限的情况
+        # Обрабатываем превышение верхнего предела
         if total > 3000:
             self.config.override(OpsiGeneral_DoRandomMapEvent=False)
 
@@ -227,13 +227,13 @@ class ActionPointHandler(UI, MapEventHandler):
         """
         timeout = Timer(3, count=6).start()
         for _ in self.loop():
-            # 结束
+            # Завершение
             if self.is_current_ap_visible():
                 break
             if timeout.reached():
                 logger.warning('[Операция «Сирена» — очки действия] Истекло время получения очков действия')
                 break
-            # 处理行动力弹窗上方的强制地图事件
+            # Обрабатываем обязательные события карты поверх окна очков действия
             if self.handle_map_event():
                 timeout.reset()
                 continue
@@ -249,27 +249,27 @@ class ActionPointHandler(UI, MapEventHandler):
             if timeout.reached():
                 logger.warning('[Операция «Сирена» — очки действия] Истекло время получения очков действия')
                 break
-            # 处理行动力弹窗上方的强制地图事件
+            # Обрабатываем обязательные события карты поверх окна очков действия
             if self.handle_map_event():
                 timeout.reset()
                 continue
 
             self.action_point_update()
 
-            # 当前行动力过多，可能是 OCR 错误
+            # Текущих очков действия слишком много — возможно, ошибка OCR
             if self._action_point_current > 600:
                 continue
 
             oil, boxes = self._action_point_box[0], self._action_point_box[1:]
-            # 拥有药剂
+            # Есть контейнеры очков действия
             if sum(boxes) > 0:
                 if oil > 100:
                     break
                 else:
                     # [11, 0, 1, 0]
                     continue
-            # 或者拥有石油
-            # 页面未完全加载时可能为 0 或 1
+            # Либо есть нефть
+            # Пока страница загружена не полностью, значение может быть 0 или 1
             # [1, 0, 0, 0]
             if oil > 100:
                 break
@@ -315,8 +315,8 @@ class ActionPointHandler(UI, MapEventHandler):
         for index, item in enumerate(ACTION_POINT_GRID.buttons):
             area = item.area
             color = get_color(self.device.image, area=(area[0], area[3] + 5, area[2], area[3] + 10))
-            # 激活的按钮会变蓝
-            # 激活: 196, 未激活: 118 ~ 123
+            # Активная кнопка становится синей
+            # Активная: 196, неактивная: 118 ~ 123
             if color[2] > 160:
                 return index
 
@@ -358,7 +358,7 @@ class ActionPointHandler(UI, MapEventHandler):
 
             current, _, total = OCR_ACTION_POINT_BUY_REMAIN.ocr(self.device.image)
 
-            # 可能的结果: 0/5, 05
+            # Возможные результаты: 0/5, 05
             if total == 0:
                 continue
 
@@ -383,7 +383,7 @@ class ActionPointHandler(UI, MapEventHandler):
         """
         self.action_point_set_button(0)
         current = self.action_point_get_buy_remain()
-        buy_max = 5  # 当前版本中，玩家每周可购买 5 次行动力
+        buy_max = 5  # В текущей версии игрок может покупать очки действия 5 раз в неделю
         buy_count = buy_max - current
         buy_limit = self.config.OpsiGeneral_BuyActionPointLimit
         if self._is_in_month_end_purchase_block_week():
@@ -411,16 +411,16 @@ class ActionPointHandler(UI, MapEventHandler):
             out: page_os
         """
         for _ in self.loop():
-            # 结束
-            # 有时行动力弹窗没有黑色模糊背景
-            # ACTION_POINT_CANCEL 和 OS_CHECK 同时出现
+            # Завершение
+            # Иногда у окна очков действия нет чёрного размытого фона
+            # ACTION_POINT_CANCEL и OS_CHECK появляются одновременно
             if not self.appear(ACTION_POINT_CANCEL, offset=(20, 20)):
                 if self.appear(OS_CHECK, offset=(20, 20)):
                     break
-            # 点击
+            # Нажатие
             if self.appear_then_click(ACTION_POINT_CANCEL, offset=(20, 20), interval=3):
                 continue
-            # 处理行动力弹窗上方的强制地图事件
+            # Обрабатываем обязательные события карты поверх окна очков действия
             if self.handle_map_event():
                 continue
 
@@ -447,13 +447,13 @@ class ActionPointHandler(UI, MapEventHandler):
         if not self._is_in_action_point():
             return False
 
-        # 行动力药剂有显示动画
+        # У контейнеров очков действия есть анимация появления
         self.action_point_safe_get()
         if cost is None:
             cost = self.action_point_get_cost(zone, pinned)
         buy_checked = False
 
-        # 检查剩余行动力
+        # Проверяем оставшиеся очки действия
         if check_rest_ap:
             diff = get_server_next_update('00:00') - current_time()
             today_rest = int(diff.total_seconds() // 600)
@@ -462,7 +462,7 @@ class ActionPointHandler(UI, MapEventHandler):
                 logger.info(f'[Операция «Сирена» — очки действия] Текущие={self._action_point_current}, доступно сегодня={today_rest}')
                 keep_current_ap = False
 
-        # 先检查行动力
+        # Сначала проверяем очки действия
         if keep_current_ap:
             if self._action_point_total <= self.config.OS_ACTION_POINT_PRESERVE:
                 logger.info(f'[Операция «Сирена» — очки действия] Достигнут предел очков действия, резерв={self.config.OS_ACTION_POINT_PRESERVE}')
@@ -474,13 +474,13 @@ class ActionPointHandler(UI, MapEventHandler):
                 )
 
         for _ in range(12):
-            # 拥有足够的行动力
+            # Очков действия достаточно
             if self._action_point_current >= cost:
                 logger.info('[Операция «Сирена» — очки действия] Очков действия достаточно')
                 self.action_point_quit()
                 return True
 
-            # 购买行动力
+            # Покупаем очки действия
             if self.config.OpsiGeneral_BuyActionPointLimit > 0 and not buy_checked:
                 if self.action_point_buy(preserve=self.config.OpsiGeneral_OilLimit):
                     self.action_point_safe_get()
@@ -488,8 +488,8 @@ class ActionPointHandler(UI, MapEventHandler):
                 else:
                     buy_checked = True
 
-            # 重新检查总行动力是否小于消耗
-            # 如果是，则跳过使用药剂
+            # Повторно проверяем, меньше ли общий запас очков действия требуемого расхода
+            # Если да, использование контейнеров пропускаем
             if self._action_point_total < cost:
                 logger.info('[Операция «Сирена» — очки действия] Недостаточно очков действия')
                 self.action_point_quit()
@@ -499,7 +499,7 @@ class ActionPointHandler(UI, MapEventHandler):
                     cost=cost,
                 )
 
-            # 排序行动力药剂
+            # Сортируем контейнеры очков действия
             box = []
             for index in [3, 2, 1]:
                 if self._action_point_box[index] > 0:
@@ -508,7 +508,7 @@ class ActionPointHandler(UI, MapEventHandler):
                     else:
                         box.insert(0, index)
 
-            # 使用行动力药剂
+            # Используем контейнер очков действия
             if len(box):
                 if self._action_point_total > self.config.OS_ACTION_POINT_PRESERVE:
                     self.action_point_set_button(box[0])
@@ -550,7 +550,7 @@ class ActionPointHandler(UI, MapEventHandler):
                 self.device.click(ACTION_POINT_REMAIN_OS)
                 continue
             if self.handle_map_event():
-                # 剧情是透明的，处理剧情时可能检测到 OS_CHECK
+                # Сюжет прозрачен, поэтому при его обработке может определяться OS_CHECK
                 self.interval_reset(OS_CHECK)
                 continue
             if self.appear_then_click(AUTO_SEARCH_REWARD, offset=(50, 50)):
@@ -577,7 +577,7 @@ class ActionPointHandler(UI, MapEventHandler):
         if not self.handle_action_point(zone, pinned, cost, keep_current_ap, check_rest_ap):
             return False
 
-        # 等待行动力弹窗关闭
+        # Ждём закрытия окна очков действия
         for _ in self.loop():
             if self.appear(IN_MAP, offset=(200, 5)):
                 break

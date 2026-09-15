@@ -61,13 +61,13 @@ def remove_duplicated_path(paths):
 @dataclass
 class EmulatorInstanceBase:
     """模拟器实例的基类数据结构。"""
-    # ADB 连接用的序列号
+    # Серийный номер для подключения ADB
     serial: str
-    # 模拟器实例名称，用于启停模拟器
+    # Имя экземпляра эмулятора, используется для запуска и остановки
     name: str
-    # 模拟器 .exe 文件路径
+    # Путь к .exe-файлу эмулятора
     path: str
-    # 特定模拟器的附加字段（可选）
+    # Дополнительное поле конкретного эмулятора (необязательно)
     index: int = 0
     state: str = ''
 
@@ -162,7 +162,7 @@ class EmulatorInstanceBase:
 
 class EmulatorBase:
     """模拟器基类，定义模拟器类型常量和通用接口。"""
-    # 此处的值必须与 argument.yaml 中 EmulatorInfo.Emulator.option 保持一致
+    # Значения здесь должны совпадать с EmulatorInfo.Emulator.option в argument.yaml
     NoxPlayer = 'NoxPlayer'
     NoxPlayer64 = 'NoxPlayer64'
     NoxPlayerFamily = [NoxPlayer, NoxPlayer64]
@@ -181,7 +181,7 @@ class EmulatorBase:
     MuMuPlayer12 = 'MuMuPlayer12'
     MuMuPlayerFamily = [MuMuPlayer, MuMuPlayerX, MuMuPlayer12]
     MEmuPlayer = 'MEmuPlayer'
-    # Mac 模拟器
+    # Эмуляторы для Mac
     BlueStacksAir = 'BlueStacksAir'
     MuMuPro = 'MuMuPro'
     MacEmulatorFamily = [BlueStacksAir, MuMuPro]
@@ -219,11 +219,11 @@ class EmulatorBase:
         pass
 
     def __init__(self, path):
-        # .exe 文件路径
+        # Путь к .exe-файлу
         self.path = path.replace('\\', '/')
-        # 模拟器安装目录
+        # Каталог установки эмулятора
         self.dir = os.path.dirname(path)
-        # str: 模拟器类型，如果不是模拟器则为空字符串
+        # str: тип эмулятора; пустая строка, если это не эмулятор
         self.type = self.__class__.path_to_type(path)
 
     def __eq__(self, other):
@@ -322,7 +322,7 @@ class EmulatorManagerBase:
         out = []
         for emulator in self.all_emulator_instances:
             out.append(emulator.serial)
-            # 同时添加 `emulator-5554` 格式的序列号
+            # Также добавляем serial в формате `emulator-5554`
             port_serial, emu_serial = get_serial_pair(emulator.serial)
             if emu_serial:
                 out.append(emu_serial)

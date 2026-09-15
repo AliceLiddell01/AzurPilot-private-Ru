@@ -30,7 +30,7 @@ class OpsiArchive(OSMap):
 
         shop = VoucherShop(self.config, self.device)
         while True:
-            # 防止日志仪被手动购买，先完成已存在的档案坐标
+            # Сначала завершаем имеющиеся архивные координаты, чтобы логгер не был куплен вручную
             self.os_finish_daily_mission(
                 skip_siren_mission=self.config.cross_get('OpsiDaily.OpsiDaily.SkipSirenResearchMission'),
                 question=False, rescan=False)
@@ -42,7 +42,7 @@ class OpsiArchive(OSMap):
             if not bought:
                 break
 
-        # 延迟到最近的周三重置
+        # Откладываем до ближайшего сброса в среду
         next_reset = get_nearest_weekday_date(target=2)
         logger.info('Архивные координаты завершены и отложены до следующего сброса')
         logger.attr('Следующий сброс Операции «Сирена»', next_reset)

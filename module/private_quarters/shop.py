@@ -52,10 +52,10 @@ class PQShopItemGrid(ItemGrid):
         super().predict(image, name, amount, cost, price, tag)
 
         for item in self.items:
-            # 初始化默认值
+            # Инициализируем значения по умолчанию
             item.group, item.sub_genre, item.tier = None, None, None
 
-            # 通过正则表达式快速填充过滤属性
+            # Быстро заполняем атрибуты фильтра через регулярное выражение
             name = item.name
             result = re.search(FILTER_REGEX, name)
             if result:
@@ -176,7 +176,7 @@ class PQShop(PQShopClerk, PQStatus):
         Returns:
             Item: 待购买的商品，无可买项时返回 None
         """
-        # 加载过滤条件，应用过滤，返回第一个结果
+        # Загружаем условия фильтра, применяем фильтрацию и возвращаем первый результат
         FILTER.load(self.shop_filter)
         filtered = FILTER.apply(items, self.shop_check_item)
 

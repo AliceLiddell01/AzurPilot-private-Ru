@@ -42,18 +42,18 @@ def retry(func):
                     time.sleep(retry_sleep(_))
                     init()
                 return func(self, *args, **kwargs)
-            # 无法处理
+            # Обработать невозможно
             except RequestHumanTakeover:
                 break
-            # ADB 服务被终止时
+            # Если служба ADB была завершена
             except ConnectionResetError as e:
                 logger.error(str(f'[Устройство — MaaTouch] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.adb_reconnect()
                     del_cached_property(self, '_maatouch_builder')
-            # MaaTouch 同步超时
-            # 可能是因为 ADB 服务被终止
+            # Тайм-аут синхронизации MaaTouch
+            # Возможно, служба ADB была завершена
             except MaaTouchSyncTimeout as e:
                 logger.error(str(f'[Устройство — MaaTouch] Ошибка повторной попытки: {e}'))
 
@@ -61,14 +61,14 @@ def retry(func):
                     self.adb_reconnect()
                     del_cached_property(self, '_maatouch_builder')
                     self.reset_maatouch()
-            # 模拟器关闭
+            # Эмулятор закрыт
             except ConnectionAbortedError as e:
                 logger.error(str(f'[Устройство — MaaTouch] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.adb_reconnect()
                     del_cached_property(self, '_maatouch_builder')
-            # ADB 错误
+            # Ошибка ADB
             except AdbError as e:
                 if handle_adb_error(e):
                     def init():
@@ -81,7 +81,7 @@ def retry(func):
                         del_cached_property(self, '_maatouch_builder')
                 else:
                     break
-            # MaaTouchNotInstalledError: 从 MaaTouch 收到 "Aborted"
+            # MaaTouchNotInstalledError: от MaaTouch получено "Aborted"
             except MaaTouchNotInstalledError as e:
                 logger.error(str(f'[Устройство — MaaTouch] Ошибка повторной попытки: {e}'))
 
@@ -93,10 +93,10 @@ def retry(func):
 
                 def init():
                     del_cached_property(self, '_maatouch_builder')
-            # 无法处理 - 必须向上抛出以触发模拟器重启
+            # Обработать невозможно — исключение нужно пробросить выше, чтобы перезапустить эмулятор
             except EmulatorNotRunningError:
                 raise
-            # 未知异常，可能是图像损坏
+            # Неизвестное исключение; возможно, изображение повреждено
             except Exception as e:
                 logger.exception(str(f'[Устройство — MaaTouch] Ошибка повторной попытки: {e}'))
 
@@ -164,13 +164,13 @@ class MaaTouch(Connection):
 
     @property
     def maatouch_builder(self):
-        # 等待初始化线程完成
+        # Ждём завершения потока инициализации
         if self._maatouch_init_thread is not None:
             self._maatouch_init_thread.join()
             del self._maatouch_init_thread
             self._maatouch_init_thread = None
 
-        # 返回空的 builder
+        # Возвращаем пустой builder
         self._maatouch_builder.clear()
         return self._maatouch_builder
 
@@ -209,7 +209,7 @@ class MaaTouch(Connection):
         max_contacts = 2
         max_pressure = 50
 
-        # 尝试关闭已有连接
+        # Пытаемся закрыть существующее соединение
         if self._maatouch_stream is not None:
             try:
                 self._maatouch_stream.close()
@@ -219,7 +219,7 @@ class MaaTouch(Connection):
         if self._maatouch_stream_storage is not None:
             del self._maatouch_stream_storage
 
-        # MaaTouch 在启动时缓存设备方向
+        # MaaTouch кэширует ориентацию устройства при запуске
         super(MaaTouch, self).get_orientation()
         self._maatouch_orientation = self.orientation
 
@@ -229,7 +229,7 @@ class MaaTouch(Connection):
             stream=True,
             recvall=False
         )
-        # 防止 shell stream 被删除导致 socket 关闭
+        # Сохраняем shell stream, чтобы удаление объекта не закрыло socket
         self._maatouch_stream_storage = stream
         stream = stream.conn
         stream.settimeout(10)
@@ -238,8 +238,8 @@ class MaaTouch(Connection):
         retry_timeout = Timer(5).start()
         while 1:
             # v <version>
-            # 协议版本，通常为 1，无需使用
-            # 获取 maatouch 服务端信息
+            # Версия протокола, обычно 1; использовать её не требуется
+            # Получаем информацию от сервера MaaTouch
             socket_out = stream.makefile()
 
             # ^ <max-contacts> <max-x> <max-y> <max-pressure>
@@ -260,7 +260,7 @@ class MaaTouch(Connection):
                         '[Устройство — MaaTouch] Получены пустые данные; вероятно, MaaTouch не установлен'
                     )
                 else:
-                    # maatouch 可能启动没那么快
+                    # MaaTouch мог ещё не успеть запуститься
                     self.sleep(1)
                     continue
 
@@ -275,7 +275,7 @@ class MaaTouch(Connection):
         # _, pid = out.split(" ")
         # self._maatouch_pid = pid
 
-        # 同步超时 2 秒
+        # Тайм-аут синхронизации — 2 секунды
         stream.settimeout(2)
         logger.info(
             '[Устройство — MaaTouch] Поток подключён'
@@ -294,26 +294,26 @@ class MaaTouch(Connection):
         builder.clear()
 
     def maatouch_send_sync(self, builder: MaatouchBuilder, mode=2):
-        # 设置最后一条命令的注入模式
+        # Задаём режим инъекции последней команды
         for command in builder.commands[::-1]:
             if command.operation in ['r', 'd', 'm', 'u']:
                 command.mode = mode
                 break
 
-        # 添加 maatouch 同步命令：'s <timestamp>\n'
+        # Добавляем команду синхронизации MaaTouch: 's <timestamp>\n'
         timestamp = str(int(time.time() * 1000))
         builder.commands.insert(0, Command(
             's', text=timestamp
         ))
 
-        # 发送
+        # Отправляем
         content = builder.to_maatouch_sync()
         # logger.info("send operation: {}".format(content.replace("\n", "\\n")))
         byte_content = content.encode('utf-8')
         self._maatouch_stream.sendall(byte_content)
         self._maatouch_stream.recv(0)
 
-        # 等待操作完成
+        # Ждём завершения операции
         # start = time.time()
         socket_out = self._maatouch_stream.makefile()
         max_trial = 3

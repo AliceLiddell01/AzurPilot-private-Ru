@@ -29,27 +29,27 @@ from module.config.time_source import now as current_time
 from module.exception import ScriptEnd, ScriptError, RequestHumanTakeover
 from module.logger import logger
 
-# 情绪控制阈值：当情绪低于此值时触发等待/延迟
+# Порог контроля настроения: при снижении ниже него запускается ожидание/отсрочка
 DIC_LIMIT = {
-    'keep_exp_bonus': 120,     # 保持经验加成（心情开心）
-    'prevent_green_face': 40,  # 防止绿脸
-    'prevent_yellow_face': 30, # 防止黄脸
-    'prevent_red_face': 2,     # 防止红脸
+    'keep_exp_bonus': 120,     # Сохранять бонус опыта (хорошее настроение)
+    'prevent_green_face': 40,  # Не допускать зелёное лицо
+    'prevent_yellow_face': 30, # Не допускать жёлтое лицо
+    'prevent_red_face': 2,     # Не допускать красное лицо
 }
-# 情绪恢复速度：每 6 分钟恢复的点数
+# Скорость восстановления настроения: количество очков за каждые 6 минут
 DIC_RECOVER = {
-    'not_in_dormitory': 20,    # 港区休息
-    'dormitory_floor_1': 40,   # 后宅一楼
-    'dormitory_floor_2': 50,   # 后宅二楼
+    'not_in_dormitory': 20,    # Отдых в порту
+    'dormitory_floor_1': 40,   # Первый этаж общежития
+    'dormitory_floor_2': 50,   # Второй этаж общежития
 }
-# 情绪上限
+# Максимальное настроение
 DIC_RECOVER_MAX = {
     'not_in_dormitory': 119,
     'dormitory_floor_1': 150,
     'dormitory_floor_2': 150,
 }
-OATH_RECOVER = 10    # 誓约额外恢复速度
-ONSEN_RECOVER = 10   # 温泉额外恢复速度
+OATH_RECOVER = 10    # Дополнительная скорость восстановления от клятвы
+ONSEN_RECOVER = 10   # Дополнительная скорость восстановления от онсэна
 
 
 class FleetEmotion:
@@ -177,10 +177,10 @@ class FleetEmotion:
         """
         time_diff = current_time().timestamp() - self.record.timestamp()
         time_diff = max(time_diff, 0)
-        # speed 为每360秒的恢复量，换算为每秒恢复 speed/360 点
+        # speed — восстановление за 360 секунд; переводим в скорость speed/360 очка в секунду
         recovery = self.speed * time_diff / 360
         self.current = min(max(self.value, 0) + int(recovery), self.max)
-        # 保留未满1点的恢复余数对应的秒数，用于 record() 回扣
+        # Сохраняем число секунд, соответствующее дробному остатку восстановления меньше 1 очка, для компенсации в record()
         self._fractional_seconds = recovery - int(recovery)
 
     def get_recovered(self, expected_reduce=0):
@@ -195,8 +195,8 @@ class FleetEmotion:
         if self.control == 'keep_exp_bonus' and self.recover == 'not_in_dormitory':
             logger.critical(f'[Бой] Для флота {self.fleet} одновременно выбраны контроль настроения "сохранять бонус счастья" и восстановление "в порту". Эти настройки несовместимы; проверьте параметры настроения')
             raise RequestHumanTakeover
-        # 在 14-4 使用双倍经验书时，预期情绪减少为 32，无法保持开心加成（>120）
-        # 否则会导致无限任务延迟
+        # При использовании книги двойного опыта на 14-4 ожидаемое снижение настроения равно 32, поэтому нельзя сохранить бонус хорошего настроения (>120)
+        # Иначе это приведёт к бесконечной отсрочке задачи
         if self.control == 'keep_exp_bonus' and expected_reduce >= 29:
             expected_reduce = 29
             logger.info(f'[Настроение — флот] Для флота {self.fleet} ожидаемое снижение ограничено значением 29, '
@@ -205,7 +205,7 @@ class FleetEmotion:
         emotion_needed = self.limit + expected_reduce - self.current
         if emotion_needed <= 0:
             return current_time()
-        # speed 为每360秒的恢复量，换算恢复所需秒数
+        # speed — восстановление за 360 секунд; вычисляем требуемое время восстановления в секундах
         seconds_needed = emotion_needed * 360 / self.speed
         return current_time() + timedelta(seconds=seconds_needed)
 
@@ -285,12 +285,12 @@ class Emotion:
             fleet = self.public_fleet
             old_value = fleet.value
             new_value = fleet.current
-            # 仅在整数变化时重置时间戳，回扣分数秒
+            # Сбрасываем временную метку только при изменении целого значения и компенсируем дробные секунды
             if new_value != old_value:
                 record_time = current_time().replace(microsecond=0)
                 fractional = getattr(fleet, '_fractional_seconds', 0)
                 if fractional > 0:
-                    # 回扣 fractional_seconds 对应的秒数
+                    # Компенсируем число секунд, соответствующее fractional_seconds
                     record_time = record_time - timedelta(seconds=fractional * 360 / fleet.speed)
                 with self.config.multi_set():
                     setattr(self.config, fleet.value_name, new_value)

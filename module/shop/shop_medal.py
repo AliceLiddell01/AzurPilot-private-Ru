@@ -72,7 +72,7 @@ MEDAL_SHOP_SCROLL_250814 = ShopAdaptiveScroll(
     name="MEDAL_SHOP_SCROLL_250814"
 )
 MEDAL_SHOP_SCROLL_250814.drag_threshold = 0.1
-# 略大于 0.1 以处理底部边界
+# Немного больше 0.1 для корректной обработки нижней границы.
 MEDAL_SHOP_SCROLL_250814.edge_threshold = 0.12
 
 
@@ -85,7 +85,7 @@ class ShopPriceOcr(DigitYuv):
     def after_process(self, result):
         """OCR 后处理，修正 '00' 为 '100'（改造图纸场景）。"""
         result = Ocr.after_process(self, result)
-        # 改造图纸场景下 '100' 被误识别为 '00'
+        # Для чертежей модернизации '100' ошибочно распознаётся как '00'.
         if result == '00':
             result = '100'
         return Digit.after_process(self, result)
@@ -116,7 +116,7 @@ class MedalShop2_250814(ShopClerk, ShopStatus):
         """
         return self.config.MedalShop2_Filter.strip()
 
-    # 2025-08-14 新 UI
+    # Новый UI от 2025-08-14.
     def _get_medals(self):
         """检测截图中的勋章图标位置。
 
@@ -127,7 +127,7 @@ class MedalShop2_250814(ShopClerk, ShopStatus):
             np.array: [[x1, y1], [x2, y2]]，勋章图标左上角坐标
         """
         area = (265, 317, 999, 635)
-        # 复制图像以便后续绘制
+        # Копируем изображение для последующей отрисовки.
         image = self.image_crop(area, copy=True)
         medals = TEMPLATE_MEDAL_ICON_3.match_multi(image, similarity=0.5, threshold=5)
         medals = Points([(0., m.area[1]) for m in medals]).group(threshold=5)
@@ -180,8 +180,8 @@ class MedalShop2_250814(ShopClerk, ShopStatus):
             row = 2
         elif count == 1:
             y_list = medals[:, 1]
-            # +317, 裁剪区域顶部偏移 (_get_medals)
-            # -126, 从勋章图标顶部到商品顶部的偏移
+            # +317 — смещение верхней границы области обрезки (_get_medals).
+            # -126 — смещение от верхней границы значка медали до верхней границы товара.
             origin_y = y_list[0] + 317 - 126
             delta_y = 223
             row = 1
@@ -197,7 +197,7 @@ class MedalShop2_250814(ShopClerk, ShopStatus):
             delta_y = 223
             row = 2
 
-        # 构建 ButtonGrid
+        # Создаём ButtonGrid.
         shop_grid = ButtonGrid(
             origin=(265, origin_y), delta=(169, delta_y), button_shape=(64, 64), grid_shape=(5, row), name='SHOP_GRID')
         return shop_grid
@@ -221,7 +221,7 @@ class MedalShop2_250814(ShopClerk, ShopStatus):
         )
         shop_medal_items.load_template_folder(self.shop_template_folder)
         shop_medal_items.load_cost_template_folder('./assets/shop/cost')
-        # 降低阈值以稳定匹配 PR/DR 改造蓝图
+        # Снижаем порог для стабильного сопоставления чертежей модернизации PR/DR.
         shop_medal_items.similarity = 0.85
         shop_medal_items.cost_similarity = 0.5
         shop_medal_items.price_ocr = PRICE_OCR_250814
@@ -311,11 +311,11 @@ class MedalShop2_250814(ShopClerk, ShopStatus):
             return
 
         logger.hr('[Магазин — медали] Магазин медалей', level=1)
-        # 执行购买操作
+        # Выполняем покупку.
         MEDAL_SHOP_SCROLL_250814.set_top(main=self)
         time.sleep(0.5)
         while 1:
-            # 已售罄商品自动排序到后方，发现售罄则无需继续
+            # Распроданные товары автоматически перемещаются в конец списка; при их обнаружении продолжать не нужно.
             if self.shop_items().get_soldout_count(self.device.image):
                 logger.info('Магазин медалей остановлен досрочно')
                 break

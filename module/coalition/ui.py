@@ -69,7 +69,7 @@ class CoalitionUI(Combat):
             mode_switch.add_state('story', FASHION_MODE_STORY)
             mode_switch.add_state('battle', FASHION_MODE_BATTLE)
         elif event == 'coalition_20260723':
-            # 常规活动入口直接进入作战页面，无需切换剧情模式。
+            # Обычный вход события сразу открывает экран боя; переключать сюжетный режим не требуется.
             logger.info('[Коалиция — UI] В событии Horror Story нет переключения режима')
             return
         else:

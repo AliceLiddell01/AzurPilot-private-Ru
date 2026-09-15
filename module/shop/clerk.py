@@ -108,8 +108,8 @@ class ShopClerk(ShopBase, Retirement):
             postfix = f'_{item.tier.upper()}'
 
         ugroup = group.upper()
-        # 2025-08-14 新商店 UI：购买 PlateT4 时，新 UI 类名为 XXXShop_250814，
-        # 需要截取 "_" 前的类名
+        # Новый UI магазина от 2025-08-14: при покупке PlateT4 класс нового UI имеет имя XXXShop_250814,
+        # поэтому берём имя класса до символа "_"
         class_name = self.__class__.__name__.split("_")[0]
         try:
             return getattr(self.config, f'{class_name}_{ugroup}{postfix}')
@@ -136,10 +136,10 @@ class ShopClerk(ShopBase, Retirement):
             logger.critical(f"[Магазин] Что ещё за группа товаров \'{group}\'? Дядя, вы из какого измерения? ❤")
             raise ScriptError
 
-        # 获取商品的配置选择项
+        # Получаем выбранный в конфигурации вариант товара
         choice = self.shop_get_choice(item)
 
-        # 获取选择界面中对应的按钮
+        # Получаем соответствующую кнопку в интерфейсе выбора
         try:
             item_info = SELECT_ITEM_INFO_MAP[group]
             index = item_info['choices'][choice]
@@ -168,7 +168,7 @@ class ShopClerk(ShopBase, Retirement):
         """
         select = self.shop_get_select(item)
 
-        # 获取库存上限，不同商店可能不同
+        # Получаем лимит запаса; он может различаться между магазинами
         timeout = Timer(5, count=10).start()
         skip_first_screenshot = True
         limit = 0
@@ -187,7 +187,7 @@ class ShopClerk(ShopBase, Retirement):
             logger.critical(f"[Магазин] Пф-ф~ даже запас {item.name} посчитать не можете. Дядя, вам бы математику в детском саду повторить ❤")
             raise ScriptError
 
-        # 间隔点击直到加减按钮出现
+        # Периодически нажимаем, пока не появятся кнопки плюс/минус
         click_timer = Timer(3, count=6)
         select_offset = (500, 400)
         while 1:
@@ -201,13 +201,13 @@ class ShopClerk(ShopBase, Retirement):
             else:
                 continue
 
-        # 计算可购买总数（货币 / 单价）
+        # Вычисляем общее доступное количество покупок (валюта / цена за единицу)
         total = int(self._currency // item.price)
         diff = limit - total
         if diff > 0:
             limit = total
 
-        # 包装 OCR 函数适配 ui_ensure_index，防止库存不足时超买
+        # Оборачиваем OCR-функцию для ui_ensure_index, чтобы не купить больше доступного запаса
         def shop_buy_select_ensure_index(image):
             current, remain, _ = OCR_SHOP_SELECT_STOCK.ocr(image)
             if not current:
@@ -238,13 +238,13 @@ class ShopClerk(ShopBase, Retirement):
         """
         index_offset = (40, 20)
 
-        # 使用船坞 OCR 技巧精确定位数量输入区域
+        # Используем OCR-приём из дока для точного определения области ввода количества
         self.appear(AMOUNT_MINUS, offset=index_offset)
         self.appear(AMOUNT_PLUS, offset=index_offset)
         area = OCR_SHOP_AMOUNT.buttons[0]
         OCR_SHOP_AMOUNT.buttons = [(AMOUNT_MINUS.button[2] + 3, area[1], AMOUNT_PLUS.button[0] - 3, area[3])]
 
-        # 点击最大按钮获取可购买总数，等待图像稳定
+        # Нажимаем кнопку максимума, получаем доступное количество и ждём стабилизации изображения
         self.appear_then_click(AMOUNT_MAX, offset=(50, 50))
         self.device.sleep((0.3, 0.5))
         timeout = Timer(5, count=10).start()
@@ -261,7 +261,7 @@ class ShopClerk(ShopBase, Retirement):
             logger.critical("[Магазин] OCR_SHOP_AMOUNT распознал 0. Дядя, неужели вы уже настолько разорились? ❤")
             raise ScriptError
 
-        # 调整购买数量（货币 / 单价）
+        # Корректируем количество покупки (валюта / цена за единицу)
         total = int(self._currency // item.price)
         diff = limit - total
         if diff > 0:
@@ -333,7 +333,7 @@ class ShopClerk(ShopBase, Retirement):
                 success = True
                 continue
 
-            # 结束条件
+            # Условие завершения
             if success and self.appear(SHOP_BACK_ARROW, offset=(30, 30)):
                 break
 
@@ -348,7 +348,7 @@ class ShopClerk(ShopBase, Retirement):
         """
         for _ in range(12):
             logger.hr('Покупки в магазине', level=2)
-            # 先获取商品列表，利用固有延迟等待 OCR 货币识别更准确
+            # Сначала получаем список товаров: встроенная задержка позволяет OCR валюты отработать точнее
             items = self.shop_get_items()
             self.shop_currency()
             if self._currency <= 0:

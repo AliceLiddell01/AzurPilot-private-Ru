@@ -1,5 +1,5 @@
-# 此文件处理游戏中各种限时共斗（Raid）活动关卡。
-# 负责自动识别活动类型、管理入场券消耗、处理不同难度的入场逻辑，并实现了专用的 Raid 战斗流程及 PT 获取记录。
+# Этот файл обрабатывает различные временные совместные (Raid) этапы игры.
+# Отвечает за автоматическое определение типа события, расход пропусков, вход на разных сложностях, специализированный бой Raid и учёт полученных PT.
 """
 突袭（Raid）活动核心处理模块。
 
@@ -41,7 +41,7 @@ class RaidCounterPostMixin(DigitCounter):
     """
 
     def after_process(self, result):
-        # 修正如 "915/"、"1515" 这类 OCR 误识别结果
+        # Исправляем ошибки OCR вроде "915/" и "1515"
         result = result.strip('/')
         if result.isdigit() and len(result) > 2 and result.endswith('15'):
             result = f'{result[:-2]}/15'
@@ -93,11 +93,11 @@ class HuanChangPtOcr(Digit):
         image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         image = cv2.threshold(image, 128, 255, cv2.THRESH_BINARY_INV)[1]
         count, cc = cv2.connectedComponents(image)
-        # 计算连通域面积，大于 60 的视为数字
-        # CN/JP 背景最右侧连通但 EN 不连通，因此需要同时排除 [0,-1] 和 [-1,-1]
+        # Вычисляем площадь связных компонент; компоненты площадью больше 60 считаем цифрами
+        # На фоне CN/JP крайняя правая область связана, а на EN — нет, поэтому исключаем и [0,-1], и [-1,-1]
         num_idx = [i for i in range(1, count + 1) if
                    i != cc[0, -1] and i != cc[-1, -1] and np.count_nonzero(cc == i) > 60]
-        image = ~(np.isin(cc, num_idx) * 255)  # 数字为白色，需要反转
+        image = ~(np.isin(cc, num_idx) * 255)  # Цифры белые, поэтому инвертируем
         return image.astype(np.uint8)
 
 
@@ -172,8 +172,8 @@ def raid_ocr(raid, mode):
         button = globals()[key]
     except KeyError:
         raise ScriptError(f'Ресурс входа в рейд не существует: {key}')
-    # 旧突袭活动使用 RaidCounter 以兼容旧 OCR 模型和资源
-    # 新突袭活动使用 DigitCounter
+    # Старые рейды используют RaidCounter для совместимости со старыми моделями OCR и ресурсами
+    # Новые рейды используют DigitCounter
     if raid == 'ESSEX':
         return RaidCounter(button, letter=(57, 52, 255), threshold=128)
     elif raid == 'SURUGA':
@@ -181,9 +181,9 @@ def raid_ocr(raid, mode):
     elif raid == 'BRISTOL':
         return RaidCounter(button, letter=(214, 231, 219), threshold=128)
     elif raid == 'IRIS':
-        # 该字体不在 azur_lane 模型中，因此使用通用 OCR 模型
+        # Этого шрифта нет в модели azur_lane, поэтому используем универсальную модель OCR
         if server.server == 'en':
-            # EN 服务器使用粗体
+            # На EN-сервере используется жирный шрифт
             return RaidCounter(button, letter=(148, 138, 123), threshold=80, lang='azur_lane')
         if server.server == 'jp':
             return RaidCounter(button, letter=(148, 138, 123), threshold=128, lang='azur_lane')
@@ -205,7 +205,7 @@ def raid_ocr(raid, mode):
         if mode == 'ex':
             return Digit(button, letter=(255, 255, 255), threshold=180)
         else:
-            # 纵向排列的计数
+            # Счётчик расположен вертикально
             return HuanChangCounter(button, letter=(255, 255, 255), threshold=80)
     elif raid == 'CHIENWU':
         if mode == 'ex':
@@ -284,22 +284,22 @@ class Raid(MapOperation, RaidCombat, CampaignEvent):
         Returns:
             bool: 是否触发了停止条件。
         """
-        # 油量限制
+        # Лимит топлива
         if oil_check:
             if self.get_oil() < max(500, self.config.StopCondition_OilLimit):
                 logger.hr('Условие остановки: лимит топлива')
                 self.config.task_delay(minute=(120, 240))
                 return True
-        # 活动积分限制
+        # Лимит очков события
         if pt_check:
             if self.event_pt_limit_triggered():
                 logger.hr('Условие остановки: лимит PT события')
                 return True
-        # 金币限制
+        # Лимит монет
         if coin_check and self.coin_limit_triggered():
             logger.hr('Условие остановки: лимит монет')
             return True
-        # 任务均衡器
+        # Балансировщик задач
         if coin_check:
             if self.config.TaskBalancer_Enable and self.triggered_task_balancer():
                 logger.hr('Условие остановки: лимит монет')
@@ -320,7 +320,7 @@ class Raid(MapOperation, RaidCombat, CampaignEvent):
         """
         logger.info('Подготовка к бою')
 
-        # 无需在此等待情绪恢复，已在 raid_execute_once() 中处理
+        # Здесь не нужно ждать восстановления настроения: это уже обрабатывается в raid_execute_once()
 
         checked = False
         for _ in self.loop():
@@ -344,7 +344,7 @@ class Raid(MapOperation, RaidCombat, CampaignEvent):
             if self.handle_story_skip():
                 continue
 
-            # 结束条件：战斗开始执行
+            # Условие завершения: бой начал выполняться
             pause = self.is_combat_executing()
             if pause:
                 logger.attr('Боевой интерфейс', pause)
@@ -389,7 +389,7 @@ class Raid(MapOperation, RaidCombat, CampaignEvent):
                 self.device.screenshot()
 
             if self.appear(entrance, offset=(10, 10), interval=5):
-                # 入口出现时检查 PT 积分限制
+                # При появлении входа проверяем лимит PT
                 if self.triggered_stop_condition(pt_check=True):
                     self.config.task_stop()
                 self.device.click(entrance)
@@ -397,7 +397,7 @@ class Raid(MapOperation, RaidCombat, CampaignEvent):
             if self.appear_then_click(RAID_FLEET_PREPARATION, offset=(20, 20), interval=5):
                 continue
 
-            # 结束条件：战斗画面出现
+            # Условие завершения: появился экран боя
             if self.combat_appear():
                 break
 
@@ -510,7 +510,7 @@ class Raid(MapOperation, RaidCombat, CampaignEvent):
         timeout = Timer(1.5, count=5).start()
         ocr = pt_ocr(self.config.Campaign_Event)
         if ocr is not None:
-            # 70000 可能是默认初始值，等待 OCR 读取到真实值
+            # 70000 может быть начальным значением по умолчанию; ждём, пока OCR считает фактическое значение
             while 1:
                 if skip_first_screenshot:
                     skip_first_screenshot = False
@@ -557,7 +557,7 @@ class Raid(MapOperation, RaidCombat, CampaignEvent):
             else:
                 self.device.screenshot()
 
-            # 结束条件：已滑动到最右侧
+            # Условие завершения: список прокручен до крайнего правого положения
             if self.appear(RPG_RAID_EASY, offset=(10, 10)):
                 logger.info('RPG-рейд уже находится в крайнем правом положении')
                 break

@@ -98,7 +98,7 @@ class DatedDurationYuv(DatedDuration, OcrYuv):
 OCR_EXERCISE_REMAIN = Digit(OCR_EXERCISE_REMAIN, letter=(173, 247, 74), threshold=128)
 OCR_PERIOD_REMAIN = DatedDuration(OCR_PERIOD_REMAIN, letter=(255, 255, 255), threshold=128)
 ADMIRAL_TRIAL_HOUR_INTERVAL = {
-    # "aggressive": [336, 0]  # 激进模式
+    # "aggressive": [336, 0]  # Агрессивный режим
     "sun18": [6, 0],
     "sun12": [12, 6],
     "sun0": [24, 12],
@@ -236,10 +236,10 @@ class Exercise(ExerciseCombat):
         record = self.config.Exercise_OpponentRefreshRecord
         update = get_server_last_update('00:00')
         if record.date() == update.date():
-            # 同一天
+            # Тот же день
             return self.config.Exercise_OpponentRefreshValue
         else:
-            # 新的一天
+            # Новый день
             self.config.set_record(Exercise_OpponentRefreshValue=0)
             return 0
 
@@ -304,11 +304,11 @@ class Exercise(ExerciseCombat):
         if admiral_interval is not None and remain_time:
             admiral_start, admiral_end = admiral_interval
 
-            if admiral_start > int(remain_time.total_seconds() // 3600) >= admiral_end:  # 达到将军试炼设定时间
+            if admiral_start > int(remain_time.total_seconds() // 3600) >= admiral_end:  # Наступило заданное время адмиральского испытания
                 logger.info('[Учения — планировщик] Наступило заданное время адмиральского испытания; расходуем все попытки')
                 self.preserve = 0
                 forced_run =True
-            elif int(remain_time.total_seconds() // 3600) < 6:  # 未设置为 "sun18" 时，仍在周日 18 点前消耗
+            elif int(remain_time.total_seconds() // 3600) < 6:  # Даже если не выбран "sun18", расходуем попытки до 18:00 воскресенья
                 logger.info('[Учения — планировщик] До конца сезона учений меньше 6 часов; расходуем все попытки')
                 self.preserve = 0
                 forced_run = True
@@ -318,7 +318,7 @@ class Exercise(ExerciseCombat):
         else:
             forced_run = False
 
-        # 延迟到设定时间执行任务
+        # Откладываем выполнение задачи до заданного времени
         if ((get_server_next_update(server_update) - current_time()).seconds >
             3600 * self.config.Exercise_DelayUntilHoursBeforeNextUpdate)\
                 and not forced_run:
@@ -344,7 +344,7 @@ class Exercise(ExerciseCombat):
 
         # self.equipment_take_off_when_finished()
 
-        # 调度器
+        # Планировщик
         with self.config.multi_set():
             self.config.set_record(Exercise_OpponentRefreshValue=self.opponent_change_count)
             if self.remain <= self.preserve or self.opponent_change_count >= 5:

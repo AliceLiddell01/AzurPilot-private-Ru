@@ -97,7 +97,7 @@ class Hospital(HospitalClue, HospitalCombat):
             return False
 
         logger.hr('Получение ежедневной награды', level=2)
-        # 进入奖励界面
+        # Входим на экран наград
         logger.info('Вход в ежедневные награды')
         skip_first_screenshot = True
         self.interval_clear(page_hospital.check_button)
@@ -113,7 +113,7 @@ class Hospital(HospitalClue, HospitalCombat):
                 self.device.click(HOSPITAL_GOTO_DAILY)
                 continue
 
-        # 领取奖励
+        # Получаем награду
         logger.info('Получение ежедневной награды')
         skip_first_screenshot = True
         self.interval_clear(HOSIPITAL_CLUE_CHECK)
@@ -139,7 +139,7 @@ class Hospital(HospitalClue, HospitalCombat):
                 clicked = True
                 continue
 
-        # 退出奖励界面
+        # Выходим с экрана наград
         logger.info('Выход из ежедневных наград')
         skip_first_screenshot = True
         self.interval_clear(HOSIPITAL_CLUE_CHECK)
@@ -166,7 +166,7 @@ class Hospital(HospitalClue, HospitalCombat):
         self.config.override(Fleet_FleetOrder='fleet1_all_fleet2_standby')
         while 1:
             logger.hr('Цикл исследований госпиталя', level=2)
-            # 调度器检查，可能抛出 ScriptEnd
+            # Проверка планировщика; может выбросить ScriptEnd
             self.emotion.check_reduce(battle=1)
 
             entered = self.invest_enter()
@@ -174,11 +174,11 @@ class Hospital(HospitalClue, HospitalCombat):
                 break
             self.hospital_combat()
 
-            # 调度器检查，可能抛出 TaskEnd
+            # Проверка планировщика; может выбросить TaskEnd
             if self.config.task_switched():
                 self.config.task_stop()
 
-            # 战斗后旁白重置，跳出重新选择
+            # После боя реплика сбрасывается; выходим, чтобы выбрать её заново
             break
 
         self.claim_invest_reward()
@@ -195,7 +195,7 @@ class Hospital(HospitalClue, HospitalCombat):
         else:
             logger.info('Награды за исследование нет')
             return False
-        # 领取奖励
+        # Получаем награду
         skip_first_screenshot = True
         clicked = True
         self.interval_clear(HOSIPITAL_CLUE_CHECK)
@@ -269,17 +269,17 @@ class Hospital(HospitalClue, HospitalCombat):
 
     def run(self):
         """医院活动主入口。"""
-        # 检查活动是否可用
+        # Проверяем доступность события
         if self.event_time_limit_triggered():
             self.config.task_stop()
         self.ui_ensure(page_campaign_menu)
         if self.is_event_entrance_available():
             self.ui_goto(page_hospital)
 
-        # 领取每日奖励
+        # Получаем ежедневную награду
         self.daily_reward_receive()
 
-        # 执行活动
+        # Выполняем событие
         self.clue_enter()
         try:
             self.loop_aside()

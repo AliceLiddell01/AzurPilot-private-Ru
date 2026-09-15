@@ -105,7 +105,7 @@ class Coalition(CoalitionCombat, CampaignEvent):
         elif event == 'coalition_20240627':
             ocr = AcademyPtOcr(ACADEMY_PT_OCR, name='OCR_PT', letter=(255, 255, 255), threshold=128)
         elif event == 'coalition_20250626':
-            # 使用通用 OCR 模型
+            # Используем универсальную модель OCR
             ocr = Digit(NEONCITY_PT_OCR, name='OCR_PT', lang='azur_lane', letter=(208, 208, 208), threshold=128)
         elif event == 'coalition_20251120':
             ocr = DALPtOcr(DAL_PT_OCR, name='OCR_PT', letter=(255, 213, 69), threshold=128)
@@ -120,7 +120,7 @@ class Coalition(CoalitionCombat, CampaignEvent):
         pt = 0
         for _ in self.loop(timeout=1.5):
             pt = ocr.ocr(self.device.image)
-            # 999999 是默认占位值，等待画面刷新
+            # 999999 — значение-заполнитель по умолчанию; ждём обновления экрана
             if pt not in [999999]:
                 break
         else:
@@ -138,7 +138,7 @@ class Coalition(CoalitionCombat, CampaignEvent):
         Returns:
             bool: 燃油不足返回 True，否则返回 False。
         """
-        # 无燃油图标的联动活动跳过检查
+        # Для коалиционных событий без значка топлива пропускаем проверку
         if not self._coalition_has_oil_icon:
             logger.info('В коалиционном событии нет значка топлива; проверка топлива пропущена')
             return False
@@ -147,7 +147,7 @@ class Coalition(CoalitionCombat, CampaignEvent):
         if not (self.get_oil() < limit):
             return False
 
-        # 等待 OCR 数值稳定后再确认一次
+        # Ждём стабилизации значения OCR и затем проверяем ещё раз
         timeout = Timer(1, count=2).start()
         while True:
             self.device.screenshot()
@@ -189,30 +189,30 @@ class Coalition(CoalitionCombat, CampaignEvent):
         Returns:
             bool: 触发了停止条件返回 True。
         """
-        # 运行次数上限
+        # Лимит числа запусков
         if self.run_limit and self.config.StopCondition_RunCount <= 0:
             logger.hr('Условие остановки: число запусков')
             self.config.StopCondition_RunCount = 0
             self.config.Scheduler_Enable = False
             return True
-        # 燃油限制
+        # Лимит топлива
         if oil_check:
-            # 检查 ui_current 是否存在，避免属性异常
+            # Проверяем наличие ui_current, чтобы избежать ошибки атрибута
             ui_is_campaign_menu = hasattr(self, 'ui_current') and self.ui_current == page_campaign_menu
             if (self._coalition_has_oil_icon or ui_is_campaign_menu) and self.check_oil():
                 logger.hr('Условие остановки: лимит топлива')
                 self.config.task_delay(minute=(120, 240))
                 return True
-        # 活动 PT 限制
+        # Лимит PT события
         if pt_check:
             if self.event_pt_limit_triggered():
                 logger.hr('Условие остановки: лимит PT события')
                 return True
-        # 金币限制
+        # Лимит монет
         if coin_check and self.coin_limit_triggered():
             logger.hr('Условие остановки: лимит монет')
             return True
-        # 任务均衡器
+        # Балансировщик задач
         if self.run_count >= 1:
             if self.config.TaskBalancer_Enable and self.triggered_task_balancer():
                 logger.hr('Условие остановки: лимит монет')
@@ -245,7 +245,7 @@ class Coalition(CoalitionCombat, CampaignEvent):
             logger.warning('[Коалиция] В режиме одной коалиционной флотилии нельзя допускать мораль ниже 30; принудительно включён режим prevent_yellow_face')
             self.config.override(Emotion_Fleet1Control='prevent_yellow_face')
         if stage == 'sp':
-            # SP 关卡需要多舰队
+            # Для этапа SP требуется несколько флотов
             self.config.override(
                 Coalition_Fleet='multi',
             )
@@ -322,20 +322,20 @@ class Coalition(CoalitionCombat, CampaignEvent):
         self.run_count = 0
         self.run_limit = self.config.StopCondition_RunCount
         while 1:
-            # 达到总次数上限
+            # Достигнут общий лимит запусков
             if total and self.run_count == total:
                 break
             if self.event_time_limit_triggered():
                 self.config.task_stop()
 
-            # 日志输出当前关卡和剩余次数
+            # Выводим в лог текущий этап и оставшееся число запусков
             logger.hr(f'Коалиция: {event}_{mode}', level=2)
             if self.config.StopCondition_RunCount > 0:
                 logger.info(f'Осталось запусков: {self.config.StopCondition_RunCount}')
             else:
                 logger.info(f'Счётчик: {self.run_count}')
 
-            # 无燃油图标时，先在战役菜单检查停止条件
+            # Если значка топлива нет, сначала проверяем условия остановки в меню кампании
             if not self._coalition_has_oil_icon:
                 self.ui_goto(page_campaign_menu)
                 if self.triggered_stop_condition(oil_check=True, coin_check=True):
@@ -346,11 +346,11 @@ class Coalition(CoalitionCombat, CampaignEvent):
             self.disable_event_on_raid()
             self.coalition_ensure_mode(event, 'battle')
 
-            # 检查 PT 和金币停止条件
+            # Проверяем условия остановки по PT и монетам
             if self.triggered_stop_condition(pt_check=True, coin_check=True):
                 break
 
-            # 执行战斗
+            # Выполняем бой
             self.device.stuck_record_clear()
             self.device.click_record_clear()
             try:
@@ -360,14 +360,14 @@ class Coalition(CoalitionCombat, CampaignEvent):
                 logger.info(str(e))
                 break
 
-            # 战斗后更新计数
+            # После боя обновляем счётчики
             self.run_count += 1
             if self.config.StopCondition_RunCount:
                 self.config.StopCondition_RunCount -= 1
-            # 再次检查停止条件
+            # Повторно проверяем условия остановки
             if self.triggered_stop_condition(pt_check=True, coin_check=True):
                 break
-            # 任务调度器检查
+            # Проверяем планировщик задач
             if self.config.task_switched():
                 self.config.task_stop()
 

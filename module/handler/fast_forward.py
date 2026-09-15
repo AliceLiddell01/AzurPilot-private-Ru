@@ -69,13 +69,13 @@ def to_map_input_name(name: str) -> str:
     campaign_7_2 -> 7-2
     d3 -> D3
     """
-    # 移除空白字符
+    # Удаляем пробельные символы
     name = re.sub('[ \t\n]', '', name).lower()
     # B-1 -> B1
     res = re.match(r'([a-zA-Z])+[- ]+(\d+)', name)
     if res:
         name = f'{res.group(1)}{res.group(2)}'
-    # 转为大写以便移除 campaign 前缀
+    # Переводим в верхний регистр, чтобы удалить префикс campaign
     name = str(name).upper()
     # campaign_7_2 -> 7-2
     name = name.replace('CAMPAIGN_', '').replace('_', '-')
@@ -91,7 +91,7 @@ def to_map_file_name(name: str) -> str:
     D3 -> d3
     """
     name = str(name).lower()
-    # 移除空白字符
+    # Удаляем пробельные символы
     name = re.sub('[ \t\n]', '', name).lower()
     # B-1 -> B1
     res = re.match(r'([a-zA-Z])+[- ]+(\d+)', name)
@@ -112,7 +112,7 @@ class FastForwardHandler(AutoSearchHandler):
     map_is_3_stars = False
     map_is_threat_safe = False
     map_has_clear_mode = False
-    map_is_clear_mode = False  # 通关模式 == 快进
+    map_is_clear_mode = False  # Режим зачистки == ускорение
     map_is_auto_search = False
     map_is_2x_book = False
 
@@ -160,16 +160,16 @@ class FastForwardHandler(AutoSearchHandler):
         self.map_is_3_stars = self.map_achieved_star_1 and self.map_achieved_star_2 and self.map_achieved_star_3
         self.map_is_threat_safe = self.appear(MAP_GREEN, offset=(20, 20))
         if self.config.Campaign_Name.lower() == 'sp':
-            # 此处存在小问题
-            # SP 关卡无法检测通关模式，因此使用 auto_search 选项代替
-            # 如果用户手动关闭了自动搜索，alas 无法重新开启
+            # Здесь есть небольшая проблема
+            # Для этапов SP нельзя определить режим зачистки, поэтому вместо него используется опция auto_search
+            # Если пользователь вручную отключил автопоиск, Alas не сможет включить его снова
             self.map_has_clear_mode = AUTO_SEARCH.appear(main=self)
         else:
             self.map_has_clear_mode = self.map_is_100_percent_clear and FAST_FORWARD.appear(main=self)
 
-        # 覆盖配置
+        # Переопределяем конфигурацию
         if self.map_achieved_star_1:
-            # Boss 出现前的剧情，对应 chapter_template.lua 中的 "story_refresh_boss" 属性
+            # Сюжет до появления босса соответствует свойству "story_refresh_boss" в chapter_template.lua
             self.config.MAP_HAS_MAP_STORY = False
         self.config.MAP_CLEAR_ALL_THIS_TIME = self.config.STAR_REQUIRE_3 \
             and (self.config.StopCondition_MapAchievement == 'non_stop_clear_all' \
@@ -179,7 +179,7 @@ class FastForwardHandler(AutoSearchHandler):
         self.map_show_info()
 
     def map_show_info(self):
-        # 记录日志
+        # Записываем в журнал
         logger.attr('Полная зачистка карты в этом запуске', self.config.MAP_CLEAR_ALL_THIS_TIME)
         names = ['map_achieved_star_1', 'map_achieved_star_2', 'map_achieved_star_3',
                  'map_is_100_percent_clear', 'map_is_3_stars',
@@ -217,7 +217,7 @@ class FastForwardHandler(AutoSearchHandler):
                 self.map_is_auto_search = self.config.Campaign_UseAutoSearch
             self.map_is_2x_book = self.config.Campaign_Use2xBook
         else:
-            # 关闭快进时，MAP_HAS_AMBUSH 取决于地图设置
+            # При отключённом ускорении MAP_HAS_AMBUSH зависит от настроек карты
             # self.config.MAP_HAS_AMBUSH = True
             self.map_is_clear_mode = False
             self.map_is_auto_search = False
@@ -243,8 +243,8 @@ class FastForwardHandler(AutoSearchHandler):
         Returns:
             bool: 是否进行了切换操作。
         """
-        # 舰队锁定取决于地图上是否显示该选项，而非地图状态
-        # 因为如果已在地图中，则没有地图状态
+        # Блокировка флота зависит от того, отображается ли эта опция на карте, а не от состояния карты
+        # Если мы уже на карте, состояния карты как такового нет
         if not FLEET_LOCK.appear(main=self):
             logger.info('Опция блокировки флота отсутствует')
             return False
@@ -271,7 +271,7 @@ class FastForwardHandler(AutoSearchHandler):
             if state != 'unknown':
                 return True
             if timeout.reached():
-                # 部分地图有通关模式但没有自动搜索
+                # На некоторых картах есть режим зачистки, но нет автопоиска
                 logger.info('Истекло время ожидания автопоиска')
                 return False
 
@@ -397,7 +397,7 @@ class FastForwardHandler(AutoSearchHandler):
             return False
         if not self.is_call_submarine_at_boss:
             return False
-        # 2025.09.22 修正：舰队角色设置在通关模式后才解锁
+        # Исправление от 2025.09.22: настройка роли флота разблокируется только после режима зачистки
         if not self.map_is_clear_mode:
             logger.warning('[Обработчик — ускорение] Не удалось настроить вызов подлодок: автопоиск недоступен')
             logger.warning('[Обработчик — ускорение] Выполните следующее: '
@@ -422,7 +422,7 @@ class FastForwardHandler(AutoSearchHandler):
             if self.appear_then_click(AUTO_SEARCH_MENU_CONTINUE, offset=self._auto_search_menu_offset):
                 self.interval_reset(AUTO_SEARCH_MENU_CONTINUE)
             else:
-                # handle_2x_book_setting() 之后 AUTO_SEARCH_MENU_CONTINUE 可能已消失
+                # После handle_2x_book_setting() кнопка AUTO_SEARCH_MENU_CONTINUE уже могла исчезнуть
                 pass
             return True
         return False

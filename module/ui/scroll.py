@@ -37,7 +37,7 @@ class Scroll:
             self.total = self.area[3] - self.area[1]
         else:
             self.total = self.area[2] - self.area[0]
-        # 默认值，会在 match_color() 中更新
+        # Значение по умолчанию; обновляется в match_color()
         self.length = self.total / 2
         self.drag_interval = Timer(1, count=2)
         self.drag_timeout = Timer(5, count=10)

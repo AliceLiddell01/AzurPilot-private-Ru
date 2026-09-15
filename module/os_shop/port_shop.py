@@ -153,7 +153,7 @@ class PortShop(OSStatus, OSShopUI, Selector, MapEventHandler):
             list[Item]: 扫描到的所有物品列表。
         """
         items = []
-        # 使用 set 记录已扫描物品的键，实现 O(1) 去重
+        # Используем set для хранения ключей уже просканированных товаров и дедупликации за O(1)
         scanned_keys = set()
         self.device.click_record.clear()
 
@@ -176,8 +176,8 @@ class PortShop(OSStatus, OSShopUI, Selector, MapEventHandler):
                     else:
                         logger.info(f'[Магазин Операции «Сирена» — порт] В магазине {i + 1} на позиции {cur_pos:.2f} найдено предметов: {len(_items)} шт.')
                         break
-                # 始终添加物品，即使最后的物品列表包含未知物品
-                # 这样可以扫描到所有已知物品
+                # Всегда добавляем товары, даже если итоговый список содержит неизвестные позиции
+                # Так удаётся просканировать все известные товары
                 for item in _items:
                     key = (item.name, item.price, item.shop_index)
                     if key not in scanned_keys:

@@ -42,7 +42,7 @@ class PQShopClerk(ShopClerk, PQShopUI):
             out: 私人宿舍商店
         """
 
-        # 辅助函数：检测购买确认前后的界面状态
+        # Вспомогательная функция: определяет состояние интерфейса до и после подтверждения покупки
         def after_confirm_state():
             return (self.appear(PRIVATE_QUARTERS_SHOP_WEEKLY_ROSES_GET, offset=(20, 20)) or
                     self.appear(PRIVATE_QUARTERS_SHOP_WEEKLY_CAKES_GET, offset=(20, 20)))
@@ -57,7 +57,7 @@ class PQShopClerk(ShopClerk, PQShopUI):
 
         for _ in self.loop():
 
-            # 结束条件：购买确认状态
+            # Условие завершения: состояние подтверждения покупки
             if after_confirm_state():
                 break
 
@@ -71,7 +71,7 @@ class PQShopClerk(ShopClerk, PQShopUI):
 
         click_timer = Timer(3, count=6)
         for _ in self.loop():
-            # 结束条件：购买完成状态
+            # Условие завершения: состояние завершённой покупки
             if after_purchase_state():
                 break
 
@@ -95,7 +95,7 @@ class PQShopClerk(ShopClerk, PQShopUI):
         """
         for _ in range(12):
             logger.hr('Покупки в магазине', level=2)
-            # 先获取商品列表，再读取货币以获得更准确的 OCR 结果
+            # Сначала получаем список товаров, затем считываем валюту для более точного результата OCR
             items = self.shop_get_items()
             self.shop_currency()
             if self._currency <= 0:
@@ -109,7 +109,7 @@ class PQShopClerk(ShopClerk, PQShopUI):
             else:
                 self.shop_buy_execute(item)
 
-                # 购买后导航栏会重置到默认位置，需要重新定位
+                # После покупки панель навигации сбрасывается в положение по умолчанию, поэтому позицию нужно восстановить
                 self.shop_left_navbar_ensure(2)
                 self.shop_bottom_navbar_ensure(2)
 

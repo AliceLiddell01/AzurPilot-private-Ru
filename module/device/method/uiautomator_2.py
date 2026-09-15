@@ -1,5 +1,5 @@
-# 此文件实现了基于 uiautomator2 的设备交互逻辑。
-# 包含截图、模拟点击、长按、滑动、层级提取（dump）等控制移动端设备的核心操作。
+# Этот файл реализует взаимодействие с устройством на основе uiautomator2.
+# Содержит основные операции управления мобильным устройством: скриншоты, клики, долгие нажатия, свайпы и извлечение иерархии (dump).
 import re
 import shlex
 import time
@@ -35,10 +35,10 @@ def retry(func):
                     time.sleep(retry_sleep(_))
                     init()
                 return func(self, *args, **kwargs)
-            # 不可处理
+            # Необрабатываемая ошибка
             except RequestHumanTakeover:
                 break
-            # adb server 被终止时
+            # При остановке adb server
             except ConnectionResetError as e:
                 logger.error(str(f'[Устройство — uiautomator2] Ошибка повторной попытки: {e}'))
 
@@ -69,31 +69,31 @@ def retry(func):
                         self.adb_reconnect()
                 else:
                     break
-            # 在 `assert c.read string(4) == _OKAY` 时
-            # 模拟器未启用 ADB
+            # При `assert c.read string(4) == _OKAY`
+            # В эмуляторе не включён ADB
             except AssertionError as e:
                 logger.exception(str(f'[Устройство — uiautomator2] Ошибка повторной попытки: {e}'))
                 possible_reasons(
                     '[Устройство — ADB] Если используется BlueStacks, LDPlayer или WSA, включите ADB в настройках эмулятора'
                 )
                 break
-            # 包未安装
+            # Пакет не установлен
             except PackageNotInstalled as e:
                 logger.error(str(f'[Устройство — uiautomator2] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.detect_package()
-            # 图像截断
+            # Изображение обрезано
             except ImageTruncated as e:
                 from module.device.method.utils import handle_image_truncated
                 handle_image_truncated(self, e)
 
                 def init():
                     pass
-            # 不可处理 - 必须向上抛出以触发模拟器重启
+            # Необрабатываемая ошибка — обязательно пробрасываем выше, чтобы запустить перезапуск эмулятора
             except EmulatorNotRunningError:
                 raise
-            # 未知异常
+            # Неизвестное исключение
             except Exception as e:
                 logger.exception(str(f'[Устройство — uiautomator2] Ошибка повторной попытки: {e}'))
 
@@ -385,7 +385,7 @@ class Uiautomator2(Connection):
                 elif 'not found' in str(e):
                     logger.error(str(f'[Устройство — uiautomator2] Ошибка запуска приложения через uiautomator2: {e}'))
                     raise PackageNotInstalled(package_name)
-                # 未知错误
+                # Неизвестная ошибка
                 else:
                     raise
             activity_name = info['mainActivity']
@@ -395,7 +395,7 @@ class Uiautomator2(Connection):
         if self.is_local_network_device and self.is_waydroid:
             cmd += ['--windowingMode', '4']
         ret = self.u2.shell(cmd)
-        # 无效的 activity
+        # Недопустимая activity
         # Starting: Intent { act=android.intent.action.MAIN cat=[android.intent.category.LAUNCHER] cmp=... }
         # Error type 3
         # Error: Activity class {.../...} does not exist.
@@ -405,7 +405,7 @@ class Uiautomator2(Connection):
             else:
                 logger.error(ret)
                 return False
-        # 已在运行
+        # Уже запущено
         # Warning: Activity not started, intent has been delivered to currently running top-most instance.
         if 'Warning: Activity not started' in ret.output:
             logger.info('Activity приложения запущена')
@@ -428,11 +428,11 @@ class Uiautomator2(Connection):
                 logger.error(ret)
                 logger.error('Отказ в разрешении при запуске приложения; вероятно, указана недопустимая Activity')
                 return False
-        # 成功
+        # Успешно
         # Starting: Intent...
         return True
 
-    # 不使用 @retry 装饰器，因为 _app_start_adb_am 和 _app_start_adb_monkey 已有 @retry
+    # Не используем декоратор @retry, поскольку _app_start_adb_am и _app_start_adb_monkey уже имеют @retry
     # @retry
     def app_start_uiautomator2(self, package_name=None, activity_name=None, allow_failure=False):
         """
@@ -498,7 +498,7 @@ class Uiautomator2(Connection):
         Returns:
             (width, height)
         """
-        # 优先使用 ADB wm size，支持 override 分辨率
+        # Сначала используем ADB wm size, включая override-разрешение
         lines = []
         result = ''
         try:
@@ -512,7 +512,7 @@ class Uiautomator2(Connection):
             import re
             size_pattern = re.compile(r'^(\d+)x(\d+)$')
 
-            # 优先读取 Override size（用户通过 wm size 设置的值）
+            # Сначала читаем Override size — значение, заданное пользователем через wm size
             for line in lines:
                 line = line.strip()
                 if 'Override size:' in line:
@@ -526,7 +526,7 @@ class Uiautomator2(Connection):
                         continue
 
             if w is None:
-                # 没有 Override，尝试 Physical size 行或裸分辨率行
+                # Override отсутствует: пробуем строку Physical size или строку с чистым разрешением
                 for line in lines:
                     line = line.strip()
                     try:
@@ -537,7 +537,7 @@ class Uiautomator2(Connection):
                                 w, h = int(m.group(1)), int(m.group(2))
                                 break
                         elif size_pattern.match(line):
-                            # 旧版 Android 仅输出 "1080x2400"
+                            # Старые версии Android выводят только "1080x2400"
                             m = size_pattern.match(line)
                             if m:
                                 w, h = int(m.group(1)), int(m.group(2))
@@ -694,7 +694,7 @@ class Uiautomator2(Connection):
     def u2_send_keys(self, text: str, clear: bool=False):
         self.u2.send_keys(text=text, clear=clear)
 
-    # 参考: https://uiautomator2.readthedocs.io/en/latest/api.html#uiautomator2.Session.send_action
+    # См.: https://uiautomator2.readthedocs.io/en/latest/api.html#uiautomator2.Session.send_action
     def u2_send_action(self, code):
         self.u2.send_action(code=code)
 

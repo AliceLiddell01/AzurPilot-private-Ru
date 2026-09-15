@@ -102,10 +102,10 @@ class ShopItemGrid(ItemGrid):
         """
         super().predict(image, name, amount, cost, price, tag)
         for item in self.items:
-            # 设置默认值
+            # Устанавливаем значения по умолчанию
             item.group, item.sub_genre, item.tier = None, None, None
 
-            # 使用正则表达式快速填充新属性
+            # Быстро заполняем новые атрибуты с помощью регулярного выражения
             name = item.name
             result = re.search(FILTER_REGEX, name)
             if result:
@@ -116,8 +116,8 @@ class ShopItemGrid(ItemGrid):
             else:
                 continue
 
-            # 书籍的颜色和/或等级有时会被误识别
-            # 使用 Book 类进行第二次模板匹配
+            # Цвет и/или уровень книги иногда распознаются неверно
+            # Выполняем повторное сопоставление шаблона через класс Book
             if item.group == 'book':
                 book = Book(image, item._button)
                 if item.sub_genre is not None:
@@ -258,7 +258,7 @@ class ShopBase(UI):
         if image is None:
             image = self.device.image
 
-        # 获取 ShopItemGrid
+        # Получаем ShopItemGrid
         shop_items = self.shop_items()
         if shop_items is None:
             logger.warning('Ожидался ShopItemGrid, но получен None')
@@ -280,7 +280,7 @@ class ShopBase(UI):
             tag=False
         )
 
-        # 记录预测物品的最终结果
+        # Записываем итоговые результаты распознавания товаров
         items = shop_items.items
         grids = shop_items.grids
         if len(items):
@@ -304,12 +304,12 @@ class ShopBase(UI):
         Returns:
             bool: 是否存在并处理了遮挡物。
         """
-        # 处理商店遮挡物
+        # Обрабатываем перекрывающие магазин элементы
         if self.appear(GET_SHIP, interval=1):
             logger.info(f'Перекрытие магазина: {GET_SHIP} -> {SHOP_CLICK_SAFE_AREA}')
             self.device.click(SHOP_CLICK_SAFE_AREA)
             return True
-        # 锁定新获得的舰船
+        # Блокировка нового полученного корабля
         if self.handle_popup_confirm('SHOP_OBSTRUCT'):
             return True
         if self.appear(GET_ITEMS_1, interval=1):
@@ -336,13 +336,13 @@ class ShopBase(UI):
         Returns:
             list[Item]: 已加载的物品列表，无物品时返回空列表。
         """
-        # 获取 ShopItemGrid
+        # Получаем ShopItemGrid
         shop_items = self.shop_items()
         if shop_items is None:
             logger.warning('Ожидался ShopItemGrid, но получен None')
             return []
 
-        # 循环预测以确保物品已加载且可被准确读取
+        # Повторяем распознавание, чтобы убедиться, что товары загрузились и читаются корректно
         record = 0
         timeout = Timer(3, count=9).start()
         while 1:
@@ -375,7 +375,7 @@ class ShopBase(UI):
                 logger.warning('Тайм-аут загрузки товаров; продолжаем, предполагая, что загрузка завершена')
                 break
 
-            # 检查未加载的物品，因为游戏加载物品速度较慢
+            # Проверяем незагруженные товары: игра загружает их довольно медленно
             items = shop_items.items
             known = len([item for item in items if item.is_known_item])
             logger.attr('Обнаружено товаров', known)
@@ -385,11 +385,11 @@ class ShopBase(UI):
             else:
                 record = known
 
-            # 结束条件
+            # Условие завершения
             if self.shop_has_loaded(items):
                 break
 
-        # 记录预测物品的最终结果
+        # Записываем итоговые результаты распознавания товаров
         items = shop_items.items
         grids = shop_items.grids
         if len(items):
@@ -448,12 +448,12 @@ class ShopBase(UI):
         Returns:
             Item: 待购买的物品，无可用物品时返回 None。
         """
-        # 首先扫描自定义物品，因其没有模板或过滤器支持
+        # Сначала просматриваем пользовательские товары, поскольку для них нет поддержки шаблонов или фильтра
         for item in items:
             if self.shop_check_custom_item(item):
                 return item
 
-        # 然后加载选择、应用过滤器，并返回结果中的第一个物品
+        # Затем загружаем выбор, применяем фильтр и возвращаем первый товар из результата
         FILTER.load(self.shop_filter)
         filtered = FILTER.apply(items, self.shop_check_item)
 
