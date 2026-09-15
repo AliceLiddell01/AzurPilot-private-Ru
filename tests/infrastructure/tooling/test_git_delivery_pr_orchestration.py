@@ -36,6 +36,7 @@ from azurpilot.tooling.pull_request import (
     GitHubProvider,
     PullRequestBodyRenderer,
     PullRequestService,
+    _head_repository_identity,
     _ValidatedPr,
 )
 from azurpilot.tooling.repository import ResolvedRepository
@@ -845,7 +846,10 @@ def _pr_payload(
         "headRefName": context.spec.head_ref,
         "headRefOid": context.spec.head_sha,
         "headRepository": {
-            "nameWithOwner": context.spec.repository.slug,
+            "name": context.spec.repository.repository,
+        },
+        "headRepositoryOwner": {
+            "login": context.spec.repository.owner,
         },
         "isCrossRepository": False,
     }
@@ -974,8 +978,9 @@ def test_pr_edit_timeout_with_unavailable_readback_is_unknown_without_retry(
         {"headRefOid": "c" * 40},
         {
             "headRepository": {
-                "nameWithOwner": "wess09/AzurPilot",
-            }
+                "name": "AzurPilot",
+            },
+            "headRepositoryOwner": {"login": "wess09"},
         },
         {"isCrossRepository": True},
     ),
@@ -996,6 +1001,27 @@ def test_pr_edit_readback_identity_mismatch_fails_closed(
     assert error.value.code is ResultCode.TOOLING_PR_IDENTITY_MISMATCH
     assert provider.edit_calls == 1
     assert provider.view_calls == 1
+
+
+@pytest.mark.parametrize(
+    "updates",
+    (
+        {"headRepository": {"nameWithOwner": "AliceLiddell01/AzurPilot-private-Ru"}},
+        {"headRepositoryOwner": {}},
+        {"headRepository": None},
+        {"headRepositoryOwner": None},
+    ),
+)
+def test_head_repository_identity_rejects_missing_expected_gh_fields(
+    tmp_path: Path, updates: dict[str, object]
+) -> None:
+    context, _body_file = _pr_test_context(tmp_path)
+    payload = _pr_payload(context, **updates)
+
+    with pytest.raises(ToolingError) as error:
+        _head_repository_identity(payload, context.spec)
+
+    assert error.value.code is ResultCode.TOOLING_PR_IDENTITY_MISMATCH
 
 
 def test_structured_pr_body_contains_required_sections_and_exact_review_head() -> None:

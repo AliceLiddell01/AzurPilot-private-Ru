@@ -23,6 +23,7 @@ from .contracts import (
     PullRequestDetails,
     PullRequestEvidence,
     PullRequestIdentity,
+    RepositoryIdentity,
     ResultCode,
     ToolingResult,
 )
@@ -35,7 +36,7 @@ from .repository import RepositoryResolver, ResolvedRepository
 _MAX_SPEC_BYTES = 512 * 1024
 _SAFE_REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,255}$")
 _SAFE_REMOTE = re.compile(r"^[A-Za-z0-9._-]{1,80}$")
-# `baseRefOid` in the requested `gh pr --json` fields requires gh >= 2.63.0.
+# Поля `baseRefOid` и `headRepositoryOwner` в `gh pr --json` требуют gh >= 2.63.0.
 _MIN_GH_VERSION = "2.63.0"
 _UNKNOWN_JSON_FIELD_MARKERS = (
     "unknown json field",
@@ -813,14 +814,14 @@ def _head_repository_identity(
             ResultCode.TOOLING_PR_IDENTITY_MISMATCH,
             "Provider не вернул head repository identity.",
         )
-    name_with_owner = raw.get("nameWithOwner")
-    if not isinstance(name_with_owner, str) or name_with_owner.count("/") != 1:
+    repository = raw.get("name")
+    owner_raw = payload.get("headRepositoryOwner")
+    owner = owner_raw.get("login") if isinstance(owner_raw, dict) else None
+    if not isinstance(repository, str) or not isinstance(owner, str):
         raise _error(
             ResultCode.TOOLING_PR_IDENTITY_MISMATCH,
             "Provider head repository identity имеет неверный формат.",
         )
-    owner, repository = name_with_owner.split("/", 1)
-    from .contracts import RepositoryIdentity
 
     return RepositoryIdentity(
         host=spec.repository.host,

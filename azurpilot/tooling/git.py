@@ -121,7 +121,14 @@ class GitClient:
     def remote_exists(self, remote: str) -> bool:
         command = self.run("remote", "get-url", remote, allow_nonzero=True)
         _require_complete(command, "Проверка Git remote")
-        return command.result.returncode == 0
+        if command.result.returncode == 0:
+            return True
+        if command.result.returncode == 2:
+            return False
+        raise ToolingError(
+            ResultCode.TOOLING_GIT_FAILED,
+            "Git не смог подтвердить наличие remote.",
+        )
 
     def remote_identity(self, remote: str) -> str:
         return canonical_remote_identity(self.remote_url(remote))
