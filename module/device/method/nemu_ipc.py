@@ -143,23 +143,23 @@ class CaptureNemuIpc(CaptureStd):
             return
         logger.error(f'[Устройство — NemuIpc] stderr NemuIpc: {self.stderr}')
 
-        # 调用了旧版本的 MuMu12
-        # 在 3.4.0 上测试
+        # Вызвана старая версия MuMu12
+        # Проверено на 3.4.0
         # b'nemu_capture_display rpc error: 1783\r\n'
-        # 在 3.7.3 上测试
+        # Проверено на 3.7.3
         # b'nemu_capture_display rpc error: 1745\r\n'
         if b'error: 1783' in self.stderr or b'error: 1745' in self.stderr:
             raise NemuIpcIncompatible(
                 f'Для NemuIpc требуется MuMu12 версии >= 3.8.13. Проверьте версию')
-        # contact_id 不正确
+        # Некорректный contact_id
         # b'nemu_capture_display cannot find rpc connection\r\n'
         if b'cannot find rpc connection' in self.stderr:
             raise NemuIpcError(self.stderr)
-        # 模拟器已停止运行
+        # Эмулятор остановлен
         # b'nemu_capture_display rpc error: 1722\r\n'
-        # MuMuVMMSVC.exe 已停止运行
+        # MuMuVMMSVC.exe остановлен
         # b'nemu_capture_display rpc error: 1726\r\n'
-        # 暂无已知处理方式
+        # Известного способа обработки пока нет
         if b'error: 1722' in self.stderr or b'error: 1726' in self.stderr:
             raise NemuIpcError('[Устройство — NemuIpc] Экземпляр эмулятора, вероятно, завершил работу')
 
@@ -173,7 +173,7 @@ def retry(func):
         """
         init = None
         for _ in range(RETRY_TRIES):
-            # 重试时延长超时时间
+            # При повторной попытке увеличиваем тайм-аут
             if func.__name__ == 'screenshot':
                 timeout = retry_sleep(_)
                 if timeout > 0:
@@ -183,14 +183,14 @@ def retry(func):
                     time.sleep(retry_sleep(_))
                     init()
                 return func(self, *args, **kwargs)
-            # 不可处理
+            # Не подлежит обработке
             except RequestHumanTakeover:
                 break
-            # 不可处理
+            # Не подлежит обработке
             except NemuIpcIncompatible as e:
                 logger.error(str(f'[Устройство — NemuIpc] Ошибка повторной попытки: {e}'))
                 break
-            # 函数调用超时
+            # Тайм-аут вызова функции
             except JobTimeout:
                 logger.warning(f'[Устройство — NemuIpc] Истёк тайм-аут вызова {func.__name__}(); повторная попытка: {_}')
 
@@ -202,10 +202,10 @@ def retry(func):
 
                 def init():
                     self.reconnect()
-            # 不可处理 - 必须向上抛出以触发模拟器重启
+            # Не подлежит обработке — исключение нужно пробросить выше, чтобы инициировать перезапуск эмулятора
             except EmulatorNotRunningError:
                 raise
-            # 未知异常，可能是损坏的图像
+            # Неизвестное исключение, возможно повреждено изображение
             except Exception as e:
                 logger.exception(str(f'[Устройство — NemuIpc] Ошибка повторной попытки: {e}'))
 
@@ -234,7 +234,7 @@ class NemuIpcImpl:
         self.instance_id: int = instance_id
         self.display_id: int = display_id
 
-        # 尝试从多个路径加载 DLL
+        # Пытаемся загрузить DLL из нескольких путей
         list_dll = [
             # MuMuPlayer12
             os.path.abspath(os.path.join(nemu_folder, './shell/sdk/external_renderer_ipc.dll')),
@@ -255,11 +255,11 @@ class NemuIpcImpl:
                 logger.error(f'Файл ipc_dll={ipc_dll} существует, но его не удалось загрузить')
                 continue
         if self.lib is None:
-            # 未找到
+            # Не найдено
             raise NemuIpcIncompatible(
                 f'Для NemuIpc требуется MuMu12 версии >= 3.8.13. Проверьте версию. '
                 f'Ни один из следующих путей не существует: {list_dll}')
-        # 成功
+        # Успешно
         logger.info(
             f'[Устройство — NemuIpc] Инициализация: каталог MuMu={nemu_folder}, библиотека IPC={ipc_dll}, ID экземпляра={instance_id}, ID дисплея={display_id}'
         )
@@ -328,7 +328,7 @@ class NemuIpcImpl:
             NemuIpcError
         """
         if on_thread:
-            # nemu_ipc 有时会超时，因此在独立线程上运行
+            # nemu_ipc иногда зависает по тайм-ауту, поэтому запускаем его в отдельном потоке
             job = WORKER_POOL.start_thread_soon(func, *args)
             result = job.get_or_kill(timeout)
         else:
@@ -343,7 +343,7 @@ class NemuIpcImpl:
         else:
             if result > 0:
                 err = True
-        # 获取标准输出中实际的错误信息
+        # Получаем фактическую информацию об ошибке из стандартного вывода
         if err:
             logger.warning(f'Не удалось выполнить {func.__name__}, result={result}')
             with CaptureNemuIpc():
@@ -388,7 +388,7 @@ class NemuIpcImpl:
         if ret > 0:
             raise NemuIpcError('[Устройство — NemuIpc] Вызов nemu_capture_display завершился ошибкой при создании снимка экрана')
 
-        # 返回 pixels_pointer 而非 image，避免通过 job 传递图像对象
+        # Возвращаем pixels_pointer вместо image, чтобы не передавать объект изображения через job
         return pixels_pointer
 
     @retry
@@ -489,7 +489,7 @@ class NemuIpc(Platform):
         """
         初始化 nemu ipc 实现。
         """
-        # 优先使用已有设置
+        # В первую очередь используем существующие настройки
         if self.config.EmulatorInfo_path:
             folder = os.path.abspath(os.path.join(self.config.EmulatorInfo_path, '../../'))
             index = NemuIpcImpl.serial_to_id(self.serial)
@@ -504,9 +504,9 @@ class NemuIpc(Platform):
                     logger.error(str(f'[Устройство — NemuIpc] Ошибка получения снимка экрана: {e}'))
                     logger.error('[Устройство — NemuIpc] Некорректные сведения об эмуляторе')
 
-        # 搜索模拟器实例
-        # 例如 E:\ProgramFiles\MuMuPlayer-12.0\shell\MuMuPlayer.exe
-        # 安装路径为 E:\ProgramFiles\MuMuPlayer-12.0
+        # Ищем экземпляр эмулятора
+        # Например: E:\ProgramFiles\MuMuPlayer-12.0\shell\MuMuPlayer.exe
+        # Путь установки: E:\ProgramFiles\MuMuPlayer-12.0
         if self.emulator_instance is None:
             logger.error('[Устройство — NemuIpc] NemuIpc недоступен: экземпляр эмулятора не найден')
             raise RequestHumanTakeover
@@ -532,13 +532,13 @@ class NemuIpc(Platform):
         if not self.is_mumu_family:
             return False
         if self.nemud_player_version == '':
-            # >= 4.0 的版本在 getprop 中没有信息
-            # 尝试初始化 nemu_ipc 来做最终检查
+            # У версий >= 4.0 информация отсутствует в getprop
+            # Пытаемся инициализировать nemu_ipc для окончательной проверки
             pass
         else:
-            # 有版本信息，可能是 MuMu6 或 MuMu12 3.x 版本
+            # Информация о версии есть: возможно, это MuMu6 или MuMu12 3.x
             if self.nemud_app_keep_alive == '':
-                # 属性为空，可能是 MuMu6 或 MuMu12 < 3.5.6 版本
+                # Свойство пустое: возможно, это MuMu6 или MuMu12 < 3.5.6
                 return False
         try:
             _ = self.nemu_ipc
@@ -557,8 +557,8 @@ class NemuIpc(Platform):
         Returns:
             bool: 是否成功读取文件
         """
-        # 例如 E:\ProgramFiles\MuMuPlayer-12.0\shell\MuMuPlayer.exe
-        # 配置路径为 E:\ProgramFiles\MuMuPlayer-12.0\vms\MuMuPlayer-12.0-1\config\customer_config.json
+        # Например: E:\ProgramFiles\MuMuPlayer-12.0\shell\MuMuPlayer.exe
+        # Путь конфигурации: E:\ProgramFiles\MuMuPlayer-12.0\vms\MuMuPlayer-12.0-1\config\customer_config.json
         try:
             with open(file, mode='r', encoding='utf-8') as f:
                 s = f.read()
@@ -578,7 +578,7 @@ class NemuIpc(Platform):
         if not self.is_mumu_over_version_400:
             return super().check_mumu_app_keep_alive()
 
-        # 优先使用已有设置
+        # В первую очередь используем существующие настройки
         if self.config.EmulatorInfo_path:
             index = NemuIpcImpl.serial_to_id(self.serial)
             if index is not None:
@@ -587,7 +587,7 @@ class NemuIpc(Platform):
                 if self.check_mumu_app_keep_alive_400(file):
                     return True
 
-        # 搜索模拟器实例
+        # Ищем экземпляр эмулятора
         if self.emulator_instance is None:
             logger.warning('[Устройство — NemuIpc] Не удалось выполнить check_mumu_app_keep_alive: emulator_instance имеет значение None')
             return False
