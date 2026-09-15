@@ -36,6 +36,7 @@ provider вызывается с explicit `gh --repo`, а Markdown переда�
 human output и `--json` для agent CLI. JSON должен содержать ровно один
 закрытый result envelope; он не заменяет required `Python`, `Windows` и
 `Security` contexts на exact PR head.
+Delivery journal сохраняет фактический scan scope и фазу операции вне checkout.
 
 Workflow также публикует дополнительную проверку `macOS core tooling` на
 `macos-14`. Она не входит в текущий required ruleset, но выполняет exact-head
