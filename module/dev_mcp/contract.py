@@ -126,10 +126,13 @@ def server_compatibility_issues(
         if isinstance(required_flags, Mapping)
         else None
     )
-    if isinstance(expected_flags, Mapping) and isinstance(actual_flags, Mapping):
-        for name, value in expected_flags.items():
-            if actual_flags.get(name) is not value:
-                issues.append(f"servers.{server_name}.feature_flags.{name}")
+    if isinstance(expected_flags, Mapping):
+        if not isinstance(actual_flags, Mapping):
+            issues.append(f"servers.{server_name}.feature_flags")
+        else:
+            for name, value in expected_flags.items():
+                if actual_flags.get(name) is not value:
+                    issues.append(f"servers.{server_name}.feature_flags.{name}")
     required_families = expected.get("required_capability_families_by_server")
     actual_families = actual.get("capability_families")
     expected_family_values = (
@@ -137,12 +140,11 @@ def server_compatibility_issues(
         if isinstance(required_families, Mapping)
         else None
     )
-    if (
-        isinstance(expected_family_values, (list, tuple))
-        and isinstance(actual_families, (list, tuple))
-        and any(value not in actual_families for value in expected_family_values)
-    ):
-        issues.append(f"servers.{server_name}.capability_families")
+    if isinstance(expected_family_values, (list, tuple)):
+        if not isinstance(actual_families, (list, tuple)) or any(
+            value not in actual_families for value in expected_family_values
+        ):
+            issues.append(f"servers.{server_name}.capability_families")
     required_vocabulary = expected.get("result_vocabulary_by_server")
     actual_vocabulary = actual.get("result_states", actual.get("result_outcomes"))
     expected_vocabulary = (
@@ -150,12 +152,11 @@ def server_compatibility_issues(
         if isinstance(required_vocabulary, Mapping)
         else None
     )
-    if (
-        isinstance(expected_vocabulary, (list, tuple))
-        and isinstance(actual_vocabulary, (list, tuple))
-        and any(value not in actual_vocabulary for value in expected_vocabulary)
-    ):
-        issues.append(f"servers.{server_name}.result_vocabulary")
+    if isinstance(expected_vocabulary, (list, tuple)):
+        if not isinstance(actual_vocabulary, (list, tuple)) or any(
+            value not in actual_vocabulary for value in expected_vocabulary
+        ):
+            issues.append(f"servers.{server_name}.result_vocabulary")
     return tuple(dict.fromkeys(issues))
 
 

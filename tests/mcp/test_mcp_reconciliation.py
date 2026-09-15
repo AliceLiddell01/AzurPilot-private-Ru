@@ -185,6 +185,18 @@ def test_auth_readiness_is_scoped_to_servers_being_started(monkeypatch) -> None:
     assert not mcp_tooling.McpService._auth_ready()
 
 
+def test_runtime_source_revision_is_sanitized_before_status_model() -> None:
+    server = load_mcp_bundle(REPOSITORY_ROOT).servers["azurpilot-game"]
+
+    status = mcp_tooling._server_status_from_model(
+        server,
+        status="ready",
+        observed_source_revision="not-a-git-revision",
+    )
+
+    assert status.source_revision is None
+
+
 def test_reconciler_detects_unreconciled_source_without_mutating_repository(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

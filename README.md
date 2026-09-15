@@ -151,7 +151,7 @@ backend identity; public и third-party MCP surfaces остаются отдел
 ```text
 azur mcp status
 azur mcp versions
-azur mcp reconcile [--source|--runtime]
+azur mcp reconcile [--source [--bump auto|patch|minor|major]]
 azur mcp start | stop | restart
 ```
 

@@ -12,6 +12,8 @@ from pathlib import Path, PurePosixPath
 from secrets import token_hex
 from typing import TYPE_CHECKING
 
+from pydantic import ValidationError
+
 from .bootstrap import BootstrapService
 from .config import load_deploy_settings, project_python
 from .contracts import (
@@ -113,7 +115,12 @@ class UpdateService:
                     ResultCode.TOOLING_VERIFICATION_UNKNOWN,
                     "MCP reconciliation вернула неполный результат.",
                 )
-        except ToolingError as error:
+        except (ToolingError, ValidationError, OSError) as error:
+            reason = (
+                error.code.value
+                if isinstance(error, ToolingError)
+                else type(error).__name__
+            )
             return _McpReconciliation(
                 state="failed",
                 restarted_servers=(),
@@ -123,13 +130,17 @@ class UpdateService:
                     code=WarningCode.MCP_RECONCILIATION_FAILED,
                     message=(
                         "MCP reconciliation после update не подтверждена "
-                        f"({error.code.value}); проверьте `azur mcp status`."
+                        f"({reason}); проверьте `azur mcp status`."
                     ),
                 ),
             )
         restarted = details.restarted_servers
         reload_required = details.reload_required
-        session_state = details.session_state
+        session_state = (
+            "reload_required"
+            if details.session_state == "reload_required"
+            else "not_observable"
+        )
         return _McpReconciliation(
             state="restarted" if restarted else "ready",
             restarted_servers=restarted,

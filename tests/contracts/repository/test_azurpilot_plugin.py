@@ -155,7 +155,8 @@ def test_plugin_compatibility_matches_runtime_contract() -> None:
 def test_plugin_compatibility_accepts_version_inside_semver_range() -> None:
     compatibility = _json(_COMPATIBILITY_PATH)
     runtime = game_contract_payload()
-    runtime["server_version"] = "1.0.19"
+    major, minor, patch = (int(value) for value in runtime["server_version"].split("."))
+    runtime["server_version"] = f"{major}.{minor}.{patch + 1}"
 
     assert server_compatibility_issues(compatibility, runtime) == ()
 
@@ -163,13 +164,39 @@ def test_plugin_compatibility_accepts_version_inside_semver_range() -> None:
 def test_plugin_bundle_drift_is_separate_from_semver_compatibility() -> None:
     compatibility = _json(_COMPATIBILITY_PATH)
     runtime = game_contract_payload()
-    runtime["server_version"] = "1.0.19"
+    major, minor, patch = (int(value) for value in runtime["server_version"].split("."))
+    runtime["server_version"] = f"{major}.{minor}.{patch + 1}"
     runtime["contract_revision"] = "0" * 64
 
     assert server_compatibility_issues(compatibility, runtime) == ()
     assert server_bundle_drift_issues(compatibility, runtime) == (
         "servers.azurpilot-game.contract_revision",
     )
+
+
+@pytest.mark.parametrize(
+    ("field", "malformed"),
+    (
+        ("feature_flags", ()),
+        ("capability_families", {}),
+        ("result_states", "malformed"),
+    ),
+)
+def test_server_compatibility_rejects_missing_or_malformed_metadata(
+    field: str, malformed: object
+) -> None:
+    compatibility = _json(_COMPATIBILITY_PATH)
+    path = "servers.azurpilot-game." + (
+        "result_vocabulary" if field == "result_states" else field
+    )
+
+    missing = game_contract_payload()
+    missing.pop(field)
+    assert path in server_compatibility_issues(compatibility, missing)
+
+    invalid = game_contract_payload()
+    invalid[field] = malformed
+    assert path in server_compatibility_issues(compatibility, invalid)
 
 
 def test_project_config_declares_both_canonical_direct_routes() -> None:

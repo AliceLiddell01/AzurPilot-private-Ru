@@ -51,7 +51,12 @@ from .filesystem import (
     is_unsafe_path,
 )
 from .git import GitClient
-from .process import ProcessController, ProcessSpec, StructuredProcessRunner
+from .process import (
+    MCP_LOCAL_TOKEN_ENVIRONMENT_KEYS,
+    ProcessController,
+    ProcessSpec,
+    StructuredProcessRunner,
+)
 from .repository import RepositoryResolver
 
 MCP_SERVER_NAMES = ("azurpilot-dev", "azurpilot-game")
@@ -86,10 +91,7 @@ SERVER_SOURCE_SETS: Mapping[str, tuple[str, ...]] = {
     "azurpilot-dev": ("DEV_MCP_SOURCE_SET", "SHARED_MCP_SOURCE_SET"),
     "azurpilot-game": ("GAME_MCP_SOURCE_SET", "SHARED_MCP_SOURCE_SET"),
 }
-TOKEN_ENVIRONMENT_KEYS = {
-    "azurpilot-dev": "AZURPILOT_DEV_LOCAL_MCP_TOKEN",
-    "azurpilot-game": "AZURPILOT_GAME_LOCAL_MCP_TOKEN",
-}
+TOKEN_ENVIRONMENT_KEYS = MCP_LOCAL_TOKEN_ENVIRONMENT_KEYS
 _PLUGIN_VERSION_RE = re.compile(r"^0\.1\.0\+codex\.[0-9]{14}$")
 _SHA_RE = re.compile(r"^[0-9a-f]{7,64}$")
 
@@ -503,7 +505,7 @@ def _server_status_from_model(
         server_name=server.name,
         expected_version=server.version,
         observed_version=observed_version,
-        source_revision=observed_source_revision,
+        source_revision=_safe_source_revision(observed_source_revision),
         status=status,
         source_set_digest=server.source_set_digest,
         tool_catalog_sha256=server.tool_catalog_sha256,
@@ -512,6 +514,15 @@ def _server_status_from_model(
         routes=routes,
         reason_code=reason_code,
     )
+
+
+def _safe_source_revision(value: object) -> str | None:
+    """Вернуть только bounded Git revision из runtime metadata."""
+
+    if not isinstance(value, str):
+        return None
+    revision = value.strip().lower()
+    return revision if _SHA_RE.fullmatch(revision) else None
 
 
 def _runtime_service_matches(
@@ -797,23 +808,21 @@ def _build_bundle(root: Path, requested_bump: str | None) -> _BundleBuild:
     changed_components = tuple(
         name
         for name in SOURCE_SET_NAMES
-        if old_bundle is None or old_bundle.source_digests.get(name) != digests[name]
+        if old_bundle.source_digests.get(name) != digests[name]
     )
     affected = tuple(
         name
         for name in MCP_SERVER_NAMES
-        if old_bundle is None
-        or old_bundle.servers[name].source_set_digest != final_models[name].source_set_digest
+        if old_bundle.servers[name].source_set_digest != final_models[name].source_set_digest
         or old_bundle.servers[name].contract_revision != final_models[name].contract_revision
     )
     plugin_changed = (
-        old_bundle is None
-        or old_bundle.source_digests.get("PLUGIN_BUNDLE_SOURCE_SET")
+        old_bundle.source_digests.get("PLUGIN_BUNDLE_SOURCE_SET")
         != digests["PLUGIN_BUNDLE_SOURCE_SET"]
         or old_bundle.source_digests.get("SKILL_BUNDLE_SOURCE_SET")
         != digests["SKILL_BUNDLE_SOURCE_SET"]
     )
-    skill_changed = old_bundle is None or old_bundle.skill_bundle_revision != bundle.skill_bundle_revision
+    skill_changed = old_bundle.skill_bundle_revision != bundle.skill_bundle_revision
     plugin_payload = _read_plugin_manifest(root)
     plugin_payload["version"] = bundle.plugin_version
     plugin_manifest_text = json.dumps(plugin_payload, ensure_ascii=False, indent=2) + "\n"
@@ -1126,10 +1135,8 @@ class McpService:
                         else "unknown"
                     ),
                     observed_version=observed if isinstance(observed, str) else None,
-                    observed_source_revision=(
+                    observed_source_revision=_safe_source_revision(
                         runtime_item.get("source_revision")
-                        if isinstance(runtime_item.get("source_revision"), str)
-                        else None
                     ),
                     reason_code=(
                         None
@@ -1503,7 +1510,7 @@ class McpService:
             runtime_state=runtime_state,
             mutation_performed=bool(restarted),
             changed_components=(),
-            affected_servers=tuple(MCP_SERVER_NAMES if restarted else ()),
+            affected_servers=restarted,
             restarted_servers=restarted,
             session_state=session_state,
             reload_required=session_state == "reload_required",
@@ -1537,7 +1544,7 @@ class McpService:
                     if isinstance(services.get(name), dict)
                     else None
                 ),
-                observed_source_revision=(
+                observed_source_revision=_safe_source_revision(
                     services.get(name, {}).get("source_revision")
                     if isinstance(services.get(name), dict)
                     else None

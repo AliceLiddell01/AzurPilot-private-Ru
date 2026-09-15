@@ -32,12 +32,10 @@ DOCKER_ENVIRONMENT_KEYS = frozenset(
         "DOCKER_CERT_PATH",
     }
 )
-MCP_LOCAL_TOKEN_ENVIRONMENT_KEYS = frozenset(
-    {
-        "AZURPILOT_DEV_LOCAL_MCP_TOKEN",
-        "AZURPILOT_GAME_LOCAL_MCP_TOKEN",
-    }
-)
+MCP_LOCAL_TOKEN_ENVIRONMENT_KEYS = {
+    "azurpilot-dev": "AZURPILOT_DEV_LOCAL_MCP_TOKEN",
+    "azurpilot-game": "AZURPILOT_GAME_LOCAL_MCP_TOKEN",
+}
 MCP_LOCAL_SOURCE_DIGEST_ENVIRONMENT_KEYS = frozenset(
     {
         "AZURPILOT_DEV_MCP_SOURCE_SET_DIGEST",
@@ -368,7 +366,8 @@ def _safe_environment(
         "__PYVENV_LAUNCHER__",
     } | DOCKER_ENVIRONMENT_KEYS
     allowed_explicit |= (
-        MCP_LOCAL_TOKEN_ENVIRONMENT_KEYS | MCP_LOCAL_SOURCE_DIGEST_ENVIRONMENT_KEYS
+        set(MCP_LOCAL_TOKEN_ENVIRONMENT_KEYS.values())
+        | MCP_LOCAL_SOURCE_DIGEST_ENVIRONMENT_KEYS
     )
     result = {
         key: value

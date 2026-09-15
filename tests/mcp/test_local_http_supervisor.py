@@ -425,6 +425,63 @@ def test_supervisor_real_services_readiness_status_marker_and_cleanup(
         _cleanup_running_supervisor(process, observer)
 
 
+def test_status_does_not_publish_readiness_metadata_for_dead_owned_service(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _prepare_test_project(tmp_path)
+    service = LocalHttpService(
+        "azurpilot-dev",
+        "test_local_mcp_dead",
+        _free_port(),
+        _DEV_TOKEN_ENV,
+    )
+    observer = LocalHttpSupervisor(
+        tmp_path,
+        python_executable=sys.executable,
+        services=(service,),
+    )
+    supervisor_identity = _process_identity(os.getpid())
+    assert supervisor_identity is not None
+    dead_service_identity = dict(supervisor_identity)
+    dead_service_identity["created_at"] = -1.0
+    observer.marker_path.write_text(
+        json.dumps(
+            {
+                "repository_root": str(observer.repository_root),
+                "supervisor": supervisor_identity,
+                "services": [
+                    {
+                        "name": service.name,
+                        "port": service.port,
+                        "process": dead_service_identity,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    calls: list[str] = []
+
+    def unexpected_ready_payload(item: LocalHttpService) -> dict[str, object]:
+        calls.append(item.name)
+        return {"server_version": "rogue"}
+
+    monkeypatch.setattr(
+        LocalHttpSupervisor,
+        "_ready_payload",
+        staticmethod(unexpected_ready_payload),
+    )
+
+    status = observer.status()
+
+    assert status["code"] == "LOCAL_MCP_SUPERVISOR_DEGRADED"
+    assert calls == []
+    service_status = status["services"][0]
+    assert service_status["alive"] is False
+    assert service_status["ready"] is False
+    assert "server_version" not in service_status
+
+
 def test_supervisor_cleanup_removes_exact_unrecorded_descendant(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

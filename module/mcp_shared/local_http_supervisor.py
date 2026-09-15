@@ -788,13 +788,13 @@ class LocalHttpSupervisor:
                     alive = _identity_matches(psutil.Process(child_pid), child)
                 except psutil.Error, OSError, TypeError, ValueError, KeyError:
                     alive = False
-            ready_payload = self._ready_payload(expected_service)
+            ready_payload = self._ready_payload(expected_service) if alive else None
             services.append(
                 {
                     "server_name": expected_service.name,
                     "port": expected_service.port,
                     "alive": alive,
-                    "ready": bool(alive and ready_payload is not None),
+                    "ready": ready_payload is not None,
                     **(ready_payload or {}),
                 }
             )

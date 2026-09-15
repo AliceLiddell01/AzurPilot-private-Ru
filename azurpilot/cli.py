@@ -518,7 +518,9 @@ def _render_human(
                 f"{'✓' if result.ok else '✗'} {result.message}"
             )
         else:
-            servers = getattr(result.details, "servers", None)
+            servers = getattr(result.details, "servers", None) or getattr(
+                result.details, "services", None
+            )
             if servers is not None:
                 from rich.table import Table
 

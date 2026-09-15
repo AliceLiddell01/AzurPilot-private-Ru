@@ -31,6 +31,8 @@ from azurpilot.tooling.contracts import (
     CapabilityStatus,
     DoctorDetails,
     DoctorEvidence,
+    McpLifecycleDetails,
+    McpServerStatus,
     OperationState,
     PostgreSqlBackupEvidence,
     RepositoryRootEvidence,
@@ -55,6 +57,7 @@ from azurpilot.tooling.process import (
 from azurpilot.tooling.repair import RepairService
 from azurpilot.tooling.repository import ResolvedRepository
 from deploy import uv as deploy_uv
+from module.mcp_shared.versioning import load_server_versions
 from tests.support.paths import REPOSITORY_ROOT
 
 
@@ -103,6 +106,54 @@ def test_cli_human_output_uses_russian_operator_presentation() -> None:
     assert "✓" in stdout.getvalue()
     assert "AzurPilot Doctor" in stdout.getvalue()
     assert "[OK]" not in stdout.getvalue()
+    assert stderr.getvalue() == ""
+
+
+def test_cli_human_output_renders_mcp_lifecycle_services() -> None:
+    class McpStub:
+        def start(self, _root: object) -> ToolingResult[McpLifecycleDetails, McpLifecycleDetails]:
+            server_version = load_server_versions(REPOSITORY_ROOT)["azurpilot-dev"]
+            server = McpServerStatus(
+                server_name="azurpilot-dev",
+                expected_version=server_version,
+                observed_version=server_version,
+                status="ready",
+                source_set_digest="a" * 64,
+                tool_catalog_sha256="b" * 64,
+                capability_catalog_sha256="c" * 64,
+                contract_revision="d" * 64,
+                routes=("stdio", "loopback_http"),
+            )
+            details = McpLifecycleDetails(
+                action="start",
+                supervisor_code="LOCAL_MCP_SUPERVISOR_READY",
+                services=(server,),
+                ownership_confirmed=True,
+                readiness_confirmed=True,
+            )
+            return ToolingResult[McpLifecycleDetails, McpLifecycleDetails](
+                ok=True,
+                code=ResultCode.OK,
+                state=OperationState.READY,
+                message="MCP supervisor запущен.",
+                details=details,
+            )
+
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+
+    assert (
+        main(
+            ["mcp", "start"],
+            services=SimpleNamespace(mcp=McpStub()),
+            stdout=stdout,
+            stderr=stderr,
+        )
+        == 0
+    )
+    assert "AzurPilot MCP" in stdout.getvalue()
+    assert "azurpilot-dev" in stdout.getvalue()
+    assert "✓" in stdout.getvalue()
     assert stderr.getvalue() == ""
 
 
