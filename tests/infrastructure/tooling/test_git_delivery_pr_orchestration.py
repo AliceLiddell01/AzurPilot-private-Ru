@@ -11,6 +11,7 @@ import pytest
 
 from azurpilot.cli import build_parser, main
 from azurpilot.tooling.contracts import (
+    CodeRabbitReview,
     DeliveryPhase,
     OperationState,
     PullRequestBody,
@@ -384,6 +385,76 @@ def test_structured_pr_body_rejects_thin_operator_report() -> None:
         PullRequestBodyRenderer.render(body, base_sha="a" * 40, head_sha="b" * 40)
 
     assert error.value.code is ResultCode.TOOLING_PR_BODY_INVALID
+
+
+def test_structured_pr_body_keeps_prior_coderabbit_head_under_rate_limit() -> None:
+    body = PullRequestBody(
+        goal=(
+            "Цель описана достаточно подробно, чтобы оператор понимал причину и ожидаемый результат изменения delivery orchestration. "
+            "Контракт должен одинаково объяснять безопасную публикацию, точный head и проверяемое состояние provider. " * 2
+        ),
+        scope=(
+            "Область изменения содержит несколько явно перечисленных подсистем и границ ответственности:\n"
+            "- Git delivery и PR body;\n"
+            "- human и agent CLI adapters;\n"
+            "- exact remote verification и journal recovery.\n"
+            "- staged и committed-range security checks;\n" * 2
+        ),
+        implementation=(
+            "Реализация подробно фиксирует typed contracts, allowlist staging, staged и committed-range scan, provider read-back и сохранение machine-readable evidence.\n"
+            "- Все мутации выполняются только после exact precondition checks.\n"
+            "- Текст PR строится из единой модели.\n"
+            "- Terminal delivery states и неоднозначные remote outcomes различаются явно.\n" * 2
+        ),
+        checks=(
+            "Проверки перечислены как воспроизводимые факты текущего checkpoint:\n"
+            "- targeted pytest и live CLI acceptance;\n"
+            "- Ruff, compileall и exact-head integration;\n"
+            "- disposable remote и read-only status.\n"
+            "- machine-readable envelope проверен отдельно от human output.\n" * 2
+        ),
+        ci=(
+            "Hosted CI проверяет текущий exact head:\n"
+            "- Python и Windows jobs;\n"
+            "- Security и кроссплатформенный tooling gate;\n"
+            "- постоянные job names без stage-specific baseline.\n"
+            "- результат каждого обязательного context читается по exact SHA.\n" * 2
+        ),
+        security_secret_scan=(
+            "Security scope описан отдельно:\n"
+            "- allowlist staged scan;\n"
+            "- committed-range Gitleaks;\n"
+            "- отсутствие секретов и credentials в diff.\n"
+            "- machine-readable Gitleaks report разбирается, а не заменяется одним exit code.\n" * 2
+        ),
+        coderabbit_review=CodeRabbitReview(
+            reviewed_head="c" * 40,
+            base_sha="a" * 40,
+            findings=(),
+            rate_limit="Повторный review текущего head временно недоступен из-за provider rate limit.",
+        ),
+        migration_rollback=(
+            "Миграций данных нет; rollback до merge выполняется закрытием Draft PR и удалением ветки после отдельного решения.\n"
+            "- Неизвестный push восстанавливается только read-only recovery.\n"
+            "- После merge используется согласованный Git rollback-процесс без ручной подмены remote ref.\n" * 2
+        ),
+        limitations=(
+            "PR остаётся Draft до финального review:\n"
+            "- physical device и игровой acceptance не входят в этот scope;\n"
+            "- текущий CodeRabbit head требует отдельного повторного запуска после снятия rate limit.\n"
+            "- provider rate limit не трактуется как product approval или как успешный review.\n" * 2
+        ),
+    )
+
+    rendered = PullRequestBodyRenderer.render(
+        body,
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+    )
+
+    assert "Последний проверенный head: `" + "c" * 40 in rendered
+    assert "Текущий head: `" + "b" * 40 in rendered
+    assert "rate limit" in rendered
 
 
 def test_nested_cli_parser_exposes_delivery_and_pr_actions() -> None:

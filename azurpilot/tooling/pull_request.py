@@ -130,10 +130,16 @@ class PullRequestBodyRenderer:
         else:
             findings = list(review.findings)
             lines = [
-                f"Проверенный head: `{review.reviewed_head}`.",
+                f"Последний проверенный head: `{review.reviewed_head}`.",
+                f"Текущий head: `{head_sha}`.",
                 f"Base SHA: `{review.base_sha}`.",
                 f"Количество findings: {len(findings)}.",
             ]
+            if review.reviewed_head != head_sha:
+                lines.append(
+                    "Повторная проверка текущего head не выполнена; ниже сохранён "
+                    "последний фактически полученный CodeRabbit result."
+                )
             if review.rate_limit:
                 lines.append(f"Ограничение rate limit: {review.rate_limit}")
             if findings:
@@ -156,7 +162,7 @@ class PullRequestBodyRenderer:
                     for finding in findings
                 )
             else:
-                lines.append("Блокирующих findings нет.")
+                lines.append("На последнем проверенном head findings не было.")
             review_text = "\n".join(lines)
 
         sections = (
@@ -217,11 +223,16 @@ class PullRequestBodyRenderer:
             )
         review = body.coderabbit_review
         if review is not None and (
-            review.base_sha != base_sha or review.reviewed_head != head_sha
+            review.base_sha != base_sha
+            or (
+                review.reviewed_head != head_sha
+                and not review.rate_limit
+            )
         ):
             raise _error(
                 ResultCode.TOOLING_PR_BODY_INVALID,
-                "CodeRabbit evidence в PR body относится не к exact base/head spec.",
+                "CodeRabbit evidence в PR body не относится к exact base/head spec "
+                "и не содержит явного rate-limit объяснения.",
             )
 
     @classmethod
