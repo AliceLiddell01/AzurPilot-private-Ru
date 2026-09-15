@@ -40,7 +40,7 @@ from .filesystem import (
     sha256_file,
 )
 from .git import GitClient, repository_identity_from_remote
-from .process import ProcessSpec, StructuredProcessRunner
+from .process import ProcessResult, ProcessSpec, StructuredProcessRunner
 from .repository import RepositoryResolver, ResolvedRepository
 
 _SAFE_REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,255}$")
@@ -147,7 +147,7 @@ class GitleaksScanner:
         self.runner = runner or StructuredProcessRunner()
         self.executable = which("gitleaks")
 
-    def _run(self, args: tuple[str, ...]) -> None:
+    def _run(self, args: tuple[str, ...]) -> ProcessResult:
         if self.executable is None:
             raise _error(
                 ResultCode.TOOLING_SECRET_SCANNER_UNAVAILABLE,
@@ -169,6 +169,34 @@ class GitleaksScanner:
                 "Gitleaks не завершил scoped scan в установленный срок.",
                 state=OperationState.UNKNOWN,
             )
+        if result.stdout_truncated or result.stderr_truncated:
+            raise _error(
+                ResultCode.TOOLING_SECRET_SCAN_FAILED,
+                "Gitleaks вернул усечённый отчёт; scope не подтверждён.",
+            )
+        report_text = result.stdout.strip()
+        if not report_text:
+            raise _error(
+                ResultCode.TOOLING_SECRET_SCAN_FAILED,
+                "Gitleaks не вернул machine-readable report.",
+            )
+        try:
+            report = json.loads(report_text)
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise _error(
+                ResultCode.TOOLING_SECRET_SCAN_FAILED,
+                "Gitleaks вернул повреждённый machine-readable report.",
+            ) from exc
+        if not isinstance(report, list):
+            raise _error(
+                ResultCode.TOOLING_SECRET_SCAN_FAILED,
+                "Gitleaks report имеет неожиданную структуру.",
+            )
+        if report:
+            raise _error(
+                ResultCode.TOOLING_SECRET_SCAN_FAILED,
+                "Gitleaks обнаружил finding в заявленном scope.",
+            )
         if result.returncode == 1:
             raise _error(
                 ResultCode.TOOLING_SECRET_SCAN_FAILED,
@@ -179,11 +207,23 @@ class GitleaksScanner:
                 ResultCode.TOOLING_SECRET_SCAN_FAILED,
                 "Gitleaks завершился с ошибкой; scope не подтверждён.",
             )
+        return result
 
     def scan_staged(self) -> None:
         # --staged читает только index. До вызова service уже доказал, что в
         # index нет путей вне manifest allowlist.
-        self._run(("git", "--staged", "--redact", "--no-banner", "--no-color", "."))
+        self._run(
+            (
+                "git",
+                "--staged",
+                "--redact",
+                "--no-banner",
+                "--no-color",
+                "--report-format=json",
+                "--report-path=-",
+                ".",
+            )
+        )
 
     def scan_committed_range(self, start_sha: str, end_sha: str) -> None:
         self._run(
@@ -193,6 +233,8 @@ class GitleaksScanner:
                 "--redact",
                 "--no-banner",
                 "--no-color",
+                "--report-format=json",
+                "--report-path=-",
                 ".",
             )
         )
@@ -254,10 +296,12 @@ class DeliveryService:
         )
         store.save(journal)
         owns_staging = set(context.initial_staged_paths)
+        staging_attempted = False
         scanner = self.scanner_factory(context.repository.path, self.runner)
         scans: list[AnalysisScope] = []
 
         try:
+            staging_attempted = True
             context.git.stage(context.target_paths)
             journal = journal.model_copy(
                 update={"phase": DeliveryPhase.STAGED, "updated_at": _now()}
@@ -291,6 +335,7 @@ class DeliveryService:
             )
             store.save(journal)
 
+            context.git.commits_in_range(manifest.expected_base_sha, commit_sha)
             scanner.scan_committed_range(manifest.expected_base_sha, commit_sha)
             scans.append(
                 AnalysisScope(
@@ -382,7 +427,7 @@ class DeliveryService:
                 message="Изменения опубликованы; exact remote SHA подтверждён.",
             )
         except ToolingError as error:
-            if journal.phase in {
+            if staging_attempted or journal.phase in {
                 DeliveryPhase.STAGED,
                 DeliveryPhase.PRE_COMMIT_SCANNED,
             }:
@@ -410,6 +455,30 @@ class DeliveryService:
             operation_id
         )
         self._check_journal_root(root, journal)
+        terminal_phase = journal.phase in {
+            DeliveryPhase.FAILED,
+            DeliveryPhase.PUSH_NOT_DELIVERED,
+        }
+        if terminal_phase:
+            code = journal.last_error_code or ResultCode.TOOLING_VERIFICATION_UNKNOWN
+            return ToolingResult(
+                ok=False,
+                code=code,
+                state=OperationState.FAILED,
+                message=journal.last_error_message
+                or f"Delivery завершилась на терминальной фазе {journal.phase.value}.",
+                operation_id=operation_id,
+                details=DeliveryDetails(
+                    phase=journal.phase,
+                    target_paths=journal.target_paths,
+                    commit_sha=journal.commit_sha,
+                    recovery_required=False,
+                ),
+            )
+        recovery_required = journal.phase in {
+            DeliveryPhase.PUSH_IN_FLIGHT,
+            DeliveryPhase.UNKNOWN,
+        }
         return ToolingResult(
             ok=journal.phase is DeliveryPhase.DELIVERED,
             code=(
@@ -430,8 +499,7 @@ class DeliveryService:
                 phase=journal.phase,
                 target_paths=journal.target_paths,
                 commit_sha=journal.commit_sha,
-                recovery_required=journal.phase
-                in {DeliveryPhase.PUSH_IN_FLIGHT, DeliveryPhase.UNKNOWN},
+                recovery_required=recovery_required,
             ),
         )
 
@@ -848,15 +916,15 @@ def _verify_target_preimage(
     target: DeliveryTarget,
     root: Path,
 ) -> None:
-    try:
+    if target.preimage.exists:
         content = git.object_bytes(f"{head}:{target.path}")
         actual = hashlib.sha256(content).hexdigest()
         actual_size = len(content)
         exists = True
-    except ToolingError:
+    else:
+        exists = git.object_exists(f"{head}:{target.path}")
         actual = None
         actual_size = None
-        exists = False
     if exists != target.preimage.exists or (
         exists and (actual != target.preimage.sha256 or target.preimage.size not in {None, actual_size})
     ):

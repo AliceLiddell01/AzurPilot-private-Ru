@@ -39,6 +39,7 @@ class GitClient:
         *args: str,
         timeout_seconds: float = 60.0,
         max_output_bytes: int = 128 * 1024,
+        allow_nonzero: bool = False,
     ) -> GitCommand:
         if self.executable is None:
             raise ToolingError(
@@ -63,7 +64,7 @@ class GitClient:
             raise ToolingError(
                 ResultCode.TOOLING_TIMEOUT, "Операция Git превысила установленный срок."
             )
-        if result.returncode != 0:
+        if result.returncode != 0 and not allow_nonzero:
             raise ToolingError(
                 ResultCode.TOOLING_GIT_FAILED, "Операция Git завершилась ошибкой."
             )
@@ -166,7 +167,9 @@ class GitClient:
     def staged_paths(self) -> tuple[str, ...]:
         """Получить только пути index, не расширяя scope до working tree."""
 
-        output = self.text("diff", "--cached", "--name-only", "-z", "--")
+        output = self.run(
+            "diff", "--cached", "--name-only", "-z", "--"
+        ).result.stdout
         return tuple(sorted(path for path in output.split("\x00") if path))
 
     def status_z(self) -> str:
@@ -210,6 +213,11 @@ class GitClient:
     def object_bytes(self, revision_path: str) -> bytes:
         """Прочитать Git blob без потери бинарных байтов."""
 
+        if not revision_path or revision_path.startswith("-"):
+            raise ToolingError(
+                ResultCode.TOOLING_INVALID_INVOCATION,
+                "Git object path должен быть непустым и не начинаться с дефиса.",
+            )
         command = self.run(
             "show",
             revision_path,
@@ -221,6 +229,38 @@ class GitClient:
                 "Git object прочитан не полностью из-за ограничения stdout.",
             )
         return command.result.stdout_bytes
+
+    def object_exists(self, revision_path: str) -> bool:
+        """Проверить наличие Git object отдельным bounded-запросом."""
+
+        if not revision_path or revision_path.startswith("-"):
+            raise ToolingError(
+                ResultCode.TOOLING_INVALID_INVOCATION,
+                "Git object path должен быть непустым и не начинаться с дефиса.",
+            )
+        command = self.run(
+            "cat-file",
+            "-e",
+            revision_path,
+            max_output_bytes=16 * 1024,
+            allow_nonzero=True,
+        )
+        if command.result.returncode == 0:
+            return True
+        stderr = command.result.stderr.casefold()
+        if (
+            command.result.returncode in {1, 128}
+            and not command.result.stderr_truncated
+            and any(
+                marker in stderr
+                for marker in ("does not exist in", "path '")
+            )
+        ):
+            return False
+        raise ToolingError(
+            ResultCode.TOOLING_GIT_FAILED,
+            "Git не смог подтвердить наличие object.",
+        )
 
     def object_sha256(self, revision_path: str) -> str:
         return hashlib.sha256(self.object_bytes(revision_path)).hexdigest()
@@ -254,7 +294,7 @@ class GitClient:
         return value
 
     def commit_paths(self, commit: str) -> tuple[str, ...]:
-        output = self.text(
+        output = self.run(
             "diff-tree",
             "--no-commit-id",
             "--name-only",
@@ -262,8 +302,20 @@ class GitClient:
             "-z",
             commit,
             "--",
-        )
+        ).result.stdout
         return tuple(sorted(path for path in output.split("\x00") if path))
+
+    def commits_in_range(self, start: str, end: str) -> tuple[str, ...]:
+        """Вернуть непустой exact range, пригодный для scoped analysis."""
+
+        output = self.text("rev-list", "--reverse", f"{start}..{end}")
+        commits = tuple(output.splitlines())
+        if not commits or any(not _is_sha(commit) for commit in commits):
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Git range не содержит подтверждённых reachable commits.",
+            )
+        return commits
 
     def push(self, remote: str, local_branch: str, remote_branch: str) -> None:
         refspec = f"refs/heads/{local_branch}:refs/heads/{remote_branch}"

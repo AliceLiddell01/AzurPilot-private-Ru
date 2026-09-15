@@ -18,7 +18,7 @@ from azurpilot.tooling.contracts import (
     ResultCode,
     ToolingResult,
 )
-from azurpilot.tooling.delivery import DeliveryService
+from azurpilot.tooling.delivery import DeliveryService, GitleaksScanner
 from azurpilot.tooling.errors import ToolingError
 from azurpilot.tooling.filesystem import path_identity
 from azurpilot.tooling.git import (
@@ -225,6 +225,56 @@ def test_git_object_bytes_rejects_truncated_stdout(tmp_path: Path) -> None:
     assert error.value.code is ResultCode.TOOLING_VERIFICATION_UNKNOWN
     assert runner.spec is not None
     assert runner.spec.max_output_bytes == 16 * 1024 * 1024
+
+
+def test_git_object_path_rejects_option_like_value(tmp_path: Path) -> None:
+    client = GitClient(tmp_path)
+
+    with pytest.raises(ToolingError) as error:
+        client.object_bytes("--output=/tmp/leak")
+
+    assert error.value.code is ResultCode.TOOLING_INVALID_INVOCATION
+
+
+def test_git_object_exists_distinguishes_missing_blob(tmp_path: Path) -> None:
+    root, _bare, base_sha, _remote_url, _identity = _fixture_repository(tmp_path)
+    client = GitClient(root)
+
+    assert client.object_exists(f"{base_sha}:README.md") is True
+    assert client.object_exists(f"{base_sha}:missing.txt") is False
+
+
+def test_gitleaks_scanner_requires_and_parses_json_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Runner:
+        def __init__(self, stdout: str) -> None:
+            self.stdout = stdout
+            self.spec = None
+
+        def run(self, spec: object) -> SimpleNamespace:
+            self.spec = spec
+            return SimpleNamespace(
+                returncode=0,
+                stdout=self.stdout,
+                stderr="",
+                stdout_truncated=False,
+                stderr_truncated=False,
+                timed_out=False,
+            )
+
+    monkeypatch.setattr("azurpilot.tooling.delivery.which", lambda _name: "gitleaks")
+    runner = Runner("[]")
+    scanner = GitleaksScanner(tmp_path, runner=runner)  # type: ignore[arg-type]
+    scanner.scan_committed_range("a" * 40, "b" * 40)
+    assert runner.spec is not None
+    assert "--report-format=json" in runner.spec.argv
+    assert "--report-path=-" in runner.spec.argv
+
+    invalid = GitleaksScanner(tmp_path, runner=Runner("not-json"))  # type: ignore[arg-type]
+    with pytest.raises(ToolingError) as error:
+        invalid.scan_staged()
+    assert error.value.code is ResultCode.TOOLING_SECRET_SCAN_FAILED
 
 
 def test_github_provider_classifies_unknown_json_field_as_unavailable(
