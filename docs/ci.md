@@ -39,7 +39,7 @@ Job выполняется на `ubuntu-24.04` с Python `3.14.6` и прове�
   точного PR base;
 - `uv lock --check` и `uv sync --locked --group ci`;
 - Ruff для ошибок выполнения и импорта;
-- компиляцию основных Python entry points и каталогов;
+- компиляцию основных Python entry points и каталогов, включая `azurpilot` и `deploy`;
 - автоматическое обнаружение всего каталога `tests/` через `pytest 9.1.1`, зафиксированный в `uv.lock`;
 - permanent semantic runtime-localization audit: доказанные operator-facing sinks должны оставаться русскими, а runtime identity — только RU/Global/EN;
 - генераторы конфигурации и assets;

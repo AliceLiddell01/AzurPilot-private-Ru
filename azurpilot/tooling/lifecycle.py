@@ -108,13 +108,6 @@ class LifecycleService:
         self.require_infrastructure = require_infrastructure
         self.infrastructure = infrastructure or InfrastructureService(self.runner)
 
-    def _resolve(
-        self, repository_root: str | Path | None
-    ) -> tuple[Path, DeploySettings, RepositoryCoordinator]:
-        resolved = self.resolver.resolve(repository_root)
-        settings = load_deploy_settings(resolved.path)
-        return resolved.path, settings, RepositoryCoordinator.for_root(resolved.path)
-
     @staticmethod
     def _port_state(
         settings: DeploySettings,

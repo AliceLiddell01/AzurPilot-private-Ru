@@ -299,6 +299,8 @@ jobs:
               Path("dev_tools"),
               Path("tests"),
               Path("tools"),
+              Path("azurpilot"),
+              Path("deploy"),
           )
           failed = False
           for root in roots:

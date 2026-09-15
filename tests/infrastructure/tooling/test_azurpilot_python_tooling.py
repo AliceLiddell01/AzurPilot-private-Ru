@@ -26,7 +26,9 @@ from azurpilot.tooling import bootstrap as tooling_bootstrap
 from azurpilot.tooling import doctor as tooling_doctor
 from azurpilot.tooling.config import DeploySettings, project_python
 from azurpilot.tooling.contracts import (
+    CapabilityStatus,
     DoctorDetails,
+    OperationState,
     RepositoryRootEvidence,
     ResultCode,
     RootSource,
@@ -278,8 +280,8 @@ def test_posix_adb_health_does_not_require_windows_dlls(
     adb.write_bytes(b"adb")
 
     class FakeRunner:
-        def run(self, spec: object) -> SimpleNamespace:
-            assert getattr(spec, "executable") == adb
+        def run(self, spec: ProcessSpec) -> SimpleNamespace:
+            assert spec.executable == adb
             return SimpleNamespace(
                 ok=True,
                 stdout="Android Debug Bridge version 1.0.41\nVersion 37.0.0",
@@ -384,19 +386,77 @@ def test_process_group_signal_never_targets_current_group(
 
 
 def test_doctor_treats_missing_deploy_config_as_diagnostic(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    root = tmp_path / "repository"
+    root.mkdir()
+    evidence = RepositoryRootEvidence(
+        source=RootSource.EXPLICIT,
+        candidate_count=1,
+        validation_checks=("test",),
+        root_identity="1" * 16,
+    )
+    resolver = SimpleNamespace(
+        resolve=lambda _root: ResolvedRepository(root, evidence)
+    )
     monkeypatch.setattr(
         tooling_doctor,
         "load_deploy_settings",
-        lambda _root: DeploySettings(source_path=None),
+        lambda _root, **_kwargs: DeploySettings(source_path=None),
+    )
+    monkeypatch.setattr(
+        DoctorService,
+        "_git_check",
+        lambda _self, _root, _settings: (
+            CapabilityStatus.NOT_CONFIGURED,
+            "Каноническая идентичность репозитория не настроена.",
+        ),
+    )
+    monkeypatch.setattr(
+        DoctorService,
+        "_runtime_check",
+        lambda _self, _root: (CapabilityStatus.READY, "Среда остановлена."),
+    )
+    monkeypatch.setattr(
+        tooling_doctor,
+        "project_python",
+        lambda *_args: Path(sys.executable),
+    )
+    monkeypatch.setattr(
+        tooling_doctor,
+        "project_uv",
+        lambda *_args: Path(sys.executable),
+    )
+    monkeypatch.setattr(
+        tooling_doctor,
+        "project_adb",
+        lambda *_args: tmp_path / "missing-adb",
+    )
+    monkeypatch.setattr(
+        tooling_doctor,
+        "inspect_console_path",
+        lambda _python: SimpleNamespace(
+            installed=False,
+            status=CapabilityStatus.NOT_CONFIGURED,
+            message="Консольная команда не настроена.",
+        ),
+    )
+    monkeypatch.setattr(
+        tooling_doctor.shutil,
+        "which",
+        lambda name: str(Path(sys.executable)) if name == "uv" else None,
     )
 
-    result = DoctorService().run(REPOSITORY_ROOT)
+    result = DoctorService(
+        resolver=resolver, runner=SimpleNamespace()
+    ).run(root)
     checks = {item.name: item for item in result.details.checks}
 
-    assert result.ok
+    assert not result.ok
+    assert result.state is OperationState.NOT_CONFIGURED
+    assert result.code is ResultCode.TOOLING_PRECONDITION_FAILED
     assert checks["deploy_config"].status.value == "not_configured"
+    assert checks["git"].status is CapabilityStatus.NOT_CONFIGURED
 
 
 def test_default_project_python_keeps_venv_script_directory() -> None:
@@ -430,6 +490,9 @@ def test_cli_help_is_available_without_service_side_effects() -> None:
 def test_doctor_reports_console_script_and_path_capabilities() -> None:
     result = DoctorService().run(REPOSITORY_ROOT)
     checks = {item.name: item for item in result.details.checks}
+    assert result.ok
+    assert checks["git"].status is CapabilityStatus.READY
+    assert checks["runtime"].status is CapabilityStatus.READY
     assert checks["console_script"].status.value == "ready"
     assert "console_path" in checks
     if checks["console_path"].status.value != "ready":
@@ -437,6 +500,124 @@ def test_doctor_reports_console_script_and_path_capabilities() -> None:
             warning.code.value == "TOOLING_CLI_NOT_ON_PATH"
             for warning in result.warnings
         )
+
+
+def test_doctor_fails_closed_for_mismatched_canonical_git_remote(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = tmp_path / "repository"
+    root.mkdir()
+    settings = DeploySettings(
+        source_path=root / "config" / "deploy.yaml",
+        repository_url="git@github.com:AliceLiddell01/AzurPilot-private-Ru.git",
+    )
+    evidence = RepositoryRootEvidence(
+        source=RootSource.EXPLICIT,
+        candidate_count=1,
+        validation_checks=("test",),
+        root_identity="1" * 16,
+    )
+
+    class FakeResolver:
+        def resolve(self, _root: Path) -> ResolvedRepository:
+            return ResolvedRepository(root, evidence)
+
+    class FakeGit:
+        def __init__(self, _root: Path, _runner: object) -> None:
+            pass
+
+        def branch(self) -> str:
+            return "personal/stable"
+
+        def head(self) -> str:
+            return "a" * 40
+
+        def upstream(self) -> str:
+            return "origin/personal/stable"
+
+        def active_operation(self) -> bool:
+            return False
+
+        def remote_url(self, _remote: str) -> str:
+            return "https://github.com/example/not-azurpilot.git"
+
+        def status_porcelain(self) -> str:
+            return ""
+
+    monkeypatch.setattr(
+        tooling_doctor,
+        "load_deploy_settings",
+        lambda _root, **_kwargs: settings,
+    )
+    monkeypatch.setattr(tooling_doctor, "GitClient", FakeGit)
+    monkeypatch.setattr(
+        tooling_doctor,
+        "project_python",
+        lambda *_args: Path(sys.executable),
+    )
+    monkeypatch.setattr(
+        tooling_doctor,
+        "project_uv",
+        lambda *_args: Path(sys.executable),
+    )
+    monkeypatch.setattr(
+        tooling_doctor,
+        "project_adb",
+        lambda *_args: tmp_path / "missing-adb",
+    )
+    monkeypatch.setattr(
+        tooling_doctor,
+        "inspect_console_path",
+        lambda _python: SimpleNamespace(
+            installed=False,
+            current_shell=False,
+            status=CapabilityStatus.NOT_CONFIGURED,
+            message="Консольная команда не настроена.",
+        ),
+    )
+    monkeypatch.setattr(
+        tooling_doctor.shutil,
+        "which",
+        lambda name: str(Path(sys.executable)) if name == "uv" else None,
+    )
+    monkeypatch.setattr(
+        DoctorService,
+        "_runtime_check",
+        lambda _self, _root: (CapabilityStatus.READY, "Среда остановлена."),
+    )
+
+    result = DoctorService(
+        resolver=FakeResolver(), runner=SimpleNamespace()
+    ).run(root)
+    checks = {item.name: item for item in result.details.checks}
+
+    assert not result.ok
+    assert result.code is ResultCode.TOOLING_PRECONDITION_FAILED
+    assert result.state is OperationState.FAILED
+    assert checks["git"].status is CapabilityStatus.FAILED
+    assert "не совпадает" in checks["git"].message
+
+
+def test_doctor_marks_unconfirmed_running_runtime_as_unknown(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    class LifecycleStub:
+        def __init__(self, **_kwargs: object) -> None:
+            pass
+
+        def inspect(self, _root: Path) -> SimpleNamespace:
+            return SimpleNamespace(
+                ok=True,
+                state=OperationState.RUNNING,
+                message="WebUI считается работающим без подтверждения готовности.",
+            )
+
+    monkeypatch.setattr(tooling_doctor, "LifecycleService", LifecycleStub)
+
+    status, message = DoctorService()._runtime_check(tmp_path)
+
+    assert status is CapabilityStatus.UNKNOWN
+    assert "без подтверждения" in message
 
 
 def test_console_path_inspection_requires_matching_command_and_directory(

@@ -14,17 +14,15 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-import dev_tools.postgresql_runtime as tooling_postgresql_runtime
-from deploy import uv as deploy_uv
 
+import dev_tools.postgresql_runtime as tooling_postgresql_runtime
 from azurpilot.cli import build_parser, main
 from azurpilot.tooling import adb as tooling_adb
 from azurpilot.tooling import bootstrap as tooling_bootstrap
 from azurpilot.tooling import lifecycle as tooling_lifecycle
 from azurpilot.tooling import update as tooling_update
 from azurpilot.tooling.bootstrap import BuildService
-from azurpilot.tooling.config import DeploySettings
-from azurpilot.tooling.coordination import PortObservation
+from azurpilot.tooling.config import DeploySettings, load_deploy_settings
 from azurpilot.tooling.contracts import (
     CapabilityCheck,
     CapabilityStatus,
@@ -37,14 +35,23 @@ from azurpilot.tooling.contracts import (
     RootSource,
     ToolingResult,
 )
+from azurpilot.tooling.coordination import PortObservation
 from azurpilot.tooling.errors import ToolingError
 from azurpilot.tooling.filesystem import JournalStore, StateLayout, path_identity
 from azurpilot.tooling.git import canonical_remote_identity
+from azurpilot.tooling.infrastructure import InfrastructureService
 from azurpilot.tooling.lifecycle import LifecycleService
 from azurpilot.tooling.postgres import BackupOutcome, PostgreSqlBackupService
-from azurpilot.tooling.process import ProcessIdentity, RunningProcess
+from azurpilot.tooling.process import (
+    DOCKER_ENVIRONMENT_KEYS,
+    ProcessIdentity,
+    ProcessSpec,
+    RunningProcess,
+)
 from azurpilot.tooling.repair import RepairService
 from azurpilot.tooling.repository import ResolvedRepository
+from deploy import uv as deploy_uv
+from tests.support.paths import REPOSITORY_ROOT
 
 
 def _repository_evidence() -> RepositoryRootEvidence:
@@ -116,6 +123,44 @@ def test_cli_json_suppresses_service_side_output() -> None:
     assert report["code"] == ResultCode.OK.value
     assert stdout.getvalue().count("\n") == 1
     assert stderr.getvalue() == ""
+
+
+def test_unknown_capability_has_closed_json_and_human_representation() -> None:
+    details = DoctorDetails(
+        checks=(
+            CapabilityCheck(
+                name="runtime",
+                status=CapabilityStatus.UNKNOWN,
+                message="Владение runtime нельзя подтвердить.",
+            ),
+        ),
+        healthy=False,
+    )
+    result = ToolingResult[DoctorDetails, DoctorEvidence](
+        ok=False,
+        code=ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+        state=OperationState.UNKNOWN,
+        message="Проверка не подтверждена.",
+        details=details,
+    )
+
+    payload = json.loads(result.model_dump_json())
+    assert payload["details"]["checks"][0]["status"] == "unknown"
+    assert "unexpected" not in result.model_dump_json()
+
+    class DoctorStub:
+        def run(self, _root: object) -> ToolingResult[DoctorDetails, DoctorEvidence]:
+            return result
+
+    stderr = io.StringIO()
+    assert main(
+        ["doctor"],
+        services=SimpleNamespace(doctor=DoctorStub()),
+        stdout=io.StringIO(),
+        stderr=stderr,
+    ) != 0
+    assert "неизвестно" in stderr.getvalue()
+    assert "?" in stderr.getvalue()
 
 
 def test_lifecycle_keeps_state_when_termination_is_not_confirmed(
@@ -232,6 +277,314 @@ def test_build_shortcut_defaults_are_explicitly_overridable() -> None:
 
     assert not hasattr(default_args, "shortcut")
     assert disabled_args.shortcut is False
+
+
+def test_build_generates_update_ready_config_from_production_template(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = tmp_path / "repository"
+    (root / "config").mkdir(parents=True)
+    (root / "module").mkdir()
+    (root / "deploy").mkdir()
+    (root / "pyproject.toml").write_text(
+        "[project]\nname = 'azurpilot'\nversion = '0'\n", encoding="utf-8"
+    )
+    (root / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+    (root / "gui.py").write_text("", encoding="utf-8")
+    shutil.copy2(
+        REPOSITORY_ROOT / "config" / "deploy.template.yaml",
+        root / "config" / "deploy.template.yaml",
+    )
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    monkeypatch.setattr(
+        tooling_bootstrap,
+        "observe_tcp_port",
+        lambda port: PortObservation(port=port, pids=()),
+    )
+    fake_uv = tmp_path / ("uv.exe" if os.name == "nt" else "uv")
+    fake_uv.write_bytes(b"uv")
+
+    class FakeBootstrap:
+        def resolve_uv(self, _root: Path) -> tuple[Path, str]:
+            return fake_uv, "test"
+
+        def sync(self, project_root: Path, _uv: Path, _timeout: float) -> str:
+            directory = "Scripts" if os.name == "nt" else "bin"
+            python_name = "python.exe" if os.name == "nt" else "python"
+            uv_name = "uv.exe" if os.name == "nt" else "uv"
+            python = project_root / ".venv" / directory / python_name
+            uv = project_root / ".venv" / directory / uv_name
+            python.parent.mkdir(parents=True, exist_ok=True)
+            python.write_bytes(b"python")
+            uv.write_bytes(b"uv")
+            return ""
+
+    class FakeRunner:
+        def run(self, _spec: ProcessSpec) -> SimpleNamespace:
+            return SimpleNamespace(ok=True, stdout="uv 0.12.13\n")
+
+    resolver = SimpleNamespace(
+        resolve=lambda _root=None: ResolvedRepository(root, _repository_evidence())
+    )
+    service = BuildService(
+        resolver=resolver,
+        runner=FakeRunner(),
+        bootstrap=FakeBootstrap(),
+    )
+    monkeypatch.setattr(service, "_assert_stopped", lambda _root: None)
+    if os.name == "nt":
+        monkeypatch.setattr(
+            tooling_bootstrap,
+            "resolve_adb",
+            lambda *_args: tooling_adb.AdbResolution(
+                CapabilityStatus.UNSUPPORTED,
+                None,
+                None,
+                "test",
+            ),
+        )
+
+    result = service.build(root, create_shortcut=False)
+    settings = load_deploy_settings(root)
+
+    assert result.ok
+    assert settings.repository_url == (
+        "git@github.com:AliceLiddell01/AzurPilot-private-Ru.git"
+    )
+    assert settings.git_remote == "origin"
+    assert settings.git_branch == "personal/stable"
+    assert settings.upstream_remote == "upstream"
+    assert settings.upstream_push_url == "DISABLED"
+
+
+def test_built_production_config_passes_update_preflight(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = tmp_path / "repository"
+    (root / "config").mkdir(parents=True)
+    (root / "module").mkdir()
+    (root / "deploy").mkdir()
+    (root / "pyproject.toml").write_text(
+        "[project]\nname = 'azurpilot'\nversion = '0'\n", encoding="utf-8"
+    )
+    (root / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+    (root / "gui.py").write_text("", encoding="utf-8")
+    shutil.copy2(
+        REPOSITORY_ROOT / "config" / "deploy.template.yaml",
+        root / "config" / "deploy.template.yaml",
+    )
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    monkeypatch.setattr(
+        tooling_bootstrap,
+        "observe_tcp_port",
+        lambda port: PortObservation(port=port, pids=()),
+    )
+    fake_uv = tmp_path / ("uv.exe" if os.name == "nt" else "uv")
+    fake_uv.write_bytes(b"uv")
+
+    class FakeBootstrap:
+        def resolve_uv(self, _root: Path) -> tuple[Path, str]:
+            return fake_uv, "test"
+
+        def sync(self, project_root: Path, _uv: Path, _timeout: float) -> str:
+            directory = "Scripts" if os.name == "nt" else "bin"
+            python_name = "python.exe" if os.name == "nt" else "python"
+            uv_name = "uv.exe" if os.name == "nt" else "uv"
+            python = project_root / ".venv" / directory / python_name
+            uv = project_root / ".venv" / directory / uv_name
+            python.parent.mkdir(parents=True, exist_ok=True)
+            python.write_bytes(b"python")
+            uv.write_bytes(b"uv")
+            return ""
+
+    class BuildRunner:
+        def run(self, _spec: ProcessSpec) -> SimpleNamespace:
+            return SimpleNamespace(ok=True, stdout="uv 0.12.13\n")
+
+    resolver = SimpleNamespace(
+        resolve=lambda _root=None: ResolvedRepository(root, _repository_evidence())
+    )
+    build = BuildService(
+        resolver=resolver,
+        runner=BuildRunner(),
+        bootstrap=FakeBootstrap(),
+    )
+    monkeypatch.setattr(build, "_assert_stopped", lambda _root: None)
+    if os.name == "nt":
+        monkeypatch.setattr(
+            tooling_bootstrap,
+            "resolve_adb",
+            lambda *_args: tooling_adb.AdbResolution(
+                CapabilityStatus.UNSUPPORTED,
+                None,
+                None,
+                "test",
+            ),
+        )
+
+    assert build.build(root, create_shortcut=False).ok
+
+    class SameHeadGit:
+        def __init__(self, _root: Path, _runner: object) -> None:
+            pass
+
+        def branch(self) -> str:
+            return "personal/stable"
+
+        def upstream(self) -> str:
+            return "origin/personal/stable"
+
+        def remote_exists(self, _remote: str) -> bool:
+            return True
+
+        def remote_url(self, _remote: str) -> str:
+            return "https://github.com/AliceLiddell01/AzurPilot-private-Ru.git"
+
+        def remote_push_url(self, remote: str) -> str | None:
+            return "DISABLED" if remote == "upstream" else None
+
+        def active_operation(self) -> bool:
+            return False
+
+        def status_porcelain(self) -> str:
+            return ""
+
+        def head(self) -> str:
+            return "a" * 40
+
+        def fetch_branch(self, _remote: str, _branch: str) -> None:
+            pass
+
+        def remote_head(self, _remote: str, _branch: str) -> str:
+            return "a" * 40
+
+    monkeypatch.setattr(
+        tooling_update,
+        "observe_tcp_port",
+        lambda port: PortObservation(port=port, pids=()),
+    )
+    update = tooling_update.UpdateService(
+        resolver=resolver,
+        git_factory=SameHeadGit,
+        runner=SimpleNamespace(),
+    )
+
+    result = update.update(root, timeout_seconds=30)
+
+    assert result.ok
+    assert result.evidence.remote_identity is not None
+    assert result.evidence.remote_identity.equivalent
+    assert result.evidence.remote_identity.configured == result.evidence.remote_identity.actual
+
+
+def test_update_rejects_mismatched_template_identity_before_fetch(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = tmp_path / "repository"
+    config = root / "config"
+    config.mkdir(parents=True)
+    shutil.copy2(
+        REPOSITORY_ROOT / "config" / "deploy.template.yaml",
+        config / "deploy.yaml",
+    )
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    monkeypatch.setattr(
+        tooling_update,
+        "observe_tcp_port",
+        lambda port: PortObservation(port=port, pids=()),
+    )
+    resolver = SimpleNamespace(
+        resolve=lambda _root=None: ResolvedRepository(root, _repository_evidence())
+    )
+
+    class MismatchedGit:
+        fetch_called = False
+
+        def __init__(self, _root: Path, _runner: object) -> None:
+            pass
+
+        def branch(self) -> str:
+            return "personal/stable"
+
+        def upstream(self) -> str:
+            return "origin/personal/stable"
+
+        def remote_exists(self, _remote: str) -> bool:
+            return True
+
+        def remote_url(self, _remote: str) -> str:
+            return "https://github.com/example/not-azurpilot.git"
+
+        def fetch_branch(self, _remote: str, _branch: str) -> None:
+            MismatchedGit.fetch_called = True
+
+    with pytest.raises(ToolingError) as error:
+        tooling_update.UpdateService(
+            resolver=resolver,
+            git_factory=MismatchedGit,
+            runner=SimpleNamespace(),
+        ).update(root, timeout_seconds=30)
+
+    assert error.value.code is ResultCode.TOOLING_REMOTE_IDENTITY_UNVERIFIED
+    assert not MismatchedGit.fetch_called
+
+
+def test_update_rejects_missing_template_identity_before_fetch(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = tmp_path / "repository"
+    config = root / "config"
+    config.mkdir(parents=True)
+    template = (
+        REPOSITORY_ROOT / "config" / "deploy.template.yaml"
+    ).read_text(encoding="utf-8")
+    repository_line = (
+        "    Repository: git@github.com:AliceLiddell01/AzurPilot-private-Ru.git\n"
+    )
+    assert repository_line in template
+    (config / "deploy.yaml").write_text(
+        template.replace(repository_line, ""), encoding="utf-8"
+    )
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    monkeypatch.setattr(
+        tooling_update,
+        "observe_tcp_port",
+        lambda port: PortObservation(port=port, pids=()),
+    )
+    resolver = SimpleNamespace(
+        resolve=lambda _root=None: ResolvedRepository(root, _repository_evidence())
+    )
+
+    class MissingIdentityGit:
+        fetch_called = False
+
+        def __init__(self, _root: Path, _runner: object) -> None:
+            pass
+
+        def branch(self) -> str:
+            return "personal/stable"
+
+        def upstream(self) -> str:
+            return "origin/personal/stable"
+
+        def remote_exists(self, _remote: str) -> bool:
+            return True
+
+        def remote_url(self, _remote: str) -> str:
+            return "https://github.com/AliceLiddell01/AzurPilot-private-Ru.git"
+
+        def fetch_branch(self, _remote: str, _branch: str) -> None:
+            MissingIdentityGit.fetch_called = True
+
+    with pytest.raises(ToolingError) as error:
+        tooling_update.UpdateService(
+            resolver=resolver,
+            git_factory=MissingIdentityGit,
+            runner=SimpleNamespace(),
+        ).update(root, timeout_seconds=30)
+
+    assert error.value.code is ResultCode.TOOLING_REMOTE_IDENTITY_UNVERIFIED
+    assert not MissingIdentityGit.fetch_called
 
 
 def test_canonical_remote_identity_rejects_unsafe_forms() -> None:
@@ -357,6 +710,74 @@ def test_postgres_backup_failure_blocks_before_mutation(
             operation_id="update-test1234",
         )
     assert error.value.code is ResultCode.TOOLING_BACKUP_FAILED
+
+
+def test_docker_environment_is_bounded_and_reused_by_inspect_and_start(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = tmp_path / "repository"
+    compose = root / "infrastructure" / "observability" / "compose.yaml"
+    env_file = root / ".env"
+    compose.parent.mkdir(parents=True)
+    compose.write_text("services: {}\n", encoding="utf-8")
+    env_file.write_text("\n", encoding="utf-8")
+    docker = tmp_path / ("docker.exe" if os.name == "nt" else "docker")
+    docker.write_bytes(b"docker")
+    expected = {
+        "DOCKER_HOST": "tcp://127.0.0.1:2376",
+        "DOCKER_CONTEXT": "remote-context",
+        "DOCKER_CONFIG": str(tmp_path / "docker-config"),
+        "DOCKER_TLS_VERIFY": "1",
+        "DOCKER_CERT_PATH": str(tmp_path / "docker-certs"),
+    }
+    for key in DOCKER_ENVIRONMENT_KEYS:
+        monkeypatch.delenv(key, raising=False)
+    for key, value in expected.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setenv("SOME_SECRET_TOKEN", "must-not-be-forwarded")
+    monkeypatch.setattr(
+        InfrastructureService,
+        "_docker",
+        staticmethod(lambda: docker),
+    )
+
+    specs: list[ProcessSpec] = []
+
+    class FakeRunner:
+        def run(self, spec: ProcessSpec) -> SimpleNamespace:
+            specs.append(spec)
+            output = (
+                '{"Service":"postgres","State":"running","Health":"healthy"}\n'
+                if "ps" in spec.argv
+                else ""
+            )
+            return SimpleNamespace(ok=True, stdout=output)
+
+    service = InfrastructureService(FakeRunner())
+    settings = DeploySettings(source_path=None)
+    inspection = service.inspect(root, settings)
+    monkeypatch.setattr(
+        service,
+        "_run_project_module",
+        lambda *_args, **_kwargs: "",
+    )
+    service.ensure_started(root, settings, timeout_seconds=30)
+
+    docker_specs = specs
+    assert docker_specs
+    expected_environment = {
+        "PYTHONUTF8": "1",
+        "PYTHONUNBUFFERED": "1",
+        **expected,
+    }
+    assert all(spec.env == expected_environment for spec in docker_specs)
+    assert all("SOME_SECRET_TOKEN" not in spec.env for spec in docker_specs)
+    assert inspection.compose is CapabilityStatus.READY
+    assert inspection.postgres is CapabilityStatus.READY
+    assert tooling_postgresql_runtime._backup_process_environment()[
+        "DOCKER_CONTEXT"
+    ] == "remote-context"
+    assert "SOME_SECRET_TOKEN" not in tooling_postgresql_runtime._backup_process_environment()
 
 
 def test_adb_archive_rejects_traversal_path(tmp_path: Path) -> None:

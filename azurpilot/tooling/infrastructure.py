@@ -17,7 +17,7 @@ from .config import DeploySettings, project_python
 from .contracts import CapabilityStatus, ResultCode
 from .errors import ToolingError
 from .filesystem import bounded_read_text, path_has_link
-from .process import ProcessSpec, StructuredProcessRunner
+from .process import ProcessSpec, StructuredProcessRunner, docker_environment
 
 
 @dataclass(frozen=True)
@@ -133,7 +133,11 @@ class InfrastructureService:
                 cwd=root,
                 timeout_seconds=max(1.0, timeout_seconds),
                 max_output_bytes=128 * 1024,
-                env={"PYTHONUTF8": "1", "PYTHONUNBUFFERED": "1"},
+                env={
+                    "PYTHONUTF8": "1",
+                    "PYTHONUNBUFFERED": "1",
+                    **docker_environment(),
+                },
                 no_window=True,
             )
         )

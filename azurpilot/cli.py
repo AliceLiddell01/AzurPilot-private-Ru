@@ -303,6 +303,7 @@ def _render_human(
             CapabilityStatus.UNAVAILABLE: "недоступно",
             CapabilityStatus.UNSUPPORTED: "не поддерживается",
             CapabilityStatus.FAILED: "ошибка",
+            CapabilityStatus.UNKNOWN: "неизвестно",
         }[status]
 
     def check_label(name: str) -> str:
@@ -342,7 +343,13 @@ def _render_human(
             table.add_column("Результат", overflow="fold")
             for check in checks:
                 state = status_label(check.status)
-                marker = "✓" if check.status is CapabilityStatus.READY else "⚠"
+                marker = (
+                    "✓"
+                    if check.status is CapabilityStatus.READY
+                    else "?"
+                    if check.status is CapabilityStatus.UNKNOWN
+                    else "⚠"
+                )
                 table.add_row(check_label(check.name), f"{marker} {state}", check.message)
             console.print(table)
             console.print(

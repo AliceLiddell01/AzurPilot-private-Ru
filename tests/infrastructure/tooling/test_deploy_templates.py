@@ -1,11 +1,8 @@
-from tests.support.paths import REPOSITORY_ROOT
-
-
 import unittest
-from pathlib import Path
 
 import yaml
 
+from tests.support.paths import REPOSITORY_ROOT
 
 ROOT = REPOSITORY_ROOT
 ACTIVE_TEMPLATES = (
@@ -25,18 +22,27 @@ class DeployTemplateTests(unittest.TestCase):
                 data = yaml.safe_load(
                     (ROOT / relative_path).read_text(encoding="utf-8")
                 )["Deploy"]
-                self.assertNotIn("Git", data)
                 self.assertNotIn("Update", data)
                 self.assertIn("EnableReload", data["Webui"])
-                self.assertEqual(
-                    set(data),
-                    {"Python", "Adb", "Ocr", "Misc", "RemoteAccess", "Webui"},
-                )
+                expected = {"Python", "Adb", "Ocr", "Misc", "RemoteAccess", "Webui"}
+                if relative_path == "config/deploy.template.yaml":
+                    expected.add("Git")
+                    self.assertEqual(
+                        data["Git"],
+                        {
+                            "Remote": "origin",
+                            "Branch": "personal/stable",
+                            "Repository": "git@github.com:AliceLiddell01/AzurPilot-private-Ru.git",
+                            "UpstreamRemote": "upstream",
+                            "UpstreamPushUrl": "DISABLED",
+                        },
+                    )
+                else:
+                    self.assertNotIn("Git", data)
+                self.assertEqual(set(data), expected)
 
     def test_legacy_updater_keys_do_not_appear_in_active_templates(self) -> None:
         forbidden = (
-            "Repository:",
-            "Branch:",
             "GitExecutable:",
             "GitProxy:",
             "SSLVerify:",
@@ -49,7 +55,10 @@ class DeployTemplateTests(unittest.TestCase):
         for relative_path in ACTIVE_TEMPLATES:
             with self.subTest(relative_path=relative_path):
                 text = (ROOT / relative_path).read_text(encoding="utf-8")
-                for token in forbidden:
+                tokens = forbidden
+                if relative_path != "config/deploy.template.yaml":
+                    tokens += ("Repository:", "Branch:")
+                for token in tokens:
                     self.assertNotIn(token, text)
 
     def test_platform_specific_values_are_preserved(self) -> None:

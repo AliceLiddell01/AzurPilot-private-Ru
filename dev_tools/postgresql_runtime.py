@@ -16,6 +16,8 @@ from alembic.script import ScriptDirectory
 from alembic.util.exc import CommandError
 from sqlalchemy.exc import SQLAlchemyError
 
+from azurpilot.tooling.filesystem import is_unsafe_path, path_has_link
+from azurpilot.tooling.process import DOCKER_ENVIRONMENT_KEYS
 from module.application.errors import StorageConfigurationError, StorageError
 from module.application.storage_models import StorageHealthState
 from module.persistence.config import (
@@ -29,7 +31,6 @@ from module.persistence.database import LazyEngine, StorageHealthChecker
 from module.persistence.local_environment import load_local_postgres_environment
 from module.persistence.schema import EXPECTED_ALEMBIC_HEAD
 from tools.paths import REPOSITORY_ROOT
-from azurpilot.tooling.filesystem import is_unsafe_path, path_has_link
 
 _REPOSITORY_ROOT = REPOSITORY_ROOT
 
@@ -86,12 +87,7 @@ def _backup_process_environment(*, passfile: str | None = None) -> dict[str, str
         "LANG",
         "LC_ALL",
         "LC_CTYPE",
-        "DOCKER_HOST",
-        "DOCKER_CONTEXT",
-        "DOCKER_CONFIG",
-        "DOCKER_TLS_VERIFY",
-        "DOCKER_CERT_PATH",
-    }
+    } | DOCKER_ENVIRONMENT_KEYS
     environment = {
         key: value for key, value in os.environ.items() if key in allowed
     }

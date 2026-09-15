@@ -22,6 +22,15 @@ from .filesystem import bounded_read_text, is_unsafe_path
 DEFAULT_OUTPUT_LIMIT = 64 * 1024
 DEFAULT_PROCESS_TIMEOUT = 30.0
 _VENV_CONFIG_LIMIT = 64 * 1024
+DOCKER_ENVIRONMENT_KEYS = frozenset(
+    {
+        "DOCKER_HOST",
+        "DOCKER_CONTEXT",
+        "DOCKER_CONFIG",
+        "DOCKER_TLS_VERIFY",
+        "DOCKER_CERT_PATH",
+    }
+)
 
 
 def _canonical(path: Path) -> Path:
@@ -328,7 +337,7 @@ def _safe_environment(extra: Mapping[str, str]) -> dict[str, str]:
         "GIT_TERMINAL_PROMPT",
         "GIT_OPTIONAL_LOCKS",
         "__PYVENV_LAUNCHER__",
-    }
+    } | DOCKER_ENVIRONMENT_KEYS
     result = {
         key: value
         for key, value in os.environ.items()
@@ -353,6 +362,16 @@ def safe_environment(extra: Mapping[str, str] | None = None) -> dict[str, str]:
     """Вернуть ограниченную политику окружения для внешнего канонического адаптера."""
 
     return _safe_environment(extra or {})
+
+
+def docker_environment() -> dict[str, str]:
+    """Передать Docker CLI только выбранные оператором параметры окружения."""
+
+    return {
+        key: value
+        for key, value in os.environ.items()
+        if key in DOCKER_ENVIRONMENT_KEYS
+    }
 
 
 def _signal_process_group(process_group: int | None, signal_number: int) -> bool:
@@ -670,12 +689,14 @@ class ProcessController:
 __all__ = [
     "DEFAULT_OUTPUT_LIMIT",
     "DEFAULT_PROCESS_TIMEOUT",
+    "DOCKER_ENVIRONMENT_KEYS",
     "ProcessController",
     "ProcessIdentity",
     "ProcessResult",
     "ProcessSpec",
     "RunningProcess",
     "StructuredProcessRunner",
+    "docker_environment",
     "public_argv",
     "safe_environment",
 ]

@@ -86,6 +86,7 @@ class CapabilityStatus(StrEnum):
     UNAVAILABLE = "unavailable"
     UNSUPPORTED = "unsupported"
     FAILED = "failed"
+    UNKNOWN = "unknown"
 
 
 class RootSource(StrEnum):

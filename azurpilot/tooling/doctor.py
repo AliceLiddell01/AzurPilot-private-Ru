@@ -83,6 +83,18 @@ class DoctorService:
                 f"Корень Git, ветка {branch}, отслеживание {tracking} и идентичность remote подтверждены.{policy_suffix}{suffix}",
             )
         except ToolingError as error:
+            if error.code in {
+                ResultCode.TOOLING_REMOTE_IDENTITY_UNVERIFIED,
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+            }:
+                return CapabilityStatus.FAILED, error.message
+            if error.code in {
+                ResultCode.TOOLING_ROLLBACK_UNKNOWN,
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                ResultCode.TOOLING_CLEANUP_UNKNOWN,
+                ResultCode.TOOLING_UNEXPECTED,
+            }:
+                return CapabilityStatus.UNKNOWN, error.message
             return CapabilityStatus.UNAVAILABLE, error.message
 
     def _runtime_check(self, root: Path) -> tuple[CapabilityStatus, str]:
@@ -93,9 +105,20 @@ class DoctorService:
                 require_infrastructure=False,
             ).inspect(root)
         except ToolingError as error:
+            if error.code in {
+                ResultCode.TOOLING_ROLLBACK_UNKNOWN,
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                ResultCode.TOOLING_CLEANUP_UNKNOWN,
+                ResultCode.TOOLING_UNEXPECTED,
+            }:
+                return CapabilityStatus.UNKNOWN, error.message
             return CapabilityStatus.UNAVAILABLE, error.message
-        if result.ok:
+        if result.ok and result.state in {OperationState.READY, OperationState.STOPPED}:
             return CapabilityStatus.READY, result.message
+        if result.state is OperationState.RUNNING:
+            return CapabilityStatus.UNKNOWN, result.message
+        if result.state is OperationState.UNKNOWN:
+            return CapabilityStatus.UNKNOWN, result.message
         return CapabilityStatus.FAILED, result.message
 
     def run(
@@ -104,7 +127,7 @@ class DoctorService:
         resolved = self.resolver.resolve(repository_root)
         root = resolved.path
         checks: list[CapabilityCheck] = []
-        settings = load_deploy_settings(root)
+        settings = load_deploy_settings(root, allow_template=True)
         checks.append(
             _check("repository", CapabilityStatus.READY, "Корень репозитория подтверждён.")
         )
@@ -162,9 +185,10 @@ class DoctorService:
             )
         )
 
+        config_path = root / "config" / "deploy.yaml"
         config_status = (
             CapabilityStatus.READY
-            if settings.source_path
+            if config_path.is_file()
             else CapabilityStatus.NOT_CONFIGURED
         )
         checks.append(
@@ -172,7 +196,7 @@ class DoctorService:
                 "deploy_config",
                 config_status,
                 "deploy.yaml найден."
-                if settings.source_path
+                if config_path.is_file()
                 else "config/deploy.yaml отсутствует; требуется build.",
             )
         )
@@ -230,15 +254,38 @@ class DoctorService:
         required_names = {
             "repository",
             "project_markers",
+            "git",
             "python",
             "uv",
             "project_environment",
+            "runtime",
         }
-        healthy = all(
-            item.status is CapabilityStatus.READY
-            for item in checks
-            if item.name in required_names
-        )
+        required_checks = tuple(item for item in checks if item.name in required_names)
+        healthy = all(item.status is CapabilityStatus.READY for item in required_checks)
+        if healthy:
+            result_code = ResultCode.OK
+            result_state = OperationState.READY
+            result_message = "Фундаментальные проверки AzurPilot пройдены."
+        elif any(item.status is CapabilityStatus.UNKNOWN for item in required_checks):
+            result_code = ResultCode.TOOLING_VERIFICATION_UNKNOWN
+            result_state = OperationState.UNKNOWN
+            result_message = "Фундаментальные проверки AzurPilot не удалось подтвердить."
+        elif any(item.status is CapabilityStatus.FAILED for item in required_checks):
+            result_code = ResultCode.TOOLING_PRECONDITION_FAILED
+            result_state = OperationState.FAILED
+            result_message = "Фундаментальные проверки AzurPilot завершились ошибкой."
+        elif any(item.status is CapabilityStatus.UNAVAILABLE for item in required_checks):
+            result_code = ResultCode.TOOLING_CAPABILITY_UNAVAILABLE
+            result_state = OperationState.FAILED
+            result_message = "Фундаментальные возможности AzurPilot недоступны."
+        elif any(item.status is CapabilityStatus.UNSUPPORTED for item in required_checks):
+            result_code = ResultCode.TOOLING_CAPABILITY_UNSUPPORTED
+            result_state = OperationState.FAILED
+            result_message = "Фундаментальные возможности AzurPilot не поддерживаются."
+        else:
+            result_code = ResultCode.TOOLING_PRECONDITION_FAILED
+            result_state = OperationState.NOT_CONFIGURED
+            result_message = "Фундаментальные проверки AzurPilot требуют подготовки среды."
         warnings: list[ToolingWarning] = []
         if not adb.is_file():
             warnings.append(
@@ -263,11 +310,9 @@ class DoctorService:
             )
         return ToolingResult[DoctorDetails, DoctorEvidence](
             ok=healthy,
-            code=ResultCode.OK if healthy else ResultCode.TOOLING_PRECONDITION_FAILED,
-            state=OperationState.READY if healthy else OperationState.NOT_CONFIGURED,
-            message="Фундаментальные проверки AzurPilot пройдены."
-            if healthy
-            else "Фундаментальные проверки AzurPilot требуют подготовки среды.",
+            code=result_code,
+            state=result_state,
+            message=result_message,
             details=DoctorDetails(checks=tuple(checks), healthy=healthy),
             warnings=tuple(warnings),
             evidence=DoctorEvidence(
