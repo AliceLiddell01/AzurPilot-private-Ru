@@ -124,6 +124,8 @@ capability hash и contract revision. Development Runtime
 разрешает target через канонический registry: при отсутствии локального marker
 используется профиль по умолчанию из target policy (`ap` при успешной
 структурной проверке), а смена target требует явного согласия пользователя.
+Производные JSON-файлы plugin metadata сохраняются в UTF-8 без Unicode-экранирования,
+чтобы русские описания отображались как текст, а не как последовательности `\\uXXXX`.
 Имя target не передаётся через MCP. Skill сначала вызывает
 `dev_get_contract`; любое несовпадение даёт `PLUGIN_RUNTIME_INCOMPATIBLE` и
 запрещает mutating calls.
