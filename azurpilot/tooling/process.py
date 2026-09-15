@@ -22,6 +22,7 @@ from .filesystem import bounded_read_text, is_unsafe_path
 DEFAULT_OUTPUT_LIMIT = 64 * 1024
 DEFAULT_PROCESS_TIMEOUT = 30.0
 _VENV_CONFIG_LIMIT = 64 * 1024
+_FORCE_TERMINATION_SIGNAL = signal.SIGTERM if os.name == "nt" else signal.SIGKILL
 DOCKER_ENVIRONMENT_KEYS = frozenset(
     {
         "DOCKER_HOST",
@@ -412,7 +413,9 @@ def _terminate_process(
     try:
         process.wait(timeout=2.0)
     except subprocess.TimeoutExpired:
-        if not _signal_process_group(identity.process_group, signal.SIGKILL):
+        if not _signal_process_group(
+            identity.process_group, _FORCE_TERMINATION_SIGNAL
+        ):
             try:
                 process.kill()
             except OSError:
@@ -456,7 +459,7 @@ def _cleanup_process_instance(process: subprocess.Popen[bytes]) -> None:
     try:
         process.wait(timeout=2.0)
     except subprocess.TimeoutExpired:
-        if not _signal_process_group(process_group, signal.SIGKILL):
+        if not _signal_process_group(process_group, _FORCE_TERMINATION_SIGNAL):
             try:
                 process.kill()
             except OSError:
@@ -672,7 +675,9 @@ class ProcessController:
         descendants_running = any(_is_process_running(child) for child in descendants)
         if not identity.matches() and not descendants_running:
             return True
-        if not _signal_process_group(identity.process_group, signal.SIGKILL):
+        if not _signal_process_group(
+            identity.process_group, _FORCE_TERMINATION_SIGNAL
+        ):
             try:
                 process.kill()
             except (psutil.NoSuchProcess, psutil.AccessDenied):

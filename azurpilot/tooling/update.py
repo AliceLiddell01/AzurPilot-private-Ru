@@ -384,7 +384,13 @@ class UpdateService:
                         ResultCode.TOOLING_ROLLBACK_UNKNOWN,
                         "Не удалось подтвердить временную среду кандидата; откат остановлен.",
                     ) from error
-                shutil.rmtree(staging)
+                try:
+                    shutil.rmtree(staging)
+                except OSError as cleanup_error:
+                    raise ToolingError(
+                        ResultCode.TOOLING_ROLLBACK_UNKNOWN,
+                        "Не удалось удалить временную среду кандидата; откат остановлен.",
+                    ) from cleanup_error
             try:
                 if os.path.lexists(str(venv)):
                     if not self._is_owned_environment(venv, transaction_id) or not self._tree_safe(venv):

@@ -270,6 +270,11 @@ def test_process_controller_does_not_treat_access_denied_as_terminated(
     assert not ProcessController.terminate(identity, timeout_seconds=0.1)
 
 
+def test_force_termination_signal_is_platform_safe() -> None:
+    expected = signal.SIGTERM if os.name == "nt" else signal.SIGKILL
+    assert tooling_process._FORCE_TERMINATION_SIGNAL == expected
+
+
 def test_tcp_port_observation_falls_back_when_pid_listing_is_denied(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -296,6 +301,31 @@ def test_tcp_port_observation_falls_back_when_pid_listing_is_denied(
     assert free.listener_present is False
     assert free.pid_unknown
     assert not free.inspection_failed
+
+
+def test_tcp_port_observation_falls_back_for_psutil_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    expected = tooling_coordination.PortObservation(
+        port=29998,
+        pids=(),
+        listener_present=False,
+        pid_unknown=True,
+    )
+
+    def fail_connections(**_kwargs: object) -> object:
+        raise psutil.NoSuchProcess(pid=29998)
+
+    monkeypatch.setattr(
+        tooling_coordination.psutil, "net_connections", fail_connections
+    )
+    monkeypatch.setattr(
+        tooling_coordination,
+        "_probe_tcp_port_without_pid",
+        lambda _port: expected,
+    )
+
+    assert observe_tcp_port(29998) == expected
 
 
 def test_tcp_port_observation_skips_unavailable_ipv6_fallback(

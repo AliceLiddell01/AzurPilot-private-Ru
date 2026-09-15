@@ -113,8 +113,6 @@ def _pg_dump_arguments(settings: DatabaseSettings) -> list[str]:
         str(settings.port),
         "--username",
         settings.user,
-        "--sslmode",
-        settings.sslmode,
         "--format=custom",
         "--no-owner",
         "--no-acl",

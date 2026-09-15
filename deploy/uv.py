@@ -179,7 +179,7 @@ def _uv_python_env(
 ):
     env = dict(base_environment) if base_environment is not None else os.environ.copy()
     env.pop("UV_PYTHON", None)
-    state = state_root or root
+    state = state_root if state_root is not None else venv_path(root)
     env["UV_PYTHON_INSTALL_DIR"] = str(state / "python")
     env["UV_CACHE_DIR"] = str(state / ".uv-cache")
     env.setdefault("UV_NO_PROGRESS", "1")

@@ -117,7 +117,7 @@ def test_backup_is_verified_and_published_create_only(
     assert calls[0][1]["PGPASSFILE"] == "C:/secure/pgpass.conf"
     assert calls[0][1]["PGSSLMODE"] == "disable"
     assert calls[0][1]["PGSSLROOTCERT"] == "C:/secure/root.crt"
-    assert calls[0][0][calls[0][0].index("--sslmode") + 1] == "disable"
+    assert "--sslmode" not in calls[0][0]
     assert calls[1][0][:2] == ["pg_restore", "--list"]
     assert calls[1][1] is not None
     assert "PGPASSWORD" not in calls[1][1]
@@ -184,7 +184,7 @@ def test_wsl_backup_formats_rollback_restore_path(
     assert calls[0][1] is not None
     assert calls[1][1] is calls[0][1]
     assert "PGPASSWORD" not in calls[0][1]
-    assert calls[0][0][calls[0][0].index("--sslmode") + 1] == "disable"
+    assert "--sslmode" not in calls[0][0]
 
 
 def test_wsl_path_converts_windows_path():

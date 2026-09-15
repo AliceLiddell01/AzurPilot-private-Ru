@@ -449,6 +449,11 @@ def test_build_generates_update_ready_config_from_production_template(
     settings = load_deploy_settings(root)
 
     assert result.ok
+    assert result.details.shortcut_status is (
+        CapabilityStatus.NOT_CONFIGURED
+        if os.name == "nt"
+        else CapabilityStatus.UNSUPPORTED
+    )
     assert settings.repository_url == (
         "git@github.com:AliceLiddell01/AzurPilot-private-Ru.git"
     )
@@ -1045,6 +1050,50 @@ def test_update_environment_move_failure_is_reported_as_confirmed_noop(
     assert (venv / "Scripts" / "python.exe").read_bytes() == b"old"
 
 
+def test_update_staging_cleanup_failure_is_rollback_unknown(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = tmp_path / "repository"
+    root.mkdir()
+    venv = root / ".venv"
+    (venv / "Scripts").mkdir(parents=True)
+    (venv / "Scripts" / "python.exe").write_bytes(b"old")
+    candidate_environment = tmp_path / "candidate-environment"
+    candidate_environment.mkdir()
+    (candidate_environment / "python.exe").write_bytes(b"new")
+    candidate = SimpleNamespace(
+        environment=candidate_environment,
+        previous=tmp_path / "previous",
+        backup=tmp_path / "backup",
+    )
+
+    original_replace = tooling_update.os.replace
+
+    def fail_staging_replace(source: str | Path, destination: str | Path) -> None:
+        if Path(destination) == venv:
+            raise OSError("смоделирован отказ замены staging")
+        original_replace(source, destination)
+
+    original_rmtree = tooling_update.shutil.rmtree
+
+    def fail_staging_cleanup(path: str | Path, *args: object, **kwargs: object) -> None:
+        if Path(path).name.startswith(".venv.staging-"):
+            raise OSError("смоделирован отказ очистки staging")
+        original_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(tooling_update.os, "replace", fail_staging_replace)
+    monkeypatch.setattr(tooling_update.shutil, "rmtree", fail_staging_cleanup)
+
+    with pytest.raises(ToolingError) as error:
+        tooling_update.UpdateService()._replace_environment(
+            root,
+            candidate,
+            "update-test1234",
+        )
+
+    assert error.value.code is ResultCode.TOOLING_ROLLBACK_UNKNOWN
+
+
 def test_external_candidate_sync_targets_candidate_venv_layout(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -1284,6 +1333,20 @@ def test_build_failed_transaction_can_retry_after_confirmed_cleanup(
     assert not (root / ".venv").exists()
     assert JournalStore(StateLayout.for_repository(root), "build").active() is None
 
+    expected = ToolingError(
+        ResultCode.TOOLING_PRECONDITION_FAILED,
+        "Шаблон недоступен.",
+    )
+    monkeypatch.setattr(
+        service,
+        "_copy_template",
+        lambda _root: (_ for _ in ()).throw(expected),
+    )
+    with pytest.raises(ToolingError) as second_error:
+        service.build(root, create_shortcut=False)
+    assert second_error.value is expected
+    assert JournalStore(StateLayout.for_repository(root), "build").active() is None
+
     monkeypatch.setattr(service, "_copy_template", lambda _root: False)
     result = service.build(root, create_shortcut=False)
     assert result.ok
@@ -1317,6 +1380,13 @@ def test_build_preserves_precondition_error_before_transaction_starts(
 
     assert error.value is expected
     assert JournalStore(StateLayout.for_repository(root), "build").active() is None
+
+
+def test_uv_python_environment_defaults_to_managed_venv(tmp_path: Path) -> None:
+    environment = deploy_uv._uv_python_env(tmp_path, base_environment={})
+
+    assert environment["UV_PYTHON_INSTALL_DIR"] == str(tmp_path / ".venv" / "python")
+    assert environment["UV_CACHE_DIR"] == str(tmp_path / ".venv" / ".uv-cache")
 
 
 def test_update_verifies_project_install_after_replacing_environment(

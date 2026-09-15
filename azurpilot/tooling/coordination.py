@@ -169,7 +169,7 @@ def observe_tcp_port(port: int) -> PortObservation:
     pid_unknown = False
     try:
         connections = psutil.net_connections(kind="tcp")
-    except (psutil.AccessDenied, OSError):
+    except (psutil.Error, OSError):
         return _probe_tcp_port_without_pid(port)
     for connection in connections:
         if connection.status != psutil.CONN_LISTEN:

@@ -313,6 +313,7 @@ class BuildService:
                 operation_id=operation_id,
             )
         config_created = False
+        mutation_started = False
         transaction = None
         venv = root / ".venv"
         venv_was_present = venv.exists() or is_unsafe_path(venv)
@@ -355,6 +356,7 @@ class BuildService:
             transaction = journal_store.create()
             journal_store.save(transaction)
             config_created = self._copy_template(root)
+            mutation_started = config_created
             settings = load_deploy_settings(root)
             venv_created = not venv_was_present
             if venv_was_present:
@@ -394,6 +396,7 @@ class BuildService:
                     )
                 bootstrap_source = "existing_environment"
             else:
+                mutation_started = True
                 venv.mkdir(parents=True, exist_ok=True)
                 ScopedPath(venv).atomic_write_text(
                     ".azurpilot-build-owned",
@@ -446,6 +449,7 @@ class BuildService:
                         == adb_path.resolve(strict=False)
                     )
                     if not same_path:
+                        mutation_started = True
                         install_adb(adb_resolution.path, adb_path.parent, root, self.runner)
                     if not self._run_health(adb_path, root, "version"):
                         raise ToolingError(
@@ -475,9 +479,14 @@ class BuildService:
                         message=console_path.message,
                     )
                 )
-            shortcut_status = CapabilityStatus.UNSUPPORTED
+            shortcut_status = (
+                CapabilityStatus.NOT_CONFIGURED
+                if os.name == "nt"
+                else CapabilityStatus.UNSUPPORTED
+            )
             if shortcut_requested:
                 if os.name == "nt":
+                    mutation_started = True
                     shortcut = ensure_shortcut(
                         root,
                         python,
@@ -549,11 +558,23 @@ class BuildService:
                 ),
             )
         except Exception as error:
-            if (
-                isinstance(error, ToolingError)
-                and not config_created
-                and transaction is None
-            ):
+            if isinstance(error, ToolingError) and not mutation_started:
+                if transaction is not None:
+                    try:
+                        transaction = transaction.model_copy(
+                            update={
+                                "phase": "rolled_back",
+                                "failure_reason": type(error).__name__,
+                            }
+                        )
+                        journal_store.save(transaction)
+                        journal_store.retain_terminal()
+                    except (OSError, ToolingError, ValueError) as journal_error:
+                        raise ToolingError(
+                            ResultCode.TOOLING_ROLLBACK_UNKNOWN,
+                            "Состояние Build не изменилось, но завершение журнала не подтверждено.",
+                            operation_id=operation_id,
+                        ) from journal_error
                 raise
             rollback_confirmed = True
             if config_created:
