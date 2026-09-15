@@ -171,6 +171,7 @@ class WarningCode(StrEnum):
     TOOLING_BROWSER_NOT_OPENED = "TOOLING_BROWSER_NOT_OPENED"
     TOOLING_OUTPUT_TRUNCATED = "TOOLING_OUTPUT_TRUNCATED"
     TOOLING_LEGACY_COMPATIBILITY = "TOOLING_LEGACY_COMPATIBILITY"
+    MCP_RECONCILIATION_FAILED = "MCP_RECONCILIATION_FAILED"
 
 
 class ClosedModel(BaseModel):
@@ -785,12 +786,15 @@ def exit_code_for(code: ResultCode, ok: bool = False) -> ExitCode:
     if code is ResultCode.TOOLING_APPLY_FAILED_ROLLED_BACK:
         return ExitCode.ROLLED_BACK
     if code in {
-        ResultCode.TOOLING_ROLLBACK_UNKNOWN,
-        ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-        ResultCode.TOOLING_SECRET_SCAN_FAILED,
         ResultCode.MCP_SOURCE_BUNDLE_INVALID,
         ResultCode.MCP_SOURCE_BUNDLE_DRIFT,
         ResultCode.MCP_VERSION_BUMP_REQUIRED,
+    }:
+        return ExitCode.PRECONDITION
+    if code in {
+        ResultCode.TOOLING_ROLLBACK_UNKNOWN,
+        ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+        ResultCode.TOOLING_SECRET_SCAN_FAILED,
         ResultCode.MCP_ENVIRONMENT_STALE,
     }:
         return ExitCode.ROLLBACK_UNKNOWN

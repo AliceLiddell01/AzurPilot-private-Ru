@@ -147,6 +147,7 @@ class ProcessSpec:
     timeout_seconds: float = DEFAULT_PROCESS_TIMEOUT
     max_output_bytes: int = DEFAULT_OUTPUT_LIMIT
     env: Mapping[str, str] = field(default_factory=dict)
+    allow_test_environment: bool = False
     start_new_session: bool = True
     no_window: bool = True
 
@@ -207,7 +208,9 @@ class ProcessSpec:
         extra = dict(self.env)
         if runtime is not None:
             extra["__PYVENV_LAUNCHER__"] = str(resolved)
-        return _safe_environment(extra)
+        return _safe_environment(
+            extra, allow_test_environment=self.allow_test_environment
+        )
 
     @property
     def command(self) -> tuple[str, ...]:
@@ -317,7 +320,9 @@ class RunningProcess:
         return self.process.poll()
 
 
-def _safe_environment(extra: Mapping[str, str]) -> dict[str, str]:
+def _safe_environment(
+    extra: Mapping[str, str], *, allow_test_environment: bool = False
+) -> dict[str, str]:
     """Собрать минимальное окружение без автоматического наследования secrets."""
 
     allowed_exact = {
@@ -380,7 +385,10 @@ def _safe_environment(extra: Mapping[str, str]) -> dict[str, str]:
         if (
             key not in allowed_explicit
             and not key.startswith(allowed_prefixes)
-            and not key.startswith(MCP_LOCAL_TEST_ENVIRONMENT_PREFIX)
+            and not (
+                allow_test_environment
+                and key.startswith(MCP_LOCAL_TEST_ENVIRONMENT_PREFIX)
+            )
         ):
             raise ValueError(f"переменная окружения {key!r} запрещена политикой")
         if len(key) > 128 or len(str(value)) > 4096:

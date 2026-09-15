@@ -482,7 +482,15 @@ def _public_change_kind(
 def _server_status_from_model(
     server: McpServerVersion,
     *,
-    status: Literal["ready", "stale", "unavailable", "not_configured", "unknown", "conflict"],
+    status: Literal[
+        "ready",
+        "stale",
+        "stopped",
+        "unavailable",
+        "not_configured",
+        "unknown",
+        "conflict",
+    ],
     observed_version: str | None = None,
     observed_source_revision: str | None = None,
     routes: tuple[Literal["stdio", "loopback_http", "public_https"], ...] = (
@@ -1203,8 +1211,11 @@ class McpService:
         return ToolingResult(ok=True, code=ResultCode.OK, state=OperationState.READY, message="Canonical MCP versions и revisions подтверждены.", details=details)
 
     @staticmethod
-    def _auth_ready() -> bool:
-        values = [os.environ.get(name, "") for name in TOKEN_ENVIRONMENT_KEYS.values()]
+    def _auth_ready(server_names: Iterable[str] = MCP_SERVER_NAMES) -> bool:
+        names = tuple(server_names)
+        if not names or any(name not in MCP_SERVER_NAMES for name in names):
+            return False
+        values = [os.environ.get(TOKEN_ENVIRONMENT_KEYS[name], "") for name in names]
         return bool(values) and all(
             value
             and len(value.encode("utf-8")) <= 4096
@@ -1258,7 +1269,7 @@ class McpService:
             start_names.append(name)
         if not start_names:
             return False, before
-        if not self._auth_ready():
+        if not self._auth_ready(start_names):
             raise ToolingError(
                 ResultCode.MCP_AUTH_NOT_CONFIGURED,
                 "Ожидаемые bearer environment values локального MCP не настроены.",
@@ -1337,7 +1348,7 @@ class McpService:
             "Локальный MCP supervisor не достиг readiness.",
         )
 
-    def start(self, repository_root: str | Path | None = None) -> ToolingResult[McpStatusDetails, McpLifecycleDetails]:
+    def start(self, repository_root: str | Path | None = None) -> ToolingResult[McpLifecycleDetails, McpLifecycleDetails]:
         root = self._root(repository_root)
         self.source.check(root)
         bundle = self._bundle(root)
@@ -1355,7 +1366,7 @@ class McpService:
             details=details,
         )
 
-    def stop(self, repository_root: str | Path | None = None) -> ToolingResult[McpStatusDetails, McpLifecycleDetails]:
+    def stop(self, repository_root: str | Path | None = None) -> ToolingResult[McpLifecycleDetails, McpLifecycleDetails]:
         root = self._root(repository_root)
         bundle = self._bundle(root)
         for name in MCP_SERVER_NAMES:
@@ -1383,7 +1394,7 @@ class McpService:
             details=details,
         )
 
-    def restart(self, repository_root: str | Path | None = None) -> ToolingResult[McpStatusDetails, McpLifecycleDetails]:
+    def restart(self, repository_root: str | Path | None = None) -> ToolingResult[McpLifecycleDetails, McpLifecycleDetails]:
         root = self._root(repository_root)
         self.source.check(root)
         bundle = self._bundle(root)

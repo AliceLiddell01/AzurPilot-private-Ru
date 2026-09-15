@@ -75,6 +75,11 @@ def test_stdio_child_environment_excludes_unapproved_secrets(monkeypatch) -> Non
     assert "AZURPILOT_DEV_LOCAL_MCP_TOKEN" not in environment
 
 
+def test_contract_fingerprints_require_full_sha256_values() -> None:
+    assert status._SHA256_RE.fullmatch("a" * 64)
+    assert status._SHA256_RE.fullmatch("a" * 40) is None
+
+
 def _local_result(name: str, version: str, revision: str) -> dict[str, object]:
     return {
         "status": "ready",

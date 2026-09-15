@@ -55,6 +55,7 @@ _SAFE_IDENTIFIER = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
 _SAFE_TOKEN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 _VERSION_RE = re.compile(r"^v?[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$")
 _SHA_RE = re.compile(r"^[0-9a-f]{7,64}$")
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _URL_SCHEMES = frozenset({"https"})
 _MAX_JSON_BYTES = 256 * 1024
 _MAX_TOOLS = 256
@@ -640,9 +641,9 @@ async def _probe_local_stdio(
         or contract.get("tool_count") != len(tool_names)
         or contract_catalog_hash != observed_catalog_hash
         or not isinstance(capability_hash, str)
-        or not _SHA_RE.fullmatch(capability_hash)
+        or not _SHA256_RE.fullmatch(capability_hash)
         or not isinstance(revision_hash, str)
-        or not _SHA_RE.fullmatch(revision_hash)
+        or not _SHA256_RE.fullmatch(revision_hash)
         or contract.get("server_name") != server_name
         or contract.get("server_version") != observed_version
     ):
@@ -993,9 +994,9 @@ async def _probe_remote_backend(
         or contract.get("tool_count") != len(tool_names)
         or contract.get("tool_catalog_sha256") != observed_catalog_hash
         or not isinstance(contract.get("capability_catalog_sha256"), str)
-        or not _SHA_RE.fullmatch(contract["capability_catalog_sha256"])
+        or not _SHA256_RE.fullmatch(contract["capability_catalog_sha256"])
         or not isinstance(contract.get("contract_revision"), str)
-        or not _SHA_RE.fullmatch(contract["contract_revision"])
+        or not _SHA256_RE.fullmatch(contract["contract_revision"])
         or contract.get("server_name") != server_name
         or contract.get("server_version") != observed_version
     ):
@@ -2411,6 +2412,7 @@ def _version_guard(
     try:
         from module.dev_mcp.contract import (
             contract_compatibility_issues,
+            server_bundle_drift_issues,
             server_compatibility_issues,
         )
         from module.dev_mcp.contract import (
@@ -2441,10 +2443,16 @@ def _version_guard(
         dev_issues = contract_compatibility_issues(
             compatibility, contracts["azurpilot-dev"]
         )
+        dev_issues = (*dev_issues, *server_bundle_drift_issues(
+            compatibility, contracts["azurpilot-dev"]
+        ))
         issues.extend(f"plugin.{issue}" for issue in dev_issues)
         game_issues = server_compatibility_issues(
             compatibility, contracts["azurpilot-game"]
         )
+        game_issues = (*game_issues, *server_bundle_drift_issues(
+            compatibility, contracts["azurpilot-game"]
+        ))
         issues.extend(f"plugin.game.{issue}" for issue in game_issues)
     except (
         OSError,

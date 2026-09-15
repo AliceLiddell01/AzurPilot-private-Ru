@@ -632,10 +632,16 @@ def _dispatch(
         if args.mcp_command == "versions":
             return services.mcp.versions(root)
         if args.mcp_command == "reconcile":
+            source = bool(getattr(args, "source", False))
+            bump = getattr(args, "bump", None)
+            if bump is not None and not source:
+                raise CliInvocationError(
+                    "Параметр --bump допускается только вместе с --source."
+                )
             return services.mcp.reconcile(
                 root,
-                source=bool(getattr(args, "source", False)),
-                bump=getattr(args, "bump", None),
+                source=source,
+                bump=bump,
             )
         if args.mcp_command == "start":
             return services.mcp.start(root)
@@ -695,6 +701,8 @@ def main(
                 result = _dispatch(args, services or ServiceContainer.create())
         else:
             result = _dispatch(args, services or ServiceContainer.create())
+    except CliInvocationError as error:
+        result = _invocation_result(str(error))
     except ToolingError as error:
         result = _error_result(error)
     except KeyboardInterrupt:

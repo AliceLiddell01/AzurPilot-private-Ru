@@ -26,6 +26,7 @@ from typing import Any
 import psutil
 
 from azurpilot.tooling.process import (
+    MCP_LOCAL_TEST_ENVIRONMENT_PREFIX,
     ProcessController,
     ProcessSpec,
     RunningProcess,
@@ -317,7 +318,7 @@ class LocalHttpSupervisor:
                     {
                         key: value
                         for key, value in os.environ.items()
-                        if key.startswith("TEST_LOCAL_MCP_")
+                        if key.startswith(MCP_LOCAL_TEST_ENVIRONMENT_PREFIX)
                     }
                 )
             running = self.runner.start(
@@ -327,6 +328,7 @@ class LocalHttpSupervisor:
                     cwd=self.repository_root,
                     timeout_seconds=max(30.0, self.startup_timeout_seconds + 10.0),
                     env=environment,
+                    allow_test_environment=self.allow_test_environment,
                 )
             )
         except (OSError, ValueError, subprocess.SubprocessError) as exc:
@@ -786,15 +788,14 @@ class LocalHttpSupervisor:
                     alive = _identity_matches(psutil.Process(child_pid), child)
                 except psutil.Error, OSError, TypeError, ValueError, KeyError:
                     alive = False
+            ready_payload = self._ready_payload(expected_service)
             services.append(
                 {
                     "server_name": expected_service.name,
                     "port": expected_service.port,
                     "alive": alive,
-                    "ready": bool(alive and self._ready(expected_service)),
-                    **(
-                        self._ready_payload(expected_service) or {}
-                    ),
+                    "ready": bool(alive and ready_payload is not None),
+                    **(ready_payload or {}),
                 }
             )
         ready = bool(services) and all(
@@ -904,7 +905,7 @@ def main() -> None:
         action="append",
     )
     args = parser.parse_args()
-    selected_names = tuple(args.service or ())
+    selected_names = tuple(dict.fromkeys(args.service or ()))
     selected_services = tuple(
         service for service in LOCAL_HTTP_SERVICES if service.name in selected_names
     )

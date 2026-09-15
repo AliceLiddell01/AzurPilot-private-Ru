@@ -177,6 +177,14 @@ def test_explicit_bump_can_raise_a_proven_change_without_auto_major_guess() -> N
     assert mcp_tooling._server_version(server, bump="major").startswith("2.")
 
 
+def test_auth_readiness_is_scoped_to_servers_being_started(monkeypatch) -> None:
+    monkeypatch.setenv("AZURPILOT_DEV_LOCAL_MCP_TOKEN", "dev-token")
+    monkeypatch.delenv("AZURPILOT_GAME_LOCAL_MCP_TOKEN", raising=False)
+
+    assert mcp_tooling.McpService._auth_ready(("azurpilot-dev",))
+    assert not mcp_tooling.McpService._auth_ready()
+
+
 def test_reconciler_detects_unreconciled_source_without_mutating_repository(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

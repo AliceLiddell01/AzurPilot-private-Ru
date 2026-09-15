@@ -37,6 +37,7 @@ from azurpilot.tooling.contracts import (
     ResultCode,
     RootSource,
     ToolingResult,
+    WarningCode,
 )
 from azurpilot.tooling.coordination import PortObservation
 from azurpilot.tooling.errors import ToolingError
@@ -1282,6 +1283,29 @@ def test_update_uses_real_git_fast_forward_and_blocks_on_backup_failure(
     assert error.value.code is ResultCode.TOOLING_BACKUP_FAILED
     assert tooling_update.GitClient(root).head() == first_head
     assert not tooling_update.GitClient(root).status_porcelain()
+
+
+def test_update_surfaces_post_update_mcp_failure_as_warning(tmp_path: Path) -> None:
+    root = tmp_path / "repository"
+    (root / "config").mkdir(parents=True)
+    (root / "config" / "mcp-versions.toml").write_text(
+        "schema_version = 2\n", encoding="utf-8"
+    )
+
+    class FailingMcp:
+        def reconcile(self, _root: Path) -> object:
+            raise ToolingError(
+                ResultCode.MCP_RUNTIME_STALE,
+                "MCP runtime не согласован.",
+            )
+
+    outcome = tooling_update.UpdateService(
+        mcp_service=FailingMcp()
+    )._reconcile_mcp_after_update(root)
+
+    assert outcome.state == "failed"
+    assert outcome.warning is not None
+    assert outcome.warning.code is WarningCode.MCP_RECONCILIATION_FAILED
 
 
 def test_build_failed_transaction_can_retry_after_confirmed_cleanup(

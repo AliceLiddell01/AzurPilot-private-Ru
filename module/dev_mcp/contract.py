@@ -119,67 +119,81 @@ def server_compatibility_issues(
     except ValueError:
         compatible = False
     issues: list[str] = [] if compatible else ["server_version"]
+    required_flags = expected.get("required_feature_flags_by_server")
+    actual_flags = actual.get("feature_flags")
+    expected_flags = (
+        required_flags.get(server_name)
+        if isinstance(required_flags, Mapping)
+        else None
+    )
+    if isinstance(expected_flags, Mapping) and isinstance(actual_flags, Mapping):
+        for name, value in expected_flags.items():
+            if actual_flags.get(name) is not value:
+                issues.append(f"servers.{server_name}.feature_flags.{name}")
+    required_families = expected.get("required_capability_families_by_server")
+    actual_families = actual.get("capability_families")
+    expected_family_values = (
+        required_families.get(server_name)
+        if isinstance(required_families, Mapping)
+        else None
+    )
+    if (
+        isinstance(expected_family_values, (list, tuple))
+        and isinstance(actual_families, (list, tuple))
+        and any(value not in actual_families for value in expected_family_values)
+    ):
+        issues.append(f"servers.{server_name}.capability_families")
+    required_vocabulary = expected.get("result_vocabulary_by_server")
+    actual_vocabulary = actual.get("result_states", actual.get("result_outcomes"))
+    expected_vocabulary = (
+        required_vocabulary.get(server_name)
+        if isinstance(required_vocabulary, Mapping)
+        else None
+    )
+    if (
+        isinstance(expected_vocabulary, (list, tuple))
+        and isinstance(actual_vocabulary, (list, tuple))
+        and any(value not in actual_vocabulary for value in expected_vocabulary)
+    ):
+        issues.append(f"servers.{server_name}.result_vocabulary")
+    return tuple(dict.fromkeys(issues))
+
+
+def server_bundle_drift_issues(
+    expected: Mapping[str, object], actual: Mapping[str, object]
+) -> tuple[str, ...]:
+    """Проверить exact catalog/contract identity отдельно от SemVer range."""
+
+    server_name = actual.get("server_name")
+    if not isinstance(server_name, str):
+        return ("server_identity",)
     expected_catalog = expected.get("servers")
     expected_metadata = (
         expected_catalog.get(server_name)
         if isinstance(expected_catalog, Mapping)
         else None
     )
-    if isinstance(expected_metadata, Mapping):
-        actual_fields = {
-            "version": "server_version",
-            "api_version": (
-                "dev_mcp_api_version"
-                if server_name == "azurpilot-dev"
-                else "game_mcp_api_version"
-            ),
-            "contract_schema_version": "contract_schema_version",
-            "tool_count": "tool_count",
-            "tool_catalog_sha256": "tool_catalog_sha256",
-            "capability_catalog_sha256": "capability_catalog_sha256",
-            "contract_revision": "contract_revision",
-        }
-        for field, actual_field in actual_fields.items():
-            if actual.get(actual_field) != expected_metadata.get(field):
-                issues.append(f"servers.{server_name}.{field}")
-        required_flags = expected.get("required_feature_flags_by_server")
-        actual_flags = actual.get("feature_flags")
-        expected_flags = (
-            required_flags.get(server_name)
-            if isinstance(required_flags, Mapping)
-            else None
-        )
-        if isinstance(expected_flags, Mapping) and isinstance(actual_flags, Mapping):
-            for name, value in expected_flags.items():
-                if actual_flags.get(name) is not value:
-                    issues.append(f"servers.{server_name}.feature_flags.{name}")
-        required_families = expected.get("required_capability_families_by_server")
-        actual_families = actual.get("capability_families")
-        expected_family_values = (
-            required_families.get(server_name)
-            if isinstance(required_families, Mapping)
-            else None
-        )
-        if (
-            isinstance(expected_family_values, (list, tuple))
-            and isinstance(actual_families, (list, tuple))
-            and any(value not in actual_families for value in expected_family_values)
-        ):
-            issues.append(f"servers.{server_name}.capability_families")
-        required_vocabulary = expected.get("result_vocabulary_by_server")
-        actual_vocabulary = actual.get("result_states", actual.get("result_outcomes"))
-        expected_vocabulary = (
-            required_vocabulary.get(server_name)
-            if isinstance(required_vocabulary, Mapping)
-            else None
-        )
-        if (
-            isinstance(expected_vocabulary, (list, tuple))
-            and isinstance(actual_vocabulary, (list, tuple))
-            and any(value not in actual_vocabulary for value in expected_vocabulary)
-        ):
-            issues.append(f"servers.{server_name}.result_vocabulary")
-    return tuple(dict.fromkeys(issues))
+    if not isinstance(expected_metadata, Mapping):
+        return (f"servers.{server_name}",)
+    actual_fields = {
+        "api_version": (
+            "dev_mcp_api_version"
+            if server_name == "azurpilot-dev"
+            else "game_mcp_api_version"
+        ),
+        "contract_schema_version": "contract_schema_version",
+        "tool_count": "tool_count",
+        "tool_catalog_sha256": "tool_catalog_sha256",
+        "capability_catalog_sha256": "capability_catalog_sha256",
+        "contract_revision": "contract_revision",
+    }
+    return tuple(
+        f"servers.{server_name}.{field}"
+        for field, actual_field in actual_fields.items()
+        if field not in expected_metadata
+        or actual_field not in actual
+        or actual[actual_field] != expected_metadata[field]
+    )
 
 
 def contract_compatibility_issues(
@@ -258,5 +272,6 @@ __all__ = [
     "contract_compatibility_issues",
     "contract_payload",
     "contract_result",
+    "server_bundle_drift_issues",
     "server_compatibility_issues",
 ]
