@@ -24,6 +24,7 @@ from .contracts import (
 from .coordination import RepositoryCoordinator, observe_tcp_port
 from .errors import ToolingError
 from .filesystem import (
+    MAX_FILE_BYTES,
     JournalStore,
     ScopedPath,
     bounded_read_text,
@@ -216,7 +217,13 @@ class UpdateService:
                             ResultCode.TOOLING_DEPENDENCY_UNAVAILABLE,
                             "Архив зависимостей remote не читается.",
                         )
-                    ScopedPath(candidate).atomic_write_bytes(str(name), data.read(16 * 1024 * 1024 + 1))
+                    contents = data.read(MAX_FILE_BYTES + 1)
+                    if len(contents) > MAX_FILE_BYTES:
+                        raise ToolingError(
+                            ResultCode.TOOLING_DEPENDENCY_UNAVAILABLE,
+                            "Член архива зависимостей превышает допустимый размер.",
+                        )
+                    ScopedPath(candidate).atomic_write_bytes(str(name), contents)
         except ToolingError:
             raise
         except (OSError, tarfile.TarError) as exc:
@@ -247,7 +254,7 @@ class UpdateService:
         archive = transaction_root / "dependencies.tar"
         transaction_root.mkdir(parents=True, exist_ok=True)
         git.archive_dependencies(remote_ref, archive)
-        if is_unsafe_path(archive) or archive.stat().st_size > 16 * 1024 * 1024:
+        if is_unsafe_path(archive) or archive.stat().st_size > MAX_FILE_BYTES:
             raise ToolingError(
                 ResultCode.TOOLING_DEPENDENCY_UNAVAILABLE,
                 "Архив зависимостей имеет небезопасный размер или тип.",

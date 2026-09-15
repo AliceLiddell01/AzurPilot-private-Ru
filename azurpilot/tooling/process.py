@@ -645,8 +645,10 @@ class ProcessController:
             return False
         try:
             process = psutil.Process(identity.pid)
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
+        except psutil.NoSuchProcess:
             return True
+        except psutil.AccessDenied:
+            return False
         try:
             descendants = tuple(process.children(recursive=True))
         except (psutil.NoSuchProcess, psutil.AccessDenied):

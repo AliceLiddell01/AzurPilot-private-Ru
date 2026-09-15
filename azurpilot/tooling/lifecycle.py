@@ -823,7 +823,7 @@ class LifecycleService:
                 max(0.0, deadline - time.monotonic()),
             )
             identity_still_matches = identity.matches()
-            if not cleanup_confirmed or not terminated:
+            if not cleanup_confirmed or identity_still_matches:
                 code = (
                     ResultCode.TOOLING_TIMEOUT
                     if not terminated or identity_still_matches

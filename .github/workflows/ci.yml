@@ -1186,6 +1186,8 @@ jobs:
     name: macOS core tooling
     runs-on: macos-14
     timeout-minutes: 25
+    permissions:
+      contents: read
     steps:
       - name: Получить exact head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

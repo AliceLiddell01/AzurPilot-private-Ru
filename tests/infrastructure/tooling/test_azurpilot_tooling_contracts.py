@@ -9,6 +9,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import tarfile
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -269,6 +270,104 @@ def test_lifecycle_keeps_state_when_termination_is_not_confirmed(
     assert error.value.state is OperationState.IN_FLIGHT
     assert coordinator.record is not None
     assert coordinator.cleared is False
+
+
+def test_lifecycle_stop_succeeds_when_cleanup_proves_process_already_exited(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = tmp_path / "repository"
+    root.mkdir()
+    resolved = ResolvedRepository(root, _repository_evidence())
+    settings = DeploySettings(source_path=None)
+
+    class FakeLock:
+        def acquire(self, timeout_seconds: float = 0.0) -> bool:
+            return True
+
+        def release(self) -> None:
+            return None
+
+    class FakeCoordinator:
+        def __init__(self) -> None:
+            self.lifecycle_cleared = False
+            self.stop_request_cleared = False
+
+        def lock(self, _operation: str) -> FakeLock:
+            return FakeLock()
+
+        def read_lifecycle(self) -> object:
+            return object()
+
+        def request_stop(self) -> None:
+            return None
+
+        def clear_lifecycle(self) -> None:
+            self.lifecycle_cleared = True
+
+        def clear_stop_request(self) -> None:
+            self.stop_request_cleared = True
+
+    coordinator = FakeCoordinator()
+    identity = ProcessIdentity(
+        pid=12345,
+        start_time=1.0,
+        executable=Path(sys.executable).resolve(),
+        argv=(str(sys.executable), "gui.py"),
+        cwd=root.resolve(),
+    )
+    matches = iter((True, False, False))
+    monkeypatch.setattr(
+        tooling_lifecycle.ProcessIdentity,
+        "matches",
+        lambda _identity: next(matches, False),
+    )
+    monkeypatch.setattr(
+        tooling_lifecycle,
+        "load_deploy_settings",
+        lambda _root: settings,
+    )
+    monkeypatch.setattr(
+        tooling_lifecycle.RepositoryCoordinator,
+        "for_root",
+        lambda _root: coordinator,
+    )
+    monkeypatch.setattr(
+        tooling_lifecycle.LifecycleService,
+        "_port_state",
+        staticmethod(
+            lambda *_args: (
+                tooling_lifecycle._PortState(
+                    PortObservation(settings.webui_port, ()),
+                    "azurpilot",
+                    True,
+                ),
+                identity,
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        tooling_lifecycle.ProcessController,
+        "terminate",
+        lambda _identity, timeout_seconds=15.0: False,
+    )
+    service = LifecycleService(
+        resolver=SimpleNamespace(resolve=lambda _root=None: resolved),
+        runner=SimpleNamespace(),
+        require_infrastructure=False,
+    )
+    monkeypatch.setattr(
+        service,
+        "_wait_stop_cleanup",
+        lambda *_args: (True, PortObservation(settings.webui_port, ())),
+    )
+
+    result = service.stop(root, timeout_seconds=1)
+
+    assert result.ok
+    assert result.state is OperationState.STOPPED
+    assert "уже завершился" in result.message
+    assert coordinator.lifecycle_cleared
+    assert coordinator.stop_request_cleared
 
 
 def test_build_shortcut_defaults_are_explicitly_overridable() -> None:
@@ -803,6 +902,27 @@ def test_adb_archive_rejects_symlink_member(tmp_path: Path) -> None:
         tooling_adb._extract_archive(archive, tmp_path / "extracted")
 
     assert error.value.code is ResultCode.TOOLING_ADB_FAILED
+
+
+def test_update_archive_rejects_oversized_member_before_writing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    archive = tmp_path / "dependencies.tar"
+    candidate = tmp_path / "candidate"
+    monkeypatch.setattr(tooling_update, "MAX_FILE_BYTES", 4)
+    with tarfile.open(archive, mode="w") as bundle:
+        member = tarfile.TarInfo("pyproject.toml")
+        member.size = 5
+        bundle.addfile(member, io.BytesIO(b"12345"))
+        lock = tarfile.TarInfo("uv.lock")
+        lock.size = 4
+        bundle.addfile(lock, io.BytesIO(b"lock"))
+
+    with pytest.raises(ToolingError) as error:
+        tooling_update.UpdateService._extract_candidate(archive, candidate)
+
+    assert error.value.code is ResultCode.TOOLING_DEPENDENCY_UNAVAILABLE
+    assert not (candidate / "pyproject.toml").exists()
 
 
 def test_update_environment_move_failure_is_reported_as_confirmed_noop(

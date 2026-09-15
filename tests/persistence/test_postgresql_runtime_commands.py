@@ -50,6 +50,16 @@ def test_backup_environment_preserves_docker_endpoint_controls(
     assert "UNRELATED_SECRET" not in environment
 
 
+def test_backup_environment_accepts_only_explicit_ssl_controls() -> None:
+    environment = postgresql_runtime._backup_process_environment(
+        sslmode="verify-full",
+        sslrootcert="/etc/ssl/certs/ca.pem",
+    )
+
+    assert environment["PGSSLMODE"] == "verify-full"
+    assert environment["PGSSLROOTCERT"] == "/etc/ssl/certs/ca.pem"
+
+
 def test_backup_rejects_repository_target(tmp_path: Path):
     repository = tmp_path / "repository"
     repository.mkdir()
@@ -71,6 +81,7 @@ def test_backup_is_verified_and_published_create_only(
     output = tmp_path / "backups" / "production.dump"
     calls: list[tuple[list[str], dict[str, str] | None]] = []
     monkeypatch.setenv("AZURPILOT_POSTGRES_PGPASSFILE", "C:/secure/pgpass.conf")
+    monkeypatch.setenv("PGSSLROOTCERT", "C:/secure/root.crt")
 
     def run_hidden(
         arguments: list[str],
@@ -104,6 +115,9 @@ def test_backup_is_verified_and_published_create_only(
     assert "azurpilot_migrator" in calls[0][0]
     assert "PGPASSWORD" not in calls[0][1]
     assert calls[0][1]["PGPASSFILE"] == "C:/secure/pgpass.conf"
+    assert calls[0][1]["PGSSLMODE"] == "disable"
+    assert calls[0][1]["PGSSLROOTCERT"] == "C:/secure/root.crt"
+    assert calls[0][0][calls[0][0].index("--sslmode") + 1] == "disable"
     assert calls[1][0][:2] == ["pg_restore", "--list"]
     assert calls[1][1] is not None
     assert "PGPASSWORD" not in calls[1][1]
@@ -123,6 +137,7 @@ def test_wsl_backup_formats_rollback_restore_path(
     output = tmp_path / "backups" / "rollback.dump"
     calls: list[tuple[list[str], dict[str, str] | None]] = []
     monkeypatch.setenv("AZURPILOT_WSL_PGPASSFILE", "/etc/azurpilot/pgpass")
+    monkeypatch.setenv("PGSSLROOTCERT", "/etc/ssl/certs/ca.pem")
     monkeypatch.setattr(
         postgresql_runtime,
         "_wsl_path",
@@ -164,9 +179,12 @@ def test_wsl_backup_formats_rollback_restore_path(
     assert calls[1][0][-2] == "--list"
     assert calls[1][0][-1] == "/mnt/c/temporary/rollback.dump"
     assert "temporary-wsl" not in calls[1][0][-1]
+    assert "PGSSLMODE=disable" in calls[0][0]
+    assert "PGSSLROOTCERT=/etc/ssl/certs/ca.pem" in calls[0][0]
     assert calls[0][1] is not None
     assert calls[1][1] is calls[0][1]
     assert "PGPASSWORD" not in calls[0][1]
+    assert calls[0][0][calls[0][0].index("--sslmode") + 1] == "disable"
 
 
 def test_wsl_path_converts_windows_path():

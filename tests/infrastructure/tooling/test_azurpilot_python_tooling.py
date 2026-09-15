@@ -244,6 +244,31 @@ def test_process_runner_closes_output_streams_after_timeout(
     assert process.stderr.closed
 
 
+def test_process_controller_does_not_treat_access_denied_as_terminated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    identity = tooling_process.ProcessIdentity(
+        pid=12345,
+        start_time=1.0,
+        executable=Path(sys.executable),
+        argv=(sys.executable, "-c", "pass"),
+        cwd=REPOSITORY_ROOT,
+    )
+    matches = iter((True, True))
+    monkeypatch.setattr(
+        tooling_process.ProcessIdentity,
+        "matches",
+        lambda _identity: next(matches, True),
+    )
+
+    def deny_process(_pid: int) -> object:
+        raise psutil.AccessDenied(pid=12345)
+
+    monkeypatch.setattr(tooling_process.psutil, "Process", deny_process)
+
+    assert not ProcessController.terminate(identity, timeout_seconds=0.1)
+
+
 def test_tcp_port_observation_falls_back_when_pid_listing_is_denied(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -476,6 +501,27 @@ def test_cli_json_is_single_report_on_invocation_error() -> None:
     report = json.loads(stdout.getvalue())
     assert exit_code == 2
     assert report["code"] == ResultCode.TOOLING_INVALID_INVOCATION.value
+    assert stderr.getvalue() == ""
+
+
+def test_cli_unexpected_error_exposes_only_bounded_exception_type() -> None:
+    class ExplodingDoctor:
+        def run(self, _root: object) -> object:
+            raise RuntimeError("секретное диагностическое содержимое")
+
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    exit_code = main(
+        ["doctor", "--json"],
+        services=SimpleNamespace(doctor=ExplodingDoctor()),
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+    report = json.loads(stdout.getvalue())
+    assert exit_code == 30
+    assert "RuntimeError" in report["message"]
+    assert "секретное диагностическое содержимое" not in report["message"]
     assert stderr.getvalue() == ""
 
 

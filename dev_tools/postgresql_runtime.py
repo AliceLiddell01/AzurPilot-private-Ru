@@ -59,8 +59,13 @@ def _run_hidden(
         raise RuntimeError("Эксплуатационная команда PostgreSQL завершилась ошибкой.")
 
 
-def _backup_process_environment(*, passfile: str | None = None) -> dict[str, str]:
-    """Передать процессу резервного копирования только системные переменные и PGPASSFILE."""
+def _backup_process_environment(
+    *,
+    passfile: str | None = None,
+    sslmode: str | None = None,
+    sslrootcert: str | None = None,
+) -> dict[str, str]:
+    """Передать backup-процессу только системные и явно подтверждённые переменные."""
 
     allowed = {
         "PATH",
@@ -93,6 +98,10 @@ def _backup_process_environment(*, passfile: str | None = None) -> dict[str, str
     }
     if passfile:
         environment["PGPASSFILE"] = passfile
+    if sslmode:
+        environment["PGSSLMODE"] = sslmode
+    if sslrootcert:
+        environment["PGSSLROOTCERT"] = sslrootcert
     return environment
 
 
@@ -104,6 +113,8 @@ def _pg_dump_arguments(settings: DatabaseSettings) -> list[str]:
         str(settings.port),
         "--username",
         settings.user,
+        "--sslmode",
+        settings.sslmode,
         "--format=custom",
         "--no-owner",
         "--no-acl",
@@ -228,7 +239,17 @@ def _backup(
     passfile = os.environ.get("AZURPILOT_POSTGRES_MIGRATOR_PGPASSFILE") or os.environ.get(
         "AZURPILOT_POSTGRES_PGPASSFILE"
     )
-    environment = _backup_process_environment(passfile=passfile)
+    maintenance = (
+        _maintenance_settings(settings) if transport in {"native", "wsl"} else None
+    )
+    sslrootcert = (
+        os.environ.get("PGSSLROOTCERT") if maintenance is not None else None
+    )
+    environment = _backup_process_environment(
+        passfile=passfile,
+        sslmode=maintenance.sslmode if maintenance is not None else None,
+        sslrootcert=sslrootcert,
+    )
 
     if transport == "docker":
         _require_docker_endpoint(settings, repository_root)
@@ -258,7 +279,7 @@ def _backup(
             "--list",
         )
     elif transport in {"native", "wsl"}:
-        maintenance = _maintenance_settings(settings)
+        assert maintenance is not None
         if transport == "native":
             native = shutil.which("pg_dump")
             if native is None:
@@ -269,13 +290,20 @@ def _backup(
                 raise RuntimeError("Системный pg_restore недоступен для резервного копирования PostgreSQL.")
             restore_arguments = [restore, "--list", "{temporary}"]
         else:
+            wsl_environment = [
+                "PGPASSFILE="
+                + os.environ.get("AZURPILOT_WSL_PGPASSFILE", "/etc/azurpilot/pgpass"),
+                f"PGSSLMODE={maintenance.sslmode}",
+            ]
+            if sslrootcert:
+                wsl_environment.append(f"PGSSLROOTCERT={sslrootcert}")
             arguments = [
                 "wsl.exe",
                 "--distribution",
                 distro,
                 "--exec",
                 "env",
-                f"PGPASSFILE={os.environ.get('AZURPILOT_WSL_PGPASSFILE', '/etc/azurpilot/pgpass')}",
+                *wsl_environment,
                 "pg_dump",
                 *_pg_dump_arguments(maintenance),
             ]

@@ -254,12 +254,16 @@ def _invocation_result(message: str) -> ToolingResult[BaseModel, BaseModel]:
     )
 
 
-def _unexpected_result() -> ToolingResult[BaseModel, BaseModel]:
+def _unexpected_result(exception_type: str | None = None) -> ToolingResult[BaseModel, BaseModel]:
+    suffix = f" Тип исключения: {exception_type[:80]}." if exception_type else ""
     return ToolingResult[BaseModel, BaseModel](
         ok=False,
         code=ResultCode.TOOLING_UNEXPECTED,
         state=OperationState.UNKNOWN,
-        message="Операция завершилась непредвиденной ошибкой; постусловие не подтверждено.",
+        message=(
+            "Операция завершилась непредвиденной ошибкой; постусловие не подтверждено."
+            + suffix
+        ),
     )
 
 
@@ -473,8 +477,8 @@ def main(
             state=OperationState.UNKNOWN,
             message="Операция прервана пользователем; итоговое состояние требует проверки.",
         )
-    except Exception:  # noqa: BLE001 - CLI обязан вернуть ограниченный envelope ошибки
-        result = _unexpected_result()
+    except Exception as error:  # noqa: BLE001 - CLI обязан вернуть ограниченный envelope ошибки
+        result = _unexpected_result(type(error).__name__)
 
     if json_mode:
         _render_json(result, stdout)
