@@ -138,6 +138,7 @@ class FindingSeverity(StrEnum):
     CRITICAL = "critical"
     MAJOR = "major"
     MINOR = "minor"
+    TRIVIAL = "trivial"
     INFO = "info"
 
 
