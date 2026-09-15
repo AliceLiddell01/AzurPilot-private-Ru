@@ -807,7 +807,7 @@ class PullRequestService:
 
 def _head_repository_identity(
     payload: dict[str, Any], spec: PrPublicationSpec
-) -> Any:
+) -> RepositoryIdentity:
     raw = payload.get("headRepository")
     if not isinstance(raw, dict):
         raise _error(
