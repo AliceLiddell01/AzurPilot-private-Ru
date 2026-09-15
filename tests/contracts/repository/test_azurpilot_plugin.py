@@ -17,7 +17,7 @@ from module.dev_mcp.contract import (
 )
 from module.dev_runtime.smoke import SMOKE_SCHEMA_VERSION, SMOKE_STATE_SCHEMA_VERSION
 from module.game_mcp.contract import contract_payload as game_contract_payload
-from module.mcp_shared.versioning import version_satisfies
+from module.mcp_shared.versioning import SemVer, version_satisfies
 
 _REPOSITORY_ROOT = REPOSITORY_ROOT
 _PLUGIN_ROOT = _REPOSITORY_ROOT / "plugins" / "azurpilot"
@@ -155,8 +155,16 @@ def test_plugin_compatibility_matches_runtime_contract() -> None:
 def test_plugin_compatibility_accepts_version_inside_semver_range() -> None:
     compatibility = _json(_COMPATIBILITY_PATH)
     runtime = game_contract_payload()
-    major, minor, patch = (int(value) for value in runtime["server_version"].split("."))
-    runtime["server_version"] = f"{major}.{minor}.{patch + 1}"
+    version = SemVer.parse(runtime["server_version"])
+    runtime["server_version"] = str(
+        SemVer(
+            version.major,
+            version.minor,
+            version.patch + 1,
+            version.prerelease,
+            version.build,
+        )
+    )
 
     assert server_compatibility_issues(compatibility, runtime) == ()
 
@@ -164,8 +172,16 @@ def test_plugin_compatibility_accepts_version_inside_semver_range() -> None:
 def test_plugin_bundle_drift_is_separate_from_semver_compatibility() -> None:
     compatibility = _json(_COMPATIBILITY_PATH)
     runtime = game_contract_payload()
-    major, minor, patch = (int(value) for value in runtime["server_version"].split("."))
-    runtime["server_version"] = f"{major}.{minor}.{patch + 1}"
+    version = SemVer.parse(runtime["server_version"])
+    runtime["server_version"] = str(
+        SemVer(
+            version.major,
+            version.minor,
+            version.patch + 1,
+            version.prerelease,
+            version.build,
+        )
+    )
     runtime["contract_revision"] = "0" * 64
 
     assert server_compatibility_issues(compatibility, runtime) == ()

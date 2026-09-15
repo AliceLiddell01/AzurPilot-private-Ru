@@ -559,10 +559,10 @@ def load_mcp_bundle(root: Path | str | None = None) -> McpBundle:
 
     path = _root(root) / MCP_VERSION_MANIFEST
     try:
-        content = path.read_text(encoding="utf-8")
+        content = path.read_bytes()
     except OSError as exc:
         raise VersioningError("Не удалось прочитать MCP version manifest") from exc
-    return load_mcp_bundle_text(content)
+    return load_mcp_bundle_bytes(content)
 
 
 def load_server_versions(root: Path | str | None = None) -> dict[str, str]:

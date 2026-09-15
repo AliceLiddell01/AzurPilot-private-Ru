@@ -1439,18 +1439,17 @@ class McpService:
 
     @staticmethod
     def _plugin_source_state(
-        root: Path, bundle: McpBundle
+        current: McpBundle, build: _BundleBuild
     ) -> Literal["ready", "drift", "unknown"]:
         """Проверить plugin/skill source отдельно от backend runtime."""
 
-        try:
-            digests = source_set_digests(root)
-        except ToolingError:
+        if getattr(build, "failure_code", None) is not None:
             return "unknown"
+        digests = build.bundle.source_digests
         return (
             "drift"
             if any(
-                digests.get(name) != bundle.source_digests.get(name)
+                digests.get(name) != current.source_digests.get(name)
                 for name in ("PLUGIN_BUNDLE_SOURCE_SET", "SKILL_BUNDLE_SOURCE_SET")
             )
             else "ready"
@@ -1493,7 +1492,7 @@ class McpService:
             source_state = "invalid"
         elif registration_state == "unknown" and source_state == "ready":
             source_state = "unknown"
-        plugin_source_state = self._plugin_source_state(root, bundle)
+        plugin_source_state = self._plugin_source_state(current, build)
         if plugin_source_state == "drift":
             plugin_state = "drift"
         elif plugin_source_state == "unknown" or source_state == "unknown":

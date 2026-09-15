@@ -613,6 +613,8 @@ async def _probe_local_stdio(
     tool_items = getattr(listed, "tools", None)
     if not isinstance(tool_items, list):
         return {"status": "unavailable", "reason_code": "LOCAL_TOOL_CATALOG_INVALID"}
+    if len(tool_items) > _MAX_TOOLS:
+        return {"status": "unavailable", "reason_code": "LOCAL_TOOL_CATALOG_INVALID"}
     tool_names = _bounded_tool_names(
         [getattr(item, "name", None) for item in tool_items]
     )
@@ -959,6 +961,11 @@ async def _probe_remote_backend(
 
     tool_items = getattr(listed, "tools", None)
     if not isinstance(tool_items, list):
+        return {
+            "status": "unavailable",
+            "reason_code": "REMOTE_BACKEND_TOOL_CATALOG_INVALID",
+        }
+    if len(tool_items) > _MAX_TOOLS:
         return {
             "status": "unavailable",
             "reason_code": "REMOTE_BACKEND_TOOL_CATALOG_INVALID",

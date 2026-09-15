@@ -40,11 +40,24 @@ def test_manifest_rejects_non_derived_required_server_range(tmp_path: Path) -> N
         "azurpilot-dev"
     ]
     manifest.write_text(
-        content.replace(f'"{expected_range}"', '"=0.0.0"', 1),
+        content.replace(
+            f'"azurpilot-dev" = "{expected_range}"',
+            '"azurpilot-dev" = "=0.0.0"',
+            1,
+        ),
         encoding="utf-8",
     )
 
     with pytest.raises(VersioningError, match="required_mcp_servers"):
+        load_mcp_bundle(tmp_path)
+
+
+def test_manifest_rejects_non_utf8_bytes(tmp_path: Path) -> None:
+    manifest = tmp_path / "config" / "mcp-versions.toml"
+    manifest.parent.mkdir()
+    manifest.write_bytes(b"\xff")
+
+    with pytest.raises(VersioningError, match="UTF-8"):
         load_mcp_bundle(tmp_path)
 
 

@@ -221,7 +221,7 @@ def test_status_preserves_plugin_drift_when_runtime_is_stopped(
     monkeypatch.setattr(
         service,
         "_plugin_source_state",
-        lambda _root, _bundle: "drift",
+        lambda _current, _build: "drift",
     )
 
     result = service.status(REPOSITORY_ROOT)
