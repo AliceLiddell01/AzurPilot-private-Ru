@@ -39,9 +39,9 @@ dependencies = [
     "onnxruntime==1.30.0; sys_platform == 'darwin' and platform_machine == 'arm64'",
     "watchdog>=6.0.0",
     "numba==0.67.0",
-    "uv==0.12.13",
+    "uv==0.12.15",
     "lz4==4.4.5",
-    "openai==3.13.0",
+    "openai==3.14.0",
     "mcp==2.2.0",
     "pyjwt[crypto]>=2.14.0,<3",
     "pygments==2.21.0",
@@ -59,7 +59,7 @@ dev = [
     "ruff",
 ]
 ci = [
-    "httpx2==2.12.0",
+    "httpx2==2.13.0",
     "playwright==1.62.0",
     "pytest==9.1.1",
     "pytest-cov==7.1.0",
