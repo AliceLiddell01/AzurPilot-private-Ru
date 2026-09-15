@@ -31,10 +31,11 @@ read-only задачи без изменения репозитория этот
    Пользовательские изменения не stash/drop/reset и не включай в свой diff.
 2. Для новой задачи сначала определи Git-модель по
    `.codex/context/GIT-WORKFLOW.md`. Для обычной fork-задачи обнови
-   `origin/personal/stable` разрешённым способом и создай ветку из task
-   contract; по умолчанию это `codex/<unique-capability-name>`, а explicit
-   domain-prefixed capability branch используй буквально в текущем основном
-   checkout. Для upstream sync используй модель `sync/*`, а
+   `origin/personal/stable` разрешённым способом и создай в текущем основном
+   checkout ветку из task contract в формате
+   `domain/<unique-capability-name>`. `codex/<legacy-capability>` — compatibility/legacy
+   namespace уже опубликованных веток, которые можно продолжать только после
+   проверки exact identity и head. Для upstream sync используй модель `sync/*`, а
    для переноса upstream в `personal/stable` — `codex/port-upstream-*` и
    соответствующую процедуру canonical workflow. Однозначно относящуюся к
    задаче опубликованную ветку/PR продолжай после проверки exact head. Не

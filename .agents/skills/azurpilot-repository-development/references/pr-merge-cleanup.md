@@ -7,7 +7,8 @@
 1. перечитай base→head diff и выполни adversarial self-review;
 2. проведи доступный CodeRabbit checkpoint и разберись с каждым finding;
 3. создай содержательный commit и push в тематическую ветку из task contract
-   (по умолчанию `codex/*`);
+   формата `domain/<unique-capability-name>`; уже опубликованную `codex/<legacy-capability>`
+   ветку продолжай только после проверки exact identity и head;
 4. создай или обнови **draft PR** в `personal/stable` через typed spec и
    temporary body-file с explicit `--repo`, `--base`, `--head`; body обязан
    содержать exact identity, scope, подсистемы, проверки, security result,

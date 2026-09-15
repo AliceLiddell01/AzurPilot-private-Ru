@@ -15,7 +15,9 @@ from typing import Any
 
 from .contracts import (
     AnalysisScope,
+    BranchIdentity,
     CommitIdentity,
+    DeliveryChange,
     DeliveryDetails,
     DeliveryEvidence,
     DeliveryJournal,
@@ -26,6 +28,8 @@ from .contracts import (
     GitSnapshot,
     OperationState,
     PublicationIntent,
+    RemoteIdentity,
+    RepositoryIdentity,
     ResultCode,
     ToolingResult,
 )
@@ -85,7 +89,22 @@ class _ValidatedDelivery:
     targets: tuple[DeliveryTarget, ...]
     target_paths: tuple[str, ...]
     initial_staged_paths: tuple[str, ...]
+    postimage_candidates: tuple[_PostimageCandidate, ...]
+    changes: tuple[DeliveryChange, ...]
+    publication_remote: RemoteIdentity
+    base_remote: RemoteIdentity
+    branch_identity: BranchIdentity
     layout: StateLayout
+
+
+@dataclass(frozen=True)
+class _PostimageCandidate:
+    """Снимок raw и Git-clean postimage до начала staging."""
+
+    path: str
+    raw_sha256: str | None
+    raw_size: int | None
+    filtered_blob: str | None
 
 
 class DeliveryJournalStore:
@@ -292,6 +311,7 @@ class DeliveryService:
             expected_base_sha=manifest.expected_base_sha,
             expected_remote_sha=manifest.expected_remote_sha,
             target_paths=context.target_paths,
+            changes=context.changes,
             updated_at=_now(),
         )
         store.save(journal)
@@ -301,8 +321,15 @@ class DeliveryService:
         scans: list[AnalysisScope] = []
 
         try:
-            staging_attempted = True
-            context.git.stage(context.target_paths)
+            self._verify_preexisting_staged(context)
+            paths_to_stage = tuple(
+                path
+                for path in context.target_paths
+                if path not in context.initial_staged_paths
+            )
+            if paths_to_stage:
+                staging_attempted = True
+                context.git.stage(paths_to_stage)
             journal = journal.model_copy(
                 update={"phase": DeliveryPhase.STAGED, "updated_at": _now()}
             )
@@ -471,6 +498,8 @@ class DeliveryService:
                 details=DeliveryDetails(
                     phase=journal.phase,
                     target_paths=journal.target_paths,
+                    target_count=len(journal.target_paths),
+                    changes=journal.changes,
                     commit_sha=journal.commit_sha,
                     recovery_required=False,
                 ),
@@ -498,6 +527,8 @@ class DeliveryService:
             details=DeliveryDetails(
                 phase=journal.phase,
                 target_paths=journal.target_paths,
+                target_count=len(journal.target_paths),
+                changes=journal.changes,
                 commit_sha=journal.commit_sha,
                 recovery_required=recovery_required,
             ),
@@ -531,6 +562,8 @@ class DeliveryService:
                 details=DeliveryDetails(
                     phase=journal.phase,
                     target_paths=journal.target_paths,
+                    target_count=len(journal.target_paths),
+                    changes=journal.changes,
                     commit_sha=journal.commit_sha,
                     remote_sha=remote_sha,
                 ),
@@ -571,6 +604,11 @@ class DeliveryService:
                 ResultCode.TOOLING_MANIFEST_INVALID,
                 "Имя remote имеет небезопасный формат.",
             )
+        if not _SAFE_REMOTE.fullmatch(manifest.base_remote_name):
+            raise _error(
+                ResultCode.TOOLING_MANIFEST_INVALID,
+                "Имя base remote имеет небезопасный формат.",
+            )
         _validate_ref(manifest.expected_branch)
         _validate_ref(manifest.remote_branch)
         _validate_ref(manifest.base_branch)
@@ -584,30 +622,25 @@ class DeliveryService:
                 ResultCode.TOOLING_REMOTE_IDENTITY_UNVERIFIED,
                 "Delivery для local/file remote разрешён только в явном disposable fixture режиме.",
             )
-        actual_identity = repository_identity_from_remote(
-            git.remote_url(manifest.remote_name)
+        publication_remote = _resolve_remote_identity(
+            git,
+            manifest.remote_name,
+            manifest.repository,
+            verify_push_url=True,
         )
-        if not _same_repository(actual_identity, manifest.repository):
-            raise _error(
-                ResultCode.TOOLING_REMOTE_IDENTITY_UNVERIFIED,
-                "Настроенный Git remote не совпадает с manifest repository identity.",
-            )
-        push_url = git.remote_push_url(manifest.remote_name)
-        if push_url and push_url.upper() != "DISABLED":
-            push_identity = repository_identity_from_remote(push_url)
-            if not _same_repository(push_identity, manifest.repository):
-                raise _error(
-                    ResultCode.TOOLING_REMOTE_IDENTITY_UNVERIFIED,
-                    "Git pushurl не совпадает с canonical repository identity.",
-                )
-        branch = git.branch()
-        head = git.head()
-        if branch != manifest.expected_branch:
+        base_remote = _resolve_remote_identity(
+            git,
+            manifest.base_remote_name,
+            manifest.repository,
+            verify_push_url=False,
+        )
+        branch_identity = BranchIdentity(name=git.branch(), sha=git.head())
+        if branch_identity.name != manifest.expected_branch:
             raise _error(
                 ResultCode.TOOLING_PRECONDITION_FAILED,
                 "Текущая ветка не совпадает с manifest expected_branch.",
             )
-        if head != manifest.expected_local_head:
+        if branch_identity.sha != manifest.expected_local_head:
             raise _error(
                 ResultCode.TOOLING_PRECONDITION_FAILED,
                 "Локальный HEAD не совпадает с manifest expected_local_head.",
@@ -618,13 +651,13 @@ class DeliveryService:
                 "В checkout уже выполняется незавершённая Git-операция.",
                 state=OperationState.CONFLICT,
             )
-        base_remote = git.remote_ref(manifest.base_remote_name, manifest.base_branch)
-        if base_remote != manifest.expected_base_sha:
+        base_sha = git.remote_ref(manifest.base_remote_name, manifest.base_branch)
+        if base_sha != manifest.expected_base_sha:
             raise _error(
                 ResultCode.TOOLING_PRECONDITION_FAILED,
                 "Exact base SHA remote не совпадает с manifest.",
             )
-        if not git.is_ancestor(manifest.expected_base_sha, head):
+        if not git.is_ancestor(manifest.expected_base_sha, branch_identity.sha):
             raise _error(
                 ResultCode.TOOLING_PRECONDITION_FAILED,
                 "Ожидаемый base SHA не является предком local HEAD.",
@@ -638,6 +671,7 @@ class DeliveryService:
             )
         normalized_targets = _normalize_targets(manifest.targets, repository.path)
         target_paths = tuple(target.path for target in normalized_targets)
+        changes = tuple(_delivery_change(target) for target in normalized_targets)
         status_z = git.status_z()
         dirty_paths, staged_paths = _parse_status(status_z)
         unexpected_staged = set(staged_paths) - set(target_paths)
@@ -647,15 +681,19 @@ class DeliveryService:
                 "В index есть staged paths вне manifest allowlist.",
                 state=OperationState.CONFLICT,
             )
+        postimage_candidates: list[_PostimageCandidate] = []
         for target in normalized_targets:
-            _verify_target_preimage(git, head, target, repository.path)
-            _verify_target_postimage(target, repository.path)
+            _verify_target_preimage(git, branch_identity.sha, target, repository.path)
+            postimage_candidates.append(
+                _verify_target_postimage(git, target, repository.path)
+            )
         snapshot = GitSnapshot(
             repository=manifest.repository,
             root_identity=path_identity(repository.path),
-            branch=branch,
-            head_sha=head,
+            branch=branch_identity.name,
+            head_sha=branch_identity.sha,
             base_sha=manifest.expected_base_sha,
+            base_branch=manifest.base_branch,
             remote_name=manifest.remote_name,
             remote_branch=manifest.remote_branch,
             remote_sha=remote_sha,
@@ -672,6 +710,11 @@ class DeliveryService:
             targets=normalized_targets,
             target_paths=target_paths,
             initial_staged_paths=staged_paths,
+            postimage_candidates=tuple(postimage_candidates),
+            changes=changes,
+            publication_remote=publication_remote,
+            base_remote=base_remote,
+            branch_identity=branch_identity,
             layout=StateLayout.for_repository(repository.path),
         )
 
@@ -683,26 +726,57 @@ class DeliveryService:
                 "Фактически staged paths не совпали с manifest allowlist.",
                 state=OperationState.CONFLICT,
             )
-        for target in context.targets:
-            if target.postimage.exists:
-                staged_blob = context.git.index_blob(target.path)
-                filtered_working_blob = context.git.filtered_working_blob(
-                    target.path
-                )
-                if staged_blob != filtered_working_blob:
-                    raise _error(
-                        ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                        f"Index path {target.path!r} не совпал с Git-clean working postimage.",
-                    )
-            else:
-                try:
-                    context.git.object_sha256(f":{target.path}")
-                except ToolingError:
-                    continue
+        for target, candidate in zip(
+            context.targets, context.postimage_candidates, strict=True
+        ):
+            self._verify_staged_target(context, target, candidate)
+
+    def _verify_preexisting_staged(self, context: _ValidatedDelivery) -> None:
+        """Проверить разрешённые staged paths до возможного service-owned staging."""
+
+        initial = set(context.initial_staged_paths)
+        for target, candidate in zip(
+            context.targets, context.postimage_candidates, strict=True
+        ):
+            if target.path in initial:
+                self._verify_staged_target(context, target, candidate)
+
+    @staticmethod
+    def _verify_staged_target(
+        context: _ValidatedDelivery,
+        target: DeliveryTarget,
+        candidate: _PostimageCandidate,
+    ) -> None:
+        current = _capture_target_postimage(context.git, target, context.repository.path)
+        if (
+            current.raw_sha256 != candidate.raw_sha256
+            or current.raw_size != candidate.raw_size
+            or current.filtered_blob != candidate.filtered_blob
+        ):
+            raise _error(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                f"Target {target.path!r} изменился после проверки postimage; staging остановлен.",
+            )
+        if target.postimage.exists:
+            if current.raw_sha256 != target.postimage.sha256 or (
+                target.postimage.size is not None
+                and current.raw_size != target.postimage.size
+            ):
                 raise _error(
                     ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                    f"Удаляемый путь {target.path!r} остался в index.",
+                    f"Raw postimage пути {target.path!r} не совпал с manifest.",
                 )
+            staged_blob = context.git.index_blob(target.path)
+            if staged_blob != candidate.filtered_blob:
+                raise _error(
+                    ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                    f"Index path {target.path!r} не совпал с сохранённым Git-clean postimage.",
+                )
+        elif context.git.object_exists(f":{target.path}"):
+            raise _error(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                f"Удаляемый путь {target.path!r} остался в index.",
+            )
 
     def _verify_commit(
         self, context: _ValidatedDelivery, commit_sha: str
@@ -749,6 +823,8 @@ class DeliveryService:
             details=DeliveryDetails(
                 phase=phase,
                 target_paths=context.target_paths,
+                target_count=len(context.target_paths),
+                changes=context.changes,
                 commit_sha=commit.sha if commit else None,
                 remote_sha=remote_sha,
             ),
@@ -756,6 +832,9 @@ class DeliveryService:
                 snapshot=context.snapshot,
                 commit=commit,
                 scans=scans,
+                publication_remote=context.publication_remote,
+                base_remote=context.base_remote,
+                branch=context.branch_identity,
             ),
         )
 
@@ -934,7 +1013,9 @@ def _verify_target_preimage(
         )
 
 
-def _verify_target_postimage(target: DeliveryTarget, root: Path) -> None:
+def _capture_target_postimage(
+    git: GitClient, target: DeliveryTarget, root: Path
+) -> _PostimageCandidate:
     path = ScopedPath(root).resolve(target.path, allow_missing=True)
     if target.postimage.exists:
         if not path.is_file() or path_has_link(path):
@@ -944,16 +1025,88 @@ def _verify_target_postimage(target: DeliveryTarget, root: Path) -> None:
             )
         actual = sha256_file(path)
         size = path.stat().st_size
-        if actual != target.postimage.sha256 or target.postimage.size not in {None, size}:
-            raise _error(
-                ResultCode.TOOLING_PRECONDITION_FAILED,
-                f"Postimage пути {target.path!r} изменился после подготовки manifest.",
-            )
-    elif path.exists():
+        return _PostimageCandidate(
+            path=target.path,
+            raw_sha256=actual,
+            raw_size=size,
+            filtered_blob=git.filtered_working_blob(target.path),
+        )
+    if path.exists():
         raise _error(
             ResultCode.TOOLING_PRECONDITION_FAILED,
             f"Путь {target.path!r} должен быть удалён согласно postimage.",
         )
+    return _PostimageCandidate(
+        path=target.path,
+        raw_sha256=None,
+        raw_size=None,
+        filtered_blob=None,
+    )
+
+
+def _verify_target_postimage(
+    git: GitClient, target: DeliveryTarget, root: Path
+) -> _PostimageCandidate:
+    candidate = _capture_target_postimage(git, target, root)
+    if target.postimage.exists and (
+        candidate.raw_sha256 != target.postimage.sha256
+        or (
+            target.postimage.size is not None
+            and candidate.raw_size != target.postimage.size
+        )
+    ):
+        raise _error(
+            ResultCode.TOOLING_PRECONDITION_FAILED,
+            f"Postimage пути {target.path!r} изменился после подготовки manifest.",
+        )
+    return candidate
+
+
+def _delivery_change(target: DeliveryTarget) -> DeliveryChange:
+    if not target.preimage.exists and target.postimage.exists:
+        change = "A"
+    elif target.preimage.exists and not target.postimage.exists:
+        change = "D"
+    elif target.preimage.exists and target.postimage.exists:
+        change = "M"
+    else:
+        raise _error(
+            ResultCode.TOOLING_DELIVERY_SCOPE_INVALID,
+            f"Target {target.path!r} не содержит изменения между preimage и postimage.",
+        )
+    return DeliveryChange(path=target.path, change=change)
+
+
+def _resolve_remote_identity(
+    git: GitClient,
+    remote_name: str,
+    expected: RepositoryIdentity,
+    *,
+    verify_push_url: bool,
+) -> RemoteIdentity:
+    fetch_url = git.remote_url(remote_name)
+    actual = repository_identity_from_remote(fetch_url)
+    if not _same_repository(actual, expected):
+        raise _error(
+            ResultCode.TOOLING_REMOTE_IDENTITY_UNVERIFIED,
+            f"Git remote {remote_name!r} не совпадает с canonical repository identity.",
+        )
+    push_url: str | None = None
+    if verify_push_url:
+        push_url = git.remote_push_url(remote_name)
+        if push_url and push_url.upper() != "DISABLED":
+            push_identity = repository_identity_from_remote(push_url)
+            if not _same_repository(push_identity, expected):
+                raise _error(
+                    ResultCode.TOOLING_REMOTE_IDENTITY_UNVERIFIED,
+                    "Git pushurl не совпадает с canonical repository identity.",
+                )
+    return RemoteIdentity(
+        name=remote_name,
+        fetch_url=fetch_url,
+        push_url=push_url,
+        repository=actual,
+    )
 
 
 def _parse_status(status_z: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
@@ -999,7 +1152,7 @@ def _validate_ref(value: str) -> None:
         )
 
 
-def _same_repository(left: Any, right: Any) -> bool:
+def _same_repository(left: RepositoryIdentity, right: RepositoryIdentity) -> bool:
     return (
         left.host.casefold() == right.host.casefold()
         and left.owner.casefold() == right.owner.casefold()

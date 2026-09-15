@@ -320,6 +320,14 @@ class GitHubProvider:
                 ResultCode.TOOLING_PROVIDER_FAILED,
                 "GitHub provider отклонил операцию; publication postcondition не доказано.",
             )
+        if getattr(result, "stdout_truncated", False) or getattr(
+            result, "stderr_truncated", False
+        ):
+            raise _error(
+                ResultCode.TOOLING_PR_PUBLICATION_UNKNOWN,
+                "GitHub provider вернул усечённый ответ; postcondition не подтверждено.",
+                state=OperationState.IN_FLIGHT,
+            )
         return result.stdout
 
     def create(self, spec: PrPublicationSpec, body_file: Path) -> int:
@@ -478,16 +486,16 @@ class PullRequestService:
             body_file = Path(temporary) / "body.md"
             body_file.write_text(context.rendered_body, encoding="utf-8", newline="\n")
             number, payload = self._find_or_create(context, provider, body_file)
-            identity = self._verify_identity(context.spec, payload)
+            identity = self._verify_identity(
+                context.spec, payload, expected_number=number
+            )
             if self._payload_body_sha(payload) != context.body_sha256:
-                provider.edit(context.spec, number, body_file)
-                payload = provider.view(context.spec, number)
-                identity = self._verify_identity(context.spec, payload)
-                if self._payload_body_sha(payload) != context.body_sha256:
-                    raise _error(
-                        ResultCode.TOOLING_PR_BODY_INVALID,
-                        "PR body read-back не совпал с exact rendered body.",
-                    )
+                payload = self._update_body_with_readback(
+                    context, provider, number, body_file
+                )
+                identity = self._verify_identity(
+                    context.spec, payload, expected_number=number
+                )
             return self._result(context, identity, number, payload)
 
     def verify(
@@ -501,7 +509,9 @@ class PullRequestService:
         context = self._validate(load_pr_spec(spec_path), repository_root)
         provider = self.provider_factory(context.repository.path, self.runner)
         payload = provider.view(context.spec, number)
-        identity = self._verify_identity(context.spec, payload)
+        identity = self._verify_identity(
+            context.spec, payload, expected_number=number
+        )
         if self._payload_body_sha(payload) != context.body_sha256:
             raise _error(
                 ResultCode.TOOLING_PR_BODY_INVALID,
@@ -517,7 +527,9 @@ class PullRequestService:
     ) -> tuple[int, dict[str, Any]]:
         if context.spec.pr_number is not None:
             payload = provider.view(context.spec, context.spec.pr_number)
-            self._verify_identity(context.spec, payload)
+            self._verify_identity(
+                context.spec, payload, expected_number=context.spec.pr_number
+            )
             return context.spec.pr_number, payload
 
         candidates = provider.list_candidates(context.spec)
@@ -574,6 +586,57 @@ class PullRequestService:
         payload = candidates[0]
         identity = self._verify_identity(context.spec, payload)
         return identity.number, payload
+
+    def _update_body_with_readback(
+        self,
+        context: _ValidatedPr,
+        provider: GitHubProvider,
+        number: int,
+        body_file: Path,
+    ) -> dict[str, Any]:
+        """Обновить body с обязательным read-back после любого неоднозначного edit."""
+
+        try:
+            provider.edit(context.spec, number, body_file)
+        except ToolingError as edit_error:
+            try:
+                payload = provider.view(context.spec, number)
+            except ToolingError as read_error:
+                if _is_unknown_provider_result(edit_error):
+                    raise _error(
+                        ResultCode.TOOLING_PR_PUBLICATION_UNKNOWN,
+                        "Результат PR edit неизвестен, а read-back недоступен; повторная mutation запрещена.",
+                        state=OperationState.IN_FLIGHT,
+                    ) from read_error
+                raise edit_error from read_error
+            self._verify_identity(
+                context.spec, payload, expected_number=number
+            )
+            if self._payload_body_sha(payload) == context.body_sha256:
+                return payload
+            if _is_unknown_provider_result(edit_error):
+                raise _error(
+                    ResultCode.TOOLING_PR_PUBLICATION_UNKNOWN,
+                    "PR edit не подтверждён read-back; повторная mutation запрещена.",
+                    state=OperationState.IN_FLIGHT,
+                ) from edit_error
+            raise
+
+        try:
+            payload = provider.view(context.spec, number)
+        except ToolingError as read_error:
+            raise _error(
+                ResultCode.TOOLING_PR_PUBLICATION_UNKNOWN,
+                "PR edit завершился, но его read-back недоступен; postcondition неизвестно.",
+                state=OperationState.IN_FLIGHT,
+            ) from read_error
+        self._verify_identity(context.spec, payload, expected_number=number)
+        if self._payload_body_sha(payload) != context.body_sha256:
+            raise _error(
+                ResultCode.TOOLING_PR_BODY_INVALID,
+                "PR body read-back не совпал с exact rendered body.",
+            )
+        return payload
 
     def _validate(
         self,
@@ -674,7 +737,10 @@ class PullRequestService:
 
     @staticmethod
     def _verify_identity(
-        spec: PrPublicationSpec, payload: dict[str, Any]
+        spec: PrPublicationSpec,
+        payload: dict[str, Any],
+        *,
+        expected_number: int | None = None,
     ) -> PullRequestIdentity:
         if bool(payload.get("isCrossRepository", False)):
             raise _error(
@@ -729,6 +795,7 @@ class PullRequestService:
             or identity.head_sha != spec.head_sha
             or identity.draft is not spec.draft
             or identity.state.casefold() != "open"
+            or (expected_number is not None and identity.number != expected_number)
         ):
             raise _error(
                 ResultCode.TOOLING_PR_IDENTITY_MISMATCH,
@@ -789,6 +856,13 @@ def _same_repository(left: Any, right: Any) -> bool:
         and left.owner.casefold() == right.owner.casefold()
         and left.repository.casefold() == right.repository.casefold()
     )
+
+
+def _is_unknown_provider_result(error: ToolingError) -> bool:
+    return error.code in {
+        ResultCode.TOOLING_PR_PUBLICATION_UNKNOWN,
+        ResultCode.TOOLING_TIMEOUT,
+    } or error.state in {OperationState.IN_FLIGHT, OperationState.UNKNOWN}
 
 
 __all__ = [

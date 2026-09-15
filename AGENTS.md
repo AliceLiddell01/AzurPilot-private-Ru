@@ -46,12 +46,14 @@
 
 - `master` — чистое fast-forward зеркало `wess09/AzurPilot:master`.
 - `personal/stable` — стабильная пользовательская версия.
-- `codex/*` — default prefix для новых тематических рабочих веток Codex;
-  explicit task contract может задать domain-prefixed capability branch.
+- `<domain>/<unique-capability-name>` — default формат новых тематических
+  capability branches, если task contract не задаёт более узкий domain prefix.
+- `codex/*` — compatibility/legacy namespace для уже опубликованных веток;
+  такую ветку можно продолжить только после проверки exact identity и head.
 - `chatgpt/*` — legacy-префикс, допустимый только для продолжения уже существующей однозначной задачи.
 - `sync/*` — временные ветки синхронизации `master` с upstream.
 
-Не добавляй персональные изменения непосредственно в `master`. Не используй `personal/stable` как черновик. Для новой работы создавай ветку из явного task contract; если он не задаёт domain prefix, используй `codex/<unique-capability-name>` от `personal/stable`. Не включай roadmap/stage номер в имя capability.
+Не добавляй персональные изменения непосредственно в `master`. Не используй `personal/stable` как черновик. Для новой обычной работы создавай от `personal/stable` ветку вида `<domain>/<unique-capability-name>` из явного task contract. `codex/*` не является default для новой работы. Не включай roadmap/stage номер в имя capability.
 
 Перед изменением зафиксируй:
 

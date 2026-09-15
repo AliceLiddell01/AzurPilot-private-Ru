@@ -119,7 +119,6 @@ class PublicationIntent(StrEnum):
 class DeliveryPhase(StrEnum):
     """Фазы публикации, сохраняемые для read-only recovery."""
 
-    INITIALIZED = "initialized"
     VALIDATED = "validated"
     STAGED = "staged"
     PRE_COMMIT_SCANNED = "pre_commit_scanned"
@@ -233,6 +232,7 @@ class GitSnapshot(ClosedModel):
     branch: str = Field(min_length=1, max_length=120)
     head_sha: str = Field(pattern=r"^[0-9a-f]{40,64}$")
     base_sha: str = Field(pattern=r"^[0-9a-f]{40,64}$")
+    base_branch: str = Field(default="personal/stable", min_length=1, max_length=256)
     remote_name: str = Field(min_length=1, max_length=80)
     remote_branch: str = Field(min_length=1, max_length=256)
     remote_sha: str | None = Field(default=None, pattern=r"^[0-9a-f]{40,64}$")
@@ -264,6 +264,13 @@ class DeliveryTarget(ClosedModel):
     path: str = Field(min_length=1, max_length=512)
     preimage: FileState
     postimage: FileState
+
+
+class DeliveryChange(ClosedModel):
+    """Безопасное обозначение изменения allowlisted target для adapters."""
+
+    path: str = Field(min_length=1, max_length=512)
+    change: Literal["A", "M", "D"]
 
 
 class DeliveryManifest(ClosedModel):
@@ -302,6 +309,7 @@ class DeliveryJournal(ClosedModel):
         default=None, pattern=r"^[0-9a-f]{40,64}$"
     )
     target_paths: tuple[str, ...] = Field(min_length=1, max_length=128)
+    changes: tuple[DeliveryChange, ...] = Field(default_factory=tuple, max_length=128)
     commit_sha: str | None = Field(default=None, pattern=r"^[0-9a-f]{40,64}$")
     updated_at: str = Field(min_length=1, max_length=40)
     last_error_code: ResultCode | None = None
@@ -313,6 +321,8 @@ class DeliveryDetails(ClosedModel):
 
     phase: DeliveryPhase
     target_paths: tuple[str, ...] = Field(max_length=128)
+    target_count: int = Field(default=0, ge=0, le=128)
+    changes: tuple[DeliveryChange, ...] = Field(default_factory=tuple, max_length=128)
     commit_sha: str | None = Field(default=None, pattern=r"^[0-9a-f]{40,64}$")
     remote_sha: str | None = Field(default=None, pattern=r"^[0-9a-f]{40,64}$")
     recovery_required: bool = False
@@ -322,6 +332,9 @@ class DeliveryEvidence(ClosedModel):
     snapshot: GitSnapshot
     commit: CommitIdentity | None = None
     scans: tuple[AnalysisScope, ...] = Field(default_factory=tuple, max_length=4)
+    publication_remote: RemoteIdentity | None = None
+    base_remote: RemoteIdentity | None = None
+    branch: BranchIdentity | None = None
 
 
 class PullRequestIdentity(ClosedModel):
@@ -678,6 +691,7 @@ __all__ = [
     "CodeRabbitFinding",
     "CodeRabbitReview",
     "CommitIdentity",
+    "DeliveryChange",
     "DeliveryDetails",
     "DeliveryEvidence",
     "DeliveryJournal",

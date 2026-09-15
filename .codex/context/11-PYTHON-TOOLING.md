@@ -645,8 +645,8 @@ pr prepare
 
 | Boundary | Обязательная проверка | Fail-closed поведение |
 | --- | --- | --- |
-| `delivery validate` | canonical root, hosted repository identity, branch/ref, exact local HEAD, exact base/remote SHA, ancestry, active operation, preimage/postimage и staged allowlist | invalid manifest, unrelated staged path, traversal, symlink или mismatch блокируют operation |
-| `delivery publish` | explicit target paths, staged postimage, scoped Gitleaks index, typed commit parent/diff, exact committed range, ordinary push и `ls-remote` SHA | scanner finding, commit mismatch, remote conflict или unknown push сохраняются в journal; blind retry запрещён |
+| `delivery validate` | canonical root, hosted repository identity publication и base remotes, branch/ref, exact local HEAD, exact base/remote SHA, ancestry, active operation, preimage/postimage и staged allowlist | invalid manifest, unrelated staged path, traversal, symlink или mismatch блокируют operation |
+| `delivery publish` | explicit target paths, manifest-bound raw/Git-clean staged postimage, scoped Gitleaks index, typed commit parent/diff, exact committed range, ordinary push и `ls-remote` SHA | scanner finding, commit mismatch, remote conflict или unknown push сохраняются в journal; blind retry запрещён |
 | `delivery status/recover` | external typed journal и read-only remote ref check | in-flight/unknown не мутируются повторным push; требуется новый immutable request после recovery |
 | `pr prepare` | exact local/remote base/head, hosted remote identity и все обязательные body sections | body/spec/provider boundary с неверным exact identity отклоняется |
 | `pr publish/verify` | explicit `gh pr` repository, draft flag, candidate ambiguity check, temporary `--body-file`, provider read-back и body digest | cross-repository, wrong SHA, non-draft, duplicate или unknown provider result блокируют публикацию |
@@ -658,6 +658,14 @@ security/secret scan, CodeRabbit disposition, rollback/migration и ограни
 Основные секции требуют маркированные факты; английский текст разрешён только
 для technical identifiers, имён инструментов/API, protocol tokens и CI contexts.
 Минимальная содержательность проверяется до записи временного `body-file`.
+
+Human `delivery validate` использует тот же typed result, что и JSON adapter, но
+рендерит его через Rich как bounded `Delivery Package`: repository, branch,
+сокращённые human SHA, base/remote ref, target count и изменения `A`/`M`/`D`.
+Он явно сообщает `Изменения не применены.`. Agent `--json` не выводит Rich/ANSI и
+сохраняет полный exact SHA, target set и typed evidence. После `pr edit` сервис
+всегда читает PR обратно; timeout/unknown без подтверждённого body остаётся
+`UNKNOWN/IN_FLIGHT` и не запускает повторную mutation.
 
 ### 6.2 Reusable primitives
 

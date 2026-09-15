@@ -12,8 +12,13 @@ import pytest
 from azurpilot.cli import build_parser, main
 from azurpilot.tooling.contracts import (
     CodeRabbitReview,
+    DeliveryChange,
+    DeliveryDetails,
+    DeliveryEvidence,
     DeliveryPhase,
+    GitSnapshot,
     OperationState,
+    PrPublicationSpec,
     PullRequestBody,
     RepositoryIdentity,
     ResultCode,
@@ -27,7 +32,12 @@ from azurpilot.tooling.git import (
     canonical_remote_identity,
     repository_identity_from_remote,
 )
-from azurpilot.tooling.pull_request import GitHubProvider, PullRequestBodyRenderer
+from azurpilot.tooling.pull_request import (
+    GitHubProvider,
+    PullRequestBodyRenderer,
+    PullRequestService,
+    _ValidatedPr,
+)
 from azurpilot.tooling.repository import ResolvedRepository
 
 
@@ -53,6 +63,7 @@ def _fixture_repository(tmp_path: Path) -> tuple[Path, Path, str, str, Repositor
     )
     (root / "uv.lock").write_text("version = 1\n", encoding="utf-8")
     (root / "README.md").write_text("base\n", encoding="utf-8")
+    (root / "deploy" / "remove-me.txt").write_text("remove\n", encoding="utf-8")
     _git(root, "init", "-b", "personal/stable")
     _git(root, "config", "user.name", "AzurPilot Test")
     _git(root, "config", "user.email", "azurpilot-test@example.invalid")
@@ -90,6 +101,41 @@ class _NoopScanner:
 
     def scan_committed_range(self, _start_sha: str, _end_sha: str) -> None:
         return None
+
+
+def _write_delivery_manifest(
+    path: Path,
+    identity: RepositoryIdentity,
+    *,
+    base_sha: str,
+    branch: str,
+    targets: list[dict[str, object]],
+    publication_intent: str = "commit_and_push",
+    base_remote_name: str = "origin",
+    remote_name: str = "origin",
+    expected_remote_sha: str | None = None,
+) -> Path:
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "repository": identity.model_dump(mode="json"),
+                "expected_branch": branch,
+                "expected_local_head": base_sha,
+                "expected_base_sha": base_sha,
+                "base_remote_name": base_remote_name,
+                "base_branch": "personal/stable",
+                "remote_name": remote_name,
+                "remote_branch": branch,
+                "expected_remote_sha": expected_remote_sha,
+                "targets": targets,
+                "commit_message": "feat(test): проверить delivery contract",
+                "publication_intent": publication_intent,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path
 
 
 def test_delivery_publishes_allowlisted_change_to_disposable_bare_remote(
@@ -162,9 +208,290 @@ def test_delivery_publishes_allowlisted_change_to_disposable_bare_remote(
     assert status.details.phase is DeliveryPhase.DELIVERED
 
 
+def test_delivery_preserves_create_modify_delete_semantics_in_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, _bare, base_sha, _remote_url, identity = _fixture_repository(tmp_path)
+    before_readme = b"base\n"
+    after_readme = b"published\n"
+    (root / "README.md").write_bytes(after_readme)
+    (root / "module" / "created.txt").write_bytes(b"created\n")
+    (root / "deploy" / "remove-me.txt").unlink()
+    manifest_path = _write_delivery_manifest(
+        tmp_path / "delivery.json",
+        identity,
+        base_sha=base_sha,
+        branch="cli/fixture-delivery",
+        targets=[
+            {
+                "path": "README.md",
+                "preimage": {
+                    "exists": True,
+                    "sha256": hashlib.sha256(before_readme).hexdigest(),
+                    "size": len(before_readme),
+                },
+                "postimage": {
+                    "exists": True,
+                    "sha256": hashlib.sha256(after_readme).hexdigest(),
+                    "size": len(after_readme),
+                },
+            },
+            {
+                "path": "module/created.txt",
+                "preimage": {"exists": False},
+                "postimage": {
+                    "exists": True,
+                    "sha256": hashlib.sha256(b"created\n").hexdigest(),
+                    "size": len(b"created\n"),
+                },
+            },
+            {
+                "path": "deploy/remove-me.txt",
+                "preimage": {
+                    "exists": True,
+                    "sha256": hashlib.sha256(b"remove\n").hexdigest(),
+                    "size": len(b"remove\n"),
+                },
+                "postimage": {"exists": False},
+            },
+        ],
+    )
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+
+    result = DeliveryService(
+        scanner_factory=_NoopScanner,
+        allow_non_hosted_remote=True,
+    ).publish(manifest_path, root)
+
+    assert result.ok
+    assert result.details is not None
+    assert result.details.target_count == 3
+    assert sorted(
+        (item.model_dump(mode="json") for item in result.details.changes),
+        key=lambda item: item["path"],
+    ) == [
+        {"path": "README.md", "change": "M"},
+        {"path": "deploy/remove-me.txt", "change": "D"},
+        {"path": "module/created.txt", "change": "A"},
+    ]
+    assert sorted(
+        _git(
+            root,
+            "diff-tree",
+            "--no-commit-id",
+            "--name-only",
+            "-r",
+            result.details.commit_sha or "",
+        ).splitlines()
+    ) == ["README.md", "deploy/remove-me.txt", "module/created.txt"]
+
+
+def test_delivery_rejects_target_toctou_before_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, _bare, base_sha, _remote_url, identity = _fixture_repository(tmp_path)
+    after = b"published\n"
+    (root / "deploy" / "remove-me.txt").write_bytes(after)
+    manifest_path = _write_delivery_manifest(
+        tmp_path / "delivery.json",
+        identity,
+        base_sha=base_sha,
+        branch="cli/fixture-delivery",
+        targets=[
+            {
+                "path": "deploy/remove-me.txt",
+                "preimage": {
+                    "exists": True,
+                    "sha256": hashlib.sha256(b"remove\n").hexdigest(),
+                },
+                "postimage": {
+                    "exists": True,
+                    "sha256": hashlib.sha256(after).hexdigest(),
+                    "size": len(after),
+                },
+            }
+        ],
+    )
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    original_stage = GitClient.stage
+
+    def mutate_before_stage(client: GitClient, paths: tuple[str, ...]) -> None:
+        (client.root / "deploy" / "remove-me.txt").write_bytes(b"tampered\n")
+        original_stage(client, paths)
+
+    monkeypatch.setattr(GitClient, "stage", mutate_before_stage)
+
+    with pytest.raises(ToolingError) as error:
+        DeliveryService(
+            scanner_factory=_NoopScanner,
+            allow_non_hosted_remote=True,
+        ).publish(manifest_path, root)
+
+    assert error.value.code is ResultCode.TOOLING_VERIFICATION_UNKNOWN
+    assert _git(root, "rev-parse", "HEAD") == base_sha
+    assert _git(root, "diff", "--cached", "--name-only") == ""
+
+
+def test_delivery_deletion_staged_absence_is_verified(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, _bare, base_sha, _remote_url, identity = _fixture_repository(tmp_path)
+    (root / "deploy" / "remove-me.txt").unlink()
+    manifest_path = _write_delivery_manifest(
+        tmp_path / "delivery.json",
+        identity,
+        base_sha=base_sha,
+        branch="cli/fixture-delivery",
+        targets=[
+            {
+                "path": "deploy/remove-me.txt",
+                "preimage": {
+                    "exists": True,
+                    "sha256": hashlib.sha256(b"remove\n").hexdigest(),
+                },
+                "postimage": {"exists": False},
+            }
+        ],
+    )
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+
+    result = DeliveryService(
+        scanner_factory=_NoopScanner,
+        allow_non_hosted_remote=True,
+    ).publish(manifest_path, root)
+
+    assert result.ok
+    assert result.details is not None
+    assert result.details.changes == (
+        DeliveryChange(path="deploy/remove-me.txt", change="D"),
+    )
+
+
+def test_delivery_deletion_rejects_path_still_present_in_index(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, _bare, base_sha, _remote_url, identity = _fixture_repository(tmp_path)
+    (root / "deploy" / "remove-me.txt").write_bytes(b"staged but not deleted\n")
+    _git(root, "add", "--", "deploy/remove-me.txt")
+    (root / "deploy" / "remove-me.txt").unlink()
+    manifest_path = _write_delivery_manifest(
+        tmp_path / "delivery.json",
+        identity,
+        base_sha=base_sha,
+        branch="cli/fixture-delivery",
+        targets=[
+            {
+                "path": "deploy/remove-me.txt",
+                "preimage": {
+                    "exists": True,
+                    "sha256": hashlib.sha256(b"remove\n").hexdigest(),
+                },
+                "postimage": {"exists": False},
+            }
+        ],
+    )
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+
+    with pytest.raises(ToolingError) as error:
+        DeliveryService(
+            scanner_factory=_NoopScanner,
+            allow_non_hosted_remote=True,
+        ).publish(manifest_path, root)
+
+    assert error.value.code is ResultCode.TOOLING_VERIFICATION_UNKNOWN
+    assert _git(root, "diff", "--cached", "--name-only") == "deploy/remove-me.txt"
+
+
+def test_delivery_deletion_fails_if_target_reappears_before_staged_verification(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, _bare, base_sha, _remote_url, identity = _fixture_repository(tmp_path)
+    (root / "deploy" / "remove-me.txt").unlink()
+    manifest_path = _write_delivery_manifest(
+        tmp_path / "delivery.json",
+        identity,
+        base_sha=base_sha,
+        branch="cli/fixture-delivery",
+        targets=[
+            {
+                "path": "deploy/remove-me.txt",
+                "preimage": {
+                    "exists": True,
+                    "sha256": hashlib.sha256(b"remove\n").hexdigest(),
+                },
+                "postimage": {"exists": False},
+            }
+        ],
+    )
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    original_stage = GitClient.stage
+
+    def recreate_before_stage(client: GitClient, paths: tuple[str, ...]) -> None:
+        (client.root / "deploy" / "remove-me.txt").write_bytes(b"recreated\n")
+        original_stage(client, paths)
+
+    monkeypatch.setattr(GitClient, "stage", recreate_before_stage)
+
+    with pytest.raises(ToolingError) as error:
+        DeliveryService(
+            scanner_factory=_NoopScanner,
+            allow_non_hosted_remote=True,
+        ).publish(manifest_path, root)
+
+    assert error.value.code is ResultCode.TOOLING_PRECONDITION_FAILED
+    assert _git(root, "rev-parse", "HEAD") == base_sha
+
+
+@pytest.mark.parametrize(
+    "failure_code",
+    (ResultCode.TOOLING_TIMEOUT, ResultCode.TOOLING_VERIFICATION_UNKNOWN),
+)
+def test_delivery_deletion_existence_error_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_code: ResultCode,
+) -> None:
+    root, _bare, base_sha, _remote_url, identity = _fixture_repository(tmp_path)
+    (root / "deploy" / "remove-me.txt").unlink()
+    manifest_path = _write_delivery_manifest(
+        tmp_path / "delivery.json",
+        identity,
+        base_sha=base_sha,
+        branch="cli/fixture-delivery",
+        targets=[
+            {
+                "path": "deploy/remove-me.txt",
+                "preimage": {
+                    "exists": True,
+                    "sha256": hashlib.sha256(b"remove\n").hexdigest(),
+                },
+                "postimage": {"exists": False},
+            }
+        ],
+    )
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    original_exists = GitClient.object_exists
+
+    def fail_existence(client: GitClient, revision_path: str) -> bool:
+        if revision_path.startswith(":"):
+            raise ToolingError(failure_code, "Наличие index object не подтверждено.")
+        return original_exists(client, revision_path)
+
+    monkeypatch.setattr(GitClient, "object_exists", fail_existence)
+
+    with pytest.raises(ToolingError) as error:
+        DeliveryService(
+            scanner_factory=_NoopScanner,
+            allow_non_hosted_remote=True,
+        ).publish(manifest_path, root)
+
+    assert error.value.code is failure_code
+    assert _git(root, "rev-parse", "HEAD") == base_sha
+
+
 def test_delivery_rejects_unrelated_staged_path_before_mutation(tmp_path: Path) -> None:
     root, _bare, base_sha, _remote_url, identity = _fixture_repository(tmp_path)
-    (root / "README.md").write_text("published\n", encoding="utf-8")
+    (root / "README.md").write_bytes(b"published\n")
     (root / "unrelated.txt").write_text("outside\n", encoding="utf-8")
     _git(root, "add", "--", "unrelated.txt")
     manifest = {
@@ -198,9 +525,112 @@ def test_remote_identity_accepts_ssh_https_equivalence_and_keeps_local_explicit(
     assert canonical_remote_identity("git@github.com:AliceLiddell01/AzurPilot-private-Ru.git") == canonical_remote_identity(
         "https://github.com/AliceLiddell01/AzurPilot-private-Ru.git"
     )
+    assert canonical_remote_identity("ssh://git@github.com/AliceLiddell01/AzurPilot-private-Ru.git") == canonical_remote_identity(
+        "https://github.com/AliceLiddell01/AzurPilot-private-Ru.git"
+    )
+    with pytest.raises(ToolingError):
+        canonical_remote_identity("https://token:secret@github.com/AliceLiddell01/AzurPilot-private-Ru.git")
     local = repository_identity_from_remote(r"C:\fixture\remote.git")
     assert local.host == "local"
     assert local.owner == "fixture"
+
+
+def test_delivery_accepts_named_base_remote_with_same_canonical_repository(
+    tmp_path: Path,
+) -> None:
+    root, bare, base_sha, _remote_url, identity = _fixture_repository(tmp_path)
+    _git(root, "remote", "add", "base", str(bare))
+    (root / "README.md").write_bytes(b"published\n")
+    manifest_path = _write_delivery_manifest(
+        tmp_path / "delivery.json",
+        identity,
+        base_sha=base_sha,
+        branch="cli/fixture-delivery",
+        base_remote_name="base",
+        publication_intent="validate_only",
+        targets=[
+            {
+                "path": "README.md",
+                "preimage": {
+                    "exists": True,
+                    "sha256": hashlib.sha256(b"base\n").hexdigest(),
+                },
+                "postimage": {
+                    "exists": True,
+                    "sha256": hashlib.sha256(b"published\n").hexdigest(),
+                },
+            }
+        ],
+    )
+
+    result = DeliveryService(allow_non_hosted_remote=True).validate(
+        manifest_path, root
+    )
+
+    assert result.ok
+    assert result.evidence is not None
+    assert result.evidence.base_remote is not None
+    assert result.evidence.base_remote.name == "base"
+    assert result.evidence.base_remote.repository == identity
+
+
+def test_delivery_rejects_base_remote_from_other_repository_even_with_same_sha(
+    tmp_path: Path,
+) -> None:
+    root, _bare, base_sha, _remote_url, identity = _fixture_repository(tmp_path)
+    _git(root, "remote", "add", "upstream", "https://github.com/wess09/AzurPilot.git")
+    manifest_path = _write_delivery_manifest(
+        tmp_path / "delivery.json",
+        identity,
+        base_sha=base_sha,
+        branch="cli/fixture-delivery",
+        base_remote_name="upstream",
+        publication_intent="validate_only",
+        targets=[
+            {
+                "path": "README.md",
+                "preimage": {
+                    "exists": True,
+                    "sha256": hashlib.sha256(b"base\n").hexdigest(),
+                },
+                "postimage": {
+                    "exists": True,
+                    "sha256": hashlib.sha256(b"base\n").hexdigest(),
+                },
+            }
+        ],
+    )
+
+    with pytest.raises(ToolingError) as error:
+        DeliveryService(allow_non_hosted_remote=True).validate(manifest_path, root)
+
+    assert error.value.code is ResultCode.TOOLING_REMOTE_IDENTITY_UNVERIFIED
+
+
+def test_delivery_rejects_unsafe_base_remote_name_before_git_lookup(
+    tmp_path: Path,
+) -> None:
+    root, _bare, base_sha, _remote_url, identity = _fixture_repository(tmp_path)
+    manifest_path = _write_delivery_manifest(
+        tmp_path / "delivery.json",
+        identity,
+        base_sha=base_sha,
+        branch="cli/fixture-delivery",
+        base_remote_name="../origin",
+        publication_intent="validate_only",
+        targets=[
+            {
+                "path": "README.md",
+                "preimage": {"exists": True, "sha256": hashlib.sha256(b"base\n").hexdigest()},
+                "postimage": {"exists": True, "sha256": hashlib.sha256(b"base\n").hexdigest()},
+            }
+        ],
+    )
+
+    with pytest.raises(ToolingError) as error:
+        DeliveryService(allow_non_hosted_remote=True).validate(manifest_path, root)
+
+    assert error.value.code is ResultCode.TOOLING_MANIFEST_INVALID
 
 
 def test_git_object_bytes_rejects_truncated_stdout(tmp_path: Path) -> None:
@@ -235,6 +665,39 @@ def test_git_object_path_rejects_option_like_value(tmp_path: Path) -> None:
         client.object_bytes("--output=/tmp/leak")
 
     assert error.value.code is ResultCode.TOOLING_INVALID_INVOCATION
+
+
+@pytest.mark.parametrize(
+    "query",
+    ("status_z", "staged_paths", "commit_paths", "remote_ref"),
+)
+def test_git_machine_queries_reject_truncated_output(
+    tmp_path: Path, query: str
+) -> None:
+    class Runner:
+        def run(self, _spec: object) -> SimpleNamespace:
+            return SimpleNamespace(
+                returncode=0,
+                timed_out=False,
+                stdout="a" * 40 + " refs/heads/main\x00",
+                stderr="",
+                stdout_truncated=True,
+                stderr_truncated=False,
+                stdout_bytes=b"partial",
+                stderr_bytes=b"",
+            )
+
+    client = GitClient(tmp_path, runner=Runner())  # type: ignore[arg-type]
+    operation = {
+        "status_z": lambda: client.status_z(),
+        "staged_paths": lambda: client.staged_paths(),
+        "commit_paths": lambda: client.commit_paths("a" * 40),
+        "remote_ref": lambda: client.remote_ref("origin", "main"),
+    }[query]
+
+    with pytest.raises(ToolingError) as error:
+        operation()
+    assert error.value.code is ResultCode.TOOLING_VERIFICATION_UNKNOWN
 
 
 def test_git_object_exists_distinguishes_missing_blob(tmp_path: Path) -> None:
@@ -298,6 +761,241 @@ def test_github_provider_classifies_unknown_json_field_as_unavailable(
 
     assert error.value.code is ResultCode.TOOLING_PROVIDER_UNAVAILABLE
     assert "2.63.0" in str(error.value)
+
+
+def test_github_provider_rejects_truncated_machine_response(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Runner:
+        def run(self, _spec: object) -> SimpleNamespace:
+            return SimpleNamespace(
+                returncode=0,
+                timed_out=False,
+                stdout='{"number":279}',
+                stderr="",
+                stdout_truncated=True,
+                stderr_truncated=False,
+            )
+
+    monkeypatch.setattr("azurpilot.tooling.pull_request.which", lambda _name: "gh")
+    provider = GitHubProvider(cwd=tmp_path, runner=Runner())  # type: ignore[arg-type]
+
+    with pytest.raises(ToolingError) as error:
+        provider._run(("pr", "view", "279", "--json", "number"))
+
+    assert error.value.code is ResultCode.TOOLING_PR_PUBLICATION_UNKNOWN
+    assert error.value.state is OperationState.IN_FLIGHT
+
+
+def _pr_test_context(tmp_path: Path) -> tuple[_ValidatedPr, Path]:
+    identity = RepositoryIdentity(
+        host="github.com",
+        owner="AliceLiddell01",
+        repository="AzurPilot-private-Ru",
+    )
+    spec = PrPublicationSpec(
+        repository=identity,
+        base_ref="personal/stable",
+        base_sha="a" * 40,
+        head_ref="cli/fixture-delivery",
+        head_sha="b" * 40,
+        remote_name="origin",
+        title="Проверка PR edit read-back",
+        draft=True,
+        pr_number=279,
+        body=PullRequestBody(
+            goal="goal",
+            scope="scope",
+            implementation="implementation",
+            checks="checks",
+            ci="ci",
+            security_secret_scan="security",
+            migration_rollback="rollback",
+            limitations="limitations",
+        ),
+    )
+    desired_body = "desired body\n"
+    body_file = tmp_path / "body.md"
+    body_file.write_text(desired_body, encoding="utf-8")
+    return (
+        _ValidatedPr(
+            spec=spec,
+            repository=_resolved(tmp_path),
+            git=GitClient(tmp_path),
+            rendered_body=desired_body,
+            body_sha256=PullRequestBodyRenderer.body_sha256(desired_body),
+        ),
+        body_file,
+    )
+
+
+def _pr_payload(
+    context: _ValidatedPr,
+    *,
+    body: str = "old body\n",
+    **updates: object,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "number": 279,
+        "state": "OPEN",
+        "isDraft": True,
+        "body": body,
+        "baseRefName": context.spec.base_ref,
+        "baseRefOid": context.spec.base_sha,
+        "headRefName": context.spec.head_ref,
+        "headRefOid": context.spec.head_sha,
+        "headRepository": {
+            "nameWithOwner": context.spec.repository.slug,
+        },
+        "isCrossRepository": False,
+    }
+    payload.update(updates)
+    return payload
+
+
+class _FakePrProvider:
+    def __init__(
+        self,
+        payloads: list[dict[str, object]],
+        *,
+        edit_error: ToolingError | None = None,
+        view_error: ToolingError | None = None,
+    ) -> None:
+        self.payloads = payloads
+        self.edit_error = edit_error
+        self.view_error = view_error
+        self.edit_calls = 0
+        self.view_calls = 0
+
+    def edit(self, _spec: PrPublicationSpec, _number: int, _body_file: Path) -> None:
+        self.edit_calls += 1
+        if self.edit_error is not None:
+            raise self.edit_error
+
+    def view(self, _spec: PrPublicationSpec, _number: int) -> dict[str, object]:
+        self.view_calls += 1
+        if self.view_error is not None:
+            raise self.view_error
+        if not self.payloads:
+            raise AssertionError("unexpected provider read-back")
+        return self.payloads.pop(0)
+
+
+def test_pr_publish_timeout_edit_accepts_applied_body_after_exact_readback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    context, _body_file = _pr_test_context(tmp_path)
+    provider = _FakePrProvider(
+        [
+            _pr_payload(context),
+            _pr_payload(context, body=context.rendered_body),
+        ],
+        edit_error=ToolingError(
+            ResultCode.TOOLING_TIMEOUT,
+            "edit timeout",
+            state=OperationState.IN_FLIGHT,
+        ),
+    )
+    service = PullRequestService(
+        provider_factory=lambda _root, _runner: provider,  # type: ignore[arg-type]
+    )
+    monkeypatch.setattr(service, "_validate", lambda _spec, _root: context)
+    monkeypatch.setattr(
+        "azurpilot.tooling.pull_request.load_pr_spec",
+        lambda _path: context.spec,
+    )
+
+    result = service.publish(tmp_path / "spec.json", tmp_path)
+
+    assert result.ok
+    assert result.details is not None
+    assert result.details.identity.number == 279
+    assert provider.edit_calls == 1
+    assert provider.view_calls == 2
+
+
+def test_pr_edit_timeout_without_applied_body_is_unknown_without_retry(
+    tmp_path: Path,
+) -> None:
+    context, body_file = _pr_test_context(tmp_path)
+    provider = _FakePrProvider(
+        [_pr_payload(context)],
+        edit_error=ToolingError(
+            ResultCode.TOOLING_TIMEOUT,
+            "edit timeout",
+            state=OperationState.IN_FLIGHT,
+        ),
+    )
+
+    with pytest.raises(ToolingError) as error:
+        PullRequestService()._update_body_with_readback(
+            context, provider, 279, body_file  # type: ignore[arg-type]
+        )
+
+    assert error.value.code is ResultCode.TOOLING_PR_PUBLICATION_UNKNOWN
+    assert error.value.state is OperationState.IN_FLIGHT
+    assert provider.edit_calls == 1
+    assert provider.view_calls == 1
+
+
+def test_pr_edit_timeout_with_unavailable_readback_is_unknown_without_retry(
+    tmp_path: Path,
+) -> None:
+    context, body_file = _pr_test_context(tmp_path)
+    provider = _FakePrProvider(
+        [],
+        edit_error=ToolingError(
+            ResultCode.TOOLING_TIMEOUT,
+            "edit timeout",
+            state=OperationState.IN_FLIGHT,
+        ),
+        view_error=ToolingError(
+            ResultCode.TOOLING_PROVIDER_FAILED,
+            "provider unavailable",
+        ),
+    )
+
+    with pytest.raises(ToolingError) as error:
+        PullRequestService()._update_body_with_readback(
+            context, provider, 279, body_file  # type: ignore[arg-type]
+        )
+
+    assert error.value.code is ResultCode.TOOLING_PR_PUBLICATION_UNKNOWN
+    assert error.value.state is OperationState.IN_FLIGHT
+    assert provider.edit_calls == 1
+    assert provider.view_calls == 1
+
+
+@pytest.mark.parametrize(
+    "updates",
+    (
+        {"number": 280},
+        {"baseRefOid": "c" * 40},
+        {"headRefOid": "c" * 40},
+        {
+            "headRepository": {
+                "nameWithOwner": "wess09/AzurPilot",
+            }
+        },
+        {"isCrossRepository": True},
+    ),
+)
+def test_pr_edit_readback_identity_mismatch_fails_closed(
+    tmp_path: Path, updates: dict[str, object]
+) -> None:
+    context, body_file = _pr_test_context(tmp_path)
+    provider = _FakePrProvider(
+        [_pr_payload(context, body=context.rendered_body, **updates)],
+    )
+
+    with pytest.raises(ToolingError) as error:
+        PullRequestService()._update_body_with_readback(
+            context, provider, 279, body_file  # type: ignore[arg-type]
+        )
+
+    assert error.value.code is ResultCode.TOOLING_PR_IDENTITY_MISMATCH
+    assert provider.edit_calls == 1
+    assert provider.view_calls == 1
 
 
 def test_structured_pr_body_contains_required_sections_and_exact_review_head() -> None:
@@ -492,3 +1190,76 @@ def test_cli_machine_mode_keeps_exactly_one_json_document_for_stubbed_delivery()
     assert json.loads(stdout.getvalue())["code"] == ResultCode.OK.value
     assert stdout.getvalue().count("\n") == 1
     assert stderr.getvalue() == ""
+
+
+def test_cli_delivery_validate_human_mode_renders_read_only_preview() -> None:
+    identity = RepositoryIdentity(
+        host="github.com",
+        owner="AliceLiddell01",
+        repository="AzurPilot-private-Ru",
+    )
+    snapshot = GitSnapshot(
+        repository=identity,
+        root_identity="a" * 16,
+        branch="cli/fixture-delivery",
+        head_sha="a" * 40,
+        base_sha="b" * 40,
+        base_branch="personal/stable",
+        remote_name="origin",
+        remote_branch="cli/fixture-delivery",
+        remote_sha="c" * 40,
+        upstream=None,
+        dirty_paths=("README.md",),
+        staged_paths=(),
+        active_operation=False,
+    )
+    result = ToolingResult(
+        ok=True,
+        code=ResultCode.OK,
+        state=OperationState.READY,
+        message="Manifest и exact repository state подтверждены.",
+        details=DeliveryDetails(
+            phase=DeliveryPhase.VALIDATED,
+            target_paths=("README.md",),
+            target_count=1,
+            changes=(DeliveryChange(path="README.md", change="M"),),
+        ),
+        evidence=DeliveryEvidence(snapshot=snapshot),
+    )
+
+    class DeliveryStub:
+        def validate(self, _manifest: str, _root: object) -> ToolingResult:
+            return result
+
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    services = SimpleNamespace(delivery=DeliveryStub())
+    assert main(
+        ["delivery", "validate", "manifest.json", "--no-color"],
+        services=services,
+        stdout=stdout,
+        stderr=stderr,
+    ) == 0
+    output = stdout.getvalue()
+    assert "Delivery Package" in output
+    assert "README.md" in output
+    assert "Изменения не применены." in output
+    assert "a" * 40 not in output
+    assert "\x1b[" not in output
+    assert stderr.getvalue() == ""
+
+    json_stdout = io.StringIO()
+    json_stderr = io.StringIO()
+    assert main(
+        ["delivery", "validate", "manifest.json", "--json"],
+        services=services,
+        stdout=json_stdout,
+        stderr=json_stderr,
+    ) == 0
+    machine = json.loads(json_stdout.getvalue())
+    assert machine["details"]["target_count"] == 1
+    assert machine["details"]["changes"] == [{"path": "README.md", "change": "M"}]
+    assert machine["evidence"]["snapshot"]["head_sha"] == "a" * 40
+    assert "Delivery Package" not in json_stdout.getvalue()
+    assert "\x1b[" not in json_stdout.getvalue()
+    assert json_stderr.getvalue() == ""

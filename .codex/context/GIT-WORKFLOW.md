@@ -67,7 +67,7 @@ Upstream: `wess09/AzurPilot`
 → безопасный preflight main checkout + base SHA
 → релевантный контекст
 → план
-→ для новой задачи: fetch origin → personal/stable → FF-only → codex/<task>
+→ для новой задачи: fetch origin → personal/stable → FF-only → <domain>/<unique-capability-name>
 → реализация логическими слоями
 → targeted checks
 → Codex adversarial self-review
@@ -254,18 +254,20 @@ origin/personal/stable
 
 ### Capability branches
 
-Новая capability использует уникальное имя без roadmap/stage номера. По
-умолчанию это `codex/<unique-capability-name>`, но если task contract явно
-задаёт domain prefix, используется ровно заданная ветка вида
-`<domain>/<unique-capability-name>`. Одна задача — одна рабочая ветка. Ошибка
-теста или fix реализации не создаёт новую ветку.
+Новая capability использует уникальное имя без roadmap/stage номера. Для новой
+обычной работы default — ветка вида `<domain>/<unique-capability-name>`, заданная
+task contract. Одна задача — одна рабочая ветка. Ошибка теста или fix
+реализации не создаёт новую ветку.
 
-`codex/*` остаётся совместимым default prefix, а explicit capability branch
-из текущего task contract имеет приоритет над default prefix.
+`codex/*` остаётся compatibility/legacy namespace для уже опубликованных
+веток. Существующую `codex/*` branch можно продолжить только после проверки
+exact repository identity, task ownership и head; новые обычные задачи этот
+namespace не используют.
 
 ### `chatgpt/*`
 
-Legacy. Существующую ветку можно закончить, если она однозначно относится к задаче; новые задачи используют `codex/*`.
+Legacy. Существующую ветку можно закончить, если она однозначно относится к задаче и exact identity подтверждена; новые задачи используют формат
+`<domain>/<unique-capability-name>`.
 
 ### `sync/*`
 
@@ -324,11 +326,11 @@ Fork-only diff должен отсутствовать. Merge/squash/rebase comm
 fetch origin
 → switch personal/stable
 → fast-forward only до origin/personal/stable
-→ создать branch из task contract (или codex/<unique-capability-name> по умолчанию)
+→ создать branch из task contract в формате <domain>/<unique-capability-name>
 → работать в C:\AzurPilot
 ```
 
-Если в checkout уже открыта однозначно относящаяся к незавершённой задаче `codex/*` branch, продолжать её после проверки exact head. После публикации feature-ветки оставлять checkout на ней, пока PR ожидает review; автоматически возвращаться на `personal/stable` не нужно.
+Если в checkout уже открыта однозначно относящаяся к незавершённой задаче `codex/*` или другая capability branch, продолжать её после проверки exact repository identity и head. После публикации feature-ветки оставлять checkout на ней, пока PR ожидает review; автоматически возвращаться на `personal/stable` не нужно.
 
 Disposable clone/worktree допустим только при реальной необходимости: параллельная разработка, опасный reproduction/experiment, несовместимое состояние зависимостей/runtime, destructive recovery testing или явный запрос пользователя. Он не является default и не должен использоваться для переноса обычного diff.
 

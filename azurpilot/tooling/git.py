@@ -72,6 +72,7 @@ class GitClient:
 
     def text(self, *args: str, timeout_seconds: float = 60.0) -> str:
         command = self.run(*args, timeout_seconds=timeout_seconds)
+        _require_complete(command, "Текстовый ответ Git")
         return command.result.stdout.strip()
 
     def head(self) -> str:
@@ -101,21 +102,26 @@ class GitClient:
     def remote_push_url(self, remote: str) -> str | None:
         """Прочитать именно политику отправки, не подменяя её адресом получения."""
 
-        try:
-            return self.text("config", "--get", f"remote.{remote}.pushurl")
-        except ToolingError as error:
-            if error.code is ResultCode.TOOLING_GIT_FAILED:
-                return None
-            raise
+        command = self.run(
+            "config",
+            "--get",
+            f"remote.{remote}.pushurl",
+            allow_nonzero=True,
+        )
+        _require_complete(command, "Git pushurl")
+        if command.result.returncode == 1:
+            return None
+        if command.result.returncode != 0:
+            raise ToolingError(
+                ResultCode.TOOLING_GIT_FAILED,
+                "Git не смог прочитать pushurl remote.",
+            )
+        return command.result.stdout.strip()
 
     def remote_exists(self, remote: str) -> bool:
-        try:
-            self.run("remote", "get-url", remote)
-        except ToolingError as error:
-            if error.code is ResultCode.TOOLING_GIT_FAILED:
-                return False
-            raise
-        return True
+        command = self.run("remote", "get-url", remote, allow_nonzero=True)
+        _require_complete(command, "Проверка Git remote")
+        return command.result.returncode == 0
 
     def remote_identity(self, remote: str) -> str:
         return canonical_remote_identity(self.remote_url(remote))
@@ -141,13 +147,15 @@ class GitClient:
     def remote_ref(self, remote: str, branch: str) -> str | None:
         """Прочитать exact remote ref без доверия к локальному tracking ref."""
 
-        output = self.text(
+        command = self.run(
             "ls-remote",
             "--refs",
             remote,
             f"refs/heads/{branch}",
             timeout_seconds=120.0,
         )
+        _require_complete(command, "Exact remote ref")
+        output = command.result.stdout.strip()
         if not output:
             return None
         rows = [line.split() for line in output.splitlines() if line.strip()]
@@ -167,9 +175,9 @@ class GitClient:
     def staged_paths(self) -> tuple[str, ...]:
         """Получить только пути index, не расширяя scope до working tree."""
 
-        output = self.run(
-            "diff", "--cached", "--name-only", "-z", "--"
-        ).result.stdout
+        command = self.run("diff", "--cached", "--name-only", "-z", "--")
+        _require_complete(command, "Список staged paths")
+        output = command.result.stdout
         return tuple(sorted(path for path in output.split("\x00") if path))
 
     def status_z(self) -> str:
@@ -177,9 +185,11 @@ class GitClient:
 
         # Нельзя использовать text(): strip() уничтожает первый пробел в
         # porcelain XY-коде и превращает unstaged ` M` в ложный staged `M`.
-        return self.run(
+        command = self.run(
             "status", "--porcelain=v1", "-z", "--untracked-files=all"
-        ).result.stdout
+        )
+        _require_complete(command, "Git status")
+        return command.result.stdout
 
     def index_blob(self, path: str) -> str:
         value = self.text("rev-parse", f":{path}")
@@ -223,10 +233,12 @@ class GitClient:
             revision_path,
             max_output_bytes=_MAX_GIT_OBJECT_BYTES,
         )
-        if command.result.stdout_truncated:
+        if getattr(command.result, "stdout_truncated", False) or getattr(
+            command.result, "stderr_truncated", False
+        ):
             raise ToolingError(
                 ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                "Git object прочитан не полностью из-за ограничения stdout.",
+                "Git object прочитан не полностью из-за ограничения вывода.",
             )
         return command.result.stdout_bytes
 
@@ -245,15 +257,21 @@ class GitClient:
             max_output_bytes=16 * 1024,
             allow_nonzero=True,
         )
+        _require_complete(command, "Проверка наличия Git object")
         if command.result.returncode == 0:
             return True
         stderr = command.result.stderr.casefold()
         if (
             command.result.returncode in {1, 128}
-            and not command.result.stderr_truncated
+            and not getattr(command.result, "stderr_truncated", False)
             and any(
                 marker in stderr
-                for marker in ("does not exist in", "path '")
+                for marker in (
+                    "does not exist",
+                    "exists on disk, but not in",
+                    "not in the index",
+                    "not a valid object name",
+                )
             )
         ):
             return False
@@ -294,7 +312,7 @@ class GitClient:
         return value
 
     def commit_paths(self, commit: str) -> tuple[str, ...]:
-        output = self.run(
+        command = self.run(
             "diff-tree",
             "--no-commit-id",
             "--name-only",
@@ -302,7 +320,9 @@ class GitClient:
             "-z",
             commit,
             "--",
-        ).result.stdout
+        )
+        _require_complete(command, "Список commit paths")
+        output = command.result.stdout
         return tuple(sorted(path for path in output.split("\x00") if path))
 
     def commits_in_range(self, start: str, end: str) -> tuple[str, ...]:
@@ -346,6 +366,13 @@ class GitClient:
         if command.timed_out:
             raise ToolingError(
                 ResultCode.TOOLING_TIMEOUT, "Проверка предка Git превысила установленный срок."
+            )
+        if getattr(command, "stdout_truncated", False) or getattr(
+            command, "stderr_truncated", False
+        ):
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Проверка предка Git вернула усечённый ответ.",
             )
         if command.returncode == 0:
             return True
@@ -429,13 +456,6 @@ def canonical_remote_identity(value: str) -> str:
             ResultCode.TOOLING_REMOTE_IDENTITY_UNVERIFIED,
             "Идентичность Git remote пуста или имеет небезопасный формат.",
         )
-    if "@" in value and "://" in value:
-        parsed = urlsplit(value)
-        if parsed.username or parsed.password:
-            raise ToolingError(
-                ResultCode.TOOLING_REMOTE_IDENTITY_UNVERIFIED,
-                "Идентичность Git remote содержит учётные данные.",
-            )
     scp_match = re.fullmatch(r"[^/@:\s]+@(?P<host>[^/:\s]+):(?P<path>.+)", value)
     if scp_match:
         host = scp_match.group("host").casefold()
@@ -448,7 +468,17 @@ def canonical_remote_identity(value: str) -> str:
         return _hosted_identity(host, path)
     parsed = urlsplit(value)
     if parsed.scheme in {"http", "https", "ssh", "git"}:
-        if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        if (
+            parsed.password
+            or parsed.query
+            or parsed.fragment
+            or (parsed.scheme != "ssh" and parsed.username)
+            or (
+                parsed.scheme == "ssh"
+                and parsed.username is not None
+                and parsed.username.casefold() != "git"
+            )
+        ):
             raise ToolingError(
                 ResultCode.TOOLING_REMOTE_IDENTITY_UNVERIFIED,
                 "Идентичность Git remote содержит учётные данные или дополнительные параметры.",
@@ -474,7 +504,13 @@ def canonical_remote_identity(value: str) -> str:
 
 
 def _hosted_identity(host: str, raw_path: str) -> str:
-    path = "/".join(part for part in raw_path.replace("\\", "/").split("/") if part)
+    parts = [part for part in raw_path.replace("\\", "/").split("/") if part]
+    if any(part in {".", ".."} or ":" in part for part in parts):
+        raise ToolingError(
+            ResultCode.TOOLING_REMOTE_IDENTITY_UNVERIFIED,
+            "Идентичность Git remote содержит небезопасный путь repository.",
+        )
+    path = "/".join(parts)
     if path.casefold().endswith(".git"):
         path = path[:-4]
     if not path:
@@ -513,6 +549,18 @@ def _is_sha(value: str) -> bool:
     return 40 <= len(value) <= 64 and all(
         character in "0123456789abcdef" for character in value.lower()
     )
+
+
+def _require_complete(command: GitCommand, description: str) -> None:
+    """Не принимать safety-critical Git evidence с усечённым выводом."""
+
+    if getattr(command.result, "stdout_truncated", False) or getattr(
+        command.result, "stderr_truncated", False
+    ):
+        raise ToolingError(
+            ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+            f"{description} усечён ограничением вывода; постусловие не подтверждено.",
+        )
 
 
 __all__ = [

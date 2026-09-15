@@ -218,11 +218,26 @@ Gitleaks по index и exact committed range, создаёт commit с declared 
 exact remote SHA. Timeout или неизвестный push переводится в journal и
 read-only `recover`; blind retry запрещён.
 
+До staging сервис сохраняет candidate raw SHA/size postimage и его Git-clean
+blob representation, а после staging повторно сравнивает обе формы с manifest и
+index. Изменение target в этом окне останавливает delivery fail-closed. Для
+delete index existence проверяется отдельным bounded запросом: только доказанное
+отсутствие считается успехом, ошибка/timeout/truncation считается неизвестным
+состоянием. Publication remote и `base_remote_name` оба проходят canonical
+repository identity check; совпавший SHA неправильного remote не принимается.
+
+Human `delivery validate` показывает bounded Rich `Delivery Package` и список
+изменений `A`/`M`/`D`, заканчивая строкой `Изменения не применены.`. Его
+`--json` counterpart остаётся одним strict envelope с полными SHA, target count,
+change information и typed evidence без ANSI или human diagnostics.
+
 Для draft PR обязательны explicit repository/base/head identity, exact local и
 remote SHA, typed structured body и публикация через временный внешний файл с
 `--body-file`. После provider call выполняется read-back PR identity и полный
-body digest. Provider mismatch, cross-repository PR, duplicate candidate или
-неподтверждённый create являются blocking failure.
+body digest. После ambiguous/timeout/unknown `edit` mutation read-back выполняется
+до любой дальнейшей классификации, а blind retry запрещён. Provider mismatch,
+cross-repository PR, duplicate candidate или неподтверждённый create являются
+blocking failure.
 Body должен быть подробным русскоязычным отчётом: цель, область и границы,
 подсистемы/файлы, фактическая реализация, локальные/live-проверки, exact-head
 CI, security/secret scan, CodeRabbit disposition, rollback/migration и

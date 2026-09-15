@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from .tooling.bootstrap import BuildService
 from .tooling.contracts import (
     CapabilityStatus,
+    DeliveryPhase,
     OperationState,
     ResultCode,
     ToolingResult,
@@ -329,6 +330,67 @@ def _render_json(result: ToolingResult[BaseModel, BaseModel], stdout: TextIO) ->
     stdout.flush()
 
 
+def _short_sha(value: str | None) -> str:
+    if not value:
+        return "не создан"
+    return value[:12] + "…"
+
+
+def _render_delivery_validation_preview(
+    console: Any, result: ToolingResult[BaseModel, BaseModel]
+) -> bool:
+    """Показать bounded read-only preview для успешного delivery validate."""
+
+    details = result.details
+    evidence = result.evidence
+    snapshot = getattr(evidence, "snapshot", None)
+    changes = tuple(getattr(details, "changes", ()))
+    if (
+        not result.ok
+        or getattr(details, "phase", None) is not DeliveryPhase.VALIDATED
+        or snapshot is None
+        or not changes
+    ):
+        return False
+
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich.text import Text
+
+    summary = Table.grid(expand=True, padding=(0, 1))
+    summary.add_column(no_wrap=True)
+    summary.add_column(overflow="fold")
+    summary.add_row(
+        Text("Репозиторий"), Text(snapshot.repository.slug)
+    )
+    summary.add_row(Text("Ветка"), Text(snapshot.branch))
+    summary.add_row(Text("Local HEAD"), Text(_short_sha(snapshot.head_sha)))
+    summary.add_row(
+        Text("Base"),
+        Text(f"{snapshot.base_branch} @ {_short_sha(snapshot.base_sha)}"),
+    )
+    remote_label = f"{snapshot.remote_name}/{snapshot.remote_branch} @ {_short_sha(snapshot.remote_sha)}"
+    summary.add_row(Text("Remote"), Text(remote_label))
+    summary.add_row(
+        Text("Файлы"),
+        Text(str(getattr(details, "target_count", len(changes)))),
+    )
+    summary.add_row(Text("SHA-256"), Text("подтверждён"))
+    summary.add_row(Text("Состояние Git"), Text("совместимо"))
+    console.print(Panel(summary, title="Delivery Package", expand=True))
+
+    console.print(Text("Изменения:"))
+    preview_limit = 20
+    for change in changes[:preview_limit]:
+        console.print(Text(f"  {change.change} {change.path}"))
+    target_count = int(getattr(details, "target_count", len(changes)))
+    hidden_count = max(0, target_count - preview_limit)
+    if hidden_count:
+        console.print(Text(f"  … ещё {hidden_count} target paths."))
+    console.print(Text("Изменения не применены."))
+    return True
+
+
 def _render_human(
     result: ToolingResult[BaseModel, BaseModel],
     stdout: TextIO,
@@ -336,6 +398,7 @@ def _render_human(
     *,
     no_color: bool,
     verbose: bool,
+    delivery_validation_preview: bool = False,
 ) -> None:
     stream = stdout if result.ok else stderr
 
@@ -417,7 +480,14 @@ def _render_human(
                 f"{'✓' if result.ok else '✗'} {result.message}"
             )
         else:
-            console.print(f"{'✓' if result.ok else '✗'} {result.message}")
+            preview_rendered = (
+                delivery_validation_preview
+                and _render_delivery_validation_preview(console, result)
+            )
+            if not preview_rendered:
+                console.print(f"{'✓' if result.ok else '✗'} {result.message}")
+            else:
+                console.print(f"✓ {result.message}")
 
         for warning in result.warnings:
             console.print(f"⚠ {warning.message}")
@@ -562,6 +632,10 @@ def main(
             stderr,
             no_color=bool(getattr(args, "no_color", False)),
             verbose=verbose,
+            delivery_validation_preview=(
+                args.command == "delivery"
+                and args.delivery_command == "validate"
+            ),
         )
     return int(exit_code_for(result.code, result.ok))
 
