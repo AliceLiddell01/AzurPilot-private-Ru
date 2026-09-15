@@ -204,7 +204,6 @@ class McpBaseCompatibility:
     base_commit: str
     changed_components: tuple[str, ...]
     affected_servers: tuple[str, ...]
-    required_bump_servers: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -632,16 +631,10 @@ def _version_bump_kind(
     current_core = (current.major, current.minor, current.patch)
     if current_core < previous_core:
         return "invalid"
-    if current.major < previous.major:
-        return "major"
     if current.major > previous.major:
         return "major"
-    if current.minor < previous.minor:
-        return "minor"
     if current.minor > previous.minor:
         return "minor"
-    if current.patch < previous.patch:
-        return "patch"
     if current.patch > previous.patch:
         return "patch"
     return "none"
@@ -1166,12 +1159,16 @@ class McpSourceReconciler:
         )
 
     def check_base_to_head(
-        self, root: Path | str, *, base_commit: str
+        self,
+        root: Path | str,
+        *,
+        base_commit: str,
+        build: _BundleBuild | None = None,
     ) -> McpBaseCompatibility:
         """Проверить policy bump и generated bundle от конкретного base SHA."""
 
         resolved = Path(root).resolve()
-        head = self.check(resolved)
+        head = build or self.check(resolved)
         baseline = self._baseline(resolved, base_commit)
         git = GitClient(resolved)
         changed_paths = git.changed_paths(base_commit, git.head())
@@ -1255,7 +1252,6 @@ class McpSourceReconciler:
             base_commit=base_commit,
             changed_components=classification.changed_components,
             affected_servers=classification.affected_servers,
-            required_bump_servers=tuple(required),
         )
 
     def reconcile(self, root: Path | str, *, requested_bump: str | None = None) -> _BundleBuild:
@@ -1360,10 +1356,10 @@ class McpService:
         try:
             git = GitClient(root)
             current_revision = git.head()
-            changed_paths = git.changed_paths(runtime_revision, current_revision)
+            runtime_changed_paths = git.changed_paths(runtime_revision, current_revision)
         except ToolingError:
             return "not_observable"
-        classification = classify_source_changes(changed_paths)
+        classification = classify_source_changes(runtime_changed_paths)
         return (
             "reload_required"
             if classification.plugin_changed or classification.skill_changed

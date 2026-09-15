@@ -46,6 +46,7 @@ def main(argv: list[str] | None = None) -> int:
         compatibility = reconciler.check_base_to_head(
             arguments.repository_root,
             base_commit=arguments.base_commit,
+            build=build,
         )
     except ToolingError as error:
         payload = {

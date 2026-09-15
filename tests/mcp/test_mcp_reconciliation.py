@@ -40,7 +40,10 @@ def test_legacy_bundle_schema_is_rejected(tmp_path: Path) -> None:
     content = (REPOSITORY_ROOT / "config" / "mcp-versions.toml").read_text(
         encoding="utf-8"
     )
-    manifest.write_text(content.replace("schema_version = 2", "schema_version = 1", 1))
+    manifest.write_text(
+        content.replace("schema_version = 2", "schema_version = 1", 1),
+        encoding="utf-8",
+    )
 
     with pytest.raises(VersioningError):
         load_mcp_bundle(tmp_path)

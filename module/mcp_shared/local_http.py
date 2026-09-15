@@ -334,14 +334,25 @@ def create_local_http_app(
             "game_mcp_api_version",
         ):
             value = identity_metadata.get(key)
-            if isinstance(value, str) or (
-                isinstance(value, int) and not isinstance(value, bool)
-            ):
-                ready_metadata[key] = value
-            elif key == "authorization_scopes" and isinstance(value, (list, tuple)):
+            if key == "authorization_scopes" and isinstance(value, (list, tuple)):
                 scopes = list(value)
                 if all(isinstance(scope, str) for scope in scopes):
                     ready_metadata[key] = scopes
+            elif key in {
+                "server_version",
+                "source_revision",
+                "source_set_digest",
+                "tool_catalog_sha256",
+                "capability_catalog_sha256",
+                "contract_revision",
+            } and isinstance(value, str):
+                ready_metadata[key] = value
+            elif key in {
+                "tool_count",
+                "dev_mcp_api_version",
+                "game_mcp_api_version",
+            } and isinstance(value, int) and not isinstance(value, bool):
+                ready_metadata[key] = value
     session_manager = StreamableHTTPSessionManager(
         app=server,
         json_response=True,

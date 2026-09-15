@@ -291,10 +291,11 @@ jobs:
 
       - name: Проверить целостность MCP bundle
         id: python_mcp_compatibility
+        if: ${{ github.event_name == 'pull_request' }}
         timeout-minutes: 5
         shell: bash
         env:
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
           git fetch --no-tags --depth=1 origin "$PR_BASE_SHA"

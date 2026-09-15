@@ -750,6 +750,7 @@ class UpdateService:
                 upstream_push_policy=push_url or "missing",
             )
             if pre_head == remote_head:
+                mcp_reconciliation = self._reconcile_mcp_after_update(root)
                 return ToolingResult[UpdateDetails, UpdateEvidence](
                     ok=True,
                     code=ResultCode.OK,
@@ -762,6 +763,10 @@ class UpdateService:
                         remote=remote,
                         dependency_changed=False,
                         fast_forwarded=False,
+                        mcp_reconciliation=mcp_reconciliation.state,
+                        mcp_restarted_servers=mcp_reconciliation.restarted_servers,
+                        mcp_session_state=mcp_reconciliation.session_state,
+                        mcp_reload_required=mcp_reconciliation.reload_required,
                     ),
                     evidence=UpdateEvidence(
                         repository=resolved.evidence,

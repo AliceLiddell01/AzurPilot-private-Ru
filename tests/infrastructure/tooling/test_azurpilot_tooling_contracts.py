@@ -1319,6 +1319,35 @@ def test_update_uses_real_git_fast_forward_and_blocks_on_backup_failure(
     assert mcp_calls == [root]
     first_head = result.evidence.post_head if result.evidence is not None else ""
 
+    noop_calls: list[tuple[Path, tuple[str, ...]]] = []
+
+    class NoopMcp:
+        def reconcile(
+            self, updated_root: Path, **kwargs: object
+        ) -> SimpleNamespace:
+            noop_calls.append((updated_root, tuple(kwargs.get("changed_paths", ()))))
+            return SimpleNamespace(
+                ok=True,
+                details=SimpleNamespace(
+                    restarted_servers=(),
+                    reload_required=False,
+                    session_state="not_observable",
+                ),
+            )
+
+    noop_result = tooling_update.UpdateService(
+        backup_service=backup,
+        mcp_service=NoopMcp(),
+    ).update(root, timeout_seconds=60)
+    assert noop_result.ok
+    assert noop_result.details is not None
+    assert noop_result.details.fast_forwarded is False
+    assert noop_result.details.mcp_reconciliation == "ready"
+    assert noop_result.details.mcp_restarted_servers == ()
+    assert noop_result.details.mcp_session_state == "not_observable"
+    assert noop_result.details.mcp_reload_required is False
+    assert noop_calls == [(root, ())]
+
     commit_remote("second\n")
 
     class FailingBackup:
