@@ -79,6 +79,14 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
 
+      - name: Подготовить Git-контекст для Doctor
+        shell: bash
+        run: |
+          set -euo pipefail
+          git update-ref refs/remotes/origin/personal/stable HEAD
+          git switch --create personal/stable
+          git branch --set-upstream-to=origin/personal/stable
+
       - name: Установить uv
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
@@ -606,6 +614,48 @@ jobs:
 
           if ($actualHeadValue -ne $expectedHead) {
               throw ('Получен неожиданный HEAD: {0}' -f $actualHeadValue)
+          }
+
+      - name: Подготовить Git-контекст для Doctor
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+
+          $gitCommand = Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1
+          $gitExecutable = $gitCommand.Path
+
+          $gitArguments = @(
+              'update-ref'
+              'refs/remotes/origin/personal/stable'
+              'HEAD'
+          )
+          & $gitExecutable @gitArguments
+          $gitExitCode = $LASTEXITCODE
+          if ($gitExitCode -ne 0) {
+              throw ('git update-ref завершился с кодом {0}.' -f $gitExitCode)
+          }
+
+          $gitArguments = @(
+              'switch'
+              '--create'
+              'personal/stable'
+          )
+          & $gitExecutable @gitArguments
+          $gitExitCode = $LASTEXITCODE
+          if ($gitExitCode -ne 0) {
+              throw ('git switch завершился с кодом {0}.' -f $gitExitCode)
+          }
+
+          $gitArguments = @(
+              'branch'
+              '--set-upstream-to=origin/personal/stable'
+          )
+          & $gitExecutable @gitArguments
+          $gitExitCode = $LASTEXITCODE
+          if ($gitExitCode -ne 0) {
+              throw ('git branch завершился с кодом {0}.' -f $gitExitCode)
           }
 
       - name: Установить uv
@@ -1150,6 +1200,14 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+
+      - name: Подготовить Git-контекст для Doctor
+        shell: bash
+        run: |
+          set -euo pipefail
+          git update-ref refs/remotes/origin/personal/stable HEAD
+          git switch --create personal/stable
+          git branch --set-upstream-to=origin/personal/stable
 
       - name: Установить uv
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
