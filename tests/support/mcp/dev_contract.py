@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+from module.dev_mcp.adapter import DEV_MCP_TOOL_NAMES
+from module.dev_mcp.server import tool_definitions
+from module.mcp_shared.catalog import (
+    capability_catalog_sha256,
+    contract_revision,
+    tool_catalog_sha256_from_tools,
+)
 from module.mcp_shared.versioning import server_version, source_revision
 
 EXPECTED_CONTRACT = {
@@ -9,6 +16,9 @@ EXPECTED_CONTRACT = {
     "server_version": server_version("azurpilot-dev"),
     "source_revision": source_revision(),
     "dev_mcp_api_version": 3,
+    "tool_count": len(DEV_MCP_TOOL_NAMES),
+    "tool_catalog_sha256": tool_catalog_sha256_from_tools(tool_definitions()),
+    "authorization_scopes": ["azurpilot:dev"],
     "smoke_spec_schema_version": 2,
     "smoke_result_schema_version": 2,
     "feature_flags": {
@@ -44,3 +54,7 @@ EXPECTED_CONTRACT = {
         "CANCELLED",
     ],
 }
+EXPECTED_CONTRACT["capability_catalog_sha256"] = capability_catalog_sha256(
+    EXPECTED_CONTRACT
+)
+EXPECTED_CONTRACT["contract_revision"] = contract_revision(EXPECTED_CONTRACT)

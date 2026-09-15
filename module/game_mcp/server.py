@@ -488,6 +488,14 @@ _CONTRACT_OUTPUT = {
             "type": "string",
             "pattern": r"^[a-f0-9]{64}$",
         },
+        "capability_catalog_sha256": {
+            "type": "string",
+            "pattern": r"^[a-f0-9]{64}$",
+        },
+        "contract_revision": {
+            "type": "string",
+            "pattern": r"^[a-f0-9]{64}$",
+        },
         "authorization_scopes": {
             "type": "array",
             "minItems": 2,
@@ -529,6 +537,8 @@ _CONTRACT_OUTPUT = {
         "game_mcp_api_version",
         "tool_count",
         "tool_catalog_sha256",
+        "capability_catalog_sha256",
+        "contract_revision",
         "authorization_scopes",
         "feature_flags",
         "capability_families",

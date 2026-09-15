@@ -1,5 +1,12 @@
 """Небольшая нейтральная инфраструктура authenticated Streamable HTTP MCP."""
 
+from module.mcp_shared.local_http import (
+    LocalBearerTokenMiddleware,
+    LocalHttpConfig,
+    LocalHttpConfigError,
+    LocalStrictHostOriginMiddleware,
+    create_local_http_app,
+)
 from module.mcp_shared.remote import (
     DEFAULT_ALLOWED_ORIGINS,
     DEFAULT_BODY_READ_TIMEOUT_SECONDS,
@@ -20,18 +27,15 @@ from module.mcp_shared.remote import (
     StrictHostOriginMiddleware,
     create_remote_app,
 )
-from module.mcp_shared.local_http import (
-    LocalBearerTokenMiddleware,
-    LocalHttpConfig,
-    LocalHttpConfigError,
-    LocalStrictHostOriginMiddleware,
-    create_local_http_app,
-)
 from module.mcp_shared.versioning import (
+    MCP_SOURCE_SET_NAMES,
     MCP_VERSION_MANIFEST,
     MCP_VERSION_MANIFEST_SCHEMA_VERSION,
     SOURCE_REVISION_ENV,
     UNKNOWN_SOURCE_REVISION,
+    McpBundle,
+    McpCompatibility,
+    McpServerVersion,
     SemVer,
     VersioningError,
     load_server_versions,
@@ -51,16 +55,20 @@ __all__ = (
     "DEFAULT_REQUEST_TIMEOUT_SECONDS",
     "DEFAULT_VERIFICATION_TIMEOUT_SECONDS",
     "MCP_PATH",
+    "MCP_SOURCE_SET_NAMES",
     "MCP_VERSION_MANIFEST",
     "MCP_VERSION_MANIFEST_SCHEMA_VERSION",
     "SOURCE_REVISION_ENV",
     "UNKNOWN_SOURCE_REVISION",
     "ConcurrencyLimitMiddleware",
+    "FailSafeMiddleware",
     "LocalBearerTokenMiddleware",
     "LocalHttpConfig",
     "LocalHttpConfigError",
     "LocalStrictHostOriginMiddleware",
-    "FailSafeMiddleware",
+    "McpBundle",
+    "McpCompatibility",
+    "McpServerVersion",
     "OAuthBearerMiddleware",
     "OIDCTokenVerifier",
     "RemoteConfig",
@@ -70,8 +78,8 @@ __all__ = (
     "SemVer",
     "StrictHostOriginMiddleware",
     "VersioningError",
-    "create_remote_app",
     "create_local_http_app",
+    "create_remote_app",
     "load_server_versions",
     "parse_version",
     "parse_version_range",

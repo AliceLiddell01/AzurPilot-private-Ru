@@ -72,6 +72,15 @@ class ResultCode(StrEnum):
     TOOLING_PR_PUBLICATION_UNKNOWN = "TOOLING_PR_PUBLICATION_UNKNOWN"
     TOOLING_PROVIDER_UNAVAILABLE = "TOOLING_PROVIDER_UNAVAILABLE"
     TOOLING_PROVIDER_FAILED = "TOOLING_PROVIDER_FAILED"
+    MCP_SOURCE_BUNDLE_INVALID = "MCP_SOURCE_BUNDLE_INVALID"
+    MCP_SOURCE_BUNDLE_DRIFT = "MCP_SOURCE_BUNDLE_DRIFT"
+    MCP_VERSION_BUMP_REQUIRED = "MCP_VERSION_BUMP_REQUIRED"
+    MCP_RUNTIME_STALE = "MCP_RUNTIME_STALE"
+    MCP_PLUGIN_RUNTIME_INCOMPATIBLE = "MCP_PLUGIN_RUNTIME_INCOMPATIBLE"
+    MCP_RELOAD_REQUIRED = "MCP_RELOAD_REQUIRED"
+    MCP_ENVIRONMENT_STALE = "MCP_ENVIRONMENT_STALE"
+    MCP_AUTH_NOT_CONFIGURED = "MCP_AUTH_NOT_CONFIGURED"
+    MCP_RUNTIME_UNAVAILABLE = "MCP_RUNTIME_UNAVAILABLE"
     TOOLING_UNEXPECTED = "TOOLING_UNEXPECTED"
 
 
@@ -162,6 +171,7 @@ class WarningCode(StrEnum):
     TOOLING_BROWSER_NOT_OPENED = "TOOLING_BROWSER_NOT_OPENED"
     TOOLING_OUTPUT_TRUNCATED = "TOOLING_OUTPUT_TRUNCATED"
     TOOLING_LEGACY_COMPATIBILITY = "TOOLING_LEGACY_COMPATIBILITY"
+    MCP_RECONCILIATION_FAILED = "MCP_RECONCILIATION_FAILED"
 
 
 class ClosedModel(BaseModel):
@@ -569,6 +579,107 @@ class UpdateDetails(ClosedModel):
     backup_validated: bool = False
     transaction_phase: str | None = Field(default=None, max_length=40)
     recovery_action: str | None = Field(default=None, max_length=120)
+    mcp_reconciliation: Literal["not_required", "ready", "restarted", "failed"] = "not_required"
+    mcp_restarted_servers: tuple[str, ...] = Field(default_factory=tuple, max_length=2)
+    mcp_session_state: Literal["not_observable", "reload_required"] = "not_observable"
+    mcp_reload_required: bool = False
+
+
+class McpFlag(ClosedModel):
+    """Одна bounded capability flag в operator evidence."""
+
+    name: str = Field(min_length=1, max_length=128)
+    value: bool
+
+
+class McpDigest(ClosedModel):
+    """Именованный SHA-256 component digest."""
+
+    name: str = Field(min_length=1, max_length=128)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class McpServerStatus(ClosedModel):
+    """Transport-neutral status одной first-party backend family."""
+
+    server_name: str = Field(pattern=r"^[a-z][a-z0-9-]{0,63}$")
+    expected_version: str = Field(min_length=5, max_length=128)
+    observed_version: str | None = Field(default=None, max_length=128)
+    source_revision: str | None = Field(
+        default=None, pattern=r"^(unknown|[0-9a-f]{7,64})$"
+    )
+    status: Literal[
+        "ready",
+        "stale",
+        "stopped",
+        "unavailable",
+        "not_configured",
+        "unknown",
+        "conflict",
+    ]
+    source_set_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    tool_catalog_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    capability_catalog_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    contract_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    routes: tuple[Literal["stdio", "loopback_http", "public_https"], ...] = Field(
+        default_factory=tuple, max_length=3
+    )
+    reason_code: str | None = Field(default=None, max_length=128)
+
+
+class McpStatusDetails(ClosedModel):
+    """Сводка source/runtime/plugin/session слоёв MCP."""
+
+    action: Literal["status", "reconcile", "start", "stop", "restart"]
+    source_state: Literal["ready", "drift", "invalid", "unknown"]
+    runtime_state: Literal["ready", "stale", "stopped", "unknown", "conflict"]
+    plugin_state: Literal["ready", "drift", "invalid", "unknown"]
+    session_state: Literal["current", "reload_required", "not_observable", "unknown"]
+    bundle_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    plugin_version: str = Field(min_length=5, max_length=128)
+    skill_bundle_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    servers: tuple[McpServerStatus, ...] = Field(min_length=1, max_length=2)
+    component_digests: tuple[McpDigest, ...] = Field(max_length=32)
+    changed_components: tuple[str, ...] = Field(default_factory=tuple, max_length=32)
+    affected_servers: tuple[str, ...] = Field(default_factory=tuple, max_length=2)
+    restarted_servers: tuple[str, ...] = Field(default_factory=tuple, max_length=2)
+    reload_required: bool = False
+
+
+class McpVersionDetails(ClosedModel):
+    """Полная bounded version/revision сводка canonical bundle."""
+
+    action: Literal["versions"] = "versions"
+    bundle_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    plugin_version: str = Field(min_length=5, max_length=128)
+    skill_bundle_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    servers: tuple[McpServerStatus, ...] = Field(min_length=1, max_length=2)
+    component_digests: tuple[McpDigest, ...] = Field(max_length=32)
+
+
+class McpLifecycleDetails(ClosedModel):
+    """Bounded evidence lifecycle-операции loopback supervisor."""
+
+    action: Literal["start", "stop", "restart"]
+    supervisor_code: str = Field(min_length=1, max_length=128)
+    services: tuple[McpServerStatus, ...] = Field(min_length=1, max_length=2)
+    ownership_confirmed: bool
+    readiness_confirmed: bool
+
+
+class McpReconcileDetails(ClosedModel):
+    """Результат source или runtime reconciliation без свободного payload."""
+
+    action: Literal["reconcile"] = "reconcile"
+    mode: Literal["source", "runtime"]
+    source_state: Literal["ready", "drift", "invalid", "unknown"]
+    runtime_state: Literal["ready", "stale", "stopped", "unknown", "conflict"]
+    mutation_performed: bool
+    changed_components: tuple[str, ...] = Field(default_factory=tuple, max_length=32)
+    affected_servers: tuple[str, ...] = Field(default_factory=tuple, max_length=2)
+    restarted_servers: tuple[str, ...] = Field(default_factory=tuple, max_length=2)
+    session_state: Literal["current", "reload_required", "not_observable", "unknown"]
+    reload_required: bool = False
 
 
 class UpdateEvidence(ClosedModel):
@@ -645,6 +756,9 @@ def exit_code_for(code: ResultCode, ok: bool = False) -> ExitCode:
         ResultCode.TOOLING_PR_IDENTITY_MISMATCH,
         ResultCode.TOOLING_TRANSACTION_RECOVERY_REQUIRED,
         ResultCode.TOOLING_CLEANUP_UNKNOWN,
+        ResultCode.MCP_RUNTIME_STALE,
+        ResultCode.MCP_PLUGIN_RUNTIME_INCOMPATIBLE,
+        ResultCode.MCP_RELOAD_REQUIRED,
     }:
         return ExitCode.OWNERSHIP_CONFLICT
     if code in {
@@ -665,14 +779,23 @@ def exit_code_for(code: ResultCode, ok: bool = False) -> ExitCode:
         ResultCode.TOOLING_INFRASTRUCTURE_FAILED,
         ResultCode.TOOLING_ADB_FAILED,
         ResultCode.TOOLING_SHORTCUT_FAILED,
+        ResultCode.MCP_AUTH_NOT_CONFIGURED,
+        ResultCode.MCP_RUNTIME_UNAVAILABLE,
     }:
         return ExitCode.DEPENDENCY_UNAVAILABLE
     if code is ResultCode.TOOLING_APPLY_FAILED_ROLLED_BACK:
         return ExitCode.ROLLED_BACK
     if code in {
+        ResultCode.MCP_SOURCE_BUNDLE_INVALID,
+        ResultCode.MCP_SOURCE_BUNDLE_DRIFT,
+        ResultCode.MCP_VERSION_BUMP_REQUIRED,
+    }:
+        return ExitCode.PRECONDITION
+    if code in {
         ResultCode.TOOLING_ROLLBACK_UNKNOWN,
         ResultCode.TOOLING_VERIFICATION_UNKNOWN,
         ResultCode.TOOLING_SECRET_SCAN_FAILED,
+        ResultCode.MCP_ENVIRONMENT_STALE,
     }:
         return ExitCode.ROLLBACK_UNKNOWN
     if code is ResultCode.TOOLING_UNEXPECTED:
@@ -710,6 +833,13 @@ __all__ = [
     "LifecycleDetails",
     "LifecycleEvidence",
     "LifecycleRecord",
+    "McpDigest",
+    "McpFlag",
+    "McpLifecycleDetails",
+    "McpReconcileDetails",
+    "McpServerStatus",
+    "McpStatusDetails",
+    "McpVersionDetails",
     "OperationState",
     "PostgreSqlBackupEvidence",
     "PrPreparationDetails",

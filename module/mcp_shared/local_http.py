@@ -1,8 +1,8 @@
 """Защищённый loopback Streamable HTTP transport для локального Codex Desktop.
 
 Локальный HTTP transport существует отдельно от public remote MCP. Он не
-использует OAuth/OIDC и не меняет canonical server identity: его единственная
-цель — обойти Windows stdio bootstrap defect, сохранив local authority.
+использует OAuth/OIDC и не меняет canonical server identity: это first-class
+authenticated loopback route с той же backend implementation и local authority.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import json
 import logging
 import os
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, Self
@@ -309,12 +309,39 @@ def create_local_http_app(
     adapter: Any,
     *,
     config: LocalHttpConfig,
+    identity_metadata: Mapping[str, object] | None = None,
 ) -> Starlette:
     """Создать stateless authenticated loopback Streamable HTTP app."""
 
     if adapter is None:
         raise ValueError("create_local_http_app требует заранее собранный adapter")
     server = server_factory(adapter, abandon_on_cancel=True)
+    ready_metadata: dict[str, object] = {
+        "server_name": config.server_name,
+        "server_version": getattr(server, "version", None),
+    }
+    if identity_metadata is not None:
+        for key in (
+            "server_version",
+            "source_revision",
+            "source_set_digest",
+            "tool_count",
+            "tool_catalog_sha256",
+            "capability_catalog_sha256",
+            "contract_revision",
+            "authorization_scopes",
+            "dev_mcp_api_version",
+            "game_mcp_api_version",
+        ):
+            value = identity_metadata.get(key)
+            if isinstance(value, str) or (
+                isinstance(value, int) and not isinstance(value, bool)
+            ):
+                ready_metadata[key] = value
+            elif key == "authorization_scopes" and isinstance(value, (list, tuple)):
+                scopes = list(value)
+                if all(isinstance(scope, str) for scope in scopes):
+                    ready_metadata[key] = scopes
     session_manager = StreamableHTTPSessionManager(
         app=server,
         json_response=True,
@@ -333,6 +360,7 @@ def create_local_http_app(
                 "code": "LOCAL_MCP_HEALTHY",
                 "server_name": config.server_name,
                 "transport": LOCAL_HTTP_TRANSPORT,
+                **ready_metadata,
             },
             headers={"cache-control": "no-store"},
         )
@@ -344,6 +372,7 @@ def create_local_http_app(
                 "code": "LOCAL_MCP_READY",
                 "server_name": config.server_name,
                 "transport": LOCAL_HTTP_TRANSPORT,
+                **ready_metadata,
             },
             headers={"cache-control": "no-store"},
         )

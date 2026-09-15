@@ -332,6 +332,25 @@ class GitClient:
         output = command.result.stdout
         return tuple(sorted(path for path in output.split("\x00") if path))
 
+    def changed_paths(self, start: str, end: str) -> tuple[str, ...]:
+        """Вернуть bounded список путей между двумя подтверждёнными revisions."""
+
+        if not _is_sha(start) or not _is_sha(end):
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Git revisions для сравнения имеют неверный формат.",
+            )
+        command = self.run(
+            "diff",
+            "--name-only",
+            "-z",
+            f"{start}..{end}",
+            "--",
+        )
+        _require_complete(command, "Список изменённых Git paths")
+        output = command.result.stdout
+        return tuple(sorted(path for path in output.split("\x00") if path))
+
     def commits_in_range(self, start: str, end: str) -> tuple[str, ...]:
         """Вернуть непустой exact range, пригодный для scoped analysis."""
 

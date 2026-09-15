@@ -31,12 +31,15 @@ from azurpilot.tooling.contracts import (
     CapabilityStatus,
     DoctorDetails,
     DoctorEvidence,
+    McpLifecycleDetails,
+    McpServerStatus,
     OperationState,
     PostgreSqlBackupEvidence,
     RepositoryRootEvidence,
     ResultCode,
     RootSource,
     ToolingResult,
+    WarningCode,
 )
 from azurpilot.tooling.coordination import PortObservation
 from azurpilot.tooling.errors import ToolingError
@@ -54,6 +57,7 @@ from azurpilot.tooling.process import (
 from azurpilot.tooling.repair import RepairService
 from azurpilot.tooling.repository import ResolvedRepository
 from deploy import uv as deploy_uv
+from module.mcp_shared.versioning import load_server_versions
 from tests.support.paths import REPOSITORY_ROOT
 
 
@@ -102,6 +106,54 @@ def test_cli_human_output_uses_russian_operator_presentation() -> None:
     assert "✓" in stdout.getvalue()
     assert "AzurPilot Doctor" in stdout.getvalue()
     assert "[OK]" not in stdout.getvalue()
+    assert stderr.getvalue() == ""
+
+
+def test_cli_human_output_renders_mcp_lifecycle_services() -> None:
+    class McpStub:
+        def start(self, _root: object) -> ToolingResult[McpLifecycleDetails, McpLifecycleDetails]:
+            server_version = load_server_versions(REPOSITORY_ROOT)["azurpilot-dev"]
+            server = McpServerStatus(
+                server_name="azurpilot-dev",
+                expected_version=server_version,
+                observed_version=server_version,
+                status="ready",
+                source_set_digest="a" * 64,
+                tool_catalog_sha256="b" * 64,
+                capability_catalog_sha256="c" * 64,
+                contract_revision="d" * 64,
+                routes=("stdio", "loopback_http"),
+            )
+            details = McpLifecycleDetails(
+                action="start",
+                supervisor_code="LOCAL_MCP_SUPERVISOR_READY",
+                services=(server,),
+                ownership_confirmed=True,
+                readiness_confirmed=True,
+            )
+            return ToolingResult[McpLifecycleDetails, McpLifecycleDetails](
+                ok=True,
+                code=ResultCode.OK,
+                state=OperationState.READY,
+                message="MCP supervisor запущен.",
+                details=details,
+            )
+
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+
+    assert (
+        main(
+            ["mcp", "start"],
+            services=SimpleNamespace(mcp=McpStub()),
+            stdout=stdout,
+            stderr=stderr,
+        )
+        == 0
+    )
+    assert "AzurPilot MCP" in stdout.getvalue()
+    assert "azurpilot-dev" in stdout.getvalue()
+    assert "✓" in stdout.getvalue()
     assert stderr.getvalue() == ""
 
 
@@ -1190,6 +1242,9 @@ def test_update_uses_real_git_fast_forward_and_blocks_on_backup_failure(
         "    UpstreamPushUrl: DISABLED\n",
         encoding="utf-8",
     )
+    (root / "config" / "mcp-versions.toml").write_text(
+        "fixture = true\n", encoding="utf-8"
+    )
     _git(root, "add", ".")
     _git(root, "-c", "user.name=AzurPilot Test", "-c", "user.email=tooling@example.invalid", "commit", "-m", "initial")
     _git(root, "remote", "add", "origin", str(origin))
@@ -1236,11 +1291,31 @@ def test_update_uses_real_git_fast_forward_and_blocks_on_backup_failure(
 
     commit_remote("first\n")
     backup = SuccessfulBackup()
-    result = tooling_update.UpdateService(backup_service=backup).update(
-        root, timeout_seconds=60
-    )
+    mcp_calls: list[Path] = []
+
+    class SuccessfulMcp:
+        def reconcile(self, updated_root: Path) -> SimpleNamespace:
+            mcp_calls.append(updated_root)
+            return SimpleNamespace(
+                ok=True,
+                details=SimpleNamespace(
+                    restarted_servers=("azurpilot-dev",),
+                    reload_required=True,
+                    session_state="reload_required",
+                ),
+            )
+
+    result = tooling_update.UpdateService(
+        backup_service=backup,
+        mcp_service=SuccessfulMcp(),
+    ).update(root, timeout_seconds=60)
     assert result.ok
     assert result.details is not None and result.details.fast_forwarded
+    assert result.details.mcp_reconciliation == "restarted"
+    assert result.details.mcp_restarted_servers == ("azurpilot-dev",)
+    assert result.details.mcp_session_state == "reload_required"
+    assert result.details.mcp_reload_required is True
+    assert mcp_calls == [root]
     first_head = result.evidence.post_head if result.evidence is not None else ""
 
     commit_remote("second\n")
@@ -1259,6 +1334,29 @@ def test_update_uses_real_git_fast_forward_and_blocks_on_backup_failure(
     assert error.value.code is ResultCode.TOOLING_BACKUP_FAILED
     assert tooling_update.GitClient(root).head() == first_head
     assert not tooling_update.GitClient(root).status_porcelain()
+
+
+def test_update_surfaces_post_update_mcp_failure_as_warning(tmp_path: Path) -> None:
+    root = tmp_path / "repository"
+    (root / "config").mkdir(parents=True)
+    (root / "config" / "mcp-versions.toml").write_text(
+        "schema_version = 2\n", encoding="utf-8"
+    )
+
+    class FailingMcp:
+        def reconcile(self, _root: Path) -> object:
+            raise ToolingError(
+                ResultCode.MCP_RUNTIME_STALE,
+                "MCP runtime не согласован.",
+            )
+
+    outcome = tooling_update.UpdateService(
+        mcp_service=FailingMcp()
+    )._reconcile_mcp_after_update(root)
+
+    assert outcome.state == "failed"
+    assert outcome.warning is not None
+    assert outcome.warning.code is WarningCode.MCP_RECONCILIATION_FAILED
 
 
 def test_build_failed_transaction_can_retry_after_confirmed_cleanup(

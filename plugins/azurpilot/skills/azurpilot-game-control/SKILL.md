@@ -15,16 +15,16 @@ redacted config, sanitized logs или screenshot, получить справк
 
 В standalone Codex CLI источник действий — project-scoped `azurpilot-game`,
 зарегистрированный в `.codex/config.toml` и запущенный через direct local stdio:
-`uv run --locked --no-sync python -m module.game_mcp`. Codex Desktop при
-Windows stdio bootstrap failure использует authenticated loopback alias
-`azurpilot_game`; protocol identity остаётся `azurpilot-game`. Проверяй фактический
+`uv run --locked --no-sync python -m module.game_mcp`. Codex Desktop также явно
+поддерживает first-class authenticated loopback route `azurpilot_game`; protocol
+identity остаётся `azurpilot-game`. Проверяй фактический
 MCP callable catalog текущей сессии. Этот skill не добавляет MCP-сервер, не
 вызывает Dev MCP через MCP и не превращается в произвольный shell/ADB или GUI
 automation слой.
 
 Подключённое приложение `AzurPilot Game` и authenticated remote transport
 относятся только к явно выбранной ChatGPT/public surface. Они не являются
-fallback для обычного Codex route. Если direct route, catalog или contract
+fallback для обычного Codex route. Если выбранный route, catalog или contract
 недоступен, остановись fail-closed и передай проблему в
 `azurpilot-troubleshooting`; не выполняй Reconnect или другой remote refresh.
 
@@ -60,8 +60,15 @@ fallback для обычного Codex route. Если direct route, catalog и�
 вызывай похожий старый tool.
 
 Если contract публикует `tool_count` или `tool_catalog_sha256`, фиксируй их как
-текущие значения ответа. Не зашивай число, hash или статический список в этот
-skill: добавление capability не должно требовать его переписывания.
+текущие значения ответа; при наличии также фиксируй
+`capability_catalog_sha256` и `contract_revision`. Не зашивай число, hash или
+статический список в этот skill: добавление capability не должно требовать его
+переписывания.
+
+Для source/runtime reconciliation используй `azur mcp status`,
+`azur mcp versions`, `azur mcp reconcile`, `azur mcp start`, `azur mcp stop` и
+`azur mcp restart`. При session/plugin mismatch зафиксируй `RELOAD_REQUIRED`;
+не называй обновление tracked bundle или owned process hot reload.
 
 ## Модель состояния
 
