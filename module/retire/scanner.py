@@ -59,8 +59,8 @@ class EmotionDigit(Digit):
         return image
 
     def after_process(self, result):
-        # 唐斯头发区域的随机 OCR 误识别
-        # DOCK_EMOTION_OCR 识别结果 "044" 修正为 "44"
+        # Случайные ошибки OCR в области волос Даунс
+        # Результат DOCK_EMOTION_OCR "044" исправляется на "44"
         if result == '044' or result == 'D44':
             result = '0'
 
@@ -96,17 +96,17 @@ class Ship:
         for key in self.__dict__:
             value = limitation.get(key)
             if self.__dict__[key] is not None and value is not None:
-                # str 和 int 要求精确匹配
+                # Для str и int требуется точное совпадение
                 if isinstance(value, (str, int)):
                     if value == 'any':
                         continue
                     if self.__dict__[key] != value:
                         return False
-                # tuple 表示范围限制
+                # tuple задаёт ограничение диапазона
                 elif isinstance(value, tuple):
                     if not (value[0] <= self.__dict__[key] <= value[1]):
                         return False
-                # list 表示枚举限制
+                # list задаёт набор допустимых значений
                 elif isinstance(value, list):
                     if self.__dict__[key] not in value:
                         return False
@@ -369,7 +369,7 @@ class RarityScanner(Scanner):
         elif color_similar(color, (247, 221, 101)):
             return 'super_rare'
         else:
-            # 彩虹稀有度颜色差异过大，无法统一识别
+            # Цвета радужной редкости слишком различаются для единого распознавания
             return 'unknown'
 
     def _scan(self, image) -> List:
@@ -546,7 +546,7 @@ class ShipScanner(Scanner):
             'status': 'any',
         }
 
-        # 每个舰船属性绑定一个独立的子扫描器
+        # Для каждого атрибута корабля используется отдельный подсканер
         self.sub_scanners: Dict[str, Scanner] = {
             'level': LevelScanner(),
             'emotion': EmotionScanner(),
@@ -665,11 +665,11 @@ class DockScanner(ShipScanner):
         self.zone_top: int = self.scan_zone[1]
         self.zone_height: int = self.scan_zone[3] - self.scan_zone[1]
         self.grids_top: int = 76
-        # 用于重新定位和滚动计算
+        # Для повторного позиционирования и расчёта прокрутки
         self.mean_color_set = deque(maxlen=2)
         self.moving_distance: int = 0
         self.bound = []
-        # 用于扫描稳定性判断
+        # Для проверки стабильности сканирования
         self._stable: bool = False
         self._no_change: int = 0
         self.last_results = []
@@ -677,7 +677,7 @@ class DockScanner(ShipScanner):
 
         self.scanner = ShipScanner(emotion=False, fleet=False, status=False)
 
-        # 以下为调试信息相关
+        # Ниже — данные для отладки
         self.save_debug_info = False
         self.debug_folder = f'./log/dock_scan_test/{test_name}_{int(time.time()*1000):x}'
         if self.save_debug_info:
@@ -737,7 +737,7 @@ class DockScanner(ShipScanner):
                 bound.append(np.mean(gap_seq[start : i + 1]).astype(int))
                 start = i + 1
         if len(bound) > 1:
-            # 最后一行不可靠，限制其与上一行的最大间距
+            # Последняя строка ненадёжна; ограничиваем её максимальное расстояние от предыдущей строки
             bound[-1] = min(bound[-2] + 225, bound[-1])
 
         return bound
@@ -793,7 +793,7 @@ class DockScanner(ShipScanner):
     def _scan(self, image) -> None:
         bound = self._find_bound(image)
         if len(bound) == 1:
-            # 没有舰船出现，页面已稳定
+            # Корабли не обнаружены, страница стабилизировалась
             self._stable = True
             return
         elif len(bound) == 2:
@@ -861,8 +861,8 @@ class DockScanner(ShipScanner):
         self.debug_info['dock_size'], _, _ = OCR_DOCK_AMOUNT.ocr(main.device.image)
 
         if DOCK_SCROLL.appear(main):
-            # 预先滚动到底部再回到顶部，可部分预加载舰船图像，
-            # 降低扫描过程中卡住的可能性
+            # Предварительно прокручиваем вниз до конца и возвращаемся наверх, чтобы частично предзагрузить изображения кораблей,
+            # снижая вероятность зависания во время сканирования
             DOCK_SCROLL.set_bottom(main)
             DOCK_SCROLL.set_top(main)
 
@@ -891,24 +891,24 @@ class DockScanner(ShipScanner):
         self.debug_info['ship_count'] = len(self._results)
 
         if self.save_debug_info:
-            # 保存哈希相似度数据
+            # Сохраняем данные о схожести хешей
             hashs = [ship.hash_ for ship in self.results]
             sims = []
             for i in range(len(hashs)):
                 for j in range(i+1, len(hashs)):
                     sims.append(DHash.distance(hashs[i],hashs[j]))
             np.save(f'{self.debug_folder}/{len(sims)}.npy', np.array(sims))
-            # 保存 OCR 识别错误的图像
+            # Сохраняем изображения с ошибками распознавания OCR
             for name, image in self.ocr_mistake_image:
                 cv2.imwrite(f'{self.debug_folder}/{name}.png', image)
-            # 保存去重异常的图像
+            # Сохраняем изображения с аномалиями дедупликации
             self.extend_log.append((0, None))
             for i in range(len(self.extend_log) - 1):
                 cnt, top, level, image = self.extend_log[i]
                 if cnt != 14 and cnt != 7 and self.extend_log[i+1][0] != 0:
                     cv2.imwrite(f'{self.debug_folder}/len={cnt}_top={top}_id={i}.png', image)
                     self.debug_info[f'len={cnt}_top={top}_id={i}'] = level
-            # 保存调试信息摘要
+            # Сохраняем сводку отладочной информации
             self.debug_info['moving_mean'] = np.mean(self.moving_distance_log)
             with open(f'{self.debug_folder}/debug_info.txt', 'w', encoding='utf-8') as f:
                 for k,v in self.debug_info.items():
