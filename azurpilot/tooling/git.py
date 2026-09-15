@@ -203,7 +203,10 @@ class GitClient:
                 ResultCode.TOOLING_INVALID_INVOCATION,
                 "Нельзя выполнить staging без явного списка путей.",
             )
-        self.run("add", "--", *paths)
+        # Некоторые исторически tracked docs/config paths одновременно
+        # покрываются `.gitignore`. `-f` допустим только вместе с уже
+        # проверенным allowlist, не расширяет scope и не означает force push.
+        self.run("add", "-f", "--", *paths)
 
     def unstage(self, paths: tuple[str, ...]) -> None:
         if paths:
