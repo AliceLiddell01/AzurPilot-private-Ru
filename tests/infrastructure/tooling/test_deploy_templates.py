@@ -13,6 +13,20 @@ ACTIVE_TEMPLATES = (
     "deploy/template",
     "deploy/Windows/template.yaml",
 )
+GIT_TEMPLATES = {
+    "config/deploy.template.yaml",
+    "config/deploy.template-AidLux.yaml",
+    "config/deploy.template-docker.yaml",
+    "config/deploy.template-linux.yaml",
+    "deploy/template",
+}
+CANONICAL_GIT = {
+    "Remote": "origin",
+    "Branch": "personal/stable",
+    "Repository": "git@github.com:AliceLiddell01/AzurPilot-private-Ru.git",
+    "UpstreamRemote": "upstream",
+    "UpstreamPushUrl": "DISABLED",
+}
 
 
 class DeployTemplateTests(unittest.TestCase):
@@ -25,18 +39,9 @@ class DeployTemplateTests(unittest.TestCase):
                 self.assertNotIn("Update", data)
                 self.assertIn("EnableReload", data["Webui"])
                 expected = {"Python", "Adb", "Ocr", "Misc", "RemoteAccess", "Webui"}
-                if relative_path == "config/deploy.template.yaml":
+                if relative_path in GIT_TEMPLATES:
                     expected.add("Git")
-                    self.assertEqual(
-                        data["Git"],
-                        {
-                            "Remote": "origin",
-                            "Branch": "personal/stable",
-                            "Repository": "git@github.com:AliceLiddell01/AzurPilot-private-Ru.git",
-                            "UpstreamRemote": "upstream",
-                            "UpstreamPushUrl": "DISABLED",
-                        },
-                    )
+                    self.assertEqual(data["Git"], CANONICAL_GIT)
                 else:
                     self.assertNotIn("Git", data)
                 self.assertEqual(set(data), expected)
@@ -56,7 +61,7 @@ class DeployTemplateTests(unittest.TestCase):
             with self.subTest(relative_path=relative_path):
                 text = (ROOT / relative_path).read_text(encoding="utf-8")
                 tokens = forbidden
-                if relative_path != "config/deploy.template.yaml":
+                if relative_path not in GIT_TEMPLATES:
                     tokens += ("Repository:", "Branch:")
                 for token in tokens:
                     self.assertNotIn(token, text)
