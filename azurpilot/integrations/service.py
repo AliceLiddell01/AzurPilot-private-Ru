@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -45,6 +46,8 @@ ADAPTER_ORDER = (
     IntegrationName.DOCKER_HUB,
 )
 
+_REASON_CODE_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,119}$")
+
 
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
@@ -81,6 +84,13 @@ def _error_record(name: IntegrationName, code: str, state: IntegrationState) -> 
             credential=CredentialRef(),
         ),
     )
+
+
+def _unexpected_reason_code(error: BaseException) -> str:
+    candidate = type(error).__name__.upper()[:120]
+    if _REASON_CODE_RE.fullmatch(candidate):
+        return candidate
+    return "INTEGRATION_UNEXPECTED_ERROR"
 
 
 class IntegrationRegistry:
@@ -125,7 +135,7 @@ class IntegrationRegistry:
                 )
             except Exception as error:  # noqa: BLE001 - bounded status boundary.
                 records.append(
-                    _error_record(adapter.name, f"{type(error).__name__.upper()[:120]}", IntegrationState.UNKNOWN)
+                    _error_record(adapter.name, _unexpected_reason_code(error), IntegrationState.UNKNOWN)
                 )
         return tuple(records)
 
@@ -153,7 +163,7 @@ class IntegrationRegistry:
                     AdapterOutcome(
                         _error_record(
                             name,
-                            f"{type(error).__name__.upper()[:120]}",
+                            _unexpected_reason_code(error),
                             IntegrationState.UNKNOWN,
                         )
                     )

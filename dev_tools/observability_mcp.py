@@ -180,7 +180,7 @@ def direct_grafana_status(repository_root: Path = REPOSITORY_ROOT) -> dict[str, 
 
     result = IntegrationService().status_one("grafana", repository_root)
     details = result.details
-    if details is None:
+    if details is None or not details.integrations:
         return {"status": "unknown", "reason_code": "GRAFANA_STATUS_NOT_OBSERVABLE"}
     record = details.integrations[0]
     return record.model_dump(mode="json")

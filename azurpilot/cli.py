@@ -542,7 +542,7 @@ def _render_human(
                 )
 
     def status_label(status: CapabilityStatus) -> str:
-            return {
+        return {
             CapabilityStatus.READY: "готово",
             CapabilityStatus.NOT_CONFIGURED: "не настроено",
             CapabilityStatus.UNAVAILABLE: "недоступно",

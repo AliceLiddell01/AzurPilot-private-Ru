@@ -200,7 +200,7 @@ def _executable(command: object) -> str | None:
     return shutil.which(command) or shutil.which(f"{command}.exe")
 
 
-def _evidence(
+def build_evidence(
     *,
     config: dict[str, object],
     credential: CredentialRef,
@@ -231,11 +231,11 @@ def _evidence(
         blocked_write_tools=tuple(sorted(blocked_tools)),
         credential=credential,
         scope=scope,
-        diagnostics=tuple(str(item)[:240] for item in diagnostics if item)[:8],
+        diagnostics=tuple(str(item)[:240] for item in diagnostics if item)[:16],
     )
 
 
-def _record(
+def build_record(
     name: IntegrationName,
     state: IntegrationState,
     reason_code: str,
@@ -249,6 +249,12 @@ def _record(
         message=message,
         evidence=evidence,
     )
+
+
+# Внутренние вызовы сохраняют короткие имена; внешние адаптеры используют
+# публичные builders без импорта деталей закрытой реализации.
+_evidence = build_evidence
+_record = build_record
 
 
 def _probe_record(
@@ -482,7 +488,7 @@ class SemgrepAdapter(IntegrationAdapter):
         try:
             payload = json.loads(result.stdout)
             findings = self._findings(root, payload)
-        except (UnicodeError, json.JSONDecodeError, ValueError) as exc:
+        except (TypeError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
             raise ToolingError(
                 ResultCode.TOOLING_VERIFICATION_UNKNOWN,
                 "Semgrep вернул некорректный JSON.",
@@ -981,6 +987,8 @@ __all__ = [
     "GRAFANA_BLOCKED_TOOLS",
     "GRAFANA_READ_ONLY_TOOLS",
     "AdapterOutcome",
+    "build_evidence",
+    "build_record",
     "Context7Adapter",
     "DockerDocsAdapter",
     "DockerHubAdapter",

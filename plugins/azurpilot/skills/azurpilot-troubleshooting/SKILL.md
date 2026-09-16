@@ -48,7 +48,7 @@ negotiated discovery/`tools/list`/read-only call: это разные доказ
 Для внешних интеграций используй закрытый `IntegrationRegistry` и
 `azur integrations status|doctor`; retired MCP intermediary не является
 fallback или source of truth. Если нужный direct server или tool не наблюдаем,
-верни fail-closed `NOT_CONFIGURED`, `UNAVAILABLE`, `UNAUTHENTICATED`,
+верни fail-closed `NOT_CONFIGURED`, `UNAVAILABLE`, `UNAUTHENTICATED`, `RATE_LIMITED`,
 `INCOMPATIBLE` или `DEGRADED` с точной причиной и не создавай retry loop. Не
 меняй user config, OAuth/grants, исходники, Grafana dashboards/alerts, runtime
 или игровое состояние в рамках этого разрешения.

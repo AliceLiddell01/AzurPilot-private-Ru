@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import secrets
 import shutil
-import subprocess
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -26,13 +24,14 @@ from azurpilot.tooling.filesystem import (
     StateLayout,
     bounded_read_text,
 )
+from azurpilot.tooling.git import GitClient
 from azurpilot.tooling.process import ProcessSpec, StructuredProcessRunner
 
 from .adapters import (
     AdapterOutcome,
     IntegrationAdapter,
-    _evidence,
-    _record,
+    build_evidence,
+    build_record,
 )
 from .config import IntegrationConfig
 from .contracts import (
@@ -226,6 +225,7 @@ def _parse_finding(raw: object) -> CodeRabbitFinding:
     impact = _bounded_string(
         payload.get("impact")
         or payload.get("message")
+        or payload.get("comment")
         or payload.get("title")
         or payload.get("description"),
         "CodeRabbit finding требует независимой проверки.",
@@ -1008,12 +1008,12 @@ class CodeRabbitAdapter(IntegrationAdapter):
         state: IntegrationState = IntegrationState.UNAVAILABLE,
         diagnostics: tuple[str, ...] = (),
     ) -> IntegrationRecord:
-        return _record(
+        return build_record(
             self.name,
             state,
             code,
             "Прямой CodeRabbit WSL runtime не подтверждён.",
-            _evidence(
+            build_evidence(
                 config=settings,
                 credential=CredentialRef(),
                 configured=state is not IntegrationState.NOT_CONFIGURED,
@@ -1159,12 +1159,12 @@ class CodeRabbitAdapter(IntegrationAdapter):
             return self._record_from_error(
                 settings, reason, state=runtime_state, diagnostics=diagnostics
             )
-        return _record(
+        return build_record(
             self.name,
             IntegrationState.READY,
             "CODERABBIT_DIRECT_ROUTE_READY",
             "CodeRabbit подтверждён через WSL2 runtime, clone, CLI и auth.",
-            _evidence(
+            build_evidence(
                 config=settings,
                 credential=CredentialRef(),
                 configured=True,
@@ -1648,12 +1648,12 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 )
             )
         return AdapterOutcome(
-            _record(
+            build_record(
                 self.name,
                 IntegrationState.READY,
                 reason,
                 "CodeRabbit CLI, review syntax и agent authentication подтверждены.",
-                _evidence(
+                build_evidence(
                     config=settings,
                     credential=CredentialRef(auth_verified=True),
                     configured=True,
@@ -1878,12 +1878,12 @@ class CodeRabbitAdapter(IntegrationAdapter):
             findings_count=len(parsed.findings),
             findings_digest=findings_digest,
         )
-        record = _record(
+        record = build_record(
             self.name,
             IntegrationState.READY,
             "CODERABBIT_REVIEW_COMPLETE",
             f"CodeRabbit review завершён; findings: {len(parsed.findings)}.",
-            _evidence(
+            build_evidence(
                 config=settings,
                 credential=CredentialRef(auth_verified=True),
                 configured=True,
@@ -1916,24 +1916,10 @@ class CodeRabbitAdapter(IntegrationAdapter):
 
 
 def _git_head(root: Path) -> str | None:
-    executable = shutil.which("git.exe") or shutil.which("git")
-    if executable is None:
-        return None
     try:
-        result = subprocess.run(
-            [executable, "-C", str(root), "rev-parse", "HEAD"],
-            check=False,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=15,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
-        )
-    except (OSError, subprocess.SubprocessError):
+        return GitClient(root).head().casefold()
+    except (OSError, ToolingError):
         return None
-    value = result.stdout.strip().casefold()
-    return value if result.returncode == 0 and _SHA_RE.fullmatch(value) else None
 
 
 __all__ = [

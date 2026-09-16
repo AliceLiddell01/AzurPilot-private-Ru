@@ -1,8 +1,12 @@
 rules:
-  - id: azurpilot-subprocess-shell-true
+  - id: azurpilot-shell-invocation
     languages:
       - python
-    message: "Не используйте shell=True в bounded direct integration subprocess."
+    message: "Не используйте shell invocation в ограниченном subprocess прямой интеграции."
     severity: WARNING
     patterns:
-      - pattern: subprocess.$FUNCTION(..., shell=True, ...)
+      - pattern-either:
+          - pattern: os.system(...)
+          - pattern: os.popen(...)
+          - pattern: subprocess.$FUNCTION(..., shell=$FLAG, ...)
+      - pattern-not: subprocess.$FUNCTION(..., shell=False, ...)

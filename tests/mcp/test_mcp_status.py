@@ -174,11 +174,13 @@ def test_json_report_and_metric_labels_are_bounded(monkeypatch):
         if sample.attributes["surface"] == "codex_source"
     ]
     assert codex_source
-    assert all(
-        sample.name == "azurpilot_mcp_surface_configured" and sample.value == 1.0
+    configured = [
+        sample
         for sample in codex_source
         if sample.name == "azurpilot_mcp_surface_configured"
-    )
+    ]
+    assert configured
+    assert all(sample.value == 1.0 for sample in configured)
     assert all(
         set(sample.attributes)
         <= {"server", "surface", "version", "protocol", "required_runtime"}

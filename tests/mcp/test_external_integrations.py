@@ -143,7 +143,7 @@ def test_agent_ndjson_parses_status_finding_and_complete():
                     "finding": {
                         "path": "azurpilot/integrations/service.py",
                         "severity": "major",
-                        "message": "Проверить границу.",
+                        "comment": "Содержательное замечание о границе.",
                         "classification": "confirmed",
                     },
                 }
@@ -156,6 +156,7 @@ def test_agent_ndjson_parses_status_finding_and_complete():
     assert len(parsed.findings) == 1
     assert parsed.findings[0].disposition is FindingDisposition.CONFIRMED
     assert parsed.findings[0].path.endswith("service.py")
+    assert "Содержательное замечание" in parsed.findings[0].impact
     assert parsed.unknown_events == ("review_context", "status")
 
 
@@ -299,7 +300,7 @@ def test_canonical_clone_discovery_ignores_unrelated_dirty_repository(
     assert clones == ("/home/reviewer/canonical",)
 
 
-def test_canonical_clone_discovery_is_order_independent_and_detects_ambiguity(
+def test_canonical_clone_discovery_is_order_independent(
     monkeypatch, tmp_path: Path
 ):
     distro = coderabbit.WslDistribution("ReviewLinux", "Running", 2)
@@ -612,7 +613,7 @@ def test_grafana_file_credential_uses_direct_container_env(
     assert "docker pass" not in " ".join(args)
     assert "GRAFANA_SERVICE_ACCOUNT_TOKEN" in args
     assert environment["GRAFANA_SERVICE_ACCOUNT_TOKEN"] == token
-    assert token not in args
+    assert token not in " ".join(args)
 
 
 def test_http_probe_uses_file_credential_value(monkeypatch, tmp_path: Path):
