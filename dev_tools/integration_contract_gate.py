@@ -91,7 +91,7 @@ def _relative(root: Path, path: Path) -> str:
 def _check_registry(errors: list[str]) -> None:
     actual = tuple(adapter.name.value for adapter in IntegrationRegistry().adapters)
     if actual != EXPECTED_FAMILIES:
-        errors.append("registry: closed family set drift")
+        errors.append("registry: нарушен закрытый набор семейств")
 
 
 def _check_codex_config(root: Path, errors: list[str]) -> None:
@@ -99,23 +99,23 @@ def _check_codex_config(root: Path, errors: list[str]) -> None:
     try:
         document = tomllib.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, tomllib.TOMLDecodeError):
-        errors.append(".codex/config.toml: cannot parse source config")
+        errors.append(".codex/config.toml: не удалось разобрать source config")
         return
     servers = document.get("mcp_servers")
     if not isinstance(servers, Mapping):
-        errors.append(".codex/config.toml: mcp_servers missing")
+        errors.append(".codex/config.toml: отсутствует mcp_servers")
         return
     if any(str(name).casefold() == "mcp_" + "docker" for name in servers):
-        errors.append(".codex/config.toml: retired toolkit registration present")
+        errors.append(".codex/config.toml: обнаружена устаревшая toolkit registration")
     if not DIRECT_CODEX_REGISTRATIONS <= set(servers):
-        errors.append(".codex/config.toml: direct registration set incomplete")
+        errors.append(".codex/config.toml: набор direct registration неполон")
     for name in DIRECT_CODEX_REGISTRATIONS:
         entry = servers.get(name)
         if not isinstance(entry, Mapping):
-            errors.append(f".codex/config.toml: {name} is not a table")
+            errors.append(f".codex/config.toml: {name} не является таблицей")
             continue
         if entry.get("enabled") is not True or entry.get("required") is not False:
-            errors.append(f".codex/config.toml: {name} must be optional and enabled")
+            errors.append(f".codex/config.toml: {name} должен быть optional и enabled")
     expected_urls = {
         "context7_direct": "https://mcp.context7.com/mcp",
         "docker_docs_direct": "https://mcp-docs.docker.com/mcp",
@@ -123,13 +123,13 @@ def _check_codex_config(root: Path, errors: list[str]) -> None:
     for name, expected_url in expected_urls.items():
         entry = servers.get(name)
         if isinstance(entry, Mapping) and entry.get("url") != expected_url:
-            errors.append(f".codex/config.toml: {name} endpoint drift")
+            errors.append(f".codex/config.toml: нарушен endpoint {name}")
     semgrep = servers.get("semgrep_local_direct")
     if isinstance(semgrep, Mapping) and (
         semgrep.get("command") != "semgrep"
         or semgrep.get("args") != ["mcp", "-t", "stdio"]
     ):
-        errors.append(".codex/config.toml: Semgrep direct route drift")
+        errors.append(".codex/config.toml: нарушен Semgrep direct route")
     for name, image_name, required_flags in (
         ("grafana_direct", "grafana", {"-transport", "stdio", "-disable-write", "-disable-proxied"}),
         ("dockerhub_direct", "dockerhub", set()),
@@ -155,7 +155,7 @@ def _check_codex_config(root: Path, errors: list[str]) -> None:
             or _IMAGE_RE.fullmatch(image) is None
             or not required_flags <= set(args or ())
         ):
-            errors.append(f".codex/config.toml: {name} must use immutable direct image")
+            errors.append(f".codex/config.toml: {name} должен использовать immutable direct image")
 
 
 def _check_active_text(root: Path, errors: list[str]) -> None:
@@ -170,19 +170,19 @@ def _check_active_text(root: Path, errors: list[str]) -> None:
             try:
                 text = path.read_text(encoding="utf-8").casefold()
             except (OSError, UnicodeError):
-                errors.append(f"{_relative(root, path)}: source cannot be read")
+                errors.append(f"{_relative(root, path)}: исходный файл не удалось прочитать")
                 continue
             for marker in _LEGACY_MARKERS:
                 if marker in text:
-                    errors.append(f"{_relative(root, path)}: retired route marker present")
+                    errors.append(f"{_relative(root, path)}: обнаружен marker устаревшего route")
             if any(pattern.search(text) for pattern in _MACHINE_PATTERNS):
-                errors.append(f"{_relative(root, path)}: machine-specific marker present")
+                errors.append(f"{_relative(root, path)}: обнаружен machine-specific marker")
 
 
 def _check_retired_paths(root: Path, errors: list[str]) -> None:
     for relative in RETIRED_PROFILE_PATHS:
         if (root / relative).exists():
-            errors.append(f"{relative.as_posix()}: retired profile must be absent")
+            errors.append(f"{relative.as_posix()}: устаревший profile должен отсутствовать")
 
 
 def _check_infrastructure(root: Path, errors: list[str]) -> None:
@@ -190,17 +190,17 @@ def _check_infrastructure(root: Path, errors: list[str]) -> None:
     try:
         document = yaml.safe_load(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, yaml.YAMLError):
-        errors.append("infrastructure/observability/compose.yaml: cannot parse")
+        errors.append("infrastructure/observability/compose.yaml: не удалось разобрать файл")
         return
     if not isinstance(document, Mapping):
-        errors.append("infrastructure/observability/compose.yaml: root is not a mapping")
+        errors.append("infrastructure/observability/compose.yaml: корень не является mapping")
         return
     services = document.get("services")
     volumes = document.get("volumes")
     if not isinstance(services, Mapping) or not REQUIRED_COMPOSE_SERVICES <= set(services):
-        errors.append("infrastructure/observability/compose.yaml: required services missing")
+        errors.append("infrastructure/observability/compose.yaml: отсутствуют required services")
     if not isinstance(volumes, Mapping) or not REQUIRED_OBSERVABILITY_VOLUMES <= set(volumes):
-        errors.append("infrastructure/observability/compose.yaml: observability volumes missing")
+        errors.append("infrastructure/observability/compose.yaml: отсутствуют observability volumes")
 
 
 def _run_check(

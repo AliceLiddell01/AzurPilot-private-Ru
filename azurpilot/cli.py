@@ -15,6 +15,7 @@ from typing import Any, TextIO
 from pydantic import BaseModel
 
 from .integrations import IntegrationService
+from .integrations.coderabbit import CodeRabbitProgress
 from .integrations.contracts import IntegrationName
 from .tooling.bootstrap import BuildService
 from .tooling.contracts import (
@@ -470,6 +471,31 @@ def _short_sha(value: str | None) -> str:
     return value[:12] + "…"
 
 
+def _coderabbit_progress_callback(stream: TextIO):
+    """Создать Rich-представление bounded heartbeat CodeRabbit."""
+
+    try:
+        from rich.console import Console
+        from rich.text import Text
+
+        console = Console(file=stream, no_color=True, force_terminal=False, highlight=False)
+    except (ImportError, OSError, RuntimeError, TypeError, ValueError):
+        console = None
+
+    def emit(event: CodeRabbitProgress) -> None:
+        line = (
+            f"CodeRabbit | {event.phase} | cycle {event.cycle_id[:16]} | "
+            f"budget {event.substantive_iterations}/3 | {event.message}"
+        )
+        if console is not None:
+            console.print(Text(line))
+        else:
+            stream.write(line + "\n")
+            stream.flush()
+
+    return emit
+
+
 def _render_delivery_validation_preview(
     console: Any, result: ToolingResult[BaseModel, BaseModel]
 ) -> bool:
@@ -595,6 +621,7 @@ def _render_human(
 
     try:
         from rich.console import Console
+        from rich.text import Text
 
         is_tty = bool(getattr(stream, "isatty", lambda: False)())
         console = Console(
@@ -620,12 +647,70 @@ def _render_human(
                 evidence = getattr(item, "evidence", None)
                 route = getattr(evidence, "route", "direct")
                 table.add_row(
-                    str(getattr(getattr(item, "name", None), "value", "unknown")),
+                    str(getattr(getattr(item, "name", None), "value", "неизвестно")),
                     f"{marker} {integration_label(value)}",
                     str(route),
                     str(getattr(item, "message", "Состояние не подтверждено.")),
                 )
             console.print(table)
+            cycle = getattr(result.details, "coderabbit_cycle", None)
+            if cycle is not None:
+                cycle_table = Table(title="CodeRabbit review cycle", expand=True)
+                cycle_table.add_column("Поле", no_wrap=True)
+                cycle_table.add_column("Значение", overflow="fold")
+                cycle_rows = (
+                    ("cycle", cycle.cycle_id),
+                    ("status", cycle.cycle_status),
+                    (
+                        "budget",
+                        f"{cycle.substantive_iterations}/{cycle.substantive_budget}",
+                    ),
+                    ("provider", cycle.provider_state),
+                    ("rate limited at", cycle.rate_limited_at or "не наблюдалось"),
+                    ("retry not before", cycle.retry_not_before or "не задано"),
+                    ("retry source", cycle.retry_source),
+                    ("last reviewed head", cycle.last_reviewed_head or "не наблюдался"),
+                    ("previous cycles", str(cycle.previous_cycles_retained)),
+                )
+                for label, value in cycle_rows:
+                    cycle_table.add_row(Text(str(label)), Text(str(value)))
+                console.print(cycle_table)
+            findings = tuple(getattr(result.details, "findings", ()))
+            if findings:
+                severity_labels = {
+                    "critical": "критический",
+                    "major": "major",
+                    "minor": "minor",
+                    "trivial": "trivial",
+                    "info": "информация",
+                }
+                disposition_labels = {
+                    "confirmed": "подтверждено",
+                    "partially confirmed": "частично подтверждено",
+                    "false positive": "ложное срабатывание",
+                    "insufficient evidence": "недостаточно данных",
+                }
+                findings_table = Table(
+                    title="Сводка замечаний CodeRabbit", expand=True
+                )
+                findings_table.add_column("№", justify="right", no_wrap=True)
+                findings_table.add_column("Уровень", no_wrap=True)
+                findings_table.add_column("Путь", overflow="fold")
+                findings_table.add_column("Воздействие", overflow="fold")
+                findings_table.add_column("Классификация", overflow="fold")
+                findings_table.add_column("Решение", overflow="fold")
+                for index, finding in enumerate(findings, start=1):
+                    severity = str(getattr(finding, "severity", "info"))
+                    disposition = str(getattr(finding, "disposition", ""))
+                    findings_table.add_row(
+                        Text(str(index)),
+                        Text(severity_labels.get(severity, severity)),
+                        Text(str(getattr(finding, "path", "не указан"))),
+                        Text(str(getattr(finding, "message", "не указано"))),
+                        Text(disposition_labels.get(disposition, disposition or "не классифицировано")),
+                        Text(str(getattr(finding, "resolution", "не указано"))),
+                    )
+                console.print(findings_table)
             console.print(f"{'✓' if result.ok else '✗'} {result.message}")
         elif checks is not None:
             from rich.table import Table
@@ -711,7 +796,10 @@ def _render_human(
 
 
 def _dispatch(
-    args: argparse.Namespace, services: ServiceContainer
+    args: argparse.Namespace,
+    services: ServiceContainer,
+    *,
+    progress_stream: TextIO | None = None,
 ) -> ToolingResult[BaseModel, BaseModel]:
     root = getattr(args, "repository_root", None)
     command = args.command
@@ -841,6 +929,11 @@ def _dispatch(
                 base_sha=args.base,
                 head_sha=head,
                 repository_root=root,
+                progress_callback=(
+                    _coderabbit_progress_callback(progress_stream or sys.stderr)
+                    if not getattr(args, "json", False)
+                    else None
+                ),
             )
         if (
             target == IntegrationName.CODERABBIT.value
@@ -904,9 +997,17 @@ def main(
             with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(
                 io.StringIO()
             ):
-                result = _dispatch(args, services or ServiceContainer.create())
+                result = _dispatch(
+                    args,
+                    services or ServiceContainer.create(),
+                    progress_stream=stderr,
+                )
         else:
-            result = _dispatch(args, services or ServiceContainer.create())
+            result = _dispatch(
+                args,
+                services or ServiceContainer.create(),
+                progress_stream=stderr,
+            )
     except CliInvocationError as error:
         result = _invocation_result(str(error))
     except ToolingError as error:

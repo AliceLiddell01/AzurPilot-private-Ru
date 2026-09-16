@@ -973,10 +973,16 @@ def _strict_failure(report: Mapping[str, object], emission: MetricEmission | Non
     source = report.get("source")
     if not isinstance(source, Mapping) or source.get("working_tree") != "clean":
         return True
-    for key in ("source_config", "plugin", "version_guard", "effective_codex_registration"):
+    for key in ("source_config", "plugin", "version_guard"):
         item = report.get(key)
         if not isinstance(item, Mapping) or item.get("status") != "ready":
             return True
+    effective = report.get("effective_codex_registration")
+    if not isinstance(effective, Mapping) or effective.get("status") not in {
+        "ready",
+        "not_observable",
+    }:
+        return True
     servers = report.get("servers")
     if not isinstance(servers, Mapping):
         return True
@@ -1066,7 +1072,7 @@ def _print_human(report: Mapping[str, object], emission: MetricEmission | None) 
             if local_status != "ready":
                 notes.append(f"{name} local/direct: {_human_status_label(local_status)} ({_human_reason(local.get('reason_code') if isinstance(local, Mapping) else None)})")
     print()
-    _print_human_table(("SERVER", "EXPECTED", "LOCAL/DIRECT", "REMOTE"), rows)
+    _print_human_table(("СЕРВЕР", "ОЖИДАЕМАЯ ВЕРСИЯ", "ЛОКАЛЬНО", "REMOTE"), rows)
     integrations = report.get("integrations")
     if isinstance(integrations, Mapping):
         print()

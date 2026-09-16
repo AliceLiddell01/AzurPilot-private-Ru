@@ -228,8 +228,19 @@ def test_missing_yaml_dependency_is_reported_without_name_error(monkeypatch, tmp
     }
 
 
-def test_strict_requires_observable_codex_session(monkeypatch):
+def test_strict_allows_codex_session_to_remain_not_observable(monkeypatch):
     report = _ready_report(monkeypatch)
+    assert not status._strict_failure(
+        report,
+        status.MetricEmission(
+            emitted=True, reason_code="MCP_METRICS_EXPORTED", sample_count=1
+        ),
+    )
+
+
+def test_strict_rejects_invalid_codex_session_state(monkeypatch):
+    report = _ready_report(monkeypatch)
+    report["effective_codex_registration"]["status"] = "failed"
     assert status._strict_failure(
         report,
         status.MetricEmission(

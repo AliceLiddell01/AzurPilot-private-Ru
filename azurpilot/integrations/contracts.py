@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import Field
 
@@ -104,6 +105,24 @@ class IntegrationFinding(ClosedModel):
     resolution: str | None = Field(default=None, max_length=400)
 
 
+class CodeRabbitCycleSummary(ClosedModel):
+    """Безопасная сводка текущего CodeRabbit review cycle."""
+
+    cycle_id: str = Field(pattern=r"^(?:coderabbit-cycle|legacy-coderabbit)-[0-9a-f]{16,64}$|^not-started$")
+    cycle_status: str = Field(min_length=1, max_length=80)
+    substantive_iterations: int = Field(ge=0, le=3)
+    substantive_budget: int = Field(default=3, ge=3, le=3)
+    provider_state: str = Field(min_length=1, max_length=80)
+    rate_limited_at: str | None = Field(default=None, max_length=80)
+    retry_not_before: str | None = Field(default=None, max_length=80)
+    retry_source: Literal["provider", "estimated", "unknown"] = "unknown"
+    last_reviewed_head: str | None = Field(default=None, pattern=r"^[0-9a-f]{40,64}$")
+    previous_cycles_retained: int = Field(ge=0, le=8)
+    findings_count: int = Field(ge=0, le=128)
+    terminal: bool
+    active: bool
+
+
 class IntegrationDetails(ClosedModel):
     """Операционный payload CLI."""
 
@@ -112,6 +131,7 @@ class IntegrationDetails(ClosedModel):
     target: IntegrationName | None = None
     scope: AnalysisScope | None = None
     findings: tuple[IntegrationFinding, ...] = Field(default_factory=tuple, max_length=128)
+    coderabbit_cycle: CodeRabbitCycleSummary | None = None
 
 
 class IntegrationEvidenceBundle(ClosedModel):
@@ -123,6 +143,7 @@ class IntegrationEvidenceBundle(ClosedModel):
 
 
 __all__ = [
+    "CodeRabbitCycleSummary",
     "CredentialRef",
     "CredentialSource",
     "IntegrationDetails",

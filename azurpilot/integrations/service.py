@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import re
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -26,9 +26,10 @@ from .adapters import (
     IntegrationAdapter,
     SemgrepAdapter,
 )
-from .coderabbit import CodeRabbitAdapter
+from .coderabbit import CodeRabbitAdapter, CodeRabbitProgress
 from .config import IntegrationConfig, load_integration_config
 from .contracts import (
+    CodeRabbitCycleSummary,
     IntegrationDetails,
     IntegrationEvidenceBundle,
     IntegrationFinding,
@@ -231,6 +232,7 @@ class IntegrationService:
         target: IntegrationName | None = None,
         scope: AnalysisScope | None = None,
         findings: tuple[IntegrationFinding, ...] = (),
+        coderabbit_cycle: CodeRabbitCycleSummary | None = None,
     ) -> ToolingResult[IntegrationDetails, IntegrationEvidenceBundle]:
         aggregate = self._state(records)
         return ToolingResult[IntegrationDetails, IntegrationEvidenceBundle](
@@ -246,6 +248,7 @@ class IntegrationService:
                 target=target,
                 scope=scope,
                 findings=findings,
+                coderabbit_cycle=coderabbit_cycle,
             ),
             evidence=IntegrationEvidenceBundle(generated_at=_now()),
         )
@@ -272,10 +275,18 @@ class IntegrationService:
         except Exception as error:  # noqa: BLE001 - bounded status boundary.
             record = _error_record(
                 target,
-                f"{type(error).__name__.upper()[:120]}",
+                _unexpected_reason_code(error),
                 IntegrationState.UNKNOWN,
             )
-        return self._result("status", (record,), target=target)
+        cycle_summary = None
+        if isinstance(adapter, CodeRabbitAdapter):
+            try:
+                cycle_summary = adapter.cycle_summary(root)
+            except ToolingError:
+                cycle_summary = None
+        return self._result(
+            "status", (record,), target=target, coderabbit_cycle=cycle_summary
+        )
 
     async def doctor_async(
         self, repository_root: str | Path | None = None
@@ -340,18 +351,32 @@ class IntegrationService:
         base_sha: str,
         head_sha: str,
         repository_root: str | Path | None = None,
+        progress_callback: Callable[[CodeRabbitProgress], None] | None = None,
     ) -> ToolingResult[IntegrationDetails, IntegrationEvidenceBundle]:
         root = self.resolve_root(repository_root)
         config = load_integration_config(root)
         adapter = self.registry.adapter(IntegrationName.CODERABBIT)
         if not isinstance(adapter, CodeRabbitAdapter):
             raise ToolingError(ResultCode.TOOLING_PRECONDITION_FAILED, "CodeRabbit adapter имеет неверный тип.")
-        outcome = adapter.review(root, config, base_sha=base_sha, head_sha=head_sha)
+        outcome = adapter.review(
+            root,
+            config,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            progress_callback=progress_callback,
+        )
+        cycle_summary = outcome.coderabbit_cycle
+        if cycle_summary is None:
+            try:
+                cycle_summary = adapter.cycle_summary(root)
+            except ToolingError:
+                cycle_summary = None
         return self._result(
             "review",
             (outcome.record,),
             target=IntegrationName.CODERABBIT,
             findings=outcome.findings,
+            coderabbit_cycle=cycle_summary,
         )
 
     def start_coderabbit_cycle(
@@ -376,6 +401,7 @@ class IntegrationService:
             (outcome.record,),
             target=IntegrationName.CODERABBIT,
             findings=outcome.findings,
+            coderabbit_cycle=outcome.coderabbit_cycle,
         )
 
 

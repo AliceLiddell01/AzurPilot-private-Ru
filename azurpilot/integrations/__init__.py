@@ -1,6 +1,7 @@
 """Прямые адаптеры внешних инструментов AzurPilot."""
 
 from .contracts import (
+    CodeRabbitCycleSummary,
     CredentialRef,
     CredentialSource,
     IntegrationDetails,
@@ -13,6 +14,7 @@ from .contracts import (
 from .service import IntegrationRegistry, IntegrationService
 
 __all__ = [
+    "CodeRabbitCycleSummary",
     "CredentialRef",
     "CredentialSource",
     "IntegrationDetails",

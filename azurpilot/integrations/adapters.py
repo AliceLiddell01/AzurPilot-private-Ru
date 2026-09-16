@@ -25,6 +25,7 @@ from azurpilot.tooling.process import (
 
 from .config import IntegrationConfig
 from .contracts import (
+    CodeRabbitCycleSummary,
     CredentialRef,
     CredentialSource,
     IntegrationEvidence,
@@ -153,6 +154,7 @@ DOCKER_HUB_BLOCKED_TOOLS = frozenset(
 class AdapterOutcome:
     record: IntegrationRecord
     findings: tuple[IntegrationFinding, ...] = ()
+    coderabbit_cycle: CodeRabbitCycleSummary | None = None
 
 
 class IntegrationAdapter:
@@ -1038,12 +1040,12 @@ __all__ = [
     "GRAFANA_READ_ONLY_TOOLS",
     "GRAFANA_TEMPO_READ_ONLY_TOOLS",
     "AdapterOutcome",
-    "build_evidence",
-    "build_record",
     "Context7Adapter",
     "DockerDocsAdapter",
     "DockerHubAdapter",
     "GrafanaAdapter",
     "IntegrationAdapter",
     "SemgrepAdapter",
+    "build_evidence",
+    "build_record",
 ]

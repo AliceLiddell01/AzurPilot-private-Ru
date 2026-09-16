@@ -3,13 +3,15 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import time
+from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
 
-from azurpilot.cli import CliInvocationError, build_parser
+from azurpilot.cli import CliInvocationError, _render_human, build_parser
 from azurpilot.integrations import IntegrationRegistry, coderabbit
 from azurpilot.integrations.adapters import (
     DOCKER_HUB_BLOCKED_TOOLS,
@@ -27,8 +29,14 @@ from azurpilot.integrations.adapters import (
 )
 from azurpilot.integrations.config import IntegrationConfig, load_integration_config
 from azurpilot.integrations.contracts import (
+    CodeRabbitCycleSummary,
     CredentialSource,
+    IntegrationDetails,
+    IntegrationEvidence,
+    IntegrationEvidenceBundle,
+    IntegrationFinding,
     IntegrationName,
+    IntegrationRecord,
     IntegrationState,
 )
 from azurpilot.integrations.mcp_client import (
@@ -36,7 +44,14 @@ from azurpilot.integrations.mcp_client import (
     McpProbeResult,
     validate_tool_catalog,
 )
-from azurpilot.tooling.contracts import AnalysisScope, FindingDisposition, GitRange
+from azurpilot.tooling.contracts import (
+    AnalysisScope,
+    FindingDisposition,
+    GitRange,
+    OperationState,
+    ResultCode,
+    ToolingResult,
+)
 from azurpilot.tooling.errors import ToolingError
 from azurpilot.tooling.filesystem import StateLayout
 
@@ -207,6 +222,30 @@ def test_agent_ndjson_preserves_top_level_finding_comment():
     )
 
     assert "уровне события" in parsed.findings[0].impact
+
+
+def test_agent_ndjson_preserves_coderabbit_issue_and_suggested_fix_text():
+    parsed = coderabbit.parse_agent_ndjson(
+        [
+            json.dumps(
+                {
+                    "type": "finding",
+                    "finding": {
+                        "fileName": "azurpilot/integrations/coderabbit.py",
+                        "severity": "major",
+                        "issue": "Провайдерский issue должен быть виден оператору.",
+                        "suggested_fix": "Покажите bounded summary после complete.",
+                    },
+                }
+            ),
+            json.dumps({"type": "complete", "findings": 1}),
+        ]
+    )
+
+    finding = parsed.findings[0]
+    assert "виден оператору" in finding.impact
+    assert "bounded summary" in finding.resolution
+    assert "требует независимой проверки" not in finding.impact
 
 
 def test_agent_ndjson_unknown_event_is_diagnostic_not_finding():
@@ -1165,6 +1204,36 @@ def test_coderabbit_cycles_reset_only_explicitly_and_keep_bounded_history(
     assert state["previous_cycles"][0]["substantive_iterations"] == 3
 
 
+def test_coderabbit_review_emits_bounded_heartbeat_without_retrying_provider(
+    monkeypatch, tmp_path: Path
+):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    monkeypatch.setattr(coderabbit, "_HEARTBEAT_INTERVAL_SECONDS", 0.01)
+    runtime = _install_fake_coderabbit_runtime(monkeypatch, [_complete_result(finding=False)])
+    original_command = runtime.command
+
+    def slow_command(*args, **kwargs):
+        time.sleep(0.04)
+        return original_command(*args, **kwargs)
+
+    runtime.command = slow_command
+    events: list[coderabbit.CodeRabbitProgress] = []
+    result = coderabbit.CodeRabbitAdapter().review(
+        tmp_path / "checkout",
+        IntegrationConfig(),
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        progress_callback=events.append,
+    )
+
+    assert result.record.reason_code == "CODERABBIT_REVIEW_COMPLETE"
+    assert any(event.phase == "provider_running" for event in events)
+    assert events[0].phase == "preflight"
+    assert any(event.phase == "provider_started" for event in events)
+    assert events[-1].phase == "complete"
+    assert runtime.calls == 1
+
+
 def test_coderabbit_rate_limit_is_temporary_and_does_not_consume_cycle_budget(
     monkeypatch, tmp_path: Path
 ):
@@ -1268,6 +1337,64 @@ def test_coderabbit_fresh_state_has_zero_of_three_and_typed_diagnostics(
     diagnostics = adapter._review_state_diagnostics(state)
     assert "substantive_iterations=0/3" in diagnostics
     assert any(item.startswith("provider_state=") for item in diagnostics)
+
+
+def test_cli_renders_coderabbit_cycle_and_all_findings_in_rich_and_json():
+    pytest.importorskip("rich")
+    record = IntegrationRecord(
+        name=IntegrationName.CODERABBIT,
+        state=IntegrationState.READY,
+        reason_code="CODERABBIT_REVIEW_COMPLETE",
+        message="CodeRabbit review завершён; findings: 1.",
+        evidence=IntegrationEvidence(route="direct"),
+    )
+    details = IntegrationDetails(
+        action="review",
+        integrations=(record,),
+        target=IntegrationName.CODERABBIT,
+        findings=(
+            IntegrationFinding(
+                kind="coderabbit",
+                identifier="azurpilot/integrations/coderabbit.py",
+                path="azurpilot/integrations/coderabbit.py",
+                severity="major",
+                message="Покажите оператору полный bounded finding.",
+                disposition="confirmed",
+                resolution="Добавить Rich и JSON summary.",
+            ),
+        ),
+        coderabbit_cycle=CodeRabbitCycleSummary(
+            cycle_id="coderabbit-cycle-0123456789abcdef",
+            cycle_status="complete",
+            substantive_iterations=1,
+            provider_state="complete",
+            last_reviewed_head="b" * 40,
+            previous_cycles_retained=1,
+            findings_count=1,
+            terminal=False,
+            active=False,
+        ),
+    )
+    result = ToolingResult(
+        ok=True,
+        code=ResultCode.OK,
+        state=OperationState.READY,
+        message="Проверка прямых внешних интеграций (review) пройдена.",
+        details=details,
+        evidence=IntegrationEvidenceBundle(generated_at="2026-09-16T00:00:00Z"),
+    )
+    stdout = StringIO()
+    stderr = StringIO()
+
+    _render_human(result, stdout, stderr, no_color=True, verbose=False)
+
+    rendered = stdout.getvalue()
+    assert "CodeRabbit review cycle" in rendered
+    assert "Сводка замечаний CodeRabbit" in rendered
+    assert "bounded" in rendered
+    payload = result.model_dump_json()
+    assert '"coderabbit_cycle"' in payload
+    assert "полный bounded finding" in payload
 
 
 def test_coderabbit_cycle_start_rejects_active_and_unknown_incomplete_state(
@@ -1375,6 +1502,32 @@ def test_coderabbit_legacy_state_migrates_and_corrupt_state_fails_closed(
     path.write_text("{not-json", encoding="utf-8")
     with pytest.raises(ToolingError, match="повреждено"):
         adapter._load_review_state(root)
+
+
+def test_coderabbit_state_normalization_validates_before_writing_derived_fields(
+    monkeypatch, tmp_path: Path
+):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    root = tmp_path / "checkout"
+    layout = StateLayout.for_repository(root)
+    layout.ensure()
+    path = layout.path("coderabbit-review.json")
+    payload = coderabbit._default_review_state()
+    payload.update(
+        {
+            "current_cycle_id": "legacy-coderabbit-0123456789abcdef",
+            "provider_state": "rate_limited_waiting",
+            "rate_limited_at": "2026-09-16T00:00:00+00:00",
+            "findings_count": 129,
+        }
+    )
+    original = json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n"
+    path.write_text(original, encoding="utf-8")
+
+    with pytest.raises(ToolingError, match="Счётчик findings"):
+        coderabbit.CodeRabbitAdapter()._load_review_state(root)
+
+    assert path.read_text(encoding="utf-8") == original
 
 
 def test_coderabbit_cycle_reset_preserves_provider_quota_metadata(

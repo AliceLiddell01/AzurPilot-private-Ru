@@ -7,7 +7,9 @@ import json
 import re
 import secrets
 import shutil
-from collections.abc import Iterable, Mapping
+import threading
+import time
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePosixPath
@@ -35,6 +37,7 @@ from .adapters import (
 )
 from .config import IntegrationConfig
 from .contracts import (
+    CodeRabbitCycleSummary,
     CredentialRef,
     IntegrationFinding,
     IntegrationName,
@@ -60,6 +63,7 @@ MAX_RETAINED_REVIEW_CYCLES = 8
 _MAX_REVIEW_ATTEMPTS = 128
 _RATE_LIMIT_ESTIMATE_SECONDS = 60 * 60 + 60
 _RATE_LIMIT_MAX_SECONDS = 7 * 24 * 60 * 60
+_HEARTBEAT_INTERVAL_SECONDS = 15.0
 _STATE_FILE_NAME = "coderabbit-review.json"
 _CYCLE_ID_RE = re.compile(r"^(?:coderabbit-cycle|legacy-coderabbit)-[0-9a-f]{16,64}$|^not-started$")
 _RETRY_SOURCES = frozenset({"provider", "estimated", "unknown"})
@@ -186,6 +190,54 @@ class ParsedCodeRabbitReview:
     findings: tuple[CodeRabbitFinding, ...]
     complete: bool
     unknown_events: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class CodeRabbitProgress:
+    """Bounded операторское событие живого review без provider payload."""
+
+    phase: str
+    cycle_id: str
+    attempt: int
+    substantive_iterations: int
+    provider_state: str
+    message: str
+    elapsed_seconds: int = 0
+
+
+def _emit_progress(
+    callback: Callable[[CodeRabbitProgress], None] | None,
+    *,
+    phase: str,
+    cycle_id: str,
+    attempt: int,
+    substantive_iterations: int,
+    provider_state: str,
+    message: str,
+    started_monotonic: float | None = None,
+) -> None:
+    """Передать bounded heartbeat; сбой UI не должен ломать review."""
+
+    if callback is None:
+        return
+    elapsed = 0
+    if started_monotonic is not None:
+        elapsed = max(0, int(time.monotonic() - started_monotonic))
+    event = CodeRabbitProgress(
+        phase=phase[:48],
+        cycle_id=cycle_id[:80],
+        attempt=max(0, min(attempt, _MAX_REVIEW_ATTEMPTS)),
+        substantive_iterations=max(
+            0, min(substantive_iterations, MAX_SUBSTANTIVE_REVIEWS_PER_CYCLE)
+        ),
+        provider_state=provider_state[:80],
+        message=_bounded_string(message, "Состояние CodeRabbit обновлено.", 240),
+        elapsed_seconds=elapsed,
+    )
+    try:
+        callback(event)
+    except Exception:  # noqa: BLE001 - operator presentation is best effort.
+        return
 
 
 def _bounded_string(value: object, default: str, limit: int) -> str:
@@ -321,15 +373,41 @@ def _disposition(value: object) -> FindingDisposition:
     }.get(text, FindingDisposition.INSUFFICIENT_EVIDENCE)
 
 
+def _finding_text(payload: Mapping[str, object], *keys: str) -> object:
+    """Выбрать первый bounded текст из версий provider finding schema."""
+
+    nested_keys = ("message", "body", "comment", "text", "title", "description")
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, Mapping):
+            for nested_key in nested_keys:
+                nested_value = value.get(nested_key)
+                if isinstance(nested_value, str) and nested_value.strip():
+                    return nested_value
+        elif isinstance(value, str) and value.strip():
+            return value
+    return None
+
+
 def _parse_finding(raw: object) -> CodeRabbitFinding:
     payload = raw if isinstance(raw, dict) else {}
     path = _finding_path(payload)
     impact = _bounded_string(
-        payload.get("impact")
-        or payload.get("message")
-        or payload.get("comment")
-        or payload.get("title")
-        or payload.get("description"),
+        _finding_text(
+            payload,
+            "impact",
+            "message",
+            "comment",
+            "title",
+            "description",
+            "issue",
+            "body",
+            "explanation",
+            "rationale",
+            "problem",
+            "details",
+            "text",
+        ),
         "CodeRabbit finding требует независимой проверки.",
         1200,
     )
@@ -337,7 +415,16 @@ def _parse_finding(raw: object) -> CodeRabbitFinding:
         payload.get("disposition") or payload.get("classification")
     )
     resolution = _bounded_string(
-        payload.get("resolution") or payload.get("recommendation"),
+        _finding_text(
+            payload,
+            "resolution",
+            "recommendation",
+            "suggested_fix",
+            "suggestion",
+            "fix",
+            "proposed_fix",
+            "action",
+        ),
         "Не применено автоматически; требуется независимая проверка.",
         1200,
     )
@@ -1251,6 +1338,47 @@ class CodeRabbitAdapter(IntegrationAdapter):
         )
 
     @staticmethod
+    def _cycle_summary(review_state: Mapping[str, object]) -> CodeRabbitCycleSummary:
+        """Построить JSON-safe сводку без provider output и secret values."""
+
+        previous = review_state.get("previous_cycles")
+        return CodeRabbitCycleSummary(
+            cycle_id=str(review_state.get("current_cycle_id") or "not-started"),
+            cycle_status=str(review_state.get("cycle_status") or "fresh")[:80],
+            substantive_iterations=int(
+                review_state.get(
+                    "substantive_iterations", review_state.get("iterations", 0)
+                )
+            ),
+            provider_state=str(review_state.get("provider_state") or "not_observed")[:80],
+            rate_limited_at=(
+                str(review_state["rate_limited_at"])[:80]
+                if review_state.get("rate_limited_at") is not None
+                else None
+            ),
+            retry_not_before=(
+                str(review_state["retry_not_before"])[:80]
+                if review_state.get("retry_not_before") is not None
+                else None
+            ),
+            retry_source=str(review_state.get("retry_source") or "unknown"),
+            last_reviewed_head=(
+                str(review_state["reviewed_head"])
+                if review_state.get("reviewed_head") is not None
+                else None
+            ),
+            previous_cycles_retained=len(previous) if isinstance(previous, list) else 0,
+            findings_count=int(review_state.get("findings_count", 0)),
+            terminal=bool(review_state.get("terminal", False)),
+            active=bool(review_state.get("active", False)),
+        )
+
+    def cycle_summary(self, root: Path) -> CodeRabbitCycleSummary:
+        """Прочитать текущую bounded cycle summary для CLI result."""
+
+        return self._cycle_summary(self._load_review_state(root))
+
+    @staticmethod
     def _inventory_diagnostics(
         root: Path, executable: str, configured: str | None
     ) -> tuple[tuple[str, ...], str | None]:
@@ -1684,6 +1812,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
                             "retry_not_before": retry_at,
                             "retry_source": "estimated",
                         }
+                    self._validate_review_state(payload)
                     self._write_state(root, payload)
             except (TypeError, ValueError, OverflowError):
                 pass
@@ -1696,6 +1825,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
             quota = payload.get("provider_quota")
             if isinstance(quota, dict):
                 payload["provider_quota"] = {**quota, "state": _RATE_LIMIT_RETRY_ALLOWED}
+            self._validate_review_state(payload)
             self._write_state(root, payload)
         self._validate_review_state(payload)
         return payload
@@ -2266,7 +2396,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 diagnostics=diagnostics,
             ),
         )
-        return AdapterOutcome(record)
+        return AdapterOutcome(record, coderabbit_cycle=self._cycle_summary(new_state))
 
     async def probe(self, root: Path, config: IntegrationConfig) -> AdapterOutcome:
         settings = self._settings(config)
@@ -2349,6 +2479,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
         *,
         base_sha: str,
         head_sha: str,
+        progress_callback: Callable[[CodeRabbitProgress], None] | None = None,
     ) -> AdapterOutcome:
         if not _SHA_RE.fullmatch(base_sha) or not _SHA_RE.fullmatch(head_sha):
             raise ToolingError(ResultCode.TOOLING_INVALID_INVOCATION, "CodeRabbit base/head должны быть exact SHA.")
@@ -2356,6 +2487,17 @@ class CodeRabbitAdapter(IntegrationAdapter):
         review_state = self._load_review_state(root)
         iterations = int(review_state.get("substantive_iterations", review_state.get("iterations", 0)))
         terminal = bool(review_state.get("terminal", False))
+        initial_cycle_id = str(review_state.get("current_cycle_id") or "not-started")
+        initial_attempt = int(review_state.get("attempt", 0)) + 1
+        _emit_progress(
+            progress_callback,
+            phase="preflight",
+            cycle_id=initial_cycle_id,
+            attempt=initial_attempt,
+            substantive_iterations=iterations,
+            provider_state=str(review_state.get("provider_state") or "not_observed"),
+            message="Проверяю cycle state, exact head и dedicated review clone.",
+        )
         review_classification = self._review_state_classification(review_state)
         if review_classification in {
             "active",
@@ -2415,6 +2557,15 @@ class CodeRabbitAdapter(IntegrationAdapter):
         )
         if not ok:
             return AdapterOutcome(self._record_from_error(settings, reason, state=IntegrationState.INCOMPATIBLE))
+        _emit_progress(
+            progress_callback,
+            phase="clone_ready",
+            cycle_id=initial_cycle_id,
+            attempt=initial_attempt,
+            substantive_iterations=iterations,
+            provider_state="preflight",
+            message="Exact committed head подтверждён в dedicated review clone.",
+        )
         runtime_state, reason, runtime_diagnostics = self._runtime_preflight(runtime, command)
         if runtime_state is not IntegrationState.READY:
             return AdapterOutcome(
@@ -2425,6 +2576,15 @@ class CodeRabbitAdapter(IntegrationAdapter):
                     diagnostics=runtime_diagnostics,
                 )
             )
+        _emit_progress(
+            progress_callback,
+            phase="provider_preflight",
+            cycle_id=initial_cycle_id,
+            attempt=initial_attempt,
+            substantive_iterations=iterations,
+            provider_state="ready",
+            message="CLI, review syntax и agent authentication подтверждены.",
+        )
         operation_id = f"coderabbit-{secrets.token_hex(8)}"
         started_at = datetime.now(UTC).isoformat(timespec="seconds")
         attempt = int(review_state.get("attempt", 0)) + 1
@@ -2463,14 +2623,62 @@ class CodeRabbitAdapter(IntegrationAdapter):
             else None,
             provider_quota=provider_quota if isinstance(provider_quota, dict) else None,
         )
-        result = runtime.command(
-            command,
-            "review",
-            "--agent",
-            "--committed",
-            "--base-commit",
-            base_sha,
-            timeout=20 * 60,
+        provider_started = time.monotonic()
+        _emit_progress(
+            progress_callback,
+            phase="provider_started",
+            cycle_id=cycle_id,
+            attempt=attempt,
+            substantive_iterations=iterations,
+            provider_state="reviewing",
+            message="Provider review запущен; ожидается complete или rate limit.",
+            started_monotonic=provider_started,
+        )
+        heartbeat_stop = threading.Event()
+        heartbeat_thread: threading.Thread | None = None
+        if progress_callback is not None:
+            def heartbeat() -> None:
+                while not heartbeat_stop.wait(_HEARTBEAT_INTERVAL_SECONDS):
+                    _emit_progress(
+                        progress_callback,
+                        phase="provider_running",
+                        cycle_id=cycle_id,
+                        attempt=attempt,
+                        substantive_iterations=iterations,
+                        provider_state="reviewing",
+                        message="Review всё ещё выполняется; новый запрос к провайдеру не отправляется.",
+                        started_monotonic=provider_started,
+                    )
+
+            heartbeat_thread = threading.Thread(
+                target=heartbeat,
+                name="coderabbit-review-heartbeat",
+                daemon=True,
+            )
+            heartbeat_thread.start()
+        try:
+            result = runtime.command(
+                command,
+                "review",
+                "--agent",
+                "--committed",
+                "--base-commit",
+                base_sha,
+                timeout=20 * 60,
+            )
+        finally:
+            heartbeat_stop.set()
+            if heartbeat_thread is not None:
+                heartbeat_thread.join(timeout=1.0)
+        _emit_progress(
+            progress_callback,
+            phase="provider_finished",
+            cycle_id=cycle_id,
+            attempt=attempt,
+            substantive_iterations=iterations,
+            provider_state="command_finished",
+            message="Provider command завершил работу; разбираю bounded result.",
+            started_monotonic=provider_started,
         )
         if result.timed_out:
             self._save_state(
@@ -2493,6 +2701,16 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 if isinstance(review_state.get("reviewed_head"), str)
                 else None,
             )
+            _emit_progress(
+                progress_callback,
+                phase="timeout",
+                cycle_id=cycle_id,
+                attempt=attempt,
+                substantive_iterations=iterations,
+                provider_state="timeout",
+                message="Review завершился по timeout; substantive iteration не расходуется.",
+                started_monotonic=provider_started,
+            )
             return AdapterOutcome(self._record_from_error(settings, "CODERABBIT_REVIEW_TIMEOUT"))
         if result.stdout_truncated or result.stderr_truncated:
             self._save_state(
@@ -2514,6 +2732,16 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 reviewed_head=review_state.get("reviewed_head")
                 if isinstance(review_state.get("reviewed_head"), str)
                 else None,
+            )
+            _emit_progress(
+                progress_callback,
+                phase="output_truncated",
+                cycle_id=cycle_id,
+                attempt=attempt,
+                substantive_iterations=iterations,
+                provider_state="stream_error",
+                message="Provider output усечён; substantive iteration не расходуется.",
+                started_monotonic=provider_started,
             )
             return AdapterOutcome(
                 self._record_from_error(
@@ -2553,6 +2781,20 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 rate_limited_at=rate_limited_at,
                 retry_not_before=retry_not_before,
                 retry_source=retry_source,
+            )
+            _emit_progress(
+                progress_callback,
+                phase="rate_limited" if rate_limited else "provider_failed",
+                cycle_id=cycle_id,
+                attempt=attempt,
+                substantive_iterations=iterations,
+                provider_state=_RATE_LIMIT_WAITING if rate_limited else "failed",
+                message=(
+                    "Provider сообщил rate limit; cycle сохранён без расхода iteration."
+                    if rate_limited
+                    else "Provider review завершился ошибкой; cycle сохранён для диагностики."
+                ),
+                started_monotonic=provider_started,
             )
             return AdapterOutcome(
                 self._record_from_error(
@@ -2595,6 +2837,20 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 rate_limited_at=rate_limited_at,
                 retry_not_before=retry_not_before,
                 retry_source=retry_source,
+            )
+            _emit_progress(
+                progress_callback,
+                phase="rate_limited" if error.rate_limited else "parse_failed",
+                cycle_id=cycle_id,
+                attempt=attempt,
+                substantive_iterations=iterations,
+                provider_state=_RATE_LIMIT_WAITING if error.rate_limited else "stream_error",
+                message=(
+                    "Provider сообщил rate limit; cycle сохранён без расхода iteration."
+                    if error.rate_limited
+                    else "Provider result не прошёл bounded parser; iteration не расходуется."
+                ),
+                started_monotonic=provider_started,
             )
             return AdapterOutcome(
                 self._record_from_error(
@@ -2706,7 +2962,17 @@ class CodeRabbitAdapter(IntegrationAdapter):
             )
             for f in parsed.findings
         )
-        return AdapterOutcome(record, findings)
+        _emit_progress(
+            progress_callback,
+            phase="complete",
+            cycle_id=cycle_id,
+            attempt=attempt,
+            substantive_iterations=iterations + 1,
+            provider_state="complete",
+            message=f"Review завершён; получено замечаний: {len(findings)}.",
+            started_monotonic=provider_started,
+        )
+        return AdapterOutcome(record, findings, self._cycle_summary(completed_state))
 
 
 def _git_head(root: Path) -> str | None:
@@ -2722,6 +2988,7 @@ __all__ = [
     "MAX_SUBSTANTIVE_REVIEWS_PER_CYCLE",
     "REVIEW_STATE_SCHEMA_VERSION",
     "CodeRabbitAdapter",
+    "CodeRabbitProgress",
     "CodeRabbitStreamError",
     "ParsedCodeRabbitReview",
     "WslDistribution",

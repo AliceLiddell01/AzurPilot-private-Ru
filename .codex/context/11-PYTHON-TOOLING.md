@@ -579,7 +579,7 @@ mockup не является API contract или committed evidence.
 `azur integrations coderabbit review`:
 
 ```text
-$ azur integrations coderabbit review --base <base-ref>
+$ azur integrations coderabbit review --base <exact-base-sha>
 Проверка repository root и clean review checkout... OK
 Проверка auth в WSL2 review backend... OK
 Проверка exact base/head... OK
