@@ -24,7 +24,10 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
+from azurpilot.tooling.process import safe_environment
+from module.mcp_shared.catalog import tool_catalog_sha256_from_tools
 from module.mcp_shared.versioning import (
+    SOURCE_REVISION_ENV,
     UNKNOWN_SOURCE_REVISION,
     VersioningError,
     load_server_versions,
@@ -52,6 +55,7 @@ _SAFE_IDENTIFIER = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
 _SAFE_TOKEN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 _VERSION_RE = re.compile(r"^v?[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$")
 _SHA_RE = re.compile(r"^[0-9a-f]{7,64}$")
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _URL_SCHEMES = frozenset({"https"})
 _MAX_JSON_BYTES = 256 * 1024
 _MAX_TOOLS = 256
@@ -538,13 +542,16 @@ def _git_source_snapshot(root: Path) -> tuple[str, str]:
     return revision, "clean" if not status_result.stdout.strip() else "modified"
 
 
-def _child_environment() -> dict[str, str]:
+def _child_environment(revision: str | None = None) -> dict[str, str]:
     """Подготовить bounded окружение без синтетической source provenance."""
 
-    environment = dict(os.environ)
-    environment.setdefault("PYTHONUTF8", "1")
-    environment.setdefault("PYTHONIOENCODING", "utf-8")
-    return environment
+    explicit = {
+        "PYTHONUTF8": "1",
+        "PYTHONIOENCODING": "utf-8",
+    }
+    if isinstance(revision, str) and _SHA_RE.fullmatch(revision):
+        explicit[SOURCE_REVISION_ENV] = revision.lower()
+    return safe_environment(explicit)
 
 
 def _extract_contract(result: object) -> Mapping[str, object]:
@@ -559,12 +566,18 @@ def _extract_contract(result: object) -> Mapping[str, object]:
 
 
 async def _probe_local_stdio(
-    server_name: str, *, root: Path
+    server_name: str, *, root: Path, revision: str | None = None
 ) -> dict[str, object]:
-    """Выполнить initialize, tools/list и ровно один read-only contract call."""
+    """Выполнить согласованное обнаружение, tools/list и один contract call.
 
-    from mcp.client.session import ClientSession
-    from mcp.client.stdio import StdioServerParameters, stdio_client
+    ``Client(mode="auto")`` использует согласованный discovery flow официального
+    SDK: для современных серверов это штатное обнаружение, для совместимых
+    legacy-серверов — штатный initialize fallback. Этот collector не навязывает
+    protocol revision и не реализует MCP parser.
+    """
+
+    from mcp.client import Client
+    from mcp.client.stdio import StdioServerParameters
 
     executable = shutil.which("uv.exe") or shutil.which("uv")
     if executable is None:
@@ -574,16 +587,20 @@ async def _probe_local_stdio(
         command=executable,
         args=["run", "--locked", "--no-sync", "python", "-m", module_name],
         cwd=root,
-        env=_child_environment(),
+        env=_child_environment(revision),
     )
     try:
-        async with (
-            stdio_client(parameters) as (read_stream, write_stream),
-            ClientSession(read_stream, write_stream) as session,
-        ):
-            initialized = await session.initialize()
-            listed = await session.list_tools()
-            contract_result = await session.call_tool(contract_tool, {})
+        async with Client(
+            parameters,
+            mode="auto",
+            read_timeout_seconds=STATUS_TIMEOUT_SECONDS,
+        ) as client:
+            listed = await client.list_tools()
+            contract_result = await client.call_tool(contract_tool, {})
+            server_info = getattr(client, "server_info", None)
+            observed_name = getattr(server_info, "name", None)
+            observed_version = getattr(server_info, "version", None)
+            protocol = getattr(client, "protocol_version", None)
     except TimeoutError:
         return {"status": "unavailable", "reason_code": "LOCAL_PROBE_TIMEOUT"}
     except Exception as exc:  # noqa: BLE001 - boundary exposes type, not payload.
@@ -593,20 +610,28 @@ async def _probe_local_stdio(
             "error_type": _safe_type_name(exc),
         }
 
-    server_info = getattr(initialized, "server_info", None)
-    observed_name = getattr(server_info, "name", None)
-    observed_version = getattr(server_info, "version", None)
-    protocol = getattr(initialized, "protocol_version", None)
     tool_items = getattr(listed, "tools", None)
+    if not isinstance(tool_items, list):
+        return {"status": "unavailable", "reason_code": "LOCAL_TOOL_CATALOG_INVALID"}
+    if len(tool_items) > _MAX_TOOLS:
+        return {"status": "unavailable", "reason_code": "LOCAL_TOOL_CATALOG_INVALID"}
     tool_names = _bounded_tool_names(
         [getattr(item, "name", None) for item in tool_items]
-        if isinstance(tool_items, list)
-        else None
     )
     try:
         contract = _extract_contract(contract_result)
+        observed_catalog_hash = tool_catalog_sha256_from_tools(tool_items)
     except StatusError as exc:
         return {"status": "unavailable", "reason_code": exc.code}
+    except (TypeError, ValueError):
+        return {"status": "unavailable", "reason_code": "LOCAL_TOOL_CATALOG_INVALID"}
+    contract_catalog_hash = contract.get("tool_catalog_sha256")
+    capability_hash = contract.get("capability_catalog_sha256")
+    revision_hash = contract.get("contract_revision")
+    if observed_name is None:
+        observed_name = contract.get("server_name")
+    if observed_version is None:
+        observed_version = contract.get("server_version")
     if (
         not isinstance(observed_name, str)
         or not isinstance(observed_version, str)
@@ -615,6 +640,12 @@ async def _probe_local_stdio(
         or not isinstance(protocol, str)
         or not _SAFE_TOKEN.fullmatch(protocol)
         or not tool_names
+        or contract.get("tool_count") != len(tool_names)
+        or contract_catalog_hash != observed_catalog_hash
+        or not isinstance(capability_hash, str)
+        or not _SHA256_RE.fullmatch(capability_hash)
+        or not isinstance(revision_hash, str)
+        or not _SHA256_RE.fullmatch(revision_hash)
         or contract.get("server_name") != server_name
         or contract.get("server_version") != observed_version
     ):
@@ -633,8 +664,18 @@ async def _probe_local_stdio(
         "source_revision": _safe_sha(contract.get("source_revision")),
         "tool_count": len(tool_names),
         "tool_catalog_sha256": (
-            contract.get("tool_catalog_sha256")
-            if isinstance(contract.get("tool_catalog_sha256"), str)
+            contract_catalog_hash
+            if isinstance(contract_catalog_hash, str)
+            else None
+        ),
+        "capability_catalog_sha256": (
+            capability_hash
+            if isinstance(capability_hash, str)
+            else None
+        ),
+        "contract_revision": (
+            revision_hash
+            if isinstance(revision_hash, str)
             else None
         ),
     }
@@ -865,7 +906,7 @@ async def _probe_remote_backend(
 
     try:
         import httpx2
-        from mcp.client.session import ClientSession
+        from mcp.client import Client
         from mcp.client.streamable_http import streamable_http_client
     except ImportError:
         return {
@@ -877,28 +918,35 @@ async def _probe_remote_backend(
     del module_name
     headers = {"Authorization": f"Bearer {token}"}
     try:
-        async with (  # noqa: SIM117
+        async with (
             httpx2.AsyncClient(
                 headers=headers,
                 timeout=REMOTE_TIMEOUT_SECONDS,
                 follow_redirects=False,
             ) as http_client,
-            streamable_http_client(
-                endpoint, http_client=http_client, terminate_on_close=True
-            ) as (read_stream, write_stream),
+            # Client(mode="auto") использует согласованное обнаружение и
+            # штатный fallback для совместимых legacy-серверов.
+            Client(
+                streamable_http_client(
+                    endpoint,
+                    http_client=http_client,
+                    terminate_on_close=True,
+                ),
+                mode="auto",
+                read_timeout_seconds=REMOTE_TIMEOUT_SECONDS,
+            ) as client,
         ):
-            # Сессия зависит от уже открытых потоков, поэтому contexts нельзя объединить.
-            async with ClientSession(read_stream, write_stream) as session:
-                initialized = await asyncio.wait_for(
-                    session.initialize(), timeout=REMOTE_TIMEOUT_SECONDS
-                )
-                listed = await asyncio.wait_for(
-                    session.list_tools(), timeout=REMOTE_TIMEOUT_SECONDS
-                )
-                contract_result = await asyncio.wait_for(
-                    session.call_tool(contract_tool, {}),
-                    timeout=REMOTE_TIMEOUT_SECONDS,
-                )
+            listed = await asyncio.wait_for(
+                client.list_tools(), timeout=REMOTE_TIMEOUT_SECONDS
+            )
+            contract_result = await asyncio.wait_for(
+                client.call_tool(contract_tool, {}),
+                timeout=REMOTE_TIMEOUT_SECONDS,
+            )
+            server_info = getattr(client, "server_info", None)
+            observed_name = getattr(server_info, "name", None)
+            observed_version = getattr(server_info, "version", None)
+            protocol = getattr(client, "protocol_version", None)
     except TimeoutError:
         return {
             "status": "unavailable",
@@ -911,23 +959,37 @@ async def _probe_remote_backend(
             "error_type": _safe_type_name(exc),
         }
 
-    server_info = getattr(initialized, "server_info", None)
-    observed_name = getattr(server_info, "name", None)
-    observed_version = getattr(server_info, "version", None)
-    protocol = getattr(initialized, "protocol_version", None)
     tool_items = getattr(listed, "tools", None)
+    if not isinstance(tool_items, list):
+        return {
+            "status": "unavailable",
+            "reason_code": "REMOTE_BACKEND_TOOL_CATALOG_INVALID",
+        }
+    if len(tool_items) > _MAX_TOOLS:
+        return {
+            "status": "unavailable",
+            "reason_code": "REMOTE_BACKEND_TOOL_CATALOG_INVALID",
+        }
     tool_names = _bounded_tool_names(
         [getattr(item, "name", None) for item in tool_items]
-        if isinstance(tool_items, list)
-        else None
     )
     try:
         contract = _extract_contract(contract_result)
+        observed_catalog_hash = tool_catalog_sha256_from_tools(tool_items)
     except StatusError:
         return {
             "status": "unavailable",
             "reason_code": "REMOTE_BACKEND_CONTRACT_INVALID",
         }
+    except (TypeError, ValueError):
+        return {
+            "status": "unavailable",
+            "reason_code": "REMOTE_BACKEND_TOOL_CATALOG_INVALID",
+        }
+    if observed_name is None:
+        observed_name = contract.get("server_name")
+    if observed_version is None:
+        observed_version = contract.get("server_version")
     if (
         not isinstance(observed_name, str)
         or observed_name != server_name
@@ -936,6 +998,12 @@ async def _probe_remote_backend(
         or not isinstance(protocol, str)
         or not _SAFE_TOKEN.fullmatch(protocol)
         or not tool_names
+        or contract.get("tool_count") != len(tool_names)
+        or contract.get("tool_catalog_sha256") != observed_catalog_hash
+        or not isinstance(contract.get("capability_catalog_sha256"), str)
+        or not _SHA256_RE.fullmatch(contract["capability_catalog_sha256"])
+        or not isinstance(contract.get("contract_revision"), str)
+        or not _SHA256_RE.fullmatch(contract["contract_revision"])
         or contract.get("server_name") != server_name
         or contract.get("server_version") != observed_version
     ):
@@ -955,9 +1023,9 @@ async def _probe_remote_backend(
         "contract_schema_version": contract.get("contract_schema_version"),
         "source_revision": _safe_sha(contract.get("source_revision")),
         "tool_count": len(tool_names),
-        "tool_catalog_sha256": hashlib.sha256(
-            "\n".join(tool_names).encode("utf-8")
-        ).hexdigest(),
+        "tool_catalog_sha256": observed_catalog_hash,
+        "capability_catalog_sha256": contract.get("capability_catalog_sha256"),
+        "contract_revision": contract.get("contract_revision"),
     }
 
 
@@ -1169,6 +1237,55 @@ def _codex_source_summary(entries: Mapping[str, object]) -> dict[str, object]:
     }
 
 
+def first_party_source_registration(root: Path) -> dict[str, object]:
+    """Собрать source-only регистрацию Dev/Game для общих сервисов управления."""
+
+    config = _load_codex_config(root)
+    servers: dict[str, dict[str, object]] = {}
+    entries: dict[str, object] = {}
+    for name in SERVER_NAMES:
+        stdio = _codex_entry_status(
+            config,
+            name,
+            expected_command="uv",
+            expected_args=CODEX_SERVER_ARGS[name],
+            expected_startup_timeout_sec=CODEX_SERVER_TIMEOUTS[name][0],
+            expected_tool_timeout_sec=CODEX_SERVER_TIMEOUTS[name][1],
+            expected_required=False,
+        )
+        stdio = {
+            **stdio,
+            "evidence_kind": "repository_source_config",
+            "source_path": ".codex/config.toml",
+        }
+        local_http_key = CODEX_LOCAL_HTTP_REGISTRATION_KEYS[name]
+        loopback = _codex_url_entry_status(
+            config,
+            local_http_key,
+            expected_url=CODEX_LOCAL_HTTP_URLS[name],
+            expected_bearer_token_env_var=CODEX_LOCAL_HTTP_TOKEN_ENV_VARS[name],
+            expected_startup_timeout_sec=10,
+            expected_tool_timeout_sec=180,
+            expected_required=False,
+        )
+        loopback = {
+            **loopback,
+            "evidence_kind": "repository_source_config",
+            "source_path": ".codex/config.toml",
+            "canonical_server_name": name,
+            "registration_key": local_http_key,
+        }
+        servers[name] = {
+            "source_config": stdio,
+            "local_http_source_config": loopback,
+        }
+        entries[f"{name}.stdio"] = stdio
+        entries[f"{name}.loopback_http"] = loopback
+    summary = _codex_source_summary(entries)
+    summary["servers"] = servers
+    return summary
+
+
 def _codex_effective_summary(entries: Mapping[str, object]) -> dict[str, object]:
     statuses = [
         item.get("status") if isinstance(item, Mapping) else None
@@ -1250,40 +1367,42 @@ async def _probe_direct_route(
         from mcp.client.session import ClientSession
         from mcp.client.streamable_http import streamable_http_client
 
-        async with httpx2.AsyncClient(
-            timeout=REMOTE_TIMEOUT_SECONDS, follow_redirects=False
-        ) as http_client:
-            async with streamable_http_client(
+        async with (
+            httpx2.AsyncClient(
+                timeout=REMOTE_TIMEOUT_SECONDS, follow_redirects=False
+            ) as http_client,
+            streamable_http_client(
                 _EXPECTED_DOCKER_REMOTE_URLS["docker-docs"],
                 http_client=http_client,
                 terminate_on_close=True,
-            ) as (read_stream, write_stream):
-                async with ClientSession(read_stream, write_stream) as session:
-                    initialized = await asyncio.wait_for(
-                        session.initialize(), timeout=REMOTE_TIMEOUT_SECONDS
-                    )
-                    listed = await asyncio.wait_for(
-                        session.list_tools(), timeout=REMOTE_TIMEOUT_SECONDS
-                    )
-                    tool_items = getattr(listed, "tools", None)
-                    tool_names = _bounded_tool_names(
-                        [getattr(item, "name", None) for item in tool_items]
-                        if isinstance(tool_items, list)
-                        else None
-                    )
-                    if "fetch_docker_docs" not in tool_names:
-                        return {
-                            "status": "not_observable",
-                            "reason_code": "DIRECT_DOCKER_DOCS_TOOL_NOT_OBSERVABLE",
-                            "canonical_route": canonical_route,
-                            "gateway_required": False,
-                            "runtime_reachable": True,
-                            "runtime_ready": False,
-                        }
-                    result = await asyncio.wait_for(
-                        session.call_tool("fetch_docker_docs", {}),
-                        timeout=REMOTE_TIMEOUT_SECONDS,
-                    )
+            ) as (read_stream, write_stream),
+            ClientSession(read_stream, write_stream) as session,
+        ):
+            initialized = await asyncio.wait_for(
+                session.initialize(), timeout=REMOTE_TIMEOUT_SECONDS
+            )
+            listed = await asyncio.wait_for(
+                session.list_tools(), timeout=REMOTE_TIMEOUT_SECONDS
+            )
+            tool_items = getattr(listed, "tools", None)
+            tool_names = _bounded_tool_names(
+                [getattr(item, "name", None) for item in tool_items]
+                if isinstance(tool_items, list)
+                else None
+            )
+            if "fetch_docker_docs" not in tool_names:
+                return {
+                    "status": "not_observable",
+                    "reason_code": "DIRECT_DOCKER_DOCS_TOOL_NOT_OBSERVABLE",
+                    "canonical_route": canonical_route,
+                    "gateway_required": False,
+                    "runtime_reachable": True,
+                    "runtime_ready": False,
+                }
+            result = await asyncio.wait_for(
+                session.call_tool("fetch_docker_docs", {}),
+                timeout=REMOTE_TIMEOUT_SECONDS,
+            )
     except TimeoutError:
         return {
             "status": "unavailable",
@@ -2300,6 +2419,7 @@ def _version_guard(
     try:
         from module.dev_mcp.contract import (
             contract_compatibility_issues,
+            server_bundle_drift_issues,
             server_compatibility_issues,
         )
         from module.dev_mcp.contract import (
@@ -2330,10 +2450,16 @@ def _version_guard(
         dev_issues = contract_compatibility_issues(
             compatibility, contracts["azurpilot-dev"]
         )
+        dev_issues = (*dev_issues, *server_bundle_drift_issues(
+            compatibility, contracts["azurpilot-dev"]
+        ))
         issues.extend(f"plugin.{issue}" for issue in dev_issues)
         game_issues = server_compatibility_issues(
             compatibility, contracts["azurpilot-game"]
         )
+        game_issues = (*game_issues, *server_bundle_drift_issues(
+            compatibility, contracts["azurpilot-game"]
+        ))
         issues.extend(f"plugin.game.{issue}" for issue in game_issues)
     except (
         OSError,
@@ -2557,7 +2683,9 @@ async def collect_status_async(
         }
     revision, working_tree = _git_source_snapshot(repository_root)
     local = local_probe or (
-        lambda name, path, _current_revision: _probe_local_stdio(name, root=path)
+        lambda name, path, current_revision: _probe_local_stdio(
+            name, root=path, revision=current_revision
+        )
     )
     remote = remote_probe or _probe_remote
     direct = direct_probe or _probe_direct_route

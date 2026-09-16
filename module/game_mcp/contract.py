@@ -6,6 +6,11 @@ import hashlib
 from collections.abc import Iterable, Mapping
 from types import MappingProxyType
 
+from module.mcp_shared.catalog import (
+    capability_catalog_sha256,
+    contract_revision,
+    tool_catalog_sha256_from_tools,
+)
 from module.mcp_shared.versioning import server_version, source_revision
 
 CONTRACT_SCHEMA_VERSION = 1
@@ -113,15 +118,26 @@ GAME_MCP_RESULT_STATES = (
 )
 
 
-def tool_catalog_sha256(tool_names: Iterable[str] = GAME_MCP_TOOL_NAMES) -> str:
-    """Хешировать канонический каталог имён инструментов.
+def tool_catalog_sha256(tool_names: Iterable[str] | None = None) -> str:
+    """Хешировать канонический каталог публичных описаний инструментов.
 
-    Каноническая форма не зависит от порядка публикации: имена сортируются
-    лексикографически, соединяются одним переводом строки без завершающего
-    перевода строки и кодируются как UTF-8 перед расчётом SHA-256.
+    Для полного каталога каноническая форма не зависит от порядка публикации и
+    включает полные дескрипторы `Tool`, включая схемы и metadata. Явный вызов
+    с неполным набором имён сохраняет names-only совместимость для legacy
+    callers и не используется публичным контрактом `game_get_contract`.
     """
 
+    if tool_names is None:
+        # Ленивый импорт сохраняет ацикличный порядок server.py -> contract.py
+        # и включает в hash по умолчанию schemas и authorization metadata.
+        from module.game_mcp.server import tool_definitions
+
+        return tool_catalog_sha256_from_tools(tool_definitions())
     names = tuple(tool_names)
+    if len(names) == len(GAME_MCP_TOOL_NAMES) and set(names) == set(GAME_MCP_TOOL_NAMES):
+        from module.game_mcp.server import tool_definitions
+
+        return tool_catalog_sha256_from_tools(tool_definitions())
     if any(
         not isinstance(name, str) or not name or name != name.strip() for name in names
     ) or len(set(names)) != len(names):
@@ -135,7 +151,7 @@ def tool_catalog_sha256(tool_names: Iterable[str] = GAME_MCP_TOOL_NAMES) -> str:
 def contract_payload() -> dict[str, object]:
     """Вернуть только стабильные поля Game MCP контракта."""
 
-    return {
+    payload: dict[str, object] = {
         "contract_schema_version": CONTRACT_SCHEMA_VERSION,
         "product_family": PRODUCT_FAMILY,
         "server_name": GAME_MCP_SERVER_NAME,
@@ -162,6 +178,9 @@ def contract_payload() -> dict[str, object]:
             "postcondition_required",
         ],
     }
+    payload["capability_catalog_sha256"] = capability_catalog_sha256(payload)
+    payload["contract_revision"] = contract_revision(payload)
+    return payload
 
 
 def contract_result(

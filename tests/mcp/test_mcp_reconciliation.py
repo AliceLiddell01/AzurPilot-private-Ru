@@ -1,0 +1,539 @@
+from __future__ import annotations
+
+import shutil
+from dataclasses import replace
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+import azurpilot.tooling.mcp as mcp_tooling
+import dev_tools.mcp_status as mcp_status
+from azurpilot.tooling.errors import ToolingError
+from azurpilot.tooling.contracts import ResultCode
+from dev_tools.mcp_status import first_party_source_registration
+from module.mcp_shared.catalog import tool_catalog_sha256_from_tools
+from module.mcp_shared.versioning import (
+    VersioningError,
+    load_mcp_bundle,
+)
+from tests.support.paths import REPOSITORY_ROOT
+
+
+def test_canonical_bundle_is_strict_and_reconciled() -> None:
+    bundle = load_mcp_bundle(REPOSITORY_ROOT)
+
+    assert bundle.schema_version == 2
+    assert set(bundle.servers) == {"azurpilot-dev", "azurpilot-game"}
+    assert bundle.plugin_version
+    assert set(bundle.source_digests) == set(mcp_tooling.SOURCE_SET_NAMES)
+    assert mcp_tooling.McpSourceReconciler().check(REPOSITORY_ROOT).bundle == bundle
+    plugin_manifest = (REPOSITORY_ROOT / mcp_tooling.PLUGIN_MANIFEST_PATH).read_text(
+        encoding="utf-8"
+    )
+    assert "\\u" not in plugin_manifest
+
+
+def test_legacy_bundle_schema_is_rejected(tmp_path: Path) -> None:
+    manifest = tmp_path / "config" / "mcp-versions.toml"
+    manifest.parent.mkdir()
+    content = (REPOSITORY_ROOT / "config" / "mcp-versions.toml").read_text(
+        encoding="utf-8"
+    )
+    manifest.write_text(
+        content.replace("schema_version = 2", "schema_version = 1", 1),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(VersioningError):
+        load_mcp_bundle(tmp_path)
+
+
+def test_source_digest_catalog_is_strict(tmp_path: Path) -> None:
+    manifest = tmp_path / "config" / "mcp-versions.toml"
+    manifest.parent.mkdir()
+    content = (REPOSITORY_ROOT / "config" / "mcp-versions.toml").read_text(
+        encoding="utf-8"
+    )
+    manifest.write_text(
+        content.replace("DEV_MCP_SOURCE_SET =", "UNKNOWN_SOURCE_SET =", 1),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(VersioningError):
+        load_mcp_bundle(tmp_path)
+
+
+def test_source_classification_maps_shared_and_plugin_changes() -> None:
+    classification = mcp_tooling.classify_source_changes(
+        (
+            "module/mcp_shared/local_http.py",
+            "plugins/azurpilot/skills/azurpilot-development/SKILL.md",
+            "plugins/azurpilot/references/mcp-routing.md",
+        )
+    )
+
+    assert classification.changed_components == (
+        "PLUGIN_BUNDLE_SOURCE_SET",
+        "SHARED_MCP_SOURCE_SET",
+        "SKILL_BUNDLE_SOURCE_SET",
+    )
+    assert classification.affected_servers == (
+        "azurpilot-dev",
+        "azurpilot-game",
+    )
+    assert classification.plugin_changed is True
+    assert classification.skill_changed is True
+
+
+def test_source_classification_preserves_dot_prefixed_paths() -> None:
+    classification = mcp_tooling.classify_source_changes(
+        ("./.codex/config.toml", ".github/workflows/ci.yml")
+    )
+
+    assert classification.unknown_paths == (
+        ".codex/config.toml",
+        ".github/workflows/ci.yml",
+    )
+
+
+def test_source_classification_follows_bounded_backend_dependencies() -> None:
+    game = mcp_tooling.classify_source_changes(
+        ("module/application/game_control_service.py",)
+    )
+    assert game.changed_components == ("GAME_MCP_SOURCE_SET",)
+    assert game.affected_servers == ("azurpilot-game",)
+
+    dev = mcp_tooling.classify_source_changes(("module/dev_runtime/control.py",))
+    assert dev.changed_components == ("DEV_MCP_SOURCE_SET",)
+    assert dev.affected_servers == ("azurpilot-dev",)
+
+    shared = mcp_tooling.classify_source_changes(
+        ("azurpilot/tooling/process.py",)
+    )
+    assert shared.changed_components == ("SHARED_MCP_SOURCE_SET",)
+    assert shared.affected_servers == ("azurpilot-dev", "azurpilot-game")
+
+    management = mcp_tooling.classify_source_changes(("azurpilot/tooling/mcp.py",))
+    assert management.changed_components == ()
+    assert management.affected_servers == ()
+    assert management.unknown_paths == ("azurpilot/tooling/mcp.py",)
+
+
+def test_game_application_service_file_is_in_game_backend_identity() -> None:
+    classification = mcp_tooling.classify_source_changes(
+        ("module/application/game_control_service.py",)
+    )
+
+    assert Path("module/application/game_control_service.py") in mcp_tooling.SOURCE_SET_PATHS[
+        "GAME_MCP_SOURCE_SET"
+    ]
+    assert classification.affected_servers == ("azurpilot-game",)
+
+
+@pytest.mark.parametrize(
+    "changed_path",
+    (
+        "plugins/azurpilot/README.md",
+        "plugins/azurpilot/skills/azurpilot-development/SKILL.md",
+    ),
+)
+def test_plugin_change_requires_session_reload_without_backend_restart(
+    monkeypatch: pytest.MonkeyPatch,
+    changed_path: str,
+) -> None:
+    service = mcp_tooling.McpService()
+    bundle = load_mcp_bundle(REPOSITORY_ROOT)
+    monkeypatch.setattr(service, "_bundle", lambda _root: bundle)
+    monkeypatch.setattr(
+        service,
+        "_runtime_status",
+        lambda _root, _bundle: (
+            "ready",
+            {
+                "services": [
+                    {"server_name": name, "ready": True}
+                    for name in mcp_tooling.MCP_SERVER_NAMES
+                ],
+                "supervisors": {},
+            },
+        ),
+    )
+
+    result = service.reconcile(
+        REPOSITORY_ROOT,
+        changed_paths=(changed_path,),
+    )
+
+    assert not result.ok
+    assert result.code is ResultCode.MCP_RELOAD_REQUIRED
+    assert result.details is not None
+    assert result.details.restarted_servers == ()
+    assert result.details.reload_required is True
+
+
+def test_source_reconcile_reports_plugin_reload_as_non_ok(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = mcp_tooling.McpService()
+    build = SimpleNamespace(
+        changed_components=("PLUGIN_BUNDLE_SOURCE_SET",),
+        affected_servers=(),
+        plugin_changed=True,
+        skill_changed=False,
+        bundle=load_mcp_bundle(REPOSITORY_ROOT),
+    )
+    monkeypatch.setattr(service.source, "reconcile", lambda _root, requested_bump: build)
+
+    result = service.reconcile(REPOSITORY_ROOT, source=True)
+
+    assert not result.ok
+    assert result.code is ResultCode.MCP_RELOAD_REQUIRED
+    assert result.details is not None
+    assert result.details.reload_required is True
+
+
+def test_status_preserves_plugin_drift_when_runtime_is_stopped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = mcp_tooling.McpService()
+    bundle = load_mcp_bundle(REPOSITORY_ROOT)
+    build = SimpleNamespace(
+        bundle=bundle,
+        changed_components=(),
+        affected_servers=(),
+    )
+    monkeypatch.setattr(service, "_bundle", lambda _root: bundle)
+    monkeypatch.setattr(service.source, "build", lambda _root, requested_bump: build)
+    monkeypatch.setattr(service.source, "check", lambda _root, **_kwargs: build)
+    monkeypatch.setattr(
+        service,
+        "_runtime_status",
+        lambda _root, _bundle: (
+            "stopped",
+            {
+                "services": [],
+                "supervisors": {},
+            },
+        ),
+    )
+    monkeypatch.setattr(service, "_registration_state", lambda _root: "ready")
+    monkeypatch.setattr(
+        service,
+        "_plugin_source_state",
+        lambda _current, _build: "drift",
+    )
+
+    result = service.status(REPOSITORY_ROOT)
+
+    assert not result.ok
+    assert result.code is ResultCode.MCP_RELOAD_REQUIRED
+    assert result.details is not None
+    assert result.details.runtime_state == "stopped"
+    assert result.details.plugin_source_state == "drift"
+    assert result.details.session_state == "reload_required"
+    assert result.details.reload_required is True
+
+
+def test_status_preserves_version_bump_required_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = mcp_tooling.McpService()
+    bundle = load_mcp_bundle(REPOSITORY_ROOT)
+
+    def fail_build(_root: Path, *, requested_bump: str | None = None):
+        del requested_bump
+        raise ToolingError(
+            ResultCode.MCP_VERSION_BUMP_REQUIRED,
+            "MCP version bump required",
+        )
+
+    monkeypatch.setattr(service, "_bundle", lambda _root: bundle)
+    monkeypatch.setattr(service.source, "build", fail_build)
+    monkeypatch.setattr(service.source, "check", lambda _root, **_kwargs: None)
+    monkeypatch.setattr(
+        service,
+        "_runtime_status",
+        lambda _root, _bundle: ("stopped", {"services": [], "supervisors": {}}),
+    )
+    monkeypatch.setattr(service, "_registration_state", lambda _root: "ready")
+
+    result = service.status(REPOSITORY_ROOT)
+
+    assert not result.ok
+    assert result.code is ResultCode.MCP_VERSION_BUMP_REQUIRED
+
+
+def test_reconcile_rejects_unknown_restart_postcondition(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = mcp_tooling.McpService()
+    bundle = load_mcp_bundle(REPOSITORY_ROOT)
+    runtime_states = [
+        (
+            "stale",
+            {
+                "services": [
+                    {"server_name": name, "ready": False}
+                    for name in mcp_tooling.MCP_SERVER_NAMES
+                ],
+                "supervisors": {
+                    name: {"code": "LOCAL_MCP_SUPERVISOR_READY"}
+                    for name in mcp_tooling.MCP_SERVER_NAMES
+                },
+            },
+        ),
+        ("unknown", {"services": [], "supervisors": {}}),
+    ]
+    runtime_state_index = 0
+
+    def runtime_status(_root, _bundle):
+        nonlocal runtime_state_index
+        if runtime_state_index >= len(runtime_states):
+            raise AssertionError("runtime status вызван сверх ожидаемого числа раз")
+        result = runtime_states[runtime_state_index]
+        runtime_state_index += 1
+        return result
+    monkeypatch.setattr(service, "_bundle", lambda _root: bundle)
+    monkeypatch.setattr(service, "_runtime_status", runtime_status)
+    monkeypatch.setattr(
+        service,
+        "_start_owned",
+        lambda _root, _bundle, *, server_names: (True, {}),
+    )
+
+    with pytest.raises(ToolingError) as error:
+        service.reconcile(REPOSITORY_ROOT)
+
+    assert error.value.code is ResultCode.MCP_RUNTIME_STALE
+
+
+def test_shared_registration_model_reports_stdio_and_loopback_routes() -> None:
+    registration = first_party_source_registration(REPOSITORY_ROOT)
+
+    assert registration["status"] == "ready"
+    servers = registration["servers"]
+    assert isinstance(servers, dict)
+    for name in ("azurpilot-dev", "azurpilot-game"):
+        assert servers[name]["source_config"]["status"] == "configured"
+        assert servers[name]["local_http_source_config"]["status"] == "configured"
+
+
+def test_catalog_hash_is_deterministic_and_includes_schema() -> None:
+    first = {
+        "name": "alpha",
+        "description": "read",
+        "inputSchema": {"type": "object", "properties": {"id": {"type": "string"}}},
+    }
+    second = {
+        "name": "beta",
+        "description": "read",
+        "inputSchema": {"type": "object", "properties": {}},
+    }
+    changed_schema = {
+        **first,
+        "inputSchema": {"type": "object", "properties": {"id": {"type": "integer"}}},
+    }
+
+    assert tool_catalog_sha256_from_tools((first, second)) == tool_catalog_sha256_from_tools(
+        (second, first)
+    )
+    assert tool_catalog_sha256_from_tools((first, second)) != tool_catalog_sha256_from_tools(
+        (changed_schema, second)
+    )
+
+
+def test_source_digest_is_stable_across_text_checkout_line_endings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        mcp_tooling,
+        "SOURCE_SET_PATHS",
+        {"DEV_MCP_SOURCE_SET": (Path("source.txt"),)},
+    )
+    source = tmp_path / "source.txt"
+    source.write_bytes(b"first\r\nsecond\r\n")
+    crlf_digest = mcp_tooling.source_set_digest(tmp_path, "DEV_MCP_SOURCE_SET")
+
+    source.write_bytes(b"first\nsecond\n")
+    lf_digest = mcp_tooling.source_set_digest(tmp_path, "DEV_MCP_SOURCE_SET")
+
+    assert crlf_digest == lf_digest
+
+
+def test_semver_classifier_requires_explicit_major_for_breaking_change() -> None:
+    server = load_mcp_bundle(REPOSITORY_ROOT).servers["azurpilot-game"]
+    implementation_only = replace(server, source_set_digest="0" * 64)
+    additive = replace(
+        server,
+        tool_names=server.tool_names + ("game_future_read",),
+        tool_descriptor_hashes={
+            **server.tool_descriptor_hashes,
+            "game_future_read": "a" * 64,
+        },
+        capability_families=server.capability_families + ("future_read",),
+        tool_catalog_sha256="1" * 64,
+        capability_catalog_sha256="2" * 64,
+        contract_revision="3" * 64,
+    )
+    breaking = replace(
+        server,
+        tool_names=("game_renamed",) + server.tool_names[1:],
+        tool_catalog_sha256="4" * 64,
+        capability_catalog_sha256="5" * 64,
+        contract_revision="6" * 64,
+    )
+
+    assert mcp_tooling._public_change_kind(server, implementation_only) == "patch"
+    assert mcp_tooling._public_change_kind(server, additive) == "minor"
+    changed_existing_schema = replace(
+        additive,
+        tool_descriptor_hashes={
+            **additive.tool_descriptor_hashes,
+            server.tool_names[0]: "b" * 64,
+        },
+    )
+    assert mcp_tooling._public_change_kind(server, changed_existing_schema) == "major"
+    assert mcp_tooling._public_change_kind(server, breaking) == "major"
+
+
+def test_explicit_bump_can_raise_a_proven_change_without_auto_major_guess() -> None:
+    server = load_mcp_bundle(REPOSITORY_ROOT).servers["azurpilot-game"]
+
+    assert mcp_tooling._server_version(server, bump="patch") != server.version
+    assert mcp_tooling._server_version(server, bump="minor").endswith(".0")
+    assert mcp_tooling._server_version(server, bump="major").startswith("2.")
+
+
+def test_auth_readiness_is_scoped_to_servers_being_started(monkeypatch) -> None:
+    monkeypatch.setenv("AZURPILOT_DEV_LOCAL_MCP_TOKEN", "dev-token")
+    monkeypatch.delenv("AZURPILOT_GAME_LOCAL_MCP_TOKEN", raising=False)
+
+    assert mcp_tooling.McpService._auth_ready(("azurpilot-dev",))
+    assert not mcp_tooling.McpService._auth_ready()
+
+
+@pytest.mark.parametrize(
+    ("registration", "expected"),
+    (({"status": "partial"}, "invalid"), (OSError("probe failed"), "unknown")),
+)
+def test_registration_state_distinguishes_unknown_probe(
+    registration: object, expected: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if isinstance(registration, BaseException):
+        def failed_probe(_root: Path) -> dict[str, object]:
+            raise registration
+
+        monkeypatch.setattr(mcp_status, "first_party_source_registration", failed_probe)
+    else:
+        monkeypatch.setattr(
+            mcp_status,
+            "first_party_source_registration",
+            lambda _root: registration,
+        )
+
+    assert mcp_tooling.McpService._registration_state(REPOSITORY_ROOT) == expected
+
+
+def test_runtime_source_revision_is_sanitized_before_status_model() -> None:
+    server = load_mcp_bundle(REPOSITORY_ROOT).servers["azurpilot-game"]
+
+    status = mcp_tooling._server_status_from_model(
+        server,
+        status="ready",
+        observed_source_revision="not-a-git-revision",
+    )
+
+    assert status.source_revision is None
+
+
+def test_runtime_reconcile_can_start_service_with_stopped_supervisor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = mcp_tooling.McpService()
+    bundle = load_mcp_bundle(REPOSITORY_ROOT)
+    runtime_results = [
+        (
+            "stale",
+            {
+                "services": [
+                    {"server_name": "azurpilot-dev", "ready": False},
+                    {"server_name": "azurpilot-game", "ready": True},
+                ],
+                "supervisors": {
+                    "azurpilot-dev": {
+                        "code": "LOCAL_MCP_SUPERVISOR_STOPPED"
+                    },
+                    "azurpilot-game": {
+                        "code": "LOCAL_MCP_SUPERVISOR_READY"
+                    },
+                },
+            },
+        ),
+        (
+            "ready",
+            {
+                "services": [
+                    {"server_name": "azurpilot-dev", "ready": True},
+                    {"server_name": "azurpilot-game", "ready": True},
+                ],
+                "supervisors": {},
+            },
+        ),
+    ]
+    start_calls: list[tuple[str, ...]] = []
+
+    monkeypatch.setattr(service, "_bundle", lambda _root: bundle)
+    monkeypatch.setattr(
+        service,
+        "_runtime_status",
+        lambda _root, _bundle: runtime_results.pop(0),
+    )
+
+    def start_owned(
+        _root: Path,
+        _bundle: object,
+        *,
+        server_names: tuple[str, ...],
+    ) -> tuple[bool, dict[str, object]]:
+        start_calls.append(server_names)
+        return True, {}
+
+    monkeypatch.setattr(service, "_start_owned", start_owned)
+
+    result = service.reconcile(REPOSITORY_ROOT)
+
+    assert result.ok
+    assert start_calls == [("azurpilot-dev",)]
+    assert result.details is not None
+    assert result.details.restarted_servers == ("azurpilot-dev",)
+
+
+def test_reconciler_detects_unreconciled_source_without_mutating_repository(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source_paths = {
+        name: (Path(f"{name.lower()}.txt"),)
+        for name in mcp_tooling.SOURCE_SET_NAMES
+    }
+    monkeypatch.setattr(mcp_tooling, "SOURCE_SET_PATHS", source_paths)
+    for path in source_paths.values():
+        (tmp_path / path[0]).write_text(path[0].stem, encoding="utf-8")
+
+    manifest = tmp_path / "config" / "mcp-versions.toml"
+    manifest.parent.mkdir()
+    shutil.copy2(REPOSITORY_ROOT / "config" / "mcp-versions.toml", manifest)
+    plugin_manifest = tmp_path / mcp_tooling.PLUGIN_MANIFEST_PATH
+    plugin_manifest.parent.mkdir(parents=True)
+    shutil.copy2(REPOSITORY_ROOT / mcp_tooling.PLUGIN_MANIFEST_PATH, plugin_manifest)
+
+    reconciler = mcp_tooling.McpSourceReconciler()
+    reconciler.reconcile(tmp_path)
+    assert reconciler.check(tmp_path).changed_components == ()
+
+    (tmp_path / source_paths["SKILL_BUNDLE_SOURCE_SET"][0]).write_text(
+        "changed", encoding="utf-8"
+    )
+    with pytest.raises(ToolingError) as error:
+        reconciler.check(tmp_path)
+    assert error.value.code.value == "MCP_SOURCE_BUNDLE_DRIFT"

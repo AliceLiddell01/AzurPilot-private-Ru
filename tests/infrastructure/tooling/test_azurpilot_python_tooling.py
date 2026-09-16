@@ -29,11 +29,13 @@ from azurpilot.tooling.config import DeploySettings, project_python
 from azurpilot.tooling.contracts import (
     CapabilityStatus,
     DoctorDetails,
+    ExitCode,
     OperationState,
     RepositoryRootEvidence,
     ResultCode,
     RootSource,
     ToolingResult,
+    exit_code_for,
 )
 from azurpilot.tooling.coordination import FileLock, observe_tcp_port
 from azurpilot.tooling.doctor import DoctorService
@@ -69,6 +71,21 @@ def test_closed_result_rejects_unknown_properties() -> None:
     )
     assert result.warnings == ()
     assert "unexpected" not in result.model_dump_json()
+
+
+@pytest.mark.parametrize(
+    ("code", "expected"),
+    (
+        (ResultCode.MCP_SOURCE_BUNDLE_INVALID, ExitCode.PRECONDITION),
+        (ResultCode.MCP_SOURCE_BUNDLE_DRIFT, ExitCode.PRECONDITION),
+        (ResultCode.MCP_VERSION_BUMP_REQUIRED, ExitCode.PRECONDITION),
+        (ResultCode.MCP_ENVIRONMENT_STALE, ExitCode.PRECONDITION),
+    ),
+)
+def test_mcp_result_codes_map_to_stable_exit_categories(
+    code: ResultCode, expected: ExitCode
+) -> None:
+    assert exit_code_for(code) is expected
 
 
 def test_explicit_root_does_not_fallback() -> None:
@@ -160,6 +177,20 @@ def test_process_runner_bounds_output_and_preserves_argv() -> None:
 def test_process_environment_policy_rejects_unapproved_explicit_values() -> None:
     with pytest.raises(ValueError):
         safe_environment({"SECRET_VALUE": "must-not-be-inherited"})
+
+
+def test_process_environment_policy_requires_explicit_test_opt_in() -> None:
+    test_key = "TEST_LOCAL_MCP_CRASH_AFTER_READY"
+    with pytest.raises(ValueError):
+        safe_environment({test_key: "azurpilot-dev"})
+
+    spec = ProcessSpec(
+        executable=sys.executable,
+        cwd=REPOSITORY_ROOT,
+        env={test_key: "azurpilot-dev"},
+        allow_test_environment=True,
+    )
+    assert spec.launch_environment[test_key] == "azurpilot-dev"
 
 
 def test_process_runner_classifies_timeout() -> None:
@@ -565,6 +596,26 @@ def test_cli_json_is_single_report_on_invocation_error() -> None:
     stdout = io.StringIO()
     stderr = io.StringIO()
     exit_code = main(["--json", "unknown-command"], stdout=stdout, stderr=stderr)
+    report = json.loads(stdout.getvalue())
+    assert exit_code == 2
+    assert report["code"] == ResultCode.TOOLING_INVALID_INVOCATION.value
+    assert stderr.getvalue() == ""
+
+
+def test_cli_reconcile_rejects_bump_without_source() -> None:
+    class UnexpectedMcpCall:
+        def reconcile(self, *_args: object, **_kwargs: object) -> object:
+            raise AssertionError("MCP reconcile не должен вызываться")
+
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    exit_code = main(
+        ["--json", "mcp", "reconcile", "--bump", "patch"],
+        services=SimpleNamespace(mcp=UnexpectedMcpCall()),
+        stdout=stdout,
+        stderr=stderr,
+    )
+
     report = json.loads(stdout.getvalue())
     assert exit_code == 2
     assert report["code"] == ResultCode.TOOLING_INVALID_INVOCATION.value

@@ -63,6 +63,23 @@ def _versions() -> dict[str, str]:
     return load_server_versions(REPOSITORY_ROOT)
 
 
+def test_stdio_child_environment_excludes_unapproved_secrets(monkeypatch) -> None:
+    monkeypatch.setenv("AZURPILOT_STATUS_SECRET", "must-not-be-inherited")
+    monkeypatch.setenv("AZURPILOT_DEV_LOCAL_MCP_TOKEN", "must-not-be-inherited")
+
+    environment = status._child_environment()
+
+    assert environment["PYTHONUTF8"] == "1"
+    assert environment["PYTHONIOENCODING"] == "utf-8"
+    assert "AZURPILOT_STATUS_SECRET" not in environment
+    assert "AZURPILOT_DEV_LOCAL_MCP_TOKEN" not in environment
+
+
+def test_contract_fingerprints_require_full_sha256_values() -> None:
+    assert status._SHA256_RE.fullmatch("a" * 64)
+    assert status._SHA256_RE.fullmatch("a" * 40) is None
+
+
 def _local_result(name: str, version: str, revision: str) -> dict[str, object]:
     return {
         "status": "ready",

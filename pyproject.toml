@@ -60,7 +60,7 @@ dev = [
 ]
 ci = [
     "httpx2==2.13.0",
-    "playwright==1.62.0",
+    "playwright==1.63.0",
     "pytest==9.1.1",
     "pytest-cov==7.1.0",
     "pytest-xdist==3.8.0",

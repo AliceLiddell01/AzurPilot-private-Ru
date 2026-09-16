@@ -70,7 +70,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         timeout-minutes: 10
         with:
-          fetch-depth: 1
+          fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Проверить exact head
@@ -288,6 +288,23 @@ jobs:
             --heartbeat-seconds 0 \
             --log-file "${RUNNER_TEMP}/azurpilot-ci-python/ruff.log" \
             -- uv run --locked ruff check . --select E9,F63,F7,F82 --ignore F821,F722
+
+      - name: Проверить целостность MCP bundle
+        id: python_mcp_compatibility
+        if: ${{ github.event_name == 'pull_request' }}
+        timeout-minutes: 5
+        shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$PR_BASE_SHA"
+          python tools/ci_heartbeat.py \
+            --label "Проверка целостности MCP bundle" \
+            --heartbeat-seconds 0 \
+            --log-file "${RUNNER_TEMP}/azurpilot-ci-python/mcp-compatibility.log" \
+            -- uv run --locked --no-sync python -m dev_tools.mcp_compatibility_gate \
+              --base-commit "$PR_BASE_SHA"
 
       - name: Проверить компиляцию Python
         id: python_compile
@@ -1184,7 +1201,7 @@ jobs:
 
   macos:
     name: macOS core tooling
-    runs-on: macos-14
+    runs-on: macos-26
     timeout-minutes: 25
     permissions:
       contents: read

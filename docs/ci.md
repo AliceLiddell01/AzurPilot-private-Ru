@@ -79,6 +79,10 @@ Job выполняется на `ubuntu-24.04` с Python `3.14.6` и прове�
   точного PR base;
 - `uv lock --check` и `uv sync --locked --group ci`;
 - Ruff для ошибок выполнения и импорта;
+- permanent MCP compatibility gate: строгая проверка текущей целостности
+  canonical `config/mcp-versions.toml`, bounded source-set digests и
+  производных plugin metadata, а также отдельная base-to-head SemVer/revision
+  policy;
 - компиляцию основных Python entry points и каталогов, включая `azurpilot` и `deploy`;
 - автоматическое обнаружение всего каталога `tests/` через `pytest 9.1.1`, зафиксированный в `uv.lock`;
 - permanent semantic runtime-localization audit: доказанные operator-facing sinks должны оставаться русскими, а runtime identity — только RU/Global/EN;
@@ -91,7 +95,15 @@ Job выполняется на `ubuntu-24.04` с Python `3.14.6` и прове�
 uv lock --check
 uv sync --locked --group ci
 uv run --locked ruff check . --select E9,F63,F7,F82 --ignore F821,F722
+uv run --locked --no-sync python -m dev_tools.mcp_compatibility_gate \
+  --base-commit <full-base-sha>
 ```
+
+В pull request job передаёт в gate точный `github.event.pull_request.base.sha`;
+значение `<full-base-sha>` выше предназначено для локального запуска. Gate
+сначала проверяет current-tree integrity, затем сравнивает base bundle с head и
+отклоняет недостаточный SemVer bump, пропущенное изменение реализации,
+несогласованные plugin/skill revisions или drift generated metadata.
 
 Локальный эквивалент PostgreSQL/Alembic-цикла описан в
 [`postgresql-storage-foundation.md`](postgresql-storage-foundation.md#alembic).

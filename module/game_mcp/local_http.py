@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import logging
+import os
+import re
 import sys
 from typing import Any
 
 import uvicorn
 
 from module.game_mcp.adapter import GameMcpAdapter
-from module.game_mcp.contract import GAME_MCP_SERVER_NAME
+from module.game_mcp.contract import GAME_MCP_SERVER_NAME, contract_payload
 from module.game_mcp.server import (
     GAME_MCP_REQUIRED_SCOPE,
     GAME_MCP_SCOPES,
@@ -27,6 +29,8 @@ logger = logging.getLogger(__name__)
 
 GAME_MCP_LOCAL_HTTP_PORT = 8776
 GAME_MCP_LOCAL_HTTP_TOKEN_ENV_VAR = "AZURPILOT_GAME_LOCAL_MCP_TOKEN"
+GAME_MCP_SOURCE_SET_DIGEST_ENV_VAR = "AZURPILOT_GAME_MCP_SOURCE_SET_DIGEST"
+_SOURCE_SET_DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 def _create_http_server(adapter: Any, *, abandon_on_cancel: bool) -> Any:
@@ -60,10 +64,15 @@ def create_local_http_app(
 
     local_config = config or default_config()
     bound_adapter = adapter if adapter is not None else GameMcpAdapter()
+    metadata = contract_payload()
+    digest = os.environ.get(GAME_MCP_SOURCE_SET_DIGEST_ENV_VAR, "").strip().lower()
+    if _SOURCE_SET_DIGEST_RE.fullmatch(digest):
+        metadata["source_set_digest"] = digest
     return _create_local_http_app(
         _create_http_server,
         bound_adapter,
         config=local_config,
+        identity_metadata=metadata,
     )
 
 
@@ -104,6 +113,7 @@ def main() -> None:
 __all__ = (
     "GAME_MCP_LOCAL_HTTP_PORT",
     "GAME_MCP_LOCAL_HTTP_TOKEN_ENV_VAR",
+    "GAME_MCP_SOURCE_SET_DIGEST_ENV_VAR",
     "LocalHttpConfig",
     "LocalHttpConfigError",
     "create_local_http_app",
