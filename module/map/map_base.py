@@ -148,10 +148,10 @@ class CampaignMap:
                 grid.location = (x, y)
                 self.grids[(x, y)] = grid
 
-        # camera_data 可以自动生成，但手动设置效果更好
+        # camera_data может генерироваться автоматически, но ручная настройка дает лучший результат
         self.camera_data = [location2node(loca) for loca in camera_2d((0, 0, *self._shape), sight=self.camera_sight)]
         self.camera_data_spawn_point = []
-        # weight_data 默认设为 10
+        # weight_data по умолчанию устанавливается в 10
         for grid in self:
             grid.weight = 10.
 
@@ -401,7 +401,7 @@ class CampaignMap:
         """
         logger.info(f'[Карта — связи] Связи клеток: стены={wall}, порталы={portal}')
 
-        # 生成格子连接关系
+        # Создание связей между клетками
         total = set([grid for grid in self.grids.keys()])
         for grid in self:
             connection = set()
@@ -411,7 +411,7 @@ class CampaignMap:
                     connection.add(arr)
             self.grid_connection[grid.location] = connection
 
-        # 使用 wall_data 删除连接
+        # Удаление связей с использованием wall_data
         if wall and self._wall_data:
             wall = []
             for y, line in enumerate([l for l in self._wall_data.split('\n') if l]):
@@ -432,7 +432,7 @@ class CampaignMap:
                 self.grid_connection[g1].remove(g2)
                 self.grid_connection[g2].remove(g1)
 
-        # 创建传送门连接
+        # Создание связей телепортов
         for start, end in self._portal_data:
             if portal:
                 self.grid_connection[start].add(end)
@@ -452,8 +452,8 @@ class CampaignMap:
         当一个格子被识别为舰队但不在出生点上，而其上方的格子是潜艇出生点时，
         将舰队识别修正为潜艇识别。同时清除同时被标记为敌人和舰队的格子。
         """
-        # 修正潜艇出生点
-        # 如果一个格子被识别为潜艇，其下方的格子可能被误识别为舰队，因为它们有相同的弹药图标
+        # Коррекция точек появления подлодок
+        # Если клетка распознана как подлодка, клетка под ней может быть ошибочно распознана как флот из-за одинаковой иконки боезапаса
         for grid in self.select(is_fleet=True):
             if grid.is_spawn_point:
                 continue
@@ -463,8 +463,8 @@ class CampaignMap:
                     grid.is_fleet = False
                     grid.is_current_fleet = False
                     upper.is_submarine = True
-        # 初始化时不允许一个格子同时是 is_enemy 和 is_fleet
-        # 这可能是上方的潜艇
+        # При инициализации клетка не может быть одновременно is_enemy и is_fleet
+        # Возможно, это подлодка сверху
         for grid in self.select(is_enemy=True, is_fleet=True):
             grid.is_fleet = False
             grid.is_current_fleet = False
@@ -508,7 +508,7 @@ class CampaignMap:
                     logger.warning(f'[Карта — прогноз] Ошибка прогноза. {self.grids[loca]} = "{grid.str}"')
                     failed_count += 1
 
-        # 如果错误预测少于 2 个，执行实际合并
+        # Если ошибочных прогнозов меньше 2, выполняем фактическое объединение
         if failed_count < 2:
             for grid in grids.grids.values():
                 loca = tuple(offset + grid.location)
@@ -857,7 +857,7 @@ class CampaignMap:
         else:
             if step == 0:
                 return [route[-1]]
-            # 最后一个节点的索引
+            # Индекс последнего узла
             # res = [6]
             res = [max(len(route) - 1, 0)]
 
@@ -972,7 +972,7 @@ class CampaignMap:
         missing['enemy'] += len(self.fortress_data[0]) - self.select(is_fortress=True).count
         for route in self.bouncing_enemy_data:
             if not route.select(may_bouncing_enemy=True):
-                # 弹跳敌人已清除，重新计为一个敌人
+                # Прыгающий враг зачищен, повторно учитываем как одного врага
                 missing['enemy'] += 1
 
         for upper in self.map_covered:

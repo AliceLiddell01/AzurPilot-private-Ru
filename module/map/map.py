@@ -27,7 +27,7 @@ from module.map.fleet import Fleet
 from module.map.map_grids import RoadGrids, SelectedGrids
 from module.map_detection.grid_info import GridInfo
 
-# 敌人过滤器
+# Фильтр врагов
 ENEMY_FILTER = Filter(regex=re.compile('^(.*?)$'), attr=('str',))
 
 

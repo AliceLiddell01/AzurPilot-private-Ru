@@ -304,7 +304,7 @@ class Fleet(Camera, AmbushHandler):
             self.withdraw()
         is_portal = self.map[location].is_portal
         # The upper grid is submarine, may mess up predict_fleet()
-        # 上方格子可能是潜艇，可能会干扰 predict_fleet()
+        # Клетка сверху может быть подлодкой, что способно помешать predict_fleet()
         may_submarine_icon = self.map.grid_covered(self.map[location], location=[(0, -1)])
         may_submarine_icon = may_submarine_icon and self.fleet_submarine_location == may_submarine_icon[0].location
 
@@ -327,12 +327,12 @@ class Fleet(Camera, AmbushHandler):
                 extra += 4.5
             if self.config.MAP_HAS_LAND_BASED and grid.is_mechanism_trigger:
                 extra += grid.mechanism_wait
-            # 等待确认舰队到达。如果舰队在战斗中，不会立即出现。
+            # Ожидание подтверждения прибытия флота. Если флот в бою, он не появится сразу.
             arrive_timer = Timer(0.5 + self.round_wait + extra, count=2)
             arrive_unexpected_timer = Timer(1.5 + self.round_wait + extra, count=6)
-            # 伏击后的等待。
+            # Ожидание после засады.
             ambushed_retry = Timer(0.5 + self.round_wait + extra, count=2)
-            # 如果没有事件发生，重新点击。
+            # Если событий не произошло, кликаем повторно.
             walk_timeout = Timer(20)
             walk_timeout.start()
 
@@ -343,7 +343,7 @@ class Fleet(Camera, AmbushHandler):
                     self.update(allow_error=True)
                     grid = self.view[self.view.center_loca]
 
-                # 战斗
+                # Бой
                 if self.config.Campaign_UseFleetLock and not self.is_in_map():
                     if self.handle_retirement():
                         self.map_offensive()
@@ -382,7 +382,7 @@ class Fleet(Camera, AmbushHandler):
                     if not (grid.predict_fleet() and grid.predict_current_fleet()):
                         ambushed_retry.start()
 
-                # 伏击
+                # Засада
                 if self.handle_ambush():
                     self.hp_get()
                     self.lv_get(after_battle=True)
@@ -391,28 +391,28 @@ class Fleet(Camera, AmbushHandler):
                     if not (grid.predict_fleet() and grid.predict_current_fleet()):
                         ambushed_retry.start()
 
-                # 神秘事件
+                # Таинственное событие
                 mystery = self.handle_mystery(button=grid)
                 if mystery:
                     self.mystery_count += 1
                     result = 'mystery'
                     result_mystery = mystery
 
-                # 猫咪攻击动画
+                # Анимация атаки кошачьего офицера
                 if self.handle_map_cat_attack():
-                    # 已到达，战斗稍后出现，但仍需等待塞壬移动
+                    # Прибыли, бой начнется чуть позже, но еще нужно подождать перемещения сирен
                     arrive_timer.reset()
                     arrive_unexpected_timer.reset()
                     walk_timeout.reset()
                     continue
 
-                # 大舰队弹窗
-                # 通常在 combat_status 中处理，但在慢速 PC 上有时会延迟到战斗结束后才出现。
+                # Всплывающее окно гильдии
+                # Обычно обрабатывается в combat_status, но на медленных ПК иногда задерживается до окончания боя.
                 if self.handle_guild_popup_cancel():
                     walk_timeout.reset()
                     continue
 
-                # 企鹅 GIF 动画
+                # GIF-анимация пингвина
                 if self.handle_manjuu():
                     walk_timeout.reset()
                     continue
@@ -420,7 +420,7 @@ class Fleet(Camera, AmbushHandler):
                 if self.handle_walk_out_of_step():
                     raise MapWalkError('walk_out_of_step')
 
-                # 到达
+                # Прибыли
                 arrive_predict = ''
                 arrive_checker = False
                 if self.is_in_map():
@@ -463,13 +463,13 @@ class Fleet(Camera, AmbushHandler):
                     if arrive_unexpected_timer.started():
                         arrive_unexpected_timer.reset()
 
-                # 剧情
+                # Сюжет
                 if expected == 'story':
                     if self.handle_story_skip():
                         result = 'story'
                         continue
 
-                # 结束
+                # Конец
                 if ambushed_retry.started() and ambushed_retry.reached():
                     break
                 if walk_timeout.reached():
@@ -478,9 +478,9 @@ class Fleet(Camera, AmbushHandler):
                     self.ensure_edge_insight(skip_first_update=False)
                     break
 
-            # 结束
+            # Конец
             if arrived:
-                # 弹药格子需要再次点击，否则下一次点击不会生效。
+                # По клетке с боеприпасами нужен повторный клик, иначе следующий клик не сработает.
                 if self.map[location].may_ammo:
                     self.device.click(grid)
                 break
@@ -562,7 +562,7 @@ class Fleet(Camera, AmbushHandler):
         if self.fleet_2_location:
             location_dict[2] = self.fleet_2_location
         location_dict[1] = self.fleet_1_location
-        # 释放要塞阻塞
+        # Снятие блокировки крепости
         if self.config.MAP_HAS_FORTRESS:
             if not self.map.select(is_fortress=True):
                 self.map.select(is_mechanism_block=True).set(is_mechanism_block=False)
@@ -600,7 +600,7 @@ class Fleet(Camera, AmbushHandler):
             if len(loca) and loca in self.map:
                 grid = self.map[loca]
                 if grid.may_boss and grid.is_caught_by_siren:
-                    # 仅当 Boss 出现在舰队面前时
+                    # Только когда босс появляется перед флотом
                     pass
                 else:
                     self.map[loca].wipe_out()
@@ -667,15 +667,15 @@ class Fleet(Camera, AmbushHandler):
         logger.info(f'[Карта — противник] Подвижный флот {before} -> {after}')
         logger.info(f'[Карта — противник] Отслеживание флота {matched_before} -> {matched_after}')
 
-        # 删除错误预测
-        # 如果 MAP_HAS_MOVABLE_NORMAL_ENEMY 则保留，这种情况比较混乱
+        # Удаляем ошибочный прогноз
+        # Сохраняем, если MAP_HAS_MOVABLE_NORMAL_ENEMY — этот случай неоднозначен
         if not self.config.MAP_HAS_MOVABLE_NORMAL_ENEMY:
             for grid in after.delete(matched_after):
                 if not grid.may_siren:
                     logger.warning(f'[Карта — распознавание] Ошибочное распознавание: {grid}')
                     grid.wipe_out()
 
-        # 预测缺失的塞壬
+        # Прогнозирование отсутствующих сирен
         diff = before.delete(matched_before)
         _, missing = self.map.missing_get(
             self.battle_count, self.mystery_count, self.siren_count, self.carrier_count, mode='normal')
@@ -683,15 +683,15 @@ class Fleet(Camera, AmbushHandler):
         if diff and missing != 0:
             logger.warning(f'[Карта — противник] Потеряно отслеживание подвижного флота: {diff}')
 
-            # 计算被覆盖的格子
+            # Расчет перекрытых клеток
             covered = self.map.grid_covered(self.map[self.fleet_current], location=[(0, -2)])
             if self.fleet_1_location:
                 covered = covered.add(self.map.grid_covered(self.map[self.fleet_1_location], location=[(0, -1)]))
             if self.fleet_2_location:
                 covered = covered.add(self.map.grid_covered(self.map[self.fleet_2_location], location=[(0, -1)]))
             if self.config.MAP_HAS_MOVABLE_NORMAL_ENEMY and not self.config.MAP_ENEMY_TEMPLATE:
-                # 右侧格子的 enemy_scale 图标可能被舰队覆盖
-                # 如果敌人模板为空，必须通过 enemy_scale 预测
+                # Иконка enemy_scale правой клетки может быть перекрыта флотом
+                # Если шаблон врага пуст, необходимо прогнозировать по enemy_scale
                 if self.fleet_1_location:
                     covered = covered.add(self.map.grid_covered(self.map[self.fleet_1_location], location=[(1, 0)]))
                 if self.fleet_2_location:
@@ -705,10 +705,10 @@ class Fleet(Camera, AmbushHandler):
                     covered = covered.add(self.map.grid_covered(grid))
             logger.attr('Перекрытие вражеского флота', covered)
 
-            # 计算塞壬可达格子
+            # Расчет клеток, доступных сиренам
             accessible = SelectedGrids([])
             if self.config.MAP_HAS_WALL:
-                # 塞壬无视墙壁
+                # Сирены игнорируют стены
                 self.map.grid_connection_initial(
                     wall=False,
                     portal=self.config.MAP_HAS_PORTAL,
@@ -718,7 +718,7 @@ class Fleet(Camera, AmbushHandler):
                 accessible = accessible.add(self.map.select(cost=0)).add(self.map.select(cost=1))
                 if siren:
                     accessible = accessible.add(self.map.select(cost=2))
-            # 恢复寻路结果
+            # Восстановление результатов поиска пути
             if self.config.MAP_HAS_WALL:
                 self.map.grid_connection_initial(
                     wall=self.config.MAP_HAS_WALL,
@@ -727,7 +727,7 @@ class Fleet(Camera, AmbushHandler):
             self.map.find_path_initial(self.fleet_current, has_ambush=self.config.MAP_HAS_AMBUSH)
             logger.attr('Доступность вражеского флота', accessible)
 
-            # 取交集进行预测
+            # Прогнозирование по пересечению
             predict = accessible.intersect(covered).select(is_sea=True, is_fleet=False)
             logger.info(f'[Карта — противник] Прогноз подвижного флота: {predict}')
             matched_after = matched_after.add(predict)
@@ -842,14 +842,14 @@ class Fleet(Camera, AmbushHandler):
             self.fleet_submarine = fleets[0].location
         elif count == 0:
             logger.info('[Карта — подлодка] Подлодка не найдена')
-            # 尝试出生点
+            # Пробуем точки появления
             spawn_point = self.map.select(is_submarine_spawn_point=True)
             if spawn_point.count == 1:
                 logger.info(f'[Карта — подлодка] Единственная точка появления подлодки {spawn_point[0]} принята за её позицию')
                 self.fleet_submarine = spawn_point[0].location
             else:
                 logger.info(f'[Карта — подлодка] Обнаружено несколько точек появления подлодки: {spawn_point}')
-                # 尝试被覆盖的格子
+                # Пробуем перекрытые клетки
                 covered = SelectedGrids([])
                 for grid in spawn_point:
                     covered = covered.add(self.map.grid_covered(grid, location=[(0, 1)]))
@@ -860,7 +860,7 @@ class Fleet(Camera, AmbushHandler):
                     self.fleet_submarine = spawn_point[0].location
                 else:
                     logger.info('[Карта — подлодка] Обнаружено несколько перекрытых точек появления подлодки')
-                    # 放弃预测，全面搜索
+                    # Отказ от прогнозирования, полный поиск
                     self.find_all_submarines()
         else:
             logger.warning('[Карта — подлодка] Обнаружено слишком много подлодок: %s' % str(fleets))
@@ -931,7 +931,7 @@ class Fleet(Camera, AmbushHandler):
         self.lv_reset()
         self.lv_get()
         self.ensure_edge_insight(preset=self.map.in_map_swipe_preset_data)
-        self.handle_info_bar()  # "切换到第二舰队" 的信息栏会遮挡弹药图标
+        self.handle_info_bar()  # Информационная панель «Переключиться на второй флот» перекрывает иконку боеприпасов
         self.full_scan(must_scan=self.map.camera_data_spawn_point, mode='init')
         self.find_current_fleet()
         self.find_submarine()
@@ -1151,9 +1151,9 @@ class Fleet(Camera, AmbushHandler):
             self.device.click(grid)
             arrived = False
             # Usually no need to wait
-            # 通常不需要等待
+            # Обычно ожидание не требуется
             arrive_timer = Timer(0.1, count=0)
-            # 如果没有事件发生，重新点击。
+            # Если событий не произошло, кликаем повторно.
             walk_timeout = Timer(2, count=6).start()
 
             while 1:
@@ -1211,7 +1211,7 @@ class Fleet(Camera, AmbushHandler):
         else:
             self.strategy_submarine_move_cancel()
             result = False
-        # 进入潜艇移动模式后，游戏会重新启用狩猎区域视图
+        # После входа в режим перемещения подлодок игра повторно активирует область охоты
         self.strategy_set_execute(sub_view=False)
         self.strategy_close()
         return result
