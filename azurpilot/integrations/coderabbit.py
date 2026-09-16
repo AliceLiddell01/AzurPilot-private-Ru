@@ -55,10 +55,10 @@ _VERSION_OUTPUT_RE = re.compile(
 _MAX_REVIEW_BYTES = 4 * 1024 * 1024
 _MAX_REVIEW_LINES = 512
 _MAX_STATE_BYTES = 32 * 1024
-# Backwards-compatible public name.  The value is a per-cycle budget now.
+# Совместимое публичное имя. Значение теперь является бюджетом одного cycle.
 MAX_REVIEW_ITERATIONS = MAX_SUBSTANTIVE_REVIEWS_PER_CYCLE
 REVIEW_STATE_SCHEMA_VERSION = 2
-# Contract-facing alias used by diagnostics and release reports.
+# Алиас контракта, используемый диагностикой и release-отчётами.
 CODERABBIT_STATE_SCHEMA = REVIEW_STATE_SCHEMA_VERSION
 _MAX_REVIEW_ATTEMPTS = 128
 _RATE_LIMIT_ESTIMATE_SECONDS = 60 * 60 + 60
@@ -702,8 +702,8 @@ def _default_review_state() -> dict[str, object]:
         "cycle_started_at": None,
         "cycle_status": "fresh",
         "substantive_iterations": 0,
-        # Compatibility alias for consumers of schema 1.  It is always the
-        # current cycle counter, never a PR/repository lifetime counter.
+        # Совместимый алиас для потребителей schema 1. Это всегда счётчик
+        # текущего cycle, а не lifetime-счётчик PR или репозитория.
         "iterations": 0,
         "terminal": False,
         "repository_identity": None,
@@ -1924,9 +1924,9 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 ResultCode.TOOLING_VERIFICATION_UNKNOWN,
                 "Состояние CodeRabbit имеет неподдерживаемую версию схемы.",
             )
-        # Schema 1 had no retry timestamp.  If its rate-limit observation has
-        # a bounded timestamp, derive a clearly labelled local estimate once;
-        # this never treats the estimate as provider-authoritative reset time.
+        # В schema 1 не было retry timestamp. Если наблюдение rate limit имеет
+        # bounded timestamp, один раз выводим явно помеченную local estimate;
+        # она никогда не считается authoritative reset time provider.
         if (
             str(payload.get("current_cycle_id", "")).startswith("legacy-coderabbit-")
             and payload.get("provider_state") == _RATE_LIMIT_WAITING
@@ -2395,7 +2395,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
             "cycle_started_at": str(selected_started_at)[:40],
             "cycle_status": resolved_cycle_status[:80],
             "substantive_iterations": iterations,
-            # Compatibility alias; see _default_review_state().
+            # Совместимый алиас; см. _default_review_state().
             "iterations": iterations,
             "last_head": head,
             "terminal": terminal,

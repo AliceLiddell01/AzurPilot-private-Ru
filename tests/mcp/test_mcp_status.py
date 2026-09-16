@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import dev_tools.integration_contract_gate as gate
 import dev_tools.mcp_status as status
 from azurpilot.integrations.contracts import (
     IntegrationEvidence,
@@ -268,12 +269,11 @@ def test_repository_boundary_has_no_toolkit_registration_or_retired_profiles():
     assert "context7_direct" in config
     assert "grafana_direct" in config
     assert "dockerhub_direct" in config
-    assert not (
-        REPOSITORY_ROOT / ".docker" / ("azurpilot-" + "development-profile.json")
-    ).exists()
-    assert not (
-        REPOSITORY_ROOT / ".docker" / ("azurpilot-" + "observability-profile.json")
-    ).exists()
+    assert gate.RETIRED_PROFILE_PATHS
+    assert all(
+        not (REPOSITORY_ROOT / relative).exists()
+        for relative in gate.RETIRED_PROFILE_PATHS
+    )
 
 
 def test_first_party_source_registration_remains_readable():

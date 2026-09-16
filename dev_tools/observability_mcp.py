@@ -71,10 +71,30 @@ def _bounded_arguments(arguments: Mapping[str, object]) -> dict[str, object]:
         raise ObservabilityMcpError("GRAFANA_ARGUMENTS_INVALID") from exc
     if raw_size > MAX_ARGUMENT_BYTES:
         raise ObservabilityMcpError("GRAFANA_ARGUMENTS_TOO_LARGE")
-    result = _safe_value(arguments)
-    if not isinstance(result, dict) or result != dict(arguments):
+
+    def validate(value: object, *, key: str | None = None, depth: int = 0) -> None:
+        if depth > 6 or (key is not None and _SECRET_KEY_RE.search(key)):
+            raise ObservabilityMcpError("GRAFANA_ARGUMENTS_INVALID")
+        if value is None or isinstance(value, (bool, int, float, str)):
+            return
+        if isinstance(value, Mapping):
+            if len(value) > MAX_RESULT_ITEMS:
+                raise ObservabilityMcpError("GRAFANA_ARGUMENTS_INVALID")
+            for raw_key, raw_value in value.items():
+                if not isinstance(raw_key, str) or not _KEY_RE.fullmatch(raw_key):
+                    raise ObservabilityMcpError("GRAFANA_ARGUMENTS_INVALID")
+                validate(raw_value, key=raw_key, depth=depth + 1)
+            return
+        if isinstance(value, (list, tuple)):
+            if len(value) > MAX_RESULT_ITEMS:
+                raise ObservabilityMcpError("GRAFANA_ARGUMENTS_INVALID")
+            for item in value:
+                validate(item, depth=depth + 1)
+            return
         raise ObservabilityMcpError("GRAFANA_ARGUMENTS_INVALID")
-    return result
+
+    validate(arguments)
+    return dict(arguments)
 
 
 def _result_payload(result: object) -> dict[str, object]:

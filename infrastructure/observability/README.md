@@ -706,10 +706,10 @@ provenance и machine-readable reason codes:
     uv run --locked --no-sync python -m dev_tools.mcp_status --json --emit-metrics
     uv run --locked --no-sync python -m dev_tools.mcp_status --watch --interval-seconds 60
 
---strict fail-closed требует clean source, согласованный first-party contract,
-подтверждённую active Codex registration и READY для всех шести direct
-integrations. Отсутствующая внешняя session остаётся not_observable и не
-маскируется как READY.
+--strict fail-closed требует clean source, согласованный first-party contract
+и READY для всех шести direct integrations. `effective_codex_registration`
+остаётся `not_observable` и проверяется отдельной live acceptance; это
+состояние не маскируется под READY.
 
 ### CodeRabbit
 

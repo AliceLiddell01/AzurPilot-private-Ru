@@ -844,7 +844,11 @@ def _surface_samples(
         samples.append(
             MetricSample("azurpilot_mcp_observed_version_info", 1.0, attributes)
         )
-    if ready and probe_timestamp is not None:
+    if (
+        ready
+        and probe_timestamp is not None
+        and surface in {"local_direct", "external_direct"}
+    ):
         samples.append(
             MetricSample(
                 "azurpilot_mcp_last_successful_probe_timestamp_seconds",

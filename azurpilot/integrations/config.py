@@ -116,7 +116,7 @@ _ENV_OVERRIDES = {
 
 @dataclass(frozen=True, slots=True)
 class IntegrationConfig:
-    """Merged settings with provenance labels, never secret values."""
+    """Объединённые настройки с метками источника, без значений секретов."""
 
     values: dict[str, dict[str, object]] = field(default_factory=dict)
     sources: dict[str, str] = field(default_factory=dict)

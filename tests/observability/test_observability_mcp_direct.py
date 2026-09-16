@@ -70,17 +70,12 @@ def test_argument_limit_fails_closed():
     prefix = len(
         json.dumps({"query": ""}, ensure_ascii=False).encode("utf-8")
     )
-    allowed = {"query": "x" * (target.MAX_RESULT_TEXT - prefix)}
+    allowed = {"query": "x" * (target.MAX_ARGUMENT_BYTES - prefix - 1)}
     assert target._bounded_arguments(allowed)["query"]
 
-    at_argument_limit = {"query": "x" * (target.MAX_ARGUMENT_BYTES - prefix)}
-    assert len(json.dumps(at_argument_limit, ensure_ascii=False).encode("utf-8")) == (
-        target.MAX_ARGUMENT_BYTES
+    assert len(json.dumps(allowed, ensure_ascii=False).encode("utf-8")) == (
+        target.MAX_ARGUMENT_BYTES - 1
     )
-    with pytest.raises(
-        target.ObservabilityMcpError, match="GRAFANA_ARGUMENTS_INVALID"
-    ):
-        target._bounded_arguments(at_argument_limit)
 
     with pytest.raises(
         target.ObservabilityMcpError, match="GRAFANA_ARGUMENTS_TOO_LARGE"

@@ -671,7 +671,7 @@ def _render_human(
             console.print(table)
             cycle = getattr(result.details, "coderabbit_cycle", None)
             if cycle is not None:
-                cycle_table = Table(title="CodeRabbit review cycle", expand=True)
+                cycle_table = Table(title="Цикл ревью CodeRabbit", expand=True)
                 cycle_table.add_column("Поле", no_wrap=True)
                 cycle_table.add_column("Значение", overflow="fold")
                 cycle_rows = (

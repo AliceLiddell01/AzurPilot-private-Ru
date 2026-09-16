@@ -1137,6 +1137,10 @@ def _install_fake_coderabbit_runtime(monkeypatch, outputs):
 
         def command(self, *_args, **_kwargs):
             self.calls += 1
+            if not outputs:
+                raise AssertionError(
+                    "Провайдер вызван чаще, чем задано подготовленных выходов."
+                )
             return outputs.pop(0)
 
     runtime = FakeRuntime()
@@ -1415,7 +1419,7 @@ def test_cli_renders_coderabbit_cycle_and_all_findings_in_rich_and_json():
     _render_human(result, stdout, stderr, no_color=True, verbose=False)
 
     rendered = stdout.getvalue()
-    assert "CodeRabbit review cycle" in rendered
+    assert "Цикл ревью CodeRabbit" in rendered
     assert "Сводка замечаний CodeRabbit" in rendered
     assert "бюджет" in rendered
     assert "высокий" in rendered

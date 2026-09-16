@@ -260,10 +260,9 @@ Collector выполняет negotiated local discovery/`tools/list` и
 direct probes для шести внешних adapters с их отдельными transport/config
 evidence. Статическое описание server или endpoint не считается runtime
 readiness. В JSON не попадают URL credentials, headers, secrets, paths или
-полное окружение. Snapshot
-операций ChatGPT намеренно имеет состояние
-`CHATGPT_ACTION_SNAPSHOT_NOT_OBSERVABLE`; его нельзя заменять synthetic или
-локальным evidence.
+полное окружение. Состояние `effective_codex_registration` намеренно может
+оставаться `CODEX_EFFECTIVE_REGISTRATION_NOT_OBSERVABLE`; его нельзя заменять
+synthetic или локальным evidence.
 
 Для bounded периодического наблюдения используй operator-owned foreground
 `--watch` с интервалом `10..3600` секунд. Он не создаёт daemon, не запускает
