@@ -482,10 +482,26 @@ def _coderabbit_progress_callback(stream: TextIO):
     except (ImportError, OSError, RuntimeError, TypeError, ValueError):
         console = None
 
+    phase_labels = {
+        "preflight": "предпроверка",
+        "clone_ready": "clone готов",
+        "provider_preflight": "предпроверка provider",
+        "provider_started": "provider запущен",
+        "provider_running": "provider выполняется",
+        "provider_finished": "provider завершён",
+        "timeout": "тайм-аут",
+        "output_truncated": "вывод усечён",
+        "rate_limited": "ограничение provider",
+        "provider_failed": "ошибка provider",
+        "parse_failed": "ошибка разбора",
+        "complete": "завершено",
+    }
+
     def emit(event: CodeRabbitProgress) -> None:
         line = (
-            f"CodeRabbit | {event.phase} | cycle {event.cycle_id[:16]} | "
-            f"budget {event.substantive_iterations}/3 | {event.message}"
+            f"CodeRabbit | этап {phase_labels.get(event.phase, event.phase)} | "
+            f"цикл {event.cycle_id[:16]} | "
+            f"бюджет {event.substantive_iterations}/3 | {event.message}"
         )
         if console is not None:
             console.print(Text(line))
@@ -659,18 +675,21 @@ def _render_human(
                 cycle_table.add_column("Поле", no_wrap=True)
                 cycle_table.add_column("Значение", overflow="fold")
                 cycle_rows = (
-                    ("cycle", cycle.cycle_id),
-                    ("status", cycle.cycle_status),
+                    ("цикл", cycle.cycle_id),
+                    ("статус", cycle.cycle_status),
                     (
-                        "budget",
+                        "бюджет",
                         f"{cycle.substantive_iterations}/{cycle.substantive_budget}",
                     ),
                     ("provider", cycle.provider_state),
-                    ("rate limited at", cycle.rate_limited_at or "не наблюдалось"),
-                    ("retry not before", cycle.retry_not_before or "не задано"),
-                    ("retry source", cycle.retry_source),
-                    ("last reviewed head", cycle.last_reviewed_head or "не наблюдался"),
-                    ("previous cycles", str(cycle.previous_cycles_retained)),
+                    ("ограничение с", cycle.rate_limited_at or "не наблюдалось"),
+                    ("повторить не ранее", cycle.retry_not_before or "не задано"),
+                    ("источник retry", cycle.retry_source),
+                    (
+                        "последний проверенный head",
+                        cycle.last_reviewed_head or "не наблюдался",
+                    ),
+                    ("сохранённых циклов", str(cycle.previous_cycles_retained)),
                 )
                 for label, value in cycle_rows:
                     cycle_table.add_row(Text(str(label)), Text(str(value)))
@@ -679,9 +698,9 @@ def _render_human(
             if findings:
                 severity_labels = {
                     "critical": "критический",
-                    "major": "major",
-                    "minor": "minor",
-                    "trivial": "trivial",
+                    "major": "высокий",
+                    "minor": "средний",
+                    "trivial": "незначительный",
                     "info": "информация",
                 }
                 disposition_labels = {

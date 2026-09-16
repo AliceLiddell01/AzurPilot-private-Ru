@@ -37,6 +37,8 @@ from .adapters import (
 )
 from .config import IntegrationConfig
 from .contracts import (
+    MAX_RETAINED_REVIEW_CYCLES,
+    MAX_SUBSTANTIVE_REVIEWS_PER_CYCLE,
     CodeRabbitCycleSummary,
     CredentialRef,
     IntegrationFinding,
@@ -53,13 +55,11 @@ _VERSION_OUTPUT_RE = re.compile(
 _MAX_REVIEW_BYTES = 4 * 1024 * 1024
 _MAX_REVIEW_LINES = 512
 _MAX_STATE_BYTES = 32 * 1024
-MAX_SUBSTANTIVE_REVIEWS_PER_CYCLE = 3
 # Backwards-compatible public name.  The value is a per-cycle budget now.
 MAX_REVIEW_ITERATIONS = MAX_SUBSTANTIVE_REVIEWS_PER_CYCLE
 REVIEW_STATE_SCHEMA_VERSION = 2
 # Contract-facing alias used by diagnostics and release reports.
 CODERABBIT_STATE_SCHEMA = REVIEW_STATE_SCHEMA_VERSION
-MAX_RETAINED_REVIEW_CYCLES = 8
 _MAX_REVIEW_ATTEMPTS = 128
 _RATE_LIMIT_ESTIMATE_SECONDS = 60 * 60 + 60
 _RATE_LIMIT_MAX_SECONDS = 7 * 24 * 60 * 60
@@ -69,6 +69,16 @@ _CYCLE_ID_RE = re.compile(r"^(?:coderabbit-cycle|legacy-coderabbit)-[0-9a-f]{16,
 _RETRY_SOURCES = frozenset({"provider", "estimated", "unknown"})
 _RATE_LIMIT_WAITING = "rate_limited_waiting"
 _RATE_LIMIT_RETRY_ALLOWED = "rate_limited_retry_allowed"
+_DEFAULT_FINDING_IMPACT = "CodeRabbit finding требует независимой проверки."
+_DEFAULT_FINDING_RESOLUTION = "Не применено автоматически; требуется независимая проверка."
+_PROVIDER_FINDING_HEADER_RE = re.compile(
+    r"^\s*(critical|major|minor|trivial|info)\s+\[[^\]]{1,160}\]\s*$",
+    re.IGNORECASE,
+)
+_PROVIDER_FINDING_LOCATION_RE = re.compile(
+    r"^\s*→\s+(.+?):[1-9][0-9]*(?:-[1-9][0-9]*)?\s*$"
+)
+_PROVIDER_FINDING_SEPARATOR_RE = re.compile(r"^\s*[─-]{8,}\s*$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -408,7 +418,7 @@ def _parse_finding(raw: object) -> CodeRabbitFinding:
             "details",
             "text",
         ),
-        "CodeRabbit finding требует независимой проверки.",
+        _DEFAULT_FINDING_IMPACT,
         1200,
     )
     disposition = _disposition(
@@ -425,7 +435,7 @@ def _parse_finding(raw: object) -> CodeRabbitFinding:
             "proposed_fix",
             "action",
         ),
-        "Не применено автоматически; требуется независимая проверка.",
+        _DEFAULT_FINDING_RESOLUTION,
         1200,
     )
     return CodeRabbitFinding(
@@ -547,6 +557,134 @@ def parse_agent_ndjson(lines: Iterable[str]) -> ParsedCodeRabbitReview:
     if not complete:
         raise CodeRabbitStreamError("CODERABBIT_STREAM_TRUNCATED")
     return ParsedCodeRabbitReview(tuple(findings), complete=True, unknown_events=tuple(unknown[:16]))
+
+
+def parse_provider_findings_output(output: str) -> tuple[CodeRabbitFinding, ...]:
+    """Разобрать bounded human output штатной команды ``review findings``.
+
+    Agent stream CodeRabbit иногда содержит только path/severity, тогда как
+    эта read-only команда возвращает полный provider comment.  Из неё берётся
+    только bounded title/comment и location; raw output не сохраняется.
+    """
+
+    if not isinstance(output, str) or not output.strip():
+        return ()
+    if len(output.encode("utf-8", errors="replace")) > _MAX_REVIEW_BYTES:
+        return ()
+
+    findings: list[CodeRabbitFinding] = []
+    current: dict[str, object] | None = None
+
+    def flush() -> None:
+        if current is None or len(findings) >= 128:
+            return
+        raw_path = current.get("path")
+        raw_lines = current.get("lines")
+        if not isinstance(raw_path, str) or not isinstance(raw_lines, list):
+            return
+        path = raw_path.strip().replace("\\", "/")
+        try:
+            normalized_path = _finding_path({"path": path})
+        except CodeRabbitStreamError:
+            return
+        cleaned = [
+            line.strip()
+            for line in raw_lines
+            if isinstance(line, str)
+            and line.strip()
+            and not _PROVIDER_FINDING_SEPARATOR_RE.fullmatch(line)
+        ]
+        if not cleaned:
+            return
+        suggestion_index = next(
+            (
+                index
+                for index, line in enumerate(cleaned)
+                if "предлагаемое исправление" in line.casefold()
+            ),
+            None,
+        )
+        impact_lines = cleaned if suggestion_index is None else cleaned[:suggestion_index]
+        resolution_lines = (
+            cleaned[suggestion_index + 1 :]
+            if suggestion_index is not None
+            else []
+        )
+        impact = _bounded_string(
+            " ".join(impact_lines), _DEFAULT_FINDING_IMPACT, 1200
+        )
+        resolution = _bounded_string(
+            " ".join(resolution_lines), _DEFAULT_FINDING_RESOLUTION, 1200
+        )
+        severity = _severity(current.get("severity"))
+        findings.append(
+            CodeRabbitFinding(
+                severity=severity,
+                path=normalized_path,
+                impact=impact,
+                disposition=FindingDisposition.INSUFFICIENT_EVIDENCE,
+                resolution=resolution,
+            )
+        )
+
+    for raw_line in output.splitlines():
+        line = raw_line.rstrip()
+        header = _PROVIDER_FINDING_HEADER_RE.fullmatch(line)
+        if header:
+            flush()
+            current = {"severity": header.group(1), "path": None, "lines": []}
+            continue
+        if current is None:
+            continue
+        location = _PROVIDER_FINDING_LOCATION_RE.fullmatch(line)
+        if location:
+            current["path"] = location.group(1)
+            continue
+        if _PROVIDER_FINDING_SEPARATOR_RE.fullmatch(line):
+            flush()
+            current = None
+            continue
+        lines = current["lines"]
+        if isinstance(lines, list):
+            lines.append(line)
+    flush()
+    return tuple(findings)
+
+
+def _findings_need_provider_enrichment(findings: Iterable[CodeRabbitFinding]) -> bool:
+    return any(
+        finding.impact == _DEFAULT_FINDING_IMPACT
+        for finding in findings
+    )
+
+
+def _enrich_provider_findings(
+    runtime: _WslRuntime,
+    command: str,
+    parsed: ParsedCodeRabbitReview,
+) -> ParsedCodeRabbitReview:
+    """Получить полный bounded comment без запуска новой substantive review."""
+
+    if not parsed.findings or not _findings_need_provider_enrichment(parsed.findings):
+        return parsed
+    try:
+        result = runtime.command(command, "review", "findings", timeout=30)
+    except (OSError, ToolingError, ValueError):
+        return parsed
+    if result.returncode != 0 or result.timed_out or result.stdout_truncated:
+        return parsed
+    detailed = parse_provider_findings_output(result.stdout)
+    if len(detailed) != len(parsed.findings):
+        return parsed
+    if sorted((item.path, item.severity.value) for item in detailed) != sorted(
+        (item.path, item.severity.value) for item in parsed.findings
+    ):
+        return parsed
+    return ParsedCodeRabbitReview(
+        detailed,
+        complete=parsed.complete,
+        unknown_events=parsed.unknown_events,
+    )
 
 
 def review_iteration_allowed(iterations: int, *, terminal: bool = False) -> bool:
@@ -2861,6 +2999,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
                     else IntegrationState.UNKNOWN,
                 )
             )
+        parsed = _enrich_provider_findings(runtime, command, parsed)
         if not parsed.complete:
             self._save_state(
                 root,
@@ -2995,6 +3134,7 @@ __all__ = [
     "WslReviewEnvironment",
     "WslSelection",
     "parse_agent_ndjson",
+    "parse_provider_findings_output",
     "parse_wsl_verbose",
     "review_iteration_allowed",
     "select_wsl_distribution",

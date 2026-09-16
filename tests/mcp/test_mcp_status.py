@@ -181,6 +181,13 @@ def test_json_report_and_metric_labels_are_bounded(monkeypatch):
     ]
     assert configured
     assert all(sample.value == 1.0 for sample in configured)
+    codex_effective = [
+        sample
+        for sample in samples
+        if sample.attributes["surface"] == "codex_effective"
+    ]
+    assert codex_effective
+    assert all(sample.attributes["required_runtime"] == "0" for sample in codex_effective)
     assert all(
         set(sample.attributes)
         <= {"server", "surface", "version", "protocol", "required_runtime"}

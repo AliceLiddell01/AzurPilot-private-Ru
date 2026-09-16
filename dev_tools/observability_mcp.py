@@ -72,7 +72,7 @@ def _bounded_arguments(arguments: Mapping[str, object]) -> dict[str, object]:
     if raw_size > MAX_ARGUMENT_BYTES:
         raise ObservabilityMcpError("GRAFANA_ARGUMENTS_TOO_LARGE")
     result = _safe_value(arguments)
-    if not isinstance(result, dict):
+    if not isinstance(result, dict) or result != dict(arguments):
         raise ObservabilityMcpError("GRAFANA_ARGUMENTS_INVALID")
     return result
 
@@ -158,7 +158,7 @@ async def _read_only_grafana_tool_call_async(
         raise
     except TimeoutError as exc:
         raise ObservabilityMcpError("GRAFANA_DIRECT_PROBE_TIMEOUT") from exc
-    except Exception as exc:  # noqa: BLE001 - bounded direct transport boundary.
+    except Exception as exc:
         raise ObservabilityMcpError("GRAFANA_DIRECT_TOOL_CALL_FAILED") from exc
     return _result_payload(result)
 
@@ -228,14 +228,14 @@ if __name__ == "__main__":
 
 __all__ = [
     "GRAFANA_BLOCKED_TOOLS",
+    "GRAFANA_DIRECT_TIMEOUT_SECONDS",
     "GRAFANA_READ_ONLY_TOOLS",
     "MAX_ARGUMENT_BYTES",
     "MAX_RESULT_ITEMS",
     "MAX_RESULT_TEXT",
-    "GRAFANA_DIRECT_TIMEOUT_SECONDS",
     "ObservabilityMcpError",
-    "read_only_grafana_tool_call",
     "_read_only_grafana_tool_call_async",
     "direct_grafana_status",
     "main",
+    "read_only_grafana_tool_call",
 ]

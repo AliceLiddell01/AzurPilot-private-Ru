@@ -900,7 +900,7 @@ def status_metric_samples(report: Mapping[str, object]) -> tuple[MetricSample, .
                             server=name,
                             surface="codex_effective",
                             value=effective,
-                            required=True,
+                            required=False,
                             probe_timestamp=probe_timestamp,
                         )
                     )

@@ -32,16 +32,18 @@ def test_unknown_tool_is_rejected_before_transport(monkeypatch):
 
 
 def test_arguments_and_provider_payload_are_bounded_and_redacted():
-    arguments = target._bounded_arguments(
-        {
-            "query": "up",
-            "token": "fixture-token",
-            "nested": {"password": "fixture-password"},
-        }
-    )
-    assert arguments["token"] == "<redacted>"
-    assert arguments["nested"]["password"] == "<redacted>"
-    assert "fixture-token" not in str(arguments)
+    with pytest.raises(
+        target.ObservabilityMcpError, match="GRAFANA_ARGUMENTS_INVALID"
+    ):
+        target._bounded_arguments(
+            {
+                "query": "up",
+                "token": "fixture-token",
+                "nested": {"password": "fixture-password"},
+            }
+        )
+
+    assert target._bounded_arguments({"query": "up"}) == {"query": "up"}
 
     result = target._result_payload(
         SimpleNamespace(
@@ -57,15 +59,28 @@ def test_arguments_and_provider_payload_are_bounded_and_redacted():
     assert "fixture-token" not in str(result)
 
 
+def test_argument_sanitization_cannot_change_call_payload():
+    with pytest.raises(
+        target.ObservabilityMcpError, match="GRAFANA_ARGUMENTS_INVALID"
+    ):
+        target._bounded_arguments({"query": "x", "nested": {"token": "secret"}})
+
+
 def test_argument_limit_fails_closed():
     prefix = len(
         json.dumps({"query": ""}, ensure_ascii=False).encode("utf-8")
     )
-    allowed = {"query": "x" * (target.MAX_ARGUMENT_BYTES - prefix)}
-    assert len(json.dumps(allowed, ensure_ascii=False).encode("utf-8")) == (
+    allowed = {"query": "x" * (target.MAX_RESULT_TEXT - prefix)}
+    assert target._bounded_arguments(allowed)["query"]
+
+    at_argument_limit = {"query": "x" * (target.MAX_ARGUMENT_BYTES - prefix)}
+    assert len(json.dumps(at_argument_limit, ensure_ascii=False).encode("utf-8")) == (
         target.MAX_ARGUMENT_BYTES
     )
-    assert target._bounded_arguments(allowed)["query"]
+    with pytest.raises(
+        target.ObservabilityMcpError, match="GRAFANA_ARGUMENTS_INVALID"
+    ):
+        target._bounded_arguments(at_argument_limit)
 
     with pytest.raises(
         target.ObservabilityMcpError, match="GRAFANA_ARGUMENTS_TOO_LARGE"

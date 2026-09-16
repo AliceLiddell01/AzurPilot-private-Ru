@@ -248,6 +248,32 @@ def test_agent_ndjson_preserves_coderabbit_issue_and_suggested_fix_text():
     assert "требует независимой проверки" not in finding.impact
 
 
+def test_provider_findings_output_preserves_full_comment_and_location():
+    parsed = coderabbit.parse_provider_findings_output(
+        """
+  major [Functional Correctness]
+  → dev_tools/observability_mcp.py:74-77
+
+  Не изменяйте аргументы вызова функцией санитизации вывода.
+
+  Отклоняйте такие аргументы fail-closed вместо молчаливой подмены.
+
+
+  🔒 Предлагаемое исправление
+
+  result != dict(arguments)
+────────────────────────────────────────────────────────────────────────
+"""
+    )
+
+    assert len(parsed) == 1
+    assert parsed[0].severity.value == "major"
+    assert parsed[0].path == "dev_tools/observability_mcp.py"
+    assert "Отклоняйте такие аргументы" in parsed[0].impact
+    assert "result != dict(arguments)" in parsed[0].resolution
+    assert parsed[0].impact != "CodeRabbit finding требует независимой проверки."
+
+
 def test_agent_ndjson_unknown_event_is_diagnostic_not_finding():
     parsed = coderabbit.parse_agent_ndjson(
         [json.dumps({"type": "future_status"}), json.dumps({"type": "complete"})]
@@ -1391,6 +1417,8 @@ def test_cli_renders_coderabbit_cycle_and_all_findings_in_rich_and_json():
     rendered = stdout.getvalue()
     assert "CodeRabbit review cycle" in rendered
     assert "Сводка замечаний CodeRabbit" in rendered
+    assert "бюджет" in rendered
+    assert "высокий" in rendered
     assert "bounded" in rendered
     payload = result.model_dump_json()
     assert '"coderabbit_cycle"' in payload
