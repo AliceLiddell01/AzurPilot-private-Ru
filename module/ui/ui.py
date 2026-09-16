@@ -68,7 +68,7 @@ class UI(InfoHandler):
         """
         if page == page_main:
             return self.appear(page_main.check_button, offset=(5, 5), interval=interval)
-        # 英文本地化导致学院标题字体宽度变化，需要额外检查其他按钮
+        # Английская локализация меняет ширину шрифта заголовка академии; требуется дополнительная проверка других кнопок
         if self.config.SERVER == 'en' and page == page_academy:
             if self.appear(ACADEMY_GOTO_MUNITIONS, offset=offset, interval=interval):
                 return True
@@ -219,11 +219,11 @@ class UI(InfoHandler):
             else:
                 self.device.screenshot()
 
-            # 超时退出
+            # Выход по таймауту
             if timeout.reached():
                 break
 
-            # 已知页面检测
+            # Определение известной страницы
             for page in Page.iter_pages():
                 if page.check_button is None:
                     continue
@@ -232,7 +232,7 @@ class UI(InfoHandler):
                     self.ui_current = page
                     return page
 
-            # 未知页面但可以处理
+            # Неизвестная страница, которую можно обработать
             logger.info("[UI] Неизвестная страница интерфейса")
             if self.appear_then_click(GOTO_MAIN, offset=(30, 30), interval=2):
                 timeout.reset()
@@ -249,12 +249,12 @@ class UI(InfoHandler):
 
             app_check()
             minicap_check()
-            # 持续检查屏幕旋转
+            # Постоянная проверка ориентации экрана
             if orientation_timer.reached():
                 self.device.get_orientation()
                 orientation_timer.reset()
 
-        # 未知页面，需要手动切换
+        # Неизвестная страница: требуется ручное переключение
         logger.warning("[UI] Неизвестная страница интерфейса")
         logger.attr("Метод снимка экрана", self.config.Emulator_ScreenshotMethod)
         logger.attr("Метод управления", self.config.Emulator_ControlMethod)
@@ -268,7 +268,7 @@ class UI(InfoHandler):
                         "Если даже это не получается — проще удалить аккаунт и не мучиться.")
         logger.critical("[UI] Понял, бестолочь? Не трать больше мои вычислительные ресурсы — исправляй!")
         
-        # 未知页面自动重启
+        # Автоматический перезапуск при неизвестной странице
         logger.warning("[UI] Обнаружена неизвестная страница; пытаемся перезапустить игру")
         from module.handler.login import LoginHandler
         login_handler = LoginHandler(config=self.config, device=self.device)
@@ -289,7 +289,7 @@ class UI(InfoHandler):
             offset: 匹配偏移量。
             skip_first_screenshot: 是否跳过首次截图。
         """
-        # 初始化页面连接
+        # Инициализация связей страниц
         Page.init_connection(destination)
         self.interval_clear(list(Page.iter_check_buttons()))
 
@@ -301,17 +301,17 @@ class UI(InfoHandler):
             else:
                 self.device.screenshot()
 
-            # 到达目标页面
+            # Достигли целевой страницы
             if self.ui_page_appear(page=destination, offset=offset):
                 logger.info(f'[UI] Достигнута страница: {destination}')
                 break
-            # 主界面新旧主题互为等价：目标为任一主界面时，
-            # 检测到另一主题也视为到达
+            # Новая и старая темы главного экрана взаимно эквивалентны: если цель — любой главный экран,
+            # обнаружение другой темы также считается прибытием
             if destination in (page_main, page_main_white) and self.is_in_main():
                 logger.info(f'[UI] Достигнута страница: {destination}')
                 break
 
-            # 其他页面：按 A* 路径点击导航
+            # Другие страницы: переходим кликами по маршруту A*
             clicked = False
             for page in Page.iter_pages():
                 if page.parent is None or page.check_button is None:
@@ -326,11 +326,11 @@ class UI(InfoHandler):
             if clicked:
                 continue
 
-            # 处理额外弹窗
+            # Обработка дополнительных всплывающих окон
             if self.ui_additional(get_ship=get_ship):
                 continue
 
-        # 重置页面连接
+        # Сброс связей страниц
         Page.clear_connection()
 
     def ui_ensure(self, destination, skip_first_screenshot=True):
@@ -349,7 +349,7 @@ class UI(InfoHandler):
         if self.ui_current == destination:
             logger.info("[UI] Уже на странице %s" % destination)
             return False
-        # 主界面新旧主题互为等价
+        # Новая и старая темы главного экрана взаимно эквивалентны
         if {self.ui_current, destination} == {page_main, page_main_white}:
             logger.info("[UI] Уже на странице %s (эквивалентный главный экран)" % destination)
             return False
@@ -437,11 +437,11 @@ class UI(InfoHandler):
         Args:
             get_ship: 是否处理获得舰船的弹窗。
         """
-        # 大舰队弹窗
+        # Окно гильдии
         if self.handle_guild_popup_cancel():
             return True
 
-        # 每日重置公告
+        # Объявление о ежедневном сбросе
         if self.appear_then_click(LOGIN_ANNOUNCE, offset=(30, 30), interval=3):
             return True
         if self.appear_then_click(LOGIN_ANNOUNCE_2, offset=(30, 30), interval=3):
@@ -459,28 +459,28 @@ class UI(InfoHandler):
             logger.info(f'[UI — Дополнительно] {EVENT_LIST_CHECK} -> {GOTO_MAIN}')
             if self.appear_then_click(GOTO_MAIN, offset=(30, 30)):
                 return True
-        # 月卡即将到期
+        # Месячный пропуск скоро истекает
         if self.appear_then_click(MONTHLY_PASS_NOTICE, offset=(30, 30), interval=3):
             return True
-        # 通行券即将到期且玩家有未领取的通行券奖励
+        # Срок боевого пропуска истекает и есть несобранные награды пропуска
         if self.appear_then_click(BATTLE_PASS_NOTICE, offset=(30, 30), interval=3):
             return True
-        # 购买通行券的广告弹窗
-        # 2024.12.19，主界面的 PURCHASE_POPUP 变为 BATTLE_PASS_NEW_SEASON
+        # Рекламное окно покупки боевого пропуска
+        # 2024.12.19: окно PURCHASE_POPUP на главном экране заменено на BATTLE_PASS_NEW_SEASON
         # if self.appear_then_click(PURCHASE_POPUP, offset=(44, -77, 84, -37), interval=3):
         #     return True
-        # 通行券新赛季通知弹窗
+        # Окно уведомления о новом сезоне боевого пропуска
         if self.appear(BATTLE_PASS_NEW_SEASON, offset=(30, 30), interval=3):
             logger.info(f'[UI — Дополнительно] {BATTLE_PASS_NEW_SEASON} -> {BACK_ARROW}')
             self.device.click(BACK_ARROW)
             return True
-        # 物品过期 offset=(37, 72)，皮肤过期 offset=(24, 68)
+        # Истечение срока предметов: offset=(37, 72), истечение срока обликов: offset=(24, 68)
         if self.handle_popup_single(offset=(-6, 48, 54, 88), name='ITEM_EXPIRED'):
             return True
-        # 邮箱已满弹窗
+        # Окно переполнения почтового ящика
         if self.handle_popup_single_white():
             return True
-        # 从确认点击误入的页面
+        # Страница, открытая ошибочным кликом по подтверждению
         if self.appear(SHIPYARD_CHECK, offset=(30, 30), interval=5):
             logger.info(f'[UI — Дополнительно] {SHIPYARD_CHECK} -> {GOTO_MAIN}')
             if self.appear_then_click(GOTO_MAIN, offset=(30, 30)):
@@ -489,7 +489,7 @@ class UI(InfoHandler):
             logger.info(f'[UI — Дополнительно] {META_CHECK} -> {GOTO_MAIN}')
             if self.appear_then_click(GOTO_MAIN, offset=(30, 30)):
                 return True
-        # 误点击
+        # Случайный клик
         if self.appear(PLAYER_CHECK, offset=(30, 30), interval=3):
             logger.info(f'[UI — Дополнительно] {PLAYER_CHECK} -> {GOTO_MAIN}')
             if self.appear_then_click(GOTO_MAIN, offset=(30, 30)):
@@ -503,11 +503,11 @@ class UI(InfoHandler):
         """
         处理大世界页面出现的弹窗。
         """
-        # 大世界重置流程：
-        # - 大世界已重置，handle_story_skip() 点击确认
-        # - RESET_TICKET_POPUP 弹窗
-        # - 是否打开兑换商店？handle_popup_confirm() 点击确认
-        # - EXCHANGE_CHECK 页面，点击返回箭头
+        # Процесс сброса Operation Siren:
+        # - Operation Siren сброшен, handle_story_skip() нажимает подтверждение
+        # - всплывающее окно RESET_TICKET_POPUP
+        # - открыть магазин обмена? handle_popup_confirm() нажимает подтверждение
+        # - страница EXCHANGE_CHECK, клик по стрелке «Назад»
         if self._opsi_reset_fleet_preparation_click >= 5:
             logger.critical("[UI] Не удаётся подтвердить флот для выхода в Operation Siren. Дядя, ты всё ещё кликаешь? В «крота» играешь? Ну и позорище!")
             logger.critical("[UI] Ой-ой, дядя, ты ослеп или думать разучился? #1: проверьте, настроен ли флот в Operation Siren")
@@ -535,37 +535,37 @@ class UI(InfoHandler):
         Args:
             get_ship: 是否处理获得舰船的弹窗。
         """
-        # 大世界页面弹窗
-        # 包含 popup_confirm 变体，必须优先处理
+        # Всплывающие окна на страницах Operation Siren
+        # Содержит вариант popup_confirm, обрабатывается в первую очередь
         if self.ui_page_os_popups():
             return True
 
-        # 科研弹窗、断线重连弹窗
+        # Окна исследований, окна переподключения при разрыве связи
         if self.handle_popup_confirm("UI_ADDITIONAL"):
             return True
         if self.handle_urgent_commission():
             return True
 
-        # 主界面和奖励页面弹窗
-        # 仅在非岛屿页面时处理，避免岛屿页面的 UI 元素被误检测为 GET_SHIP/GET_ITEMS
-        # 例如岛屿管理界面的邮箱按钮与 GET_SHIP 检测区域 (1104,610,1110,630) 重叠
+        # Окна главного экрана и страницы наград
+        # Обрабатываем только вне страниц острова, чтобы элементы интерфейса острова не распознавались как GET_SHIP/GET_ITEMS
+        # Например, кнопка почты в интерфейсе управления островом пересекается с областью детекции GET_SHIP (1104,610,1110,630)
         if not (hasattr(self, 'ui_current') and self.ui_current and 'island' in self.ui_current.name):
             if self.ui_page_main_popups(get_ship=get_ship):
                 return True
 
-        # 剧情跳过
+        # Пропуск сюжета
         if self.handle_story_skip():
             return True
 
-        # 游戏提示
-        # 度假村的活动委托提示
-        # 2025.05.29 进入船坞时出现的皮肤功能提示
+        # Игровые подсказки
+        # Подсказка о поручениях события курорта
+        # 2025.05.29: подсказка о функции обликов при входе в док
         if self.appear(GAME_TIPS, offset=(30, 30), interval=2):
             logger.info(f'[UI — Дополнительно] {GAME_TIPS} -> {GOTO_MAIN}')
             self.device.click(GOTO_MAIN)
             return True
 
-        # 后宅弹窗
+        # Окна общежития
         if self.appear(DORM_INFO, offset=(30, 30), similarity=0.75, interval=3):
             self.device.click(DORM_INFO)
             return True
@@ -574,7 +574,7 @@ class UI(InfoHandler):
         if self.appear_then_click(DORM_TROPHY_CONFIRM, offset=(30, 30), interval=3):
             return True
 
-        # 指挥喵弹窗
+        # Окна кошачьих офицеров
         if self.appear_then_click(MEOWFFICER_INFO, offset=(30, 30), interval=3):
             self.interval_reset(GET_SHIP)
             return True
@@ -584,7 +584,7 @@ class UI(InfoHandler):
             self.interval_reset(GET_SHIP)
             return True
 
-        # 战役准备界面
+        # Экран подготовки к бою
         if self.appear(MAP_PREPARATION, offset=(30, 30), interval=3) \
                 or self.appear(FLEET_PREPARATION, offset=(20, 50), interval=3) \
                 or self.appear(RAID_FLEET_PREPARATION, offset=(30, 30), interval=3):
@@ -595,14 +595,14 @@ class UI(InfoHandler):
         if self.appear_then_click(AUTO_SEARCH_REWARD, offset=(50, 50), interval=3):
             return True
         if self.appear(WITHDRAW, offset=(30, 30), interval=3):
-            # 此处等待是为了处理 2022-04-07 游戏更新后的客户端 bug
-            # 复现步骤（100% 成功）：
-            # - 进入任意关卡，如 12-4
-            # - 停止并重启游戏
-            # - 运行 Alas 的 Main 任务
-            # - Alas 切换到 page_campaign 并从已有关卡撤退
-            # - 游戏客户端在 page_campaign W12 界面卡死，点击屏幕无响应
-            # - 再次重启游戏客户端可修复此问题
+            # Это ожидание добавлено для обхода бага клиента после обновления игры 2022-04-07
+            # Шаги воспроизведения (100% стабильно):
+            # - войти на любой уровень, например 12-4
+            # - остановить и перезапустить игру
+            # - запустить задачу Main в Alas
+            # - Alas переходит на page_campaign и отступает с существующего уровня
+            # - клиент игры зависает на экране page_campaign W12, не реагируя на клики
+            # - повторный перезапуск клиента игры решает проблему
             logger.info("[UI — Дополнительно] Обнаружена кнопка отступления; ожидаем загрузку карты, чтобы избежать ошибки клиента игры")
             self.device.sleep(2)
             self.device.screenshot()
@@ -613,28 +613,28 @@ class UI(InfoHandler):
                 logger.warning("[UI — Дополнительно] Кнопка отступления больше не отображается")
                 self.interval_reset(WITHDRAW)
 
-        # 登录相关
+        # Связанное с авторизацией
         if self.appear_then_click(LOGIN_CHECK, offset=(30, 30), interval=3):
             return True
         if self.appear_then_click(MAINTENANCE_ANNOUNCE, offset=(30, 30), interval=3):
             return True
 
-        # 误点击
+        # Случайный клик
         if self.appear(EXERCISE_PREPARATION, interval=3):
             logger.info(f'[UI — Дополнительно] {EXERCISE_PREPARATION} -> {GOTO_MAIN}')
             self.device.click(GOTO_MAIN)
             return True
 
-        # RPG 活动 (raid_20240328)
+        # RPG-событие (raid_20240328)
         # if self.appear_then_click(RPG_STATUS_POPUP, offset=(30, 30), interval=3):
         #     return True
-        # 医院活动 (20250327)
+        # Госпитальное событие (20250327)
         # if self.appear_then_click(HOSIPITAL_CLUE_CHECK, offset=(20, 20), interval=2):
         #     return True
         # if self.appear_then_click(HOSPITAL_BATTLE_EXIT, offset=(20, 20), interval=2):
         #     return True
-        # 霓虹都市 (coalition_20250626)
-        # 时尚联动 (coalition_20260122) 复用 NEONCITY
+        # Неоновый город (coalition_20250626)
+        # Модная коллаборация (coalition_20260122) переиспользует NEONCITY
         # if self.appear(NEONCITY_FLEET_PREPARATION, offset=(20, 20), interval=3):
         #     logger.info(f'{NEONCITY_FLEET_PREPARATION} -> {NEONCITY_PREPARATION_EXIT}')
         #     self.device.click(NEONCITY_PREPARATION_EXIT)
@@ -643,10 +643,10 @@ class UI(InfoHandler):
         # if self.appear_then_click(DAL_DIFFICULTY_EXIT, offset=(20, 20), interval=3):
         #     return True
 
-        # 空闲页面
+        # Страница ожидания
         if self.handle_idle_page():
             return True
-        # 白色主题 UI 切换，无偏移量仅颜色匹配
+        # Переключение светлой темы UI: без смещения, только сопоставление по цвету
         if self.appear(MAIN_GOTO_MEMORIES_WHITE, interval=3):
             logger.info(f'[UI — Дополнительно] {MAIN_GOTO_MEMORIES_WHITE} -> {MAIN_TAB_SWITCH_WHITE}')
             self.device.click(MAIN_TAB_SWITCH_WHITE)
@@ -705,7 +705,7 @@ class UI(InfoHandler):
             self.interval_reset(REWARD_GOTO_TACTICAL)
         if button in [MAIN_GOTO_CAMPAIGN, MAIN_GOTO_CAMPAIGN_WHITE]:
             self.interval_reset(GET_SHIP)
-            # 信浓活动与突袭有相同的标题
+            # Событие Синано и рейд имеют одинаковый заголовок
             self.interval_reset(RAID_CHECK)
         if button == SHOP_GOTO_SUPPLY_PACK:
             self.interval_reset(EXCHANGE_CHECK)
