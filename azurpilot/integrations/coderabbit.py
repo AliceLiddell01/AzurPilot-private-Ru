@@ -248,6 +248,15 @@ def _parse_finding(raw: object) -> CodeRabbitFinding:
     )
 
 
+def _finding_event_payload(event: dict[str, object]) -> object:
+    nested = event.get("finding")
+    if not isinstance(nested, dict):
+        return nested if nested is not None else event
+    payload = {key: value for key, value in event.items() if key != "finding"}
+    payload.update(nested)
+    return payload
+
+
 def _complete_findings(
     event: dict[str, object], findings: list[CodeRabbitFinding]
 ) -> tuple[CodeRabbitFinding, ...]:
@@ -313,7 +322,7 @@ def parse_agent_ndjson(lines: Iterable[str]) -> ParsedCodeRabbitReview:
             raise CodeRabbitStreamError("CODERABBIT_EVENT_INVALID")
         kind = event.get("type") or event.get("event") or event.get("kind")
         if kind == "finding":
-            findings.append(_parse_finding(event.get("finding", event)))
+            findings.append(_parse_finding(_finding_event_payload(event)))
             if len(findings) > 128:
                 raise CodeRabbitStreamError("CODERABBIT_FINDINGS_TOO_LARGE")
         elif kind == "complete" or event.get("status") == "complete":
@@ -375,6 +384,7 @@ class _WslRuntime:
         self.home = home
         self.clone = clone
         self.path = path
+        self.coderabbit_executable = coderabbit_executable
         self.coderabbit_command = coderabbit_command
         self.environment = WslReviewEnvironment(
             distro_name=distro,
@@ -866,9 +876,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
             coderabbit_command="",
             path=path,
         )
-        ok, reason = CodeRabbitAdapter()._verify_clone_identity(
-            runtime, expected_repository
-        )
+        ok, reason = CodeRabbitAdapter._verify_clone_identity(runtime, expected_repository)
         if not ok:
             return None, reason
         configured_executable = settings.get("executable")
@@ -894,7 +902,6 @@ class CodeRabbitAdapter(IntegrationAdapter):
             coderabbit_executable=candidate_path,
             repository_identity=expected_repository,
         )
-        runtime.coderabbit_executable = candidate_path
         runtime.coderabbit_command = candidate_path
         realpath_result = runtime.command("realpath", clone, timeout=30)
         if (
@@ -905,9 +912,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
             or realpath_result.stdout.strip() != clone.rstrip("/")
         ):
             return None, "CODERABBIT_REVIEW_CLONE_NOT_CANONICAL"
-        ok, reason = CodeRabbitAdapter()._verify_clone_state(
-            runtime, expected_repository
-        )
+        ok, reason = CodeRabbitAdapter._verify_clone_state(runtime, expected_repository)
         if not ok:
             return None, reason
         return runtime, None
@@ -1174,8 +1179,9 @@ class CodeRabbitAdapter(IntegrationAdapter):
             ),
         )
 
+    @staticmethod
     def _verify_clone_identity(
-        self, runtime: _WslRuntime, expected_repository: str | None
+        runtime: _WslRuntime, expected_repository: str | None
     ) -> tuple[bool, str]:
         """Подтвердить canonical origin до проверки dirty/head состояния."""
 
@@ -1207,13 +1213,15 @@ class CodeRabbitAdapter(IntegrationAdapter):
             return False, "CODERABBIT_REVIEW_REMOTE_MISMATCH"
         return True, "CODERABBIT_REVIEW_CLONE_IDENTITY_READY"
 
+    @staticmethod
     def _verify_clone_state(
-        self,
         runtime: _WslRuntime,
         expected_repository: str | None,
         expected_head: str | None = None,
     ) -> tuple[bool, str]:
-        identity_ok, identity_reason = self._verify_clone_identity(runtime, expected_repository)
+        identity_ok, identity_reason = CodeRabbitAdapter._verify_clone_identity(
+            runtime, expected_repository
+        )
         if not identity_ok:
             return False, identity_reason
         checks = {

@@ -181,6 +181,26 @@ def test_agent_ndjson_accepts_complete_finding_count():
     assert len(parsed.findings) == 1
 
 
+def test_agent_ndjson_preserves_top_level_finding_comment():
+    parsed = coderabbit.parse_agent_ndjson(
+        [
+            json.dumps(
+                {
+                    "type": "finding",
+                    "comment": "Комментарий находится на уровне события.",
+                    "finding": {
+                        "path": "azurpilot/integrations/coderabbit.py",
+                        "severity": "minor",
+                    },
+                }
+            ),
+            json.dumps({"type": "complete", "findings": 1}),
+        ]
+    )
+
+    assert "уровне события" in parsed.findings[0].impact
+
+
 def test_agent_ndjson_unknown_event_is_diagnostic_not_finding():
     parsed = coderabbit.parse_agent_ndjson(
         [json.dumps({"type": "future_status"}), json.dumps({"type": "complete"})]

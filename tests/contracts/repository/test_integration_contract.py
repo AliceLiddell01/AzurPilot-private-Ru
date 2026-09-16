@@ -15,6 +15,7 @@ def test_permanent_direct_integration_contract_is_ready():
 
 
 def test_permanent_contract_has_no_retired_profile_paths():
+    assert gate.RETIRED_PROFILE_PATHS
     assert all(
         not (REPOSITORY_ROOT / relative).exists()
         for relative in gate.RETIRED_PROFILE_PATHS
