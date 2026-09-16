@@ -59,10 +59,10 @@ def get_research_series_old(image, series_button=RESEARCH_SERIES):
         list[int]: 5 个项目的系列编号列表，如 [1, 1, 1, 2, 3]。
     """
     result = []
-    # 设置 'prominence = 50' 以忽略可能的噪声。
-    # 2021.07.18 自 07.15 维护后，字母 IV 比 I、II、III 更小。
-    #   IV 中 "V" 的 "/" 因抗锯齿变得更暗。
-    #   因此将高度降低到 160 以获得更好的检测效果。
+    # Устанавливаем 'prominence = 50' для фильтрации возможных шумов.
+    # 2021.07.18: после техобслуживания 07.15 цифра IV стала меньше, чем I, II, III.
+    #   Наклонная черта '/' в 'V' внутри 'IV' стала темнее из-за сглаживания.
+    #   Поэтому высота снижена до 160 для лучшей детекции.
     parameters = {'height': 160, 'prominence': 50, 'width': 1}
 
     for button in series_button:
@@ -71,7 +71,7 @@ def get_research_series_old(image, series_button=RESEARCH_SERIES):
         upper, lower = max(peaks), min(peaks)
         # print(peaks)
 
-        # 去除类似 [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 2] 的噪声
+        # Удаление шумов вида [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 2]
         if upper == 3 and lower == 2 and peaks.count(3) <= 2:
             upper = 2
 
@@ -204,9 +204,9 @@ def get_research_finished(image):
             continue
         color_index = np.argmax(color)  # R, G, B
         if color_index == 1:
-            return index  # 绿色
+            return index  # Зеленый
         elif color_index == 2:
-            continue  # 蓝色
+            continue  # Синий
         else:
             logger.warning(f'[Исследование — состояние] Неожиданный цвет: {color}')
             continue
@@ -274,17 +274,17 @@ def get_research_series_jp_old(image):
     Returns:
         str: 系列标识，如 "S4"。
     """
-    # 设置 'prominence = 50' 以忽略可能的噪声。
+    # Устанавливаем 'prominence = 50' для фильтрации возможных шумов.
     parameters = {'height': 160, 'prominence': 50, 'width': 1}
 
     area = SERIES_DETAIL.area
-    # JP 服务器只需检查一个区域，无需缩放。
+    # На сервере JP проверяется только одна область, масштабирование не требуется.
     im = color_similarity_2d(crop(image, area, copy=False), color=(255, 255, 255))
     peaks = [len(signal.find_peaks(row, **parameters)[0]) for row in im[5:-5]]
     upper, lower = max(peaks), min(peaks)
     # print(upper, lower)
 
-    # 去除类似 [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 2] 的噪声
+    # Удаление шумов вида [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 2]
     if upper == 3 and lower == 2 and peaks.count(3) <= 2:
         upper = 2
 
@@ -390,7 +390,7 @@ def get_research_cost_jp(image):
                 costs[cost] = True
                 continue
 
-    # 重命名键以匹配 ResearchProjectJp 的属性名
+    # Переименование ключей в соответствии со свойствами ResearchProjectJp
     costs['need_coin'] = costs.pop('coin')
     costs['need_cube'] = costs.pop('cube')
     costs['need_part'] = costs.pop('plate')
@@ -580,14 +580,14 @@ class ResearchProject:
         self.number = ''
         # '0.5'
         self.duration = '24'
-        # 舰船头像，如 'Azuma'
+        # Аватар корабля, например 'Azuma'
         self.ship = ''
-        # 'dr' 或 'pry'
+        # 'dr' или 'pry'
         self.ship_rarity = ''
         self.need_coin = False
         self.need_cube = False
         self.need_part = False
-        # 项目要求，如 'Scrap 8 pieces of gear.'
+        # Требование проекта, например 'Scrap 8 pieces of gear.'
         self.task = ''
 
         matched = False
@@ -664,9 +664,9 @@ class ResearchProject:
             # LC-038-RF -> C-038-RF
             prefix = prefix.replace('LC', 'C')
 
-            # S3 D-022-MI (S3-Drake-0.5) 因 Drake 的白色衣物被识别为 'D-022-ML'
+            # S3 D-022-MI (S3-Drake-0.5) распознается как 'D-022-ML' из-за белой одежды Drake
             suffix = suffix.replace('ML', 'MI').replace('MIL', 'MI').replace('M1', 'MI')
-            # S4 D-063-UL (S4-hakuryu-0.5) 被识别为 'D-063-0C'
+            # S4 D-063-UL (S4-hakuryu-0.5) распознается как 'D-063-0C'
             # D-057-DC -> D-057-UL
             suffix = suffix.replace('0C', 'UL').replace('UC', 'UL')
             suffix = suffix.replace('DC5', 'UL').replace('DC3', 'UL').replace('DC', 'UL')
@@ -675,14 +675,14 @@ class ResearchProject:
 
             if suffix == 'U':
                 suffix = 'UL'
-            # TW 服务器 OCR 错误，将 B 转换为 D
+            # Ошибка OCR на сервере TW: замена B на D
             if prefix == 'B' and number in ResearchProject.D_PROJECT_NUMBERS:
-                # 保留 B-397-RF，S7 D-397-MI 和 S* B-397-RF 共享 397
+                # Сохраняем B-397-RF: S7 D-397-MI и S* B-397-RF делят номер 397
                 if number == '397' and suffix == 'RF':
                     pass
                 else:
                     prefix = 'D'
-            # I-483-RF 修正为 -483-RF -> D-483-RF
+            # I-483-RF корректируется в -483-RF -> D-483-RF
             if prefix == '' and number in ResearchProject.D_PROJECT_NUMBERS:
                 prefix = 'D'
             # L-153-MI -> C-153-MI
@@ -690,7 +690,7 @@ class ResearchProject:
                 prefix = 'C'
             return '-'.join([prefix, number, suffix])
         elif len(parts) == 2:
-            # 尝试插入 '-'，处理类似 H339-MI 的结果
+            # Пробуем вставить '-', обрабатывая результаты вроде H339-MI
             if name[0].isalpha() and name[1].isdigit():
                 return self.check_name(f'{name[0]}-{name[1:]}')
         return name
@@ -724,7 +724,7 @@ class ResearchProject:
                         yield data
 
         if name.startswith('D'):
-            # 字母 'C' 可能因项目卡片反光被识别为 'D'
+            # Буква 'C' может распознаваться как 'D' из-за блика на карточке проекта
             name1 = 'C' + self.name[1:]
             for data in LIST_RESEARCH_PROJECT:
                 if (data['series'] == series) and (data['name'] == name1):
@@ -739,8 +739,8 @@ class ResearchProject:
 
     @cached_property
     def equipment_amount(self):
-        # 拆解 8 件装备。
-        # 拆解 15 件装备。
+        # Разобрать 8 ед. снаряжения.
+        # Разобрать 15 ед. снаряжения.
         if '8 piece' in self.task:
             return 8
         elif '15 piece' in self.task:
@@ -864,8 +864,8 @@ class ResearchProjectJp:
     @cached_property
     def equipment_amount(self):
         if self.genre == 'E' and self.duration == '2':
-            # JP 服务器没有科研名称，无法区分 E-031-MI 和 E-315-MI，
-            # 返回最大值 15
+            # На сервере JP нет названий исследований: невозможно различить E-031-MI и E-315-MI,
+            # возвращаем максимальное значение 15
             return 15
         else:
             return 0

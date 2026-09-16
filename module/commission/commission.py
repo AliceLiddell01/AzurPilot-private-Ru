@@ -70,13 +70,13 @@ def lines_detect(image):
     Returns:
         np.ndarray: 每个委托下方白色分割线的 Y 坐标数组。
     """
-    # 通过查找每个委托下方的白色分割线来定位委托位置。
-    # (597, 0, 619, 720) 是只有白色分割线的区域。
+    # Позиция поручения определяется поиском белой разделительной линии снизу.
+    # (597, 0, 619, 720) — область, содержащая только белую разделительную линию.
     color_height = np.mean(rgb2gray(crop(image, (597, 0, 619, 720), copy=False)), axis=1)
     parameters = {'height': 200, 'distance': 100}
     peaks, _ = signal.find_peaks(color_height, **parameters)
-    # 67 是委托列表头部的高度
-    # 117 是单个委托卡片的高度。
+    # 67 — высота заголовка списка поручений
+    # 117 — высота одной карточки поручения.
     peaks = [y for y in peaks if y > 67 + 117]
     return np.array(peaks)
 
@@ -168,10 +168,10 @@ class RewardCommission(UI, InfoHandler):
             SelectedGrids, SelectedGrids: 选中的每日委托，选中的紧急委托
         """
         self.comm_choose = SelectedGrids([])
-        # 统计委托数量
+        # Подсчет количества поручений
         total = daily.add_by_eq(urgent)
-        # 后缀编号较大的委托总是在较小编号的下方
-        # 反转委托列表以优先选择后缀编号较大的委托
+        # Поручения с большим номером суффикса всегда расположены ниже меньших номеров
+        # Разворачиваем список поручений для приоритета больших суффиксов
         total = total[::-1]
         self.max_commission = 4
         for comm in total:
@@ -181,7 +181,7 @@ class RewardCommission(UI, InfoHandler):
         running_count = len(running_list)
         logger.attr('Выполняется', f'{running_count}/{self.max_commission}')
 
-        # 加载过滤器字符串
+        # Загрузка строки фильтра
         preset = self.config.Commission_PresetFilter
         if preset == 'custom':
             string = self.config.Commission_CustomFilter
@@ -197,13 +197,13 @@ class RewardCommission(UI, InfoHandler):
             string = DICT_FILTER_PRESET[preset]
         logger.attr('Фильтр комиссий', preset)
 
-        # 过滤
+        # Фильтрация
         COMMISSION_FILTER.load(string)
         run = COMMISSION_FILTER.apply(total.grids, func=self._commission_check)
         logger.attr('Порядок фильтрации', ' > '.join([str(c) for c in run]))
         run = SelectedGrids(run)
 
-        # 添加最短时间委托
+        # Добавляем поручения с наименьшим временем
         if self.config.Commission_AddShortest == False and preset == 'custom':
             logger.info('[Комиссия — выбор] Недостаточно комиссий для запуска')
         else:
@@ -213,13 +213,13 @@ class RewardCommission(UI, InfoHandler):
                     logger.info('[Комиссия — выбор] Недостаточно комиссий для запуска; добавляем самую короткую ежедневную комиссию')
                     COMMISSION_FILTER.load(SHORTEST_FILTER)
                     shortest = COMMISSION_FILTER.apply(daily[::-1], func=self._commission_check)
-                    # 反转每日委托列表以选择更好的委托
+                    # Разворачиваем список ежедневных поручений для выбора лучших
                     run = no_shortest.add_by_eq(SelectedGrids(shortest))
                     logger.attr('Порядок фильтрации', ' > '.join([str(c) for c in run]))
                 else:
                     logger.info('[Комиссия — выбор] Недостаточно комиссий для запуска')
 
-        # 优先处理快过期重要委托
+        # Приоритетная обработка истекающих важных поручений
         if 'expire' in run:
             logger.info('[Комиссия] Попытка заранее выполнить скоро истекающую комиссию')
 
@@ -246,7 +246,7 @@ class RewardCommission(UI, InfoHandler):
         if running_count >= self.max_commission:
             return SelectedGrids([]), SelectedGrids([])
 
-        # 分离每日和紧急委托
+        # Разделение ежедневных и срочных поручений
         run = run[:self.max_commission - running_count]
         daily_choose = run.intersect_by_eq(daily)
         urgent_choose = run.intersect_by_eq(urgent)
@@ -293,9 +293,9 @@ class RewardCommission(UI, InfoHandler):
             bool: 切换是否成功。
         """
         if COMMISSION_SWITCH.set(mode, main=self):
-            # 当每日委托列表超过 4 个（通常为 5 个），且紧急委托在 1 到 4 个之间时，
-            # 委托列表会出现滚动动画，
-            # 导致最顶部的委托无法被检测到。
+            # Когда в списке ежедневных поручений больше 4 (обычно 5), а срочных от 1 до 4,
+            # в списке поручений возникает анимация прокрутки,
+            # из-за чего верхнее поручение не обнаруживается.
             if not COMMISSION_SCROLL.appear(main=self) or COMMISSION_SCROLL.cal_position(main=self) < 0.05 or COMMISSION_SCROLL.length / COMMISSION_SCROLL.total > 0.98:
                 pre_peaks = lines_detect(self.device.image)
                 self.device.screenshot()
@@ -372,7 +372,7 @@ class RewardCommission(UI, InfoHandler):
             new = self.commission_detect(trial=2)
             commission = commission.add_by_eq(new)
 
-            # 结束
+            # Конец
             if not self._commission_swipe():
                 break
 
@@ -386,7 +386,7 @@ class RewardCommission(UI, InfoHandler):
             out: page_commission
         """
         logger.hr('Сканирование комиссий', level=1)
-        # 紧急委托列表是懒加载的，先切换以强制刷新。
+        # Список срочных поручений загружается лениво; переключаем для принудительного обновления.
         self._commission_ensure_mode('urgent')
 
         logger.hr('Сканирование ежедневных комиссий', level=2)
@@ -400,11 +400,11 @@ class RewardCommission(UI, InfoHandler):
             self._commission_ensure_mode('urgent')
             self._commission_swipe_to_top()
             urgent = self._commission_scan_list()
-            # 将额外委托转换为夜间委托
+            # Преобразуем дополнительное поручение в ночное
             urgent.call('convert_to_night')
 
-            # 不在 21:00~03:00 时间段，但扫描到了夜间委托
-            # 可能是过期委托，刷新即可解决
+            # Вне диапазона 21:00~03:00, но обнаружено ночное поручение
+            # Возможно, просроченное поручение; решается обновлением
             if current_time() - get_server_next_update('21:00') > timedelta(hours=6):
                 night = urgent.select(category_str='night')
                 if night:
@@ -412,7 +412,7 @@ class RewardCommission(UI, InfoHandler):
                     for comm in night:
                         logger.attr('Комиссия', comm)
                     logger.info('[Комиссия — сканирование] Повторное сканирование списка срочных комиссий')
-                    # 虽然不是最佳方式，但在罕见情况下可以接受
+                    # Не лучший вариант, но допустим в редких случаях
                     self.device.sleep(2)
                     self._commission_ensure_mode('daily')
                     continue
@@ -460,17 +460,17 @@ class RewardCommission(UI, InfoHandler):
             else:
                 self.device.screenshot()
 
-            # 结束
+            # Конец
             if self.info_bar_count():
                 break
             if count >= 3:
-                # 重启游戏以处理委托推荐 bug。
-                # 点击"推荐"后，舰船出现后突然消失。
-                # 同时委托图标闪烁。
+                # Перезапуск игры для обхода бага рекомендации в поручениях.
+                # После клика «Рекомендовать» корабли появляются и внезапно исчезают.
+                # При этом иконка поручения мигает.
                 logger.warning('[Комиссия — запуск] Сработала ошибка мигания списка комиссий')
                 raise GameStuckError('[Комиссия — запуск] Сработала ошибка мигания списка комиссий')
 
-            # 点击
+            # Клик
             if self.match_template_color(COMMISSION_START, offset=(5, 20), interval=7):
                 self.device.click(COMMISSION_START)
                 self.interval_reset(COMMISSION_ADVICE)
@@ -480,18 +480,18 @@ class RewardCommission(UI, InfoHandler):
                 self.interval_reset(COMMISSION_ADVICE)
                 comm_timer.reset()
                 continue
-            # 误入船坞
+            # Случайный вход в док
             if self.appear(DOCK_CHECK, offset=(20, 20), interval=3):
                 logger.info(f'[Комиссия — запуск] Ошибочный вход в док {DOCK_CHECK} -> {BACK_ARROW}')
                 self.device.click(BACK_ARROW)
                 comm_timer.reset()
                 continue
-            # 检查是否是正确的委托
+            # Проверка корректности поручения
             if self.appear(COMMISSION_ADVICE, offset=(5, 20), interval=7):
                 area = (0, 0, image_size(self.device.image)[0], COMMISSION_ADVICE.button[1])
                 current = self.commission_detect(area=area)
                 if is_urgent:
-                    current.call('convert_to_night')  # 将额外委托转换为夜间委托
+                    current.call('convert_to_night')  # Преобразуем дополнительное поручение в ночное
                 if current.count >= 1:
                     current = current[0]
                     if current == comm:
@@ -507,7 +507,7 @@ class RewardCommission(UI, InfoHandler):
                 self.interval_clear(COMMISSION_START)
                 comm_timer.reset()
                 continue
-            # 进入委托
+            # Вход в поручение
             if comm_timer.reached():
                 self.device.click(comm.button)
                 self.device.sleep(0.3)
@@ -533,10 +533,10 @@ class RewardCommission(UI, InfoHandler):
             for _ in range(15):
                 new = self.commission_detect(trial=2)
                 if is_urgent:
-                    new.call('convert_to_night')  # 将额外委托转换为夜间委托
+                    new.call('convert_to_night')  # Преобразуем дополнительное поручение в ночное
 
-                # 更新委托位置。
-                # 不同扫描中委托信息相同，但位置可能不同。
+                # Обновление позиции поручения.
+                # В разных сканированиях данные поручения совпадают, но позиция может меняться.
                 current = None
                 for new_comm in new:
                     if new_comm == comm:
@@ -551,7 +551,7 @@ class RewardCommission(UI, InfoHandler):
                         failed = False
                         break
 
-                # 结束条件
+                # Условие завершения
                 if not self._commission_swipe():
                     break
 
@@ -898,9 +898,9 @@ class RewardCommission(UI, InfoHandler):
             in: Any
             out: page_commission
         """
-        # 修复：如果卡在 TACTICAL_CLASS_START（技能书选择界面），点击取消退出
-        # TACTICAL_CHECK 在 TACTICAL_CLASS_START 中被误检测，导致 A* 导航
-        # 选择 BACK_ARROW，但从该页面无法导航到 page_reward
+        # Исправление: если застряли на TACTICAL_CLASS_START (выбор учебника), нажимаем отмену для выхода
+        # TACTICAL_CHECK ложно срабатывает в TACTICAL_CLASS_START, из-за чего навигация A*
+        # выбирает BACK_ARROW, но с этой страницы нельзя перейти на page_reward
         self.device.screenshot()
         if self.appear(TACTICAL_CLASS_START, offset=(30, 30)):
             logger.info('[Комиссия — тактика] Обнаружена кнопка начала тактического обучения; нажимаем отмену для выхода')
@@ -909,12 +909,12 @@ class RewardCommission(UI, InfoHandler):
         self.ui_ensure(page_reward)
         self.commission_receive()
 
-        # 在启航仪式委托获得舰船时会出现信息栏
-        # 这是游戏 bug，信息栏反复显示获得舰船，直到点击 get_ship 才消失
+        # При получении корабля в поручении церемонии отплытия появляется информационная панель
+        # Это баг игры: панель циклически показывает получение корабля, пока не будет нажат get_ship
         self.handle_info_bar()
         self.commission_start()
 
-        # 调度
+        # Планировщик
         total = self.daily.add_by_eq(self.urgent)
         future_finish = sorted([f for f in total.get('finish_time') if f is not None])
         logger.info(f'[Комиссия — завершение] Время завершения комиссий: {[str(f) for f in future_finish]}')
@@ -924,8 +924,8 @@ class RewardCommission(UI, InfoHandler):
             logger.info('[Комиссия — завершение] Нет выполняющихся комиссий')
             self.config.task_delay(success=False)
 
-        # 延迟钻石 farming / 三油低耗任务
-        # 遍历使用 GemsFarming 配置组的任务，检查是否启用且开启了 CommissionLimit
+        # Откладываем задачи фарма гемов / 3-oil low cost
+        # Проверяем задачи из группы GemsFarming: активны ли они и включен ли CommissionLimit
         limit_tasks = [
             task for task in ['GemsFarming', 'ThreeOilLowCost']
             if self.config.is_task_enabled(task)
