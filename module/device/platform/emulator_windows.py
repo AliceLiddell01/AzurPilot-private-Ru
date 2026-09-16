@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 # module/device/platform/emulator_base.py
 # module/device/platform/emulator_windows.py
-# 会在 Alas Easy Install 中使用，不应导入任何 Alas 模块。
+# Используется в Alas Easy Install, не должен импортировать модули Alas.
 from module.device.platform.emulator_base import (
     EmulatorBase,
     EmulatorInstanceBase,
@@ -280,7 +280,7 @@ class Emulator(EmulatorBase):
                             path=self.path,
                         )
         elif self == Emulator.BlueStacks5:
-            # 获取 UserDefinedDir，BlueStacks 数据存储位置
+            # Получаем UserDefinedDir — расположение данных BlueStacks
             folder = None
             try:
                 with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\BlueStacks_nxt") as reg:
@@ -294,7 +294,7 @@ class Emulator(EmulatorBase):
                 pass
             if not folder:
                 return
-            # 读取 {UserDefinedDir}/bluestacks.conf
+            # Читаем {UserDefinedDir}/bluestacks.conf
             try:
                 with open(self.abspath('./bluestacks.conf', folder), encoding='utf-8') as f:
                     content = f.read()
@@ -316,8 +316,8 @@ class Emulator(EmulatorBase):
                 res = regex.match(folder)
                 if not res:
                     continue
-                # BlueStacks4 的序列号不是静态的，每次启动模拟器都会递增
-                # 假设统一使用 127.0.0.1:5555
+                # Серийный номер BlueStacks 4 не статичен: он увеличивается при каждом запуске эмулятора
+                # Предполагаем единый адрес 127.0.0.1:5555
                 yield EmulatorInstance(
                     serial=f'127.0.0.1:5555',
                     name=folder,
@@ -331,8 +331,8 @@ class Emulator(EmulatorBase):
                 res = regex.match(folder)
                 if not res:
                     continue
-                # 雷电模拟器的 .vbox 文件中没有端口转发配置
-                # 端口自动递增：5555, 5557, 5559 等
+                # В файлах .vbox эмулятора LDPlayer нет конфигурации проброса портов
+                # Порты увеличиваются автоматически: 5555, 5557, 5559 и т. д.
                 port = int(res.group(1)) * 2 + 5555
                 yield EmulatorInstance(
                     serial=f'127.0.0.1:{port}',
@@ -340,7 +340,7 @@ class Emulator(EmulatorBase):
                     path=self.path
                 )
         elif self == Emulator.MuMuPlayer:
-            # MuMu 6 没有多实例功能，固定使用 7555 端口
+            # В MuMu 6 нет мультиинстанса, фиксирован порт 7555
             yield EmulatorInstance(
                 serial='127.0.0.1:7555',
                 name='',
@@ -369,7 +369,7 @@ class Emulator(EmulatorBase):
                             name=name,
                             path=self.path,
                         )
-                    # 适配 MuMu12 v4.0.4，默认实例在 vbox 配置中没有端口转发记录
+                    # Адаптация для MuMu12 v4.0.4: у инстанса по умолчанию нет записей проброса портов в vbox
                     else:
                         instance = EmulatorInstance(
                             serial=serial,
@@ -403,13 +403,13 @@ class Emulator(EmulatorBase):
             if os.path.exists(exe):
                 yield exe
         if self == Emulator.MuMuPlayerFamily:
-            # 从 MuMu9\emulator\nemu9\EmulatorShell
-            # 到 MuMu9\emulator\nemu9\vmonitor\bin\adb_server.exe
+            # Из MuMu9\emulator\nemu9\EmulatorShell
+            # в MuMu9\emulator\nemu9\vmonitor\bin\adb_server.exe
             exe = self.abspath('../vmonitor/bin/adb_server.exe')
             if os.path.exists(exe):
                 yield exe
 
-        # 所有模拟器都有 adb.exe
+        # Во всех эмуляторах есть adb.exe
         exe = self.abspath('./adb.exe')
         if os.path.exists(exe):
             yield exe
@@ -441,14 +441,14 @@ class EmulatorManager(EmulatorManagerBase):
                 with winreg.OpenKey(winreg.HKEY_CURRENT_USER, f'{path}\\{folder}\\Count') as reg:
                     for key in list_reg(reg):
                         key = codecs.decode(key.name, 'rot-13')
-                        # 跳过带哈希的条目
+                        # Пропускаем записи с хэшем
                         if regex_hash.search(key):
                             continue
                         for file in Emulator.multi_to_single(key):
                             yield file
             except FileNotFoundError:
-                # FileNotFoundError: [WinError 2] 系统找不到指定的文件。
-                # 可能是缺少 "Count" 子目录的随机目录
+                # FileNotFoundError: [WinError 2] Не удается найти указанный файл.
+                # Возможно, случайный каталог без подкаталога "Count"
                 continue
 
     @staticmethod
@@ -550,10 +550,10 @@ class EmulatorManager(EmulatorManagerBase):
                     continue
                 if not uninstall:
                     continue
-                # UninstallString 格式如:
+                # Формат UninstallString вида:
                 # C:\Program Files\BlueStacks_nxt\BlueStacksUninstaller.exe -tmp
                 # "E:\ProgramFiles\Microvirt\MEmu\uninstall\uninstall.exe" -u
-                # 提取 "" 中的路径
+                # Извлекаем путь в кавычках ""
                 res = re.search('"(.*?)"', uninstall)
                 uninstall = res.group(1) if res else uninstall
                 yield uninstall
@@ -570,9 +570,9 @@ class EmulatorManager(EmulatorManagerBase):
             import psutil
         except ModuleNotFoundError:
             return
-        # 由于这是一次性使用，直接访问 psutil._psplatform.Process
-        # 以跳过 psutil.Process.is_running() 的调用开销。
-        # 此方式仅需约 0.017 秒。
+        # Так как это разовый вызов, обращаемся напрямую к psutil._psplatform.Process,
+        # чтобы избежать накладных расходов на вызов psutil.Process.is_running().
+        # Этот метод занимает всего около 0.017 с.
         for pid in psutil.pids():
             proc = psutil._psplatform.Process(pid)
             try:
@@ -580,8 +580,8 @@ class EmulatorManager(EmulatorManagerBase):
                 exe = exe[0].replace(r'\\', '/').replace('\\', '/')
             except (psutil.AccessDenied, psutil.NoSuchProcess, IndexError, OSError):
                 # psutil.AccessDenied
-                # NoSuchProcess: 进程已不存在 (pid=xxx)
-                # OSError: [WinError 87] 参数错误。: '(originated from ReadProcessMemory)'
+                # NoSuchProcess: процесс больше не существует (pid=xxx)
+                # OSError: [WinError 87] Неверный параметр.: '(originated from ReadProcessMemory)'
                 continue
 
             if Emulator.is_emulator(exe):
@@ -607,7 +607,7 @@ class EmulatorManager(EmulatorManagerBase):
             if Emulator.is_emulator(file) and os.path.exists(file):
                 exe.add(file)
 
-        # 雷电模拟器安装路径
+        # Путь установки эмулятора LDPlayer
         for path in [
             r'SOFTWARE\leidian\ldplayer',
             r'SOFTWARE\leidian\ldplayer9',
@@ -619,9 +619,9 @@ class EmulatorManager(EmulatorManagerBase):
                 if Emulator.is_emulator(ld) and os.path.exists(ld):
                     exe.add(ld)
 
-        # MuMu 模拟器安装路径
-        # MuMu12 的安装路径可能记录在卸载注册表中，
-        # 从 InstallLocation 或 DisplayIcon 提取安装目录
+        # Путь установки эмулятора MuMu
+        # Путь установки MuMu12 может находиться в реестре деинсталляции,
+        # извлекаем каталог установки из InstallLocation или DisplayIcon
         _uninstall_reg_paths = [
             r'SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall',
             r'Software\Microsoft\Windows\CurrentVersion\Uninstall'
@@ -630,7 +630,7 @@ class EmulatorManager(EmulatorManagerBase):
             for reg_path in _uninstall_reg_paths:
                 try:
                     with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f'{reg_path}\\{uninstall_reg_name}') as reg:
-                        # 尝试从 InstallLocation 获取安装目录
+                        # Пробуем получить каталог установки из InstallLocation
                         try:
                             install_loc = winreg.QueryValueEx(reg, 'InstallLocation')[0]
                             if install_loc:
@@ -642,17 +642,17 @@ class EmulatorManager(EmulatorManagerBase):
                                             exe.add(file)
                         except FileNotFoundError:
                             pass
-                        # 尝试从 DisplayIcon 获取可执行文件路径
+                        # Пробуем получить путь к исполняемому файлу из DisplayIcon
                         try:
                             display_icon = winreg.QueryValueEx(reg, 'DisplayIcon')[0]
                             if display_icon:
                                 icon_path = abspath(display_icon.replace('"', '').split(',')[0])
-                                # 从图标路径向上一级目录搜索
+                                # Ищем на один уровень выше пути иконки
                                 parent_dir = os.path.dirname(icon_path)
                                 for file in iter_folder(parent_dir, ext='.exe'):
                                     if Emulator.is_emulator(file) and os.path.exists(file):
                                         exe.add(file)
-                                # 也搜索 shell 子目录
+                                # Также ищем в подкаталоге shell
                                 shell_dir = abspath(os.path.join(parent_dir, 'shell'))
                                 for file in iter_folder(shell_dir, ext='.exe'):
                                     if Emulator.is_emulator(file) and os.path.exists(file):
@@ -662,28 +662,28 @@ class EmulatorManager(EmulatorManagerBase):
                 except FileNotFoundError:
                     continue
 
-        # 卸载注册表
+        # Реестр деинсталляции
         for uninstall in EmulatorManager.iter_uninstall_registry():
-            # 从卸载程序所在目录查找模拟器可执行文件
+            # Поиск исполняемого файла эмулятора из каталога деинсталлятора
             for file in iter_folder(abspath(os.path.dirname(uninstall)), ext='.exe'):
                 if Emulator.is_emulator(file) and os.path.exists(file):
                     exe.add(file)
-            # 从上级目录查找
+            # Поиск из родительского каталога
             for file in iter_folder(abspath(os.path.join(os.path.dirname(uninstall), '../')), ext='.exe'):
                 if Emulator.is_emulator(file) and os.path.exists(file):
                     exe.add(file)
-            # MuMu 特定目录
+            # Специальный каталог MuMu
             for folder in ['EmulatorShell', 'nx_main']:
                 for file in iter_folder(abspath(os.path.join(os.path.dirname(uninstall), folder)), ext='.exe'):
                     if Emulator.is_emulator(file) and os.path.exists(file):
                         exe.add(file)
 
-        # 正在运行的模拟器
+        # Запущенные эмуляторы
         for file in EmulatorManager.iter_running_emulator():
             if os.path.exists(file):
                 exe.add(file)
 
-        # 去重
+        # Удаление дубликатов
         exe = [Emulator(path).path for path in exe if Emulator.is_emulator(path)]
         exe = [Emulator(path) for path in remove_duplicated_path(exe)]
         return exe

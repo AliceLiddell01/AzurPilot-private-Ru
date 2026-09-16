@@ -1,8 +1,8 @@
 """设备交互的综合管理入口。整合截图、控制、输入和应用管理功能，
 内置防卡死检测（GameStuckError）和点击频率控制（GameTooManyClickError）。"""
 
-# 此文件定义了 Device 类，是脚本与设备交互的综合管理入口。
-# 负责整合截图、点击、输入功能，并由于内置了防卡死检测和点击频率控制，能有效提高脚本自动化运行的稳定性。
+# Этот файл определяет класс Device — единую точку взаимодействия сценария с устройством.
+# Отвечает за скриншоты, клики, ввод текста; встроенный контроль частоты кликов и защита от зависаний повышают стабильность автоматизации.
 import collections
 import os
 import sys
@@ -49,7 +49,7 @@ def show_function_call():
     for row in stack:
         filename, line_number, function_name, _ = row
         filename = os.path.basename(filename)
-        # 示例: /tasks/character/switch.py:64 character_update()
+        # Пример: /tasks/character/switch.py:64 character_update()
         func_list.append([filename, str(line_number), function_name])
     max_filename = max([len(row[0]) for row in func_list])
     max_linenum = max([len(row[1]) for row in func_list]) + 1
@@ -82,7 +82,7 @@ class Device(Screenshot, Control, AppControl, Input):
     _stuck_image_timer = Timer(30, count=0)
 
     def __init__(self, *args, **kwargs):
-        # 初始化模拟器管理平台
+        # Инициализация платформы управления эмулятором
         self._platform = None
 
         for trial in range(4):
@@ -93,7 +93,7 @@ class Device(Screenshot, Control, AppControl, Input):
                 if trial >= 3:
                     logger.critical('[Устройство] Не удалось запустить эмулятор после 3 попыток')
                     raise RequestHumanTakeover
-                # 尝试启动模拟器
+                # Попытка запуска эмулятора
                 if self.emulator_instance is not None:
                     self.emulator_start()
                 else:
@@ -102,17 +102,17 @@ class Device(Screenshot, Control, AppControl, Input):
                     )
                     raise RequestHumanTakeover
 
-        # 确保 package 属性存在（部分连接模式可能不会设置它）
-        # AppControl.app_is_running() 会用到此属性
+        # Убеждаемся, что атрибут package существует (некоторые режимы подключения могут его не задавать)
+        # AppControl.app_is_running() использует этот атрибут
         if not hasattr(self, 'package'):
-            # 回退到配置值；如果是 'auto'，后续检测会更新它
+            # Откат к значению конфигурации; если 'auto', последующее определение обновит его
             self.package = getattr(self.config, 'Emulator_PackageName', 'auto')
 
-        # 自动填充模拟器信息
+        # Автоматическое заполнение информации об эмуляторе
         if IS_WINDOWS and self.config.EmulatorInfo_Emulator == 'auto':
             _ = self.emulator_instance
 
-        # Mac 上提升运行中模拟器的优先级
+        # На Mac повышаем приоритет работающих эмуляторов
         if IS_MACINTOSH:
             try:
                 self.platform.boost_running_emulator_priority()
@@ -122,14 +122,14 @@ class Device(Screenshot, Control, AppControl, Input):
         self.screenshot_interval_set()
         self.method_check()
 
-        # 自动选择最快的截图方式
+        # Автоматический выбор самого быстрого метода скриншотов
         if not self.config.is_template_config and self.config.Emulator_ScreenshotMethod == 'auto':
             self.run_simple_screenshot_benchmark()
-        # 自动选择 OCR 设备
+        # Автоматический выбор устройства OCR
         if not self.config.is_template_config and self.config.Optimization_OcrDevice == 'auto':
             self.run_simple_ocr_benchmark()
 
-        # 提前初始化控制方式
+        # Предварительная инициализация метода управления
         if self.config.is_actual_task:
             if self.config.Emulator_ControlMethod == 'MaaTouch':
                 self.early_maatouch_init()
@@ -144,14 +144,14 @@ class Device(Screenshot, Control, AppControl, Input):
         惰性初始化，首次访问时创建 Platform 实例。
         """
         if self._platform is None:
-            # 当模拟器离线时（通常是需要自动启动的场景），
-            # 必须避免在此触发完整的 ADB 连接，否则 Platform 会再次抛出
-            # EmulatorNotRunningError，而此时 Device.__init__ 正在处理该异常。
+            # Когда эмулятор офлайн (обычно сценарий автозапуска),
+            # необходимо избегать полного ADB-подключения, иначе Platform снова выбросит
+            # исключение EmulatorNotRunningError, пока Device.__init__ обрабатывает его.
             #
-            # 因此使用 connect=False 构造 Platform，仅执行轻量初始化
-            # （config/adb_client/serial），足以发现 emulator_instance 和
-            # 调用 emulator_start()；真正的 ADB 连接在 Device 初始化完成后
-            # 由 Connection 完成。
+            # Поэтому Platform создается с connect=False для легковесной инициализации
+            # (config/adb_client/serial), достаточной для обнаружения emulator_instance и
+            # вызова emulator_start(); настоящее ADB-подключение выполняется
+            # классом Connection после завершения инициализации Device.
             self._platform = Platform(self.config, connect=False)
         return self._platform
 
@@ -182,13 +182,13 @@ class Device(Screenshot, Control, AppControl, Input):
         运行截图方式基准测试，每种方式测试 3 次，选择最快的写入配置。
         """
         logger.info('[Устройство — тест] Запуск теста методов снимка экрана')
-        # 先检查分辨率
+        # Сначала проверяем разрешение
         self.resolution_check_uiautomator2()
-        # 执行基准测试
+        # Выполнение бенчмарка
         from module.daemon.benchmark import Benchmark
         bench = Benchmark(config=self.config, device=self)
         method = bench.run_simple_screenshot_benchmark()
-        # 写入配置
+        # Запись конфигурации
         with self.config.multi_set():
             self.config.Emulator_ScreenshotMethod = method
             # if method == 'nemu_ipc':
@@ -204,12 +204,12 @@ class Device(Screenshot, Control, AppControl, Input):
         from module.daemon.ocr_benchmark import OcrBenchmark
         bench = OcrBenchmark(config=self.config, device=self)
         device = bench.run_simple_ocr_benchmark()
-        # 写入配置
+        # Запись конфигурации
         with self.config.multi_set():
             self.config.Optimization_OcrDevice = device
-            # 写入配置后需要重新执行 reset_ocr_model()。
-            # 因为 run_simple_ocr_benchmark() 内部会覆盖并调用 reset，
-            # 必须确保最终状态与刚保存的配置一致。
+            # После записи конфигурации необходимо заново выполнить reset_ocr_model().
+            # Поскольку run_simple_ocr_benchmark() внутри перезаписывает и сбрасывает состояние,
+            # нужно убедиться, что итоговое состояние совпадает со сохраненной конфигурацией.
             from module.ocr.al_ocr import reset_ocr_model
             reset_ocr_model()
 
@@ -217,14 +217,14 @@ class Device(Screenshot, Control, AppControl, Input):
         """
         检查截图方式和控制方式的组合是否合法。
         """
-        # nemu_ipc 截图和控制必须配套使用
+        # Скриншоты и управление nemu_ipc должны использоваться совместно
         # if self.config.Emulator_ScreenshotMethod == 'nemu_ipc' and self.config.Emulator_ControlMethod != 'nemu_ipc':
         #     logger.warning('When using nemu_ipc, both screenshot and control should use nemu_ipc')
         #     self.config.Emulator_ControlMethod = 'nemu_ipc'
         # if self.config.Emulator_ScreenshotMethod != 'nemu_ipc' and self.config.Emulator_ControlMethod == 'nemu_ipc':
         #     logger.warning('When not using nemu_ipc, both screenshot and control should not use nemu_ipc')
         #     self.config.Emulator_ControlMethod = 'minitouch'
-        # Hermit 仅允许在 VMOS 上使用
+        # Hermit разрешен к использованию только на VMOS
         if self.config.Emulator_ControlMethod == 'Hermit' and not self.is_vmos:
             logger.warning('[Устройство — методы] Метод управления Hermit разрешён только в VMOS')
             self.config.Emulator_ControlMethod = 'MaaTouch'
@@ -233,7 +233,7 @@ class Device(Screenshot, Control, AppControl, Input):
             logger.warning('[Устройство — методы] Для LDPlayer следует использовать MaaTouch')
             self.config.Emulator_ControlMethod = 'MaaTouch'
 
-        # nemu_ipc 和 ldopengl 在非对应模拟器上回退到 auto
+        # nemu_ipc и ldopengl на неподходящих эмуляторах откатываются к auto
         if self.config.Emulator_ScreenshotMethod == 'nemu_ipc':
             if not (self.is_emulator and self.is_mumu_family):
                 logger.warning('[Устройство — методы] Метод снимка экрана nemu_ipc поддерживается только MuMu 12; выполняется возврат к auto')
@@ -329,7 +329,7 @@ class Device(Screenshot, Control, AppControl, Input):
         """
         等待期间释放截图资源，避免后台持续占用。
         """
-        # Scrcpy 服务端持续发送视频流，等待期间需要停止
+        # Сервер Scrcpy непрерывно передает видеопоток, на время ожидания его нужно останавливать
         if self.config.Emulator_ScreenshotMethod == 'scrcpy':
             self._scrcpy_server_stop()
         if self.config.Emulator_ScreenshotMethod == 'nemu_ipc':
@@ -430,7 +430,7 @@ class Device(Screenshot, Control, AppControl, Input):
                 self.click_record.remove(str(button))
                 removed += 1
             except ValueError:
-                # 队列中已无该值
+                # Этого значения уже нет в очереди
                 break
 
         return removed
