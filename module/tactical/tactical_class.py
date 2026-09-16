@@ -44,9 +44,9 @@ else:
 
 class ExpOnBookSelect(DigitCounter):
     def pre_process(self, image):
-        # 图像格式类似 `NEXT:1900+500/5800`，其中 500 为绿色，其余为白色
+        # Формат изображения похож на `NEXT:1900+500/5800`, где 500 зеленого цвета, остальное белое
 
-        # 查找绿色字母
+        # Поиск зеленых символов
         hsv = rgb2hsv(image)
         h = (60, 180)
         s = (50, 100)
@@ -54,22 +54,22 @@ class ExpOnBookSelect(DigitCounter):
         lower = (h[0], s[0], v[0])
         upper = (h[1], s[1], v[1])
         green = np.mean(cv2.inRange(hsv, lower, upper), axis=0)
-        # 转换为灰度图
+        # Преобразуем в градации серого
         r, g, b = cv2.split(image)
         image = cv2.max(cv2.max(r, g), b)
-        # 将 `+500` 部分涂黑
+        # Закрашиваем черным часть `+500`
         matched = np.where(green > 0.5)[0]
         if len(matched):
             image[:, matched[0] - 8:matched[-1] + 2] = 0
 
         image = 255 - image
 
-        # 去除左侧 `Next:` 文字
+        # Удаляем текст `Next:` слева
         if server.server == 'en':
-            # EN 服加粗的 `Next:`
+            # Полужирный `Next:` на сервере EN
             return image_left_strip(image, threshold=105, length=46)
         if server.server == 'jp':
-            # JP 服较宽的 `Next:`
+            # Более широкий `Next:` на сервере JP
             return image_left_strip(image, threshold=105, length=55)
         return image_left_strip(image, threshold=105, length=42)
 
@@ -94,18 +94,18 @@ class ExpOnBookSelect(DigitCounter):
 
 class ExpOnSkillSelect(Ocr):
     def pre_process(self, image):
-        # 转换为灰度图
+        # Преобразуем в градации серого
         r, g, b = cv2.split(image)
         image = cv2.max(cv2.max(r, g), b)
 
         image = 255 - image
 
-        # 去除左侧 `Next:` 文字
+        # Удаляем текст `Next:` слева
         if server.server == 'en':
-            # EN 服加粗的 `Next:`
+            # Полужирный `Next:` на сервере EN
             return image_left_strip(image, threshold=105, length=46)
         if server.server == 'jp':
-            # JP 服较宽的 `Next:`
+            # Более широкий `Next:` на сервере JP
             return image_left_strip(image, threshold=105, length=53)
         return image_left_strip(image, threshold=105, length=42)
 
@@ -126,20 +126,20 @@ BOOK_FILTER = Filter(
 
 class Book:
     color_genre = {
-        1: (214, 69, 74),  # 攻击，红色
-        2: (115, 178, 255),  # 防御，蓝色
-        3: (247, 190, 99),  # 辅助，黄色
+        1: (214, 69, 74),  # Атака, красный
+        2: (115, 178, 255),  # Защита, синий
+        3: (247, 190, 99),  # Поддержка, желтый
     }
     genre_name = {
-        1: 'Red',  # 攻击，红色
-        2: 'Blue',  # 防御，蓝色
-        3: 'Yellow',  # 辅助，黄色
+        1: 'Red',  # Атака, красный
+        2: 'Blue',  # Защита, синий
+        3: 'Yellow',  # Поддержка, желтый
     }
     color_tier = {
-        1: (104, 181, 238),  # T1，蓝色
-        2: (151, 129, 203),  # T2，紫色
-        3: (235, 208, 120),  # T3，金色
-        4: (225, 181, 212),  # T4，彩虹
+        1: (104, 181, 238),  # T1, синий
+        2: (151, 129, 203),  # T2, фиолетовый
+        3: (235, 208, 120),  # T3, золотой
+        4: (225, 181, 212),  # T4, радужный
     }
     exp_tier = {
         0: 0,
@@ -158,15 +158,15 @@ class Book:
             button (Button): 教材对应的按钮区域
         """
         image = crop(image, button.area, copy=False)
-        # 20250814 UI 更新后，输入物品图像大小为 (64, 64)，但默认
-        # 输入为 (98, 98)，如果不放大图像，get_color 结果为 0，会输出 'BookUnknownTn'
+        # После обновления UI 20250814 размер входящего изображения предмета равен (64, 64), но по умолчанию
+        # входное изображение (98, 98); без масштабирования get_color возвращает 0 и выдает 'BookUnknownTn'
         if image_size(image) < (98, 98):
             image = resize(image, (98, 98))
         self.button = button
 
-        # 在 40 张随机截图的测试中，
-        # 阈值范围 50-70 时全部通过，
-        # 但不能超过 75，否则彩虹品质会被误识别为紫色
+        # В тестах на 40 случайных скриншотах
+        # диапазон порога 50-70 проходит полностью,
+        # но не должен превышать 75, иначе радужное качество распознается как фиолетовое
         self.genre = 0
         color = get_color(image, (65, 35, 72, 42))
         for key, value in self.color_genre.items():
@@ -203,7 +203,7 @@ class Book:
         return np.mean(im) > 127
 
     def __str__(self):
-        # 示例：Red_T3_Exp
+        # Пример: Red_T3_Exp
         text = f'{self.genre_str}_{self.tier_str}'
         if self.exp:
             text += '_Exp'
@@ -252,7 +252,7 @@ class RewardTacticalClass(Dock):
             else:
                 self.device.screenshot()
 
-            self.handle_info_bar()  # 在启航典礼委托中获得舰船时会出现 info_bar
+            self.handle_info_bar()  # Панель info_bar появляется при получении корабля в поручении церемонии отплытия
             if not self.appear(TACTICAL_CLASS_START, offset=(30, 30)):
                 logger.info('[Тактика — учебник] Экран выбора учебника закрыт; выход')
                 return False
@@ -301,26 +301,26 @@ class RewardTacticalClass(Dock):
         """
         根据当前战术技能的进度，从 self.books 中过滤掉会导致经验溢出的教材。
         """
-        # 读取的 'current' 和 'remain' 不够精确
-        # 因为第一本教材的经验值已计入其中
+        # Считанные 'current' и 'remain' недостаточно точны,
+        # так как опыт первого учебника уже учтен в них
         current, remain, total = SKILL_EXP.ocr(self.device.image)
 
-        # 即将达到10级满级，需要移除特定教材以防止经验浪费
+        # Скоро будет достигнут максимальный 10 уровень: нужно убрать определенные учебники для предотвращения потерь опыта
         if total == 5800:
             logger.info('[Тактика — переполнение] Навык почти достиг 10-го уровня; учебники будут убраны по фактическому прогрессу: '
                         f'{current}/{total}; {remain}')
 
             def filter_exp_func(book):
-                # 保留至少一本非 T1 的加成教材（如果别无选择）
+                # Сохраняем как минимум один учебник с бонусом не ниже T1 (если нет другого выбора)
                 if book.exp_value == 100:
                     return True
 
-                # 获取对应等级教材允许的经验溢出量（如果已启用）
+                # Получаем допустимый перелив опыта для учебников соответствующего ранга (если включено)
                 overflow = 0
                 if self.config.ControlExpOverflow_Enable:
                     overflow = getattr(self.config, f'ControlExpOverflow_T{book.tier}Allow')
 
-                # 如果当前经验加上教材经验超过总量（加溢出量），则移除该教材
+                # Если текущий опыт плюс опыт учебника превышает общий объем (с учетом перелива), убираем этот учебник
                 return (current + book.exp_value) <= (total + overflow)
 
             before = self.books.count
@@ -374,28 +374,28 @@ class RewardTacticalClass(Dock):
             out: TACTICAL_CLASS_START (if success) or SKILL_CONFIRM (if no skill found)
         """
         logger.hr('Попытка перейти к следующему навыку', level=2)
-        # 取消当前教材选择，回到技能选择界面
+        # Отменяем выбор текущего учебника и возвращаемся к экрану выбора навыка
         self.device.click(TACTICAL_CLASS_CANCEL)
         self.device.sleep((0.5, 1.0))
 
-        # 等待技能选择界面加载
+        # Ожидание загрузки экрана выбора навыка
         if not self._wait_until_appear(SKILL_CONFIRM, offset=(20, 20)):
             logger.warning('[Тактика — переключение] После отмены не удалось вернуться к экрану подтверждения навыка')
             return False
 
-        # 寻找下一个非满级技能
+        # Поиск следующего незамаксенного навыка
         selected_skill = self.find_not_full_level_skill(skip_first_screenshot=True)
         if selected_skill is None:
             logger.info('[Тактика — переключение] У корабля нет других навыков ниже максимального уровня; возврат на страницу тактики')
             self._return_to_tactical_page()
             return False
 
-        # 选中并确认新技能
+        # Выбор и подтверждение нового навыка
         logger.info('[Тактика — переключение] Переход к следующему навыку не максимального уровня')
         self._tactical_skill_select(selected_skill)
         self.device.click(SKILL_CONFIRM)
 
-        # 等待教材选择界面加载
+        # Ожидание загрузки экрана выбора учебника
         if self._wait_until_appear(TACTICAL_CLASS_START, offset=(30, 30)):
             logger.info('[Тактика — переключение] После смены навыка открыт экран выбора учебника')
             return True
@@ -421,22 +421,22 @@ class RewardTacticalClass(Dock):
                 return False
 
             self.device.click_record_clear()
-            # 确保第一本教材被选中
-            # 对于较慢的电脑，选中状态可能已改变
+            # Убеждаемся, что первый учебник выбран
+            # На более медленных ПК состояние выбора могло измениться
             first = self.books[0]
             self._tactical_book_select(first)
 
-            # 应用经验溢出过滤，会修改 self.books
+            # Применяем фильтрацию перелива опыта: изменяет self.books
             self._tactical_books_filter_exp()
 
-            # 应用配置过滤器，不修改 self.books
+            # Применяем фильтр конфигурации без изменения self.books
             BOOK_FILTER.load(self.config.Tactical_TacticalFilter)
             books = BOOK_FILTER.apply(self.books.grids)
             logger.attr('Порядок учебников', ' > '.join([str(book) for book in books]))
 
-            # 如果有可用教材则选择，否则检测是否因为技能已满级
+            # Если есть доступный учебник, выбираем его, иначе проверяем, не замаксен ли навык
             if not books:
-                # 无教材可选时，检测是否因为技能已满级（受 SkillAutoSwitch 配置控制）
+                # Если нет учебников для выбора, проверяем, не замаксен ли навык (управляется параметром SkillAutoSwitch)
                 if not self.config.Tactical_SkillAutoSwitch:
                     break
                 if retry >= MAX_SWITCH_RETRIES:
@@ -488,7 +488,7 @@ class RewardTacticalClass(Dock):
         offset = (slot * 220 - 20, -20, slot * 220 + 20, 20)
         if self.appear(RAPID_TRAINING, offset=offset, interval=1):
             self.device.click(RAPID_TRAINING)
-            # 清除间隔计时器以便快速进入教材选择
+            # Сбрасываем таймер интервала для быстрого перехода к выбору учебника
             self.interval_clear(TACTICAL_CLASS_START, interval=2)
             return True
 
@@ -676,7 +676,7 @@ class RewardTacticalClass(Dock):
         study_finished = not self.config.AddNewStudent_Enable
         pending_skill_auto_switch = False
         book_empty = False
-        # 战术卡片加载较慢，通过计时器确认是否真的为空
+        # Тактические карточки загружаются медленно, подтверждаем пустоту таймером
         empty_confirm = Timer(0.6, count=2).start()
         while 1:
             if skip_first_screenshot:
@@ -694,9 +694,9 @@ class RewardTacticalClass(Dock):
                 self.interval_clear([POPUP_CONFIRM, POPUP_CANCEL, GET_MISSION, DOCK_CHECK, SKILL_CONFIRM])
                 continue
 
-            # 获取完成时间
-            # 有时 TACTICAL_CHECK 出现但没有黑色模糊背景
-            # 此时 TACTICAL_CLASS_CANCEL 和 TACTICAL_CHECK 同时显示
+            # Получение времени завершения
+            # Иногда TACTICAL_CHECK появляется без черного размытого фона
+            # В этом случае TACTICAL_CLASS_CANCEL и TACTICAL_CHECK отображаются одновременно
             handled, finished = self._handle_tactical_finish(book_empty, empty_confirm)
             if handled:
                 received = received or finished
@@ -712,7 +712,7 @@ class RewardTacticalClass(Dock):
                 study_finished = study_finished or finished
                 continue
 
-            # 2025.05.29 进入船坞时游戏弹出皮肤功能提示
+            # 2025.05.29: при входе в док игра показывает подсказку о функции обликов
             if self.handle_game_tips():
                 return True
 
@@ -781,13 +781,13 @@ class RewardTacticalClass(Dock):
         logger.hr('Выбор тактического навыка')
         selected_skill = self.find_not_full_level_skill()
 
-        # 找不到可用技能，认为该舰船无需学习
+        # Не найдены доступные навыки: считается, что кораблю обучение не требуется
         if selected_skill is None:
             logger.info('[Тактика — навык] Нет доступных навыков для обучения')
             return False
 
-        # 选中技能说明未满级，应开始或继续学习
-        # 这里需要检查是否已选中
+        # Выбранный навык указывает на незавершенность: следует начать или продолжить обучение
+        # Здесь необходимо проверить, выбран ли навык
         self._tactical_skill_select(selected_skill)
         self.device.click(SKILL_CONFIRM)
 
@@ -796,23 +796,23 @@ class RewardTacticalClass(Dock):
     def select_suitable_ship(self):
         logger.hr('Выбор подходящего корабля')
 
-        # 根据配置设置收藏筛选
+        # Устанавливаем фильтр избранного согласно конфигурации
         self.dock_favourite_set(enable=self.config.AddNewStudent_Favorite, wait_loading=False)
 
-        # 重置筛选器；自然跳过 META 舰船
+        # Сброс фильтра; META-корабли пропускаются естественным образом
         self.dock_filter_set(
             faction=[v for k, v in self.dock_filter.settings if k == 'faction' and v not in ['all', 'meta', 'not_available']]
         )
 
-        # 船坞中没有舰船
+        # В доке нет кораблей
         if self.appear(DOCK_EMPTY, offset=(30, 30)):
             logger.info('[Тактика — док] Док пуст или в избранном нет кораблей')
             return False
 
-        # 舰船卡片加载可能较慢，例如：
+        # Карточки кораблей могут загружаться медленно, например:
         # [0, 0, 120, 120, 120, 120, 0, 0, 0, 0, 0, 0, 0, 0]
         # [12, 0, 0, 120, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-        # 等待其变为
+        # ждем, пока перейдет в
         # [120, 120, 120, 120, 120, 120, 120, 120, 120, 120, 120, 120, 120, 120]
         level_ocr = LevelOcr(CARD_LEVEL_GRIDS.buttons, name='DOCK_LEVEL_OCR', threshold=64)
         list_level = []
@@ -836,7 +836,7 @@ class RewardTacticalClass(Dock):
 
         should_select_button = None
         for button, level in list(zip(CARD_GRIDS.buttons, list_level))[self.dock_select_index:]:
-            # 仅选择等级 >= min_level 的舰船
+            # Выбираем только корабли с уровнем >= min_level
             if level >= min_level:
                 should_select_button = button
                 break
@@ -845,14 +845,14 @@ class RewardTacticalClass(Dock):
             logger.info(f'[Тактика — док] В доке нет кораблей уровня >= {min_level}')
             return False
 
-        # 选择舰船
+        # Выбор корабля
         self.dock_select_one(should_select_button, skip_first_screenshot=True)
-        # 确认选中的舰船
-        # 如果刚刚从 META 技能中退出，清除间隔计时器
+        # Подтверждение выбранного корабля
+        # Если только что вышли из META-навыков, сбрасываем таймер интервала
         self.interval_clear(SHIP_CONFIRM)
 
-        # 已移除 TACTICAL_SKILL_LIST 的使用，因为 EN 服普通技能列表用 "Select skills"
-        # 而 META 技能列表用 "Choose skills"
+        # Использование TACTICAL_SKILL_LIST удалено, так как на сервере EN обычный список навыков использует "Select skills",
+        # а список META-навыков использует "Choose skills"
         def check_button():
             if self.appear(SKILL_CONFIRM, offset=(30, 30)):
                 return True
@@ -882,7 +882,7 @@ class RewardTacticalClass(Dock):
         skill_level_list = skill_level_ocr.ocr(self.device.image)
         for skill_button, skill_level in list(zip(SKILL_GRIDS.buttons, skill_level_list)):
             level = skill_level.upper().replace(' ', '')
-            # 空技能槽位，可能是因为所有收藏舰娘的技能已满级
+            # Пустой слот навыка: возможно, навыки всех кораблей в избранном уже максимального уровня
             # '———l', '—l'
             if not level:
                 continue
@@ -890,10 +890,10 @@ class RewardTacticalClass(Dock):
                 continue
             if re.search(r'[—一]+', level):
                 continue
-            # 使用 'MA' 作为 `MAX` 的一部分
-            # SKILL_LEVEL_GRIDS 可能因未知原因向下偏移，OCR 结果示例：
-            # ['NEXT:MA', 'NEXT:/1D]', 'NEXT:MA']（实际：`NEXT:MAX, NEXT:0/100, NEXT:MAX`）
-            # ['NEXT:MA', 'NEX T:/ 14[]]', 'NEXT:MA']（实际：`NEXT:MAX, NEXT:150/1400, NEXT:MAX`）
+            # Используем 'MA' как часть `MAX`
+            # Сетки SKILL_LEVEL_GRIDS по неизвестной причине могут смещаться вниз; примеры результатов OCR:
+            # ['NEXT:MA', 'NEXT:/1D]', 'NEXT:MA'] (фактически: `NEXT:MAX, NEXT:0/100, NEXT:MAX`)
+            # ['NEXT:MA', 'NEX T:/ 14[]]', 'NEXT:MA'] (фактически: `NEXT:MAX, NEXT:150/1400, NEXT:MAX`)
             if 'MA' not in level:
                 logger.attr('Уровень', 'EMPTY' if len(level) == 0 else level)
                 return skill_button

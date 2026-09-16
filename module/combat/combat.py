@@ -93,7 +93,7 @@ class Combat(Level, HPBalancer, Retirement, SubmarineCall, CombatAuto, CombatMan
             if self.handle_retirement():
                 continue
 
-            # 检测到战斗画面，退出循环
+            # Обнаружен экран боя, выход из цикла
             if self.combat_appear():
                 break
     def is_combat_loading(self):
@@ -106,7 +106,7 @@ class Combat(Level, HPBalancer, Retirement, SubmarineCall, CombatAuto, CombatMan
             是否处于战斗加载状态。
         """
         image = self.image_crop((0, 620, 1280, 690), copy=False)
-        # CN/EN/TW 加载条资源相同，JP 角色尺寸较小
+        # Ресурсы полосы загрузки CN/EN/TW одинаковы, на JP размер персонажа меньше
         similarity, button = TEMPLATE_COMBAT_LOADING.match_luma_result(image)
         if similarity > lower_template_match_similarity(0.85):
             loading = (button.area[0] + 38 - LOADING_BAR.area[0]) / (LOADING_BAR.area[2] - LOADING_BAR.area[0])
@@ -141,25 +141,25 @@ class Combat(Level, HPBalancer, Retirement, SubmarineCall, CombatAuto, CombatMan
             return PAUSE_Iridescent_Fantasy
         if PAUSE_Christmas.match_luma(self.device.image, offset=(10, 10)):
             return PAUSE_Christmas
-        # PAUSE_New、PAUSE_Cyber、PAUSE_Neon 外观相似，通过颜色区分
+        # PAUSE_New, PAUSE_Cyber и PAUSE_Neon внешне похожи, различаются по цвету
         if PAUSE_Neon.match_template_color(self.device.image, offset=(10, 10)):
             return PAUSE_Neon
         if PAUSE_Cyber.match_template_color(self.device.image, offset=(10, 10)):
             return PAUSE_Cyber
         if PAUSE_HolyLight.match_template_color(self.device.image, offset=(10, 10)):
             return PAUSE_HolyLight
-        # PAUSE_Pharaoh 有随机动画，资源应避开中间区域并使用 match_luma
+        # У PAUSE_Pharaoh есть случайная анимация: ресурс должен избегать центральной области и использовать match_luma
         if PAUSE_Pharaoh.match_luma(self.device.image, offset=(10, 10)):
             return PAUSE_Pharaoh
-        # PAUSE_Star 可能被误判为 PAUSE_Nurse，需优先检测
+        # PAUSE_Star может быть ошибочно распознан как PAUSE_Nurse, требует приоритетной проверки
         if PAUSE_Star.match_luma(self.device.image, offset=(10, 10)):
             return PAUSE_Star
         if PAUSE_Nurse.match_luma(self.device.image, offset=(10, 10)):
             return PAUSE_Nurse
-        # PAUSE_Devil 为红色主题
+        # PAUSE_Devil — красная тема
         if PAUSE_Devil.match_template_color(self.device.image, offset=(10, 10)):
             return PAUSE_Devil
-        # PAUSE_Seaside 为浅蓝色主题
+        # PAUSE_Seaside — светло-синяя тема
         if PAUSE_Seaside.match_template_color(self.device.image, offset=(10, 10)):
             return PAUSE_Seaside
         if PAUSE_Ninja.match_template_color(self.device.image, offset=(10, 10)):
@@ -210,9 +210,9 @@ class Combat(Level, HPBalancer, Retirement, SubmarineCall, CombatAuto, CombatMan
             self.device.click(QUIT_Iridescent_Fantasy)
             timer.reset()
             return True
-        # PAUSE_Neon 战斗界面使用 QUIT_New
-        # PAUSE_Cyber 战斗界面使用 QUIT_New
-        # [TW] QUIT_New 为粗体，PAUSE_Cyber 为常规字重
+        # В боевом интерфейсе PAUSE_Neon используется QUIT_New
+        # В боевом интерфейсе PAUSE_Cyber используется QUIT_New
+        # [TW] QUIT_New полужирный, PAUSE_Cyber обычной насыщенности
         if QUIT_Cyber.match_luma(self.device.image, offset=offset):
             self.device.click(QUIT_Cyber)
             timer.reset()
@@ -221,7 +221,7 @@ class Combat(Level, HPBalancer, Retirement, SubmarineCall, CombatAuto, CombatMan
             self.device.click(QUIT_Christmas)
             timer.reset()
             return True
-        # PAUSE_HolyLight 战斗界面使用 QUIT_New
+        # В боевом интерфейсе PAUSE_HolyLight используется QUIT_New
         if QUIT_Pharaoh.match_luma(self.device.image, offset=offset):
             self.device.click(QUIT_Pharaoh)
             timer.reset()
@@ -230,7 +230,7 @@ class Combat(Level, HPBalancer, Retirement, SubmarineCall, CombatAuto, CombatMan
             self.device.click(QUIT_Nurse)
             timer.reset()
             return True
-        # PAUSE_Devil 战斗界面使用 QUIT_New
+        # В боевом интерфейсе PAUSE_Devil используется QUIT_New
         if QUIT_Seaside.match_luma(self.device.image, offset=offset):
             self.device.click(QUIT_Seaside)
             timer.reset()
@@ -258,9 +258,9 @@ class Combat(Level, HPBalancer, Retirement, SubmarineCall, CombatAuto, CombatMan
         return False
 
     def handle_combat_quit_reconfirm(self, interval=2):
-        # QUIT_RECONFIRM 间隔应短于 QUIT，以便在 QUIT 间隔内多次重试
+        # Интервал QUIT_RECONFIRM должен быть короче QUIT для нескольких повторных попыток в пределах интервала QUIT
         if self.appear_then_click(QUIT_RECONFIRM, offset=(20, 20), interval=interval):
-            # 重置 QUIT 计时器，避免重复点击 QUIT 取消 QUIT_RECONFIRM
+            # Сбрасываем таймер QUIT во избежание повторного клика QUIT, отменяющего QUIT_RECONFIRM
             self.interval_reset(QUIT)
             return True
         return False
@@ -324,19 +324,19 @@ class Combat(Level, HPBalancer, Retirement, SubmarineCall, CombatAuto, CombatMan
                 continue
             if self.handle_story_skip():
                 continue
-            # 提前降低截图频率
+            # Заблаговременно снижаем частоту скриншотов
             if not interval_set:
                 if self.is_combat_loading():
                     self.device.screenshot_interval_set('combat')
                     interval_set = True
 
-            # 检测到战斗执行中，退出准备阶段
+            # Обнаружено выполнение боя, выход из фазы подготовки
             pause = self.is_combat_executing()
             if pause:
                 logger.attr('Боевой UI', pause)
                 if emotion_reduce:
                     self.emotion.reduce(fleet_index)
-                # 如果未检测到加载画面，兜底降低截图频率
+                # Если экран загрузки не обнаружен, резервно снижаем частоту скриншотов
                 if not interval_set:
                     self.device.screenshot_interval_set('combat')
                 break
@@ -397,9 +397,9 @@ class Combat(Level, HPBalancer, Retirement, SubmarineCall, CombatAuto, CombatMan
         if self.appear_then_click(EMERGENCY_REPAIR_CONFIRM, offset=True, interval=3):
             return True
         if self.appear(BATTLE_PREPARATION, offset=(20, 20)) and self.appear(EMERGENCY_REPAIR_AVAILABLE):
-            # 进入战斗准备页面（或紧急维修后），紧急维修图标默认激活，即使没有可用道具。
-            # 短暂动画后才会正常显示实际状态。
-            # 使用舰队战力数值作为稳定检测器，先等待非零，再等待数值稳定。
+            # При входе на страницу подготовки к бою (или после аварийного ремонта) иконка ремонта активна по умолчанию, даже без доступных предметов.
+            # Фактическое состояние отображается только после короткой анимации.
+            # Используем значение боевой мощи флота как детектор стабильности: сначала ждем ненулевого значения, затем стабилизации числа.
             self.wait_until_disappear(MAIN_FLEET_POWER_ZERO, offset=(20, 20))
             stable_checker = Button(
                 area=MAIN_FLEET_POWER_ZERO.area, color=(), button=MAIN_FLEET_POWER_ZERO.button, name='STABLE_CHECKER')
@@ -465,7 +465,7 @@ class Combat(Level, HPBalancer, Retirement, SubmarineCall, CombatAuto, CombatMan
                     continue
             if self.handle_submarine_call(submarine):
                 continue
-            # 处理各种弹窗
+            # Обработка различных всплывающих окон
             if self.handle_popup_confirm('COMBAT_EXECUTE'):
                 continue
             if self.handle_urgent_commission():
@@ -477,7 +477,7 @@ class Combat(Level, HPBalancer, Retirement, SubmarineCall, CombatAuto, CombatMan
             if self.handle_mission_popup_ack():
                 continue
 
-            # 战斗结算，退出循环
+            # Завершение боя, выход из цикла
             if self.handle_battle_status(drop=drop) \
                     or self.handle_get_items(drop=drop):
                 break
@@ -667,10 +667,10 @@ class Combat(Level, HPBalancer, Retirement, SubmarineCall, CombatAuto, CombatMan
         self.device.stuck_record_clear()
         self.device.click_record_clear()
         battle_status = False
-        exp_info = False  # 用于处理游戏白屏 bug
+        exp_info = False  # Для обработки бага с белым экраном в игре
         for _ in self.loop():
 
-            # 检测预期结束状态
+            # Проверка ожидаемого конечного состояния
             if isinstance(expected_end, str):
                 if expected_end == 'in_stage' and self.handle_in_stage():
                     break
@@ -686,7 +686,7 @@ class Combat(Level, HPBalancer, Retirement, SubmarineCall, CombatAuto, CombatMan
 
             if self.handle_story_skip(drop=drop):
                 continue
-            # 处理战斗结算画面
+            # Обработка экрана результатов боя
             if self.handle_get_ship(drop=drop):
                 continue
             if self.handle_get_items(drop=drop):
@@ -704,14 +704,14 @@ class Combat(Level, HPBalancer, Retirement, SubmarineCall, CombatAuto, CombatMan
                     exp_info = True
                     continue
             else:
-                # 战斗评价已点击后，优先检测经验结算画面
+                # После клика по оценке боя приоритетно проверяем экран начисления опыта
                 if self.handle_exp_info():
                     exp_info = True
                     continue
                 if not exp_info and self.handle_battle_status(drop=drop):
                     battle_status = True
                     continue
-            # 处理各种弹窗
+            # Обработка различных всплывающих окон
             if self.handle_popup_confirm('COMBAT_STATUS'):
                 continue
             if self.handle_urgent_commission(drop=drop):
@@ -722,13 +722,13 @@ class Combat(Level, HPBalancer, Retirement, SubmarineCall, CombatAuto, CombatMan
                 continue
             if self.handle_mission_popup_ack():
                 continue
-            # 战斗中的额外处理器
+            # Дополнительные обработчики во время боя
             if self.handle_auto_search_exit(drop=drop):
                 continue
             if self.handle_combat_mis_click():
                 continue
 
-            # 检测到关卡选择画面，退出循环
+            # Обнаружен экран выбора уровня, выход из цикла
             if self.handle_in_stage():
                 break
             if expected_end is None:
