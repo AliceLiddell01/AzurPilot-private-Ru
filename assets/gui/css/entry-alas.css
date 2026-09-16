@@ -19,7 +19,7 @@
     --alas-entry-panel-shadow: 0 1px 2px rgba(0, 0, 0, .10);
 }
 
-/* 主页只约束内容宽度和节奏，继续沿用现有主题按钮。 */
+/* Главная страница ограничивает только ширину контента и ритм, сохраняя кнопки текущей темы. */
 #pywebio-scope-content:has(> .alas-home-marker) {
     padding: 28px clamp(18px, 5vw, 64px);
 }
@@ -50,7 +50,7 @@
     line-height: 1.7;
 }
 
-/* 主页功能页使用统一表面，避免内容直接叠在主题背景上。 */
+/* Страницы функций главной используют единую поверхность, чтобы избежать наложения контента прямо на фон темы. */
 #pywebio-scope-develop_detail {
     width: min(960px, 100%);
     margin: 12px auto 28px;
@@ -313,7 +313,7 @@
     opacity: .55;
 }
 
-/* 管理页复用主壳层的二级菜单，右侧只承载当前详情。 */
+/* Страница управления повторно использует подменю основной оболочки, справа отображаются только текущие детали. */
 #pywebio-scope-menu:empty {
     display: none;
 }
@@ -536,7 +536,7 @@ body.alas-manage-active #input-container .btn-light {
     border: 1px solid var(--alas-entry-border) !important;
 }
 
-/* PyWebIO 输入组默认固定在页面底部，管理页统一为居中表单。 */
+/* Группа ввода PyWebIO по умолчанию зафиксирована внизу страницы, на странице управления унифицирована как центрированная форма. */
 body.alas-manage-active #input-container.fixed {
     position: fixed !important;
     inset: 0 !important;

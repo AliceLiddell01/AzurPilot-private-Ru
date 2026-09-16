@@ -64,7 +64,7 @@
     background-color: #f6f6f9 !important;
 }
 
-/* --- MD3 开关样式开始 --- */
+/* --- Начало стилей переключателя MD3 --- */
 input[type="checkbox"] {
     appearance: none !important;
     -webkit-appearance: none !important;
@@ -109,7 +109,7 @@ input[type="checkbox"]:active::before {
     width: 24px !important;
 }
 
-/* --- MD3 开关样式结束 --- */
+/* --- Конец стилей переключателя MD3 --- */
 
 #pywebio-scope-dashboard input {
     background-color: white !important;

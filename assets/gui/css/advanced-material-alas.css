@@ -1,38 +1,38 @@
 /* ==========================================
-   Alas 现代苹果风格主题 v2
-   高级材质主题
+   Тема Alas в современном стиле Apple v2
+   Тема расширенных материалов
    ========================================== */
 
 /* ==========================================
-   目录
+   Содержание
    ==========================================
-   1. CSS 变量定义
-   2. 基础样式
-   3. 滚动条样式
-   4. 布局组件
-      4.1 侧边栏
-      4.2 顶部导航栏
-      4.3 导航器
-   5. 卡片样式
-   6. 按钮样式
-   7. 表单元素
-      7.1 输入框
-      7.2 选择框
-      7.3 复选框
-   8. 菜单样式
-   9. 表格样式
-   10. 日志区域
-   11. 动画定义
-   12. 工具类
-   13. 媒体查询
+   1. Определение переменных CSS
+   2. Базовые стили
+   3. Стили полосы прокрутки
+   4. Компоненты разметки
+      4.1 Боковая панель
+      4.2 Верхняя панель навигации
+      4.3 Навигатор
+   5. Стили карточек
+   6. Стили кнопок
+   7. Элементы формы
+      7.1 Поле ввода
+      7.2 Поле выбора
+      7.3 Флажок
+   8. Стили меню
+   9. Стили таблиц
+   10. Область журнала
+   11. Определение анимаций
+   12. Утилиты
+   13. Медиа-запросы
    ========================================== */
 
 /* ==========================================
-   1. CSS 变量定义
+   1. Определение переменных CSS
    ========================================== */
 
 :root {
-	/* === 色彩系统 === */
+	/* === Цветовая система === */
 	--alas-apple-bg: #f5f5f7;
 	--alas-apple-bg-image: url("https://api.yppp.net/api.php");
 	--alas-apple-bg-noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
@@ -62,7 +62,7 @@
 	--alas-entry-on-accent: #ffffff;
 	--alas-entry-accent-soft: var(--alas-apple-accent-light);
 
-	/* === 阴影系统 === */
+	/* === Система теней === */
 	--alas-apple-shadow-xs: 0 1px 3px rgba(0, 0, 0, 0.04);
 	--alas-apple-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 	--alas-apple-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.06);
@@ -72,10 +72,10 @@
 	--alas-entry-shadow: var(--alas-apple-shadow);
 	--alas-entry-panel-shadow: var(--alas-apple-shadow);
 
-	/* === 字体系统 === */
+	/* === Система шрифтов === */
 	--alas-font-stack: "MiSans", "Maple Mono NF CN ExtraBold", "Noto Sans SC", "Microsoft YaHei", "SimHei", sans-serif;
 
-	/* === 间距系统 === */
+	/* === Система отступов === */
 	--spacing-xs: 4px;
 	--spacing-sm: 8px;
 	--spacing-md: 12px;
@@ -83,7 +83,7 @@
 	--spacing-xl: 32px;
 	--spacing-2xl: 40px;
 
-	/* === 圆角系统 === */
+	/* === Система скруглений === */
 	--radius-xs: 6px;
 	--radius-sm: 8px;
 	--radius-md: 12px;
@@ -91,19 +91,19 @@
 	--radius-xl: 20px;
 	--radius-2xl: 24px;
 
-	/* === 滚动条变量 === */
+	/* === Переменные полосы прокрутки === */
 	--scrollbar-width: 8px;
 	--scrollbar-thumb: rgba(0, 0, 0, 0.2);
 	--scrollbar-thumb-hover: rgba(0, 0, 0, 0.3);
 	--scrollbar-track: transparent;
 	--scrollbar-radius: 4px;
 
-	/* === 过渡时间 === */
+	/* === Длительность переходов === */
 	--transition-fast: 0.15s ease;
 	--transition-normal: 0.25s ease;
 	--transition-slow: 0.35s ease;
 
-	/* === iOS 弹性动画曲线 === */
+	/* === Кривые пружинной анимации iOS === */
 	--ease-ios-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 	--ease-ios-bounce: cubic-bezier(0.175, 0.885, 0.32, 1.275);
 	--ease-ios-smooth: cubic-bezier(0.25, 0.1, 0.25, 1);
@@ -113,7 +113,7 @@
 }
 
 /* ==========================================
-   2. 基础样式
+   2. Базовые стили
    ========================================== */
 
 html {
@@ -143,10 +143,10 @@ body *:not(#pywebio-scope-log):not(#pywebio-scope-log *):not(.rich-traceback-con
 }
 
 /* ==========================================
-   3. 滚动条样式
+   3. Стили полосы прокрутки
    ========================================== */
 
-/* Webkit 内核浏览器滚动条 */
+/* Полоса прокрутки для браузеров на движке Webkit */
 ::-webkit-scrollbar {
 	width: var(--scrollbar-width);
 	height: var(--scrollbar-width);
@@ -172,13 +172,13 @@ body *:not(#pywebio-scope-log):not(#pywebio-scope-log *):not(.rich-traceback-con
 	background: transparent;
 }
 
-/* Firefox 滚动条 */
+/* Полоса прокрутки для Firefox */
 * {
 	scrollbar-width: thin;
 	scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
 }
 
-/* 内容区域滚动优化 */
+/* Оптимизация прокрутки области контента */
 #pywebio-scope-groups,
 #pywebio-scope-aside,
 #pywebio-scope-menu {
@@ -191,10 +191,10 @@ body *:not(#pywebio-scope-log):not(#pywebio-scope-log *):not(.rich-traceback-con
 }
 
 /* ==========================================
-   4. 布局组件
+   4. Компоненты разметки
    ========================================== */
 
-/* --- 4.1 侧边栏（磨砂玻璃效果）--- */
+/* --- 4.1 Боковая панель (эффект матового стекла) --- */
 #pywebio-scope-aside {
 	background-color: rgba(245, 245, 247, 0.88) !important;
 	backdrop-filter: blur(20px) saturate(180%);
@@ -204,7 +204,7 @@ body *:not(#pywebio-scope-log):not(#pywebio-scope-log *):not(.rich-traceback-con
 	transition: background-color var(--ease-spring-slow) !important;
 }
 
-/* 菜单容器 - 毛玻璃效果 */
+/* Контейнер меню - эффект матового стекла */
 #pywebio-scope-menu {
 	background-color: rgba(245, 245, 247, 0.65) !important;
 	backdrop-filter: blur(20px) saturate(180%) !important;
@@ -215,7 +215,7 @@ body *:not(#pywebio-scope-log):not(#pywebio-scope-log *):not(.rich-traceback-con
 	padding: 12px 6px !important;
 }
 
-/* 菜单内部子元素保持透明，不遮挡模糊 */
+/* Дочерние элементы внутри меню остаются прозрачными, не перекрывая размытие */
 #pywebio-scope-menu *,
 #pywebio-scope-menu details,
 #pywebio-scope-menu summary {
@@ -225,7 +225,7 @@ body *:not(#pywebio-scope-log):not(#pywebio-scope-log *):not(.rich-traceback-con
 	outline: none !important;
 }
 
-/* 侧边栏折叠项标题 */
+/* Заголовок сворачиваемого пункта боковой панели */
 #pywebio-scope-menu summary {
 	font-family: var(--alas-font-stack) !important;
 	font-size: var(--alas-menu-font-size) !important;
@@ -255,7 +255,7 @@ body *:not(#pywebio-scope-log):not(#pywebio-scope-log *):not(.rich-traceback-con
 	margin: 0 !important;
 }
 
-/* --- 4.2 顶部导航栏 --- */
+/* --- 4.2 Верхняя панель навигации --- */
 #pywebio-scope-header {
 	background-color: rgba(255, 255, 255, 0.92) !important;
 	backdrop-filter: blur(20px) saturate(180%);
@@ -282,7 +282,7 @@ body *:not(#pywebio-scope-log):not(#pywebio-scope-log *):not(.rich-traceback-con
 	z-index: 1 !important;
 }
 
-/* --- 4.3 导航器 --- */
+/* --- 4.3 Навигатор --- */
 #pywebio-scope-navigator {
 	margin: .5rem 1rem .5rem !important;
 	height: min-content !important;
@@ -330,10 +330,10 @@ body *:not(#pywebio-scope-log):not(#pywebio-scope-log *):not(.rich-traceback-con
 }
 
 /* ==========================================
-   5. 卡片样式
+   5. Стили карточек
    ========================================== */
 
-/* 通用卡片样式 */
+/* Общие стили карточек */
 [id^="pywebio-scope-group_"]:not(#pywebio-scope-menu):not(#pywebio-scope-aside):not(#pywebio-scope-navigator),
 #pywebio-scope-running,
 #pywebio-scope-pending,
@@ -357,7 +357,7 @@ body *:not(#pywebio-scope-log):not(#pywebio-scope-log *):not(.rich-traceback-con
 	animation: ios-slide-up var(--ease-spring-normal) both;
 }
 
-/* 卡片悬停效果 */
+/* Эффект наведения карточки */
 [id^="pywebio-scope-group_"]:not(#pywebio-scope-menu):not(#pywebio-scope-aside):not(#pywebio-scope-navigator):hover,
 #pywebio-scope-running:hover,
 #pywebio-scope-pending:hover,
@@ -369,7 +369,7 @@ body *:not(#pywebio-scope-log):not(#pywebio-scope-log *):not(.rich-traceback-con
 	box-shadow: var(--alas-apple-shadow-lg) !important;
 }
 
-/* 卡片基类 */
+/* Базовый класс карточки */
 .apple-card {
 	background-color: var(--alas-apple-card-bg) !important;
 	backdrop-filter: blur(20px) saturate(180%);
@@ -382,7 +382,7 @@ body *:not(#pywebio-scope-log):not(#pywebio-scope-log *):not(.rich-traceback-con
 	transition: box-shadow var(--ease-spring-normal), transform var(--ease-spring-fast) !important;
 }
 
-/* --- 5.1 日志区域专项适配 --- */
+/* --- 5.1 Специальная адаптация области журнала --- */
 .container-log {
 	background-color: rgba(255, 255, 255, 0.85) !important;
 	backdrop-filter: blur(10px) saturate(150%) !important;
@@ -417,7 +417,7 @@ body *:not(#pywebio-scope-log):not(#pywebio-scope-log *):not(.rich-traceback-con
 	animation: ios-slide-up var(--ease-spring-normal) both;
 }
 
-/* 卡片入场动画延迟 */
+/* Задержка анимации появления карточек */
 #pywebio-scope-groups>*:nth-child(1) {
 	animation-delay: 0.04s;
 }
@@ -500,10 +500,10 @@ body *:not(#pywebio-scope-log):not(#pywebio-scope-log *):not(.rich-traceback-con
 }
 
 /* ==========================================
-   6. 按钮样式
+   6. Стили кнопок
    ========================================== */
 
-/* 通用按钮 */
+/* Общие кнопки */
 .btn:not(.btn-aside):not(.btn-menu) {
 	border-radius: var(--radius-md) !important;
 	font-weight: 500 !important;
@@ -515,7 +515,7 @@ body *:not(#pywebio-scope-log):not(#pywebio-scope-log *):not(.rich-traceback-con
 	margin: 4px 0 !important;
 }
 
-/* 主要按钮（边框镂空风格） */
+/* Основная кнопка (контурный стиль с рамкой) */
 .btn-on,
 .btn-primary {
 	padding: 10px 24px !important;
@@ -542,7 +542,7 @@ body *:not(#pywebio-scope-log):not(#pywebio-scope-log *):not(.rich-traceback-con
 	transition: transform 0.1s var(--ease-ios-bounce);
 }
 
-/* 次要按钮（白底灰边） */
+/* Вторичная кнопка (белый фон с серой рамкой) */
 .btn-secondary,
 .btn-light {
 	background-color: rgba(255, 255, 255, 0.5) !important;
@@ -568,7 +568,7 @@ body *:not(#pywebio-scope-log):not(#pywebio-scope-log *):not(.rich-traceback-con
 	background-color: #e5e5ea !important;
 }
 
-/* 按钮弹性交互 */
+/* Пружинное взаимодействие кнопки */
 .btn:not(.btn-aside):not(.btn-menu):not(.btn-primary):not(.btn-on) {
 	transition: background-color var(--ease-spring-fast), transform var(--ease-spring-fast), box-shadow var(--ease-spring-normal) !important;
 	transform-origin: center;
@@ -579,14 +579,14 @@ body *:not(#pywebio-scope-log):not(#pywebio-scope-log *):not(.rich-traceback-con
 	transition: transform 0.1s var(--ease-ios-bounce) !important;
 }
 
-/* 侧边栏图标按钮 */
+/* Кнопка с иконкой боковой панели */
 .btn-aside:hover,
 .btn-aside-active {
 	border-color: var(--alas-apple-accent) !important;
 	color: var(--alas-apple-accent) !important;
 }
 
-/* 禁用状态 */
+/* Отключенное состояние */
 .btn:disabled,
 .btn[disabled] {
 	opacity: 0.5;
@@ -595,10 +595,10 @@ body *:not(#pywebio-scope-log):not(#pywebio-scope-log *):not(.rich-traceback-con
 }
 
 /* ==========================================
-   7. 表单元素
+   7. Элементы формы
    ========================================== */
 
-/* --- 7.1 输入框 --- */
+/* --- 7.1 Поле ввода --- */
 .form-control,
 input:not([type="checkbox"]):not([type="radio"]) {
 	border-radius: var(--radius-md) !important;
@@ -622,7 +622,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus {
 	border-color: var(--alas-apple-accent) !important;
 }
 
-/* --- 7.2 选择框 --- */
+/* --- 7.2 Поле выбора --- */
 select,
 select.form-control,
 .bootstrap-select>select {
@@ -657,7 +657,7 @@ select.form-control,
 	transition: border-color var(--transition-normal), box-shadow var(--transition-normal), background-color var(--transition-normal) !important;
 }
 
-/* Bootstrap-select 插件样式修复 - 彻底清除外层容器视觉 */
+/* Исправление стилей плагина Bootstrap-select - полное очищение визуального оформления внешнего контейнера */
 .bootstrap-select {
 	border: none !important;
 	padding: 0 !important;
@@ -672,7 +672,7 @@ select.form-control,
 	position: relative !important;
 }
 
-/* 防止 div 类型的 .form-control 容器产生视觉边框 */
+/* Предотвращение появления визуальной рамки у контейнеров .form-control типа div */
 div.form-control {
 	background: transparent !important;
 	border: none !important;
@@ -683,7 +683,7 @@ div.form-control {
 	outline: none !important;
 }
 
-/* 清除表单组包裹层的多余样式 */
+/* Очистка лишних стилей обертки группы формы */
 .form-group {
 	background: transparent !important;
 	border: none !important;
@@ -700,7 +700,7 @@ select.form-control:focus,
 	background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3cpath stroke='%23007aff' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3c/svg%3E") !important;
 }
 
-/* --- 7.5 菜单按钮 (Apple 风格) --- */
+/* --- 7.5 Кнопка меню (стиль Apple) --- */
 .btn-menu {
 	display: block !important;
 	width: 100% !important;
@@ -739,7 +739,7 @@ select.form-control:focus,
 	display: none !important;
 }
 
-/* --- 7.3 复选框（iOS 开关样式）--- */
+/* --- 7.3 Флажок (стиль переключателя iOS) --- */
 input[type="checkbox"] {
 	width: 50px;
 	height: 25px;
@@ -781,7 +781,7 @@ input[type="checkbox"]:checked::before {
 	transform: translateX(25px);
 }
 
-/* 参数容器对齐修复 */
+/* Исправление выравнивания контейнера параметров */
 [id^="pywebio-scope-arg_container-"] {
 	align-items: center !important;
 	margin: 0;
@@ -808,10 +808,10 @@ input[type="checkbox"]:checked::before {
 }
 
 /* ==========================================
-   8. 菜单样式
+   8. Стили меню
    ========================================== */
 
-/* 菜单按钮 */
+/* Кнопка меню */
 .btn-menu {
 	border-radius: 8px !important;
 	margin: 2px 8px !important;
@@ -861,7 +861,7 @@ input[type="checkbox"]:checked::before {
 	transition: transform 0.1s var(--ease-ios-bounce);
 }
 
-/* 菜单内按钮 */
+/* Кнопка внутри меню */
 #pywebio-scope-menu .btn-menu {
 	background-color: transparent !important;
 	border-radius: 8px !important;
@@ -879,7 +879,7 @@ input[type="checkbox"]:checked::before {
 	background-color: rgba(0, 122, 255, 0.08) !important;
 }
 
-/* 激活菜单项 */
+/* Активный пункт меню */
 .btn-menu-active {
 	padding: 8px 12px 8px 18px !important;
 	border: none !important;
@@ -950,7 +950,7 @@ input[type="checkbox"]:checked::before {
 	color: var(--alas-apple-accent) !important;
 }
 
-/* 子菜单项 */
+/* Подпункт меню */
 #pywebio-scope-menu details .btn-menu {
 	margin-left: 16px !important;
 	width: calc(100% - 24px) !important;
@@ -967,7 +967,7 @@ details .btn-menu-active::before {
 	left: 10px;
 }
 
-/* 折叠菜单标题 */
+/* Заголовок сворачиваемого меню */
 details {
 	transition: color var(--ease-spring-normal);
 }
@@ -1018,10 +1018,10 @@ details[open]>summary::after {
 }
 
 /* ==========================================
-   9. 表格样式
+   9. Стили таблиц
    ========================================== */
 
-/* 统计板块容器 */
+/* Контейнер блока статистики */
 #pywebio-scope-opsi_stats,
 #pywebio-scope-ap_chart,
 #pywebio-scope-ship_exp_table,
@@ -1062,7 +1062,7 @@ details[open]>summary::after {
 	color: var(--alas-apple-text) !important;
 }
 
-/* 表格样式 */
+/* Стили таблиц */
 #pywebio-scope-opsi_stats table,
 #pywebio-scope-ship_exp_table table,
 #pywebio-scope-commission_income table {
@@ -1128,7 +1128,7 @@ details[open]>summary::after {
 	background-color: rgba(0, 122, 255, 0.06) !important;
 }
 
-/* 统计板块文本 */
+/* Текст блока статистики */
 #pywebio-scope-opsi_stats>div:first-child,
 #pywebio-scope-ship_exp_table>div:first-child,
 #pywebio-scope-commission_income>div:first-child {
@@ -1145,7 +1145,7 @@ details[open]>summary::after {
 	gap: var(--spacing-sm) !important;
 }
 
-/* 委托收益统计与最近委托 */
+/* Статистика дохода поручений и недавние поручения */
 #pywebio-scope-commission_income .commission-income-summary,
 #pywebio-scope-commission_income .commission-income-table-wrap,
 #pywebio-scope-commission_income .commission-income-recent {
@@ -1203,7 +1203,7 @@ details[open]>summary::after {
 	background-color: rgba(0, 122, 255, 0.07) !important;
 }
 
-/* 更新器与入口功能页共用磨砂玻璃底框。 */
+/* Модуль обновления и функциональные страницы входа используют общий фон из матового стекла. */
 #pywebio-scope-updater_info,
 #pywebio-scope-updater_detail,
 #pywebio-scope-develop_detail,
@@ -1274,7 +1274,7 @@ details[open]>summary::after {
 }
 
 /* ==========================================
-   10. 日志区域
+   10. Область журнала
    ========================================== */
 
 #pywebio-scope-log {
@@ -1291,10 +1291,10 @@ details[open]>summary::after {
 }
 
 /* ==========================================
-   11. 动画定义
+   11. Определение анимаций
    ========================================== */
 
-/* 弹性缩放动画 */
+/* Анимация пружинного масштабирования */
 @keyframes ios-spring-scale {
 	0% {
 		transform: scale(0.95);
@@ -1311,7 +1311,7 @@ details[open]>summary::after {
 	}
 }
 
-/* 弹性弹入动画 */
+/* Анимация пружинного всплывания */
 @keyframes ios-bounce-in {
 	0% {
 		transform: scale(0.3);
@@ -1340,7 +1340,7 @@ details[open]>summary::after {
 	}
 }
 
-/* 淡入上滑动画 */
+/* Анимация плавного появления со сдвигом вверх */
 @keyframes ios-slide-up {
 	0% {
 		transform: translateY(20px);
@@ -1353,7 +1353,7 @@ details[open]>summary::after {
 	}
 }
 
-/* 淡入缩放动画 */
+/* Анимация плавного появления с масштабированием */
 @keyframes ios-fade-scale {
 	0% {
 		transform: scale(0.9);
@@ -1366,7 +1366,7 @@ details[open]>summary::after {
 	}
 }
 
-/* 脉冲动画 */
+/* Анимация пульсации */
 @keyframes ios-pulse {
 
 	0%,
@@ -1379,7 +1379,7 @@ details[open]>summary::after {
 	}
 }
 
-/* 呼吸动画 */
+/* Анимация плавного дыхания */
 @keyframes ios-breathe {
 
 	0%,
@@ -1392,7 +1392,7 @@ details[open]>summary::after {
 	}
 }
 
-/* 渐变流动动画 */
+/* Анимация перетекания градиента */
 @keyframes gradient-flow {
 	0% {
 		background-position: 0% 50%;
@@ -1407,7 +1407,7 @@ details[open]>summary::after {
 	}
 }
 
-/* 渐变脉冲动画 */
+/* Анимация градиентной пульсации */
 @keyframes gradient-pulse {
 
 	0%,
@@ -1422,7 +1422,7 @@ details[open]>summary::after {
 	}
 }
 
-/* 光泽扫过动画 */
+/* Анимация блика */
 @keyframes shimmer {
 	0% {
 		background-position: -200% 0;
@@ -1433,7 +1433,7 @@ details[open]>summary::after {
 	}
 }
 
-/* 涟漪扩散动画 */
+/* Анимация расходящейся ряби */
 @keyframes ripple {
 	0% {
 		transform: scale(0);
@@ -1446,7 +1446,7 @@ details[open]>summary::after {
 	}
 }
 
-/* 旋转加载动画 */
+/* Анимация вращения загрузки */
 @keyframes ios-spin {
 	0% {
 		transform: rotate(0deg);
@@ -1457,17 +1457,17 @@ details[open]>summary::after {
 	}
 }
 
-/* 加载状态 */
+/* Состояние загрузки */
 .loading,
 .spinner {
 	animation: ios-spin 1s linear infinite;
 }
 
 /* ==========================================
-   12. 工具类
+   12. Утилиты
    ========================================== */
 
-/* 标题样式 */
+/* Стили заголовков */
 h1,
 h2,
 h3,
@@ -1479,7 +1479,7 @@ h6 {
 	margin-bottom: var(--spacing-md) !important;
 }
 
-/* 任务分组分隔线 */
+/* Разделитель групп задач */
 .hr-task-group-text {
 	font-size: 11px !important;
 	font-weight: 600 !important;
@@ -1494,7 +1494,7 @@ h6 {
 	border-top: 1px solid var(--alas-apple-border) !important;
 }
 
-/* 动画延迟工具类 */
+/* Вспомогательные классы задержки анимации */
 .anim-delay-1 {
 	animation-delay: 0.04s;
 }
@@ -1555,16 +1555,16 @@ h6 {
 	animation-delay: 0.60s;
 }
 
-/* 特定按钮修复 */
+/* Исправление определенных кнопок */
 button[style*="--menu-Overview--"] {
 	border-left: none !important;
 }
 
 /* ==========================================
-   13. 媒体查询
+   13. Медиа-запросы
    ========================================== */
 
-/* 减少动画偏好支持 */
+/* Поддержка режима пониженного движения (prefers-reduced-motion) */
 @media (prefers-reduced-motion: reduce) {
 
 	*,
