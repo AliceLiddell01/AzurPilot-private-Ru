@@ -43,6 +43,17 @@ MCP_LOCAL_SOURCE_DIGEST_ENVIRONMENT_KEYS = frozenset(
     }
 )
 MCP_LOCAL_TEST_ENVIRONMENT_PREFIX = "TEST_LOCAL_MCP_"
+INTEGRATION_CREDENTIAL_ENVIRONMENT_KEYS = frozenset(
+    {
+        "CONTEXT7_API_KEY",
+        "DOCKERHUB_PAT",
+        "HUB_PAT_TOKEN",
+        "GRAFANA_SERVICE_ACCOUNT_TOKEN",
+        "GRAFANA_API_KEY",
+        "GRAFANA_USERNAME",
+        "GRAFANA_PASSWORD",
+    }
+)
 
 
 def _canonical(path: Path) -> Path:
@@ -368,6 +379,8 @@ def _safe_environment(
     allowed_explicit |= (
         set(MCP_LOCAL_TOKEN_ENVIRONMENT_KEYS.values())
         | MCP_LOCAL_SOURCE_DIGEST_ENVIRONMENT_KEYS
+        | set(INTEGRATION_CREDENTIAL_ENVIRONMENT_KEYS)
+        | {"GRAFANA_URL"}
     )
     result = {
         key: value
@@ -753,8 +766,9 @@ __all__ = [
     "DEFAULT_OUTPUT_LIMIT",
     "DEFAULT_PROCESS_TIMEOUT",
     "DOCKER_ENVIRONMENT_KEYS",
-    "MCP_LOCAL_TEST_ENVIRONMENT_PREFIX",
+    "INTEGRATION_CREDENTIAL_ENVIRONMENT_KEYS",
     "MCP_LOCAL_SOURCE_DIGEST_ENVIRONMENT_KEYS",
+    "MCP_LOCAL_TEST_ENVIRONMENT_PREFIX",
     "MCP_LOCAL_TOKEN_ENVIRONMENT_KEYS",
     "ProcessController",
     "ProcessIdentity",

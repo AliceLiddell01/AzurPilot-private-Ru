@@ -97,6 +97,7 @@ uv sync --locked --group ci
 uv run --locked ruff check . --select E9,F63,F7,F82 --ignore F821,F722
 uv run --locked --no-sync python -m dev_tools.mcp_compatibility_gate \
   --base-commit <full-base-sha>
+uv run --locked --no-sync python -m dev_tools.integration_contract_gate
 ```
 
 В pull request job передаёт в gate точный `github.event.pull_request.base.sha`;
@@ -111,6 +112,11 @@ uv run --locked --no-sync python -m dev_tools.mcp_compatibility_gate \
 [`postgresql-migration-tooling.md`](postgresql-migration-tooling.md).
 
 Job `Python` не содержит ручного реестра модулей: `pytest` автоматически собирает весь каталог `tests/`. Тесты, которым требуется реальное устройство, эмулятор или игровой аккаунт, должны проверять только локальный контракт либо оставаться в `tools/acceptance/`.
+
+Permanent integration contract gate проверяет закрытый реестр шести direct
+families, прямые записи `.codex/config.toml`, отсутствие retired profiles и
+сохранность Compose observability services/volumes. Gate не использует
+исторический snapshot, live credentials или machine-specific values.
 
 ## Test platform
 

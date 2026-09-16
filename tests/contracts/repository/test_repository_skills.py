@@ -94,7 +94,7 @@ def test_development_description_has_positive_and_negative_routing() -> None:
 def test_coderabbit_description_routes_review_requests() -> None:
     frontmatter, _ = _frontmatter(_SKILLS_ROOT / "azurpilot-coderabbit-review" / "SKILL.md")
     description = str(frontmatter["description"]).lower()
-    for trigger in ("coderabbit", "review", "pr", "findings", "rate limit", "wsl2 arch"):
+    for trigger in ("coderabbit", "review", "pr", "findings", "rate limit", "wsl2 linux"):
         assert trigger in description
     for delegated_trigger in ("делегации", "canonical", "checkpoint"):
         assert delegated_trigger in description
@@ -209,7 +209,7 @@ def test_required_references_and_workflow_guardrails_are_present() -> None:
         "если PR существует",
         "partially confirmed",
         "insufficient evidence",
-        "WSL2 Arch",
+        "WSL2 Linux",
         "false positive",
         "rate limit",
         "READY_FOR_CHATGPT_REVIEW",

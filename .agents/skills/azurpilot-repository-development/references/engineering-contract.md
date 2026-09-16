@@ -45,7 +45,7 @@ paths, URLs, технические термины и собственные и�
 ## Checkout и безопасность
 
 Последовательная разработка выполняется в текущем основном checkout. Отдельный
-WSL2 Arch checkout предназначен только для независимого CodeRabbit review и не
+Отдельный WSL2 review checkout предназначен только для независимого CodeRabbit review и не
 должен получать пользовательские secrets/config. Не смешивай product changes с
 review checkout и возвращай подтверждённые fixes в основной checkout.
 

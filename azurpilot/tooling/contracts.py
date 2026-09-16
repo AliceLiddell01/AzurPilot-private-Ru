@@ -232,6 +232,14 @@ class AnalysisScope(ClosedModel):
     git_range: GitRange | None = None
     mode: Literal["staged", "committed_range"]
 
+    @model_validator(mode="after")
+    def validate_mode(self) -> AnalysisScope:
+        if self.mode == "committed_range" and self.git_range is None:
+            raise ValueError("committed_range требует exact Git range")
+        if self.mode == "staged" and self.git_range is not None:
+            raise ValueError("staged не принимает Git range")
+        return self
+
 
 class GitSnapshot(ClosedModel):
     """Bounded snapshot Git-состояния перед mutating delivery."""
@@ -458,9 +466,22 @@ class CapabilityCheck(ClosedModel):
     message: str = Field(min_length=1, max_length=240)
 
 
+class IntegrationSummary(ClosedModel):
+    """Внешняя integration summary, добавляемая read-only Doctor."""
+
+    name: str = Field(min_length=1, max_length=80)
+    status: str = Field(pattern=r"^[A-Z][A-Z0-9_]{1,31}$")
+    reason_code: str = Field(pattern=r"^[A-Z][A-Z0-9_]{1,127}$")
+    route: str = Field(min_length=1, max_length=80)
+    message: str = Field(min_length=1, max_length=300)
+
+
 class DoctorDetails(ClosedModel):
     checks: tuple[CapabilityCheck, ...] = Field(max_length=32)
     healthy: bool
+    external_integrations: tuple[IntegrationSummary, ...] = Field(
+        default_factory=tuple, max_length=6
+    )
 
 
 class DoctorEvidence(ClosedModel):
@@ -826,6 +847,7 @@ __all__ = [
     "GitEvidence",
     "GitRange",
     "GitSnapshot",
+    "IntegrationSummary",
     "LifecycleDetails",
     "LifecycleEvidence",
     "LifecycleRecord",

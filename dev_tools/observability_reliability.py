@@ -19,7 +19,7 @@ from dev_tools.infrastructure_doctor import CANONICAL_PROJECT, run_docker
 
 SERVICES = ("alloy", "loki", "prometheus", "tempo", "grafana")
 MCP_BACKENDS = ("prometheus", "loki", "tempo")
-MCP_OPERATOR_CHECKS = ("dashboard", "dashboard_queries", "alerts")
+MCP_OPERATOR_CHECKS = ("dashboard", "dashboard_queries")
 ENDPOINTS = {
     "alloy": "http://alloy:12345/-/ready",
     "loki": "http://loki:3100/ready",
@@ -181,7 +181,7 @@ def outage(services: tuple[str, ...], journal: Path):
                 if current["status"] != "running":
                     docker("start", before[service]["id"])
                 state["recovered"].append(service)
-            except (Exception, GeneratorExit) as exc:
+            except (Exception, GeneratorExit) as exc:  # noqa: BLE001 - recovery must journal all failures.
                 state["recovery_errors"].append(
                     {"service": service, "error": type(exc).__name__}
                 )
@@ -508,19 +508,20 @@ def _emission_outcomes(count: int, failures: int) -> list[bool]:
 def emit(output: Path, *, count: int = 1, failures: int = 1) -> dict:
     """Пройти настоящий bootstrap и общую границу scheduler telemetry без игры."""
     from collections import deque
-    from datetime import datetime, timezone
+    from datetime import UTC, datetime
     from types import SimpleNamespace
 
-    from module.logging_context import logging_context
+    import numpy as np
+
+    from alas import AzurLaneAutoScript
     from module.logger import logger
+    from module.logging_context import logging_context
     from module.observability import scheduler_task_run
     from module.observability.bootstrap import (
         configure_application_observability,
         shutdown_application_observability,
     )
     from module.observability.tracing import get_current_trace_context, trace_operation
-    from alas import AzurLaneAutoScript
-    import numpy as np
 
     outcomes = _emission_outcomes(count, failures)
     marker = uuid.uuid4().hex
@@ -552,7 +553,7 @@ def emit(output: Path, *, count: int = 1, failures: int = 1) -> dict:
         screenshot_deque=deque(
             [
                 {
-                    "time": datetime.now(timezone.utc),
+                    "time": datetime.now(UTC),
                     "image": np.zeros((720, 1280, 3), dtype=np.uint8),
                 }
             ],
@@ -569,37 +570,36 @@ def emit(output: Path, *, count: int = 1, failures: int = 1) -> dict:
         for index, success in enumerate(outcomes):
             with logging_context(
                 profile="acceptance", component="acceptance", run_id=marker
-            ):
-                with scheduler_task_run(
-                    profile="acceptance",
-                    task=SimpleNamespace(command="TelemetryProbe"),
-                    registry=("TelemetryProbe",),
-                ) as task:
-                    context = get_current_trace_context()
-                    if context is None:
-                        raise ReliabilityError("OBSERVABILITY_TRACE_CONTEXT_MISSING")
-                    correlations.append(context.trace_id)
+            ), scheduler_task_run(
+                profile="acceptance",
+                task=SimpleNamespace(command="TelemetryProbe"),
+                registry=("TelemetryProbe",),
+            ) as task:
+                context = get_current_trace_context()
+                if context is None:
+                    raise ReliabilityError("OBSERVABILITY_TRACE_CONTEXT_MISSING")
+                correlations.append(context.trace_id)
+                logger.info(
+                    "Синтетический контекст password=synthetic-secret marker=%s",
+                    marker,
+                )
+                with trace_operation("azurpilot.acceptance.probe"):
                     logger.info(
-                        "Синтетический контекст password=synthetic-secret marker=%s",
-                        marker,
+                        "Проверка observability marker=%s index=%s", marker, index
                     )
-                    with trace_operation("azurpilot.acceptance.probe"):
-                        logger.info(
-                            "Проверка observability marker=%s index=%s", marker, index
+                if not success:
+                    try:
+                        raise RuntimeError(
+                            f"Синтетический incident marker={marker} "
+                            "password=synthetic-secret"
                         )
-                    if not success:
-                        try:
-                            raise RuntimeError(
-                                f"Синтетический incident marker={marker} "
-                                "password=synthetic-secret"
-                            )
-                        except RuntimeError:
-                            logger.error(
-                                "Контролируемая ошибка synthetic incident marker=%s",
-                                marker,
-                            )
-                            script.save_error_log(error_root=output / "log" / "error")
-                    task.finish(success)
+                    except RuntimeError:
+                        logger.error(
+                            "Контролируемая ошибка synthetic incident marker=%s",
+                            marker,
+                        )
+                        script.save_error_log(error_root=output / "log" / "error")
+                task.finish(success)
         action_seconds = time.monotonic() - started
     finally:
         shutdown_started = time.monotonic()
@@ -762,8 +762,8 @@ def _mcp_error_names(result: dict) -> list[str]:
 
 
 def mcp_signals(emission: dict) -> dict:
-    """Проверить read-only Gateway без raw logs и credentials в отчёте."""
-    from dev_tools.observability_mcp import _gateway_tool_call
+    """Проверить direct Grafana reads без raw logs и credentials в отчёте."""
+    from dev_tools.observability_mcp import _read_only_grafana_tool_call
 
     trace_id = _trace_id_from_emission(emission)
     requests = {
@@ -802,10 +802,6 @@ def mcp_signals(emission: dict) -> dict:
             "get_dashboard_panel_queries",
             {"uid": "azurpilot-overview"},
         ),
-        "alerts": (
-            "alerting_manage_rules",
-            {"operation": "list", "rule_limit": "50"},
-        ),
     }
     result = {
         "query_layer_available": True,
@@ -813,7 +809,7 @@ def mcp_signals(emission: dict) -> dict:
         "health": {},
     }
     try:
-        health_payload = _gateway_tool_call(*requests["health"])
+        health_payload = _read_only_grafana_tool_call(*requests["health"])
         if _mcp_payload_is_error(health_payload):
             result["unexpected_is_error"].append("health")
             result["health_error"] = "MCP_HEALTH_IS_ERROR"
@@ -832,7 +828,7 @@ def mcp_signals(emission: dict) -> dict:
         result["health"] = {
             item["uid"]: item.get("status") == "OK" for item in health_results
         }
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - bounded observability evidence.
         result["query_layer_available"] = False
         result["health_error"] = type(exc).__name__
         return result
@@ -847,7 +843,7 @@ def mcp_signals(emission: dict) -> dict:
             }
             continue
         try:
-            payload = _gateway_tool_call(name, arguments)
+            payload = _read_only_grafana_tool_call(name, arguments)
             is_error = _mcp_payload_is_error(payload)
             if is_error:
                 result["unexpected_is_error"].append(signal)
@@ -858,7 +854,7 @@ def mcp_signals(emission: dict) -> dict:
                 ),
                 "is_error": is_error,
             }
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - bounded observability evidence.
             result[signal] = {
                 "responded": False,
                 "nonempty": False,
@@ -868,7 +864,7 @@ def mcp_signals(emission: dict) -> dict:
         result["operator_checks"] = {}
         for signal, (name, arguments) in operator_checks.items():
             try:
-                payload = _gateway_tool_call(name, arguments)
+                payload = _read_only_grafana_tool_call(name, arguments)
                 is_error = _mcp_payload_is_error(payload)
                 if is_error:
                     result["unexpected_is_error"].append(signal)
@@ -879,7 +875,7 @@ def mcp_signals(emission: dict) -> dict:
                     "is_error": is_error,
                 }
                 result["operator_checks"][signal] = result[signal]
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - bounded observability evidence.
                 result[signal] = {
                     "responded": False,
                     "nonempty": False,
@@ -1015,8 +1011,7 @@ def _metric_lines(
         expected_exporter = exporter.casefold()
         if (
             exporter_value == expected_exporter
-            or exporter_value.endswith(f".{expected_exporter}")
-            or exporter_value.endswith(f"/{expected_exporter}")
+            or exporter_value.endswith((f".{expected_exporter}", f"/{expected_exporter}"))
         ):
             matched.append(line)
     if matched:

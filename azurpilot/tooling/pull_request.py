@@ -125,7 +125,7 @@ class PullRequestBodyRenderer:
         if review is None:
             review_text = (
                 "Проверка CodeRabbit ещё не выполнялась на этой точке lifecycle. "
-                "После создания draft PR проверка выполняется в постоянном WSL2 Arch clone; "
+                "После создания draft PR проверка выполняется в постоянном WSL2 review clone; "
                 "результат и disposition будут добавлены отдельным обновлением body."
             )
         else:

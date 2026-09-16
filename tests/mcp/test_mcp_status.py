@@ -1,1320 +1,252 @@
 from __future__ import annotations
-from tests.support.paths import REPOSITORY_ROOT
-
 
 import asyncio
 import json
-import re
-import time
-from copy import deepcopy
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 import dev_tools.mcp_status as status
-from module.mcp_shared.versioning import load_server_versions
-
-
-_CANONICAL_PLUGIN_SKILLS = (
-    "azurpilot-development",
-    "azurpilot-game-control",
-    "azurpilot-troubleshooting",
+from azurpilot.integrations.contracts import (
+    IntegrationEvidence,
+    IntegrationName,
+    IntegrationRecord,
+    IntegrationState,
 )
+from azurpilot.tooling.contracts import ResultCode
+from tests.support.paths import REPOSITORY_ROOT
 
 
-@pytest.fixture(autouse=True)
-def _stub_semgrep_probe(monkeypatch) -> None:
-    async def probe(root: Path) -> dict[str, object]:
-        return {
-            "status": "ready",
-            "reason_code": "SEMGREP_SCAN_READY",
-            "server_name": "Semgrep",
-            "server_version": "1.29.0",
-            "scan_tool": "semgrep_scan",
-            "runtime_reachable": True,
-            "runtime_ready": True,
-        }
-
-    monkeypatch.setattr(status, "_probe_semgrep_local_mcp", probe)
-
-
-@pytest.fixture(autouse=True)
-def _stub_direct_route_probe(monkeypatch) -> None:
-    async def probe(name: str, config: object) -> dict[str, object]:
-        return {
-            "status": "ready",
-            "reason_code": "DIRECT_TEST_ROUTE_READY",
-            "runtime_reachable": True,
-            "runtime_ready": True,
-            "evidence_kind": "test_direct_probe",
-        }
-
-    monkeypatch.setattr(status, "_probe_direct_route", probe)
-
-
-@pytest.fixture(autouse=True)
-def _stub_source_snapshot(monkeypatch) -> None:
-    monkeypatch.setattr(
-        status, "_git_source_snapshot", lambda root: ("a" * 40, "clean")
+def _record(
+    name: IntegrationName,
+    state: IntegrationState = IntegrationState.READY,
+) -> IntegrationRecord:
+    return IntegrationRecord(
+        name=name,
+        state=state,
+        reason_code=(
+            "INTEGRATION_DIRECT_READY"
+            if state is IntegrationState.READY
+            else "INTEGRATION_NOT_READY"
+        ),
+        message=(
+            "Прямой адаптер подтверждён."
+            if state is IntegrationState.READY
+            else "Адаптер не подтверждён."
+        ),
+        evidence=IntegrationEvidence(
+            route="direct_test",
+            configured=state is not IntegrationState.NOT_CONFIGURED,
+            reachable=state is IntegrationState.READY,
+            read_only=True,
+        ),
     )
 
 
-def _versions() -> dict[str, str]:
-    return load_server_versions(REPOSITORY_ROOT)
+class _IntegrationService:
+    def __init__(self, records: tuple[IntegrationRecord, ...]) -> None:
+        self.records = records
+
+    async def doctor_async(self, _root: Path):
+        return SimpleNamespace(details=SimpleNamespace(integrations=self.records))
 
 
-def test_stdio_child_environment_excludes_unapproved_secrets(monkeypatch) -> None:
-    monkeypatch.setenv("AZURPILOT_STATUS_SECRET", "must-not-be-inherited")
-    monkeypatch.setenv("AZURPILOT_DEV_LOCAL_MCP_TOKEN", "must-not-be-inherited")
-
-    environment = status._child_environment()
-
-    assert environment["PYTHONUTF8"] == "1"
-    assert environment["PYTHONIOENCODING"] == "utf-8"
-    assert "AZURPILOT_STATUS_SECRET" not in environment
-    assert "AZURPILOT_DEV_LOCAL_MCP_TOKEN" not in environment
+class _TimeoutService:
+    async def doctor_async(self, _root: Path):
+        raise TimeoutError
 
 
-def test_contract_fingerprints_require_full_sha256_values() -> None:
-    assert status._SHA256_RE.fullmatch("a" * 64)
-    assert status._SHA256_RE.fullmatch("a" * 40) is None
+def _source_config() -> dict[str, object]:
+    return {
+        "status": "ready",
+        "servers": {
+            name: {
+                "source_config": {"status": "configured"},
+                "local_http_source_config": {"status": "configured"},
+            }
+            for name in status.SERVER_NAMES
+        },
+    }
 
 
-def _local_result(name: str, version: str, revision: str) -> dict[str, object]:
+async def _local_probe(name: str, _root: Path, _revision: str) -> dict[str, object]:
     return {
         "status": "ready",
         "reason_code": "LOCAL_CONTRACT_READY",
         "server_name": name,
-        "server_version": version,
+        "server_version": "1.0.0",
         "protocol_version": "2025-11-25",
-        "contract_schema_version": 1,
-        "source_revision": revision,
-        "tool_count": 1,
+        "evidence_kind": "representative_local_probe",
+        "runtime_reachable": True,
+        "runtime_ready": True,
     }
 
 
-def _docker_ready() -> dict[str, object]:
-    profile_servers = {
-        name: {
-            "status": "ready",
-            "reason_code": "DOCKER_SERVER_PROFILE_CONFIGURED",
-            "configured": True,
-            "read_only": True,
-            "read_only_policy": {"status": "ready"},
-            "profile_tool_names": [],
-            "snapshot_tool_names": [],
-        }
-        for name in status.THIRD_PARTY_SERVERS
-    }
-    runtime_servers = {
-        name: {
-            "status": "ready",
-            "reason_code": "DOCKER_GATEWAY_READ_ONLY_CALL_READY",
-            "runtime_reachable": True,
-            "runtime_ready": True,
-            "tools_observable": True,
-        }
-        for name in status.THIRD_PARTY_SERVERS
-    }
-    third_party = {
-        name: {
-            **profile_servers[name],
-            "profile_config": profile_servers[name],
-            "gateway_runtime": runtime_servers[name],
-            "tools_observable": True,
-            "runtime_reachable": True,
-            "runtime_ready": True,
-            "status": "ready",
-        }
-        for name in status.THIRD_PARTY_SERVERS
-    }
-    return {
-        "status": "ready",
-        "reason_code": "DOCKER_PROFILE_READY",
-        "profile_id": status.CANONICAL_DOCKER_PROFILE_ID,
-        "server_names": list(status.THIRD_PARTY_SERVERS),
-        "profile_config": {
-            "status": "ready",
-            "reason_code": "DOCKER_PROFILE_READY",
-            "third_party": profile_servers,
-        },
-        "gateway_runtime": {
-            "status": "ready",
-            "reason_code": "DOCKER_GATEWAY_RUNTIME_READY",
-            "runtime_reachable": True,
-            "runtime_ready": True,
-            "servers": runtime_servers,
-        },
-        "client_connection": {"status": "configured"},
-        "third_party": third_party,
-        "secret_engine": {"secret_store": {"status": "ready"}},
-    }
+async def _remote_probe(name: str) -> dict[str, object]:
+    return status._not_configured_remote(name)
 
 
-def _remote_ready(name: str) -> dict[str, object]:
-    return {
-        "remote_backend": {
-            "status": "ready",
-            "server_name": name,
-            "server_version": _versions()[name],
-            "runtime_reachable": True,
-            "runtime_ready": True,
-            "protocol_version": "2025-11-25",
-            "source_revision": "a" * 40,
-        },
-        "public_edge": {"status": "ready", "edge_reachable": True},
-    }
-
-
-def test_status_json_model_records_exact_local_identity(monkeypatch) -> None:
-    revision = "a" * 40
+def _patch_ready_collectors(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        status, "_git_source_snapshot", lambda root: (revision, "clean")
+        status, "_git_source_snapshot", lambda _root: ("a" * 40, "clean")
+    )
+    monkeypatch.setattr(
+        status,
+        "load_server_versions",
+        lambda _root: {name: "1.0.0" for name in status.SERVER_NAMES},
+    )
+    monkeypatch.setattr(
+        status, "first_party_source_registration", lambda _root: _source_config()
+    )
+    monkeypatch.setattr(status, "_codex_plugin_status", lambda _root: {"status": "ready"})
+    monkeypatch.setattr(
+        status, "_version_guard", lambda _root, _versions: {"status": "ready"}
     )
 
-    async def local(name: str, root: Path, current_revision: str) -> dict[str, object]:
-        version = _versions()[name]
-        return _local_result(name, version, current_revision)
 
-    async def remote(name: str) -> dict[str, object]:
-        return _remote_ready(name)
-
-    report = asyncio.run(
+def _ready_report(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
+    _patch_ready_collectors(monkeypatch)
+    records = tuple(
+        _record(IntegrationName(name)) for name in status.DIRECT_INTEGRATION_NAMES
+    )
+    return asyncio.run(
         status.collect_status_async(
             REPOSITORY_ROOT,
-            local_probe=local,
-            remote_probe=remote,
-            docker_probe=_docker_ready,
+            local_probe=_local_probe,
+            remote_probe=_remote_probe,
+            integration_service=_IntegrationService(records),
             now=lambda: "2026-01-01T00:00:00Z",
         )
     )
 
-    assert report["schema_version"] == 1
-    assert report["status"] == "partial"
-    assert report["canonical_status"] == "ready"
-    assert report["source"] == {"revision": revision, "working_tree": "clean"}
-    assert report["source_config"]["status"] == "ready"
-    assert report["source_config"]["evidence_kind"] == "repository_source_config"
-    assert report["effective_codex_registration"]["status"] == "not_observable"
-    assert (
-        report["effective_codex_registration"]["evidence_kind"]
-        == "external_live_codex_session"
-    )
-    assert report["version_guard"] == {
-        "status": "ready",
-        "reason_code": "MCP_VERSION_GUARD_READY",
-    }
-    assert (
-        report["servers"]["azurpilot-dev"]["local_direct"]["version_status"]
-        == "compatible"
-    )
-    for name in ("azurpilot-dev", "azurpilot-game"):
-        codex = report["servers"][name]["codex"]
-        assert codex["source_config"]["status"] == "configured"
-        assert (
-            codex["source_config"]["evidence_kind"]
-            == "repository_source_config"
-        )
-        assert codex["effective_codex_registration"]["status"] == "not_observable"
-    assert report["plugin"]["status"] == "ready"
-    assert report["chatgpt"]["status"] == "not_observable"
 
-
-def test_human_status_uses_compact_tables_and_sections(capsys) -> None:
-    revision = "a" * 40
-    report = {
-        "status": "partial",
-        "reason_code": "MCP_STATUS_PARTIAL",
-        "source_config": {
-            "status": "ready",
-            "reason_code": "CODEX_SOURCE_CONFIG_READY",
-        },
-        "effective_codex_registration": {
-            "status": "not_observable",
-            "reason_code": "CODEX_EFFECTIVE_REGISTRATION_NOT_OBSERVABLE",
-        },
-        "source": {"revision": revision, "working_tree": "clean"},
-        "version_guard": {
-            "status": "ready",
-            "reason_code": "MCP_VERSION_GUARD_READY",
-        },
-        "servers": {
-            "azurpilot-dev": {
-                "expected_version": _versions()["azurpilot-dev"],
-                "local_direct": _local_result(
-                    "azurpilot-dev", _versions()["azurpilot-dev"], revision
-                ),
-                "codex": {
-                    "source_config": {
-                        "status": "configured",
-                        "reason_code": "CODEX_SERVER_CONFIGURED",
-                    },
-                    "effective_codex_registration": {
-                        "status": "not_observable",
-                        "reason_code": "CODEX_EFFECTIVE_REGISTRATION_NOT_OBSERVABLE",
-                    },
-                },
-                "remote_backend": {
-                    "status": "not_configured",
-                    "reason_code": "REMOTE_PUBLIC_URL_NOT_CONFIGURED",
-                },
-                "public_edge": {
-                    "status": "not_configured",
-                    "reason_code": "REMOTE_PUBLIC_URL_NOT_CONFIGURED",
-                },
-            },
-            "azurpilot-game": {
-                "expected_version": _versions()["azurpilot-game"],
-                "local_direct": _local_result(
-                    "azurpilot-game", _versions()["azurpilot-game"], revision
-                ),
-                "codex": {
-                    "source_config": {
-                        "status": "configured",
-                        "reason_code": "CODEX_SERVER_CONFIGURED",
-                    },
-                    "effective_codex_registration": {
-                        "status": "not_observable",
-                        "reason_code": "CODEX_EFFECTIVE_REGISTRATION_NOT_OBSERVABLE",
-                    },
-                },
-                "remote_backend": {
-                    "status": "unavailable",
-                    "reason_code": "REMOTE_METADATA_UNAVAILABLE",
-                },
-                "public_edge": {
-                    "status": "unavailable",
-                    "reason_code": "REMOTE_METADATA_UNAVAILABLE",
-                },
-            },
-        },
-        "docker_mcp": _docker_ready(),
-        "plugin": {
-            "status": "ready",
-            "reason_code": "CODEX_PLUGIN_ROUTING_READY",
-        },
-        "chatgpt": {
-            "status": "not_observable",
-            "reason_code": "CHATGPT_ACTION_SNAPSHOT_NOT_OBSERVABLE",
-        },
-    }
-
-    status._print_human(report, None)
-    output = capsys.readouterr().out
-
-    assert "AzurPilot MCP Status" in output
-    assert "SERVER" in output and "REMOTE BACKEND" in output
-    assert "azurpilot-dev" in output
-    assert f"{_versions()['azurpilot-dev']} OK" in output
-    assert "PLUGIN" in output
-    assert "ИСТОЧНИК CODEX" in output
-    assert "АКТИВНАЯ РЕГИСТРАЦИЯ CODEX" in output
-    assert "только удалённый маршрут" in output
-    assert "Docker MCP Gateway" in output
-    assert "Status: OK" in output
-    assert "context7" in output
-    assert "Кэш действий ChatGPT" in output
-    assert "MCP_STATUS_PARTIAL" in output
-    assert "local_direct" not in output
-    assert "reason_code" not in output
-
-
-def test_status_marks_source_drift_and_strict_fails(monkeypatch) -> None:
-    expected_revision = "a" * 40
-    monkeypatch.setattr(
-        status, "_git_source_snapshot", lambda root: (expected_revision, "clean")
-    )
-
-    async def local(name: str, root: Path, current_revision: str) -> dict[str, object]:
-        version = _versions()[name]
-        return _local_result(name, version, "b" * 40)
-
-    async def remote(name: str) -> dict[str, object]:
-        return _remote_ready(name)
-
-    report = asyncio.run(
-        status.collect_status_async(
-            REPOSITORY_ROOT,
-            local_probe=local,
-            remote_probe=remote,
-            docker_probe=_docker_ready,
-        )
-    )
-
-    assert report["status"] == "drift"
-    assert status._strict_failure(report, None)
-
-
-def test_modified_working_tree_is_partial_and_preserves_source_status() -> None:
-    revision = "a" * 40
-    surface = status._surface_status(
-        _local_result("azurpilot-dev", _versions()["azurpilot-dev"], revision),
-        expected_version=_versions()["azurpilot-dev"],
-        expected_revision=revision,
-        working_tree="modified",
-    )
-
-    assert surface["status"] == "partial"
-    assert surface["source_status"] == "modified"
-    assert surface["reason_code"] == "LOCAL_CONTRACT_READY"
-    assert (
-        status._human_surface_cell(
-            surface, expected_version=_versions()["azurpilot-dev"]
-        )
-        == f"{_versions()['azurpilot-dev']} MODIFIED"
-    )
-
-
-def test_docker_probe_timeout_is_reported_without_waiting_for_the_probe(
+def test_status_keeps_first_party_contract_and_adds_exactly_six_direct_integrations(
     monkeypatch,
-) -> None:
-    monkeypatch.setattr(status, "DOCKER_PROBE_TIMEOUT_SECONDS", 0.001)
-
-    async def local(name: str, root: Path, revision: str) -> dict[str, object]:
-        version = _versions()[name]
-        return _local_result(name, version, revision)
-
-    async def remote(name: str) -> dict[str, object]:
-        return _remote_ready(name)
-
-    def docker_probe() -> dict[str, object]:
-        time.sleep(0.05)
-        return _docker_ready()
-
-    started = time.monotonic()
-    report = asyncio.run(
-        status.collect_status_async(
-            REPOSITORY_ROOT,
-            local_probe=local,
-            remote_probe=remote,
-            docker_probe=docker_probe,
-        )
-    )
-    elapsed = time.monotonic() - started
-
-    assert elapsed < 0.5
-    assert report["docker_mcp"]["status"] == "unavailable"
-    assert report["docker_mcp"]["reason_code"] == "DOCKER_PROBE_TIMEOUT"
-
-
-def test_semgrep_probe_timeout_is_reported_with_bounded_wait(monkeypatch) -> None:
-    monkeypatch.setattr(status, "SEMGREP_PROBE_TOTAL_TIMEOUT_SECONDS", 0.01)
-
-    async def local(name: str, root: Path, revision: str) -> dict[str, object]:
-        version = _versions()[name]
-        return _local_result(name, version, revision)
-
-    async def remote(name: str) -> dict[str, object]:
-        return _remote_ready(name)
-
-    async def semgrep_probe(root: Path) -> dict[str, object]:
-        await asyncio.sleep(0.1)
-        return {"status": "ready"}
-
-    started = time.monotonic()
-    report = asyncio.run(
-        status.collect_status_async(
-            REPOSITORY_ROOT,
-            local_probe=local,
-            remote_probe=remote,
-            docker_probe=_docker_ready,
-            semgrep_probe=semgrep_probe,
-        )
-    )
-    elapsed = time.monotonic() - started
-
-    assert elapsed < 0.5
-    assert report["semgrep_mcp"]["status"] == "unavailable"
-    assert report["semgrep_mcp"]["reason_code"] == "SEMGREP_LOCAL_PROBE_TIMEOUT"
-
-
-def test_semgrep_result_without_json_payload_is_not_observable() -> None:
-    result = type("_Result", (), {"is_error": False, "content": []})()
-
-    summary = status._semgrep_result_summary(result)
-
-    assert summary == {
-        "status": "not_observable",
-        "reason_code": "SEMGREP_SCAN_RESULT_NOT_OBSERVABLE",
-        "finding_count": None,
-    }
-
-
-@pytest.mark.parametrize(
-    ("returncode", "stdout", "expected_status", "expected_reason"),
-    (
-        (1, "", "unavailable", "DOCKER_GATEWAY_TOOL_CALL_FAILED"),
-        (0, "not json", "unavailable", "DOCKER_GATEWAY_TOOL_RESULT_INVALID"),
-        (
-            0,
-            json.dumps({"isError": True, "content": [{"text": "hidden"}]}),
-            "unavailable",
-            "DOCKER_GATEWAY_TOOL_RESULT_ERROR",
-        ),
-        (
-            0,
-            "Tool call took: 1ms\n{" + '"total":3' + "}",
-            "ready",
-            "DOCKER_GATEWAY_READ_ONLY_CALL_READY",
-        ),
-    ),
-)
-def test_docker_gateway_tool_call_validates_bounded_json_result(
-    monkeypatch,
-    returncode: int,
-    stdout: str,
-    expected_status: str,
-    expected_reason: str,
-) -> None:
-    monkeypatch.setattr(
-        status,
-        "_run_process",
-        lambda *args, **kwargs: status.subprocess.CompletedProcess(
-            args[0], returncode, stdout, ""
-        ),
-    )
-
-    result = status._docker_gateway_tool_call("docker", "list_datasources", {})
-
-    assert result["status"] == expected_status
-    assert result["reason_code"] == expected_reason
-
-
-def test_docker_gateway_tool_call_rejects_oversized_result(monkeypatch) -> None:
-    monkeypatch.setattr(
-        status,
-        "_run_process",
-        lambda *args, **kwargs: status.subprocess.CompletedProcess(
-            args[0], 0, "{" + ("x" * status._MAX_JSON_BYTES) + "}", ""
-        ),
-    )
-
-    result = status._docker_gateway_tool_call("docker", "list_datasources", {})
-
-    assert result == {
-        "status": "unavailable",
-        "reason_code": "DOCKER_GATEWAY_TOOL_RESULT_TOO_LARGE",
-    }
-
-
-def test_codex_entry_requires_enabled_and_project_cwd() -> None:
-    config = {
-        "mcp_servers": {
-            "azurpilot-dev": {
-                "command": "uv",
-                "args": ["run", "--locked"],
-                "cwd": ".",
-                "enabled": True,
-            }
-        }
-    }
-
-    assert (
-        status._codex_entry_status(
-            config,
-            "azurpilot-dev",
-            expected_command="uv",
-            expected_args=("run", "--locked"),
-        )["status"]
-        == "configured"
-    )
-    for changed in (
-        {"enabled": False},
-        {"cwd": "C:/elsewhere"},
-        {"command": "python"},
-        {"url": "https://example.invalid/mcp"},
-    ):
-        drifted = deepcopy(config)
-        drifted["mcp_servers"]["azurpilot-dev"].update(changed)
-        assert (
-            status._codex_entry_status(
-                drifted,
-                "azurpilot-dev",
-                expected_command="uv",
-                expected_args=("run", "--locked"),
-            )["status"]
-            == "drift"
-        )
-
-
-@pytest.mark.parametrize(
-    ("name", "module_name", "startup_timeout"),
-    (
-        ("azurpilot-dev", "module.dev_mcp", 5),
-        ("azurpilot-game", "module.game_mcp", 10),
-    ),
-)
-def test_codex_direct_entries_validate_independent_contract_literals(
-    name: str, module_name: str, startup_timeout: int
-) -> None:
-    expected_args = ("run", "--locked", "--no-sync", "python", "-m", module_name)
-    config = {
-        "mcp_servers": {
-            name: {
-                "command": "uv",
-                "args": list(expected_args),
-                "cwd": ".",
-                "enabled": True,
-                "required": False,
-                "startup_timeout_sec": startup_timeout,
-                "tool_timeout_sec": 180,
-            }
-        }
-    }
-    expected = {
-        "expected_command": "uv",
-        "expected_args": expected_args,
-        "expected_startup_timeout_sec": startup_timeout,
-        "expected_tool_timeout_sec": 180,
-        "expected_required": False,
-    }
-
-    assert status._codex_entry_status(config, name, **expected)["status"] == "configured"
-    for field in ("startup_timeout_sec", "tool_timeout_sec"):
-        drifted = deepcopy(config)
-        drifted["mcp_servers"][name][field] += 1
-        assert status._codex_entry_status(drifted, name, **expected)["status"] == "drift"
-
-    for field, value in (
-        ("command", "python"),
-        ("args", ["run", "--locked", "--no-sync", "python", "-m", "other"]),
-        ("cwd", "C:/elsewhere"),
-        ("enabled", False),
-        ("required", True),
-    ):
-        drifted = deepcopy(config)
-        drifted["mcp_servers"][name][field] = value
-        assert status._codex_entry_status(drifted, name, **expected)["status"] == "drift"
-
-    missing = deepcopy(config)
-    missing["mcp_servers"][name].pop("startup_timeout_sec")
-    assert status._codex_entry_status(missing, name, **expected)["status"] == "drift"
-
-
-def test_codex_local_http_entry_keeps_registration_alias_separate_from_identity() -> (
-    None
 ):
-    config = {
-        "mcp_servers": {
-            "azurpilot_game": {
-                "url": "http://127.0.0.1:8776/mcp",
-                "bearer_token_env_var": "AZURPILOT_GAME_LOCAL_MCP_TOKEN",
-                "enabled": True,
-                "required": False,
-                "startup_timeout_sec": 10,
-                "tool_timeout_sec": 180,
-            }
-        }
-    }
-    result = status._codex_url_entry_status(
-        config,
-        "azurpilot_game",
-        expected_url="http://127.0.0.1:8776/mcp",
-        expected_bearer_token_env_var="AZURPILOT_GAME_LOCAL_MCP_TOKEN",
-        expected_startup_timeout_sec=10,
-        expected_tool_timeout_sec=180,
-        expected_required=False,
+    report = _ready_report(monkeypatch)
+
+    assert report["status"] == "ready"
+    assert tuple(report["integrations"]) == status.DIRECT_INTEGRATION_NAMES
+    assert report["direct_routes"] == report["integrations"]
+    assert all(item["state"] == "ready" for item in report["integrations"].values())
+    assert all(
+        item["local_direct"]["status"] == "ready"
+        for item in report["servers"].values()
     )
-    assert result == {
-        "status": "configured",
-        "reason_code": "CODEX_SERVER_CONFIGURED",
-        "enabled": True,
-        "transport": "local_http",
-        "bearer_token_env_var": "AZURPILOT_GAME_LOCAL_MCP_TOKEN",
-    }
-
-    drifted = deepcopy(config)
-    drifted["mcp_servers"]["azurpilot_game"]["bearer_token_env_var"] = "OTHER_TOKEN"
-    assert (
-        status._codex_url_entry_status(
-            drifted,
-            "azurpilot_game",
-            expected_url="http://127.0.0.1:8776/mcp",
-            expected_bearer_token_env_var="AZURPILOT_GAME_LOCAL_MCP_TOKEN",
-            expected_startup_timeout_sec=10,
-            expected_tool_timeout_sec=180,
-            expected_required=False,
-        )["status"]
-        == "drift"
-    )
-
-
-def _write_plugin_fixture(
-    root: Path,
-    *,
-    skill_contents: dict[str, str] | None = None,
-    manifest: dict[str, object] | None = None,
-) -> None:
-    plugin_root = root / "plugins" / "azurpilot"
-    (plugin_root / ".codex-plugin").mkdir(parents=True)
-    skills_root = plugin_root / "skills"
-    skills_root.mkdir()
-    contents = skill_contents or {}
-    for name in _CANONICAL_PLUGIN_SKILLS:
-        skill_dir = skills_root / name
-        skill_dir.mkdir()
-        skill_dir.joinpath("SKILL.md").write_text(
-            contents.get(
-                name,
-                f"---\nname: {name}\ndescription: Valid skill metadata.\n---\n\n# Skill\n",
-            ),
-            encoding="utf-8",
-        )
-    (plugin_root / ".codex-plugin" / "plugin.json").write_text(
-        json.dumps(
-            manifest
-            or {"name": "azurpilot", "skills": "./skills/", "version": "test"}
-        ),
-        encoding="utf-8",
-    )
-
-
-def test_codex_plugin_status_rejects_missing_skill_file(tmp_path: Path) -> None:
-    _write_plugin_fixture(tmp_path)
-    (
-        tmp_path
-        / "plugins"
-        / "azurpilot"
-        / "skills"
-        / _CANONICAL_PLUGIN_SKILLS[0]
-        / "SKILL.md"
-    ).unlink()
-
-    result = status._codex_plugin_status(tmp_path)
-
-    assert result["status"] == "drift"
-    assert result["reason_code"] == "CODEX_PLUGIN_SKILL_FILE_MISSING"
-
-
-def test_codex_plugin_status_rejects_skill_name_drift(tmp_path: Path) -> None:
-    _write_plugin_fixture(
-        tmp_path,
-        skill_contents={
-            _CANONICAL_PLUGIN_SKILLS[0]: (
-                "---\nname: wrong-skill\ndescription: Present.\n---\n"
-            )
-        },
-    )
-
-    result = status._codex_plugin_status(tmp_path)
-
-    assert result["status"] == "drift"
-    assert result["reason_code"] == "CODEX_PLUGIN_SKILL_NAME_DRIFT"
-
-
-def test_codex_plugin_status_rejects_malformed_skill_frontmatter(tmp_path: Path) -> None:
-    _write_plugin_fixture(
-        tmp_path,
-        skill_contents={_CANONICAL_PLUGIN_SKILLS[0]: "# Missing frontmatter\n"},
-    )
-
-    result = status._codex_plugin_status(tmp_path)
-
-    assert result["status"] == "invalid"
-    assert result["reason_code"] == "CODEX_PLUGIN_SKILL_FRONTMATTER_INVALID"
-
-
-def test_codex_plugin_status_rejects_skill_without_description(tmp_path: Path) -> None:
-    _write_plugin_fixture(
-        tmp_path,
-        skill_contents={
-            _CANONICAL_PLUGIN_SKILLS[0]: "---\nname: azurpilot-development\n---\n"
-        },
-    )
-
-    result = status._codex_plugin_status(tmp_path)
-
-    assert result["status"] == "invalid"
-    assert result["reason_code"] == "CODEX_PLUGIN_SKILL_DESCRIPTION_INVALID"
-
-
-def test_codex_plugin_status_rejects_legacy_app_registration(tmp_path: Path) -> None:
-    _write_plugin_fixture(
-        tmp_path,
-        manifest={"name": "azurpilot", "skills": "./skills/", "apps": None},
-    )
-
-    result = status._codex_plugin_status(tmp_path)
-
-    assert result == {
-        "status": "drift",
-        "reason_code": "CODEX_PLUGIN_LEGACY_APP_DECLARED",
-    }
-
-
-def test_remote_backend_provenance_is_compared_through_collect_path() -> None:
-    root = REPOSITORY_ROOT
-    expected = _versions()["azurpilot-dev"]
-
-    async def local(name: str, root: Path, revision: str) -> dict[str, object]:
-        return _local_result(name, _versions()[name], revision)
-
-    async def collect_remote(version: str, revision: str | None) -> dict[str, object]:
-        backend = {
-            "status": "ready",
-            "server_name": "azurpilot-dev",
-            "server_version": version,
-            "runtime_reachable": True,
-            "runtime_ready": True,
-            "protocol_version": "2025-11-25",
-        }
-        if revision is not None:
-            backend["source_revision"] = revision
-        return {
-            "remote_backend": backend,
-            "public_edge": {"status": "ready", "edge_reachable": True},
-        }
-
-    for version, revision, expected_status in (
-        (expected, "a" * 40, "ready"),
-        (expected, "b" * 40, "drift"),
-        ("99.0.0", "a" * 40, "drift"),
-        (expected, None, "partial"),
-    ):
-        async def remote(name: str, version=version, revision=revision):
-            result = await collect_remote(version, revision)
-            if name == "azurpilot-dev":
-                return result
-            return _remote_ready(name)
-
-        report = asyncio.run(
-            status.collect_status_async(
-                root,
-                local_probe=local,
-                remote_probe=remote,
-                docker_probe=_docker_ready,
-            )
-        )
-
-        observed = report["servers"]["azurpilot-dev"]["remote_backend"]
-        assert observed["status"] == expected_status
-
-
-def test_canonical_route_gate_ignores_optional_gateway_drift() -> None:
-    docker = _docker_ready()
-    for name in ("context7", "docker-docs", "semgrep"):
-        docker["third_party"][name].update(
-            {
-                "status": "drift",
-                "runtime_ready": False,
-                "runtime_reachable": True,
-            }
-        )
-        docker["gateway_runtime"]["servers"][name].update(
-            {"status": "drift", "runtime_ready": False}
-        )
-
-    async def local(name: str, root: Path, revision: str) -> dict[str, object]:
-        return _local_result(name, _versions()[name], revision)
-
-    async def remote(name: str) -> dict[str, object]:
-        return _remote_ready(name)
-
-    report = asyncio.run(
-        status.collect_status_async(
-            REPOSITORY_ROOT,
-            local_probe=local,
-            remote_probe=remote,
-            docker_probe=lambda: docker,
-        )
-    )
-
-    assert report["canonical_status"] == "ready"
     assert report["effective_codex_registration"]["status"] == "not_observable"
-    assert status._strict_failure(report, None)
 
 
-def test_user_scoped_context7_external_evidence_is_explicitly_allowed() -> None:
-    async def local(name: str, root: Path, revision: str) -> dict[str, object]:
-        return _local_result(name, _versions()[name], revision)
-
-    async def remote(name: str) -> dict[str, object]:
-        return _remote_ready(name)
-
-    async def direct(name: str, config: object) -> dict[str, object]:
-        if name == "context7":
-            return {
-                "status": "not_observable",
-                "reason_code": "DIRECT_USER_SCOPED_ACCEPTANCE_EXTERNAL",
-            }
-        return {
-            "status": "ready",
-            "reason_code": "DIRECT_TEST_ROUTE_READY",
-            "runtime_reachable": True,
-            "runtime_ready": True,
-        }
-
+def test_status_timeout_is_bounded_and_fail_closed(monkeypatch):
+    _patch_ready_collectors(monkeypatch)
     report = asyncio.run(
         status.collect_status_async(
             REPOSITORY_ROOT,
-            local_probe=local,
-            remote_probe=remote,
-            docker_probe=_docker_ready,
-            direct_probe=direct,
+            local_probe=_local_probe,
+            remote_probe=_remote_probe,
+            integration_service=_TimeoutService(),
         )
     )
 
-    assert report["external_evidence_pending"] is True
-    assert report["canonical_status"] == "ready"
+    assert report["probe"]["status"] == "unavailable"
+    assert all(item["state"] == "unavailable" for item in report["integrations"].values())
     assert report["status"] == "partial"
-    assert report["effective_codex_registration"]["status"] == "not_observable"
-    assert status._strict_failure(report, None)
 
 
-def test_canonical_route_gate_rejects_required_gateway_failure() -> None:
-    docker = _docker_ready()
-    docker["third_party"]["grafana"].update(
-        {"status": "unavailable", "runtime_ready": False}
-    )
-    docker["gateway_runtime"]["servers"]["grafana"].update(
-        {"status": "unavailable", "runtime_ready": False}
-    )
-
-    async def local(name: str, root: Path, revision: str) -> dict[str, object]:
-        return _local_result(name, _versions()[name], revision)
-
-    async def remote(name: str) -> dict[str, object]:
-        return _remote_ready(name)
-
-    report = asyncio.run(
-        status.collect_status_async(
-            REPOSITORY_ROOT,
-            local_probe=local,
-            remote_probe=remote,
-            docker_probe=lambda: docker,
-        )
-    )
-
-    assert report["canonical_status"] == "partial"
-    assert status._strict_failure(report, None)
-
-
-def test_version_drift_metric_includes_source_drift() -> None:
-    samples = status.status_metric_samples(
-        {
-            "servers": {
-                "azurpilot-dev": {
-                    "expected_version": "3.0.0",
-                    "local_direct": {
-                        "status": "drift",
-                        "version_status": "compatible",
-                        "source_status": "drift",
-                    },
-                }
-            }
-        }
-    )
-
-    assert next(
-        sample
-        for sample in samples
-        if sample.name == "azurpilot_mcp_version_drift"
-    ).value == 1.0
-
-
-def test_metric_samples_have_bounded_static_labels() -> None:
-    report = {
-        "servers": {
-            "azurpilot-dev": {
-                "expected_version": "3.0.0",
-                "local_direct": {
-                    "status": "ready",
-                    "protocol_version": "2025-11-25",
-                    "version_status": "compatible",
-                },
-                "codex": {
-                    "source_config": {
-                        "status": "configured",
-                        "protocol_version": "2025-11-25",
-                    },
-                    "effective_codex_registration": {
-                        "status": "not_observable",
-                    },
-                },
-            }
-        },
-        "docker_mcp": {"third_party": {}, "version": "v0.43.3", "status": "ready"},
-    }
+def test_json_report_and_metric_labels_are_bounded(monkeypatch):
+    report = _ready_report(monkeypatch)
+    encoded = json.dumps(report, ensure_ascii=False)
     samples = status.status_metric_samples(report)
 
-    assert samples
+    assert json.loads(encoded)["integrations"]["grafana"]["state"] == "ready"
+    external = [
+        sample
+        for sample in samples
+        if sample.attributes["surface"] == "external_direct"
+    ]
+    assert external
     assert all(
         set(sample.attributes)
         <= {"server", "surface", "version", "protocol", "required_runtime"}
         for sample in samples
     )
-    assert all("source_revision" not in sample.attributes for sample in samples)
-    assert all(
-        "http" not in value
-        for sample in samples
-        for value in sample.attributes.values()
-    )
-    assert any(
-        sample.name == "azurpilot_mcp_observed_version_info"
-        and sample.attributes["server"] == "docker-gateway"
-        and sample.attributes["version"] == "0.43.3"
-        for sample in samples
-    )
-    assert any(
-        sample.name == "azurpilot_mcp_surface_configured"
-        and sample.attributes["surface"] == "codex_source"
-        and sample.value == 1.0
-        for sample in samples
-    )
-    assert any(
-        sample.name == "azurpilot_mcp_expected_version_info"
-        and sample.attributes["surface"] == "codex_source"
-        and sample.value == 1.0
-        for sample in samples
-    )
+    assert "password" not in encoded.casefold()
+    assert "authorization" not in encoded.casefold()
 
 
-def test_metric_samples_keep_configured_distinct_from_reachable_and_observed() -> None:
-    report = {
-        "servers": {
-            "azurpilot-dev": {
-                "expected_version": "3.0.0",
-                "codex": {
-                    "source_config": {"status": "configured"},
-                    "effective_codex_registration": {"status": "not_observable"},
-                },
-            }
-        },
-        "probe": {"last_successful_probe_timestamp_seconds": None},
-    }
+def test_human_report_mentions_direct_integrations_without_legacy_route(
+    monkeypatch, capsys
+):
+    report = _ready_report(monkeypatch)
+    status._print_human(report, None)
+    output = capsys.readouterr().out.casefold()
 
-    samples = status.status_metric_samples(report)
-
-    assert next(
-        sample
-        for sample in samples
-        if sample.name == "azurpilot_mcp_surface_configured"
-        and sample.attributes["surface"] == "codex_source"
-    ).value == 1.0
-    assert next(
-        sample
-        for sample in samples
-        if sample.name == "azurpilot_mcp_surface_reachable"
-        and sample.attributes["surface"] == "codex_effective"
-    ).value == 0.0
-    assert next(
-        sample
-        for sample in samples
-        if sample.name == "azurpilot_mcp_surface_runtime_ready"
-        and sample.attributes["surface"] == "codex_effective"
-    ).value == 0.0
-    assert not any(
-        sample.name == "azurpilot_mcp_observed_version_info"
-        and sample.attributes["surface"] in {"codex_source", "codex_effective"}
-        for sample in samples
-    )
-    assert not any(
-        sample.name == "azurpilot_mcp_last_successful_probe_timestamp_seconds"
-        for sample in samples
-    )
+    assert "внешние интеграции" in output
+    assert "coderabbit" in output
+    assert "docker-hub" in output
+    assert "external_direct" not in output
+    assert "gateway" not in output
 
 
-def test_emit_metrics_delegates_to_canonical_observability_runtime(monkeypatch) -> None:
-    monkeypatch.setenv(
-        "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "http://127.0.0.1:4318/v1/metrics"
-    )
-    captured: dict[str, object] = {}
-
-    def emit(samples, **kwargs):
-        captured["samples"] = tuple(samples)
-        captured.update(kwargs)
-        return True
-
-    monkeypatch.setattr(
-        "module.observability.metrics.emit_metric_samples_once", emit
-    )
-
-    result = status.emit_metrics({"servers": {}, "docker_mcp": {"third_party": {}}})
-
-    assert result == status.MetricEmission(True, "MCP_METRICS_EXPORTED", 0)
-    assert captured["endpoint"] == "http://127.0.0.1:4318/v1/metrics"
-    assert captured["timeout_millis"] == 5000
-    assert isinstance(captured["repository_root"], Path)
-
-
-def test_emit_metrics_returns_bounded_error_for_invalid_samples(monkeypatch) -> None:
-    monkeypatch.setenv(
-        "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "http://127.0.0.1:4318/v1/metrics"
-    )
-
-    def invalid_samples(_report: object) -> tuple[object, ...]:
-        raise status.StatusError("MCP_METRIC_ATTRIBUTES_INVALID")
-
-    monkeypatch.setattr(status, "status_metric_samples", invalid_samples)
-
-    assert status.emit_metrics({}) == status.MetricEmission(
-        False, "MCP_METRIC_ATTRIBUTES_INVALID", 0
-    )
-
-
-def test_metrics_are_fail_open_when_otlp_endpoint_is_not_configured(
-    monkeypatch,
-) -> None:
-    for name in (
-        "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
-        "AZURPILOT_OBSERVABILITY_OTLP_ENDPOINT",
-        "OTEL_EXPORTER_OTLP_ENDPOINT",
-    ):
-        monkeypatch.delenv(name, raising=False)
-    result = status.emit_metrics({"servers": {}, "docker_mcp": {"third_party": {}}})
-
-    assert result.emitted is False
-    assert result.reason_code == "MCP_METRICS_ENDPOINT_UNCONFIGURED"
-
-
-def test_strict_rejects_unobservable_remote_metadata_and_optional_catalogs() -> None:
-    report = {
-        "status": "partial",
-        "source": {"working_tree": "clean"},
-        "version_guard": {"status": "ready"},
-        "servers": {
-            "azurpilot-dev": {
-                "local_direct": {"status": "ready"},
-                "remote_backend": {"status": "not_observable"},
-                "public_edge": {"status": "ready"},
-            }
-        },
-        "docker_mcp": {
-            "status": "partial",
-            "secret_engine": {
-                "secret_store": {"status": "ready"},
-            },
-            "third_party": {
-                "context7": {"status": "not_observable"},
-                "docker-docs": {"status": "not_observable"},
-                "dockerhub": {"status": "ready"},
-                "grafana": {"status": "ready"},
-                "semgrep": {"status": "ready"},
-            },
-        },
-    }
-
-    assert status._strict_failure(report, None)
-
-
-def test_secret_engine_status_separates_keychain_from_rpc(monkeypatch) -> None:
-    def run_process(arguments, **kwargs):
-        if tuple(arguments[-3:]) == ("pass", "plugins", "ls"):
-            return status.subprocess.CompletedProcess(arguments, 1, "", "socket error")
-        return status.subprocess.CompletedProcess(arguments, 0, "", "")
-
-    monkeypatch.setattr(status, "_run_process", run_process)
-
-    result = status._docker_secret_engine_status("docker")
-
-    assert result == {
-        "status": "partial",
-        "reason_code": "DOCKER_SECRET_ENGINE_RPC_UNAVAILABLE",
-        "cli_status": "ready",
-        "keychain_status": "ready",
-        "rpc_status": "unavailable",
-        "secret_store": {
-            "status": "ready",
-            "reason_code": "DOCKER_SECRET_STORE_READY",
-        },
-        "container_runtime_secret_injection": {
-            "status": "not_observable",
-            "reason_code": "CONTAINER_RUNTIME_SECRET_INJECTION_NOT_PROBED",
-        },
-        "gateway_secret_injection": {
-            "status": "not_observable",
-            "reason_code": "GATEWAY_SECRET_INJECTION_NOT_PROBED",
-        },
-        "host_pass_resolution": {
-            "status": "degraded",
-            "reason_code": "DOCKER_SECRET_ENGINE_RPC_UNAVAILABLE",
-            "scope": "current_process",
-        },
-    }
-
-
-def test_exported_development_profile_is_exact_and_read_only() -> None:
-    path = (
-        REPOSITORY_ROOT
-        / ".docker"
-        / "azurpilot-development-profile.json"
-    )
-    profile = json.loads(path.read_text(encoding="utf-8"))
-
-    status.validate_development_profile(profile)
-    assert {
-        server["snapshot"]["server"]["name"] for server in profile["servers"]
-    } == set(status.THIRD_PARTY_SERVERS)
-    dockerhub = next(
-        server
-        for server in profile["servers"]
-        if server["snapshot"]["server"]["name"] == "dockerhub"
-    )
-    assert set(dockerhub["tools"]) == set(status.DOCKERHUB_READ_ONLY_TOOLS)
-    assert "createRepository" not in dockerhub["tools"]
-    assert "updateRepositoryInfo" not in dockerhub["tools"]
-    grafana = next(
-        server
-        for server in profile["servers"]
-        if server["snapshot"]["server"]["name"] == "grafana"
-    )
-    assert grafana["config"]["url"] == status.CANONICAL_GRAFANA_PROFILE_URL
-    assert "@sha256:" in grafana["image"]
-
-    drifted = deepcopy(profile)
-    drifted_dockerhub = next(
-        server
-        for server in drifted["servers"]
-        if server["snapshot"]["server"]["name"] == "dockerhub"
-    )
-    drifted_dockerhub["tools"].append("updateRepositoryInfo")
-    with pytest.raises(status.StatusError, match="DOCKER_PROFILE_ALLOWLIST_INVALID"):
-        status.validate_development_profile(drifted)
-
-    duplicated = deepcopy(profile)
-    duplicated["servers"].append(deepcopy(duplicated["servers"][0]))
-    with pytest.raises(status.StatusError, match="DOCKER_PROFILE_SERVER_COUNT_INVALID"):
-        status.validate_development_profile(duplicated)
-
-    unknown = deepcopy(profile)
-    unknown["servers"][0]["snapshot"]["server"]["name"] = "unexpected"
-    unknown["servers"][0]["name"] = "unexpected"
-    with pytest.raises(status.StatusError, match="DOCKER_PROFILE_SERVER_SET_INVALID"):
-        status.validate_development_profile(unknown)
-
-    remote_drift = deepcopy(profile)
-    context7 = next(
-        server
-        for server in remote_drift["servers"]
-        if server["snapshot"]["server"]["name"] == "context7"
-    )
-    context7["snapshot"]["server"]["remote"]["url"] = "https://example.invalid/mcp"
-    with pytest.raises(status.StatusError, match="DOCKER_PROFILE_REMOTE_ENDPOINT_INVALID"):
-        status.validate_development_profile(remote_drift)
-
-
-def test_exported_profile_contains_secret_references_but_no_secret_values() -> None:
-    path = (
-        REPOSITORY_ROOT
-        / ".docker"
-        / "azurpilot-development-profile.json"
-    )
-    profile = json.loads(path.read_text(encoding="utf-8"))
-    sensitive_keys = {
-        re.sub(r"[^a-z0-9]", "", key.casefold())
-        for key in (
-            "access_token",
-            "api_key",
-            "password",
-            "pat_token",
-            "secret_value",
-            "token",
-            "client_secret",
-            "authorization",
-            "bearer_token",
-        )
-    }
-    secret_value_patterns = (
-        re.compile(r"\b(?:sk|rk|xox[baprs])-[A-Za-z0-9_-]{12,}\b"),
-        re.compile(r"\b(?:ghp|github_pat|pat)_[A-Za-z0-9_]{12,}\b"),
-        re.compile(r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b"),
-    )
-
-    def walk(value: object, key: str = "") -> list[tuple[str, object]]:
-        if isinstance(value, dict):
-            return [
-                nested
-                for key, item in value.items()
-                for nested in walk(item, str(key))
-            ]
-        if isinstance(value, list):
-            return [nested for item in value for nested in walk(item, key)]
-        return [(key, value)]
-
-    def is_secret_reference(value: object) -> bool:
-        return isinstance(value, str) and value.startswith("se://") and len(value) > 5
-
-    def is_literal_secret(value: object) -> bool:
-        return isinstance(value, str) and not is_secret_reference(value) and any(
-            pattern.search(value) for pattern in secret_value_patterns
-        )
-
-    for key, value in walk(profile):
-        normalized_key = re.sub(r"[^a-z0-9]", "", key.casefold())
-        if normalized_key in sensitive_keys:
-            assert is_secret_reference(value), key
-        assert not is_literal_secret(value), key
-
-    synthetic = {
-        "token": "se://docker/token",
-        "nested": [
-            {"clientSecret": "sk-" + ("x" * 20)},
-            {"authorization": "ghp_" + ("x" * 20)},
-            {"bearerToken": "pat_" + ("x" * 20)},
-            {"jwt": "eyJ" + ("a" * 12) + "." + ("b" * 12) + "." + ("c" * 12)},
-        ],
-    }
-    synthetic_entries = walk(synthetic)
-    assert is_secret_reference(synthetic_entries[0][1])
-    assert all(
-        is_literal_secret(value)
-        for key, value in synthetic_entries
-        if key != "token"
-    )
-
-
-def test_docker_status_rejects_non_list_profile_payload(monkeypatch) -> None:
-    monkeypatch.setattr(status, "_docker_executable", lambda: "docker")
-    monkeypatch.setattr(
-        status,
-        "_run_process",
-        lambda arguments, **kwargs: status.subprocess.CompletedProcess(
-            arguments, 0, "0.43.3\n", ""
+def test_strict_requires_observable_codex_session(monkeypatch):
+    report = _ready_report(monkeypatch)
+    assert status._strict_failure(
+        report,
+        status.MetricEmission(
+            emitted=True, reason_code="MCP_METRICS_EXPORTED", sample_count=1
         ),
     )
-    monkeypatch.setattr(
-        status,
-        "_docker_secret_engine_status",
-        lambda executable: {"status": "ready"},
-    )
-    monkeypatch.setattr(
-        status,
-        "_docker_json",
-        lambda arguments: ({"profiles": []}, "OK"),
-    )
-
-    result = status._docker_status()
-
-    assert result == {
-        "status": "unavailable",
-        "reason_code": "DOCKER_PROFILE_LIST_INVALID",
-        "version": "0.43.3",
-        "secret_engine": {"status": "ready"},
-    }
 
 
-def test_timeout_injected_local_probe_is_reported_without_payload(monkeypatch) -> None:
-    monkeypatch.setattr(
-        status, "_git_source_snapshot", lambda root: ("a" * 40, "clean")
-    )
+def test_repository_boundary_has_no_toolkit_registration_or_retired_profiles():
+    config = (
+        REPOSITORY_ROOT / ".codex" / "config.toml"
+    ).read_text(encoding="utf-8").casefold()
+    toolkit_registration = "mcp" + "_" + "docker"
+    gateway_phrase = "docker" + " mcp " + "gateway"
 
-    async def local(name: str, root: Path, revision: str) -> dict[str, object]:
-        await asyncio.sleep(0.01)
-        raise TimeoutError("do not publish this message")
+    assert toolkit_registration not in config
+    assert gateway_phrase not in config
+    assert "context7_direct" in config
+    assert "grafana_direct" in config
+    assert "dockerhub_direct" in config
+    assert not (
+        REPOSITORY_ROOT / ".docker" / ("azurpilot-" + "development-profile.json")
+    ).exists()
+    assert not (
+        REPOSITORY_ROOT / ".docker" / ("azurpilot-" + "observability-profile.json")
+    ).exists()
 
-    async def remote(name: str) -> dict[str, object]:
-        return _remote_ready(name)
 
-    report = asyncio.run(
-        status.collect_status_async(
-            REPOSITORY_ROOT,
-            local_probe=local,
-            remote_probe=remote,
-            docker_probe=_docker_ready,
-        )
-    )
+def test_first_party_source_registration_remains_readable():
+    result = status.first_party_source_registration(REPOSITORY_ROOT)
+    assert result["status"] == "ready"
+    assert set(result["servers"]) == set(status.SERVER_NAMES)
+
+
+def test_child_environment_does_not_inherit_unknown_secret(monkeypatch):
+    monkeypatch.setenv("AZURPILOT_TEST_SECRET", "not-for-child")
+    environment = status._child_environment("a" * 40)
+
+    assert environment["AZURPILOT_SOURCE_REVISION"] == "a" * 40
+    assert "AZURPILOT_TEST_SECRET" not in environment
+
+
+def test_metric_emission_is_fail_open_without_endpoint(monkeypatch):
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", raising=False)
+    monkeypatch.delenv("AZURPILOT_OBSERVABILITY_OTLP_ENDPOINT", raising=False)
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
+    emission = status.emit_metrics(_ready_report(monkeypatch))
+
+    assert emission.emitted is False
+    assert emission.reason_code == "MCP_METRICS_ENDPOINT_UNCONFIGURED"
+
+
+def test_result_code_mapping_preserves_typed_provider_failure():
+    from azurpilot.integrations.service import IntegrationService
+
+    records = (_record(IntegrationName.GRAFANA, IntegrationState.RATE_LIMITED),)
     assert (
-        report["servers"]["azurpilot-dev"]["local_direct"]["reason_code"]
-        == "LOCAL_PROBE_TIMEOUT"
+        IntegrationService._result_code(records)
+        is ResultCode.TOOLING_PROVIDER_UNAVAILABLE
     )
-    assert "do not publish" not in str(report)

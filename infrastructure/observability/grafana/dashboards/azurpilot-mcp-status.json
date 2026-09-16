@@ -227,13 +227,13 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "azurpilot_mcp_surface_runtime_ready{surface=\"docker_gateway\",required_runtime=\"1\"}",
+          "expr": "azurpilot_mcp_surface_runtime_ready{surface=\"external_direct\",required_runtime=\"1\"}",
           "legendFormat": "{{server}}",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "Обязательные Gateway routes",
+      "title": "Прямые внешние интеграции",
       "type": "timeseries"
     },
     {

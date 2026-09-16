@@ -7,12 +7,15 @@ import shutil
 import sys
 from pathlib import Path
 
+from azurpilot.integrations import IntegrationService
+
 from .config import load_deploy_settings, project_adb, project_python, project_uv
 from .contracts import (
     CapabilityCheck,
     CapabilityStatus,
     DoctorDetails,
     DoctorEvidence,
+    IntegrationSummary,
     OperationState,
     ResultCode,
     ToolingResult,
@@ -40,10 +43,12 @@ class DoctorService:
         resolver: RepositoryResolver | None = None,
         runner: StructuredProcessRunner | None = None,
         infrastructure: InfrastructureService | None = None,
+        integrations: IntegrationService | None = None,
     ) -> None:
         self.resolver = resolver or RepositoryResolver()
         self.runner = runner or self.resolver.runner
         self.infrastructure = infrastructure or InfrastructureService(self.runner)
+        self.integrations = integrations or IntegrationService()
 
     def _git_check(self, root: Path, settings) -> tuple[CapabilityStatus, str]:
         try:
@@ -251,6 +256,54 @@ class DoctorService:
             )
         )
 
+        external_integrations: tuple[IntegrationSummary, ...] = ()
+        try:
+            integration_result = self.integrations.status(root)
+            integration_details = integration_result.details
+            records = getattr(integration_details, "integrations", ())
+            summaries: list[IntegrationSummary] = []
+            for record in records:
+                status_value = getattr(record, "state", "UNKNOWN")
+                status_text = getattr(status_value, "value", str(status_value))
+                capability_status = {
+                    "READY": CapabilityStatus.READY,
+                    "NOT_CONFIGURED": CapabilityStatus.NOT_CONFIGURED,
+                    "UNAUTHENTICATED": CapabilityStatus.UNAVAILABLE,
+                    "UNAVAILABLE": CapabilityStatus.UNAVAILABLE,
+                    "INCOMPATIBLE": CapabilityStatus.FAILED,
+                    "RATE_LIMITED": CapabilityStatus.UNAVAILABLE,
+                    "DEGRADED": CapabilityStatus.UNKNOWN,
+                }.get(status_text, CapabilityStatus.UNKNOWN)
+                name = getattr(getattr(record, "name", None), "value", "unknown")
+                message = str(getattr(record, "message", "Состояние не подтверждено."))
+                route = str(getattr(getattr(record, "evidence", None), "route", "direct"))
+                reason_code = str(getattr(record, "reason_code", "INTEGRATION_UNKNOWN"))
+                summaries.append(
+                    IntegrationSummary(
+                        name=name,
+                        status=status_text,
+                        reason_code=reason_code,
+                        route=route,
+                        message=message[:300],
+                    )
+                )
+                checks.append(
+                    _check(
+                        f"external_{name}",
+                        capability_status,
+                        message[:240],
+                    )
+                )
+            external_integrations = tuple(summaries)
+        except (ToolingError, OSError, ValueError, TypeError):
+            checks.append(
+                _check(
+                    "external_integrations",
+                    CapabilityStatus.UNKNOWN,
+                    "Сводку внешних интеграций не удалось получить.",
+                )
+            )
+
         required_names = {
             "repository",
             "project_markers",
@@ -313,7 +366,11 @@ class DoctorService:
             code=result_code,
             state=result_state,
             message=result_message,
-            details=DoctorDetails(checks=tuple(checks), healthy=healthy),
+            details=DoctorDetails(
+                checks=tuple(checks),
+                healthy=healthy,
+                external_integrations=external_integrations,
+            ),
             warnings=tuple(warnings),
             evidence=DoctorEvidence(
                 repository=resolved.evidence,

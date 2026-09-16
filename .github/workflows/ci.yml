@@ -306,6 +306,18 @@ jobs:
             -- uv run --locked --no-sync python -m dev_tools.mcp_compatibility_gate \
               --base-commit "$PR_BASE_SHA"
 
+      - name: Проверить контракт прямых интеграций
+        id: python_integration_contract
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/ci_heartbeat.py \
+            --label "Проверка контракта прямых интеграций" \
+            --heartbeat-seconds 0 \
+            --log-file "${RUNNER_TEMP}/azurpilot-ci-python/integration-contract.log" \
+            -- uv run --locked --no-sync python -m dev_tools.integration_contract_gate
+
       - name: Проверить компиляцию Python
         id: python_compile
         timeout-minutes: 10

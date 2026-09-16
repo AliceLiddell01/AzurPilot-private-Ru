@@ -43,14 +43,15 @@ Prometheus и datasource evidence. Это дополнительное разр�
 диагностического чтения; оно не расширяет права собственных AzurPilot plugins
 и не разрешает mutation.
 
-Различай direct backend и Docker MCP Gateway: каталог profile, public-edge
-metadata и фактический negotiated discovery/`tools/list`/read-only call являются
-разными доказательствами. При наличии прямого callable маршрута предпочитай
-его проблемному Gateway. Если нужный сервер или tool не опубликован текущей
-сессией, верни fail-closed `unavailable/not_observable` с точной причиной и не
-создавай retry loop. Не меняй profiles, secret store, OAuth/grants, исходники,
-Grafana dashboards/alerts, runtime или игровое состояние в рамках этого
-разрешения.
+Различай repository source, user-configured direct adapter и фактический
+negotiated discovery/`tools/list`/read-only call: это разные доказательства.
+Для внешних интеграций используй закрытый `IntegrationRegistry` и
+`azur integrations status|doctor`; retired MCP intermediary не является
+fallback или source of truth. Если нужный direct server или tool не наблюдаем,
+верни fail-closed `NOT_CONFIGURED`, `UNAVAILABLE`, `UNAUTHENTICATED`,
+`INCOMPATIBLE` или `DEGRADED` с точной причиной и не создавай retry loop. Не
+меняй user config, OAuth/grants, исходники, Grafana dashboards/alerts, runtime
+или игровое состояние в рамках этого разрешения.
 
 ## Рабочий процесс с приоритетом evidence
 

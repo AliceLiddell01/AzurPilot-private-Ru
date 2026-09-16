@@ -17,12 +17,13 @@ Python tooling. Реализованные части описаны как те
 - Python services `doctor`/`start`/`stop`/`build`/`repair`/`update`;
 - shared typed result/error DTO, root resolver, process/filesystem/coordination primitives;
 - cross-platform core contract tests и отдельный macOS CI job.
+- typed `IntegrationRegistry`, direct external adapters и scoped Semgrep/CodeRabbit CLI surfaces;
 
 В рамках этой фиксации по-прежнему не выполняются:
 
 - изменение поведения `gui.py`, `alas.py`, WebUI, Dev MCP или Game MCP;
 - удаление PowerShell, Bash, BAT, native PostgreSQL hooks или бинарных launcher/installer artifacts;
-- миграция MCP/plugin и отдельный CodeRabbit adapter;
+- изменение first-party MCP/plugin transport и legacy shell cutover;
 - добавление runtime dependencies;
 - замена обязательных CI jobs или device/game acceptance.
 
@@ -52,9 +53,10 @@ backend, `tool.uv.package = true` и `project.scripts.azur =
 presentation adapter и сервисы в `azurpilot.tooling`. `python -m azurpilot`
 использует тот же `main()` и не имеет отдельного поведения.
 
-Реализованные команды: `doctor`, `start`, `stop`, `build`, `repair` и `update`.
-Команды `mcp` и `coderabbit` намеренно не добавлены: MCP/plugin transport и
-CodeRabbit остаются отдельными поверхностями текущего проекта. Existing
+Реализованные команды: `doctor`, `start`, `stop`, `build`, `repair`, `update`,
+`mcp` и `integrations`. `coderabbit` доступен как typed leaf внутри
+`integrations`; first-party MCP/plugin transport и внешние adapters остаются
+раздельными поверхностями. Existing
 `module.*` entrypoints сохраняются без изменения.
 
 Root resolver использует только `--repository-root`, validated user/machine
@@ -163,7 +165,7 @@ hook, когда shell является естественной частью ru
   `.agents/plugins/marketplace.json` описывают Codex routing; plugin не является
   installer и не создаёт второй MCP implementation.
 - `.codex/config.toml` содержит project-scoped direct stdio entries, loopback
-  aliases, Docker Gateway и direct diagnostic routes. Это tracked registration
+  aliases и direct external routes. Это tracked registration
   source, но не доказательство effective registration в живой Codex session.
 - В корне присутствуют `alas-launcher.exe`, `unins000.exe`, `unins000.dat` и
   `deploy/launcher/icon.ico`. Бинарные artifacts нельзя объявлять legacy или
@@ -567,17 +569,17 @@ AzurPilot MCP Status
 SERVER          LOCAL/DIRECT   ИСТОЧНИК CODEX   РЕГИСТРАЦИЯ CODEX   STATUS
 azurpilot-dev   3.x OK          OK               UNKNOWN              PARTIAL
 azurpilot-game  1.x OK          OK               UNKNOWN              PARTIAL
-Docker Gateway  configured     ready            —                    OK
+External direct routes  configured     ready            —                    OK
 Итог: PARTIAL (CODEX_EFFECTIVE_REGISTRATION_NOT_OBSERVABLE)
 ```
 
 Фактические версии, route identity и reason codes берутся из текущего report;
 mockup не является API contract или committed evidence.
 
-`azur coderabbit review`:
+`azur integrations coderabbit review`:
 
 ```text
-$ azur coderabbit review --base <base-ref> --committed-only
+$ azur integrations coderabbit review --base <base-ref>
 Проверка repository root и clean review checkout... OK
 Проверка auth в WSL2 review backend... OK
 Проверка exact base/head... OK
@@ -765,8 +767,8 @@ reload. Status и reconcile разделяют `source_state`, `runtime_state`,
 `dev_tools/mcp_status.py` уже разделён на четыре логические части:
 
 1. collector/probes: local stdio negotiated discovery/`tools/list`/contract call,
-   direct remote metadata, Semgrep local MCP, Docker executable/profile/gateway
-   и third-party read-only probes;
+   direct remote metadata, Semgrep local MCP и bounded direct probes шести
+   внешних интеграций;
 2. model: bounded report, status/reason code, source revision/working tree,
    expected/observed version, local/direct surface, Codex source config,
    effective registration, remote backend/public edge, plugin и Docker state;
@@ -794,9 +796,10 @@ JsonStatusRenderer.render(report, stream)
 ```
 
 `McpStatusReport` должен быть transport-neutral и не содержать raw payload,
-tokens, full URLs with credentials, arbitrary logs или личные paths. Docker
-Gateway, Semgrep, metrics и user-scoped Context7 остаются независимыми optional
-surfaces; auxiliary metrics failure не должен маскировать canonical status.
+tokens, full URLs with credentials, arbitrary logs или личные paths. First-party
+MCP, direct external integrations, metrics и user-scoped Context7 остаются
+независимыми surfaces; auxiliary metrics failure не должен маскировать
+canonical status.
 `--strict` возвращает ненулевой код при drift/unavailable, `--watch` соблюдает
 bounded interval и завершается по Ctrl+C с последним подтверждённым состоянием.
 
@@ -811,7 +814,7 @@ bounded interval и завершается по Ctrl+C с последним п�
 CodeRabbit — внешний review integration, не часть runtime AzurPilot и не часть
 MCP server. Repository skill уже требует:
 
-- canonical WSL2 Arch review clone, постоянный между запусками;
+- canonical persistent WSL2 review clone, выбранный через exact inventory;
 - Linux-native `coderabbit` executable и user-level auth/config вне tracked source;
 - обязательную проверку `auth status --agent` и `review --help`;
 - committed-only review exact committed HEAD против literal exact base SHA;
@@ -825,15 +828,15 @@ MCP server. Repository skill уже требует:
 Machine path, username, local config directory и executable path должны приходить
 из user/machine configuration или environment. Их нельзя зашивать в репозиторный
 Python, CLI help, plugin metadata, tests или durable context. В документации
-фиксируется только роль: Windows implementation checkout, permanent WSL2 Arch
-review clone, Linux CodeRabbit binary и user config.
+фиксируется только роль: implementation checkout, permanent WSL2 review clone,
+Linux CodeRabbit binary и user config.
 
 ### 9.2 Будущий CLI adapter
 
 ```text
-azur coderabbit status   # наличие и безопасное чтение внешней конфигурации
-azur coderabbit doctor   # auth/backend/clone/remote/HEAD preflight без review
-azur coderabbit review  # committed-only review с explicit base/head evidence
+azur integrations coderabbit status   # наличие и безопасное чтение внешней конфигурации
+azur integrations coderabbit doctor   # auth/clone/remote/HEAD preflight без review
+azur integrations coderabbit review  # committed-only review с explicit base/head evidence
 ```
 
 Adapter обязан использовать structured argv через WSL integration, не PowerShell

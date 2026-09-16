@@ -14,10 +14,14 @@ from typing import Any, TextIO
 
 from pydantic import BaseModel
 
+from .integrations import IntegrationService
+from .integrations.contracts import IntegrationName
 from .tooling.bootstrap import BuildService
 from .tooling.contracts import (
+    AnalysisScope,
     CapabilityStatus,
     DeliveryPhase,
+    GitRange,
     McpLifecycleDetails,
     McpStatusDetails,
     McpVersionDetails,
@@ -57,12 +61,14 @@ class ServiceContainer:
     delivery: DeliveryService
     pull_request: PullRequestService
     mcp: McpService
+    integrations: IntegrationService
 
     @classmethod
     def create(cls) -> ServiceContainer:
         mcp = McpService()
+        integrations = IntegrationService()
         return cls(
-            doctor=DoctorService(),
+            doctor=DoctorService(integrations=integrations),
             lifecycle=LifecycleService(),
             build=BuildService(),
             repair=RepairService(),
@@ -70,6 +76,7 @@ class ServiceContainer:
             delivery=DeliveryService(),
             pull_request=PullRequestService(),
             mcp=mcp,
+            integrations=integrations,
         )
 
 
@@ -325,6 +332,74 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="явная политика server SemVer для доказанного contract change",
     )
+
+    integrations = subparsers.add_parser(
+        "integrations", help="проверить прямые внешние интеграции"
+    )
+    integration_subparsers = integrations.add_subparsers(
+        dest="integration_target", required=True, metavar="TARGET"
+    )
+    for action in ("status", "doctor"):
+        command = integration_subparsers.add_parser(
+            action,
+            help=(
+                "прочитать конфигурацию и доступность интеграций"
+                if action == "status"
+                else "выполнить bounded read-only probes интеграций"
+            ),
+        )
+        _add_common_options(command, suppress_defaults=True)
+    for name in IntegrationName:
+        provider = integration_subparsers.add_parser(
+            name.value, help=f"операции интеграции {name.value}"
+        )
+        provider_subparsers = provider.add_subparsers(
+            dest="integration_action", required=True, metavar="ACTION"
+        )
+        for action in ("status", "doctor", "probe"):
+            command = provider_subparsers.add_parser(
+                action,
+                help=(
+                    "прочитать конфигурацию"
+                    if action == "status"
+                    else "выполнить bounded read-only probe"
+                ),
+            )
+            _add_common_options(command, suppress_defaults=True)
+        if name is IntegrationName.SEMGREP:
+            scan = provider_subparsers.add_parser(
+                "scan", help="выполнить только явно ограниченный Semgrep scan"
+            )
+            _add_common_options(scan, suppress_defaults=True)
+            scope_group = scan.add_mutually_exclusive_group(required=False)
+            scope_group.add_argument(
+                "--staged", action="store_true", help="взять только staged paths"
+            )
+            scope_group.add_argument(
+                "--changed", action="store_true", help="взять paths из base..HEAD"
+            )
+            scan.add_argument(
+                "--base",
+                dest="scan_base",
+                default=None,
+                help="exact base SHA для --changed",
+            )
+            scope_group.add_argument(
+                "--paths",
+                action="append",
+                default=[],
+                metavar="PATH",
+                help="явный repository-relative файл; параметр можно повторять",
+            )
+        if name is IntegrationName.CODERABBIT:
+            review = provider_subparsers.add_parser(
+                "review", help="запустить advisory CodeRabbit review"
+            )
+            _add_common_options(review, suppress_defaults=True)
+            review.add_argument("--base", required=True, help="exact base SHA")
+            review.add_argument(
+                "--head", default=None, help="exact review HEAD; по умолчанию текущий HEAD"
+            )
     return parser
 
 
@@ -462,7 +537,7 @@ def _render_human(
                 )
 
     def status_label(status: CapabilityStatus) -> str:
-        return {
+            return {
             CapabilityStatus.READY: "готово",
             CapabilityStatus.NOT_CONFIGURED: "не настроено",
             CapabilityStatus.UNAVAILABLE: "недоступно",
@@ -485,7 +560,20 @@ def _render_human(
             "console_path": "PATH",
             "adb": "ADB",
             "docker": "Docker/PostgreSQL",
+            "external_integrations": "Внешние интеграции",
         }.get(name, name)
+
+    def integration_label(value: object) -> str:
+        return {
+            "READY": "готово",
+            "NOT_CONFIGURED": "не настроено",
+            "UNAVAILABLE": "недоступно",
+            "UNAUTHENTICATED": "нет аутентификации",
+            "RATE_LIMITED": "ограничение провайдера",
+            "INCOMPATIBLE": "несовместимо",
+            "DEGRADED": "ограничено",
+            "UNKNOWN": "неизвестно",
+        }.get(str(getattr(value, "value", value)), "неизвестно")
 
     try:
         from rich.console import Console
@@ -499,7 +587,29 @@ def _render_human(
         )
 
         checks = getattr(result.details, "checks", None)
-        if checks is not None:
+        integrations = getattr(result.details, "integrations", None)
+        if integrations is not None:
+            from rich.table import Table
+
+            table = Table(title="Внешние интеграции AzurPilot", expand=True)
+            table.add_column("Интеграция", no_wrap=True)
+            table.add_column("Состояние", no_wrap=True)
+            table.add_column("Маршрут", no_wrap=True)
+            table.add_column("Результат", overflow="fold")
+            for item in integrations:
+                value = str(getattr(getattr(item, "state", None), "value", "UNKNOWN"))
+                marker = "✓" if value == "READY" else "⚠"
+                evidence = getattr(item, "evidence", None)
+                route = getattr(evidence, "route", "direct")
+                table.add_row(
+                    str(getattr(getattr(item, "name", None), "value", "unknown")),
+                    f"{marker} {integration_label(value)}",
+                    str(route),
+                    str(getattr(item, "message", "Состояние не подтверждено.")),
+                )
+            console.print(table)
+            console.print(f"{'✓' if result.ok else '✗'} {result.message}")
+        elif checks is not None:
             from rich.table import Table
 
             table = Table(title="AzurPilot Doctor", expand=True)
@@ -660,6 +770,62 @@ def _dispatch(
             return services.mcp.stop(root)
         if args.mcp_command == "restart":
             return services.mcp.restart(root)
+    if command == "integrations":
+        target = args.integration_target
+        if target == "status":
+            return services.integrations.status(root)
+        if target == "doctor":
+            return services.integrations.doctor(root)
+        action = args.integration_action
+        if target == IntegrationName.SEMGREP.value and action == "scan":
+            integration_root = services.integrations.resolve_root(root)
+            paths = tuple(
+                item
+                for raw in getattr(args, "paths", ())
+                for item in raw.split(",")
+                if item.strip()
+            )
+            scope_count = sum((bool(args.changed), bool(args.staged), bool(paths)))
+            if scope_count == 0:
+                raise CliInvocationError(
+                    "Semgrep scan требует --staged, --changed или --paths."
+                )
+            if scope_count > 1:
+                raise CliInvocationError(
+                    "Semgrep scan принимает только один scope: --staged, --changed или --paths."
+                )
+            if args.scan_base and not args.changed:
+                raise CliInvocationError("--base разрешён только вместе с --changed.")
+            if args.changed:
+                if not args.scan_base:
+                    raise CliInvocationError("--changed требует --base с exact SHA.")
+                from .tooling.git import GitClient
+
+                end_sha = GitClient(integration_root).head()
+                scope = AnalysisScope(
+                    paths=paths,
+                    mode="committed_range",
+                    git_range=GitRange(start_sha=args.scan_base, end_sha=end_sha),
+                )
+            else:
+                scope = AnalysisScope(paths=paths, mode="staged")
+            return services.integrations.scan(scope, root)
+        if target == IntegrationName.CODERABBIT.value and action == "review":
+            integration_root = services.integrations.resolve_root(root)
+            head = args.head
+            if head is None:
+                from .tooling.git import GitClient
+
+                head = GitClient(integration_root).head()
+            return services.integrations.review(
+                base_sha=args.base,
+                head_sha=head,
+                repository_root=root,
+            )
+        if action == "status":
+            return services.integrations.status_one(target, root)
+        if action == "doctor" or action == "probe":
+            return services.integrations.probe(target, root)
     raise CliInvocationError(f"неизвестная команда: {command}")
 
 

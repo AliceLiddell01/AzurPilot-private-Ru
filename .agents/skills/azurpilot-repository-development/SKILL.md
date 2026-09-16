@@ -50,10 +50,11 @@ read-only задачи без изменения репозитория этот
    текст должен быть литературным русским, а идентификаторы и machine tokens —
    сохранены по контракту.
    Для repository evidence Codex может без отдельного вопроса пользователю
-   использовать настроенные read-only Context7, Docker Docs, локальный Semgrep
-   и Grafana MCP. Это не даёт разрешения менять их profiles, secret store,
-   grants, dashboards/alerts или любые runtime/game state; при недоступной
-   surface сохраняй fail-closed evidence.
+   использовать закрытый `IntegrationRegistry` и настроенные direct
+   Context7, Docker Docs, Semgrep, Grafana и Docker Hub adapters. Это не даёт
+   разрешения менять user config, OAuth/grants, dashboards/alerts или любые
+   runtime/game state; retired MCP intermediary не является fallback. При
+   недоступной surface сохраняй fail-closed evidence.
 5. Выполни релевантные проверки от дешёвых к дорогим: static/diff audit,
    syntax, lint, targeted tests, полный связанный набор, browser/live acceptance
    по необходимости и фактический secret scanner перед публикацией. Для
@@ -63,11 +64,16 @@ read-only задачи без изменения репозитория этот
    нового CLI как в human output, так и в agent-oriented `--json` режиме.
    Для точных правил используй указанные references и `docs/ci.md`.
 6. Проведи adversarial self-review base→head. На canonical CodeRabbit review
-   checkpoint явно делегируй sibling skill `azurpilot-coderabbit-review`; такая
-   internal delegation является достаточным trigger для sibling skill и не
-   требует повторного пользовательского CodeRabbit-запроса. Используй отдельный
-   WSL2 Arch review checkout; не считай status check или автоматический review
-   источником истины.
+   checkpoint явно делегируй sibling skill `azurpilot-coderabbit-review` и
+   используй его
+   `azur integrations coderabbit` adapter с подтверждением WSL2 runtime. CodeRabbit advisory: findings
+   независимо классифицируются, максимум три substantive iterations, `0
+   findings` немедленно завершает loop, а rate limit не вызывает wait/retry.
+   Во время активного review immutable review clone нельзя менять, commit/push
+   запрещены; triage и подготовка uncommitted fix допустимы только в основном
+   checkout после независимой проверки.
+   Такая внутренняя делегация не требует повторного пользовательского
+   CodeRabbit-запроса.
 7. После завершения проверок создай содержательный commit, push и **только draft
    PR**. PR body формируй из typed model во временный внешний файл через
    `--body-file`, затем выполни provider read-back. В body укажи exact

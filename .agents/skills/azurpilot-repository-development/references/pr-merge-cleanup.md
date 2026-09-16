@@ -64,6 +64,6 @@ review. Используй только разрешённый проектом 
 - переключи основной checkout на `personal/stable` и синхронизируй его обычным
   разрешённым способом;
 - безопасно удали task branch локально и на GitHub, если это допускает проект;
-- сохрани permanent WSL2 Arch CodeRabbit review checkout; удали только временные
+- сохрани permanent WSL2 CodeRabbit review checkout; удали только временные
   resources этой задачи;
 - не трогай пользовательские unrelated files.
