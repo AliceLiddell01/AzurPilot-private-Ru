@@ -43,6 +43,7 @@ class CredentialSource(StrEnum):
 
     NONE = "none"
     ENVIRONMENT = "environment"
+    FILE = "file"
     USER_CONFIG = "user_config"
     MACHINE_CONFIG = "machine_config"
     PROVIDER_SESSION = "provider_session"

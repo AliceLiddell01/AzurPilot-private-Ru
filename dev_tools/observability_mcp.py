@@ -19,7 +19,6 @@ from azurpilot.integrations.adapters import (
     GRAFANA_BLOCKED_TOOLS,
     GRAFANA_READ_ONLY_TOOLS,
     GrafanaAdapter,
-    _credential,
 )
 from azurpilot.integrations.config import load_integration_config
 from azurpilot.tooling.process import safe_environment
@@ -105,9 +104,12 @@ async def _read_only_grafana_tool_call_async(
         raise ObservabilityMcpError("GRAFANA_READ_ONLY_TOOL_DENIED")
     bounded_arguments = _bounded_arguments(arguments)
     config = load_integration_config(repository_root)
-    settings = config.provider("grafana")
-    credential = _credential(settings, required=True)
-    command = GrafanaAdapter()._command_args(settings, credential)
+    adapter = GrafanaAdapter()
+    settings, _resolution_code = adapter._resolved_settings(repository_root, config)
+    credential, credential_value = adapter._resolved_credential(repository_root, settings)
+    command = adapter._command_args(
+        settings, credential, credential_value=credential_value
+    )
     if command is None:
         raise ObservabilityMcpError("GRAFANA_DIRECT_ROUTE_NOT_CONFIGURED")
     executable, args, environment_values = command

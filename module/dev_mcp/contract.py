@@ -140,11 +140,11 @@ def server_compatibility_issues(
         if isinstance(required_families, Mapping)
         else None
     )
-    if isinstance(expected_family_values, (list, tuple)):
-        if not isinstance(actual_families, (list, tuple)) or any(
-            value not in actual_families for value in expected_family_values
-        ):
-            issues.append(f"servers.{server_name}.capability_families")
+    if isinstance(expected_family_values, (list, tuple)) and (
+        not isinstance(actual_families, (list, tuple))
+        or any(value not in actual_families for value in expected_family_values)
+    ):
+        issues.append(f"servers.{server_name}.capability_families")
     required_vocabulary = expected.get("result_vocabulary_by_server")
     actual_vocabulary = actual.get("result_states", actual.get("result_outcomes"))
     expected_vocabulary = (
@@ -152,11 +152,11 @@ def server_compatibility_issues(
         if isinstance(required_vocabulary, Mapping)
         else None
     )
-    if isinstance(expected_vocabulary, (list, tuple)):
-        if not isinstance(actual_vocabulary, (list, tuple)) or any(
-            value not in actual_vocabulary for value in expected_vocabulary
-        ):
-            issues.append(f"servers.{server_name}.result_vocabulary")
+    if isinstance(expected_vocabulary, (list, tuple)) and (
+        not isinstance(actual_vocabulary, (list, tuple))
+        or any(value not in actual_vocabulary for value in expected_vocabulary)
+    ):
+        issues.append(f"servers.{server_name}.result_vocabulary")
     return tuple(dict.fromkeys(issues))
 
 
@@ -200,7 +200,12 @@ def server_bundle_drift_issues(
 def contract_compatibility_issues(
     expected: Mapping[str, object], actual: Mapping[str, object]
 ) -> tuple[str, ...]:
-    """Проверить требования пакета без догадок о несовместимых версиях."""
+    """Проверить требования пакета в пределах конкретного server contract.
+
+    Верхнеуровневые поля compatibility bundle исторически принадлежат Dev
+    MCP. Game MCP публикует собственные ``result_states`` и feature families,
+    поэтому переносить Dev metadata в его сравнение нельзя.
+    """
 
     issues: list[str] = list(server_compatibility_issues(expected, actual))
     # Эти identity-поля обязательны; необязательные version-поля сравниваются
@@ -217,44 +222,52 @@ def contract_compatibility_issues(
         ):
             issues.append(field)
 
-    for field in (
-        "dev_mcp_api_version",
-        "smoke_spec_schema_version",
-        "smoke_result_schema_version",
-    ):
-        if field not in expected:
-            continue
-        expected_value = expected.get(field)
-        actual_value = actual.get(field)
-        if type(actual_value) is not type(expected_value) or actual_value != expected_value:
-            issues.append(field)
+    server_name = actual.get("server_name")
+    if server_name == "azurpilot-dev":
+        for field in (
+            "dev_mcp_api_version",
+            "smoke_spec_schema_version",
+            "smoke_result_schema_version",
+        ):
+            if field not in expected:
+                continue
+            expected_value = expected.get(field)
+            actual_value = actual.get(field)
+            if (
+                type(actual_value) is not type(expected_value)
+                or actual_value != expected_value
+            ):
+                issues.append(field)
 
-    expected_flags = expected.get("required_feature_flags")
-    actual_flags = actual.get("feature_flags")
-    if not isinstance(expected_flags, Mapping) or not isinstance(actual_flags, Mapping):
-        issues.append("feature_flags")
-    else:
-        for name, expected_value in expected_flags.items():
-            actual_value = actual_flags.get(name)
-            if type(actual_value) is not type(expected_value) or actual_value != expected_value:
-                issues.append(f"feature_flags.{name}")
+        expected_flags = expected.get("required_feature_flags")
+        actual_flags = actual.get("feature_flags")
+        if not isinstance(expected_flags, Mapping) or not isinstance(actual_flags, Mapping):
+            issues.append("feature_flags")
+        else:
+            for name, expected_value in expected_flags.items():
+                actual_value = actual_flags.get(name)
+                if (
+                    type(actual_value) is not type(expected_value)
+                    or actual_value != expected_value
+                ):
+                    issues.append(f"feature_flags.{name}")
 
-    expected_families = expected.get("required_capability_families")
-    actual_families = actual.get("capability_families")
-    if not isinstance(expected_families, (list, tuple)) or not isinstance(actual_families, (list, tuple)):
-        issues.append("capability_families")
-    else:
-        missing = [name for name in expected_families if name not in actual_families]
-        if missing:
+        expected_families = expected.get("required_capability_families")
+        actual_families = actual.get("capability_families")
+        if (
+            not isinstance(expected_families, (list, tuple))
+            or not isinstance(actual_families, (list, tuple))
+            or any(name not in actual_families for name in expected_families)
+        ):
             issues.append("capability_families")
 
-    expected_outcomes = expected.get("result_outcomes")
-    actual_outcomes = actual.get("result_outcomes")
-    if not isinstance(expected_outcomes, (list, tuple)) or not isinstance(actual_outcomes, (list, tuple)):
-        issues.append("result_outcomes")
-    else:
-        missing = [name for name in expected_outcomes if name not in actual_outcomes]
-        if missing:
+        expected_outcomes = expected.get("result_outcomes")
+        actual_outcomes = actual.get("result_outcomes")
+        if (
+            not isinstance(expected_outcomes, (list, tuple))
+            or not isinstance(actual_outcomes, (list, tuple))
+            or any(name not in actual_outcomes for name in expected_outcomes)
+        ):
             issues.append("result_outcomes")
 
     return tuple(issues)

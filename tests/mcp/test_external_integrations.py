@@ -16,7 +16,10 @@ from azurpilot.integrations.adapters import (
     GRAFANA_BLOCKED_TOOLS,
     GRAFANA_READ_ONLY_TOOLS,
     Context7Adapter,
+    GrafanaAdapter,
     SemgrepAdapter,
+    _credential,
+    _discover_grafana_settings,
 )
 from azurpilot.integrations.config import IntegrationConfig, load_integration_config
 from azurpilot.integrations.contracts import (
@@ -205,6 +208,420 @@ def test_wsl_runtime_preserves_bounded_output_flags(tmp_path: Path):
 
     assert result.stdout_truncated is True
     assert result.stderr_truncated is False
+
+
+def test_canonical_clone_discovery_ignores_unrelated_dirty_repository(
+    monkeypatch, tmp_path: Path
+):
+    distro = coderabbit.WslDistribution("ReviewLinux", "Running", 2)
+
+    monkeypatch.setattr(
+        coderabbit.CodeRabbitAdapter,
+        "_wsl_identity",
+        staticmethod(lambda *_args: (("reviewer", "/home/reviewer"), None)),
+    )
+
+    def fake_run(_root, _executable, _distro, arguments, **_kwargs):
+        if arguments[:4] == ("--exec", "find", "/home/reviewer", "-maxdepth"):
+            stdout = "/home/reviewer/orphan/.git\n/home/reviewer/canonical/.git\n"
+            return SimpleNamespace(
+                returncode=0,
+                stdout=stdout,
+                stderr="",
+                timed_out=False,
+                stdout_truncated=False,
+                stderr_truncated=False,
+            )
+        if arguments[-2:] == ("rev-parse", "--show-toplevel"):
+            clone = arguments[3]
+            return SimpleNamespace(
+                returncode=0 if clone.endswith("canonical") else 1,
+                stdout=clone if clone.endswith("canonical") else "",
+                stderr="",
+                timed_out=False,
+                stdout_truncated=False,
+                stderr_truncated=False,
+            )
+        if arguments[-3:] == ("remote", "get-url", "origin"):
+            clone = arguments[3]
+            return SimpleNamespace(
+                returncode=0 if clone.endswith("canonical") else 1,
+                stdout="https://github.com/AliceLiddell01/AzurPilot-private-Ru.git"
+                if clone.endswith("canonical")
+                else "",
+                stderr="",
+                timed_out=False,
+                stdout_truncated=False,
+                stderr_truncated=False,
+            )
+        raise AssertionError(arguments)
+
+    monkeypatch.setattr(coderabbit.CodeRabbitAdapter, "_wsl_run", staticmethod(fake_run))
+
+    clones, error_code = coderabbit.CodeRabbitAdapter._discover_review_clones(
+        tmp_path,
+        "wsl.exe",
+        distro,
+        "hosted:github.com/aliceliddell01/azurpilot-private-ru",
+    )
+
+    assert error_code is None
+    assert clones == ("/home/reviewer/canonical",)
+
+
+def test_canonical_clone_discovery_is_order_independent_and_detects_ambiguity(
+    monkeypatch, tmp_path: Path
+):
+    distro = coderabbit.WslDistribution("ReviewLinux", "Running", 2)
+    monkeypatch.setattr(
+        coderabbit.CodeRabbitAdapter,
+        "_wsl_identity",
+        staticmethod(lambda *_args: (("reviewer", "/home/reviewer"), None)),
+    )
+    state = {"reverse": False}
+
+    def fake_run(_root, _executable, _distro, arguments, **_kwargs):
+        if arguments[:4] == ("--exec", "find", "/home/reviewer", "-maxdepth"):
+            candidates = (
+                "/home/reviewer/second/.git\n/home/reviewer/first/.git\n"
+                if state["reverse"]
+                else "/home/reviewer/first/.git\n/home/reviewer/second/.git\n"
+            )
+            return SimpleNamespace(
+                returncode=0,
+                stdout=candidates,
+                stderr="",
+                timed_out=False,
+                stdout_truncated=False,
+                stderr_truncated=False,
+            )
+        clone = arguments[3]
+        if arguments[-2:] == ("rev-parse", "--show-toplevel"):
+            output = clone
+        elif arguments[-3:] == ("remote", "get-url", "origin"):
+            output = "https://github.com/AliceLiddell01/AzurPilot-private-Ru.git"
+        else:
+            raise AssertionError(arguments)
+        return SimpleNamespace(
+            returncode=0,
+            stdout=output,
+            stderr="",
+            timed_out=False,
+            stdout_truncated=False,
+            stderr_truncated=False,
+        )
+
+    monkeypatch.setattr(coderabbit.CodeRabbitAdapter, "_wsl_run", staticmethod(fake_run))
+    first, first_error = coderabbit.CodeRabbitAdapter._discover_review_clones(
+        tmp_path,
+        "wsl.exe",
+        distro,
+        "hosted:github.com/aliceliddell01/azurpilot-private-ru",
+    )
+    state["reverse"] = True
+    second, second_error = coderabbit.CodeRabbitAdapter._discover_review_clones(
+        tmp_path,
+        "wsl.exe",
+        distro,
+        "hosted:github.com/aliceliddell01/azurpilot-private-ru",
+    )
+
+    assert first_error is None
+    assert second_error is None
+    assert first == second == (
+        "/home/reviewer/first",
+        "/home/reviewer/second",
+    )
+
+
+def test_review_state_classification_does_not_treat_incomplete_as_fresh():
+    classify = coderabbit.CodeRabbitAdapter._review_state_classification
+
+    assert classify({}) == "fresh"
+    assert classify({"active": True, "operation_id": "coderabbit-1"}) == "active"
+    assert classify(
+        {
+            "active": False,
+            "operation_id": "coderabbit-1",
+            "provider_state": "timeout",
+            "complete_received": False,
+        }
+    ) == "incomplete_known_failure"
+    assert classify(
+        {
+            "active": False,
+            "operation_id": "coderabbit-1",
+            "provider_state": "interrupted",
+            "complete_received": False,
+        }
+    ) == "incomplete_unknown"
+    assert classify(
+        {
+            "active": False,
+            "operation_id": "coderabbit-1",
+            "provider_state": "complete",
+            "complete_received": True,
+            "terminal": False,
+        }
+    ) == "complete_non_terminal"
+    assert classify(
+        {
+            "active": False,
+            "operation_id": "coderabbit-1",
+            "provider_state": "complete",
+            "complete_received": True,
+            "terminal": True,
+        }
+    ) == "complete_terminal"
+    assert classify(
+        {
+            "active": False,
+            "operation_id": "coderabbit-1",
+            "provider_state": "rate_limited",
+            "complete_received": False,
+        }
+    ) == "rate_limited"
+
+
+def test_clean_stale_canonical_clone_is_prepared_without_destructive_git(
+    tmp_path: Path,
+):
+    old_head = "b" * 40
+    target_head = "a" * 40
+
+    def result(
+        *, stdout: str = "", returncode: int = 0
+    ) -> coderabbit._WslCommandResult:
+        return coderabbit._WslCommandResult(
+            returncode=returncode,
+            stdout=stdout,
+            stderr="",
+            timed_out=False,
+            stdout_truncated=False,
+            stderr_truncated=False,
+        )
+
+    class Runtime:
+        clone = "/home/reviewer/canonical"
+
+        def __init__(self):
+            self.current_head = old_head
+            self.calls: list[tuple[str, ...]] = []
+
+        def git(self, *arguments, timeout=30):
+            del timeout
+            self.calls.append(arguments)
+            if arguments == ("rev-parse", "--show-toplevel"):
+                return result(stdout=self.clone)
+            if arguments == ("remote", "get-url", "origin"):
+                return result(
+                    stdout="https://github.com/AliceLiddell01/AzurPilot-private-Ru.git"
+                )
+            if arguments == ("status", "--porcelain=v1"):
+                return result()
+            if arguments == ("branch", "--show-current"):
+                return result()
+            if arguments == ("rev-parse", "HEAD"):
+                return result(stdout=self.current_head)
+            if arguments[:3] == ("fetch", "--no-tags", "origin"):
+                return result()
+            if arguments[:2] == ("cat-file", "-e"):
+                return result()
+            if arguments[:2] == ("checkout", "--detach"):
+                self.current_head = arguments[2]
+                return result()
+            raise AssertionError(arguments)
+
+    runtime = Runtime()
+    ready, reason = coderabbit.CodeRabbitAdapter()._prepare_clone(
+        runtime, tmp_path, expected_head=target_head,
+        expected_repository="hosted:github.com/aliceliddell01/azurpilot-private-ru",
+    )
+
+    assert ready is True
+    assert reason == "CODERABBIT_REVIEW_CLONE_READY"
+    assert ("fetch", "--no-tags", "origin", target_head) in runtime.calls
+    assert ("checkout", "--detach", target_head) in runtime.calls
+    assert not any(
+        argument in {"reset", "clean"}
+        for call in runtime.calls
+        for argument in call
+    )
+
+
+def test_provider_native_grafana_credential_is_reference_only():
+    settings = {
+        "endpoint": "http://host.docker.internal:3000",
+        "command": "docker",
+        "image": "mcp/grafana@sha256:" + "a" * 64,
+        "credential_env": "GRAFANA_SERVICE_ACCOUNT_TOKEN",
+        "credential_provider": "docker_pass",
+        "credential_ref": "docker/mcp/grafana.api_key",
+    }
+    credential = _credential(settings, required=True)
+    command = GrafanaAdapter()._command_args(
+        settings,
+        credential,
+        credential_value="se://docker/mcp/grafana.api_key",
+    )
+
+    assert credential.source is CredentialSource.PROVIDER_SESSION
+    assert credential.name == "docker/mcp/grafana.api_key"
+    assert command is not None
+    executable, args, environment = command
+    assert Path(executable).name.casefold() == "docker.exe" or executable == "docker"
+    assert args[:3] == ("pass", "run", "--")
+    assert "GRAFANA_SERVICE_ACCOUNT_TOKEN" in args
+    assert environment["GRAFANA_SERVICE_ACCOUNT_TOKEN"] == "se://docker/mcp/grafana.api_key"
+
+
+def test_coderabbit_linux_executable_deduplicates_same_cr_symlink():
+    class Runtime:
+        def command(self, command, *arguments, timeout=30):
+            del timeout
+            if command == "which":
+                path = "/home/reviewer/.local/bin/coderabbit" if arguments[0] == "coderabbit" else "/home/reviewer/.local/bin/cr"
+                return coderabbit._WslCommandResult(0, path + "\n", "", False, False, False)
+            if command == "realpath":
+                return coderabbit._WslCommandResult(
+                    0, "/home/reviewer/.local/bin/coderabbit\n", "", False, False, False
+                )
+            if command == "test":
+                return coderabbit._WslCommandResult(0, "", "", False, False, False)
+            if command == "file":
+                return coderabbit._WslCommandResult(
+                    0, "ELF 64-bit LSB executable\n", "", False, False, False
+                )
+            raise AssertionError(command)
+
+    executable, error_code = coderabbit.CodeRabbitAdapter._linux_executable(
+        Runtime(), None
+    )
+
+    assert error_code is None
+    assert executable == "/home/reviewer/.local/bin/coderabbit"
+
+
+def test_coderabbit_linux_executable_rejects_distinct_or_windows_candidates():
+    class Runtime:
+        def command(self, command, *arguments, timeout=30):
+            del timeout
+            if command == "which":
+                path = (
+                    "/home/reviewer/.local/bin/coderabbit"
+                    if arguments[0] == "coderabbit"
+                    else "/opt/bin/cr"
+                )
+                return coderabbit._WslCommandResult(0, path + "\n", "", False, False, False)
+            if command == "realpath":
+                return coderabbit._WslCommandResult(
+                    0, arguments[0] + "\n", "", False, False, False
+                )
+            if command == "test":
+                return coderabbit._WslCommandResult(0, "", "", False, False, False)
+            if command == "file":
+                return coderabbit._WslCommandResult(
+                    0, "ELF 64-bit executable\n", "", False, False, False
+                )
+            raise AssertionError(command)
+
+    executable, error_code = coderabbit.CodeRabbitAdapter._linux_executable(
+        Runtime(), None
+    )
+    assert executable is None
+    assert error_code == "CODERABBIT_EXECUTABLE_AMBIGUOUS"
+
+    executable, error_code = coderabbit.CodeRabbitAdapter._linux_executable(
+        Runtime(), "/opt/bin/coderabbit.exe"
+    )
+    assert executable is None
+    assert error_code == "CODERABBIT_EXECUTABLE_NOT_LINUX_NATIVE"
+
+
+def test_coderabbit_path_discovery_derives_user_local_dirs_without_shell(
+    monkeypatch, tmp_path: Path
+):
+    calls: list[tuple[str, ...]] = []
+
+    def fake_run(_root, _executable, _distro, arguments, **_kwargs):
+        calls.append(arguments)
+        return coderabbit._WslCommandResult(
+            0, "/usr/bin:/bin\n", "", False, False, False
+        )
+
+    monkeypatch.setattr(coderabbit.CodeRabbitAdapter, "_wsl_run", staticmethod(fake_run))
+    path, error_code = coderabbit.CodeRabbitAdapter._wsl_path(
+        tmp_path,
+        "wsl.exe",
+        "ReviewLinux",
+        user="reviewer",
+        home="/home/reviewer",
+    )
+
+    assert error_code is None
+    assert path == "/usr/bin:/bin:/home/reviewer/.local/bin:/home/reviewer/bin:/home/reviewer/.cargo/bin"
+    assert calls == [("--exec", "printenv", "PATH")]
+
+
+def test_grafana_file_credential_is_bounded_and_not_serialized(
+    tmp_path: Path,
+):
+    token = "fixture-grafana-token"
+    credential_file = tmp_path / "grafana-token"
+    credential_file.write_text(token + "\n", encoding="utf-8")
+    settings = {
+        "credential_env": "GRAFANA_SERVICE_ACCOUNT_TOKEN",
+        "credential_file": str(credential_file),
+    }
+
+    credential = _credential(settings, required=True)
+
+    assert credential.configured is True
+    assert credential.source is CredentialSource.FILE
+    assert token not in credential.model_dump_json()
+
+
+def test_grafana_discovery_uses_single_published_route(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr(
+        "azurpilot.integrations.adapters._executable", lambda _command: "docker"
+    )
+    inspect_payload = (
+        '{"com.docker.compose.project.config_files":"C:/repo/infrastructure/observability/compose.yaml",'
+        '"com.docker.compose.project.working_dir":"C:/repo/infrastructure/observability"}\t'
+        '{"3000/tcp":[{"HostPort":"4310"}]}\t'
+        '{"observability_default":{}}\n'
+    )
+
+    def fake_docker(_root, _executable, arguments):
+        if arguments[0] == "ps":
+            return "grafana-id\n"
+        assert arguments[0:2] == ("inspect", "--format")
+        return inspect_payload
+
+    monkeypatch.setattr("azurpilot.integrations.adapters._docker_readonly", fake_docker)
+    settings, code = _discover_grafana_settings(Path("C:/repo"), {})
+
+    assert code == "GRAFANA_ENDPOINT_DISCOVERED"
+    assert settings["endpoint"] == "http://host.docker.internal:4310"
+
+
+def test_grafana_discovery_rejects_ambiguous_published_routes(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr(
+        "azurpilot.integrations.adapters._executable", lambda _command: "docker"
+    )
+    inspect_payload = (
+        '{"com.docker.compose.project.config_files":"C:/repo/compose.yaml"}\t'
+        '{"3000/tcp":[{"HostPort":"4310"},{"HostPort":"4311"}]}\t{}\n'
+    )
+
+    def fake_docker(_root, _executable, arguments):
+        return "grafana-id\n" if arguments[0] == "ps" else inspect_payload
+
+    monkeypatch.setattr("azurpilot.integrations.adapters._docker_readonly", fake_docker)
+    settings, code = _discover_grafana_settings(Path("C:/repo"), {})
+
+    assert settings == {}
+    assert code == "GRAFANA_ENDPOINT_AMBIGUOUS"
 
 
 @pytest.mark.parametrize(

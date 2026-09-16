@@ -337,6 +337,7 @@ class _WslRuntime:
         repository_identity: str | None,
         coderabbit_executable: str,
         coderabbit_command: str,
+        path: str | None = None,
     ) -> None:
         self.root = root
         self.executable = executable
@@ -344,6 +345,7 @@ class _WslRuntime:
         self.user = user
         self.home = home
         self.clone = clone
+        self.path = path
         self.coderabbit_command = coderabbit_command
         self.environment = WslReviewEnvironment(
             distro_name=distro,
@@ -386,8 +388,11 @@ class _WslRuntime:
         return self.run(("--exec", "git", "-C", self.clone, *arguments), timeout=timeout)
 
     def command(self, command: str, *arguments: str, timeout: float = 30.0) -> _WslCommandResult:
+        command_arguments = (command, *arguments)
+        if self.path:
+            command_arguments = ("env", f"PATH={self.path}", *command_arguments)
         return self.run(
-            ("--cd", self.clone, "--exec", command, *arguments), timeout=timeout
+            ("--cd", self.clone, "--exec", *command_arguments), timeout=timeout
         )
 
 
@@ -416,6 +421,8 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 "HEAD_MISMATCH",
                 "NOT_DETACHED",
                 "ROOT_MISMATCH",
+                "EXECUTABLE_AMBIGUOUS",
+                "RECOVERY_REQUIRED",
             )
         ):
             return IntegrationState.INCOMPATIBLE
@@ -562,10 +569,143 @@ class CodeRabbitAdapter(IntegrationAdapter):
         return (user, home), None
 
     @staticmethod
+    def _wsl_path(
+        root: Path,
+        executable: str,
+        distro: str,
+        *,
+        user: str,
+        home: str,
+    ) -> tuple[str | None, str | None]:
+        """Собрать ограниченный PATH без запуска shell startup files."""
+
+        try:
+            result = CodeRabbitAdapter._wsl_run(
+                root,
+                executable,
+                distro,
+                ("--exec", "printenv", "PATH"),
+                user=user,
+                timeout=15,
+            )
+        except ToolingError:
+            return None, "CODERABBIT_EXECUTABLE_PATH_UNAVAILABLE"
+        if (
+            result.timed_out
+            or result.stdout_truncated
+            or result.stderr_truncated
+            or result.returncode != 0
+        ):
+            return None, "CODERABBIT_EXECUTABLE_PATH_UNAVAILABLE"
+        current = result.stdout.strip().splitlines()[-1] if result.stdout.strip() else ""
+        raw_entries = [entry for entry in current.split(":") if entry]
+        for entry in raw_entries:
+            if "\x00" in entry or "\r" in entry or "\n" in entry:
+                return None, "CODERABBIT_EXECUTABLE_PATH_INVALID"
+        derived_entries = (
+            f"{home}/.local/bin",
+            f"{home}/bin",
+            f"{home}/.cargo/bin",
+        )
+        entries: list[str] = []
+        for entry in (*raw_entries, *derived_entries):
+            if entry and entry not in entries:
+                entries.append(entry)
+        path = ":".join(entries)
+        if not path or len(path) > 4096:
+            return None, "CODERABBIT_EXECUTABLE_PATH_INVALID"
+        return path, None
+
+    @staticmethod
+    def _linux_executable(
+        runtime: _WslRuntime,
+        configured: str | None,
+    ) -> tuple[str | None, str | None]:
+        """Найти один Linux-native CodeRabbit executable typed способом."""
+
+        if configured is not None and (
+            not isinstance(configured, str)
+            or not configured.strip()
+            or "\x00" in configured
+        ):
+            return None, "CODERABBIT_COMMAND_INVALID"
+        configured_value = configured.strip() if isinstance(configured, str) else None
+        if configured_value and PurePosixPath(configured_value).is_absolute():
+            names = (configured_value,)
+        elif configured_value:
+            if not _NAME_RE.fullmatch(configured_value):
+                return None, "CODERABBIT_COMMAND_INVALID"
+            names = (configured_value,)
+        else:
+            names = ("coderabbit", "cr")
+
+        resolved: dict[str, str] = {}
+        for name in names:
+            candidate = name
+            if not PurePosixPath(candidate).is_absolute():
+                result = runtime.command("which", candidate, timeout=30)
+                if (
+                    result.timed_out
+                    or result.stdout_truncated
+                    or result.stderr_truncated
+                    or result.returncode != 0
+                ):
+                    continue
+                lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+                if not lines:
+                    continue
+                candidate = lines[-1]
+            parsed = PurePosixPath(candidate)
+            if (
+                not parsed.is_absolute()
+                or ".." in parsed.parts
+                or any(parsed.name.casefold().endswith(suffix) for suffix in (".cmd", ".bat", ".exe"))
+                or "\\" in candidate
+            ):
+                return None, "CODERABBIT_EXECUTABLE_NOT_LINUX_NATIVE"
+            realpath = runtime.command("realpath", candidate, timeout=30)
+            canonical = realpath.stdout.strip().splitlines()[-1] if realpath.stdout.strip() else ""
+            if (
+                realpath.timed_out
+                or realpath.stdout_truncated
+                or realpath.stderr_truncated
+                or realpath.returncode != 0
+                or not PurePosixPath(canonical).is_absolute()
+                or ".." in PurePosixPath(canonical).parts
+            ):
+                return None, "CODERABBIT_EXECUTABLE_NOT_CONFIGURED"
+            executable_check = runtime.command("test", "-x", canonical, timeout=30)
+            if (
+                executable_check.timed_out
+                or executable_check.stdout_truncated
+                or executable_check.stderr_truncated
+                or executable_check.returncode != 0
+            ):
+                return None, "CODERABBIT_EXECUTABLE_NOT_CONFIGURED"
+            file_result = runtime.command("file", "-b", canonical, timeout=30)
+            normalized_file = file_result.stdout.casefold()
+            if (
+                file_result.timed_out
+                or file_result.stdout_truncated
+                or file_result.stderr_truncated
+                or file_result.returncode != 0
+                or any(marker in normalized_file for marker in ("pe32", "ms-dos", ".cmd", "windows"))
+                or not any(marker in normalized_file for marker in ("elf", "executable", "script"))
+            ):
+                return None, "CODERABBIT_EXECUTABLE_NOT_LINUX_NATIVE"
+            resolved[canonical] = canonical
+        if not resolved:
+            return None, "CODERABBIT_EXECUTABLE_NOT_CONFIGURED"
+        if len(resolved) > 1:
+            return None, "CODERABBIT_EXECUTABLE_AMBIGUOUS"
+        return next(iter(resolved)), None
+
+    @staticmethod
     def _discover_review_clones(
         root: Path,
         executable: str,
         distro: WslDistribution,
+        expected_repository: str | None = None,
     ) -> tuple[tuple[str, ...], str | None]:
         identity, error_code = CodeRabbitAdapter._wsl_identity(
             root, executable, distro.name
@@ -615,7 +755,53 @@ class CodeRabbitAdapter(IntegrationAdapter):
             clone = parsed.parent.as_posix()
             if clone not in candidates:
                 candidates.append(clone)
-        return tuple(candidates), None
+        expected = expected_repository
+        if expected is None:
+            expected = CodeRabbitAdapter._expected_repository(root, {})
+        if expected is None:
+            return (), "CODERABBIT_REPOSITORY_NOT_CONFIGURED"
+        canonical_candidates: list[str] = []
+        from azurpilot.tooling.git import canonical_remote_identity
+
+        for clone in sorted(candidates):
+            try:
+                top_level = CodeRabbitAdapter._wsl_run(
+                    root,
+                    executable,
+                    distro.name,
+                    ("--exec", "git", "-C", clone, "rev-parse", "--show-toplevel"),
+                    user=user,
+                    timeout=15,
+                )
+                remote = CodeRabbitAdapter._wsl_run(
+                    root,
+                    executable,
+                    distro.name,
+                    ("--exec", "git", "-C", clone, "remote", "get-url", "origin"),
+                    user=user,
+                    timeout=15,
+                )
+            except ToolingError:
+                continue
+            if (
+                top_level.timed_out
+                or top_level.stdout_truncated
+                or top_level.stderr_truncated
+                or top_level.returncode != 0
+                or top_level.stdout.strip().rstrip("/") != clone.rstrip("/")
+                or remote.timed_out
+                or remote.stdout_truncated
+                or remote.stderr_truncated
+                or remote.returncode != 0
+            ):
+                continue
+            try:
+                actual = canonical_remote_identity(remote.stdout.strip()).casefold()
+            except ToolingError:
+                continue
+            if actual == expected.casefold():
+                canonical_candidates.append(clone)
+        return tuple(sorted(set(canonical_candidates))), None
 
     @staticmethod
     def _candidate_environment(
@@ -631,88 +817,71 @@ class CodeRabbitAdapter(IntegrationAdapter):
         if identity is None:
             return None, error_code
         user, home = identity
-        configured_command = settings.get("command")
-        if configured_command is not None and (
-            not isinstance(configured_command, str)
-            or not _NAME_RE.fullmatch(configured_command)
-        ):
-            return None, "CODERABBIT_COMMAND_INVALID"
-        commands = (
-            (configured_command,)
-            if isinstance(configured_command, str)
-            else ("coderabbit", "cr")
-        )
         expected_repository = CodeRabbitAdapter._expected_repository(root, settings)
-        for command in commands:
-            runtime = _WslRuntime(
-                root,
-                executable,
-                distro=distro.name,
-                user=user,
-                home=home,
-                clone=clone,
-                repository_identity=expected_repository,
-                coderabbit_executable=command,
-                coderabbit_command=command,
-            )
-            ok, reason = CodeRabbitAdapter()._verify_clone(
-                runtime, root, None, expected_repository
-            )
-            if not ok:
-                return None, reason
-            realpath_result = runtime.command("realpath", clone, timeout=30)
-            if (
-                realpath_result.timed_out
-                or realpath_result.stdout_truncated
-                or realpath_result.stderr_truncated
-                or realpath_result.returncode != 0
-                or realpath_result.stdout.strip() != clone.rstrip("/")
-            ):
-                return None, "CODERABBIT_REVIEW_CLONE_NOT_CANONICAL"
-            path_result = runtime.command("which", command, timeout=30)
-            candidate_path = (
-                path_result.stdout.strip().splitlines()[-1]
-                if path_result.stdout.strip()
-                else ""
-            )
-            if (
-                path_result.timed_out
-                or path_result.stdout_truncated
-                or path_result.stderr_truncated
-                or path_result.returncode != 0
-                or not PurePosixPath(candidate_path).is_absolute()
-                or ".." in PurePosixPath(candidate_path).parts
-                or candidate_path.casefold().endswith(".cmd")
-            ):
-                continue
-            file_result = runtime.command("file", candidate_path, timeout=30)
-            normalized_file = file_result.stdout.casefold()
-            if (
-                file_result.timed_out
-                or file_result.stdout_truncated
-                or file_result.stderr_truncated
-                or file_result.returncode != 0
-                or any(
-                    marker in normalized_file
-                    for marker in ("pe32", "ms-dos", ".cmd", "windows")
-                )
-                or not any(
-                    marker in normalized_file for marker in ("elf", "executable", "script")
-                )
-            ):
-                return None, "CODERABBIT_EXECUTABLE_NOT_LINUX_NATIVE"
-            runtime.environment = WslReviewEnvironment(
-                distro_name=distro.name,
-                wsl_version=2,
-                linux_user=user,
-                home=home,
-                review_clone=clone,
-                coderabbit_executable=candidate_path,
-                repository_identity=expected_repository,
-            )
-            runtime.coderabbit_command = candidate_path
-            return runtime, None
-        return None, "CODERABBIT_EXECUTABLE_NOT_CONFIGURED"
+        if expected_repository is None:
+            return None, "CODERABBIT_REPOSITORY_NOT_CONFIGURED"
+        path, path_error = CodeRabbitAdapter._wsl_path(
+            root, executable, distro.name, user=user, home=home
+        )
+        if path is None:
+            return None, path_error or "CODERABBIT_EXECUTABLE_PATH_UNAVAILABLE"
+        runtime = _WslRuntime(
+            root,
+            executable,
+            distro=distro.name,
+            user=user,
+            home=home,
+            clone=clone,
+            repository_identity=expected_repository,
+            coderabbit_executable="",
+            coderabbit_command="",
+            path=path,
+        )
+        ok, reason = CodeRabbitAdapter()._verify_clone_identity(
+            runtime, expected_repository
+        )
+        if not ok:
+            return None, reason
+        configured_executable = settings.get("executable")
+        configured_command = settings.get("command")
+        explicit = (
+            configured_executable
+            if isinstance(configured_executable, str) and configured_executable.strip()
+            else configured_command
+            if isinstance(configured_command, str) and configured_command.strip()
+            else None
+        )
+        candidate_path, executable_error = CodeRabbitAdapter._linux_executable(
+            runtime, explicit
+        )
+        if candidate_path is None:
+            return None, executable_error or "CODERABBIT_EXECUTABLE_NOT_CONFIGURED"
+        runtime.environment = WslReviewEnvironment(
+            distro_name=distro.name,
+            wsl_version=2,
+            linux_user=user,
+            home=home,
+            review_clone=clone,
+            coderabbit_executable=candidate_path,
+            repository_identity=expected_repository,
+        )
+        runtime.coderabbit_executable = candidate_path
+        runtime.coderabbit_command = candidate_path
+        realpath_result = runtime.command("realpath", clone, timeout=30)
+        if (
+            realpath_result.timed_out
+            or realpath_result.stdout_truncated
+            or realpath_result.stderr_truncated
+            or realpath_result.returncode != 0
+            or realpath_result.stdout.strip() != clone.rstrip("/")
+        ):
+            return None, "CODERABBIT_REVIEW_CLONE_NOT_CANONICAL"
+        ok, reason = CodeRabbitAdapter()._verify_clone(
+            runtime, root, None, expected_repository
+        )
+        if not ok:
+            return None, reason
+        return runtime, None
 
     @staticmethod
     def _configured_runtime(
@@ -738,6 +907,20 @@ class CodeRabbitAdapter(IntegrationAdapter):
         entries, error_code = CodeRabbitAdapter._wsl_inventory(root, executable)
         if error_code:
             return None, error_code
+        expected_repository = CodeRabbitAdapter._expected_repository(root, settings)
+        if expected_repository is None:
+            return None, "CODERABBIT_REPOSITORY_NOT_CONFIGURED"
+
+        def discover(candidate: WslDistribution) -> tuple[tuple[str, ...], str | None]:
+            if isinstance(clone, str):
+                return (clone,), None
+            return CodeRabbitAdapter._discover_review_clones(
+                root,
+                executable,
+                candidate,
+                expected_repository,
+            )
+
         if configured_distro is not None:
             selection = select_wsl_distribution(
                 "\n".join(f"{item.name} {item.state} {item.version}" for item in entries),
@@ -746,64 +929,47 @@ class CodeRabbitAdapter(IntegrationAdapter):
             if selection.state is not IntegrationState.READY or selection.distribution is None:
                 return None, selection.reason_code
             candidate = next(item for item in entries if item.name == selection.distribution)
-            if isinstance(clone, str):
-                clones = (clone,)
-                discovery_error = None
-            else:
-                clones, discovery_error = CodeRabbitAdapter._discover_review_clones(
-                    root, executable, candidate
-                )
+            clones, discovery_error = discover(candidate)
             if not clones:
                 return None, discovery_error or "CODERABBIT_REVIEW_CLONE_NOT_CONFIGURED"
-            runtimes: list[_WslRuntime] = []
-            failure_codes: list[str] = []
-            for candidate_clone in clones:
-                runtime, failure = CodeRabbitAdapter._candidate_environment(
-                    root, executable, candidate, candidate_clone, settings
-                )
-                if runtime is not None:
-                    runtimes.append(runtime)
-                elif failure:
-                    failure_codes.append(failure)
-            if len(runtimes) > 1:
+            if len(clones) > 1:
                 return None, "CODERABBIT_REVIEW_CLONE_AMBIGUOUS"
-            if runtimes:
-                return runtimes[0], None
-            return None, failure_codes[0] if failure_codes else "CODERABBIT_REVIEW_ENVIRONMENT_NOT_CONFIGURED"
+            runtime, failure = CodeRabbitAdapter._candidate_environment(
+                root, executable, candidate, clones[0], settings
+            )
+            if runtime is not None:
+                return runtime, None
+            return None, failure or "CODERABBIT_REVIEW_ENVIRONMENT_NOT_CONFIGURED"
+
         candidates = tuple(item for item in entries if item.version == 2)
-        valid: list[_WslRuntime] = []
-        failure_codes: list[str] = []
+        canonical_candidates: list[tuple[WslDistribution, str]] = []
+        discovery_errors: list[str] = []
         for candidate in candidates:
-            if isinstance(clone, str):
-                clones = (clone,)
-                discovery_error = None
-            else:
-                clones, discovery_error = CodeRabbitAdapter._discover_review_clones(
-                    root, executable, candidate
-                )
+            clones, discovery_error = discover(candidate)
             if not clones:
-                failure_codes.append(
+                discovery_errors.append(
                     discovery_error or "CODERABBIT_REVIEW_CLONE_NOT_CONFIGURED"
                 )
                 continue
-            for candidate_clone in clones:
-                runtime, failure = CodeRabbitAdapter._candidate_environment(
-                    root, executable, candidate, candidate_clone, settings
-                )
-                if runtime is not None:
-                    valid.append(runtime)
-                elif failure:
-                    failure_codes.append(failure)
-        if len(valid) > 1:
-            return None, "CODERABBIT_WSL_DISTRIBUTION_AMBIGUOUS"
-        if valid:
-            return valid[0], None
+            if len(clones) > 1:
+                return None, "CODERABBIT_REVIEW_CLONE_AMBIGUOUS"
+            canonical_candidates.append((candidate, clones[0]))
+        if len(canonical_candidates) > 1:
+            return None, "CODERABBIT_REVIEW_CLONE_AMBIGUOUS"
+        if canonical_candidates:
+            candidate, selected_clone = canonical_candidates[0]
+            runtime, failure = CodeRabbitAdapter._candidate_environment(
+                root, executable, candidate, selected_clone, settings
+            )
+            if runtime is not None:
+                return runtime, None
+            return None, failure or "CODERABBIT_REVIEW_ENVIRONMENT_NOT_CONFIGURED"
         if not candidates:
             selection = select_wsl_distribution(
                 "\n".join(f"{item.name} {item.state} {item.version}" for item in entries)
             )
             return None, selection.reason_code
-        return None, failure_codes[0] if failure_codes else "CODERABBIT_REVIEW_ENVIRONMENT_NOT_CONFIGURED"
+        return None, "CODERABBIT_REVIEW_CLONE_NOT_CONFIGURED"
 
     def _record_from_error(
         self,
@@ -828,16 +994,26 @@ class CodeRabbitAdapter(IntegrationAdapter):
         )
 
     @staticmethod
+    def _review_state_classification(review_state: dict[str, object]) -> str:
+        """Классифицировать durable state, не сводя его к ``active``."""
+
+        if not review_state.get("operation_id") and not review_state.get("provider_state"):
+            return "fresh"
+        if review_state.get("active") is True:
+            return "active"
+        if review_state.get("complete_received") is True:
+            return "complete_terminal" if review_state.get("terminal") is True else "complete_non_terminal"
+        provider_state = review_state.get("provider_state")
+        if provider_state == "rate_limited":
+            return "rate_limited"
+        if provider_state in {"failed", "timeout", "stream_error"}:
+            return "incomplete_known_failure"
+        return "incomplete_unknown"
+
+    @staticmethod
     def _review_state_diagnostics(review_state: dict[str, object]) -> tuple[str, ...]:
         return (
-            "review_state="
-            + (
-                "active"
-                if review_state.get("active") is True
-                else "terminal"
-                if review_state.get("terminal") is True
-                else "ready"
-            ),
+            "review_state=" + CodeRabbitAdapter._review_state_classification(review_state),
             f"substantive_iterations={int(review_state.get('iterations', 0))}/{MAX_REVIEW_ITERATIONS}",
         )
 
@@ -927,11 +1103,21 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 state=IntegrationState.UNKNOWN,
                 diagnostics=inventory_diagnostics + ("review_state=unavailable",),
             )
-        if review_state.get("active") is True:
+        review_classification = self._review_state_classification(review_state)
+        if review_classification in {
+            "active",
+            "incomplete_known_failure",
+            "incomplete_unknown",
+            "rate_limited",
+        }:
             return self._record_from_error(
                 settings,
-                "CODERABBIT_REVIEW_RECOVERY_REQUIRED",
-                state=IntegrationState.INCOMPATIBLE,
+                "CODERABBIT_REVIEW_RECOVERY_REQUIRED"
+                if review_classification != "rate_limited"
+                else "CODERABBIT_RATE_LIMITED",
+                state=IntegrationState.RATE_LIMITED
+                if review_classification == "rate_limited"
+                else IntegrationState.INCOMPATIBLE,
                 diagnostics=inventory_diagnostics
                 + self._review_state_diagnostics(review_state),
             )
@@ -959,6 +1145,39 @@ class CodeRabbitAdapter(IntegrationAdapter):
             ),
         )
 
+    def _verify_clone_identity(
+        self, runtime: _WslRuntime, expected_repository: str | None
+    ) -> tuple[bool, str]:
+        """Подтвердить canonical origin до проверки dirty/head состояния."""
+
+        root_result = runtime.git("rev-parse", "--show-toplevel")
+        remote_result = runtime.git("remote", "get-url", "origin")
+        if (
+            root_result.timed_out
+            or root_result.stdout_truncated
+            or root_result.stderr_truncated
+            or root_result.returncode != 0
+            or root_result.stdout.strip().rstrip("/") != runtime.clone.rstrip("/")
+        ):
+            return False, "CODERABBIT_REVIEW_CLONE_ROOT_MISMATCH"
+        if (
+            remote_result.timed_out
+            or remote_result.stdout_truncated
+            or remote_result.stderr_truncated
+            or remote_result.returncode != 0
+            or not remote_result.stdout.strip()
+        ):
+            return False, "CODERABBIT_REVIEW_REMOTE_UNAVAILABLE"
+        try:
+            from azurpilot.tooling.git import canonical_remote_identity
+
+            actual_repository = canonical_remote_identity(remote_result.stdout.strip()).casefold()
+        except ToolingError:
+            return False, "CODERABBIT_REVIEW_REMOTE_MISMATCH"
+        if expected_repository and actual_repository != expected_repository.casefold():
+            return False, "CODERABBIT_REVIEW_REMOTE_MISMATCH"
+        return True, "CODERABBIT_REVIEW_CLONE_IDENTITY_READY"
+
     def _verify_clone(
         self,
         runtime: _WslRuntime,
@@ -966,6 +1185,11 @@ class CodeRabbitAdapter(IntegrationAdapter):
         expected_head: str | None,
         expected_repository: str | None,
     ) -> tuple[bool, str]:
+        identity_ok, identity_reason = self._verify_clone_identity(
+            runtime, expected_repository
+        )
+        if not identity_ok:
+            return False, identity_reason
         checks = {
             "root": runtime.git("rev-parse", "--show-toplevel"),
             "status": runtime.git("status", "--porcelain=v1"),
@@ -992,25 +1216,59 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 and result.stdout.strip().casefold() != expected_head
             ):
                 return False, "CODERABBIT_REVIEW_HEAD_MISMATCH"
-        if expected_repository:
-            result = runtime.git("remote", "get-url", "origin")
-            if (
-                result.timed_out
-                or result.stdout_truncated
-                or result.stderr_truncated
-                or result.returncode != 0
-                or not result.stdout.strip()
-            ):
-                return False, "CODERABBIT_REVIEW_REMOTE_UNAVAILABLE"
-            try:
-                from azurpilot.tooling.git import canonical_remote_identity
-
-                actual_repository = canonical_remote_identity(result.stdout.strip())
-            except ToolingError:
-                return False, "CODERABBIT_REVIEW_REMOTE_MISMATCH"
-            if actual_repository != expected_repository:
-                return False, "CODERABBIT_REVIEW_REMOTE_MISMATCH"
         return True, "CODERABBIT_REVIEW_CLONE_READY"
+
+    def _prepare_clone(
+        self,
+        runtime: _WslRuntime,
+        root: Path,
+        *,
+        expected_head: str,
+        expected_repository: str,
+    ) -> tuple[bool, str]:
+        """Безопасно подготовить clean dedicated clone к exact committed head."""
+
+        identity_ok, identity_reason = self._verify_clone_identity(
+            runtime, expected_repository
+        )
+        if not identity_ok:
+            return False, identity_reason
+        ready, reason = self._verify_clone(runtime, root, None, expected_repository)
+        if not ready:
+            return False, reason
+        current_head = runtime.git("rev-parse", "HEAD")
+        current = current_head.stdout.strip().casefold()
+        if current == expected_head:
+            return self._verify_clone(runtime, root, expected_head, expected_repository)
+        fetched = runtime.git(
+            "fetch", "--no-tags", "origin", expected_head, timeout=15 * 60
+        )
+        if (
+            fetched.timed_out
+            or fetched.stdout_truncated
+            or fetched.stderr_truncated
+            or fetched.returncode != 0
+        ):
+            return False, "CODERABBIT_REVIEW_TARGET_FETCH_FAILED"
+        target = runtime.git(
+            "cat-file", "-e", f"{expected_head}^{{commit}}", timeout=30
+        )
+        if (
+            target.timed_out
+            or target.stdout_truncated
+            or target.stderr_truncated
+            or target.returncode != 0
+        ):
+            return False, "CODERABBIT_REVIEW_TARGET_UNAVAILABLE"
+        checkout = runtime.git("checkout", "--detach", expected_head, timeout=120)
+        if (
+            checkout.timed_out
+            or checkout.stdout_truncated
+            or checkout.stderr_truncated
+            or checkout.returncode != 0
+        ):
+            return False, "CODERABBIT_REVIEW_CLONE_PREPARE_FAILED"
+        return self._verify_clone(runtime, root, expected_head, expected_repository)
 
     def _auth_ready(self, runtime: _WslRuntime, command: str) -> tuple[bool, str]:
         result = runtime.command(
@@ -1127,6 +1385,8 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 "active": False,
                 "operation_id": None,
                 "started_at": None,
+                "complete_received": False,
+                "provider_state": None,
             }
         try:
             payload = json.loads(bounded_read_text(path, max_bytes=_MAX_STATE_BYTES))
@@ -1149,7 +1409,9 @@ class CodeRabbitAdapter(IntegrationAdapter):
         active = payload.get("active", False)
         if not isinstance(active, bool):
             raise ToolingError(ResultCode.TOOLING_VERIFICATION_UNKNOWN, "Флаг активного CodeRabbit review повреждён.")
-        complete_received = payload.get("complete_received", not active)
+        complete_received = payload.get(
+            "complete_received", payload.get("provider_state") == "complete"
+        )
         if not isinstance(complete_received, bool):
             raise ToolingError(ResultCode.TOOLING_VERIFICATION_UNKNOWN, "Флаг завершения потока CodeRabbit повреждён.")
         for key in (
@@ -1294,12 +1556,22 @@ class CodeRabbitAdapter(IntegrationAdapter):
                     state=IntegrationState.UNKNOWN,
                 )
             )
-        if review_state.get("active") is True:
+        review_classification = self._review_state_classification(review_state)
+        if review_classification in {
+            "active",
+            "incomplete_known_failure",
+            "incomplete_unknown",
+            "rate_limited",
+        }:
             return AdapterOutcome(
                 self._record_from_error(
                     settings,
-                    "CODERABBIT_REVIEW_RECOVERY_REQUIRED",
-                    state=IntegrationState.INCOMPATIBLE,
+                    "CODERABBIT_REVIEW_RECOVERY_REQUIRED"
+                    if review_classification != "rate_limited"
+                    else "CODERABBIT_RATE_LIMITED",
+                    state=IntegrationState.RATE_LIMITED
+                    if review_classification == "rate_limited"
+                    else IntegrationState.INCOMPATIBLE,
                     diagnostics=self._review_state_diagnostics(review_state),
                 )
             )
@@ -1360,12 +1632,18 @@ class CodeRabbitAdapter(IntegrationAdapter):
         review_state = self._load_review_state(root)
         iterations = int(review_state.get("iterations", 0))
         terminal = bool(review_state.get("terminal", False))
-        if review_state.get("active") is True:
+        review_classification = self._review_state_classification(review_state)
+        if review_classification in {"active", "incomplete_unknown", "rate_limited"}:
             return AdapterOutcome(
                 self._record_from_error(
                     settings,
-                    "CODERABBIT_REVIEW_RECOVERY_REQUIRED",
-                    state=IntegrationState.INCOMPATIBLE,
+                    "CODERABBIT_REVIEW_RECOVERY_REQUIRED"
+                    if review_classification != "rate_limited"
+                    else "CODERABBIT_RATE_LIMITED",
+                    state=IntegrationState.RATE_LIMITED
+                    if review_classification == "rate_limited"
+                    else IntegrationState.INCOMPATIBLE,
+                    diagnostics=self._review_state_diagnostics(review_state),
                 )
             )
         if not review_iteration_allowed(iterations, terminal=terminal):
@@ -1389,7 +1667,12 @@ class CodeRabbitAdapter(IntegrationAdapter):
                     state=IntegrationState.NOT_CONFIGURED,
                 )
             )
-        ok, reason = self._verify_clone(runtime, root, head_sha, expected_repository)
+        ok, reason = self._prepare_clone(
+            runtime,
+            root,
+            expected_head=head_sha,
+            expected_repository=expected_repository,
+        )
         if not ok:
             return AdapterOutcome(self._record_from_error(settings, reason, state=IntegrationState.INCOMPATIBLE))
         runtime_state, reason, runtime_diagnostics = self._runtime_preflight(runtime, command)

@@ -11,7 +11,11 @@ from pathlib import Path
 
 from azurpilot.tooling.contracts import AnalysisScope, ResultCode
 from azurpilot.tooling.errors import ToolingError
-from azurpilot.tooling.filesystem import ScopedPath
+from azurpilot.tooling.filesystem import (
+    ScopedPath,
+    bounded_read_text,
+    path_has_link,
+)
 from azurpilot.tooling.git import GitClient
 from azurpilot.tooling.process import (
     ProcessSpec,
@@ -29,7 +33,13 @@ from .contracts import (
     IntegrationRecord,
     IntegrationState,
 )
-from .mcp_client import McpCallPlan, McpProbeResult, probe_http, probe_stdio
+from .mcp_client import (
+    McpCallPlan,
+    McpProbeResult,
+    probe_http,
+    probe_stdio,
+    validate_endpoint,
+)
 
 _VERSION_RE = re.compile(r"^v?[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$")
 _ENV_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,127}$")
@@ -116,15 +126,101 @@ class IntegrationAdapter:
 
 def _credential(config: dict[str, object], *, required: bool) -> CredentialRef:
     raw_name = config.get("credential_env")
-    if not isinstance(raw_name, str) or _ENV_NAME_RE.fullmatch(raw_name) is None:
-        return CredentialRef()
-    configured = bool(os.environ.get(raw_name, "").strip())
+    if (
+        isinstance(raw_name, str)
+        and _ENV_NAME_RE.fullmatch(raw_name)
+        and os.environ.get(raw_name, "").strip()
+    ):
+        return CredentialRef(
+            configured=True,
+            source=CredentialSource.ENVIRONMENT,
+            name=raw_name,
+            auth_verified=None if not required else False,
+        )
+    raw_file = config.get("credential_file")
+    if isinstance(raw_file, str) and raw_file.strip():
+        path = Path(raw_file)
+        if (
+            path.is_absolute()
+            and "\x00" not in raw_file
+            and ".." not in path.parts
+            and not path_has_link(path)
+        ):
+            try:
+                value = bounded_read_text(path, max_bytes=16 * 1024).strip()
+            except (OSError, UnicodeError, ToolingError):
+                value = ""
+            if value:
+                safe_name = raw_name if isinstance(raw_name, str) else "credential_file"
+                return CredentialRef(
+                    configured=True,
+                    source=CredentialSource.FILE,
+                    name=safe_name,
+                    auth_verified=None if not required else False,
+                )
+    provider = config.get("credential_provider")
+    reference = config.get("credential_ref")
+    if (
+        provider == "docker_pass"
+        and isinstance(reference, str)
+        and _SAFE_ID_RE.fullmatch(reference.replace("/", "_"))
+        and ".." not in Path(reference).parts
+    ):
+        return CredentialRef(
+            configured=True,
+            source=CredentialSource.PROVIDER_SESSION,
+            name=reference,
+            auth_verified=None if not required else False,
+        )
     return CredentialRef(
-        configured=configured,
-        source=CredentialSource.ENVIRONMENT if configured else CredentialSource.NONE,
-        name=raw_name,
+        configured=False,
+        source=CredentialSource.NONE,
+        name=raw_name if isinstance(raw_name, str) else None,
         auth_verified=None if not required else False,
     )
+
+
+def _credential_value(
+    config: dict[str, object], credential: CredentialRef
+) -> str | None:
+    """Прочитать credential только для конкретного child process."""
+
+    if not credential.configured:
+        return None
+    if credential.source is CredentialSource.ENVIRONMENT and credential.name:
+        value = os.environ.get(credential.name, "").strip()
+        return value or None
+    raw_file = config.get("credential_file")
+    if credential.source is CredentialSource.FILE and isinstance(raw_file, str):
+        path = Path(raw_file)
+        if (
+            not path.is_absolute()
+            or "\x00" in raw_file
+            or ".." in path.parts
+            or path_has_link(path)
+        ):
+            return None
+        try:
+            value = bounded_read_text(path, max_bytes=16 * 1024).strip()
+        except (OSError, UnicodeError, ToolingError):
+            return None
+        return value or None
+    return None
+
+
+def _provider_credential_value(
+    credential: CredentialRef,
+) -> str | None:
+    """Вернуть provider reference без извлечения secret в AzurPilot."""
+
+    if credential.source is not CredentialSource.PROVIDER_SESSION:
+        return None
+    reference = credential.name
+    if not isinstance(reference, str) or not reference:
+        return None
+    # Docker Pass resolves this reference inside its own provider boundary;
+    # the secret value never enters the AzurPilot process environment.
+    return f"se://{reference}"
 
 
 def _executable(command: object) -> str | None:
@@ -525,6 +621,146 @@ class DockerDocsAdapter(_HttpMcpAdapter):
     )
 
 
+def _docker_readonly(
+    root: Path, executable: str, arguments: tuple[str, ...]
+) -> str | None:
+    """Выполнить только bounded read-only запрос к Docker CLI."""
+
+    try:
+        result = StructuredProcessRunner().run(
+            ProcessSpec(
+                executable=executable,
+                argv=arguments,
+                cwd=root,
+                timeout_seconds=30,
+                max_output_bytes=128 * 1024,
+                env=safe_environment(),
+            )
+        )
+    except (OSError, ToolingError):
+        return None
+    if (
+        result.timed_out
+        or result.stdout_truncated
+        or result.stderr_truncated
+        or result.returncode != 0
+    ):
+        return None
+    return result.stdout
+
+
+def _grafana_topology_matches(root: Path, labels: object) -> bool:
+    if not isinstance(labels, dict):
+        return False
+    root_text = str(root).replace("\\", "/").rstrip("/").casefold()
+    if not root_text:
+        return False
+    for key, value in labels.items():
+        if key not in {
+            "com.docker.compose.project.config_files",
+            "com.docker.compose.project.working_dir",
+        }:
+            continue
+        for candidate in str(value).replace("\\", "/").casefold().split(";"):
+            candidate = candidate.strip().rstrip("/")
+            if candidate == root_text or candidate.startswith(f"{root_text}/"):
+                return True
+    return False
+
+
+def _discover_grafana_settings(
+    root: Path, settings: dict[str, object]
+) -> tuple[dict[str, object], str | None]:
+    """Найти Grafana route только по validated текущей Compose topology."""
+
+    if isinstance(settings.get("endpoint"), str) and settings["endpoint"]:
+        return dict(settings), None
+    executable = _executable(settings.get("command", "docker"))
+    if executable is None:
+        return dict(settings), "INTEGRATION_CONTAINER_RUNTIME_UNAVAILABLE"
+    inventory = _docker_readonly(
+        root,
+        executable,
+        (
+            "ps",
+            "--filter",
+            "label=com.docker.compose.service=grafana",
+            "--filter",
+            "status=running",
+            "--format",
+            "{{.ID}}",
+        ),
+    )
+    if inventory is None:
+        return dict(settings), "GRAFANA_ENDPOINT_NOT_CONFIGURED"
+    container_ids = tuple(sorted({line.strip() for line in inventory.splitlines() if line.strip()}))
+    published: set[tuple[str, str | None]] = set()
+    networks: set[tuple[str, str | None]] = set()
+    for container_id in container_ids[:16]:
+        payload = _docker_readonly(
+            root,
+            executable,
+            (
+                "inspect",
+                "--format",
+                "{{json .Config.Labels}}\t{{json .NetworkSettings.Ports}}\t{{json .NetworkSettings.Networks}}",
+                container_id,
+            ),
+        )
+        if not payload:
+            continue
+        line = payload.splitlines()[0]
+        parts = line.split("\t")
+        if len(parts) != 3:
+            continue
+        try:
+            labels = json.loads(parts[0])
+            ports = json.loads(parts[1])
+            network_payload = json.loads(parts[2])
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if not _grafana_topology_matches(root, labels):
+            continue
+        published_ports = ports.get("3000/tcp") if isinstance(ports, dict) else None
+        if isinstance(published_ports, list):
+            for item in published_ports:
+                if not isinstance(item, dict):
+                    continue
+                host_port = item.get("HostPort")
+                if isinstance(host_port, str) and host_port.isdecimal():
+                    published.add((f"http://host.docker.internal:{int(host_port)}", None))
+        if isinstance(network_payload, dict):
+            for network_name in network_payload:
+                if isinstance(network_name, str) and _SAFE_ID_RE.fullmatch(network_name):
+                    networks.add(("http://grafana:3000", network_name))
+    if len(published) == 1:
+        endpoint, network = next(iter(published))
+        try:
+            validate_endpoint(endpoint, allow_http=True)
+        except ValueError:
+            return dict(settings), "GRAFANA_ENDPOINT_NOT_CONFIGURED"
+        resolved = dict(settings)
+        resolved["endpoint"] = endpoint
+        if network:
+            resolved["network"] = network
+        return resolved, "GRAFANA_ENDPOINT_DISCOVERED"
+    if len(published) > 1:
+        return dict(settings), "GRAFANA_ENDPOINT_AMBIGUOUS"
+    if len(networks) == 1:
+        endpoint, network = next(iter(networks))
+        try:
+            validate_endpoint(endpoint, allow_http=True)
+        except ValueError:
+            return dict(settings), "GRAFANA_ENDPOINT_NOT_CONFIGURED"
+        resolved = dict(settings)
+        resolved["endpoint"] = endpoint
+        resolved["network"] = network
+        return resolved, "GRAFANA_ENDPOINT_DISCOVERED"
+    if len(networks) > 1:
+        return dict(settings), "GRAFANA_ENDPOINT_AMBIGUOUS"
+    return dict(settings), "GRAFANA_ENDPOINT_NOT_CONFIGURED"
+
+
 class _ContainerMcpAdapter(IntegrationAdapter):
     image_name: str
     plan: McpCallPlan
@@ -535,10 +771,27 @@ class _ContainerMcpAdapter(IntegrationAdapter):
     def _settings(self, config: IntegrationConfig) -> dict[str, object]:
         return config.provider(self.name.value)
 
+    def _resolved_settings(
+        self, root: Path, config: IntegrationConfig
+    ) -> tuple[dict[str, object], str | None]:
+        return self._settings(config), None
+
+    def _resolved_credential(
+        self, root: Path, settings: dict[str, object]
+    ) -> tuple[CredentialRef, str | None]:
+        credential = _credential(settings, required=self.requires_credential)
+        if credential.source is CredentialSource.PROVIDER_SESSION:
+            value = _provider_credential_value(credential)
+        else:
+            value = _credential_value(settings, credential)
+        return credential, value
+
     def _command_args(
         self,
         settings: dict[str, object],
         credential: CredentialRef,
+        *,
+        credential_value: str | None = None,
     ) -> tuple[str, tuple[str, ...], dict[str, str]] | None:
         executable = _executable(settings.get("command", "docker"))
         image = settings.get("image")
@@ -552,11 +805,27 @@ class _ContainerMcpAdapter(IntegrationAdapter):
                 return None
             env["GRAFANA_URL"] = endpoint
             args.extend(("--env", "GRAFANA_URL"))
-        if credential.configured and credential.name:
-            value = os.environ.get(credential.name, "").strip()
-            if value:
-                env[credential.name] = value
-                args.extend(("--env", credential.name))
+        value = credential_value
+        if value is None:
+            value = _credential_value(settings, credential)
+        if self.requires_credential and not value:
+            return None
+        if value:
+            environment_name = credential.name
+            if credential.source is CredentialSource.PROVIDER_SESSION:
+                configured_name = settings.get("credential_env")
+                environment_name = (
+                    configured_name
+                    if isinstance(configured_name, str)
+                    and _ENV_NAME_RE.fullmatch(configured_name)
+                    else None
+                )
+            if environment_name:
+                env[environment_name] = value
+                args.extend(("--env", environment_name))
+        network = settings.get("network")
+        if isinstance(network, str) and _SAFE_ID_RE.fullmatch(network):
+            args.extend(("--network", network))
         args.append(image)
         if self.name is IntegrationName.GRAFANA:
             args.extend(
@@ -567,11 +836,13 @@ class _ContainerMcpAdapter(IntegrationAdapter):
                     "-disable-proxied",
                 )
             )
+        if credential.source is CredentialSource.PROVIDER_SESSION:
+            args = ["pass", "run", "--", *args]
         return executable, tuple(args), env
 
     def status(self, root: Path, config: IntegrationConfig) -> IntegrationRecord:
-        settings = self._settings(config)
-        credential = _credential(settings, required=self.requires_credential)
+        settings, resolution_code = self._resolved_settings(root, config)
+        credential, credential_value = self._resolved_credential(root, settings)
         executable = _executable(settings.get("command", "docker"))
         image = settings.get("image")
         if executable is None:
@@ -604,7 +875,7 @@ class _ContainerMcpAdapter(IntegrationAdapter):
             return _record(
                 self.name,
                 IntegrationState.NOT_CONFIGURED,
-                "GRAFANA_ENDPOINT_NOT_CONFIGURED",
+                resolution_code or "GRAFANA_ENDPOINT_NOT_CONFIGURED",
                 "Grafana endpoint не настроен; адрес Compose не угадывается.",
                 _evidence(
                     config=settings,
@@ -613,7 +884,9 @@ class _ContainerMcpAdapter(IntegrationAdapter):
                     blocked_tools=self.blocked_tools,
                 ),
             )
-        if self.requires_credential and not credential.configured:
+        if self.requires_credential and (
+            not credential.configured or not credential_value
+        ):
             state = IntegrationState.UNAUTHENTICATED
             reason = "INTEGRATION_CREDENTIAL_NOT_CONFIGURED"
             message = "Прямой server настроен, но credential не выбран явно."
@@ -632,13 +905,16 @@ class _ContainerMcpAdapter(IntegrationAdapter):
                 configured=True,
                 authenticated=credential.auth_verified,
                 blocked_tools=self.blocked_tools,
+                diagnostics=(resolution_code,) if resolution_code else (),
             ),
         )
 
     async def probe(self, root: Path, config: IntegrationConfig) -> AdapterOutcome:
-        settings = self._settings(config)
-        credential = _credential(settings, required=self.requires_credential)
-        command = self._command_args(settings, credential)
+        settings, _resolution_code = self._resolved_settings(root, config)
+        credential, credential_value = self._resolved_credential(root, settings)
+        command = self._command_args(
+            settings, credential, credential_value=credential_value
+        )
         if command is None:
             return AdapterOutcome(self.status(root, config))
         executable, args, env_values = command
@@ -688,6 +964,11 @@ class GrafanaAdapter(_ContainerMcpAdapter):
     blocked_tools = GRAFANA_BLOCKED_TOOLS
     requires_endpoint = True
     requires_credential = True
+
+    def _resolved_settings(
+        self, root: Path, config: IntegrationConfig
+    ) -> tuple[dict[str, object], str | None]:
+        return _discover_grafana_settings(root, self._settings(config))
 
 
 class DockerHubAdapter(_ContainerMcpAdapter):

@@ -22,6 +22,7 @@ MAX_CONFIG_BYTES = 256 * 1024
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
 _IMAGE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,255}@sha256:[0-9a-f]{64}$")
 _ENV_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,127}$")
+_CREDENTIAL_REF_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,127}$")
 
 # Это vendor defaults, а не credentials или machine identity. Image refs
 # намеренно immutable; изменять их можно только через явную конфигурацию.
@@ -44,6 +45,8 @@ DEFAULTS: dict[str, dict[str, object]] = {
         ),
         "route": "direct_container_stdio",
         "credential_env": "GRAFANA_SERVICE_ACCOUNT_TOKEN",
+        "credential_provider": "docker_pass",
+        "credential_ref": "docker/mcp/grafana.api_key",
     },
     "docker-hub": {
         "command": "docker",
@@ -89,10 +92,14 @@ _ENV_OVERRIDES = {
     "coderabbit": {
         "wsl_distribution": "AZURPILOT_CODERABBIT_WSL_DISTRIBUTION",
         "review_clone": "AZURPILOT_CODERABBIT_REVIEW_CLONE",
+        "executable": "AZURPILOT_CODERABBIT_EXECUTABLE",
     },
     "grafana": {
         "endpoint": "AZURPILOT_GRAFANA_URL",
         "credential_env": "AZURPILOT_GRAFANA_CREDENTIAL_ENV",
+        "credential_file": "GRAFANA_SERVICE_ACCOUNT_TOKEN_FILE",
+        "credential_provider": "AZURPILOT_GRAFANA_CREDENTIAL_PROVIDER",
+        "credential_ref": "AZURPILOT_GRAFANA_CREDENTIAL_REF",
         "image": "AZURPILOT_GRAFANA_IMAGE",
     },
     "context7": {
@@ -252,7 +259,18 @@ def _repo_mcp_table(root: Path) -> dict[str, dict[str, object]]:
 
 
 def _validate_value(name: str, key: str, value: object) -> object:
-    if key in {"endpoint", "image", "command", "route", "credential_env", "wsl_distribution", "review_clone"}:
+    if key in {
+        "endpoint",
+        "image",
+        "command",
+        "route",
+        "credential_env",
+        "wsl_distribution",
+        "review_clone",
+        "executable",
+        "credential_provider",
+        "credential_ref",
+    }:
         if not isinstance(value, str) or not value.strip() or len(value.strip()) > 1024:
             _raise(f"Параметр {name}.{key} имеет неверное значение.")
         value = value.strip()
@@ -274,6 +292,34 @@ def _validate_value(name: str, key: str, value: object) -> object:
         not isinstance(value, str) or not _IDENTIFIER_RE.fullmatch(value)
     ):
         _raise(f"Параметр {name}.command имеет неверное имя executable.")
+    if key == "executable":
+        if not isinstance(value, str):
+            _raise(f"Параметр {name}.executable имеет неверный тип.")
+        if "\x00" in value or "\\" in value or (
+            value.startswith("/") and ".." in Path(value).parts
+        ):
+            _raise(f"Параметр {name}.executable имеет небезопасный путь.")
+        if not value.startswith("/") and _IDENTIFIER_RE.fullmatch(value) is None:
+            _raise(f"Параметр {name}.executable имеет неверное имя.")
+    if key == "credential_file":
+        if not isinstance(value, str):
+            _raise(f"Параметр {name}.credential_file имеет неверный тип.")
+        path = Path(value)
+        if not path.is_absolute() or "\x00" in value or ".." in path.parts:
+            _raise(f"Параметр {name}.credential_file имеет небезопасный путь.")
+        if path_has_link(path):
+            _raise(f"Параметр {name}.credential_file содержит symlink или reparse point.")
+        if path.exists() and not path.is_file():
+            _raise(f"Параметр {name}.credential_file не является файлом.")
+        return str(canonical_path(path))
+    if key == "credential_provider" and value != "docker_pass":
+        _raise(f"Параметр {name}.credential_provider имеет неподдерживаемый тип.")
+    if key == "credential_ref" and (
+        not isinstance(value, str)
+        or _CREDENTIAL_REF_RE.fullmatch(value) is None
+        or ".." in Path(value).parts
+    ):
+        _raise(f"Параметр {name}.credential_ref имеет небезопасный формат.")
     if key == "credential_env" and (
         not isinstance(value, str)
         or _ENV_NAME_RE.fullmatch(value) is None

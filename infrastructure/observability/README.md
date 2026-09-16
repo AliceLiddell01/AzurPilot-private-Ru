@@ -663,8 +663,8 @@ Developer tooling использует шесть типизированных d
 Источники конфигурации имеют приоритет explicit CLI, validated user/machine
 configuration, repository registration и deterministic discovery. Значения
 credential никогда не попадают в Git, CLI arguments, logs или operator-facing
-evidence. В evidence сохраняются только source, имя переменной, факт
-настройки, authenticated/not_observable и bounded reason code.
+evidence. В evidence сохраняются только source, безопасное имя или provider
+reference, факт настройки, authenticated/not_observable и bounded reason code.
 
 ### CLI и bounded evidence
 
@@ -737,9 +737,10 @@ NOT_CONFIGURED, несколько дают AMBIGUOUS. Машинное имя d
 ### Семантика direct MCP adapters
 
 Grafana запускается pinned immutable image через stdio с disable-write и
-disable-proxied. Endpoint передаётся через validated AZURPILOT_GRAFANA_URL,
-credential выбирается через поддержанное имя переменной. Allowlist содержит
-только datasource, dashboard, Loki, Prometheus, Tempo и deeplink reads;
+disable-proxied. Endpoint передаётся через validated AZURPILOT_GRAFANA_URL
+или bounded discovery текущей Compose topology, а credential выбирается через
+поддержанный environment/file reference либо provider-native reference.
+Allowlist содержит только datasource, dashboard, Loki, Prometheus, Tempo и deeplink reads;
 create/update/delete, generic API, admin, plugin, annotation и alert mutation
 tools блокируются до call. Проверка доступности не заявляет более широкую
 роль, чем подтверждённый credential.
@@ -761,10 +762,13 @@ healthchecks, named volumes и существующие backup/recovery workflow
 Замена developer-tooling integrations не удаляет volumes, не пересоздаёт
 observability project и не переводит application logs/traces на новый storage.
 
-Grafana direct adapter читает уже настроенный endpoint; он не создаёт service
-account, не ротирует token и не сбрасывает admin password. Compose credentials
-и persistence остаются отдельным operator-owned контуром. При недоступном
-endpoint или credential status честно остаётся NOT_CONFIGURED,
+Grafana direct adapter читает explicit endpoint или безопасно подтверждённую
+локальную Compose topology; он не создаёт service account, не ротирует token и
+не сбрасывает admin password. Compose credentials и persistence остаются
+отдельным operator-owned контуром. Provider-native reference передаётся в
+direct container boundary без сериализации secret value; Docker MCP Gateway и
+Secrets Engine не являются обязательными владельцами credential. При
+недоступном endpoint или credential status честно остаётся NOT_CONFIGURED,
 UNAUTHENTICATED или UNAVAILABLE.
 
 ### Приёмка и ограничения
