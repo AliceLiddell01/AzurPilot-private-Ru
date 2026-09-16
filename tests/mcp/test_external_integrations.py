@@ -45,6 +45,14 @@ def test_registry_is_closed_to_exactly_six_typed_families():
     )
 
 
+def test_grafana_defaults_use_only_direct_credential_boundaries():
+    settings = IntegrationConfig().provider("grafana")
+
+    assert settings["credential_env"] == "GRAFANA_SERVICE_ACCOUNT_TOKEN"
+    assert "credential_provider" not in settings
+    assert "credential_ref" not in settings
+
+
 @pytest.mark.parametrize(
     ("inventory", "expected_state", "expected_code"),
     [
@@ -449,32 +457,6 @@ def test_clean_stale_canonical_clone_is_prepared_without_destructive_git(
     )
 
 
-def test_provider_native_grafana_credential_is_reference_only():
-    settings = {
-        "endpoint": "http://host.docker.internal:3000",
-        "command": "docker",
-        "image": "mcp/grafana@sha256:" + "a" * 64,
-        "credential_env": "GRAFANA_SERVICE_ACCOUNT_TOKEN",
-        "credential_provider": "docker_pass",
-        "credential_ref": "docker/mcp/grafana.api_key",
-    }
-    credential = _credential(settings, required=True)
-    command = GrafanaAdapter()._command_args(
-        settings,
-        credential,
-        credential_value="se://docker/mcp/grafana.api_key",
-    )
-
-    assert credential.source is CredentialSource.PROVIDER_SESSION
-    assert credential.name == "docker/mcp/grafana.api_key"
-    assert command is not None
-    executable, args, environment = command
-    assert Path(executable).name.casefold() == "docker.exe" or executable == "docker"
-    assert args[:3] == ("pass", "run", "--")
-    assert "GRAFANA_SERVICE_ACCOUNT_TOKEN" in args
-    assert environment["GRAFANA_SERVICE_ACCOUNT_TOKEN"] == "se://docker/mcp/grafana.api_key"
-
-
 def test_coderabbit_linux_executable_deduplicates_same_cr_symlink():
     class Runtime:
         def command(self, command, *arguments, timeout=30):
@@ -579,6 +561,38 @@ def test_grafana_file_credential_is_bounded_and_not_serialized(
     assert credential.configured is True
     assert credential.source is CredentialSource.FILE
     assert token not in credential.model_dump_json()
+
+
+def test_grafana_file_credential_uses_direct_container_env(
+    tmp_path: Path,
+):
+    token = "fixture-grafana-token"
+    credential_file = tmp_path / "grafana-token"
+    credential_file.write_text(token + "\n", encoding="utf-8")
+    settings = {
+        "endpoint": "http://host.docker.internal:3000",
+        "command": "docker",
+        "image": "mcp/grafana@sha256:" + "a" * 64,
+        "credential_env": "GRAFANA_SERVICE_ACCOUNT_TOKEN",
+        "credential_file": str(credential_file),
+    }
+
+    adapter = GrafanaAdapter()
+    credential = _credential(settings, required=True)
+    command = adapter._command_args(
+        settings,
+        credential,
+        credential_value=token,
+    )
+
+    assert command is not None
+    _executable, args, environment = command
+    assert args[:3] == ("run", "--rm", "-i")
+    assert "pass" not in args
+    assert "docker pass" not in " ".join(args)
+    assert "GRAFANA_SERVICE_ACCOUNT_TOKEN" in args
+    assert environment["GRAFANA_SERVICE_ACCOUNT_TOKEN"] == token
+    assert token not in args
 
 
 def test_grafana_discovery_uses_single_published_route(monkeypatch, tmp_path: Path):

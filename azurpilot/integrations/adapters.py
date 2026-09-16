@@ -158,20 +158,6 @@ def _credential(config: dict[str, object], *, required: bool) -> CredentialRef:
                     name=safe_name,
                     auth_verified=None if not required else False,
                 )
-    provider = config.get("credential_provider")
-    reference = config.get("credential_ref")
-    if (
-        provider == "docker_pass"
-        and isinstance(reference, str)
-        and _SAFE_ID_RE.fullmatch(reference.replace("/", "_"))
-        and ".." not in Path(reference).parts
-    ):
-        return CredentialRef(
-            configured=True,
-            source=CredentialSource.PROVIDER_SESSION,
-            name=reference,
-            auth_verified=None if not required else False,
-        )
     return CredentialRef(
         configured=False,
         source=CredentialSource.NONE,
@@ -206,21 +192,6 @@ def _credential_value(
             return None
         return value or None
     return None
-
-
-def _provider_credential_value(
-    credential: CredentialRef,
-) -> str | None:
-    """Вернуть provider reference без извлечения secret в AzurPilot."""
-
-    if credential.source is not CredentialSource.PROVIDER_SESSION:
-        return None
-    reference = credential.name
-    if not isinstance(reference, str) or not reference:
-        return None
-    # Docker Pass resolves this reference inside its own provider boundary;
-    # the secret value never enters the AzurPilot process environment.
-    return f"se://{reference}"
 
 
 def _executable(command: object) -> str | None:
@@ -780,10 +751,7 @@ class _ContainerMcpAdapter(IntegrationAdapter):
         self, root: Path, settings: dict[str, object]
     ) -> tuple[CredentialRef, str | None]:
         credential = _credential(settings, required=self.requires_credential)
-        if credential.source is CredentialSource.PROVIDER_SESSION:
-            value = _provider_credential_value(credential)
-        else:
-            value = _credential_value(settings, credential)
+        value = _credential_value(settings, credential)
         return credential, value
 
     def _command_args(
@@ -812,14 +780,6 @@ class _ContainerMcpAdapter(IntegrationAdapter):
             return None
         if value:
             environment_name = credential.name
-            if credential.source is CredentialSource.PROVIDER_SESSION:
-                configured_name = settings.get("credential_env")
-                environment_name = (
-                    configured_name
-                    if isinstance(configured_name, str)
-                    and _ENV_NAME_RE.fullmatch(configured_name)
-                    else None
-                )
             if environment_name:
                 env[environment_name] = value
                 args.extend(("--env", environment_name))
@@ -836,8 +796,6 @@ class _ContainerMcpAdapter(IntegrationAdapter):
                     "-disable-proxied",
                 )
             )
-        if credential.source is CredentialSource.PROVIDER_SESSION:
-            args = ["pass", "run", "--", *args]
         return executable, tuple(args), env
 
     def status(self, root: Path, config: IntegrationConfig) -> IntegrationRecord:

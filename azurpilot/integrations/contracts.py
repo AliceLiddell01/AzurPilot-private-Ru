@@ -46,7 +46,6 @@ class CredentialSource(StrEnum):
     FILE = "file"
     USER_CONFIG = "user_config"
     MACHINE_CONFIG = "machine_config"
-    PROVIDER_SESSION = "provider_session"
 
 
 class CredentialRef(ClosedModel):
