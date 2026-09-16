@@ -20,7 +20,7 @@ from module.config.time_source import now as current_time
 from module.ocr.ocr import Duration
 
 
-# ==================== 经营剩余时间 OCR 区域（深蓝按钮上方） ====================
+# ==================== Область OCR оставшегося времени работы (над темно-синей кнопкой) ====================
 BUSINESS_REMAIN_TIME_AREA = Button(
     area=(1061, 100, 1118, 120), color=(),
     button=(1061, 100, 1118, 120),
@@ -28,36 +28,36 @@ BUSINESS_REMAIN_TIME_AREA = Button(
 )
 
 
-# ==================== 美食评审安全区域（仅坐标，无需截图） ====================
+# ==================== Безопасная область кулинарного обзора (только координаты, без скриншотов) ====================
 BUSINESS_REVIEW_SAFE_AREA = Button(
     area=(), color=(),
     button=(75, 450, 110, 550),
     file={'cn': '', 'en': '', 'jp': '', 'tw': ''}
 )
 
-# ==================== 领取奖励安全区域（仅坐标，无需截图） ====================
+# ==================== Безопасная область получения наград (только координаты, без скриншотов) ====================
 BUSINESS_REWARD_SAFE_AREA = Button(
     area=(), color=(),
     button=(1100, 600, 1200, 700),
     file={'cn': '', 'en': '', 'jp': '', 'tw': ''}
 )
 
-# ==================== 加成商品检测区域 ====================
-# 商店详情页左侧，加成标记数量区域。1/2/3 个标记分别表示 30%/20%/10% 加成。
+# ==================== Область детекции товаров с бонусом ====================
+# Слева на странице деталей магазина, область меток бонуса. 1/2/3 метки обозначают 30%/20%/10% бонуса.
 BUSINESS_BOOST_ICON_AREA = Button(
     area=(108, 333, 295, 352), color=(),
     button=(108, 333, 295, 352),
     file={'cn': '', 'en': '', 'jp': '', 'tw': ''}
 )
 
-# 商店详情页左侧，加成餐品展示区域。这里可能显示 1-3 个餐品，使用 *_CROPPED 模板逐个匹配。
+# Слева на странице деталей магазина, область блюд с бонусом. Отображает 1-3 блюда, сопоставляемых шаблонами *_CROPPED.
 BUSINESS_BOOSTED_PRODUCT_AREA = Button(
     area=(50, 332, 300, 388), color=(),
     button=(50, 332, 300, 388),
     file={'cn': '', 'en': '', 'jp': '', 'tw': ''}
 )
 
-# ==================== 商店索引到名称的映射 ====================
+# ==================== Маппинг индекса магазина на имя ====================
 SHOP_INDEX_MAP = {
     1: '有鱼餐馆',
     2: '白熊饮品',
@@ -66,7 +66,7 @@ SHOP_INDEX_MAP = {
     5: '啾咖啡',
 }
 
-# ==================== 季节限定餐品配置（有鱼餐馆专用） ====================
+# ==================== Конфигурация сезонных блюд (для рыбного ресторана) ====================
 SEASONAL_FOOD_MAP = {
     'spring': {
         'product_name': 'double_bamboo_shoots',
@@ -85,7 +85,7 @@ class IslandBusiness(Island):
     def __init__(self, config, device=None, task=None):
         super().__init__(config, device=device, task=task)
 
-        # 商店定义及配置键前缀
+        # Определение магазинов и префиксов ключей конфигурации
         self.shops = [
             {'name': '有鱼餐馆', 'button': BUSINESS_SHOP_FISH_RESTAURANT, 'config_key': '1'},
             {'name': '白熊饮品', 'button': BUSINESS_SHOP_TEAHOUSE, 'config_key': '2'},
@@ -184,23 +184,23 @@ class IslandBusiness(Island):
         self.season = self.season_config.season
         logger.info(f"[Остров — бизнес] Текущий сезон: {self.season_config.season_name}")
 
-        # 读取每个商店配置的角色和餐品
+        # Считывание настроенных персонажей и блюд для каждого магазина
         self._load_shop_configs()
 
-        # ========== 分批配置 ==========
+        # ========== Конфигурация партий ==========
         self.batch_enabled = getattr(self.config, 'IslandBusiness_BatchEnabled', True)
         self.batch1_shops_indices = getattr(self.config, 'IslandBusiness_Batch1Shops', [3, 1, 5])
         self.batch2_shops_indices = getattr(self.config, 'IslandBusiness_Batch2Shops', [2, 4])
 
-        # 去重：如果某商店同时出现在两批中，从第二批移除
+        # Дедупликация: если магазин указан в обоих партиях, удаляем из второй
         self.batch2_shops_indices = [i for i in self.batch2_shops_indices
                                      if i not in self.batch1_shops_indices]
 
-        # ========== 季节替换配置 ==========
+        # ========== Конфигурация сезонной замены ==========
         self.seasonal_replace_enabled = getattr(self.config, 'IslandBusiness_SeasonalReplaceEnabled', True)
         self.seasonal_threshold = getattr(self.config, 'IslandBusiness_SeasonalThreshold', 7)
 
-        # ========== 加成绩替换配置 ==========
+        # ========== Конфигурация замены по бонусам ==========
         self.boost_filters = {}
         self._load_boost_filters()
 
@@ -209,7 +209,7 @@ class IslandBusiness(Island):
         logger.info("[Остров — бизнес] Инициализация модуля завершена")
 
     # ===================================================================
-    # 分批经营：工具方法
+    # Поэтапное управление: служебные методы
     # ===================================================================
 
     def _indices_to_shop_names(self, indices):
@@ -231,7 +231,7 @@ class IslandBusiness(Island):
         return any(s['name'] == shop_name for s in batch_shops)
 
     # ===================================================================
-    # 季节限定餐品检测替换
+    # Детекция и замена сезонных блюд
     # ===================================================================
 
     def _check_seasonal_dish_quantity_and_replace(self):
@@ -253,7 +253,7 @@ class IslandBusiness(Island):
         seasonal_product_name = seasonal_info['product_name']
         shop_name = '有鱼餐馆'
 
-        # 检查有鱼餐馆的配置中是否包含了当前季节餐品
+        # Проверка, включено ли текущее сезонное блюдо в конфигурацию рыбного ресторана
         selected_products = self.active_products.get(shop_name, [])
         selected_names = [p['name'] for p in selected_products]
         if seasonal_product_name not in selected_names:
@@ -261,11 +261,11 @@ class IslandBusiness(Island):
             return False
 
         logger.info(f"[Остров — бизнес] Проверка запаса сезонного блюда ресторана «Есть рыба»: '{seasonal_info['display']}'")
-        # 前往仓库检查库存
+        # Переход на склад для проверки запасов
         self.goto_warehouse_within_postmanage()
         self.device.screenshot()
 
-        # 使用 WarehouseOCR 检查季节餐品库存
+        # Проверка запасов сезонных блюд через WarehouseOCR
         from module.island.warehouse import WarehouseOCR
         warehouse = WarehouseOCR()
         count = warehouse.ocr_item_quantity(self.device.image, self._get_seasonal_warehouse_template(seasonal_product_name))
@@ -275,7 +275,7 @@ class IslandBusiness(Island):
             logger.info(f"[Остров — бизнес] Запас сезонного блюда достаточен ({count} >= {self.seasonal_threshold}); замена не требуется")
             return False
 
-        # 库存不足，获取备用餐品
+        # Недостаточно запасов: получение резервного блюда
         fallback_name = getattr(self.config, 'IslandBusinessShop1_SeasonalFallback', 'hearty_meal')
         fallback_product = self._find_product_by_name(shop_name, fallback_name)
         if not fallback_product:
@@ -285,7 +285,7 @@ class IslandBusiness(Island):
         logger.info(f"[Остров — бизнес] Недостаточный запас сезонного блюда '{seasonal_info['display']}' ({count} < {self.seasonal_threshold}); "
                      f"замена на '{fallback_name}'")
 
-        # 在 active_products 中替换
+        # Замена в active_products
         new_products = []
         replaced = False
         for p in selected_products:
@@ -307,8 +307,8 @@ class IslandBusiness(Island):
         获取季节餐品在仓库中的识别模板。
         直接复用已有餐品模板（在有鱼餐馆/餐厅模块中已定义）。
         """
-        # 仓库专用模板映射，直接使用已有模板文件路径
-        # 使用 Template 直接引用文件，避免循环导入
+        # Маппинг шаблонов склада напрямую по путям файлов существующих шаблонов
+        # Используем Template с прямой ссылкой на файлы во избежание циклических импортов
         warehouse_files = {
             'double_bamboo_shoots': Template(file={
                 'cn': './assets/cn/island_restaurant/TEMPLATE_DOUBLE_BAMBOO_SHOOTS.png',
@@ -341,8 +341,8 @@ class IslandBusiness(Island):
         self.device.sleep(1)
         self.device.screenshot()
 
-        # 使用 warehouse_filter 进入仓库并筛选有鱼餐馆产品
-        # product = 餐品分类, restaurant = 有鱼餐馆来源
+        # Вход на склад через warehouse_filter с фильтрацией блюд рыбного ресторана
+        # product = категория блюд, restaurant = источник рыбного ресторана
         self.warehouse_filter('product', 'restaurant')
         self.device.sleep(1)
 
@@ -355,7 +355,7 @@ class IslandBusiness(Island):
         self.device.sleep(1)
 
     # ===================================================================
-    # 加成商品检测替换
+    # Детекция и замена товаров с бонусом
     # ===================================================================
 
     def _load_boost_filters(self):
@@ -407,13 +407,13 @@ class IslandBusiness(Island):
         if not parts:
             return {}
 
-        # 首元素是数字 → 级联模式；首元素是餐品 → 标准模式
+        # Первый элемент число → каскадный режим; первый элемент блюдо → стандартный режим
         is_cascade = parts[0] in ('30', '20', '10')
 
         if is_cascade:
-            # ========== 级联模式 ==========
-            # 餐品归入当前数字的下一档位（30→20, 20→10, 10→10）
-            # 遇到更低数字时，较高档位的餐品快照复制到该档位
+            # ========== Каскадный режим ==========
+            # Блюда относятся к следующему уровню за текущим числом (30→20, 20→10, 10→10)
+            # При более низком числе снимок блюд более высокого уровня копируется на этот уровень
 
             def _next_lower(tier):
                 if tier == 30:
@@ -428,45 +428,45 @@ class IslandBusiness(Island):
             for part in parts:
                 if part in ('30', '20', '10'):
                     boost = int(part)
-                    # 遇到更低数字：较高档位的餐品快照复制到当前档位
+                    # При более низком числе: снимок блюд более высокого уровня копируется на текущий
                     if current_tier is not None and boost < current_tier:
                         for tier in sorted(result.keys(), reverse=True):
                             if tier > boost:
                                 result.setdefault(boost, []).extend(result[tier])
                     current_tier = boost
                 else:
-                    # 餐品归入当前档位的下一档
+                    # Блюдо относится к следующему уровню текущего
                     target_tier = _next_lower(current_tier)
                     result.setdefault(target_tier, []).append(part)
 
-            # 清除空档位
+            # Очистка пустых уровней
             return {k: v for k, v in result.items() if v}
         else:
-            # ========== 标准模式 ==========
-            # 餐品在数字前，归属于该数字档位，分配后清空
+            # ========== Стандартный режим ==========
+            # Блюдо стоит перед числом и относится к уровню этого числа; очищается после назначения
             result = {}
             current_items = []
-            pending_boost = None  # 跟踪 "数字 > 餐品" 反向格式
+            pending_boost = None  # Отслеживание обратного формата "число > блюдо"
 
             for part in parts:
                 if part in ('30', '20', '10'):
                     boost = int(part)
                     if current_items:
-                        # 标准格式：餐品 > 数字（如 "fo_tiao > hearty_meal > 30"）
+                        # Стандартный формат: блюдо > число (например, "fo_tiao > hearty_meal > 30")
                         result[boost] = current_items
                         current_items = []
                     else:
-                        # 反向格式：数字 > 餐品（如 "20 > double_bamboo_shoots"）
+                        # Обратный формат: число > блюдо (например, "20 > double_bamboo_shoots")
                         pending_boost = boost
                 else:
                     if pending_boost is not None:
-                        # 数字先出现，此餐品归属于前面的数字档位
+                        # Число появилось раньше: это блюдо относится к предшествующему числовому уровню
                         result.setdefault(pending_boost, []).append(part)
                         pending_boost = None
                     else:
                         current_items.append(part)
 
-            # 兜底处理：残留餐品默认归到最低档 10%
+            # Резервная обработка: оставшиеся блюда по умолчанию относятся к нижнему уровню 10%
             if current_items:
                 result.setdefault(10, []).extend(current_items)
 
@@ -503,7 +503,7 @@ class IslandBusiness(Island):
             logger.info(f"[Остров — бизнес] {shop_name}: для текущего уровня бонуса {boost_percent}% не настроено блюдо-замена; сопоставление пропущено")
             return []
 
-        # 过滤掉已在当前配置槽位中的餐品，避免重复检测
+        # Фильтруем блюда, уже находящиеся в слотах конфигурации, во избежание повторной проверки
         if skip_names:
             filtered = [c for c in candidates if c not in skip_names]
             skipped = [c for c in candidates if c in skip_names]
@@ -575,16 +575,16 @@ class IslandBusiness(Island):
         if not boost_filter:
             return None
 
-        # 取最高加成百分比
+        # Берем максимальный процент бонуса
         if not boosted_products:
             return None
 
         max_boost = boosted_products[0][1]
 
-        # 获取该档位的候选餐品
+        # Получение кандидатов блюд для данного уровня
         candidates = boost_filter.get(max_boost, [])
 
-        # 从候选列表中找第一个当天确实有加成的餐品
+        # Поиск в списке кандидатов первого блюда, действительно имеющего бонус сегодня
         boosted_names = {name for name, _ in boosted_products}
         for candidate in candidates:
             if candidate in boosted_names:
@@ -608,7 +608,7 @@ class IslandBusiness(Island):
         if not products:
             return None
 
-        # 从 Product5 → Product1 查找
+        # Поиск от Product5 к Product1
         for i in range(len(products) - 1, -1, -1):
             product = products[i]
             if not product:
@@ -664,7 +664,7 @@ class IslandBusiness(Island):
         Returns:
             bool: True 表示进行了替换
         """
-        # 获取商店配置key
+        # Получение ключа конфигурации магазина
         ck = None
         for shop in self.shops:
             if shop['name'] == shop_name:
@@ -673,11 +673,11 @@ class IslandBusiness(Island):
         if ck is None:
             return False
 
-        # 获取当前已选的餐品名称列表
+        # Получение списка имен текущих выбранных блюд
         products = self.active_products.get(shop_name, [])
         active_names = {p['name'] for p in products}
 
-        # 检查加成过滤配置中的所有候选餐品是否都已存在
+        # Проверка наличия всех кандидатов из фильтра бонусов в текущей конфигурации
         boost_filter = self.boost_filters.get(shop_name, {})
         all_candidates = set()
         for candidates in boost_filter.values():
@@ -687,7 +687,7 @@ class IslandBusiness(Island):
             logger.info(f"[Остров — бизнес] {shop_name}: все кандидаты из бонусного фильтра уже присутствуют; обнаружение и замена пропущены")
             return False
 
-        # 检测当天加成（跳过已在配置中的餐品）
+        # Детекция бонусов сегодняшнего дня (пропуск блюд, уже входящих в конфигурацию)
         boosted = self._detect_boosted_products(shop_name, skip_names=active_names)
         if not boosted:
             logger.info(f"[Остров — бизнес] {shop_name}: бонусные блюда не обнаружены")
@@ -695,28 +695,28 @@ class IslandBusiness(Island):
 
         logger.info(f"[Остров — бизнес] {shop_name}: обнаружены бонусы {boosted}")
 
-        # 选择替换餐品
+        # Выбор блюда на замену
         replacement = self._select_boost_replacement(shop_name, boosted)
         if not replacement:
             logger.info(f"[Остров — бизнес] {shop_name}: подходящее блюдо для замены не найдено")
             return False
 
-        # 检查替换餐品是否已存在于当前配置中
+        # Проверка, присутствует ли уже замещающее блюдо в текущей конфигурации
         if replacement in active_names:
             logger.info(f"[Остров — бизнес] {shop_name}: блюдо-замена {replacement} уже присутствует в текущей конфигурации; замена пропущена")
             return False
 
-        # 从 Product5 → Product1 倒查最后一个有值的配置槽位
+        # Обратный поиск последнего заполненного слота конфигурации от Product5 к Product1
         target_slot = self._find_first_filled_product_slot_bottom_up(shop_name)
         if target_slot is None:
             logger.info(f"[Остров — бизнес] {shop_name}: нет доступного слота для замены блюда")
             return False
 
-        # 执行替换
+        # Выполнение замены
         return self._replace_product_slot(shop_name, target_slot, replacement)
 
     # ===================================================================
-    # 季节配置初始化（保留原逻辑）
+    # Инициализация сезонной конфигурации (сохранение исходной логики)
     # ===================================================================
 
     def _init_season_config(self):
@@ -726,7 +726,7 @@ class IslandBusiness(Island):
         self.current_season = self.season_config.season
         self.season_name = self.season_config.season_name
 
-    # 商店名到 season_config 模块key的映射
+    # Маппинг имени магазина на ключ модуля season_config
     SHOP_SEASON_MAP = {
         '有鱼餐馆': 'restaurant',
         '白熊饮品': 'teahouse',
@@ -751,12 +751,12 @@ class IslandBusiness(Island):
             ck = shop['config_key']
             module_key = self.SHOP_SEASON_MAP.get(shop_name, '')
 
-            # 读取餐品配置（最多5个）
+            # Считывание конфигурации блюд (до 5 шт.)
             products = []
             for i in range(1, 6):
                 val = getattr(self.config, f'IslandBusinessShop{ck}_Product{i}', 'None')
                 if val and val != 'None' and val in self._all_product_names(shop_name):
-                    # 季节过滤：检查该物品是否为其他季节的限定品
+                    # Сезонный фильтр: проверка, является ли предмет лимитированным для другого сезона
                     other_season_item = False
                     for season_key, season_data in SEASONAL_ITEMS.items():
                         if season_key != self.season_config.season:
@@ -795,7 +795,7 @@ class IslandBusiness(Island):
         """创建偏移150px的按钮用于检测（游戏截图向左偏移150px = 按钮向右偏移150px）"""
         if not button or not button.area:
             return None
-        # 偏移 area（检测区域）向右150px，button（点击坐标）同步偏移
+        # Смещение area (области детекции) вправо на 150px, button (координаты клика) смещается синхронно
         ax1, ay1, ax2, ay2 = button.area
         new_area = (ax1 + self.BUSINESS_REVIEW_OFFSET_X, ay1,
                     ax2 + self.BUSINESS_REVIEW_OFFSET_X, ay2)
@@ -827,17 +827,17 @@ class IslandBusiness(Island):
             Button: 检测到的按钮实例，或 None。
         """
         self.device.screenshot()
-        # 清理残留偏移，确保以干净状态进入检测
+        # Сброс остаточного смещения для чистого состояния перед детекцией
         button.clear_offset()
         if self.appear(button, offset=offset):
-            # match() 已修改 _button_offset，清理后返回确保点击坐标正确
+            # match() изменил _button_offset: очищаем перед возвратом для корректных координат клика
             button.clear_offset()
             return button
-        # 清理 match() 可能设置的偏移，确保 _get_review_button 读到原始坐标
+        # Сброс возможного смещения от match(), чтобы _get_review_button считывал исходные координаты
         button.clear_offset()
         review_btn = self._get_review_button(button)
         if review_btn and self.appear(review_btn, offset=offset):
-            # match() 修改了 review_btn._button_offset，必须清理后再返回
+            # match() изменил review_btn._button_offset, необходима очистка перед возвратом
             review_btn.clear_offset()
             return review_btn
         return None
@@ -871,34 +871,34 @@ class IslandBusiness(Island):
         for attempt in range(10):
             self.device.screenshot()
 
-            # 已成功切换到经营页签
+            # Успешное переключение на вкладку управления
             if self.appear(POST_MANAGE_BUSINESS, offset=30):
                 logger.info("[Остров — бизнес] Уже на вкладке бизнеса")
                 return
 
-            # 检查是否有弹窗遮挡（生产和经营页签的蓝色指示器都不可见）
+            # Проверка перекрытия всплывающим окном (синие индикаторы вкладок производства и управления не видны)
             if not self.appear(POST_MANAGE_PRODUCTION, offset=30) \
                     and not self.appear(POST_MANAGE_BUSINESS, offset=30):
-                # 不使用 appear 判断但使用固定坐标检测弹窗位置
+                # Детекция положения всплывающего окна по фиксированным координатам без appear
                 logger.info("[Остров — бизнес] Кнопка вкладки перекрыта окном; закрытие нажатием в безопасной области")
                 self.device.click(BUSINESS_REVIEW_SAFE_AREA)
                 self.device.sleep(1)
                 continue
 
-            # 在采集页签
+            # На вкладке сбора
             if self.appear(ISLAND_GATHER_COLLECT_CHECK, offset=30):
                 self.device.click(POST_MANAGE_PRODUCTION)
                 self.device.sleep(0.5)
                 continue
 
-            # 在其他页签（如生产），点击经营页签按钮切换
+            # На другой вкладке (например, производства): клик по кнопке вкладки управления
             self.device.click(POST_MANAGE_PRODUCTION)
             self.device.sleep(0.5)
 
         logger.warning("[Остров — бизнес] Не удалось переключиться на вкладку бизнеса (превышено максимальное число попыток)")
 
     # ===================================================================
-    # 主入口 run() - 支持分批和传统模式
+    # Главная точка входа run() — поддержка партийного и классического режимов
     # ===================================================================
 
     def run(self):
@@ -906,14 +906,14 @@ class IslandBusiness(Island):
         self.goto_postmanage()
         self.device.sleep(1)
 
-        # 处理每日首次进入可能出现的美食评审界面
+        # Обработка экрана кулинарного обзора при первом ежедневном входе
         self._handle_food_review()
 
         logger.info("[Остров — бизнес] Переключение на вкладку бизнеса")
         self._switch_to_business_tab()
         self.device.sleep(1)
 
-        # 切换页签后再次处理可能出现的弹窗
+        # Повторная обработка возможных окон после переключения вкладки
         self._handle_food_review()
 
         if self.batch_enabled:
@@ -924,12 +924,12 @@ class IslandBusiness(Island):
         logger.info("[Остров — бизнес] === Модуль бизнеса завершён ===")
 
     # ===================================================================
-    # 传统模式（不分批，原逻辑）
+    # Классический режим (без партий, исходная логика)
     # ===================================================================
 
     def _run_legacy_mode(self):
         """传统不分批模式（保持原有行为）"""
-        # 标记本轮是否曾处理过蓝色开始经营按钮
+        # Отметка обработки синей кнопки старта в текущем раунде
         self._has_seen_blue = False
 
         while True:
@@ -981,7 +981,7 @@ class IslandBusiness(Island):
                 continue
 
     # ===================================================================
-    # 分批模式
+    # Партийный режим
     # ===================================================================
 
     def _run_batch_mode(self):
@@ -1009,10 +1009,10 @@ class IslandBusiness(Island):
             logger.info("[Остров — бизнес] В первой партии магазины не настроены; пропуск")
         else:
             logger.info(f"[Остров — бизнес] === Первая партия: {[s['name'] for s in batch1_shops]} ===")
-            # 季节限定餐品检测替换（仅在第一批中有鱼餐馆存在时执行）
+            # Детекция и замена сезонных блюд (только при наличии рыбного ресторана в первой партии)
             if any(s['name'] == '有鱼餐馆' for s in batch1_shops):
                 self._check_seasonal_dish_quantity_and_replace()
-                # 重新导航回经营页面
+                # Повторная навигация на страницу управления
                 self.goto_postmanage()
                 self._switch_to_business_tab()
                 self._handle_food_review()
@@ -1020,12 +1020,12 @@ class IslandBusiness(Island):
             batch1_started_shop_names = self._run_batch(batch1_shops)
             self._trigger_shop_refill(batch1_started_shop_names)
 
-        # 检查第二批是否需要执行
+        # Проверка необходимости выполнения второй партии
         if not batch2_shops:
             logger.info("[Остров — бизнес] Во второй партии магазины не настроены; пропуск")
             return
 
-        # 检查第一批商店是否仍在经营中
+        # Проверка, работают ли еще магазины первой партии
         if self._batch_is_still_running(batch1_shops):
             logger.info("[Остров — бизнес] Магазины первой партии ещё работают; вторая партия отложена")
             return
@@ -1035,20 +1035,20 @@ class IslandBusiness(Island):
         self._trigger_shop_refill(batch2_started_shop_names)
 
     # ===================================================================
-    # 分批模式：逐商店扫描 → 检测按钮状态 → 按状态处理
+    # Партийный режим: последовательный скан магазинов → детекция кнопок → обработка по статусу
     # ===================================================================
 
-    # 商店列表中的行常量
-    # 列表页店名标签模板位于左侧，右侧经营按钮的 X 位置固定。
-    # Y 位置跟随店名标签所在行偏移，用于检测/点击蓝色、黄色、深蓝按钮。
+    # Константы строк в списке магазинов
+    # Шаблон названия магазина расположен слева, координата X кнопки управления справа фиксирована.
+    # Координата Y смещается со строкой названия для проверки/клика синей, желтой и темно-синей кнопок.
     _SHOP_BUTTON_X_RANGE = (1020, 1154)
     _SHOP_LABEL_TO_BUTTON_OFFSET_Y = 88
     _SHOP_BUTTON_HEIGHT = 27
     _SHOP_REMAIN_TIME_X_RANGE = (1061, 1118)
     _SHOP_BUTTON_TO_REMAIN_TIME_OFFSET_Y = (-79, -59)
-    # 经营商店列表的可视区域
+    # Видимая область списка магазинов
     _BUSINESS_LIST_SEARCH_AREA = (50, 80, 1200, 640)
-    # 商店行高（经验值，适用于各行）
+    # Высота строки магазина (эмпирическое значение для всех строк)
     _BUSINESS_ROW_HEIGHT = 160
 
     def _find_shop_on_screen(self, shop_name):
@@ -1075,15 +1075,15 @@ class IslandBusiness(Island):
 
         sim, btn = template.match_result(area_img)
         if sim >= 0.7:
-            # 从裁剪坐标偏移回全屏坐标
+            # Смещение координат обрезки обратно к полноэкранным
             lx1 = btn.area[0] + sx1
             ly1 = btn.area[1] + sy1
             lx2 = btn.area[2] + sx1
             ly2 = btn.area[3] + sy1
             label_rect = (lx1, ly1, lx2, ly2)
 
-            # 计算右侧经营按钮区域。按钮宽度不能沿用店名标签宽度偏移，
-            # 否则会落到中间餐品图标上，导致黄色结算按钮被误判为 gray。
+            # Расчет области кнопки управления справа: нельзя брать ширину названия,
+            # иначе попадет на иконку блюда по центру, и желтая кнопка определится как gray.
             bx1, bx2 = self._SHOP_BUTTON_X_RANGE
             by1 = ly1 + self._SHOP_LABEL_TO_BUTTON_OFFSET_Y
             by2 = by1 + self._SHOP_BUTTON_HEIGHT
@@ -1131,17 +1131,17 @@ class IslandBusiness(Island):
         x1, y1, x2, y2 = button_rect
         area_color = get_color(self.device.image, (x1, y1, x2, y2))
 
-        # 蓝色 (82, 197, 255) - 可经营（蓝色开始按钮）
+        # Синий (82, 197, 255) — доступно для управления (синяя кнопка запуска)
         if color_similar(area_color, (82, 197, 255), threshold=80):
             return 'blue'
-        # 黄色 (230, 192, 71) - 可领取奖励
+        # Желтый (230, 192, 71) — доступно получение наград
         if color_similar(area_color, (230, 192, 71), threshold=80):
             return 'yellow'
-        # 深蓝 (60, 67, 84) - 经营中
+        # Темно-синий (60, 67, 84) — в процессе работы
         if color_similar(area_color, (60, 67, 84), threshold=80):
             return 'darkblue'
 
-        # 以上都不是 → 灰色不可经营
+        # Ничего из указанного → серый, недоступно
         return 'gray'
 
     def _scan_visible_batch_shops(self, batch_shops):
@@ -1176,7 +1176,7 @@ class IslandBusiness(Island):
                     'similarity': found['similarity'],
                 })
 
-        # 按标签的 Y 坐标从上到下排序
+        # Сортировка по координате Y меток сверху вниз
         results.sort(key=lambda r: r['label_rect'][1])
         return results
 
@@ -1205,14 +1205,14 @@ class IslandBusiness(Island):
         shop_name = shop['name']
         self._load_shop_characters(shop)
 
-        # 加成商品检测替换（在选择角色前）
+        # Детекция и замена товаров с бонусом (перед выбором персонажа)
         self._check_and_replace_boosted_product(shop_name)
 
-        # 选择角色和餐品
+        # Выбор персонажей и блюд
         self._select_business_characters()
         self._select_business_product(shop_name)
 
-        # 确认经营并返回
+        # Подтверждение управления и возврат
         self._confirm_business_start()
         self.post_manage_mode(POST_MANAGE_BUSINESS)
         self.device.sleep(0.5)
@@ -1255,14 +1255,14 @@ class IslandBusiness(Island):
             batch_shops: 当前批次的商店列表
         """
         self._has_seen_blue = False
-        total_darkblue_count = 0  # 本批次内深蓝商店计数
-        processed_shop_names = set()  # 已启动过经营的商店，避免界面刷新延迟导致重复进入
-        claimed_shop_names = set()  # 已领取过奖励的商店，仍需在后续扫描中复检是否变为可经营
-        started_shop_names = set()  # 本批次实际开始经营的商店
-        seen_shop_names = set()  # 跨滚动位置累积看到过的商店（用于判断是否已遍历全部）
-        max_scrolls = 8  # 最大滑动次数
+        total_darkblue_count = 0  # Счетчик темно-синих магазинов в партии
+        processed_shop_names = set()  # Магазины с запущенным управлением во избежание повторного входа из-за задержек UI
+        claimed_shop_names = set()  # Магазины с собранными наградами: требуется перепроверка на доступность запуска
+        started_shop_names = set()  # Магазины, фактически запустившие управление в этой партии
+        seen_shop_names = set()  # Накопленный список просмотренных магазинов по всем скроллам
+        max_scrolls = 8  # Максимальное число свайпов
 
-        # 先回到列表顶部
+        # Сначала возвращаемся наверх списка
         self._scroll_business_to_top()
 
         scroll_attempt = 0
@@ -1280,13 +1280,13 @@ class IslandBusiness(Island):
                 else:
                     break
 
-            # 累积当前可见商店到 seen_shop_names
+            # Добавление текущих видимых магазинов в seen_shop_names
             for r in visible_shops:
                 seen_shop_names.add(r['shop']['name'])
 
             logger.info(f"[Остров — бизнес] Видимые магазины партии: {[r['shop']['name'] + '(' + r['status'] + ')' for r in visible_shops]}")
 
-            # 遍历可见商店
+            # Обход видимых магазинов
             for shop_info in visible_shops:
                 shop = shop_info['shop']
                 shop_name = shop['name']
@@ -1294,7 +1294,7 @@ class IslandBusiness(Island):
                 button_rect = shop_info['button_rect']
 
                 if shop_name in processed_shop_names:
-                    continue  # 这个商店已经启动过经营
+                    continue  # Управление этим магазином уже запущено
 
                 if shop_name in claimed_shop_names and status == 'yellow':
                     logger.info(f"[Остров — бизнес] {shop_name}: после получения всё ещё отображается награда; повторное получение пропущено")
@@ -1304,7 +1304,7 @@ class IslandBusiness(Island):
                     self._has_seen_blue = True
                     logger.info(f"[Остров — бизнес] {shop_name}: синяя кнопка — бизнес доступен; вход")
 
-                    # 点击该商店的按钮（使用动态坐标）
+                    # Клик по кнопке магазина (динамические координаты)
                     btn = Button(
                         area=button_rect, color=(),
                         button=button_rect,
@@ -1313,7 +1313,7 @@ class IslandBusiness(Island):
                     self.device.click(btn)
                     self.device.sleep(1)
 
-                    # 进入商店后处理
+                    # Обработка после входа в магазин
                     current_shop = self._detect_current_shop()
                     if current_shop and current_shop['name'] == shop_name:
                         self._process_shop_entry(current_shop)
@@ -1326,15 +1326,15 @@ class IslandBusiness(Island):
                         self.post_manage_mode(POST_MANAGE_BUSINESS)
                         self.device.sleep(0.5)
 
-                    # 返回后重新扫描（列表可能有变化）
+                    # Повторное сканирование после возврата (список мог измениться)
                     self._scroll_business_to_top()
                     scroll_attempt = 0
-                    break  # 重新扫描
+                    break  # Повторное сканирование
 
                 elif status == 'yellow':
                     logger.info(f"[Остров — бизнес] {shop_name}: жёлтая кнопка — доступно получение награды")
 
-                    # 点击该商店的黄色按钮
+                    # Клик по желтой кнопке этого магазина
                     btn = Button(
                         area=button_rect, color=(),
                         button=button_rect,
@@ -1349,10 +1349,10 @@ class IslandBusiness(Island):
 
                     claimed_shop_names.add(shop_name)
 
-                    # 返回后重新扫描
+                    # Повторное сканирование после возврата
                     self._scroll_business_to_top()
                     scroll_attempt = 0
-                    break  # 重新扫描
+                    break  # Повторное сканирование
 
                 elif status == 'darkblue':
                     logger.info(f"[Остров — бизнес] {shop_name}: бизнес работает; пропуск")
@@ -1362,9 +1362,9 @@ class IslandBusiness(Island):
                     logger.info(f"[Остров — бизнес] {shop_name}: бизнес недоступен; пропуск")
 
             else:
-                # 没有 break（所有可见商店都遍历完了，没有需要处理的）
+                # Без break (все видимые магазины пройдены, действий не требуется)
                 if len(seen_shop_names) < len(batch_shops):
-                    # 累积看到的商店数少于批次总数，说明还有商店未找到，继续滚动
+                    # Найдено меньше магазинов, чем в партии: продолжаем скролл
                     logger.info(f"[Остров — бизнес] Найдено {len(seen_shop_names)}/{len(batch_shops)} магазинов; остались ненайденные, прокрутка вниз")
                     if scroll_attempt < max_scrolls - 1:
                         self._scroll_business_down()
@@ -1374,16 +1374,16 @@ class IslandBusiness(Island):
                     else:
                         break
                 else:
-                    # 所有批次商店都已被看到过
+                    # Все магазины партии были просмотрены
                     logger.info(f"[Остров — бизнес] Просмотрены все {len(batch_shops)} магазинов партии; ожидающих действий нет")
                     break
 
-        # ========== 退出判断 ==========
-        # 先回到顶部
+        # ========== Проверка условий выхода ==========
+        # Сначала возвращаемся наверх
         self._scroll_business_to_top()
 
         if total_darkblue_count > 0 and not self._has_seen_blue:
-            # 所有商店都在经营中（从未处理过蓝色按钮）
+            # Все магазины работают (синяя кнопка не нажималась)
             logger.info(f"[Остров — бизнес] Все магазины партии работают; проверка оставшегося времени")
             running_shop = self._find_running_shop_for_ocr(batch_shops)
             self._ocr_and_delay_business_remain(
@@ -1393,15 +1393,15 @@ class IslandBusiness(Island):
             return started_shop_names
 
         if self._has_seen_blue:
-            # 处理过蓝色按钮（部分或全部商店已启动）
+            # Синяя кнопка была нажата (часть или все магазины запущены)
             logger.info(f"[Остров — бизнес] Бизнес партии запущен; штатный выход")
             if batch_shops == self._get_batch2_shops() or not self._get_batch2_shops():
                 self._set_task_delay()
             return started_shop_names
 
-        # 所有商店都是灰色不可经营
-        # 只有当前是第二批，或没有第二批时，才设置延后到明天0点
-        # 第一批全 gray 时让 _run_batch_mode 继续处理第二批
+        # Все магазины серые, запуск недоступен
+        # Откладываем до 00:00 следующего дня, только если это вторая партия или ее нет
+        # Если вся первая партия gray, _run_batch_mode продолжает обработку второй
         if batch_shops == self._get_batch2_shops() or not self._get_batch2_shops():
             logger.info("[Остров — бизнес] Все магазины партии недоступны; перенос до полуночи следующего дня")
             tomorrow = current_time().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
@@ -1436,7 +1436,7 @@ class IslandBusiness(Island):
         return True
 
     # ===================================================================
-    # 公用方法（传统和分批模式共享）
+    # Общие методы (для классического и партийного режимов)
     # ===================================================================
 
     def _find_running_shop_for_ocr(self, batch_shops, already_at_top=False):
@@ -1496,9 +1496,9 @@ class IslandBusiness(Island):
         remain = ocr_remain.ocr(self.device.image)
         self._delay_by_business_remain(remain, fallback_target=shop_info is None)
 
-    # 商店标签到对应 Template 的映射
-    # TEMPLATE_BUSINESS_SHOP_* 是进入商店后显示的商店名称标签（店内用，120x35）
-    # TEMPLATE_BUSINESS_LIST_SHOP_* 是经营列表页的商店标签（列表页用，107x26）
+    # Маппинг меток магазинов на шаблоны Template
+    # TEMPLATE_BUSINESS_SHOP_* — метки названий внутри магазина (120x35)
+    # TEMPLATE_BUSINESS_LIST_SHOP_* — метки магазинов на странице списка (107x26)
     SHOP_TEMPLATE_MAP = {
         '有鱼餐馆': TEMPLATE_BUSINESS_SHOP_FISH_RESTAURANT,
         '白熊饮品': TEMPLATE_BUSINESS_SHOP_TEAHOUSE,
@@ -1507,7 +1507,7 @@ class IslandBusiness(Island):
         '啾咖啡': TEMPLATE_BUSINESS_SHOP_JUU_COFFEE,
     }
 
-    # 经营列表页商店标签模板映射（用于 _find_shop_on_screen 列表页匹配）
+    # Маппинг шаблонов списка магазинов (для _find_shop_on_screen)
     SHOP_LIST_TEMPLATE_MAP = {
         '有鱼餐馆': TEMPLATE_BUSINESS_LIST_SHOP_FISH_RESTAURANT,
         '白熊饮品': TEMPLATE_BUSINESS_LIST_SHOP_TEAHOUSE,
@@ -1528,8 +1528,8 @@ class IslandBusiness(Island):
         """进入商店后，用模板匹配检测商店标签确定当前是哪个商店（同时检查正常和偏移150px位置）"""
         self.device.screenshot()
         areas = [
-            (548, 90, 668, 125),           # 正常位置
-            (698, 90, 818, 125),            # 偏移150px（美食评审模式）
+            (548, 90, 668, 125),           # Штатная позиция
+            (698, 90, 818, 125),            # Смещение на 150px (режим кулинарного обзора)
         ]
 
         best = (None, None, 0.0)  # (shop, button, similarity)
@@ -1556,20 +1556,20 @@ class IslandBusiness(Island):
         logger.info("[Остров — бизнес] Проверка интерфейса гастрономической оценки")
         self.device.screenshot()
 
-        # 如果经营页签按钮被遮挡，说明有弹窗
+        # Если кнопка вкладки управления перекрыта, открыто всплывающее окно
         if not self.appear(POST_MANAGE_BUSINESS, offset=30) and not self.appear(POST_MANAGE_PRODUCTION, offset=30):
             logger.info("[Остров — бизнес] Обнаружен интерфейс гастрономической оценки; закрытие нажатием в безопасной области")
             self.device.click(BUSINESS_REVIEW_SAFE_AREA)
             self.device.sleep(1)
 
-            # 检测详情界面
+            # Детекция интерфейса деталей
             self.device.screenshot()
             if not self.appear(POST_MANAGE_BUSINESS, offset=30) and not self.appear(POST_MANAGE_PRODUCTION, offset=30):
                 logger.info("[Остров — бизнес] Обнаружена страница подробностей гастрономической оценки; повторное нажатие в безопасной области")
                 self.device.click(BUSINESS_REVIEW_SAFE_AREA)
                 self.device.sleep(1)
 
-            # 确保回到经营页签
+            # Убеждаемся в возврате на вкладку управления
             self.device.screenshot()
             if not self.appear(POST_MANAGE_BUSINESS, offset=30) and not self.appear(POST_MANAGE_PRODUCTION, offset=30):
                 logger.warning("[Остров — бизнес] После закрытия гастрономической оценки вкладка бизнеса не восстановлена; повторный вход")
@@ -1583,18 +1583,18 @@ class IslandBusiness(Island):
         """计算深蓝（经营中）状态的延后检测时间"""
         now = current_time()
 
-        # 延后2小时
+        # Отложить на 2 часа
         delayed = now + timedelta(hours=2)
 
-        # 当天23:55
+        # 23:55 текущего дня
         today_2355 = now.replace(hour=23, minute=55, second=0, microsecond=0)
 
         if now >= today_2355:
-            # 如果当前时间已超过23:55，重置为第二天0点
+            # Если текущее время позже 23:55, переносим на 00:00 следующего дня
             next_time = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
             logger.info(f"[Остров — бизнес] Текущее время уже позже 23:55; перенос на 00:00 следующего дня")
         elif delayed > today_2355:
-            # 如果延后时间超过23:55，则设为23:55
+            # Если время отсрочки превышает 23:55, устанавливаем 23:55
             next_time = today_2355
             logger.info(f"[Остров — бизнес] Расчётное время задержки позже 23:55; установлено 23:55 сегодня")
         else:
@@ -1611,7 +1611,7 @@ class IslandBusiness(Island):
             return 'yellow'
         if self.appear(BUSINESS_START_BUTTON_DARKBLUE, offset=30):
             return 'darkblue'
-        # 三个可经营按钮都未识别到 → 视为灰色不可经营状态
+        # Ни одна из 3 кнопок не распознана → состояние недоступности (gray)
         return 'gray'
 
     def _claim_business_reward(self, button_already_clicked=False):
@@ -1627,10 +1627,10 @@ class IslandBusiness(Island):
         logger.info("[Остров — бизнес] Получение награды бизнеса")
 
         if not button_already_clicked:
-            # 传统模式：先点击黄色按钮进入结算界面
+            # Классический режим: клик по желтой кнопке для входа в расчеты
             self.device.click(BUSINESS_START_BUTTON_YELLOW)
             self.device.sleep(1)
-            # 如果黄色奖励按钮还在，继续点击直到消失
+            # Если желтая кнопка награды видна, продолжаем кликать до исчезновения
             self.device.screenshot()
             for _ in range(5):
                 if self.appear(BUSINESS_START_BUTTON_YELLOW, offset=30):
@@ -1641,8 +1641,8 @@ class IslandBusiness(Island):
                 else:
                     break
 
-        # 统一截图-检测循环，处理从结算到回到经营界面的整个流程
-        # 每次循环检测当前界面状态，执行对应操作，直到回到经营页签
+        # Единый цикл скриншот-детекция от расчета до возврата на экран управления
+        # Каждая итерация проверяет статус и выполняет действие до возврата на вкладку
         self.device.sleep(1)
         timeout = 0
         while True:
@@ -1652,44 +1652,44 @@ class IslandBusiness(Island):
 
             self.device.screenshot()
 
-            # 已回到经营页签 → 退出
+            # Вернулись на вкладку управления → выход
             if self.appear(POST_MANAGE_BUSINESS, offset=30) or self.appear(POST_MANAGE_PRODUCTION, offset=30):
                 logger.info("[Остров — бизнес] Возврат в интерфейс бизнеса выполнен; получение завершено")
                 return
 
-            # 检测到"经营结算"按钮 → 优先处理结算（必须在 ISLAND_BACK 之前检测，
-            # 防止结算界面出现时返回按钮也被检测到而导致提前退出）
-            # 同时检测偏移150px位置（美食评审模式）
+            # Обнаружена кнопка «Расчет» → приоритетная обработка расчета (строго до ISLAND_BACK,
+            # чтобы не выйти преждевременно при параллельной видимости кнопки возврата)
+            # Также проверяем позицию со смещением 150px (режим кулинарного обзора)
             settlement = self._appear_business_settlement()
             if settlement:
                 logger.info("[Остров — бизнес] Обнаружена кнопка расчёта бизнеса")
                 self.device.click(settlement)
                 self.device.sleep(1)
 
-            # 检测到"获得物品" → 点击安全区域
+            # Обнаружено «Получены предметы» → клик по безопасной области
             elif self.appear(BUSINESS_OBTAINED_ITEMS, offset=30):
                 logger.info("[Остров — бизнес] Обнаружено получение предметов")
                 self.device.click(BUSINESS_REWARD_SAFE_AREA)
                 self.device.sleep(1)
 
-            # 检测到"销售情况" → 点击安全区域
+            # Обнаружено «Результаты продаж» → клик по безопасной области
             elif self.appear(BUSINESS_SALES_STATUS, offset=30):
                 logger.info("[Остров — бизнес] Обнаружены результаты продаж")
                 self.device.click(BUSINESS_REWARD_SAFE_AREA)
                 self.device.sleep(1)
 
-            # 检测到返回按钮 → 点击返回
+            # Обнаружена кнопка возврата → клик по возврату
             elif self.appear(ISLAND_BACK, offset=30):
                 logger.info("[Остров — бизнес] Обнаружена кнопка возврата; возврат")
                 self.device.click(ISLAND_BACK)
                 self.device.sleep(1)
 
-            # 无识别的界面元素，点击安全区域等待
+            # Нет распознанных элементов, клик по безопасной зоне и ожидание
             else:
                 self.device.click(BUSINESS_REWARD_SAFE_AREA)
                 self.device.sleep(1)
 
-            # 统一在循环末尾递增 timeout，确保每次循环仅递增一次
+            # Увеличение timeout строго в конце цикла для однократного инкремента за итерацию
             timeout += 1
 
     def _select_business_characters(self):
@@ -1697,7 +1697,7 @@ class IslandBusiness(Island):
             btn = BUSINESS_PLUS_A if slot_idx == 0 else BUSINESS_PLUS_B
             plus_button = self._appear_at_positions(btn)
             if not plus_button:
-                # 第一次未检测到，在正常位置重试3次
+                # Если не обнаружено сразу, 3 попытки в штатной позиции
                 for retry in range(3):
                     logger.info(f"[Остров — бизнес] Кнопка '+' №{slot_idx + 1} не найдена в обычной позиции; ожидание 1 с и повтор ({retry + 1}/3)")
                     self.device.sleep(1.0)
@@ -1705,7 +1705,7 @@ class IslandBusiness(Island):
                     if plus_button:
                         break
             if not plus_button:
-                # 正常位置未找到，向右偏移150px再试3次（美食评审偏移）
+                # Не найдено в штатной позиции: 3 попытки со смещением 150px вправо (кулинарный обзор)
                 review_btn = self._get_review_button(btn)
                 if review_btn:
                     for retry in range(3):
@@ -1730,10 +1730,10 @@ class IslandBusiness(Island):
                     self.device.click(SELECT_UI_BACK)
                     self.device.sleep(0.5)
                     continue
-                # 已选角色从优先级中移除，防止下个槽位重复选择
+                # Выбранный персонаж исключается из приоритетов во избежание дублирования
                 if selected_name in self.character_priority:
                     self.character_priority.remove(selected_name)
-                # 确认后等待界面刷新，再检测第二个"+"按钮
+                # После подтверждения ждем обновления экрана и ищем второй плюс "+"
                 self.device.screenshot()
                 self.device.sleep(1)
             else:
@@ -1751,7 +1751,7 @@ class IslandBusiness(Island):
             self.device.sleep(0.3)
         return False
 
-    # 角色选择列表全区域坐标
+    # Координаты полной области списка выбора персонажей
     BUSINESS_CHARACTER_AREA = (55, 139, 878, 463)
 
     def _stop_swipe_inertia(self):
@@ -1759,7 +1759,7 @@ class IslandBusiness(Island):
         self.device.click(BUSINESS_REVIEW_SAFE_AREA)
         self.device.sleep(0.3)
 
-    # 角色选择页面滑动惯性消除安全区域
+    # Безопасная зона для гашения инерции свайпа на странице выбора персонажей
     BUSINESS_INERTIA_STOP_AREA = (462, 477, 473, 577)
 
     def _swipe_down_short(self):
@@ -1779,7 +1779,7 @@ class IslandBusiness(Island):
 
     def _find_and_select_character(self):
         """在角色选择界面中查找并选择角色（全区域模板匹配）"""
-        # 进入角色选择界面后，先向上滑动500px回到顶部
+        # После входа в выбор персонажей свайпаем вверх на 500px для возврата в начало
         self._swipe_up_reset()
 
         max_swipes = 5
@@ -1792,10 +1792,10 @@ class IslandBusiness(Island):
                 self.device.click(button)
                 self.device.sleep(0.5)
                 return char_name
-            # 短距离向下滑动继续搜索
+            # Короткий свайп вниз для продолжения поиска
             self._swipe_down_short()
 
-        # 滑动多次未找到，切换排序后从头搜索
+        # Не найдено за несколько свайпов: меняем порядок сортировки и ищем сначала
         self.select_character_filter()
         self.device.sleep(0.5)
         self._swipe_up_reset()
@@ -1823,14 +1823,14 @@ class IslandBusiness(Island):
         area_img = crop(s, self.BUSINESS_CHARACTER_AREA)
         best = (None, None, 0.0)  # (name, button, similarity)
 
-        # 只遍历优先级列表中的角色模板，跳过不在优先级中的角色
+        # Проверяем только шаблоны из списка приоритетов, пропуская остальных персонажей
         for name in self.character_priority:
             template = self.character_templates.get(name)
             if template is None:
                 continue
             sim, btn = template.match_result(area_img)
             if sim >= 0.8 and sim > best[2]:
-                # 创建新 Button，坐标从裁剪区域偏移回全屏坐标
+                # Создаем Button со смещением из области обрезки в полноэкранные координаты
                 old_area = btn.area
                 new_area = (old_area[0] + self.BUSINESS_CHARACTER_AREA[0],
                             old_area[1] + self.BUSINESS_CHARACTER_AREA[1],
@@ -1843,7 +1843,7 @@ class IslandBusiness(Island):
             return (best[0], best[1])
         return None
 
-    # 餐品图标检测区域（选完角色后餐品列表在此范围内）
+    # Область детекции иконок блюд (в этих границах после выбора персонажей)
     BUSINESS_PRODUCT_AREA = (580, 200, 1177, 400)
 
     def _get_product_template_path(self, button):
@@ -1856,14 +1856,14 @@ class IslandBusiness(Island):
         return os.path.join(dir_name, f'TEMPLATE_{base_name}')
 
     def _select_business_product(self, shop_name=None):
-        # 优先使用配置的产品列表，否则使用全部
+        # Приоритет настроенному списку продуктов, иначе используются все
         products = self.active_products.get(shop_name, self.shop_products.get(shop_name, []))
         if not products:
             return
-        # 等待界面稳定
+        # Ожидание стабилизации интерфейса
         self.device.sleep(1.0)
 
-        # 逐个选择配置的餐品
+        # Поочередный выбор настроенных блюд
         for p in products:
             b = p.get('button')
             if not b or not b.file:
@@ -1872,7 +1872,7 @@ class IslandBusiness(Island):
             area_img = crop(self.device.image, self.BUSINESS_PRODUCT_AREA)
             sim, btn = b.match_result(area_img)
             if sim >= 0.7:
-                # 偏移回全屏坐标
+                # Смещение в полноэкранные координаты
                 old_area = btn.area
                 new_area = (old_area[0] + self.BUSINESS_PRODUCT_AREA[0],
                             old_area[1] + self.BUSINESS_PRODUCT_AREA[1],
@@ -1889,7 +1889,7 @@ class IslandBusiness(Island):
             logger.info("[Остров — бизнес] Подтверждение запуска бизнеса")
             self.device.click(start_button)
             self.device.sleep(1)
-            # 确认经营后检测并跳过可能的周常/PT奖励弹窗
+            # После подтверждения управления проверяем и пропускаем возможные окна наград недели/PT
             self.device.screenshot()
             for _ in range(3):
                 if self.handle_popup_single('BUSINESS'):
