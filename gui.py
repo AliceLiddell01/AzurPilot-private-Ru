@@ -154,7 +154,7 @@ def func(
     State.restart_event = ev
     State.dependency_sync_event = dependency_sync_event
 
-    # 解析命令行参数
+    # Разбор аргументов командной строки
     parser = argparse.ArgumentParser(description="Веб-служба AzurPilot")
     parser.add_argument(
         "--host",
@@ -192,7 +192,7 @@ def func(
     )
     args, _ = parser.parse_known_args()
 
-    # 配置服务器设置
+    # Настройка параметров сервера
     host = args.host or State.deploy_config.WebuiHost or "0.0.0.0"
     port = args.port or int(State.deploy_config.WebuiPort) or 25548
     ssl_key = args.ssl_key or State.deploy_config.WebuiSSLKey
@@ -201,7 +201,7 @@ def func(
     State.electron = args.electron
     State.webui_host = host
 
-    # 记录启动器配置
+    # Запись конфигурации лаунчера
     logger.hr("КОНФИГУРАЦИЯ ЗАПУСКА")
     logger.attr("Адрес", host)
     logger.attr("Порт", port)
@@ -209,20 +209,20 @@ def func(
     logger.attr("Electron", args.electron)
     logger.attr("Перезапуск", ev is not None)
 
-    # Electron客户端特定处理
+    # Специальная обработка для клиента Electron
     if State.electron:
         # https://github.com/LmeSzinc/AzurLaneAutoScript/issues/2051
         logger.info("[GUI] Обнаружен Electron; обработчик вывода в stdout удалён")
         from module.logger import console_hdlr
         logger.removeHandler(console_hdlr)
 
-    # 验证SSL配置
+    # Проверка конфигурации SSL
     if ssl_cert is None and ssl_key is not None:
         logger.error("[GUI] Указан ключ SSL, но не указан сертификат. Укажите одновременно ключ и сертификат SSL.")
     elif ssl_key is None and ssl_cert is not None:
         logger.error("[GUI] Указан сертификат SSL, но не указан ключ. Укажите одновременно ключ и сертификат SSL.")
 
-    # 通配地址显式创建两个 socket，避免 Windows 将 IPv6 wildcard 作为仅 IPv6 监听。
+    # Для wildcard-адреса явно создаем два сокета, чтобы Windows не открывала IPv6 wildcard только для IPv6.
     try:
         uvicorn_options = {
             "host": host,
@@ -387,7 +387,7 @@ def _stop_process_tree(process, name: str) -> bool:
             logger.warning(f"[GUI] psutil недоступен; невозможно подтвердить завершение дочерних процессов «{name}»")
             tree_terminated = False
         except psutil.NoSuchProcess:
-            # 根进程可能在 is_alive() 检查后自然退出；此时与前置已退出分支等价。
+            # Корневой процесс может завершиться естественным путем после проверки is_alive(); в этом случае состояние эквивалентно предшествующей ветке.
             logger.info(f"[GUI] Корневой процесс «{name}» завершился до перечисления дочерних процессов (PID: {pid})")
         except Exception as exc:
             logger.warning(f"[GUI] Не удалось перечислить дочерние процессы «{name}»: {exc}")
@@ -414,7 +414,7 @@ def _stop_process_tree(process, name: str) -> bool:
                 logger.error(f"[GUI] Дочерние процессы «{name}» всё ещё выполняются (PID: {child_pids})")
                 tree_terminated = False
     if os.name == "nt" and stopped and not tree_terminated:
-        # taskkill 可能与子进程自然退出交错；根进程已确认退出时不应阻断重启。
+        # taskkill может пересекаться с естественным выходом дочерних процессов; подтвержденный выход корневого процесса не должен блокировать перезапуск.
         logger.warning(
             f"[GUI] taskkill не сообщил об успешном завершении, но корневой процесс «{name}» уже остановлен (PID: {pid})"
         )
@@ -595,7 +595,7 @@ def _recover_orphaned_workers() -> bool:
     try:
         owner_matches = worker_registry.process_matches(owner_record)
     except RuntimeError as exc:
-        # 兼容旧登记文件：没有创建时间时，只有确认 PID 已消失才能安全回收。
+        # Совместимость со старыми файлами регистрации: при отсутствии времени создания безопасная очистка возможна только после подтверждения отсутствия PID.
         if not _pid_exists(owner_pid):
             logger.warning(
                 f"[GUI] В записи прежнего владельца WebUI отсутствуют данные идентификации; выполняется очистка завершённого экземпляра (PID: {owner_pid})"
@@ -629,7 +629,7 @@ def _stop_webui_process_tree(process) -> bool:
     """终止 WebUI 及其 AzurPilot worker 子进程，避免重启后重复控制设备。"""
     root_stopped = _stop_process_tree(process, "WebUI")
     if not root_stopped:
-        # 根 WebUI 仍可能继续创建或管理 worker，不能清除其登记。
+        # Корневой WebUI может продолжать создавать worker'ы или управлять ими, удалять его регистрацию нельзя.
         return False
     owner_pid = getattr(process, "pid", None) if process is not None else None
     workers_stopped = _stop_registered_workers(owner_pid, discard_reused=True)
@@ -797,7 +797,7 @@ def _prepare_dependency_sync_before_webui_start(
         return True, service, request_queue, response_queue
 
     if service is not None:
-        # 更新后必须使用新源码创建同步服务，不能复用旧环境中的服务进程。
+        # После обновления службу синхронизации необходимо создавать из нового исходного кода, повторно использовать процесс службы из старого окружения нельзя.
         if not _stop_dependency_sync_service(service, request_queue):
             logger.error_context(
                 title="Не удалось остановить службу синхронизации зависимостей",
@@ -941,7 +941,7 @@ def run_webui_supervisor() -> None:
 
             while not should_exit:
                 try:
-                    # 等待重启事件，超时1秒
+                    # Ожидание события перезапуска с таймаутом 1 секунда
                     restart_triggered = event.wait(1)
                 except KeyboardInterrupt:
                     logger.info("[GUI] Получен KeyboardInterrupt; выполняется завершение...")
@@ -1007,7 +1007,7 @@ def run_webui_supervisor() -> None:
                         time.sleep(runtime_failures)
                     break
 
-            # 确保子进程完全退出；清理失败时不能创建替代 WebUI。
+            # Убеждаемся в полном завершении дочерних процессов; при ошибке очистки создавать заменяющий WebUI нельзя.
             if not _stop_webui_process_tree(process):
                 if not should_exit:
                     logger.error_context(
@@ -1035,10 +1035,10 @@ def _run_webui_without_reload() -> bool:
 
 if __name__ == "__main__":
     _configure_gui_logging()
-    # 设置multiprocessing启动方式为spawn（macOS兼容性要求）
+    # Устанавливаем метод запуска multiprocessing в spawn (требование совместимости с macOS)
     try:
         set_start_method("spawn", force=True)
-        # 额外的macOS环境配置
+        # Дополнительная конфигурация окружения macOS
         if os.name == "posix" and sys.platform == "darwin":
             os.environ["OBJC_DISABLE_INITIALIZE_FORK_SAFETY"] = "YES"
     except RuntimeError:
