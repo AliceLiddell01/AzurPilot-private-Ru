@@ -79,7 +79,7 @@ class InfoHandler(ModuleBase):
         parameters = {
             'height': 235,
             'prominence': 50,
-            # 蓝色线条间距约为 56 像素
+            # Расстояние между синими линиями составляет около 56 пикселей
             'distance': 50,
         }
         peaks, _ = signal.find_peaks(line, **parameters)
@@ -110,7 +110,7 @@ class InfoHandler(ModuleBase):
             if self.handle_info_bar():
                 handled = True
 
-            # 结束条件
+            # Условие завершения
             if timeout.reached():
                 break
 
@@ -197,15 +197,15 @@ class InfoHandler(ModuleBase):
             self.device.click(GET_MISSION)
             self._hot_fix_check_wait.reset()
 
-        # 在点击确认按钮后 3~6 秒内检查游戏客户端是否存活
-        # 热更新可能会导致游戏进程被杀死
+        # Проверяем работоспособность игрового клиента в течение 3~6 секунд после клика подтверждения
+        # Горячее обновление может привести к завершению процесса игры
         if self._hot_fix_check_wait.reached():
             self._hot_fix_check_wait.clear()
         if self._hot_fix_check_wait.started() and 3 <= self._hot_fix_check_wait.current_time() <= 6:
             if not self.device.app_is_running():
                 logger.error('[Обработчик — горячее обновление] Обнаружено горячее обновление игрового сервера; игровой процесс завершён')
                 raise GameNotRunningError
-            # 使用模板匹配（不含颜色匹配），因为维护公告弹窗颜色不同
+            # Используем шаблонное сопоставление (без проверки цвета), так как цвет окна объявления о техобслуживании отличается
             if self.appear(LOGIN_CHECK, offset=(30, 30)):
                 logger.warning('[Обработчик — горячее обновление] Выполнен выход из аккаунта; '
                                'возможны обслуживание сервера или вход с другого устройства')
@@ -219,7 +219,7 @@ class InfoHandler(ModuleBase):
 
         result = self.handle_popup_confirm('IGNORE_LOW_EMOTION')
         if result:
-            # 避免误点 AUTO_SEARCH_MAP_OPTION_OFF
+            # Избегаем случайного клика по AUTO_SEARCH_MAP_OPTION_OFF
             self.interval_reset(AUTO_SEARCH_MAP_OPTION_OFF)
         return result
 
@@ -242,7 +242,7 @@ class InfoHandler(ModuleBase):
                     self.device.click(USE_DATA_KEY_NOTIFIED)
                     continue
 
-            self.config.USE_DATA_KEY = False  # 成功后重置，因为任务可能在恢复前被停止
+            self.config.USE_DATA_KEY = False  # Сбрасываем после успеха, так как задача может быть остановлена до восстановления
             return self.handle_popup_confirm('USE_DATA_KEY')
 
         return False
@@ -254,7 +254,7 @@ class InfoHandler(ModuleBase):
         Returns:
             是否处理了投票弹窗。
         """
-        # 投票弹窗已于 2023 年移除
+        # Всплывающее окно голосования удалено в 2023 году
         # return self.appear_then_click(VOTE_CANCEL, offset=(20, 20), interval=2)
         return False
 
@@ -329,7 +329,7 @@ class InfoHandler(ModuleBase):
     剧情
     """
     story_popup_timeout = Timer(10, count=20)
-    map_has_clear_mode = False  # 会在 fast_forward.py 中被覆盖
+    map_has_clear_mode = False  # Будет переопределено в fast_forward.py
     map_is_threat_safe = False
 
     _story_confirm = Timer(0.5, count=1)
@@ -344,9 +344,9 @@ class InfoHandler(ModuleBase):
         Returns:
             从上到下排列的剧情选项按钮列表，未找到则返回空列表。
         """
-        # 选项检测区域，至少需要包含 3 个选项
+        # Область детекции вариантов: должна содержать как минимум 3 варианта
         story_option_area = (730, 188, 1140, 480)
-        # 选项左侧部分的背景颜色
+        # Цвет фона левой части варианта
         story_option_color = (99, 121, 156)
         image = color_similarity_2d(self.image_crop(story_option_area, copy=False), color=story_option_color) > 225
         x_count = np.where(np.sum(image, axis=0) > 40)[0]
@@ -355,12 +355,12 @@ class InfoHandler(ModuleBase):
         x_min, x_max = np.min(x_count), np.max(x_count)
 
         parameters = {
-            # 选项尺寸约为 300~320px x 50~52px
+            # Размер варианта примерно 300~320px x 50~52px
             'height': 280,
             'width': 45,
             'distance': 50,
-            # 选择峰值宽度测量的相对高度（占突出度的百分比）
-            # 1.0 在最低等高线处计算，0.5 在突出度一半处计算，必须 >= 0
+            # Выбор относительной высоты измерения ширины пика (в процентах от выраженности)
+            # 1.0 рассчитывается на нижнем контуре, 0.5 на половине выраженности, значение должно быть >= 0
             'rel_height': 5,
         }
         y_count = np.sum(image, axis=1)
@@ -384,7 +384,7 @@ class InfoHandler(ModuleBase):
         Returns:
             从上到下排列的剧情选项按钮列表，未找到则返回空列表。
         """
-        # 选项检测区域，至少需要包含 3 个选项
+        # Область детекции вариантов: должна содержать как минимум 3 варианта
         story_option_area = (330, 135, 980, 555)
         story_detect_area = (330, 135, 355, 555)
         story_option_color = (247, 247, 247)
@@ -396,13 +396,13 @@ class InfoHandler(ModuleBase):
         line[line >= 200] = 255
 
         parameters = {
-            # 选项尺寸约为 300~320px x 50~52px
+            # Размер варианта примерно 300~320px x 50~52px
             'height': 200,
             'width': 40,
             'distance': 40,
-            # 选择峰值宽度测量的相对高度（占突出度的百分比）
-            # 1.0 在最低等高线处计算，0.5 在突出度一半处计算，必须 >= 0
-            # rel_height 约为 240 / 48
+            # Выбор относительной высоты измерения ширины пика (в процентах от выраженности)
+            # 1.0 рассчитывается на нижнем контуре, 0.5 на половине выраженности, значение должно быть >= 0
+            # rel_height составляет примерно 240 / 48
             'rel_height': 4,
         }
         peaks, properties = signal.find_peaks(line, **parameters)
@@ -523,9 +523,9 @@ class InfoHandler(ModuleBase):
                 self._story_option_record = options_count
                 self._story_option_confirm.reset()
         if self.appear(STORY_SKIP_3, offset=(20, 20), interval=2):
-            # 确认是剧情画面
-            # 当剧情播放速度为"非常快"时，AzurPilot 可能点击了跳过但剧情已消失
-            # 此点击会打断自动搜索
+            # Подтверждаем, что это сюжетный экран
+            # При скорости воспроизведения сюжета «Очень быстро» AzurPilot мог нажать пропуск, когда сюжет уже завершился
+            # Этот клик может прервать автопоиск
             self.interval_reset([STORY_SKIP_3])
             if self._story_confirm.reached():
                 if drop:
@@ -554,10 +554,10 @@ class InfoHandler(ModuleBase):
         self.interval_clear(STORY_LETTERS_ONLY)
 
     def handle_story_skip(self, drop=None):
-        # 通关后重打活动仍可能有剧情
-        # 通关模式下通常无剧情
-        # 但 B3/D3 在威胁等级变为安全前仍有剧情
-        # 威胁安全后不再有剧情
+        # Повторное прохождение события после очистки все еще может содержать сюжет
+        # В режиме зачистки сюжета обычно нет
+        # Однако на B3/D3 сюжет остается до снижения уровня угрозы до «Безопасно»
+        # После достижения статуса «Безопасно» сюжета больше нет
         if self.map_is_threat_safe and self.config.Campaign_Event != 'event_20201012_cn':
             return False
 
@@ -622,8 +622,8 @@ class InfoHandler(ModuleBase):
             检测到的小黄鸡数量。
         """
         image = self.image_crop(MANJUU_AREA, copy=False)
-        # 默认阈值 0.85 对小黄鸡不适用，因为其面部会被拉伸和压缩
-        # 导致模板无法匹配，使用 0.8 来匹配变形后的面部
+        # Порог по умолчанию 0.85 не подходит для цыпленка Манджу, так как его лицо растягивается и сжимается
+        # из-за чего шаблон не совпадает; используем 0.8 для сопоставления деформированного лица
         buttons = TEMPLATE_MANJUU.match_multi(image, similarity=0.8, name='INFO_MANJUU')
         return len(buttons)
 
@@ -631,7 +631,7 @@ class InfoHandler(ModuleBase):
         """
         等待小黄鸡加载动画消失。
         """
-        # 模板对象没有可读名称，这里手动添加字符串用于卡死检测记录
+        # У объекта шаблона нет читаемого имени, вручную добавляем строку для записи в журнал детекции зависаний
         self.device.stuck_record_add('TEMPLATE_MANJUU')
         timer = Timer(1.5, count=3).start()
         while 1:

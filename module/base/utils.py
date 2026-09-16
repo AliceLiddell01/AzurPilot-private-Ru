@@ -424,23 +424,23 @@ def col2name(col):
     if col_neg:
         col_num = -col
     else:
-        col_num = col + 1  # 转换为 1 索引
+        col_num = col + 1  # Преобразуем к 1-индексации
     col_str = ''
 
     while col_num:
-        # 余数范围 1..26
+        # Диапазон остатка 1..26
         remainder = col_num % 26
 
         if remainder == 0:
             remainder = 26
 
-        # 将余数转换为字符
+        # Преобразуем остаток в символ
         col_letter = chr(remainder + 64)
 
-        # 从右到左累加列字母
+        # Накапливаем буквы столбца справа налево
         col_str = col_letter + col_str
 
-        # 获取下一个数量级
+        # Получаем следующий порядок величины
         col_num = int((col_num - 1) / 26)
 
     if col_neg:
@@ -459,7 +459,7 @@ def name2col(col_str):
     Returns:
         int: 零索引的列号。
     """
-    # 将 26 进制列名字符串转换为数字
+    # Преобразуем строку имени столбца в системе счисления по основанию 26 в число
     expn = 0
     col = 0
     col_neg = col_str.startswith('-')
@@ -472,7 +472,7 @@ def name2col(col_str):
     if col_neg:
         return -col
     else:
-        return col - 1  # 从 1 索引转换为 0 索引
+        return col - 1  # Преобразуем из 1-индексации в 0-индексацию
 
 
 def node2location(node):
@@ -493,7 +493,7 @@ def node2location(node):
             y -= 1
         return name2col(x), y
     else:
-        # 兜底方案
+        # Запасной вариант
         return ord(node[0]) % 32 - 1, int(node[1:]) - 1
 
 
@@ -545,7 +545,7 @@ def load_image(file, area=None):
     Returns:
         np.ndarray: 图像数组。
     """
-    # 始终记得关闭 Image 对象
+    # Всегда не забываем закрывать объект Image
     with Image.open(file) as f:
         if area is not None:
             f = f.crop(area)
@@ -614,7 +614,7 @@ def crop(image, area, copy=True):
     shape = image.shape
     h = shape[0]
     w = shape[1]
-    # 上, 下, 左, 右
+    # Верх, низ, лево, право
     # border = np.maximum((0 - y1, y2 - h, 0 - x1, x2 - w), 0)
     overflow = False
     if y1 >= 0:
@@ -641,7 +641,7 @@ def crop(image, area, copy=True):
         right = 0
         if x2 <= 0:
             overflow = True
-    # 如果溢出，返回空图像
+    # При переполнении возвращаем пустое изображение
     if overflow:
         if len(shape) == 2:
             size = (y2 - y1, x2 - x1)
@@ -657,9 +657,9 @@ def crop(image, area, copy=True):
         x2 = 0
     if y2 < 0:
         y2 = 0
-    # 裁剪图像
+    # Обрезка изображения
     image = image[y1:y2, x1:x2]
-    # 如果需要填充边界
+    # Если требуется заполнение границ
     if top or bottom or left or right:
         if len(shape) == 2:
             value = 0
@@ -964,13 +964,13 @@ def get_bbox(image, threshold=0):
         ImageNotSupported: 获取边界框失败时抛出。
     """
     channel = image_channel(image)
-    # 转换为灰度图
+    # Преобразуем в градации серого
     if channel == 3:
         # RGB
         mask = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
         cv2.threshold(mask, threshold, 255, cv2.THRESH_BINARY, dst=mask)
     elif channel == 0:
-        # 灰度图
+        # Изображение в градациях серого
         _, mask = cv2.threshold(image, threshold, 255, cv2.THRESH_BINARY)
     elif channel == 4:
         # RGBA
@@ -979,12 +979,12 @@ def get_bbox(image, threshold=0):
     else:
         raise ImageNotSupported(f'shape={image.shape}')
 
-    # 查找边界框
+    # Поиск ограничивающего прямоугольника
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     min_y, min_x = mask.shape
     max_x = 0
     max_y = 0
-    # 全黑图像
+    # Полностью черное изображение
     if not contours:
         raise ImageNotSupported(f'Cannot get bbox from a pure black image')
     for contour in contours:
@@ -1003,7 +1003,7 @@ def get_bbox(image, threshold=0):
     if min_x < max_x and min_y < max_y:
         return min_x, min_y, max_x, max_y
     else:
-        # 正常情况下不应出现
+        # В штатной ситуации возникать не должно
         raise ImageNotSupported(f'Empty bbox {(min_x, min_y, max_x, max_y)}')
 
 
@@ -1024,13 +1024,13 @@ def get_bbox_reversed(image, threshold=255):
         ImageNotSupported: 获取边界框失败时抛出。
     """
     channel = image_channel(image)
-    # 转换为灰度图
+    # Преобразуем в градации серого
     if channel == 3:
         # RGB
         mask = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
         cv2.threshold(mask, 0, threshold, cv2.THRESH_BINARY, dst=mask)
     elif channel == 0:
-        # 灰度图
+        # Изображение в градациях серого
         mask = cv2.threshold(image, 0, threshold, cv2.THRESH_BINARY)
     elif channel == 4:
         # RGBA
@@ -1039,12 +1039,12 @@ def get_bbox_reversed(image, threshold=255):
     else:
         raise ImageNotSupported(f'shape={image.shape}')
 
-    # 查找边界框
+    # Поиск ограничивающего прямоугольника
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     min_y, min_x = mask.shape
     max_x = 0
     max_y = 0
-    # 全黑图像
+    # Полностью черное изображение
     if not contours:
         raise ImageNotSupported(f'Cannot get bbox from a pure black image')
     for contour in contours:
@@ -1063,7 +1063,7 @@ def get_bbox_reversed(image, threshold=255):
     if min_x < max_x and min_y < max_y:
         return min_x, min_y, max_x, max_y
     else:
-        # 正常情况下不应出现
+        # В штатной ситуации возникать не должно
         raise ImageNotSupported(f'Empty bbox {(min_x, min_y, max_x, max_y)}')
 
 
@@ -1291,18 +1291,18 @@ def crop_to_text(image, threshold=120, padding=2):
         np.ndarray: 裁剪后的图像。
             如果未检测到文本，返回原图。
     """
-    # 创建文本像素掩码（值 < threshold）
-    # 检测灰度图（2D）或多通道图（3D）中的文本
+    # Создаем маску пикселей текста (значение < threshold)
+    # Детекция текста на полутоновом (2D) или многоканальном (3D) изображении
     mask = np.any(image < threshold, axis=2) if image.ndim == 3 else image < threshold
 
-    # 查找包含文本的行和列
+    # Поиск строк и столбцов, содержащих текст
     rows = np.any(mask, axis=1)
     cols = np.any(mask, axis=0)
 
     if not rows.any() or not cols.any():
         return image
 
-    # 边界索引
+    # Граничные индексы
     row_idx = np.where(rows)[0]
     col_idx = np.where(cols)[0]
 
@@ -1409,7 +1409,7 @@ def color_bar_percentage(image, area, prev_color, reverse=False, starter=0, thre
         prev_row = bar[:, prev_index] > 255 - threshold
         if not prev_row.size:
             return prev_index / length
-        # 向前回溯 5 像素获取平均颜色
+        # Отступаем назад на 5 пикселей для получения среднего цвета
         left = max(prev_index - 5, 0)
         mask = np.where(bar[:, left:prev_index + 1] > 255 - threshold)
         prev_color = np.mean(image[:, left:prev_index + 1][mask], axis=0)
