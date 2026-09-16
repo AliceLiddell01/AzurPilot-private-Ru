@@ -10,6 +10,9 @@ from dev_tools import observability_mcp as target
 
 def test_grafana_direct_allowlist_blocks_mutations():
     assert "list_datasources" in target.GRAFANA_READ_ONLY_TOOLS
+    assert "tempo_get-trace" in target.GRAFANA_READ_ONLY_TOOLS
+    assert "tempo_traceql-search" in target.GRAFANA_READ_ONLY_TOOLS
+    assert "grafana_api_request" in target.GRAFANA_BLOCKED_TOOLS
     assert target.GRAFANA_BLOCKED_TOOLS.isdisjoint(target.GRAFANA_READ_ONLY_TOOLS)
 
 

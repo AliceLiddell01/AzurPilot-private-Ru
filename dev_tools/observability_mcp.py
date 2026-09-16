@@ -21,6 +21,7 @@ from azurpilot.integrations.adapters import (
     GrafanaAdapter,
 )
 from azurpilot.integrations.config import load_integration_config
+from azurpilot.integrations.mcp_client import validate_tool_catalog
 from azurpilot.tooling.process import safe_environment
 from tools.paths import REPOSITORY_ROOT
 
@@ -137,12 +138,16 @@ async def _read_only_grafana_tool_call_async(
             tool_items = getattr(listed, "tools", None)
             if not isinstance(tool_items, list) or len(tool_items) > MAX_RESULT_ITEMS:
                 raise ObservabilityMcpError("GRAFANA_TOOL_CATALOG_INVALID")
-            tool_names = {
-                item.name
-                for item in tool_items
-                if isinstance(getattr(item, "name", None), str)
-                and _KEY_RE.fullmatch(item.name)
-            }
+            raw_tool_names = [getattr(item, "name", None) for item in tool_items]
+            if any(
+                not isinstance(name, str) or _KEY_RE.fullmatch(name) is None
+                for name in raw_tool_names
+            ) or len(raw_tool_names) != len(set(raw_tool_names)):
+                raise ObservabilityMcpError("GRAFANA_TOOL_CATALOG_INVALID")
+            tool_names = set(raw_tool_names)
+            catalog_error = validate_tool_catalog(adapter.plan, tuple(tool_names))
+            if catalog_error is not None:
+                raise ObservabilityMcpError(catalog_error[0])
             if tool_name not in tool_names:
                 raise ObservabilityMcpError("GRAFANA_READ_ONLY_TOOL_NOT_OBSERVABLE")
             result = await asyncio.wait_for(

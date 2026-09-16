@@ -39,6 +39,10 @@ class McpCallPlan:
     probe_tool: str
     arguments: dict[str, object]
     blocked_tools: frozenset[str] = frozenset()
+    expected_tools: frozenset[str] = frozenset()
+    tempo_tools: frozenset[str] = frozenset()
+    missing_tempo_reason_code: str = "MCP_REQUIRED_TEMPO_TOOL_MISSING"
+    toolset_drift_reason_code: str = "MCP_TOOLSET_DRIFT"
 
     def __post_init__(self) -> None:
         if not _IDENTIFIER_RE.fullmatch(self.probe_tool):
@@ -47,6 +51,10 @@ class McpCallPlan:
             raise ValueError("probe_tool должен входить в required_tools")
         if self.probe_tool in self.blocked_tools:
             raise ValueError("probe_tool не может быть write tool")
+        if not self.tempo_tools.issubset(self.required_tools):
+            raise ValueError("tempo_tools должны входить в required_tools")
+        if self.expected_tools and not self.required_tools.issubset(self.expected_tools):
+            raise ValueError("required_tools должны входить в expected_tools")
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +84,26 @@ def _tool_names(items: object) -> tuple[str, ...] | None:
     if len(names) != len(set(names)):
         return None
     return tuple(names)
+
+
+def validate_tool_catalog(
+    plan: McpCallPlan, names: tuple[str, ...]
+) -> tuple[str, str] | None:
+    """Проверить negotiated catalog до любого вызова read-only tool."""
+
+    actual = set(names)
+    missing = set(plan.expected_tools).difference(actual)
+    unexpected = actual.difference(plan.expected_tools) if plan.expected_tools else set()
+    if unexpected:
+        return plan.toolset_drift_reason_code, "toolset_drift"
+    if missing:
+        if plan.tempo_tools.intersection(missing):
+            return plan.missing_tempo_reason_code, "tempo_tools_missing"
+        return plan.toolset_drift_reason_code, "toolset_drift"
+    required_missing = plan.required_tools.difference(actual)
+    if required_missing:
+        return "MCP_REQUIRED_READ_ONLY_TOOL_MISSING", "required_tool_missing"
+    return None
 
 
 def _result_has_error(result: object) -> bool:
@@ -157,13 +185,14 @@ async def probe_stdio(
                         IntegrationState.INCOMPATIBLE,
                         "MCP_TOOL_CATALOG_INVALID",
                     )
-                missing = plan.required_tools.difference(names)
-                if missing:
+                catalog_error = validate_tool_catalog(plan, names)
+                if catalog_error is not None:
+                    reason_code, diagnostic = catalog_error
                     return McpProbeResult(
                         IntegrationState.INCOMPATIBLE,
-                        "MCP_REQUIRED_READ_ONLY_TOOL_MISSING",
+                        reason_code,
                         tool_count=len(names),
-                        diagnostics=("required_tool_missing",),
+                        diagnostics=(diagnostic,),
                     )
                 result = await asyncio.wait_for(
                     session.call_tool(plan.probe_tool, dict(plan.arguments)),
@@ -234,13 +263,14 @@ async def probe_http(
                     IntegrationState.INCOMPATIBLE,
                     "MCP_TOOL_CATALOG_INVALID",
                 )
-            missing = plan.required_tools.difference(names)
-            if missing:
+            catalog_error = validate_tool_catalog(plan, names)
+            if catalog_error is not None:
+                reason_code, diagnostic = catalog_error
                 return McpProbeResult(
                     IntegrationState.INCOMPATIBLE,
-                    "MCP_REQUIRED_READ_ONLY_TOOL_MISSING",
+                    reason_code,
                     tool_count=len(names),
-                    diagnostics=("required_tool_missing",),
+                    diagnostics=(diagnostic,),
                 )
             result = await asyncio.wait_for(
                 session.call_tool(plan.probe_tool, dict(plan.arguments)),
@@ -278,5 +308,6 @@ __all__ = [
     "McpProbeResult",
     "probe_http",
     "probe_stdio",
+    "validate_tool_catalog",
     "validate_endpoint",
 ]

@@ -15,7 +15,10 @@ from azurpilot.integrations.adapters import (
     DOCKER_HUB_BLOCKED_TOOLS,
     DOCKER_HUB_READ_ONLY_TOOLS,
     GRAFANA_BLOCKED_TOOLS,
+    GRAFANA_ENABLED_TOOL_CATEGORIES,
+    GRAFANA_EXPECTED_TOOL_NAMES,
     GRAFANA_READ_ONLY_TOOLS,
+    GRAFANA_TEMPO_READ_ONLY_TOOLS,
     Context7Adapter,
     GrafanaAdapter,
     SemgrepAdapter,
@@ -28,7 +31,11 @@ from azurpilot.integrations.contracts import (
     IntegrationName,
     IntegrationState,
 )
-from azurpilot.integrations.mcp_client import McpCallPlan, McpProbeResult
+from azurpilot.integrations.mcp_client import (
+    McpCallPlan,
+    McpProbeResult,
+    validate_tool_catalog,
+)
 from azurpilot.tooling.contracts import AnalysisScope, FindingDisposition, GitRange
 from azurpilot.tooling.errors import ToolingError
 
@@ -634,6 +641,38 @@ def test_grafana_file_credential_uses_direct_container_env(
     assert "GRAFANA_SERVICE_ACCOUNT_TOKEN" in args
     assert environment["GRAFANA_SERVICE_ACCOUNT_TOKEN"] == token
     assert token not in " ".join(args)
+    assert "-disable-write" in args
+    assert "-disable-proxied" not in args
+    enabled_tools_index = args.index("-enabled-tools")
+    assert args[enabled_tools_index + 1] == GRAFANA_ENABLED_TOOL_CATEGORIES
+    assert GRAFANA_TEMPO_READ_ONLY_TOOLS <= GRAFANA_READ_ONLY_TOOLS
+
+
+def test_grafana_tool_catalog_is_exact_and_fail_closed():
+    plan = GrafanaAdapter.plan
+    expected = tuple(sorted(GRAFANA_EXPECTED_TOOL_NAMES))
+
+    assert validate_tool_catalog(plan, expected) is None
+
+    missing_tempo = tuple(
+        name for name in expected if name != "tempo_traceql-search"
+    )
+    assert validate_tool_catalog(plan, missing_tempo) == (
+        "GRAFANA_TEMPO_TOOL_UNAVAILABLE",
+        "tempo_tools_missing",
+    )
+
+    with_unknown = (*expected, "tempo_future_query")
+    assert validate_tool_catalog(plan, with_unknown) == (
+        "GRAFANA_PROXIED_TOOLSET_DRIFT",
+        "toolset_drift",
+    )
+
+
+def test_grafana_tempo_tools_are_read_only_and_not_mutations():
+    assert GRAFANA_TEMPO_READ_ONLY_TOOLS <= GRAFANA_READ_ONLY_TOOLS
+    assert GRAFANA_TEMPO_READ_ONLY_TOOLS.isdisjoint(GRAFANA_BLOCKED_TOOLS)
+    assert "grafana_api_request" in GRAFANA_BLOCKED_TOOLS
 
 
 def test_http_probe_uses_file_credential_value(monkeypatch, tmp_path: Path):

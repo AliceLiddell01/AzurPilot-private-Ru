@@ -47,6 +47,49 @@ _SAFE_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
 _MAX_SCAN_BYTES = 2 * 1024 * 1024
 _MAX_FINDINGS = 128
 
+GRAFANA_ENABLED_TOOL_CATEGORIES = (
+    "datasource,loki,prometheus,dashboard,search,navigation,proxied"
+)
+GRAFANA_TEMPO_READ_ONLY_TOOLS = frozenset(
+    {
+        "tempo_docs-config",
+        "tempo_docs-traceql",
+        "tempo_get-attribute-names",
+        "tempo_get-attribute-values",
+        "tempo_get-trace",
+        "tempo_traceql-metrics-instant",
+        "tempo_traceql-metrics-range",
+        "tempo_traceql-search",
+    }
+)
+GRAFANA_EXPECTED_TOOL_NAMES = frozenset(
+    {
+        "analyze_loki_labels",
+        "check_datasources_health",
+        "generate_deeplink",
+        "get_dashboard_by_uid",
+        "get_dashboard_panel_queries",
+        "get_dashboard_property",
+        "get_dashboard_summary",
+        "get_datasource",
+        "list_datasources",
+        "list_loki_label_names",
+        "list_loki_label_values",
+        "list_prometheus_label_names",
+        "list_prometheus_label_values",
+        "list_prometheus_metric_metadata",
+        "list_prometheus_metric_names",
+        "query_loki_logs",
+        "query_loki_patterns",
+        "query_loki_stats",
+        "query_prometheus",
+        "query_prometheus_histogram",
+        "search_dashboards",
+        "search_folders",
+        *GRAFANA_TEMPO_READ_ONLY_TOOLS,
+    }
+)
+
 GRAFANA_READ_ONLY_TOOLS = frozenset(
     {
         "check_datasources_health",
@@ -65,10 +108,10 @@ GRAFANA_READ_ONLY_TOOLS = frozenset(
         "query_prometheus",
         "query_prometheus_histogram",
         "search_dashboards",
-        "tempo_get-trace",
         "generate_deeplink",
     }
 )
+GRAFANA_READ_ONLY_TOOLS |= GRAFANA_TEMPO_READ_ONLY_TOOLS
 GRAFANA_BLOCKED_TOOLS = frozenset(
     {
         "alerting_manage_routing",
@@ -823,7 +866,8 @@ class _ContainerMcpAdapter(IntegrationAdapter):
                     "-transport",
                     "stdio",
                     "-disable-write",
-                    "-disable-proxied",
+                    "-enabled-tools",
+                    GRAFANA_ENABLED_TOOL_CATEGORIES,
                 )
             )
         return executable, tuple(args), env
@@ -956,10 +1000,14 @@ class GrafanaAdapter(_ContainerMcpAdapter):
     name = IntegrationName.GRAFANA
     image_name = "mcp/grafana"
     plan = McpCallPlan(
-        required_tools=frozenset({"list_datasources"}),
+        required_tools=frozenset({"list_datasources"}) | GRAFANA_TEMPO_READ_ONLY_TOOLS,
         probe_tool="list_datasources",
         arguments={},
         blocked_tools=GRAFANA_BLOCKED_TOOLS,
+        expected_tools=GRAFANA_EXPECTED_TOOL_NAMES,
+        tempo_tools=GRAFANA_TEMPO_READ_ONLY_TOOLS,
+        missing_tempo_reason_code="GRAFANA_TEMPO_TOOL_UNAVAILABLE",
+        toolset_drift_reason_code="GRAFANA_PROXIED_TOOLSET_DRIFT",
     )
     blocked_tools = GRAFANA_BLOCKED_TOOLS
     requires_endpoint = True
@@ -985,7 +1033,10 @@ class DockerHubAdapter(_ContainerMcpAdapter):
 
 __all__ = [
     "GRAFANA_BLOCKED_TOOLS",
+    "GRAFANA_ENABLED_TOOL_CATEGORIES",
+    "GRAFANA_EXPECTED_TOOL_NAMES",
     "GRAFANA_READ_ONLY_TOOLS",
+    "GRAFANA_TEMPO_READ_ONLY_TOOLS",
     "AdapterOutcome",
     "build_evidence",
     "build_record",
