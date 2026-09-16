@@ -689,12 +689,14 @@ provenance, факт настройки, authenticated/not_observable и bounded
 
 Semgrep не запускает полный repository scan по умолчанию. Для custom path
 scope передавайте повторяемый --paths с validated относительными файлами.
+Адаптер использует tracked local ruleset и отключает telemetry metrics.
 Committed scan требует exact base commit; текущий HEAD определяется локальным
 Git и не подменяется историческим evidence.
 
-azur doctor дополнительно показывает шесть внешних integration summaries, но
-остаётся read-only: он не создаёт credential, не запускает full scan и не
-изменяет Compose или runtime. dev_tools.mcp_status использует тот же
+azur doctor по умолчанию выполняет дешёвую локальную диагностику; флаг
+`azur doctor --full` добавляет шесть внешних integration summaries. Оба режима
+read-only: они не создают credential, не запускают full scan и не изменяют
+Compose или runtime. dev_tools.mcp_status использует тот же
 IntegrationService и публикует только bounded status, source/runtime
 provenance и machine-readable reason codes:
 
@@ -765,8 +767,8 @@ observability project и не переводит application logs/traces на н
 Grafana direct adapter читает explicit endpoint или безопасно подтверждённую
 локальную Compose topology; он не создаёт service account, не ротирует token и
 не сбрасывает admin password. Compose credentials и persistence остаются
-отдельным operator-owned контуром. Docker MCP Gateway и Secrets Engine не
-используются как credential boundary для direct adapter. При
+отдельным operator-owned контуром. Унаследованный Gateway/Secrets Engine
+контур Docker не используется как credential boundary для direct adapter. При
 недоступном endpoint или credential status честно остаётся NOT_CONFIGURED,
 UNAUTHENTICATED или UNAVAILABLE.
 

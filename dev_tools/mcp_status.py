@@ -203,9 +203,11 @@ def _codex_skill_status(skill_path: Path, expected_name: str) -> dict[str, objec
         return {"status": "invalid", "reason_code": "CODEX_PLUGIN_SKILL_FRONTMATTER_INVALID"}
     try:
         import yaml
-
+    except ImportError:
+        return {"status": "unavailable", "reason_code": "CODEX_PLUGIN_SKILL_UNAVAILABLE"}
+    try:
         metadata = yaml.safe_load(match.group("body"))
-    except (ImportError, yaml.YAMLError):
+    except yaml.YAMLError:
         return {"status": "invalid", "reason_code": "CODEX_PLUGIN_SKILL_FRONTMATTER_INVALID"}
     if not isinstance(metadata, Mapping):
         return {"status": "invalid", "reason_code": "CODEX_PLUGIN_SKILL_FRONTMATTER_INVALID"}
@@ -761,7 +763,6 @@ async def collect_status_async(
         "servers": server_items,
         "version_guard": version_guard,
         "integrations": integrations,
-        "direct_routes": integrations,
         "probe": {"status": integration_probe_status, "generated_at": generated_at},
     }
 
@@ -784,30 +785,70 @@ _METRIC_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,127}$")
 
 
 def _surface_samples(
-    *, server: str, surface: str, value: Mapping[str, object], required: bool
+    *,
+    server: str,
+    surface: str,
+    value: Mapping[str, object],
+    required: bool,
+    probe_timestamp: float | None = None,
 ) -> list[MetricSample]:
     status = value.get("status", value.get("state"))
     reachable = value.get("runtime_reachable") is True or value.get("reachable") is True
     ready = value.get("runtime_ready") is True or status in {"ready", "configured"}
     configured = status not in {None, "not_configured"}
     protocol = str(value.get("protocol_version", "unknown"))
+    observed_version = value.get("server_version")
+    version = (
+        observed_version
+        if isinstance(observed_version, str) and _SAFE_TOKEN.fullmatch(observed_version)
+        else "unknown"
+    )
     attributes = {
         "server": server,
         "surface": surface,
-        "version": "unknown",
+        "version": version,
         "protocol": protocol if _SAFE_TOKEN.fullmatch(protocol) else "unknown",
         "required_runtime": "1" if required else "0",
     }
-    return [
+    samples = [
         MetricSample("azurpilot_mcp_surface_configured", float(configured), attributes),
         MetricSample("azurpilot_mcp_endpoint_up", float(reachable), attributes),
         MetricSample("azurpilot_mcp_surface_reachable", float(reachable), attributes),
         MetricSample("azurpilot_mcp_surface_runtime_ready", float(ready), attributes),
     ]
+    version_status = value.get("version_status")
+    if version_status in {"compatible", "drift"}:
+        samples.append(
+            MetricSample(
+                "azurpilot_mcp_version_drift",
+                1.0 if version_status == "drift" else 0.0,
+                attributes,
+            )
+        )
+    if version != "unknown":
+        samples.append(
+            MetricSample("azurpilot_mcp_observed_version_info", 1.0, attributes)
+        )
+    if ready and probe_timestamp is not None:
+        samples.append(
+            MetricSample(
+                "azurpilot_mcp_last_successful_probe_timestamp_seconds",
+                probe_timestamp,
+                attributes,
+            )
+        )
+    return samples
 
 
 def status_metric_samples(report: Mapping[str, object]) -> tuple[MetricSample, ...]:
     samples: list[MetricSample] = []
+    probe_timestamp: float | None = None
+    generated_at = report.get("generated_at")
+    if isinstance(generated_at, str):
+        try:
+            probe_timestamp = datetime.fromisoformat(generated_at).timestamp()
+        except ValueError:
+            probe_timestamp = None
     servers = report.get("servers")
     if isinstance(servers, Mapping):
         for name, item in servers.items():
@@ -815,20 +856,52 @@ def status_metric_samples(report: Mapping[str, object]) -> tuple[MetricSample, .
                 continue
             local = item.get("local_direct")
             if isinstance(local, Mapping):
-                samples.extend(_surface_samples(server=name, surface="local_direct", value=local, required=True))
+                samples.extend(
+                    _surface_samples(
+                        server=name,
+                        surface="local_direct",
+                        value=local,
+                        required=True,
+                        probe_timestamp=probe_timestamp,
+                    )
+                )
             codex = item.get("codex")
             if isinstance(codex, Mapping):
                 source = codex.get("source_config")
                 effective = codex.get("effective_codex_registration")
                 if isinstance(source, Mapping):
-                    samples.extend(_surface_samples(server=name, surface="codex_source", value=source, required=True))
+                    samples.extend(
+                        _surface_samples(
+                            server=name,
+                            surface="codex_source",
+                            value=source,
+                            required=True,
+                            probe_timestamp=probe_timestamp,
+                        )
+                    )
                 if isinstance(effective, Mapping):
-                    samples.extend(_surface_samples(server=name, surface="codex_effective", value=effective, required=True))
+                    samples.extend(
+                        _surface_samples(
+                            server=name,
+                            surface="codex_effective",
+                            value=effective,
+                            required=True,
+                            probe_timestamp=probe_timestamp,
+                        )
+                    )
     integrations = report.get("integrations")
     if isinstance(integrations, Mapping):
         for name, value in integrations.items():
             if isinstance(name, str) and name in DIRECT_INTEGRATION_NAMES and isinstance(value, Mapping):
-                samples.extend(_surface_samples(server=name, surface="external_direct", value=value, required=True))
+                samples.extend(
+                    _surface_samples(
+                        server=name,
+                        surface="external_direct",
+                        value=value,
+                        required=True,
+                        probe_timestamp=probe_timestamp,
+                    )
+                )
     for sample in samples:
         if not _METRIC_NAME_RE.fullmatch(sample.name) or set(sample.attributes) - _METRIC_ATTRIBUTE_NAMES:
             raise StatusError("MCP_METRIC_ATTRIBUTES_INVALID")

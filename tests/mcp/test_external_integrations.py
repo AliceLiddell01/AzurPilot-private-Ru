@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
 from pathlib import Path
@@ -27,7 +28,7 @@ from azurpilot.integrations.contracts import (
     IntegrationName,
     IntegrationState,
 )
-from azurpilot.integrations.mcp_client import McpCallPlan
+from azurpilot.integrations.mcp_client import McpCallPlan, McpProbeResult
 from azurpilot.tooling.contracts import AnalysisScope, FindingDisposition, GitRange
 from azurpilot.tooling.errors import ToolingError
 
@@ -578,11 +579,9 @@ def test_grafana_file_credential_uses_direct_container_env(
     }
 
     adapter = GrafanaAdapter()
-    credential = _credential(settings, required=True)
-    command = adapter._command_args(
-        settings,
-        credential,
-        credential_value=token,
+    command = adapter.build_command(
+        tmp_path,
+        IntegrationConfig(values={"grafana": settings}),
     )
 
     assert command is not None
@@ -593,6 +592,41 @@ def test_grafana_file_credential_uses_direct_container_env(
     assert "GRAFANA_SERVICE_ACCOUNT_TOKEN" in args
     assert environment["GRAFANA_SERVICE_ACCOUNT_TOKEN"] == token
     assert token not in args
+
+
+def test_http_probe_uses_file_credential_value(monkeypatch, tmp_path: Path):
+    token = "fixture-http-token"
+    credential_file = tmp_path / "http-token"
+    credential_file.write_text(token + "\n", encoding="utf-8")
+    config = IntegrationConfig(
+        values={
+            "context7": {
+                "endpoint": "https://context7.example.test/mcp",
+                "credential_env": "GRAFANA_SERVICE_ACCOUNT_TOKEN",
+                "credential_file": str(credential_file),
+            }
+        }
+    )
+    observed: dict[str, object] = {}
+
+    async def fake_probe_http(**kwargs: object) -> McpProbeResult:
+        observed.update(kwargs)
+        return McpProbeResult(
+            IntegrationState.READY,
+            "MCP_READ_ONLY_PROBE_READY",
+            authenticated=True,
+        )
+
+    monkeypatch.setattr("azurpilot.integrations.adapters.probe_http", fake_probe_http)
+    adapter = Context7Adapter()
+    adapter.requires_credential = True
+
+    outcome = asyncio.run(adapter.probe(tmp_path, config))
+
+    assert observed["headers"] == {"Authorization": f"Bearer {token}"}
+    assert observed["credential_configured"] is True
+    assert outcome.record.state is IntegrationState.READY
+    assert token not in outcome.record.model_dump_json()
 
 
 def test_grafana_discovery_uses_single_published_route(monkeypatch, tmp_path: Path):
@@ -761,6 +795,27 @@ def test_config_rejects_unapproved_credential_reference(tmp_path: Path, monkeypa
         load_integration_config(tmp_path)
 
 
+def test_config_rejects_file_reference_as_credential_value_name(
+    tmp_path: Path, monkeypatch
+):
+    config_path = tmp_path / "integrations.toml"
+    config_path.write_text(
+        "[integrations.grafana]\n"
+        "credential_env = 'GRAFANA_SERVICE_ACCOUNT_TOKEN_FILE'\n",
+        encoding="utf-8",
+    )
+    for variable in (
+        "AZURPILOT_USER_CONFIG",
+        "AZURPILOT_MACHINE_CONFIG",
+        "AZURPILOT_CONFIG_FILE",
+    ):
+        monkeypatch.delenv(variable, raising=False)
+    monkeypatch.setenv("AZURPILOT_CONFIG_FILE", str(config_path))
+
+    with pytest.raises(ToolingError, match="credential_env"):
+        load_integration_config(tmp_path)
+
+
 def test_validated_user_config_overrides_repository_registration(tmp_path: Path, monkeypatch):
     (tmp_path / ".codex").mkdir()
     (tmp_path / ".codex" / "config.toml").write_text(
@@ -878,7 +933,7 @@ def test_coderabbit_state_persists_recovery_provenance_without_secret_values(
     assert "token" not in serialized.casefold()
 
 
-def test_direct_status_has_explicit_non_ready_states_without_mutation(monkeypatch, tmp_path):
+def test_direct_status_is_ready_without_credential_and_without_mutation(monkeypatch, tmp_path):
     monkeypatch.delenv("CONTEXT7_API_KEY", raising=False)
     result = Context7Adapter().status(tmp_path, IntegrationConfig())
 

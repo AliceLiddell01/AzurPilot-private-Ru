@@ -26,7 +26,11 @@ _ENV_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,127}$")
 # Это vendor defaults, а не credentials или machine identity. Image refs
 # намеренно immutable; изменять их можно только через явную конфигурацию.
 DEFAULTS: dict[str, dict[str, object]] = {
-    "semgrep": {"command": "semgrep", "route": "direct_local_cli"},
+    "semgrep": {
+        "command": "semgrep",
+        "route": "direct_local_cli",
+        "ruleset": "config/semgrep/direct-integrations.yml",
+    },
     "context7": {
         "endpoint": "https://mcp.context7.com/mcp",
         "route": "direct_streamable_http",
@@ -305,6 +309,18 @@ def _validate_value(name: str, key: str, value: object) -> object:
         if path.exists() and not path.is_file():
             _raise(f"Параметр {name}.credential_file не является файлом.")
         return str(canonical_path(path))
+    if key == "ruleset":
+        if (
+            not isinstance(value, str)
+            or not value.strip()
+            or len(value.strip()) > 1024
+            or "\x00" in value
+        ):
+            _raise(f"Параметр {name}.ruleset имеет неверный тип.")
+        path = Path(value.strip())
+        if path.is_absolute() or ".." in path.parts:
+            _raise(f"Параметр {name}.ruleset имеет небезопасный путь.")
+        return path.as_posix()
     if key == "credential_env" and (
         not isinstance(value, str)
         or _ENV_NAME_RE.fullmatch(value) is None

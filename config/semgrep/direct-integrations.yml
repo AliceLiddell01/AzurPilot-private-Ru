@@ -1,0 +1,8 @@
+rules:
+  - id: azurpilot-subprocess-shell-true
+    languages:
+      - python
+    message: "Не используйте shell=True в bounded direct integration subprocess."
+    severity: WARNING
+    patterns:
+      - pattern: subprocess.$FUNCTION(..., shell=True, ...)

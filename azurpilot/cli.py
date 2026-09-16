@@ -130,6 +130,11 @@ def build_parser() -> argparse.ArgumentParser:
         "doctor", help="проверка возможностей проекта без изменений"
     )
     _add_common_options(doctor, suppress_defaults=True)
+    doctor.add_argument(
+        "--full",
+        action="store_true",
+        help="добавить дорогую read-only проверку внешних интеграций",
+    )
 
     start = subparsers.add_parser(
         "start", help="запустить WebUI после проверки владения и готовности"
@@ -698,6 +703,8 @@ def _dispatch(
     root = getattr(args, "repository_root", None)
     command = args.command
     if command == "doctor":
+        if getattr(args, "full", False):
+            return services.doctor.run(root, include_external_integrations=True)
         return services.doctor.run(root)
     if command == "start":
         return services.lifecycle.start(
@@ -780,7 +787,7 @@ def _dispatch(
         if target == IntegrationName.SEMGREP.value and action == "scan":
             integration_root = services.integrations.resolve_root(root)
             paths = tuple(
-                item
+                item.strip()
                 for raw in getattr(args, "paths", ())
                 for item in raw.split(",")
                 if item.strip()

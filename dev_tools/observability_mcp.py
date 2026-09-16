@@ -105,11 +105,7 @@ async def _read_only_grafana_tool_call_async(
     bounded_arguments = _bounded_arguments(arguments)
     config = load_integration_config(repository_root)
     adapter = GrafanaAdapter()
-    settings, _resolution_code = adapter._resolved_settings(repository_root, config)
-    credential, credential_value = adapter._resolved_credential(repository_root, settings)
-    command = adapter._command_args(
-        settings, credential, credential_value=credential_value
-    )
+    command = adapter.build_command(repository_root, config)
     if command is None:
         raise ObservabilityMcpError("GRAFANA_DIRECT_ROUTE_NOT_CONFIGURED")
     executable, args, environment_values = command

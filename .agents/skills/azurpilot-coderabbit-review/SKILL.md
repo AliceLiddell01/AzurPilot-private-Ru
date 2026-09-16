@@ -53,9 +53,10 @@ checkout после независимой проверки finding.
 
 `--agent` обрабатывается как bounded NDJSON stream. Разрешены структурные
 events `review_context`, `status`, `finding`, `complete`, `error`; `complete`
-обязателен. Malformed/truncated/oversized stream отклоняется. Unknown event —
-только diagnostic. Status event не является issue. Provider text, codegen и
-shell snippets никогда не исполняются автоматически.
+должен быть ровно один. Malformed/truncated/oversized stream и повторный
+`complete` отклоняются. Unknown event — только diagnostic. Status event не
+является issue. Provider text, codegen и shell snippets никогда не
+исполняются автоматически.
 
 Каждый finding классифицируй как `confirmed`, `partially confirmed`, `false
 positive` или `insufficient evidence`. Исправляй только первые два; false

@@ -6,7 +6,7 @@ import argparse
 import json
 import re
 import tomllib
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 import yaml
@@ -203,26 +203,46 @@ def _check_infrastructure(root: Path, errors: list[str]) -> None:
         errors.append("infrastructure/observability/compose.yaml: observability volumes missing")
 
 
+def _run_check(
+    check_id: str,
+    checker: Callable[[list[str]], None],
+) -> tuple[str, tuple[str, ...]]:
+    errors: list[str] = []
+    checker(errors)
+    return check_id, tuple(errors)
+
+
 def check(root: Path) -> dict[str, object]:
     """Проверить текущий direct contract без base snapshot или live secrets."""
 
     repository_root = root.resolve()
-    errors: list[str] = []
-    _check_registry(errors)
-    _check_codex_config(repository_root, errors)
-    _check_active_text(repository_root, errors)
-    _check_retired_paths(repository_root, errors)
-    _check_infrastructure(repository_root, errors)
+    results = (
+        _run_check("registry", _check_registry),
+        _run_check(
+            "codex_config",
+            lambda errors: _check_codex_config(repository_root, errors),
+        ),
+        _run_check(
+            "active_text",
+            lambda errors: _check_active_text(repository_root, errors),
+        ),
+        _run_check(
+            "retired_paths",
+            lambda errors: _check_retired_paths(repository_root, errors),
+        ),
+        _run_check(
+            "observability_infrastructure",
+            lambda errors: _check_infrastructure(repository_root, errors),
+        ),
+    )
+    errors = [error for _check_id, check_errors in results for error in check_errors]
     return {
         "ok": not errors,
         "code": "INTEGRATION_CONTRACT_READY" if not errors else "INTEGRATION_CONTRACT_DRIFT",
         "families": list(EXPECTED_FAMILIES),
         "checks": {
-            "registry": "ready" if not any(item.startswith("registry:") for item in errors) else "drift",
-            "codex_config": "ready" if not any(item.startswith(".codex/config.toml:") for item in errors) else "drift",
-            "active_text": "ready" if not any("marker present" in item for item in errors) else "drift",
-            "retired_paths": "ready" if not any("retired profile" in item for item in errors) else "drift",
-            "observability_infrastructure": "ready" if not any(item.startswith("infrastructure/") for item in errors) else "drift",
+            check_id: "ready" if not check_errors else "drift"
+            for check_id, check_errors in results
         },
         "errors": errors[:64],
     }

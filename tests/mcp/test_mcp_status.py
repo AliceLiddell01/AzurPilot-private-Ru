@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import builtins
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -128,7 +129,7 @@ def test_status_keeps_first_party_contract_and_adds_exactly_six_direct_integrati
 
     assert report["status"] == "ready"
     assert tuple(report["integrations"]) == status.DIRECT_INTEGRATION_NAMES
-    assert report["direct_routes"] == report["integrations"]
+    assert "direct_routes" not in report
     assert all(item["state"] == "ready" for item in report["integrations"].values())
     assert all(
         item["local_direct"]["status"] == "ready"
@@ -172,6 +173,10 @@ def test_json_report_and_metric_labels_are_bounded(monkeypatch):
     )
     assert "password" not in encoded.casefold()
     assert "authorization" not in encoded.casefold()
+    names = {sample.name for sample in samples}
+    assert "azurpilot_mcp_version_drift" in names
+    assert "azurpilot_mcp_last_successful_probe_timestamp_seconds" in names
+    assert "azurpilot_mcp_observed_version_info" in names
 
 
 def test_human_report_mentions_direct_integrations_without_legacy_route(
@@ -186,6 +191,26 @@ def test_human_report_mentions_direct_integrations_without_legacy_route(
     assert "docker-hub" in output
     assert "external_direct" not in output
     assert "gateway" not in output
+
+
+def test_missing_yaml_dependency_is_reported_without_name_error(monkeypatch, tmp_path):
+    original_import = builtins.__import__
+
+    def missing_yaml(name, *args, **kwargs):
+        if name == "yaml":
+            raise ImportError("yaml unavailable")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", missing_yaml)
+    skill = tmp_path / "SKILL.md"
+    skill.write_text("---\nname: test\ndescription: test\n---\n", encoding="utf-8")
+
+    result = status._codex_skill_status(skill, "test")
+
+    assert result == {
+        "status": "unavailable",
+        "reason_code": "CODEX_PLUGIN_SKILL_UNAVAILABLE",
+    }
 
 
 def test_strict_requires_observable_codex_session(monkeypatch):

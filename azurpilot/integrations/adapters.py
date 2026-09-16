@@ -301,6 +301,15 @@ class SemgrepAdapter(IntegrationAdapter):
                 "Semgrep не найден в PATH.",
                 _evidence(config=settings, credential=credential, configured=False),
             )
+        ruleset = settings.get("ruleset")
+        if not isinstance(ruleset, str) or not (root / ruleset).is_file():
+            return _record(
+                self.name,
+                IntegrationState.NOT_CONFIGURED,
+                "SEMGREP_RULESET_NOT_CONFIGURED",
+                "Локальный ruleset Semgrep не найден.",
+                _evidence(config=settings, credential=credential, configured=False),
+            )
         return _record(
             self.name,
             IntegrationState.READY,
@@ -421,11 +430,26 @@ class SemgrepAdapter(IntegrationAdapter):
         if executable is None:
             record = self.status(root, config)
             return AdapterOutcome(record)
+        ruleset = settings.get("ruleset")
+        if not isinstance(ruleset, str) or not (root / ruleset).is_file():
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "Локальный ruleset Semgrep не найден.",
+            )
         runner = StructuredProcessRunner()
         result = runner.run(
             ProcessSpec(
                 executable=executable,
-                argv=("scan", "--json", "--quiet", "--config", "auto", "--", *paths),
+                argv=(
+                    "scan",
+                    "--json",
+                    "--quiet",
+                    "--metrics=off",
+                    "--config",
+                    ruleset,
+                    "--",
+                    *paths,
+                ),
                 cwd=root,
                 timeout_seconds=120,
                 max_output_bytes=_MAX_SCAN_BYTES,
@@ -534,21 +558,20 @@ class _HttpMcpAdapter(IntegrationAdapter):
         if not isinstance(endpoint, str) or not endpoint:
             return AdapterOutcome(self.status(root, config))
         headers: dict[str, str] = {}
-        if credential.configured and credential.name:
-            token = os.environ.get(credential.name, "").strip()
-            if token:
-                headers["Authorization"] = f"Bearer {token}"
+        token = _credential_value(settings, credential)
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
         result = await probe_http(
             endpoint=endpoint,
             headers=headers,
             plan=self.plan,
             timeout_seconds=30,
-            credential_configured=credential.configured,
+            credential_configured=bool(token),
         )
         if (
             result.state is IntegrationState.READY
             and self.requires_credential
-            and not credential.configured
+            and not token
         ):
             result = McpProbeResult(
                 IntegrationState.UNAUTHENTICATED,
@@ -797,6 +820,17 @@ class _ContainerMcpAdapter(IntegrationAdapter):
                 )
             )
         return executable, tuple(args), env
+
+    def build_command(
+        self, root: Path, config: IntegrationConfig
+    ) -> tuple[str, tuple[str, ...], dict[str, str]] | None:
+        """Вернуть готовый direct command без раскрытия credential в evidence."""
+
+        settings, _resolution_code = self._resolved_settings(root, config)
+        credential, credential_value = self._resolved_credential(root, settings)
+        return self._command_args(
+            settings, credential, credential_value=credential_value
+        )
 
     def status(self, root: Path, config: IntegrationConfig) -> IntegrationRecord:
         settings, resolution_code = self._resolved_settings(root, config)
