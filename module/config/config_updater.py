@@ -49,7 +49,7 @@ from module.config.task_priority import get_scheduler_tasks, merge_task_priority
 from module.config.utils import *
 from module.config.redirect_utils.utils import *
 
-# config_generated.py 的头部模板
+# Шаблон заголовка config_generated.py
 CONFIG_IMPORT = '''
 # 此文件是配置系统的更新器。
 # 负责读取配置定义、生成 config_generated.py 以及处理配置的版本迁移、i18n 生成等核心管理任务。
@@ -178,11 +178,11 @@ class ConfigGenerator:
             if isinstance(value['value'], datetime):
                 arg['type'] = 'datetime'
                 arg['validate'] = 'datetime'
-            # 手动定义的优先级最高
+            # Ручные определения имеют наивысший приоритет
             arg.update(value)
             deep_set(data, keys=path, value=arg)
 
-        # 定义 Storage 组
+        # Определение группы Storage
         arg = {
             'type': 'storage',
             'value': {},
@@ -263,15 +263,15 @@ class ConfigGenerator:
          default.yaml ---+
 
         """
-        # 构建 args
+        # Построение args
         data = {}
-        # 将仪表盘添加到 args
+        # Добавление дашборда в args
         dashboard_and_task = {**self.task, **self.dashboard}
         for path, groups in deep_iter(dashboard_and_task, min_depth=1, depth=3):
             if 'tasks' not in path and 'Dashboard' not in path:
                 continue
             task = path[2] if 'tasks' in path else path[0]
-            # 为所有任务添加 Storage 组
+            # Добавление группы Storage для всех задач
             groups.append('Storage')
             for group in groups:
                 if group not in self.argument:
@@ -280,12 +280,12 @@ class ConfigGenerator:
                 deep_set(data, keys=[task, group], value=deepcopy(self.argument[group]))
 
         def check_override(path, value):
-            # 检查参数是否存在（若不存在则跳过）
+            # Проверка существования параметра (пропуск при отсутствии)
             old = deep_get(data, keys=path, default=None)
             if old is None:
                 print(f'Аргумент `{".".join(path)}` не существует')
                 return False
-            # 检查类型是否匹配（但允许 `Interval` 类型不同）
+            # Проверка совпадения типов (но допускаются различия типа `Interval`)
             old_value = old.get('value', None) if isinstance(old, dict) else old
             value = old.get('value', None) if isinstance(value, dict) else value
             if type(value) != type(old_value) \
@@ -294,19 +294,19 @@ class ConfigGenerator:
                 print(
                     f'Тип `{value}` ({type(value)}) не совпадает с типом `{".".join(path)}` ({type(old_value)})')
                 return False
-            # 检查选项值是否在允许列表中
+            # Проверка, входит ли значение опции в список допустимых
             if isinstance(old, dict) and 'option' in old:
                 if value not in old['option']:
                     print(f'`{value}` не является допустимым значением аргумента `{".".join(path)}`')
                     return False
             return True
 
-        # 设置默认值
+        # Установка значений по умолчанию
         for p, v in deep_iter(self.default, depth=3):
             if not check_override(p, v):
                 continue
             deep_set(data, keys=p + ['value'], value=v)
-        # 覆盖不可修改的参数
+        # Переопределение неизменяемых параметров
         for p, v in deep_iter(self.override, depth=3):
             if not check_override(p, v):
                 continue
@@ -323,7 +323,7 @@ class ConfigGenerator:
             else:
                 deep_set(data, keys=p + ['value'], value=v)
                 deep_set(data, keys=p + ['display'], value='hide')
-        # 设置任务命令
+        # Установка команды задачи
         for path, groups in deep_iter(self.task, depth=3):
             if 'tasks' not in path:
                 continue
@@ -332,7 +332,7 @@ class ConfigGenerator:
                 deep_set(data, keys=f'{task}.Scheduler.Command.value', value=task)
                 deep_set(data, keys=f'{task}.Scheduler.Command.display', value='hide')
 
-        # 非主线任务隐藏 Campaign.Mode（Mode 仅适用于主线地图）
+        # Для задач не основной кампании скрываем Campaign.Mode (Mode применим только к картам кампании)
         for task in list(data.keys()):
             if task not in MAINS:
                 if deep_get(data, keys=f'{task}.Campaign.Mode') is not None:
@@ -389,7 +389,7 @@ class ConfigGenerator:
                 v = deep_get(old, keys=k, default=d)
                 deep_set(new, keys=k, value=v)
 
-        # 菜单翻译
+        # Перевод меню
         for path, data in deep_iter(self.task, depth=3):
             if 'tasks' not in path:
                 continue
@@ -397,7 +397,7 @@ class ConfigGenerator:
             if task_group != 'Dashboard':
                 deep_load(['Menu', task_group])
                 deep_load(['Task', task])
-        # 参数翻译
+        # Перевод аргументов
         visited_group = set()
         dashboard_args = deep_get(read_file(filepath_argument("task")), 'Dashboard.tasks.Dashboard', default=[])
         for path, data in deep_iter(self.argument, depth=2):
@@ -422,7 +422,7 @@ class ConfigGenerator:
         for event in sorted(self.event):
             name = events.get(event.directory, event.directory)
             deep_set(new, keys=f'Campaign.Event.{event.directory}', value=name)
-        # 包名翻译
+        # Перевод имен пакетов
         for package, server in VALID_PACKAGE.items():
             path = ['Emulator', 'PackageName', package]
             if deep_get(new, keys=path) == package:
@@ -433,14 +433,14 @@ class ConfigGenerator:
             name = deep_get(new, keys=['Emulator', 'PackageName', to_package(server)])
             value = f'{name} · канал {channel} · {package}'
             deep_set(new, keys=['Emulator', 'PackageName', package], value=value)
-        # 游戏服务器名称
+        # Имена игровых серверов
         for server, _list in VALID_SERVER_LIST.items():
             for index in range(len(_list)):
                 path = ['Emulator', 'ServerName', f'{server}-{index}']
                 prefix = server.split('_')[0].upper()
                 prefix = '国服' if prefix == 'CN' else prefix
                 deep_set(new, keys=path, value=f'[{prefix}] {_list[index]}')
-        # GUI 界面翻译
+        # Перевод интерфейса GUI
         for path, _ in deep_iter(self.gui, depth=2):
             group, key = path
             deep_load(keys=['Gui', group], words=(key,))
@@ -635,7 +635,7 @@ class ConfigGenerator:
 
 
 class ConfigUpdater:
-    # 格式：source, target, (可选) convert_func
+    # Формат: source, target, (опционально) convert_func
     redirection = [
         (
             'Alas.FleetAutoScan.Mode',
@@ -728,7 +728,7 @@ class ConfigUpdater:
         new = {}
 
         for keys, data in deep_iter(self.args, depth=3):
-            # 跳过非字典项（叶子值，如字符串、数字等）
+            # Пропуск не-словарей (листовые значения: строки, числа и т. д.)
             if not isinstance(data, dict):
                 continue
             missing = object()
@@ -746,7 +746,7 @@ class ConfigUpdater:
             value = parse_value(value, data=data)
             deep_set(new, keys=keys, value=value)
 
-        # 更新到最新活动
+        # Обновление до последнего события
         server = to_server(
             deep_get(new, 'Alas.Emulator.PackageName', GLOBAL_PACKAGE)
         )
@@ -764,7 +764,7 @@ class ConfigUpdater:
                     deep_set(new,
                              keys=f'{task}.Campaign.Event',
                              value=opts[0])
-        # 作战档案不允许选择 campaign_main
+        # В архивах боевых действий нельзя выбирать campaign_main
         for task in WAR_ARCHIVES:
             opts = deep_get(self.args, keys=f'{task}.Campaign.Event.option_{server}', default=[])
             if opts and deep_get(new, keys=f'{task}.Campaign.Event', default='campaign_main') == 'campaign_main':
@@ -772,7 +772,7 @@ class ConfigUpdater:
                          keys=f'{task}.Campaign.Event',
                          value=opts[0])
 
-        # 活动不允许默认关卡 12-4
+        # В событии не допускается уровень 12-4 по умолчанию
         def default_stage(t, stage):
             if deep_get(new, keys=f'{t}.Campaign.Name', default='12-4') in ['7-2', '12-4']:
                 deep_set(new, keys=f'{t}.Campaign.Name', value=stage)
@@ -782,8 +782,8 @@ class ConfigUpdater:
         for task in COALITIONS:
             default_stage(task, 'TC-3')
 
-        # 联动任务统一使用简单、普通、困难的关卡命名。
-        # 旧配置中的 TC-1/2/3 在加载时迁移，霜落活动会在运行时转换回内部编号。
+        # Задачи коллабораций используют унифицированные названия уровней: простой, обычный, сложный.
+        # Устаревшие TC-1/2/3 мигрируют при загрузке, событие Frostfall переводит их обратно в runtime.
         if not is_template:
             for task in COALITIONS:
                 stage_key = f'{task}.Coalition.Mode'
@@ -874,7 +874,7 @@ class ConfigUpdater:
 
             if isinstance(target, tuple):
                 for k, v in zip(target, value):
-                    # 允许更新相同的键
+                    # Разрешено обновление одинаковых ключей
                     if (deep_get(old, keys=k) is None) or (source == target):
                         deep_set(new, keys=k, value=v)
             elif (deep_get(old, keys=target) is None) or (source == target):
@@ -918,15 +918,15 @@ class ConfigUpdater:
             key[-1] = key[-1].replace("Value", "Record")
             yield ".".join(key), datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        # 智能调度与侵蚀1配置双向同步
-        # 当修改智能调度的黄币保留时，同步到侵蚀1
+        # Двусторонняя синхронизация умного расписания и конфигурации Corrosion 1
+        # При изменении запаса монет в умном расписании синхронизируем с Corrosion 1
         if key == 'OpsiScheduling.OpsiScheduling.OperationCoinsPreserve':
             yield 'OpsiHazard1Leveling.OpsiHazard1Leveling.OperationCoinsPreserve', value
-        # 当修改侵蚀1的黄币保留时，同步到智能调度
+        # При изменении запаса монет в Corrosion 1 синхронизируем с умным расписанием
         elif key == 'OpsiHazard1Leveling.OpsiHazard1Leveling.OperationCoinsPreserve':
             yield 'OpsiScheduling.OpsiScheduling.OperationCoinsPreserve', value
         
-        # 注意：动态下拉菜单更新仅在 pywebio > 1.8.0 时可用
+        # Примечание: динамическое обновление выпадающего меню доступно только в pywebio > 1.8.0
         # elif key == 'Alas.Emulator.ScreenshotMethod' and value == 'nemu_ipc':
         #     yield 'Alas.Emulator.ControlMethod', 'nemu_ipc'
         # elif key == 'Alas.Emulator.ControlMethod' and value == 'nemu_ipc':
@@ -945,7 +945,7 @@ class ConfigUpdater:
         """
         old = read_file(filepath_config(config_name))
         new = self.config_update(old, is_template=is_template)
-        # 更新后的配置未写回文件，出于性能考虑已注释掉写入操作
+        # Обновленная конфигурация не записывается в файл: запись закомментирована для производительности
         # self.write_file(config_name, new)
         return new
 
@@ -990,7 +990,7 @@ if __name__ == '__main__':
     (old) i18n/<lang>.json --------\\========> i18n/<lang>.json
     (old)    template.json ---------\\========> template.json
     """
-    # 确保在 Alas 根目录下运行
+    # Убеждаемся, что запуск выполняется из корня Alas
     import os
 
     os.chdir(os.path.join(os.path.dirname(__file__), '../../'))

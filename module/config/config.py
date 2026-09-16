@@ -119,7 +119,7 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
     stop_event: threading.Event = None
     bound = {}
 
-    # 类属性
+    # Свойства класса
     is_hoarding_task = True
 
     def __setattr__(self, key, value):
@@ -133,33 +133,33 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
 
     def __init__(self, config_name, task=None):
         logger.attr("Сервер", self.SERVER)
-        # 读取 ./config/<config_name>.json
+        # Чтение ./config/<config_name>.json
         self.config_name = config_name
-        # YAML 文件中的原始 JSON 数据
+        # Исходные данные JSON из файлов YAML
         self.data = {}
-        # 已修改的参数。键：YAML 文件中的参数路径。值：修改后的值。
-        # 所有变量修改都会记录在此处，并在 `save()` 方法中保存。
+        # Измененные параметры. Ключ: путь к параметру в YAML-файле. Значение: измененное значение.
+        # Все изменения переменных записываются сюда и сохраняются в методе `save()`.
         self.modified = {}
-        # 键：GeneratedConfig 中的参数名。值：`data` 中的路径。
+        # Ключ: имя параметра в GeneratedConfig. Значение: путь в `data`.
         self.bound = {}
-        # 是否在每次变量修改后立即写入
+        # Выполнять ли немедленную запись после каждого изменения переменной
         self.auto_update = True
-        # 强制覆盖的变量
-        # 键：GeneratedConfig 中的参数名。值：修改后的值。
+        # Принудительно переопределяемые переменные
+        # Ключ: имя параметра в GeneratedConfig. Значение: измененное значение.
         self.overridden = {}
-        # 调度器队列，在 `get_next_task()` 中更新，包含 Function 对象列表
-        # pending_task：运行时间已到，但因任务调度尚未执行
-        # waiting_task：运行时间未到，需要等待
+        # Очередь планировщика, обновляется в `get_next_task()`, содержит список объектов Function
+        # pending_task: время запуска наступило, но задача еще не выполнена из-за планирования
+        # waiting_task: время запуска не наступило, требуется ожидание
         self.pending_task = []
         self.waiting_task = []
-        # 待运行和绑定的任务
-        # task 表示 AzurLaneAutoScript 类中要运行的函数名
+        # Задачи для выполнения и привязки
+        # task обозначает имя функции для запуска в классе AzurLaneAutoScript
         self.task: Function
-        # 模板配置供开发工具使用
+        # Шаблонная конфигурация для инструментов разработки
         self.is_template_config = config_name.startswith("template")
 
         if self.is_template_config:
-            # 供开发工具使用
+            # Для инструментов разработки
             logger.info("[Конфигурация] Используется шаблон в режиме только для чтения")
             self.auto_update = False
             self.task = name_to_function("template")
@@ -179,10 +179,10 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
 
         self.load()
         if task is None:
-            # 默认绑定 Alas，包含模拟器设置
+            # По умолчанию привязывается Alas, включая настройки эмулятора
             task = name_to_function("Alas")
         else:
-            # 绑定特定任务，用于调试
+            # Привязка конкретной задачи для отладки
             task = name_to_function(task)
         self.bind(task)
         self.task = task
@@ -238,7 +238,7 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
             func_list.insert(0, "General")
         logger.info(f"[Конфигурация] Привязка задач: {func_list}")
 
-        # 绑定参数
+        # Привязка аргументов
         visited = set()
         self.bound.clear()
         for func in func_list:
@@ -253,7 +253,7 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
                     self.bound[arg] = f"{func}.{path}"
                     visited.add(path)
 
-        # 覆盖参数
+        # Переопределение аргументов
         for arg, value in self.overridden.items():
             super().__setattr__(arg, value)
 
@@ -280,11 +280,11 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
                 if sys.platform == 'darwin' and platform.machine() == 'arm64':
                     return 'ane'
                 if sys.platform == 'win32':
-                    # Windows ML 会自行筛选 NPU、独显和 CPU，不应仅以显存决定是否尝试。
+                    # Windows ML самостоятельно фильтрует NPU, дискретный GPU и CPU; не следует полагаться только на видеопамять.
                     return 'auto'
                 return 'gpu' if is_good_gpu() else 'cpu'
             else:
-                # ncnn 后端：检查 Vulkan GPU 可用性
+                # Бэкенд ncnn: проверка доступности Vulkan GPU
                 from module.ocr.ncnn_ocr import has_ncnn_vulkan_gpu
                 return 'gpu' if has_ncnn_vulkan_gpu() else 'cpu'
 
@@ -407,7 +407,7 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
         logger.info(
             f"[Конфигурация] Сохранение {filepath_config(self.config_name, mod_name)}, {dict_to_kv(self.modified)}"
         )
-        # 不要使用 self.modified = {}，那会创建新对象。
+        # Не используйте self.modified = {}, это создаст новый объект.
         self.modified.clear()
         self.write_file(self.config_name, data=self.data)
 
@@ -437,11 +437,11 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
         limit_next_run(["OpsiExplore", "OpsiCrossMonth", "OpsiVoucher", "OpsiMonthBoss", "OpsiShop"],
                        limit=now + timedelta(days=31, seconds=-1))
         limit_next_run(["OpsiArchive"], limit=now + timedelta(days=7, seconds=-1))
-        # 防溢出任务会按当前行动力恢复到 200 的时间延后，最长可能超过 24 小时。
+        # Задача защиты от перелива откладывается до восстановления 200 AP, максимум свыше 24 часов.
         limit_next_run(["OpsiPreventActionPointOverflow"], limit=now + timedelta(hours=48, seconds=-1))
-        # IslandPearlSell 按周调度，合法 NextRun 可能超过 24 小时。
+        # IslandPearlSell планируется еженедельно, корректный NextRun может превышать 24 часа.
         limit_next_run(["IslandPearlSell"], limit=now + timedelta(days=8, seconds=-1))
-        # 通用兜底保留 24 小时调度的少量误差空间，避免刚好延后一天的任务被重置。
+        # Универсальный резерв сохраняет небольшой допуск для 24-часового расписания, чтобы не сбрасывать отложенные на день задачи.
         limit_next_run(
             [task for task in self.args.keys() if task != "OpsiPreventActionPointOverflow"],
             limit=now + timedelta(hours=25, seconds=-1),
@@ -668,8 +668,8 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
                     "OpsiObscure",
                     "OpsiAbyssal",
                     "OpsiStronghold",
-                    # 延迟 OpsiArchive，因为 OpsiArchive 和 OpsiDaily 共享同一任务列表，
-                    # 虽然进入不需要行动力。
+                    # Откладываем OpsiArchive, так как OpsiArchive и OpsiDaily делят один список задач,
+                    # хотя для входа очки действия не требуются.
                     "OpsiArchive",
                     "OpsiMeowfficerFarming",
                 ]
@@ -822,7 +822,7 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
         Returns:
             bool: 是否需要切换任务。
         """
-        # 更新事件
+        # Обновление события
         if self.stop_event is not None:
             if self.stop_event.is_set():
                 return True
@@ -842,7 +842,7 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
         Raises:
             TaskEnd: 任务已切换时抛出此异常。
         """
-        # 如果设置了禁用任务切换标志，则跳过检查
+        # Если установлен флаг отключения переключения задач, проверка пропускается
         if getattr(self, '_disable_task_switch', False):
             logger.info('[Конфигурация] Проверка переключения задач временно отключена')
             return
@@ -876,7 +876,7 @@ class AzurLaneConfig(ConfigUpdater, ManualConfig, GeneratedConfig, ConfigWatcher
         Returns:
             AzurLaneConfig: 合并后的配置。
         """
-        # 由于所有任务独立运行，无需分离配置
+        # Поскольку все задачи выполняются независимо, разделение конфигурации не требуется
         # config = copy.copy(self)
         config = self
 
