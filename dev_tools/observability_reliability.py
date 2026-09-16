@@ -763,7 +763,7 @@ def _mcp_error_names(result: dict) -> list[str]:
 
 def mcp_signals(emission: dict) -> dict:
     """Проверить direct Grafana reads без raw logs и credentials в отчёте."""
-    from dev_tools.observability_mcp import _read_only_grafana_tool_call
+    from dev_tools.observability_mcp import read_only_grafana_tool_call
 
     trace_id = _trace_id_from_emission(emission)
     requests = {
@@ -809,7 +809,7 @@ def mcp_signals(emission: dict) -> dict:
         "health": {},
     }
     try:
-        health_payload = _read_only_grafana_tool_call(*requests["health"])
+        health_payload = read_only_grafana_tool_call(*requests["health"])
         if _mcp_payload_is_error(health_payload):
             result["unexpected_is_error"].append("health")
             result["health_error"] = "MCP_HEALTH_IS_ERROR"
@@ -843,7 +843,7 @@ def mcp_signals(emission: dict) -> dict:
             }
             continue
         try:
-            payload = _read_only_grafana_tool_call(name, arguments)
+            payload = read_only_grafana_tool_call(name, arguments)
             is_error = _mcp_payload_is_error(payload)
             if is_error:
                 result["unexpected_is_error"].append(signal)
@@ -864,7 +864,7 @@ def mcp_signals(emission: dict) -> dict:
         result["operator_checks"] = {}
         for signal, (name, arguments) in operator_checks.items():
             try:
-                payload = _read_only_grafana_tool_call(name, arguments)
+                payload = read_only_grafana_tool_call(name, arguments)
                 is_error = _mcp_payload_is_error(payload)
                 if is_error:
                     result["unexpected_is_error"].append(signal)

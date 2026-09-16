@@ -151,38 +151,46 @@ def _read_toml(path: Path) -> dict[str, Any]:
 
 
 def _candidate_config_paths() -> tuple[tuple[Path, str], ...]:
-    candidates: list[tuple[Path, str]] = []
-    for variable, source in (
-        ("AZURPILOT_USER_CONFIG", "user_config"),
-        ("AZURPILOT_MACHINE_CONFIG", "machine_config"),
-        ("AZURPILOT_CONFIG_FILE", "explicit_config"),
-    ):
+    machine_candidates: list[tuple[Path, str]] = []
+    user_candidates: list[tuple[Path, str]] = []
+    explicit_candidates: list[tuple[Path, str]] = []
+
+    def append_environment_path(
+        target: list[tuple[Path, str]], variable: str, source: str
+    ) -> None:
         raw = os.environ.get(variable, "").strip()
-        if raw:
-            path = Path(raw).expanduser()
-            if not path.is_absolute():
-                _raise(f"{variable} должен быть абсолютным путём.")
-            candidates.append((canonical_path(path), source))
+        if not raw:
+            return
+        path = Path(raw).expanduser()
+        if not path.is_absolute():
+            _raise(f"{variable} должен быть абсолютным путём.")
+        target.append((canonical_path(path), source))
+
     if os.name == "nt":
         user_base = os.environ.get("APPDATA", "").strip()
         machine_base = os.environ.get("PROGRAMDATA", "").strip()
-        if user_base:
-            candidates.append(
-                (canonical_path(Path(user_base) / "azurpilot" / "config.toml"), "user_config")
-            )
         if machine_base:
-            candidates.append(
+            machine_candidates.append(
                 (
                     canonical_path(Path(machine_base) / "AzurPilot" / "config.toml"),
                     "machine_config",
                 )
             )
+        if user_base:
+            user_candidates.append(
+                (canonical_path(Path(user_base) / "azurpilot" / "config.toml"), "user_config")
+            )
     else:
         user_base = os.environ.get("XDG_CONFIG_HOME", "").strip()
         if user_base:
-            candidates.append(
+            user_candidates.append(
                 (canonical_path(Path(user_base) / "azurpilot" / "config.toml"), "user_config")
             )
+
+    append_environment_path(machine_candidates, "AZURPILOT_MACHINE_CONFIG", "machine_config")
+    append_environment_path(user_candidates, "AZURPILOT_USER_CONFIG", "user_config")
+    append_environment_path(explicit_candidates, "AZURPILOT_CONFIG_FILE", "explicit_config")
+    candidates = machine_candidates + user_candidates + explicit_candidates
     unique: dict[str, tuple[Path, str]] = {}
     for path, source in candidates:
         unique.setdefault(os.path.normcase(str(path)), (path, source))

@@ -179,7 +179,7 @@ def server_bundle_drift_issues(
     actual_fields = {
         "api_version": (
             "dev_mcp_api_version"
-            if server_name == "azurpilot-dev"
+            if server_name == DEV_MCP_SERVER_NAME
             else "game_mcp_api_version"
         ),
         "contract_schema_version": "contract_schema_version",
@@ -223,7 +223,7 @@ def contract_compatibility_issues(
             issues.append(field)
 
     server_name = actual.get("server_name")
-    if server_name == "azurpilot-dev":
+    if server_name == DEV_MCP_SERVER_NAME:
         for field in (
             "dev_mcp_api_version",
             "smoke_spec_schema_version",

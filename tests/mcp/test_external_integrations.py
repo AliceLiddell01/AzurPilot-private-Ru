@@ -159,6 +159,27 @@ def test_agent_ndjson_parses_status_finding_and_complete():
     assert parsed.unknown_events == ("review_context", "status")
 
 
+def test_agent_ndjson_accepts_complete_finding_count():
+    parsed = coderabbit.parse_agent_ndjson(
+        [
+            json.dumps(
+                {
+                    "type": "finding",
+                    "finding": {
+                        "path": "azurpilot/integrations/service.py",
+                        "severity": "major",
+                        "message": "Проверить границу.",
+                    },
+                }
+            ),
+            json.dumps({"type": "complete", "findings": 1}),
+        ]
+    )
+
+    assert parsed.complete is True
+    assert len(parsed.findings) == 1
+
+
 def test_agent_ndjson_unknown_event_is_diagnostic_not_finding():
     parsed = coderabbit.parse_agent_ndjson(
         [json.dumps({"type": "future_status"}), json.dumps({"type": "complete"})]
@@ -764,11 +785,19 @@ def test_grafana_and_docker_hub_policies_exclude_write_tools():
     assert "update_dashboard" in GRAFANA_BLOCKED_TOOLS
 
 
-def test_credential_ref_contains_only_provenance_not_secret(monkeypatch):
+def test_credential_ref_contains_only_provenance_not_secret(
+    monkeypatch, tmp_path: Path
+):
     token = "fixture-context7-token"
     monkeypatch.setenv("CONTEXT7_API_KEY", token)
+    for variable in (
+        "AZURPILOT_USER_CONFIG",
+        "AZURPILOT_MACHINE_CONFIG",
+        "AZURPILOT_CONFIG_FILE",
+    ):
+        monkeypatch.delenv(variable, raising=False)
     config = IntegrationConfig()
-    record = Context7Adapter().status(Path.cwd(), config)
+    record = Context7Adapter().status(tmp_path, config)
     serialized = record.model_dump_json()
 
     assert record.evidence.credential.configured is True
@@ -839,6 +868,40 @@ def test_validated_user_config_overrides_repository_registration(tmp_path: Path,
 
     assert config.provider("context7")["endpoint"] == "https://context7.example.test/mcp"
     assert config.source("context7") == "explicit_config"
+
+
+def test_config_priority_is_machine_then_user_then_explicit(
+    tmp_path: Path, monkeypatch
+):
+    machine_path = tmp_path / "machine.toml"
+    user_path = tmp_path / "user.toml"
+    explicit_path = tmp_path / "explicit.toml"
+    for path, endpoint in (
+        (machine_path, "https://machine.example.test/mcp"),
+        (user_path, "https://user.example.test/mcp"),
+        (explicit_path, "https://explicit.example.test/mcp"),
+    ):
+        path.write_text(
+            f'[integrations.context7]\nendpoint = "{endpoint}"\n',
+            encoding="utf-8",
+        )
+    monkeypatch.setenv("AZURPILOT_MACHINE_CONFIG", str(machine_path))
+    monkeypatch.setenv("AZURPILOT_USER_CONFIG", str(user_path))
+    monkeypatch.setenv("AZURPILOT_CONFIG_FILE", str(explicit_path))
+
+    assert load_integration_config(tmp_path).provider("context7")["endpoint"] == (
+        "https://explicit.example.test/mcp"
+    )
+
+    monkeypatch.delenv("AZURPILOT_CONFIG_FILE")
+    assert load_integration_config(tmp_path).provider("context7")["endpoint"] == (
+        "https://user.example.test/mcp"
+    )
+
+    monkeypatch.delenv("AZURPILOT_USER_CONFIG")
+    assert load_integration_config(tmp_path).provider("context7")["endpoint"] == (
+        "https://machine.example.test/mcp"
+    )
 
 
 def test_repository_registration_rejects_untrusted_provider_identity(
@@ -933,8 +996,17 @@ def test_coderabbit_state_persists_recovery_provenance_without_secret_values(
     assert "token" not in serialized.casefold()
 
 
-def test_direct_status_is_ready_without_credential_and_without_mutation(monkeypatch, tmp_path):
+def test_direct_status_is_ready_without_credential_and_without_mutation(
+    monkeypatch, tmp_path: Path
+):
     monkeypatch.delenv("CONTEXT7_API_KEY", raising=False)
+    for variable in (
+        "AZURPILOT_USER_CONFIG",
+        "AZURPILOT_MACHINE_CONFIG",
+        "AZURPILOT_CONFIG_FILE",
+        "AZURPILOT_CONTEXT7_ENDPOINT",
+    ):
+        monkeypatch.delenv(variable, raising=False)
     result = Context7Adapter().status(tmp_path, IntegrationConfig())
 
     assert result.state is IntegrationState.READY

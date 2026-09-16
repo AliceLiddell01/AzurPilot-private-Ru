@@ -56,7 +56,7 @@ presentation adapter и сервисы в `azurpilot.tooling`. `python -m azurpi
 Реализованные команды: `doctor`, `start`, `stop`, `build`, `repair`, `update`,
 `mcp` и `integrations`. `coderabbit` доступен как typed leaf внутри
 `integrations`; first-party MCP/plugin transport и внешние adapters остаются
-раздельными поверхностями. Existing
+раздельными поверхностями. Существующими
 `module.*` entrypoints сохраняются без изменения.
 
 Root resolver использует только `--repository-root`, validated user/machine

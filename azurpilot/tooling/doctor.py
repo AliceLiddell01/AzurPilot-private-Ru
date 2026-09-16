@@ -48,7 +48,7 @@ class DoctorService:
         self.resolver = resolver or RepositoryResolver()
         self.runner = runner or self.resolver.runner
         self.infrastructure = infrastructure or InfrastructureService(self.runner)
-        self.integrations = integrations or IntegrationService()
+        self.integrations = integrations or IntegrationService(resolver=self.resolver)
 
     def _git_check(self, root: Path, settings) -> tuple[CapabilityStatus, str]:
         try:
@@ -264,11 +264,10 @@ class DoctorService:
             try:
                 integration_result = self.integrations.status(root)
                 integration_details = integration_result.details
-                records = getattr(integration_details, "integrations", ())
+                records = integration_details.integrations
                 summaries: list[IntegrationSummary] = []
                 for record in records:
-                    status_value = getattr(record, "state", "UNKNOWN")
-                    status_text = getattr(status_value, "value", str(status_value))
+                    status_text = record.state.value
                     capability_status = {
                         "READY": CapabilityStatus.READY,
                         "NOT_CONFIGURED": CapabilityStatus.NOT_CONFIGURED,
@@ -278,10 +277,10 @@ class DoctorService:
                         "RATE_LIMITED": CapabilityStatus.UNAVAILABLE,
                         "DEGRADED": CapabilityStatus.UNKNOWN,
                     }.get(status_text, CapabilityStatus.UNKNOWN)
-                    name = getattr(getattr(record, "name", None), "value", "unknown")
-                    message = str(getattr(record, "message", "Состояние не подтверждено."))
-                    route = str(getattr(getattr(record, "evidence", None), "route", "direct"))
-                    reason_code = str(getattr(record, "reason_code", "INTEGRATION_UNKNOWN"))
+                    name = record.name.value
+                    message = record.message
+                    route = record.evidence.route
+                    reason_code = record.reason_code
                     summaries.append(
                         IntegrationSummary(
                             name=name,

@@ -63,6 +63,8 @@ def _source_config() -> dict[str, object]:
         "status": "ready",
         "servers": {
             name: {
+                "status": "ready",
+                "reason_code": "CODEX_SOURCE_CONFIG_READY",
                 "source_config": {"status": "configured"},
                 "local_http_source_config": {"status": "configured"},
             }
@@ -166,6 +168,17 @@ def test_json_report_and_metric_labels_are_bounded(monkeypatch):
         if sample.attributes["surface"] == "external_direct"
     ]
     assert external
+    codex_source = [
+        sample
+        for sample in samples
+        if sample.attributes["surface"] == "codex_source"
+    ]
+    assert codex_source
+    assert all(
+        sample.name == "azurpilot_mcp_surface_configured" and sample.value == 1.0
+        for sample in codex_source
+        if sample.name == "azurpilot_mcp_surface_configured"
+    )
     assert all(
         set(sample.attributes)
         <= {"server", "surface", "version", "protocol", "required_runtime"}

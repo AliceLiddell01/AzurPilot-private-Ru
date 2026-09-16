@@ -390,7 +390,15 @@ def first_party_source_registration(root: Path) -> dict[str, object]:
             "canonical_server_name": name,
             "registration_key": local_name,
         }
-        servers[name] = {"source_config": stdio, "local_http_source_config": loopback}
+        server_summary = _codex_source_summary(
+            {"stdio": stdio, "loopback_http": loopback}
+        )
+        servers[name] = {
+            "status": server_summary["status"],
+            "reason_code": server_summary["reason_code"],
+            "source_config": stdio,
+            "local_http_source_config": loopback,
+        }
         entries[f"{name}.stdio"] = stdio
         entries[f"{name}.loopback_http"] = loopback
     result = _codex_source_summary(entries)
@@ -795,7 +803,14 @@ def _surface_samples(
     status = value.get("status", value.get("state"))
     reachable = value.get("runtime_reachable") is True or value.get("reachable") is True
     ready = value.get("runtime_ready") is True or status in {"ready", "configured"}
-    configured = status not in {None, "not_configured"}
+    evidence = value.get("evidence")
+    evidence_configured = (
+        evidence.get("configured") if isinstance(evidence, Mapping) else None
+    )
+    if isinstance(evidence_configured, bool):
+        configured = evidence_configured
+    else:
+        configured = status in {"ready", "configured", "partial", "drift", "degraded"}
     protocol = str(value.get("protocol_version", "unknown"))
     observed_version = value.get("server_version")
     version = (

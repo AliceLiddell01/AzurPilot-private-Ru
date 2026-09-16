@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -23,7 +24,7 @@ def test_unknown_tool_is_rejected_before_transport(monkeypatch):
     with pytest.raises(
         target.ObservabilityMcpError, match="GRAFANA_READ_ONLY_TOOL_DENIED"
     ):
-        target._read_only_grafana_tool_call("arbitrary_tool", {})
+        target.read_only_grafana_tool_call("arbitrary_tool", {})
     assert called is False
 
 
@@ -54,6 +55,15 @@ def test_arguments_and_provider_payload_are_bounded_and_redacted():
 
 
 def test_argument_limit_fails_closed():
+    prefix = len(
+        json.dumps({"query": ""}, ensure_ascii=False).encode("utf-8")
+    )
+    allowed = {"query": "x" * (target.MAX_ARGUMENT_BYTES - prefix)}
+    assert len(json.dumps(allowed, ensure_ascii=False).encode("utf-8")) == (
+        target.MAX_ARGUMENT_BYTES
+    )
+    assert target._bounded_arguments(allowed)["query"]
+
     with pytest.raises(
         target.ObservabilityMcpError, match="GRAFANA_ARGUMENTS_TOO_LARGE"
     ):

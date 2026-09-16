@@ -27,6 +27,7 @@ from tools.paths import REPOSITORY_ROOT
 MAX_RESULT_ITEMS = 128
 MAX_RESULT_TEXT = 4096
 MAX_ARGUMENT_BYTES = 64 * 1024
+GRAFANA_DIRECT_TIMEOUT_SECONDS = 45
 _KEY_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
 _SECRET_KEY_RE = re.compile(r"password|token|secret|authorization|cookie", re.IGNORECASE)
 
@@ -121,10 +122,18 @@ async def _read_only_grafana_tool_call_async(
         )
         async with (
             stdio_client(parameters, errlog=subprocess.DEVNULL) as (read_stream, write_stream),
-            ClientSession(read_stream, write_stream, read_timeout_seconds=45) as session,
+            ClientSession(
+                read_stream,
+                write_stream,
+                read_timeout_seconds=GRAFANA_DIRECT_TIMEOUT_SECONDS,
+            ) as session,
         ):
-            await asyncio.wait_for(session.initialize(), timeout=45)
-            listed = await asyncio.wait_for(session.list_tools(), timeout=45)
+            await asyncio.wait_for(
+                session.initialize(), timeout=GRAFANA_DIRECT_TIMEOUT_SECONDS
+            )
+            listed = await asyncio.wait_for(
+                session.list_tools(), timeout=GRAFANA_DIRECT_TIMEOUT_SECONDS
+            )
             tool_items = getattr(listed, "tools", None)
             if not isinstance(tool_items, list) or len(tool_items) > MAX_RESULT_ITEMS:
                 raise ObservabilityMcpError("GRAFANA_TOOL_CATALOG_INVALID")
@@ -137,18 +146,19 @@ async def _read_only_grafana_tool_call_async(
             if tool_name not in tool_names:
                 raise ObservabilityMcpError("GRAFANA_READ_ONLY_TOOL_NOT_OBSERVABLE")
             result = await asyncio.wait_for(
-                session.call_tool(tool_name, bounded_arguments), timeout=45
+                session.call_tool(tool_name, bounded_arguments),
+                timeout=GRAFANA_DIRECT_TIMEOUT_SECONDS,
             )
     except ObservabilityMcpError:
         raise
     except TimeoutError as exc:
         raise ObservabilityMcpError("GRAFANA_DIRECT_PROBE_TIMEOUT") from exc
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - bounded direct transport boundary.
         raise ObservabilityMcpError("GRAFANA_DIRECT_TOOL_CALL_FAILED") from exc
     return _result_payload(result)
 
 
-def _read_only_grafana_tool_call(
+def read_only_grafana_tool_call(
     tool_name: str,
     arguments: Mapping[str, object],
     *,
@@ -189,7 +199,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(direct_grafana_status(arguments.repository_root), ensure_ascii=False, sort_keys=True))
         return 0
     try:
-        payload = _read_only_grafana_tool_call(
+        payload = read_only_grafana_tool_call(
             "list_datasources", {}, repository_root=arguments.repository_root
         )
     except ObservabilityMcpError as error:
@@ -217,8 +227,9 @@ __all__ = [
     "MAX_ARGUMENT_BYTES",
     "MAX_RESULT_ITEMS",
     "MAX_RESULT_TEXT",
+    "GRAFANA_DIRECT_TIMEOUT_SECONDS",
     "ObservabilityMcpError",
-    "_read_only_grafana_tool_call",
+    "read_only_grafana_tool_call",
     "_read_only_grafana_tool_call_async",
     "direct_grafana_status",
     "main",

@@ -216,7 +216,7 @@ def test_mcp_health_localizes_unhealthy_datasource(monkeypatch):
         }
 
     monkeypatch.setattr(
-        observability_mcp, "_read_only_grafana_tool_call", grafana_call
+        observability_mcp, "read_only_grafana_tool_call", grafana_call
     )
     result = target.mcp_signals(
         {"environment": "probe", "marker": "marker", "trace_ids": ["trace"]}

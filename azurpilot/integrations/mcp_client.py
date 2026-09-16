@@ -96,7 +96,10 @@ def _result_has_content(result: object) -> bool:
 
 
 def _call_error_state(
-    result: object, *, credential_configured: bool
+    result: object,
+    *,
+    credential_configured: bool,
+    credential_required: bool = False,
 ) -> tuple[IntegrationState, str, bool | None]:
     if not _result_has_error(result):
         if _result_has_content(result):
@@ -106,12 +109,12 @@ def _call_error_state(
         return IntegrationState.DEGRADED, "MCP_READ_ONLY_RESULT_NOT_OBSERVABLE", None
     return (
         IntegrationState.UNAUTHENTICATED
-        if not credential_configured
+        if credential_required and not credential_configured
         else IntegrationState.UNAVAILABLE,
         "MCP_READ_ONLY_AUTH_REQUIRED"
-        if not credential_configured
+        if credential_required and not credential_configured
         else "MCP_READ_ONLY_PROBE_ERROR",
-        False if not credential_configured else None,
+        False if credential_required and not credential_configured else None,
     )
 
 
@@ -124,6 +127,7 @@ async def probe_stdio(
     plan: McpCallPlan,
     timeout_seconds: float,
     credential_configured: bool,
+    credential_required: bool = False,
 ) -> McpProbeResult:
     """Проверить конкретный stdio server через SDK без generic tool dispatch."""
 
@@ -166,7 +170,9 @@ async def probe_stdio(
                     timeout=timeout_seconds,
                 )
                 state, reason, authenticated = _call_error_state(
-                    result, credential_configured=credential_configured
+                    result,
+                    credential_configured=credential_configured,
+                    credential_required=credential_required,
                 )
                 return McpProbeResult(
                     state,
@@ -197,6 +203,7 @@ async def probe_http(
     plan: McpCallPlan,
     timeout_seconds: float,
     credential_configured: bool,
+    credential_required: bool = False,
 ) -> McpProbeResult:
     """Проверить конкретный streamable HTTP server с фиксированным read call."""
 
@@ -240,7 +247,9 @@ async def probe_http(
                 timeout=timeout_seconds,
             )
             state, reason, authenticated = _call_error_state(
-                result, credential_configured=credential_configured
+                result,
+                credential_configured=credential_configured,
+                credential_required=credential_required,
             )
             return McpProbeResult(
                 state,

@@ -426,10 +426,10 @@ class SemgrepAdapter(IntegrationAdapter):
     ) -> AdapterOutcome:
         settings = config.provider("semgrep")
         executable = _executable(settings.get("command", "semgrep"))
-        paths = self._path_list(root, scope)
         if executable is None:
             record = self.status(root, config)
             return AdapterOutcome(record)
+        paths = self._path_list(root, scope)
         ruleset = settings.get("ruleset")
         if not isinstance(ruleset, str) or not (root / ruleset).is_file():
             raise ToolingError(
@@ -567,6 +567,7 @@ class _HttpMcpAdapter(IntegrationAdapter):
             plan=self.plan,
             timeout_seconds=30,
             credential_configured=bool(token),
+            credential_required=self.requires_credential,
         )
         if (
             result.state is IntegrationState.READY
@@ -919,6 +920,7 @@ class _ContainerMcpAdapter(IntegrationAdapter):
             plan=self.plan,
             timeout_seconds=45,
             credential_configured=credential.configured,
+            credential_required=self.requires_credential,
         )
         if (
             result.state is IntegrationState.READY

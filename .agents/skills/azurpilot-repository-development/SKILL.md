@@ -69,9 +69,11 @@ read-only задачи без изменения репозитория этот
    `azur integrations coderabbit` adapter с подтверждением WSL2 runtime. CodeRabbit advisory: findings
    независимо классифицируются, максимум три substantive iterations, `0
    findings` немедленно завершает loop, а rate limit не вызывает wait/retry.
-   Во время активного review immutable review clone нельзя менять, commit/push
-   запрещены; triage и подготовка uncommitted fix допустимы только в основном
-   checkout после независимой проверки.
+   Перед committed-only checkpoint зафиксируй coherent local candidate commit
+   с exact head; до authoritative `complete` его нельзя pushить. Во время
+   активного review immutable review clone нельзя менять, commit/push,
+   branch switch и resync там запрещены; triage и подготовка uncommitted fix
+   допустимы только в основном checkout после независимой проверки.
    Такая внутренняя делегация не требует повторного пользовательского
    CodeRabbit-запроса.
 7. После завершения проверок создай содержательный commit, push и **только draft

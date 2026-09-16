@@ -89,10 +89,13 @@ findings digest/count и last event. Crash до `complete` fail-closed: попы
 не считается substantive, reviewed head не помечается завершённым, а
 автоматический retry не выполняется.
 
-Во время `REVIEWING` разрешены только immutable evidence и uncommitted
-triage-preparation в implementation checkout после independent verification.
-Commit/push выполняются только после `complete`, coherent fixes и targeted
- checks. Если PR существует, передавай полный disposition через
+До запуска committed-only review implementation checkout должен иметь local
+candidate commit с exact head; этот commit не pushится до authoritative
+`complete`. Во время `REVIEWING` review clone остаётся immutable: commit/push,
+branch switch и resync там запрещены. В implementation checkout после
+independent verification разрешена только uncommitted triage-preparation.
+После `complete` выполняй coherent fixes, targeted checks, затем commit/push.
+Если PR существует, передавай полный disposition через
 `--body-file` и делай provider read-back; body сохраняет цель, scope, exact
 identity, проверки, security, rollback и ограничения.
 

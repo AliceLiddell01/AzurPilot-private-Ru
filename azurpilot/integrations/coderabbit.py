@@ -248,6 +248,39 @@ def _parse_finding(raw: object) -> CodeRabbitFinding:
     )
 
 
+def _complete_findings(
+    event: dict[str, object], findings: list[CodeRabbitFinding]
+) -> tuple[CodeRabbitFinding, ...]:
+    """Разобрать findings из complete, не смешивая список с его счётчиком."""
+
+    nested = event.get("findings")
+    if nested is None:
+        return ()
+    if isinstance(nested, bool):
+        raise CodeRabbitStreamError("CODERABBIT_FINDINGS_INVALID")
+    if isinstance(nested, int):
+        if nested > 128:
+            raise CodeRabbitStreamError("CODERABBIT_FINDINGS_TOO_LARGE")
+        if nested < 0 or nested != len(findings):
+            raise CodeRabbitStreamError("CODERABBIT_FINDINGS_COUNT_MISMATCH")
+        return ()
+    if isinstance(nested, dict):
+        count = nested.get("count")
+        items = nested.get("items", nested.get("findings"))
+        if items is None and isinstance(count, int) and not isinstance(count, bool):
+            if count > 128:
+                raise CodeRabbitStreamError("CODERABBIT_FINDINGS_TOO_LARGE")
+            if count < 0 or count != len(findings):
+                raise CodeRabbitStreamError("CODERABBIT_FINDINGS_COUNT_MISMATCH")
+            return ()
+        nested = items
+    if not isinstance(nested, list):
+        raise CodeRabbitStreamError("CODERABBIT_FINDINGS_INVALID")
+    if len(findings) + len(nested) > 128:
+        raise CodeRabbitStreamError("CODERABBIT_FINDINGS_TOO_LARGE")
+    return tuple(_parse_finding(item) for item in nested)
+
+
 def parse_agent_ndjson(lines: Iterable[str]) -> ParsedCodeRabbitReview:
     """Строго разобрать официальный agent NDJSON stream.
 
@@ -286,11 +319,7 @@ def parse_agent_ndjson(lines: Iterable[str]) -> ParsedCodeRabbitReview:
         elif kind == "complete" or event.get("status") == "complete":
             if complete:
                 raise CodeRabbitStreamError("CODERABBIT_COMPLETE_DUPLICATE")
-            nested_findings = event.get("findings")
-            if nested_findings is not None:
-                if not isinstance(nested_findings, list) or len(findings) + len(nested_findings) > 128:
-                    raise CodeRabbitStreamError("CODERABBIT_FINDINGS_TOO_LARGE")
-                findings.extend(_parse_finding(item) for item in nested_findings)
+            findings.extend(_complete_findings(event, findings))
             complete = True
         elif kind == "error":
             message = " ".join(
@@ -876,8 +905,8 @@ class CodeRabbitAdapter(IntegrationAdapter):
             or realpath_result.stdout.strip() != clone.rstrip("/")
         ):
             return None, "CODERABBIT_REVIEW_CLONE_NOT_CANONICAL"
-        ok, reason = CodeRabbitAdapter()._verify_clone(
-            runtime, root, None, expected_repository
+        ok, reason = CodeRabbitAdapter()._verify_clone_state(
+            runtime, expected_repository
         )
         if not ok:
             return None, reason
@@ -1178,22 +1207,18 @@ class CodeRabbitAdapter(IntegrationAdapter):
             return False, "CODERABBIT_REVIEW_REMOTE_MISMATCH"
         return True, "CODERABBIT_REVIEW_CLONE_IDENTITY_READY"
 
-    def _verify_clone(
+    def _verify_clone_state(
         self,
         runtime: _WslRuntime,
-        root: Path,
-        expected_head: str | None,
         expected_repository: str | None,
+        expected_head: str | None = None,
     ) -> tuple[bool, str]:
-        identity_ok, identity_reason = self._verify_clone_identity(
-            runtime, expected_repository
-        )
+        identity_ok, identity_reason = self._verify_clone_identity(runtime, expected_repository)
         if not identity_ok:
             return False, identity_reason
         checks = {
             "root": runtime.git("rev-parse", "--show-toplevel"),
             "status": runtime.git("status", "--porcelain=v1"),
-            "branch": runtime.git("branch", "--show-current"),
             "head": runtime.git("rev-parse", "HEAD"),
         }
         for name, result in checks.items():
@@ -1208,14 +1233,35 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 return False, "CODERABBIT_REVIEW_CLONE_ROOT_MISMATCH"
             if name == "status" and result.stdout.strip():
                 return False, "CODERABBIT_REVIEW_CLONE_DIRTY"
-            if name == "branch" and result.stdout.strip():
-                return False, "CODERABBIT_REVIEW_CLONE_NOT_DETACHED"
             if (
                 name == "head"
                 and expected_head is not None
                 and result.stdout.strip().casefold() != expected_head
             ):
                 return False, "CODERABBIT_REVIEW_HEAD_MISMATCH"
+        return True, "CODERABBIT_REVIEW_CLONE_STATE_READY"
+
+    def _verify_clone(
+        self,
+        runtime: _WslRuntime,
+        expected_head: str | None,
+        expected_repository: str | None,
+    ) -> tuple[bool, str]:
+        state_ok, state_reason = self._verify_clone_state(
+            runtime, expected_repository, expected_head
+        )
+        if not state_ok:
+            return False, state_reason
+        branch = runtime.git("branch", "--show-current")
+        if (
+            branch.timed_out
+            or branch.stdout_truncated
+            or branch.stderr_truncated
+            or branch.returncode != 0
+        ):
+            return False, "CODERABBIT_REVIEW_CLONE_BRANCH_FAILED"
+        if branch.stdout.strip():
+            return False, "CODERABBIT_REVIEW_CLONE_NOT_DETACHED"
         return True, "CODERABBIT_REVIEW_CLONE_READY"
 
     def _prepare_clone(
@@ -1233,13 +1279,13 @@ class CodeRabbitAdapter(IntegrationAdapter):
         )
         if not identity_ok:
             return False, identity_reason
-        ready, reason = self._verify_clone(runtime, root, None, expected_repository)
+        ready, reason = self._verify_clone_state(runtime, expected_repository)
         if not ready:
             return False, reason
         current_head = runtime.git("rev-parse", "HEAD")
         current = current_head.stdout.strip().casefold()
         if current == expected_head:
-            return self._verify_clone(runtime, root, expected_head, expected_repository)
+            return self._verify_clone(runtime, expected_head, expected_repository)
         fetched = runtime.git(
             "fetch", "--no-tags", "origin", expected_head, timeout=15 * 60
         )
@@ -1268,7 +1314,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
             or checkout.returncode != 0
         ):
             return False, "CODERABBIT_REVIEW_CLONE_PREPARE_FAILED"
-        return self._verify_clone(runtime, root, expected_head, expected_repository)
+        return self._verify_clone(runtime, expected_head, expected_repository)
 
     def _auth_ready(self, runtime: _WslRuntime, command: str) -> tuple[bool, str]:
         result = runtime.command(
@@ -1591,7 +1637,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
         expected_head = _git_head(root)
         if expected_head is None:
             return AdapterOutcome(self._record_from_error(settings, "CODERABBIT_LOCAL_HEAD_UNAVAILABLE"))
-        ok, reason = self._verify_clone(runtime, root, expected_head, None)
+        ok, reason = self._verify_clone(runtime, expected_head, None)
         if not ok:
             return AdapterOutcome(self._record_from_error(settings, reason, state=IntegrationState.INCOMPATIBLE))
         runtime_state, reason, diagnostics = self._runtime_preflight(runtime, command)
