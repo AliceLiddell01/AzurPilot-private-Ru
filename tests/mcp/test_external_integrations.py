@@ -38,6 +38,7 @@ from azurpilot.integrations.mcp_client import (
 )
 from azurpilot.tooling.contracts import AnalysisScope, FindingDisposition, GitRange
 from azurpilot.tooling.errors import ToolingError
+from azurpilot.tooling.filesystem import StateLayout
 
 
 def test_registry_is_closed_to_exactly_six_typed_families():
@@ -996,11 +997,17 @@ def test_cli_exposes_typed_integration_leaves():
     review_args = parser.parse_args(
         ["integrations", "coderabbit", "review", "--base", "b" * 40]
     )
+    cycle_args = parser.parse_args(
+        ["integrations", "coderabbit", "cycle", "start", "--base", "c" * 40]
+    )
 
     assert status_args.integration_target == "status"
     assert paths_args.paths == ["azurpilot/cli.py"]
     assert scan_args.changed is True
     assert review_args.base == "b" * 40
+    assert cycle_args.integration_action == "cycle"
+    assert cycle_args.coderabbit_cycle_action == "start"
+    assert cycle_args.base == "c" * 40
 
 
 def test_cli_rejects_ambiguous_semgrep_scope():
@@ -1054,6 +1061,358 @@ def test_coderabbit_state_persists_recovery_provenance_without_secret_values(
     assert state["last_head"] == head_sha
     assert state["reviewed_head"] is None
     assert "token" not in serialized.casefold()
+
+
+def _install_fake_coderabbit_runtime(monkeypatch, outputs):
+    class FakeRuntime:
+        coderabbit_command = "coderabbit"
+
+        def __init__(self):
+            self.calls = 0
+
+        def command(self, *_args, **_kwargs):
+            self.calls += 1
+            return outputs.pop(0)
+
+    runtime = FakeRuntime()
+    monkeypatch.setattr(
+        coderabbit.CodeRabbitAdapter,
+        "_configured_runtime",
+        staticmethod(lambda _root, _settings: (runtime, None)),
+    )
+    monkeypatch.setattr(
+        coderabbit.CodeRabbitAdapter,
+        "_expected_repository",
+        staticmethod(lambda _root, _settings: "hosted:github.com/alice/example"),
+    )
+    monkeypatch.setattr(
+        coderabbit.CodeRabbitAdapter,
+        "_prepare_clone",
+        lambda _self, *_args, **_kwargs: (True, "CODERABBIT_REVIEW_CLONE_READY"),
+    )
+    monkeypatch.setattr(
+        coderabbit.CodeRabbitAdapter,
+        "_runtime_preflight",
+        lambda _self, *_args: (IntegrationState.READY, "CODERABBIT_RUNTIME_READY", ()),
+    )
+    return runtime
+
+
+def _complete_result(*, finding: bool = True):
+    lines = []
+    if finding:
+        lines.append(
+            json.dumps(
+                {
+                    "type": "finding",
+                    "finding": {
+                        "path": "azurpilot/integrations/coderabbit.py",
+                        "severity": "major",
+                        "comment": "Проверить bounded lifecycle.",
+                        "classification": "confirmed",
+                    },
+                }
+            )
+        )
+    lines.append(json.dumps({"type": "complete"}))
+    return coderabbit._WslCommandResult(0, "\n".join(lines) + "\n", "", False, False, False)
+
+
+def test_coderabbit_cycles_reset_only_explicitly_and_keep_bounded_history(
+    monkeypatch, tmp_path: Path
+):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    base_sha = "a" * 40
+    first_head = "b" * 40
+    second_head = "c" * 40
+    third_head = "d" * 40
+    outputs = [
+        _complete_result(),
+        _complete_result(),
+        _complete_result(finding=False),
+        _complete_result(),
+    ]
+    runtime = _install_fake_coderabbit_runtime(monkeypatch, outputs)
+    adapter = coderabbit.CodeRabbitAdapter()
+    config = IntegrationConfig()
+
+    first = adapter.review(tmp_path / "checkout", config, base_sha=base_sha, head_sha=first_head)
+    assert first.record.reason_code == "CODERABBIT_REVIEW_COMPLETE"
+    state = adapter._load_review_state(tmp_path / "checkout")
+    assert state["substantive_iterations"] == 1
+    assert state["current_cycle_id"].startswith("coderabbit-cycle-")
+
+    second = adapter.review(tmp_path / "checkout", config, base_sha=base_sha, head_sha=second_head)
+    assert second.record.reason_code == "CODERABBIT_REVIEW_COMPLETE"
+    assert adapter._load_review_state(tmp_path / "checkout")["substantive_iterations"] == 2
+
+    third = adapter.review(tmp_path / "checkout", config, base_sha=base_sha, head_sha=third_head)
+    assert third.record.reason_code == "CODERABBIT_REVIEW_COMPLETE"
+    state = adapter._load_review_state(tmp_path / "checkout")
+    assert state["substantive_iterations"] == 3
+    assert state["terminal"] is True
+
+    fourth = adapter.review(tmp_path / "checkout", config, base_sha=base_sha, head_sha="e" * 40)
+    assert fourth.record.reason_code == "CODERABBIT_REVIEW_ITERATION_BUDGET_EXHAUSTED"
+    assert runtime.calls == 3
+
+    started = adapter.start_cycle(tmp_path / "checkout", config, base_sha=base_sha)
+    assert started.record.reason_code == "CODERABBIT_REVIEW_CYCLE_STARTED"
+    state = adapter._load_review_state(tmp_path / "checkout")
+    assert state["substantive_iterations"] == 0
+    assert state["terminal"] is False
+    assert len(state["previous_cycles"]) == 1
+    assert state["previous_cycles"][0]["substantive_iterations"] == 3
+
+
+def test_coderabbit_rate_limit_is_temporary_and_does_not_consume_cycle_budget(
+    monkeypatch, tmp_path: Path
+):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    base_sha = "a" * 40
+    head_sha = "b" * 40
+    rate_result = coderabbit._WslCommandResult(
+        1, "", "429 rate limit", False, False, False
+    )
+    outputs = [rate_result, _complete_result(finding=False)]
+    runtime = _install_fake_coderabbit_runtime(monkeypatch, outputs)
+    adapter = coderabbit.CodeRabbitAdapter()
+    config = IntegrationConfig()
+    first = adapter.review(tmp_path / "checkout", config, base_sha=base_sha, head_sha=head_sha)
+    assert first.record.reason_code == "CODERABBIT_RATE_LIMITED"
+    state = adapter._load_review_state(tmp_path / "checkout")
+    assert state["substantive_iterations"] == 0
+    assert state["provider_state"] == "rate_limited_waiting"
+    assert state["retry_source"] == "estimated"
+    assert state["retry_not_before"]
+    cycle_reset = adapter.start_cycle(tmp_path / "checkout", config, base_sha=base_sha)
+    assert cycle_reset.record.reason_code == "CODERABBIT_RATE_LIMITED"
+
+    blocked = adapter.review(tmp_path / "checkout", config, base_sha=base_sha, head_sha=head_sha)
+    assert blocked.record.reason_code == "CODERABBIT_RATE_LIMITED"
+    assert runtime.calls == 1
+
+    adapter._save_state(
+        tmp_path / "checkout",
+        iterations=0,
+        head=head_sha,
+        terminal=False,
+        base_sha=base_sha,
+        repository_identity="hosted:github.com/alice/example",
+        attempt=1,
+        operation_id="coderabbit-rate-limit",
+        started_at="2026-09-16T00:00:00+00:00",
+        provider_state="rate_limited_waiting",
+        active=False,
+        complete_received=False,
+        last_event_type="error",
+        rate_limited_at="2026-09-16T00:00:00+00:00",
+        retry_not_before="2020-01-01T00:00:00+00:00",
+        retry_source="provider",
+    )
+    recovered = adapter.review(tmp_path / "checkout", config, base_sha=base_sha, head_sha=head_sha)
+    assert recovered.record.reason_code == "CODERABBIT_REVIEW_COMPLETE"
+    assert adapter._load_review_state(tmp_path / "checkout")["substantive_iterations"] == 1
+    assert runtime.calls == 2
+
+
+def test_coderabbit_rate_limit_after_two_reviews_keeps_two_of_three(
+    monkeypatch, tmp_path: Path
+):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    base_sha = "a" * 40
+    head_sha = "b" * 40
+    outputs = [_complete_result(), _complete_result(), coderabbit._WslCommandResult(1, "", "429", False, False, False)]
+    runtime = _install_fake_coderabbit_runtime(monkeypatch, outputs)
+    adapter = coderabbit.CodeRabbitAdapter()
+    root = tmp_path / "checkout"
+    config = IntegrationConfig()
+    adapter.review(root, config, base_sha=base_sha, head_sha=head_sha)
+    adapter.review(root, config, base_sha=base_sha, head_sha="c" * 40)
+    result = adapter.review(root, config, base_sha=base_sha, head_sha="d" * 40)
+    assert result.record.reason_code == "CODERABBIT_RATE_LIMITED"
+    assert adapter._load_review_state(root)["substantive_iterations"] == 2
+    assert runtime.calls == 3
+
+
+def test_coderabbit_only_complete_result_consumes_substantive_budget(
+    monkeypatch, tmp_path: Path
+):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    output = coderabbit._WslCommandResult(
+        0, json.dumps({"type": "status"}) + "\n", "", False, False, False
+    )
+    _install_fake_coderabbit_runtime(monkeypatch, [output])
+    adapter = coderabbit.CodeRabbitAdapter()
+    root = tmp_path / "checkout"
+    result = adapter.review(
+        root,
+        IntegrationConfig(),
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+    )
+    assert result.record.reason_code == "CODERABBIT_STREAM_TRUNCATED"
+    state = adapter._load_review_state(root)
+    assert state["substantive_iterations"] == 0
+    assert state["complete_received"] is False
+
+
+def test_coderabbit_fresh_state_has_zero_of_three_and_typed_diagnostics(
+    monkeypatch, tmp_path: Path
+):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    adapter = coderabbit.CodeRabbitAdapter()
+    state = adapter._load_review_state(tmp_path / "checkout")
+    assert state["current_cycle_id"] == "not-started"
+    assert state["substantive_iterations"] == 0
+    diagnostics = adapter._review_state_diagnostics(state)
+    assert "substantive_iterations=0/3" in diagnostics
+    assert any(item.startswith("provider_state=") for item in diagnostics)
+
+
+def test_coderabbit_cycle_start_rejects_active_and_unknown_incomplete_state(
+    monkeypatch, tmp_path: Path
+):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    adapter = coderabbit.CodeRabbitAdapter()
+    config = IntegrationConfig()
+    root = tmp_path / "checkout"
+    base_sha = "a" * 40
+    head_sha = "b" * 40
+    for provider_state, active in (("reviewing", True), ("interrupted", False)):
+        adapter._save_state(
+            root,
+            iterations=0,
+            head=head_sha,
+            terminal=False,
+            base_sha=base_sha,
+            repository_identity="hosted:github.com/alice/example",
+            attempt=1,
+            operation_id="coderabbit-active",
+            started_at="2026-09-16T00:00:00+00:00",
+            provider_state=provider_state,
+            active=active,
+            complete_received=False,
+            last_event_type="review_start",
+        )
+        result = adapter.start_cycle(root, config, base_sha=base_sha)
+        assert result.record.reason_code == "CODERABBIT_REVIEW_CYCLE_START_FORBIDDEN"
+        assert result.record.state is IntegrationState.INCOMPATIBLE
+
+
+def test_coderabbit_rate_limit_metadata_is_bounded_and_typed():
+    error = coderabbit.CodeRabbitStreamError(
+        "CODERABBIT_RATE_LIMITED",
+        rate_limited=True,
+        retry_not_before="2026-09-16T12:00:00+00:00",
+        retry_source="provider",
+    )
+    assert error.retry_source == "provider"
+    estimated, source = coderabbit._estimated_retry_metadata(
+        now=coderabbit.datetime(2026, 9, 16, tzinfo=coderabbit.UTC)
+    )
+    assert estimated.endswith("+00:00")
+    assert source == "estimated"
+
+
+def test_coderabbit_provider_retry_hint_is_preserved_without_raw_payload():
+    with pytest.raises(coderabbit.CodeRabbitStreamError) as caught:
+        coderabbit.parse_agent_ndjson(
+            [
+                json.dumps(
+                    {
+                        "type": "error",
+                        "code": "429",
+                        "retry_after_seconds": 120,
+                        "secret": "must-not-persist",
+                    }
+                )
+            ]
+        )
+    error = caught.value
+    assert error.rate_limited is True
+    assert error.retry_source == "provider"
+    assert error.retry_not_before is not None
+    assert "secret" not in str(error)
+
+
+def test_coderabbit_legacy_state_migrates_and_corrupt_state_fails_closed(
+    monkeypatch, tmp_path: Path
+):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    root = tmp_path / "checkout"
+    layout = StateLayout.for_repository(root)
+    layout.ensure()
+    path = layout.path("coderabbit-review.json")
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "iterations": 2,
+                "terminal": False,
+                "active": False,
+                "operation_id": "coderabbit-legacy",
+                "started_at": "2026-09-16T00:00:00+00:00",
+                "repository_identity": "hosted:github.com/alice/example",
+                "base_sha": "a" * 40,
+                "last_head": "b" * 40,
+                "provider_state": "complete",
+                "complete_received": True,
+                "reviewed_head": "b" * 40,
+                "findings_count": 1,
+                "attempt": 2,
+            }
+        ),
+        encoding="utf-8",
+    )
+    adapter = coderabbit.CodeRabbitAdapter()
+    state = adapter._load_review_state(root)
+    assert state["schema_version"] == coderabbit.REVIEW_STATE_SCHEMA_VERSION
+    assert state["substantive_iterations"] == 2
+    assert state["current_cycle_id"].startswith("legacy-coderabbit-")
+    assert json.loads(path.read_text(encoding="utf-8"))["schema_version"] == 2
+
+    path.write_text("{not-json", encoding="utf-8")
+    with pytest.raises(ToolingError, match="повреждено"):
+        adapter._load_review_state(root)
+
+
+def test_coderabbit_cycle_reset_preserves_provider_quota_metadata(
+    monkeypatch, tmp_path: Path
+):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    adapter = coderabbit.CodeRabbitAdapter()
+    config = IntegrationConfig()
+    root = tmp_path / "checkout"
+    base_sha = "a" * 40
+    head_sha = "b" * 40
+    quota = {
+        "state": "provider_observed",
+        "rate_limited_at": "2026-09-16T00:00:00+00:00",
+        "retry_not_before": "2026-09-16T01:00:00+00:00",
+        "retry_source": "provider",
+    }
+    adapter._save_state(
+        root,
+        iterations=1,
+        head=head_sha,
+        terminal=False,
+        base_sha=base_sha,
+        repository_identity="hosted:github.com/alice/example",
+        attempt=1,
+        operation_id="coderabbit-complete",
+        started_at="2026-09-16T00:00:00+00:00",
+        provider_state="complete",
+        active=False,
+        complete_received=True,
+        last_event_type="complete",
+        findings_count=1,
+        reviewed_head=head_sha,
+        provider_quota=quota,
+    )
+    result = adapter.start_cycle(root, config, base_sha=base_sha)
+    assert result.record.reason_code == "CODERABBIT_REVIEW_CYCLE_STARTED"
+    assert adapter._load_review_state(root)["provider_quota"] == quota
 
 
 def test_direct_status_is_ready_without_credential_and_without_mutation(

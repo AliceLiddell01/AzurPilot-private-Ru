@@ -405,6 +405,19 @@ def build_parser() -> argparse.ArgumentParser:
             review.add_argument(
                 "--head", default=None, help="exact review HEAD; по умолчанию текущий HEAD"
             )
+            cycle = provider_subparsers.add_parser(
+                "cycle", help="управлять bounded CodeRabbit review cycles"
+            )
+            cycle_subparsers = cycle.add_subparsers(
+                dest="coderabbit_cycle_action", required=True, metavar="ACTION"
+            )
+            cycle_start = cycle_subparsers.add_parser(
+                "start", help="создать новый cycle без запуска provider review"
+            )
+            _add_common_options(cycle_start, suppress_defaults=True)
+            cycle_start.add_argument(
+                "--base", default=None, help="необязательный exact base SHA"
+            )
     return parser
 
 
@@ -827,6 +840,15 @@ def _dispatch(
             return services.integrations.review(
                 base_sha=args.base,
                 head_sha=head,
+                repository_root=root,
+            )
+        if (
+            target == IntegrationName.CODERABBIT.value
+            and action == "cycle"
+            and args.coderabbit_cycle_action == "start"
+        ):
+            return services.integrations.start_coderabbit_cycle(
+                base_sha=args.base,
                 repository_root=root,
             )
         if action == "status":

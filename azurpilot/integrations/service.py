@@ -354,5 +354,29 @@ class IntegrationService:
             findings=outcome.findings,
         )
 
+    def start_coderabbit_cycle(
+        self,
+        *,
+        base_sha: str | None = None,
+        repository_root: str | Path | None = None,
+    ) -> ToolingResult[IntegrationDetails, IntegrationEvidenceBundle]:
+        """Создать новый CodeRabbit cycle без запуска provider review."""
+
+        root = self.resolve_root(repository_root)
+        config = load_integration_config(root)
+        adapter = self.registry.adapter(IntegrationName.CODERABBIT)
+        if not isinstance(adapter, CodeRabbitAdapter):
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "CodeRabbit adapter имеет неверный тип.",
+            )
+        outcome = adapter.start_cycle(root, config, base_sha=base_sha)
+        return self._result(
+            "cycle-start",
+            (outcome.record,),
+            target=IntegrationName.CODERABBIT,
+            findings=outcome.findings,
+        )
+
 
 __all__ = ["ADAPTER_ORDER", "IntegrationRegistry", "IntegrationService"]
