@@ -1,24 +1,26 @@
 """
-科研项目筛选器。
+Фильтрация исследовательских проектов.
 
-本模块负责从截图中检测科研项目列表，并根据用户配置的筛选规则
-对项目进行排序和过滤，输出符合优先级的候选项目列表。
+Модуль отвечает за обнаружение списка исследовательских проектов на скриншотах,
+их сортировку и фильтрацию в соответствии с настроенными пользователем правилами,
+а также выдачу списка проектов-кандидатов в порядке приоритета.
 
-支持两种服务器检测策略：
-- JP 服务器：逐个点击项目进入详情页，通过模板匹配识别系列、
-  类型、消耗和舰船信息（因 JP 服务器无 OCR 项目名称）
-- 其他服务器：通过 OCR 识别项目名称 + 模板匹配识别系列编号
+Поддерживаются две стратегии распознавания по серверам:
+- JP-сервер: поочередный клик по проектам для перехода на страницу деталей, сопоставление
+  по шаблонам серии, жанра, затрат и корабля (так как на JP названия проектов не подлежат OCR)
+- Остальные серверы: распознавание названий проектов через OCR + сопоставление номера серии по шаблону
 
-筛选规则基于正则表达式解析用户配置的过滤器字符串，
-支持按系列(S1-S9)、舰船、稀有度(DR/PRY)、类型(B/C/D/E/G/H/Q/T)、
-编号和时长进行多维度筛选，并支持 preset（预设）和 custom（自定义）两种模式。
+Правила фильтрации парсят строку фильтра регулярным выражением,
+поддерживают многомерную фильтрацию по серии (S1-S9), кораблю, редкости (DR/PRY),
+жанру (B/C/D/E/G/H/Q/T), номеру и длительности, а также поддерживают два режима:
+preset (предустановка) и custom (пользовательский).
 
-术语对照：
-    系列(Series): 科研系列编号 S1-S9
-    类型(Genre): 科研项目类型 B/C/D/E/G/H/Q/T
-    蓝图(Blueprint): 科研产出的舰船设计图
-    DR: 决战方案(Dreamship Rarity)，金色稀有度科研舰船
-    PRY: 近代方案(Priority Rarity)，紫色稀有度科研舰船
+Терминология:
+    Серия (Series): номер серии исследований S1-S9
+    Жанр (Genre): тип исследовательского проекта B/C/D/E/G/H/Q/T
+    Чертеж (Blueprint): чертеж корабля, получаемый за исследование
+    DR: решающий проект (Decisive / Dreamship Rarity), корабли радужной/золотой редкости
+    PRY: приоритетный проект (Priority Rarity), корабли высшей редкости
 """
 import re
 from functools import partial
@@ -57,17 +59,17 @@ FILTER = Filter(FILTER_REGEX, FILTER_ATTR, FILTER_PRESET)
 
 class ResearchSelector(ResearchUI):
     """
-    科研项目筛选器，负责检测和筛选科研项目。
+    Фильтр исследовательских проектов, отвечающий за обнаружение и фильтрацию исследований.
 
-    从截图中识别 5 个科研项目的名称、系列和状态，然后根据用户
-    配置的筛选规则（preset 或 custom）对项目进行优先级排序。
+    Распознает по скриншоту названия, серии и статусы 5 исследовательских проектов, затем
+    ранжирует их по приоритету согласно правилам фильтрации пользователя (preset или custom).
 
-    JP 服务器使用逐个点击详情页的检测策略，其他服务器使用 OCR + 模板匹配。
+    Для JP-сервера используется стратегия поочередного перехода к деталям, для других серверов — OCR + шаблоны.
 
     Attributes:
-        projects (list[ResearchProject]): 当前屏幕上的 5 个科研项目列表。
-        storage_has_boxes (bool): 仓库中是否有可拆解的科技箱/装备，
-            影响 E 系列科研的筛选。由 StorageHandler 设置。
+        projects (list[ResearchProject]): Список 5 исследовательских проектов на текущем экране.
+        storage_has_boxes (bool): Есть ли на складе разбираемые техно-ящики/снаряжение,
+            влияет на фильтрацию исследований жанра E. Задается StorageHandler.
     """
     # Список текущих исследовательских проектов
     projects: list
@@ -76,11 +78,11 @@ class ResearchSelector(ResearchUI):
 
     def research_goto_detail(self, index, skip_first_screenshot=True):
         """
-        点击进入指定索引的科研项目详情页。
+        Переходит по клику на страницу деталей проекта по указанному индексу.
 
         Args:
-            index (int): 科研项目索引，0 到 4。
-            skip_first_screenshot (bool): 是否跳过首次截图，复用上一状态的截图。
+            index (int): Индекс исследовательского проекта от 0 до 4.
+            skip_first_screenshot (bool): Пропускать ли первый скриншот, повторно используя предыдущий.
         """
         logger.info(f'[Исследование — детали] Вход в детали проекта (проект {index})')
         click_timer = Timer(10)
@@ -102,13 +104,13 @@ class ResearchSelector(ResearchUI):
 
     def _research_jp_detect(self, skip_first_screenshot=True):
         """
-        包装 research_jp_detect()，增加错误处理。
+        Обертка над research_jp_detect() с добавлением обработки ошибок.
 
         Args:
-            skip_first_screenshot:
+            skip_first_screenshot: Пропускать ли первый скриншот.
 
         Returns:
-            ResearchProjectJp
+            ResearchProjectJp: Распознанный проект для JP-сервера.
         """
         timeout = Timer(2, count=6).start()
         while 1:
@@ -132,8 +134,8 @@ class ResearchSelector(ResearchUI):
     @Config.when(SERVER='jp')
     def research_detect(self):
         """
-        实际上此处不需要截图。'image' 是一个空参数。
-        添加此参数仅是为了确保所有 "research_detect" 具有相同的参数签名。
+        На самом деле скриншот здесь не требуется; 'image' является фиктивным параметром.
+        Параметр добавлен исключительно ради единообразия сигнатуры всех методов research_detect.
         """
         projects = []
         proj_sorted = []
@@ -141,22 +143,22 @@ class ResearchSelector(ResearchUI):
         for _ in range(5):
             self.device.click_record_clear()
             """
-            每次进入第 4 个（中右侧）入口时，
-            所有科研项目会从右向左移动 1 个位置。
+            При каждом входе в 4-й (средний правый) слот
+            все исследовательские проекты сдвигаются на 1 позицию справа налево.
             """
             self.research_goto_detail(3)
             """
-            'image' 是上述的空参数。
-            我们需要的是当前屏幕 'self.device.image'。
+            'image' — вышеупомянутый пустой параметр.
+            Нам требуется актуальный экран 'self.device.image'.
             """
             project = self._research_jp_detect()
             logger.attr('Исследовательский проект', project)
             projects.append(project)
             self.research_detail_quit()
         """
-        page_research 应与之前保持一致。
-        由于我们首先进入了第 4 个入口，
-        从左到右的索引为 (2, 3, 4, 0, 1)。
+        page_research должно оставаться согласованным с исходным состоянием.
+        Поскольку первым открывался 4-й слот,
+        индексы слева направо соответствуют (2, 3, 4, 0, 1).
         """
         for pos in range(5):
             proj_sorted.append(projects[(pos + 2) % 5])
@@ -188,18 +190,18 @@ class ResearchSelector(ResearchUI):
 
     def research_sort_filter(self, enforce=False):
         """
-        根据用户配置的筛选规则对科研项目进行优先级排序。
+        Ранжирует исследовательские проекты по приоритету согласно правилам фильтрации пользователя.
 
-        加载预设或自定义过滤器字符串，解析后应用到当前项目列表，
-        输出按优先级排序的候选项目列表。
+        Загружает строку пресета или пользовательского фильтра, разбирает ее и применяет к текущему списку проектов,
+        возвращая список кандидатов, отсортированных по приоритету.
 
         Args:
-            enforce (bool): 是否为强制模式，强制模式下会追加默认
-                预设作为兜底筛选条件。
+            enforce (bool): Режим принудительного выбора; при включении добавляет пресет
+                по умолчанию в качестве резервного условия фильтрации.
 
         Returns:
-            list: ResearchProject 对象和预设字符串的列表，
-                如 [object, object, object, 'reset']
+            list: Список объектов ResearchProject и служебных строк пресетов,
+                например [object, object, object, 'reset']
         """
         # Загружаем строку фильтра
         preset = self.config.Research_PresetFilter
@@ -241,17 +243,17 @@ class ResearchSelector(ResearchUI):
 
     def _research_check(self, project, enforce=False):
         """
-        检查单个科研项目是否符合用户的资源消耗和类型约束。
+        Проверяет отдельный исследовательский проект на соответствие ограничениям по ресурсам и жанру.
 
-        根据用户配置检查魔方(coin)、金币(cube)、部件(part)的消耗限制，
-        以及 B 系列、T 系列、E 系列的特殊过滤规则。
+        Проверяет лимиты расхода кубов мудрости (cube), монет (coin), деталей (part)
+        согласно настройкам пользователя, а также специальные правила для жанров B, T, E.
 
         Args:
-            project (ResearchProject): 待检查的科研项目。
-            enforce (bool): 是否为强制模式，强制模式下忽略部分资源限制。
+            project (ResearchProject): Проверяемый исследовательский проект.
+            enforce (bool): Режим принудительного выбора; игнорирует часть ресурсных ограничений.
 
         Returns:
-            bool: 项目是否通过所有检查条件。
+            bool: Прошел ли проект все условия проверки.
         """
         if not project.valid:
             return False
@@ -309,16 +311,16 @@ class ResearchSelector(ResearchUI):
 
     def research_sort_shortest(self, enforce):
         """
-        按最短时长优先排序科研项目。
+        Сортирует исследовательские проекты по возрастанию длительности.
 
-        当筛选结果为空时，优先选择时长最短的项目以快速获取科研收益。
+        Если результаты фильтрации пусты, выбирает кратчайшие по времени проекты для скорейшего получения наград.
 
         Args:
-            enforce (bool): 是否为强制模式。
+            enforce (bool): Режим принудительного выбора.
 
         Returns:
-            list: ResearchProject 对象和预设字符串的列表，
-                如 [object, object, object, 'reset']
+            list: Список объектов ResearchProject и служебных строк пресетов,
+                например [object, object, object, 'reset']
         """
         FILTER.load(FILTER_STRING_SHORTEST)
         priority = FILTER.apply(self.projects, func=partial(self._research_check, enforce=enforce))
@@ -328,16 +330,16 @@ class ResearchSelector(ResearchUI):
 
     def research_sort_cheapest(self, enforce):
         """
-        按最低消耗优先排序科研项目。
+        Сортирует исследовательские проекты по минимальной стоимости ресурсов.
 
-        当筛选结果为空时，优先选择消耗最少资源的项目以节省资源。
+        Если результаты фильтрации пусты, выбирает проекты с наименьшим расходом ресурсов для их экономии.
 
         Args:
-            enforce (bool): 是否为强制模式。
+            enforce (bool): Режим принудительного выбора.
 
         Returns:
-            list: ResearchProject 对象和预设字符串的列表，
-                如 [object, object, object, 'reset']
+            list: Список объектов ResearchProject и служебных строк пресетов,
+                например [object, object, object, 'reset']
         """
         FILTER.load(FILTER_STRING_CHEAPEST)
         priority = FILTER.apply(self.projects, func=partial(self._research_check, enforce=enforce))
