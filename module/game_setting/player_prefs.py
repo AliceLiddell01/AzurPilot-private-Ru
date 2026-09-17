@@ -1,4 +1,4 @@
-"""在游戏启动前安全地更新碧蓝航线的本地 PlayerPrefs 设置。"""
+"""Безопасное обновление локальных настроек PlayerPrefs Azur Lane перед запуском игры."""
 
 import hashlib
 import os
@@ -47,20 +47,20 @@ RECOMMENDED_STRING_SETTINGS = {
 
 
 class PlayerPrefsError(Exception):
-    """PlayerPrefs 事务的基础异常。"""
+    """Базовое исключение транзакций PlayerPrefs."""
 
 
 class PlayerPrefsUnsupported(PlayerPrefsError):
-    """当前设备或文件格式不支持安全写入。"""
+    """Текущее устройство или формат файла не поддерживают безопасную запись."""
 
 
 class PlayerPrefsWriteError(PlayerPrefsError):
-    """写入或写后校验失败。"""
+    """Ошибка записи или проверки после записи."""
 
 
 @dataclass(frozen=True)
 class PlayerPrefsChanges:
-    """一次 XML 更新的变更摘要。"""
+    """Сводка изменений за одно обновление XML."""
 
     static_changed: int
     story_speed_changed: int
@@ -79,7 +79,7 @@ class PlayerPrefsChanges:
 
 @dataclass(frozen=True)
 class PlayerPrefsMetadata:
-    """Android 应用私有文件的所有者、权限和 SELinux 上下文。"""
+    """Владелец, права доступа и контекст SELinux приватного файла приложения Android."""
 
     uid: str
     gid: str
@@ -89,7 +89,7 @@ class PlayerPrefsMetadata:
 
 @dataclass(frozen=True)
 class AdbResult:
-    """已执行的 ADB 命令结果。"""
+    """Результат выполнения команды ADB."""
 
     returncode: int
     stdout: str
@@ -97,7 +97,7 @@ class AdbResult:
 
 
 def _is_target_key(name: str | None) -> bool:
-    """判断键是否在严格维护的静态或动态设置白名单内。"""
+    """Определить, входит ли ключ в строго поддерживаемый белый список статических или динамических настроек."""
     return isinstance(name, str) and (
         name in RECOMMENDED_INT_SETTINGS
         or name in RECOMMENDED_STRING_SETTINGS
@@ -107,7 +107,7 @@ def _is_target_key(name: str | None) -> bool:
 
 
 def _index_target_entries(root: etree.Element) -> dict[str, etree.Element]:
-    """索引需要读取或修改的设置项，并拒绝同名目标键。"""
+    """Индексировать элементы настроек для чтения или изменения с запретом одноименных целевых ключей."""
     if root.tag != 'map':
         raise PlayerPrefsUnsupported(f'Неподдерживаемый корневой узел PlayerPrefs: {root.tag!r}')
 
@@ -123,7 +123,7 @@ def _index_target_entries(root: etree.Element) -> dict[str, etree.Element]:
 
 
 def _set_int(root: etree.Element, entries: dict[str, etree.Element], name: str, value: int) -> bool:
-    """以 Android SharedPreferences 的 int 格式写入单个白名单键。"""
+    """Записать единичный ключ белого списка в формате int для Android SharedPreferences."""
     expected = str(value)
     element = entries.get(name)
     if element is None:
@@ -144,7 +144,7 @@ def _set_int(root: etree.Element, entries: dict[str, etree.Element], name: str, 
 
 
 def _set_string(root: etree.Element, entries: dict[str, etree.Element], name: str, value: str) -> bool:
-    """以 Android SharedPreferences 的 string 格式写入单个白名单键。"""
+    """Записать единичный ключ белого списка в формате string для Android SharedPreferences."""
     element = entries.get(name)
     if element is None:
         element = etree.Element('string', {'name': name})
@@ -166,22 +166,22 @@ def _set_string(root: etree.Element, entries: dict[str, etree.Element], name: st
 
 
 def _serialize_xml(root: etree.Element) -> bytes:
-    """生成 Android 可读取的 UTF-8 SharedPreferences XML。"""
+    """Сгенерировать XML SharedPreferences в кодировке UTF-8, читаемый Android."""
     etree.indent(root, space='    ')
     return etree.tostring(root, encoding='utf-8', xml_declaration=True, short_empty_elements=True)
 
 
 def update_player_prefs_xml(content: bytes) -> tuple[bytes, PlayerPrefsChanges]:
-    """按严格白名单更新 PlayerPrefs XML，保留所有其他设置。
+    """Обновить XML PlayerPrefs по строгому белому списку с сохранением всех остальных настроек.
 
     Args:
-        content: 原始 PlayerPrefs XML 字节。
+        content: Исходные байты XML PlayerPrefs.
 
     Returns:
-        更新后的 XML 与变更摘要。
+        Обновленный XML и сводка изменений.
 
     Raises:
-        PlayerPrefsUnsupported: XML 格式未知或包含无法安全处理的目标键。
+        PlayerPrefsUnsupported: Неизвестный формат XML или наличие целевых ключей, которые нельзя безопасно обработать.
     """
     try:
         root = etree.fromstring(content)
@@ -224,7 +224,7 @@ def verify_player_prefs_xml(
         standby_keys: tuple[str, ...],
         story_speed_keys: tuple[str, ...] = (),
 ) -> None:
-    """验证目标设置是否全部已写入预期值。"""
+    """Проверить, что все целевые настройки были записаны с ожидаемыми значениями."""
     try:
         root = etree.fromstring(content)
     except etree.ParseError as error:
@@ -255,7 +255,7 @@ def verify_player_prefs_xml(
 
 @contextmanager
 def _device_lock(serial: str, package: str, timeout: float = 10) -> None:
-    """用 serial 和包名派生跨进程锁，避免多实例同时替换同一文件。"""
+    """Межпроцессная блокировка на основе serial и имени пакета во избежание одновременной замены одного файла несколькими экземплярами."""
     key = hashlib.sha256(f'{serial}\0{package}'.encode('utf-8')).hexdigest()[:16]
     lock_file = Path('cache') / f'game-settings-{key}.lock'
     lock_file.parent.mkdir(parents=True, exist_ok=True)
@@ -300,7 +300,7 @@ def _device_lock(serial: str, package: str, timeout: float = 10) -> None:
 
 
 class PlayerPrefsManager:
-    """通过 root ADB 原子更新碧蓝航线的 PlayerPrefs 文件。"""
+    """Атомарное обновление файла PlayerPrefs Azur Lane через root ADB."""
 
     def __init__(self, device, wait_for_stop: bool = False):
         self.device = device
@@ -317,7 +317,7 @@ class PlayerPrefsManager:
             check: bool = True,
             error_type: type[PlayerPrefsError] = PlayerPrefsUnsupported,
     ) -> AdbResult:
-        """执行带退出码检查的 host ADB 命令。"""
+        """Выполнить команду хостового ADB с проверкой кода возврата."""
         command = [str(self.device.adb_binary), '-s', str(self.device.serial), *map(str, args)]
         try:
             completed = subprocess.run(
@@ -346,7 +346,7 @@ class PlayerPrefsManager:
             timeout: float = 15,
             error_type: type[PlayerPrefsError] = PlayerPrefsUnsupported,
     ) -> bytes:
-        """通过 ADB 传输二进制数据，绝不将 PlayerPrefs 写入本地文件。"""
+        """Передать бинарные данные через ADB без записи PlayerPrefs в локальные файлы."""
         command = [str(self.device.adb_binary), '-s', str(self.device.serial), *map(str, args)]
         try:
             completed = subprocess.run(
@@ -380,7 +380,7 @@ class PlayerPrefsManager:
         )
 
     def _ensure_root(self) -> bool:
-        """确认 adbd 为 root，或回退到可用的 ``su -c``。"""
+        """Убедиться, что adbd работает под root, или выполнить откат к доступной команде ``su -c``."""
         current = self._shell(['id'], check=False)
         if 'uid=0(root)' in current.stdout:
             return True
@@ -401,7 +401,7 @@ class PlayerPrefsManager:
         return False
 
     def _restore_root_state(self) -> None:
-        """仅在本事务提权过时恢复为非 root adbd，避免改变用户原有状态。"""
+        """Восстановить non-root состояние adbd, только если привилегии повышались в этой транзакции, сохраняя исходное состояние пользователя."""
         if not self._root_enabled_by_transaction:
             return
         try:
@@ -417,7 +417,7 @@ class PlayerPrefsManager:
         logger.warning('[GameSettings] Не удалось восстановить исходное состояние adbd без root')
 
     def _game_is_stopped(self) -> bool | None:
-        """确认包及其子进程均不在运行；无法确认时返回 None。"""
+        """Убедиться, что пакет и его дочерние процессы не запущены; вернуть None, если проверить невозможно."""
         pidof = self._shell(['pidof', self.package], check=False)
         if pidof.stdout:
             return False
@@ -432,7 +432,7 @@ class PlayerPrefsManager:
         return True
 
     def _wait_until_game_stopped(self) -> bool:
-        """重启流程中短暂轮询应用退出，其他启动路径只检查一次。"""
+        """Кратковременный опрос выхода приложения при перезапуске; на остальных путях запуска выполняется только однократная проверка."""
         deadline = time.monotonic() + (8 if self.wait_for_stop else 0)
         while True:
             stopped = self._game_is_stopped()
@@ -443,7 +443,7 @@ class PlayerPrefsManager:
             time.sleep(0.25)
 
     def _prefs_path(self) -> str:
-        """定位 Unity PlayerPrefs 文件，文件名不符时拒绝猜测。"""
+        """Найти файл Unity PlayerPrefs, отвергая догадки при несоответствии имени файла."""
         if not PACKAGE_PATTERN.fullmatch(self.package):
             raise PlayerPrefsUnsupported('Небезопасный формат имени пакета игры')
 
@@ -464,7 +464,7 @@ class PlayerPrefsManager:
         return f'{directory}/{candidates[0]}'
 
     def _ensure_no_atomic_backup(self, prefs: str) -> None:
-        """避免 Android 未完成的原子写入在下次启动时覆盖主文件。"""
+        """Предотвратить перезапись основного файла незавершенной атомарной записью Android при следующем запуске."""
         result = self._shell(['test', '-e', f'{prefs}.bak'], check=False)
         if result.returncode == 0:
             raise PlayerPrefsUnsupported('Обнаружена незавершённая атомарная запись настроек приложения; перезапись запрещена')
@@ -503,7 +503,7 @@ class PlayerPrefsManager:
             raise PlayerPrefsWriteError('Проверка метаданных временного файла PlayerPrefs не пройдена')
 
     def _read_remote_bytes(self, remote: str, error_type: type[PlayerPrefsError]) -> bytes:
-        """直接读入内存，不产生本地副本。"""
+        """Прочитать файл напрямую в память без создания локальной копии."""
         args = ['exec-out', 'cat', remote]
         if self._use_su:
             args = ['exec-out', 'su', '-c', shlex.join(['cat', remote])]
@@ -515,7 +515,7 @@ class PlayerPrefsManager:
             content: bytes,
             error_type: type[PlayerPrefsError],
     ) -> None:
-        """从内存写入同目录临时文件，供原子替换使用。"""
+        """Записать данные из памяти во временный файл в том же каталоге для атомарной замены."""
         command = ['exec-in', 'sh', '-c', f'cat > {remote}']
         if self._use_su:
             command = ['exec-in', 'su', '-c', shlex.join(['sh', '-c', f'cat > {remote}'])]
@@ -527,7 +527,7 @@ class PlayerPrefsManager:
         )
 
     def _cleanup_stale_transaction_files(self, prefs: str) -> None:
-        """清理本模块旧版遗留副本和中断事务的临时文件，不记录文件名。"""
+        """Очистить устаревшие копии предыдущих версий модуля и временные файлы прерванных транзакций без логирования имен файлов."""
         if self._game_is_stopped() is not True:
             raise PlayerPrefsUnsupported('Процесс игры запустился до очистки чувствительных временных данных; запись отменена')
 
@@ -558,7 +558,7 @@ class PlayerPrefsManager:
             original: bytes,
             temporary: str,
     ) -> bool:
-        """只用内存中的原文恢复目标，并确认内容与原始文件完全一致。"""
+        """Восстановить целевой файл только из исходного текста в памяти и подтвердить полное совпадение содержимого с оригиналом."""
         if self._game_is_stopped() is not True:
             return False
         try:
@@ -644,7 +644,7 @@ class PlayerPrefsManager:
         return True
 
     def apply(self) -> bool:
-        """安全应用推荐设置；无法安全执行时不影响常规启动。"""
+        """Безопасно применить рекомендуемые настройки; невозможность безопасного выполнения не препятствует обычному запуску."""
         if getattr(self.device, 'is_over_http', False):
             logger.warning('[GameSettings] HTTP-устройство не поддерживает автоматическую настройку локальных параметров игры; пропуск')
             return False
@@ -659,5 +659,5 @@ class PlayerPrefsManager:
 
 
 def apply_recommended_game_settings(device, wait_for_stop: bool = False) -> bool:
-    """为当前设备应用推荐设置的唯一运行时入口。"""
+    """Единая точка входа во время выполнения для применения рекомендуемых настроек к текущему устройству."""
     return PlayerPrefsManager(device, wait_for_stop=wait_for_stop).apply()
