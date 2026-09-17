@@ -716,7 +716,7 @@ class CampaignMap:
         return True
 
     def show_cost(self):
-        """在日志中显示地图各格子的寻路代价。"""
+        """Отобразить в журнале стоимость поиска пути для каждой клетки карты."""
         logger.info('   ' + ' '.join(['   ' + chr(x + 64 + 1) for x in range(self.shape[0] + 1)]))
         for y in range(self.shape[1] + 1):
             text = str(y + 1).rjust(2) + ' ' + ' '.join(
