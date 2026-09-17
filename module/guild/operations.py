@@ -1,5 +1,6 @@
-"""大舰队作战处理器，管理作战进入、派遣舰队和进度检测。
-使用 OCR 识别作战进度，支持自动选择新作战。
+"""Обработчик операций гильдии, управляющий входом в операцию, отправкой флотов и контролем прогресса.
+
+Использует OCR для считывания прогресса операции, поддерживает автоматический выбор новой операции.
 """
 
 from module.base.button import ButtonGrid
@@ -19,12 +20,12 @@ GUILD_OPERATIONS_PROGRESS = DigitCounter(OCR_GUILD_OPERATIONS_PROGRESS, letter=(
 class GuildOperations(GuildBase):
     def _guild_operations_ensure(self, skip_first_screenshot=True):
         """
-        确保大舰队作战已加载。
+        Проверка полной загрузки операции гильдии.
 
-        进入大舰队作战后，先加载背景，然后显示派遣/Boss 界面。
+        После входа в операцию гильдии сначала загружается фон, затем отображается интерфейс отправки/босса.
 
         Returns:
-            bool: True 表示成功进入作战，False 表示资金不足。
+            bool: True при успешном входе в операцию, False при нехватке средств гильдии.
         """
         logger.attr('Командир/офицер гильдии', self.config.GuildOperation_SelectNewOperation)
         confirm_timer = Timer(1.5, count=3).start()
@@ -85,14 +86,14 @@ class GuildOperations(GuildBase):
 
     def _handle_guild_operations_start(self):
         """
-        开启新的大舰队作战。
+        Запуск новой операции гильдии.
 
-        当前账号必须是大舰队司令或军官。不建议每月开启第三次作战，
-        成员每月只能参与 2 次作战，大多数人无法参与第三次派遣，
-        这会影响派遣事件的评价，导致最终奖励减少。
+        Текущий аккаунт должен быть лидером или офицером гильдии. Не рекомендуется запускать третью операцию за месяц:
+        участники могут участвовать только в 2 операциях в месяц, поэтому большинство не сможет отправить флоты,
+        что ухудшит оценку событий отправки и уменьшит итоговые награды.
 
         Returns:
-            bool: 是否点击了按钮。
+            bool: Была ли нажата кнопка.
         """
         if not self.config.GuildOperation_SelectNewOperation:
             return False
@@ -120,10 +121,10 @@ class GuildOperations(GuildBase):
 
     def _guild_operation_fund_insufficient(self):
         """
-        检查大舰队资金是否不足。
+        Проверка нехватки средств гильдии.
 
         Returns:
-            bool: True 表示资金不足。
+            bool: True, если средств недостаточно.
 
         Pages:
             in: GUILD_OPERATIONS_NEW
@@ -137,14 +138,14 @@ class GuildOperations(GuildBase):
 
     def _guild_operations_get_mode(self):
         """
-        判断当前加载的是哪种作战菜单。
+        Определение типа загруженного меню операций.
 
         Returns:
-            int: 当前作战模式。
-                0 - 没有进行中的作战，军官/精英/司令需要选择一个开始
-                1 - 作战可用，显示作战状态图/作战网络
-                2 - 大舰队突袭 Boss 已激活
-                None - 无法确认或识别菜单
+            int: Текущий режим операции.
+                0 — нет активных операций, лидер/офицер/элита должны выбрать сложность для старта
+                1 — операция активна, отображается схема прогресса / сеть задач
+                2 — активирован рейд на босса гильдии
+                None — меню не удалось определить или подтвердить
 
         Pages:
             in: GUILD_OPERATIONS
@@ -170,13 +171,13 @@ class GuildOperations(GuildBase):
 
     def _guild_operations_get_entrance(self):
         """
-        获取大舰队派遣的 2 个入口按钮。
+        Получение 2 кнопок входа в отправку гильдии.
 
-        如果作战在顶部，点击展开按钮后作战链条向下移动，进入按钮出现在顶部，
-        因此需要实时检测这两个按钮。
+        Если операция находится вверху, при нажатии кнопки раскрытия цепочка задач сдвигается вниз,
+        и кнопка входа появляется вверху, поэтому обе кнопки отслеживаются динамически.
 
         Returns:
-            list[Button], list[Button]: 展开按钮列表，进入按钮列表。
+            list[Button], list[Button]: Список кнопок раскрытия, список кнопок входа.
 
         Pages:
             in: page_guild, guild operation, operation map (GUILD_OPERATIONS_ACTIVE_CHECK)
@@ -204,17 +205,18 @@ class GuildOperations(GuildBase):
 
     def _guild_operations_dispatch_swipe(self, forward=True, skip_first_screenshot=True):
         """
-        滑动查找活跃的派遣作战。
+        Прокрутка карты в поисках активной задачи отправки.
 
-        虽然碧蓝航线会自动聚焦到活跃派遣，但存在 bug，无法到达后面的作战，
-        因此需要手动滑动并聚焦到活跃派遣。强制使用 minitouch，因为 uiautomator2 需要更长的滑动距离。
+        Хотя Azur Lane автоматически фокусируется на активной отправке, из-за бага игры фокус
+        не всегда доходит до дальних задач, поэтому требуется ручная прокрутка. Принудительно
+        используется minitouch, так как uiautomator2 требует большей дистанции жеста.
 
         Args:
-            forward (bool): 水平滑动方向。
-            skip_first_screenshot (bool): 是否跳过首次截图。
+            forward (bool): Направление горизонтального свайпа.
+            skip_first_screenshot (bool): Пропускать ли первый снимок экрана.
 
         Returns:
-            bool: 是否找到活跃派遣。
+            bool: Найдена ли активная отправка.
         """
         # Область всей цепочки задач операции
         detection_area = (152, 135, 1280, 630)
@@ -240,15 +242,15 @@ class GuildOperations(GuildBase):
 
     def _guild_operations_dispatch_enter(self, skip_first_screenshot=True):
         """
-        进入作战派遣准备界面。
+        Вход в интерфейс подготовки отправки флота.
 
         Returns:
-            bool: 是否成功进入。
+            bool: Успешен ли вход.
 
         Pages:
             in: page_guild, guild operation, operation map (GUILD_OPERATIONS_ACTIVE_CHECK)
-                进入大舰队作战后，游戏会自动定位到活跃作战，
-                定位的是链条上的主作战，侧作战会被忽略。
+                После входа в операцию гильдии игра автоматически фокусируется на активной задаче;
+                фокусировка происходит на основной ветке цепочки, боковые задачи могут игнорироваться.
             out: page_guild, guild operation, operation dispatch preparation (GUILD_DISPATCH_RECOMMEND)
         """
         timer_1 = Timer(2, count=5)
@@ -290,12 +292,13 @@ class GuildOperations(GuildBase):
 
     def _guild_operations_get_dispatch(self):
         """
-        获取切换可用派遣舰队的按钮。
+        Получение кнопки переключения доступного для отправки флота.
 
-        早期版本检测切换按钮上的红点，但红点有时因未知原因不显示，因此改为检测切换按钮本身。
+        В ранних версиях отслеживалась красная точка на кнопке переключения, но по неизвестным причинам
+        она иногда не отображается, поэтому распознаётся сама кнопка переключения.
 
         Returns:
-            Button: 切换可用派遣的按钮。如果已到达最右侧舰队则返回 None。
+            Button: Кнопка переключения флота, либо None, если уже выбран крайний правый флот.
 
         Pages:
             in: page_guild, guild operation, operation dispatch preparation (GUILD_DISPATCH_RECOMMEND)
@@ -336,7 +339,7 @@ class GuildOperations(GuildBase):
 
     def _guild_operations_dispatch_switch_fleet(self, skip_first_screenshot=True):
         """
-        切换到最右侧的舰队。
+        Переключение на крайний правый флот.
 
         Pages:
             in: page_guild, guild operation, operation dispatch preparation (GUILD_DISPATCH_RECOMMEND)
@@ -361,7 +364,7 @@ class GuildOperations(GuildBase):
 
     def _guild_operations_dispatch_execute(self, skip_first_screenshot=True):
         """
-        执行派遣序列。
+        Выполнение последовательности отправки флота.
 
         Pages:
             in: page_guild, guild operation, operation dispatch preparation (GUILD_DISPATCH_RECOMMEND)
@@ -410,7 +413,7 @@ class GuildOperations(GuildBase):
 
     def _guild_operations_dispatch_exit(self, skip_first_screenshot=True):
         """
-        退出到作战地图。
+        Выход на карту операции.
 
         Pages:
             in: page_guild, guild operation, operation dispatch preparation (GUILD_DISPATCH_RECOMMEND)
@@ -439,7 +442,7 @@ class GuildOperations(GuildBase):
 
     def _guild_operations_dispatch(self):
         """
-        执行大舰队派遣。
+        Выполнение отправки флотов гильдии.
 
         Pages:
             in: page_guild, guild operation, operation map (GUILD_OPERATIONS_ACTIVE_CHECK)
@@ -471,10 +474,10 @@ class GuildOperations(GuildBase):
 
     def _guild_operations_boss_preparation(self, az, skip_first_screenshot=True):
         """
-        执行大舰队突袭 Boss 的准备序列。
+        Последовательность подготовки к рейду на босса гильдии.
 
-        az 是一个 GuildCombat 实例，用于处理各种战斗界面。
-        独立创建以避免与父/子对象的方法冲突或覆盖。
+        az — экземпляр GuildCombat, используемый для обработки боевых интерфейсов.
+        Создаётся отдельно во избежание конфликтов и переопределений методов базовых классов.
 
         Pages:
             in: GUILD_OPERATIONS_BOSS
@@ -524,7 +527,7 @@ class GuildOperations(GuildBase):
 
     def _guild_operations_boss_combat(self):
         """
-        执行 Boss 战斗序列。如果战斗无法准备则退出。
+        Боевая последовательность сражения с боссом. Если подготовка не удалась, завершает выполнение.
 
         Pages:
             in: GUILD_OPERATIONS_BOSS
@@ -542,10 +545,10 @@ class GuildOperations(GuildBase):
 
     def _guild_operations_boss_available(self):
         """
-        检查大舰队 Boss 是否可用。
+        Проверка доступности босса гильдии.
 
         Returns:
-            bool: Boss 是否可用。
+            bool: Доступен ли босс.
         """
         appear = self.image_color_count(GUILD_BOSS_AVAILABLE, color=(140, 243, 99), threshold=221, count=10)
         if appear:
