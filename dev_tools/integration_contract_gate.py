@@ -198,11 +198,11 @@ def _check_codex_config(root: Path, errors: list[str]) -> None:
                 errors.append(
                     ".codex/config.toml: dockerhub_direct allowlist расходится с adapter contract"
                 )
-            if disabled_tools is None or not set(disabled_tools).issubset(
+            if disabled_tools is None or set(disabled_tools) != set(
                 DOCKER_HUB_BLOCKED_TOOLS
             ):
                 errors.append(
-                    ".codex/config.toml: dockerhub_direct denylist содержит неизвестный write tool"
+                    ".codex/config.toml: dockerhub_direct denylist расходится с adapter contract"
                 )
 
 
