@@ -1,5 +1,5 @@
-"""页面内标签导航栏模块。定义 Navbar 类，通过颜色检测判断标签的激活/非激活状态，
-支持自动切换到指定标签页。"""
+"""Модуль панели навигации по вкладкам. Определяет класс Navbar, определяющий активность/неактивность
+вкладок по цвету и поддерживающий автоматическое переключение на указанную вкладку."""
 
 from module.base.base import ModuleBase
 from module.base.button import ButtonGrid
@@ -14,14 +14,14 @@ class Navbar:
                  inactive_threshold=180, active_count=100, inactive_count=50, name=None):
         """
         Args:
-            grids (ButtonGrid): 标签按钮网格。
-            active_color (tuple[int, int, int]): 激活状态的 RGB 颜色。
-            inactive_color (tuple[int, int, int]): 非激活状态的 RGB 颜色。
-            active_threshold (int): 激活状态的颜色匹配阈值。
-            inactive_threshold (int): 非激活状态的颜色匹配阈值。
-            active_count (int): 激活状态的最小像素计数。
-            inactive_count (int): 非激活状态的最小像素计数。
-            name (str): 导航栏名称。
+            grids (ButtonGrid): Сетка кнопок вкладок.
+            active_color (tuple[int, int, int]): Цвет RGB в активном состоянии.
+            inactive_color (tuple[int, int, int]): Цвет RGB в неактивном состоянии.
+            active_threshold (int): Порог совпадения цвета в активном состоянии.
+            inactive_threshold (int): Порог совпадения цвета в неактивном состоянии.
+            active_count (int): Минимальное количество пикселей активного состояния.
+            inactive_count (int): Минимальное количество пикселей неактивного состояния.
+            name (str): Имя панели навигации.
         """
         self.grids = grids
         self.active_color = active_color
@@ -34,41 +34,41 @@ class Navbar:
 
     def is_button_active(self, button, main):
         """
-        检测按钮是否处于激活状态。
+        Проверить, находится ли кнопка в активном состоянии.
 
         Args:
-            button (Button): 要检测的按钮。
-            main (ModuleBase): 模块基类实例。
+            button (Button): Проверяемая кнопка.
+            main (ModuleBase): Экземпляр базового модуля.
 
         Returns:
-            bool: 是否激活。
+            bool: Активна ли кнопка.
         """
         return main.image_color_count(
                     button, color=self.active_color, threshold=self.active_threshold, count=self.active_count)
 
     def is_button_inactive(self, button, main):
         """
-        检测按钮是否处于非激活状态。
+        Проверить, находится ли кнопка в неактивном состоянии.
 
         Args:
-            button (Button): 要检测的按钮。
-            main (ModuleBase): 模块基类实例。
+            button (Button): Проверяемая кнопка.
+            main (ModuleBase): Экземпляр базового модуля.
 
         Returns:
-            bool: 是否非激活。
+            bool: Неактивна ли кнопка.
         """
         return main.image_color_count(
             button, color=self.inactive_color, threshold=self.inactive_threshold, count=self.inactive_count)
 
     def get_info(self, main):
         """
-        获取导航栏信息：当前激活项、最左项和最右项的索引。
+        Получить информацию о панели навигации: индексы активного, крайнего левого и крайнего правого элементов.
 
         Args:
-            main (ModuleBase): 模块基类实例。
+            main (ModuleBase): Экземпляр базового модуля.
 
         Returns:
-            int, int, int: 激活项索引、最左项索引、最右项索引。
+            int, int, int: Индекс активного элемента, индекс крайнего левого элемента, индекс крайнего правого элемента.
         """
         total = []
         active = []
@@ -99,25 +99,25 @@ class Navbar:
 
     def get_active(self, main):
         """
-        获取当前激活的导航项索引。
+        Получить индекс текущего активного элемента навигации.
 
         Args:
-            main (ModuleBase): 模块基类实例。
+            main (ModuleBase): Экземпляр базового модуля.
 
         Returns:
-            int: 激活项的索引。
+            int: Индекс активного элемента.
         """
         return self.get_info(main=main)[0]
 
     def get_total(self, main):
         """
-        获取可见的导航项总数。
+        Получить общее количество видимых элементов навигации.
 
         Args:
-            main (ModuleBase): 模块基类实例。
+            main (ModuleBase): Экземпляр базового модуля.
 
         Returns:
-            int: 可见导航项的数量。
+            int: Количество видимых элементов навигации.
         """
         _, left, right = self.get_info(main=main)
         if left is None or right is None:
@@ -126,13 +126,13 @@ class Navbar:
 
     def _shop_obstruct_handle(self, main):
         """
-        仅在商店中时，处理商店界面的遮挡物。
+        Обработать перекрывающие элементы интерфейса магазина (только при нахождении в магазине).
 
         Args:
-            main (ModuleBase): 模块基类实例。
+            main (ModuleBase): Экземпляр базового модуля.
 
         Returns:
-            bool: 是否处理了遮挡物。
+            bool: Были ли обработаны перекрывающие элементы.
         """
         # По имени определяем, относится ли панель навигации к модулю магазина
         if self.name not in ['SHOP_BOTTOM_NAVBAR', 'GUILD_SIDE_NAVBAR']:
@@ -153,18 +153,18 @@ class Navbar:
 
     def set(self, main, left=None, right=None, upper=None, bottom=None, skip_first_screenshot=True):
         """
-        从一个方向设置导航栏到指定位置。
+        Установить панель навигации в указанную позицию относительно одного из направлений.
 
         Args:
-            main (ModuleBase): 模块基类实例。
-            left (int): 从左数的导航项索引，从 1 开始。
-            right (int): 从右数的导航项索引，从 1 开始。
-            upper (int): 从上数的导航项索引，从 1 开始。
-            bottom (int): 从下数的导航项索引，从 1 开始。
-            skip_first_screenshot (bool): 是否跳过首次截图。
+            main (ModuleBase): Экземпляр базового модуля.
+            left (int): Индекс элемента навигации слева, начиная с 1.
+            right (int): Индекс элемента навигации справа, начиная с 1.
+            upper (int): Индекс элемента навигации сверху, начиная с 1.
+            bottom (int): Индекс элемента навигации снизу, начиная с 1.
+            skip_first_screenshot (bool): Пропускать ли первый снимок экрана.
 
         Returns:
-            bool: 是否设置成功。
+            bool: Успешно ли выполнена установка.
         """
         if left is None and right is None and upper is None and bottom is None:
             logger.warning('[UI — Навигация] Некорректный индекс: необходимо указать индекс относительно одного из направлений')

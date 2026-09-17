@@ -1,5 +1,6 @@
-"""游戏滚动条控制模块。定义 Scroll 类，通过颜色识别滚动条位置，
-支持拖拽滚动、翻页和基于百分比的精确定位。"""
+"""Модуль управления полосой прокрутки в игре. Определяет класс Scroll, распознающий позицию
+полосы прокрутки по цвету и поддерживающий перетаскивание, перелистывание страниц и точное
+позиционирование на основе процента."""
 
 import numpy as np
 from scipy import signal
@@ -20,10 +21,10 @@ class Scroll:
     def __init__(self, area, color, is_vertical=True, name='Scroll'):
         """
         Args:
-            area (Button, tuple): 滚动条整体的按钮或区域。
-            color (tuple): 滚动条的 RGB 颜色。
-            is_vertical (bool): True 为垂直滚动条，False 为水平滚动条。
-            name (str): 滚动条名称。
+            area (Button, tuple): Кнопка или область полосы прокрутки целиком.
+            color (tuple): Цвет полосы прокрутки в формате RGB.
+            is_vertical (bool): True для вертикальной полосы прокрутки, False для горизонтальной.
+            name (str): Имя полосы прокрутки.
         """
         if isinstance(area, Button):
             name = area.name
@@ -44,13 +45,13 @@ class Scroll:
 
     def match_color(self, main):
         """
-        通过颜色匹配识别滚动条位置，返回掩码数组。
+        Определить позицию полосы прокрутки сопоставлением цвета, возвращает массив маски.
 
         Args:
-            main (ModuleBase): 模块基类实例。
+            main (ModuleBase): Экземпляр базового модуля.
 
         Returns:
-            np.ndarray: 形状 (n,)，dtype bool，标记滚动条所在的行列。
+            np.ndarray: Форма (n,), dtype bool, отмечает строки или столбцы с полосой прокрутки.
         """
         image = main.image_crop(self.area, copy=False)
         image = color_similarity_2d(image, color=self.color)
@@ -60,13 +61,13 @@ class Scroll:
 
     def cal_position(self, main):
         """
-        计算滚动条当前位置。
+        Вычислить текущую позицию полосы прокрутки.
 
         Args:
-            main (ModuleBase): 模块基类实例。
+            main (ModuleBase): Экземпляр базового модуля.
 
         Returns:
-            float: 位置值，0 到 1 之间。
+            float: Значение позиции от 0 до 1.
         """
         mask = self.match_color(main)
         middle = np.mean(np.where(mask)[0])
@@ -79,14 +80,15 @@ class Scroll:
 
     def position_to_screen(self, position, random_range=(-0.05, 0.05)):
         """
-        将滚动条位置转换为屏幕坐标。调用前需先调用 cal_position() 或 match_color() 获取 length。
+        Преобразовать позицию полосы прокрутки в экранные координаты. Перед вызовом необходимо
+        вызвать cal_position() или match_color() для получения length.
 
         Args:
-            position (int, float): 滚动条位置，0 到 1 之间。
-            random_range (tuple): 随机偏移范围。
+            position (int, float): Позиция полосы прокрутки от 0 до 1.
+            random_range (tuple): Диапазон случайного смещения.
 
         Returns:
-            tuple[int]: (左上角 x, 左上角 y, 右下角 x, 右下角 y)。
+            tuple[int]: (x левого верхнего угла, y левого верхнего угла, x правого нижнего угла, y правого нижнего угла).
         """
         position = np.add(position, random_range)
         middle = position * (self.total - self.length) + self.length / 2
@@ -109,13 +111,13 @@ class Scroll:
 
     def appear(self, main):
         """
-        检测滚动条是否出现在屏幕上。
+        Проверить, отображается ли полоса прокрутки на экране.
 
         Args:
-            main (ModuleBase): 模块基类实例。
+            main (ModuleBase): Экземпляр базового модуля.
 
         Returns:
-            bool: 是否出现。
+            bool: Отображается ли полоса прокрутки.
         """
         return np.mean(self.match_color(main)) > 0.1
 
@@ -127,17 +129,17 @@ class Scroll:
 
     def set(self, position, main, random_range=(-0.05, 0.05), distance_check=True, skip_first_screenshot=True):
         """
-        设置滚动条到指定位置。
+        Установить полосу прокрутки в указанную позицию.
 
         Args:
-            position (float, int): 目标位置，0 到 1 之间。
-            main (ModuleBase): 模块基类实例。
-            random_range (tuple(int, float)): 随机偏移范围。
-            distance_check (bool): 是否跳过过短的滑动。
-            skip_first_screenshot: 是否跳过首次截图。
+            position (float, int): Целевая позиция от 0 до 1.
+            main (ModuleBase): Экземпляр базового модуля.
+            random_range (tuple(int, float)): Диапазон случайного смещения.
+            distance_check (bool): Пропускать ли слишком короткие свайпы.
+            skip_first_screenshot: Пропускать ли первый снимок экрана.
 
         Returns:
-            bool: 是否执行了拖拽操作。
+            bool: Была ли выполнена операция перетаскивания.
         """
         logger.info(f'{self.name}: установка позиции {position}')
         self.drag_interval.clear()
@@ -183,13 +185,13 @@ class Scroll:
 
     def drag_page(self, page, main, random_range=(-0.05, 0.05), skip_first_screenshot=True):
         """
-        向前或向后拖拽滚动条翻页。
+        Перетащить полосу прокрутки вперёд или назад для перелистывания страницы.
 
         Args:
-            page (int, float): 相对拖拽量。1.0 表示下一页，-1.0 表示上一页。
-            main (ModuleBase): 模块基类实例。
-            random_range (tuple[float]): 随机偏移范围。
-            skip_first_screenshot: 是否跳过首次截图。
+            page (int, float): Относительная величина прокрутки; 1.0 — следующая страница, -1.0 — предыдущая.
+            main (ModuleBase): Экземпляр базового модуля.
+            random_range (tuple[float]): Диапазон случайного смещения.
+            skip_first_screenshot: Пропускать ли первый снимок экрана.
         """
         if not skip_first_screenshot:
             main.device.screenshot()
@@ -210,14 +212,14 @@ class Scroll:
 class AdaptiveScroll(Scroll):
     def __init__(self, area, parameters: dict = None, background=5, is_vertical=True, name='Scroll'):
         """
-        自适应滚动条，通过峰值检测自动识别滚动条位置。
+        Адаптивная полоса прокрутки, автоматически определяющая позицию по поиску пиков.
 
         Args:
-            area (Button, tuple): 滚动条整体的按钮或区域。
-            parameters (dict): 传递给 scipy.find_peaks 的参数。
-            background (int): 背景扩展像素数。
-            is_vertical (bool): True 为垂直滚动条，False 为水平滚动条。
-            name (str): 滚动条名称。
+            area (Button, tuple): Кнопка или область полосы прокрутки целиком.
+            parameters (dict): Параметры для передачи в scipy.signal.find_peaks.
+            background (int): Количество пикселей расширения фона.
+            is_vertical (bool): True для вертикальной полосы прокрутки, False для горизонтальной.
+            name (str): Имя полосы прокрутки.
         """
         if parameters is None:
             parameters = {}
