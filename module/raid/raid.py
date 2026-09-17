@@ -1,17 +1,17 @@
 # Этот файл обрабатывает различные временные совместные (Raid) этапы игры.
 # Отвечает за автоматическое определение типа события, расход пропусков, вход на разных сложностях, специализированный бой Raid и учёт полученных PT.
 """
-突袭（Raid）活动核心处理模块。
+Основной модуль обработки событий рейдов (Raid).
 
-处理游戏中各种限时共斗活动关卡，包括：
-- 突袭活动名称到资源前缀的映射（raid_name_shorten）
-- 各难度入口按钮和 OCR 识别器的工厂函数（raid_entrance、raid_ocr、pt_ocr）
-- 突袭战斗准备、入场、执行和结束的完整流程
-- 入场券使用确认弹窗处理
-- PT 积分 OCR 读取和停止条件判断
+Обрабатывает различные временные совместные этапы игры, включая:
+- Сопоставление названия события рейда с префиксом ресурсов (raid_name_shorten)
+- Фабричные функции кнопок входа для различных сложностей и OCR-распознавателей (raid_entrance, raid_ocr, pt_ocr)
+- Полный цикл подготовки к бою рейда, входа, выполнения и завершения
+- Обработку диалогового окна подтверждения использования билетов рейда
+- OCR-считывание очков PT и проверку условий остановки
 
-支持的突袭活动：ESSEX、SURUGA、BRISTOL、IRIS、ALBION、KUYBYSHEY、
-GORIZIA、HUANCHANG、RPG、CHIENWU、CHANGWU。
+Поддерживаемые события рейдов: ESSEX, SURUGA, BRISTOL, IRIS, ALBION, KUYBYSHEY,
+GORIZIA, HUANCHANG, RPG, CHIENWU, CHANGWU.
 """
 import cv2
 import numpy as np
@@ -33,11 +33,11 @@ from module.log_res import LogRes
 
 class RaidCounterPostMixin(DigitCounter):
     """
-    突袭计数器后处理混入类。
+    Примесь постобработки счётчика рейдов.
 
-    对 OCR 识别结果进行后处理修正，修复如 "915/"、"1515" 等
-    OCR 误识别结果，将其还原为正确的 "X/15" 格式。
-    用于 CHANGWU 等新突袭活动。
+    Выполняет постобработку результатов распознавания OCR, исправляя
+    ошибочные распознавания вида "915/", "1515" и приводя их к корректному формату "X/15".
+    Используется для новых событий рейдов, таких как CHANGWU.
     """
 
     def after_process(self, result):
@@ -50,10 +50,11 @@ class RaidCounterPostMixin(DigitCounter):
 
 class RaidCounter(DigitCounter):
     """
-    突袭计数器 OCR 识别器。
+    OCR-распознаватель счётчика рейдов.
 
-    在预处理阶段对图像进行上下白色填充（padding），以提高
-    OCR 对数字/分隔符的识别准确率。用于旧突袭活动（ESSEX、SURUGA、BRISTOL）。
+    На этапе предварительной обработки добавляет белые поля (padding) сверху и снизу изображения,
+    чтобы повысить точность распознавания цифр и разделителей.
+    Используется для старых событий рейдов (ESSEX, SURUGA, BRISTOL).
     """
 
     def pre_process(self, image):
@@ -64,8 +65,8 @@ class RaidCounter(DigitCounter):
 
 class HuanChangCounter(Digit):
     """
-    环昌突袭活动"春节骚动"的剩余次数显示为纵向排列，
-    OCR 仅识别上半部分数字。
+    Оставшиеся попытки в рейде Huan Chang ("Весеннее волнение") отображаются вертикально,
+    поэтому OCR распознаёт только верхнюю часть цифр.
     """
 
     def ocr(self, image, direct_ocr=False):
@@ -75,20 +76,22 @@ class HuanChangCounter(Digit):
 
 class HuanChangPtOcr(Digit):
     """
-    环昌突袭活动 PT 积分 OCR 识别器。
+    OCR-распознаватель очков PT для рейда Huan Chang.
 
-    通过连通域分析过滤非数字区域，仅保留面积大于 60 的连通域作为有效数字，
-    以处理环昌活动特殊背景干扰问题。
+    Использует анализ связных компонент для фильтрации нецифровых областей,
+    сохраняя только компоненты с площадью более 60 пикселей как валидные цифры,
+    чтобы справиться со специфическими помехами фона в событии Huan Chang.
     """
     def pre_process(self, image):
         """
-        预处理 PT 图像：灰度化、二值化、连通域分析，过滤掉非数字区域。
+        Предварительная обработка изображения PT: градация серого, бинаризация,
+        анализ связных компонент и отсечение нецифровых областей.
 
         Args:
-            image (np.ndarray): 输入图像，形状 (height, width, channel)。
+            image (np.ndarray): Входное изображение размерностью (height, width, channel).
 
         Returns:
-            np.ndarray: 处理后的二值图像，形状 (height, width)。
+            np.ndarray: Обработанное бинарное изображение размерностью (height, width).
         """
         image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         image = cv2.threshold(image, 128, 255, cv2.THRESH_BINARY_INV)[1]
@@ -103,13 +106,13 @@ class HuanChangPtOcr(Digit):
 
 def raid_name_shorten(name):
     """
-    将突袭活动名称转换为按钮资源名称前缀。
+    Преобразует название события рейда в префикс имени ресурса кнопки.
 
     Args:
-        name (str): 突袭活动名称，如 raid_20200624、raid_20210708。
+        name (str): Название события рейда, например raid_20200624, raid_20210708.
 
     Returns:
-        str: 按钮资源名称前缀，如 ESSEX、SURUGA。
+        str: Префикс имени ресурса кнопки, например ESSEX, SURUGA.
     """
     if name == 'raid_20200624':
         return 'ESSEX'
@@ -139,14 +142,14 @@ def raid_name_shorten(name):
 
 def raid_entrance(raid, mode):
     """
-    根据突袭活动名称和难度，获取对应的入口按钮资源。
+    Получает ресурс кнопки входа в соответствии с названием события рейда и сложностью.
 
     Args:
-        raid (str): 突袭活动名称，如 raid_20200624、raid_20210708。
-        mode (str): 难度模式，easy、normal 或 hard。
+        raid (str): Название события рейда, например raid_20200624, raid_20210708.
+        mode (str): Режим сложности: easy, normal или hard.
 
     Returns:
-        Button: 对应难度的入口按钮。
+        Button: Кнопка входа соответствующей сложности.
     """
     key = f'{raid_name_shorten(raid)}_RAID_{mode.upper()}'
     try:
@@ -157,14 +160,14 @@ def raid_entrance(raid, mode):
 
 def raid_ocr(raid, mode):
     """
-    根据突袭活动名称和难度，获取对应的 OCR 识别器实例。
+    Получает экземпляр OCR-распознавателя в соответствии с названием события рейда и сложностью.
 
     Args:
-        raid (str): 突袭活动名称，如 raid_20200624、raid_20210708。
-        mode (str): 难度模式，easy、normal、hard 或 ex。
+        raid (str): Название события рейда, например raid_20200624, raid_20210708.
+        mode (str): Режим сложности: easy, normal, hard или ex.
 
     Returns:
-        DigitCounter: 对应的 OCR 识别器（DigitCounter 或 Digit）。
+        DigitCounter: Соответствующий OCR-распознаватель (DigitCounter или Digit).
     """
     raid = raid_name_shorten(raid)
     key = f'{raid}_OCR_REMAIN_{mode.upper()}'
@@ -221,13 +224,13 @@ def raid_ocr(raid, mode):
 
 def pt_ocr(raid):
     """
-    根据突袭活动名称，获取对应的 PT 积分 OCR 识别器。
+    Получает экземпляр OCR-распознавателя очков PT в соответствии с названием события рейда.
 
     Args:
-        raid (str): 突袭活动名称，如 raid_20200624、raid_20210708。
+        raid (str): Название события рейда, например raid_20200624, raid_20210708.
 
     Returns:
-        Digit: PT 积分 OCR 识别器，不支持则返回 None。
+        Digit: OCR-распознаватель очков PT либо None, если не поддерживается.
     """
     raid = raid_name_shorten(raid)
     key = f'{raid}_OCR_PT'
@@ -253,36 +256,36 @@ def pt_ocr(raid):
 
 class Raid(MapOperation, RaidCombat, CampaignEvent):
     """
-    突袭活动核心处理器。
+    Основной обработчик событий рейдов.
 
-    继承 MapOperation、RaidCombat 和 CampaignEvent，提供突袭活动的
-    完整战斗流程：入场、战斗准备、执行战斗、处理结束画面。
+    Наследует MapOperation, RaidCombat и CampaignEvent, обеспечивая полный боевой цикл
+    событий рейда: вход, подготовка к бою, проведение боя и обработка экрана завершения.
 
-    主要职责：
-    - 停止条件判断（油量、PT 积分、金币、任务均衡器）
-    - 战斗准备画面处理（自动化设置、退役、情绪检查、入场券使用）
-    - 突袭关卡入场导航
-    - 突袭战斗执行（普通模式和 EX 模式）
-    - PT 积分 OCR 读取和记录
-    - RPG 类型突袭的特殊处理（滑动到最右侧关卡入口）
+    Основные обязанности:
+    - Проверка условий остановки (топливо, очки PT, монеты, балансировщик задач)
+    - Обработка экрана подготовки к бою (автоматизация, отставка, настроение, использование билетов)
+    - Навигация и вход на этап рейда
+    - Проведение боя рейда (обычный режим и EX-режим)
+    - Считывание очков PT через OCR и их регистрация
+    - Специальная обработка для рейдов RPG-типа (прокрутка до крайнего правого этапа)
 
     Attributes:
-        _raid_has_oil_icon: 当前突袭活动是否显示油量图标（property，默认 False）。
+        _raid_has_oil_icon: Отображается ли значок топлива в интерфейсе текущего рейда (property, по умолчанию False).
     """
     @property
     def _raid_has_oil_icon(self):
         """
-        判断当前突袭活动是否在 UI 中显示油量图标。
-        多数突袭活动移除了油量显示，见 https://github.com/LmeSzinc/AzurLaneAutoScript/issues/5214
+        Определяет, отображается ли значок топлива в интерфейсе текущего рейда.
+        В большинстве событий рейдов отображение топлива удалено, см. https://github.com/LmeSzinc/AzurLaneAutoScript/issues/5214
         """
         return False
 
     def triggered_stop_condition(self, oil_check=False, pt_check=False, coin_check=False):
         """
-        检查是否触发停止条件：油量、活动 PT、金币或任务均衡器。
+        Проверяет, сработало ли условие остановки: лимит топлива, очков PT события, монет или балансировщика задач.
 
         Returns:
-            bool: 是否触发了停止条件。
+            bool: Сработало ли условие остановки.
         """
         # Лимит топлива
         if oil_check:
@@ -310,13 +313,13 @@ class Raid(MapOperation, RaidCombat, CampaignEvent):
 
     def combat_preparation(self, balance_hp=False, emotion_reduce=False, auto='combat_auto', fleet_index=1):
         """
-        处理突袭战斗准备画面，包括自动化设置、退役、情绪检查和入场券使用。
+        Обрабатывает экран подготовки к бою рейда, включая настройки автобоя, отставку, проверку настроения и использование билетов.
 
         Args:
-            balance_hp (bool): 是否进行血量均衡。
-            emotion_reduce (bool): 是否减少情绪值。
-            auto (str): 自动战斗模式。
-            fleet_index (int): 舰队索引。
+            balance_hp (bool): Выполнять ли балансировку здоровья кораблей.
+            emotion_reduce (bool): Уменьшать ли показатель настроения.
+            auto (str): Режим автобоя.
+            fleet_index (int): Индекс флота.
         """
         logger.info('Подготовка к бою')
 
@@ -354,10 +357,10 @@ class Raid(MapOperation, RaidCombat, CampaignEvent):
 
     def handle_raid_ticket_use(self):
         """
-        处理突袭入场券使用确认弹窗，根据配置决定使用或取消。
+        Обрабатывает диалоговое окно подтверждения использования билета рейда в зависимости от настроек.
 
         Returns:
-            bool: 是否点击了按钮。
+            bool: Была ли нажата кнопка.
         """
         if self.appear(TICKET_USE_CONFIRM, offset=(30, 30), interval=1):
             if self.config.Raid_UseTicket:
@@ -370,12 +373,12 @@ class Raid(MapOperation, RaidCombat, CampaignEvent):
 
     def raid_enter(self, mode, raid, skip_first_screenshot=True):
         """
-        进入指定突袭关卡，从突袭页面导航到战斗准备画面。
+        Осуществляет вход на указанный этап рейда, выполняя переход со страницы рейда к экрану подготовки к бою.
 
         Args:
-            mode (str): 难度模式，easy、normal 或 hard。
-            raid (str): 突袭活动名称。
-            skip_first_screenshot (bool): 是否跳过首次截图。
+            mode (str): Режим сложности: easy, normal или hard.
+            raid (str): Название события рейда.
+            skip_first_screenshot (bool): Пропускать ли первый снимок экрана.
 
         Pages:
             in: page_raid
@@ -403,13 +406,13 @@ class Raid(MapOperation, RaidCombat, CampaignEvent):
 
     def raid_expected_end(self):
         """
-        判断突袭战斗是否已结束。
+        Определяет, завершился ли бой рейда.
 
-        通过检测 RAID_REWARDS 奖励弹窗或返回到突袭页面来确认战斗结束。
-        RPG 类型突袭检测 page_rpg_stage，其他类型检测 RAID_CHECK。
+        Проверяет появление окна наград RAID_REWARDS или возврат на страницу рейда.
+        Для RPG-типа рейдов проверяет page_rpg_stage, для остальных — RAID_CHECK.
 
         Returns:
-            bool: 战斗是否已结束。
+            bool: Завершился ли бой.
         """
         if self.appear_then_click(RAID_REWARDS, offset=(30, 30), interval=3):
             return False
@@ -420,11 +423,11 @@ class Raid(MapOperation, RaidCombat, CampaignEvent):
 
     def raid_execute_once(self, mode, raid):
         """
-        执行一次突袭战斗，从进入关卡到战斗结束。
+        Выполняет один бой рейда от входа на этап до завершения боя.
 
         Args:
-            mode (str): 难度模式。
-            raid (str): 突袭活动名称。
+            mode (str): Режим сложности.
+            raid (str): Название события рейда.
 
         Pages:
             in: page_raid
@@ -455,12 +458,12 @@ class Raid(MapOperation, RaidCombat, CampaignEvent):
 
     def raid_execute_once_with_oil_check(self, mode, raid):
         """
-        执行一次突袭战斗，在进入战斗前检查油量。
-        用于 raid_20240328 等需要提前获取油量以避免 UI 问题的突袭活动。
+        Выполняет один бой рейда с предварительной проверкой запасов топлива перед входом.
+        Используется для таких событий, как raid_20240328, где требуется заранее получить значение топлива во избежание проблем с интерфейсом.
 
         Args:
-            mode (str): 难度模式。
-            raid (str): 突袭活动名称。
+            mode (str): Режим сложности.
+            raid (str): Название события рейда.
 
         Pages:
             in: page_raid
@@ -498,10 +501,10 @@ class Raid(MapOperation, RaidCombat, CampaignEvent):
 
     def get_event_pt(self):
         """
-        通过 OCR 获取当前突袭活动的 PT 积分。
+        Считывает текущее количество очков PT события рейда через OCR.
 
         Returns:
-            int: 突袭 PT 积分，不支持的活动返回 0。
+            int: Очки PT рейда либо 0, если OCR для данного события не поддерживается.
 
         Pages:
             in: page_raid
@@ -533,22 +536,22 @@ class Raid(MapOperation, RaidCombat, CampaignEvent):
 
     def is_raid_rpg(self):
         """
-        判断当前突袭活动是否为 RPG 类型。
+        Определяет, относится ли текущее событие рейда к типу RPG.
 
-        RPG 类型突袭（raid_20240328）具有不同的 UI 布局和入口逻辑，
-        需要特殊处理（如滑动操作、不同的页面检测等）。
+        Рейды RPG-типа (raid_20240328) имеют иной макет интерфейса и логику входа,
+        требуя специальной обработки (жесты свайпа, иные детекторы страниц и т.д.).
 
         Returns:
-            bool: 是否为 RPG 类型突袭。
+            bool: Является ли текущий рейд типом RPG.
         """
         return self.config.Campaign_Event == 'raid_20240328'
 
     def raid_rpg_swipe(self, skip_first_screenshot=True):
         """
-        在 RPG 类型突袭中滑动到最右侧关卡入口。
+        Выполняет жест прокрутки (свайп) к крайнему правому входу на этап в рейдах RPG-типа.
 
         Args:
-            skip_first_screenshot (bool): 是否跳过首次截图。
+            skip_first_screenshot (bool): Пропускать ли первый снимок экрана.
         """
         interval = Timer(1)
         while 1:

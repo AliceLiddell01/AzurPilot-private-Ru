@@ -1,14 +1,15 @@
 """
-船坞舰船扫描系统。
+Система сканирования кораблей в доке.
 
-提供船坞页面中舰船属性的多维度扫描能力，包括等级、情绪、稀有度、
-舰队归属和状态识别。通过组合多个子扫描器 (LevelScanner、
-EmotionScanner、RarityScanner、FleetScanner、StatusScanner)
-实现舰船信息的批量采集。
+Предоставляет многомерные возможности сканирования атрибутов кораблей на странице дока,
+включая уровень, настроение, редкость, принадлежность к флоту и распознавание статуса.
+Путём объединения нескольких дочерних сканеров (LevelScanner, EmotionScanner,
+RarityScanner, FleetScanner, StatusScanner) реализует пакетный сбор информации о кораблях.
 
-支持单页扫描 (ShipScanner) 和跨页滚动扫描 (DockScanner)，
-后者通过灰度图标准差定位卡片间隙，自动滚动并去重，完成全船坞扫描。
-DHash 感知哈希用于跨页去重判断。
+Поддерживает как сканирование одной страницы (ShipScanner), так и прокручиваемое многостраничное сканирование (DockScanner).
+Последний определяет промежутки между карточками по стандартному отклонению оттенков серого,
+автоматически прокручивает страницу и исключает дубликаты, выполняя полное сканирование дока.
+Перцептивный хеш DHash используется для определения дубликатов между страницами.
 """
 
 import os
@@ -42,10 +43,10 @@ from module.retire.dock import (CARD_EMOTION_GRIDS, CARD_EMOTION_STATUS_GRIDS, C
 
 
 class EmotionDigit(Digit):
-    """情绪值 OCR 识别器，针对船坞卡片的情绪数字区域优化。
+    """OCR-распознаватель настроения, оптимизированный под область цифр настроения на карточках дока.
 
-    针对 JP 服务器特殊处理白色文字提取，
-    并修正唐斯头发区域的随机误识别 (044 -> 0)。
+    Содержит специальную обработку для извлечения белого текста на сервере JP
+    и исправляет случайные ошибки распознавания в области волос Даунс (044 -> 0).
     """
     def pre_process(self, image):
         if server.server == 'jp':
@@ -82,16 +83,16 @@ class Ship:
     hash_: str = field(default='', repr=False)
 
     def satisfy_limitation(self, limitation) -> bool:
-        """检查舰船是否满足筛选条件。
+        """Проверяет, удовлетворяет ли корабль условиям фильтрации.
 
-        遍历舰船的所有属性，与 limitation 中的限制逐一比对。
-        str/int 类型要求精确匹配，tuple 表示范围，list 表示枚举。
+        Перебирает все атрибуты корабля и поочерёдно сравнивает их с ограничениями в limitation.
+        Для типов str и int требуется точное совпадение, tuple задаёт диапазон, list задаёт список допустимых значений.
 
         Args:
-            limitation: 筛选条件字典，key 为属性名，value 为限制值。
+            limitation: Словарь условий фильтрации, где ключ — имя атрибута, а значение — ограничение.
 
         Returns:
-            bool: 是否满足所有限制条件。
+            bool: Удовлетворяет ли корабль всем условиям ограничения.
         """
         for key in self.__dict__:
             value = limitation.get(key)
@@ -115,14 +116,14 @@ class Ship:
 
 
 class DHash:
-    """感知哈希 (Difference Hash) 实现，用于图像去重。
+    """Реализация перцептивного хеша (Difference Hash) для дедупликации изображений.
 
-    通过比较相邻像素生成哈希值，以汉明距离判断两张图像是否相似。
-    用于 DockScanner 跨页扫描时的去重判断。
+    Генерирует хеш путём сравнения соседних пикселей и оценивает сходство изображений по расстоянию Хэмминга.
+    Используется сканером DockScanner для исключения дубликатов при переходе между страницами.
 
     Attributes:
-        EQ_THRES (int): 哈希相等的距离阈值，默认 30。
-        code (str): 生成的十六进制哈希字符串。
+        EQ_THRES (int): Порог расстояния для признания хешей равными, по умолчанию 30.
+        code (str): Сгенерированная шестнадцатеричная строка хеша.
     """
     EQ_THRES: int = 30
 
@@ -158,16 +159,16 @@ class DHash:
 
 
 class Scanner(metaclass=ABCMeta):
-    """扫描器抽象基类。
+    """Абстрактный базовый класс сканера.
 
-    定义船坞卡片属性扫描的通用接口，子扫描器 (LevelScanner、
-    RarityScanner 等) 继承此类并实现 _scan() 方法。
+    Определяет общий интерфейс для сканирования атрибутов карточек дока. Дочерние сканеры
+    (LevelScanner, RarityScanner и т. д.) наследуют этот класс и реализуют метод _scan().
 
     Attributes:
-        _results (List): 缓存的扫描结果。
-        _enabled (bool): 扫描器是否启用，禁用时返回全 None 列表。
-        _disabled_value (List[None]): 禁用时的默认返回值。
-        grids (ButtonGrid): 卡片属性区域的按钮网格。
+        _results (List): Кэшированные результаты сканирования.
+        _enabled (bool): Включён ли сканер; если отключён, возвращает список из значений None.
+        _disabled_value (List[None]): Значение по умолчанию, возвращаемое при отключённом сканере.
+        grids (ButtonGrid): Сетка кнопок зон атрибутов карточек.
     """
     _results: List = None
     _enabled: bool = True
@@ -187,22 +188,22 @@ class Scanner(metaclass=ABCMeta):
         pass
 
     def clear(self) -> None:
-        """清除所有缓存的扫描结果。"""
+        """Очищает все кэшированные результаты сканирования."""
         self._results.clear()
 
     def scan(self, image, cached=False, output=False) -> Union[List, None]:
-        """执行扫描，返回结果列表。
+        """Выполняет сканирование и возвращает список результатов.
 
-        启用时返回真实扫描结果，禁用时返回全 None 列表。
-        多次扫描场景建议使用 cached=True 缓存结果。
+        При включённом сканере возвращает реальные результаты сканирования, при отключённом — список из значений None.
+        В сценариях многократного сканирования рекомендуется использовать cached=True для кэширования результатов.
 
         Args:
-            image: 截图图像。
-            cached: 是否将结果追加到缓存。
-            output: 是否将结果逐条输出到日志。
+            image: Снимок экрана.
+            cached: Добавлять ли результаты в кэш.
+            output: Выводить ли результаты построчно в лог.
 
         Returns:
-            list 或 None: cached=False 时返回结果列表，cached=True 时返回 None。
+            list или None: Список результатов при cached=False, либо None при cached=True.
         """
         results: List = self._scan(image) if self._enabled else self._disabled_value
 
@@ -216,7 +217,7 @@ class Scanner(metaclass=ABCMeta):
             return results
 
     def move(self, vector) -> None:
-        """移动网格坐标，同步更新内部 ButtonGrid。"""
+        """Смещает координаты сетки, синхронно обновляя внутренний ButtonGrid."""
         self.grids = self.grids.move(vector)
 
     def enable(self) -> None:
@@ -227,7 +228,7 @@ class Scanner(metaclass=ABCMeta):
 
 
 class LevelScanner(Scanner):
-    """等级扫描器，通过 OCR 识别船坞卡片上显示的舰船等级。"""
+    """Сканер уровня, распознающий отображаемый уровень корабля на карточках дока с помощью OCR."""
     def __init__(self) -> None:
         super().__init__()
         self._results = []
@@ -247,10 +248,10 @@ class LevelScanner(Scanner):
 
 
 class EmotionScanner(Scanner):
-    """情绪扫描器，通过 OCR 识别舰船情绪值。
+    """Сканер настроения, распознающий значение настроения корабля с помощью OCR.
 
-    结合 EmotionStatusScanner 的颜色状态进行交叉校正，
-    修正 OCR 在低情绪场景下的误识别。
+    Выполняет перекрёстную корректировку с цветовым индикатором EmotionStatusScanner,
+    исправляя ошибки распознавания OCR при низком уровне настроения.
     """
     def __init__(self) -> None:
         super().__init__()
@@ -291,10 +292,10 @@ class EmotionScanner(Scanner):
 
 
 class EmotionStatusScanner(Scanner):
-    """情绪状态扫描器，通过颜色识别情绪指示灯。
+    """Сканер статуса настроения, определяющий индикатор настроения по цвету.
 
-    检测船坞卡片右上角指示灯的颜色：红、黄、绿，分别对应
-    不同的情绪区间。结果用于 EmotionScanner 的交叉校正。
+    Определяет цвет индикатора в правом верхнем углу карточки: красный, жёлтый, зелёный,
+    соответствующие различным диапазонам настроения. Результат используется для перекрёстной коррекции в EmotionScanner.
     """
     def __init__(self) -> None:
         super().__init__()
@@ -303,19 +304,19 @@ class EmotionStatusScanner(Scanner):
         self.value_list: List[str] = ['red', 'yellow', 'green', 'unknown']
 
     def get_emotion_status(self, image) -> str:
-        """获取舰船卡片右上角的情绪状态指示灯颜色。
+        """Определяет цвет индикатора статуса настроения в правом верхнем углу карточки корабля.
 
-        通过统计图像中特定颜色的像素数量来判断情绪状态：
+        Определяет статус настроения путём подсчёта пикселей определённого цвета на изображении:
             'yellow': 1 <= emotion <= 30
             'green': 31 <= emotion <= 40
             'red': emotion = 0
             'unknown': emotion > 40
 
         Args:
-            image: 裁剪后的情绪状态指示灯区域图像。
+            image: Изображение вырезанной области индикатора настроения.
 
         Returns:
-            str: 情绪状态，取值为 'yellow'、'green'、'red' 或 'unknown'。
+            str: Статус настроения, одно из значений: 'yellow', 'green', 'red' или 'unknown'.
         """
         if image_color_count(image, color=EMOTION_YELLOW, count=300):
             return 'yellow'
@@ -337,10 +338,10 @@ class EmotionStatusScanner(Scanner):
 
 
 class RarityScanner(Scanner):
-    """稀有度扫描器，通过卡片顶部颜色条判断舰船稀有度。
+    """Сканер редкости, определяющий редкость корабля по верхней цветовой полосе карточки.
 
-    稀有度映射：common(灰)、rare(蓝)、elite(紫)、super_rare(金)。
-    彩虹稀有度因颜色差异过大标记为 unknown。
+    Сопоставление редкости: common (серый), rare (синий), elite (фиолетовый), super_rare (золотой).
+    Радужная редкость отмечается как unknown из-за слишком сильных различий оттенков.
     """
     def __init__(self) -> None:
         super().__init__()
@@ -349,16 +350,16 @@ class RarityScanner(Scanner):
         self.value_list: List[str] = ['common', 'rare', 'elite', 'super_rare']
 
     def color_to_rarity(self, color: Tuple[int, int, int]) -> str:
-        """将卡片颜色转换为舰船稀有度。
+        """Преобразует цвет карточки в редкость корабля.
 
-        稀有度分为 common、rare、elite、super_rare、unknown 五种。
-        彩虹（ultra）稀有度因颜色差异过大，标记为 'unknown'。
+        Редкость делится на пять вариантов: common, rare, elite, super_rare, unknown.
+        Радужная (ultra) редкость отмечается как 'unknown' из-за сильных различий цветовой палитры.
 
         Args:
-            color: RGB 颜色元组 (r, g, b)。
+            color: RGB-кортеж цвета (r, g, b).
 
         Returns:
-            str: 稀有度字符串。
+            str: Строка с наименованием редкости.
         """
         if color_similar(color, (171, 174, 186)):
             return 'common'
@@ -381,10 +382,10 @@ class RarityScanner(Scanner):
 
 
 class FleetScanner(Scanner):
-    """舰队归属扫描器，通过模板匹配识别舰船所属的舰队编号。
+    """Сканер принадлежности к флоту, распознающий номер флота корабля с помощью сопоставления шаблонов.
 
-    对卡片左下角的舰队标识进行灰度二值化预处理后，
-    逐一匹配 Fleet 1-6 的模板图像。未匹配到则返回 0（不在编队）。
+    Выполняет градацию серого и бинаризацию идентификатора флота в левом нижнем углу карточки,
+    после чего поочерёдно сопоставляет шаблоны Fleet 1-6. Если совпадений нет, возвращает 0 (не во флоте).
     """
     def __init__(self) -> None:
         super().__init__()
@@ -400,10 +401,10 @@ class FleetScanner(Scanner):
         }
 
     def pre_process(self, image):
-        """对舰队编号图像进行预处理，提升模板匹配效果。
+        """Выполняет предварительную обработку изображения номера флота для улучшения сопоставления с шаблоном.
 
-        将图像转为灰度后二值化，使数字与背景分离更明显。
-        若需更新 TEMPLATE_FLEET 素材，必须先执行此预处理。
+        Преобразует изображение в градации серого и бинаризирует, делая цифры более контрастными на фоне.
+        При обновлении шаблонов TEMPLATE_FLEET необходимо предварительно выполнить такую же обработку.
         """
         _, g, _ = cv2.split(image)
         _, image = cv2.threshold(g, 205, 255, cv2.THRESH_BINARY)
@@ -412,10 +413,10 @@ class FleetScanner(Scanner):
         return image
 
     def _match(self, image) -> int:
-        """通过模板匹配识别舰船所属舰队编号。
+        """Распознаёт номер флота корабля с помощью сопоставления с шаблоном.
 
-        彩虹稀有度卡片因闪光干扰，识别效果较差。
-        未匹配到任何舰队时返回 0（不在任何编队中）。
+        На карточках радужной редкости распознавание может ухудшаться из-за бликов анимации.
+        Если совпадений с флотами не найдено, возвращает 0 (корабль не назначен ни в один флот).
         """
         for template, fleet in self.templates.items():
             if template.match(image):
@@ -441,10 +442,10 @@ class FleetScanner(Scanner):
 
 
 class StatusScanner(Scanner):
-    """状态扫描器，通过模板匹配识别舰船的使用状态。
+    """Сканер статуса, распознающий статус использования корабля с помощью сопоставления шаблонов.
 
-    状态类型：free(空闲)、battle(出击中)、commission(委托中)、
-    in_hard_fleet(困难舰队)、in_event_fleet(活动舰队)。
+    Типы статусов: free (свободен), battle (в вылазке/бою), commission (на комиссии),
+    in_hard_fleet (в сложном флоте), in_event_fleet (во флоте события).
     """
     def __init__(self) -> None:
         super().__init__()
@@ -481,9 +482,9 @@ class StatusScanner(Scanner):
 
 
 class HashGenerator(Scanner):
-    """哈希生成器，为每张船坞卡片生成 DHash 感知哈希。
+    """Генератор хешей, создающий перцептивный хеш DHash для каждой карточки в доке.
 
-    用于 DockScanner 跨页扫描时的去重判断和加载完成检测。
+    Используется сканером DockScanner для дедупликации при прокрутке страниц и проверки завершения загрузки.
     """
     def __init__(self, length=8) -> None:
         super().__init__()
@@ -501,31 +502,30 @@ class HashGenerator(Scanner):
 
 
 class ShipScanner(Scanner):
-    """舰船扫描器，用于扫描船坞页面中所有舰船的属性信息。
+    """Сканер кораблей, предназначенный для сбора атрибутов всех кораблей на текущей странице дока.
 
-    必须在船坞初始页面使用（设置筛选器后不能有滚动操作），否则结果不可靠。
-    如需跨页扫描，请使用 DockScanner。
+    Должен использоваться строго на начальной странице дока (после применения фильтров без операций прокрутки),
+    иначе результаты могут быть недостоверными. Для многостраничного сканирования используйте DockScanner.
 
     Args:
-        rarity: 稀有度筛选，取值 'any'、'common'、'rare'、'elite'、'super_rare'，支持 str 或 list。
-        level: 等级范围 (下限, 上限)，自动限制在 [1, 125]。
-        emotion: 情绪范围 (下限, 上限)，自动限制在 [0, 150]。
-        fleet: 舰队编号，0 表示不在任何编队，自动限制在 [0, 6]。
-        status: 状态筛选，取值 'free'、'battle'、'commission'、'in_hard_fleet'、'in_event_fleet'。
+        rarity: Фильтр редкости: 'any', 'common', 'rare', 'elite', 'super_rare', поддерживается str или list.
+        level: Диапазон уровней (нижний, верхний), автоматически ограничивается диапазоном [1, 125].
+        emotion: Диапазон настроения (нижний, верхний), автоматически ограничивается диапазоном [0, 150].
+        fleet: Номер флота, где 0 означает отсутствие во флотах, автоматически ограничивается диапазоном [0, 6].
+        status: Фильтр статуса: 'free', 'battle', 'commission', 'in_hard_fleet', 'in_event_fleet'.
 
-    属性支持两个特殊值 False 和 None：
+    Атрибуты поддерживают два специальных значения — False и None:
 
-    使用 False:
-        跳过该属性的扫描，结果中对应字段为 None。
-        设置为 False 后只能通过 enable() 重新启用，
-        disable() 的效果与设为 False 相同。
+    Использование False:
+        Пропускает сканирование этого атрибута, в результатах соответствующее поле будет None.
+        После установки в False может быть включено только через enable(), вызов disable() аналогичен установке в False.
 
-    使用 None:
-        正常扫描该属性，但筛选时忽略该属性的限制。
-        调用 set_limitation(property=...) 可重置限制（包括设为 None）。
+    Использование None:
+        Атрибут сканируется в обычном режиме, но при фильтрации ограничение на него игнорируется.
+        Вызов set_limitation(property=...) позволяет сбросить ограничение (включая установку в None).
 
     Examples:
-        ShipScanner(rarity=False) 扫描时忽略稀有度，结果中 rarity 为 None。
+        ShipScanner(rarity=False) при сканировании игнорирует редкость, в результатах rarity будет None.
     """
     def __init__(
         self,
@@ -594,7 +594,7 @@ class ShipScanner(Scanner):
             return [ship for ship in ships if ship.satisfy_limitation(self.limitation)]
 
     def move(self, vector) -> None:
-        """移动网格坐标，同步更新所有子扫描器和自身的网格位置。"""
+        """Смещает координаты сетки, синхронно обновляя позиции сеток всех дочерних сканеров и своей собственной."""
         for scanner in self.sub_scanners.values():
             scanner.move(vector)
 
@@ -614,32 +614,32 @@ class ShipScanner(Scanner):
             self.limitation[key] = self.sub_scanners[key].limit_value(value)
 
     def enable(self, *args) -> None:
-        """启用指定属性的子扫描器。
+        """Включает дочерние сканеры указанных атрибутов.
 
-        支持的属性：'level'、'emotion'、'rarity'、'fleet'、'status'。
+        Поддерживаемые атрибуты: 'level', 'emotion', 'rarity', 'fleet', 'status'.
         """
         for name, scanner in self.sub_scanners.items():
             if name in args:
                 scanner.enable()
 
     def disable(self, *args) -> None:
-        """禁用指定属性的子扫描器。
+        """Отключает дочерние сканеры указанных атрибутов.
 
-        支持的属性：'level'、'emotion'、'rarity'、'fleet'、'status'。
+        Поддерживаемые атрибуты: 'level', 'emotion', 'rarity', 'fleet', 'status'.
         """
         for name, scanner in self.sub_scanners.items():
             if name in args:
                 scanner.disable()
 
     def set_limitation(self, **kwargs):
-        """设置舰船筛选条件。
+        """Устанавливает условия фильтрации кораблей.
 
         Args:
-            rarity: 稀有度，取值 'any'、'common'、'rare'、'elite'、'super_rare'。
-            level: 等级范围 (下限, 上限)，自动限制在 [1, 125]。
-            emotion: 情绪范围 (下限, 上限)，自动限制在 [0, 150]。
-            fleet: 舰队编号，0 表示不在任何编队，自动限制在 [0, 6]。
-            status: 状态，取值 'free'、'battle'、'commission'、'in_hard_fleet'、'in_event_fleet'。
+            rarity: Редкость, значения: 'any', 'common', 'rare', 'elite', 'super_rare'.
+            level: Диапазон уровней (нижний, верхний), автоматически ограничивается диапазоном [1, 125].
+            emotion: Диапазон настроения (нижний, верхний), автоматически ограничивается диапазоном [0, 150].
+            fleet: Номер флота, 0 означает отсутствие во флотах, автоматически ограничивается диапазоном [0, 6].
+            status: Статус, значения: 'free', 'battle', 'commission', 'in_hard_fleet', 'in_event_fleet'.
         """
         for attr in self.limitation.keys():
             value = kwargs.get(attr, self.limitation[attr])
@@ -651,10 +651,10 @@ class ShipScanner(Scanner):
 
 
 class DockScanner(ShipScanner):
-    """船坞扫描器，支持跨页扫描。
+    """Сканер дока с поддержкой многостраничного сканирования.
 
-    与 ShipScanner 相同，必须从船坞初始页面开始扫描。
-    扫描过程会自动滚动船坞，扫描完成后自动停止。
+    Как и ShipScanner, сканирование должно начинаться строго с начальной страницы дока.
+    В процессе сканирования страница автоматически прокручивается и останавливается по завершении.
     """
     SCAN_ZONES: Dict[str, Tuple[int, int, int, int]] = {
         'dock': (93, 55, 1219, 719),
@@ -719,10 +719,11 @@ class DockScanner(ShipScanner):
         return self._no_change > 3
 
     def _find_bound(self, image) -> List[int]:
-        """粗略定位舰船卡片间的空白行位置。
+        """Приблизительно определяет положение пустых строк между карточками кораблей.
 
-        空白行的标准差会出现明显波谷，通过定位波谷位置即可获得
-        空白行的大致位置。精度不高，但只需其中心点即可。
+        Стандартное отклонение на пустых строках образует заметную впадину;
+        по положению впадины можно определить примерные границы пустых строк.
+        Точность невысока, но достаточно получить центральную точку.
         """
         image = crop(image, self.scan_zone)
         image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
@@ -749,10 +750,11 @@ class DockScanner(ShipScanner):
         self.mean_color_set.append(self.mean_color_set[0])
 
     def reposition(self, image, bound) -> None:
-        """精确调整网格位置。
+        """Точно подстраивает положение сетки.
 
-        从 bound 给出的空白行中心点向下搜索，第一个颜色与 mean_color
-        差异较大的行即为新 CARD_GRIDS 的顶部位置。
+        Начиная от центра пустой строки, заданной bound, ищет вниз;
+        первая строка, цвет которой существенно отличается от mean_color,
+  является верхней границей новой сетки CARD_GRIDS.
         """
         scan_image = crop(image, self.scan_zone)
         if self.mean_color is not None:
@@ -766,12 +768,12 @@ class DockScanner(ShipScanner):
         self.mean_color = np.mean(scan_image[bound[-1]], axis=0)
 
     def _remove_duplicate(self, results) -> int:
-        """去除重复扫描结果，返回新增条目数。
+        """Удаляет повторяющиеся результаты сканирования и возвращает количество новых записей.
 
-        两种重复情况：
-            整页重复：新结果与上一次完全相同。
-            半页重复：新结果前半部分与上次后半部分相同。
-        两种情况下，len(results) < 14 表示已到达底部。
+        Два случая дублирования:
+            Дублирование всей страницы: новые результаты полностью идентичны предыдущим.
+            Дублирование половины страницы: первая половина новых результатов совпадает со второй половиной предыдущих.
+        В обоих случаях len(results) < 14 означает, что достигнут конец списка.
         """
         if self._results:
             if all([old.hash_ == new.hash_ for new, old in zip(results, self._results[-len(results):])]):
@@ -843,19 +845,19 @@ class DockScanner(ShipScanner):
         self.last_results = results
 
     def multi_scan(self, main) -> None:
-        """执行船坞多页扫描，自动滚动并收集所有舰船信息。
+        """Выполняет многостраничное сканирование дока с автоматической прокруткой и сбором данных обо всех кораблях.
 
-        扫描原理示意：
+        Схема принципа сканирования:
             □ | □ | □                          --------- (*)
             ---------                          ■ | □ | □
-            □ | □ | □       --- 滚动 --->      ---------
+            □ | □ | □       --- Прокрутка ---> ---------
             --------- (*)                      □ | □ | □
             ■ | □ | □                          ---------
-        □ 和 ■ 为舰船，| 和 - 为舰船间的空白间隔。
-        需要计算 (*) 移动的距离来检测滚动。
+        □ и ■ обозначают корабли, | и - обозначают пустые промежутки между кораблями.
+        Необходимо рассчитать расстояние перемещения (*), чтобы отслеживать прокрутку.
 
-        舰船间空白区域的颜色变化很小，将图像灰度化后用 np.std
-        过滤即可获得空白行的位置。
+        Цвет в пустых промежутках между карточками меняется незначительно; после преобразования изображения
+        в градации серого положение пустых строк определяется с помощью np.std.
         """
         from module.retire.enhancement import OCR_DOCK_AMOUNT
         self.debug_info['dock_size'], _, _ = OCR_DOCK_AMOUNT.ocr(main.device.image)
@@ -917,20 +919,20 @@ class DockScanner(ShipScanner):
             logger.info(f'[Списание — сканирование] Отладочная информация сохранена в {self.debug_folder}')
 
     def scan(self, image, cached=False, output=True) -> Union[List, None]:
-        """请使用 multi_scan() 代替。"""
+        """Используйте вместо этого метод multi_scan()."""
         pass
 
     def scan_one_fleet(self, fleet: int = None) -> List[Ship]:
-        """扫描指定舰队中的所有舰船。
+        """Сканирует все корабли в указанном флоте.
 
         Args:
-            fleet: 舰队编号，未指定时使用 self.fleet。
+            fleet: Номер флота; если не указан, используется self.fleet.
 
         Returns:
-            list[Ship]: 舰船列表。
+            list[Ship]: Список кораблей.
         """
         pass
 
     def scan_whole_dock(self) -> List[Ship]:
-        """扫描整个船坞。"""
+        """Сканирует весь док."""
         pass

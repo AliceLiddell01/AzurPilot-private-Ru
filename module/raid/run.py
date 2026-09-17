@@ -1,5 +1,6 @@
-"""突袭任务运行器，管理突袭的进入、次数检测和停止条件。
-支持 OCR 检测剩余次数和运行次数限制。
+"""Исполнитель задач рейда, управляющий входом в рейд, контролем попыток и условиями остановки.
+
+Поддерживает распознавание оставшихся попыток через OCR и ограничение числа запусков.
 """
 
 from module.base.timer import Timer
@@ -17,10 +18,10 @@ class RaidRun(Raid, CampaignEvent):
 
     def triggered_stop_condition(self, oil_check=False, pt_check=False, coin_check=False):
         """
-        检查是否触发了停止条件，包括运行次数限制和父类条件。
+        Проверка срабатывания условий остановки, включая лимит числа запусков и условия базового класса.
 
         Returns:
-            bool: 是否触发了停止条件。
+            bool: True, если условие остановки сработало.
         """
         # Ограничение числа запусков
         if self.run_limit and self.config.StopCondition_RunCount <= 0:
@@ -33,14 +34,14 @@ class RaidRun(Raid, CampaignEvent):
 
     def get_remain(self, mode, skip_first_screenshot=True):
         """
-        获取指定难度的剩余挑战次数。
+        Получение оставшегося количества попыток для указанной сложности.
 
         Args:
-            mode (str): 难度模式，easy、normal、hard 或 ex。
-            skip_first_screenshot (bool): 是否跳过首次截图。
+            mode (str): Режим сложности (easy, normal, hard или ex).
+            skip_first_screenshot (bool): Пропускать ли первый снимок экрана.
 
         Returns:
-            int: 剩余挑战次数。
+            int: Количество оставшихся попыток.
         """
         confirm_timer = Timer(0.3, count=0)
         prev = 30
@@ -75,12 +76,12 @@ class RaidRun(Raid, CampaignEvent):
 
     def run(self, name='', mode='', total=0):
         """
-        运行突袭任务主循环，处理战斗执行、停止条件和调度器切换。
+        Запуск основного рабочего цикла рейда с обработкой боёв, условий остановки и переключения планировщика.
 
         Args:
-            name (str): 突袭活动名称，如 'raid_20200624'。
-            mode (str): 突袭难度，如 'hard'、'normal'、'easy'。
-            total (int): 总运行次数，0 表示不限制。
+            name (str): Название рейдового события, например 'raid_20200624'.
+            mode (str): Сложность рейда ('hard', 'normal', 'easy').
+            total (int): Общий лимит числа запусков, 0 — без ограничений.
         """
         name = name if name else self.config.Campaign_Event
         mode = mode if mode else self.config.Raid_Mode

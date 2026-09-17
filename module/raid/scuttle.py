@@ -1,5 +1,6 @@
-"""弃船突袭处理器，处理弃船突袭特有的战斗结算和退役逻辑。
-在突袭中自动退役低级舰船以腾出船位。
+"""Обработчик рейдов с затоплением кораблей, логика расчёта боёв и списания кораблей.
+
+В рейдах автоматически отправляет и списывает низкоуровневые корабли обычной редкости для освобождения места в доке.
 """
 
 from module.combat.assets import OPTS_INFO_D, BATTLE_STATUS_D, EXP_INFO_D, BATTLE_STATUS_C, EXP_INFO_C
@@ -20,13 +21,13 @@ class RaidScuttleCombat(RaidCombat):
 
     def handle_battle_status(self, drop=None):
         """
-        处理弃船突袭的战斗结算画面，优先识别弃船专用结算按钮。
+        Обработка экрана результатов боя при затоплении с приоритетным распознаванием специальных кнопок.
 
         Args:
-            drop (DropImage): 掉落物图像处理器。
+            drop (DropImage): Обработчик изображений выпавшей добычи.
 
         Returns:
-            bool: 是否成功识别并处理了战斗结算。
+            bool: True, если экран результатов успешно распознан и обработан.
         """
         if self.is_combat_executing():
             return False
@@ -53,10 +54,10 @@ class RaidScuttleCombat(RaidCombat):
 
     def handle_exp_info(self):
         """
-        处理弃船突袭的经验结算画面。
+        Обработка экрана начисления опыта при затоплении в рейде.
 
         Returns:
-            bool: 是否成功识别并处理了经验结算。
+            bool: True, если экран опыта успешно распознан и обработан.
         """
         if self.is_combat_executing():
             return False
@@ -88,12 +89,12 @@ class RaidScuttleRun(RaidRun, RaidScuttleCombat, Dock):
 
     def raid_enter_preparation(self, mode, raid, skip_first_screenshot=True):
         """
-        进入弃船突袭的战斗准备画面，从突袭页面导航到编队选择。
+        Переход на экран подготовки к рейдовому бою с затоплением со страницы рейда к выбору флота.
 
         Args:
-            mode (str): 难度模式。
-            raid (str): 突袭活动名称。
-            skip_first_screenshot (bool): 是否跳过首次截图。
+            mode (str): Режим сложности.
+            raid (str): Название рейдового события.
+            skip_first_screenshot (bool): Пропускать ли первый снимок экрана.
 
         Pages:
             in: page_raid
@@ -124,13 +125,13 @@ class RaidScuttleRun(RaidRun, RaidScuttleCombat, Dock):
 
     def get_common_rarity_ship(self, index='all'):
         """
-        从船坞中获取普通稀度的舰船，用于弃船突袭替换。
+        Получение из дока кораблей обычной редкости для замены в рейде с затоплением.
 
         Args:
-            index (str): 舰船类型过滤，'all'、'vanguard' 或 'main'。
+            index (str): Фильтр типа корабля ('all', 'vanguard' или 'main').
 
         Returns:
-            list: 符合条件的舰船列表。
+            list: Список подходящих кораблей.
         """
         self.dock_favourite_set(False, wait_loading=False)
         self.dock_sort_method_dsc_set(False, wait_loading=False)
@@ -187,12 +188,12 @@ class RaidScuttleRun(RaidRun, RaidScuttleCombat, Dock):
 
     def run(self, name='', mode='', total=0):
         """
-        运行弃船突袭主循环，战斗结束后自动替换普通稀度舰船。
+        Запуск основного рабочего цикла рейда с затоплением и автоматической заменой обычных кораблей после боя.
 
         Args:
-            name (str): 突袭活动名称，如 'raid_20200624'。
-            mode (str): 突袭难度，如 'hard'、'normal'、'easy'。
-            total (int): 总运行次数。
+            name (str): Название рейдового события, например 'raid_20200624'.
+            mode (str): Сложность рейда ('hard', 'normal', 'easy').
+            total (int): Общий лимит числа запусков.
         """
         name = name if name else self.config.Campaign_Event
         mode = mode if mode else self.config.Raid_Mode
