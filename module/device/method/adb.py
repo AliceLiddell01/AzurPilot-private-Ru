@@ -1,11 +1,11 @@
 """
-ADB 截图和输入方法。
+Метод создания снимков экрана и ввода ADB.
 
-通过 Android Debug Bridge (ADB) 执行设备截图和触控操作。
-主要提供截图捕获（`screenshot_adb`）、XML 层级获取（`dump_hierarchy`）等方法。
-基于 `adb exec-out screencap -p` 命令捕获屏幕图像，
-通过 `adb shell input` 命令执行点击、滑动等触控操作。
-包含自动重试机制，处理 ADB 连接中断和图像截断等异常情况。
+Выполняет создание снимков экрана и сенсорные операции на устройстве через Android Debug Bridge (ADB).
+Предоставляет методы захвата снимков экрана (`screenshot_adb`), получения иерархии XML (`dump_hierarchy`) и др.
+Захват изображения экрана основан на команде `adb exec-out screencap -p`,
+а сенсорные операции кликов и свайпов осуществляются через `adb shell input`.
+Включает механизм автоматических повторных попыток при обрывах соединения ADB и усечении данных изображений.
 """
 import re
 import time
@@ -97,13 +97,13 @@ def retry(func):
 
 def load_screencap(data):
     """
-    解析 screencap 输出的原始数据为图像。
+    Разобрать необработанные двоичные данные screencap в изображение.
 
     Args:
-        data: screencap 输出的原始二进制数据。
+        data: Исходные двоичные данные вывода screencap.
 
     Returns:
-        解析后的 RGB 图像。
+        Преобразованное изображение RGB.
     """
     # Загружаем данные
     if data is None or len(data) < 12:
@@ -224,16 +224,16 @@ class Adb(Connection):
     @retry
     def app_current_adb(self):
         """
-        获取当前前台应用的包名，复制自 uiautomator2。
+        Получить имя пакета активного приложения на переднем плане (скопировано из uiautomator2).
 
         Returns:
-            当前前台应用的包名。
+            Имя пакета активного приложения.
 
         Raises:
-            OSError: 无法获取前台应用时抛出。
+            OSError: Вызывается, если не удалось определить приложение на переднем плане.
 
         Note:
-            reset_uiautomator 函数依赖此方法，因此不能在此使用 jsonrpc。
+            Функция reset_uiautomator зависит от этого метода, поэтому здесь нельзя использовать jsonrpc.
         """
         # Связанный issue: https://github.com/openatx/uiautomator2/issues/200
         # $ adb shell dumpsys window windows
@@ -266,17 +266,17 @@ class Adb(Connection):
     @retry
     def _app_start_adb_monkey(self, package_name=None, allow_failure=False):
         """
-        通过 monkey 命令启动应用。
+        Запустить приложение с помощью команды monkey.
 
         Args:
-            package_name: 应用包名，默认从配置获取。
-            allow_failure: 为 True 时不抛出 PackageNotInstalled 异常，直接返回 False。
+            package_name: Имя пакета приложения (по умолчанию из конфигурации).
+            allow_failure: Если True, не выбрасывать исключение PackageNotInstalled, а вернуть False.
 
         Returns:
-            是否成功启动。
+            Успешно ли запущено приложение.
 
         Raises:
-            PackageNotInstalled: 应用未安装且 allow_failure 为 False 时抛出。
+            PackageNotInstalled: Вызывается, если приложение не установлено и allow_failure=False.
         """
         if not package_name:
             package_name = self.package
@@ -302,18 +302,18 @@ class Adb(Connection):
     @retry
     def _app_start_adb_am(self, package_name=None, activity_name=None, allow_failure=False):
         """
-        通过 am start 命令启动应用。
+        Запустить приложение с помощью команды am start.
 
         Args:
-            package_name: 应用包名，默认从配置获取。
-            activity_name: Activity 名称，默认从 DICT_PACKAGE_TO_ACTIVITY 获取。
-            allow_failure: 为 True 时不抛出 PackageNotInstalled 异常，直接返回 False。
+            package_name: Имя пакета приложения (по умолчанию из конфигурации).
+            activity_name: Имя Activity (по умолчанию из DICT_PACKAGE_TO_ACTIVITY).
+            allow_failure: Если True, не выбрасывать исключение PackageNotInstalled, а вернуть False.
 
         Returns:
-            是否成功启动。
+            Успешно ли запущено приложение.
 
         Raises:
-            PackageNotInstalled: 应用未安装且 allow_failure 为 False 时抛出。
+            PackageNotInstalled: Вызывается, если приложение не установлено и allow_failure=False.
         """
         if not package_name:
             package_name = self.package
@@ -375,19 +375,19 @@ class Adb(Connection):
     # @retry
     def app_start_adb(self, package_name=None, activity_name=None, allow_failure=False):
         """
-        启动应用，依次尝试 am start 和 monkey 方式。
+        Запустить приложение, последовательно пробуя способы am start и monkey.
 
         Args:
-            package_name: 应用包名，为 None 时从配置获取。
-            activity_name: Activity 名称，为 None 时从 DICT_PACKAGE_TO_ACTIVITY 获取，
-                仍为 None 时通过 monkey 启动，monkey 失败后再通过 am 启动。
-            allow_failure: 为 True 时不抛出 PackageNotInstalled 异常，直接返回 False。
+            package_name: Имя пакета приложения; если None, берется из конфигурации.
+            activity_name: Имя Activity; если None, берется из DICT_PACKAGE_TO_ACTIVITY;
+                если по-прежнему None, запуск выполняется через monkey, а в случае сбоя — через am.
+            allow_failure: Если True, не выбрасывать исключение PackageNotInstalled, а вернуть False.
 
         Returns:
-            是否成功启动。
+            Успешно ли запущено приложение.
 
         Raises:
-            PackageNotInstalled: 应用未安装且 allow_failure 为 False 时抛出。
+            PackageNotInstalled: Вызывается, если приложение не установлено и allow_failure=False.
         """
         if not package_name:
             package_name = self.package
@@ -407,7 +407,7 @@ class Adb(Connection):
 
     @retry
     def app_stop_adb(self, package_name=None):
-        """停止应用：am force-stop。"""
+        """Остановить приложение: am force-stop."""
         if not package_name:
             package_name = self.package
         self.adb_shell(['am', 'force-stop', package_name])
@@ -415,13 +415,13 @@ class Adb(Connection):
     @retry
     def dump_hierarchy_adb(self, temp: str = '/data/local/tmp/hierarchy.xml') -> etree._Element:
         """
-        通过 uiautomator dump 导出 UI 层级结构。
+        Экспортировать иерархию структуры UI через uiautomator dump.
 
         Args:
-            temp: 模拟器上的临时文件路径。
+            temp: Путь к временному файлу на эмуляторе.
 
         Returns:
-            解析后的 XML 层级结构。
+            Разобранная XML-иерархия структуры.
         """
         # Удаляем существующий файл
         # self.adb_shell(['rm', '/data/local/tmp/hierarchy.xml'])

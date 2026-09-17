@@ -1,10 +1,12 @@
 """
-aScreenCap 截图方法。
+Метод создания снимков экрана aScreenCap.
 
-通过 aScreenCap 工具执行设备截图，是标准 `screencap` 命令的高性能替代方案。
-aScreenCap 直接读取 Android 设备的 framebuffer，绕过系统 screencap 的额外处理，
-截图速度更快、内存占用更低。支持原始压缩格式和 JPEG 编码两种模式。
-需要先通过 ADB 将 aScreenCap 推送至设备并赋予执行权限。
+Выполняет захват экрана устройства через утилиту aScreenCap, являющуюся высокопроизводительной
+альтернативой стандартной команде `screencap`.
+aScreenCap напрямую считывает буфер кадра (framebuffer) Android-устройства в обход дополнительной
+обработки системным screencap, что обеспечивает более высокую скорость и меньшее потребление памяти.
+Поддерживает режим исходного сжатия и кодирования в JPEG.
+Требует предварительной передачи исполняемого файла aScreenCap на устройство через ADB с правами исполнения.
 """
 import os
 import time
@@ -131,8 +133,8 @@ class AScreenCap(Connection):
 
     def _ascreencap_reposition_byte_pointer(self, byte_array):
         """
-        返回经过清理的 ascreencap 标准输出，用于存在链接器警告的设备。
-        正确的指针位置会被保存，供后续屏幕刷新使用。
+        Вернуть очищенный стандартный вывод ascreencap для устройств с предупреждениями компоновщика.
+        Корректная позиция указателя сохраняется для последующих обновлений экрана.
         """
         while byte_array[self.__bytepointer:self.__bytepointer + 4] != b'BMZ1':
             self.__bytepointer += 1

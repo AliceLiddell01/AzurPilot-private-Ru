@@ -1,5 +1,5 @@
-"""雷电模拟器 OpenGL 截图后端。通过 LDPlayer 的原生 OpenGL 接口
-直接读取渲染缓冲区，实现低延迟高质量截图。"""
+"""Бэкенд снимков экрана LDPlayer через OpenGL. Напрямую считывает буфер рендеринга
+через нативный интерфейс OpenGL эмулятора LDPlayer, обеспечивая низкую задержку и высокое качество снимков."""
 
 import ctypes
 import os
@@ -74,8 +74,8 @@ class LDConsole:
     def __init__(self, ld_folder: str):
         """
         Args:
-            ld_folder: 雷电模拟器安装路径，例如 E:/ProgramFiles/LDPlayer9，
-                该目录下应包含 `ldconsole.exe`。
+            ld_folder: Путь к каталогу установки эмулятора LDPlayer, например E:/ProgramFiles/LDPlayer9.
+                Каталог должен содержать исполняемый файл `ldconsole.exe`.
         """
         self.ld_console = os.path.abspath(os.path.join(ld_folder, './ldconsole.exe'))
 
@@ -107,8 +107,8 @@ class LDConsole:
     def list2(self):
         """
         > ldconsole.exe list2
-        0,雷电模拟器,28053900,42935798,1,59776,36816,1280,720,240
-        1,雷电模拟器-1,0,0,0,-1,-1,1280,720,240
+        0,LDPlayer,28053900,42935798,1,59776,36816,1280,720,240
+        1,LDPlayer-1,0,0,0,-1,-1,1280,720,240
 
         Returns:
             list[DataLDPlayerInfo]:
@@ -195,8 +195,8 @@ class LDOpenGLImpl:
     def __init__(self, ld_folder: str, instance_id: int):
         """
         Args:
-            ld_folder: 雷电模拟器安装路径，例如 E:/ProgramFiles/LDPlayer9
-            instance_id: 模拟器实例 ID，从 0 开始
+            ld_folder: Путь к каталогу установки LDPlayer, например E:/ProgramFiles/LDPlayer9.
+            instance_id: Идентификатор экземпляра эмулятора, начиная с 0.
         """
         ldopengl_dll = os.path.abspath(os.path.join(ld_folder, './ldopengl64.dll'))
         logger.info(
@@ -250,8 +250,8 @@ class LDOpenGLImpl:
     def screenshot(self):
         """
         Returns:
-            np.ndarray: BGR 色彩空间的图像数组。
-                注意图像是上下颠倒的。
+            np.ndarray: Массив изображения в цветовом пространстве BGR.
+                Обратите внимание: изображение перевернуто по вертикали.
         """
         width, height = self.info.width, self.info.height
 
@@ -268,14 +268,14 @@ class LDOpenGLImpl:
     @staticmethod
     def serial_to_id(serial: str):
         """
-        从 serial 推断实例 ID。
-        例如:
+        Определить ID экземпляра по серийному номеру.
+        Примеры:
             "127.0.0.1:5555" -> 0
             "127.0.0.1:5557" -> 1
             "emulator-5554" -> 0
 
         Returns:
-            int: instance_id，推断失败时返回 None
+            int: instance_id, или None при неудачном определении.
         """
         serial, _ = get_serial_pair(serial)
         if serial is None:
@@ -293,7 +293,7 @@ class LDOpenGL(Platform):
     @cached_property
     def ldopengl(self):
         """
-        初始化 ldopengl 实现。
+        Инициализировать реализацию ldopengl.
         """
         # В первую очередь используем уже имеющиеся настройки
         if self.config.EmulatorInfo_path:

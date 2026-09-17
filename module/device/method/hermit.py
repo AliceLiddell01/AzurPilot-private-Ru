@@ -1,5 +1,5 @@
-"""Hermit 截图和控制后端。通过 HTTP 与 ADB 端口转发通信，
-提供基于 JSON 协议的截图捕获和触摸注入功能。"""
+"""Бэкенд создания снимков экрана и управления Hermit. Взаимодействует через HTTP
+с перенаправлением портов ADB, предоставляя захват снимков и ввод касаний по протоколу JSON."""
 
 import json
 import time
@@ -94,15 +94,15 @@ def retry(func):
 
 class Hermit(Adb):
     """
-    Hermit 控制方案，https://github.com/LookCos/hermit。
-    API 文档：https://www.lookcos.cn/docs/hermit#/zh-cn/API
+    Метод управления Hermit, https://github.com/LookCos/hermit.
+    Документация API: https://www.lookcos.cn/docs/hermit#/zh-cn/API
 
-    Hermit 有其他控制和截图 API，但效果都很差。
-    Hermit 截图比 ADB 慢，且容易出现请求超时或图像损坏。
-    每次操作都需要 root 权限，因此会一直显示 toast：Superuser granted to Hermit。
+    У Hermit есть и другие API управления и создания снимков, но их качество невысокое.
+    Создание снимков через Hermit медленнее, чем через ADB, и подвержено тайм-аутам запросов или повреждению изображений.
+    Каждая операция требует прав root, поэтому постоянно отображается всплывающее уведомление: «Superuser granted to Hermit».
 
-    Hermit 被加入 Alas 是为了在无法运行 uiautomator2 和 minitouch 的 vmos 上获得更好的性能。
-    注意 Hermit 需要 Android>=7.0。
+    Поддержка Hermit добавлена в Alas для повышения производительности на VMOS, где невозможно запустить uiautomator2 и minitouch.
+    Обратите внимание: Hermit требует Android >= 7.0.
     """
     _hermit_port = 9999
     _hermit_package_name = 'com.lookcos.hermit'
@@ -148,10 +148,10 @@ class Hermit(Adb):
 
     def hermit_enable_accessibility(self):
         """
-        为 Hermit 开启辅助功能服务。
+        Включить службу специальных возможностей для Hermit.
 
         Raises:
-            RequestHumanTakeover: 失败时抛出，需要用户手动操作。
+            RequestHumanTakeover: Вызывается при ошибке, когда требуется вмешательство пользователя.
         """
         logger.hr('Включение службы специальных возможностей')
         interval = Timer(0.3)
@@ -203,14 +203,14 @@ class Hermit(Adb):
 
     def hermit_send(self, url, **kwargs):
         """
-        发送 HTTP 请求到 Hermit 服务。
+        Отправить HTTP-запрос к службе Hermit.
 
         Args:
-            url: 请求路径。
-            **kwargs: 请求参数。
+            url: Путь запроса.
+            **kwargs: Параметры запроса.
 
         Returns:
-            响应字典，通常为 {"code":0,"msg":"ok"}。
+            Словарь ответа, обычно вида {"code":0,"msg":"ok"}.
         """
         result = self.hermit_session.get(f'{self._hermit_url}{url}', params=kwargs, timeout=3).text
         try:

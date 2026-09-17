@@ -242,7 +242,7 @@ class Uiautomator2(Connection):
 
     @retry
     def _drag_along(self, path):
-        """沿路径滑动。
+        """Свайп по заданной траектории.
 
         Args:
             path (list): (x, y, sleep)
@@ -255,7 +255,7 @@ class Uiautomator2(Connection):
                 (821, 326+10, 0.1),
                 (821, 326, 0),
             ])
-            等价于:
+            Эквивалентно:
             al.device.touch.down(403, 421)
             time.sleep(0.2)
             al.device.touch.move(821, 326)
@@ -315,7 +315,7 @@ class Uiautomator2(Connection):
     def app_current_uiautomator2(self):
         """
         Returns:
-            str: 包名。
+            str: Имя пакета.
         """
         result = self.u2.app_current()
         return result['package']
@@ -328,7 +328,7 @@ class Uiautomator2(Connection):
             allow_failure (bool):
 
         Returns:
-            bool: 是否成功启动
+            bool: Успешно ли выполнен запуск.
 
         Raises:
             PackageNotInstalled:
@@ -363,7 +363,7 @@ class Uiautomator2(Connection):
             allow_failure (bool):
 
         Returns:
-            bool: 是否成功启动
+            bool: Успешно ли выполнен запуск.
 
         Raises:
             PackageNotInstalled:
@@ -438,16 +438,16 @@ class Uiautomator2(Connection):
         """
         Args:
             package_name (str):
-                为 None 时从配置中获取
+                Если None, берется из конфигурации.
             activity_name (str):
-                为 None 时从 DICT_PACKAGE_TO_ACTIVITY 获取
-                仍为 None 时通过 monkey 启动
-                monkey 失败时，获取 activity 名称并通过 am 启动
+                Если None, берется из DICT_PACKAGE_TO_ACTIVITY.
+                Если все еще None, запуск выполняется через monkey.
+                При сбое monkey определяется имя activity и запуск повторяется через am.
             allow_failure (bool):
-                为 True 时不抛出 PackageNotInstalled，只返回 False
+                Если True, не выбрасывать PackageNotInstalled, а только вернуть False.
 
         Returns:
-            bool: 是否成功启动
+            bool: Успешно ли выполнен запуск.
 
         Raises:
             PackageNotInstalled:
@@ -488,12 +488,12 @@ class Uiautomator2(Connection):
     @retry
     def resolution_uiautomator2(self, cal_rotation=True) -> t.Tuple[int, int]:
         """
-        获取设备的有效分辨率，优先通过 ADB wm size 获取（支持 wm size override），
-        回退到 uiautomator2 /info 接口。
+        Получить эффективное разрешение устройства: приоритетно через ADB wm size (поддерживает wm size override),
+        с откатом к интерфейсу /info uiautomator2.
 
-        当用户通过 `adb shell wm size 720x1280` 设置了覆盖分辨率时，
-        uiautomator2 /info 接口仍返回物理分辨率（如 1080x2400），
-        而 ADB wm size 能正确报告 Override size。
+        Когда пользователь задает переопределение через `adb shell wm size 720x1280`,
+        интерфейс /info uiautomator2 по-прежнему возвращает физическое разрешение (например, 1080x2400),
+        тогда как ADB wm size корректно сообщает Override size.
 
         Returns:
             (width, height)
@@ -571,14 +571,14 @@ class Uiautomator2(Connection):
 
     def resolution_check_uiautomator2(self):
         """
-        Alas 不主动检查分辨率，而是检查截图的宽高。
-        但某些截图方法不提供设备分辨率，因此在此处进行检查。
+        Alas не проверяет разрешение превентивно, а анализирует ширину и высоту снимка экрана.
+        Однако некоторые методы снимков не возвращают разрешение устройства, поэтому проверка выполняется здесь.
 
         Returns:
             (width, height)
 
         Raises:
-            RequestHumanTakeover: 分辨率不是 1280x720 时抛出
+            RequestHumanTakeover: Вызывается, если разрешение не равно 1280x720.
         """
         width, height = self.resolution_uiautomator2()
         logger.attr('Размер экрана', f'{width}x{height}')

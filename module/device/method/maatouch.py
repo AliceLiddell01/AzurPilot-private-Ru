@@ -1,11 +1,11 @@
 """
-MaaTouch 触控输入方法。
+Метод сенсорного ввода MaaTouch.
 
-基于 MaaTouch 工具实现高性能的设备触控操作。
-MaaTouch 是 minitouch 的增强替代方案，通过 WebSocket 协议与设备通信，
-支持更高的触控采样率和更稳定的连接。提供点击、长按、滑动等触控操作，
-滑动使用贝塞尔曲线插值生成自然轨迹。兼容 minitouch 的命令格式，
-通过 ADB 端口转发建立 WebSocket 连接。
+Выполняет высокопроизводительное сенсорное управление устройством на базе утилиты MaaTouch.
+MaaTouch представляет собой расширенную замену minitouch, взаимодействуя с устройством по протоколу WebSocket,
+что обеспечивает более высокую частоту дискретизации касаний и стабильное соединение. Поддерживает нажатия,
+длинные нажатия и свайпы (жесты свайпа интерполируются кривыми Безье для естественной траектории).
+Формат команд совместим с minitouch; подключение WebSocket устанавливается через перенаправление портов ADB.
 """
 import socket
 import threading
@@ -121,7 +121,7 @@ class MaatouchBuilder(CommandBuilder):
     ):
         """
         Args:
-            device (MaaTouch): MaaTouch 设备实例。
+            device (MaaTouch): Экземпляр устройства MaaTouch.
         """
 
         super().__init__(device, contact, handle_orientation)
@@ -146,7 +146,7 @@ class MaaTouchSyncTimeout(Exception):
 
 class MaaTouch(Connection):
     """
-    实现与 scrcpy 相同功能、接口类似 minitouch 的控制方案。
+    Метод управления с возможностями scrcpy и интерфейсом в стиле minitouch.
     https://github.com/MaaAssistantArknights/MaaTouch
     """
     max_x: int
@@ -176,8 +176,8 @@ class MaaTouch(Connection):
 
     def early_maatouch_init(self):
         """
-        在 Alas 实例开始截图时启动线程初始化 maatouch 连接。
-        这将加速首次点击约 0.2 ~ 0.4 秒。
+        Запустить поток фоновой инициализации соединения MaaTouch в момент первого создания снимка в инстансе Alas.
+        Это ускоряет первое нажатие примерно на 0.2 ~ 0.4 секунды.
         """
         if has_cached_property(self, '_maatouch_builder'):
             return
@@ -191,8 +191,8 @@ class MaaTouch(Connection):
 
     def on_orientation_change_maatouch(self):
         """
-        MaaTouch 在启动时缓存设备方向。
-        方向改变时需要重启。
+        MaaTouch кэширует ориентацию устройства при запуске.
+        При изменении ориентации требуется перезапуск.
         """
         if self._maatouch_orientation is None:
             return

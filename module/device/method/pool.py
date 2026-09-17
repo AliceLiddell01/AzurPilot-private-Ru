@@ -1,5 +1,6 @@
-"""工作线程池。基于生产者-消费者模型的通用任务池，
-用于并发执行截图、控制等设备操作，支持优雅关闭和异常传播。"""
+"""Пул рабочих потоков. Универсальный пул задач на основе модели «производитель-потребитель»,
+используемый для параллельного выполнения операций снимков экрана, управления устройством и др.,
+с поддержкой корректного завершения и распространения исключений."""
 
 import abc
 import ctypes
@@ -35,9 +36,9 @@ def remove_tb_frames(exc, n: int):
 class Outcome(abc.ABC, Generic[ValueT]):
     @abc.abstractmethod
     def unwrap(self) -> ValueT:
-        """返回或抛出包含的值或异常。
+        """Вернуть или выбросить содержащееся значение либо исключение.
 
-        以下两行代码是等价的::
+        Следующие две строки кода эквивалентны::
 
            x = fn(*args)
            x = outcome.capture(fn, *args).unwrap()
@@ -47,7 +48,7 @@ class Outcome(abc.ABC, Generic[ValueT]):
 
 
 class Value(Outcome[ValueT], Generic[ValueT]):
-    """表示常规值的 :class:`Outcome` 具体子类。
+    """Конкретный подкласс :class:`Outcome`, представляющий обычное значение.
 
     """
     __slots__ = ('value',)
@@ -63,7 +64,7 @@ class Value(Outcome[ValueT], Generic[ValueT]):
 
 
 class Error(Outcome[NoReturn]):
-    """表示已抛出异常的 :class:`Outcome` 具体子类。
+    """Конкретный подкласс :class:`Outcome`, представляющий выброшенное исключение.
 
     """
     __slots__ = ('error',)
@@ -96,7 +97,7 @@ class Error(Outcome[NoReturn]):
 
 def capture(sync_fn, *args, **kwargs):
     """
-    运行 ``sync_fn(*args, **kwargs)`` 并捕获结果。
+    Выполнить ``sync_fn(*args, **kwargs)`` и перехватить результат.
 
     Args:
         sync_fn (Callable[..., ResultT]):
@@ -125,8 +126,8 @@ class _JobKill(Exception):
 
 class Job(Generic[ResultT]):
     """
-    简单队列，从 queue.Queue() 复制而来。
-    更快但只能 put() 一次和 get() 一次。
+    Простая очередь, адаптированная из queue.Queue().
+    Работает быстрее, но рассчитана ровно на однократный put() и однократный get().
     """
 
     # __slots__ = ('worker', 'func_args_kwargs', 'queue', 'mutex', 'finished')
@@ -147,7 +148,7 @@ class Job(Generic[ResultT]):
 
     def get(self) -> ResultT:
         """
-        获取任务结果或任务错误。
+        Получить результат задачи или выбросить сохраненную ошибку задачи.
         """
         self.notify_get.acquire()
 
@@ -157,10 +158,10 @@ class Job(Generic[ResultT]):
 
     def get_or_kill(self, timeout) -> ResultT:
         """
-        尝试在给定秒数内获取结果。
-        成功则返回任务结果或任务错误，失败则终止任务并抛出 JobTimeout。
+        Попытаться получить результат в течение заданного количества секунд.
+        При успехе возвращает результат задачи или выбрасывает её ошибку; при неудаче принудительно завершает задачу и выбрасывает JobTimeout.
 
-        注意当线程池已满时，JobTimeout 可能不会立即抛出。
+        Обратите внимание: когда пул потоков заполнен, JobTimeout может быть выброшен не сразу.
         """
         if self.notify_get.acquire(timeout=timeout):
             # Возвращаем результат задачи или выбрасываем её ошибку
@@ -256,11 +257,11 @@ class WorkerThread:
 
     def kill(self):
         """
-        终止线程确实不安全，但当单个任务函数阻塞时别无选择。
-        此方法应受 `job.put_lock` 保护，以防止与 `_handle_job()` 的竞态条件。
+        Принудительное завершение потока небезопасно, но неизбежно при зависании отдельной функции задачи.
+        Этот метод должен вызываться под защитой `job.put_lock` во избежание состояния гонки с `_handle_job()`.
 
         Returns:
-            bool: 是否成功终止线程
+            bool: Успешно ли отправлен сигнал завершения потока.
         """
         # Отправляем потоку SystemExit
         thread_id = ctypes.c_long(self.thread.ident)
@@ -283,8 +284,8 @@ class WorkerThread:
 
 class WorkerPool:
     """
-    模仿 trio.to_thread.start_thread_soon() 的线程池。
-    参考: https://github.com/python-trio/trio/issues/6
+    Пул потоков, имитирующий поведение trio.to_thread.start_thread_soon().
+    Справочно: https://github.com/python-trio/trio/issues/6
     """
 
     # Свободный поток завершается через 10 секунд.
@@ -305,16 +306,16 @@ class WorkerPool:
 
     def release_full_lock(self):
         """
-        当工作线程完成任务、退出或被终止时调用此方法。
+        Вызывается, когда рабочий поток завершает задачу, завершает работу или принудительно останавливается.
 
-        当线程池已满时，
-        线程池通知所有工作线程：任何完成任务的线程请通知我。
+        Когда пул потоков заполнен,
+        пул уведомляет все рабочие потоки: «Любой поток, завершивший задачу, уведоми меня».
         `self.notify_worker.release()`
-        然后线程池阻塞自己。
+        Затем пул потоков блокирует себя.
         `self.notify_pool.acquire()`
-        最快的工作线程（也是唯一一个）接收到消息。
+        Самый быстрый рабочий поток (и единственный) принимает сообщение.
         `if self.notify_worker.acquire(blocking=False):`
-        工作线程通知线程池，新槽位已就绪，可以继续。
+        Рабочий поток уведомляет пул, что освободился новый слот и можно продолжать.
         `self.notify_pool.release()`
         """
         if self.notify_worker.acquire(blocking=False):
@@ -350,7 +351,7 @@ class WorkerPool:
 
     def start_thread_soon(self, func, *args, **kwargs):
         """
-        在线程上运行函数，结果可从 `job` 对象获取。
+        Запустить функцию в отдельном потоке; результат можно получить из объекта `job`.
 
         Args:
             func (Callable[..., ResultT]):
@@ -373,7 +374,7 @@ class WorkerPool:
 
     def run_on_thread(self, func):
         """
-        装饰器，使函数在线程上运行，结果可从 `job` 对象获取。
+        Декоратор для запуска функции в отдельном потоке; результат возвращается в виде объекта `job`.
 
         Args:
             func (Callable[..., ResultT]):
@@ -397,7 +398,7 @@ class WorkerPool:
     @staticmethod
     def _subprocess_execute(cmd, timeout=10):
         """
-        在子进程中运行命令的辅助函数。
+        Вспомогательная функция выполнения команды в дочернем процессе.
 
         Args:
             cmd (list[str]):
@@ -420,7 +421,7 @@ class WorkerPool:
 
     def start_cmd_soon(self, cmd, timeout=10):
         """
-        在子进程中运行命令并在另一个线程上通信，结果可从 `job` 对象获取。
+        Выполнить команду в дочернем процессе с обменом данными в отдельном потоке; результат доступен через объект `job`.
 
         Args:
             cmd (list[str]):
@@ -440,7 +441,7 @@ class WorkerPool:
 
     def wait_jobs(self) -> "WaitJobsWrapper":
         """
-        自动等待所有任务完成。
+        Автоматически ожидать завершения всех запущенных задач.
 
         Examples:
             with WORKER_POOL.wait_jobs() as pool:
@@ -450,20 +451,20 @@ class WorkerPool:
 
     def gather_jobs(self) -> "GatherJobsWrapper":
         """
-        自动等待所有任务完成并收集结果。
+        Автоматически ожидать завершения всех задач и собрать их результаты.
 
         Examples:
             pool = WORKER_POOL.gather_jobs()
             with pool:
                 pool.start_thread_soon(...)
-            # 获取结果
+            # Получение результатов
             print(pool.results)
         """
         return GatherJobsWrapper(self)
 
     def thread_map(self, func, iterables):
         """
-        ThreadPoolExecutor.map(func, iterables) 的替代方案。
+        Альтернатива ThreadPoolExecutor.map(func, iterables).
 
         Args:
             func (Callable[..., ResultT]):
@@ -478,7 +479,7 @@ class WorkerPool:
 
     def thread_starmap(self, func, iterables):
         """
-        multiprocessing.pool.Pool().starmap(func, iterables) 的线程版本替代方案。
+        Потоковая альтернатива multiprocessing.pool.Pool().starmap(func, iterables).
 
         Args:
             func (Callable[..., ResultT]):
@@ -493,7 +494,7 @@ class WorkerPool:
 
     def thread_funcmap(self, func_iterables):
         """
-        在线程上运行一组函数。
+        Запустить набор функций параллельно в потоках.
 
         Args:
             func_iterables (Iterable[Callable[..., ResultT]]):
@@ -508,7 +509,7 @@ class WorkerPool:
 
 class WaitJobsWrapper:
     """
-    等待所有任务完成的包装类。
+    Класс-обертка для ожидания завершения всех задач.
     """
 
     def __init__(self, pool: "WorkerPool"):
@@ -529,7 +530,7 @@ class WaitJobsWrapper:
 
     def start_thread_soon(self, func, *args, **kwargs):
         """
-        在线程上运行函数，结果可从 `job` 对象获取。
+        Запустить функцию в потоке; результат доступен через объект `job`.
 
         Args:
             func (Callable[..., ResultT]):
@@ -546,7 +547,7 @@ class WaitJobsWrapper:
 
 class GatherJobsWrapper(WaitJobsWrapper):
     """
-    收集所有任务结果的包装类。
+    Класс-обертка для сбора результатов всех задач.
     """
 
     def __init__(self, pool: "WorkerPool"):

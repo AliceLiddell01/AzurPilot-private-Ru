@@ -1,5 +1,5 @@
-"""WSA（Windows Subsystem for Android）截图和控制后端。
-继承 Connection，通过 ADB 连接 WSA 实例进行截图和操作。"""
+"""Бэкенд создания снимков экрана и управления WSA (Windows Subsystem for Android).
+Наследует Connection, подключаясь к инстансу WSA через ADB для захвата экрана и операций."""
 
 import re
 import time
@@ -73,7 +73,7 @@ class WSA(Connection):
     def app_current_wsa(self):
         """
         Returns:
-            str: 包名。
+            str: Имя пакета.
 
         Raises:
             OSError
@@ -101,7 +101,7 @@ class WSA(Connection):
             display (int):
 
         Returns:
-            bool: 是否成功启动
+            bool: Успешно ли выполнен запуск.
         """
         if not package_name:
             package_name = self.package
@@ -140,8 +140,8 @@ class WSA(Connection):
     def get_display_id(self):
         """
         Returns:
-            0: 未找到
-            int: 游戏的 display id
+            0: Не найден.
+            int: Идентификатор дисплея (display id) игры.
         """
         try:
             get_dump_sys_display = str(self.adb_shell(['dumpsys', 'display']))

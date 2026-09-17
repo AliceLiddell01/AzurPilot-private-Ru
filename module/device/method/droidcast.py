@@ -1,10 +1,12 @@
 """
-DroidCast 截图方法。
+Метод создания снимков экрана DroidCast.
 
-通过 DroidCast 投屏服务执行设备截图，适用于 ADB screencap 不可用的场景。
-DroidCast 是一个运行在 Android 设备上的截图服务，通过 HTTP 接口提供屏幕图像。
-支持 DroidCast 和 DroidCast_raw 两种模式：前者返回 PNG/JPEG 图像，
-后者直接返回原始像素数据以获得更高性能。需要先在设备上安装并启动 DroidCast APK。
+Выполняет создание снимков экрана через службу трансляции экрана DroidCast, применяется в сценариях,
+когда ADB screencap недоступен.
+DroidCast — это служба создания снимков экрана, работающая на устройстве Android и предоставляющая изображения через HTTP-интерфейс.
+Поддерживает два режима: DroidCast и DroidCast_raw (первый возвращает изображения PNG/JPEG,
+второй напрямую передает необработанные пиксельные данные для максимальной производительности).
+Требует предварительной передачи и запуска APK DroidCast на устройстве.
 """
 import time
 import typing as t
@@ -123,8 +125,8 @@ def retry(func):
 
 class DroidCast(Uiautomator2):
     """
-    DroidCast 截图方案，https://github.com/rayworks/DroidCast
-    DroidCast_raw，DroidCast 的修改版本，发送原始位图和 PNG，https://github.com/Torther/DroidCastS
+    Метод создания снимков DroidCast, https://github.com/rayworks/DroidCast
+    DroidCast_raw — модифицированная версия DroidCast, отправляющая исходный растр и PNG, https://github.com/Torther/DroidCastS
     """
 
     _droidcast_port: int = 0
@@ -139,13 +141,13 @@ class DroidCast(Uiautomator2):
         return session
 
     """
-    可用 API 参考源码：
+    Ссылки на доступные API в исходном коде:
     https://github.com/Torther/DroidCast_raw/blob/DroidCast_raw/app/src/main/java/ink/mol/droidcast_raw/KtMain.kt
-    可用接口：
+    Доступные эндпоинты:
     - /screenshot
-        获取 RGB565 位图
+        Получение растрового изображения RGB565
     - /preview
-        获取 PNG 截图
+        Получение снимка экрана в формате PNG
     """
 
     def droidcast_url(self, url='/preview'):
@@ -324,7 +326,7 @@ class DroidCast(Uiautomator2):
         return image
 
     def droidcast_wait_startup(self):
-        """等待 DroidCast 启动完成。"""
+        """Ожидать завершения запуска DroidCast."""
         timeout = Timer(10).start()
         while 1:
             self.sleep(0.25)
@@ -345,15 +347,15 @@ class DroidCast(Uiautomator2):
 
     def droidcast_uninstall(self):
         """
-        停止 DroidCast 进程并删除 DroidCast APK。
-        DroidCast 并非真正安装，而是通过 JAVA 类调用，卸载即删除文件。
+        Остановить процесс DroidCast и удалить APK DroidCast.
+        DroidCast не устанавливается в систему полноценно, а запускается через класс Java; удаление означает удаление файла.
         """
         self.droidcast_stop()
         logger.info('[Устройство — DroidCast] Удаление DroidCast')
         self.adb_shell(["rm", self.config.DROIDCAST_FILEPATH_REMOTE])
 
     def _iter_droidcast_proc(self) -> t.Iterable[ProcessInfo]:
-        """列出所有 DroidCast 进程。"""
+        """Перечислить все процессы DroidCast."""
         processes = self.proc_list_uiautomator2()
         for proc in processes:
             if 'com.rayworks.droidcast.Main' in proc.cmdline:
@@ -364,7 +366,7 @@ class DroidCast(Uiautomator2):
                 yield proc
 
     def droidcast_stop(self):
-        """停止 DroidCast 进程。"""
+        """Остановить процессы DroidCast."""
         logger.info('[Устройство — DroidCast] Остановка DroidCast')
         for proc in self._iter_droidcast_proc():
             logger.info(f'[Устройство — DroidCast] Завершение процесса PID={proc.pid}')

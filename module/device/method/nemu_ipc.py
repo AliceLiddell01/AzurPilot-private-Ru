@@ -1,10 +1,11 @@
 """
-MuMu 模拟器 IPC 通信方法。
+Метод IPC-взаимодействия с эмулятором MuMu.
 
-通过进程间通信 (IPC) 直接与 MuMu 模拟器交互，实现高性能截图和触控操作。
-使用 ctypes 加载 MuMu 的 nemu_ipc DLL，绕过 ADB 层直接调用模拟器内部接口，
-截图延迟极低且无需网络传输。支持截图、点击、滑动和按键操作。
-仅限 Windows 平台使用，需要 MuMu 模拟器支持 IPC 接口。
+Взаимодействует с эмулятором MuMu напрямую через межпроцессное взаимодействие (IPC),
+обеспечивая высокую производительность создания снимков экрана и сенсорного управления.
+Загружает библиотеку nemu_ipc DLL эмулятора MuMu через ctypes в обход уровня ADB, обращаясь к внутренним
+интерфейсам эмулятора с минимальной задержкой без сетевой передачи данных. Поддерживает создание снимков, нажатия, свайпы и клавиши.
+Доступен только для платформы Windows при поддержке интерфейса IPC эмулятором MuMu.
 """
 import ctypes
 import json
@@ -39,14 +40,14 @@ class NemuIpcError(Exception):
 
 class CaptureStd:
     """
-    捕获 Python 和 C 库的 stdout 和 stderr。
-    参考: https://stackoverflow.com/questions/5081657/how-do-i-prevent-a-c-shared-library-to-print-on-stdout-in-python/17954769
+    Перехват stdout и stderr для библиотек Python и C.
+    Справочно: https://stackoverflow.com/questions/5081657/how-do-i-prevent-a-c-shared-library-to-print-on-stdout-in-python/17954769
 
     ```
     with CaptureStd() as capture:
-        # 不会实际打印
+        # Фактический вывод подавляется
         print('whatever')
-    # 但会捕获到 capture.stdout 中
+    # Перехваченный вывод доступен в capture.stdout
     print(f'Got stdout: "{capture.stdout}"')
     print(f'Got stderr: "{capture.stderr}"')
     ```
@@ -109,8 +110,8 @@ class CaptureNemuIpc(CaptureStd):
 
     def is_capturing(self):
         """
-        仅在最顶层包装器中捕获，避免嵌套捕获。
-        如果已有捕获正在进行，当前实例不做任何操作。
+        Перехватывать только на самом верхнем уровне обертки, предотвращая вложенный перехват.
+        Если перехват уже выполняется, текущий экземпляр не производит действий.
         """
         cls = self.__class__
         return isinstance(cls.instance, cls) and cls.instance != self
@@ -226,9 +227,9 @@ class NemuIpcImpl:
     def __init__(self, nemu_folder: str, instance_id: int, display_id: int = 0):
         """
         Args:
-            nemu_folder: MuMu12 安装路径，例如 E:/ProgramFiles/MuMuPlayer-12.0
-            instance_id: 模拟器实例 ID，从 0 开始
-            display_id: 如果未启用后台挂机保活，始终为 0
+            nemu_folder: Путь к каталогу установки MuMu12, например E:/ProgramFiles/MuMuPlayer-12.0.
+            instance_id: Идентификатор экземпляра эмулятора, начиная с 0.
+            display_id: Всегда 0, если не включено поддержание работы в фоновом режиме.
         """
         self.nemu_folder: str = nemu_folder
         self.instance_id: int = instance_id
@@ -317,13 +318,13 @@ class NemuIpcImpl:
     def run_func(func, *args, on_thread=True, timeout=0.5):
         """
         Args:
-            func: 要调用的同步函数
+            func: Вызываемая синхронная функция.
             *args:
-            on_thread: 为 True 时在独立线程上运行 func
+            on_thread: Если True, запускать func в отдельном потоке.
             timeout:
 
         Raises:
-            JobTimeout: 函数调用超时时抛出
+            JobTimeout: Вызывается при превышении времени ожидания выполнения функции.
             NemuIpcIncompatible:
             NemuIpcError
         """
@@ -353,7 +354,7 @@ class NemuIpcImpl:
 
     def get_resolution(self, on_thread=True):
         """
-        获取模拟器分辨率，会设置 `self.width` 和 `self.height`。
+        Получить разрешение эмулятора; устанавливает `self.width` и `self.height`.
         """
         if self.connect_id == 0:
             self.connect()
@@ -395,12 +396,12 @@ class NemuIpcImpl:
     def screenshot(self, timeout=0.5):
         """
         Args:
-            timeout: 调用 nemu_ipc 的超时时间（秒）。
-                会被 `@retry` 动态延长。
+            timeout: Время ожидания вызова nemu_ipc (в секундах).
+                Динамически увеличивается декоратором `@retry`.
 
         Returns:
-            np.ndarray: RGBA 色彩空间的图像数组。
-                注意图像是上下颠倒的。
+            np.ndarray: Массив изображения в цветовом пространстве RGBA.
+                Обратите внимание: изображение перевернуто по вертикали.
         """
         if self.connect_id == 0:
             self.connect()
@@ -413,8 +414,8 @@ class NemuIpcImpl:
 
     def convert_xy(self, x, y):
         """
-        将标准 ADB 坐标转换为 Nemu 坐标。
-        调用此方法前必须先更新 `self.height`。
+        Преобразовать стандартные координаты ADB в координаты Nemu.
+        Перед вызовом этого метода необходимо обновить `self.height`.
 
         Returns:
             int, int
@@ -426,7 +427,7 @@ class NemuIpcImpl:
     @retry
     def down(self, x, y):
         """
-        触摸按下，连续的触摸按下会被视为滑动。
+        Нажатие касания; последовательные нажатия воспринимаются как свайп.
         """
         if self.connect_id == 0:
             self.connect()
@@ -445,7 +446,7 @@ class NemuIpcImpl:
     @retry
     def up(self):
         """
-        触摸抬起。
+        Отпускание касания.
         """
         if self.connect_id == 0:
             self.connect()
@@ -460,14 +461,14 @@ class NemuIpcImpl:
     @staticmethod
     def serial_to_id(serial: str):
         """
-        从 serial 推断实例 ID。
-        例如:
+        Определить ID экземпляра по серийному номеру.
+        Примеры:
             "127.0.0.1:16384" -> 0
             "127.0.0.1:16416" -> 1
-            端口 16414 到 16418 -> 1
+            Порты от 16414 до 16418 -> 1
 
         Returns:
-            int: instance_id，推断失败时返回 None
+            int: instance_id, или None при неудачном определении.
         """
         try:
             port = int(serial.split(':')[1])
@@ -487,7 +488,7 @@ class NemuIpc(Platform):
     @cached_property
     def nemu_ipc(self) -> NemuIpcImpl:
         """
-        初始化 nemu ipc 实现。
+        Инициализировать реализацию nemu ipc.
         """
         # В первую очередь используем существующие настройки
         if self.config.EmulatorInfo_path:
@@ -549,13 +550,13 @@ class NemuIpc(Platform):
     @staticmethod
     def check_mumu_app_keep_alive_400(file):
         """
-        在版本 >= 4.0 时从模拟器配置中检查 app_keep_alive。
+        Проверить app_keep_alive в конфигурации эмулятора для версий >= 4.0.
 
         Args:
             file: E:/ProgramFiles/MuMuPlayer-12.0/vms/MuMuPlayer-12.0-1/config/customer_config.json
 
         Returns:
-            bool: 是否成功读取文件
+            bool: Успешно ли прочитан файл.
         """
         # Например: E:\ProgramFiles\MuMuPlayer-12.0\shell\MuMuPlayer.exe
         # Путь конфигурации: E:\ProgramFiles\MuMuPlayer-12.0\vms\MuMuPlayer-12.0-1\config\customer_config.json
