@@ -1,5 +1,5 @@
-"""战斗快进处理器模块。定义 FastForwardHandler，管理战斗中的快进开关、舰队锁定、
-自动搜索等开关控件，以及地图文件加载和自动搜索设置。"""
+"""Модуль обработчика ускорения боя. Определяет FastForwardHandler, управляет переключателями
+ускорения боя, блокировки флота, автопоиска, а также загрузкой файлов карт и настройками автопоиска."""
 
 import os
 import re
@@ -36,13 +36,13 @@ AUTO_SEARCH.add_state('off', check_button=AUTO_SEARCH_OFF4)
 
 def map_files(event):
     """
-    获取指定活动目录下的地图文件列表。
+    Получить список файлов карт в указанном каталоге события.
 
     Args:
-        event (str): './campaign' 下的活动名称。
+        event (str): Имя события в каталоге './campaign'.
 
     Returns:
-        list[str]: 地图文件名列表，如 ['sp1', 'sp2', 'sp3']。
+        list[str]: Список имён файлов карт, например ['sp1', 'sp2', 'sp3'].
     """
     folder = f'./campaign/{event}'
 
@@ -63,7 +63,7 @@ def map_files(event):
 
 def to_map_input_name(name: str) -> str:
     """
-    将地图名称转换为用户输入格式。
+    Преобразовать имя карты в формат пользовательского ввода.
 
     7-2 -> 7-2
     campaign_7_2 -> 7-2
@@ -84,7 +84,7 @@ def to_map_input_name(name: str) -> str:
 
 def to_map_file_name(name: str) -> str:
     """
-    将地图名称转换为地图文件名格式。
+    Преобразовать имя карты в формат имени файла карты.
 
     7-2 -> campaign_7_2
     campaign_7_2 -> campaign_7_2
@@ -147,7 +147,7 @@ class FastForwardHandler(AutoSearchHandler):
 
     def map_get_info(self, star=False):
         """
-        获取地图信息并记录日志。
+        Получить информацию о карте и записать в журнал.
 
         Logs:
             | INFO | [Map_info] 98%, star_1, star_2, star_3, clear, 3_star, green, fast_forward
@@ -235,13 +235,13 @@ class FastForwardHandler(AutoSearchHandler):
 
     def handle_map_fleet_lock(self, enable=None):
         """
-        处理舰队锁定开关。
+        Обработать переключатель блокировки флота.
 
         Args:
-            enable (bool): 是否启用舰队锁定，默认为 None 时使用 Campaign_UseFleetLock 配置。
+            enable (bool): Включить ли блокировку флота; если None, используется Campaign_UseFleetLock.
 
         Returns:
-            bool: 是否进行了切换操作。
+            bool: Было ли выполнено переключение.
         """
         # Блокировка флота зависит от того, отображается ли эта опция на карте, а не от состояния карты
         # Если мы уже на карте, состояния карты как такового нет
@@ -258,11 +258,11 @@ class FastForwardHandler(AutoSearchHandler):
 
     def map_wait_auto_search(self):
         """
-        开启通关模式（FAST_FORWARD）后，AUTO_SEARCH 有出现动画，
-        等待其完全显示。
+        После включения режима зачистки (FAST_FORWARD) появляется анимация AUTO_SEARCH;
+        ожидать её полного отображения.
 
         Returns:
-            bool: 是否等待成功。
+            bool: Успешно ли завершено ожидание.
         """
         timeout = Timer(1, count=3).start()
         for _ in self.loop():
@@ -277,10 +277,10 @@ class FastForwardHandler(AutoSearchHandler):
 
     def handle_auto_search(self):
         """
-        处理自动搜索开关。
+        Обработать переключатель автопоиска.
 
         Returns:
-            bool: 是否进行了切换操作。
+            bool: Было ли выполнено переключение.
 
         Pages:
             in: MAP_PREPARATION
@@ -305,11 +305,11 @@ class FastForwardHandler(AutoSearchHandler):
 
     def _auto_search_set(self, state, current='unknown', skip_first_screenshot=True):
         """
-        仅在当前状态已知时设置自动搜索开关。
+        Установить переключатель автопоиска только при известном текущем состоянии.
 
-        AUTO_SEARCH_ON 和 AUTO_SEARCH_OFF 共享同一点击区域。
-        如果开关已开启但模板匹配暂时返回 ``unknown``，
-        点击目标 ON 区域实际上会将其关闭。
+        AUTO_SEARCH_ON и AUTO_SEARCH_OFF используют одну и ту же область клика.
+        Если переключатель уже включён, но сопоставление шаблонов временно возвращает ``unknown``,
+        клик по целевой области ON фактически выключит его.
         """
         logger.info(f'[Обработчик — ускорение] Настройка автопоиска: {state}')
         timeout = Timer(2, count=4).start()
@@ -347,10 +347,10 @@ class FastForwardHandler(AutoSearchHandler):
 
     def handle_auto_search_setting(self):
         """
-        处理自动搜索设置。
+        Обработать настройки автопоиска.
 
         Returns:
-            bool: 是否进行了更改。
+            bool: Были ли внесены изменения.
 
         Pages:
             in: FLEET_PREPARATION
@@ -385,10 +385,10 @@ class FastForwardHandler(AutoSearchHandler):
 
     def handle_auto_submarine_call_disable(self):
         """
-        禁用自动潜艇呼叫。
+        Отключить автоматический вызов подлодок.
 
         Returns:
-            bool: 是否进行了更改。
+            bool: Были ли внесены изменения.
 
         Pages:
             in: FLEET_PREPARATION
@@ -412,7 +412,7 @@ class FastForwardHandler(AutoSearchHandler):
 
     def handle_auto_search_continue(self, drop=None):
         """
-        覆盖 AutoSearchHandler 的定义，用于处理二倍经验书设置。
+        Переопределяет определение AutoSearchHandler для обработки настроек книги двойного опыта.
         """
         if self.appear(AUTO_SEARCH_MENU_CONTINUE, offset=self._auto_search_menu_offset, interval=2):
             self.map_is_2x_book = self.config.Campaign_Use2xBook
@@ -429,10 +429,10 @@ class FastForwardHandler(AutoSearchHandler):
 
     def get_map_clear_percentage(self):
         """
-        获取地图通关进度百分比。
+        Получить процент прогресса зачистки карты.
 
         Returns:
-            float: 0 到 1 之间的浮点数。
+            float: Число с плавающей точкой от 0 до 1.
 
         Pages:
             in: MAP_PREPARATION
@@ -518,10 +518,10 @@ class FastForwardHandler(AutoSearchHandler):
 
     def triggered_map_stop(self):
         """
-        判断是否触发了地图停止条件。
+        Определить, сработало ли условие остановки на карте.
 
         Returns:
-            bool: 是否满足停止条件。
+            bool: Выполнено ли условие остановки.
         """
 
         if self.config.StopCondition_MapAchievement == '100_percent_clear':
@@ -558,18 +558,19 @@ class FastForwardHandler(AutoSearchHandler):
 
     def _set_2x_book_status(self, status, check_button, box_button, skip_first_screenshot=True):
         """
-        设置二倍经验书的开关状态，内置重试机制，最多尝试 3 次，每次间隔 3 秒。
+        Установить состояние переключателя книги двойного опыта со встроенным механизмом повторов,
+        до 3 попыток с интервалом 3 секунды.
 
         Args:
-            status (str): 'on' 或 'off'。
-            check_button (Button): 点击前用于检查的按钮。
-            box_button (Button): 用于点击和颜色计数的按钮。
-            skip_first_screenshot (bool): 是否跳过首次截图。
+            status (str): 'on' или 'off'.
+            check_button (Button): Кнопка для проверки перед кликом.
+            box_button (Button): Кнопка для клика и подсчёта цвета.
+            skip_first_screenshot (bool): Пропускать ли первый снимок экрана.
 
         Returns:
-            bool: True 表示检测到已正确设置。
-                  False 可能由两个原因导致：资源图像不足以正确检测，
-                  或二倍经验书设置不存在。
+            bool: True, если обнаружено правильное состояние.
+                  False может быть вызван двумя причинами: недостаточно данных изображения
+                  для корректного обнаружения или настройка книги двойного опыта отсутствует.
         """
         confirm_timer = Timer(0.3, count=1).start()
         clicked_threshold = 0
@@ -601,13 +602,13 @@ class FastForwardHandler(AutoSearchHandler):
 
     def handle_2x_book_setting(self, mode='prep'):
         """
-        处理二倍经验书设置（如适用）。
+        Обработать настройку книги двойного опыта (если применимо).
 
         Args:
-            mode (str): 'prep' 或 'auto'，非 'prep' 则视为 'auto'。
+            mode (str): 'prep' или 'auto'; значения, отличные от 'prep', трактуются как 'auto'.
 
         Returns:
-            bool: 是否处理完成。
+            bool: Завершена ли обработка.
         """
         if not self.map_is_clear_mode:
             return False
@@ -648,7 +649,7 @@ class FastForwardHandler(AutoSearchHandler):
 
     def handle_map_walk_speedup(self, skip_first_screenshot=True):
         """
-        开启地图行走加速，没有关闭的理由。
+        Включить ускорение перемещения по карте; причин отключать нет.
         """
         if not self.config.MAP_HAS_WALK_SPEEDUP:
             return False

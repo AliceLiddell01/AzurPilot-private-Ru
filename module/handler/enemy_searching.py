@@ -1,10 +1,10 @@
-"""敌人搜索动画处理器。
+"""Обработчик анимации поиска врагов.
 
-处理地图移动后出现的敌人搜索动画（侦察动画）。
-当舰队在地图上移动时，游戏会播放敌人搜索动画，
-此模块检测动画的出现和消失，确保自动化流程在动画结束后继续。
+Обрабатывает анимацию поиска врагов (разведки), появляющуюся после перемещения по карте.
+Когда флот перемещается по карте, игра воспроизводит анимацию обнаружения врагов;
+данный модуль отслеживает появление и исчезновение этой анимации, гарантируя продолжение сценария только после её завершения.
 
-继承自 InfoHandler，与 AutoSearchHandler 配合使用。
+Наследуется от InfoHandler, используется совместно с AutoSearchHandler.
 """
 
 from module.base.decorator import del_cached_property
@@ -18,21 +18,21 @@ from module.ui.assets import CAMPAIGN_CHECK, EVENT_CHECK, SP_CHECK
 
 
 class EnemySearchingHandler(InfoHandler):
-    """敌人搜索动画处理器。
+    """Обработчик анимации поиска врагов.
 
-    检测地图中敌人搜索（侦察）动画的出现和消失，并处理动画期间可能出现的
-    各种异常情况（关卡结束、紧急委托、剧情弹窗等）。
+    Определяет появление и исчезновение анимации поиска (разведки) врагов на карте,
+    а также обрабатывает сопутствующие исключительные ситуации (завершение этапа, срочные поручения, сюжетные окна и т. д.).
 
-    该处理器在地图操作后被调用，等待敌人搜索动画完成后再继续下一步操作。
+    Вызывается после действий на карте, дожидаясь завершения анимации поиска врагов перед следующими действиями.
 
     Attributes:
         MAP_ENEMY_SEARCHING_OVERLAY_TRANSPARENCY_THRESHOLD (float):
-            红色覆盖层透明度阈值，超过此值认为搜索动画出现。正常值为 (0.70, 0.80)。
+            Порог прозрачности красного перекрытия, выше которого анимация считается активной. Обычное значение: (0.70, 0.80).
         MAP_ENEMY_SEARCHING_TIMEOUT_SECOND (int):
-            搜索动画等待超时时间（秒）。
-        in_stage_timer (Timer): 关卡页面检测计时器，防止误判。
-        stage_entrance: 关卡入口标识。
-        map_is_100_percent_clear (bool): 地图是否已 100% 通关，在 fast_forward.py 中被覆盖。
+            Тайм-аут ожидания анимации поиска (в секундах).
+        in_stage_timer (Timer): Таймер проверки нахождения на странице этапа для защиты от ложных срабатываний.
+        stage_entrance: Идентификатор входа на этап.
+        map_is_100_percent_clear (bool): Зачищена ли карта на 100%, переопределяется в fast_forward.py.
     """
     MAP_ENEMY_SEARCHING_OVERLAY_TRANSPARENCY_THRESHOLD = 0.5  # Обычное значение: (0.70, 0.80)
     MAP_ENEMY_SEARCHING_TIMEOUT_SECOND = 5
@@ -42,19 +42,19 @@ class EnemySearchingHandler(InfoHandler):
     map_is_100_percent_clear = False  # Будет переопределено в fast_forward.py
 
     def enemy_searching_color_initial(self):
-        """初始化敌人搜索动画的颜色参考值。
+        """Инициализирует базовые цветовые значения для анимации поиска врагов.
 
-        子类可覆盖此方法，在检测搜索动画前从当前截图加载颜色数据。
+        Подклассы могут переопределять этот метод для загрузки цветовых данных из текущего снимка перед проверкой.
         """
         pass
 
     def enemy_searching_appear(self):
-        """检测敌人搜索动画是否出现。
+        """Проверяет появление анимации поиска врагов.
 
-        通过模板匹配和亮度分析判断屏幕上是否显示了敌人搜索动画。
+        Определяет отображение анимации поиска на экране с помощью сопоставления шаблона и анализа яркости.
 
         Returns:
-            bool: 搜索动画是否出现。
+            bool: Появилась ли анимация поиска.
         """
         if not self.is_in_map():
             return False
@@ -65,24 +65,24 @@ class EnemySearchingHandler(InfoHandler):
         return False
 
     def handle_enemy_flashing(self):
-        """等待敌人闪烁动画消失。
+        """Ожидает исчезновения анимации мигания врагов.
 
-        在敌人搜索动画结束后，地图上的敌人图标会短暂闪烁。
-        此方法通过固定延时等待闪烁结束。
+        После окончания анимации поиска врагов их значки на карте кратковременно мигают.
+        Метод ожидает завершения мигания через фиксированную задержку.
         """
         self.device.sleep(1.2)
 
     def handle_in_stage(self):
-        """检测并处理已返回关卡选择页面的情况。
+        """Определяет и обрабатывает возврат на страницу выбора этапа.
 
-        当战斗结束或地图探索完成后，游戏会返回关卡选择页面。
-        此方法通过计时器避免短暂的画面切换导致误判。
+        После завершения боя или зачистки карты игра возвращается на страницу выбора этапа.
+        Метод использует таймер для предотвращения ложных срабатываний во время переходов между экранами.
 
         Returns:
-            bool: 始终返回 False（正常情况）。
+            bool: Всегда возвращает False (штатная ситуация).
 
         Raises:
-            CampaignEnd: 确认已回到关卡页面后抛出，终止当前战役流程。
+            CampaignEnd: Выбрасывается после подтверждения возврата на страницу этапа, завершая текущую кампанию.
         """
         if self.is_in_stage():
             if self.in_stage_timer.reached():
@@ -98,10 +98,10 @@ class EnemySearchingHandler(InfoHandler):
             return False
 
     def is_in_stage_page(self):
-        """检测当前是否在关卡选择页面（战役/活动/SP）。
+        """Проверяет, находится ли экран на странице выбора этапа (кампания/событие/SP).
 
         Returns:
-            bool: 是否在关卡选择页面。
+            bool: Находится ли на странице выбора этапа.
         """
         for check in [CAMPAIGN_CHECK, EVENT_CHECK, SP_CHECK]:
             if self.appear(check, offset=(20, 20)):
@@ -109,12 +109,12 @@ class EnemySearchingHandler(InfoHandler):
         return False
 
     def is_stage_page_has_entrance(self):
-        """检查关卡页面是否有关卡入口，即页面是否已完全加载。
+        """Проверяет наличие входов на этапы, то есть полную загрузку страницы выбора этапа.
 
-        通过 OCR 提取关卡名称图像来判断页面加载状态。
+        Определяет статус загрузки страницы через извлечение изображений названий этапов по OCR.
 
         Returns:
-            bool: 关卡入口是否可见（页面已完全加载）。
+            bool: Видны ли входы на этапы (страница загружена полностью).
         """
         # campaign_extract_name_image находится в CampaignOcr
         try:
@@ -129,12 +129,12 @@ class EnemySearchingHandler(InfoHandler):
         return True
 
     def is_in_stage(self):
-        """检测当前是否已完全回到关卡选择页面。
+        """Проверяет полный возврат на страницу выбора этапа.
 
-        组合页面类型检测和关卡入口可见性检测。
+        Объединяет проверку типа экрана и видимость входов на этапы.
 
         Returns:
-            bool: 是否已完全回到关卡页面。
+            bool: Произошёл ли полный возврат на страницу этапа.
         """
         if not self.is_in_stage_page():
             return False
@@ -143,39 +143,39 @@ class EnemySearchingHandler(InfoHandler):
         return True
 
     def is_in_map(self):
-        """检测当前是否在地图界面。
+        """Проверяет, находится ли экран в интерфейсе карты.
 
         Returns:
-            bool: 是否在地图中。
+            bool: Находится ли на карте.
         """
         return self.appear(IN_MAP)
 
     def is_event_animation(self):
         """
-        检查是否有活动中的动画（击败敌人后的动画）。
+        Проверяет, проигрывается ли анимация события (например, после победы над врагом).
 
         Returns:
-            bool: 是否正在播放动画。
+            bool: Проигрывается ли анимация.
         """
         return False
 
     def handle_auto_search_exit(self, drop=None) -> bool:
         """
-        占位方法，将在 AutoSearchHandler 中被覆盖。
-        AutoSearchHandler 继承了 EnemySearchingHandler，
-        但 handle_in_map_with_enemy_searching() 需要调用 handle_auto_search_exit() 来处理意外情况。
+        Метод-заглушка, переопределяемый в AutoSearchHandler.
+        AutoSearchHandler наследует EnemySearchingHandler,
+        однако handle_in_map_with_enemy_searching() вызывает handle_auto_search_exit() для обработки непредвиденных ситуаций.
         """
         return False
 
     def handle_in_map_with_enemy_searching(self, drop=None):
         """
-        处理地图中敌人搜索动画出现的情况。
+        Обрабатывает ситуацию появления анимации поиска врагов на карте.
 
         Args:
-            drop (DropImage): 掉落记录对象。
+            drop (DropImage): Объект фиксации дропа.
 
         Returns:
-            bool: 是否进行了处理。
+            bool: Была ли выполнена обработка.
         """
         if not self.is_in_map():
             return False
@@ -240,13 +240,13 @@ class EnemySearchingHandler(InfoHandler):
 
     def handle_in_map_no_enemy_searching(self, drop=None):
         """
-        处理地图中未出现敌人搜索动画的情况。
+        Обрабатывает ситуацию, когда анимация поиска врагов на карте не появилась.
 
         Args:
-            drop (DropImage): 掉落记录对象。
+            drop (DropImage): Объект фиксации дропа.
 
         Returns:
-            bool: 是否进行了处理。
+            bool: Была ли выполнена обработка.
         """
         if not self.is_in_map():
             return False

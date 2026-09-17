@@ -1,4 +1,4 @@
-"""伏击和空袭处理器。处理地图探索中的伏击回避/迎击和空袭等待。"""
+"""Обработчик засад и воздушных налётов. Обрабатывает уклонение/перехват засад и ожидание налётов при исследовании карты."""
 
 from module.base.timer import Timer
 from module.base.utils import get_color, red_overlay_transparency
@@ -14,29 +14,29 @@ TEMPLATE_MAP_WALK_OUT_OF_STEP.pre_process = info_letter_preprocess
 
 
 class AmbushHandler(Combat):
-    """伏击和空袭处理器，通过红色覆盖层透明度检测事件。"""
+    """Обработчик засад и воздушных налётов, определяющий события по прозрачности красного перекрытия."""
     MAP_AMBUSH_OVERLAY_TRANSPARENCY_THRESHOLD = 0.40
     MAP_AIR_RAID_OVERLAY_TRANSPARENCY_THRESHOLD = 0.35  # Обычное значение: (0.50, 0.53)
     MAP_AIR_RAID_CONFIRM_SECOND = 0.5
 
     def ambush_color_initial(self):
-        """初始化伏击和空袭的颜色参考值。"""
+        """Инициализирует базовые цветовые значения для засад и воздушных налётов."""
         MAP_AMBUSH.load_color(self.device.image)
         MAP_AIR_RAID.load_color(self.device.image)
 
     def _ambush_appear(self):
-        """检测伏击是否出现。"""
+        """Проверяет появление засады."""
         return red_overlay_transparency(MAP_AMBUSH.color, get_color(self.device.image, MAP_AMBUSH.area)) > \
                self.MAP_AMBUSH_OVERLAY_TRANSPARENCY_THRESHOLD
 
     def _air_raid_appear(self):
-        """检测空袭是否出现。"""
+        """Проверяет появление воздушного налёта."""
         return red_overlay_transparency(MAP_AIR_RAID.color, get_color(self.device.image, MAP_AIR_RAID.area)) > \
                self.MAP_AIR_RAID_OVERLAY_TRANSPARENCY_THRESHOLD
 
     def _handle_air_raid(self):
         """
-        等待空袭动画消失。
+        Ожидает исчезновения анимации воздушного налёта.
         """
         logger.info('[Карта — засада] Воздушный налёт')
         disappear = Timer(self.MAP_AIR_RAID_CONFIRM_SECOND).start()
@@ -56,7 +56,7 @@ class AmbushHandler(Combat):
                     break
 
     def _handle_ambush_evade(self):
-        """处理伏击回避事件。"""
+        """Обрабатывает уклонение от засады."""
         logger.info('[Карта — засада] Обнаружена засада')
         # Ждём появления MAP_AMBUSH_EVADE
         self.wait_until_appear(MAP_AMBUSH_EVADE, offset=(30, 30))
@@ -91,7 +91,7 @@ class AmbushHandler(Combat):
                 self.combat(fleet_index=self.fleet_show_index)
 
     def _handle_ambush_attack(self):
-        """处理伏击迎击事件。"""
+        """Обрабатывает вступление в бой при засаде."""
         logger.info('[Карта — засада] Обнаружена засада')
         # Ждём появления MAP_AMBUSH_ATTACK
         self.wait_until_appear(MAP_AMBUSH_ATTACK, offset=(30, 30))
@@ -120,14 +120,14 @@ class AmbushHandler(Combat):
         self.combat(expected_end='no_searching', fleet_index=self.fleet_show_index)
 
     def _handle_ambush(self):
-        """根据配置选择回避或迎击。"""
+        """Выбирает уклонение или перехват в зависимости от конфигурации."""
         if self.config.Campaign_AmbushEvade:
             return self._handle_ambush_evade()
         else:
             return self._handle_ambush_attack()
 
     def handle_ambush(self):
-        """统一的伏击/空袭处理入口。"""
+        """Единая точка входа для обработки засад и воздушных налётов."""
         if not self.config.MAP_HAS_AMBUSH:
             return False
 
@@ -145,7 +145,7 @@ class AmbushHandler(Combat):
         return False
 
     def handle_walk_out_of_step(self):
-        """处理舰队步数不足的提示。"""
+        """Обрабатывает уведомление об исчерпании шагов флота."""
         if not self.config.MAP_HAS_FLEET_STEP:
             return False
         if not self.info_bar_count():
