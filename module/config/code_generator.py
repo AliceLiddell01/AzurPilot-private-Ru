@@ -1,26 +1,26 @@
-"""代码生成器模块。
+"""Модуль кодогенератора.
 
-提供带缩进管理的代码生成器 CodeGenerator 和上下文管理器 TabWrapper，
-用于自动生成 Python 配置代码（如 config_generated.py）。
+Предоставляет кодогенератор CodeGenerator с управлением отступами и контекстный менеджер TabWrapper,
+используемые для автоматической генерации кода конфигурации Python (например, config_generated.py).
 """
 
 import typing as t
 
 
 class TabWrapper:
-    """缩进管理上下文管理器。
+    """Контекстный менеджер управления отступами.
 
-    在进入时增加缩进层级，退出时减少缩进层级，
-    同时负责添加前缀和后缀代码。
+    Увеличивает уровень отступа при входе и уменьшает при выходе,
+    а также отвечает за добавление префиксного и суффиксного кода.
     """
 
     def __init__(self, generator, prefix='', suffix='', newline=True):
         """
         Args:
-            generator: 所属的代码生成器实例。
-            prefix: 进入上下文时输出的前缀代码。
-            suffix: 退出上下文时输出的后缀代码。
-            newline: 前缀后是否换行。
+            generator: Экземпляр генератора кода, которому принадлежит обёртка.
+            prefix: Префиксный код, выводимый при входе в контекст.
+            suffix: Суффиксный код, выводимый при выходе из контекста.
+            newline: Добавлять ли перевод строки после префикса.
         """
         self.generator = generator
         self.prefix = prefix
@@ -49,10 +49,10 @@ class TabWrapper:
 
 
 class CodeGenerator:
-    """Python 源代码生成器。
+    """Генератор исходного кода Python.
 
-    提供一系列方法用于构建带正确缩进的 Python 代码，
-    支持生成 import、变量、类、函数、列表、字典等结构。
+    Предоставляет набор методов для построения кода Python с корректными отступами,
+    поддерживает генерацию import, переменных, классов, функций, списков, словарей и других структур.
     """
 
     def __init__(self):
@@ -60,44 +60,44 @@ class CodeGenerator:
         self.lines = []
 
     def generate(self) -> t.Iterable[str]:
-        """生成代码行，子类应重写此方法。"""
+        """Сгенерировать строки кода; подклассы должны переопределять этот метод."""
         yield ''
 
     def add(self, line, comment=False, newline=True):
-        """添加一行代码到输出缓冲区。
+        """Добавить строку кода в буфер вывода.
 
         Args:
-            line: 要添加的代码文本。
-            comment: 是否作为注释输出（自动添加 # 前缀）。
-            newline: 是否在行尾添加换行符。
+            line: Добавляемый текст кода.
+            comment: Выводить ли в качестве комментария (с автодобавлением префикса #).
+            newline: Добавлять ли символ перевода строки в конце.
         """
         self.lines.append(self._line_with_tabs(line, comment=comment, newline=newline))
 
     def print(self):
-        """将生成的代码输出到控制台。"""
+        """Вывести сгенерированный код в консоль."""
         lines = ''.join(self.lines)
         print(lines)
 
     def write(self, file: str = None):
-        """将生成的代码写入文件。
+        """Записать сгенерированный код в файл.
 
         Args:
-            file: 输出文件路径。
+            file: Путь к выходному файлу.
         """
         lines = ''.join(self.lines)
         with open(file, 'w', encoding='utf-8', newline='') as f:
             f.write(lines)
 
     def _line_with_tabs(self, line, comment=False, newline=True):
-        """根据当前缩进层级格式化一行代码。
+        """Отформатировать строку кода в соответствии с текущим уровнем отступа.
 
         Args:
-            line: 原始代码文本。
-            comment: 是否添加注释前缀。
-            newline: 是否追加换行符。
+            line: Исходный текст кода.
+            comment: Добавлять ли префикс комментария.
+            newline: Добавлять ли завершающий символ перевода строки.
 
         Returns:
-            带缩进的代码行字符串。
+            Строка кода с отступом.
         """
         if comment:
             line = '# ' + line
@@ -107,16 +107,16 @@ class CodeGenerator:
         return out
 
     def _repr(self, obj):
-        """将对象转换为代码表示形式。
+        """Преобразовать объект в представление кода.
 
-        字符串中的多行文本会被格式化为 docstring。
-        其他对象使用 repr() 输出。
+        Многострочный текст в строках форматируется как docstring.
+        Остальные объекты выводятся через repr().
 
         Args:
-            obj: 需要转换的对象。
+            obj: Объект для преобразования.
 
         Returns:
-            对象的代码表示字符串。
+            Строковое представление объекта в виде кода.
         """
         if isinstance(obj, str):
             if '\n' in obj:
@@ -130,23 +130,23 @@ class CodeGenerator:
         return repr(obj)
 
     def tab(self):
-        """创建一个缩进上下文管理器。
+        """Создать контекстный менеджер отступа.
 
         Returns:
-            TabWrapper 实例，可用作 `with` 语句的上下文管理器。
+            Экземпляр TabWrapper для использования в операторе `with`.
         """
         return TabWrapper(self)
 
     def Empty(self):
-        """添加一个空行。"""
+        """Добавить пустую строку."""
         self.add('')
 
     def Import(self, text, empty=2):
-        """添加 import 语句块。
+        """Добавить блок операторов import.
 
         Args:
-            text: import 语句文本，多行用换行分隔。
-            empty: import 块后的空行数量，默认为 2。
+            text: Текст операторов import, разделённых переносами строк.
+            empty: Количество пустых строк после блока import, по умолчанию 2.
         """
         for line in text.strip().split('\n'):
             line = line.strip()
@@ -155,13 +155,13 @@ class CodeGenerator:
             self.Empty()
 
     def Value(self, key=None, value=None, type_=None, **kwargs):
-        """添加变量赋值语句。
+        """Добавить инструкцию присваивания переменной.
 
         Args:
-            key: 变量名。
-            value: 变量值。
-            type_: 类型注解（可选）。
-            **kwargs: 额外的键值对，每个都会生成一行赋值。
+            key: Имя переменной.
+            value: Значение переменной.
+            type_: Аннотация типа (опционально).
+            **kwargs: Дополнительные пары ключ-значение; для каждой генерируется отдельная строка присваивания.
         """
         if key is not None:
             if type_ is not None:
@@ -172,23 +172,23 @@ class CodeGenerator:
             self.Value(key, value)
 
     def Comment(self, text):
-        """添加注释块。
+        """Добавить блок комментариев.
 
         Args:
-            text: 注释文本，多行用换行分隔，每行自动添加 # 前缀。
+            text: Текст комментария, строки разделены переносами; к каждой строке автоматически добавляется префикс #.
         """
         for line in text.strip().split('\n'):
             line = line.strip()
             self.add(line, comment=True)
 
     def List(self, key=None):
-        """创建列表上下文。
+        """Создать контекст списка.
 
         Args:
-            key: 列表变量名。若为 None 则生成匿名列表。
+            key: Имя переменной списка. Если None, генерируется анонимный список.
 
         Returns:
-            TabWrapper 实例，配合 `with` 语句生成列表代码。
+            Экземпляр TabWrapper для генерации кода списка через оператор `with`.
         """
         if key is not None:
             return TabWrapper(self, prefix=str(key) + ' = [', suffix=']')
@@ -196,10 +196,10 @@ class CodeGenerator:
             return TabWrapper(self, prefix='[', suffix=']', newline=False)
 
     def ListItem(self, value):
-        """向列表中添加一个元素。
+        """Добавить элемент в список.
 
         Args:
-            value: 列表元素值，可以是普通值或 TabWrapper 嵌套结构。
+            value: Значение элемента списка; может быть обычным значением или вложенной структурой TabWrapper.
         """
         if isinstance(value, TabWrapper):
             value.set_nested(suffix=',')
@@ -209,13 +209,13 @@ class CodeGenerator:
             self.add(f'{self._repr(value)},')
 
     def Dict(self, key=None):
-        """创建字典上下文。
+        """Создать контекст словаря.
 
         Args:
-            key: 字典变量名。若为 None 则生成匿名字典。
+            key: Имя переменной словаря. Если None, генерируется анонимный словарь.
 
         Returns:
-            TabWrapper 实例，配合 `with` 语句生成字典代码。
+            Экземпляр TabWrapper для генерации кода словаря через оператор `with`.
         """
         if key is not None:
             return TabWrapper(self, prefix=str(key) + ' = {', suffix='}')
@@ -223,11 +223,11 @@ class CodeGenerator:
             return TabWrapper(self, prefix='{', suffix='}', newline=False)
 
     def DictItem(self, key=None, value=None):
-        """向字典中添加一个键值对。
+        """Добавить пару ключ-значение в словарь.
 
         Args:
-            key: 字典键。
-            value: 字典值，可以是普通值或 TabWrapper 嵌套结构。
+            key: Ключ словаря.
+            value: Значение словаря; может быть обычным значением или вложенной структурой TabWrapper.
         """
         if isinstance(value, TabWrapper):
             value.set_nested(suffix=',')
@@ -239,14 +239,14 @@ class CodeGenerator:
                 self.add(f'{self._repr(key)}: {self._repr(value)},')
 
     def Object(self, object_class, key=None):
-        """创建对象实例化上下文。
+        """Создать контекст инстанцирования объекта.
 
         Args:
-            object_class: 类名字符串。
-            key: 赋值变量名。若为 None 则生成匿名构造。
+            object_class: Строковое имя класса.
+            key: Имя переменной для присваивания. Если None, генерируется анонимный вызов конструктора.
 
         Returns:
-            TabWrapper 实例，配合 `with` 语句生成构造代码。
+            Экземпляр TabWrapper для генерации кода создания объекта через оператор `with`.
         """
         if key is not None:
             return TabWrapper(self, prefix=f'{key} = {object_class}(', suffix=')')
@@ -254,11 +254,11 @@ class CodeGenerator:
             return TabWrapper(self, prefix=f'{object_class}(', suffix=')', newline=False)
 
     def ObjectAttr(self, key=None, value=None):
-        """为对象添加一个属性参数。
+        """Добавить параметр-атрибут к объекту.
 
         Args:
-            key: 属性名。若为 None 则为位置参数。
-            value: 属性值，可以是普通值或 TabWrapper 嵌套结构。
+            key: Имя атрибута. Если None, передаётся как позиционный аргумент.
+            value: Значение атрибута; может быть обычным значением или вложенной структурой TabWrapper.
         """
         if isinstance(value, TabWrapper):
             value.set_nested(suffix=',')
@@ -274,14 +274,14 @@ class CodeGenerator:
                 self.add(f'{key}={self._repr(value)},')
 
     def Class(self, name, inherit=None):
-        """创建类定义上下文。
+        """Создать контекст определения класса.
 
         Args:
-            name: 类名。
-            inherit: 父类名（可选）。
+            name: Имя класса.
+            inherit: Имя родительского класса (опционально).
 
         Returns:
-            TabWrapper 实例，配合 `with` 语句生成类定义代码。
+            Экземпляр TabWrapper для генерации определения класса через оператор `with`.
         """
         if inherit is not None:
             return TabWrapper(self, prefix=f'class {name}({inherit}):')
@@ -289,14 +289,14 @@ class CodeGenerator:
             return TabWrapper(self, prefix=f'class {name}:')
 
     def Def(self, name, args=''):
-        """创建函数定义上下文。
+        """Создать контекст определения функции.
 
         Args:
-            name: 函数名。
-            args: 参数列表字符串（可选）。
+            name: Имя функции.
+            args: Строка со списком параметров (опционально).
 
         Returns:
-            TabWrapper 实例，配合 `with` 语句生成函数定义代码。
+            Экземпляр TabWrapper для генерации определения функции через оператор `with`.
         """
         return TabWrapper(self, prefix=f'def {name}({args}):')
 

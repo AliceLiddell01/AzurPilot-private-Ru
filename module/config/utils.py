@@ -1,17 +1,17 @@
-"""配置管理工具函数集。
+"""Набор утилит для управления конфигурацией.
 
-提供配置系统所需的底层工具函数，包括：
-- 文件读写：JSON/YAML 文件的安全读写（原子写入）
-- 数据解析：配置值的类型转换和解析
-- 服务器时间：各服务器时区计算和重置时间
-- 路径管理：配置文件、资源文件、i18n 文件的路径解析
-- 随机 ID：配置实例的唯一标识生成
+Предоставляет низкоуровневые вспомогательные функции для системы конфигурации:
+- Чтение/запись файлов: безопасное чтение и запись JSON/YAML (атомарная запись)
+- Парсинг данных: преобразование типов и разбор значений конфигурации
+- Серверное время: вычисление часовых поясов серверов и времени сброса
+- Управление путями: пути к файлам конфигурации, ресурсов и i18n
+- Случайные ID: генерация уникальных идентификаторов экземпляров конфигурации
 
-常量定义：
-- UI_LOCALE: 唯一活动的 WebUI 语言（ru-RU）
-- LEGACY_UI_LOCALES: 仅保留到 Stage 9 的非活动旧语言文件
-- EVENT_NAME_SOURCE / EVENT_NAME_FALLBACK_ORDER: 与 UI 语言无关的活动名称来源
-- SERVER_TO_TIMEZONE: 服务器到时区的映射
+Определения констант:
+- UI_LOCALE: единственный активный язык WebUI (ru-RU)
+- LEGACY_UI_LOCALES: неактивные устаревшие языковые файлы, сохраняемые до Stage 9
+- EVENT_NAME_SOURCE / EVENT_NAME_FALLBACK_ORDER: источники имён событий, не зависящие от языка UI
+- SERVER_TO_TIMEZONE: соответствие серверов и часовых поясов
 """
 
 # Этот файл содержит общие вспомогательные функции для управления конфигурацией.
@@ -86,14 +86,14 @@ def filepath_code():
 
 def read_file(file):
     """
-    读取文件，支持 .yaml 和 .json 格式。
-    文件不存在时返回空字典。
+    Прочитать файл в формате .yaml или .json.
+    Если файл не существует, возвращает пустой словарь.
 
     Args:
-        file (str): 文件路径。
+        file (str): Путь к файлу.
 
     Returns:
-        dict, list: 解析后的数据。
+        dict, list: Разобранные данные.
     """
     print(f'Чтение: {file}')
     if file.endswith('.json'):
@@ -116,11 +116,11 @@ def read_file(file):
 
 def write_file(file, data):
     """
-    将数据写入文件，支持 .yaml 和 .json 格式。
+    Записать данные в файл формата .yaml или .json.
 
     Args:
-        file (str): 文件路径。
-        data (dict, list): 要写入的数据。
+        file (str): Путь к файлу.
+        data (dict, list): Данные для записи.
     """
     print(f'Запись: {file}')
     if file.endswith('.json'):
@@ -140,15 +140,15 @@ def write_file(file, data):
 
 def iter_folder(folder, is_dir=False, ext=None):
     """
-    遍历文件夹中的文件或子目录。
+    Перебрать файлы или подкаталоги в папке.
 
     Args:
-        folder (str): 目标文件夹路径。
-        is_dir (bool): 为 True 时仅遍历子目录。
-        ext (str): 文件扩展名过滤，如 `.yaml`。
+        folder (str): Путь к целевой папке.
+        is_dir (bool): При True перебирать только подкаталоги.
+        ext (str): Фильтр по расширению файла, например `.yaml`.
 
     Yields:
-        str: 文件的绝对路径。
+        str: Абсолютный путь к файлу.
     """
     for file in os.listdir(folder):
         sub = os.path.join(folder, file)
@@ -171,10 +171,10 @@ def is_oobe_needed():
 
 def alas_template():
     """
-    获取所有 Alas 模板实例名称。
+    Получить имена всех шаблонов экземпляров Alas.
 
     Returns:
-        list[str]: 除 `template` 外的所有 Alas 模板实例名称。
+        list[str]: Имена всех шаблонов Alas, кроме `template`.
     """
     out = []
     for file in os.listdir('./config'):
@@ -201,14 +201,14 @@ def alas_instance():
 
 def parse_value(value, data):
     """
-    尝试将字符串转换为 float、int 或 datetime。
+    Попытаться преобразовать строку во float, int или datetime.
 
     Args:
-        value (str): 待转换的值。
-        data (dict): 参数定义数据，包含 `option` 等字段。
+        value (str): Значение для преобразования.
+        data (dict): Данные определения параметра, содержащие поле `option` и др.
 
     Returns:
-        转换后的值，无法转换时返回原值。
+        Преобразованное значение либо исходное значение при невозможности преобразования.
     """
     def parse_single(value):
         if not isinstance(value, str):
@@ -267,21 +267,21 @@ def parse_value(value, data):
 
 def data_to_type(data, **kwargs):
     """
-    根据参数定义推断对应的 GUI 控件类型。
+    Определить соответствующий тип элемента управления GUI по определению параметра.
 
-    | 条件                              | 类型     |
+    | Условие                           | Тип      |
     | ---------------------------------- | -------- |
-    | 值为 bool                          | checkbox |
-    | 参数有选项列表                      | select   |
-    | 名称中包含 `Filter`（data['arg']）  | textarea |
-    | 其他参数                           | input    |
+    | Значение типа bool                 | checkbox |
+    | У параметра есть список вариантов  | select   |
+    | В имени содержится `Filter` (data['arg']) | textarea |
+    | Прочие параметры                   | input    |
 
     Args:
-        data (dict): 参数定义数据。
-        kwargs: 附加属性。
+        data (dict): Данные определения параметра.
+        kwargs: Дополнительные свойства.
 
     Returns:
-        str: GUI 控件类型字符串。
+        str: Строка с типом элемента управления GUI.
     """
     kwargs.update(data)
     if isinstance(kwargs['value'], bool):
@@ -296,40 +296,40 @@ def data_to_type(data, **kwargs):
 
 def data_to_path(data):
     """
-    将参数数据转换为配置路径字符串。
+    Преобразовать данные параметра в строку пути конфигурации.
 
     Args:
-        data (dict): 包含 `func`、`group`、`arg` 键的字典。
+        data (dict): Словарь, содержащий ключи `func`, `group`, `arg`.
 
     Returns:
-        str: 格式为 `<func>.<group>.<arg>` 的路径。
+        str: Путь в формате `<func>.<group>.<arg>`.
     """
     return '.'.join([data.get(attr, '') for attr in ['func', 'group', 'arg']])
 
 
 def path_to_arg(path):
     """
-    将 .yaml 文件中的字典键转换为配置中的参数名。
+    Преобразовать ключ словаря из .yaml файла в имя параметра конфигурации.
 
     Args:
-        path (str): 如 `Scheduler.ServerUpdate`。
+        path (str): Например, `Scheduler.ServerUpdate`.
 
     Returns:
-        str: 如 `Scheduler_ServerUpdate`。
+        str: Например, `Scheduler_ServerUpdate`.
     """
     return path.replace('.', '_')
 
 
 def dict_to_kv(dictionary, allow_none=True):
     """
-    将字典转换为 key=value 格式的字符串。
+    Преобразовать словарь в строку формата key=value.
 
     Args:
-        dictionary: 如 `{'path': 'Scheduler.ServerUpdate', 'value': True}`。
-        allow_none (bool): 是否包含值为 None 的键。
+        dictionary: Например, `{'path': 'Scheduler.ServerUpdate', 'value': True}`.
+        allow_none (bool): Включать ли ключи со значением None.
 
     Returns:
-        str: 如 `path='Scheduler.ServerUpdate', value=True`。
+        str: Например, `path='Scheduler.ServerUpdate', value=True`.
     """
     return ', '.join([f'{k}={repr(v)}' for k, v in dictionary.items() if allow_none or v is not None])
 
@@ -343,27 +343,27 @@ def server_timezone() -> timedelta:
 
 def server_time_offset() -> timedelta:
     """
-    计算本地时间与服务器时间的偏移量。
+    Вычислить смещение локального времени относительно времени сервера.
 
-    本地时间转服务器时间：server_time = local_time + server_time_offset()
-    服务器时间转本地时间：local_time = server_time - server_time_offset()
+    Перевод локального времени во время сервера: server_time = local_time + server_time_offset()
+    Перевод времени сервера в локальное время: local_time = server_time - server_time_offset()
     """
     return current_time(timezone.utc).astimezone().utcoffset() - server_timezone()
 
 
 def random_normal_distribution_int(a, b, n=3):
     """
-    生成区间内的正态分布随机整数（不依赖 numpy 的实现）。
+    Сгенерировать случайное целое число с нормальным распределением в интервале (без numpy).
 
-    使用多个随机数的平均值模拟正态分布。
+    Использует среднее значение нескольких случайных чисел для аппроксимации нормального распределения.
 
     Args:
-        a (int): 区间最小值。
-        b (int): 区间最大值。
-        n (int): 模拟用的随机数个数，默认为 3。
+        a (int): Минимальное значение интервала.
+        b (int): Максимальное значение интервала.
+        n (int): Количество случайных чисел для аппроксимации, по умолчанию 3.
 
     Returns:
-        int: 正态分布随机整数。
+        int: Случайное целое число с нормальным распределением.
     """
     if a < b:
         output = sum([random.randint(a, b) for _ in range(n)]) / n
@@ -374,15 +374,15 @@ def random_normal_distribution_int(a, b, n=3):
 
 def ensure_time(second, n=3, precision=3):
     """
-    确保输入为时间值，支持区间随机。
+    Привести входное значение ко времени с поддержкой случайного диапазона.
 
     Args:
-        second (int, float, tuple): 时间值，如 10、(10, 30)、'10, 30'。
-        n (int): 模拟用的随机数个数，默认为 3。
-        precision (int): 小数精度。
+        second (int, float, tuple): Значение времени, например 10, (10, 30), '10, 30'.
+        n (int): Количество случайных чисел для симуляции, по умолчанию 3.
+        precision (int): Точность десятичных знаков.
 
     Returns:
-        float: 处理后的时间值。
+        float: Обработанное значение времени.
     """
     if isinstance(second, tuple):
         multiply = 10 ** precision
@@ -404,10 +404,10 @@ def ensure_time(second, n=3, precision=3):
 
 def get_os_next_reset():
     """
-    获取下个月的第一天（大世界重置时间）。
+    Получить первое число следующего месяца (время сброса Operation Siren).
 
     Returns:
-        datetime.datetime: 下次重置的本地时间。
+        datetime.datetime: Локальное время следующего сброса.
     """
     diff = server_time_offset()
     server_now = current_time() - diff
@@ -419,10 +419,10 @@ def get_os_next_reset():
 
 def get_os_reset_remain():
     """
-    获取距离大世界下次重置的剩余天数。
+    Получить количество оставшихся дней до следующего сброса Operation Siren.
 
     Returns:
-        int: 剩余天数。
+        int: Количество оставшихся дней.
     """
     next_reset = get_os_next_reset()
     now = current_time()
@@ -435,13 +435,13 @@ def get_os_reset_remain():
 
 def get_server_next_update(daily_trigger):
     """
-    获取服务器下次更新时间。
+    Получить локальное время следующего обновления сервера.
 
     Args:
-        daily_trigger (list[str], str): 每日触发时间列表，如 ["00:00", "12:00", "18:00"]。
+        daily_trigger (list[str], str): Список ежедневных моментов срабатывания, например ["00:00", "12:00", "18:00"].
 
     Returns:
-        datetime.datetime: 下次更新的本地时间。
+        datetime.datetime: Локальное время следующего обновления.
     """
     if isinstance(daily_trigger, str):
         daily_trigger = daily_trigger.replace(' ', '').split(',')
@@ -461,13 +461,13 @@ def get_server_next_update(daily_trigger):
 
 def get_server_last_update(daily_trigger):
     """
-    获取服务器上次更新时间。
+    Получить локальное время предыдущего обновления сервера.
 
     Args:
-        daily_trigger (list[str], str): 每日触发时间列表，如 ["00:00", "12:00", "18:00"]。
+        daily_trigger (list[str], str): Список ежедневных моментов срабатывания, например ["00:00", "12:00", "18:00"].
 
     Returns:
-        datetime.datetime: 上次更新的本地时间。
+        datetime.datetime: Локальное время предыдущего обновления.
     """
     if isinstance(daily_trigger, str):
         daily_trigger = daily_trigger.replace(' ', '').split(',')
@@ -487,15 +487,15 @@ def get_server_last_update(daily_trigger):
 
 def nearest_future(future, interval=120):
     """
-    获取最近的未来时间点。
-    若多个时间点在 `interval` 秒内完成，则返回最晚的一个。
+    Получить ближайший момент времени в будущем.
+    Если несколько моментов завершаются в пределах `interval` секунд, возвращает самый поздний из них.
 
     Args:
-        future (list[datetime.datetime]): 未来时间点列表。
-        interval (int): 合并间隔，单位为秒。
+        future (list[datetime.datetime]): Список будущих моментов времени.
+        interval (int): Интервал объединения в секундах.
 
     Returns:
-        datetime.datetime: 最终选择的时间点。
+        datetime.datetime: Выбранный момент времени.
     """
     future = [datetime.fromisoformat(f) if isinstance(f, str) else f for f in future]
     future = sorted(future)
@@ -509,13 +509,13 @@ def nearest_future(future, interval=120):
 
 def get_nearest_weekday_date(target):
     """
-    获取从当前日期起最近的目标星期几的日期。
+    Получить дату ближайшего целевого дня недели, начиная с текущей даты.
 
     Args:
-        target (int): 目标星期几（0=周一, 6=周日）。
+        target (int): Целевой день недели (0=понедельник, 6=воскресенье).
 
     Returns:
-        datetime.datetime: 最近的目标星期几的本地时间。
+        datetime.datetime: Локальное время ближайшего целевого дня недели.
     """
     diff = server_time_offset()
     server_now = current_time() - diff
@@ -533,10 +533,10 @@ def get_nearest_weekday_date(target):
 
 def get_server_weekday():
     """
-    获取服务器当前是星期几。
+    Получить текущий день недели по времени сервера.
 
     Returns:
-        int: 星期几（0=周一, 6=周日）。
+        int: День недели (0=понедельник, 6=воскресенье).
     """
     diff = server_time_offset()
     server_now = current_time() - diff
@@ -546,10 +546,10 @@ def get_server_weekday():
 
 def get_server_monthday():
     """
-    获取服务器当前是几号。
+    Получить текущее число месяца по времени сервера.
 
     Returns:
-        int: 月份中的天数。
+        int: Число месяца.
     """
     diff = server_time_offset()
     server_now = current_time() - diff
@@ -559,28 +559,28 @@ def get_server_monthday():
 
 def random_id(length=32):
     """
-    生成随机 ID。
+    Сгенерировать случайный идентификатор.
 
     Args:
-        length (int): ID 长度，默认为 32。
+        length (int): Длина идентификатора, по умолчанию 32.
 
     Returns:
-        str: 随机 AzurStat ID。
+        str: Случайный AzurStat ID.
     """
     return ''.join(random.sample(string.ascii_lowercase + string.digits, length))
 
 
 def to_list(text, length=1):
     """
-    将文本转换为整数列表。
+    Преобразовать текстовую строку в список целых чисел.
 
     Args:
-        text (str): 逗号分隔的数字文本，如 `1, 2, 3`。
-        length (int): 单个数字时扩展为指定长度的列表，
-            如 text='3', length=5 返回 `[3, 3, 3, 3, 3]`。
+        text (str): Разделённый запятыми текст чисел, например `1, 2, 3`.
+        length (int): При единственном числе развернуть в список указанной длины,
+            например text='3', length=5 вернёт `[3, 3, 3, 3, 3]`.
 
     Returns:
-        list[int]: 整数列表。
+        list[int]: Список целых чисел.
     """
     if text.isdigit():
         return [int(text)] * length
@@ -590,13 +590,13 @@ def to_list(text, length=1):
 
 def type_to_str(typ):
     """
-    将任意类型或对象转换为字符串。
+    Преобразовать произвольный тип или объект в строку.
 
     Args:
-        typ: 类型或对象。
+        typ: Тип или объект.
 
     Returns:
-        str: 类型名称，如 `int`、`datetime.datetime`。
+        str: Имя типа, например `int`, `datetime.datetime`.
     """
     if not isinstance(typ, type):
         typ = type(typ).__name__
@@ -605,13 +605,13 @@ def type_to_str(typ):
 
 def time_delta(_timedelta):
     """
-    计算两个时间之间的差值，按年/月/日/时/分/秒拆分。
+    Вычислить разницу между двумя моментами времени с разбивкой по годам, месяцам, дням, часам, минутам и секундам.
 
     Args:
-        _timedelta (datetime.timedelta): 时间差。
+        _timedelta (datetime.timedelta): Разница во времени.
 
     Returns:
-        dict: 拆分后的时间差字典，包含 'Y'、'M'、'D'、'h'、'm'、's' 键。
+        dict: Словарь с разбивкой времени, содержащий ключи 'Y', 'M', 'D', 'h', 'm', 's'.
     """
     _time_delta = abs(_timedelta.total_seconds())
     d_base = datetime(2010, 1, 1, 0, 0, 0)
@@ -640,7 +640,7 @@ def time_delta(_timedelta):
 
 def readable_time(before: str, value: str) -> str:
     """
-    计算两个时间之间的差值，返回人类可读的时间描述。
+    Вычислить разницу между двумя моментами времени и вернуть понятное человеку описание.
     """
     timedata = {
         'value': value,

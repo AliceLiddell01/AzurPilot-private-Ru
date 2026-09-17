@@ -1,29 +1,29 @@
-"""配置系统更新器。
+"""Модуль обновления системы конфигурации.
 
-配置系统的核心引擎，负责：
-- 读取 YAML 配置定义文件（task.yaml、argument.yaml、override.yaml、default.yaml）
-- 生成 Python 配置类（config_generated.py）
-- 生成参数定义文件（args.json、menu.json）
-- 生成国际化文件（i18n/*.json）
-- 生成配置模板（template.json）
-- 处理配置版本迁移和重定向
-- 管理活动/关卡数据的更新
+Ключевой движок конфигурационной системы, отвечающий за:
+- Чтение файлов определения YAML (task.yaml, argument.yaml, override.yaml, default.yaml)
+- Генерацию классов конфигурации Python (config_generated.py)
+- Генерацию файлов описания параметров (args.json, menu.json)
+- Генерацию файлов интернационализации (i18n/*.json)
+- Генерацию шаблона конфигурации (template.json)
+- Обработку миграций и перенаправлений версий конфигурации
+- Управление обновлениями данных событий и этапов
 
-配置生成管道：
+Конвейер генерации конфигурации:
     task.yaml + argument.yaml + override.yaml + default.yaml + gui.yaml
-    → args.json（合并后的完整参数定义）
-    → menu.json（菜单结构）
-    → config_generated.py（Python 配置类）
-    → template.json（配置模板）
-    → i18n/ru-RU.json（единственный активный runtime locale）
+    → args.json (полные объединённые определения параметров)
+    → menu.json (структура меню)
+    → config_generated.py (Python-классы конфигурации)
+    → template.json (шаблон конфигурации)
+    → i18n/ru-RU.json (единственный активный runtime locale)
 
-通过命令行调用：
+Вызов через командную строку:
     uv run -m module.config.config_updater
 
-主要类：
-- ConfigUpdater: 配置更新和生成的基类
-- Event: 活动数据解析类
-- CampaignEvent: 战役活动配置管理
+Основные классы:
+- ConfigUpdater: базовый класс обновления и генерации конфигурации
+- Event: парсер данных событий
+- CampaignEvent: управление конфигурацией событий кампаний
 """
 
 import json
@@ -103,18 +103,18 @@ def fleet_autoscan_fleets_redirect(value):
 
 
 class Event:
-    """活动数据解析类。
+    """Класс разбора данных события.
 
-    从 campaign/Readme.md 中解析活动信息，包含：
-    - date: 活动日期
-    - directory: 活动目录名（如 'event_20230101_cn'）
-    - name: 活动英文名
-    - cn/en/jp/tw: 各服务器的活动名称
+    Разбирает сведения о событии из campaign/Readme.md, включая:
+    - date: дата события
+    - directory: имя каталога события (например, 'event_20230101_cn')
+    - name: английское название события
+    - cn/en/jp/tw: названия события на соответствующих серверах
 
-    属性：
-        is_war_archives (bool): 是否为作战档案活动
-        is_raid (bool): 是否为突袭活动
-        is_coalition (bool): 是否为联动活动
+    Атрибуты:
+        is_war_archives (bool): является ли событием архива боевых действий
+        is_raid (bool): является ли рейдовым событием
+        is_coalition (bool): является ли событием совместной операции/коллаборации
     """
 
     def __init__(self, text):
@@ -152,15 +152,15 @@ class Event:
 class ConfigGenerator:
     @cached_property
     def argument(self):
-        """加载 argument.yaml 并标准化其结构。
+        """Загрузить argument.yaml и стандартизировать его структуру.
 
-        数据格式::
+        Формат данных::
 
             <group>:
                 <argument>:
                     type: checkbox|select|textarea|input
                     value:
-                    option (Optional): 选项列表，如果参数有可选项。
+                    option (Optional): список вариантов, если у параметра есть выбор.
                     validate (Optional): datetime
         """
         data = {}
@@ -194,9 +194,9 @@ class ConfigGenerator:
 
     @cached_property
     def task(self):
-        """加载任务定义文件 task.yaml。
+        """Загрузить файл определения задач task.yaml.
 
-        数据格式::
+        Формат данных::
 
             <task_group>:
                 <task>:
@@ -206,9 +206,9 @@ class ConfigGenerator:
 
     @cached_property
     def default(self):
-        """加载任务默认值定义文件 default.yaml。
+        """Загрузить файл значений задач по умолчанию default.yaml.
 
-        数据格式::
+        Формат данных::
 
             <task>:
                 <group>:
@@ -218,9 +218,9 @@ class ConfigGenerator:
 
     @cached_property
     def override(self):
-        """加载不可修改的覆盖值定义文件 override.yaml。
+        """Загрузить файл неизменяемых переопределений override.yaml.
 
-        数据格式::
+        Формат данных::
 
             <task>:
                 <group>:
@@ -230,9 +230,9 @@ class ConfigGenerator:
 
     @cached_property
     def gui(self):
-        """加载 GUI 界面翻译键定义文件 gui.yaml。
+        """Загрузить файл определений ключей интерфейса GUI gui.yaml.
 
-        数据格式::
+        Формат данных::
 
             <i18n_group>:
                 <i18n_key>: value, value is None
@@ -241,9 +241,9 @@ class ConfigGenerator:
 
     @cached_property
     def dashboard(self):
-        """加载仪表盘资源定义文件 dashboard.yaml。
+        """Загрузить файл определения ресурсов панели управления dashboard.yaml.
 
-        数据格式::
+        Формат данных::
 
             <dashboard>
               - <group>
@@ -255,7 +255,7 @@ class ConfigGenerator:
     @timer
     def args(self):
         """
-        将多个定义文件合并为标准化的 JSON。
+        Объединить несколько файлов определений в стандартизированный JSON.
 
             task.yaml ---+
         argument.yaml ---+-----> args.json
@@ -343,7 +343,7 @@ class ConfigGenerator:
     @timer
     def generate_code(self):
         """
-        根据 args.json 生成 config_generated.py。
+        Сгенерировать config_generated.py на основе args.json.
 
         args.json ---> config_generated.py
 
@@ -372,7 +372,7 @@ class ConfigGenerator:
     @timer
     def generate_i18n(self):
         """
-        加载旧翻译文件并生成新的翻译文件。
+        Загрузить старый файл перевода и сгенерировать новый.
 
                      args.json ---+-----> i18n/<lang>.json
         (old) i18n/<lang>.json ---+
@@ -450,7 +450,7 @@ class ConfigGenerator:
     @cached_property
     def menu(self):
         """
-        根据 task.yaml 生成 menu.json。
+        Сгенерировать menu.json на основе task.yaml.
 
         task.yaml --> menu.json
 
@@ -477,7 +477,7 @@ class ConfigGenerator:
     def event(self):
         """
         Returns:
-            list[Event]: 活动列表，按时间从新到旧排列
+            list[Event]: Список событий, отсортированный от новых к старым.
         """
 
         def calc_width(text):
@@ -516,7 +516,7 @@ class ConfigGenerator:
 
     def insert_event(self):
         """
-        将活动信息插入到 `self.args` 中。
+        Вставить информацию о событиях в `self.args`.
 
         ./campaign/Readme.md -----+
                                   v
@@ -719,11 +719,11 @@ class ConfigUpdater:
     def config_update(self, old, is_template=False):
         """
         Args:
-            old: 旧配置字典。
-            is_template: 是否为模板配置。
+            old: Словарь старой конфигурации.
+            is_template: Является ли конфигурация шаблоном.
 
         Returns:
-            更新后的配置字典。
+            Обновлённый словарь конфигурации.
         """
         new = {}
 
@@ -769,8 +769,8 @@ class ConfigUpdater:
             opts = deep_get(self.args, keys=f'{task}.Campaign.Event.option_{server}', default=[])
             if opts and deep_get(new, keys=f'{task}.Campaign.Event', default='campaign_main') == 'campaign_main':
                 deep_set(new,
-                         keys=f'{task}.Campaign.Event',
-                         value=opts[0])
+                          keys=f'{task}.Campaign.Event',
+                          value=opts[0])
 
         # В событии не допускается уровень 12-4 по умолчанию
         def default_stage(t, stage):
@@ -835,14 +835,14 @@ class ConfigUpdater:
 
     def config_redirect(self, old, new):
         """
-        将旧配置转换为新格式。
+        Преобразовать старую конфигурацию в новый формат.
 
         Args:
-            old: 旧配置字典。
-            new: 新配置字典。
+            old: Словарь старой конфигурации.
+            new: Словарь новой конфигурации.
 
         Returns:
-            转换后的配置字典。
+            Преобразованный словарь конфигурации.
         """
         for row in self.redirection:
             if len(row) == 2:
@@ -903,15 +903,15 @@ class ConfigUpdater:
 
     def save_callback(self, key: str, value: t.Any) -> t.Iterable[t.Tuple[str, t.Any]]:
         """
-        配置保存时的回调函数，用于联动更新相关配置项。
+        Функция обратного вызова при сохранении конфигурации для связанного обновления параметров.
 
         Args:
-            key: 配置 JSON 中的键路径，例如 "Main.Emotion.Fleet1Value"。
-            value: 用户设置的值，例如 "98"。
+            key: Путь ключа в JSON конфигурации, например "Main.Emotion.Fleet1Value".
+            value: Заданное пользователем значение, например "98".
 
         Yields:
-            str: 需要设置的配置 JSON 键路径，例如 "Main.Emotion.Fleet1Record"。
-            any: 需要设置的值，例如 "2020-01-01 00:00:00"。
+            str: Путь ключа в JSON конфигурации для обновления, например "Main.Emotion.Fleet1Record".
+            any: Устанавливаемое значение, например "2020-01-01 00:00:00".
         """
         if "Emotion" in key and "Value" in key:
             key = key.split(".")
@@ -934,14 +934,14 @@ class ConfigUpdater:
 
     def read_file(self, config_name, is_template=False):
         """
-        读取并更新配置文件。
+        Прочитать и обновить файл конфигурации.
 
         Args:
-            config_name: 配置文件名，对应 ./config/{file}.json。
-            is_template: 是否为模板配置。
+            config_name: Имя файла конфигурации, соответствующее ./config/{file}.json.
+            is_template: Является ли конфигурация шаблоном.
 
         Returns:
-            更新后的配置字典。
+            Обновлённый словарь конфигурации.
         """
         old = read_file(filepath_config(config_name))
         new = self.config_update(old, is_template=is_template)
@@ -952,26 +952,26 @@ class ConfigUpdater:
     @staticmethod
     def write_file(config_name, data, mod_name='alas'):
         """
-        写入配置文件。
+        Записать файл конфигурации.
 
         Args:
-            config_name: 配置文件名，对应 ./config/{file}.json。
-            data: 要写入的配置数据。
-            mod_name: 模块名称，默认为 'alas'。
+            config_name: Имя файла конфигурации, соответствующее ./config/{file}.json.
+            data: Записываемые данные конфигурации.
+            mod_name: Имя модуля, по умолчанию 'alas'.
         """
         write_file(filepath_config(config_name, mod_name), data)
 
     @timer
     def update_file(self, config_name, is_template=False):
         """
-        读取、更新并写入配置文件。
+        Прочитать, обновить и записать файл конфигурации.
 
         Args:
-            config_name: 配置文件名，对应 ./config/{file}.json。
-            is_template: 是否为模板配置。
+            config_name: Имя файла конфигурации, соответствующее ./config/{file}.json.
+            is_template: Является ли конфигурация шаблоном.
 
         Returns:
-            更新后的配置字典。
+            Обновлённый словарь конфигурации.
         """
         data = self.read_file(config_name, is_template=is_template)
         self.write_file(config_name, data)
@@ -980,7 +980,7 @@ class ConfigUpdater:
 
 if __name__ == '__main__':
     """
-    执行完整的配置生成流程。
+    Выполнить полный цикл генерации конфигурации.
 
                  task.yaml -+----------------> menu.json
              argument.yaml -+-> args.json ---> config_generated.py
