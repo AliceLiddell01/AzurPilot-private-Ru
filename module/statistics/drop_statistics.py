@@ -1,14 +1,15 @@
-"""掉落截图批量解析与统计（Drop Statistics）模块。
+"""Модуль пакетного разбора и статистики дропа по скриншотам (Drop Statistics).
 
-提供从批量战斗截图中提取掉落物品信息的功能。支持两步工作流：
-    1. 从截图中提取物品模板图像（template extraction）。
-    2. 利用模板匹配和 OCR 解析掉落数据，输出为 CSV 文件。
+Предоставляет функционал извлечения информации о выпавших предметах из пачки боевых скриншотов.
+Поддерживает двухэтапный рабочий процесс:
+    1. Извлечение шаблонов предметов из скриншотов (template extraction).
+    2. Разбор данных дропа с помощью шаблонов и OCR с экспортом в CSV-файл.
 
-典型用法：
-    1. 设置 DROP_FOLDER（截图文件夹）和 TEMPLATE_FOLDER（模板文件夹）。
-    2. 调用 extract_template() 提取模板，手动重命名后调用 extract_drop() 导出数据。
+Типичное использование:
+    1. Настроить DROP_FOLDER (папка со скриншотами) и TEMPLATE_FOLDER (папка с шаблонами).
+    2. Вызвать extract_template() для извлечения шаблонов, переименовать нужные вручную и вызвать extract_drop() для экспорта.
 
-用于离线分析大量战斗截图的掉落统计（Statistics），不依赖实时设备连接。
+Используется для офлайн-анализа статистики большого количества скриншотов боев без подключения к реальному устройству.
 """
 
 import csv
@@ -28,24 +29,25 @@ from module.statistics.utils import *
 
 
 class DropStatistics:
-    """掉落截图批量解析与统计处理器。
+    """Обработчик пакетного разбора и статистики дропа по скриншотам.
 
-    从指定文件夹中加载战斗截图，通过模板匹配和 OCR 识别掉落物品，
-    并将结果输出为 CSV 文件。支持模板提取和数据导出两种工作模式。
+    Загружает боевые скриншоты из указанной папки, распознает выпавшие предметы
+    сопоставлением шаблонов и OCR, выводя результат в CSV-файл.
+    Поддерживает режимы извлечения шаблонов и экспорта данных.
 
-    类属性:
-        DROP_FOLDER (str): 截图根目录，默认 './screenshots'。
-        TEMPLATE_FOLDER (str): 模板文件夹名称，相对于 DROP_FOLDER。
-        TEMPLATE_BASIC (str): 基础模板资源目录。
-        CNOCR_CONTEXT (str): OCR 推理设备，'cpu' 或 'gpu'。
-        CSV_FILE (str): 输出 CSV 文件名。
-        CSV_OVERWRITE (bool): 是否在导出前覆盖已有 CSV。
-        CSV_ENCODING (str): CSV 文件编码，默认 'utf-8'。
+    Атрибуты класса:
+        DROP_FOLDER (str): Корневой каталог скриншотов, по умолчанию './screenshots'.
+        TEMPLATE_FOLDER (str): Имя папки шаблонов относительно DROP_FOLDER.
+        TEMPLATE_BASIC (str): Каталог базовых шаблонов ресурсов.
+        CNOCR_CONTEXT (str): Устройство инференса OCR, 'cpu' или 'gpu'.
+        CSV_FILE (str): Имя выходного CSV-файла.
+        CSV_OVERWRITE (bool): Перезаписывать ли существующий CSV перед экспортом.
+        CSV_ENCODING (str): Кодировка CSV-файла, по умолчанию 'utf-8'.
 
     Examples:
         >>> stat = DropStatistics()
-        >>> stat.extract_template('campaign_13_1')   # 步骤 1：提取模板
-        >>> stat.extract_drop('campaign_13_1')        # 步骤 3：导出掉落数据
+        >>> stat.extract_template('campaign_13_1')   # Шаг 1: извлечение шаблонов
+        >>> stat.extract_drop('campaign_13_1')        # Шаг 3: экспорт данных дропа
     """
 
     DROP_FOLDER = './screenshots'
@@ -81,7 +83,7 @@ class DropStatistics:
 
     @cached_property
     def csv_overwrite_check(self):
-        """移除已存在的 CSV 文件，此方法仅执行一次。"""
+        """Удаляет существующий CSV-файл, вызывается только один раз."""
         if DropStatistics.CSV_OVERWRITE:
             if os.path.exists(self.csv_file):
                 logger.info(f'Удаление существующего CSV-файла: {self.csv_file}')
@@ -89,7 +91,7 @@ class DropStatistics:
         return True
 
     def parse_template(self, file):
-        """从单个文件中提取模板，新模板会分配自增 ID。"""
+        """Извлекает шаблоны из одного файла, новым шаблонам присваивается автоинкрементный ID."""
         images = unpack(load_image(file))
         for image in images:
             if self.get_items.appear_on(image):
@@ -98,13 +100,13 @@ class DropStatistics:
                 self.campaign_bonus.extract_template(image, folder=self.template_folder)
 
     def parse_drop(self, file):
-        """解析单个截图文件，提取掉落数据。
+        """Разбирает отдельный файл скриншота, извлекая данные о дропе.
 
         Args:
-            file (str): 截图文件路径。
+            file (str): Путь к файлу скриншота.
 
         Yields:
-            list: 每行为 [时间戳, 关卡, 敌人名称, 掉落类型, 物品名, 数量]。
+            list: Строка вида [метка_времени, кампания, имя_врага, тип_дропа, название_предмета, количество].
         """
         ts = os.path.splitext(os.path.basename(file))[0]
         campaign = os.path.basename(os.path.abspath(os.path.join(file, '../')))
@@ -121,10 +123,10 @@ class DropStatistics:
                     yield [ts, campaign, enemy_name, 'CAMPAIGN_BONUS', item.name, item.amount]
 
     def extract_template(self, campaign):
-        """从指定关卡文件夹中提取模板图像。
+        """Извлекает изображения шаблонов из папки указанной кампании.
 
         Args:
-            campaign (str): 关卡名称。
+            campaign (str): Название кампании.
         """
         print('')
         logger.hr(f'Извлечение шаблонов из {campaign}', level=1)
@@ -140,10 +142,10 @@ class DropStatistics:
                 continue
 
     def extract_drop(self, campaign):
-        """从指定关卡文件夹中解析掉落数据并写入 CSV。
+        """Разбирает данные дропа из папки указанной кампании и записывает в CSV.
 
         Args:
-            campaign (str): 关卡名称。
+            campaign (str): Название кампании.
         """
         print('')
         logger.hr(f'Извлечение данных о наградах из {campaign}', level=1)
@@ -190,23 +192,23 @@ if __name__ == '__main__':
     stat = DropStatistics()
 
     """
-    步骤 1：
-        取消注释以下代码并运行，运行后重新注释。
+    Шаг 1:
+        Раскомментируйте следующий код и запустите, после выполнения снова закомментируйте.
     """
     # for i in CAMPAIGNS:
     #     stat.extract_template(i)
 
     """
-    步骤 2：
-        前往 {DROP_FOLDER}/{TEMPLATE_FOLDER}
-        手动重命名你感兴趣的模板文件。
+    Шаг 2:
+        Перейдите в {DROP_FOLDER}/{TEMPLATE_FOLDER}
+        и вручную переименуйте интересующие вас файлы шаблонов.
     """
     pass
 
     """
-    步骤 3：
-        取消注释以下代码并运行，运行后重新注释。
-        结果保存在 {DROP_FOLDER}/{CSV_FILE} 中。
+    Шаг 3:
+        Раскомментируйте следующий код и запустите, после выполнения снова закомментируйте.
+        Результаты сохраняются в {DROP_FOLDER}/{CSV_FILE}.
     """
     for i in CAMPAIGNS:
         stat.extract_drop(i)

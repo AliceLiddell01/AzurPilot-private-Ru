@@ -1,8 +1,8 @@
-"""医院活动线索识别模块。
+"""Модуль распознавания улик события больницы.
 
-通过图像处理和 OCR 识别医院活动中的线索信息。包含矩形
-合并、文本行聚类等图像预处理逻辑，用于从线索界面截图中
-提取并解析线索文本内容。
+Распознает информацию об уликах события больницы с помощью обработки изображений и OCR.
+Включает объединение прямоугольников, кластеризацию текстовых строк и предобработку изображений
+для извлечения и разбора текстового содержимого со скриншотов экрана улик.
 """
 
 from functools import reduce
@@ -24,7 +24,7 @@ def merge_two_rects(
         r1: Tuple[int, int, int, int],
         r2: Tuple[int, int, int, int]
 ) -> Tuple[int, int, int, int]:
-    """合并两个矩形区域，返回包含两者的最小矩形。"""
+    """Объединяет два прямоугольника, возвращая минимальный охватывающий прямоугольник."""
     return (
         min(r1[0], r2[0]),
         min(r1[1], r2[1]),
@@ -34,7 +34,7 @@ def merge_two_rects(
 
 
 def merge_rows(list_word, merge):
-    """将相近的文本行合并为同一行。"""
+    """Объединяет близко расположенные строки текста в единую строку."""
     # Сортируем по координате y
     list_word = sorted(list_word, key=lambda x: x[1])
 
@@ -61,13 +61,13 @@ def merge_rows(list_word, merge):
 
 class HospitalClue(HospitalUI):
     def get_clue_list(self) -> List[Button]:
-        """获取线索列表中所有旁白按钮。
+        """Получает все кнопки реплик из списка улик.
 
-        通过颜色过滤和轮廓检测识别列表中的文本行，
-        返回对应的 Button 对象列表。
+        Распознает строки текста в списке с помощью цветовой фильтрации и поиска контуров,
+        возвращая список соответствующих объектов Button.
 
         Returns:
-            List[Button]: 旁白按钮列表。
+            List[Button]: Список кнопок реплик.
         """
         area = CLUE_LIST.area
         image = self.image_crop(area, copy=False)
@@ -109,13 +109,12 @@ class HospitalClue(HospitalUI):
         return list_button
 
     def get_invest_button(self) -> Optional[Button]:
-        """获取当前图像中未完成的调查按钮。
+        """Получает незавершенную кнопку расследования на текущем изображении.
 
-        通过模板匹配查找 INVEST 按钮，然后检查下方是否
-        存在剩余次数标识来判断是否未完成。
+        Ищет кнопки INVEST по шаблонам и проверяет индикатор оставшихся попыток под ними.
 
         Returns:
-            Optional[Button]: 未完成的调查按钮，全部完成则返回 None。
+            Optional[Button]: Кнопка незавершенного расследования, либо None, если все завершены.
         """
         area = INVEST_SEARCH.area
         image = self.image_crop(area, copy=False)
@@ -154,10 +153,10 @@ class HospitalClue(HospitalUI):
         return None
 
     def clue_enter(self, skip_first_screenshot=True):
-        """进入线索界面。
+        """Входит в интерфейс улик.
 
         Pages:
-            in: 医院活动任意子页面
+            in: Любая подстраница события больницы
             out: is_in_clue
         """
         logger.info('Вход в улики госпиталя')
@@ -173,10 +172,10 @@ class HospitalClue(HospitalUI):
                 continue
 
     def clue_exit(self, skip_first_screenshot=True):
-        """退出线索界面，返回医院主页。
+        """Выходит из интерфейса улик на главную страницу больницы.
 
         Pages:
-            in: 医院活动任意子页面
+            in: Любая подстраница события больницы
             out: page_hospital
         """
         logger.info('Выход из улик госпиталя')
@@ -194,15 +193,15 @@ class HospitalClue(HospitalUI):
                 continue
 
     def invest_enter(self, skip_first_screenshot=True):
-        """进入调查战斗准备界面。
+        """Входит в экран подготовки к бою расследования.
 
-        在线索界面中查找未完成的调查，点击进入舰队准备。
+        Ищет незавершенное расследование в интерфейсе улик и переходит к подготовке флота по клику.
 
         Args:
-            skip_first_screenshot: 是否跳过首次截图复用上一状态。
+            skip_first_screenshot: Пропускать ли первый скриншот, повторно используя предыдущий.
 
         Returns:
-            bool: 是否成功进入调查。
+            bool: Удалось ли войти в расследование.
 
         Pages:
             in: is_in_clue
@@ -233,12 +232,12 @@ class HospitalClue(HospitalUI):
                 continue
 
     def iter_invest(self):
-        """遍历所有未完成的调查按钮。
+        """Перебирает все кнопки незавершенных расследований.
 
-        通过滚动列表逐页查找未完成的调查，依次 yield 返回。
+        Ищет незавершенные расследования постранично с прокруткой списка, возвращая их через yield.
 
         Yields:
-            Button: 未完成的调查按钮。
+            Button: Кнопка незавершенного расследования.
         """
         logger.hr('Перебор исследований')
         scroll = Scroll(INVEST_SCROLL, color=(107, 97, 107), name='INVEST_SCROLL')
@@ -272,7 +271,7 @@ class HospitalClue(HospitalUI):
                 yield button
 
     def is_aside_selected(self, button: Button) -> bool:
-        """检查旁白是否被选中（深色背景）。"""
+        """Проверяет, выбрана ли реплика (темный фон)."""
         area = button.area
         search = CLUE_LIST.area
         # Проверяем наличие тёмного фона вокруг
@@ -280,7 +279,7 @@ class HospitalClue(HospitalUI):
         return self.image_color_count(area, color=(82, 85, 107), threshold=221, count=500)
 
     def is_aside_checked(self, button: Button) -> bool:
-        """检查旁白是否已完成（青色标记）。"""
+        """Проверяет, завершена ли реплика (бирюзовая отметка)."""
         area = button.area
         search = CLUE_LIST.area
         # Проверяем бирюзовую отметку; на JP-сервере текст выходит за границы, поэтому правая граница равна 308
@@ -288,12 +287,12 @@ class HospitalClue(HospitalUI):
         return self.image_color_count(area, color=(74, 130, 148), threshold=221, count=20)
 
     def iter_aside(self):
-        """遍历所有未完成的旁白按钮。
+        """Перебирает все кнопки незавершенных реплик.
 
-        跳过已完成（有青色标记）的旁白，依次 yield 返回。
+        Пропускает завершенные реплики (с бирюзовой отметкой), возвращая оставшиеся через yield.
 
         Yields:
-            Button: 未完成的旁白按钮。
+            Button: Кнопка незавершенной реплики.
         """
         list_button = self.get_clue_list()
         for button in list_button:
@@ -302,15 +301,15 @@ class HospitalClue(HospitalUI):
             yield button
 
     def select_aside(self, skip_first_screenshot=True):
-        """选择一个未完成的旁白。
+        """Выбирает незавершенную реплику.
 
-        在线索界面中查找未完成的旁白并点击选中。
+        Ищет незавершенную реплику в интерфейсе улик и нажимает на нее для выбора.
 
         Args:
-            skip_first_screenshot: 是否跳过首次截图复用上一状态。
+            skip_first_screenshot: Пропускать ли первый скриншот, повторно используя предыдущий.
 
         Returns:
-            bool: True 表示成功选中未完成旁白，False 表示全部已完成。
+            bool: True если незавершенная реплика успешно выбрана, False если все завершены.
 
         Pages:
             in: is_in_clue
