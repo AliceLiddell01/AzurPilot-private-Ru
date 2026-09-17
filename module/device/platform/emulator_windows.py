@@ -1,5 +1,5 @@
-"""Windows 模拟器管理。通过 Windows 注册表和文件系统扫描
-检测夜神、蓝叠、雷电、MuMu、MEmu 等模拟器安装路径和实例。"""
+"""Управление эмуляторами на Windows. Сканирует реестр Windows и файловую систему
+для обнаружения путей установки и экземпляров Nox, BlueStacks, LDPlayer, MuMu, MEmu и др."""
 
 import codecs
 import os
@@ -23,7 +23,7 @@ from module.device.platform.utils import cached_property, iter_folder
 
 @dataclass
 class RegValue:
-    """注册表值的数据结构。"""
+    """Структура данных значения реестра."""
     name: str
     value: str
     typ: int
@@ -31,13 +31,13 @@ class RegValue:
 
 def list_reg(reg) -> t.List[RegValue]:
     """
-    列出注册表键下的所有值。
+    Перечисляет все значения в разделе реестра.
 
     Args:
-        reg: 已打开的注册表键句柄
+        reg: Открытый дескриптор раздела реестра.
 
     Returns:
-        list[RegValue]: 注册表值列表
+        list[RegValue]: Список значений реестра.
     """
     rows = []
     index = 0
@@ -53,13 +53,13 @@ def list_reg(reg) -> t.List[RegValue]:
 
 def list_key(reg) -> t.List[RegValue]:
     """
-    列出注册表键下的所有子键名称。
+    Перечисляет имена всех подразделов раздела реестра.
 
     Args:
-        reg: 已打开的注册表键句柄
+        reg: Открытый дескриптор раздела реестра.
 
     Returns:
-        list[RegValue]: 子键名称列表
+        list[RegValue]: Список имён подразделов.
     """
     rows = []
     index = 0
@@ -78,13 +78,13 @@ def abspath(path):
 
 
 class EmulatorInstance(EmulatorInstanceBase):
-    """Windows 平台的模拟器实例。"""
+    """Экземпляр эмулятора для платформы Windows."""
 
     @cached_property
     def emulator(self):
         """
         Returns:
-            Emulator: 当前实例对应的 Windows 模拟器对象
+            Emulator: Объект эмулятора Windows, соответствующий текущему экземпляру.
         """
         return Emulator(self.path)
 
@@ -103,18 +103,18 @@ class EmulatorInstance(EmulatorInstanceBase):
 
 
 class Emulator(EmulatorBase):
-    """Windows 平台的模拟器类型识别和实例枚举。"""
+    """Распознавание типов и перечисление экземпляров эмуляторов на платформе Windows."""
 
     @classmethod
     def path_to_type(cls, path: str) -> str:
         """
-        根据 .exe 文件路径判断模拟器类型（大小写不敏感）。
+        Определяет тип эмулятора по пути к .exe-файлу (без учёта регистра).
 
         Args:
-            path: .exe 文件路径
+            path: Путь к .exe-файлу.
 
         Returns:
-            str: 模拟器类型，如 Emulator.NoxPlayer；如果不是模拟器则返回空字符串
+            str: Тип эмулятора, например Emulator.NoxPlayer; пустая строка, если не является эмулятором.
         """
         folder, exe = os.path.split(path)
         folder, dir1 = os.path.split(folder)
@@ -171,13 +171,13 @@ class Emulator(EmulatorBase):
     @staticmethod
     def multi_to_single(exe: str):
         """
-        将多实例管理器路径转换为对应的单实例可执行文件路径。
+        Преобразует путь диспетчера мультиэкземпляров в путь исполняемого файла одиночного экземпляра.
 
         Args:
-            exe (str): 模拟器可执行文件路径
+            exe (str): Путь к исполняемому файлу эмулятора.
 
         Yields:
-            str: 模拟器可执行文件路径
+            str: Путь к исполняемому файлу эмулятора.
         """
         if 'HD-MultiInstanceManager.exe' in exe:
             yield exe.replace('HD-MultiInstanceManager.exe', 'HD-Player.exe')
@@ -201,13 +201,13 @@ class Emulator(EmulatorBase):
     @staticmethod
     def single_to_console(exe: str):
         """
-        将单实例可执行文件路径转换为对应的控制台工具路径。
+        Преобразует путь исполняемого файла одиночного экземпляра в путь инструмента командной строки.
 
         Args:
-            exe (str): 模拟器可执行文件路径
+            exe (str): Путь к исполняемому файлу эмулятора.
 
         Returns:
-            str: 模拟器控制台工具路径
+            str: Путь к консольной утилите эмулятора.
         """
         if 'MuMuPlayer.exe' in exe:
             return exe.replace('MuMuPlayer.exe', 'MuMuManager.exe')
@@ -228,13 +228,13 @@ class Emulator(EmulatorBase):
     @staticmethod
     def vbox_file_to_serial(file: str) -> str:
         """
-        从 vbox 配置文件中解析 ADB 序列号。
+        Разбирает серийный номер ADB из конфигурационного файла vbox.
 
         Args:
-            file: vbox 配置文件路径
+            file: Путь к файлу конфигурации vbox.
 
         Returns:
-            str: 序列号，如 `127.0.0.1:5555`；未找到则返回空字符串
+            str: Серийный номер, например `127.0.0.1:5555`; пустая строка, если не найден.
         """
         serials = Emulator.vbox_file_to_serials(file)
         return serials[0] if serials else ''
@@ -263,10 +263,10 @@ class Emulator(EmulatorBase):
 
     def iter_instances(self):
         """
-        遍历当前模拟器中发现的所有实例。
+        Перебирает все обнаруженные экземпляры текущего эмулятора.
 
         Yields:
-            EmulatorInstance: 模拟器实例
+            EmulatorInstance: Экземпляр эмулятора.
         """
         if self == Emulator.NoxPlayerFamily:
             # ./BignoxVMS/{name}/{name}.vbox
@@ -393,10 +393,10 @@ class Emulator(EmulatorBase):
 
     def iter_adb_binaries(self) -> t.Iterable[str]:
         """
-        遍历当前模拟器中找到的 adb 二进制文件路径。
+        Перебирает пути к исполняемым файлам adb, найденным в текущем эмуляторе.
 
         Yields:
-            str: adb 二进制文件的绝对路径
+            str: Абсолютный путь к исполняемому файлу adb.
         """
         if self == Emulator.NoxPlayerFamily:
             exe = self.abspath('./nox_adb.exe')
@@ -416,16 +416,16 @@ class Emulator(EmulatorBase):
 
 
 class EmulatorManager(EmulatorManagerBase):
-    """Windows 平台的模拟器管理器，通过注册表和进程扫描发现已安装的模拟器。"""
+    """Менеджер эмуляторов на платформе Windows, обнаруживающий установленные эмуляторы через реестр и процессы."""
 
     @staticmethod
     def iter_user_assist():
         """
-        从 UserAssist 注册表项获取最近执行的程序列表。
-        参考: https://github.com/forensicmatt/MonitorUserAssist
+        Получает список недавно запущенных программ из раздела реестра UserAssist.
+        Ссылка: https://github.com/forensicmatt/MonitorUserAssist
 
         Yields:
-            str: 模拟器可执行文件路径，可能包含重复值
+            str: Путь к исполняемому файлу эмулятора, может содержать дубликаты.
         """
         path = r'Software\Microsoft\Windows\CurrentVersion\Explorer\UserAssist'
         # {XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}\xxx.exe
@@ -454,11 +454,11 @@ class EmulatorManager(EmulatorManagerBase):
     @staticmethod
     def iter_mui_cache():
         """
-        遍历 MuiCache 注册表项中曾经运行过的模拟器可执行文件。
-        参考: http://what-when-how.com/windows-forensic-analysis/registry-analysis-windows-forensic-analysis-part-8/
+        Перебирает исполняемые файлы эмуляторов, ранее запускавшиеся, из раздела реестра MuiCache.
+        Ссылка: http://what-when-how.com/windows-forensic-analysis/registry-analysis-windows-forensic-analysis-part-8/
 
         Yields:
-            str: 模拟器可执行文件路径，可能包含重复值
+            str: Путь к исполняемому файлу эмулятора, может содержать дубликаты.
         """
         path = r'Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\MuiCache'
         try:
@@ -478,14 +478,14 @@ class EmulatorManager(EmulatorManagerBase):
     @staticmethod
     def get_install_dir_from_reg(path, key):
         """
-        从注册表获取安装目录。
+        Получает каталог установки из реестра.
 
         Args:
-            path (str): 注册表路径，如 f'SOFTWARE\\leidian\\ldplayer'
-            key (str): 注册表值名，如 'InstallDir'
+            path (str): Путь в реестре, например f'SOFTWARE\\leidian\\ldplayer'.
+            key (str): Имя параметра реестра, например 'InstallDir'.
 
         Returns:
-            str: 安装目录路径，未找到则返回 None
+            str: Каталог установки или None, если не найден.
         """
         try:
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, path) as reg:
@@ -505,10 +505,10 @@ class EmulatorManager(EmulatorManagerBase):
     @staticmethod
     def iter_uninstall_registry():
         """
-        从注册表中遍历模拟器的卸载程序路径。
+        Перебирает пути к программам деинсталляции эмуляторов из реестра.
 
         Yields:
-            str: 卸载程序的可执行文件路径
+            str: Путь к исполняемому файлу программы деинсталляции.
         """
         known_uninstall_registry_path = [
             r'SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall',
@@ -561,10 +561,10 @@ class EmulatorManager(EmulatorManagerBase):
     @staticmethod
     def iter_running_emulator():
         """
-        遍历正在运行的模拟器可执行文件路径。
+        Перебирает пути к исполняемым файлам запущенных эмуляторов.
 
         Yields:
-            str: 模拟器可执行文件路径，可能包含重复值
+            str: Путь к исполняемому файлу эмулятора, может содержать дубликаты.
         """
         try:
             import psutil
@@ -590,10 +590,10 @@ class EmulatorManager(EmulatorManagerBase):
     @cached_property
     def all_emulators(self) -> t.List[Emulator]:
         """
-        获取当前计算机上安装的所有模拟器。
+        Возвращает все эмуляторы, установленные на текущем компьютере.
 
         Returns:
-            list[Emulator]: 模拟器列表
+            list[Emulator]: Список эмуляторов.
         """
         exe = set([])
 
@@ -691,10 +691,10 @@ class EmulatorManager(EmulatorManagerBase):
     @cached_property
     def all_emulator_instances(self) -> t.List[EmulatorInstance]:
         """
-        获取当前计算机上安装的所有模拟器实例。
+        Возвращает все экземпляры эмуляторов, установленные на текущем компьютере.
 
         Returns:
-            list[EmulatorInstance]: 模拟器实例列表
+            list[EmulatorInstance]: Список экземпляров эмуляторов.
         """
         instances = []
         for emulator in self.all_emulators:

@@ -1,5 +1,5 @@
-"""macOS 平台模拟器控制。继承 PlatformBase 和 EmulatorManagerMac，
-实现 macOS 上模拟器的启动、停止和进程管理。"""
+"""Управление эмуляторами на macOS. Наследует PlatformBase и EmulatorManagerMac,
+реализуя запуск, остановку и управление процессами эмуляторов на macOS."""
 
 from __future__ import annotations
 import os
@@ -22,21 +22,21 @@ from module.logger import logger
 
 class PlatformMac(PlatformBase, EmulatorManagerMac):
     """
-    macOS 平台的模拟器控制接口。
-    支持 BlueStacks Air 和 MuMu Pro。
+    Интерфейс управления эмуляторами на macOS.
+    Поддерживает BlueStacks Air и MuMu Pro.
     """
 
     @classmethod
     def execute(cls, command, wait=True):
         """
-        执行外部命令。
+        Выполняет внешнюю команду.
 
         Args:
-            command (str): 要执行的命令
-            wait (bool): 是否等待命令完成
+            command (str): Выполняемая команда.
+            wait (bool): Ожидать ли завершения команды.
 
         Returns:
-            subprocess.CompletedProcess 或 subprocess.Popen: 命令执行结果
+            subprocess.CompletedProcess или subprocess.Popen: Результат выполнения команды.
         """
         # На Mac используем shell=True для выполнения сложных команд
         logger.info(f'[Устройство — эмулятор macOS] Выполнение команды: {command}')
@@ -54,13 +54,13 @@ class PlatformMac(PlatformBase, EmulatorManagerMac):
     @classmethod
     def kill_process_by_regex(cls, regex: str) -> int:
         """
-        终止名称匹配给定正则表达式的进程。
+        Завершает процесс, имя которого совпадает с регулярным выражением.
 
         Args:
-            regex: 匹配进程名称的正则表达式
+            regex: Регулярное выражение для поиска имени процесса.
 
         Returns:
-            int: 已终止的进程数量
+            int: Количество завершённых процессов.
         """
         count = 0
         for proc in psutil.process_iter():
@@ -77,14 +77,14 @@ class PlatformMac(PlatformBase, EmulatorManagerMac):
     @classmethod
     def renice_process_by_regex(cls, regex: str, priority: int = -20) -> int:
         """
-        修改匹配正则表达式的进程优先级。
+        Изменяет приоритет процесса, имя которого совпадает с регулярным выражением.
 
         Args:
-            regex: 匹配进程名称的正则表达式
-            priority: Nice 值（-20 最高优先级，19 最低优先级）
+            regex: Регулярное выражение для поиска имени процесса.
+            priority: Значение nice (-20 наивысший приоритет, 19 наинизший).
 
         Returns:
-            int: 已修改优先级的进程数量
+            int: Количество процессов с изменённым приоритетом.
         """
         count = 0
         for proc in psutil.process_iter():
@@ -110,10 +110,10 @@ class PlatformMac(PlatformBase, EmulatorManagerMac):
 
     def boost_emulator_priority(self, instance: EmulatorInstanceMac):
         """
-        启动后提升模拟器进程优先级。
+        Повышает приоритет процесса эмулятора после запуска.
 
         Args:
-            instance: 要提升优先级的模拟器实例
+            instance: Экземпляр эмулятора для повышения приоритета.
         """
         if instance == EmulatorMac.BlueStacksAir:
             time.sleep(3)
@@ -130,8 +130,8 @@ class PlatformMac(PlatformBase, EmulatorManagerMac):
 
     def boost_running_emulator_priority(self):
         """
-        提升当前正在运行的模拟器的进程优先级。
-        在 Alas 启动且检测到已有模拟器运行时调用。
+        Повышает приоритет процесса текущего запущенного эмулятора.
+        Вызывается при старте Alas, если обнаружен уже запущенный эмулятор.
         """
         # Пытаемся повысить приоритет процессов MuMu
         count = self.renice_process_by_regex(r'MuMuEmulator|MuMuPlayer', -20)
@@ -149,10 +149,10 @@ class PlatformMac(PlatformBase, EmulatorManagerMac):
 
     def _emulator_start(self, instance: EmulatorInstanceMac):
         """
-        启动模拟器（不含错误处理）。
+        Запускает эмулятор (без обработки ошибок).
 
         Args:
-            instance: 模拟器实例
+            instance: Экземпляр эмулятора.
         """
         exe: str = instance.emulator.path
 
@@ -198,10 +198,10 @@ class PlatformMac(PlatformBase, EmulatorManagerMac):
 
     def _emulator_stop(self, instance: EmulatorInstanceMac):
         """
-        停止模拟器（不含错误处理）。
+        Останавливает эмулятор (без обработки ошибок).
 
         Args:
-            instance: 模拟器实例
+            instance: Экземпляр эмулятора.
         """
         if instance == EmulatorMac.BlueStacksAir:
             # Пытаемся найти и завершить процессы BlueStacks
@@ -233,13 +233,13 @@ class PlatformMac(PlatformBase, EmulatorManagerMac):
 
     def _emulator_function_wrapper(self, func):
         """
-        模拟器启停操作的统一包装器，处理异常。
+        Унифицированная обёртка операций запуска и остановки эмулятора с обработкой исключений.
 
         Args:
-            func (callable): _emulator_start 或 _emulator_stop
+            func (callable): _emulator_start или _emulator_stop.
 
         Returns:
-            bool: 是否成功
+            bool: Успешна ли операция.
         """
         try:
             func(self.emulator_instance)
@@ -252,10 +252,10 @@ class PlatformMac(PlatformBase, EmulatorManagerMac):
 
     def emulator_start_watch(self):
         """
-        监控模拟器启动过程，等待启动完成。
+        Отслеживает процесс запуска эмулятора, ожидая его завершения.
 
         Returns:
-            bool: True 表示启动完成，False 表示超时
+            bool: True при успешном завершении, False при истечении тайм-аута.
         """
         logger.hr('[Устройство — эмулятор macOS] Запуск эмулятора', level=2)
         serial = self.emulator_instance.serial
@@ -328,7 +328,7 @@ class PlatformMac(PlatformBase, EmulatorManagerMac):
         return True
 
     def emulator_start(self):
-        """启动模拟器，最多重试 3 次。"""
+        """Запускает эмулятор с максимумом 3 повторными попытками."""
         logger.hr('[Устройство — эмулятор macOS] Запуск эмулятора', level=1)
         self.run_remote_ssh_command()
         for _ in range(3):
@@ -358,7 +358,7 @@ class PlatformMac(PlatformBase, EmulatorManagerMac):
         return False
 
     def emulator_stop(self):
-        """停止模拟器，最多重试 3 次。"""
+        """Останавливает эмулятор с максимумом 3 повторными попытками."""
         logger.hr('[Устройство — эмулятор macOS] Остановка эмулятора', level=1)
         for _ in range(3):
             # Останавливаем

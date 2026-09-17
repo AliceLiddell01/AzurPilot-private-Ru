@@ -1,5 +1,5 @@
-"""Windows 平台模拟器控制。继承 PlatformBase 和 EmulatorManager，
-实现 Windows 上模拟器的启动、窗口聚焦和进程管理。"""
+"""Управление эмуляторами на платформе Windows. Наследует PlatformBase и EmulatorManager,
+реализуя запуск эмуляторов, фокусировку окон и управление процессами на Windows."""
 
 from __future__ import annotations
 import ctypes
@@ -18,22 +18,22 @@ from module.logger import logger
 
 
 class EmulatorUnknown(Exception):
-    """未知模拟器类型异常。"""
+    """Исключение неизвестного типа эмулятора."""
     pass
 
 
 def get_focused_window():
-    """获取当前前台窗口的句柄。"""
+    """Возвращает дескриптор текущего окна переднего плана."""
     return ctypes.windll.user32.GetForegroundWindow()
 
 
 def set_focus_window(hwnd):
-    """将指定窗口设置为前台窗口。"""
+    """Устанавливает указанное окно в качестве окна переднего плана."""
     ctypes.windll.user32.SetForegroundWindow(hwnd)
 
 
 def get_window_text(hwnd):
-    """获取窗口标题文本。"""
+    """Возвращает текст заголовка окна."""
     length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
     if length == 0:
         return ''
@@ -44,10 +44,10 @@ def get_window_text(hwnd):
 
 def check_mumu_error_dialog():
     """
-    检测 MuMu 模拟器的错误对话框（如权限冲突）。
+    Обнаруживает диалоговые окна ошибок эмулятора MuMu (например, конфликт прав доступа).
 
     Returns:
-        bool: True 表示检测到错误对话框
+        bool: True, если обнаружено диалоговое окно ошибки.
     """
     # Заголовок окна ошибки MuMu12 содержит "MuMu" или "NemuWindow"
     # Заголовок окна конфликта прав обычно содержит "MuMuPlayer" или похожий текст
@@ -91,19 +91,19 @@ def check_mumu_error_dialog():
 
 
 def minimize_window(hwnd):
-    """最小化指定窗口。"""
+    """Сворачивает указанное окно."""
     ctypes.windll.user32.ShowWindow(hwnd, 6)
 
 
 def get_window_title(hwnd):
     """
-    获取指定窗口的标题文本。
+    Возвращает текст заголовка указанного окна.
 
     Args:
-        hwnd: 窗口句柄
+        hwnd: Дескриптор окна.
 
     Returns:
-        str: 窗口标题
+        str: Заголовок окна.
     """
     text_len_in_characters = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
     string_buffer = ctypes.create_unicode_buffer(
@@ -113,21 +113,21 @@ def get_window_title(hwnd):
 
 
 def flash_window(hwnd, flash=True):
-    """闪烁指定窗口以吸引注意力。"""
+    """Мигает указанным окном для привлечения внимания."""
     ctypes.windll.user32.FlashWindow(hwnd, flash)
 
 
 class PlatformWindows(PlatformBase, EmulatorManager):
-    """Windows 平台的模拟器控制接口。"""
+    """Интерфейс управления эмулятором для платформы Windows."""
 
     def __init__(self, config, *, connect: bool = True):
         """
         Args:
-            config: AzurLaneConfig 实例或配置名称
-            connect: 是否立即建立 ADB 连接。
-                     AlasPlus 在仅需要模拟器发现/启停控制
-                     且模拟器当前离线时使用 connect=False，
-                     以避免过早抛出 EmulatorNotRunningError。
+            config: Экземпляр AzurLaneConfig или имя конфигурации.
+            connect: Устанавливать ли подключение ADB немедленно.
+                     AlasPlus использует connect=False, когда требуется только обнаружение
+                     или управление запуском/остановкой эмулятора, а сам эмулятор оффлайн,
+                     чтобы избежать преждевременного выброса EmulatorNotRunningError.
         """
         if connect:
             # Исходное поведение: выполняем полный процесс Connection.__init__,
@@ -142,16 +142,16 @@ class PlatformWindows(PlatformBase, EmulatorManager):
     @classmethod
     def execute(cls, command, wait=False, timeout=30):
         """
-        执行外部命令。
+        Выполняет внешнюю команду.
 
         Args:
-            command (str): 要执行的命令
-            wait (bool): 是否同步等待命令完成（默认False异步执行）
-            timeout (int): 同步执行时的超时秒数（默认30秒）
+            command (str): Выполняемая команда.
+            wait (bool): Ожидать ли синхронно завершения команды (по умолчанию False — асинхронно).
+            timeout (int): Время ожидания в секундах при синхронном выполнении (по умолчанию 30 с).
 
         Returns:
-            subprocess.Popen: 异步执行时返回子进程对象
-            subprocess.CompletedProcess: 同步执行时返回完成结果
+            subprocess.Popen: Объект дочернего процесса при асинхронном выполнении.
+            subprocess.CompletedProcess: Результат выполнения при синхронном выполнении.
         """
         command = command.replace(r"\\", "/").replace("\\", "/").replace('"', '"')
         logger.info(f'[Устройство — Windows] Выполнение команды: {command}')
@@ -181,13 +181,13 @@ class PlatformWindows(PlatformBase, EmulatorManager):
     @classmethod
     def kill_process_by_regex(cls, regex: str) -> int:
         """
-        终止命令行匹配给定正则表达式的进程。
+        Завершает процессы, командная строка которых соответствует регулярному выражению.
 
         Args:
-            regex: 正则表达式
+            regex: Регулярное выражение.
 
         Returns:
-            int: 已终止的进程数量
+            int: Количество завершённых процессов.
         """
         count = 0
 
@@ -202,10 +202,10 @@ class PlatformWindows(PlatformBase, EmulatorManager):
 
     def _emulator_start(self, instance: EmulatorInstance):
         """
-        启动模拟器（不含错误处理）。
+        Запускает эмулятор (без обработки ошибок).
 
         Args:
-            instance: 模拟器实例
+            instance: Экземпляр эмулятора.
         """
         exe: str = instance.emulator.path
         if instance == Emulator.MuMuPlayer:
@@ -246,10 +246,10 @@ class PlatformWindows(PlatformBase, EmulatorManager):
 
     def _emulator_stop(self, instance: EmulatorInstance):
         """
-        停止模拟器（不含错误处理）。
+        Останавливает эмулятор (без обработки ошибок).
 
         Args:
-            instance: 模拟器实例
+            instance: Экземпляр эмулятора.
         """
         exe: str = instance.emulator.path
         if instance == Emulator.MuMuPlayer:
@@ -320,13 +320,13 @@ class PlatformWindows(PlatformBase, EmulatorManager):
 
     def _emulator_function_wrapper(self, func: callable):
         """
-        模拟器启停操作的统一包装器，处理异常。
+        Унифицированная обёртка операций запуска и остановки эмулятора с обработкой исключений.
 
         Args:
-            func (callable): _emulator_start 或 _emulator_stop
+            func (callable): _emulator_start или _emulator_stop.
 
         Returns:
-            bool: 是否成功
+            bool: Успешна ли операция.
         """
         try:
             func(self.emulator_instance)
@@ -346,10 +346,10 @@ class PlatformWindows(PlatformBase, EmulatorManager):
 
     def emulator_start_watch(self):
         """
-        监控模拟器启动过程，等待启动完成。
+        Отслеживает процесс запуска эмулятора, ожидая его завершения.
 
         Returns:
-            bool: True 表示启动完成，False 表示超时
+            bool: True при успешном запуске, False при истечении тайм-аута.
         """
         logger.hr('Запуск эмулятора', level=2)
         current_window = get_focused_window()
@@ -465,9 +465,9 @@ class PlatformWindows(PlatformBase, EmulatorManager):
 
     def emulator_start(self):
         """
-        启动模拟器，最多重试 3 次。
-        针对 MuMu12 等模拟器添加实例查找失败后的等待重试机制，
-        以及权限冲突时的强制进程清理。
+        Запускает эмулятор с максимумом 3 повторными попытками.
+        Для таких эмуляторов, как MuMu12, добавлен механизм повтора при неудаче поиска экземпляра,
+        а также принудительная очистка процессов при конфликте прав доступа.
         """
         logger.hr('Запуск эмулятора', level=1)
 
@@ -528,7 +528,7 @@ class PlatformWindows(PlatformBase, EmulatorManager):
         return False
 
     def emulator_stop(self):
-        """停止模拟器，最多重试 3 次。"""
+        """Останавливает эмулятор с максимумом 3 повторными попытками."""
         logger.hr('Остановка эмулятора', level=1)
         for _ in range(3):
             # Останавливаем

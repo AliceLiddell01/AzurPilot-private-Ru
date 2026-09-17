@@ -1,5 +1,5 @@
-"""macOS 模拟器管理。实现 macOS 平台的模拟器实例检测和管理，
-支持 BlueStacks Air 和 MuMu Pro 等模拟器。"""
+"""Управление эмуляторами на macOS. Реализует обнаружение и управление
+экземплярами эмуляторов для macOS, поддерживая BlueStacks Air, MuMu Pro и др."""
 
 import json
 import os
@@ -19,21 +19,21 @@ def abspath(path):
 
 
 class EmulatorInstanceMac(EmulatorInstanceBase):
-    """macOS 平台的模拟器实例。"""
+    """Экземпляр эмулятора для платформы macOS."""
 
     @cached_property
     def emulator(self):
         """
         Returns:
-            EmulatorMac: 当前实例对应的 Mac 模拟器对象
+            EmulatorMac: Объект эмулятора Mac, соответствующий текущему экземпляру.
         """
         return EmulatorMac(self.path)
 
 
 class EmulatorMac(EmulatorBase):
     """
-    macOS 平台的模拟器类型。
-    此处的值必须与 argument.yaml 中 EmulatorInfo.Emulator.option 保持一致。
+    Типы эмуляторов на платформе macOS.
+    Значения должны совпадать с EmulatorInfo.Emulator.option в argument.yaml.
     """
     BlueStacksAir = 'BlueStacksAir'
     BlueStacksMIM = 'BlueStacksMIM'
@@ -42,13 +42,13 @@ class EmulatorMac(EmulatorBase):
     @classmethod
     def path_to_type(cls, path: str) -> str:
         """
-        根据 .app 包或 .exe 文件路径判断模拟器类型（大小写不敏感）。
+        Определяет тип эмулятора по пути к пакету .app или файлу .exe (без учёта регистра).
 
         Args:
-            path: .app 包或 .exe 文件路径
+            path: Путь к пакету .app или файлу .exe.
 
         Returns:
-            str: 模拟器类型，如 EmulatorMac.BlueStacksAir；如果不是模拟器则返回空字符串
+            str: Тип эмулятора, например EmulatorMac.BlueStacksAir; пустая строка, если не эмулятор.
         """
         path = path.lower()
 
@@ -78,14 +78,14 @@ class EmulatorMac(EmulatorBase):
     @staticmethod
     def find_app_bundle(search_name: str, exclude_names: list = None) -> str:
         """
-        在 /Applications 目录中查找应用包。
+        Ищет пакет приложения в каталоге /Applications.
 
         Args:
-            search_name: 要搜索的应用名称（如 "BlueStacks"、"MuMu"）
-            exclude_names: 需要排除的名称列表
+            search_name: Имя искомого приложения (например, "BlueStacks", "MuMu").
+            exclude_names: Список исключаемых имён.
 
         Returns:
-            str: .app 包的完整路径；未找到则返回空字符串
+            str: Полный путь к пакету .app; пустая строка, если не найден.
         """
         apps_dir = '/Applications'
         if not os.path.exists(apps_dir):
@@ -127,10 +127,10 @@ class EmulatorMac(EmulatorBase):
 
     def iter_instances(self):
         """
-        遍历在 Mac 上发现的模拟器实例。
+        Перебирает обнаруженные на Mac экземпляры эмулятора.
 
         Yields:
-            EmulatorInstanceMac: 模拟器实例
+            EmulatorInstanceMac: Экземпляр эмулятора.
         """
         if self == EmulatorMac.BlueStacksMIM:
             # BlueStacks MIM (Hyper-V) использует порт 5555 + 10*n
@@ -233,10 +233,10 @@ class EmulatorMac(EmulatorBase):
 
     def iter_adb_binaries(self) -> list:
         """
-        遍历当前模拟器中找到的 adb 二进制文件路径。
+        Перебирает пути к исполняемым файлам adb, найденным в текущем эмуляторе.
 
         Yields:
-            str: adb 二进制文件的绝对路径
+            str: Абсолютный путь к исполняемому файлу adb.
         """
         # Ищем adb в типичных расположениях
         adb_locations = [
@@ -267,15 +267,15 @@ class EmulatorMac(EmulatorBase):
 
 
 class EmulatorManagerMac(EmulatorManagerBase):
-    """macOS 平台的模拟器管理器。"""
+    """Менеджер эмуляторов для платформы macOS."""
 
     @staticmethod
     def iter_running_emulator():
         """
-        遍历正在运行的模拟器可执行文件路径。
+        Перебирает пути к исполняемым файлам запущенных эмуляторов.
 
         Yields:
-            str: 模拟器可执行文件路径，可能包含重复值
+            str: Путь к исполняемому файлу эмулятора, может содержать дубликаты.
         """
         try:
             for proc in psutil.process_iter():
@@ -302,10 +302,10 @@ class EmulatorManagerMac(EmulatorManagerBase):
     @cached_property
     def all_emulators(self) -> list:
         """
-        获取当前 Mac 上安装的所有模拟器。
+        Возвращает все эмуляторы, установленные на текущем Mac.
 
         Returns:
-            list[EmulatorMac]: 模拟器列表
+            list[EmulatorMac]: Список эмуляторов.
         """
         emulators = []
 
@@ -341,10 +341,10 @@ class EmulatorManagerMac(EmulatorManagerBase):
     @cached_property
     def all_emulator_instances(self) -> list:
         """
-        获取当前 Mac 上安装的所有模拟器实例。
+        Возвращает все экземпляры эмуляторов, установленные на текущем Mac.
 
         Returns:
-            list[EmulatorInstanceMac]: 模拟器实例列表
+            list[EmulatorInstanceMac]: Список экземпляров эмуляторов.
         """
         instances = []
         for emulator in self.all_emulators:

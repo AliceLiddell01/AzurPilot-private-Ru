@@ -1,5 +1,6 @@
-"""平台控制基类。定义模拟器启动、停止、重启的抽象接口，
-管理 EmulatorInfo 配置和实例生命周期。"""
+"""Базовый класс управления платформой. Определяет абстрактный интерфейс
+запуска, остановки и перезапуска эмулятора, управляет конфигурацией EmulatorInfo
+и жизненным циклом экземпляра."""
 
 import os
 import sys
@@ -18,7 +19,7 @@ from module.map.map_grids import SelectedGrids
 
 
 class EmulatorInfo(BaseModel):
-    """模拟器信息配置模型。"""
+    """Модель конфигурации информации об эмуляторе."""
     emulator: str = ''
     name: str = ''
     path: str = ''
@@ -30,14 +31,14 @@ class EmulatorInfo(BaseModel):
 
 def serial_to_id(serial: str):
     """
-    根据 serial 推算实例 ID。
-    例如:
+    Вычисляет идентификатор экземпляра по серийному номеру (serial).
+    Например:
         "127.0.0.1:16384" -> 0
         "127.0.0.1:16416" -> 1
-        端口 16414 到 16418 -> 1
+        Порты от 16414 до 16418 -> 1
 
     Returns:
-        int: 实例 ID，推算失败则返回 None
+        int: Идентификатор экземпляра или None при неудаче.
     """
     try:
         port = int(serial.split(':')[1])
@@ -53,8 +54,8 @@ def serial_to_id(serial: str):
 
 class PlatformBase(Connection, EmulatorManagerBase):
     """
-    平台基类，平台可以是不同操作系统或云手机服务。
-    每个 `Platform` 子类必须实现以下 API:
+    Базовый класс платформы. Платформой может быть операционная система или облачный телефон.
+    Каждый подкласс `Platform` должен реализовывать следующие API:
     - all_emulators()
     - all_emulator_instances()
     - emulator_start()
@@ -64,8 +65,8 @@ class PlatformBase(Connection, EmulatorManagerBase):
     def __init__(self, config, *, connect: bool = True):
         """
         Args:
-            config: AzurLaneConfig 实例或配置名称
-            connect: 是否立即建立 ADB 连接
+            config: Экземпляр AzurLaneConfig или имя конфигурации.
+            connect: Устанавливать ли подключение ADB немедленно.
         """
         if connect:
             super().__init__(config)
@@ -75,24 +76,24 @@ class PlatformBase(Connection, EmulatorManagerBase):
 
     def emulator_start(self):
         """
-        启动模拟器，直到启动完成。
-        - 需要支持重试。
-        - 禁止使用无聊的 sleep 来等待启动。
+        Запускает эмулятор и ожидает завершения запуска.
+        - Должен поддерживать повторные попытки.
+        - Запрещено использовать простой sleep для ожидания запуска.
         """
         logger.info(f'[Устройство — платформа] Платформа {sys.platform} не поддерживает запуск эмулятора; операция пропущена')
 
     def emulator_stop(self):
         """
-        停止模拟器。
+        Останавливает эмулятор.
         """
         logger.info(f'[Устройство — платформа] Платформа {sys.platform} не поддерживает остановку эмулятора; операция пропущена')
 
     def run_remote_ssh_command(self, command=None):
         """
-        通过远程 SSH 执行命令。
+        Выполняет команду через удалённый SSH.
 
         Args:
-            command: 要执行的远程命令
+            command: Выполняемая удалённая команда.
         """
         if not getattr(self.config, 'EmulatorInfo_EnableRemoteSSH', False):
             logger.info('[Устройство — SSH] Удалённый SSH отключён (EnableRemoteSSH=False); операция пропущена')
@@ -205,10 +206,10 @@ class PlatformBase(Connection, EmulatorManagerBase):
     @cached_property
     def emulator_info(self) -> EmulatorInfo:
         """
-        从配置中解析模拟器信息。
+        Разбирает информацию об эмуляторе из конфигурации.
 
         Returns:
-            EmulatorInfo: 模拟器信息
+            EmulatorInfo: Информация об эмуляторе.
         """
         emulator = self.config.EmulatorInfo_Emulator
         if emulator == 'auto':
@@ -235,10 +236,10 @@ class PlatformBase(Connection, EmulatorManagerBase):
     @cached_property
     def emulator_instance(self) -> t.Optional[EmulatorInstanceBase]:
         """
-        查找并返回当前配置对应的模拟器实例。
+        Находит и возвращает экземпляр эмулятора для текущей конфигурации.
 
         Returns:
-            EmulatorInstanceBase: 模拟器实例，未找到则返回 None
+            EmulatorInstanceBase: Экземпляр эмулятора или None, если не найден.
         """
         data = self.emulator_info
         old_info = dict(
@@ -283,16 +284,16 @@ class PlatformBase(Connection, EmulatorManagerBase):
             emulator: str = None
     ) -> t.Optional[EmulatorInstanceBase]:
         """
-        通过序列号、名称、路径和类型查找模拟器实例。
+        Находит экземпляр эмулятора по серийному номеру, имени, пути и типу.
 
         Args:
-            serial: 序列号，如 "127.0.0.1:5555"
-            name: 实例名称，如 "Nougat64"
-            path: 模拟器安装路径，如 "C:/Program Files/BlueStacks_nxt/HD-Player.exe"
-            emulator: 模拟器类型，定义在 Emulator 类中，如 "BlueStacks5"
+            serial: Серийный номер, например "127.0.0.1:5555".
+            name: Имя экземпляра, например "Nougat64".
+            path: Путь установки эмулятора, например "C:/Program Files/BlueStacks_nxt/HD-Player.exe".
+            emulator: Тип эмулятора, определённый в классе Emulator, например "BlueStacks5".
 
         Returns:
-            EmulatorInstanceBase: 模拟器实例，未找到则返回 None
+            EmulatorInstanceBase: Экземпляр эмулятора или None, если не найден.
         """
         logger.hr('Поиск экземпляра эмулятора', level=2)
         if emulator == 'SSH':
