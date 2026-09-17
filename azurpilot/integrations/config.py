@@ -57,6 +57,7 @@ DEFAULTS: dict[str, dict[str, object]] = {
         ),
         "route": "direct_container_stdio",
         "credential_env": "DOCKERHUB_PAT",
+        "username_env": "DOCKERHUB_USERNAME",
     },
     "coderabbit": {"route": "direct_wsl_agent"},
 }
@@ -109,6 +110,7 @@ _ENV_OVERRIDES = {
     "docker-hub": {
         "image": "AZURPILOT_DOCKER_HUB_IMAGE",
         "credential_env": "AZURPILOT_DOCKER_HUB_CREDENTIAL_ENV",
+        "username_env": "AZURPILOT_DOCKER_HUB_USERNAME_ENV",
     },
     "semgrep": {"command": "AZURPILOT_SEMGREP_COMMAND"},
 }
@@ -232,7 +234,14 @@ def _repo_mcp_table(root: Path) -> dict[str, dict[str, object]]:
         if name is None or not isinstance(raw_values, dict):
             continue
         values: dict[str, object] = {}
-        for key in ("command", "args", "url", "image", "credential_env_var", "bearer_token_env_var"):
+        for key in (
+            "command",
+            "args",
+            "url",
+            "image",
+            "credential_env_var",
+            "bearer_token_env_var",
+        ):
             if key in raw_values:
                 values[key] = raw_values[key]
         if "url" in values:
@@ -272,6 +281,7 @@ def _validate_value(name: str, key: str, value: object) -> object:
         "command",
         "route",
         "credential_env",
+        "username_env",
         "wsl_distribution",
         "review_clone",
         "executable",
@@ -335,6 +345,10 @@ def _validate_value(name: str, key: str, value: object) -> object:
         or value not in INTEGRATION_CREDENTIAL_ENVIRONMENT_KEYS
     ):
         _raise(f"Параметр {name}.credential_env имеет неверное имя переменной.")
+    if key == "username_env" and (
+        not isinstance(value, str) or _ENV_NAME_RE.fullmatch(value) is None
+    ):
+        _raise(f"Параметр {name}.username_env имеет неверное имя переменной.")
     if key == "args":
         if not isinstance(value, list) or len(value) > 32 or any(
             not isinstance(item, str) or "\x00" in item or len(item) > 1024 for item in value
