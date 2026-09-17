@@ -1,6 +1,6 @@
-"""建造（Gacha）系统模块，处理舰船建造的完整流程。
-包括建造页面导航、资源消耗预计算、订单提交、
-自动收菜（获取建造结果）以及建造队列的清理管理。"""
+"""Модуль системы постройки (Gacha), обрабатывающий полный цикл строительства кораблей.
+Включает навигацию по страницам постройки, предварительный расчёт расхода ресурсов,
+отправку заказов, автоматический сбор результатов и управление очередью постройки."""
 
 # Этот файл обрабатывает операции строительства (Gacha/Build).
 # Включает навигацию по страницам строительства, предварительный расчёт ресурсов, отправку заказов, автоматический сбор результатов и очистку очереди.
@@ -31,21 +31,21 @@ class RewardGacha(GachaUI, Retirement, CampaignStatus):
 
     def gacha_prep(self, target, skip_first_screenshot=True):
         """
-        准备提交建造订单。
+        Подготовка к отправке заказов на постройку.
 
         Args:
-            target (int): 要提交的建造订单数量。
-            skip_first_screenshot (bool): 是否跳过首次截图。
+            target (int): Количество отправляемых заказов на постройку.
+            skip_first_screenshot (bool): Пропускать ли первый снимок экрана.
 
         Returns:
-            bool: 准备完成返回 True，否则返回 False。
+            bool: True при успешной подготовке, иначе False.
 
         Pages:
-            in: page_build（任意子页面）
-            out: 提交确认弹窗
+            in: page_build (любая подстраница)
+            out: Всплывающее окно подтверждения отправки
 
         Raises:
-            ScriptError: 无法识别 OCR 资源时抛出。
+            ScriptError: Вызывается, если не удалось распознать OCR-ресурс.
         """
         # При target = 0 подготовка не требуется
         if not target:
@@ -99,15 +99,15 @@ class RewardGacha(GachaUI, Retirement, CampaignStatus):
 
     def gacha_calculate(self, target_count, gold_cost, cube_cost):
         """
-        根据当前资源计算实际可提交的建造数量。
+        Расчёт фактического доступного количества построек на основе текущих ресурсов.
 
         Args:
-            target_count (int): 期望提交的建造订单数量。
-            gold_cost (int): 金币消耗。
-            cube_cost (int): 魔方消耗。
+            target_count (int): Желаемое количество заказов на постройку.
+            gold_cost (int): Расход монет.
+            cube_cost (int): Расход Кубов мудрости.
 
         Returns:
-            int: 根据当前资源可实际提交的数量。
+            int: Количество, которое фактически можно заказать с учётом ресурсов.
         """
         while 1:
             # Рассчитываем расход ресурсов по target_count
@@ -136,20 +136,20 @@ class RewardGacha(GachaUI, Retirement, CampaignStatus):
 
     def gacha_goto_pool(self, target_pool):
         """
-        导航到指定的建造池页面。
+        Переход на страницу указанного пула постройки.
 
         Args:
-            target_pool (str): 建造池名称，超出范围时默认使用 'light' 池。
+            target_pool (str): Название пула постройки; при выходе за пределы по умолчанию используется пул 'light'.
 
         Returns:
-            str: 当前可用的建造池名称。
+            str: Название текущего доступного пула постройки.
 
         Pages:
-            in: page_build（建造池选择）
-            out: page_build（建造池操作页面）
+            in: page_build (выбор пула постройки)
+            out: page_build (страница операций пула постройки)
 
         Raises:
-            ScriptError: 选择 'wishing_well' 但未完成配置时抛出。
+            ScriptError: Вызывается, если выбран 'wishing_well', но настройка не завершена.
         """
         # Переключаемся на пул 'light'
         self.gacha_bottom_navbar_ensure(right=3, is_build=True)
@@ -188,17 +188,17 @@ class RewardGacha(GachaUI, Retirement, CampaignStatus):
 
     def gacha_flush_queue(self, skip_first_screenshot=True):
         """
-        清空建造订单队列，确保提交前队列为空。
+        Очистка очереди заказов на постройку перед новой отправкой.
 
         Args:
-            skip_first_screenshot (bool): 是否跳过首次截图。
+            skip_first_screenshot (bool): Пропускать ли первый снимок экрана.
 
         Pages:
-            in: page_build（任意子页面）
-            out: page_build（建造池选择）
+            in: page_build (любая подстраница)
+            out: page_build (выбор пула постройки)
 
         Raises:
-            ScriptError: 无法完全清空队列时退出（船坞可能已满）。
+            ScriptError: Вызывается, если не удалось полностью очистить очередь (возможно, док переполнен).
         """
         # Переходим на страницу строительства/заказов
         self.gacha_side_navbar_ensure(bottom=3)
@@ -261,10 +261,10 @@ class RewardGacha(GachaUI, Retirement, CampaignStatus):
 
     def gacha_submit(self, skip_first_screenshot=True):
         """
-        提交建造订单。
+        Отправка заказов на постройку.
 
         Args:
-            skip_first_screenshot (bool): 是否跳过首次截图。
+            skip_first_screenshot (bool): Пропускать ли первый снимок экрана.
 
         Pages:
             in: POPUP_CONFIRM
@@ -290,13 +290,13 @@ class RewardGacha(GachaUI, Retirement, CampaignStatus):
 
     def gacha_run(self):
         """
-        执行建造操作，提交建造订单。
+        Выполнение операции постройки: отправка заказов на строительство.
 
         Returns:
-            bool: 执行成功返回 True，否则返回 False。
+            bool: True при успешном выполнении, иначе False.
 
         Pages:
-            in: 任意页面
+            in: Любая страница
             out: page_build
         """
         # Переходим на страницу строительства
@@ -353,10 +353,10 @@ class RewardGacha(GachaUI, Retirement, CampaignStatus):
 
     def run(self):
         """
-        根据配置执行建造操作。
+        Выполнение операции постройки в соответствии с конфигурацией.
 
         Pages:
-            in: 任意页面
+            in: Любая страница
             out: page_build
         """
         self.gacha_run()

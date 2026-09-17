@@ -1,14 +1,14 @@
 """
-后宅（宿舍）任务模块。
+Модуль задач общежития (Dorm).
 
-自动执行后宅的日常维护操作，包括：
-- 收取宿舍中的爱心和金币
-- 使用食物喂食舰船（支持长按喂食和多次点击）
-- 购买食物并管理食物库存
-- 计算下次任务延迟时间
+Автоматически выполняет ежедневное обслуживание общежития:
+- Сбор сердец и монет в общежитии
+- Кормление кораблей едой (поддерживает долгое нажатие и серии кликов)
+- Покупку еды и управление запасами еды
+- Расчет времени задержки следующей задачи
 
-食物喂食支持多种控制后端：minitouch、MaaTouch、uiautomator2、nemu_ipc。
-通过 OCR 识别食物数量和饱食度，通过模板匹配识别爱心和金币。
+Кормление поддерживает различные бэкенды управления: minitouch, MaaTouch, uiautomator2, nemu_ipc.
+Использует OCR для распознавания количества еды и уровня сытости, а сопоставление по шаблонам — для сердец и монет.
 """
 import time
 import typing as t
@@ -37,7 +37,7 @@ OCR_BUY_FOOD_AMOUNT = Digit(OCR_DORM_BUY_FOOD_AMOUNT, letter=(96, 96, 100), thre
 
 
 class OcrDormFood(DigitCounter):
-    """宿舍食物 OCR，识别食物数量格式如 `1000/5800`。"""
+    """OCR еды в общежитии: распознает количество еды в формате `1000/5800`."""
 
     def pre_process(self, image):
         orange = color_similarity_2d(image, color=(239, 158, 49))
@@ -66,7 +66,7 @@ OCR_FILL = OcrDormFood(OCR_DORM_FILL, name='OCR_DORM_FILL')
 
 
 class Food:
-    """食物数据类，包含单次喂食量和数量。"""
+    """Класс данных еды, содержащий объем разового кормления и количество."""
 
     def __init__(self, feed, amount):
         self.feed = feed
@@ -85,29 +85,29 @@ FOOD_FILTER = Filter(regex=re.compile(r'(\d+)'), attr=['feed'])
 
 class RewardDorm(UI):
     """
-    后宅奖励处理器，负责宿舍的日常维护操作。
+    Обработчик наград общежития, отвечающий за ежедневное обслуживание общежития.
 
-    继承自 UI，提供以下功能：
-    - 收取宿舍中的爱心和金币（手动点击或快捷收取）
-    - 使用食物喂食舰船（支持多种喂食方式）
-    - 购买食物并管理食物库存
-    - 获取宿舍舰船数量并计算任务延迟
+    Наследует UI, предоставляет следующие возможности:
+    - Сбор сердец и монет в общежитии (ручные клики или быстрый сбор)
+    - Кормление кораблей едой (поддерживает несколько способов кормления)
+    - Покупку еды и управление запасами еды
+    - Получение числа кораблей в общежитии и расчет задержки следующей задачи
 
     Attributes:
-        _dorm_food (ButtonGrid): 食物按钮网格，6 种食物从左到右排列。
-        _dorm_food_ocr (Digit): 食物数量 OCR，识别每种食物的库存。
+        _dorm_food (ButtonGrid): Сетка кнопок еды, 6 видов еды слева направо.
+        _dorm_food_ocr (Digit): OCR количества еды, распознает запасы каждого вида.
     """
 
     def _dorm_receive_click(self):
         """
-        点击宿舍中的爱心和金币进行收取。
+        Нажимает на сердца и монеты в общежитии для их сбора.
 
         Returns:
-            int: 收取数量。
+            int: Количество собранных предметов.
 
         Pages:
             in: page_dorm
-            out: page_dorm, with info_bar
+            out: page_dorm, с информационной панелью info_bar
         """
         image = MASK_DORM.apply(self.device.image)
         loves = TEMPLATE_DORM_LOVE.match_multi(image, name='DORM_LOVE')
@@ -232,7 +232,7 @@ class RewardDorm(UI):
 
     def dorm_view_reset(self):
         """
-        通过进入宿舍管理界面再返回来重置宿舍视角。
+        Сбрасывает ракурс камеры в общежитии путем перехода в окно управления и возврата назад.
 
         Pages:
             in: page_dorm
@@ -262,7 +262,7 @@ class RewardDorm(UI):
 
     def dorm_collect(self):
         """
-        使用一键收取按钮收取宿舍中所有的金币和爱心。
+        Использует кнопку быстрого сбора для сбора всех монет и сердец в общежитии.
 
         Pages:
             in: page_dorm
@@ -304,23 +304,23 @@ class RewardDorm(UI):
 
     def _dorm_has_food(self, button):
         """
-        检测指定食物按钮是否有食物（非空槽位）。
+        Проверяет, есть ли еда на указанной кнопке (не пустой слот).
 
         Args:
-            button (Button): 食物按钮。
+            button (Button): Кнопка еды.
 
         Returns:
-            bool: 有食物返回 True，空槽位返回 False。
+            bool: True, если еда есть, False для пустого слота.
         """
         return np.min(rgb2gray(self.image_crop(button, copy=False))) < 127
 
     def _dorm_feed_click(self, button, count):
         """
-        点击食物按钮进行喂食。
+        Нажимает на кнопку еды для кормления.
 
         Args:
-            button (Button): 食物按钮。
-            count (int): 食物使用次数。
+            button (Button): Кнопка еды.
+            count (int): Количество использований еды.
 
         Pages:
             in: DORM_FEED_CHECK
@@ -346,11 +346,11 @@ class RewardDorm(UI):
 
     def dorm_food_get(self):
         """
-        获取当前食物信息和饱食度。
+        Получает текущую информацию о еде и шкалу сытости.
 
         Returns:
-            list[Food]: 食物列表。
-            int: 剩余可喂食量。
+            list[Food]: Список доступной еды.
+            int: Оставшийся объем для пополнения сытости.
 
         Pages:
             in: DORM_FEED_CHECK
@@ -367,10 +367,10 @@ class RewardDorm(UI):
 
     def dorm_feed_once(self):
         """
-        执行一次喂食操作。
+        Выполняет одну операцию кормления.
 
         Returns:
-            bool: 是否执行了喂食。
+            bool: Было ли выполнено кормление.
 
         Pages:
             in: DORM_FEED_CHECK
@@ -408,10 +408,10 @@ class RewardDorm(UI):
 
     def dorm_feed(self):
         """
-        循环执行喂食直到食物用完或饱食度满。
+        Циклически выполняет кормление, пока не закончится еда или шкала сытости не заполнится.
 
         Returns:
-            int: 执行喂食的次数。
+            int: Количество выполненных кормлений.
 
         Pages:
             in: DORM_FEED_CHECK
@@ -428,9 +428,9 @@ class RewardDorm(UI):
 
     def dorm_feed_enter(self):
         """
-        从宿舍主页进入喂食界面。
+        Переходит с главной страницы общежития в интерфейс кормления.
 
-        处理可能遇到的管理界面、家具商店等中间状态。
+        Обрабатывает возможные промежуточные экраны вроде меню управления или магазина мебели.
 
         Pages:
             in: DORM_CHECK
@@ -463,7 +463,7 @@ class RewardDorm(UI):
 
     def dorm_feed_quit(self):
         """
-        从喂食界面返回宿舍主页。
+        Возврат из экрана кормления на главную страницу общежития.
 
         Pages:
             in: DORM_FEED_CHECK
@@ -487,7 +487,7 @@ class RewardDorm(UI):
 
     def dorm_buy_food_enter(self):
         """
-        从喂食界面进入购买食物界面。
+        Переход из экрана кормления в экран покупки еды.
 
         Pages:
             in: DORM_FEED_CHECK
@@ -505,7 +505,7 @@ class RewardDorm(UI):
 
     def dorm_buy_food(self, amount):
         """
-        设置购买食物的数量。
+        Установка количества покупаемой еды.
 
         Pages:
             in: DORM_BUY_FOOD_CHECK
@@ -523,7 +523,7 @@ class RewardDorm(UI):
 
     def dorm_buy_food_confirm(self):
         """
-        确认购买食物并返回喂食界面。
+        Подтверждение покупки еды и возврат в экран кормления.
 
         Pages:
             in: DORM_BUY_FOOD_CHECK
@@ -540,13 +540,13 @@ class RewardDorm(UI):
 
     def dorm_food_run(self, amount):
         """
-        执行购买食物的完整流程。
+        Выполнение полного цикла покупки еды.
 
         Args:
-            amount (int): 购买食物的数量。
+            amount (int): Количество покупаемой еды.
 
         Pages:
-            in: 任意页面
+            in: Любая страница
             out: page_dorm
         """
         if amount <= 0:
@@ -564,18 +564,18 @@ class RewardDorm(UI):
 
     def dorm_run(self, feed=True, collect=True, buy_furniture=False):
         """
-        执行宿舍操作：喂食、收取、购买家具。
+        Выполнение операций в общежитии: кормление, сбор, покупка мебели.
 
-        操作顺序：先喂食（处理 DORM_INFO 弹窗避免遮挡），再收取金币和爱心，
-        最后购买家具。
+        Порядок действий: сначала кормление (обработка всплывающего окна DORM_INFO во избежание перекрытия),
+        затем сбор монет и сердец, в конце покупка мебели.
 
         Args:
-            feed (bool): 是否执行喂食。
-            collect (bool): 是否收取金币和爱心。
-            buy_furniture (bool): 是否购买家具。
+            feed (bool): Выполнять ли кормление.
+            collect (bool): Собирать ли монеты и сердца.
+            buy_furniture (bool): Покупать ли мебель.
 
         Pages:
-            in: 任意页面
+            in: Любая страница
             out: page_dorm
         """
         if not feed and not collect and not buy_furniture:
@@ -609,10 +609,10 @@ class RewardDorm(UI):
 
     def get_dorm_ship_amount(self):
         """
-        获取宿舍中的舰船数量。
+        Получение количества кораблей в общежитии.
 
         Returns:
-            int: 宿舍中的舰船数量。
+            int: Количество кораблей в общежитии.
 
         Pages:
             in: page_dorm
@@ -645,25 +645,25 @@ class RewardDorm(UI):
 
     def cal_dorm_delay(self, ships):
         """
-        计算宿舍任务的延迟时间（分钟）。
+        Расчёт времени задержки задачи общежития (в минутах).
 
-        计算公式：(任务延迟) = 20000 / (每 15 秒食物消耗) * 15 / 60
+        Формула расчёта: (задержка задачи) = 20000 / (расход еды за 15 с) * 15 / 60
 
-        | 宿舍舰船数 | 每 15 秒食物消耗 | 任务延迟（分钟） |
-        | ----------- | ---------------- | ---------------- |
-        | 0           | 0                | 278              |
-        | 1           | 5                | 1000             |
-        | 2           | 9                | 556              |
-        | 3           | 12               | 417              |
-        | 4           | 14               | 358              |
-        | 5           | 16               | 313              |
-        | 6           | 18               | 278              |
+        | Кораблей в общежитии | Расход еды за 15 с | Задержка задачи (мин) |
+        | -------------------- | ------------------ | --------------------- |
+        | 0                    | 0                  | 278                   |
+        | 1                    | 5                  | 1000                  |
+        | 2                    | 9                  | 556                   |
+        | 3                    | 12                 | 417                   |
+        | 4                    | 14                 | 358                   |
+        | 5                    | 16                 | 313                   |
+        | 6                    | 18                 | 278                   |
 
         Args:
-            ships (int): 宿舍中的舰船数量。
+            ships (int): Количество кораблей в общежитии.
 
         Returns:
-            int: 延迟分钟数。
+            int: Минуты задержки.
 
         Pages:
             in: page_dorm
@@ -682,10 +682,10 @@ class RewardDorm(UI):
 
     def run(self):
         """
-        执行宿舍任务的主入口。
+        Основная точка входа для выполнения задачи общежития.
 
         Pages:
-            in: 任意页面
+            in: Любая страница
             out: page_dorm
         """
         if not self.config.Dorm_Feed and not self.config.Dorm_Collect \
