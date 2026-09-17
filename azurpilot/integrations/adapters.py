@@ -45,6 +45,7 @@ from .mcp_client import (
 _VERSION_RE = re.compile(r"^v?[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$")
 _ENV_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,127}$")
 _SAFE_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
+_DOCKERHUB_USERNAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,254}$")
 _MAX_SCAN_BYTES = 2 * 1024 * 1024
 _MAX_FINDINGS = 128
 
@@ -146,7 +147,7 @@ DOCKER_HUB_READ_ONLY_TOOLS = frozenset(
     }
 )
 DOCKER_HUB_BLOCKED_TOOLS = frozenset(
-    {"createRepository", "updateRepositoryInfo", "deleteRepository"}
+    {"createRepository", "updateRepositoryInfo"}
 )
 
 
@@ -237,6 +238,18 @@ def _credential_value(
             return None
         return value or None
     return None
+
+
+def _dockerhub_username(config: dict[str, object]) -> str | None:
+    """Получить Docker Hub username из явно выбранного несекретного env-source."""
+
+    raw_name = config.get("username_env")
+    if not isinstance(raw_name, str) or _ENV_NAME_RE.fullmatch(raw_name) is None:
+        return None
+    value = os.environ.get(raw_name, "").strip()
+    if not value or _DOCKERHUB_USERNAME_RE.fullmatch(value) is None:
+        return None
+    return value
 
 
 def _executable(command: object) -> str | None:
@@ -447,13 +460,23 @@ class SemgrepAdapter(IntegrationAdapter):
                 raise ValueError("Semgrep finding вышел за root") from exc
             location = item.get("start")
             if not isinstance(location, dict):
-                location = item.get("extra", {}).get("start") if isinstance(item.get("extra"), dict) else {}
+                location = (
+                    item.get("extra", {}).get("start")
+                    if isinstance(item.get("extra"), dict)
+                    else {}
+                )
             line = location.get("line") if isinstance(location, dict) else None
             line_value = line if isinstance(line, int) and line >= 1 else None
             extra = item.get("extra") if isinstance(item.get("extra"), dict) else {}
             severity = extra.get("severity", "INFO")
             check_id = item.get("check_id", "unknown")
             fingerprint = item.get("fingerprint") or extra.get("fingerprint")
+            raw_message = extra.get("message")
+            message = (
+                " ".join(raw_message.split())[:400]
+                if isinstance(raw_message, str) and raw_message.strip()
+                else "Semgrep finding обнаружен; безопасное сообщение правила отсутствует."
+            )
             if not isinstance(severity, str) or not isinstance(check_id, str):
                 raise TypeError("Semgrep finding metadata имеет неверный тип")
             findings.append(
@@ -463,7 +486,7 @@ class SemgrepAdapter(IntegrationAdapter):
                     path=path.as_posix()[:512],
                     line=line_value,
                     severity=severity[:40],
-                    message="Semgrep finding обнаружен; raw scanner payload скрыт.",
+                    message=message,
                     fingerprint=fingerprint[:128] if isinstance(fingerprint, str) else None,
                 )
             )
@@ -513,7 +536,12 @@ class SemgrepAdapter(IntegrationAdapter):
                 IntegrationState.UNAVAILABLE,
                 "SEMGREP_SCAN_TIMEOUT",
                 "Semgrep scan превысил ограниченный срок.",
-                _evidence(config=settings, credential=CredentialRef(), configured=True, scope=scope),
+                _evidence(
+                    config=settings,
+                    credential=CredentialRef(),
+                    configured=True,
+                    scope=scope,
+                ),
             )
             return AdapterOutcome(record)
         if result.stdout_truncated:
@@ -527,7 +555,12 @@ class SemgrepAdapter(IntegrationAdapter):
                 IntegrationState.UNAVAILABLE,
                 "SEMGREP_SCAN_FAILED",
                 "Semgrep scan завершился ошибкой.",
-                _evidence(config=settings, credential=CredentialRef(), configured=True, scope=scope),
+                _evidence(
+                    config=settings,
+                    credential=CredentialRef(),
+                    configured=True,
+                    scope=scope,
+                ),
             )
             return AdapterOutcome(record)
         try:
@@ -717,7 +750,7 @@ def _grafana_topology_matches(root: Path, labels: object) -> bool:
 def _discover_grafana_settings(
     root: Path, settings: dict[str, object]
 ) -> tuple[dict[str, object], str | None]:
-    """Найти Grafana route только по validated текущей Compose topology."""
+    """Найти Grafana route только по подтверждённой текущей Compose topology."""
 
     if isinstance(settings.get("endpoint"), str) and settings["endpoint"]:
         return dict(settings), None
@@ -739,9 +772,11 @@ def _discover_grafana_settings(
     )
     if inventory is None:
         return dict(settings), "GRAFANA_ENDPOINT_NOT_CONFIGURED"
-    container_ids = tuple(sorted({line.strip() for line in inventory.splitlines() if line.strip()}))
-    published: set[tuple[str, str | None]] = set()
-    networks: set[tuple[str, str | None]] = set()
+    container_ids = tuple(
+        sorted({line.strip() for line in inventory.splitlines() if line.strip()})
+    )
+    published_ports: set[int] = set()
+    networks: set[tuple[str, str]] = set()
     for container_id in container_ids[:16]:
         payload = _docker_readonly(
             root,
@@ -767,31 +802,20 @@ def _discover_grafana_settings(
             continue
         if not _grafana_topology_matches(root, labels):
             continue
-        published_ports = ports.get("3000/tcp") if isinstance(ports, dict) else None
-        if isinstance(published_ports, list):
-            for item in published_ports:
-                if not isinstance(item, dict):
-                    continue
-                host_port = item.get("HostPort")
+        published = ports.get("3000/tcp") if isinstance(ports, dict) else None
+        if isinstance(published, list):
+            for item in published:
+                host_port = item.get("HostPort") if isinstance(item, dict) else None
                 if isinstance(host_port, str) and host_port.isdecimal():
-                    published.add((f"http://host.docker.internal:{int(host_port)}", None))
+                    published_ports.add(int(host_port))
         if isinstance(network_payload, dict):
             for network_name in network_payload:
                 if isinstance(network_name, str) and _SAFE_ID_RE.fullmatch(network_name):
                     networks.add(("http://grafana:3000", network_name))
-    if len(published) == 1:
-        endpoint, network = next(iter(published))
-        try:
-            validate_endpoint(endpoint, allow_http=True)
-        except ValueError:
-            return dict(settings), "GRAFANA_ENDPOINT_NOT_CONFIGURED"
-        resolved = dict(settings)
-        resolved["endpoint"] = endpoint
-        if network:
-            resolved["network"] = network
-        return resolved, "GRAFANA_ENDPOINT_DISCOVERED"
-    if len(published) > 1:
-        return dict(settings), "GRAFANA_ENDPOINT_AMBIGUOUS"
+
+    # Child adapter запускается отдельным container. Подтверждённая Compose
+    # network является детерминированным route; published host port сам по себе
+    # не доказывает, что host route достижим из текущей container topology.
     if len(networks) == 1:
         endpoint, network = next(iter(networks))
         try:
@@ -804,6 +828,10 @@ def _discover_grafana_settings(
         return resolved, "GRAFANA_ENDPOINT_DISCOVERED"
     if len(networks) > 1:
         return dict(settings), "GRAFANA_ENDPOINT_AMBIGUOUS"
+    if len(published_ports) > 1:
+        return dict(settings), "GRAFANA_ENDPOINT_AMBIGUOUS"
+    if published_ports:
+        return dict(settings), "GRAFANA_HOST_ROUTE_REQUIRES_EXPLICIT_CONFIG"
     return dict(settings), "GRAFANA_ENDPOINT_NOT_CONFIGURED"
 
 
@@ -835,6 +863,7 @@ class _ContainerMcpAdapter(IntegrationAdapter):
         credential: CredentialRef,
         *,
         credential_value: str | None = None,
+        include_credentials: bool = True,
     ) -> tuple[str, tuple[str, ...], dict[str, str]] | None:
         executable = _executable(settings.get("command", "docker"))
         image = settings.get("image")
@@ -849,15 +878,27 @@ class _ContainerMcpAdapter(IntegrationAdapter):
             env["GRAFANA_URL"] = endpoint
             args.extend(("--env", "GRAFANA_URL"))
         value = credential_value
-        if value is None:
+        if value is None and include_credentials:
             value = _credential_value(settings, credential)
-        if self.requires_credential and not value:
+        if self.requires_credential and include_credentials and not value:
             return None
-        if value:
-            environment_name = credential.name
-            if environment_name:
-                env[environment_name] = value
-                args.extend(("--env", environment_name))
+
+        dockerhub_username: str | None = None
+        if include_credentials and value:
+            if self.name is IntegrationName.DOCKER_HUB:
+                dockerhub_username = _dockerhub_username(settings)
+                if not dockerhub_username:
+                    return None
+                # Сначала credential проходит внутреннюю allowlisted boundary как
+                # DOCKERHUB_PAT; непосредственно перед child process он будет
+                # переименован в upstream-required HUB_PAT_TOKEN.
+                env["DOCKERHUB_PAT"] = value
+                args.extend(("--env", "HUB_PAT_TOKEN"))
+            else:
+                environment_name = credential.name
+                if environment_name:
+                    env[environment_name] = value
+                    args.extend(("--env", environment_name))
         network = settings.get("network")
         if isinstance(network, str) and _SAFE_ID_RE.fullmatch(network):
             args.extend(("--network", network))
@@ -872,7 +913,20 @@ class _ContainerMcpAdapter(IntegrationAdapter):
                     GRAFANA_ENABLED_TOOL_CATEGORIES,
                 )
             )
+        elif self.name is IntegrationName.DOCKER_HUB and dockerhub_username:
+            args.append(f"--username={dockerhub_username}")
         return executable, tuple(args), env
+
+    @staticmethod
+    def _launch_environment(
+        env_values: dict[str, str], *, dockerhub: bool = False
+    ) -> dict[str, str]:
+        """Построить child env и выполнить upstream mapping без утечки PAT в argv."""
+
+        environment = safe_environment(env_values)
+        if dockerhub and "DOCKERHUB_PAT" in environment:
+            environment["HUB_PAT_TOKEN"] = environment.pop("DOCKERHUB_PAT")
+        return environment
 
     def build_command(
         self, root: Path, config: IntegrationConfig
@@ -881,8 +935,18 @@ class _ContainerMcpAdapter(IntegrationAdapter):
 
         settings, _resolution_code = self._resolved_settings(root, config)
         credential, credential_value = self._resolved_credential(root, settings)
-        return self._command_args(
+        command = self._command_args(
             settings, credential, credential_value=credential_value
+        )
+        if command is None:
+            return None
+        executable, args, env_values = command
+        return (
+            executable,
+            args,
+            self._launch_environment(
+                env_values, dockerhub=self.name is IntegrationName.DOCKER_HUB
+            ),
         )
 
     def status(self, root: Path, config: IntegrationConfig) -> IntegrationRecord:
@@ -963,7 +1027,9 @@ class _ContainerMcpAdapter(IntegrationAdapter):
         if command is None:
             return AdapterOutcome(self.status(root, config))
         executable, args, env_values = command
-        environment = safe_environment(env_values)
+        environment = self._launch_environment(
+            env_values, dockerhub=self.name is IntegrationName.DOCKER_HUB
+        )
         result = await probe_stdio(
             command=executable,
             args=args,
@@ -1025,15 +1091,175 @@ class DockerHubAdapter(_ContainerMcpAdapter):
     name = IntegrationName.DOCKER_HUB
     image_name = "mcp/dockerhub"
     plan = McpCallPlan(
-        required_tools=frozenset({"checkRepository", "getRepositoryInfo", "listRepositoryTags"}),
+        required_tools=frozenset(
+            {"checkRepository", "getRepositoryInfo", "listRepositoryTags"}
+        ),
         probe_tool="checkRepository",
         arguments={"namespace": "library", "repository": "alpine"},
         blocked_tools=DOCKER_HUB_BLOCKED_TOOLS,
     )
     blocked_tools = DOCKER_HUB_BLOCKED_TOOLS
+    requires_credential = True
+
+    def status(self, root: Path, config: IntegrationConfig) -> IntegrationRecord:
+        settings = self._settings(config)
+        credential, credential_value = self._resolved_credential(root, settings)
+        executable = _executable(settings.get("command", "docker"))
+        image = settings.get("image")
+        username = _dockerhub_username(settings)
+        if executable is None:
+            return _record(
+                self.name,
+                IntegrationState.UNAVAILABLE,
+                "INTEGRATION_CONTAINER_RUNTIME_UNAVAILABLE",
+                "Docker executable не найден.",
+                _evidence(
+                    config=settings,
+                    credential=credential,
+                    configured=False,
+                    blocked_tools=self.blocked_tools,
+                ),
+            )
+        if not isinstance(image, str):
+            return _record(
+                self.name,
+                IntegrationState.INCOMPATIBLE,
+                "INTEGRATION_IMAGE_NOT_CONFIGURED",
+                "Immutable image ref Docker Hub MCP не настроен.",
+                _evidence(
+                    config=settings,
+                    credential=credential,
+                    configured=False,
+                    blocked_tools=self.blocked_tools,
+                ),
+            )
+        auth_configured = bool(username and credential.configured and credential_value)
+        return _record(
+            self.name,
+            IntegrationState.READY if auth_configured else IntegrationState.UNAUTHENTICATED,
+            "DOCKER_HUB_AUTH_CONFIGURED"
+            if auth_configured
+            else "DOCKER_HUB_AUTH_NOT_CONFIGURED",
+            "Docker Hub authenticated route настроен; live auth ещё не подтверждён."
+            if auth_configured
+            else "Docker Hub public route доступен для probe; username и PAT для auth не настроены полностью.",
+            _evidence(
+                config=settings,
+                credential=credential,
+                configured=True,
+                authenticated=False,
+                blocked_tools=self.blocked_tools,
+                diagnostics=(
+                    f"username_configured={str(bool(username)).lower()}",
+                    f"pat_configured={str(bool(credential_value)).lower()}",
+                ),
+            ),
+        )
+
+    async def probe(self, root: Path, config: IntegrationConfig) -> AdapterOutcome:
+        settings = self._settings(config)
+        credential, credential_value = self._resolved_credential(root, settings)
+        public_command = self._command_args(
+            settings,
+            credential,
+            credential_value=None,
+            include_credentials=False,
+        )
+        if public_command is None:
+            return AdapterOutcome(self.status(root, config))
+        executable, public_args, public_env_values = public_command
+        public_result = await probe_stdio(
+            command=executable,
+            args=public_args,
+            cwd=root,
+            environment=self._launch_environment(public_env_values),
+            plan=self.plan,
+            timeout_seconds=45,
+            credential_configured=False,
+            credential_required=False,
+        )
+        if public_result.state is not IntegrationState.READY:
+            return AdapterOutcome(
+                _probe_record(
+                    self.name,
+                    settings,
+                    credential,
+                    public_result,
+                    blocked_tools=self.blocked_tools,
+                )
+            )
+
+        username = _dockerhub_username(settings)
+        if not username or not credential.configured or not credential_value:
+            return AdapterOutcome(
+                _record(
+                    self.name,
+                    IntegrationState.UNAUTHENTICATED,
+                    "DOCKER_HUB_PUBLIC_REACHABLE_AUTH_NOT_CONFIGURED",
+                    "Docker Hub public probe подтверждён; authenticated route не настроен полностью.",
+                    _evidence(
+                        config=settings,
+                        credential=credential,
+                        configured=True,
+                        reachable=True,
+                        authenticated=False,
+                        selected_tool=public_result.selected_tool,
+                        tool_count=public_result.tool_count,
+                        blocked_tools=self.blocked_tools,
+                        diagnostics=public_result.diagnostics
+                        + (
+                            f"username_configured={str(bool(username)).lower()}",
+                            f"pat_configured={str(bool(credential_value)).lower()}",
+                        ),
+                    ),
+                )
+            )
+
+        auth_command = self._command_args(
+            settings,
+            credential,
+            credential_value=credential_value,
+            include_credentials=True,
+        )
+        if auth_command is None:
+            return AdapterOutcome(self.status(root, config))
+        executable, auth_args, auth_env_values = auth_command
+        auth_result = await probe_stdio(
+            command=executable,
+            args=auth_args,
+            cwd=root,
+            environment=self._launch_environment(auth_env_values, dockerhub=True),
+            plan=self.plan,
+            timeout_seconds=45,
+            credential_configured=True,
+            credential_required=True,
+        )
+        if (
+            auth_result.state is IntegrationState.UNAVAILABLE
+            and auth_result.reason_code == "MCP_READ_ONLY_PROBE_ERROR"
+        ):
+            auth_result = McpProbeResult(
+                IntegrationState.UNAUTHENTICATED,
+                "DOCKER_HUB_AUTH_FAILED",
+                tool_count=auth_result.tool_count,
+                selected_tool=auth_result.selected_tool,
+                authenticated=False,
+                diagnostics=auth_result.diagnostics + ("public_probe_ready",),
+            )
+        return AdapterOutcome(
+            _probe_record(
+                self.name,
+                settings,
+                credential,
+                auth_result,
+                blocked_tools=self.blocked_tools,
+            )
+        )
 
 
 __all__ = [
+    "DOCKER_HUB_BLOCKED_TOOLS",
+    "DOCKER_HUB_READ_ONLY_TOOLS",
     "GRAFANA_BLOCKED_TOOLS",
     "GRAFANA_ENABLED_TOOL_CATEGORIES",
     "GRAFANA_EXPECTED_TOOL_NAMES",
