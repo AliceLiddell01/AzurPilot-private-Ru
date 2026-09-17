@@ -1,31 +1,31 @@
 """
-觉醒（Awaken）模块。
+Модуль пробуждения кораблей (Awaken).
 
-自动化舰船觉醒流程，将舰船等级从 100 级提升至 120 级或 125 级。
+Автоматизирует процесс пробуждения кораблей, повышая их максимальный уровень со 100 до 120 или 125.
 
-主要功能：
-    - 检测舰船当前等级（100~125）
-    - 判断觉醒所需资源（金币、心智芯片、心智阵列）是否充足
-    - 执行单次觉醒操作，包括确认、等待动画完成
-    - 对单艘舰船循环觉醒直到等级上限或资源不足
-    - 遍历船坞中所有可觉醒舰船，直到资源耗尽
+Основные функции:
+    - Определение текущего уровня корабля (100–125)
+    - Проверка достаточности ресурсов для пробуждения (монеты, Cognitive Chip, Cognitive Array)
+    - Выполнение однократной операции пробуждения, включая подтверждение и ожидание анимации
+    - Циклическое пробуждение одного корабля до достижения предела уровня или нехватки ресурсов
+    - Обход всех доступных для пробуждения кораблей в доке до исчерпания ресурсов
 
-觉醒等级机制：
-    - 普通觉醒：消耗金币 + 心智芯片，等级上限 120
-    - 觉醒+（觉醒拟合）：额外消耗心智阵列，等级上限 125
-    - 优先执行觉醒+（使用心智阵列），再执行普通觉醒（使用心智芯片）
+Механика уровней пробуждения:
+    - Обычное пробуждение: расходует монеты + Cognitive Chip, предел уровня — 120
+    - Пробуждение+ (Awaken+): дополнительно расходует Cognitive Array, предел уровня — 125
+    - Сначала выполняется Пробуждение+ (с Cognitive Array), затем обычное пробуждение (с Cognitive Chip)
 
-资源判断逻辑：
-    - 通过按钮匹配和红字颜色检测判断资源是否充足
-    - COST_ARRAY 不存在时，COST_COIN 和 COST_CHIP 按钮会右移 54px
-    - 需要根据按钮位移情况验证结果有效性
+Логика проверки ресурсов:
+    - Определение наличия ресурсов через сопоставление кнопок и распознавание красного цвета текста
+    - Если кнопка COST_ARRAY отсутствует, кнопки COST_COIN и COST_CHIP сдвигаются вправо на 54px
+    - Корректность результата валидируется с учётом возможного смещения кнопок
 
-继承关系：
-    继承自 Dock（船坞操作），使用船坞过滤器筛选可觉醒舰船。
+Наследование:
+    Наследуется от Dock (операции с доком) и использует фильтры дока для отбора доступных кораблей.
 
 Pages:
-    觉醒页面：is_in_awaken
-    船坞页面：page_dock
+    Экран пробуждения: is_in_awaken
+    Экран дока: page_dock
 """
 
 from module.awaken.assets import *
@@ -40,10 +40,10 @@ from module.ui.page import page_dock, page_main
 
 class ShipLevel(Digit):
     """
-    舰船等级 OCR 识别器。
+    OCR-распознаватель уровня корабля.
 
-    对标准 Digit OCR 进行后处理，只接受 100~125 范围内的等级值。
-    超出范围的识别结果被视为无效并返回 0。
+    Выполняет постобработку стандартного Digit OCR, принимая только значения уровней в диапазоне 100–125.
+    Результаты вне диапазона считаются некорректными и возвращают 0.
     """
     def after_process(self, result):
         result = super().after_process(result)
@@ -55,33 +55,33 @@ class ShipLevel(Digit):
 
 class Awaken(Dock):
     """
-    觉醒任务处理器。
+    Обработчик задачи пробуждения.
 
-    管理舰船觉醒的完整流程，包括资源检测、觉醒执行和船坞遍历。
-    继承自 Dock 以使用船坞过滤、排序和舰船选择功能。
+    Управляет полным циклом пробуждения кораблей, включая проверку ресурсов, выполнение пробуждения и обход дока.
+    Наследуется от Dock для использования функций фильтрации, сортировки и выбора кораблей в доке.
 
-    核心流程：
-        1. 导航至船坞，按收藏和等级过滤可觉醒舰船
-        2. 进入舰船详情，执行觉醒直到等级上限或资源不足
-        3. 退出舰船详情，继续下一艘
-        4. 无可觉醒舰船或资源耗尽时结束
+    Основной рабочий процесс:
+        1. Переход в док, фильтрация кораблей по избранному и доступности пробуждения
+        2. Вход в детали корабля, выполнение пробуждения до предела уровня или нехватки ресурсов
+        3. Выход из деталей корабля, переход к следующему
+        4. Завершение при отсутствии подходящих кораблей или исчерпании ресурсов
 
-    属性:
-        无额外实例属性，所有状态通过方法参数和返回值传递
+    Атрибуты:
+        Дополнительные атрибуты экземпляра отсутствуют, все состояния передаются через аргументы и возвращаемые значения методов.
 
-    配置项:
-        Awaken_LevelCap: 觉醒等级上限，'level120' 或 'level125'
-        Awaken_Favourite: 是否仅觉醒收藏舰船
+    Параметры конфигурации:
+        Awaken_LevelCap: Предел уровня пробуждения ('level120' или 'level125')
+        Awaken_Favourite: Пробуждать ли только избранные корабли
     """
     def _get_button_state(self, button: Button):
         """
-        获取指定资源按钮的状态。
+        Получение состояния указанной кнопки ресурса.
 
         Args:
-            button: COST_COIN、COST_CHIP 或 COST_ARRAY 按钮
+            button: Кнопка COST_COIN, COST_CHIP или COST_ARRAY
 
         Returns:
-            bool: 资源充足返回 True，不足返回 False，该资源不需要时返回 None
+            bool: True при достаточности ресурсов, False при нехватке; None, если данный ресурс не требуется
         """
         # Если COST_ARRAY отсутствует, COST_COIN и COST_CHIP смещаются вправо на 54px
         if button.match(self.device.image, offset=(75, 20)):
@@ -97,17 +97,17 @@ class Awaken(Dock):
 
     def _get_awaken_cost(self, use_array=False):
         """
-        获取觉醒所需资源的状态。
+        Получение состояния ресурсов, необходимых для пробуждения.
 
         Args:
-            use_array: True 表示觉醒到 125 级，False 表示 120 级
+            use_array: True для пробуждения до 125 уровня, False для 120 уровня
 
         Returns:
             bool or str:
-                True 表示所有所需资源充足，
-                False 表示任一资源不足，
-                'unexpected_array' 表示不打算使用心智阵列但阵列出现了，
-                'invalid' 表示结果无效
+                True, если всех необходимых ресурсов достаточно,
+                False, если хотя бы одного ресурса недостаточно,
+                'unexpected_array', если Cognitive Array не планировался, но появился,
+                'invalid', если состояние кнопок некорректно
         """
         coin = self._get_button_state(COST_COIN)
         chip = self._get_button_state(COST_CHIP)
@@ -165,14 +165,14 @@ class Awaken(Dock):
 
     def awaken_once(self, use_array=False, skip_first_screenshot=True):
         """
-        执行一次觉醒操作。
+        Выполнение однократной операции пробуждения.
 
         Args:
-            use_array (bool): 是否使用心智阵列（觉醒到 125 级）
-            skip_first_screenshot (bool): 是否跳过首次截图
+            use_array (bool): Использовать ли Cognitive Array (пробуждение до 125 уровня)
+            skip_first_screenshot (bool): Пропускать ли первый снимок экрана
 
         Returns:
-            str: 结果状态，'no_exp'、'unexpected_array'、'insufficient'、'timeout'、'success'
+            str: Статус результата: 'no_exp', 'unexpected_array', 'insufficient', 'timeout', 'success'
 
         Pages:
             in: is_in_awaken
@@ -264,13 +264,13 @@ class Awaken(Dock):
 
     def get_ship_level(self, skip_first_screenshot=True):
         """
-        获取当前舰船的等级。
+        Получение уровня текущего корабля.
 
         Args:
-            skip_first_screenshot (bool): 是否跳过首次截图
+            skip_first_screenshot (bool): Пропускать ли первый снимок экрана
 
         Returns:
-            int: 等级 100~125，出错时返回 0
+            int: Уровень корабля 100–125; 0 при ошибке
         """
         ocr = ShipLevel(OCR_SHIP_LEVEL, letter=(255, 255, 255), threshold=128, name='ShipLevel')
         timeout = Timer(2, count=4).start()
@@ -291,14 +291,14 @@ class Awaken(Dock):
 
     def awaken_ship(self, use_array=False, skip_first_screenshot=True):
         """
-        对单艘舰船执行觉醒，直到经验不足或达到目标等级。
+        Выполнение пробуждения одного корабля до исчерпания опыта или достижения целевого уровня.
 
         Args:
-            use_array (bool): True 表示觉醒到 125 级，False 表示 120 级
-            skip_first_screenshot (bool): 是否跳过首次截图
+            use_array (bool): True для пробуждения до 125 уровня, False для 120 уровня
+            skip_first_screenshot (bool): Пропускать ли первый снимок экрана
 
         Returns:
-            str: 'level_max'、'insufficient'、'no_exp'、'timeout'
+            str: 'level_max', 'insufficient', 'no_exp', 'timeout'
 
         Pages:
             in: is_in_awaken
@@ -346,7 +346,7 @@ class Awaken(Dock):
 
     def awaken_exit(self, skip_first_screenshot=True):
         """
-        退出觉醒界面，返回船坞。
+        Выход из интерфейса пробуждения и возврат в док.
 
         Pages:
             in: is_in_awaken
@@ -378,17 +378,17 @@ class Awaken(Dock):
 
     def awaken_run(self, use_array=False, favourite=False):
         """
-        觉醒船坞中所有舰船，直到资源耗尽。
+        Пробуждение всех доступных кораблей в доке до исчерпания ресурсов.
 
         Args:
-            use_array (bool): True 表示觉醒到 125 级，False 表示 120 级
-            favourite (bool): True 表示仅觉醒收藏舰船，False 表示觉醒所有舰船
+            use_array (bool): True для пробуждения до 125 уровня, False для 120 уровня
+            favourite (bool): True для пробуждения только избранных кораблей, False для всех
 
         Returns:
-            str: 'insufficient'、'finish'、'timeout'
+            str: 'insufficient', 'finish', 'timeout'
 
         Pages:
-            in: Any
+            in: Любая страница
             out: page_dock
         """
         logger.hr('Цикл пробуждения', level=1)

@@ -1,5 +1,5 @@
-"""奖励收取处理器，统一管理资源奖励和任务奖励的收取。
-支持石油、金币、经验奖励领取和任务奖励收取。
+"""Обработчик сбора наград, централизованно управляющий получением ресурсов и наград за задания.
+Поддерживает получение нефти, монет, опыта и наград за выполненные задания.
 """
 
 from module.base.button import ButtonGrid
@@ -17,19 +17,19 @@ from module.ui_white.assets import MISSION_NOTICE_WHITE
 class Reward(UI):
     def reward_receive(self, oil, coin, exp):
         """
-        领取资源奖励（石油、金币、经验）。
+        Получение наград ресурсами (нефть, монеты, опыт).
 
         Args:
-            oil (bool): 是否领取石油。
-            coin (bool): 是否领取金币。
-            exp (bool): 是否领取经验。
+            oil (bool): Получать ли нефть.
+            coin (bool): Получать ли монеты.
+            exp (bool): Получать ли опыт.
 
         Returns:
-            bool: 是否领取了奖励。
+            bool: Были ли получены награды.
 
         Pages:
             in: page_reward
-            out: page_reward, 领取成功时带有 info_bar
+            out: page_reward, при успешном сборе отображается info_bar
         """
         if not oil and not coin and not exp:
             return False
@@ -73,14 +73,14 @@ class Reward(UI):
 
     def _reward_mission_claim_click(self):
         """
-        点击领取任务奖励。
+        Нажатие для получения наград за задания.
 
         Returns:
-            bool: 是否已点击领取。
+            bool: Было ли нажато получение.
 
         Pages:
-            in: page_mission, MISSION_MULTI 或 MISSION_SINGLE
-            out: 未知弹窗
+            in: page_mission, MISSION_MULTI или MISSION_SINGLE
+            out: Неизвестное всплывающее окно
         """
         clicked = False
         click_interval = Timer(1, count=2)
@@ -102,13 +102,13 @@ class Reward(UI):
 
     def _reward_mission_claim_receive(self):
         """
-        处理领取任务奖励后的弹窗。
+        Обработка всплывающих окон после нажатия получения наград за задания.
 
         Returns:
-            Button | str: Button 对象或状态字符串。
+            Button | str: Объект Button или строка состояния.
 
         Pages:
-            in: 未知弹窗
+            in: Неизвестное всплывающее окно
             out: page_mission
         """
         logger.info('[Награды — задания] Получение награды за задание')
@@ -142,11 +142,11 @@ class Reward(UI):
 
     def _reward_wait_mission_list(self):
         """
-        等待任务列表完全加载。
+        Ожидание полной загрузки списка заданий.
 
         Pages:
             in: page_mission
-            out: page_mission, 任意任务状态或超时
+            out: page_mission, любое состояние заданий или таймаут
         """
         timeout = Timer(1, count=2).start()
         for _ in self.loop():
@@ -158,10 +158,10 @@ class Reward(UI):
 
     def _reward_mission_collect(self):
         """
-        统一处理"全部"和"每周"页面的任务奖励领取。
+        Единая обработка сбора наград за задания на страницах «Все» и «Еженедельные».
 
         Returns:
-            Button | str: 最终状态，Button 对象或状态字符串。
+            Button | str: Итоговое состояние, объект Button или строка состояния.
         """
         state = self._reward_wait_mission_list()
         while 1:
@@ -187,20 +187,20 @@ class Reward(UI):
 
     def _reward_mission_all(self):
         """
-        领取"全部"页面的任务奖励。
+        Получение наград за задания на странице «Все».
 
         Returns:
-            bool: 是否已处理。
+            bool: Было ли выполнено действие.
         """
         self.reward_side_navbar_ensure(upper=1)
         return self._reward_mission_collect()
 
     def _reward_mission_weekly(self):
         """
-        领取"每周"页面的任务奖励。
+        Получение наград за задания на странице «Еженедельные».
 
         Returns:
-            bool: 是否已处理。
+            bool: Было ли выполнено действие.
         """
         if not self.image_color_count(MISSION_WEEKLY_RED_DOT, color=(206, 81, 66), threshold=221, count=20):
             logger.info('[Награды — задания] Красная точка еженедельных заданий отсутствует')
@@ -211,10 +211,10 @@ class Reward(UI):
 
     def reward_mission_notice(self):
         """
-        检测主页面是否存在任务完成提示。
+        Проверка наличия индикатора выполненных заданий на главной странице.
 
         Returns:
-            bool: 是否存在任务提示。
+            bool: Есть ли индикатор заданий.
 
         Pages:
             in: page_main
@@ -230,14 +230,14 @@ class Reward(UI):
 
     def reward_mission(self, daily=True, weekly=True):
         """
-        领取任务奖励。
+        Получение наград за задания.
 
         Args:
-            daily (bool): 是否领取每日奖励。
-            weekly (bool): 是否领取每周奖励。
+            daily (bool): Получать ли ежедневные награды.
+            weekly (bool): Получать ли еженедельные награды.
 
         Returns:
-            bool: 是否领取了奖励。
+            bool: Были ли получены награды.
 
         Pages:
             in: page_main
@@ -259,13 +259,13 @@ class Reward(UI):
     @cached_property
     def _reward_side_navbar(self):
         """
-        侧边导航栏选项：
-           all.    （全部）
-           main.   （主线）
-           side.   （支线）
-           daily.  （每日）
-           weekly. （每周）
-           event.  （活动）
+        Пункты боковой панели навигации:
+           all.    (Все)
+           main.   (Основные)
+           side.   (Побочные)
+           daily.  (Ежедневные)
+           weekly. (Еженедельные)
+           event.  (События)
         """
         reward_side_navbar = ButtonGrid(
             origin=(21, 118), delta=(0, 94.5),
@@ -278,27 +278,27 @@ class Reward(UI):
 
     def reward_side_navbar_ensure(self, upper=None, bottom=None):
         """
-        确保侧边导航栏切换到指定页面。
-        页面是否完全加载由调用方单独处理。
+        Обеспечение переключения боковой панели навигации на указанную страницу.
+        Полная загрузка страницы обрабатывается вызывающей стороной отдельно.
 
         Args:
             upper (int):
-                1  全部。
-                2  主线。
-                3  支线。
-                4  每日。
-                5  每周。
-                6  活动。
+                1  Все.
+                2  Основные.
+                3  Побочные.
+                4  Ежедневные.
+                5  Еженедельные.
+                6  События.
             bottom (int):
-                6  全部。
-                5  主线。
-                4  支线。
-                3  每日。
-                2  每周。
-                1  活动。
+                6  Все.
+                5  Основные.
+                4  Побочные.
+                3  Ежедневные.
+                2  Еженедельные.
+                1  События.
 
         Returns:
-            bool: 侧边导航栏是否设置成功。
+            bool: Успешно ли переключена боковая панель навигации.
         """
         if self._reward_side_navbar.set(self, upper=upper, bottom=bottom):
             return True
@@ -307,8 +307,8 @@ class Reward(UI):
     def run(self):
         """
         Pages:
-            in: 任意页面
-            out: page_main 或 page_mission，可能带有 info_bar
+            in: Любая страница
+            out: page_main или page_mission, возможно с info_bar
         """
         self.ui_ensure(page_reward)
         self.reward_receive(

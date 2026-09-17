@@ -1,18 +1,18 @@
-"""战术学院模块。
+"""Модуль тактической академии.
 
-自动管理碧蓝航线战术学院的教材使用和技能学习。主要功能：
-- 收取已完成的战术学院奖励
-- 为舰娘选择合适的技能进行学习
-- 根据配置过滤器选择最优教材（颜色、等级、经验加成）
-- 处理经验溢出控制，避免教材浪费
-- 技能满级时自动切换到下一个未满级技能
-- 支持急速训练功能
+Автоматически управляет использованием учебников и изучением навыков в тактической академии Azur Lane. Основные функции:
+- Сбор наград за завершённое обучение в тактической академии
+- Выбор подходящих навыков кораблей для изучения
+- Выбор оптимальных учебников по настроенному фильтру (цвет, ранг, бонус опыта)
+- Контроль перелива опыта во избежание траты учебников впустую
+- Автоматическое переключение на следующий незавершённый навык при достижении максимального уровня
+- Поддержка функции ускоренного обучения (Rapid Training)
 
-教材按颜色分为三类：红色（攻击）、蓝色（防御）、黄色（辅助），
-按等级分为 T1~T4 四个品质。同类型教材可获得 1.5 倍经验加成。
+Учебники делятся по цветам на три типа: красный (атака), синий (защита), жёлтый (поддержка),
+а по рангу — на четыре качества: от T1 до T4. Учебники того же типа дают бонус опыта 1.5x.
 
-配置路径: Tactical.TacticalFilter (教材过滤), Tactical.SkillAutoSwitch (技能自动切换),
-         AddNewStudent.Enable (自动添加学员)
+Пути конфигурации: Tactical.TacticalFilter (фильтр учебников), Tactical.SkillAutoSwitch (автопереключение навыка),
+                  AddNewStudent.Enable (автодобавление учащихся)
 """
 
 import module.config.server as server
@@ -151,11 +151,11 @@ class Book:
 
     def __init__(self, image, button):
         """
-        根据教材图像识别其类型、等级和经验加成。
+        Распознавание типа, ранга и бонуса опыта учебника по его изображению.
 
         Args:
-            image (np.ndarray): 完整截图
-            button (Button): 教材对应的按钮区域
+            image (np.ndarray): Полный снимок экрана
+            button (Button): Область кнопки, соответствующая учебнику
         """
         image = crop(image, button.area, copy=False)
         # После обновления UI 20250814 размер входящего изображения предмета равен (64, 64), но по умолчанию
@@ -192,10 +192,10 @@ class Book:
 
     def check_selected(self, image):
         """
-        检查该教材是否已被选中。
+        Проверка, выбран ли данный учебник.
 
         Args:
-            image (np.ndarray): 截图
+            image (np.ndarray): Снимок экрана
         """
         area = self.button.area
         check_area = (area[0], area[3] + 2, area[2], area[3] + 4)
@@ -211,21 +211,21 @@ class Book:
 
 
 class RewardTacticalClass(Dock):
-    """战术学院奖励收取和教材管理器。
+    """Менеджер сбора наград и учебников тактической академии.
 
-    继承自 Dock（船坞操作），负责战术学院的完整自动化流程：
-    1. 进入战术学院页面，收取已完成的技能学习奖励
-    2. 检测技能是否满级，满级时自动切换到下一个技能
-    3. 根据过滤器配置从可用教材中选择最优教材
-    4. 处理经验溢出，避免在技能即将升级时浪费高阶教材
-    5. 从船坞中选择合适的舰娘开始新的技能学习
+    Наследуется от Dock (операции с доком) и отвечает за полный цикл автоматизации тактической академии:
+    1. Переход на страницу тактической академии и сбор наград за завершённое обучение
+    2. Проверка максимального уровня навыка с автоматическим переключением на следующий навык
+    3. Выбор оптимального учебника из доступных согласно фильтру конфигурации
+    4. Контроль перелива опыта во избежание траты ценных учебников перед повышением уровня навыка
+    5. Выбор подходящего корабля из дока для начала нового обучения навыку
 
-    流程入口为 tactical_class_receive()，run() 方法为任务调度器的标准入口。
+    Точкой входа в рабочий цикл является tactical_class_receive(), метод run() — стандартная точка входа планировщика.
 
     Attributes:
-        books: 当前可用的教材列表（SelectedGrids）。
-        tactical_finish: 各技能槽位的预计完成时间列表。
-        dock_select_index: 船坞中当前选中舰船的索引，用于跳过 META 舰船。
+        books: Список доступных в данный момент учебников (SelectedGrids).
+        tactical_finish: Список расчётного времени завершения обучения по слотам.
+        dock_select_index: Индекс текущего выбранного корабля в доке для пропуска META-кораблей.
     """
 
     books: SelectedGrids
@@ -234,12 +234,12 @@ class RewardTacticalClass(Dock):
 
     def _tactical_books_get(self, skip_first_screenshot=True):
         """
-        获取教材列表。处理加载状态，最多等待 15 次。
-        当 TACTICAL_CLASS_START 出现时，游戏可能卡在加载中，等待并重试检测。
-        如果持续加载则抛出 ScriptError。
+        Получение списка учебников. Обрабатывает состояние загрузки (до 15 попыток ожидания).
+        При появлении TACTICAL_CLASS_START игра может зависнуть на загрузке; ожидаем и повторяем проверку.
+        Если загрузка не завершается, вызывается ScriptError.
 
         Returns:
-            SelectedGrids: 可用教材列表，如果不在 TACTICAL_CLASS_START 则返回 False
+            SelectedGrids: Список доступных учебников; False, если не на экране TACTICAL_CLASS_START
 
         Pages:
             in: TACTICAL_CLASS_START
@@ -274,11 +274,11 @@ class RewardTacticalClass(Dock):
 
     def _tactical_book_select(self, book, skip_first_screenshot=True):
         """
-        选中屏幕上指定的教材。必要时更新当前截图。
+        Выбор указанного учебника на экране. При необходимости обновляет текущий снимок экрана.
 
         Args:
-            book (Book): 目标教材对象
-            skip_first_screenshot (bool): 是否跳过首次截图
+            book (Book): Объект целевого учебника
+            skip_first_screenshot (bool): Пропускать ли первый снимок экрана
         """
         logger.info(f'[Тактика — учебник] Выбор учебника {book}')
         interval = Timer(2, count=6)
@@ -299,7 +299,7 @@ class RewardTacticalClass(Dock):
 
     def _tactical_books_filter_exp(self):
         """
-        根据当前战术技能的进度，从 self.books 中过滤掉会导致经验溢出的教材。
+        Фильтрация учебников из self.books, вызывающих перелив опыта, на основе текущего прогресса навыка.
         """
         # Считанные 'current' и 'remain' недостаточно точны,
         # так как опыт первого учебника уже учтен в них
@@ -330,11 +330,11 @@ class RewardTacticalClass(Dock):
 
     def _is_current_skill_max(self, skip_first_screenshot=True):
         """
-        检测当前选中的技能是否已满级（基于教材选择界面的经验 OCR）。
-        方法内部会自行截图，不依赖调用方是否已更新 self.device.image。
+        Проверка, достиг ли текущий выбранный навык максимального уровня (по OCR опыта в окне выбора учебника).
+        Метод самостоятельно делает снимок экрана и не зависит от обновления self.device.image вызывающей стороной.
 
         Returns:
-            bool: 如果当前技能已满级返回 True
+            bool: True, если текущий навык максимального уровня
         """
         if not skip_first_screenshot:
             self.device.screenshot()
@@ -361,17 +361,17 @@ class RewardTacticalClass(Dock):
 
     def _try_switch_to_next_skill(self):
         """
-        当前技能已满级时，尝试切换到同舰娘的下一个非满级技能。
+        Попытка переключиться на следующий не максимальный навык того же корабля при замаксенном текущем навыке.
 
-        进入时在 TACTICAL_CLASS_START，立即点击取消回到技能选择界面 (SKILL_CONFIRM)，
-        查找下一个未满级技能并确认后返回教材选择界面 (TACTICAL_CLASS_START)。
+        При входе на экране TACTICAL_CLASS_START нажимает отмену для возврата в окно выбора навыка (SKILL_CONFIRM),
+        находит следующий не максимальный навык, подтверждает его и возвращается в окно выбора учебника (TACTICAL_CLASS_START).
 
         Returns:
-            bool: 是否成功切换到下一个技能
+            bool: Удалось ли переключиться на следующий навык
 
         Pages:
-            in: TACTICAL_CLASS_START (点击取消后进入 SKILL_CONFIRM)
-            out: TACTICAL_CLASS_START (if success) or SKILL_CONFIRM (if no skill found)
+            in: TACTICAL_CLASS_START (после нажатия отмены переход в SKILL_CONFIRM)
+            out: TACTICAL_CLASS_START (при успехе) или SKILL_CONFIRM (если навык не найден)
         """
         logger.hr('Попытка перейти к следующему навыку', level=2)
         # Отменяем выбор текущего учебника и возвращаемся к экрану выбора навыка
@@ -405,14 +405,14 @@ class RewardTacticalClass(Dock):
 
     def _tactical_books_choose(self):
         """
-        根据配置选择战术教材。
+        Выбор тактического учебника в соответствии с конфигурацией.
 
         Returns:
-            int: 是否成功选择教材
+            int: Успешно ли выбран учебник
 
         Pages:
             in: TACTICAL_CLASS_START
-            out: Unknown, may TACTICAL_CLASS_START, page_tactical, or _tactical_animation_running
+            out: Неизвестно (может быть TACTICAL_CLASS_START, page_tactical или анимация)
         """
         logger.hr('Выбор тактического учебника', level=2)
         MAX_SWITCH_RETRIES = 3
@@ -467,10 +467,10 @@ class RewardTacticalClass(Dock):
 
     def handle_rapid_training(self):
         """
-        处理急速训练按钮。
+        Обработка кнопки ускоренного обучения.
 
         Returns:
-            bool: 是否处理了急速训练
+            bool: Было ли выполнено ускоренное обучение
         """
         slot = self.config.Tactical_RapidTrainingSlot
         if slot == 'slot_1':
@@ -495,7 +495,7 @@ class RewardTacticalClass(Dock):
         return False
 
     def _tactical_get_finish(self):
-        """获取战术学院的完成时间。"""
+        """Получение времени завершения обучения в тактической академии."""
         logger.hr('Получение времени завершения тактического обучения')
         grids = ButtonGrid(
             origin=(421, 596), delta=(223, 0), button_shape=(139, 27), grid_shape=(4, 1), name='TACTICAL_REMAIN')
@@ -659,13 +659,13 @@ class RewardTacticalClass(Dock):
 
     def tactical_class_receive(self, skip_first_screenshot=True):
         """
-        收取战术学院奖励并填充教材。
+        Сбор наград тактической академии и запуск обучения с назначением учебников.
 
         Args:
-            skip_first_screenshot (bool): 是否跳过首次截图
+            skip_first_screenshot (bool): Пропускать ли первый снимок экрана
 
         Returns:
-            bool: 是否已领取奖励
+            bool: Были ли получены награды
 
         Pages:
             in: page_reward, TACTICAL_CLASS_START
@@ -741,11 +741,11 @@ class RewardTacticalClass(Dock):
 
     def _tactical_skill_select(self, selected_skill, skip_first_screenshot=True):
         """
-        选中屏幕上指定的技能。必要时更新当前截图。
+        Выбор указанного навыка на экране. При необходимости обновляет текущий снимок экрана.
 
         Args:
-            selected_skill: 目标技能的 Button 对象
-            skip_first_screenshot (bool): 是否跳过首次截图
+            selected_skill: Объект Button целевого навыка
+            skip_first_screenshot (bool): Пропускать ли первый снимок экрана
         """
         logger.info('[Тактика — навык] Выбор навыка')
         while 1:
@@ -769,14 +769,14 @@ class RewardTacticalClass(Dock):
 
     def _tactical_skill_choose(self):
         """
-        选择一个未满级的技能。
+        Выбор навыка, не достигшего максимального уровня.
 
         Returns:
-            bool: 是否找到可用技能
+            bool: Найден ли доступный для прокачки навык
 
         Pages:
             in: SKILL_CONFIRM
-            out: Unknown, may TACTICAL_CLASS_START, page_tactical
+            out: Неизвестно (может быть TACTICAL_CLASS_START, page_tactical)
         """
         logger.hr('Выбор тактического навыка')
         selected_skill = self.find_not_full_level_skill()
@@ -865,10 +865,10 @@ class RewardTacticalClass(Dock):
 
     def find_not_full_level_skill(self, skip_first_screenshot=True):
         """
-        检查列表中最多三个技能，找到一个未满级的技能。
+        Проверка до трёх навыков в списке и поиск навыка, не достигшего максимального уровня.
 
         Returns:
-            选中技能的 Button 对象
+            Объект Button выбранного навыка
 
         Pages:
             in: SKILL_CONFIRM
@@ -902,10 +902,10 @@ class RewardTacticalClass(Dock):
 
     def run(self):
         """
-        运行战术学院任务。
+        Запуск задачи тактической академии.
 
         Pages:
-            in: Any
+            in: Любая страница
             out: page_tactical
         """
         self.ui_ensure(page_reward)
