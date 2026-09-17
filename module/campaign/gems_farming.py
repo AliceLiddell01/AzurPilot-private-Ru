@@ -1,22 +1,23 @@
 """
-钻石 farming（紧急委托刷钻石）模块。
+Модуль фарма алмазов (через срочные поручения).
 
-实现通过反复刷低难度关卡触发紧急委托获取钻石的自动化流程。核心逻辑：
-- 使用普通稀有度航母作为旗舰（低等级，退役后可重复获取）
-- 可选更换先锋驱逐舰
-- 支持旗舰/先锋的装备码自动装卸
-- 情绪值监控：低情绪时自动更换舰船
-- 等级 32 限制：旗舰达到 32 级时自动更换（可关闭）
-- 困难模式适配：困难模式下使用不同的舰队进入方式
+Реализует автоматизированный процесс фарма алмазов путём циклического прохождения этапов низкой сложности
+для вызова срочных поручений (Emergency Commission). Ключевая логика:
+- Использование авианосцев обычной редкости в качестве флагмана (низкий уровень, легко восполняются после отставки)
+- Опциональная ротация эсминцев авангарда
+- Автоматическая установка и снятие снаряжения через коды снаряжения флагмана и авангарда
+- Отслеживание настроения: автоматическая замена кораблей при падении настроения
+- Ограничение 32-го уровня: автоматическая замена флагмана по достижении 32-го уровня (настраивается)
+- Адаптация под сложный режим: использование иных экранов и кнопок входа во флот
 
-典型使用场景：刷 2-4 关卡，旗舰升级到 32 级后更换新的 1 级航母，
-通过紧急委托获取钻石。
+Типичный сценарий: фарм этапа 2-4, прокачка флагмана до 32-го уровня с последующей заменой на новый авианосец 1-го уровня,
+получение алмазов за выполнение срочных поручений.
 
-依赖关系：
-- CampaignRun：战役运行框架
-- FleetEquipment：装备管理
-- EquipmentCodeHandler：装备码导入导出
-- Retirement：退役与船坞管理
+Зависимости:
+- CampaignRun: каркас выполнения кампании
+- FleetEquipment: управление снаряжением
+- EquipmentCodeHandler: импорт и экспорт кодов снаряжения
+- Retirement: отставка кораблей и управление доком
 """
 
 from module.base.decorator import cached_property
@@ -51,24 +52,24 @@ SIM_VALUE = 0.9
 
 
 class GemsEmotion(Emotion):
-    """钻石 farming 专用情绪管理类。
+    """Специализированный класс управления настроением для фарма алмазов.
 
-    重写情绪检查逻辑：当检测到低情绪时抛出 CampaignEnd 异常
-    而不是等待恢复，以便触发舰船更换流程。
+    Переопределяет проверку настроения: при обнаружении низкого настроения выбрасывает исключение CampaignEnd
+    вместо ожидания восстановления, чтобы инициировать процедуру ротации кораблей.
 
     Attributes:
-        继承自 Emotion 的所有属性。
+        Наследует все атрибуты класса Emotion.
     """
     def check_reduce(self, battle):
         """
-        重写 emotion.check_reduce()。
-        进入战役前检查情绪值。
+        Переопределяет emotion.check_reduce().
+        Проверяет настроение перед входом в бой кампании.
 
         Args:
-            battle (int): 本战役中的战斗次数。
+            battle (int): Количество боёв в текущей кампании.
 
         Raises:
-            CampaignEnd: 暂停当前任务以避免未来的情绪控制问题。
+            CampaignEnd: Приостанавливает текущую задачу во избежание проблем с контролем настроения.
         """
         if not self.is_calculate:
             return
@@ -84,16 +85,16 @@ class GemsEmotion(Emotion):
 
 
 class GemsCampaignOverride(CampaignBase):
-    """钻石 farming 专用战役覆写类。
+    """Класс переопределения кампании для фарма алмазов.
 
-    覆写 CampaignBase 的战斗低情绪处理和经验结算处理：
-    - 低情绪时根据配置选择忽略警告或撤退换船
-    - 支持多种经验结算弹窗的点击处理
+    Переопределяет обработку низкого настроения в бою и экранов опыта из CampaignBase:
+    - При низком настроении игнорирует предупреждение либо отступает для ротации кораблей согласно конфигурации
+    - Поддерживает обработку различных окон завершения боя и опыта
     """
     def handle_combat_low_emotion(self):
         """
-        重写 info_handler.handle_combat_low_emotion()。
-        如果启用了更换先锋，撤出战斗并更换旗舰和先锋。
+        Переопределяет info_handler.handle_combat_low_emotion().
+        Если включена ротация авангарда, выходит из боя для замены флагмана и авангарда.
         """
         if self.config.GemsFarming_IgnoreEmotionWarning or self.config.GemsFarming_ChangeVanguard == 'disabled':
             result = self.handle_popup_confirm('IGNORE_LOW_EMOTION')
@@ -152,13 +153,13 @@ class GemsCampaignOverride(CampaignBase):
 
 
 class GemsEquipmentHandler(EquipmentCodeHandler):
-    """钻石 farming 装备处理器。
+    """Обработчик снаряжения для фарма алмазов.
 
-    继承 EquipmentCodeHandler，提供装备码的导入导出功能。
-    根据当前旗舰类型（航母/驱逐舰）自动识别装备码配置路径。
+    Наследуется от EquipmentCodeHandler, предоставляя функции импорта и экспорта кодов снаряжения.
+    Автоматически определяет путь ключа конфигурации снаряжения по текущему типу флагмана (авианосец/эсминец).
 
     Attributes:
-        继承自 EquipmentCodeHandler 的所有属性。
+        Наследует все атрибуты EquipmentCodeHandler.
     """
 
 
@@ -167,17 +168,17 @@ class GemsEquipmentHandler(EquipmentCodeHandler):
 
     @property
     def equipment_code_config_key(self):
-        """获取装备码配置的键路径。
+        """Возвращает путь ключа конфигурации кода снаряжения.
 
         Returns:
-            str: 配置键路径，如 'GemsFarming.GemsFarming.EquipmentCode'。
+            str: Путь ключа конфигурации, например 'GemsFarming.GemsFarming.EquipmentCode'.
         """
         command = self.config.task.command if hasattr(self.config, 'task') and self.config.task else 'GemsFarming'
         return f"{command}.GemsFarming.EquipmentCode"
 
     def current_ship(self, skip_first_screenshot=True):
         """
-        复用 module.retire.assets 中的模板，需要不同的缩放比例来匹配当前旗舰。
+        Использует шаблоны из module.retire.assets с адаптированным масштабом под текущий флагман.
 
         Pages:
             in: gear_code
@@ -204,16 +205,16 @@ class GemsEquipmentHandler(EquipmentCodeHandler):
         return 'DD'
 
     def clear_all_equip(self):
-        """导出当前旗舰的装备码并清空所有装备。
+        """Экспортирует код снаряжения текущего флагмана и снимает всё снаряжение.
 
-        通过装备码功能保存当前装备配置后卸下所有装备，
-        以便后续应用到新旗舰上。
+        Сохраняет конфигурацию снаряжения через код снаряжения перед разоружением,
+        чтобы впоследствии применить её к новому флагману.
 
         Returns:
-            bool: 是否成功清空。
+            bool: Успешно ли снято снаряжение.
 
         Raises:
-            RequestHumanTakeover: 装备码导出失败时抛出，防止装备状态丢失。
+            RequestHumanTakeover: Выбрасывается при ошибке экспорта кода снаряжения во избежание потери конфигурации.
         """
         success = self.code_clear()
         if not success:
@@ -222,18 +223,18 @@ class GemsEquipmentHandler(EquipmentCodeHandler):
         return success
 
     def apply_equip_code(self, code=None):
-        """应用装备码到当前舰船。
+        """Применяет код снаряжения к текущему кораблю.
 
-        将之前导出的装备码应用到新旗舰上，恢复装备配置。
+        Применяет ранее экспортированный код снаряжения к новому флагману, восстанавливая конфигурацию.
 
         Args:
-            code (str, optional): 装备码字符串。为 None 时使用上次导出的装备码。
+            code (str, optional): Строка кода снаряжения. Если None, используется последний экспортированный код.
 
         Returns:
-            bool: 是否成功应用。
+            bool: Успешно ли применён код.
 
         Raises:
-            RequestHumanTakeover: 装备码应用失败时抛出。
+            RequestHumanTakeover: Выбрасывается при ошибке применения кода снаряжения.
         """
         if code is None:
             success = self.code_apply()
@@ -246,37 +247,37 @@ class GemsEquipmentHandler(EquipmentCodeHandler):
 
 
 class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement):
-    """钻石 farming 任务主类。
+    """Основной класс задачи фарма алмазов.
 
-    组合战役运行、装备管理、装备码处理和退役管理的能力，
-    实现完整的钻石 farming 自动化流程。
+    Объединяет функциональность выполнения кампании, управления флотом, работы с кодами снаряжения и отставки кораблей
+    в единый автоматизированный цикл фарма алмазов.
 
-    核心流程：
-    1. 加载战役地图并以普通稀有度航母为旗舰出击
-    2. 监控旗舰等级和情绪值
-    3. 旗舰达到 32 级或情绪过低时，自动更换新的低等级航母
-    4. 可选同时更换先锋驱逐舰
-    5. 通过装备码自动装卸旗舰/先锋装备
+    Основной рабочий процесс:
+    1. Загрузка карты кампании и вылазка с авианосцем обычной редкости во главе флота
+    2. Отслеживание уровня и настроения флагмана
+    3. При достижении 32-го уровня или падении настроения — автоматическая замена на новый низкоуровневый авианосец
+    4. Опциональная синхронная замена эсминца авангарда
+    5. Автоматическое снятие и установка снаряжения флагмана/авангарда по кодам снаряжения
 
     Attributes:
-        _initial_flagship_check_done (bool): 是否已完成初始旗舰等级检查。
-        _trigger_lv32 (bool): 是否触发了等级 32 限制。
-        _trigger_emotion (bool): 是否触发了情绪限制。
-        hard_mode (bool): 是否处于困难模式（影响舰队进入方式）。
-        page_fleet_check_button (Button): 舰队页面的检查按钮。
-        fleet_detail_enter_flagship (Button): 进入旗舰详情的按钮。
-        fleet_detail_enter (Button): 进入先锋详情的按钮。
-        fleet_enter_flagship (Button): 从船坞进入旗舰位的按钮。
-        fleet_enter (Button): 从船坞进入先锋位的按钮。
+        _initial_flagship_check_done (bool): Завершена ли начальная проверка уровня флагмана.
+        _trigger_lv32 (bool): Сработало ли ограничение 32-го уровня.
+        _trigger_emotion (bool): Сработало ли ограничение по настроению.
+        hard_mode (bool): Активен ли сложный режим (влияет на навигацию по флоту).
+        page_fleet_check_button (Button): Кнопка проверки нахождения на странице флота.
+        fleet_detail_enter_flagship (Button): Кнопка входа в экран флагмана.
+        fleet_detail_enter (Button): Кнопка входа в экран авангарда.
+        fleet_enter_flagship (Button): Кнопка входа в слот флагмана из дока.
+        fleet_enter (Button): Кнопка входа в слот авангарда из дока.
     """
     _initial_flagship_check_done = False
 
     def hard_mode_override(self):
-        """根据当前战役模式切换舰队进入方式。
+        """Переключает способ входа во флот в зависимости от режима кампании.
 
-        困难模式下使用不同的按钮进入舰队编辑页面（通过战役准备界面），
-        普通模式下直接通过 page_fleet 进入。根据舰队顺序配置选择
-        对应的旗舰/先锋进入按钮。
+        В сложном режиме используются другие кнопки входа на страницу редактирования флота (через экран подготовки кампании),
+        а в обычном режиме вход осуществляется напрямую через page_fleet. Кнопки входа для флагмана/авангарда выбираются
+        в соответствии с конфигурацией порядка флотов.
         """
         if self.campaign.config.Campaign_Mode == 'hard':
             logger.info('[Фарм самоцветов] Сложный режим: меняю способ замены кораблей')
@@ -304,15 +305,15 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
             self.fleet_enter = FLEET_ENTER
 
     def load_campaign(self, name, folder='campaign_main'):
-        """加载战役地图模块并注入钻石 farming 专用覆写。
+        """Загружает модуль карты кампании и внедряет переопределения для фарма алмазов.
 
-        在父类 load_campaign() 基础上，将 Campaign 替换为继承了
-        GemsCampaignOverride 的子类，注入 GemsEmotion 情绪管理。
-        根据是否更换先锋舰船设置情绪管理模式。
+        На базе родительского load_campaign() заменяет Campaign на подкласс с наследованием GemsCampaignOverride,
+        внедряя управление настроением GemsEmotion.
+        Устанавливает режим управления настроением в зависимости от того, ротируется ли авангард.
 
         Args:
-            name (str): 地图文件名。
-            folder (str): 地图文件夹名。
+            name (str): Имя файла карты.
+            folder (str): Имя папки карты.
         """
         super().load_campaign(name, folder)
 
@@ -332,61 +333,61 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
 
     @property
     def emotion_lower_bound(self):
-        """情绪值下限。
+        """Нижняя граница значения настроения.
 
-        根据当前地图的战斗次数动态计算情绪值下限，
-        确保舰船在整场战役中有足够的情绪值。
+        Динамически рассчитывает порог настроения по количеству боёв на текущей карте,
+        гарантируя, что кораблям хватит настроения на всю кампанию.
 
         Returns:
-            int: 情绪值下限。
+            int: Нижняя граница настроения.
         """
         return 4 + self.campaign._map_battle * 2
 
     @property
     def change_flagship(self):
-        """是否需要更换旗舰舰船。
+        """Требуется ли ротация флагмана.
 
         Returns:
-            bool: 配置中包含 'ship' 时返回 True。
+            bool: True, если конфигурация содержит 'ship'.
         """
         return 'ship' in self.config.GemsFarming_ChangeFlagship
 
     @property
     def change_flagship_equip(self):
-        """是否需要更换旗舰装备。
+        """Требуется ли переустановка снаряжения флагмана.
 
         Returns:
-            bool: 配置中包含 'equip' 时返回 True。
+            bool: True, если конфигурация содержит 'equip'.
         """
         return 'equip' in self.config.GemsFarming_ChangeFlagship
 
     @property
     def change_vanguard(self):
-        """是否需要更换先锋舰船。
+        """Требуется ли ротация корабля авангарда.
 
         Returns:
-            bool: 配置中包含 'ship' 时返回 True。
+            bool: True, если конфигурация содержит 'ship'.
         """
         return 'ship' in self.config.GemsFarming_ChangeVanguard
 
     @property
     def change_vanguard_equip(self):
-        """是否需要更换先锋装备。
+        """Требуется ли переустановка снаряжения авангарда.
 
         Returns:
-            bool: 配置中包含 'equip' 时返回 True。
+            bool: True, если конфигурация содержит 'equip'.
         """
         return 'equip' in self.config.GemsFarming_ChangeVanguard
 
     @property
     def fleet_to_attack(self):
-        """获取出击舰队编号。
+        """Возвращает номер флота для атаки.
 
-        根据舰队顺序配置返回实际使用的舰队编号。
-        fleet1_standby_fleet2_all 模式下使用第二舰队。
+        Возвращает фактически используемый номер флота в соответствии с настройкой порядка флотов.
+        В режиме fleet1_standby_fleet2_all используется второй флот.
 
         Returns:
-            int: 舰队编号。
+            int: Номер флота.
         """
         if self.config.Fleet_FleetOrder == 'fleet1_standby_fleet2_all':
             return self.config.Fleet_Fleet2
@@ -394,37 +395,37 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
             return self.config.Fleet_Fleet1
 
     def _fleet_detail_enter(self, fleet):
-        """进入指定舰队的编辑页面（普通模式）。
+        """Переходит на экран редактирования указанного флота (обычный режим).
 
-        通过 page_fleet 导航到指定舰队。
+        Осуществляет навигацию к флоту через page_fleet.
 
         Args:
-            fleet (int): 舰队编号。
+            fleet (int): Номер флота.
         """
         self.ui_ensure(page_fleet)
         self.ui_ensure_index(fleet, letter=OCR_FLEET_INDEX,
                              next_button=FLEET_NEXT, prev_button=FLEET_PREV, skip_first_screenshot=True)
 
     def _ship_detail_enter(self, button):
-        """进入指定舰船的装备详情页面（普通模式）。
+        """Переходит на экран деталей снаряжения указанного корабля (обычный режим).
 
-        从舰队页面进入舰队详情，再进入指定舰船的装备页面。
+        С экрана флота переходит в детали флота, а затем на страницу снаряжения корабля.
 
         Args:
-            button (Button): 舰船位置的按钮。
+            button (Button): Кнопка слота корабля.
         """
         self.ui_click(FLEET_DETAIL, appear_button=page_fleet.check_button,
                       check_button=FLEET_DETAIL_CHECK, skip_first_screenshot=True)
         self.equip_enter(button, long_click=False)
 
     def _fleet_detail_enter_hard(self, fleet):
-        """进入指定舰队的编辑页面（困难模式）。
+        """Переходит на экран редактирования указанного флота (сложный режим).
 
-        困难模式下通过战役准备界面进入舰队编辑，
-        需要先导航到关卡入口并进入准备界面。
+        В сложном режиме вход осуществляется через экран подготовки к бою кампании,
+        поэтому сначала выполняется переход ко входу на этап и вход в подготовку.
 
         Args:
-            fleet (int): 舰队编号（困难模式下未使用，固定通过准备界面进入）。
+            fleet (int): Номер флота (не используется в сложном режиме, вход всегда фиксирован).
         """
         if self.appear(FLEET_PREPARATION, offset=(20, 50)):
             return
@@ -443,30 +444,30 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
                 break
 
     def _ship_detail_enter_hard(self, button):
-        """进入指定舰船的装备详情页面（困难模式）。
+        """Переходит на экран деталей снаряжения указанного корабля (сложный режим).
 
-        困难模式下直接通过装备进入按钮操作。
+        В сложном режиме переход выполняется напрямую через кнопку входа в снаряжение.
 
         Args:
-            button (Button): 舰船位置的按钮。
+            button (Button): Кнопка слота корабля.
         """
         self.equip_enter(button)
 
     def _fleet_back(self):
-        """从装备详情返回到舰队页面（普通模式）。"""
+        """Возвращается из деталей снаряжения на экран флота (обычный режим)."""
         self.ui_back(FLEET_DETAIL_CHECK)
         self.ui_back(FLEET_CHECK)
 
     def _fleet_back_hard(self):
-        """从装备详情返回到准备页面（困难模式）。"""
+        """Возвращается из деталей снаряжения на экран подготовки (сложный режим)."""
         self.ui_back(self.page_fleet_check_button)
 
     def flagship_change(self):
         """
-        更换旗舰并使用装备码更换旗舰装备。
+        Заменяет флагман и обновляет его снаряжение по коду снаряжения.
 
         Returns:
-            bool: 是否成功更换旗舰。
+            bool: Успешно ли заменён флагман.
         """
 
         logger.hr('Замена флагмана', level=1)
@@ -491,10 +492,10 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
 
     def vanguard_change(self):
         """
-        更换先锋并使用装备码更换先锋装备。
+        Заменяет корабль авангарда и обновляет его снаряжение по коду снаряжения.
 
         Returns:
-            bool: 是否成功更换先锋。
+            bool: Успешно ли заменён авангард.
         """
         logger.hr('Замена авангарда', level=1)
         logger.attr('Замена авангарда', self.config.GemsFarming_ChangeVanguard)
@@ -518,16 +519,16 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
         return success
 
     def _dock_reset(self):
-        """重置船坞筛选和排序状态。"""
+        """Сбрасывает фильтры и сортировку дока."""
         self.dock_favourite_set(False, wait_loading=False)
         self.dock_sort_method_dsc_set(wait_loading=False)
         self.dock_filter_set()
 
     def _ship_change_confirm(self, button):
-        """选择舰船并确认更换。
+        """Выбирает корабль и подтверждает замену.
 
         Args:
-            button (Button): 要选择的舰船按钮。
+            button (Button): Кнопка выбираемого корабля.
         """
         self.dock_select_one(button)
         self._dock_reset()
@@ -535,17 +536,17 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
 
     def get_common_rarity_cv(self, lv=31, emotion=16):
         """
-        根据 config.GemsFarming_CommonCV 获取普通稀有度航母。
-        如果 config.GemsFarming_CommonCV == 'any'，返回等级 1~33 的普通航母。
+        Получает авианосец обычной редкости согласно config.GemsFarming_CommonCV.
+        Если config.GemsFarming_CommonCV == 'any', возвращает обычный авианосец уровня 1~33.
 
-        调用后需要调用 _dock_reset()。
+        После вызова необходимо вызвать _dock_reset().
 
         Args:
-            lv (int): 普通航母的最大等级。
-            emotion (int): 普通航母的最低情绪值。
+            lv (int): Максимальный уровень обычного авианосца.
+            emotion (int): Минимальное настроение обычного авианосца.
 
         Returns:
-            Ship: 匹配的舰船。
+            Ship: Подходящий корабль.
         """
         faction = 'eagle' if self.config.GemsFarming_CommonCV == 'eagle' else 'all'
         extra = 'can_limit_break' if self.config.GemsFarming_AllowHighFlagshipLevel else 'enhanceable'
@@ -639,15 +640,15 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
 
     def get_common_rarity_dd(self, emotion=16):
         """
-        获取等级为 100（非 CN 服务器为 70）且情绪值 >= self.emotion_lower_bound 的普通稀有度驱逐舰。
+        Получает обычный эсминец уровня 100 (70 для не-CN серверов) с настроением >= self.emotion_lower_bound.
 
-        调用后需要调用 _dock_reset()。
+        После вызова необходимо вызвать _dock_reset().
 
         Args:
-            emotion (int): 普通驱逐舰的最低情绪值。
+            emotion (int): Минимальное настроение обычного эсминца.
 
         Returns:
-            Ship: 匹配的舰船。
+            Ship: Подходящий корабль.
         """
         rarity = 'common'
         extra = 'can_limit_break'
@@ -757,14 +758,14 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
             return candidates
 
     def match_ship_to_template(self, ship, template):
-        """检查舰船图标是否匹配给定模板。
+        """Проверяет соответствие значка корабля указанному шаблону.
 
         Args:
-            ship (Ship): 舰船对象。
-            template: 模板对象或模板列表。
+            ship (Ship): Объект корабля.
+            template: Объект шаблона или список шаблонов.
 
         Returns:
-            bool: 是否匹配。
+            bool: Соответствует ли значок шаблону.
         """
         if isinstance(template, list):
             return any(item.match(self.image_crop(ship.button, copy=False), similarity=SIM_VALUE) for item in template)
@@ -773,7 +774,7 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
 
     def find_all_vanguard_candidates(self, scanner, common_ship):
         """
-        扫描并查找 common_ship 列表的所有匹配候选舰船，按 (情绪值, -优先级索引) 降序返回。
+        Сканирует и находит всех подходящих кандидатов из списка common_ship, возвращая их по убыванию (настроение, -индекс приоритета).
         """
         templates_list = [TEMPLATE_COMMON_DD[name.upper()] for name in common_ship]
         all_ships = scanner.scan(self.device.image, output=False)
@@ -789,10 +790,10 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
 
     def find_all_backline_candidates(self, scanner, common_ship):
         """
-        扫描并查找 common_ship 列表的所有匹配候选舰船，按以下顺序排序：
-        1. 情绪值（降序）
-        2. 等级（升序）
-        3. 优先级索引（升序）
+        Сканирует и находит всех подходящих кандидатов из списка common_ship, сортируя в следующем порядке:
+        1. Настроение (по убыванию)
+        2. Уровень (по возрастанию)
+        3. Индекс приоритета (по возрастанию)
         """
         templates_list = [TEMPLATE_COMMON_CV[name.upper()] for name in common_ship]
         all_ships = scanner.scan(self.device.image, output=False)
@@ -808,11 +809,11 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
 
     def find_custom_candidates(self, scanner, ship_type='cv'):
         """
-        获取普通稀有度航母/驱逐舰的候选舰船，仅用于 'custom' GemsFarming_CommonCV/DD 设置。
+        Находит кандидатов обычной редкости (CV/DD), используется только для режима 'custom' GemsFarming_CommonCV/DD.
 
         Args:
-            scanner (ShipScanner): 舰船扫描器。
-            ship_type (str): 'cv' 或 'dd'。
+            scanner (ShipScanner): Сканер кораблей.
+            ship_type (str): 'cv' или 'dd'.
         """
         if ship_type.lower() not in ['cv', 'dd']:
             logger.warning(f'[Фарм самоцветов] Недопустимый тип корабля: {ship_type}')
@@ -861,7 +862,7 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
 
     def find_candidates(self, template, scanner):
         """
-        基于模板匹配查找候选舰船。
+        Находит корабли-кандидаты на основе сопоставления шаблонов.
         """
         candidates = []
         if isinstance(template, list):
@@ -878,7 +879,7 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
     @staticmethod
     def get_templates(common_dd):
         """
-        根据 CommonDD 设置返回对应的模板列表。
+        Возвращает список соответствующих шаблонов по значению настройки CommonDD.
         """
         if common_dd == 'aulick_or_foote':
             return [
@@ -895,9 +896,9 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
             raise ScriptError(f'Недопустимая настройка CommonDD: {common_dd}')
 
     def ship_down_hard(self):
-        """困难模式下将舰船从舰队中移除。
+        """Удаляет корабль из флота в сложном режиме.
 
-        如果存在离队按钮则点击，否则返回准备页面。
+        Если отображается кнопка снятия с позиции, нажимает её, иначе возвращается на экран подготовки.
         """
         if self.appear(DOCK_SHIP_DOWN):
             self.ui_click(DOCK_SHIP_DOWN,
@@ -906,15 +907,15 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
             self.ui_back(check_button=FLEET_PREPARATION)
 
     def dock_enter(self, button):
-        """进入船坞页面。
+        """Переходит на экран дока.
 
-        从舰队页面点击指定位置的按钮进入船坞。
+        Нажимает кнопку на странице флота для перехода в док.
 
         Args:
-            button (Button): 要点击的按钮。
+            button (Button): Кнопка для нажатия.
 
         Returns:
-            bool: True 表示成功进入，False 表示遇到游戏提示未进入。
+            bool: True при успешном входе; False, если обнаружена игровая подсказка и вход отменён.
         """
         for _ in self.loop():
             if self.appear(DOCK_CHECK, offset=(20, 20)):
@@ -929,7 +930,7 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
 
     def flagship_change_with_emotion(self, ship):
         """
-        更换旗舰并计算情绪值。
+        Заменяет флагман и рассчитывает настроение.
         """
         target_ship = max(ship, key=lambda s: (s.level, s.emotion))
         if self.change_vanguard:
@@ -940,10 +941,10 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
 
     def flagship_change_execute(self):
         """
-        执行旗舰更换。
+        Выполняет замену флагмана.
 
         Returns:
-            bool: 是否成功。
+            bool: Успешно ли выполнена замена.
 
         Pages:
             in: page_fleet
@@ -980,7 +981,7 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
 
     def vanguard_change_with_emotion(self, ship):
         """
-        更换先锋并计算情绪值。
+        Заменяет авангард и рассчитывает настроение.
         """
         target_ship = max(ship, key=lambda s: s.emotion)
         if self.change_vanguard:
@@ -989,10 +990,10 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
 
     def vanguard_change_execute(self):
         """
-        执行先锋更换。
+        Выполняет замену корабля авангарда.
 
         Returns:
-            bool: 是否成功。
+            bool: Успешно ли выполнена замена.
 
         Pages:
             in: page_fleet
@@ -1026,17 +1027,17 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
     _trigger_emotion = False
 
     def triggered_stop_condition(self, oil_check=True):
-        """检查钻石 farming 的停止条件。
+        """Проверяет условия остановки фарма алмазов.
 
-        在父类停止条件基础上增加了：
-        - 等级 32 限制：旗舰达到 32 级时触发（需要更换旗舰）
-        - 情绪限制：情绪值过低时触发（需要更换舰船）
+        К родительским условиям остановки добавляются:
+        - Ограничение 32-го уровня: флагман достиг 32-го уровня (требуется смена флагмана)
+        - Ограничение по настроению: настроение упало ниже допустимого порога (требуется смена корабля)
 
         Args:
-            oil_check (bool): 是否检查石油限制。
+            oil_check (bool): Проверять ли лимит нефти.
 
         Returns:
-            bool: 是否触发停止条件。
+            bool: Сработало ли условие остановки.
         """
         # Ограничение 32-го уровня
         if self._trigger_lv32 or (
@@ -1055,7 +1056,7 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
 
     def get_emotion(self):
         """
-        从配置中获取舰队情绪值。
+        Получает значение настроения флота из конфигурации.
         """
         if self.config.Fleet_FleetOrder == 'fleet1_standby_fleet2_all':
             return self.campaign.config.Emotion_Fleet2Value
@@ -1064,7 +1065,7 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
 
     def set_emotion(self, emotion):
         """
-        设置舰队情绪值。
+        Устанавливает значение настроения флота в конфигурации.
         """
         if self.config.Fleet_FleetOrder == 'fleet1_standby_fleet2_all':
             self.campaign.config.set_record(Emotion_Fleet2Value=emotion)
@@ -1073,13 +1074,13 @@ class GemsFarming(CampaignRun, FleetEquipment, GemsEquipmentHandler, Retirement)
 
     def run(self, name, folder='campaign_main', mode='normal', total=0):
         """
-        运行钻石 farming 任务。
+        Запускает задачу фарма алмазов.
 
         Args:
-            name (str): .py 文件名称。
-            folder (str): campaign 下的文件夹名称。
-            mode (str): `normal` 或 `hard`。
-            total (int): 总运行次数限制。
+            name (str): Имя файла .py.
+            folder (str): Имя папки внутри campaign.
+            mode (str): `normal` или `hard`.
+            total (int): Ограничение общего количества запусков.
         """
         self.config.STOP_IF_REACH_LV32 = self.change_flagship and not self.config.GemsFarming_AllowHighFlagshipLevel
         # Начальная проверка уровня флагмана.

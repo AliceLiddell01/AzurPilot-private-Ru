@@ -1,17 +1,17 @@
-"""战役状态检测模块。
+"""Модуль отслеживания состояния кампании.
 
-通过 OCR 读取战役页面上的数值信息，包括：
-- 物资（金币）数量
-- 石油数量
-- 活动 PT（点数）
-- 石油和物资限制检测
+Считывает числовую информацию на экране кампании через OCR:
+- Количество припасов (монет)
+- Количество нефти
+- Очки события (PT)
+- Проверка лимитов нефти и припасов
 
-这些信息用于判断是否满足停止条件（如石油耗尽、物资溢出等）。
+Эти данные используются для проверки условий остановки (например, исчерпание нефти, переполнение монет и т. д.).
 
-PtOcr 类专门处理活动 PT 数字的 OCR 识别，
-需要特殊的图像预处理（反色、背景去除等）。
+Класс PtOcr отвечает за распознавание очков события,
+требуя специальной предварительной обработки изображения (инверсия, удаление фона и т. д.).
 
-继承自 UI，利用页面导航能力。
+Наследуется от UI, используя механизмы навигации по экранам.
 """
 
 import datetime
@@ -41,13 +41,13 @@ class PtOcr(Ocr):
 
     def pre_process(self, image):
         """
-        对 PT 数字图像进行预处理。
+        Предварительно обрабатывает изображение с цифрами очков события (PT).
 
         Args:
-            image (np.ndarray): 形状为 (height, width, channel) 的图像。
+            image (np.ndarray): Изображение формата (height, width, channel).
 
         Returns:
-            np.ndarray: 形状为 (width, height) 的灰度图像。
+            np.ndarray: Оттенки серого формата (width, height).
         """
         # Берём максимальное значение из трёх каналов RGB
         r, g, b = cv2.split(cv2.subtract((255, 255, 255), image))
@@ -64,10 +64,10 @@ OCR_PT = PtOcr(OCR_EVENT_PT)
 class CampaignStatus(UI):
     def get_event_pt(self, update=False):
         """
-        获取活动 PT 数量。
+        Получает количество очков события (PT).
 
         Returns:
-            int: PT 数量，解析失败返回 0。
+            int: Количество PT, либо 0 при сбое распознавания.
         """
         pt = OCR_PT.ocr(self.device.image)
 
@@ -95,10 +95,10 @@ class CampaignStatus(UI):
 
     def get_coin(self, skip_first_screenshot=True, update=False):
         """
-        获取金币数量。
+        Получает количество монет (припасов).
 
         Returns:
-            int: 金币数量。
+            int: Количество монет.
         """
         _coin = {}
         timeout = Timer(1, count=2).start()
@@ -149,10 +149,10 @@ class CampaignStatus(UI):
 
     def get_oil(self, skip_first_screenshot=True, update=False):
         """
-        获取石油数量。
+        Получает количество нефти.
 
         Returns:
-            int: 石油数量。
+            int: Количество нефти.
         """
         _oil = {}
         timeout = Timer(1, count=2).start()
@@ -184,10 +184,10 @@ class CampaignStatus(UI):
 
     def is_balancer_task(self):
         """
-        判断当前任务是否为活动任务（排除每日活动任务）。
+        Определяет, является ли текущая задача задачей события (исключая ежедневные задачи события).
 
         Returns:
-            bool: 是否为活动任务。
+            bool: Является ли задачей события.
         """
         tasks = [
             'Event',

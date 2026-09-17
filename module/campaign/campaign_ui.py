@@ -1,14 +1,14 @@
 """
-战役 UI 导航与章节管理模块。
+Модуль UI-навигации и управления главами кампании.
 
-负责战役界面的 UI 操作，包括：
-- 章节切换（数字章节、活动章节、SP 章节）
-- 战役模式切换（普通/困难/EX）
-- 多版本活动 UI 适配（20241219、20260326 等不同活动 UI 布局）
-- 关卡入口获取与章节导航
+Отвечает за операции с пользовательским интерфейсом экрана кампании, включая:
+- Переключение глав (числовые главы, главы событий, главы SP)
+- Переключение режимов кампании (обычный/сложный/EX)
+- Адаптацию под различные версии интерфейса событий (раскладки 20241219, 20260326 и др.)
+- Получение входов на этапы и навигацию по главам
 
-本模块通过 ModeSwitch 实现战役模式的检测与切换，
-通过 CampaignOcr 实现章节索引的 OCR 识别。
+Модуль использует ModeSwitch для определения и переключения режима кампании,
+а также CampaignOcr для распознавания индекса главы через OCR.
 """
 
 from module.base.timer import Timer
@@ -25,11 +25,11 @@ from module.ui.switch import Switch
 
 
 class ModeSwitch(Switch):
-    """战役模式切换开关。
+    """Переключатель режима кампании.
 
-    扩展 Switch 类，在切换过程中检测 WITHDRAW 按钮出现的异常情况。
-    如果在模式切换时意外出现撤退按钮，说明进入了错误的地图状态，
-    会抛出 CampaignNameError 进行异常恢复。
+    Расширяет класс Switch, отслеживая аномальное появление кнопки WITHDRAW в процессе переключения.
+    Если во время переключения режима неожиданно появляется кнопка отступления, это свидетельствует о некорректном
+    состоянии карты, что вызывает CampaignNameError для восстановления после сбоя.
     """
 
     def handle_additional(self, main):
@@ -67,13 +67,13 @@ ASIDE_SWITCH_20260326.set_unknown_timer = Timer(0.6, count=2)
 
 def is_digit_chapter(chapter):
     """
-    判断章节是否为数字章节。
+    Определяет, является ли глава числовой.
 
     Args:
-         chapter (int, str): 章节名称，如 7、'd'、'sp'。
+         chapter (int, str): Обозначение главы, например 7, 'd', 'sp'.
 
     Returns:
-        bool: 是否为数字章节。
+        bool: Является ли глава числовой.
     """
     if isinstance(chapter, int):
         return True
@@ -84,32 +84,31 @@ def is_digit_chapter(chapter):
 
 
 class CampaignUI(MapOperation, CampaignEvent, CampaignOcr):
-    """战役 UI 导航与管理类。
+    """Класс навигации и управления UI кампании.
 
-    提供战役界面的所有 UI 操作能力，包括章节切换、模式切换、
-    关卡入口获取等。支持主线战役、活动战役、SP 章节和作战档案
-    等多种战役类型。
+    Предоставляет все необходимые операции с интерфейсом кампании, включая смену глав, смену режимов,
+    получение входов на этапы и т. д. Поддерживает основную кампанию, события, главы SP и Военный архив.
 
-    通过组合 MapOperation（地图操作）、CampaignEvent（活动检测）
-    和 CampaignOcr（章节 OCR 识别）实现完整的战役 UI 管理。
+    Объединяет функционал MapOperation (управление картой), CampaignEvent (проверка событий)
+    и CampaignOcr (распознавание глав через OCR) в единую систему управления интерфейсом кампании.
 
-    本类是 CampaignBase 的父类之一，为战役执行提供 UI 层支持。
+    Является одним из базовых классов CampaignBase, обеспечивая поддержку уровня пользовательского интерфейса.
 
     Attributes:
-        ENTRANCE (Button): 当前关卡的入口按钮，由 ensure_campaign_ui() 设置。
-        stage_entrance (dict): 关卡名称到入口按钮的映射字典，
-            由 CampaignOcr 的模板匹配生成。
-        campaign_chapter (str): 当前章节标识，如 '7'、'd'、'sp'。
+        ENTRANCE (Button): Кнопка входа на текущий этап, устанавливается через `ensure_campaign_ui()`.
+        stage_entrance (dict): Словарь сопоставления названий этапов с их кнопками входа,
+            генерируемый сопоставлением шаблонов CampaignOcr.
+        campaign_chapter (str): Идентификатор текущей главы, например '7', 'd', 'sp'.
     """
     ENTRANCE = Button(area=(), color=(), button=(), name='default_button')
 
     def campaign_ensure_chapter(self, chapter, skip_first_screenshot=True):
         """
-        确保切换到指定章节。
+        Гарантирует переключение на указанную главу.
 
         Args:
-            chapter (int, str): 章节名称，如 7、'd'、'sp'。
-            skip_first_screenshot: 是否跳过首次截图。
+            chapter (int, str): Обозначение главы, например 7, 'd', 'sp'.
+            skip_first_screenshot: Пропускать ли первый снимок экрана.
         """
         index = self._campaign_get_chapter_index(chapter)
         isdigit = is_digit_chapter(chapter)
@@ -155,19 +154,19 @@ class CampaignUI(MapOperation, CampaignEvent, CampaignOcr):
 
     def handle_chapter_additional(self):
         """
-        章节切换时的额外处理，由 campaign_ensure_chapter() 调用。
+        Дополнительная обработка при смене главы, вызываемая из campaign_ensure_chapter().
 
         Returns:
-            bool: 是否已处理。
+            bool: Была ли выполнена обработка.
         """
         return False
 
     def campaign_ensure_mode(self, mode='normal'):
         """
-        确保切换到指定战役模式。
+        Гарантирует переключение на указанный режим кампании.
 
         Args:
-            mode (str): 'normal'、'hard'、'ex'。
+            mode (str): 'normal', 'hard', 'ex'.
         """
         if mode == 'hard':
             self.config.override(Campaign_Mode='hard')
@@ -197,10 +196,10 @@ class CampaignUI(MapOperation, CampaignEvent, CampaignOcr):
 
     def campaign_ensure_mode_20241219(self, mode='combat'):
         """
-        确保切换到 20241219 版本的战役模式。
+        Гарантирует переключение на режим кампании версии 20241219.
 
         Args:
-            mode (str): 'combat' 或 'story'。
+            mode (str): 'combat' или 'story'.
         """
         if mode in ['normal', 'hard', 'ex', 'combat']:
             MODE_SWITCH_20241219.set('combat', main=self)
@@ -211,10 +210,10 @@ class CampaignUI(MapOperation, CampaignEvent, CampaignOcr):
 
     def campaign_ensure_aside_20241219(self, chapter):
         """
-        确保切换到 20241219 版本的侧边栏标签。
+        Гарантирует переключение на вкладку боковой панели версии 20241219.
 
         Args:
-            chapter: 'part1'、'part2'、'sp'、'ex'。
+            chapter: 'part1', 'part2', 'sp', 'ex'.
         """
         if chapter in ['part1', 'a', 'c', 't']:
             ASIDE_SWITCH_20241219.set('part1', main=self)
@@ -229,10 +228,10 @@ class CampaignUI(MapOperation, CampaignEvent, CampaignOcr):
 
     def campaign_ensure_aside_20260326(self, chapter):
         """
-        确保切换到 20260326 版本的侧边栏标签。
+        Гарантирует переключение на вкладку боковой панели версии 20260326.
 
         Args:
-            chapter: 'part1'、'sp'。
+            chapter: 'part1', 'sp'.
         """
         if chapter in ['part1', 't', 'ht']:
             ASIDE_SWITCH_20260326.set('part1', main=self)
@@ -243,16 +242,16 @@ class CampaignUI(MapOperation, CampaignEvent, CampaignOcr):
 
     def campaign_get_mode_names(self, name):
         """
-        获取关卡在普通和困难模式下的名称。
+        Получает варианты названий этапа в обычном и сложном режимах.
         t1 -> [t1, ht1]
         ht1 -> [t1, ht1]
         a1 -> [a1, c1]
 
         Args:
-            name (str): 关卡名称。
+            name (str): Название этапа.
 
         Returns:
-            list[str]: 普通和困难模式下的关卡名称列表。
+            list[str]: Список названий этапа в обычном и сложном режимах.
         """
         if name.startswith('t'):
             return [f't{name[1:]}', f'ht{name[1:]}']
@@ -266,13 +265,13 @@ class CampaignUI(MapOperation, CampaignEvent, CampaignOcr):
 
     def _campaign_name_is_hard(self, name):
         """
-        复用 campaign_get_mode_names() 中的定义判断是否为困难模式。
+        Повторно использует определение из campaign_get_mode_names() для проверки, является ли этап сложным.
 
         Args:
-            name: 'a1'、'ht1'、'sp1'。
+            name: 'a1', 'ht1', 'sp1'.
 
         Returns:
-            bool: 是否为困难模式关卡。
+            bool: Является ли этап сложным режимом.
         """
         mode_names = self.campaign_get_mode_names(name)
         if len(mode_names) == 2 and mode_names[1] == name:
@@ -282,13 +281,13 @@ class CampaignUI(MapOperation, CampaignEvent, CampaignOcr):
 
     def campaign_get_entrance(self, name):
         """
-        获取关卡入口按钮。
+        Получает кнопку входа на этап.
 
         Args:
-            name (str): 战役名称，如 '7-2'、'd3'、'sp3'。
+            name (str): Название этапа, например '7-2', 'd3', 'sp3'.
 
         Returns:
-            Button: 关卡入口按钮。
+            Button: Кнопка входа на этап.
         """
         entrance_name = name
         # Особый случай: d3_3 использует в UI вход d3, но загружает другую боевую логику из d3_3.py
@@ -312,16 +311,16 @@ class CampaignUI(MapOperation, CampaignEvent, CampaignOcr):
 
     def campaign_set_chapter_main(self, chapter, mode='normal'):
         """
-        设置主线战役章节。
+        Устанавливает главу основной кампании.
 
-        导航到主线战役页面，切换到指定章节和模式。
+        Переходит на страницу основной кампании и переключает на указанную главу и режим.
 
         Args:
-            chapter (str): 章节标识，如 '7'、'12'。
-            mode (str): 'normal' 或 'hard'。
+            chapter (str): Идентификатор главы, например '7', '12'.
+            mode (str): 'normal' или 'hard'.
 
         Returns:
-            bool: True 表示成功设置，False 表示不是主线数字章节。
+            bool: True при успешной установке; False, если это не числовая глава основной кампании.
         """
         if chapter.isdigit():
             self.ui_goto_campaign()
@@ -339,16 +338,16 @@ class CampaignUI(MapOperation, CampaignEvent, CampaignOcr):
 
     def campaign_set_chapter_event(self, chapter, mode='normal'):
         """
-        设置活动战役章节。
+        Устанавливает главу кампании события.
 
-        导航到活动战役页面，根据章节标识自动切换模式（a/b 为普通，c/d 为困难）。
+        Переходит на страницу кампании события и автоматически переключает режим согласно обозначению главы (a/b — обычный, c/d — сложный).
 
         Args:
-            chapter (str): 章节标识，如 'a'、'b'、'c'、'd'、'sp' 等。
-            mode (str): 'normal' 或 'hard'。
+            chapter (str): Идентификатор главы, например 'a', 'b', 'c', 'd', 'sp' и т. д.
+            mode (str): 'normal' или 'hard'.
 
         Returns:
-            bool: True 表示成功设置，False 表示不是活动章节。
+            bool: True при успешной установке; False, если это не глава события.
         """
         if chapter in ['a', 'b', 'c', 'd', 'ex_sp', 'as', 'bs', 'cs', 'ds', 't', 'ts', 'tss', 'ht', 'hts']:
             self.ui_goto_event()
@@ -365,16 +364,16 @@ class CampaignUI(MapOperation, CampaignEvent, CampaignOcr):
 
     def campaign_set_chapter_sp(self, chapter, mode='normal'):
         """
-        设置 SP 章节。
+        Устанавливает главу SP.
 
-        导航到 SP 页面并切换到 SP 章节。
+        Переходит на страницу SP и выбирает главу SP.
 
         Args:
-            chapter (str): 章节标识，必须为 'sp'。
-            mode (str): 'normal' 或 'hard'（未使用）。
+            chapter (str): Идентификатор главы, должен быть 'sp'.
+            mode (str): 'normal' или 'hard' (не используется).
 
         Returns:
-            bool: True 表示成功设置，False 表示不是 SP 章节。
+            bool: True при успешной установке; False, если это не глава SP.
         """
         if chapter == 'sp':
             self.ui_goto_sp()
@@ -385,20 +384,20 @@ class CampaignUI(MapOperation, CampaignEvent, CampaignOcr):
 
     def campaign_set_chapter_20241219(self, chapter, stage, mode='combat'):
         """
-        设置 20241219 版本活动的章节。
+        Устанавливает главу события версии 20241219.
 
-        处理 2024 年 12 月起趋于稳定的活动 UI 布局，支持多种侧边栏配置：
-        - MAP_CHAPTER_SWITCH_20241219：标准四分区（part1/part2/sp/ex）
-        - MAP_CHAPTER_SWITCH_20241219_SP：简化的 SP 布局
-        - MAP_CHAPTER_SWITCH_20241219_SPEX：带 EX 的 SP 布局
+        Обрабатывает раскладку интерфейса событий, ставшую стабильной с декабря 2024 года, с поддержкой конфигураций боковой панели:
+        - MAP_CHAPTER_SWITCH_20241219: стандартные четыре зоны (part1/part2/sp/ex)
+        - MAP_CHAPTER_SWITCH_20241219_SP: упрощённая раскладка SP
+        - MAP_CHAPTER_SWITCH_20241219_SPEX: раскладка SP с зоной EX
 
         Args:
-            chapter (str): 章节标识，如 'a'、'b'、'sp'、'ex_sp' 等。
-            stage (str): 关卡编号，如 '1'、'2'。
-            mode (str): 'combat' 或 'story'。
+            chapter (str): Идентификатор главы, например 'a', 'b', 'sp', 'ex_sp' и т. д.
+            stage (str): Номер этапа, например '1', '2'.
+            mode (str): 'combat' или 'story'.
 
         Returns:
-            bool: True 表示成功设置，False 表示不适用此版本。
+            bool: True при успешной установке; False, если версия не подходит.
         """
         if self.config.MAP_CHAPTER_SWITCH_20241219:
             if self._campaign_name_is_hard(f'{chapter}{stage}'):
@@ -486,17 +485,17 @@ class CampaignUI(MapOperation, CampaignEvent, CampaignOcr):
 
     def campaign_set_chapter_20260326(self, chapter, stage, mode='combat'):
         """
-        设置 20260326 版本活动的章节。
+        Устанавливает главу события версии 20260326.
 
-        处理 2026 年 3 月版本的活动 UI 布局，侧边栏分为 part1 和 sp 两区。
+        Обрабатывает раскладку интерфейса событий версии марта 2026 года, где боковая панель разделена на part1 и sp.
 
         Args:
-            chapter (str): 章节标识，如 't'、'ht'、'ex_sp'。
-            stage (str): 关卡编号。
-            mode (str): 'combat' 或 'story'。
+            chapter (str): Идентификатор главы, например 't', 'ht', 'ex_sp'.
+            stage (str): Номер этапа.
+            mode (str): 'combat' или 'story'.
 
         Returns:
-            bool: True 表示成功设置，False 表示不适用此版本。
+            bool: True при успешной установке; False, если версия не подходит.
         """
         if self.config.MAP_CHAPTER_SWITCH_20260326:
             if self._campaign_name_is_hard(f'{chapter}{stage}'):
@@ -520,11 +519,11 @@ class CampaignUI(MapOperation, CampaignEvent, CampaignOcr):
 
     def campaign_set_chapter(self, name, mode='normal'):
         """
-        设置战役章节。
+        Устанавливает главу кампании.
 
         Args:
-            name (str): 战役名称，如 '7-2'、'd3'、'sp3'。
-            mode (str): 'normal' 或 'hard'。
+            name (str): Название этапа, например '7-2', 'd3', 'sp3'.
+            mode (str): 'normal' или 'hard'.
         """
         # Особый случай: d3_3 использует d3 при навигации по главам
         chapter_name = name
@@ -548,10 +547,10 @@ class CampaignUI(MapOperation, CampaignEvent, CampaignOcr):
 
     def handle_campaign_ui_additional(self):
         """
-        战役 UI 的额外处理。
+        Дополнительная обработка пользовательского интерфейса кампании.
 
         Returns:
-            bool: 是否已处理。
+            bool: Была ли выполнена обработка.
         """
         if self.appear(WITHDRAW, offset=(30, 30)):
             # logger.info("发现 WITHDRAW 按钮，等待地图加载完成以防止游戏客户端 bug")
@@ -565,15 +564,15 @@ class CampaignUI(MapOperation, CampaignEvent, CampaignOcr):
 
     def ensure_campaign_ui(self, name, mode='normal', skip_first_screenshot=True):
         """
-        确保进入指定战役的 UI 界面。
+        Гарантирует переход в интерфейс указанного этапа кампании.
 
         Args:
-            name (str): 战役名称，如 '7-2'、'd3'、'sp3'。
-            mode (str): 'normal' 或 'hard'。
-            skip_first_screenshot: 是否跳过首次截图。
+            name (str): Название этапа, например '7-2', 'd3', 'sp3'.
+            mode (str): 'normal' или 'hard'.
+            skip_first_screenshot: Пропускать ли первый снимок экрана.
 
         Raises:
-            ScriptEnd: 重试后仍切换失败时抛出。
+            ScriptEnd: Выбрасывается, если после всех попыток не удалось перейти к этапу.
         """
         timeout = Timer(5, count=20).start()
         while 1:
@@ -599,9 +598,9 @@ class CampaignUI(MapOperation, CampaignEvent, CampaignOcr):
 
     def commission_notice_show_at_campaign(self):
         """
-        检查战役界面是否显示委托完成通知。
+        Проверяет, отображается ли в интерфейсе кампании уведомление о завершении поручений.
 
         Returns:
-            bool: 是否有委托已完成。
+            bool: Завершено ли какое-либо поручение.
         """
         return self.appear(CAMPAIGN_CHECK, offset=(20, 20)) and self.appear(COMMISSION_NOTICE_AT_CAMPAIGN)

@@ -1,20 +1,20 @@
-"""大世界战役运行模块。
+"""Модуль выполнения кампании Операции «Сирена».
 
-管理大世界（Operation Siren）任务的执行流程。
+Управляет процессом выполнения задач Операции «Сирена» (Operation Siren).
 
-大世界是一个独立于主线战役的开放世界系统，有自己的：
-- 行动力（Action Point）机制
-- 适应性（Adaptability）系统
-- 净化装置（Purification Device）
-- 港口商店和任务系统
+Операция «Сирена» — это независимый от основной кампании режим открытого мира со своими механиками:
+- Очки действия (Action Point)
+- Адаптивность (Adaptability)
+- Устройства очистки (Purification Device)
+- Портовые магазины и система заданий
 
-此模块负责：
-- 加载大世界配置和地图操作实例
-- 处理行动力溢出保护
-- 大世界任务的延迟和调度
-- 行动力不足时的任务延迟
+Данный модуль отвечает за:
+- Загрузку конфигурации Операции «Сирена» и экземпляра управления картой
+- Защиту от переполнения очков действия
+- Откладывание и диспетчеризацию задач режима
+- Откладывание задач при нехватке очков действия
 
-继承自 OSMapOperation，提供大世界地图操作能力。
+Наследуется от OSMapOperation, предоставляя возможности управления картой ОС.
 """
 
 from module.config.utils import get_os_reset_remain
@@ -26,12 +26,12 @@ from module.os_handler.action_point import ActionPointLimit
 
 
 class OSCampaignRun(OSMapOperation):
-    """大世界战役运行器。
+    """Исполнитель кампании Операции «Сирена».
 
-    管理大世界任务的执行，包括行动力保护和任务调度。
+    Управляет выполнением задач Операции «Сирена», включая защиту очков действия и диспетчеризацию задач.
 
     Attributes:
-        PREVENT_AP_OVERFLOW_TASK (str): 防止行动力溢出的任务名称。
+        PREVENT_AP_OVERFLOW_TASK (str): Имя задачи предотвращения переполнения очков действия.
     """
     PREVENT_AP_OVERFLOW_TASK = 'OpsiPreventActionPointOverflow'
 
@@ -48,7 +48,7 @@ class OSCampaignRun(OSMapOperation):
         self.config.opsi_task_delay(ap_limit=True, ap_limit_minutes=delay_minutes)
 
     def _run_opsi_task_with_ap_overflow_guard(self, runner):
-        """运行普通大世界任务时临时关闭防溢出任务，并在结束时恢复调度。"""
+        """Временно отключает задачу защиты от переполнения ОД при выполнении обычной задачи ОС и восстанавливает её по завершении."""
         campaign = None
         prevent_enabled = self.config.is_task_enabled(self.PREVENT_AP_OVERFLOW_TASK)
         if prevent_enabled:
