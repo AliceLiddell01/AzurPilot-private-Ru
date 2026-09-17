@@ -1,24 +1,24 @@
-"""舰队管理和地图行走模块。
+"""Модуль управления флотами и перемещения по карте.
 
-管理地图探索中的舰队操作，是地图自动化的核心模块。
+Управляет действиями флотов при исследовании карты; является ключевым модулем автоматизации карты.
 
-核心职责：
-- 舰队位置追踪：实时记录舰队1、舰队2和潜艇的位置
-- 舰队行走：控制舰队在网格间移动，处理移动过程中的各种事件
-- 战斗管理：追踪战斗次数、弹药消耗和敌人状态
-- 回合系统：管理可移动敌人和迷宫的回合机制
-- 路径规划：初始化寻路系统，处理路障和可通行性
-- 潜艇操作：控制潜艇移动和狩猎区域调整
+Основные обязанности:
+- Отслеживание положения флотов: непрерывная фиксация координат флота 1, флота 2 и подлодок
+- Перемещение флотов: управление переходами между клетками сетки и обработка сопутствующих событий
+- Управление боями: отслеживание количества боёв, расхода боеприпасов и состояния врагов
+- Система ходов: управление механикой ходов подвижных врагов и лабиринта
+- Построение маршрутов: инициализация системы поиска пути, преодоление препятствий и проверка проходимости
+- Управление подлодками: перемещение подлодок и корректировка зоны охоты
 
-行走流程：
-1. 初始化地图数据和相机
-2. 扫描全图发现敌人和事件
-3. 规划路径到达目标格子
-4. 处理行走过程中的事件（战斗、伏击、神秘格子）
-5. 更新敌人状态和回合计数
-6. 检查是否有敌人移动触发重新规划
+Порядок перемещения:
+1. Инициализация данных карты и камеры
+2. Сканирование всей карты для обнаружения врагов и событий
+3. Планирование маршрута к целевой клетке
+4. Обработка событий в процессе движения (бои, засады, таинственные клетки)
+5. Обновление статуса врагов и счётчика ходов
+6. Проверка перемещения врагов для возможного пересчёта маршрута
 
-继承链：Fleet -> Camera -> MapOperation -> AmbushHandler -> Combat -> ...
+Цепочка наследования: Fleet -> Camera -> MapOperation -> AmbushHandler -> Combat -> ...
 """
 
 import itertools
@@ -35,22 +35,23 @@ from module.map.utils import match_movable
 
 
 class Fleet(Camera, AmbushHandler):
-    """舰队管理和地图行走控制器。
+    """Контроллер управления флотами и перемещения по карте.
 
-    追踪多个舰队的位置、战斗状态和弹药，并提供完整的地图行走逻辑。
-    行走过程中自动处理战斗、伏击、空袭、神秘格子等事件。
+    Отслеживает координаты нескольких флотов, боевой статус и боеприпасы,
+    предоставляя полную логику перемещения по карте.
+    Во время движения автоматически обрабатывает бои, засады, авианалёты, таинственные клетки и другие события.
 
     Attributes:
-        fleet_1_location (tuple): 舰队1的全局坐标位置。
-        fleet_2_location (tuple): 舰队2的全局坐标位置。
-        fleet_submarine_location (tuple): 潜艇的全局坐标位置。
-        battle_count (int): 当前地图中的战斗次数。
-        mystery_count (int): 当前地图中的神秘事件次数。
-        siren_count (int): 当前地图中的塞壬（精英敌人）战斗次数。
-        fleet_ammo (int): 舰队剩余弹药数，初始为 5。
-        ammo_count (int): 地图中的弹药补给格数量。
-        round (int): 当前回合数，用于可移动敌人系统。
-        enemy_round (dict): 敌人出现的回合记录，键为回合数，值为敌人数量。
+        fleet_1_location (tuple): Глобальные координаты флота 1.
+        fleet_2_location (tuple): Глобальные координаты флота 2.
+        fleet_submarine_location (tuple): Глобальные координаты подводной лодки.
+        battle_count (int): Количество проведённых боёв на текущей карте.
+        mystery_count (int): Количество посещённых таинственных событий на карте.
+        siren_count (int): Количество боёв с Сиренами (элитными врагами).
+        fleet_ammo (int): Оставшийся запас боеприпасов флота (по умолчанию 5).
+        ammo_count (int): Количество клеток пополнения боеприпасов на карте.
+        round (int): Номер текущего хода для системы подвижных врагов.
+        enemy_round (dict): История появления врагов по ходам (номер хода -> число врагов).
     """
     fleet_1_location = ()
     fleet_2_location = ()
@@ -154,7 +155,7 @@ class Fleet(Camera, AmbushHandler):
     enemy_round = {}
 
     def round_next(self):
-        """舰队到达后调用此方法。
+        """Вызывается после прибытия флота на целевую клетку.
         """
         if not self.config.MAP_HAS_MOVABLE_ENEMY and not self.config.MAP_HAS_MAZE:
             return False
@@ -162,7 +163,7 @@ class Fleet(Camera, AmbushHandler):
         logger.info(f'[Карта — ход] Ход: {self.round}, ход противника: {self.enemy_round}')
 
     def round_battle(self, after_battle=True):
-        """清除敌人后调用此方法。
+        """Вызывается после уничтожения врага.
         """
         if not self.config.MAP_HAS_MOVABLE_ENEMY:
             return False
@@ -184,7 +185,7 @@ class Fleet(Camera, AmbushHandler):
             self.enemy_round[r] = self.enemy_round.get(r, 0) + enemy
 
     def round_reset(self):
-        """进入地图后调用此方法。
+        """Вызывается при входе на карту.
         """
         self.round = 0
         self.enemy_round = {}
@@ -193,8 +194,8 @@ class Fleet(Camera, AmbushHandler):
     def round_enemy_turn(self):
         """
         Returns:
-            tuple[int]: 敌人移动回合数，即玩家移动 X 次后敌人移动一次。
-                        返回元组因为不同敌人可能有不同的 X 值。
+            tuple[int]: Интервал ходов перемещения врагов (враги двигаются один раз каждые X ходов игрока).
+                        Возвращается кортеж, так как у разных врагов могут быть различные значения X.
         """
         if self.config.MAP_HAS_MOVABLE_ENEMY:
             if self.config.MAP_HAS_MOVABLE_NORMAL_ENEMY:
@@ -209,14 +210,14 @@ class Fleet(Camera, AmbushHandler):
 
     @property
     def round_is_new(self):
-        """通常 MOVABLE_ENEMY_TURN = 2，即一个行走回合为 `玩家-玩家-敌人`，玩家移动两次，敌人移动一次。
+        """Обычно MOVABLE_ENEMY_TURN = 2, то есть цикл перемещения строится как «игрок-игрок-враг» (два хода игрока, один ход врагов).
 
-        不同塞壬有不同的 MOVABLE_ENEMY_TURN：
-            2: 非塞壬精英, SIREN_CL
+        У разных Сирен значение MOVABLE_ENEMY_TURN различается:
+            2: неэлитные Сирены, SIREN_CL
             3: SIREN_CA
 
         Returns:
-            bool: 是否为新的行走回合（即敌人已移动）。
+            bool: Наступил ли новый цикл перемещения (переместились ли враги).
         """
         if not self.config.MAP_HAS_MOVABLE_ENEMY:
             return False
@@ -231,7 +232,7 @@ class Fleet(Camera, AmbushHandler):
     def round_wait(self):
         """
         Returns:
-            float: 等待敌人移动的秒数。
+            float: Время ожидания перемещения врагов в секундах.
         """
         second = 0
         if self.config.MAP_HAS_MOVABLE_ENEMY:
@@ -258,7 +259,7 @@ class Fleet(Camera, AmbushHandler):
     def round_maze_changed(self):
         """
         Returns:
-            bool: 迷宫是否在本轮开始时发生变化。
+            bool: Изменилась ли конфигурация лабиринта в начале этого хода.
         """
         if not self.config.MAP_HAS_MAZE:
             return False
@@ -267,10 +268,10 @@ class Fleet(Camera, AmbushHandler):
     def maze_active_on(self, grid):
         """
         Args:
-            grid: 格子坐标。
+            grid: Координаты клетки.
 
         Returns:
-            bool: 迷宫墙壁是否在指定格子上。
+            bool: Находится ли стена лабиринта на указанной клетке.
         """
         if not self.config.MAP_HAS_MAZE:
             return False
@@ -289,12 +290,12 @@ class Fleet(Camera, AmbushHandler):
         return (sight[0], 0, sight[2], sight[3])
 
     def _goto(self, location, expected=''):
-        """直接前往目标格子，并处理伏击、空袭、神秘事件、战斗。
+        """Направиться непосредственно к целевой клетке с обработкой засад, авианалётов, таинственных событий и боёв.
 
         Args:
-            location (tuple, str, GridInfo): 目标格子。
-            expected (str): 目标格子上的预期结果，如 'combat'、'combat_siren'、'mystery'。
-                到达时结果不符将发出警告。
+            location (tuple, str, GridInfo): Целевая клетка.
+            expected (str): Ожидаемый результат на клетке ('combat', 'combat_siren', 'mystery' и т. д.).
+                При несовпадении выводится предупреждение.
         """
         location = location_ensure(location)
         result_mystery = ''
@@ -512,11 +513,11 @@ class Fleet(Camera, AmbushHandler):
     def goto(self, location, expected='', step_optimize=None, turning_optimize=None):
         """
         Args:
-            location (tuple, str, GridInfo): 目标格子。
-            expected (str): 目标格子上的预期结果，如 'combat'、'combat_siren'、'mystery'。
-                到达时结果不符将发出警告。
-            step_optimize (bool): 为 True 时按舰队步数行走。
-            turning_optimize (bool): 为 True 时优化路线以减少伏击。
+            location (tuple, str, GridInfo): Целевая клетка.
+            expected (str): Ожидаемый результат на клетке ('combat', 'combat_siren', 'mystery' и т. д.).
+                При несовпадении выводится предупреждение.
+            step_optimize (bool): Если True, движение выполняется с учётом шага флота.
+            turning_optimize (bool): Если True, маршрут оптимизируется для снижения риска засад.
         """
         location = location_ensure(location)
         if step_optimize is None:
@@ -552,7 +553,7 @@ class Fleet(Camera, AmbushHandler):
             self._goto(location, expected=expected)
 
     def find_path_initial(self):
-        """舰队移动或进入地图后调用此方法。
+        """Вызывается после перемещения флота или при входе на карту.
         """
         if self.fleet_1_location:
             self.map[self.fleet_1_location].is_fleet = True
@@ -606,7 +607,7 @@ class Fleet(Camera, AmbushHandler):
                     self.map[loca].wipe_out()
 
     def full_scan_carrier(self):
-        """在神秘事件中获得敌人搜索时调用此方法。
+        """Вызывается при обнаружении врагов в таинственном событии (поисковая разведка).
         """
         prev = self.map.select(is_enemy=True)
         self.full_scan(mode='carrier')
@@ -614,11 +615,11 @@ class Fleet(Camera, AmbushHandler):
         logger.info(f'[Карта — флот] Точки появления авианосцев: {diff}')
 
     def full_scan_movable(self, enemy_cleared=True):
-        """敌人移动后调用此方法。
+        """Вызывается после перемещения врагов.
 
         Args:
-            enemy_cleared (bool): 为 True 表示已清除敌人且需要扫描新生成的敌人。
-                                  为 False 表示只是简单行走，仅需扫描可移动的敌人。
+            enemy_cleared (bool): Если True, враг был уничтожен и требуется сканирование вновь появившихся врагов.
+                                  Если False, было выполнено обычное перемещение, сканируются только подвижные враги.
         """
         if self.config.MAP_HAS_MOVABLE_NORMAL_ENEMY:
             if self.config.MAP_HAS_MOVABLE_ENEMY:
@@ -643,12 +644,12 @@ class Fleet(Camera, AmbushHandler):
             self.track_movable(enemy_cleared=enemy_cleared, siren=True)
 
     def track_movable(self, enemy_cleared=True, siren=True):
-        """追踪敌人移动并预测缺失的敌人。
+        """Отследить перемещение врагов и спрогнозировать недостающих врагов.
 
         Args:
-            enemy_cleared (bool): 为 True 表示已清除敌人且需要扫描新生成的敌人。
-                                  为 False 表示只是简单行走，仅需扫描可移动的敌人。
-            siren (bool): 为 True 时追踪塞壬，为 False 时追踪普通敌人。
+            enemy_cleared (bool): Если True, враг был уничтожен и требуется сканирование вновь появившихся врагов.
+                                  Если False, было выполнено обычное перемещение, сканируются только подвижные враги.
+            siren (bool): Если True, отслеживаются Сирены; если False — обычные враги.
         """
         # Track siren moving
         before = self.movable_before if siren else self.movable_before_normal
@@ -876,21 +877,21 @@ class Fleet(Camera, AmbushHandler):
         return self.fleet_submarine_location
 
     def map_init(self, map_):
-        """进入地图后、执行任何操作前应调用此方法。
+        """Вызывается при входе на карту перед выполнением любых операций.
 
         Args:
-            map_ (CampaignMap): 战役地图对象。
+            map_ (CampaignMap): Объект карты кампании.
         """
         logger.hr('Инициализация карты')
         self.map_data_init(map_)
         self.map_control_init()
 
     def map_data_init(self, map_):
-        """根据设置和地图状态初始化地图数据。
-        仅进行数据处理，不进行截图和点击操作。
+        """Инициализировать данные карты согласно настройкам и состоянию.
+        Выполняет только обработку данных без создания скриншотов и кликов.
 
         Args:
-            map_ (CampaignMap): 战役地图对象。
+            map_ (CampaignMap): Объект карты кампании.
         """
         self.fleet_1_location = ()
         self.fleet_2_location = ()
@@ -919,8 +920,8 @@ class Fleet(Camera, AmbushHandler):
         )
 
     def map_control_init(self):
-        """操作前的准备工作。
-        包括选择策略、计算血量和等级、初始化相机位置、执行首次地图扫描。
+        """Подготовительные действия перед началом операций.
+        Включает выбор стратегии, расчёт HP и уровней, инициализацию положения камеры и первое сканирование карты.
         """
         self.update()
         if not self.handle_fleet_reverse():
@@ -988,11 +989,11 @@ class Fleet(Camera, AmbushHandler):
     def fleet_at(self, grid, fleet=None):
         """
         Args:
-            grid (Grid): 格子对象。
-            fleet (int): 舰队编号，1 或 2。
+            grid (Grid): Объект клетки.
+            fleet (int): Номер флота (1 или 2).
 
         Returns:
-            bool: 舰队是否在指定格子上。
+            bool: Находится ли указанный флот на данной клетке.
         """
         if fleet is None:
             return self.fleet_current == grid.location
@@ -1004,11 +1005,11 @@ class Fleet(Camera, AmbushHandler):
     def check_accessibility(self, grid, fleet=None):
         """
         Args:
-            grid (Grid): 格子对象。
-            fleet (int, str): 舰队编号，1、2 或 'boss'。
+            grid (Grid): Объект клетки.
+            fleet (int, str): Номер флота (1, 2 или 'boss').
 
         Returns:
-            bool: 是否可达。
+            bool: Достижима ли клетка.
         """
         if fleet is None:
             return grid.is_accessible
@@ -1032,11 +1033,11 @@ class Fleet(Camera, AmbushHandler):
     def brute_find_roadblocks(self, grid, fleet=None):
         """
         Args:
-            grid (Grid): 目标格子。
-            fleet (int): 1 或 2，默认为当前舰队。
+            grid (Grid): Целевая клетка.
+            fleet (int): Номер флота (1 или 2, по умолчанию текущий флот).
 
         Returns:
-            SelectedGrids: 路障格子集合。
+            SelectedGrids: Набор клеток с препятствиями.
         """
         if fleet is not None and fleet != self.fleet_current_index:
             backup = self.fleet_current_index
@@ -1074,7 +1075,7 @@ class Fleet(Camera, AmbushHandler):
     def catch_camera_repositioning(self, destination):
         """
         Args:
-            destination (GridInfo): 全局地图格子。
+            destination (GridInfo): Клетка на глобальной карте.
         """
         appear = False
         for data in self.map.spawn_data:
@@ -1098,10 +1099,10 @@ class Fleet(Camera, AmbushHandler):
         return appear
 
     def handle_boss_appear_refocus(self, preset=None):
-        """Boss 出现后重新聚焦到之前的相机位置。
+        """Повторно сфокусировать камеру на прежней позиции после появления босса.
 
         Args:
-            preset (tuple): 预设的滑动偏移量 (x, y)。
+            preset (tuple): Предустановленное смещение свайпа (x, y).
         """
         camera = self.camera
         if preset is None:
@@ -1128,13 +1129,13 @@ class Fleet(Camera, AmbushHandler):
         self.fleet_2_formation_fixed = False
 
     def _submarine_goto(self, location):
-        """移动潜艇到指定位置。
+        """Переместить подводную лодку в указанную позицию.
 
         Args:
-            location (tuple, str, GridInfo): 目标位置。
+            location (tuple, str, GridInfo): Целевые координаты.
 
         Returns:
-            bool: 潜艇是否移动了。
+            bool: Переместилась ли подводная лодка.
 
         Pages:
             in: SUBMARINE_MOVE_CONFIRM
@@ -1191,13 +1192,13 @@ class Fleet(Camera, AmbushHandler):
         return moved
 
     def submarine_goto(self, location):
-        """打开策略面板，移动潜艇到指定位置，关闭策略面板。
+        """Открыть панель стратегии, переместить подлодку в указанную позицию и закрыть панель.
 
         Args:
-            location (tuple, str, GridInfo): 目标位置。
+            location (tuple, str, GridInfo): Целевые координаты.
 
         Returns:
-            bool: 潜艇是否移动了。
+            bool: Переместилась ли подводная лодка.
 
         Pages:
             in: IN_MAP
@@ -1217,13 +1218,13 @@ class Fleet(Camera, AmbushHandler):
         return result
 
     def submarine_move_near_boss(self, boss):
-        """将潜艇移动到 Boss 附近。
+        """Переместить подводную лодку ближе к боссу.
 
         Args:
-            boss (tuple, str, GridInfo): Boss 目标位置。
+            boss (tuple, str, GridInfo): Координаты босса.
 
         Returns:
-            bool: 潜艇是否移动了。
+            bool: Переместилась ли подводная лодка.
         """
         if not (self.is_call_submarine_at_boss and self.map.select(is_submarine_spawn_point=True)):
             return False

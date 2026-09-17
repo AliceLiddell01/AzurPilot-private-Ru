@@ -1,11 +1,12 @@
-"""地图格子集合操作。
+"""Операции над множествами клеток карты.
 
-本模块提供了 ``SelectedGrids`` 和 ``RoadGrids`` 两个核心集合类，
-用于对地图上的格子进行批量查询、过滤、排序和集合运算。
+Модуль предоставляет два ключевых класса коллекций: ``SelectedGrids`` и ``RoadGrids``,
+предназначенных для пакетного поиска, фильтрации, сортировки и операций над множествами клеток карты.
 
-``SelectedGrids`` 是格子的有序集合，支持属性过滤、索引查询、
-左连接、集合运算（并集、交集、差集）以及多种排序策略。
-``RoadGrids`` 用于表示路径上的障碍格子组合，支持路障检测。
+``SelectedGrids`` — упорядоченная коллекция клеток с поддержкой фильтрации по атрибутам,
+индексированного поиска, левого соединения (left join), теоретико-множественных операций
+(объединение, пересечение, разность) и различных стратегий сортировки.
+``RoadGrids`` представляет комбинации клеток-препятствий на маршрутах для выявления блокировок.
 """
 
 import operator
@@ -13,14 +14,15 @@ import typing as t
 
 
 class SelectedGrids:
-    """地图格子的有序集合。
+    """Упорядоченная коллекция клеток карты.
 
-    封装一组格子对象，提供丰富的查询、过滤、排序和集合运算方法。
-    支持迭代、索引、包含检查等 Python 标准协议。
+    Инкапсулирует список объектов клеток, предоставляя расширенные методы выборки,
+    фильтрации, сортировки и операций над множествами.
+    Поддерживает стандартные протоколы Python: итерацию, индексацию, проверку вхождения и т. д.
 
     Attributes:
-        grids (list): 格子对象列表。
-        indexes (dict): 预计算的索引缓存，由 ``create_index()`` 构建。
+        grids (list): Список объектов клеток.
+        indexes (dict): Кэш предварительно вычисленных индексов, создаваемых методом ``create_index()``.
     """
 
     def __init__(self, grids):
@@ -28,21 +30,21 @@ class SelectedGrids:
         self.indexes: t.Dict[tuple, SelectedGrids] = {}
 
     def __iter__(self):
-        """迭代集合中的所有格子。
+        """Итерировать по всем клеткам коллекции.
 
         Yields:
-            格子对象。
+            Объект клетки.
         """
         return iter(self.grids)
 
     def __getitem__(self, item):
-        """按索引或切片获取格子。
+        """Получить клетку по индексу или срезу.
 
         Args:
-            item (int | slice): 整数索引返回单个格子，切片返回新的 SelectedGrids。
+            item (int | slice): Целочисленный индекс возвращает отдельную клетку, срез возвращает новый объект SelectedGrids.
 
         Returns:
-            GridInfo | SelectedGrids: 单个格子或格子子集。
+            GridInfo | SelectedGrids: Отдельная клетка или подмножество клеток.
         """
         if isinstance(item, int):
             return self.grids[item]
@@ -50,38 +52,38 @@ class SelectedGrids:
             return SelectedGrids(self.grids[item])
 
     def __contains__(self, item):
-        """判断格子是否在集合中。
+        """Проверить наличие клетки в коллекции.
 
         Args:
-            item: 格子对象。
+            item: Объект клетки.
 
         Returns:
-            bool: 格子是否在集合中。
+            bool: Присутствует ли клетка в коллекции.
         """
         return item in self.grids
 
     def __str__(self):
-        """返回集合中所有格子的字符串表示。
+        """Вернуть строковое представление всех клеток коллекции.
 
         Returns:
-            str: 以逗号分隔的格子字符串列表。
+            str: Список строковых представлений клеток через запятую.
         """
         # return str([str(grid) for grid in self])
         return '[' + ', '.join([str(grid) for grid in self]) + ']'
 
     def __len__(self):
-        """返回集合中的格子数量。
+        """Вернуть количество клеток в коллекции.
 
         Returns:
-            int: 格子数量。
+            int: Количество клеток.
         """
         return len(self.grids)
 
     def __bool__(self):
-        """判断集合是否非空。
+        """Проверить, содержит ли коллекция элементы.
 
         Returns:
-            bool: 集合是否包含至少一个格子。
+            bool: Содержит ли коллекция хотя бы одну клетку.
         """
         return self.count > 0
 
@@ -90,51 +92,51 @@ class SelectedGrids:
 
     @property
     def location(self):
-        """获取集合中所有格子的坐标。
+        """Получить координаты всех клеток коллекции.
 
         Returns:
-            list[tuple]: 坐标列表，每个元素为 ``(x, y)``。
+            list[tuple]: Список координат, где каждый элемент — ``(x, y)``.
         """
         return [grid.location for grid in self.grids]
 
     @property
     def cost(self):
-        """获取集合中所有格子的寻路代价。
+        """Получить стоимость пути для всех клеток коллекции.
 
         Returns:
-            list[int]: 代价列表。
+            list[int]: Список стоимостей.
         """
         return [grid.cost for grid in self.grids]
 
     @property
     def weight(self):
-        """获取集合中所有格子的权重。
+        """Получить веса всех клеток коллекции.
 
         Returns:
-            list[int]: 权重列表。
+            list[int]: Список весов.
         """
         return [grid.weight for grid in self.grids]
 
     @property
     def count(self):
-        """获取集合中的格子数量。
+        """Получить количество клеток в коллекции.
 
         Returns:
-            int: 格子数量。
+            int: Количество клеток.
         """
         return len(self.grids)
 
     def select(self, **kwargs):
-        """按属性值过滤格子。
+        """Отфильтровать клетки по значениям атрибутов.
 
-        返回一个新集合，仅包含所有指定属性与给定值匹配的格子。
-        属性值要求类型和值都相等。
+        Возвращает новую коллекцию, содержащую только те клетки, у которых все указанные атрибуты
+        совпадают с заданными значениями (по типу и значению).
 
         Args:
-            **kwargs: 格子属性键值对，如 ``is_enemy=True``, ``may_boss=True``。
+            **kwargs: Пары имя_атрибута=значение (например, ``is_enemy=True``, ``may_boss=True``).
 
         Returns:
-            SelectedGrids: 符合条件的格子子集。
+            SelectedGrids: Подмножество клеток, удовлетворяющих условию.
         """
         def matched(obj):
             flag = True
@@ -147,15 +149,16 @@ class SelectedGrids:
         return SelectedGrids([grid for grid in self.grids if matched(grid)])
 
     def create_index(self, *attrs):
-        """根据指定属性创建索引。
+        """Создать индекс по указанным атрибутам.
 
-        将格子按给定属性的值进行分组，建立索引以加速后续的 ``indexed_select`` 查询。
+        Группирует клетки по значениям заданных атрибутов и сохраняет индекс для ускорения
+        последующих запросов через ``indexed_select``.
 
         Args:
-            *attrs: 要索引的属性名。
+            *attrs: Имена индексируемых атрибутов.
 
         Returns:
-            dict: 索引字典，键为属性值元组，值为对应的 SelectedGrids。
+            dict: Словарь индекса (кортеж значений атрибутов -> SelectedGrids).
         """
         indexes = {}
         # index_keys = [(grid.__getattribute__(attr) for attr in attrs) for grid in self.grids]
@@ -171,30 +174,30 @@ class SelectedGrids:
         return indexes
 
     def indexed_select(self, *values):
-        """使用预计算索引查询格子。
+        """Выбрать клетки по предварительно вычисленному индексу.
 
         Args:
-            *values: 索引键值，与 ``create_index`` 中的属性顺序对应。
+            *values: Значения ключей индекса в порядке, соответствующем вызову ``create_index``.
 
         Returns:
-            SelectedGrids: 匹配的格子集合，无匹配时返回空集合。
+            SelectedGrids: Набор совпавших клеток (или пустая коллекция при отсутствии совпадений).
         """
         return self.indexes.get(values, SelectedGrids([]))
 
     def left_join(self, right, on_attr, set_attr, default=None):
-        """对右侧集合执行左连接操作。
+        """Выполнить левое соединение (left join) с правой коллекцией.
 
-        根据 ``on_attr`` 指定的属性将左侧（self）和右侧格子进行匹配，
-        并将右侧格子的 ``set_attr`` 属性复制到左侧格子上。
+        Сопоставляет клетки левой (self) и правой коллекций по атрибутам ``on_attr``,
+        после чего копирует значения атрибутов ``set_attr`` из правой клетки в левую.
 
         Args:
-            right (SelectedGrids): 右侧集合（要连接的集合）。
-            on_attr (list[str]): 连接条件的属性名列表。
-            set_attr (list[str]): 需要从右侧复制到左侧的属性名列表。
-            default: 当右侧无匹配时，设置的默认值。
+            right (SelectedGrids): Правая присоединяемая коллекция.
+            on_attr (list[str]): Список имён атрибутов для условия соединения.
+            set_attr (list[str]): Список имён атрибутов, копируемых из правой клетки в левую.
+            default: Значение по умолчанию, если в правой коллекции нет совпадения.
 
         Returns:
-            SelectedGrids: self，属性已被修改。
+            SelectedGrids: self с обновлёнными атрибутами.
         """
         right.create_index(*on_attr)
         for grid in self:
@@ -210,54 +213,54 @@ class SelectedGrids:
         return self
 
     def filter(self, func):
-        """使用函数过滤格子。
+        """Отфильтровать клетки с помощью функции.
 
         Args:
-            func (callable): 过滤函数，接收一个格子对象并返回 bool。
+            func (callable): Функция-предикат, принимающая объект клетки и возвращающая bool.
 
         Returns:
-            SelectedGrids: 满足条件的格子子集。
+            SelectedGrids: Подмножество клеток, удовлетворяющих условию.
         """
         return SelectedGrids([grid for grid in self if func(grid)])
 
     def set(self, **kwargs):
-        """批量设置集合中所有格子的属性。
+        """Пакетно установить атрибуты для всех клеток коллекции.
 
         Args:
-            **kwargs: 要设置的属性键值对。
+            **kwargs: Пары имя_атрибута=значение для установки.
         """
         for grid in self:
             for key, value in kwargs.items():
                 grid.__setattr__(key, value)
 
     def get(self, attr):
-        """获取集合中所有格子的指定属性值。
+        """Получить значения указанного атрибута для всех клеток коллекции.
 
         Args:
-            attr (str): 属性名。
+            attr (str): Имя атрибута.
 
         Returns:
-            list: 各格子的属性值列表。
+            list: Список значений атрибута по всем клеткам.
         """
         return [grid.__getattribute__(attr) for grid in self.grids]
 
     def call(self, func, **kwargs):
-        """对集合中每个格子调用指定方法并收集返回值。
+        """Вызвать указанный метод для каждой клетки коллекции и вернуть список результатов.
 
         Args:
-            func (str): 方法名。
-            **kwargs: 传递给方法的关键字参数。
+            func (str): Имя метода.
+            **kwargs: Именованные аргументы, передаваемые в метод.
 
         Returns:
-            list: 各格子调用结果的列表。
+            list: Список результатов вызовов метода.
         """
         return [grid.__getattribute__(func)(**kwargs) for grid in self]
 
     def first_or_none(self):
-        """获取集合中的第一个格子，如果集合为空则返回 None。
+        """Получить первую клетку коллекции или None, если коллекция пуста.
 
         Returns:
-            GridInfo | None: 第一个格子或 None。
+            GridInfo | None: Первая клетка или None.
         """
         try:
             return self.grids[0]
@@ -265,26 +268,26 @@ class SelectedGrids:
             return None
 
     def add(self, grids):
-        """与另一个集合合并（使用 ``__hash__`` 去重）。
+        """Объединить с другой коллекцией (дедупликация через ``__hash__``).
 
         Args:
-            grids (SelectedGrids): 要合并的格子集合。
+            grids (SelectedGrids): Присоединяемая коллекция клеток.
 
         Returns:
-            SelectedGrids: 合并后的格子集合。
+            SelectedGrids: Объединённая коллекция клеток.
         """
         return SelectedGrids(list(set(self.grids + grids.grids)))
 
     def add_by_eq(self, grids):
-        """与另一个集合合并，使用 ``__eq__`` 去重（而非 ``__hash__``）。
+        """Объединить с другой коллекцией (дедупликация через ``__eq__``, а не ``__hash__``).
 
-        当格子对象未正确实现 ``__hash__`` 时使用此方法替代 ``add()``。
+        Используется вместо ``add()``, когда у объектов клеток не реализован корректный ``__hash__``.
 
         Args:
-            grids (SelectedGrids): 要合并的格子集合。
+            grids (SelectedGrids): Присоединяемая коллекция клеток.
 
         Returns:
-            SelectedGrids: 合并后的格子集合。
+            SelectedGrids: Объединённая коллекция клеток.
         """
         new = []
         for grid in self.grids + grids.grids:
@@ -294,24 +297,24 @@ class SelectedGrids:
         return SelectedGrids(new)
 
     def intersect(self, grids):
-        """与另一个集合取交集（使用 ``__hash__`` 比较）。
+        """Найти пересечение с другой коллекцией (сравнение через ``__hash__``).
 
         Args:
-            grids (SelectedGrids): 要取交集的格子集合。
+            grids (SelectedGrids): Вторая коллекция клеток.
 
         Returns:
-            SelectedGrids: 交集格子集合。
+            SelectedGrids: Пересечение коллекций клеток.
         """
         return SelectedGrids(list(set(self.grids).intersection(set(grids.grids))))
 
     def intersect_by_eq(self, grids):
-        """与另一个集合取交集，使用 ``__eq__`` 比较（而非 ``__hash__``）。
+        """Найти пересечение с другой коллекцией (сравнение через ``__eq__``, а не ``__hash__``).
 
         Args:
-            grids (SelectedGrids): 要取交集的格子集合。
+            grids (SelectedGrids): Вторая коллекция клеток.
 
         Returns:
-            SelectedGrids: 交集格子集合。
+            SelectedGrids: Пересечение коллекций клеток.
         """
         new = []
         for grid in self.grids:
@@ -321,25 +324,25 @@ class SelectedGrids:
         return SelectedGrids(new)
 
     def delete(self, grids):
-        """从集合中删除指定格子。
+        """Удалить указанные клетки из коллекции.
 
         Args:
-            grids (SelectedGrids): 要删除的格子集合。
+            grids (SelectedGrids): Коллекция удаляемых клеток.
 
         Returns:
-            SelectedGrids: 删除后的格子集合。
+            SelectedGrids: Коллекция после удаления.
         """
         g = [grid for grid in self.grids if grid not in grids]
         return SelectedGrids(g)
 
     def sort(self, *args):
-        """按指定属性对格子排序。
+        """Отсортировать клетки по указанным атрибутам.
 
         Args:
-            *args (str): 用于排序的属性名，按优先级从高到低排列。
+            *args (str): Имена атрибутов для сортировки в порядке убывания приоритета.
 
         Returns:
-            SelectedGrids: 排序后的格子集合。
+            SelectedGrids: Отсортированная коллекция клеток.
         """
         if not self:
             return self
@@ -350,13 +353,13 @@ class SelectedGrids:
             return self
 
     def sort_by_camera_distance(self, camera):
-        """按与相机位置的曼哈顿距离排序格子。
+        """Отсортировать клетки по манхэттенскому расстоянию до камеры.
 
         Args:
-            camera (tuple): 相机位置坐标 ``(x, y)``。
+            camera (tuple): Координаты камеры ``(x, y)``.
 
         Returns:
-            SelectedGrids: 按距离从近到远排序的格子集合。
+            SelectedGrids: Коллекция клеток, отсортированная по возрастанию расстояния.
         """
         import numpy as np
         if not self:
@@ -368,18 +371,18 @@ class SelectedGrids:
         return SelectedGrids(grids)
 
     def sort_by_clock_degree(self, center=(0, 0), start=(0, 1), clockwise=True):
-        """按时钟角度排序格子。
+        """Отсортировать клетки по полярному углу.
 
-        以 center 为原点，以 start 方向为 0 度，按角度对格子进行排序。
-        默认顺时针排序。
+        Принимает center за начало координат, направление start за 0 градусов и сортирует клетки по углу.
+        По умолчанию сортировка по часовой стрелке.
 
         Args:
-            center (tuple): 原点坐标。
-            start (tuple): 起始方向坐标，此方向被视为 theta=0。
-            clockwise (bool): True 为顺时针，False 为逆时针。
+            center (tuple): Координаты центра (начала координат).
+            start (tuple): Координаты начального направления (соответствует углу theta=0).
+            clockwise (bool): True для сортировки по часовой стрелке, False — против часовой стрелки.
 
         Returns:
-            SelectedGrids: 按角度排序的格子集合。
+            SelectedGrids: Коллекция клеток, отсортированная по углу.
         """
         import numpy as np
         if not self:
@@ -396,13 +399,14 @@ class SelectedGrids:
 
 
 class RoadGrids:
-    """路径障碍格子组合。
+    """Комбинация клеток-препятствий на пути.
 
-    用于表示地图路径上的障碍点，每个障碍点可能对应多个候选格子（例如
-    一个障碍点可能包含两选一的敌人格子）。支持路障检测和路线组合。
+    Представляет точки препятствий на маршруте, где каждой точке может соответствовать несколько
+    клеток-кандидатов (например, выбор из двух альтернативных клеток врагов).
+    Поддерживает обнаружение дорожных заторов и комбинацию маршрутов.
 
     Attributes:
-        grids (list[SelectedGrids]): 障碍格子组列表，每个元素是一个候选格子集合。
+        grids (list[SelectedGrids]): Список групп клеток-препятствий, где каждый элемент — набор клеток-кандидатов.
     """
 
     def __init__(self, grids):
@@ -418,20 +422,20 @@ class RoadGrids:
                 self.grids.append(SelectedGrids(grids=[grid]))
 
     def __str__(self):
-        """返回路径障碍的字符串表示。
+        """Вернуть строковое представление препятствий маршрута.
 
         Returns:
-            str: 以 ' - ' 分隔的各障碍点字符串。
+            str: Строка с точками препятствий, разделёнными дефисом ' - '.
         """
         return str(' - '.join([str(grid) for grid in self.grids]))
 
     def roadblocks(self):
-        """获取已确认的路障格子。
+        """Получить подтверждённые клетки дорожных заторов (препятствий).
 
-        当一个障碍点中所有格子都是敌人时，该障碍点被视为已确认的路障。
+        Когда все клетки в точке препятствия заняты врагами, точка считается подтверждённым затором.
 
         Returns:
-            SelectedGrids: 已确认路障的格子集合。
+            SelectedGrids: Коллекция подтверждённых клеток-препятствий.
         """
         grids = []
         for block in self.grids:
@@ -440,13 +444,13 @@ class RoadGrids:
         return SelectedGrids(grids)
 
     def potential_roadblocks(self):
-        """获取潜在路障格子。
+        """Получить потенциальные клетки дорожных заторов.
 
-        当障碍点中仅有一个非敌人格子（即还需要击败一个敌人才能通过），
-        且该障碍点中没有舰队或已清除的格子时，返回该障碍点中的敌人格子。
+        Когда в точке препятствия остаётся ровно одна клетка без врага (для прохода требуется победить одного врага),
+        и при этом в точке нет флота или зачищенных клеток, возвращаются клетки врагов этой точки.
 
         Returns:
-            SelectedGrids: 潜在路障中的敌人格子集合。
+            SelectedGrids: Коллекция клеток врагов в потенциальных заторах.
         """
         grids = []
         for block in self.grids:
@@ -459,12 +463,12 @@ class RoadGrids:
         return SelectedGrids(grids)
 
     def first_roadblocks(self):
-        """获取第一个需要处理的路障格子。
+        """Получить первые клетки дорожных заторов, требующие устранения.
 
-        返回所有未清除且不含舰队的障碍点中的敌人格子。
+        Возвращает клетки врагов во всех незачищенных точках препятствий, где отсутствует флот.
 
         Returns:
-            SelectedGrids: 需要处理的路障敌人格子集合。
+            SelectedGrids: Коллекция клеток врагов, требующих устранения.
         """
         grids = []
         for block in self.grids:
@@ -477,15 +481,15 @@ class RoadGrids:
         return SelectedGrids(grids)
 
     def combine(self, road):
-        """将两条路线的障碍点组合为笛卡尔积。
+        """Вычислить декартово произведение точек препятствий двух маршрутов.
 
-        对 self 和 road 中的每对障碍点取并集，生成所有可能的组合。
+        Объединяет каждую пару точек препятствий из self и road, формируя все возможные комбинации.
 
         Args:
-            road (RoadGrids): 另一条路线的障碍组合。
+            road (RoadGrids): Препятствия второго маршрута.
 
         Returns:
-            RoadGrids: 组合后的障碍集合。
+            RoadGrids: Скомбинированный набор препятствий.
         """
         out = RoadGrids([])
         for select_1 in self.grids:

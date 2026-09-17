@@ -1,14 +1,14 @@
-"""战役地图基础数据结构。
+"""Базовые структуры данных карты кампании.
 
-本模块定义了战役地图的核心数据模型，包括地图对象 ``CampaignMap``、
-格子集合 ``SelectedGrids``（来自 map_grids）以及单个战役格子 ``CampaignGrid``。
+Модуль определяет ключевую модель данных карты кампании, включая объект карты ``CampaignMap``,
+коллекцию клеток ``SelectedGrids`` (из map_grids) и отдельную клетку кампании ``GridInfo``.
 
-主要职责：
-- 存储和解析地图数据（海洋、陆地、出生点、Boss 等格子类型）
-- 管理地图机制数据（传送门、墙壁、迷宫、堡垒、陆基等）
-- 提供基于 Dijkstra 的寻路算法和路径优化
-- 管理敌人刷新数据（spawn_data）和缺失敌人预测
-- 处理地图更新（合并摄像头扫描的局部数据到全局地图）
+Основные обязанности:
+- Хранение и разбор данных карты (море, суша, точки появления, клетки босса и др.)
+- Управление данными игровых механизмов (порталы, стены, лабиринты, крепости, береговые батареи)
+- Предоставление алгоритма поиска пути на основе Дейкстры и оптимизации маршрутов
+- Управление данными появления врагов (spawn_data) и прогнозирование недостающих врагов
+- Обработка обновлений карты (объединение локальных сканов камеры с глобальной картой)
 """
 
 import copy
@@ -21,38 +21,39 @@ from module.map_detection.grid_info import GridInfo
 
 
 class CampaignMap:
-    """战役地图数据结构。
+    """Структура данных карты кампании.
 
-    管理整个战役地图的格子信息、机制数据、寻路逻辑和敌人刷新预测。
-    每个战役关卡对应一个 CampaignMap 实例，包含地图形状、格子数据、
-    传送门、墙壁、迷宫、堡垒等机制的完整描述。
+    Управляет информацией о клетках карты, данными игровых механизмов, логикой поиска пути
+    и прогнозированием появления врагов для всей карты кампании.
+    Каждому уровню кампании соответствует отдельный экземпляр CampaignMap, содержащий полное описание
+    формы карты, данных клеток, порталов, стен, лабиринтов, крепостей и других механизмов.
 
     Attributes:
-        name (str): 地图名称。
-        grid_class: 格子对象的类，默认为 ``GridInfo``。
-        grids (dict[tuple, GridInfo]): 以坐标 ``(x, y)`` 为键的格子字典。
-        _shape (tuple[int, int]): 地图尺寸 ``(width, height)``。
-        _map_data (str): 默认地图数据文本。
-        _map_data_loop (str): 快进/清理模式地图数据文本。
-        _weight_data (str): 格子权重数据文本。
-        _wall_data (str): 墙壁数据文本。
-        _portal_data (list[tuple]): 传送门数据 ``[(start, end), ...]``。
-        _land_based_data (list): 陆基机制数据。
-        _maze_data (list): 迷宫机制数据。
-        maze_round (int): 迷宫机制所需的回合数。
-        _fortress_data (list): 堡垒数据 ``[enemy_grids, block_grids]``。
-        _bouncing_enemy_data (list[SelectedGrids]): 弹跳敌人路线数据。
-        _spawn_data (list[dict]): 默认敌人刷新数据。
-        _spawn_data_stack (list[dict]): 累积刷新统计。
-        _spawn_data_loop (list[dict]): 快进模式刷新数据。
-        _spawn_data_use_loop (bool): 是否使用快进模式刷新数据。
-        _camera_data (SelectedGrids): 相机位置数据。
-        _camera_data_spawn_point (SelectedGrids): 出生点检测专用相机位置。
-        _map_covered (SelectedGrids): 被覆盖的格子集合。
-        _ignore_prediction (list): 忽略的错误预测列表。
-        poor_map_data (bool): 地图数据是否不完整。
-        camera_sight (tuple[int, int, int, int]): 相机视野范围。
-        grid_connection (dict): 格子连接关系。
+        name (str): Название карты.
+        grid_class: Класс объекта клетки (по умолчанию ``GridInfo``).
+        grids (dict[tuple, GridInfo]): Словарь клеток с координатами ``(x, y)`` в качестве ключей.
+        _shape (tuple[int, int]): Размеры карты ``(width, height)``.
+        _map_data (str): Текст данных карты по умолчанию.
+        _map_data_loop (str): Текст данных карты для режима быстрой очистки.
+        _weight_data (str): Текст данных весов клеток.
+        _wall_data (str): Текст данных стен.
+        _portal_data (list[tuple]): Данные порталов ``[(start, end), ...]``.
+        _land_based_data (list): Данные механизма береговых батарей.
+        _maze_data (list): Данные механизма лабиринта.
+        maze_round (int): Период смены состояний лабиринта в ходах.
+        _fortress_data (list): Данные крепости ``[enemy_grids, block_grids]``.
+        _bouncing_enemy_data (list[SelectedGrids]): Данные маршрутов перемещающихся по циклу врагов.
+        _spawn_data (list[dict]): Данные появления врагов по умолчанию.
+        _spawn_data_stack (list[dict]): Накопительная статистика появления врагов.
+        _spawn_data_loop (list[dict]): Данные появления врагов для режима быстрой очистки.
+        _spawn_data_use_loop (bool): Флаг использования данных режима очистки.
+        _camera_data (SelectedGrids): Координаты позиций камеры.
+        _camera_data_spawn_point (SelectedGrids): Позиции камеры для проверки точек появления.
+        _map_covered (SelectedGrids): Множество перекрытых клеток.
+        _ignore_prediction (list): Список игнорируемых ошибочных прогнозов.
+        poor_map_data (bool): Флаг неполноты данных карты.
+        camera_sight (tuple[int, int, int, int]): Поле зрения камеры.
+        grid_connection (dict): Граф связей между клетками.
     """
 
     def __init__(self, name=None):
@@ -84,43 +85,43 @@ class CampaignMap:
         self.grid_connection = {}
 
     def __iter__(self):
-        """迭代地图中所有格子。
+        """Итерировать по всем клеткам карты.
 
         Yields:
-            GridInfo: 地图中的每个格子对象。
+            GridInfo: Каждый объект клетки на карте.
         """
         return iter(self.grids.values())
 
     def __getitem__(self, item):
         """
         Args:
-            item: 网格坐标。
+            item: Координаты клетки сетки.
 
         Returns:
-            GridInfo:
+            GridInfo: Объект клетки.
         """
         return self.grids[tuple(item)]
 
     def __contains__(self, item):
-        """判断坐标是否在地图范围内。
+        """Проверить, находятся ли координаты в пределах карты.
 
         Args:
-            item: 网格坐标。
+            item: Координаты клетки сетки.
 
         Returns:
-            bool: 坐标是否存在于地图中。
+            bool: Присутствуют ли координаты на карте.
         """
         return tuple(item) in self.grids
 
     @staticmethod
     def _parse_text(text):
-        """解析文本格式的网格数据。
+        """Разобрать текстовые данные сетки карты.
 
         Args:
-            text (str): 以空格分隔、换行分隔的网格数据文本。
+            text (str): Текст данных сетки с пробелами и переносами строк.
 
         Yields:
-            tuple[tuple[int, int], str]: ((x, y), data) 坐标与数据对。
+            tuple[tuple[int, int], str]: Пара ((x, y), data) координат и текстовых данных клетки.
         """
         text = text.strip()
         for y, row in enumerate(text.split('\n')):
@@ -130,12 +131,12 @@ class CampaignMap:
 
     @property
     def shape(self):
-        """地图尺寸。
+        """Размеры карты.
 
-        设置时会根据尺寸初始化所有格子，生成默认相机数据，并将权重设为 10。
+        При установке инициализирует все клетки, формирует стандартные данные камеры и задаёт вес 10.
 
         Returns:
-            tuple[int, int]: 地图尺寸 ``(width, height)``。
+            tuple[int, int]: Размеры карты ``(width, height)``.
         """
         return self._shape
 
@@ -157,12 +158,12 @@ class CampaignMap:
 
     @property
     def map_data(self):
-        """默认地图数据。
+        """Данные карты по умолчанию.
 
-        设置时会自动解析并加载地图格子信息。
+        При установке автоматически разбирает и загружает информацию о клетках карты.
 
         Returns:
-            str: 默认地图数据文本。
+            str: Текст данных карты по умолчанию.
         """
         return self._map_data
 
@@ -173,10 +174,10 @@ class CampaignMap:
 
     @property
     def map_data_loop(self):
-        """快进/清理模式地图数据。
+        """Данные карты для режима быстрой очистки.
 
         Returns:
-            str: 快进模式地图数据文本。
+            str: Текст данных карты в режиме быстрой очистки.
         """
         return self._map_data_loop
 
@@ -187,8 +188,8 @@ class CampaignMap:
     def load_map_data(self, use_loop=False):
         """
         Args:
-            use_loop (bool): 是否为清理模式。
-                             清理模式（正确名称）== 快进模式（旧版 Alas）== loop（lua 文件中）
+            use_loop (bool): Использовать ли режим быстрой очистки.
+                             Режим очистки (Clear mode) == быстрый режим (старый Alas) == loop (в файлах Lua).
         """
         has_loop = bool(len(self.map_data_loop))
         logger.info(f'[Карта — данные] Загрузка данных карты: цикл={has_loop}, использовать цикл={use_loop}')
@@ -198,12 +199,12 @@ class CampaignMap:
             self._load_map_data(self.map_data)
 
     def _load_map_data(self, text):
-        """将文本格式的地图数据解析并写入格子。
+        """Разобрать текстовые данные карты и записать их в клетки.
 
-        如果格子尚未初始化，会先根据数据尺寸设置地图形状。
+        Если клетки ещё не инициализированы, предварительно задаёт размеры карты по габаритам данных.
 
         Args:
-            text (str): 以空格分隔、换行分隔的网格数据文本。
+            text (str): Текст данных сетки с пробелами и переносами строк.
         """
         if not len(self.grids.keys()):
             grids = np.array([loca for loca, _ in self._parse_text(text)])
@@ -214,12 +215,12 @@ class CampaignMap:
 
     @property
     def wall_data(self):
-        """墙壁数据文本。
+        """Текст данных стен.
 
-        设置时仅保存文本，实际加载由 ``grid_connection_initial(wall=True)`` 执行。
+        При установке только сохраняет текст; фактическая загрузка выполняется вызовом ``grid_connection_initial(wall=True)``.
 
         Returns:
-            str: 墙壁数据文本。
+            str: Текст данных стен.
         """
         return self._wall_data
 
@@ -229,12 +230,12 @@ class CampaignMap:
 
     @property
     def portal_data(self):
-        """传送门数据。
+        """Данные порталов.
 
-        设置时会解析传送门对并标记源格子为传送门。
+        При установке разбирает пары порталов и помечает исходные клетки как порталы.
 
         Returns:
-            list[tuple]: 传送门数据 ``[(start_location, end_location), ...]``。
+            list[tuple]: Данные порталов ``[(start_location, end_location), ...]``.
         """
         return self._portal_data
 
@@ -251,10 +252,10 @@ class CampaignMap:
 
     @property
     def land_based_data(self):
-        """陆基机制数据。
+        """Данные механизма береговых батарей.
 
         Returns:
-            list: 陆基数据，每个元素为 ``[grid_node, rotation]``。
+            list: Данные батарей, где каждый элемент — ``[grid_node, rotation]``.
         """
         return self._land_based_data
 
@@ -264,10 +265,10 @@ class CampaignMap:
 
     def _load_land_base_data(self, data):
         """
-        land_based_data 需要在 map_data 之后设置。
+        land_based_data необходимо устанавливать после map_data.
 
         Args:
-            data (list[list[str]]): 例如 [['H7', 'up'], ['D5', 'left'], ['G3', 'down'], ['C2', 'right']]
+            data (list[list[str]]): Например, [['H7', 'up'], ['D5', 'left'], ['G3', 'down'], ['C2', 'right']]
         """
         rotation_dict = {
             'up': [(0, -1), (0, -2), (0, -3)],
@@ -286,10 +287,10 @@ class CampaignMap:
 
     @property
     def maze_data(self):
-        """迷宫机制数据。
+        """Данные механизма лабиринта.
 
         Returns:
-            list: 迷宫数据，每个元素为包含三组坐标的元组。
+            list: Данные лабиринта, где каждый элемент — кортеж из трёх групп координат.
         """
         return self._maze_data
 
@@ -298,12 +299,12 @@ class CampaignMap:
         self._maze_data = data
 
     def _load_maze_data(self, data):
-        """加载迷宫机制数据并标记相关格子。
+        """Загрузить данные механизма лабиринта и пометить соответствующие клетки.
 
-        为每个迷宫组设置 ``is_maze`` 标记和回合范围，并计算迷宫格子附近的可达区域。
+        Задаёт флаг ``is_maze`` и диапазон ходов для каждой группы, а также вычисляет зоны достижимости рядом с клетками лабиринта.
 
         Args:
-            data (list): 迷宫数据，例如 [('D5', 'I4', 'J6'), ('C4', 'E4', 'D8'), ('C2', 'G2', 'G6')]
+            data (list): Данные лабиринта, например [('D5', 'I4', 'J6'), ('C4', 'E4', 'D8'), ('C2', 'G2', 'G6')]
         """
         self._maze_data = data
         self.maze_round = len(data) * 3
@@ -316,10 +317,10 @@ class CampaignMap:
 
     @property
     def fortress_data(self):
-        """堡垒机制数据。
+        """Данные механизма крепости.
 
         Returns:
-            list: ``[enemy_grids, block_grids]``，敌人格子和阻挡格子。
+            list: ``[enemy_grids, block_grids]`` — клетки врагов и клетки блокировки.
         """
         return self._fortress_data
 
@@ -333,13 +334,13 @@ class CampaignMap:
         self._fortress_data = [enemy, block]
 
     def _load_fortress_data(self, data):
-        """加载堡垒机制数据并标记相关格子。
+        """Загрузить данные механизма крепости и пометить соответствующие клетки.
 
-        将敌人格子标记为 ``is_fortress=True``，将阻挡格子标记为 ``is_mechanism_block=True``。
+        Помечает клетки врагов флагом ``is_fortress=True``, а клетки блокировки флагом ``is_mechanism_block=True``.
 
         Args:
-            data (list): [fortress_enemy, fortress_block]，可以是字符串或字符串的元组/列表。
-                例如 [('B5', 'E2', 'H5', 'E8'), 'G3'] 或 ['F5', 'G1']
+            data (list): [fortress_enemy, fortress_block] в виде строк или списков/кортежей строк.
+                Например: [('B5', 'E2', 'H5', 'E8'), 'G3'] или ['F5', 'G1']
         """
         self._fortress_data = data
         enemy, block = data
@@ -348,10 +349,10 @@ class CampaignMap:
 
     @property
     def bouncing_enemy_data(self):
-        """弹跳敌人路线数据。
+        """Данные маршрутов перемещающихся по циклу врагов.
 
         Returns:
-            list[SelectedGrids]: 弹跳敌人路线列表，每条路线为一个格子集合。
+            list[SelectedGrids]: Список маршрутов врагов, где каждый маршрут — коллекция клеток.
         """
         return self._bouncing_enemy_data
 
@@ -362,22 +363,22 @@ class CampaignMap:
     def _load_bouncing_enemy_data(self, data):
         """
         Args:
-            data (list[SelectedGrids]): 敌人弹跳路线经过的格子。
-                [enemy_route, enemy_route, ...]，例如 [(C2, C3, C4), ]
+            data (list[SelectedGrids]): Клетки, через которые проходит маршрут перемещающегося врага.
+                [enemy_route, enemy_route, ...], например [(C2, C3, C4), ]
         """
         for route in data:
             route.set(may_bouncing_enemy=True)
 
     def load_mechanism(self, land_based=False, maze=False, fortress=False, bouncing_enemy=False):
-        """加载地图机制数据。
+        """Загрузить данные игровых механизмов карты.
 
-        根据标志位决定加载哪些机制数据到地图格子上。
+        На основе переданных флагов загружает данные соответствующих механизмов в клетки карты.
 
         Args:
-            land_based (bool): 是否加载陆基机制。
-            maze (bool): 是否加载迷宫机制。
-            fortress (bool): 是否加载堡垒机制。
-            bouncing_enemy (bool): 是否加载弹跳敌人机制。
+            land_based (bool): Загружать ли береговые батареи.
+            maze (bool): Загружать ли лабиринт.
+            fortress (bool): Загружать ли крепость.
+            bouncing_enemy (bool): Загружать ли перемещающихся врагов.
         """
         logger.info(f'[Карта — данные] Загрузка механизмов: land_base={land_based}, maze={maze}, fortress={fortress}, '
                     f'bouncing_enemy={bouncing_enemy}')
@@ -393,11 +394,11 @@ class CampaignMap:
     def grid_connection_initial(self, wall=False, portal=False):
         """
         Args:
-            wall (bool): 是否使用 wall_data
-            portal (bool): 是否使用 portal_data
+            wall (bool): Использовать ли данные стен (wall_data).
+            portal (bool): Использовать ли данные порталов (portal_data).
 
         Returns:
-            bool: 是否使用了墙壁数据。
+            bool: Были ли применены данные стен.
         """
         logger.info(f'[Карта — связи] Связи клеток: стены={wall}, порталы={portal}')
 
@@ -447,10 +448,11 @@ class CampaignMap:
         return True
 
     def fixup_submarine_fleet(self):
-        """修正潜艇出生点的错误识别。
+        """Исправить ошибочное распознавание точек появления подводных лодок.
 
-        当一个格子被识别为舰队但不在出生点上，而其上方的格子是潜艇出生点时，
-        将舰队识别修正为潜艇识别。同时清除同时被标记为敌人和舰队的格子。
+        Когда клетка распознана как флот, но не находится в точке появления, а клетка над ней
+        является точкой появления подлодки, распознавание корректируется с «флот» на «подлодка».
+        Также очищаются клетки, одновременно помеченные как враг и как флот.
         """
         # Коррекция точек появления подлодок
         # Если клетка распознана как подлодка, клетка под ней может быть ошибочно распознана как флот из-за одинаковой иконки боезапаса
@@ -470,9 +472,9 @@ class CampaignMap:
             grid.is_current_fleet = False
 
     def show(self):
-        """在日志中显示地图网格。
+        """Отобразить сетку карты в журнале.
 
-        以文本表格形式打印整个地图，使用格子的 ``str`` 属性表示每个格子的状态。
+        Печатает всю карту в текстовом табличном формате, используя атрибут ``str`` каждой клетки для отображения состояния.
         """
         # logger.info('Showing grids:')
         logger.info('[Карта — отображение] ' + ' '.join([' ' + chr(x + 64 + 1) for x in range(self.shape[0] + 1)]))
@@ -482,18 +484,19 @@ class CampaignMap:
             logger.info(text)
 
     def update(self, grids, camera, mode='normal'):
-        """将局部扫描结果合并到全局地图。
+        """Объединить результаты локального сканирования с глобальной картой.
 
-        通过摄像头偏移将局部格子数据映射到全局坐标，进行预测校验后合并。
-        如果错误预测少于 2 个，则执行实际合并。
+        Через смещение камеры проецирует локальные данные клеток на глобальные координаты,
+        выполняет проверку прогнозов и производит слияние.
+        Если ошибочных прогнозов менее 2, выполняется фактическое объединение.
 
         Args:
-            grids (MapGrids): 局部扫描得到的格子集合。
-            camera (tuple): 摄像头在全局地图中的位置。
-            mode (str): 扫描模式，如 'init'、'normal'、'carrier'、'movable'。
+            grids (MapGrids): Набор клеток, полученных локальным сканированием.
+            camera (tuple): Положение камеры в глобальных координатах карты.
+            mode (str): Режим сканирования ('init', 'normal', 'carrier', 'movable').
 
         Returns:
-            bool: 合并是否成功。
+            bool: Успешно ли выполнено объединение.
         """
         offset = np.array(camera) - np.array(grids.center_loca)
         # grids.show()
@@ -524,12 +527,12 @@ class CampaignMap:
             return False
 
     def reset(self):
-        """重置所有格子的状态。"""
+        """Сбросить состояние всех клеток карты."""
         for grid in self:
             grid.reset()
 
     def reset_fleet(self):
-        """重置所有格子的当前舰队标记。"""
+        """Сбросить отметку текущего флота у всех клеток."""
         for grid in self:
             grid.is_current_fleet = False
 
@@ -537,7 +540,7 @@ class CampaignMap:
     def camera_data(self):
         """
         Returns:
-            SelectedGrids: 相机数据。
+            SelectedGrids: Данные камеры.
         """
         return self._camera_data
 
@@ -545,16 +548,16 @@ class CampaignMap:
     def camera_data(self, nodes):
         """
         Args:
-            nodes (list): 包含字符串节点名。
+            nodes (list): Список строковых имён узлов.
         """
         self._camera_data = SelectedGrids([self[node2location(node)] for node in nodes])
 
     @property
     def camera_data_spawn_point(self):
-        """额外的 camera_data，用于检测出生点的舰队。
+        """Дополнительные данные камеры для обнаружения флотов в точках появления.
 
         Returns:
-            SelectedGrids: 用于检测出生点舰队的额外相机数据。
+            SelectedGrids: Дополнительные данные камеры для точек появления флотов.
         """
         return self._camera_data_spawn_point
 
@@ -562,7 +565,7 @@ class CampaignMap:
     def camera_data_spawn_point(self, nodes):
         """
         Args:
-            nodes (list): 包含字符串节点名。
+            nodes (list): Список строковых имён узлов.
         """
         self._camera_data_spawn_point = SelectedGrids([self[node2location(node)] for node in nodes])
 
@@ -570,7 +573,7 @@ class CampaignMap:
     def spawn_data(self):
         """
         Returns:
-            list[dict]: 敌人刷新数据列表。
+            list[dict]: Список данных о появлении врагов.
         """
         if self._spawn_data_use_loop:
             return self._spawn_data_loop
@@ -583,10 +586,10 @@ class CampaignMap:
 
     @property
     def spawn_data_loop(self):
-        """快进模式敌人刷新数据。
+        """Данные о появлении врагов в режиме ускоренной перемотки.
 
         Returns:
-            list[dict]: 快进模式下的敌人刷新数据列表。
+            list[dict]: Список данных о появлении врагов в режиме перемотки.
         """
         return self._spawn_data_loop
 
@@ -596,18 +599,18 @@ class CampaignMap:
 
     @property
     def spawn_data_stack(self):
-        """累积的敌人刷新统计数据。
+        """Накопленная статистика появления врагов.
 
         Returns:
-            list[dict]: 每次刷新后的累积敌人统计列表。
+            list[dict]: Список накопленной статистики врагов после каждого появления.
         """
         return self._spawn_data_stack
 
     def load_spawn_data(self, use_loop=False):
-        """加载敌人刷新数据并构建累积统计。
+        """Загрузить данные о появлении врагов и построить накопленную статистику.
 
         Args:
-            use_loop (bool): 是否使用快进模式的刷新数据。
+            use_loop (bool): Использовать ли данные режима ускоренной перемотки.
         """
         has_loop = bool(len(self._spawn_data_loop))
         logger.info(f'[Карта — данные] Загрузка точек появления: цикл={has_loop}, использовать цикл={use_loop}')
@@ -619,11 +622,11 @@ class CampaignMap:
             self._load_spawn_data(self._spawn_data)
 
     def _load_spawn_data(self, data_list):
-        """解析刷新数据并构建累积统计栈。
+        """Разобрать данные о появлении и построить стек накопленной статистики.
 
         Args:
-            data_list (list[dict]): 敌人刷新数据列表，每项包含 'battle'、'enemy'、
-                'mystery'、'siren'、'boss' 等字段。
+            data_list (list[dict]): Список данных о появлении врагов; каждый элемент
+                содержит поля 'battle', 'enemy', 'mystery', 'siren', 'boss'.
         """
         spawn = {'battle': 0, 'enemy': 0, 'mystery': 0, 'siren': 0, 'boss': 0}
         for data in data_list:
@@ -636,12 +639,12 @@ class CampaignMap:
 
     @property
     def weight_data(self):
-        """格子权重数据。
+        """Данные весов клеток.
 
-        设置时自动解析并写入每个格子的权重值。
+        При установке автоматически разбирает текст и записывает вес в каждую клетку.
 
         Returns:
-            str: 格子权重数据文本。
+            str: Текстовое представление данных весов клеток.
         """
         return self._weight_data
 
@@ -655,7 +658,7 @@ class CampaignMap:
     def map_covered(self):
         """
         Returns:
-            SelectedGrids: 被覆盖的格子集合。
+            SelectedGrids: Набор покрытых клеток.
         """
         covered = []
         for grid in self:
@@ -666,19 +669,19 @@ class CampaignMap:
     def map_covered(self, nodes):
         """
         Args:
-            nodes (list): 包含字符串节点名。
+            nodes (list): Список строковых имён узлов.
         """
         self._map_covered = SelectedGrids([self[node2location(node)] for node in nodes])
 
     def ignore_prediction(self, globe, **local):
         """
         Args:
-            globe (GridInfo, tuple, str): 全局地图中的网格。
-            **local: 局部网格的任意属性。
+            globe (GridInfo, tuple, str): Клетка на глобальной карте.
+            **local: Произвольные атрибуты локальной клетки.
 
         Examples:
             MAP.ignore_prediction(D5, enemy_scale=1, enemy_genre='Enemy')
-            将忽略 D5 上的 `1E` 敌人。
+            Будет игнорировать врага ``1E`` на клетке D5.
         """
         globe = location_ensure(globe)
         self._ignore_prediction.append((globe, local))
@@ -686,11 +689,11 @@ class CampaignMap:
     def ignore_prediction_match(self, globe, local):
         """
         Args:
-            globe (tuple): 全局坐标。
-            local (GridInfo): 局部网格信息。
+            globe (tuple): Глобальные координаты.
+            local (GridInfo): Информация о локальной клетке.
 
         Returns:
-            bool: 是否匹配到错误预测。
+            bool: Совпадает ли с ошибочным прогнозом.
         """
         for wrong_globe, wrong_local in self._ignore_prediction:
             if wrong_globe == globe:
@@ -701,10 +704,10 @@ class CampaignMap:
 
     @property
     def is_map_data_poor(self):
-        """判断地图数据是否不完整。
+        """Определить, являются ли данные карты неполными.
 
         Returns:
-            bool: 地图数据是否不完整。
+            bool: Неполны ли данные карты.
         """
         if not self.select(may_enemy=True) or not self.select(may_boss=True) or not self.select(is_spawn_point=True):
             return False
@@ -721,7 +724,7 @@ class CampaignMap:
             logger.info(text)
 
     def show_connection(self):
-        """在日志中显示地图各格子的寻路连接关系。"""
+        """Отобразить в журнале связи клеток карты для поиска пути."""
         logger.info('[Карта — отображение] ' + ' '.join([' ' + chr(x + 64 + 1) for x in range(self.shape[0] + 1)]))
         for y in range(self.shape[1] + 1):
             text = str(y + 1).rjust(2) + ' ' + ' '.join(
@@ -732,9 +735,9 @@ class CampaignMap:
     def find_path_initial(self, location, has_ambush=True, has_enemy=True):
         """
         Args:
-            location (tuple[int]): 网格坐标。
-            has_ambush (bool): 是否有伏击。
-            has_enemy (bool): 是否考虑敌人，False 表示仅考虑海洋和陆地。
+            location (tuple[int]): Координаты клетки.
+            has_ambush (bool): Учитывать ли засады.
+            has_enemy (bool): Учитывать ли врагов; False — учитывать только море и сушу.
         """
         location = location_ensure(location)
         ambush_cost = 10 if has_ambush else 1
@@ -774,9 +777,9 @@ class CampaignMap:
     def find_path_initial_multi_fleet(self, location_dict, current, has_ambush):
         """
         Args:
-            location_dict (dict): 键为舰队索引(int)，值为网格坐标 tuple[int])。
-            current (tuple): 当前位置。
-            has_ambush (bool): 是否有伏击。
+            location_dict (dict): Ключ — индекс флота (int), значение — координаты клетки (tuple[int]).
+            current (tuple): Текущая позиция.
+            has_ambush (bool): Учитывать ли засады.
         """
         location_dict = sorted(location_dict.items(), key=lambda kv: (int(kv[1] == current),))
         for fleet, location in location_dict:
@@ -790,10 +793,10 @@ class CampaignMap:
     def _find_path(self, location):
         """
         Args:
-            location (tuple): 目标坐标。
+            location (tuple): Целевые координаты.
 
         Returns:
-            list[tuple]: 行走路线。
+            list[tuple]: Маршрут движения.
 
         Examples:
             MAP_7_2._find_path(node2location('H2'))
@@ -825,12 +828,12 @@ class CampaignMap:
     def _find_route_node(self, route, step=0, turning_optimize=False):
         """
         Args:
-            route (list[tuple]): 网格坐标列表。
-            step (int): 活动地图中的舰队步数，默认为 0。
-            turning_optimize (bool): 为 True 时优化路线以减少伏击。
+            route (list[tuple]): Список координат клеток.
+            step (int): Количество шагов флота на активной карте; по умолчанию 0.
+            turning_optimize (bool): При True оптимизировать маршрут для уменьшения засад.
 
         Returns:
-            list[tuple]: 行走节点列表。
+            list[tuple]: Список узлов маршрута.
 
         Examples:
             MAP_7_2._find_route_node([(2, 2), (3, 2), (4, 2), (5, 2), (6, 2), (6, 1), (7, 1)])
@@ -880,18 +883,19 @@ class CampaignMap:
         return [route[index] for index in res]
 
     def find_path(self, location, step=0, turning_optimize=False):
-        """计算从当前舰队位置到目标位置的路径。
+        """Вычислить маршрут от текущей позиции флота до целевой клетки.
 
-        先通过 Dijkstra 算法找到最短路径，然后处理传送门和迷宫分段，
-        最后对每段路径提取关键行走节点。
+        Сначала алгоритмом Дейкстры находит кратчайший путь, затем обрабатывает
+        порталы и сегментацию лабиринта, после чего извлекает ключевые узлы маршрута
+        для каждого сегмента.
 
         Args:
-            location (str, tuple): 目标网格坐标或节点名。
-            step (int): 活动地图中的舰队步数，默认为 0（仅走到终点）。
-            turning_optimize (bool): 为 True 时优化路线以减少伏击。
+            location (str, tuple): Координаты или имя целевой клетки.
+            step (int): Количество шагов флота на активной карте; 0 — движение только до конечной точки.
+            turning_optimize (bool): При True оптимизировать маршрут для уменьшения засад.
 
         Returns:
-            list[tuple]: 行走节点列表，每个元素为网格坐标。
+            list[tuple]: Список узлов маршрута; каждый элемент — координаты клетки.
         """
         location = location_ensure(location)
 
@@ -925,11 +929,11 @@ class CampaignMap:
     def grid_covered(self, grid, location=None):
         """
         Args:
-            grid (GridInfo): 格子对象。
-            location (list[tuple[int]]): 被覆盖格子的相对坐标。
+            grid (GridInfo): Объект клетки.
+            location (list[tuple[int]]): Относительные координаты покрытых клеток.
 
         Returns:
-            SelectedGrids: 被覆盖的格子集合。
+            SelectedGrids: Набор покрытых клеток.
         """
         if location is None:
             covered = [tuple(np.array(grid.location) + upper) for upper in grid.covered_grid()]
@@ -939,21 +943,22 @@ class CampaignMap:
         return SelectedGrids(covered)
 
     def missing_get(self, battle_count, mystery_count=0, siren_count=0, carrier_count=0, mode='normal'):
-        """计算缺失和可能出现的敌人数量。
+        """Вычислить количество недостающих и возможных врагов.
 
-        根据当前战斗次数和已识别的敌人，计算各种敌人类型（普通敌人、
-        神秘、塞壬、Boss、航母）的缺失数量和可能出现的数量。
+        На основе текущего числа боёв и распознанных врагов вычисляет
+        количество недостающих и потенциально присутствующих единиц каждого типа
+        (обычный враг, тайна, сирена, босс, авианосец).
 
         Args:
-            battle_count (int): 当前战斗次数。
-            mystery_count (int): 已遇到的神秘格子数。
-            siren_count (int): 已击败的塞壬数。
-            carrier_count (int): 已识别的航母数。
-            mode (str): 扫描模式。
+            battle_count (int): Текущее количество боёв.
+            mystery_count (int): Количество встреченных клеток тайн.
+            siren_count (int): Количество побеждённых сирен.
+            carrier_count (int): Количество распознанных авианосцев.
+            mode (str): Режим сканирования.
 
         Returns:
-            tuple[dict, dict]: ``(may, missing)``，may 为各类型可能出现的数量，
-                missing 为各类型缺失的数量。
+            tuple[dict, dict]: ``(may, missing)`` — may содержит возможное количество каждого типа,
+                missing — количество недостающих единиц каждого типа.
         """
         try:
             missing = self.spawn_data_stack[battle_count].copy()
@@ -994,17 +999,17 @@ class CampaignMap:
         return may, missing
 
     def missing_is_none(self, battle_count, mystery_count=0, siren_count=0, carrier_count=0, mode='normal'):
-        """判断是否所有敌人已被发现（无缺失）。
+        """Определить, все ли враги обнаружены (нет недостающих).
 
         Args:
-            battle_count (int): 当前战斗次数。
-            mystery_count (int): 已遇到的神秘格子数。
-            siren_count (int): 已击败的塞壬数。
-            carrier_count (int): 已识别的航母数。
-            mode (str): 扫描模式。
+            battle_count (int): Текущее количество боёв.
+            mystery_count (int): Количество встреченных клеток тайн.
+            siren_count (int): Количество побеждённых сирен.
+            carrier_count (int): Количество распознанных авианосцев.
+            mode (str): Режим сканирования.
 
         Returns:
-            bool: 是否所有敌人都已被发现。
+            bool: Все ли враги обнаружены.
         """
         if self.poor_map_data:
             return False
@@ -1018,17 +1023,17 @@ class CampaignMap:
         return True
 
     def missing_predict(self, battle_count, mystery_count=0, siren_count=0, carrier_count=0, mode='normal'):
-        """根据缺失数量预测未探索格子中的敌人。
+        """Предсказать врагов в неисследованных клетках на основе числа недостающих.
 
-        当某个格子可能是某种敌人且缺失数量等于可能出现的数量时，
-        直接将该格子预测为该类型敌人。
+        Когда клетка может содержать врага определённого типа и число недостающих
+        равно числу возможных, клетка напрямую прогнозируется как этот тип врага.
 
         Args:
-            battle_count (int): 当前战斗次数。
-            mystery_count (int): 已遇到的神秘格子数。
-            siren_count (int): 已击败的塞壬数。
-            carrier_count (int): 已识别的航母数。
-            mode (str): 扫描模式。
+            battle_count (int): Текущее количество боёв.
+            mystery_count (int): Количество встреченных клеток тайн.
+            siren_count (int): Количество побеждённых сирен.
+            carrier_count (int): Количество распознанных авианосцев.
+            mode (str): Режим сканирования.
         """
         if self.poor_map_data:
             return False
@@ -1049,10 +1054,10 @@ class CampaignMap:
     def select(self, **kwargs):
         """
         Args:
-            **kwargs: 格子属性键值对。
+            **kwargs: Пары ключ-значение атрибутов клетки.
 
         Returns:
-            SelectedGrids: 符合条件的格子集合。
+            SelectedGrids: Набор клеток, удовлетворяющих условиям.
         """
         result = []
         for grid in self:
@@ -1068,16 +1073,16 @@ class CampaignMap:
     def to_selected(self, grids):
         """
         Args:
-            grids (list): 坐标列表。
+            grids (list): Список координат.
 
         Returns:
-            SelectedGrids: 格子集合。
+            SelectedGrids: Набор клеток.
         """
         return SelectedGrids([self[location_ensure(loca)] for loca in grids])
 
     def flatten(self):
         """
         Returns:
-            list[GridInfo]: 所有格子的列表。
+            list[GridInfo]: Список всех клеток карты.
         """
         return self.grids.values()
