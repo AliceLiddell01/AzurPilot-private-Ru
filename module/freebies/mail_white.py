@@ -1,14 +1,13 @@
-"""
-邮件白色主题 UI 处理模块。
+"""Модуль обработки почты в светлой теме UI (White Theme).
 
-处理碧蓝航线邮件页面的完整交互流程，包括：
-- 邮件页面的进入与退出
-- 按类型筛选并批量领取邮件奖励（功勋、维护补偿、贸易许可证）
-- 批量删除已领取的邮件
-- 处理白色主题 UI 下的邮件相关弹窗和确认框
+Обрабатывает полный цикл взаимодействия со страницей почты Azur Lane:
+- Вход и выход со страницы почты
+- Фильтрация по типу и пакетный сбор наград (заслуги, компенсации обслуживания, торговая лицензия)
+- Пакетное удаление уже собранных писем
+- Обработка всплывающих окон и диалогов подтверждения в светлой теме UI
 
-该模块专为白色主题 UI 设计，通过 MailSelectSetting 配置
-邮件内容筛选条件（魔方、金币、石油、功勋、钻石等）。
+Разработан для светлой темы UI и использует MailSelectSetting для управления
+фильтрами содержимого писем (кубы, монеты, нефть, заслуги, алмазы и др.).
 """
 from module.base.decorator import cached_property
 from module.base.timer import Timer
@@ -21,11 +20,10 @@ from module.ui.ui import UI
 
 
 class MailSelectSetting(Setting):
-    """
-    邮件筛选设置管理器。
+    """Менеджер настроек фильтрации почты.
 
-    继承自 Setting，用于管理邮件内容类型的筛选选项。
-    通过检测选项按钮的颜色（深灰色 (57, 56, 57)）判断选项是否激活。
+    Наследует Setting, управляет опциями фильтрации по типу содержимого писем.
+    Определяет активность опции по темно-серому цвету кнопки (57, 56, 57).
     """
 
     def is_option_active(self, option: Button) -> bool:
@@ -33,21 +31,20 @@ class MailSelectSetting(Setting):
 
 
 class MailWhite(UI):
-    """
-    白色主题邮件处理器。
+    """Обработчик почты для светлой темы UI.
 
-    负责白色主题 UI 下邮件的领取和清理操作。支持以下功能：
-    - 按内容类型筛选邮件（功勋、维护补偿、贸易许可证）
-    - 批量领取符合条件的邮件奖励
-    - 批量删除已领取的邮件
+    Отвечает за сбор и очистку почты в светлой теме интерфейса. Поддерживает:
+    - Фильтрацию писем по типам содержимого (заслуги, компенсации, торговая лицензия).
+    - Пакетный сбор наград из писем, подходящих под критерии.
+    - Пакетное удаление уже прочитанных/собранных писем.
 
-    使用 MailSelectSetting 管理筛选条件，包含两个设置实例：
-    - mail_select_setting: 按类型筛选（魔方、金币、石油、功勋、钻石）
-    - mail_select_all_setting: 全选模式，用于批量删除
+    Использует MailSelectSetting для управления условиями фильтрации:
+    - mail_select_setting: фильтрация по типу (кубы, монеты, нефть, заслуги, алмазы).
+    - mail_select_all_setting: режим «выбрать все» для пакетного удаления.
 
     Attributes:
-        mail_select_setting: 按内容类型筛选的设置实例（cached_property）。
-        mail_select_all_setting: 全选模式的设置实例（cached_property）。
+        mail_select_setting: Экземпляр настроек фильтрации по типу содержимого (cached_property).
+        mail_select_all_setting: Экземпляр настроек режима выбора всех писем (cached_property).
     """
     @cached_property
     def mail_select_setting(self):
@@ -75,14 +72,13 @@ class MailWhite(UI):
         return setting
 
     def _mail_enter(self, skip_first_screenshot=True):
-        """
-        进入邮件页面。
+        """Войти на страницу почты.
 
         Returns:
-            int: 是否有邮件。
+            int: Есть ли письма в почте.
 
         Pages:
-            in: page_main_white 或 MAIL_MANAGE
+            in: page_main_white или MAIL_MANAGE
             out: MAIL_BATCH_CLAIM
         """
         logger.info('Вход в почту')
@@ -120,11 +116,10 @@ class MailWhite(UI):
                 continue
 
     def _mail_quit(self, skip_first_screenshot=True):
-        """
-        退出邮件页面。
+        """Выйти со страницы почты.
 
         Pages:
-            in: page_mail 中的任意页面
+            in: Любая страница в page_mail
             out: page_main_white
         """
         logger.info('Выход из почты')
@@ -159,14 +154,13 @@ class MailWhite(UI):
                 continue
 
     def _handle_mail_reward(self):
-        """
-        处理邮件奖励领取后的物品获取弹窗。
+        """Обработать диалог получения предметов после сбора наград почты.
 
-        检测 GET_ITEMS_1 或 GET_ITEMS_2 弹窗出现时，自动点击确认
-        以完成奖励领取流程。
+        При появлении всплывающих окон GET_ITEMS_1 или GET_ITEMS_2 автоматически нажимает подтверждение
+        для завершения процесса сбора наград.
 
         Returns:
-            bool: 是否检测到并处理了物品获取弹窗。
+            bool: Было ли обнаружено и обработано всплывающее окно предметов.
         """
         if self.appear(GET_ITEMS_1, offset=(30, 30), interval=3):
             logger.info(f'{GET_ITEMS_1} -> {MAIL_BATCH_CLAIM}')
@@ -179,15 +173,14 @@ class MailWhite(UI):
         return False
 
     def _mail_claim_execute(self, skip_first_screenshot=True):
-        """
-        执行邮件批量领取。
+        """Выполнить пакетный сбор наград почты.
 
         Pages:
             in: MAIL_BATCH_CLAIM
-            out: page_main_white，可能带有 info_bar
+            out: page_main_white, возможно с info_bar
 
         Returns:
-            int: 是否领取成功。
+            int: Успешно ли выполнен сбор.
         """
         self.handle_info_bar()
         self.interval_clear([
@@ -222,8 +215,7 @@ class MailWhite(UI):
         return success
 
     def _mail_delete(self, skip_first_screenshot=True):
-        """
-        批量删除已领取的邮件。
+        """Пакетно удалить собранные письма.
 
         Pages:
             in: MAIL_BATCH_DELETE
@@ -264,17 +256,16 @@ class MailWhite(UI):
             trade_license=False,
             delete=True,
     ):
-        """
-        领取邮件奖励。
+        """Собрать награды из писем.
 
         Args:
-            merit (bool): 是否领取功勋邮件。
-            maintenance (bool): 是否领取维护补偿邮件。
-            trade_license (bool): 是否领取贸易许可证邮件。
-            delete (bool): 是否删除已领取的邮件。
+            merit (bool): Собирать ли письма с заслугами.
+            maintenance (bool): Собирать ли компенсации за технические работы.
+            trade_license (bool): Собирать ли награды торговой лицензии.
+            delete (bool): Удалять ли собранные письма.
 
         Pages:
-            in: page_main_white 或 MAIL_MANAGE
+            in: page_main_white или MAIL_MANAGE
             out: MAIL_BATCH_CLAIM
         """
         if not self._mail_enter():

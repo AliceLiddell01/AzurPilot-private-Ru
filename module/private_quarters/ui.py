@@ -1,11 +1,11 @@
-"""
-私人休息室商店界面导航。
+"""Навигация интерфейса магазина личных покоев.
 
-提供私人宿舍商店的页面检测与导航栏控制，
-包括底部标签栏（全部/礼物/家具/杂物）和左侧房间入口栏。
-通过 Navbar 实现标签页切换与状态检测。
+Обеспечивает обнаружение страниц и управление панелями навигации магазина личных покоев,
+включая нижнюю панель вкладок (Все / Подарки / Мебель / Разное) и левую панель комнат.
+Переключение вкладок и проверка состояния реализованы через Navbar.
 
-Pages: in: PRIVATE_QUARTERS_SHOP
+Pages:
+    in: PRIVATE_QUARTERS_SHOP
 """
 from module.base.button import ButtonGrid
 from module.base.decorator import cached_property
@@ -16,14 +16,13 @@ from module.ui.navbar import Navbar
 class PQShopUI(ShopUI):
     @cached_property
     def _shop_bottom_navbar(self):
-        """
-        商店底部导航栏，包含 4 个选项卡。
+        """Нижняя панель навигации магазина, содержащая 4 вкладки.
 
-        Options:
-            全部 / 礼物 / 家具 / 杂物
+        Варианты:
+            Все / Подарки / Мебель / Разное
 
         Returns:
-            Navbar: 底部导航栏实例
+            Navbar: Экземпляр нижней панели навигации.
         """
         shop_navgrid = ButtonGrid(
             origin=(465, 600), delta=(200, 0), button_shape=(20, 20), grid_shape=(4, 1),
@@ -36,17 +35,16 @@ class PQShopUI(ShopUI):
                       name='PRIVATE_QUARTERS_BOTTOM_NAVBAR')
 
     def shop_bottom_navbar_ensure(self, left=None, right=None):
-        """
-        切换商店底部标签页并等待页面加载完成。
+        """Переключить нижнюю вкладку магазина и дождаться загрузки страницы.
 
-        二选一使用 left 或 right，不要同时传入。
+        Указывать либо left, либо right (не оба одновременно).
 
         Args:
-            left (int): 从左起第 N 个标签（从 1 开始）
-            right (int): 从右起第 N 个标签（从 1 开始）
+            left (int): N-я вкладка слева (начиная с 1).
+            right (int): N-я вкладка справа (начиная с 1).
 
         Returns:
-            bool: 标签切换是否成功
+            bool: Успешно ли переключена вкладка.
         """
         if self._shop_bottom_navbar.set(self, left=left, right=right):
             return True
@@ -54,11 +52,10 @@ class PQShopUI(ShopUI):
 
     @cached_property
     def _shop_left_navbar(self):
-        """
-        商店左侧导航栏，包含 5 个房间入口。
+        """Левая панель навигации магазина, содержащая 5 входов в комнаты.
 
-        Options:
-            主页 / 天狼星 / 能代 / 安克雷奇 / 新泽西
+        Варианты:
+            Главная / Сириус / Носиро / Анкоридж / Нью-Джерси
         """
         shop_navgrid = ButtonGrid(
             origin=(152, 158), delta=(0, 105), button_shape=(15, 15), grid_shape=(1, 5),
@@ -71,17 +68,16 @@ class PQShopUI(ShopUI):
                       name='PRIVATE_QUARTERS_LEFT_NAVBAR')
 
     def shop_left_navbar_ensure(self, upper=None, bottom=None):
-        """
-        切换商店左侧房间标签页并等待页面加载完成。
+        """Переключить вкладку комнаты в левой панели магазина и дождаться загрузки страницы.
 
-        二选一使用 upper 或 bottom，不要同时传入。
+        Указывать либо upper, либо bottom (не оба одновременно).
 
         Args:
-            upper (int): 从上起第 N 个标签（从 1 开始）
-            bottom (int): 从下起第 N 个标签（从 1 开始）
+            upper (int): N-я вкладка сверху (начиная с 1).
+            bottom (int): N-я вкладка снизу (начиная с 1).
 
         Returns:
-            bool: 标签切换是否成功
+            bool: Успешно ли переключена вкладка.
         """
         if self._shop_left_navbar.set(self, upper=upper, bottom=bottom):
             return True

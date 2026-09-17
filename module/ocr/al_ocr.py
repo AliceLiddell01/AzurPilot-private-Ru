@@ -1,22 +1,22 @@
-"""AlOcr 文字识别引擎。
+"""Движок распознавания текста AlOcr.
 
-基于 RapidOCR 框架的多后端 OCR 系统，支持：
-- ONNX Runtime 推理（默认），支持 DirectML (Windows GPU) 和 CoreML (macOS ANE) 加速
-- NCNN 推理，推理速度更快但模型覆盖较窄
-- Windows ML 设备选择，精确控制 GPU/CPU 推理设备
-- 自定义 CNN-CTC 英文识别模型（900k 参数），专为碧蓝航线优化
+Мультибэкендовая система OCR на базе фреймворка RapidOCR, поддерживающая:
+- Инференс ONNX Runtime (по умолчанию) с ускорением DirectML (Windows GPU) и CoreML (macOS ANE)
+- Инференс NCNN с повышенной скоростью работы
+- Выбор устройств Windows ML с точным контролем вычислений на GPU/CPU
+- Пользовательскую модель распознавания английского текста CNN-CTC (900k параметров), оптимизированную под Azur Lane
 
-模型注册表仅暴露 Global/English `azur_lane` namespace。
-共享检测模型和 generic English recognition models 仍由同一安全缓存管理。
+Реестр моделей открывает единый Global/English неймспейс azur_lane.
+Общие модели детекции и базового распознавания управляются единым безопасным кэшем.
 
-工作线程模型：
-- OCR 推理在专用后台线程 (AlOcrQueue) 中执行，避免阻塞主循环
-- 模型使用懒加载策略，首次使用时才初始化
-- 模型缓存按 (名称, 后端, 设备, 版本) 组合键管理
+Модель рабочих потоков:
+- Инференс OCR выполняется в выделенном фоновом потоке (AlOcrQueue) во избежание блокировки основного цикла
+- Используется ленивая загрузка моделей при первом обращении
+- Кэш моделей управляется композитным ключом (имя, бэкенд, устройство, версия)
 
-检测模型：
-- 使用 PP-OCRv6 tiny 检测模型定位文本区域
-- 检测+识别流水线在 ncnn 和 ONNX 后端有不同实现
+Модели детекции:
+- Поиск текстовых областей через модель PP-OCRv6 tiny
+- Конвейеры детекции и распознавания реализованы раздельно для бэкендов ncnn и ONNX
 """
 
 import os
@@ -38,18 +38,18 @@ from module.ocr.windows_ml import create_onnx_session
 
 
 def handle_ocr_error(e):
-    """处理 OCR 依赖加载失败的统一错误处理。
+    """Унифицированная обработка ошибок загрузки зависимостей OCR.
 
-    打印详细的故障排除指引，包括：
-    - 安装微软 C++ 运行库
-    - 关闭 GPU 加速
-    - 获取社区支持
+    Выводит подробные инструкции по устранению неполадок:
+    - Установка пакета Microsoft Visual C++ Runtime
+    - Отключение GPU-ускорения
+    - Обращение в поддержку
 
     Args:
-        e (Exception): 原始异常。
+        e (Exception): Исходное исключение.
 
     Raises:
-        RequestHumanTakeover: 始终抛出，需要用户手动干预。
+        RequestHumanTakeover: Всегда выбрасывается, требуется вмешательство пользователя.
     """
     logger.critical(f"Не удалось загрузить зависимости OCR: {e}")
     logger.critical(
@@ -91,11 +91,11 @@ GENERIC_PPOCR_V6_PARAMS = (
     OCRVersion.PPOCRV6,
 )
 class RecOnlyOCR(RapidOCR):
-    """只加载识别模型，跳过 det 和 cls 的 ONNX 模型加载。
+    """Загружает только модель распознавания, пропуская загрузку моделей det и cls в ONNX.
 
-    碧蓝航线的 OCR 场景中，文本位置通常固定（已通过 Button 区域裁剪），
-    不需要文本检测模型，仅需识别模型即可。跳过检测模型可节省约 10MB 内存
-    和加载时间。
+    В сценариях Azur Lane координаты текста обычно фиксированы (уже обрезаны областями Button),
+    поэтому детекция текста не требуется, достаточно одной модели распознавания.
+    Пропуск модели детекции экономит около 10 МБ памяти и сокращает время инициализации.
     """
 
     def _initialize(self, cfg):
@@ -126,23 +126,23 @@ class RecOnlyOCR(RapidOCR):
 
 
 class AlOcrCtcRecOCR:
-    """900k 参数 CNN-CTC 英文识别模型。
+    """Модель распознавания английского текста CNN-CTC на 900k параметров.
 
-    专为碧蓝航线优化的轻量级英文识别模型，直接使用 ONNXRuntime 推理，
-    不依赖 RapidOCR 框架。使用 CTC (Connectionist Temporal Classification)
-    解码算法进行序列识别。
+    Легковесная модель распознавания английского языка, оптимизированная под Azur Lane.
+    Выполняет прямой инференс через ONNX Runtime без зависимости от фреймворка RapidOCR.
+    Использует алгоритм декодирования CTC (Connectionist Temporal Classification).
 
-    模型特点：
-    - 固定输入高度 48px，最大宽度 768px
-    - 字符集仅包含数字、冒号、斜线和大小写英文字母
-    - 支持 DirectML/CoreML GPU 加速
+    Особенности модели:
+    - Фиксированная высота входа 48px, максимальная ширина 768px.
+    - Набор символов включает цифры, двоеточие, косую черту и латинские буквы.
+    - Поддержка аппаратного ускорения DirectML / CoreML GPU.
 
     Attributes:
-        model_path (Path): ONNX 模型文件路径。
-        device (str): 推理设备（'cpu'、'gpu'、'ane'）。
-        charset (str): 识别字符集。
-        blank_id (int): CTC blank token 的索引。
-        session: ONNXRuntime 推理会话。
+        model_path (Path): Путь к файлу модели ONNX.
+        device (str): Устройство инференса ('cpu', 'gpu', 'ane').
+        charset (str): Алфавит распознавания.
+        blank_id (int): Индекс пустого токена CTC (blank token).
+        session: Сессия инференса ONNX Runtime.
     """
 
     def __init__(self, model_path, device="cpu", allow_vendor_execution_providers=True):
@@ -409,14 +409,13 @@ def _resolve_onnx_model_version(name):
 
 
 def _get_onnx_model_params(name):
-    """
-    按配置选择 ONNX 识别模型版本。
+    """Выбрать версию модели распознавания ONNX в соответствии с конфигурацией.
 
     Args:
-        name: имя единственной Global/English модели 'azur_lane'.
+        name: Имя единственной Global/English модели 'azur_lane'.
 
     Returns:
-        (model_path, rec_keys_path, ocr_version) 三元组。
+        Кортеж (model_path, rec_keys_path, ocr_version).
     """
     version = _resolve_onnx_model_version(name)
     if version in CUSTOM_CTC_MODEL_PARAMS.get(name, {}):
@@ -435,7 +434,7 @@ def _configure_windows_ml_sessions(
     ocr_device,
     allow_vendor_execution_providers,
 ):
-    """将 RapidOCR 创建的 CPU session 替换为 Windows ML 精确选定的设备。"""
+    """Заменить CPU-сессию RapidOCR на точно выбранное устройство Windows ML."""
     if os.name != 'nt':
         return ocr
 
@@ -532,10 +531,10 @@ _det_model_cache = {}
 
 
 class DetOnlyOCR(RapidOCR):
-    """仅加载 RapidOCR 检测模型，识别部分由 ncnn 处理。
+    """Загружает только модель детекции RapidOCR, распознавание выполняется через ncnn.
 
-    在 ncnn 后端模式下，文本检测使用 ONNX 的 PP-OCRv6 tiny 检测模型，
-    而文本识别使用 ncnn 的识别模型。此类封装了这种混合模式的检测端。
+    В режиме бэкенда ncnn детекция текста использует модель ONNX PP-OCRv6 tiny,
+    а распознавание текста выполняет модель ncnn. Данный класс реализует детекцию для этого гибридного режима.
     """
 
     def _initialize(self, cfg):
@@ -563,7 +562,7 @@ class DetOnlyOCR(RapidOCR):
 
 
 def _create_det_ocr_for_onnx(name):
-    """为 ONNX 后端创建完整的 RapidOCR 实例（检测 + 识别）。"""
+    """Создать полный экземпляр RapidOCR для бэкенда ONNX (детекция + распознавание)."""
     ocr_device = config.ocr_device
     allow_vendor_execution_providers = config.Optimization_OcrWindowsMlVendorEp
     # В Windows устройство явно выбирается через Windows ML; нельзя оставлять RapidOCR стандартный DirectML.
@@ -595,7 +594,7 @@ def _create_det_ocr_for_onnx(name):
 
 
 def _create_det_ocr_for_ncnn():
-    """为 ncnn 后端创建 DetOnlyOCR 实例。"""
+    """Создать экземпляр DetOnlyOCR для бэкенда ncnn."""
     params = {
         "Global.use_det": True,
         "Global.use_cls": False,
@@ -608,11 +607,10 @@ def _create_det_ocr_for_ncnn():
 
 
 def _get_det_model(name):
-    """
-    获取检测模型。
+    """Получить модель детекции текста.
 
     Args:
-        name: 语言名称。ONNX 后端按语言缓存，ncnn 后端共享单一实例。
+        name: Имя языка. Бэкенд ONNX кэширует по языкам, бэкенд ncnn использует единый общий экземпляр.
     """
     backend = config.ocr_backend
     if backend == 'ncnn':
@@ -628,7 +626,7 @@ def _get_det_model(name):
 
 
 def release_ocr_models(names=None):
-    """在 OCR 工作线程中释放指定模型的全局缓存。"""
+    """Освободить глобальный кэш указанных моделей в рабочем потоке OCR."""
     names = None if names is None else set(names)
 
     def _release():
@@ -658,20 +656,20 @@ def reset_ocr_model():
 
 
 class AlOcr:
-    """统一的 OCR 识别接口。
+    """Унифицированный интерфейс распознавания OCR.
 
-    封装了 ONNX 和 ncnn 两种后端的识别和检测功能，提供一致的 API。
-    所有 OCR 推理操作在专用后台线程中执行，避免阻塞主事件循环。
+    Инкапсулирует функции распознавания и детекции обоих бэкендов (ONNX и ncnn), предоставляя единый API.
+    Все операции инференса OCR выполняются в выделенном фоновом потоке во избежание блокировки основного цикла.
 
-    支持的操作：
-    - ocr(): 单行文本识别（已裁剪的文本图像）
-    - det(): 文本检测 + 识别（完整图像，返回带位置坐标的结果）
-    - ocr_for_single_lines(): 批量单行文本识别
+    Поддерживаемые операции:
+    - ocr(): распознавание однострочного текста (предварительно обрезанное изображение).
+    - det(): детекция + распознавание текста (полное изображение с возвратом координат).
+    - ocr_for_single_lines(): пакетное распознавание отдельных строк.
 
     Attributes:
-        name (str): единственный публичный Global namespace 'azur_lane'.
-        model: 识别模型实例（懒加载）。
-        _det_model: 检测模型实例（懒加载）。
+        name (str): Единственный публичный неймспейс Global 'azur_lane'.
+        model: Экземпляр модели распознавания (ленивая загрузка).
+        _det_model: Экземпляр модели детекции (ленивая загрузка).
     """
     def __init__(self, **kwargs):
         self.model = None
@@ -806,18 +804,17 @@ class AlOcr:
             return None
 
     def det(self, img_fp):
-        """
-        运行文本检测 + 识别，返回带位置坐标的结果。
+        """Выполнить детекцию и распознавание текста с возвратом координат.
 
         Args:
-            img_fp: 图像输入（numpy 数组、PIL Image 或文件路径字符串）。
+            img_fp: Входное изображение (массив numpy, PIL Image или строка пути к файлу).
 
         Returns:
-            (text, box, score) 元组列表：
-                - text (str): 识别文本。
-                - box (list): 4 个角点 [[x1,y1],[x2,y2],[x3,y3],[x4,y4]]。
-                - score (float): 置信度分数 (0.0-1.0)。
-            未检测到内容时返回空列表。
+            Список кортежей (text, box, score):
+                - text (str): Распознанный текст.
+                - box (list): 4 угловые точки [[x1,y1],[x2,y2],[x3,y3],[x4,y4]].
+                - score (float): Оценка достоверности (0.0-1.0).
+            При отсутствии текста возвращает пустой список.
         """
         return _run_ocr_queued(self._det_direct, img_fp)
 
