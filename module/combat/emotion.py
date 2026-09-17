@@ -1,20 +1,22 @@
-"""情绪管理系统。
+"""Система управления настроением флота.
 
-追踪和管理舰队的情绪值（心情值）。碧蓝航线中，舰船在战斗中会消耗情绪，
-情绪过低会导致经验加成失效、出现负面表情等。情绪通过以下方式恢复：
-- 港区休息（不在后宅）：每 6 分钟恢复 20 点
-- 后宅一楼：每 6 分钟恢复 40 点
-- 后宅二楼：每 6 分钟恢复 50 点
-- 誓约加成：额外 +10 点/6分钟
-- 温泉加成：额外 +10 点/6分钟
+Отслеживает и управляет показателем настроения флота (morale). В Azur Lane корабли
+тратят настроение во время боёв; слишком низкое настроение приводит к потере бонуса опыта
+и негативным эффектам. Настроение восстанавливается следующими способами:
+- Отдых в порту (вне общежития): +20 очков каждые 6 минут
+- 1-й этаж общежития: +40 очков каждые 6 минут
+- 2-й этаж общежития: +50 очков каждые 6 минут
+- Бонус клятвы: дополнительные +10 очков каждые 6 минут
+- Бонус онсэна: дополнительные +10 очков каждые 6 минут
 
-情绪控制策略：
-- 保持开心加成（>120）：最大化经验加成
-- 防止绿脸（>40）：避免负面效果
-- 防止黄脸（>30）：避免严重负面效果
-- 防止红脸（>2）：最低限度保护
+Стратегии контроля настроения:
+- Сохранять бонус счастья (>120): максимизация бонуса опыта
+- Не допускать зелёного лица (>40): избежание штрафов
+- Не допускать жёлтого лица (>30): избежание сильных штрафов
+- Не допускать красного лица (>2): минимальная защита от истощения
 
-游戏客户端存在已知 bug：长时间运行后情绪计算不准确，需要定期重启。
+Клиент игры имеет известный баг: при длительной непрерывной работе расчёт настроения сбивается,
+поэтому требуется периодический перезапуск.
 """
 
 from datetime import datetime, timedelta
@@ -53,22 +55,22 @@ ONSEN_RECOVER = 10   # Дополнительная скорость восст�
 
 
 class FleetEmotion:
-    """单个舰队的情绪追踪器。
+    """Трекер настроения отдельного флота.
 
-    管理一个舰队的情绪值、恢复速度和控制阈值。
-    支持独立配置和公海舰队（Public Fleet）模式。
+    Управляет значением настроения, скоростью восстановления и порогом контроля одного флота.
+    Поддерживает независимую конфигурацию и режим флота открытого моря (Public Fleet).
 
     Attributes:
-        config (AzurLaneConfig): 配置对象。
-        fleet (str): 舰队索引（1、2 或 'Public'）。
-        current (int): 当前计算的情绪值。
+        config (AzurLaneConfig): Объект конфигурации.
+        fleet (str): Индекс флота (1, 2 или 'Public').
+        current (int): Текущее рассчитанное значение настроения.
     """
 
     def __init__(self, config, fleet):
         """
         Args:
-            config (AzurLaneConfig):
-            fleet (str): 舰队索引。
+            config (AzurLaneConfig): Объект конфигурации.
+            fleet (str): Индекс флота.
         """
         self.config = config
         self.fleet = fleet
@@ -84,7 +86,7 @@ class FleetEmotion:
     def value(self):
         """
         Returns:
-            int: 0 到 150。
+            int: От 0 до 150.
         """
         return getattr(self.config, f'{self._key_prefix}Value')
 
@@ -92,7 +94,7 @@ class FleetEmotion:
     def value_name(self):
         """
         Returns:
-            str:
+            str: Имя параметра значения настроения.
         """
         return f'{self._key_prefix}Value'
 
@@ -100,7 +102,7 @@ class FleetEmotion:
     def record(self):
         """
         Returns:
-            datetime.datetime:
+            datetime.datetime: Временная метка последней записи.
         """
         return getattr(self.config, f'{self._key_prefix}Record')
 
@@ -108,7 +110,7 @@ class FleetEmotion:
     def recover(self):
         """
         Returns:
-            str: not_in_dormitory、dormitory_floor_1、dormitory_floor_2。
+            str: not_in_dormitory, dormitory_floor_1, dormitory_floor_2.
         """
         return getattr(self.config, f'{self._key_prefix}Recover')
 
@@ -116,7 +118,7 @@ class FleetEmotion:
     def control(self):
         """
         Returns:
-            str: keep_exp_bonus、prevent_green_face、prevent_yellow_face、prevent_red_face。
+            str: keep_exp_bonus, prevent_green_face, prevent_yellow_face, prevent_red_face.
         """
         return getattr(self.config, f'{self._key_prefix}Control')
 
@@ -124,7 +126,7 @@ class FleetEmotion:
     def oath(self):
         """
         Returns:
-            bool: 是否所有舰船已誓约。
+            bool: Дана ли клятва всем кораблям.
         """
         return getattr(self.config, f'{self._key_prefix}Oath')
 
@@ -132,7 +134,7 @@ class FleetEmotion:
     def onsen(self):
         """
         Returns:
-            bool: 是否所有舰船在温泉中。
+            bool: Находятся ли все корабли в онсэне.
         """
         return getattr(self.config, f'{self._key_prefix}Onsen')
 
@@ -140,7 +142,7 @@ class FleetEmotion:
     def speed(self):
         """
         Returns:
-            int: 每 6 分钟的恢复速度。
+            int: Скорость восстановления за 6 минут.
         """
         speed = DIC_RECOVER[self.recover]
         if self.oath:
@@ -153,7 +155,7 @@ class FleetEmotion:
     def limit(self):
         """
         Returns:
-            int: 情绪控制的最低阈值。
+            int: Минимальный порог контроля настроения.
         """
         return DIC_LIMIT[self.control]
 
@@ -161,19 +163,20 @@ class FleetEmotion:
     def max(self):
         """
         Returns:
-            int: 最大情绪值。
+            int: Максимальное значение настроения.
         """
         return DIC_RECOVER_MAX[self.recover]
 
     def update(self):
-        """根据实际经过时间计算情绪恢复。
+        """Вычисляет восстановление настроения на основе реально прошедшего времени.
 
-        使用连续时间恢复计算，保留浮点恢复量以累积分数部分。
-        游戏服务端按实际经过时间精确计算恢复，每6分钟恢复speed点。
-        旧方法用 int() 截断恢复量，每次 record() 重置时间戳后，
-        未满1点的恢复余数被丢弃，长时间运行导致严重低估。
-        现改为 floor() 取整保留整数部分，同时 record() 仅在整数变化时
-        重置时间戳并回扣分数秒，确保余数可跨次累积。
+        Использует непрерывный расчёт восстановления по времени, сохраняя дробную часть для накопления.
+        Сервер игры точно рассчитывает восстановление по фактически прошедшему времени: каждые 6 минут
+        восстанавливается speed очков.
+        Прежний метод усекал восстановление через int(), и после каждого сброса метки в record()
+        остаток менее 1 очка терялся, что приводило к сильной недооценке настроения при длительной работе.
+        Теперь берётся целая часть, а в record() при изменении целого значения компенсируются дробные секунды,
+        обеспечивая накопление остатка между итерациями.
         """
         time_diff = current_time().timestamp() - self.record.timestamp()
         time_diff = max(time_diff, 0)
@@ -184,13 +187,13 @@ class FleetEmotion:
         self._fractional_seconds = recovery - int(recovery)
 
     def get_recovered(self, expected_reduce=0):
-        """计算情绪恢复到控制阈值的时间。
+        """Вычисляет время, когда настроение восстановится до порога контроля.
 
         Args:
-            expected_reduce (int): 预期的情绪减少量。
+            expected_reduce (int): Ожидаемое снижение настроения.
 
         Returns:
-            datetime.datetime: 情绪 >= 控制阈值的时间。如果已经恢复，则返回过去的时间。
+            datetime.datetime: Момент времени, когда настроение >= порогу контроля. Если уже восстановилось, возвращает текущее или прошедшее время.
         """
         if self.control == 'keep_exp_bonus' and self.recover == 'not_in_dormitory':
             logger.critical(f'[Бой] Для флота {self.fleet} одновременно выбраны контроль настроения "сохранять бонус счастья" и восстановление "в порту". Эти настройки несовместимы; проверьте параметры настроения')
@@ -210,18 +213,18 @@ class FleetEmotion:
         return current_time() + timedelta(seconds=seconds_needed)
 
 class Emotion:
-    """情绪管理主类。
+    """Главный класс управления настроением.
 
-    编排两个舰队（和可选的公海舰队）的情绪追踪、等待和扣减。
-    在战役开始前检查情绪是否足够，在战斗后扣减情绪值，
-    并在情绪不足时延迟任务执行。
+    Координирует отслеживание, ожидание и списание настроения двух флотов (и опционально флота открытого моря).
+    Перед началом кампании проверяет достаточность настроения, после боя списывает очки настроения,
+    а при нехватке откладывает выполнение задачи.
 
     Attributes:
-        total_reduced (int): 本轮运行中累计扣减的情绪值，用于触发客户端 bug 重启。
-        map_is_2x_book (bool): 是否使用二倍经验书（影响情绪扣减量）。
-        fleet_1 (FleetEmotion): 第一舰队的情绪追踪器。
-        fleet_2 (FleetEmotion): 第二舰队的情绪追踪器。
-        using_public (bool): 是否使用公海舰队统一情绪管理。
+        total_reduced (int): Суммарно списанное настроение за текущий сеанс для выявления бага клиента.
+        map_is_2x_book (bool): Используется ли книга двойного опыта (влияет на расход настроения).
+        fleet_1 (FleetEmotion): Трекер настроения первого флота.
+        fleet_2 (FleetEmotion): Трекер настроения второго флота.
+        using_public (bool): Используется ли общий трекер настроения флота открытого моря.
     """
     total_reduced = 0
     map_is_2x_book = False
@@ -229,7 +232,7 @@ class Emotion:
     def __init__(self, config):
         """
         Args:
-            config (AzurLaneConfig): 配置对象。
+            config (AzurLaneConfig): Объект конфигурации.
         """
         self.config = config
         self.fleet_1 = FleetEmotion(self.config, fleet=1)
@@ -263,7 +266,7 @@ class Emotion:
         return 'ignore' in self.config.Emotion_Mode
 
     def update(self):
-        """更新情绪值。应在执行任何操作之前调用。"""
+        """Обновляет значения настроения. Должен вызываться перед выполнением любых действий."""
         if self.using_public:
             self.public_fleet.update()
             return
@@ -272,14 +275,14 @@ class Emotion:
             fleet.update()
 
     def record(self):
-        """将当前情绪值保存到配置中。
+        """Сохраняет текущие значения настроения в конфигурации.
 
-        仅在心情整数值发生变化时更新 Record 时间戳，
-        并将 Record 回扣 fractional_seconds 对应的等效秒数，
-        使未满1点的恢复余数可在下次 update() 时继续累积。
+        Обновляет временную метку Record только при изменении целого значения настроения,
+        компенсируя Record на число секунд, соответствующее fractional_seconds,
+        чтобы дробный остаток восстановления накапливался при следующем update().
 
-        注意：FleetEmotion.value 和 FleetEmotion.record 是 @property，
-        从 self.config 实时读取。setattr 到 config 后属性自动更新，无需手动赋值。
+        Примечание: FleetEmotion.value и FleetEmotion.record являются @property,
+        считывающимися напрямую из self.config. При setattr в config свойства обновляются автоматически.
         """
         if self.using_public:
             fleet = self.public_fleet
@@ -310,7 +313,7 @@ class Emotion:
                     setattr(self.config, fleet.value_name.replace('Value', 'Record'), record_time)
 
     def show(self):
-        """显示当前计算的心情值（含时间恢复），而非上次保存值。"""
+        """Отображает текущее рассчитанное настроение (включая восстановление по времени), а не последнее сохранённое значение."""
         if self.using_public:
             logger.attr(f'Настроение флота в открытом море', self.public_fleet.current)
             return
@@ -339,11 +342,11 @@ class Emotion:
         return 10
 
     def _check_reduce(self, battle):
-        """检查战斗带来的情绪减少。
+        """Проверяет снижение настроения в результате боёв.
 
         Returns:
-            recovered (datetime): 预期恢复时间。
-            delay (bool): 是否需要延迟。
+            recovered (datetime): Ожидаемое время восстановления.
+            delay (bool): Требуется ли задержка.
         """
         if self.using_public:
             reduce = battle * self.reduce_per_battle_before_entering
@@ -380,13 +383,13 @@ class Emotion:
         return recovered, delay
 
     def check_reduce(self, battle):
-        """进入战役前检查情绪。
+        """Проверяет настроение перед входом в кампанию.
 
         Args:
-            battle (int): 本次战役中的战斗次数。
+            battle (int): Количество боёв в текущей кампании.
 
         Raise:
-            ScriptEnd: 延迟当前任务以防止未来的情绪控制问题。
+            ScriptEnd: Откладывает текущую задачу во избежание проблем с контролем настроения.
         """
         if not self.is_calculate:
             return
@@ -398,10 +401,10 @@ class Emotion:
             raise ScriptEnd('[Настроение — задержка] Контроль настроения')
 
     def wait(self, fleet_index):
-        """等待指定舰队的情绪恢复。应在进入任何战斗之前调用。
+        """Ожидает восстановления настроения указанного флота. Должен вызываться перед входом в любой бой.
 
         Args:
-            fleet_index (int): 舰队编号，1 或 2。
+            fleet_index (int): Номер флота (1 или 2).
         """
         self.update()
         self.record()
@@ -427,12 +430,12 @@ class Emotion:
                 sleep(60)
 
     def reduce(self, fleet_index, shipwreck=False):
-        """减少指定舰队的情绪值。应在战斗执行完成后调用。
-        服务端在战斗加载完成后即扣减情绪。
+        """Снижает значение настроения указанного флота. Должен вызываться после завершения боя.
+        Сервер игры списывает настроение сразу после загрузки боя.
 
         Args:
-            fleet_index (int): 舰队编号，1 或 2。
-            shipwreck (bool): 舰队是否遭遇船难。
+            fleet_index (int): Номер флота (1 или 2).
+            shipwreck (bool): Потерпел ли флот крушение (потопление корабля).
         """
         logger.hr('Снижение настроения')
         self.update()
@@ -455,17 +458,18 @@ class Emotion:
     def bug_threshold(self):
         """
         Returns:
-            int: 情绪 bug 触发阈值。
+            int: Порог срабатывания бага настроения.
         """
         return random_normal_distribution_int(55, 105, n=2)
 
     def bug_threshold_reset(self):
-        """情绪 bug 触发后调用此方法重置阈值。"""
+        """Сбрасывает порог после срабатывания бага настроения."""
         del self.__dict__['bug_threshold']
 
     def triggered_bug(self):
-        """检测碧蓝航线客户端情绪计算 bug。
-        客户端在长时间运行后无法正确计算情绪，需要重启游戏客户端使其更新。
+        """Определяет баг расчёта настроения в клиенте Azur Lane.
+        При длительной работе клиент не может корректно рассчитать настроение,
+        требуется перезапуск клиента игры для его обновления.
         """
         logger.attr('Ошибка настроения', f'{self.total_reduced}/{self.bug_threshold}')
         if self.total_reduced >= self.bug_threshold:

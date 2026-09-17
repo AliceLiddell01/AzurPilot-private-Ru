@@ -1,17 +1,17 @@
-"""自动搜索战斗管理器。
+"""Менеджер автопоиска боёв.
 
-管理通关模式（快进模式）下的自动搜索战斗流程。
+Управляет циклом боёв в режиме автопоиска (режим ускоренной зачистки карты).
 
-在通关模式下，游戏会自动进行地图探索和战斗。
-此模块负责：
-- 启动自动搜索（地图中的出击按钮）
-- 等待自动搜索完成（检测回到关卡页面）
-- 处理战斗期间的异常（退役、低情绪、撤退等）
-- 检测停止条件（石油/物资限制、通关次数等）
-- Boss 战后的关卡推进
+В режиме автопоиска игра автоматически выполняет исследование карты и бои.
+Данный модуль отвечает за:
+- Запуск автопоиска (кнопка вылазки на карте)
+- Ожидание завершения автопоиска (определение возврата на страницу этапа)
+- Обработку нештатных ситуаций во время боя (отставка, низкое настроение, отступление и т. д.)
+- Проверку условий остановки (лимиты нефти/монет, количество зачисток и т. д.)
+- Продвижение по этапу после битвы с боссом
 
-继承自 MapOperation + Combat + CampaignStatus，
-组合了地图操作、战斗系统和战役状态追踪的能力。
+Наследует от MapOperation + Combat + CampaignStatus,
+объединяя возможности управления картой, боевой системы и отслеживания статуса кампании.
 """
 
 from module.base.timer import Timer
@@ -26,20 +26,21 @@ from module.map.map_operation import MapOperation
 
 
 class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
-    """自动搜索战斗执行器。
+    """Исполнитель боёв в режиме автопоиска.
 
-    在通关模式下编排自动搜索战斗流程，处理各种战斗异常和停止条件。
+    Организует процесс боёв автопоиска в режиме зачистки, обрабатывая различные
+    исключительные ситуации боя и условия остановки.
 
     Attributes:
-        _auto_search_in_stage_timer (Timer): 关卡页面检测计时器。
-        _auto_search_status_confirm (bool): 自动搜索状态是否已确认。
-        _withdraw (bool): 是否已执行撤退。
-        _defeat_count (int): 战败次数。
-        _shipwreck_emotion_reduced (bool): 沉船心情扣减是否已执行，防止重复扣减。
-        _auto_search_emotion_reduce (bool): 当前战斗是否启用心情扣减。
-        _auto_search_fleet_index (int): 当前战斗的舰队索引。
-        auto_search_oil_limit_triggered (bool): 石油限制是否已触发。
-        auto_search_coin_limit_triggered (bool): 物资限制是否已触发。
+        _auto_search_in_stage_timer (Timer): Таймер проверки нахождения на странице этапа.
+        _auto_search_status_confirm (bool): Подтверждён ли статус автопоиска.
+        _withdraw (bool): Было ли выполнено отступление.
+        _defeat_count (int): Количество поражений.
+        _shipwreck_emotion_reduced (bool): Было ли выполнено списание настроения за потопление, предотвращает повторное списание.
+        _auto_search_emotion_reduce (bool): Включено ли списание настроения для текущего боя.
+        _auto_search_fleet_index (int): Индекс флота в текущем бою.
+        auto_search_oil_limit_triggered (bool): Сработал ли лимит нефти.
+        auto_search_coin_limit_triggered (bool): Сработал ли лимит монет.
     """
     _auto_search_in_stage_timer = Timer(3, count=6)
     _auto_search_status_confirm = False
@@ -356,14 +357,14 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
 
     def _wait_withdraw_stable(self, withdraw_stable_timer):
         """
-        等待WITHDRAW按钮稳定出现，防止界面过渡动画导致误判。
+        Ожидает стабильного появления кнопки WITHDRAW, предотвращая ложные срабатывания из-за анимаций перехода интерфейса.
 
         Args:
-            withdraw_stable_timer (Timer): WITHDRAW按钮稳定计时器
+            withdraw_stable_timer (Timer): Таймер стабилизации кнопки WITHDRAW.
 
         Returns:
-            bool: True表示WITHDRAW按钮已稳定出现，可以点击；
-                  False表示按钮尚未出现或不稳定，需要继续等待。
+            bool: True, если кнопка WITHDRAW стабильно появилась и готова к клику;
+                  False, если кнопка ещё не появилась или нестабильна и нужно продолжать ожидание.
         """
         withdraw_appear = self.appear(WITHDRAW, offset=(30, 30))
         if withdraw_appear:
@@ -376,11 +377,11 @@ class AutoSearchCombat(MapOperation, Combat, CampaignStatus):
 
     def _handle_fleet_switch_over(self):
         """
-        处理舰队切换操作：仅撤退当前战败舰队，切换到另一队继续战斗。
-        包含超时保护，避免UI异常时无限循环。
+        Обрабатывает операцию переключения флота: отступает только текущим побеждённым флотом и переключается на другой для продолжения боя.
+        Включает защиту по таймауту для предотвращения бесконечного цикла при сбоях UI.
 
         Returns:
-            bool: True表示切换成功，False表示超时。
+            bool: True, если переключение прошло успешно; False при таймауте.
         """
         timeout = Timer(10, count=20).start()
         while 1:

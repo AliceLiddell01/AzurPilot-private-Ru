@@ -1,18 +1,19 @@
-"""战斗血量平衡管理器。
+"""Менеджер балансировки здоровья в бою.
 
-监控战斗中各舰船的 HP 状态，提供血量检测、撤退判断和血量平衡功能。
+Отслеживает состояние HP кораблей в бою, обеспечивая детекцию здоровья, принятие решений
+об отступлении и функции балансировки здоровья перестановкой позиций.
 
-血量检测通过 HP 条的颜色分析实现：
-- 绿色 HP 条：血量充足
-- 红色 HP 条：血量较低
-- 通过颜色占比计算当前血量百分比
+Детекция здоровья выполняется через цветовой анализ полос HP:
+- Зелёная полоса HP: высокий уровень здоровья
+- Красная полоса HP: низкий уровень здоровья
+- Процент текущего здоровья вычисляется по доле соответствующего цвета
 
-功能：
-- hp_get(): 从截图中读取所有舰船的 HP 百分比
-- hp_retreat_triggered(): 判断是否需要撤退（任一舰船血量过低）
-- hp_reset(): 进入地图时重置 HP 数据
+Функции:
+- hp_get(): считывает процент HP всех кораблей со скриншота
+- hp_retreat_triggered(): определяет необходимость отступления (критический уровень здоровья любого корабля)
+- hp_reset(): сбрасывает данные HP при входе на карту
 
-每个位置（先锋 3 个 + 主力 3 个 = 6 个）独立追踪。
+Каждая позиция (3 авангард + 3 мейн = 6 кораблей) отслеживается независимо.
 """
 
 from module.base.base import ModuleBase
@@ -30,18 +31,18 @@ SCOUT_POSITION = [
 
 
 class HPBalancer(ModuleBase):
-    """战斗血量平衡器。
+    """Балансировщик здоровья в бою.
 
-    追踪舰队中每个位置的 HP 值，提供血量检测和撤退判断。
-    支持按舰队索引（1 或 2）分别管理。
+    Отслеживает значения HP на каждой позиции флота, предоставляя проверку здоровья и принятие решений об отступлении.
+    Поддерживает раздельное управление по индексам флотов (1 или 2).
 
     Attributes:
-        fleet_current_index (int): 当前操作的舰队索引。
-        fleet_show_index (int): 当前显示的舰队索引。
-        _hp (dict[int, list[float]]): 各舰队的 HP 值缓存。
-        _hp_has_ship (dict[int, list[bool]]): 各位置是否有舰船。
-        COLOR_HP_GREEN (tuple): HP 条绿色部分的参考颜色。
-        COLOR_HP_RED (tuple): HP 条红色部分的参考颜色。
+        fleet_current_index (int): Индекс текущего активного флота.
+        fleet_show_index (int): Индекс отображаемого флота.
+        _hp (dict[int, list[float]]): Кэш значений HP каждого флота.
+        _hp_has_ship (dict[int, list[bool]]): Флаги наличия корабля на каждой позиции.
+        COLOR_HP_GREEN (tuple): Опорный цвет зелёной части полосы HP.
+        COLOR_HP_RED (tuple): Опорный цвет красной части полосы HP.
     """
     fleet_current_index = 1
     fleet_show_index = 1
@@ -55,7 +56,7 @@ class HPBalancer(ModuleBase):
     def hp(self):
         """
         Returns:
-            list[float]: 各舰船的 HP 值列表。
+            list[float]: Список значений HP кораблей.
         """
         return self._hp[self.fleet_current_index]
 
@@ -63,7 +64,7 @@ class HPBalancer(ModuleBase):
     def hp(self, value):
         """
         Args:
-            value (list[float]): 各舰船的 HP 值列表。
+            value (list[float]): Список значений HP кораблей.
         """
         self._hp[self.fleet_current_index] = value
 
@@ -71,7 +72,7 @@ class HPBalancer(ModuleBase):
     def hp_has_ship(self):
         """
         Returns:
-            list[bool]: 各位置是否有舰船。
+            list[bool]: Наличие кораблей на позициях.
         """
         return self._hp_has_ship[self.fleet_current_index]
 
@@ -79,18 +80,18 @@ class HPBalancer(ModuleBase):
     def hp_has_ship(self, value):
         """
         Args:
-            value (list[float]): 各位置是否有舰船。
+            value (list[float]): Наличие кораблей на позициях.
         """
         self._hp_has_ship[self.fleet_current_index] = value
 
     def _calculate_hp(self, area):
-        """根据颜色计算 HP。
+        """Вычисляет уровень HP по цвету полосы.
 
         Args:
-            area (tuple): HP 条的区域坐标。
+            area (tuple): Координаты области полосы HP.
 
         Returns:
-            float: HP 百分比。
+            float: Доля HP (от 0 до 1).
         """
         data = max(
             color_bar_percentage(self.device.image, area=area, prev_color=self.COLOR_HP_RED),
@@ -108,10 +109,10 @@ class HPBalancer(ModuleBase):
             return ButtonGrid(origin=(35, 206), delta=(0, 100), button_shape=(66, 4), grid_shape=(1, 6))
 
     def hp_get(self):
-        """从截图获取当前 HP。
+        """Считывает текущее здоровье со скриншота.
 
         Returns:
-            list: 6 艘舰船的 HP（float）。
+            list: Значения HP 6 кораблей (float).
 
         Logs:
             [HP]  98% ____ ____  98%  98%  98%
@@ -139,16 +140,16 @@ class HPBalancer(ModuleBase):
         return self.hp
 
     def hp_reset(self):
-        """进入地图后调用此方法重置 HP 数据。"""
+        """Сбрасывает данные HP; вызывается при входе на карту."""
         self._hp = {}
         self._hp_has_ship = {}
 
     def _scout_position_change(self, p1, p2):
-        """交换舰船位置。即使移动到正确位置，也需要稍微上下移动。
+        """Меняет местами позиции кораблей. Даже при перемещении на правильную позицию требуется небольшое смещение вверх/вниз.
 
         Args:
-            p1 (int): 原始位置 [0, 2]。
-            p2 (int): 目标位置 [0, 2]。
+            p1 (int): Исходная позиция [0, 2].
+            p2 (int): Целевая позиция [0, 2].
         """
         logger.info('[Здоровье — баланс] Перестановка позиций авангарда (%s, %s)' % (p1, p2))
         self.device.drag(p1=SCOUT_POSITION[p1], p2=SCOUT_POSITION[p2], segments=3)
@@ -192,11 +193,11 @@ class HPBalancer(ModuleBase):
 
     @Config.when(DEVICE_CONTROL_METHOD='minitouch')
     def _gen_exchange_step(self, target):
-        """minitouch 拖拽更接近人类操作。当把第一个舰船拖到第三个位置时，
-        [0, 1, 2] 变为 [1, 2, 0]，而 adb/uiautomator2 下变为 [2, 1, 0]。
+        """Перетаскивание minitouch ближе к действиям человека. При перетаскивании первого корабля на третью позицию
+        [0, 1, 2] переходит в [1, 2, 0], тогда как в adb/uiautomator2 получается [2, 1, 0].
 
         Args:
-            target (list[int]): 目标排列，如 [2, 0, 1]。
+            target (list[int]): Целевой порядок, например [2, 0, 1].
         """
         diff = np.array(target) - np.array((0, 1, 2))
         count = np.count_nonzero(diff)
@@ -225,7 +226,7 @@ class HPBalancer(ModuleBase):
     def _gen_exchange_step(self, target):
         """
         Args:
-            target (list[int]): 目标排列，如 [2, 0, 1]。
+            target (list[int]): Целевой порядок, например [2, 0, 1].
         """
         diff = np.array(target) - np.array((0, 1, 2))
         count = np.count_nonzero(diff)
