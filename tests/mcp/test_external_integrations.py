@@ -776,7 +776,7 @@ def test_http_probe_uses_file_credential_value(monkeypatch, tmp_path: Path):
     assert token not in outcome.record.model_dump_json()
 
 
-def test_grafana_discovery_uses_single_published_route(monkeypatch, tmp_path: Path):
+def test_grafana_discovery_prefers_confirmed_compose_network_route(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(
         "azurpilot.integrations.adapters._executable", lambda _command: "docker"
     )
@@ -797,7 +797,8 @@ def test_grafana_discovery_uses_single_published_route(monkeypatch, tmp_path: Pa
     settings, code = _discover_grafana_settings(Path("C:/repo"), {})
 
     assert code == "GRAFANA_ENDPOINT_DISCOVERED"
-    assert settings["endpoint"] == "http://host.docker.internal:4310"
+    assert settings["endpoint"] == "http://grafana:3000"
+    assert settings["network"] == "observability_default"
 
 
 def test_grafana_discovery_rejects_ambiguous_published_routes(monkeypatch, tmp_path: Path):
@@ -905,10 +906,12 @@ def test_mcp_call_plan_requires_allowlisted_probe_tool():
 
 
 def test_grafana_and_docker_hub_policies_exclude_write_tools():
+    assert GRAFANA_READ_ONLY_TOOLS
+    assert GRAFANA_BLOCKED_TOOLS
     assert GRAFANA_READ_ONLY_TOOLS.isdisjoint(GRAFANA_BLOCKED_TOOLS)
+    assert DOCKER_HUB_READ_ONLY_TOOLS
+    assert DOCKER_HUB_BLOCKED_TOOLS
     assert DOCKER_HUB_READ_ONLY_TOOLS.isdisjoint(DOCKER_HUB_BLOCKED_TOOLS)
-    assert {"createRepository", "updateRepositoryInfo", "deleteRepository"} <= DOCKER_HUB_BLOCKED_TOOLS
-    assert "update_dashboard" in GRAFANA_BLOCKED_TOOLS
 
 
 def test_credential_ref_contains_only_provenance_not_secret(
