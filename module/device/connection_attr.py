@@ -23,7 +23,7 @@ from module.logger import logger
 
 def platform_tools_url():
     """
-    返回当前平台对应的 Android platform-tools 下载地址。
+    Возвращает URL загрузки Android platform-tools для текущей платформы.
     """
     if sys.platform == 'win32':
         return 'https://dl.google.com/android/repository/platform-tools-latest-windows.zip'
@@ -47,13 +47,13 @@ class ConnectionAttr:
 
     def download_adb_binary(self, target):
         """
-        下载官方 Android platform-tools，并把 adb 放到目标路径。
+        Загружает официальные Android platform-tools и размещает adb по целевому пути.
 
         Args:
-            target (str): 期望的 adb 可执行文件路径，通常是 .venv/bin/adb。
+            target (str): Ожидаемый путь к исполняемому файлу adb, обычно .venv/bin/adb.
 
         Returns:
-            str | None: 安装成功后的 adb 绝对路径。
+            str | None: Абсолютный путь к adb после успешной установки.
         """
         url = platform_tools_url()
         if url is None:
@@ -371,17 +371,17 @@ class ConnectionAttr:
     @cached_property
     def adb_binary(self):
         """
-        获取 ADB 可执行文件路径。
+        Возвращает путь к исполняемому файлу ADB.
 
-        检查顺序：
-        1. deploy.yaml 配置的路径（绝对路径）
-        2. 预定义的候选路径列表
-        3. Python 环境中的 adb
-        4. 系统 PATH 中的 adb
-        5. 自动下载到配置路径
+        Порядок проверки:
+        1. Путь из deploy.yaml (абсолютный путь)
+        2. Предопределённый список путей-кандидатов
+        3. adb в окружении Python
+        4. adb в системном PATH
+        5. Автоматическая загрузка по настроенному пути
 
         Returns:
-            str: ADB 可执行文件的绝对路径。
+            str: Абсолютный путь к исполняемому файлу ADB.
         """
         from module.webui.setting import State
 
@@ -439,10 +439,10 @@ class ConnectionAttr:
 
     @cached_property
     def adb(self) -> AdbDevice:
-        """获取 ADB 设备实例。
+        """Возвращает экземпляр устройства ADB.
 
         Returns:
-            AdbDevice: 通过 ADB 客户端和序列号绑定的设备对象。
+            AdbDevice: Объект устройства, привязанный через клиент ADB и серийный номер.
         """
         return AdbDevice(self.adb_client, self.serial)
 

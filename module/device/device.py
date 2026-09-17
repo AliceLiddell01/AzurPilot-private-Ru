@@ -1,5 +1,6 @@
-"""设备交互的综合管理入口。整合截图、控制、输入和应用管理功能，
-内置防卡死检测（GameStuckError）和点击频率控制（GameTooManyClickError）。"""
+"""Комплексная точка входа для взаимодействия с устройством. Объединяет функции
+снятия снимков экрана, управления, ввода и управления приложением;
+включает встроенное обнаружение зависаний (GameStuckError) и контроль частоты нажатий (GameTooManyClickError)."""
 
 # Этот файл определяет класс Device — единую точку взаимодействия сценария с устройством.
 # Отвечает за скриншоты, клики, ввод текста; встроенный контроль частоты кликов и защита от зависаний повышают стабильность автоматизации.
@@ -67,10 +68,11 @@ def show_function_call():
 
 class Device(Screenshot, Control, AppControl, Input):
     """
-    设备交互管理类，整合截图、控制、应用管理和输入功能。
+    Класс управления взаимодействием с устройством, объединяющий создание снимков,
+    управление, жизненный цикл приложения и ввод данных.
 
-    通过多重继承组合 Screenshot、Control、AppControl、Input 四个模块，
-    并通过 Platform 委托模拟器管理操作。
+    Комбинирует четыре модуля Screenshot, Control, AppControl, Input
+    через множественное наследование и делегирует управление эмулятором через Platform.
     """
     _screen_size_checked = False
     detect_record = set()
@@ -139,9 +141,9 @@ class Device(Screenshot, Control, AppControl, Input):
     @property
     def platform(self):
         """
-        获取模拟器管理平台实例。
+        Получить экземпляр платформы управления эмулятором.
 
-        惰性初始化，首次访问时创建 Platform 实例。
+        Ленивая инициализация: создает экземпляр Platform при первом обращении.
         """
         if self._platform is None:
             # Когда эмулятор офлайн (обычно сценарий автозапуска),
@@ -158,28 +160,28 @@ class Device(Screenshot, Control, AppControl, Input):
     @property
     def emulator_instance(self):
         """
-        获取当前模拟器实例。
+        Получить текущий экземпляр эмулятора.
 
         Returns:
-            模拟器实例对象，未找到时返回 None。
+            Экземпляр эмулятора или None, если он не найден.
         """
         return self.platform.emulator_instance
 
     def emulator_start(self):
         """
-        启动模拟器，委托给平台特定实现。
+        Запустить эмулятор, делегируя вызов платформо-зависимой реализации.
         """
         return self.platform.emulator_start()
 
     def emulator_stop(self):
         """
-        停止模拟器，委托给平台特定实现。
+        Остановить эмулятор, делегируя вызов платформо-зависимой реализации.
         """
         return self.platform.emulator_stop()
 
     def run_simple_screenshot_benchmark(self):
         """
-        运行截图方式基准测试，每种方式测试 3 次，选择最快的写入配置。
+        Запустить бенчмарк методов создания снимков экрана (по 3 замера каждый) и сохранить быстрейший в конфигурацию.
         """
         logger.info('[Устройство — тест] Запуск теста методов снимка экрана')
         # Сначала проверяем разрешение
@@ -196,9 +198,9 @@ class Device(Screenshot, Control, AppControl, Input):
 
     def run_simple_ocr_benchmark(self):
         """
-        运行 OCR 设备基准测试，优先测试 GPU。
+        Запустить бенчмарк OCR-устройств с приоритетом GPU.
 
-        准确率 100% 则选择 'gpu'，否则回退到 'cpu'。
+        При 100% точности выбирается 'gpu', иначе выполняется откат на 'cpu'.
         """
         logger.info('[Устройство — OCR benchmark] Проверка доступных OCR-устройств')
         from module.daemon.ocr_benchmark import OcrBenchmark
@@ -215,7 +217,7 @@ class Device(Screenshot, Control, AppControl, Input):
 
     def method_check(self):
         """
-        检查截图方式和控制方式的组合是否合法。
+        Проверить допустимость комбинации метода снимка экрана и метода управления.
         """
         # Скриншоты и управление nemu_ipc должны использоваться совместно
         # if self.config.Emulator_ScreenshotMethod == 'nemu_ipc' and self.config.Emulator_ControlMethod != 'nemu_ipc':
@@ -248,14 +250,14 @@ class Device(Screenshot, Control, AppControl, Input):
 
     def handle_night_commission(self, daily_trigger='21:00', threshold=30):
         """
-        检测并处理夜间委托刷新弹窗。
+        Обнаружить и обработать всплывающее окно обновления ночных поручений.
 
         Args:
-            daily_trigger: 委托刷新时间点。
-            threshold: 刷新时间前后多少秒内触发检测。
+            daily_trigger: Время обновления поручений.
+            threshold: Интервал в секундах до и после обновления для срабатывания проверки.
 
         Returns:
-            是否点击了委托弹窗。
+            Было ли нажато окно поручений.
         """
         update = get_server_next_update(daily_trigger=daily_trigger)
         now = current_time()
@@ -327,7 +329,7 @@ class Device(Screenshot, Control, AppControl, Input):
 
     def release_during_wait(self):
         """
-        等待期间释放截图资源，避免后台持续占用。
+        Освободить ресурсы снимков экрана во время ожидания, чтобы избежать фоновой нагрузки.
         """
         # Сервер Scrcpy непрерывно передает видеопоток, на время ожидания его нужно останавливать
         if self.config.Emulator_ScreenshotMethod == 'scrcpy':
@@ -337,7 +339,7 @@ class Device(Screenshot, Control, AppControl, Input):
 
     def get_orientation(self):
         """
-        获取屏幕方向，方向变化时触发回调。
+        Получить ориентацию экрана и вызвать обратный вызов при её изменении.
         """
         o = super().get_orientation()
 
@@ -377,11 +379,11 @@ class Device(Screenshot, Control, AppControl, Input):
 
     def stuck_record_check(self):
         """
-        检查是否卡死（操作超时或长时间无有效截图操作）。
+        Проверить на зависание (таймаут операции или долгое отсутствие результативных действий со снимком).
 
         Raises:
-            GameStuckError: 游戏卡死。
-            GameNotRunningError: 游戏已退出。
+            GameStuckError: Игра зависла.
+            GameNotRunningError: Игра завершила работу.
         """
         reached = self.stuck_timer.reached()
         reached_long = self.stuck_timer_long.reached()
@@ -416,13 +418,13 @@ class Device(Screenshot, Control, AppControl, Input):
 
     def click_record_remove(self, button):
         """
-        从点击记录中移除指定按钮的所有记录。
+        Удалить все записи указанной кнопки из истории нажатий.
 
         Args:
-            button: 要移除的按钮对象。
+            button: Объект удаляемой кнопки.
 
         Returns:
-            移除的记录数量。
+            Количество удаленных записей.
         """
         removed = 0
         for _ in range(self.click_record.maxlen):
@@ -437,10 +439,10 @@ class Device(Screenshot, Control, AppControl, Input):
 
     def click_record_check(self):
         """
-        检查点击频率是否异常（同一按钮被点击过多或两个按钮交替点击过多）。
+        Проверить аномалии частоты нажатий (слишком много кликов по одной кнопке или частое чередование двух кнопок).
 
         Raises:
-            GameTooManyClickError: 点击频率异常。
+            GameTooManyClickError: Аномальная частота нажатий.
         """
         count = collections.Counter(self.click_record).most_common(2)
         if count[0][1] >= 12:
@@ -458,7 +460,7 @@ class Device(Screenshot, Control, AppControl, Input):
 
     def disable_stuck_detection(self):
         """
-        禁用卡死检测，用于半自动模式和调试场景。
+        Отключить обнаружение зависаний (для полуавтоматического режима и отладки).
         """
         logger.info('[Устройство — контроль] Обнаружение зависания отключено')
 

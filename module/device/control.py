@@ -1,8 +1,8 @@
-"""设备输入控制模块。
+"""Модуль управления вводом устройства.
 
-统一管理所有触控操作（点击、长按、滑动、拖拽），根据配置的控制方法
-（ADB、uiautomator2、minitouch、Hermit、MaaTouch、scrcpy、nemu_ipc）
-自动分发到对应的底层实现。
+Централизованно управляет всеми сенсорными операциями (нажатия, долгие нажатия, свайпы,
+перетаскивания), автоматически направляя их в соответствующую реализацию согласно
+настроенному методу управления (ADB, uiautomator2, minitouch, Hermit, MaaTouch, scrcpy, nemu_ipc).
 """
 from module.base.button import Button
 from module.base.decorator import cached_property
@@ -17,11 +17,12 @@ from module.logger import logger
 
 
 class Control(Hermit, Minitouch, Scrcpy, MaaTouch, NemuIpc):
-    """设备触控控制调度器。
+    """Диспетчер сенсорного управления устройства.
 
-    通过多重继承组合所有控制后端（Hermit、Minitouch、Scrcpy、MaaTouch、NemuIpc），
-    根据用户配置的 Emulator_ControlMethod 自动分发到对应后端实现。
-    提供统一的点击、长按、滑动、拖拽接口。
+    Объединяет все бэкенды управления (Hermit, Minitouch, Scrcpy, MaaTouch, NemuIpc) через
+    множественное наследование, автоматически направляя вызовы в реализацию согласно
+    настроенному Emulator_ControlMethod. Предоставляет единый интерфейс клика, долгого
+    нажатия, свайпа и перетаскивания.
     """
     def handle_control_check(self, button):
         # Будет переопределено в Device
@@ -29,11 +30,11 @@ class Control(Hermit, Minitouch, Scrcpy, MaaTouch, NemuIpc):
 
     @cached_property
     def click_methods(self):
-        """返回控制方法名到点击实现的映射字典。
+        """Возвращает словарь соответствия имени метода управления реализации клика.
 
         Returns:
-            dict[str, Callable]: 键为控制方法名（如 'ADB'、'minitouch'），
-                值为对应的点击方法。
+            dict[str, Callable]: Ключ — имя метода управления (например, 'ADB', 'minitouch'),
+                значение — соответствующий метод нажатия.
         """
         return {
             'ADB': self.click_adb,
@@ -45,11 +46,11 @@ class Control(Hermit, Minitouch, Scrcpy, MaaTouch, NemuIpc):
         }
 
     def click(self, button, control_check=True):
-        """点击按钮。
+        """Нажимает на кнопку.
 
         Args:
-            button (button.Button): 碧蓝航线按钮实例。
-            control_check (bool): 是否进行控制检查。
+            button (button.Button): Экземпляр кнопки Azur Lane.
+            control_check (bool): Выполнять ли проверку управления.
         """
         if control_check:
             self.handle_control_check(button)
@@ -65,12 +66,12 @@ class Control(Hermit, Minitouch, Scrcpy, MaaTouch, NemuIpc):
         method(x, y)
 
     def multi_click(self, button, n, interval=(0.1, 0.2)):
-        """对按钮执行多次连续点击。
+        """Выполняет несколько последовательных нажатий на кнопку.
 
         Args:
-            button (button.Button): 碧蓝航线按钮实例。
-            n (int): 点击次数。
-            interval (tuple): 两次点击之间的间隔范围（秒），格式为 (最小值, 最大值)。
+            button (button.Button): Экземпляр кнопки Azur Lane.
+            n (int): Количество нажатий.
+            interval (tuple): Диапазон интервала между нажатиями (в секундах), формат (min, max).
         """
         self.handle_control_check(button)
         click_timer = Timer(0.1)
@@ -83,11 +84,11 @@ class Control(Hermit, Minitouch, Scrcpy, MaaTouch, NemuIpc):
             self.click(button, control_check=False)
 
     def long_click(self, button, duration=(1, 1.2)):
-        """长按按钮。
+        """Выполняет долгое нажатие на кнопку.
 
         Args:
-            button (button.Button): 碧蓝航线按钮实例。
-            duration (int, float, tuple): 长按持续时间。
+            button (button.Button): Экземпляр кнопки Azur Lane.
+            duration (int, float, tuple): Длительность долгого нажатия.
         """
         self.handle_control_check(button)
         x, y = random_rectangle_point(button.button)
@@ -111,17 +112,17 @@ class Control(Hermit, Minitouch, Scrcpy, MaaTouch, NemuIpc):
             self.swipe_adb((x, y), (x, y), duration)
 
     def swipe(self, p1, p2, duration=(0.1, 0.2), name='SWIPE', distance_check=True):
-        """在两点之间执行滑动操作。
+        """Выполняет операцию свайпа между двумя точками.
 
-        ADB 方式的滑动持续时间会自动乘以 2.5 以保证有效性。
-        距离检查会丢弃小于 10 像素的滑动（碧蓝航线会将其视为点击）。
+        Длительность свайпа для ADB автоматически умножается на 2.5 для обеспечения надёжности.
+        Проверка расстояния отбрасывает свайпы короче 10 пикселей (Azur Lane воспринимает их как клик).
 
         Args:
-            p1 (tuple): 起始坐标 (x, y)。
-            p2 (tuple): 终点坐标 (x, y)。
-            duration (int, float, tuple): 滑动持续时间（秒）。
-            name (str): 滑动操作名称，用于日志输出。
-            distance_check (bool): 是否检查滑动距离，距离过小时跳过操作。
+            p1 (tuple): Начальные координаты (x, y).
+            p2 (tuple): Конечные координаты (x, y).
+            duration (int, float, tuple): Длительность свайпа (в секундах).
+            name (str): Имя операции свайпа для вывода в журнал.
+            distance_check (bool): Проверять ли дистанцию, пропуская операцию при слишком малом расстоянии.
         """
         self.handle_control_check(name)
         p1, p2 = ensure_int(p1, p2)
@@ -158,19 +159,19 @@ class Control(Hermit, Minitouch, Scrcpy, MaaTouch, NemuIpc):
 
     def swipe_vector(self, vector, box=(123, 159, 1175, 628), random_range=(0, 0, 0, 0), padding=15,
                      duration=(0.1, 0.2), whitelist_area=None, blacklist_area=None, name='SWIPE', distance_check=True):
-        """在指定范围内执行向量滑动。
+        """Выполняет векторный свайп в заданной области.
 
         Args:
-            box (tuple): 滑动区域，格式为 (左上角 x, 左上角 y, 右下角 x, 右下角 y)。
-            vector (tuple): 滑动向量，格式为 (x, y)。
-            random_range (tuple): 随机偏移范围，格式为 (x_min, y_min, x_max, y_max)。
-            padding (int): 边距。
-            duration (int, float, tuple): 滑动持续时间。
-            whitelist_area (list[tuple[int]]): 安全点击区域列表，滑动路径将终止于此。
-            blacklist_area (list[tuple[int]]): 当白名单区域无法满足当前向量时使用黑名单区域。
-                排除终点在黑名单区域内的随机路径。
-            name (str): 滑动名称。
-            distance_check (bool): 是否进行距离检查。
+            box (tuple): Область свайпа, формат (x_min, y_min, x_max, y_max).
+            vector (tuple): Вектор свайпа, формат (x, y).
+            random_range (tuple): Диапазон случайного смещения (x_min, y_min, x_max, y_max).
+            padding (int): Внутренний отступ.
+            duration (int, float, tuple): Длительность свайпа.
+            whitelist_area (list[tuple[int]]): Список безопасных зон клика, где путь свайпа завершится.
+            blacklist_area (list[tuple[int]]): Запретные зоны, используемые если белый список недоступен.
+                Исключает случайные траектории с концом в чёрном списке.
+            name (str): Имя свайпа.
+            distance_check (bool): Выполнять ли проверку дистанции.
         """
         p1, p2 = random_rectangle_vector_opted(
             vector,
@@ -184,21 +185,21 @@ class Control(Hermit, Minitouch, Scrcpy, MaaTouch, NemuIpc):
 
     def drag(self, p1, p2, segments=1, shake=(0, 15), point_random=(-10, -10, 10, 10), shake_random=(-5, -5, 5, 5),
              swipe_duration=0.25, shake_duration=0.1, name='DRAG'):
-        """执行拖拽操作，支持分段滑动和松手后的抖动模拟。
+        """Выполняет операцию перетаскивания (drag) с поддержкой сегментированного свайпа и имитации покачивания при отпускании.
 
-        用于碧蓝航线中需要精确拖拽的场景（如装备拖放、编队调整）。
-        不支持拖拽的后端会回退到 ADB 滑动 + 点击。
+        Используется в сценариях Azur Lane, требующих точного перетаскивания (экипировка, настройка флота).
+        Бэкенды, не поддерживающие drag, откатываются на ADB swipe + click.
 
         Args:
-            p1 (tuple): 起始坐标 (x, y)。
-            p2 (tuple): 终点坐标 (x, y)。
-            segments (int): 滑动分段数。
-            shake (tuple): 松手后的抖动偏移量 (x, y)。
-            point_random (tuple): 起点随机偏移范围 (x_min, y_min, x_max, y_max)。
-            shake_random (tuple): 抖动的随机偏移范围 (x_min, y_min, x_max, y_max)。
-            swipe_duration (float): 滑动持续时间（秒）。
-            shake_duration (float): 抖动持续时间（秒）。
-            name (str): 拖拽操作名称，用于日志输出。
+            p1 (tuple): Начальные координаты (x, y).
+            p2 (tuple): Конечные координаты (x, y).
+            segments (int): Число сегментов свайпа.
+            shake (tuple): Смещение покачивания после отпускания (x, y).
+            point_random (tuple): Случайное смещение начальной точки (x_min, y_min, x_max, y_max).
+            shake_random (tuple): Случайное смещение покачивания (x_min, y_min, x_max, y_max).
+            swipe_duration (float): Длительность свайпа (в секундах).
+            shake_duration (float): Длительность покачивания (в секундах).
+            name (str): Имя операции перетаскивания для журнала.
         """
         self.handle_control_check(name)
         p1, p2 = ensure_int(p1, p2)
@@ -224,14 +225,14 @@ class Control(Hermit, Minitouch, Scrcpy, MaaTouch, NemuIpc):
             self.click(Button(area=(), color=(), button=area_offset(point_random, p2), name=name), False)
 
     def island_swipe_hold(self, p1, p2, hold_time):
-        """岛屿系统专用的滑动并保持操作。
+        """Операция свайпа с удержанием, предназначенная для островной системы.
 
-        在两点之间滑动并在终点保持一段时间，用于岛屿内的交互操作。
+        Выполняет свайп между двумя точками и удерживает палец в конечной точке, используется для взаимодействия на острове.
 
         Args:
-            p1 (tuple): 起始坐标 (x, y)。
-            p2 (tuple): 终点坐标 (x, y)。
-            hold_time (int, float, tuple): 在终点保持的时间（秒）。
+            p1 (tuple): Начальные координаты (x, y).
+            p2 (tuple): Конечные координаты (x, y).
+            hold_time (int, float, tuple): Время удержания в конечной точке (в секундах).
         """
         p1, p2 = ensure_int(p1, p2)
         hold_time = ensure_time(hold_time)
