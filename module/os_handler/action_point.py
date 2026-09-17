@@ -1,8 +1,9 @@
-"""大世界行动力管理模块。
+"""Модуль управления очками действия Операции «Сирена».
 
-处理大世界（Operation Siren）模式下的行动力（Action Point）管理。
-包含行动力数值的 OCR 识别、适应性属性读取、药剂（AP Box）库存解析，
-以及自动购买或使用补给品的交互逻辑。
+Управляет очками действия (Action Point, AP) в режиме Операции «Сирена».
+Включает OCR-распознавание значений AP, считывание показателей адаптивности,
+разбор запасов коробок AP, а также логику взаимодействия для автоматической
+покупки или использования коробок пополнения AP.
 """
 # Этот файл обрабатывает очки действия (Action Point, AP) в режиме Операции «Сирена» (Operation Siren).
 # Включает OCR очков действия, разбор запасов контейнеров AP и автоматическую покупку или использование припасов.
@@ -56,7 +57,7 @@ else:
 
 
 class ActionPointItem(Item):
-    """大世界行动力物品。"""
+    """Предмет очков действия Операции «Сирена»."""
     def predict_valid(self):
         return True
 
@@ -65,7 +66,7 @@ ACTION_POINT_GRID = ButtonGrid(
     origin=(323, 274), delta=(173, 0), button_shape=(115, 115), grid_shape=(4, 1), name='ACTION_POINT_GRID')
 
 class GridSlice:
-    """网格切片，用于构建物品网格。"""
+    """Срез сетки для построения сетки предметов."""
     def __init__(self, buttons):
         self.buttons = buttons
 
@@ -115,9 +116,9 @@ ACTION_POINT_BOX = {
 
 class ActionPointLimit(Exception):
     """
-    行动力不足异常。
+    Исключение нехватки очков действия.
 
-    当行动力不足以进入目标海域时抛出。
+    Вызывается, когда очков действия недостаточно для входа в целевую зону.
     """
     def __init__(self, current=None, total=None, cost=None, preserve=None):
         super().__init__()
@@ -129,10 +130,10 @@ class ActionPointLimit(Exception):
     @property
     def delay_minutes(self):
         """
-        获取需要延迟的分钟数。
+        Получить количество минут для задержки.
 
         Returns:
-            int | None: 需要延迟的分钟数，如果无需延迟则返回 None。
+            int | None: Количество минут задержки, либо None, если задержка не требуется.
         """
         if self.cost is None or self.current is None:
             return None
@@ -152,13 +153,14 @@ class ActionPointHandler(UI, MapEventHandler):
     @staticmethod
     def _is_in_month_end_purchase_block_week():
         """
-        判断当前是否处于月末购买封锁周。
+        Определить, находится ли текущий момент на неделе блокировки покупок в конце месяца.
 
-        在包含下个服务器月第一天的自然周（周一至周日）内，封锁每周行动力购买。
-        进入下个服务器月后，购买将重新可用。
+        В течение календарной недели (понедельник–воскресенье), содержащей первый день
+        следующего месяца сервера, еженедельная покупка AP блокируется.
+        После наступления следующего месяца сервера покупка снова становится доступной.
 
         Returns:
-            bool: 是否处于月末封锁周。
+            bool: Находится ли в неделе блокировки конца месяца.
         """
         diff = server_time_offset()
         server_now = current_time() - diff
@@ -194,10 +196,10 @@ class ActionPointHandler(UI, MapEventHandler):
 
     def action_point_update(self):
         """
-        更新行动力信息。
+        Обновить информацию об очках действия.
 
         Returns:
-            int: 总行动力，包括行动力药剂。
+            int: Суммарные очки действия, включая коробки AP.
         """
         oil = OIL_ITEM.predict(self.device.image, name=False, amount=True)
         items = ACTION_POINT_ITEMS.predict(self.device.image, name=False, amount=True)
@@ -221,9 +223,9 @@ class ActionPointHandler(UI, MapEventHandler):
 
     def action_point_safe_get(self):
         """
-        安全获取行动力信息。
+        Безопасно получить информацию об очках действия.
 
-        等待行动力弹窗完全加载，并处理可能的地图事件。
+        Ожидает полной загрузки всплывающего окна AP и обрабатывает возможные события карты.
         """
         timeout = Timer(3, count=6).start()
         for _ in self.loop():
@@ -277,14 +279,14 @@ class ActionPointHandler(UI, MapEventHandler):
     @staticmethod
     def action_point_get_cost(zone, pinned):
         """
-        获取进入指定海域所需的行动力消耗。
+        Получить расход очков действия для входа в указанную зону.
 
         Args:
-            zone (Zone): 要进入的海域。
-            pinned (str): 海域类型。可用类型: DANGEROUS, SAFE, OBSCURE, ABYSSAL, STRONGHOLD。
+            zone (Zone): Зона для входа.
+            pinned (str): Тип зоны. Допустимые типы: DANGEROUS, SAFE, OBSCURE, ABYSSAL, STRONGHOLD.
 
         Returns:
-            int: 消耗的行动力。
+            int: Расход очков действия.
         """
         if pinned == 'DANGEROUS':
             cost = ACTION_POINTS_COST[zone.hazard_level] * 2
@@ -307,10 +309,10 @@ class ActionPointHandler(UI, MapEventHandler):
 
     def action_point_get_active_button(self):
         """
-        获取当前激活的行动力药剂按钮索引。
+        Получить индекс текущей активной кнопки коробки AP.
 
         Returns:
-            int: 0 到 3。0 为石油，1 为 20 行动力药剂，2 为 50 行动力药剂，3 为 100 行动力药剂。
+            int: От 0 до 3. 0 — топливо, 1 — коробка на 20 AP, 2 — коробка на 50 AP, 3 — коробка на 100 AP.
         """
         for index, item in enumerate(ACTION_POINT_GRID.buttons):
             area = item.area
@@ -325,13 +327,13 @@ class ActionPointHandler(UI, MapEventHandler):
 
     def action_point_set_button(self, index):
         """
-        设置行动力药剂按钮。
+        Выбрать кнопку коробки пополнения AP.
 
         Args:
-            index (int): 0 到 3。0 为石油，1 为 20 行动力药剂，2 为 50 行动力药剂，3 为 100 行动力药剂。
+            index (int): От 0 до 3. 0 — топливо, 1 — коробка на 20 AP, 2 — коробка на 50 AP, 3 — коробка на 100 AP.
 
         Returns:
-            bool: 是否成功。
+            bool: Успешно ли переключено.
         """
         for _ in self.loop(timeout=2):
             if self.action_point_get_active_button() == index:
@@ -345,10 +347,10 @@ class ActionPointHandler(UI, MapEventHandler):
 
     def action_point_get_buy_remain(self):
         """
-        获取行动力剩余购买次数。
+        Получить оставшееся число покупок очков действия.
 
         Returns:
-            int: 剩余购买次数。
+            int: Оставшееся количество покупок.
 
         Pages:
             in: ACTION_POINT_USE
@@ -370,13 +372,13 @@ class ActionPointHandler(UI, MapEventHandler):
 
     def action_point_buy(self, preserve=1000):
         """
-        使用石油购买行动力。
+        Купить очки действия за топливо (нефть).
 
         Args:
-            preserve (int): 保留的石油量。
+            preserve (int): Резервируемое количество топлива.
 
         Returns:
-            bool: 是否购买成功。
+            bool: Успешна ли покупка.
 
         Pages:
             in: ACTION_POINT_USE
@@ -404,7 +406,7 @@ class ActionPointHandler(UI, MapEventHandler):
 
     def action_point_quit(self):
         """
-        退出行动力弹窗。
+        Выйти из всплывающего окна очков действия.
 
         Pages:
             in: ACTION_POINT_USE
@@ -426,20 +428,20 @@ class ActionPointHandler(UI, MapEventHandler):
 
     def handle_action_point(self, zone, pinned, cost=None, keep_current_ap=True, check_rest_ap=False):
         """
-        处理行动力，包括购买和使用药剂。
+        Обработать очки действия, включая покупку и использование коробок AP.
 
         Args:
-            zone (Zone): 要进入的海域。
-            pinned (str): 海域类型。可用类型: DANGEROUS, SAFE, OBSCURE, ABYSSAL, STRONGHOLD。
-            cost (int): 自定义行动力消耗值。
-            keep_current_ap (bool): 是否先检查行动力，避免在不足时使用剩余行动力。
-            check_rest_ap (bool): 如果当前行动力与今天可获得的剩余行动力之和超过 200，则跳过 keep_current_ap 检查。
+            zone (Zone): Зона для входа.
+            pinned (str): Тип зоны. Допустимые типы: DANGEROUS, SAFE, OBSCURE, ABYSSAL, STRONGHOLD.
+            cost (int): Пользовательское значение расхода AP.
+            keep_current_ap (bool): Проверять ли AP заранее, чтобы избежать траты остатка при нехватке.
+            check_rest_ap (bool): Если сумма текущего AP и доступного сегодня превышает 200, пропустить проверку keep_current_ap.
 
         Returns:
-            bool: 是否处理成功。
+            bool: Успешно ли обработано.
 
         Raises:
-            ActionPointLimit: 行动力不足时抛出。
+            ActionPointLimit: Вызывается при нехватке очков действия.
 
         Pages:
             in: ACTION_POINT_USE
@@ -536,7 +538,7 @@ class ActionPointHandler(UI, MapEventHandler):
 
     def action_point_enter(self):
         """
-        进入行动力弹窗。
+        Войти во всплывающее окно очков действия.
 
         Pages:
             in: OS_CHECK
@@ -558,20 +560,20 @@ class ActionPointHandler(UI, MapEventHandler):
 
     def action_point_set(self, zone=None, pinned=None, cost=None, keep_current_ap=True, check_rest_ap=False):
         """
-        设置行动力，进入行动力弹窗并处理。
+        Настроить очки действия, открыть всплывающее окно AP и обработать.
 
         Args:
-            zone (Zone): 要进入的海域。
-            pinned (str): 海域类型。可用类型: DANGEROUS, SAFE, OBSCURE, ABYSSAL, STRONGHOLD。
-            cost (int): 自定义行动力消耗值。
-            keep_current_ap (bool): 是否先检查行动力，避免在不足时使用剩余行动力。
-            check_rest_ap (bool): 如果当前行动力与今天可获得的剩余行动力之和超过 200，则跳过 keep_current_ap 检查。
+            zone (Zone): Зона для входа.
+            pinned (str): Тип зоны. Допустимые типы: DANGEROUS, SAFE, OBSCURE, ABYSSAL, STRONGHOLD.
+            cost (int): Пользовательское значение расхода AP.
+            keep_current_ap (bool): Проверять ли AP заранее, чтобы избежать траты остатка при нехватке.
+            check_rest_ap (bool): Если сумма текущего AP и доступного сегодня превышает 200, пропустить проверку keep_current_ap.
 
         Returns:
-            bool: 是否处理成功。
+            bool: Успешно ли обработано.
 
         Raises:
-            ActionPointLimit: 行动力不足时抛出。
+            ActionPointLimit: Вызывается при нехватке очков действия.
         """
         self.action_point_enter()
         if not self.handle_action_point(zone, pinned, cost, keep_current_ap, check_rest_ap):
@@ -586,13 +588,13 @@ class ActionPointHandler(UI, MapEventHandler):
 
     def action_point_check(self, amount):
         """
-        检查是否有足够的行动力。
+        Проверить, достаточно ли очков действия.
 
         Args:
-            amount (int): 需要检查的行动力数量。
+            amount (int): Проверяемое количество очков действия.
 
         Returns:
-            bool: 是否有足够的行动力。
+            bool: Достаточно ли очков действия.
         """
         self.action_point_enter()
         self.action_point_safe_get()

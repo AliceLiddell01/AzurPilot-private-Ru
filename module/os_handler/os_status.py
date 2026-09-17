@@ -1,8 +1,9 @@
-"""大世界状态追踪模块。
+"""Модуль отслеживания состояния Операции «Сирена».
 
-管理大世界（Operation Siren）模式的状态信息，包括海域代币
-（黄币/紫币）的 OCR 数值追踪、任务类型识别、子任务冷却（CD）
-状态的实时计算，以及相关日志资源的记录。
+Управляет информацией о состоянии режима Операции «Сирена», включая отслеживание
+показателей жетонов зон (жёлтых/фиолетовых монет) по OCR, идентификацию типов задач,
+расчёт времени восстановления (CD) подзадач в реальном времени и фиксацию
+связанных ресурсов в журнале.
 """
 # Этот файл управляет состоянием режима Operation Siren.
 # Он отслеживает морские жетоны (жёлтые/фиолетовые), распознаёт типы задач и в реальном времени рассчитывает откат (CD) подзадач.
@@ -49,7 +50,7 @@ class OSStatus(UI):
 
     @property
     def is_running_cl1_leveling(self) -> bool:
-        """判断当前执行上下文是否是侵蚀1练级。"""
+        """Определить, является ли текущий контекст выполнения прокачкой в зоне коррозии 1 (CL1)."""
         return (
             self.is_in_task_cl1_leveling
             or getattr(self.config, '_bind_task_override', None) == 'OpsiHazard1Leveling'
@@ -57,7 +58,7 @@ class OSStatus(UI):
 
     @property
     def is_in_task_meow(self) -> bool:
-        """判断当前任务是否是耄耋相接任务"""
+        """Определить, является ли текущая задача фармом Meowfficer."""
         return self.config.task.command == 'OpsiMeowfficerFarming'
 
     @property
@@ -66,7 +67,7 @@ class OSStatus(UI):
 
     @property
     def is_cl1_mode_enabled(self) -> bool:
-        """判断侵蚀1相关策略是否启用，包括智能调度+代理模式。"""
+        """Определить, включены ли стратегии зоны коррозии 1, включая интеллектуальное планирование и режим делегирования."""
         is_smart_scheduling_enabled = getattr(self, 'is_smart_scheduling_enabled', None)
         return self.is_cl1_enabled or (
             is_smart_scheduling_enabled is not None
@@ -75,7 +76,7 @@ class OSStatus(UI):
 
     @property
     def is_meow_enabled(self) -> bool:
-        """判断耄耋相接任务是否启用"""
+        """Определить, включена ли задача фарма Meowfficer."""
         return self.config.is_task_enabled('OpsiMeowfficerFarming')
 
     @property

@@ -1,8 +1,9 @@
-"""大世界任务管理模块。
+"""Модуль управления заданиями Операции «Сирена».
 
-处理大世界（Operation Siren）的任务系统，包括任务提交、
-任务奖励领取、任务结算界面导航以及月度 Boss 任务的特殊处理。
-通过 OCR 和图像匹配检测任务状态，自动完成任务流程。
+Обрабатывает систему заданий в Операции «Сирена», включая сдачу заданий,
+получение наград за них, навигацию по интерфейсу расчёта заданий и специальную
+обработку заданий ежемесячного босса. С помощью OCR и сопоставления шаблонов
+отслеживает статус заданий и автоматически завершает их рабочий процесс.
 """
 from datetime import timedelta
 
@@ -19,7 +20,7 @@ from module.os_handler.assets import *
 
 
 class MissionAtCurrentZone(Exception):
-    """当前海域有任务异常。"""
+    """Исключение: наличие задания в текущей зоне."""
     pass
 
 
@@ -28,13 +29,13 @@ class MissionHandler(GlobeOperation, ZoneManager):
 
     def _os_find_checkout_offset_skip_monthly_boss(self, checkout_offset):
         """
-        查找非月度Boss的任务结算行。
+        Найти строку расчёта задания, отличного от ежемесячного босса.
 
         Args:
-            checkout_offset (tuple): 初始结算按钮偏移量。
+            checkout_offset (tuple): Начальное смещение кнопки расчёта.
 
         Returns:
-            tuple | None: 非月度Boss任务行的偏移量，如果未找到则返回 None。
+            tuple | None: Смещение строки задания, отличного от ежемесячного босса, либо None, если не найдено.
         """
         row_offset = checkout_offset
         # Строки заданий расположены вертикально с интервалом примерно 110 пикселей
@@ -49,10 +50,10 @@ class MissionHandler(GlobeOperation, ZoneManager):
 
     def get_mission_zone(self):
         """
-        获取任务所在的海域。
+        Получить зону, в которой находится задание.
 
         Returns:
-            Zone: 任务海域对象。
+            Zone: Объект зоны с заданием.
         """
         area = (341, 72, 1217, 648)
         # Жёлтая точка `!`
@@ -74,14 +75,14 @@ class MissionHandler(GlobeOperation, ZoneManager):
 
     def os_mission_enter(self, skip_siren_mission=False, skip_first_screenshot=True):
         """
-        进入任务列表并领取任务奖励。
+        Войти в список заданий и получить награды за выполненные задания.
 
         Args:
-            skip_siren_mission (bool): 是否跳过塞壬研究任务。
-            skip_first_screenshot (bool): 是否跳过第一次截图。
+            skip_siren_mission (bool): Пропускать ли исследовательские задания Сирен.
+            skip_first_screenshot (bool): Пропускать ли первый снимок экрана.
 
         Returns:
-            tuple: MISSION_CHECKOUT 的按钮偏移量。
+            tuple: Смещение кнопки MISSION_CHECKOUT.
 
         Pages:
             in: MISSION_ENTER
@@ -139,7 +140,7 @@ class MissionHandler(GlobeOperation, ZoneManager):
 
     def os_mission_quit(self):
         """
-        退出任务列表。
+        Выйти из списка заданий.
         """
         logger.info('[Операция «Сирена» — задания] Выход из меню заданий Операции «Сирена»')
         for _ in self.loop():
@@ -155,17 +156,18 @@ class MissionHandler(GlobeOperation, ZoneManager):
 
     def os_get_next_mission(self, skip_siren_mission=False):
         """
-        获取下一个大世界任务。
+        Получить следующее задание Операции «Сирена».
 
-        点击 MISSION_CHECKOUT 后，AL 会直接切换到目标海域，而非显示无意义的地图。
-        如果已在目标海域，则显示信息栏并关闭任务列表。
+        После нажатия MISSION_CHECKOUT игра сразу переключается на целевую зону,
+        а не показывает пустую карту. Если флот уже находится в целевой зоне,
+        отображается информационная строка и список заданий закрывается.
 
         Args:
-            skip_siren_mission (bool): 是否跳过塞壬研究任务。
+            skip_siren_mission (bool): Пропускать ли исследовательские задания Сирен.
 
         Returns:
-            str: pinned_at_mission_zone、already_at_mission_zone、pinned_at_archive_zone，
-                如果没有更多任务则返回 False。
+            str: pinned_at_mission_zone, already_at_mission_zone, pinned_at_archive_zone,
+                либо False, если заданий больше нет.
         """
         checkout_offset = self.os_mission_enter(skip_siren_mission=skip_siren_mission)
         checkout_offset = self._os_find_checkout_offset_skip_monthly_boss(checkout_offset)
@@ -203,14 +205,14 @@ class MissionHandler(GlobeOperation, ZoneManager):
 
     def os_mission_overview_accept(self, skip_siren_mission=False, skip_first_screenshot=True):
         """
-        在任务总览中接受所有任务。
+        Принять все доступные задания в сводке заданий.
 
         Args:
-            skip_siren_mission (bool): 是否跳过塞壬研究任务。
-            skip_first_screenshot (bool): 是否跳过第一次截图。
+            skip_siren_mission (bool): Пропускать ли исследовательские задания Сирен.
+            skip_first_screenshot (bool): Пропускать ли первый снимок экрана.
 
         Returns:
-            bool: 所有任务已接受或未找到任务时返回 True，无法接受更多任务时返回 False。
+            bool: True, если все задания приняты или задания не найдены; False, если больше невозможно принять задания.
 
         Pages:
             in: is_in_map
@@ -268,10 +270,10 @@ class MissionHandler(GlobeOperation, ZoneManager):
 
     def is_in_opsi_explore(self):
         """
-        判断任务每月开荒+是否正在调度中。
+        Проверить, запланировано ли выполнение задачи «Ежемесячное исследование+».
 
         Returns:
-            bool: 每月开荒+是否正在调度中。
+            bool: Находится ли в расписании задача «Ежемесячное исследование+».
         """
         enable = self.config.is_task_enabled('OpsiExplore')
         next_run = self.config.cross_get(keys='OpsiExplore.Scheduler.NextRun', default=DEFAULT_TIME)

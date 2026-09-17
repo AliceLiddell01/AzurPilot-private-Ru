@@ -1,8 +1,9 @@
-"""大世界地图事件处理器。
+"""Обработчик событий карты Операции «Сирена».
 
-处理大世界地图探索过程中触发的各类事件，包括战斗奖励弹窗、
-故事跳过、舰队锁定开关、余烬信标弹窗、海域清除奖励以及
-自动搜索奖励等，是大世界战斗和探索流程的基础事件层。
+Обрабатывает всевозможные события, возникающие во время исследования карты
+Операции «Сирена», включая всплывающие окна наград за бой, пропуск сюжетов,
+переключатель фиксации флота, всплывающие окна координат META-маяков, награды
+за зачистку зон и окна автопоиска.
 """
 from typing import Optional
 
@@ -114,13 +115,13 @@ class MapEventHandler(EnemySearchingHandler):
 
     def handle_map_event(self, drop=None):
         """
-        处理大世界地图事件。
+        Обработать события карты Операции «Сирена».
 
         Args:
-            drop (DropImage): 掉落图像对象。
+            drop (DropImage): Объект выпадающих предметов (дропа).
 
         Returns:
-            str: 已处理的事件名称。
+            str: Название обработанного события.
         """
         # Сначала обрабатываем окно маяка META, чтобы handle_popup_confirm не подтвердил переход на экран META по ошибке
         # Окно META также содержит POPUP_CONFIRM и POPUP_CANCEL; если сначала совпадёт DEPART_CONFIRM,
@@ -182,10 +183,10 @@ class MapEventHandler(EnemySearchingHandler):
 
     def handle_os_in_map(self):
         """
-        确认是否已返回大世界地图。
+        Подтвердить возвращение на карту Операции «Сирена».
 
         Returns:
-            bool: 是否在地图中并已确认。
+            bool: Находится ли на карте и подтверждено ли состояние.
         """
         if self.is_in_map():
             if self._os_in_map_confirm_timer.reached():
@@ -208,13 +209,13 @@ class MapEventHandler(EnemySearchingHandler):
 
     def os_auto_search_quit(self, drop=None):
         """
-        退出大世界自动搜索。
+        Выйти из режима автопоиска Операции «Сирена».
 
         Args:
-            drop (DropImage): 掉落图像对象。
+            drop (DropImage): Объект выпадающих предметов (дропа).
 
         Returns:
-            bool: 当前地图是否已清除。
+            bool: Зачищена ли текущая карта.
         """
         confirm_timer = Timer(1.2, count=3).start()
         cleared = False
@@ -261,14 +262,14 @@ class MapEventHandler(EnemySearchingHandler):
 
     def handle_os_auto_search_map_option(self, drop=None, enable: Optional[bool] = True):
         """
-        处理大世界自动搜索地图选项。
+        Обработать переключатель опции карты автопоиска Операции «Сирена».
 
         Args:
-            drop (DropImage): 掉落图像对象。
-            enable (bool): True/False，或 None 表示不操作。
+            drop (DropImage): Объект выпадающих предметов (дропа).
+            enable (bool): True/False, либо None, если переключение не требуется.
 
         Returns:
-            bool: 是否点击了选项。
+            bool: Был ли выполнен клик по опции.
         """
         if self.match_template_color(AUTO_SEARCH_OS_MAP_OPTION_OFF, offset=(5, 120)):
             if self.info_bar_count() >= 2:
@@ -310,13 +311,13 @@ class MapEventHandler(EnemySearchingHandler):
 
     def handle_os_map_fleet_lock(self, enable=None):
         """
-        处理大世界地图舰队锁定。
+        Обработать фиксацию флота на карте Операции «Сирена».
 
         Args:
-            enable (bool): 默认为 None，使用 Campaign_UseFleetLock 配置。
+            enable (bool): По умолчанию None, используется значение из конфигурации Campaign_UseFleetLock.
 
         Returns:
-            bool: 是否切换了锁定状态。
+            bool: Было ли переключено состояние фиксации.
         """
         # Фиксация флота зависит от отображения на карте, а не от состояния карты
         # поскольку при уже открытой карте отдельного состояния карты нет
