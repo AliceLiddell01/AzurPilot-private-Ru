@@ -1,5 +1,5 @@
 """
-设备ID 管理模块
+Модуль управления идентификатором устройства (ID устройства)
 """
 import hashlib
 import json
@@ -14,14 +14,14 @@ from module.logger import logger
 
 def _wmic_query(wmic_class: str, field: str) -> str:
     """
-    通过 WMIC 查询 Windows 硬件信息
+    Запросить сведения об оборудовании Windows через WMIC
     
     Args:
-        wmic_class: WMI 类名 (例如 'baseboard', 'cpu')
-        field: 要查询的字段名
+        wmic_class: Имя класса WMI (например, 'baseboard', 'cpu')
+        field: Имя запрашиваемого поля
         
     Returns:
-        str: 查询结果字符串，失败返回空字符串
+        str: Строка с результатом запроса, при ошибке возвращает пустую строку
     """
     try:
         result = subprocess.run(
@@ -81,7 +81,7 @@ def _collect_hardware_fingerprint() -> str:
 
 def generate_device_id() -> str:
     """
-    基于硬件指纹生成唯一设备ID
+    Сгенерировать уникальный ID устройства на основе аппаратного отпечатка
     """
     fingerprint = _collect_hardware_fingerprint()
     # Данные устройства хешируются; исходная информация об устройстве не передаётся
@@ -106,7 +106,7 @@ def get_device_id() -> str:
 
 def get_old_device_id() -> Optional[str]:
     """
-    获取迁移前的旧 ID
+    Получить старый ID до миграции
     """
     global _old_device_id
     return _old_device_id

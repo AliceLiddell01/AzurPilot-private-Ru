@@ -1,7 +1,8 @@
-"""基础工具函数模块。
+"""Модуль базовых вспомогательных функций.
 
-提供图像处理（裁剪、颜色比较、模板匹配阈值调整）、随机坐标生成、
-图像加载与服务器回退、字母提取等底层工具函数。
+Предоставляет низкоуровневые утилиты обработки изображений (обрезка, сравнение цветов,
+корректировка порогов сопоставления шаблонов), генерации случайных координат,
+загрузки изображений с откатом по серверам, извлечения текста и символов.
 """
 
 import random
@@ -27,15 +28,16 @@ def set_template_match_non_native_720p(enabled, resolution=(1280, 720)):
 
 def lower_template_match_similarity(similarity):
     """
-    对非原生 720p 截图放宽模板匹配阈值。
+    Смягчает порог шаблонного поиска для снимков не в исходном разрешении 720p.
 
-    当截图不是以 1280x720 原始分辨率捕获时，将严格阈值限制在 0.75。
+    Когда снимок экрана захвачен не в исходном разрешении 1280x720,
+    ограничивает строгий порог до 0.75.
 
     Args:
-        similarity: 0~1 范围的 cv2.TM_CCOEFF_NORMED 阈值。
+        similarity: Порог cv2.TM_CCOEFF_NORMED в диапазоне 0~1.
 
     Returns:
-        float: 调整后的相似度阈值。
+        float: Скорректированный порог сходства.
     """
     similarity = float(similarity)
     if TEMPLATE_MATCH_NON_NATIVE_720P:
@@ -45,16 +47,16 @@ def lower_template_match_similarity(similarity):
 
 def random_normal_distribution_int(a, b, n=3):
     """
-    在区间内生成正态分布的随机整数。
-    使用多个随机数的平均值来模拟正态分布。
+    Генерирует случайное целое число с нормальным распределением в заданном интервале.
+    Использует среднее значение нескольких случайных чисел для аппроксимации нормального распределения.
 
     Args:
-        a (int): 区间最小值。
-        b (int): 区间最大值。
-        n (int): 模拟时使用的随机数数量，默认为 3。
+        a (int): Минимальное значение интервала.
+        b (int): Максимальное значение интервала.
+        n (int): Количество случайных чисел для симуляции, по умолчанию 3.
 
     Returns:
-        int: 正态分布随机整数。
+        int: Случайное целое число с нормальным распределением.
     """
     a = round(a)
     b = round(b)
@@ -68,14 +70,14 @@ def random_normal_distribution_int(a, b, n=3):
 
 
 def random_rectangle_point(area, n=3):
-    """在区域内随机选取一个点。
+    """Случайно выбирает точку внутри заданной прямоугольной области.
 
     Args:
-        area: (左上角 x, 左上角 y, 右下角 x, 右下角 y)。
-        n (int): 模拟时使用的随机数数量，默认为 3。
+        area: (верхний левый x, верхний левый y, нижний правый x, нижний правый y).
+        n (int): Количество случайных чисел для симуляции, по умолчанию 3.
 
     Returns:
-        tuple[int]: (x, y) 坐标。
+        tuple[int]: Координаты (x, y).
     """
     x = random_normal_distribution_int(area[0], area[2], n=n)
     y = random_normal_distribution_int(area[1], area[3], n=n)
@@ -83,16 +85,16 @@ def random_rectangle_point(area, n=3):
 
 
 def random_rectangle_vector(vector, box, random_range=(0, 0, 0, 0), padding=15):
-    """在区域内随机放置一个向量。
+    """Случайно размещает вектор внутри заданной области.
 
     Args:
-        vector: 向量 (x, y)。
-        box: 区域 (左上角 x, 左上角 y, 右下角 x, 右下角 y)。
-        random_range (tuple): 向量的随机偏移范围 (x_min, y_min, x_max, y_max)。
-        padding (int): 内边距。
+        vector: Вектор (x, y).
+        box: Область (верхний левый x, верхний левый y, нижний правый x, нижний правый y).
+        random_range (tuple): Диапазон случайного смещения вектора (x_min, y_min, x_max, y_max).
+        padding (int): Внутренний отступ.
 
     Returns:
-        tuple[int], tuple[int]: 起点和终点坐标。
+        tuple[int], tuple[int]: Координаты начальной и конечной точек.
     """
     vector = np.array(vector) + random_rectangle_point(random_range)
     vector = np.round(vector).astype(int)
@@ -107,22 +109,23 @@ def random_rectangle_vector(vector, box, random_range=(0, 0, 0, 0), padding=15):
 def random_rectangle_vector_opted(
         vector, box, random_range=(0, 0, 0, 0), padding=15, whitelist_area=None, blacklist_area=None):
     """
-    在区域内随机放置一个向量（带白名单/黑名单过滤）。
+    Случайно размещает вектор внутри области (с фильтрацией белым/чёрным списками).
 
-    当模拟器或游戏卡住时，滑动操作可能被当作点击处理（点击滑动路径终点）。
-    为防止这种情况，需要对随机结果进行过滤。
+    При зависании эмулятора или игры жест свайпа может быть интерпретирован как клик
+    (клик в конечной точке свайпа). Для предотвращения нежелательных нажатий выполняется
+    фильтрация сгенерированных траекторий.
 
     Args:
-        vector: 向量 (x, y)。
-        box: 区域 (左上角 x, 左上角 y, 右下角 x, 右下角 y)。
-        random_range (tuple): 向量的随机偏移范围 (x_min, y_min, x_max, y_max)。
-        padding (int): 内边距。
-        whitelist_area: 安全点击区域列表，滑动路径将在此范围内结束。
-        blacklist_area: 当白名单区域无法满足当前向量时使用黑名单。
-            排除终点在黑名单区域内的随机路径。
+        vector: Вектор (x, y).
+        box: Область (верхний левый x, верхний левый y, нижний правый x, нижний правый y).
+        random_range (tuple): Диапазон случайного смещения вектора (x_min, y_min, x_max, y_max).
+        padding (int): Внутренний отступ.
+        whitelist_area: Список безопасных областей клика, траектория свайпа завершится внутри них.
+        blacklist_area: Чёрный список, используемый, когда белый список не подходит для вектора.
+            Исключает траектории, конечная точка которых попадает в чёрный список.
 
     Returns:
-        tuple[int], tuple[int]: 起点和终点坐标。
+        tuple[int], tuple[int]: Координаты начальной и конечной точек.
     """
     vector = np.array(vector) + random_rectangle_point(random_range)
     vector = np.round(vector).astype(int)
@@ -162,31 +165,31 @@ def random_rectangle_vector_opted(
 
 
 def random_line_segments(p1, p2, n, random_range=(0, 0, 0, 0)):
-    """将线段分割为多段。
+    """Разбивает отрезок на несколько частей.
 
     Args:
-        p1: 起点 (x, y)。
-        p2: 终点 (x, y)。
-        n: 分割段数。
-        random_range: 各点的随机偏移范围。
+        p1: Начальная точка (x, y).
+        p2: Конечная точка (x, y).
+        n: Число сегментов разбиения.
+        random_range: Диапазон случайного смещения для каждой точки.
 
     Returns:
-        list[tuple]: 分割点列表 [(x0, y0), (x1, y1), (x2, y2)]。
+        list[tuple]: Список точек разбиения [(x0, y0), (x1, y1), (x2, y2)].
     """
     return [tuple((((n - index) * p1 + index * p2) / n).astype(int) + random_rectangle_point(random_range))
             for index in range(0, n + 1)]
 
 
 def ensure_time(second, n=3, precision=3):
-    """确保返回有效的时间值。
+    """Гарантирует возврат валидного значения времени.
 
     Args:
-        second (int, float, tuple): 时间值，如 10、(10, 30)、'10, 30'。
-        n (int): 模拟时使用的随机数数量，默认为 3。
-        precision (int): 小数精度。
+        second (int, float, tuple): Значение времени, например 10, (10, 30), '10, 30'.
+        n (int): Количество случайных чисел для моделирования, по умолчанию 3.
+        precision (int): Точность знаков после запятой.
 
     Returns:
-        float: 处理后的时间值。
+        float: Обработанное значение времени.
     """
     if isinstance(second, tuple):
         multiply = 10 ** precision
@@ -209,14 +212,14 @@ def ensure_time(second, n=3, precision=3):
 
 def ensure_int(*args):
     """
-    将所有元素转换为整数。
-    保持与嵌套对象相同的结构。
+    Преобразует все элементы в целые числа.
+    Сохраняет структуру вложенных объектов.
 
     Args:
-        *args: 任意参数。
+        *args: Произвольные аргументы.
 
     Returns:
-        list: 转换后的整数列表。
+        list: Список преобразованных целых чисел.
     """
 
     def to_int(item):
@@ -233,14 +236,14 @@ def ensure_int(*args):
 
 def area_offset(area, offset):
     """
-    平移区域。
+    Смещает область на заданное смещение.
 
     Args:
-        area: (左上角 x, 左上角 y, 右下角 x, 右下角 y)。
-        offset: 偏移量 (x, y)。
+        area: (верхний левый x, верхний левый y, нижний правый x, нижний правый y).
+        offset: Смещение (x, y).
 
     Returns:
-        tuple: (左上角 x, 左上角 y, 右下角 x, 右下角 y)。
+        tuple: (верхний левый x, верхний левый y, нижний правый x, нижний правый y).
     """
     upper_left_x, upper_left_y, bottom_right_x, bottom_right_y = area
     x, y = offset
@@ -249,14 +252,14 @@ def area_offset(area, offset):
 
 def area_pad(area, pad=10):
     """
-    对区域进行内缩偏移。
+    Выполняет сужение области внутрь на заданную величину.
 
     Args:
-        area: (左上角 x, 左上角 y, 右下角 x, 右下角 y)。
-        pad (int): 内缩像素值。
+        area: (верхний левый x, верхний левый y, нижний правый x, нижний правый y).
+        pad (int): Величина отступа внутрь в пикселях.
 
     Returns:
-        tuple: (左上角 x, 左上角 y, 右下角 x, 右下角 y)。
+        tuple: (верхний левый x, верхний левый y, нижний правый x, нижний правый y).
     """
     upper_left_x, upper_left_y, bottom_right_x, bottom_right_y = area
     return upper_left_x + pad, upper_left_y + pad, bottom_right_x - pad, bottom_right_y - pad
@@ -264,29 +267,29 @@ def area_pad(area, pad=10):
 
 def limit_in(x, lower, upper):
     """
-    将 x 限制在 [lower, upper] 范围内。
+    Ограничивает значение x диапазоном [lower, upper].
 
     Args:
-        x: 待限制的值。
-        lower: 下限。
-        upper: 上限。
+        x: Ограничиваемое значение.
+        lower: Нижняя граница.
+        upper: Верхняя граница.
 
     Returns:
-        int, float: 限制后的值。
+        int, float: Ограниченное значение.
     """
     return max(min(x, upper), lower)
 
 
 def area_limit(area1, area2):
     """
-    将一个区域限制在另一个区域内。
+    Ограничивает одну область границами другой области.
 
     Args:
-        area1: 待限制的区域 (左上角 x, 左上角 y, 右下角 x, 右下角 y)。
-        area2: 限制边界区域 (左上角 x, 左上角 y, 右下角 x, 右下角 y)。
+        area1: Ограничиваемая область (верхний левый x, верхний левый y, нижний правый x, нижний правый y).
+        area2: Граничная область (верхний левый x, верхний левый y, нижний правый x, нижний правый y).
 
     Returns:
-        tuple: (左上角 x, 左上角 y, 右下角 x, 右下角 y)。
+        tuple: (верхний левый x, верхний левый y, нижний правый x, нижний правый y).
     """
     x_lower, y_lower, x_upper, y_upper = area2
     return (
@@ -299,13 +302,13 @@ def area_limit(area1, area2):
 
 def area_size(area):
     """
-    计算区域的尺寸（宽高）。
+    Вычисляет размеры области (ширину и высоту).
 
     Args:
-        area: (左上角 x, 左上角 y, 右下角 x, 右下角 y)。
+        area: (верхний левый x, верхний левый y, нижний правый x, нижний правый y).
 
     Returns:
-        tuple: (宽度, 高度)。
+        tuple: (ширина, высота).
     """
     return (
         max(area[2] - area[0], 0),
@@ -315,14 +318,14 @@ def area_size(area):
 
 def point_limit(point, area):
     """
-    将点限制在区域内。
+    Ограничивает точку пределами области.
 
     Args:
-        point: 点坐标 (x, y)。
-        area: 限制区域 (左上角 x, 左上角 y, 右下角 x, 右下角 y)。
+        point: Координаты точки (x, y).
+        area: Ограничивающая область (верхний левый x, верхний левый y, нижний правый x, нижний правый y).
 
     Returns:
-        tuple: 限制后的坐标 (x, y)。
+        tuple: Ограниченные координаты (x, y).
     """
     return (
         limit_in(point[0], area[0], area[2]),
@@ -331,29 +334,29 @@ def point_limit(point, area):
 
 
 def point_in_area(point, area, threshold=5):
-    """判断点是否在区域内。
+    """Определяет, находится ли точка внутри области.
 
     Args:
-        point: 点坐标 (x, y)。
-        area: 区域 (左上角 x, 左上角 y, 右下角 x, 右下角 y)。
-        threshold (int): 容差阈值。
+        point: Координаты точки (x, y).
+        area: Область (верхний левый x, верхний левый y, нижний правый x, нижний правый y).
+        threshold (int): Порог допуска.
 
     Returns:
-        bool: 点在区域内返回 True。
+        bool: True, если точка находится внутри области.
     """
     return area[0] - threshold < point[0] < area[2] + threshold and area[1] - threshold < point[1] < area[3] + threshold
 
 
 def area_in_area(area1, area2, threshold=5):
-    """判断区域1是否完全在区域2内。
+    """Определяет, находится ли область 1 полностью внутри области 2.
 
     Args:
-        area1: 区域1 (左上角 x, 左上角 y, 右下角 x, 右下角 y)。
-        area2: 区域2 (左上角 x, 左上角 y, 右下角 x, 右下角 y)。
-        threshold (int): 容差阈值。
+        area1: Область 1 (верхний левый x, верхний левый y, нижний правый x, нижний правый y).
+        area2: Область 2 (верхний левый x, верхний левый y, нижний правый x, нижний правый y).
+        threshold (int): Порог допуска.
 
     Returns:
-        bool: 区域1完全在区域2内返回 True。
+        bool: True, если область 1 полностью внутри области 2.
     """
     return area2[0] - threshold <= area1[0] \
            and area2[1] - threshold <= area1[1] \
@@ -362,15 +365,15 @@ def area_in_area(area1, area2, threshold=5):
 
 
 def area_cross_area(area1, area2, threshold=5):
-    """判断两个区域是否相交。
+    """Определяет, пересекаются ли две области.
 
     Args:
-        area1: 区域1 (左上角 x, 左上角 y, 右下角 x, 右下角 y)。
-        area2: 区域2 (左上角 x, 左上角 y, 右下角 x, 右下角 y)。
-        threshold (int): 容差阈值。
+        area1: Область 1 (верхний левый x, верхний левый y, нижний правый x, нижний правый y).
+        area2: Область 2 (верхний левый x, верхний левый y, нижний правый x, нижний правый y).
+        threshold (int): Порог допуска.
 
     Returns:
-        bool: 两区域相交返回 True。
+        bool: True, если области пересекаются.
     """
     # https://www.yiiven.cn/rect-is-intersection.html
     xa1, ya1, xa2, ya2 = area1
@@ -380,41 +383,41 @@ def area_cross_area(area1, area2, threshold=5):
 
 
 def float2str(n, decimal=3):
-    """将浮点数转换为固定小数位的字符串。
+    """Преобразует число с плавающей точкой в строку с фиксированным количеством знаков.
 
     Args:
-        n (float): 待转换的浮点数。
-        decimal (int): 小数位数。
+        n (float): Преобразуемое число.
+        decimal (int): Количество знаков после запятой.
 
     Returns:
-        str: 格式化后的字符串。
+        str: Отформатированная строка.
     """
     return str(round(n, decimal)).ljust(decimal + 2, "0")
 
 
 def point2str(x, y, length=4):
-    """将坐标点转换为右对齐的字符串。
+    """Преобразует координаты точки в строку с выравниванием по правому краю.
 
     Args:
-        x (int, float): x 坐标。
-        y (int, float): y 坐标。
-        length (int): 对齐长度。
+        x (int, float): Координата x.
+        y (int, float): Координата y.
+        length (int): Длина поля выравнивания.
 
     Returns:
-        str: 右对齐的坐标字符串，如 '( 100,  80)'。
+        str: Строка с выравниванием по правому краю, например '( 100,  80)'.
     """
     return '(%s, %s)' % (str(int(x)).rjust(length), str(int(y)).rjust(length))
 
 
 def col2name(col):
     """
-    将零索引的列号转换为 Excel 风格的列名字符串。
+    Преобразует индекс столбца (с 0) в буквенное имя в стиле Excel.
 
     Args:
-       col (int): 列号（从 0 开始）。
+       col (int): Номер столбца (начиная с 0).
 
     Returns:
-        str: 列名字符串。
+        str: Буквенное обозначение столбца.
 
     Examples:
         0 -> A, 3 -> D, 35 -> AJ, -1 -> -A
@@ -451,13 +454,13 @@ def col2name(col):
 
 def name2col(col_str):
     """
-    将 A1 风格的列名字符串转换为零索引的列号。
+    Преобразует буквенное имя столбца в стиле A1 в индекс столбца (с 0).
 
     Args:
-       col_str (str): A1 风格的列名字符串。
+       col_str (str): Буквенное имя столбца в стиле A1.
 
     Returns:
-        int: 零索引的列号。
+        int: Индекс столбца (начиная с 0).
     """
     # Преобразуем строку имени столбца в системе счисления по основанию 26 в число
     expn = 0
@@ -477,13 +480,13 @@ def name2col(col_str):
 
 def node2location(node):
     """
-    将网格节点字符串转换为位置元组。参见 location2node()。
+    Преобразует обозначение узла сетки в кортеж координат. См. location2node().
 
     Args:
-        node (str): 网格节点字符串，如 'E3'。
+        node (str): Строковое обозначение узла сетки, например 'E3'.
 
     Returns:
-        tuple[int]: 位置元组，如 (4, 2)。
+        tuple[int]: Кортеж координат, например (4, 2).
     """
     res = REGEX_NODE.search(node)
     if res:
@@ -499,8 +502,8 @@ def node2location(node):
 
 def location2node(location):
     """
-    将位置元组转换为 Excel 风格的网格节点字符串。
-    支持负值。
+    Преобразует кортеж координат в буквенно-цифровое обозначение узла сетки в стиле Excel.
+    Поддерживает отрицательные значения.
 
          -2   -1    0    1    2    3
     -2 -B-2 -A-2  A-2  B-2  C-2  D-2
@@ -511,10 +514,10 @@ def location2node(location):
      3  -B4  -A4   A4   B4   C4   D4
 
     Args:
-        location (tuple[int]): 位置元组 (x, y)。
+        location (tuple[int]): Кортеж координат (x, y).
 
     Returns:
-        str: 网格节点字符串。
+        str: Обозначение узла сетки.
     """
     x, y = location
     if y >= 0:
@@ -523,27 +526,27 @@ def location2node(location):
 
 
 def xywh2xyxy(area):
-    """将 (x, y, 宽度, 高度) 格式转换为 (x1, y1, x2, y2) 格式。"""
+    """Преобразует формат (x, y, ширина, высота) в формат (x1, y1, x2, y2)."""
     x, y, w, h = area
     return x, y, x + w, y + h
 
 
 def xyxy2xywh(area):
-    """将 (x1, y1, x2, y2) 格式转换为 (x, y, 宽度, 高度) 格式。"""
+    """Преобразует формат (x1, y1, x2, y2) в формат (x, y, ширина, высота)."""
     x1, y1, x2, y2 = area
     return min(x1, x2), min(y1, y2), abs(x2 - x1), abs(y2 - y1)
 
 
 def load_image(file, area=None):
     """
-    加载图像并移除 alpha 通道，类似 pillow 的行为。
+    Загружает изображение и удаляет альфа-канал, повторяя поведение pillow.
 
     Args:
-        file (str): 图像文件路径。
-        area (tuple): 裁剪区域。
+        file (str): Путь к файлу изображения.
+        area (tuple): Область обрезки.
 
     Returns:
-        np.ndarray: 图像数组。
+        np.ndarray: Массив изображения.
     """
     # Всегда не забываем закрывать объект Image
     with Image.open(file) as f:
@@ -561,11 +564,11 @@ def load_image(file, area=None):
 
 def save_image(image, file):
     """
-    保存图像，类似 pillow 的行为。
+    Сохраняет изображение, аналогично поведению pillow.
 
     Args:
-        image (np.ndarray): 图像数组。
-        file (str): 保存路径。
+        image (np.ndarray): Массив изображения.
+        file (str): Путь для сохранения.
     """
     # image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
     # cv2.imwrite(file, image)
@@ -574,17 +577,17 @@ def save_image(image, file):
 
 def copy_image(src):
     """
-    等效于 image.copy() 但速度略快。
+    Эквивалентно image.copy(), но немного быстрее.
 
-    复制 1280*720*3 图像的时间开销：
+    Временные затраты на копирование изображения 1280*720*3:
         image.copy()      0.743ms
         copy_image(image) 0.639ms
 
     Args:
-        src: 源图像数组。
+        src: Исходный массив изображения.
 
     Returns:
-        np.ndarray: 图像副本。
+        np.ndarray: Копия изображения.
     """
     dst = np.empty_like(src)
     cv2.copyTo(src, None, dst)
@@ -593,16 +596,16 @@ def copy_image(src):
 
 def crop(image, area, copy=True):
     """
-    裁剪图像，类似 pillow 的 crop 行为，适用于 opencv/numpy。
-    当裁剪区域超出图像边界时，使用黑色填充。
+    Обрезает изображение, аналогично crop в pillow, адаптировано для opencv/numpy.
+    При выходе области обрезки за границы изображения дополняет чёрным цветом.
 
     Args:
-        image (np.ndarray): 图像数组。
-        area: 裁剪区域 (x1, y1, x2, y2)。
-        copy (bool): 是否复制裁剪结果。
+        image (np.ndarray): Массив изображения.
+        area: Область обрезки (x1, y1, x2, y2).
+        copy (bool): Копировать ли результат обрезки.
 
     Returns:
-        np.ndarray: 裁剪后的图像数组。
+        np.ndarray: Обрезанный массив изображения.
     """
     # map(round, area)
     x1, y1, x2, y2 = area
@@ -674,39 +677,39 @@ def crop(image, area, copy=True):
 
 def resize(image, size):
     """
-    调整图像大小，类似 pillow 的 image.resize()，使用 opencv 实现。
-    pillow 默认使用 PIL.Image.NEAREST 插值。
+    Изменяет размер изображения аналогично pillow image.resize(), используя opencv.
+    По умолчанию в pillow используется интерполяция PIL.Image.NEAREST.
 
     Args:
-        image (np.ndarray): 图像数组。
-        size: 目标大小 (宽, 高)。
+        image (np.ndarray): Массив изображения.
+        size: Целевой размер (ширина, высота).
 
     Returns:
-        np.ndarray: 调整大小后的图像数组。
+        np.ndarray: Массив изображения после изменения размера.
     """
     return cv2.resize(image, size, interpolation=cv2.INTER_NEAREST)
 
 
 def image_channel(image):
-    """获取图像的通道数。
+    """Возвращает число каналов изображения.
 
     Args:
-        image (np.ndarray): 图像数组。
+        image (np.ndarray): Массив изображения.
 
     Returns:
-        int: 0 表示灰度图，3 表示 RGB 图像。
+        int: 0 для полутонового, 3 для RGB-изображения.
     """
     return image.shape[2] if len(image.shape) == 3 else 0
 
 
 def image_size(image):
-    """获取图像的尺寸。
+    """Возвращает размеры изображения.
 
     Args:
-        image (np.ndarray): 图像数组。
+        image (np.ndarray): Массив изображения.
 
     Returns:
-        int, int: 宽度和高度。
+        int, int: Ширина и высота.
     """
     shape = image.shape
     return shape[1], shape[0]
@@ -714,13 +717,13 @@ def image_size(image):
 
 def image_paste(image, background, origin):
     """
-    将图像粘贴到背景上。
-    此方法不返回值，而是直接更新 background 数组。
+    Вставляет изображение на фоновое изображение.
+    Метод не возвращает значение, а модифицирует массив background на месте.
 
     Args:
-        image: 待粘贴的图像数组。
-        background: 背景图像数组。
-        origin: 粘贴位置的左上角坐标 (x, y)。
+        image: Вставляемый массив изображения.
+        background: Фоновый массив изображения.
+        origin: Координаты верхнего левого угла вставки (x, y).
     """
     x, y = origin
     w, h = image_size(image)
@@ -729,14 +732,14 @@ def image_paste(image, background, origin):
 
 def rgb2gray(image):
     """
-    将 RGB 图像转换为灰度图。
+    Преобразует RGB-изображение в полутоновое (градации серого).
     gray = ( MAX(r, g, b) + MIN(r, g, b)) / 2
 
     Args:
-        image (np.ndarray): 形状 (height, width, channel)。
+        image (np.ndarray): Форма (height, width, channel).
 
     Returns:
-        np.ndarray: 灰度图，形状 (height, width)。
+        np.ndarray: Полутоновое изображение, форма (height, width).
     """
     # r, g, b = cv2.split(image)
     # return cv2.add(
@@ -881,14 +884,14 @@ def template_match(
 
 def rgb2hsv(image):
     """
-    将 RGB 色彩空间转换为 HSV 色彩空间。
-    HSV 即色相、饱和度、明度。
+    Преобразует цветовое пространство RGB в цветовое пространство HSV.
+    HSV включает тон, насыщенность и яркость.
 
     Args:
-        image (np.ndarray): 形状 (height, width, channel)。
+        image (np.ndarray): Форма (height, width, channel).
 
     Returns:
-        np.ndarray: 色相 (0~360)、饱和度 (0~100)、明度 (0~100)。
+        np.ndarray: Тон (0~360), насыщенность (0~100), яркость (0~100).
     """
     image = cv2.cvtColor(image, cv2.COLOR_RGB2HSV).astype(float)
     cv2.multiply(image, (360 / 180, 100 / 255, 100 / 255), dst=image)
@@ -897,13 +900,13 @@ def rgb2hsv(image):
 
 def rgb2yuv(image):
     """
-    将 RGB 转换为 YUV 色彩空间。
+    Преобразует цветовое пространство RGB в YUV.
 
     Args:
-        image (np.ndarray): 形状 (height, width, channel)。
+        image (np.ndarray): Форма (height, width, channel).
 
     Returns:
-        np.ndarray: YUV 图像。
+        np.ndarray: Изображение YUV.
     """
     image = cv2.cvtColor(image, cv2.COLOR_RGB2YUV)
     return image
@@ -911,13 +914,13 @@ def rgb2yuv(image):
 
 def rgb2luma(image):
     """
-    将 RGB 转换为 YUV 色彩空间的 Y 通道（亮度）。
+    Преобразует RGB в канал Y (яркость) цветового пространства YUV.
 
     Args:
-        image (np.ndarray): 形状 (height, width, channel)。
+        image (np.ndarray): Форма (height, width, channel).
 
     Returns:
-        np.ndarray: 亮度通道，形状 (height, width)。
+        np.ndarray: Канал яркости, форма (height, width).
     """
     if image.ndim == 2:
         return image
@@ -928,14 +931,14 @@ def rgb2luma(image):
 
 
 def get_color(image, area):
-    """计算图像指定区域的平均颜色。
+    """Вычисляет средний цвет указанной области изображения.
 
     Args:
-        image (np.ndarray): 截图。
-        area (tuple): (左上角 x, 左上角 y, 右下角 x, 右下角 y)。
+        image (np.ndarray): Снимок экрана.
+        area (tuple): (верхний левый x, верхний левый y, нижний правый x, нижний правый y).
 
     Returns:
-        tuple: (r, g, b) 平均颜色值。
+        tuple: (r, g, b) среднее значение цвета.
     """
     temp = crop(image, area, copy=False)
     color = cv2.mean(temp)
@@ -943,25 +946,25 @@ def get_color(image, area):
 
 
 class ImageNotSupported(Exception):
-    """当无法对图像执行计算操作时抛出此异常。"""
+    """Исключение, возникающее, когда над изображением невозможно выполнить вычислительную операцию."""
     pass
 
 
 def get_bbox(image, threshold=0):
     """
-    获取图像内容的外接边界框。
-    pillow getbbox() 的 opencv 实现。
+    Получает внешнюю ограничивающую рамку содержимого изображения.
+    Реализация getbbox() из pillow на базе opencv.
 
     Args:
-        image (np.ndarray): 图像数组。
-        threshold (int): 颜色阈值。
-            color > threshold 视为内容，color <= threshold 视为背景。
+        image (np.ndarray): Массив изображения.
+        threshold (int): Цветовой порог.
+            color > threshold считается содержимым, color <= threshold считается фоном.
 
     Returns:
-        tuple[int, int, int, int]: 边界框区域 (x1, y1, x2, y2)。
+        tuple[int, int, int, int]: Область ограничивающей рамки (x1, y1, x2, y2).
 
     Raises:
-        ImageNotSupported: 获取边界框失败时抛出。
+        ImageNotSupported: Вызывается при ошибке вычисления ограничивающей рамки.
     """
     channel = image_channel(image)
     # Преобразуем в градации серого
@@ -1009,19 +1012,19 @@ def get_bbox(image, threshold=0):
 
 def get_bbox_reversed(image, threshold=255):
     """
-    获取图像内容的外接边界框（反向阈值）。
-    pillow getbbox() 的 opencv 实现。
+    Получает внешнюю ограничивающую рамку содержимого изображения (обратный порог).
+    Реализация getbbox() из pillow на базе opencv.
 
     Args:
-        image (np.ndarray): 图像数组。
-        threshold (int): 颜色阈值。
-            color < threshold 视为内容，color >= threshold 视为背景。
+        image (np.ndarray): Массив изображения.
+        threshold (int): Цветовой порог.
+            color < threshold считается содержимым, color >= threshold считается фоном.
 
     Returns:
-        tuple[int, int, int, int]: 边界框区域 (x1, y1, x2, y2)。
+        tuple[int, int, int, int]: Область ограничивающей рамки (x1, y1, x2, y2).
 
     Raises:
-        ImageNotSupported: 获取边界框失败时抛出。
+        ImageNotSupported: Вызывается при ошибке вычисления ограничивающей рамки.
     """
     channel = image_channel(image)
     # Преобразуем в градации серого
@@ -1068,14 +1071,14 @@ def get_bbox_reversed(image, threshold=255):
 
 
 def color_similarity(color1, color2):
-    """计算两个颜色之间的差异度。
+    """Вычисляет степень различия между двумя цветами.
 
     Args:
-        color1 (tuple): 颜色1 (r, g, b)。
-        color2 (tuple): 颜色2 (r, g, b)。
+        color1 (tuple): Цвет 1 (r, g, b).
+        color2 (tuple): Цвет 2 (r, g, b).
 
     Returns:
-        int: 颜色差异度。
+        int: Степень различия цветов.
     """
     # print(color1, color2)
     # diff = np.array(color1).astype(int) - np.array(color2).astype(int)
@@ -1105,17 +1108,17 @@ def color_similarity(color1, color2):
 
 def color_similar(color1, color2, threshold=10):
     """
-    判断两个颜色是否相似，当容差小于等于阈值时视为相似。
-    容差 = Max(正差值_rgb) + Max(-负差值_rgb)
-    与 Photoshop 中的容差计算方式相同。
+    Определяет, схожи ли два цвета, если допуск меньше или равен порогу.
+    Допуск = Max(положительная разность rgb) + Max(-отрицательная разность rgb)
+    Соответствует методу расчета допуска в Photoshop.
 
     Args:
-        color1 (tuple): 颜色1 (r, g, b)。
-        color2 (tuple): 颜色2 (r, g, b)。
-        threshold (int): 容差阈值，默认为 10。
+        color1 (tuple): Цвет 1 (r, g, b).
+        color2 (tuple): Цвет 2 (r, g, b).
+        threshold (int): Порог допуска, по умолчанию 10.
 
     Returns:
-        bool: 两颜色相似返回 True。
+        bool: True, если два цвета схожи.
     """
     # print(color1, color2)
     # diff = np.array(color1).astype(int) - np.array(color2).astype(int)
@@ -1144,15 +1147,15 @@ def color_similar(color1, color2, threshold=10):
 
 
 def color_similar_1d(image, color, threshold=10):
-    """判断一维图像数组中的颜色是否与指定颜色相似。
+    """Определяет, схожи ли цвета в одномерном массиве изображения с указанным цветом.
 
     Args:
-        image (np.ndarray): 一维数组。
-        color: 目标颜色 (r, g, b)。
-        threshold (int): 容差阈值，默认为 10。
+        image (np.ndarray): Одномерный массив.
+        color: Целевой цвет (r, g, b).
+        threshold (int): Порог допуска, по умолчанию 10.
 
     Returns:
-        np.ndarray: 布尔数组。
+        np.ndarray: Булев массив.
     """
     diff = image.astype(int) - color
     diff = np.max(np.maximum(diff, 0), axis=1) - np.min(np.minimum(diff, 0), axis=1)
@@ -1160,14 +1163,14 @@ def color_similar_1d(image, color, threshold=10):
 
 
 def color_similarity_2d(image, color):
-    """计算二维图像中每个像素与指定颜色的差异度。
+    """Вычисляет степень различия каждого пикселя двумерного изображения с указанным цветом.
 
     Args:
-        image: 二维图像数组。
-        color: 目标颜色 (r, g, b)。
+        image: Двумерный массив изображения.
+        color: Целевой цвет (r, g, b).
 
     Returns:
-        np.ndarray: 差异度数组，uint8 类型。
+        np.ndarray: Массив степеней различия, тип uint8.
     """
     # r, g, b = cv2.split(cv2.subtract(image, (*color, 0)))
     # positive = cv2.max(cv2.max(r, g), b)
@@ -1192,16 +1195,16 @@ def color_similarity_2d(image, color):
 
 
 def image_color_count(image, color, threshold=221, count=50):
-    """判断图像中与指定颜色相似的像素数量是否超过阈值。
+    """Определяет, превышает ли количество пикселей, схожих с заданным цветом, пороговое значение.
 
     Args:
-        image (np.ndarray): 图像数组。
-        color (tuple): RGB 颜色。
-        threshold (int): 相似度阈值，255 表示完全相同，值越低越宽松。
-        count (int): 像素计数阈值。
+        image (np.ndarray): Массив изображения.
+        color (tuple): Цвет RGB.
+        threshold (int): Порог сходства, 255 означает полное совпадение; чем меньше значение, тем мягче проверка.
+        count (int): Порог количества пикселей.
 
     Returns:
-        bool: 相似像素数超过 count 返回 True。
+        bool: True, если количество схожих пикселей больше count.
     """
     mask = color_similarity_2d(image, color=color)
     cv2.inRange(mask, threshold, 255, dst=mask)
@@ -1210,15 +1213,15 @@ def image_color_count(image, color, threshold=221, count=50):
 
 
 def extract_letters(image, letter=(255, 255, 255), threshold=128):
-    """将字母颜色设为黑色，背景颜色设为白色。
+    """Устанавливает цвет букв в чёрный, а цвет фона в белый.
 
     Args:
-        image (np.ndarray): 图像数组，形状 (height, width, channel)。
-        letter (tuple): 字母 RGB 颜色。
-        threshold (int): 颜色差异阈值。
+        image (np.ndarray): Массив изображения, форма (height, width, channel).
+        letter (tuple): RGB-цвет букв.
+        threshold (int): Порог различия цветов.
 
     Returns:
-        np.ndarray: 灰度图，形状 (height, width)。
+        np.ndarray: Полутоновое изображение, форма (height, width).
     """
     # r, g, b = cv2.split(cv2.subtract(image, (*letter, 0)))
     # positive = cv2.max(cv2.max(r, g), b)
@@ -1242,15 +1245,15 @@ def extract_letters(image, letter=(255, 255, 255), threshold=128):
 
 
 def extract_white_letters(image, threshold=128):
-    """将字母颜色设为黑色，背景颜色设为白色。
-    此函数会抑制彩色像素（非灰度像素）。
+    """Устанавливает цвет букв в чёрный, а цвет фона в белый.
+    Эта функция подавляет цветные пиксели (не являющиеся градациями серого).
 
     Args:
-        image (np.ndarray): 图像数组，形状 (height, width, channel)。
-        threshold (int): 颜色差异阈值。
+        image (np.ndarray): Массив изображения, форма (height, width, channel).
+        threshold (int): Порог различия цветов.
 
     Returns:
-        np.ndarray: 灰度图，形状 (height, width)。
+        np.ndarray: Полутоновое изображение, форма (height, width).
     """
     # minimum = cv2.min(cv2.min(r, g), b)
     # maximum = cv2.max(cv2.max(r, g), b)
@@ -1272,24 +1275,24 @@ def extract_white_letters(image, threshold=128):
 
 
 def crop_to_text(image, threshold=120, padding=2):
-    """裁剪图像宽高以紧密贴合文本内容。
+    """Обрезает ширину и высоту изображения, плотно подгоняя к текстовому содержимому.
 
-    专为 OCR 预处理后的灰度图设计（extract_letters 的输出），
-    其中文本像素值较低，背景像素值为 255。
-    查找包含文本的最左、最右、最上、最下的行/列，
-    然后裁剪图像到该范围并保留小的安全边距。
+    Специально предназначено для полутоновых изображений после предобработки OCR (вывод extract_letters),
+    где текстовые пиксели имеют низкие значения, а фоновые — 255.
+    Находит крайние строки и столбцы (левый, правый, верхний, нижний), содержащие текст,
+    после чего обрезает изображение до этого диапазона с сохранением небольшого безопасного отступа.
 
     Args:
-        image (np.ndarray): 灰度图，形状 (height, width)。
-            像素值范围 0~255，较低值表示文本。
-        threshold (int): 像素值 < threshold 视为文本。
-            默认 120，可安全捕获抗锯齿边缘。
-        padding (int): 每边保留的额外像素作为安全边距。
-            默认 2。如果文本被裁剪可增大此值。
+        image (np.ndarray): Полутоновое изображение, форма (height, width).
+            Значения пикселей 0~255, меньшие значения представляют текст.
+        threshold (int): Пиксели со значением < threshold считаются текстом.
+            По умолчанию 120, надёжно захватывает сглаженные края шрифтов.
+        padding (int): Дополнительные пиксели с каждой стороны в качестве безопасного отступа.
+            По умолчанию 2. Если текст обрезается, увеличьте это значение.
 
     Returns:
-        np.ndarray: 裁剪后的图像。
-            如果未检测到文本，返回原图。
+        np.ndarray: Обрезанное изображение.
+            Если текст не обнаружен, возвращает исходное изображение.
     """
     # Создаем маску пикселей текста (значение < threshold)
     # Детекция текста на полутоновом (2D) или многоканальном (3D) изображении
@@ -1316,15 +1319,15 @@ def crop_to_text(image, threshold=120, padding=2):
 
 
 def color_mapping(image, max_multiply=2):
-    """将颜色映射到 0-255 范围。
-    最小颜色映射到 0，最大颜色映射到 255，颜色倍增最大为 2。
+    """Отображает значения цвета в диапазон 0-255.
+    Минимальный цвет отображается в 0, максимальный в 255, максимальный коэффициент умножения цвета — 2.
 
     Args:
-        image (np.ndarray): 图像数组。
-        max_multiply (int, float): 最大倍增系数。
+        image (np.ndarray): Массив изображения.
+        max_multiply (int, float): Максимальный коэффициент умножения.
 
     Returns:
-        np.ndarray: 映射后的图像数组。
+        np.ndarray: Преобразованный массив изображения.
     """
     image = image.astype(float)
     low, high = np.min(image), np.max(image)
@@ -1339,17 +1342,17 @@ def color_mapping(image, max_multiply=2):
 
 
 def image_left_strip(image, threshold, length):
-    """裁剪图像左侧部分。
-    例如在 `DAILY:200/200` 中去除 `DAILY:` 只保留 `200/200`。
+    """Обрезает левую часть изображения.
+    Например, в строке `DAILY:200/200` удаляет префикс `DAILY:`, оставляя только `200/200`.
 
     Args:
-        image (np.ndarray): 图像数组，形状 (height, width)。
-        threshold (int): 亮度阈值 (0-255)。
-            亮度低于此值的第一列视为左边缘。
-        length (int): 从左边缘开始裁剪的长度。
+        image (np.ndarray): Массив изображения, форма (height, width).
+        threshold (int): Порог яркости (0-255).
+            Первый столбец с яркостью ниже этого значения считается левым краем.
+        length (int): Длина обрезки начиная с левого края.
 
     Returns:
-        np.ndarray: 裁剪后的图像。
+        np.ndarray: Обрезанное изображение.
     """
     brightness = np.mean(image, axis=0)
     match = np.where(brightness < threshold)[0]
@@ -1363,32 +1366,32 @@ def image_left_strip(image, threshold, length):
 
 
 def red_overlay_transparency(color1, color2, red=247):
-    """计算红色叠加层的透明度。
+    """Вычисляет прозрачность красного наложения.
 
     Args:
-        color1: 原始颜色。
-        color2: 变化后的颜色。
-        red (int): 红色值 (0-255)。默认 247。
+        color1: Исходный цвет.
+        color2: Изменённый цвет.
+        red (int): Значение красного компонента (0-255). По умолчанию 247.
 
     Returns:
-        float: 透明度 (0-1)。
+        float: Коэффициент прозрачности (от 0 до 1).
     """
     return (color2[0] - color1[0]) / (red - color1[0])
 
 
 def color_bar_percentage(image, area, prev_color, reverse=False, starter=0, threshold=30):
-    """计算颜色进度条的百分比。
+    """Вычисляет процент заполнения цветной полосы прогресса.
 
     Args:
-        image (np.ndarray): 图像数组。
-        area (tuple): 进度条区域 (x1, y1, x2, y2)。
-        prev_color (tuple): 进度条颜色 (r, g, b)。
-        reverse (bool): 进度条是否从右向左。默认 False。
-        starter (int): 起始列索引。默认 0。
-        threshold (int): 颜色相似度阈值。默认 30。
+        image (np.ndarray): Массив изображения.
+        area (tuple): Область полосы прогресса (x1, y1, x2, y2).
+        prev_color (tuple): Цвет полосы прогресса (r, g, b).
+        reverse (bool): Заполняется ли полоса справа налево. По умолчанию False.
+        starter (int): Начальный индекс столбца. По умолчанию 0.
+        threshold (int): Порог сходства цвета. По умолчанию 30.
 
     Returns:
-        float: 百分比 (0 到 1)。
+        float: Процент заполнения (от 0 до 1).
     """
     image = crop(image, area, copy=False)
     image = image[:, ::-1, :] if reverse else image

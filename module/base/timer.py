@@ -1,7 +1,7 @@
-"""计时器与时间工具模块。
+"""Модуль таймеров и инструментов работы со временем.
 
-提供双重计时器 Timer 类（用于时间计数和访问计数）、调试用 timer 装饰器，
-以及 future_time 等时间字符串解析工具函数。
+Предоставляет класс двойного таймера Timer (для подсчёта времени и обращений),
+декоратор timer для отладки, а также функции разбора временных строк, такие как future_time.
 """
 
 from time import monotonic as time, sleep
@@ -12,7 +12,7 @@ from module.config.time_source import now as current_time
 
 
 def timer(function):
-    """计时装饰器，仅用于调试。"""
+    """Декоратор замера времени выполнения, используется только для отладки."""
 
     @wraps(function)
     def function_timer(*args, **kwargs):
@@ -26,13 +26,13 @@ def timer(function):
 
 
 def future_time(string):
-    """解析时间字符串，返回未来最近的对应时刻。
+    """Разобрать строку времени и вернуть ближайший будущий соответствующий момент.
 
     Args:
-        string (str): 时间字符串，如 "14:59"。
+        string (str): Строка времени, например "14:59".
 
     Returns:
-        datetime.datetime: 未来最近的对应时分时刻。
+        datetime.datetime: Ближайший будущий момент с соответствующими часами и минутами.
     """
     hour, minute = [int(x) for x in string.split(':')]
     now = current_time()
@@ -42,13 +42,13 @@ def future_time(string):
 
 
 def past_time(string):
-    """解析时间字符串，返回过去最近的对应时刻。
+    """Разобрать строку времени и вернуть ближайший прошедший соответствующий момент.
 
     Args:
-        string (str): 时间字符串，如 "14:59"。
+        string (str): Строка времени, например "14:59".
 
     Returns:
-        datetime.datetime: 过去最近的对应时分时刻。
+        datetime.datetime: Ближайший прошедший момент с соответствующими часами и минутами.
     """
     hour, minute = [int(x) for x in string.split(':')]
     now = current_time()
@@ -58,13 +58,13 @@ def past_time(string):
 
 
 def future_time_range(string):
-    """解析时间范围字符串，返回未来的起止时刻。
+    """Разобрать строку диапазона времени и вернуть будущее время начала и окончания.
 
     Args:
-        string (str): 时间范围字符串，如 "23:30-06:30"。
+        string (str): Строка диапазона времени, например "23:30-06:30".
 
     Returns:
-        tuple[datetime.datetime, datetime.datetime]: (起始时刻, 结束时刻)。
+        tuple[datetime.datetime, datetime.datetime]: (момент начала, момент окончания).
     """
     start, end = [future_time(s) for s in string.split('-')]
     if start > end:
@@ -73,30 +73,31 @@ def future_time_range(string):
 
 
 def time_range_active(time_range):
-    """判断当前时间是否在给定时间范围内。
+    """Проверить, попадает ли текущее время в указанный интервал.
 
     Args:
-        time_range (tuple[datetime.datetime, datetime.datetime]): (起始时刻, 结束时刻)。
+        time_range (tuple[datetime.datetime, datetime.datetime]): (момент начала, момент окончания).
 
     Returns:
-        bool: 当前时间在范围内返回 True。
+        bool: Возвращает True, если текущее время находится в диапазоне.
     """
     return time_range[0] < current_time() < time_range[1]
 
 
 class Timer:
-    """双重计时器，同时支持时间计数和访问计数。
+    """Двойной таймер, поддерживающий как подсчёт времени, так и подсчёт обращений.
 
-    访问计数可以在慢速设备上提供鲁棒性——当截图耗时超过计时器限制时，
-    仍能通过访问次数判断是否达到触发条件。
+    Подсчёт обращений обеспечивает надёжность на медленных устройствах:
+    когда снятие скриншота занимает больше времени, чем лимит таймера,
+    условие срабатывания всё ещё может быть определено по числу обращений.
     """
 
     def __init__(self, limit, count=0):
-        """初始化计时器。
+        """Инициализировать таймер.
 
         Args:
-            limit (int | float): 时间限制（秒）。
-            count (int): 访问次数限制，默认为 0。
+            limit (int | float): Лимит времени в секундах.
+            count (int): Лимит количества обращений, по умолчанию 0.
         """
         self.limit = limit
         self.count = count
@@ -105,20 +106,21 @@ class Timer:
 
     @classmethod
     def from_seconds(cls, limit, speed=0.5):
-        """根据给定秒数创建计时器，自动计算访问次数。
+        """Создать таймер на основе заданного числа секунд с автоматическим расчётом числа обращений.
 
         Args:
-            limit (int | float): 时间限制（秒）。
-            speed (int | float): 近似截图耗时（秒）。
-                如果耗时超过 0.5 秒，设备被视为慢速设备。
+            limit (int | float): Лимит времени в секундах.
+            speed (int | float): Примерное время создания скриншота в секундах.
+                Если время превышает 0.5 секунды, устройство считается медленным.
         """
         count = int(limit / speed)
         return cls(limit, count=count)
 
     def start(self) -> Timer:
-        """启动计时器。
+        """Запустить таймер.
 
-        如果计时器未启动，reached() 始终返回 True，从而实现首次快速尝试：
+        Если таймер не запущен, reached() всегда возвращает True,
+        что обеспечивает быструю первую попытку:
 
         ```python
         interval = Timer(2)
@@ -128,7 +130,7 @@ class Timer:
         ```
 
         Returns:
-            Timer: 自身实例，支持链式调用。
+            Timer: Сам экземпляр для цепочечных вызовов.
         """
         if self._start <= 0:
             self._start = time()
@@ -137,18 +139,18 @@ class Timer:
         return self
 
     def started(self):
-        """判断计时器是否已启动。
+        """Проверить, запущен ли таймер.
 
         Returns:
-            bool: 已启动返回 True。
+            bool: Возвращает True, если таймер запущен.
         """
         return self._start > 0
 
     def current_time(self):
-        """获取计时器自启动以来经过的时间。
+        """Получить время, прошедшее с момента запуска таймера.
 
         Returns:
-            float: 经过的秒数，未启动时返回 0.0。
+            float: Прошедшее количество секунд, либо 0.0, если таймер не запущен.
         """
         if self._start > 0:
             diff = time() - self._start
@@ -159,30 +161,30 @@ class Timer:
             return 0.
 
     def current_count(self):
-        """获取当前访问计数。
+        """Получить текущее количество обращений.
 
         Returns:
-            int: 当前访问次数。
+            int: Текущее число обращений.
         """
         return self._access
 
     def add_count(self):
-        """手动增加一次访问计数。
+        """Вручную увеличить счётчик обращений на единицу.
 
         Returns:
-            Timer: 自身实例，支持链式调用。
+            Timer: Сам экземпляр для цепочечных вызовов.
         """
         self._access += 1
         return self
 
     def reached(self):
-        """判断计时器是否已达到触发条件。
+        """Проверить, выполнено ли условие срабатывания таймера.
 
-        每次调用 reached() 都会被计为一次访问。
-        需要同时满足访问次数和时间限制才会返回 True。
+        Каждый вызов reached() учитывается как одно обращение.
+        Для возврата True должны одновременно выполниться лимит обращений и лимит времени.
 
         Returns:
-            bool: 达到条件返回 True；计时器未启动时始终返回 True（用于首次快速尝试）。
+            bool: True, если условие выполнено; до запуска таймера всегда возвращает True (для первой быстрой попытки).
         """
         # Каждый вызов reached() считается одним обращением
         self._access += 1
@@ -193,30 +195,30 @@ class Timer:
             return True
 
     def reset(self):
-        """重置计时器，如同刚刚启动。
+        """Сбросить таймер, как будто он только что запущен.
 
         Returns:
-            Timer: 自身实例，支持链式调用。
+            Timer: Сам экземпляр для цепочечных вызовов.
         """
         self._start = time()
         self._access = 0
         return self
 
     def clear(self):
-        """清除计时器，如同从未启动。
+        """Очистить таймер, как будто он никогда не запускался.
 
         Returns:
-            Timer: 自身实例，支持链式调用。
+            Timer: Сам экземпляр для цепочечных вызовов.
         """
         self._start = 0.
         self._access = self.count
         return self
 
     def reached_and_reset(self):
-        """判断是否达到触发条件，达到则自动重置。
+        """Проверить, выполнено ли условие срабатывания, и автоматически сбросить таймер при выполнении.
 
         Returns:
-            bool: 达到条件并已重置返回 True，否则返回 False。
+            bool: True, если условие выполнено и таймер сброшен, иначе False.
         """
         if self.reached():
             self.reset()
@@ -225,13 +227,13 @@ class Timer:
             return False
 
     def wait(self):
-        """阻塞等待直到计时器达到时间限制。"""
+        """Блокирующее ожидание до достижения таймером лимита времени."""
         diff = self._start + self.limit - time()
         if diff > 0:
             sleep(diff)
 
     def show(self):
-        """通过日志输出计时器当前状态。"""
+        """Вывести текущее состояние таймера в лог."""
         from module.logger import logger
         logger.info(str(self))
 

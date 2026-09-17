@@ -1,7 +1,8 @@
-"""装饰器工具模块。
+"""Модуль утилит-декораторов.
 
-提供基于配置的方法分发装饰器 Config.when()，以及 cached_property、
-timer、function_drop、run_once 等常用装饰器，用于控制方法的执行行为。
+Предоставляет декоратор диспетчеризации методов по конфигурации Config.when(),
+а также часто используемые декораторы cached_property, timer, function_drop, run_once
+для управления поведением выполнения методов.
 """
 
 import random
@@ -13,9 +14,9 @@ T = TypeVar("T")
 
 
 class Config:
-    """根据配置调用同名不同实现的装饰器。
+    """Декоратор вызова одноимённых методов с разной реализацией в зависимости от конфигурации.
 
-    func_list 结构示例:
+    Пример структуры func_list:
     func_list = {
         'func1': [
             {'options': {'ENABLE': True}, 'func': 1},
@@ -29,7 +30,7 @@ class Config:
     def when(cls, **kwargs):
         """
         Args:
-            **kwargs: AzurLaneConfig 中的任意配置项。
+            **kwargs: Любые параметры конфигурации из AzurLaneConfig.
 
         Examples:
             @Config.when(USE_ONE_CLICK_RETIREMENT=True)
@@ -61,9 +62,9 @@ class Config:
             def wrapper(self, *args, **kwargs):
                 """
                 Args:
-                    self: ModuleBase 实例。
-                    *args: 位置参数。
-                    **kwargs: 关键字参数。
+                    self: Экземпляр ModuleBase.
+                    *args: Позиционные аргументы.
+                    **kwargs: Именованные аргументы.
                 """
                 for record in cls.func_list[name]:
 
@@ -83,13 +84,14 @@ class Config:
 
 
 class cached_property(Generic[T]):
-    """带类型支持的缓存属性装饰器。
+    """Декоратор кэшируемого свойства с поддержкой типизации.
 
-    来源: https://github.com/pydanny/cached-property
-    原始实现: https://github.com/bottlepy/bottle/commit/fa7733e075da0d790d809aa3d2f53071897e6f76
+    Источник: https://github.com/pydanny/cached-property
+    Исходная реализация: https://github.com/bottlepy/bottle/commit/fa7733e075da0d790d809aa3d2f53071897e6f76
 
-    每个实例只计算一次属性值，之后替换为普通属性。
-    删除该属性后会重置缓存。
+    Значение свойства вычисляется только один раз для каждого экземпляра,
+    после чего заменяется обычным атрибутом.
+    Удаление свойства сбрасывает кэш.
     """
 
     def __init__(self, func: Callable[..., T]):
@@ -104,11 +106,11 @@ class cached_property(Generic[T]):
 
 
 def del_cached_property(obj, name):
-    """安全地删除缓存属性。
+    """Безопасно удалить кэшированное свойство.
 
     Args:
-        obj: 目标对象。
-        name: 属性名称。
+        obj: Целевой объект.
+        name: Имя свойства.
     """
     try:
         del obj.__dict__[name]
@@ -117,44 +119,44 @@ def del_cached_property(obj, name):
 
 
 def has_cached_property(obj, name):
-    """检查属性是否已被缓存。
+    """Проверить, закэшировано ли свойство.
 
     Args:
-        obj: 目标对象。
-        name: 属性名称。
+        obj: Целевой объект.
+        name: Имя свойства.
 
     Returns:
-        如果属性已缓存则返回 True，否则返回 False。
+        Возвращает True, если свойство уже закэшировано, иначе False.
     """
     return name in obj.__dict__
 
 
 def set_cached_property(obj, name, value):
-    """设置缓存属性。
+    """Установить значение кэшированного свойства.
 
     Args:
-        obj: 目标对象。
-        name: 属性名称。
-        value: 属性值。
+        obj: Целевой объект.
+        name: Имя свойства.
+        value: Значение свойства.
     """
     obj.__dict__[name] = value
 
 
 def function_drop(rate=0.5, default=None):
-    """随机丢弃函数调用，用于模拟模拟器卡死的测试场景。
+    """Случайно отбрасывать вызовы функции для имитации зависания эмулятора в тестах.
 
     Args:
-        rate: 丢弃概率，取值范围 0 到 1。
-        default: 被丢弃时返回的默认值。
+        rate: Вероятность отбрасывания в диапазоне от 0 до 1.
+        default: Значение по умолчанию, возвращаемое при отбрасывании.
 
     Examples:
         @function_drop(0.3)
         def click(self, button, record_check=True):
             pass
 
-        30% 概率:
+        30% вероятность:
         INFO | Dropped: module.device.device.Device.click(REWARD_GOTO_MAIN, record_check=True)
-        70% 概率:
+        70% вероятность:
         INFO | Click (1091,  628) @ REWARD_GOTO_MAIN
     """
     from module.logger import logger
@@ -183,7 +185,7 @@ def function_drop(rate=0.5, default=None):
 
 
 def run_once(f):
-    """确保函数只执行一次，无论被调用多少次。
+    """Гарантировать, что функция выполнится только один раз, сколько бы её ни вызывали.
 
     Examples:
         @run_once
