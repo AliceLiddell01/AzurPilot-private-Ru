@@ -1,8 +1,8 @@
-"""余烬 META 战斗管理模块。
+"""Модуль управления боями META с маяками Пепла.
 
-处理大世界余烬（Ash）信标系统的 META 战斗，包括信标等级
-OCR、伤害输出识别、META 战斗状态页面的检测与导航、奖励
-领取、以及自动搜索可用信标并发起挑战的完整战斗流程。
+Обрабатывает сражения META в системе маяков Пепла (Ash / META) Operation Siren,
+включая OCR уровня маяка, распознавание нанесённого урона, отслеживание и навигацию по экранам статуса META,
+получение наград, а также автоматический поиск доступных маяков и запуск испытаний.
 """
 import re
 from enum import Enum
@@ -22,7 +22,7 @@ from module.ui.ui import UI
 
 
 class MetaState(Enum):
-    """META 页面状态枚举。"""
+    """Перечисление состояний экрана META."""
     INIT = 'no meta begin'
     ATTACKING = 'a meta under attack'
     COMPLETE = 'reward to be collected'
@@ -37,16 +37,16 @@ else:
 
 
 class MetaDigitCounter(DigitCounter):
-    """META 数字计数器，修正 OCR 常见识别错误。"""
+    """Числовой счётчик META с коррекцией типичных ошибок OCR."""
 
     def after_process(self, result):
         """
-        后处理 OCR 结果，修正常见误识别。
+        Постобработка результатов OCR для исправления типичных ошибок распознавания.
 
-        处理逻辑：
-        - "00/200" -> "100/200"（首位 0 被识别为数字 0）
-        - "23" -> "2/3"（斜杠丢失，仅当首位为 0-3 时修正）
-        - "1/40/1400" -> "140/1400"（多余的斜杠）
+        Логика обработки:
+        - "00/200" -> "100/200" (начальный 0 распознан как цифра 0)
+        - "23" -> "2/3" (потерян слэш, исправляется, только если первая цифра 0-3)
+        - "1/40/1400" -> "140/1400" (лишний слэш)
         """
         result = super().after_process(result)
 
@@ -69,18 +69,18 @@ class MetaDigitCounter(DigitCounter):
 
 
 class Meta(UI, MapEventHandler):
-    """META 战斗基础模块，处理地图事件和 OCR 识别。"""
+    """Базовый модуль боёв META, обрабатывающий события карты и OCR-распознавание."""
 
     def digit_ocr_point_and_check(self, button: Button, check_number: int):
         """
-        OCR 读取按钮上的数字，判断是否达到阈值。
+        Считать число на кнопке через OCR и проверить, достигнут ли порог.
 
         Args:
-            button: 要识别的按钮区域。
-            check_number: 判断阈值。
+            button: Область кнопки для распознавания.
+            check_number: Пороговое значение.
 
         Returns:
-            bool: 识别值是否 >= 阈值。
+            bool: Достигло ли распознанное значение порога (>= check_number).
         """
         point_ocr = MetaDigitCounter(button, letter=(235, 235, 235), threshold=160, name='POINT_OCR')
         point, _, _ = point_ocr.ocr(self.device.image)
@@ -90,15 +90,16 @@ class Meta(UI, MapEventHandler):
 
     def handle_map_event(self, drop=None):
         """
-        处理 META 地图中的各种事件弹窗。
+        Обработать всплывающие окна различных событий на карте META.
 
-        处理自动攻击完成确认、误入帮助页面、误入战斗准备页面等情况。
+        Обрабатывает подтверждение завершения авто-атаки, случайный переход на экран помощи
+        или на экран подготовки к бою.
 
         Args:
-            drop: 掉落图像处理器。
+            drop: Обработчик изображений дропа.
 
         Returns:
-            bool: 是否采取了行动。
+            bool: Было ли выполнено действие.
         """
         if super().handle_map_event(drop):
             return True
@@ -121,26 +122,26 @@ class Meta(UI, MapEventHandler):
 
 
 def _server_support():
-    """当前服务器是否支持信标和 OneHitMode。"""
+    """Поддерживает ли текущий сервер маяки и OneHitMode."""
     return server.server in ['cn', 'en', 'jp', 'tw']
 
 
 def _server_support_dossier_auto_attack():
-    """当前服务器是否支持档案自动攻击。"""
+    """Поддерживает ли текущий сервер авто-атаку досье."""
     return server.server in ['cn', 'en']
 
 
 class OpsiAshBeacon(Meta):
-    """余烬信标主任务，处理 META 攻击、奖励领取和任务调度。"""
+    """Основная задача маяков Пепла: атака META, получение наград и планирование задач."""
     _meta_receive = []
     _meta_category = "undefined"
 
     def _attack_meta(self, skip_first_screenshot=True):
         """
-        处理 META 攻击的完整流程。
+        Обработать полный цикл атаки META.
 
-        根据页面状态分发：INIT 时选择信标或档案，ATTACKING 时执行攻击，
-        COMPLETE 时领取奖励。
+        Диспетчеризация по состоянию страницы: при INIT выбирает маяк или досье,
+        при ATTACKING проводит бой, при COMPLETE забирает награды.
 
         Pages:
             in: in_meta
@@ -189,10 +190,10 @@ class OpsiAshBeacon(Meta):
 
     def _make_an_attack(self):
         """
-        执行一次 META 战斗。
+        Провести один бой META.
 
-        战斗期间处理误入战斗准备页面和帮助页面的异常情况，
-        战斗结束后确认回到 META 页面。
+        Во время боя обрабатывает случайные переходы на экраны подготовки или помощи;
+        после окончания боя проверяет возврат на экран META.
 
         Pages:
             in: in_meta, ASH_START
@@ -224,9 +225,9 @@ class OpsiAshBeacon(Meta):
 
     def _handle_ash_beacon_reward(self, skip_first_screenshot=True):
         """
-        领取 META 击杀奖励。
+        Получить награду за уничтожение META.
 
-        点击奖励按钮直到奖励界面消失，回到 META 页面。
+        Нажимает кнопку награды до исчезновения интерфейса наград и возврата на экран META.
 
         Pages:
             in: in_meta, BEACON_REWARD
@@ -258,13 +259,13 @@ class OpsiAshBeacon(Meta):
 
     def _satisfy_attack_condition(self):
         """
-        检查当前 META 是否满足攻击条件。
+        Проверить, удовлетворяет ли текущий босс META условиям атаки.
 
-        信标模式下：开启 OneHitMode 且已造成伤害时，不再攻击。
-        档案模式下：META 正在自动攻击时，不再手动攻击。
+        В режиме маяка: если включён OneHitMode и урон уже нанесён, атака прекращается.
+        В режиме архива: если уже идёт автоатака, ручной бой не проводится.
 
         Returns:
-            bool: 是否满足攻击条件（始终返回 True，不满足时通过 task_stop 提前终止）。
+            bool: Удовлетворены ли условия атаки (всегда возвращает True; при отказе задача останавливается через task_stop).
         """
         if self.appear(BEACON_LIST, offset=(20, 20)):
             # OneHitMode включён и текущей META уже нанесён урон
@@ -286,19 +287,19 @@ class OpsiAshBeacon(Meta):
 
     def _get_meta_damage(self):
         """
-        获取当前 META 已造成的伤害值。
+        Получить значение нанесённого текущему боссу META урона.
 
         Returns:
-            int: OCR 识别的伤害数值。
+            int: Число урона, распознанное через OCR.
         """
         self._ensure_meta_inner_page_damage()
         return OCR_META_DAMAGE.ocr(self.device.image)
 
     def _ensure_meta_inner_page_damage(self, skip_first_screenshot=True):
         """
-        切换 META 内部页面到伤害标签页。
+        Переключить внутреннюю вкладку экрана META на отображение урона.
 
-        如果当前在详情页，则点击切换到伤害页。
+        Если открыта вкладка сведений, кликает для перехода на вкладку урона.
 
         Pages:
             in: in_meta, ASH_START
@@ -320,13 +321,13 @@ class OpsiAshBeacon(Meta):
 
     def _pre_attack(self):
         """
-        攻击前的准备工作。
+        Подготовительные действия перед атакой.
 
-        信标模式下：根据配置请求协助。
-        档案模式下：cn/en 服务器支持自动攻击，其他服务器暂不处理。
+        В режиме маяка: отправляет запрос помощи согласно настройкам.
+        В режиме архива: для серверов CN/EN запускает автоатаку, на остальных серверах пока не обрабатывается.
 
         Returns:
-            bool: 是否准备就绪。
+            bool: Готова ли атака к запуску.
         """
         # Страница маяка
         if self.appear(BEACON_LIST, offset=(20, 20)):
@@ -345,12 +346,12 @@ class OpsiAshBeacon(Meta):
 
     def _ask_for_help(self):
         """
-        请求协助，从好友、大舰队和世界频道发起求助。
+        Запросить поддержку у друзей, флота и в общем мировом чате.
 
-        依次点击三个求助按钮，然后确认。
+        Последовательно нажимает три кнопки запроса помощи и подтверждает.
 
         Returns:
-            bool: 是否成功发起协助。如果 META 在请求协助后刚好完成则返回 False。
+            bool: Успешно ли отправлен запрос помощи. Возвращает False, если цель META завершилась сразу после запроса.
 
         Pages:
             in: is_in_meta
@@ -404,12 +405,12 @@ class OpsiAshBeacon(Meta):
 
     def _dossier_auto_attack(self):
         """
-        启动档案自动攻击。
+        Запустить автоатаку в архиве досье.
 
-        点击自动攻击开始按钮并确认，直到出现自动攻击中的标记。
+        Нажимает кнопку старта автоатаки и подтверждает до появления метки выполнения автоатаки.
 
         Returns:
-            bool: 是否成功开启自动攻击。
+            bool: Успешно ли включена автоатака.
 
         Pages:
             in: is_in_meta & not auto attacking
@@ -445,13 +446,13 @@ class OpsiAshBeacon(Meta):
 
     def _begin_meta(self):
         """
-        无论当前在哪个 META 页面，选择或开始一个 META 战斗。
+        Выбрать или начать бой META вне зависимости от текущего экрана META.
 
-        META 主页面下：选择信标或档案入口进入。
-        信标/档案页面下：开始新的 META 战斗，或返回主页面。
+        На главном экране META: переходит к маяку или досье.
+        На экране маяка/досье: запускает новый бой META либо возвращается на главный экран.
 
         Returns:
-            bool: 是否需要继续循环。
+            bool: Требуется ли продолжить цикл.
         """
         
         attack_mode = self.config.OpsiAshBeacon_AttackMode
@@ -501,10 +502,10 @@ class OpsiAshBeacon(Meta):
 
     def _check_beacon_point(self) -> bool:
         """
-        检查信标积分是否 >= 100。
+        Проверить, набрано ли >= 100 очков маяка.
 
         Returns:
-            bool: 积分是否满足开启条件。
+            bool: Достаточно ли очков для запуска боя.
         """
         if self.appear(META_BEACON_FLAG, offset=(180, 20)):
             META_BEACON_DATA.load_offset(META_BEACON_FLAG)
@@ -513,10 +514,10 @@ class OpsiAshBeacon(Meta):
 
     def _check_dossier_point(self) -> bool:
         """
-        检查档案积分是否 >= 100。
+        Проверить, набрано ли >= 100 очков архива досье.
 
         Returns:
-            bool: 积分是否满足开启条件。
+            bool: Достаточно ли очков для запуска боя.
         """
         if self.appear(META_DOSSIER_FLAG, offset=(180, 20)):
             META_DOSSIER_DATA.load_offset(META_DOSSIER_FLAG)
@@ -525,10 +526,10 @@ class OpsiAshBeacon(Meta):
 
     def _get_state(self):
         """
-        判断当前 META 页面状态。
+        Определить текущее состояние экрана META.
 
         Returns:
-            MetaState: 当前页面状态枚举值。
+            MetaState: Значение перечисления текущего состояния экрана.
         """
         # Неизвестная страница
         if not self._in_meta_page():
@@ -546,14 +547,14 @@ class OpsiAshBeacon(Meta):
         return MetaState.UNDEFINED
 
     def _in_meta_page(self):
-        """判断当前是否在 META 相关页面（主页面、信标或档案）。"""
+        """Определить, открыт ли сейчас экран, связанный с META (главный, маяки или досье)."""
         return self.appear(ASH_SHOWDOWN, offset=(30, 30)) \
                or self.appear(BEACON_LIST, offset=(20, 20)) \
                or self.appear(DOSSIER_LIST, offset=(20, 20))
 
     def _ensure_meta_page(self, skip_first_screenshot=True):
         """
-        确保当前在 META 页面，不在则通过点击入口进入。
+        Убедиться, что открыт экран META; если нет — перейти через клик по входу.
 
         Pages:
             in: page_reward
@@ -576,9 +577,9 @@ class OpsiAshBeacon(Meta):
 
     def ensure_dossier_page(self, skip_first_screenshot=True):
         """
-        确保当前在档案页面。
+        Убедиться, что открыт экран архива досье.
 
-        先导航到奖励页面，再进入 META 页面，最后切换到档案标签。
+        Переходит в меню наград, открывает экран META и переключается на вкладку досье.
 
         Pages:
             in: page_reward
@@ -603,7 +604,7 @@ class OpsiAshBeacon(Meta):
                 continue
 
     def _begin_beacon(self):
-        """开始信标攻击流程，确保进入 META 页面后执行攻击。"""
+        """Запустить процесс атаки маяка, перейдя на экран META."""
         logger.hr('Бой META')
         if not _server_support():
             logger.info("Текущий сервер пока не поддерживает архивные маяки и режим одного удара; обратитесь к разработчику")
@@ -611,7 +612,7 @@ class OpsiAshBeacon(Meta):
         self._attack_meta()
 
     def run(self):
-        """执行信标攻击任务主流程：进入 META 页面、攻击、领取奖励、延迟到下次服务器更新。"""
+        """Основной поток атаки маяка: переход на экран META, атака, получение наград, отсрочка до обновления сервера."""
         self.ui_ensure(page_reward)
         self._begin_beacon()
         self.ui_goto_main()
@@ -624,16 +625,16 @@ class OpsiAshBeacon(Meta):
 
 
 class AshBeaconAssist(Meta):
-    """余烬信标协助任务，处理他人的信标求助。"""
+    """Задача поддержки маяков Пепла: помощь по запросам других игроков."""
 
     def _attack_meta(self, skip_first_screenshot=True):
         """
-        协助攻击 META 信标。
+        Провести бой поддержки маяка META.
 
-        在信标列表中查找可用的信标，检查剩余协助次数后发起攻击。
+        Ищет доступные маяки в списке, проверяет оставшиеся попытки и запускает атаку.
 
         Returns:
-            bool: 是否找到了可攻击的信标。
+            bool: Найден ли доступный для атаки маяк.
 
         Pages:
             in: page_reward
@@ -667,9 +668,9 @@ class AshBeaconAssist(Meta):
 
     def _make_an_attack(self):
         """
-        执行一次 META 协助战斗。
+        Провести один бой поддержки META.
 
-        战斗结束后确认回到协助页面，处理误入战斗准备和主页的异常情况。
+        После боя подтверждает возврат на экран поддержки, обрабатывая случайные переходы на экран подготовки или главной страницы.
 
         Pages:
             in: in_meta_assist
@@ -703,10 +704,9 @@ class AshBeaconAssist(Meta):
 
     def _ensure_meta_level(self):
         """
-        选择满足等级要求的 META 信标。
+        Выбрать маяк META, соответствующий требованиям уровня.
 
-        等待信标等级数字显示后，通过 OCR 读取等级，
-        不满足则翻页查找，最多尝试 5 次。
+        Ожидает появления цифр уровня маяка, считывает уровень через OCR и при необходимости листает список (до 5 попыток).
         """
         # Ждём появления BEACON_TIER: при входе в список маяков уровень отображается не сразу
         tier = self.config.OpsiAshAssist_Tier
@@ -733,14 +733,14 @@ class AshBeaconAssist(Meta):
         logger.info(f'[META — поддержка] Найден маяк уровня {current}.')
 
     def _in_meta_assist_page(self):
-        """判断当前是否在信标协助页面。"""
+        """Определить, открыт ли сейчас экран поддержки маяка."""
         return self.appear(BEACON_MY, offset=(20, 20))
 
     def _ensure_meta_assist_page(self, skip_first_screenshot=True):
         """
-        确保当前在信标协助页面。
+        Убедиться, что открыт экран поддержки маяка.
 
-        从 META 入口进入，处理各种中间页面跳转。
+        Переходит через вход META, обрабатывая различные промежуточные экраны.
 
         Pages:
             in: page_reward or in_meta
@@ -771,17 +771,17 @@ class AshBeaconAssist(Meta):
                 continue
 
     def _begin_meta_assist(self):
-        """开始信标协助流程，确保进入协助页面后执行攻击。"""
+        """Запустить процесс поддержки маяка, перейдя на экран поддержки."""
         logger.hr('Поддержка META')
         self._ensure_meta_assist_page()
         return self._attack_meta(skip_first_screenshot=False)
 
     def run(self):
         """
-        执行信标协助任务主流程。
+        Основной поток задачи поддержки маяков META.
 
-        成功协助后领取奖励并延迟到下次服务器更新；
-        未找到可协助的信标则延迟 10-20 分钟后重试。
+        При успешной помощи забирает награды и откладывает задачу до обновления сервера;
+        если подходящих маяков не найдено, откладывает на 10-20 минут.
         """
         self.ui_ensure(page_reward)
 
