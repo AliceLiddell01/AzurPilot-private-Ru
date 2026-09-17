@@ -1,5 +1,5 @@
-"""舰队商店处理器，使用舰队币购买舰队商店专属商品。
-支持 2025-08-14 新 UI 布局，使用模板匹配识别商品。
+"""Обработчик магазина гильдии, выполняющий покупку эксклюзивных товаров за монеты гильдии.
+Поддерживает структуру интерфейса от 2025-08-14, использует шаблонное сопоставление для распознавания товаров.
 """
 
 from module.base.decorator import cached_property
@@ -12,29 +12,29 @@ from module.shop.ui import ShopUI
 
 
 class GuildShop_250814(ShopClerk, ShopUI, ShopStatus):
-    """舰队商店处理器 (2025-08-14 新 UI)。
+    """Обработчик магазина гильдии (новый интерфейс от 2025-08-14).
 
-    Pages: in: page_shop (guild shop tab)
+    Pages: in: page_shop (вкладка магазина гильдии)
     """
 
     shop_template_folder = './assets/shop/guild'
 
     @cached_property
     def shop_filter(self):
-        """获取舰队商店过滤器。
+        """Получить строку фильтра магазина гильдии.
 
         Returns:
-            str: 过滤器字符串
+            str: Строка фильтра
         """
         return self.config.GuildShop_Filter.strip()
 
     # Новый UI от 2025-08-14.
     @cached_property
     def shop_guild_items(self):
-        """加载舰队商店商品模板和配置。
+        """Загрузить шаблоны и конфигурацию товаров магазина гильдии.
 
         Returns:
-            ShopItemGrid_250814: 商店商品网格对象
+            ShopItemGrid_250814: Объект сетки товаров магазина
         """
         shop_grid = self.shop_grid
         shop_guild_items = ShopItemGrid_250814(
@@ -51,46 +51,46 @@ class GuildShop_250814(ShopClerk, ShopUI, ShopStatus):
         return shop_guild_items
 
     def shop_items(self):
-        """获取商店商品网格的统一接口。
+        """Единый интерфейс получения сетки товаров магазина.
 
-        所有商店共享相同的属性名，使用 @Config 时需要
-        定义唯一的别名作为覆盖。
+        Все магазины используют общее имя свойства; при использовании @Config необходимо
+        задавать уникальный псевдоним для переопределения.
 
         Returns:
-            ShopItemGrid_250814: 商店商品网格
+            ShopItemGrid_250814: Сетка товаров магазина
         """
         return self.shop_guild_items
 
     def shop_currency(self):
-        """OCR 识别舰队商店货币数量。
+        """OCR-распознавание количества валюты магазина гильдии.
 
-        通过状态检测获取当前舰队币余额并记录日志。
+        Определяет текущий баланс монет гильдии через проверку статуса и записывает в лог.
 
         Returns:
-            int: 舰队币数量
+            int: Количество монет гильдии
         """
         self._currency = self.status_get_guild_coins()
         logger.info(f'[Магазин — гильдия] Монеты гильдии: {self._currency}')
         return self._currency
 
     def shop_interval_clear(self):
-        """清除购买界面相关按钮的点击间隔。
+        """Сбросить интервалы нажатий для кнопок интерфейса покупки.
 
-        重置购买确认选择按钮的 interval 状态。
+        Сбрасывает состояние interval для кнопки подтверждения выбора покупки.
         """
         super().shop_interval_clear()
         self.interval_clear(SHOP_BUY_CONFIRM_SELECT)
 
     def shop_buy_handle(self, item):
-        """处理舰队商店购买界面。
+        """Обработать интерфейс покупки в магазине гильдии.
 
-        检测并处理购买确认选择界面。
+        Распознаёт и обрабатывает интерфейс подтверждения выбора при покупке.
 
         Args:
-            item: 待购买的商品对象
+            item: Объект покупаемого товара
 
         Returns:
-            bool: 是否检测到购买界面并进行了处理
+            bool: Обнаружен и обработан ли интерфейс покупки
         """
         if self.appear(SHOP_BUY_CONFIRM_SELECT, offset=(20, 20), interval=3):
             self.shop_buy_select_execute(item)
@@ -100,12 +100,12 @@ class GuildShop_250814(ShopClerk, ShopUI, ShopStatus):
         return False
 
     def run(self):
-        """运行舰队商店购买流程。
+        """Запустить процесс покупки в магазине гильдии.
 
-        Pages: in: page_shop (guild shop tab)
+        Pages: in: page_shop (вкладка магазина гильдии)
 
-        按照过滤器配置购买舰队商店商品，支持刷新。
-        刷新消耗 50 舰队币，T4 部件箱价格 60，余额不足 110 时跳过刷新。
+        Покупает товары магазина гильдии по настройкам фильтра, поддерживает обновление ассортимента.
+        Обновление стоит 50 монет гильдии, ящик деталей T4 — 60 монет; если баланс меньше 110, обновление пропускается.
         """
         if not self.shop_filter:
             return

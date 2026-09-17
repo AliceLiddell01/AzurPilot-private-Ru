@@ -1,5 +1,5 @@
-"""核心商店处理器，管理核心数据商品的过滤和购买。
-支持 2025-08-14 新 UI 布局，使用模板匹配识别商品。
+"""Обработчик магазина ядра, управляющий фильтрацией и покупкой товаров за данные ядра.
+Поддерживает структуру интерфейса от 2025-08-14, использует шаблонное сопоставление для распознавания товаров.
 """
 
 from module.base.decorator import cached_property
@@ -11,29 +11,29 @@ from module.shop.shop_status import ShopStatus
 
 
 class CoreShop_250814(ShopClerk, ShopStatus):
-    """核心商店处理器 (2025-08-14 新 UI)。
+    """Обработчик магазина ядра (новый интерфейс от 2025-08-14).
 
-    Pages: in: page_shop (core shop tab)
+    Pages: in: page_shop (вкладка магазина ядра)
     """
 
     shop_template_folder = './assets/shop/core'
 
     @cached_property
     def shop_filter(self):
-        """获取核心商店过滤器。
+        """Получить строку фильтра магазина ядра.
 
         Returns:
-            str: 过滤器字符串
+            str: Строка фильтра
         """
         return self.config.CoreShop_Filter.strip()
 
     # Новый UI от 2025-08-14.
     @cached_property
     def shop_core_items(self):
-        """加载核心商店商品模板和配置。
+        """Загрузить шаблоны и конфигурацию товаров магазина ядра.
 
         Returns:
-            ShopItemGrid_250814: 商店商品网格对象
+            ShopItemGrid_250814: Объект сетки товаров магазина
         """
         shop_grid = self.shop_grid
         shop_core_items = ShopItemGrid_250814(
@@ -49,46 +49,46 @@ class CoreShop_250814(ShopClerk, ShopStatus):
         return shop_core_items
 
     def shop_items(self):
-        """获取商店商品网格的统一接口。
+        """Единый интерфейс получения сетки товаров магазина.
 
-        所有商店共享相同的属性名。如存在服务器语言差异，
-        参考 shop_guild/medal 的 @Config 用法。
+        Все магазины используют общее имя свойства. При языковых различиях серверов
+        см. использование @Config в shop_guild/medal.
 
         Returns:
-            ShopItemGrid_250814: 商店商品网格
+            ShopItemGrid_250814: Сетка товаров магазина
         """
         return self.shop_core_items
 
     def shop_currency(self):
-        """OCR 识别核心商店货币数量。
+        """OCR-распознавание количества валюты магазина ядра.
 
-        通过状态检测获取当前核心数据余额并记录日志。
+        Определяет текущий баланс данных ядра через проверку статуса и записывает в лог.
 
         Returns:
-            int: 核心数据数量
+            int: Количество данных ядра
         """
         self._currency = self.status_get_core()
         logger.info(f'[Магазин — ядра] Данные ядра: {self._currency}')
         return self._currency
 
     def shop_interval_clear(self):
-        """清除购买界面相关按钮的点击间隔。
+        """Сбросить интервалы нажатий для кнопок интерфейса покупки.
 
-        重置购买数量按钮的 interval 状态。
+        Сбрасывает состояние interval для кнопки подтверждения количества покупки.
         """
         super().shop_interval_clear()
         self.interval_clear(SHOP_BUY_CONFIRM_AMOUNT)
 
     def shop_buy_handle(self, item):
-        """处理核心商店购买界面。
+        """Обработать интерфейс покупки в магазине ядра.
 
-        检测并处理购买数量输入界面。
+        Распознаёт и обрабатывает интерфейс ввода количества покупки.
 
         Args:
-            item: 待购买的商品对象
+            item: Объект покупаемого товара
 
         Returns:
-            bool: 是否检测到购买界面并进行了处理
+            bool: Обнаружен и обработан ли интерфейс покупки
         """
         if self.appear(SHOP_BUY_CONFIRM_AMOUNT, offset=(20, 20), interval=3):
             self.shop_buy_amount_execute(item)
@@ -98,11 +98,11 @@ class CoreShop_250814(ShopClerk, ShopStatus):
         return False
 
     def run(self):
-        """运行核心商店购买流程。
+        """Запустить процесс покупки в магазине ядра.
 
-        Pages: in: page_shop (core shop tab)
+        Pages: in: page_shop (вкладка магазина ядра)
 
-        按照过滤器配置购买核心商店商品。
+        Покупает товары магазина ядра в соответствии с конфигурацией фильтра.
         """
         if not self.shop_filter:
             return

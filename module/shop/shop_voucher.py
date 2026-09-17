@@ -1,10 +1,9 @@
-"""
-代币商店处理器（大世界商店）。
+"""Обработчик магазина жетонов (магазин Operation Siren).
 
-通过模板匹配定位代币图标，动态计算商品网格布局，
-识别并过滤代币商店中的商品，按配置购买优先级执行购买。
-支持单次购买日志档案商品的 run_once() 方法。
-支持 Operation Siren Data Logger 的独立购买和售罄确认。
+С помощью шаблонного сопоставления находит значки жетонов, динамически вычисляет сетку товаров,
+распознаёт и фильтрует товары в магазине жетонов и выполняет покупки по приоритетам конфигурации.
+Поддерживает метод run_once() для разовой покупки архивных товаров регистратора.
+Поддерживает отдельную покупку Operation Siren Data Logger и подтверждение состояния распродажи.
 """
 
 import cv2
@@ -39,31 +38,31 @@ DATA_LOGGER_PURCHASE_SECONDS = 45
 
 
 class VoucherShop(ShopClerk, ShopStatus):
-    """代币商店处理器（大世界商店）。
+    """Обработчик магазина жетонов (магазин Operation Siren).
 
-    通过模板匹配定位代币图标来动态计算商品网格，
-    结合过滤器配置自动购买代币商店商品。
-    支持普通购买流程和单次购买日志档案两种模式。
+    Динамически вычисляет сетку товаров по положению значков жетонов
+    и автоматически покупает товары магазина жетонов по фильтрам конфигурации.
+    Поддерживает обычный процесс покупок и разовую покупку архива регистратора.
 
-    Pages: in: page_shop (voucher shop tab)
+    Pages: in: page_shop (вкладка магазина жетонов)
     """
     @cached_property
     def shop_filter(self):
-        """获取凭证商店过滤器。
+        """Получить строку фильтра магазина жетонов.
 
         Returns:
-            str: 过滤器字符串
+            str: Строка фильтра
         """
         return voucher_redirect(self.config.OpsiVoucher_Filter.strip())
 
     def _get_vouchers(self):
-        """检测截图中的凭证图标位置。
+        """Найти положение значков жетонов на снимке экрана.
 
-        通过模板匹配在商店左侧区域查找凭证图标，
-        返回图标左上角的坐标数组。
+        С помощью шаблонного сопоставления ищет значки жетонов в левой области магазина,
+        возвращает массив координат левых верхних углов значков.
 
         Returns:
-            np.array: [[x1, y1], [x2, y2]]，凭证图标左上角坐标
+            np.array: [[x1, y1], [x2, y2]], координаты левых верхних углов значков жетонов
         """
         left_column = self.image_crop((305, 306, 1256, 646), copy=False)
         vouchers = TEMPLATE_VOUCHER_ICON.match_multi(left_column, similarity=0.75, threshold=5)
@@ -72,13 +71,13 @@ class VoucherShop(ShopClerk, ShopStatus):
         return vouchers
 
     def wait_until_voucher_appear(self, skip_first_screenshot=True):
-        """等待凭证商店页面加载完成。
+        """Дождаться завершения загрузки страницы магазина жетонов.
 
-        进入凭证商店后，商品列表加载需要时间，
-        此方法等待任意凭证图标出现。
+        После входа в магазин жетонов загрузка списка товаров требует времени;
+        этот метод ожидает появления любого значка жетона.
 
         Args:
-            skip_first_screenshot: 是否跳过首次截图
+            skip_first_screenshot: Пропускать ли первый снимок экрана
         """
         timeout = Timer(1, count=3).start()
         while 1:
@@ -96,13 +95,13 @@ class VoucherShop(ShopClerk, ShopStatus):
 
     @cached_property
     def shop_grid(self):
-        """根据凭证图标位置计算商店网格。
+        """Вычислить сетку магазина по расположению значков жетонов.
 
-        通过检测到的凭证图标数量和位置动态计算商品网格的
-        原点、间距和行数，适配不同服务器布局。
+        По количеству и положению обнаруженных значков жетонов динамически вычисляет
+        начало координат, интервалы и число строк сетки товаров, адаптируясь под разные серверы.
 
         Returns:
-            ButtonGrid: 商店商品网格
+            ButtonGrid: Сетка товаров магазина
         """
         vouchers = self._get_vouchers()
         count = len(vouchers)
@@ -148,10 +147,10 @@ class VoucherShop(ShopClerk, ShopStatus):
 
     @cached_property
     def shop_voucher_items(self):
-        """加载凭证商店商品模板和配置。
+        """Загрузить шаблоны и конфигурацию товаров магазина жетонов.
 
         Returns:
-            ShopItemGrid: 商店商品网格对象
+            ShopItemGrid: Объект сетки товаров магазина
         """
         shop_grid = self.shop_grid
         shop_voucher_items = ShopItemGrid(
@@ -166,33 +165,33 @@ class VoucherShop(ShopClerk, ShopStatus):
         return shop_voucher_items
 
     def shop_items(self):
-        """获取商店商品网格的统一接口。
+        """Единый интерфейс получения сетки товаров магазина.
 
-        所有商店共享相同的属性名，使用 @Config 时需要
-        定义唯一的别名作为覆盖。
+        Все магазины используют общее имя свойства; при использовании @Config необходимо
+        задавать уникальный псевдоним для переопределения.
 
         Returns:
-            ShopItemGrid: 商店商品网格
+            ShopItemGrid: Сетка товаров магазина
         """
         return self.shop_voucher_items
 
     def shop_currency(self):
-        """OCR 识别凭证商店货币数量。
+        """OCR-распознавание количества валюты магазина жетонов.
 
-        通过状态检测获取当前凭证余额并记录日志。
+        Определяет текущий баланс жетонов через проверку статуса и записывает в лог.
 
         Returns:
-            int: 凭证数量
+            int: Количество жетонов
         """
         self._currency = self.status_get_voucher()
         logger.info(f'Жетоны: {self._currency}')
         return self._currency
 
     def shop_interval_clear(self):
-        """清除购买界面相关按钮的点击间隔。
+        """Сбросить интервалы нажатий для кнопок интерфейса покупки.
 
-        重置购买确认、选择、数量等按钮的 interval 状态，
-        防止误触发。
+        Сбрасывает состояние interval для кнопок подтверждения покупки, выбора, количества
+        для предотвращения ложных срабатываний.
         """
         self.interval_clear(BACK_ARROW)
         self.interval_clear(SHOP_BUY_CONFIRM)
@@ -204,15 +203,15 @@ class VoucherShop(ShopClerk, ShopStatus):
         ])
 
     def shop_buy_handle(self, item):
-        """处理凭证商店购买界面。
+        """Обработать интерфейс покупки в магазине жетонов.
 
-        检测并处理购买确认选择、数量输入、弹窗确认等界面。
+        Распознаёт и обрабатывает экраны подтверждения выбора, ввода количества, всплывающих окон подтверждения.
 
         Args:
-            item: 待购买的商品对象
+            item: Покупаемый объект товара
 
         Returns:
-            bool: 是否检测到购买界面并进行了处理
+            bool: Обнаружен и обработан ли интерфейс покупки
         """
         if self.appear(SHOP_BUY_CONFIRM_SELECT, offset=(20, 20), interval=3):
             self.shop_buy_select_execute(item)
@@ -237,21 +236,21 @@ class VoucherShop(ShopClerk, ShopStatus):
         skip_first_screenshot=True,
         timeout_seconds=None,
     ):
-        """执行凭证商店购买操作。
+        """Выполнить операцию покупки в магазине жетонов.
 
-        通过状态循环完成从点击商品到购买确认的完整流程。
-        处理退役、遮挡、信息栏等意外情况。
+        Через цикл состояний проходит весь путь от клика по товару до подтверждения покупки.
+        Обрабатывает отставку кораблей, перекрытие, информационные полосы и прочие ситуации.
 
-        普通购买不传 ``timeout_seconds``，保持原有行为。Data Logger
-        流程传入有限超时，避免无法识别的弹窗或 UI 状态永久卡住任务。
+        Обычная покупка не передаёт ``timeout_seconds``, сохраняя исходное поведение. Для Data Logger
+        передаётся конечный таймаут во избежание бесконечного зависания задачи из-за нераспознанных всплывающих окон.
 
         Args:
-            item: 待购买的商品对象
-            skip_first_screenshot: 是否跳过首次截图
-            timeout_seconds: 可选的状态机总超时秒数
+            item: Покупаемый объект товара
+            skip_first_screenshot: Пропускать ли первый снимок экрана
+            timeout_seconds: Опциональный суммарный таймаут конечного автомата в секундах
 
         Returns:
-            bool: 是否观察到购买完成并返回商店页面
+            bool: Зафиксировано ли завершение покупки и возврат на страницу магазина
         """
         success = False
         timeout = None
@@ -436,11 +435,11 @@ class VoucherShop(ShopClerk, ShopStatus):
         )
 
     def run(self):
-        """运行凭证商店购买流程。
+        """Запустить процесс покупки в магазине жетонов.
 
-        Pages: in: page_shop (voucher shop tab)
+        Pages: in: page_shop (вкладка магазина жетонов)
 
-        按照过滤器配置购买凭证商店商品，自动翻页直到列表底部。
+        Покупает товары магазина жетонов в соответствии с конфигурацией фильтра, автоматически прокручивая страницу до конца списка.
         """
         # Если фильтр пуст, сразу выходим
         if not self.shop_filter:
@@ -464,12 +463,12 @@ class VoucherShop(ShopClerk, ShopStatus):
                 continue
 
     def run_once(self):
-        """单次运行凭证商店，购买一个日志档案类型商品。
+        """Разово запустить магазин жетонов для покупки одного товара типа архива регистратора.
 
-        Pages: in: page_shop (voucher shop tab)
+        Pages: in: page_shop (вкладка магазина жетонов)
 
         Returns:
-            bool: 是否成功购买
+            bool: Успешна ли покупка
         """
         # Заменяем фильтр
         self.shop_filter = 'LoggerArchive'

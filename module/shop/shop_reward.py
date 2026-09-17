@@ -1,5 +1,5 @@
-"""奖励商店调度器，统一调度各类型商店的购买任务。
-包含高频购买和完整购买两种运行模式。
+"""Диспетчер магазинов наград, координирующий задачи покупок в магазинах различных типов.
+Включает два режима работы: высокочастотные покупки и разовые покупки.
 """
 
 from module.shop.assets import *
@@ -13,17 +13,17 @@ from module.logger import logger
 
 
 class RewardShop(ShopUI):
-    """奖励商店调度器。
+    """Диспетчер магазинов наград.
 
     Pages: in: page_shop
     """
 
     def run_frequent(self):
-        """运行高频商店购买任务。
+        """Запустить высокочастотную задачу покупок в магазине.
 
-        Pages: in: page_shop (general shop tab)
+        Pages: in: page_shop (вкладка общего магазина)
 
-        只处理通用商店，用于频繁执行的购买。
+        Обрабатывает только общий магазин для часто выполняемых покупок.
         """
         self.ui_goto_shop()
         self.device.click_record_clear()
@@ -37,11 +37,11 @@ class RewardShop(ShopUI):
         self.config.task_delay(server_update=True)
 
     def run_once(self):
-        """运行一次性商店购买任务。
+        """Запустить разовую задачу покупок в магазинах.
 
-        Pages: in: page_shop (merit/guild/core/medal tabs)
+        Pages: in: page_shop (вкладки заслуг, гильдии, ядра, медалей)
 
-        依次处理功勋商店、舰队商店、核心商店、勋章商店。
+        Последовательно обрабатывает магазин заслуг, магазин гильдии, магазин ядра и магазин медалей.
         """
         # Магазин снабжения.
         self.ui_goto_shop()
