@@ -388,7 +388,7 @@ jobs:
 
       - name: Загрузить coverage в Codecov
         id: python_codecov
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.python_pytest.outcome == 'success' }}
         timeout-minutes: 10
         uses: codecov/codecov-action@0b35c9ecc4f0529d0eb674914510c22f85b196b4 # v7
         with:
@@ -795,11 +795,14 @@ jobs:
           }
 
           $parseFindings = [System.Collections.Generic.List[string]]::new()
+          $totalFiles = $powerShellFiles.Count
+          $processedFiles = 0
+          $lastProgressAt = [DateTimeOffset]::UtcNow
 
           foreach ($relativePath in $powerShellFiles) {
+              $scriptPath = Join-Path -Path $PWD -ChildPath $relativePath
               $tokens = $null
               $parseErrors = $null
-              $scriptPath = Join-Path -Path $PWD -ChildPath $relativePath
 
               [void][System.Management.Automation.Language.Parser]::ParseFile(
                   $scriptPath,
