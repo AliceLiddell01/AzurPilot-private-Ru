@@ -374,6 +374,9 @@ class CodeRabbitFinding(ClosedModel):
 
     severity: FindingSeverity
     path: str = Field(min_length=1, max_length=512)
+    title: str | None = Field(default=None, max_length=160)
+    line: int | None = Field(default=None, ge=1, le=10_000_000)
+    line_end: int | None = Field(default=None, ge=1, le=10_000_000)
     impact: str = Field(min_length=1, max_length=1200)
     disposition: FindingDisposition
     resolution: str = Field(min_length=1, max_length=1200)

@@ -76,7 +76,7 @@ _PROVIDER_FINDING_HEADER_RE = re.compile(
     re.IGNORECASE,
 )
 _PROVIDER_FINDING_LOCATION_RE = re.compile(
-    r"^\s*→\s+(.+?):[1-9][0-9]*(?:-[1-9][0-9]*)?\s*$"
+    r"^\s*→\s+(.+?):([1-9][0-9]*)(?:-([1-9][0-9]*))?\s*$"
 )
 _PROVIDER_FINDING_SEPARATOR_RE = re.compile(r"^\s*[─-]{8,}\s*$")
 
@@ -438,9 +438,11 @@ def _parse_finding(raw: object) -> CodeRabbitFinding:
         _DEFAULT_FINDING_RESOLUTION,
         1200,
     )
+    title = _finding_text(payload, "title", "category", "rule")
     return CodeRabbitFinding(
         severity=_severity(payload.get("severity") or payload.get("priority")),
         path=path,
+        title=_bounded_string(title, "", 160) or None,
         impact=impact,
         disposition=disposition,
         resolution=resolution,
@@ -596,6 +598,8 @@ def parse_provider_findings_output(output: str) -> tuple[CodeRabbitFinding, ...]
         ]
         if not cleaned:
             return
+        location_start = current.get("line")
+        location_end = current.get("line_end")
         suggestion_index = next(
             (
                 index
@@ -621,6 +625,9 @@ def parse_provider_findings_output(output: str) -> tuple[CodeRabbitFinding, ...]
             CodeRabbitFinding(
                 severity=severity,
                 path=normalized_path,
+                title=_bounded_string(current.get("title"), "", 160) or None,
+                line=location_start if isinstance(location_start, int) else None,
+                line_end=location_end if isinstance(location_end, int) else None,
                 impact=impact,
                 disposition=FindingDisposition.INSUFFICIENT_EVIDENCE,
                 resolution=resolution,
@@ -632,13 +639,22 @@ def parse_provider_findings_output(output: str) -> tuple[CodeRabbitFinding, ...]
         header = _PROVIDER_FINDING_HEADER_RE.fullmatch(line)
         if header:
             flush()
-            current = {"severity": header.group(1), "path": None, "lines": []}
+            current = {
+                "severity": header.group(1),
+                "title": header.group(0).split("[", 1)[1].rsplit("]", 1)[0],
+                "path": None,
+                "line": None,
+                "line_end": None,
+                "lines": [],
+            }
             continue
         if current is None:
             continue
         location = _PROVIDER_FINDING_LOCATION_RE.fullmatch(line)
         if location:
             current["path"] = location.group(1)
+            current["line"] = int(location.group(2))
+            current["line_end"] = int(location.group(3) or location.group(2))
             continue
         if _PROVIDER_FINDING_SEPARATOR_RE.fullmatch(line):
             flush()

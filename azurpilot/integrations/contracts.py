@@ -98,6 +98,8 @@ class IntegrationFinding(ClosedModel):
     identifier: str = Field(min_length=1, max_length=240)
     path: str = Field(min_length=1, max_length=512)
     line: int | None = Field(default=None, ge=1, le=10_000_000)
+    line_end: int | None = Field(default=None, ge=1, le=10_000_000)
+    title: str | None = Field(default=None, max_length=160)
     severity: str = Field(min_length=1, max_length=40)
     message: str = Field(min_length=1, max_length=400)
     fingerprint: str | None = Field(default=None, max_length=128)

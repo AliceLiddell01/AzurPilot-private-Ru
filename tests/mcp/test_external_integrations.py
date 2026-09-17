@@ -269,6 +269,9 @@ def test_provider_findings_output_preserves_full_comment_and_location():
     assert len(parsed) == 1
     assert parsed[0].severity.value == "major"
     assert parsed[0].path == "dev_tools/observability_mcp.py"
+    assert parsed[0].title == "Functional Correctness"
+    assert parsed[0].line == 74
+    assert parsed[0].line_end == 77
     assert "Отклоняйте такие аргументы" in parsed[0].impact
     assert "result != dict(arguments)" in parsed[0].resolution
     assert parsed[0].impact != "CodeRabbit finding требует независимой проверки."

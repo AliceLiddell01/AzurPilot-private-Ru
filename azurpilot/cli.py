@@ -471,6 +471,19 @@ def _short_sha(value: str | None) -> str:
     return value[:12] + "…"
 
 
+def _short_cycle_id(value: str) -> str:
+    """Показать различимый короткий идентификатор цикла."""
+
+    if value.startswith(("coderabbit-cycle-", "legacy-coderabbit-")):
+        return "CR:" + value.rsplit("-", 1)[-1][:8]
+    return value[:16]
+
+
+def _elapsed_label(seconds: int) -> str:
+    seconds = max(0, int(seconds))
+    return f"{seconds // 60:02d}:{seconds % 60:02d}"
+
+
 def _coderabbit_progress_callback(stream: TextIO):
     """Создать Rich-представление bounded heartbeat CodeRabbit."""
 
@@ -500,8 +513,9 @@ def _coderabbit_progress_callback(stream: TextIO):
     def emit(event: CodeRabbitProgress) -> None:
         line = (
             f"CodeRabbit | этап {phase_labels.get(event.phase, event.phase)} | "
-            f"цикл {event.cycle_id[:16]} | "
-            f"бюджет {event.substantive_iterations}/3 | {event.message}"
+            f"цикл {_short_cycle_id(event.cycle_id)} | "
+            f"попытка {event.attempt} | завершено {event.substantive_iterations}/3 | "
+            f"время {_elapsed_label(event.elapsed_seconds)} | {event.message}"
         )
         if console is not None:
             console.print(Text(line))
@@ -714,7 +728,8 @@ def _render_human(
                 )
                 findings_table.add_column("№", justify="right", no_wrap=True)
                 findings_table.add_column("Уровень", no_wrap=True)
-                findings_table.add_column("Путь", overflow="fold")
+                findings_table.add_column("Путь и строки", overflow="fold")
+                findings_table.add_column("Правило", overflow="fold")
                 findings_table.add_column("Воздействие", overflow="fold")
                 findings_table.add_column("Классификация", overflow="fold")
                 findings_table.add_column("Решение", overflow="fold")
@@ -724,7 +739,19 @@ def _render_human(
                     findings_table.add_row(
                         Text(str(index)),
                         Text(severity_labels.get(severity, severity)),
-                        Text(str(getattr(finding, "path", "не указан"))),
+                        Text(
+                            str(getattr(finding, "path", "не указан"))
+                            + (
+                                f":{finding.line}"
+                                if getattr(finding, "line", None)
+                                and getattr(finding, "line_end", None) == getattr(finding, "line", None)
+                                else f":{finding.line}-{finding.line_end}"
+                                if getattr(finding, "line", None)
+                                and getattr(finding, "line_end", None)
+                                else ""
+                            )
+                        ),
+                        Text(str(getattr(finding, "title", None) or "не указано")),
                         Text(str(getattr(finding, "message", "не указано"))),
                         Text(disposition_labels.get(disposition, disposition or "не классифицировано")),
                         Text(str(getattr(finding, "resolution", "не указано"))),
