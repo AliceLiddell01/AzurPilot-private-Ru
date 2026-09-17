@@ -1,6 +1,8 @@
-"""存储箱操作模块，处理装备箱的使用和装备拆解功能。
-支持按稀有度筛选装备箱、设置使用数量，
-以及仓库已满时的自动拆解清理。"""
+"""Модуль работы с ящиками снаряжения и разбора снаряжения.
+
+Поддерживает фильтрацию ящиков снаряжения по редкости, установку количества использования,
+а также автоматический разбор экипировки при переполнении склада.
+"""
 
 from module.base.timer import Timer
 from module.base.utils import rgb2gray
@@ -22,24 +24,24 @@ class StorageBox(StorageHandler):
     BOX_MAX_USE_AMOUNT = 100
 
     def _handle_use_box_amount(self, amount):
-        """设置箱子使用数量。
+        """Установить количество используемых ящиков.
 
         Returns:
-            bool: 是否成功设置。
+            bool: Успешно ли установлено количество.
 
         Pages:
             in: SHOP_BUY_CONFIRM_AMOUNT
         """
         logger.info(f'[Хранилище — ящики] Установка количества ящиков')
 
-        # 与商店店员逻辑相同的数量输入处理
+        # Обрабатываем ввод количества так же, как в логике продавца магазина
         ocr = Digit(BOX_AMOUNT_OCR, letter=(239, 239, 239), name='OCR_SHOP_AMOUNT')
         index_offset = (40, 50)
 
-        # 等待数量按钮出现
+        # Ждём появления кнопок количества
         timeout = Timer(1, count=3).start()
         for _ in self.loop():
-            # 防止 +/- 按钮位置偏移，使用船坞 OCR 技巧精确解析
+            # Чтобы учесть смещение кнопок +/-, используем OCR-приём верфи для точного распознавания
             if self.appear(AMOUNT_MINUS, offset=index_offset) and self.appear(AMOUNT_PLUS, offset=index_offset) and \
                     self.appear(AMOUNT_MAX, offset=index_offset):
                 break
@@ -47,7 +49,7 @@ class StorageBox(StorageHandler):
                 logger.warning('[Хранилище — ящики] Тайм-аут ожидания кнопок количества')
                 break
 
-        # 等待 OCR 识别到正常数字
+        # Ждём, пока OCR распознает корректное число
         current = 0
         timeout = Timer(1, count=3).start()
         for _ in self.loop():
@@ -58,7 +60,7 @@ class StorageBox(StorageHandler):
                 logger.warning('[Хранилище — ящики] Тайм-аут ожидания количества ящиков')
                 break
 
-        # 设置数量，类似 ui_ensure_index 的逻辑
+        # Устанавливаем количество по логике, аналогичной ui_ensure_index
         logger.info(f'[Хранилище — ящики] Установка количества ящиков: {amount}')
         skip_first = True
         retry = Timer(1, count=2)
@@ -82,13 +84,13 @@ class StorageBox(StorageHandler):
         return True
 
     def _check_box_amount(self, button):
-        """检查指定箱子的数量。
+        """Проверить количество указанных ящиков.
 
         Args:
-            button: 箱子对应的按钮。
+            button: Кнопка соответствующего ящика.
 
         Returns:
-            int: 箱子数量。
+            int: Количество ящиков.
 
         Pages:
             in: MATERIAL_CHECK
@@ -116,13 +118,13 @@ class StorageBox(StorageHandler):
         return amount
 
     def _storage_use_multi_box(self, buttons):
-        """批量使用多个箱子。
+        """Пакетно использовать несколько ящиков.
 
         Args:
-            buttons: 箱子按钮列表。
+            buttons: Список кнопок ящиков.
 
         Returns:
-            int: 实际使用的箱子数量（不精确），-1 表示拆解结束。
+            int: Фактически использованное количество ящиков (приблизительно); -1 означает завершение разбора.
 
         Pages:
             in: MATERIAL_CHECK
@@ -146,15 +148,15 @@ class StorageBox(StorageHandler):
         return used
 
     def _storage_use_box_in_page(self, rarity, amount, skip_first_screenshot=False):
-        """在当前页面使用指定稀有度的箱子。
+        """Использовать ящики заданной редкости на текущей странице.
 
         Args:
-            rarity: 箱子稀有度。
-            amount: 期望使用的箱子数量。
-            skip_first_screenshot: 是否跳过首次截图。
+            rarity: Редкость ящиков.
+            amount: Желаемое количество ящиков.
+            skip_first_screenshot: Пропускать ли первый скриншот.
 
         Returns:
-            int: 实际使用的箱子数量（不精确），-1 表示拆解结束。
+            int: Фактически использованное количество ящиков (приблизительно); -1 означает завершение разбора.
 
         Pages:
             in: MATERIAL_CHECK
@@ -180,7 +182,7 @@ class StorageBox(StorageHandler):
             box_buttons = self._storage_box_template(rarity).match_multi(image, similarity=0.9)
             if box_buttons:
                 box_used = self._storage_use_multi_box(box_buttons)
-                # 拆解结束
+                # Разбор завершён
                 if box_used == -1:
                     used = 0
                     break
@@ -194,11 +196,11 @@ class StorageBox(StorageHandler):
         return used
 
     def box_disassemble(self, rarity=1, preserve=2000):
-        """拆解指定稀有度的箱子。
+        """Разобрать ящики указанной редкости.
 
         Args:
-            rarity: 稀有度，1=普通, 2=稀有, 3=精锐, 4=超稀有。
-            preserve: 期望保留的箱子数量。
+            rarity: Редкость (1=обычный, 2=редкий, 3=элитный, 4=сверхредкий).
+            preserve: Желаемое сохраняемое количество ящиков.
 
         Pages:
             in: Any
@@ -210,7 +212,7 @@ class StorageBox(StorageHandler):
         self.ui_goto_main()
 
     def run(self):
-        """执行箱子拆解任务，按配置遍历各稀有度箱子并拆解。
+        """Запустить задачу разбора ящиков по конфигурации для каждой редкости.
 
         Pages:
             in: Any page

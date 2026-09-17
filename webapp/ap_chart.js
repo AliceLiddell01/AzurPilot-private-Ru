@@ -106,7 +106,7 @@
 
     window.__apChartCleanups[chartId] = cleanup;
 
-    // 延迟渲染以确保 canvas 布局完成，避免首次加载坐标偏移
+    // Отложенный рендеринг для гарантии завершения разметки canvas во избежание смещения координат при первой загрузке
     animationFrameId = requestAnimationFrame(function () {
         animationFrameId = null;
         initChart();
@@ -125,7 +125,7 @@
         ctx.scale(dpr, dpr);
         var oc = ovCv.getContext("2d");
 
-        // 硬币刻度标签布局常量
+        // Константы разметки меток шкалы монет
         var COIN_TICK_X = 8;
         var COIN_TICK_BASELINE = 4;
         var COIN_TICK_STACK_GAP = 11;
@@ -134,7 +134,7 @@
         gW = W - pad.l - pad.r;
         gH = H - pad.t - pad.b;
 
-        // ---- 主数据范围（体力轴，最小值固定 0） ----
+        // ---- Основной диапазон данных (ось выносливости, минимум фиксирован на 0) ----
         var allMin = 0, allMax = -Infinity;
         if (chartType === 'line') {
             for (var i = 0; i < nn; i++) {
@@ -149,7 +149,7 @@
         var allRng = allMax - allMin || 1;
         allMax += allRng * 0.08;
 
-        // ---- 黄币独立范围 ----
+        // ---- Отдельный диапазон желтых монет ----
         var yellowMin = Infinity, yellowMax = -Infinity;
         var yellowCoinsLen = yellowCoins ? yellowCoins.length : 0;
         var hasYellowCoins = showCoins && chartType === 'line' && yellowCoinsLen > 0;
@@ -166,7 +166,7 @@
             yellowMax += yellowRng * 0.08;
         }
 
-        // ---- 紫币独立范围（最小值固定 0） ----
+        // ---- Отдельный диапазон фиолетовых монет (минимум фиксирован на 0) ----
         var purpleMin = 0, purpleMax = -Infinity;
         var purpleCoinsLen = purpleCoins ? purpleCoins.length : 0;
         var hasPurpleCoins = showCoins && chartType === 'line' && purpleCoinsLen > 0;
@@ -180,9 +180,9 @@
             purpleMax += purpleRng * 0.08;
         }
 
-        // ---- 紫币独立轴 ----
+        // ---- Отдельная ось фиолетовых монет ----
         var hasPurpleAxis = showCoins && chartType === 'line' && hasPurpleCoins;
-        // ---- 组合轴（黄币 + 资产共用） ----
+        // ---- Комбинированная ось (общая для желтых монет + активов) ----
         var hasCombined = showCoins && chartType === 'line' && (hasYellowCoins || hasAssetSeries || hasDistanceSeries);
         var hasExtra = hasPurpleAxis || hasCombined;
         var combinedMin = 0, combinedMax = -Infinity;
@@ -201,7 +201,7 @@
             combinedMax += combinedRng * 0.08;
         }
 
-        // 刻度配置（右侧标签）：第1行紫币独立，第2行黄币代表合并轴
+        // Конфигурация шкалы (правые метки): 1-я строка - отдельная для фиолетовых монет, 2-я строка - желтые монеты для объединенной оси
         var EXTRA_SERIES_CONFIGS = [];
         var cfgOffset = 0;
         function addCfg(has, color, dataMin, dataMax) {
@@ -212,7 +212,7 @@
         addCfg(hasPurpleCoins, "#ce93d8", purpleMin, purpleMax);
         addCfg(hasCombined, "#ffd54f", combinedMin, combinedMax);
 
-        // 系列绘制配置（所有线都要画，资产用时间戳）
+        // Конфигурация отрисовки серий (все линии рисуются, активы используют метки времени)
         var SERIES_DRAW = [
             { has: hasPurpleCoins, data: purpleCoins, yFn: yOfPurple, dash: [] },
             { has: hasYellowCoins, data: yellowCoins, yFn: yOfCombined, dash: [] },
@@ -220,7 +220,7 @@
             { has: hasDistanceSeries, data: lineDistance, yFn: yOfCombined, dash: [] },
         ];
 
-        // Y 坐标映射
+        // Отображение координаты Y
         function yScale(value, rangeMin, rangeMax) {
             return pad.t + gH - (value - rangeMin) / (rangeMax - rangeMin) * gH;
         }
@@ -228,7 +228,7 @@
         function yOfPurple(v) { return yScale(v, purpleMin, purpleMax); }
         function yOfCombined(v) { return yScale(v, combinedMin, combinedMax); }
 
-        // 时间感知的 x 坐标映射
+        // Отображение координаты X с учетом времени
         function xOfLine(i) {
             return pad.l + (i / Math.max(nn - 1, 1)) * gW;
         }
@@ -249,7 +249,7 @@
             }
         }
 
-        // ---- 绘制系列线（紫币独立 Y 轴，黄币/资产共用组合 Y 轴） ----
+        // ---- Отрисовка линий серий (отдельная ось Y для фиолетовых монет, общая ось Y для желтых монет/активов) ----
         function drawSeriesLine(xOf, start, end) {
             for (var ci = 0; ci < SERIES_DRAW.length; ci++) {
                 var sd = SERIES_DRAW[ci];
@@ -278,7 +278,7 @@
         var candleW = Math.max(3, Math.min(candleSpace * 0.6, 30));
         function xCenter(i) { return pad.l + candleSpace * (i + 0.5); }
 
-        // ======== 初始绘制（非缩放全量视图） ========
+        // ======== Начальная отрисовка (полный вид без масштабирования) ========
         ctx.fillStyle = "#1a1a2e";
         ctx.fillRect(0, 0, W, H);
 
@@ -399,10 +399,10 @@
             drawMA(10, "#e91e63");
         }
 
-        // 绘制额外系列线（黄币/紫币/资产）
+        // Отрисовка дополнительных линий серий (желтые монеты / фиолетовые монеты / активы)
         drawSeriesLine(xOfLine, 0, nn);
 
-        // ======== 鼠标交互：十字线 + 滚珠 + 提示框 ========
+        // ======== Взаимодействие с мышью: перекрестие + маркер + всплывающая подсказка ========
         addListener(cv, "mousemove", function (e) {
             if (_isSelecting) return;
             var rect = cv.getBoundingClientRect();
@@ -435,11 +435,11 @@
 
                 var xScale = gW / Math.max(visibleNn - 1, 1);
 
-                // 等距索引定位（与 xOfLine 视觉渲染一致）
+                // Равноудаленное индексное позиционирование (согласовано с визуальным рендерингом xOfLine)
                 var idx = Math.round(visibleStart + (mx_ - pad.l) / gW * (visibleNn - 1));
                 idx = Math.max(0, Math.min(nn - 1, idx));
 
-                // 等距索引的十字线 x 位置
+                // Позиция x перекрестия для равноудаленного индекса
                 var px = pad.l + ((idx - visibleStart) / Math.max(visibleNn - 1, 1)) * gW;
                 if (seriesVisible[0]) {
                 var py = yScale(ap[idx], dMin, dMax);
@@ -458,7 +458,7 @@
                 oc.strokeStyle = "#fff"; oc.lineWidth = 2; oc.stroke();
                 }
 
-                // ---- 滚珠：紫币（独立轴）+ 黄币/资产（共用轴） ----
+                // ---- Маркер: фиолетовые монеты (отдельная ось) + желтые монеты/активы (общая ось) ----
                 function hexToRgba(hex, alpha) {
                     var r = parseInt(hex.slice(1, 3), 16);
                     var g = parseInt(hex.slice(3, 5), 16);
@@ -488,7 +488,7 @@
                         drawBead(lineAsset[closestIdx_a], "#81c784", yOfCombined);
                 }
 
-                // 海里数 bead
+                // Маркер миль
                 if (hasDistanceSeries && idx < lineDistance.length && lineDistance[idx] !== null && lineDistance[idx] !== undefined && seriesVisible[4])
                     drawBead(lineDistance[idx], "#1565c0", yOfCombined);
 
@@ -512,7 +512,7 @@
                     tooltipRows.push({ parts: [{ type: 'text', value: "来源: " }, { type: 'bold', value: source, style: { color: sourceColor } }] });
                 }
 
-                // 黄币 tooltip
+                // Тултип желтых монет
                 if (seriesVisible[2] && hasYellowCoins && idx < yellowCoinsLen && yellowCoins[idx] !== null && yellowCoins[idx] !== undefined) {
                     var yc = yellowCoins[idx];
                     var ycDiff = idx > 0 && yellowCoins[idx - 1] !== null && yellowCoins[idx - 1] !== undefined ? (yc - yellowCoins[idx - 1]) : 0;
@@ -521,7 +521,7 @@
                     tooltipRows.push({ parts: [{ type: 'text', value: "黄币: " }, { type: 'bold', value: String(yc), style: { color: "#ffd54f" } }, { type: 'text', value: " (" + ycDiffStr + ")", style: { color: ycColor } }] });
                 }
 
-                // 紫币 tooltip
+                // Тултип фиолетовых монет
                 if (seriesVisible[1] && hasPurpleCoins && idx < purpleCoinsLen && purpleCoins[idx] !== null && purpleCoins[idx] !== undefined) {
                     var pc = purpleCoins[idx];
                     var pcDiff = idx > 0 && purpleCoins[idx - 1] !== null && purpleCoins[idx - 1] !== undefined ? (pc - purpleCoins[idx - 1]) : 0;
@@ -530,7 +530,7 @@
                     tooltipRows.push({ parts: [{ type: 'text', value: "紫币: " }, { type: 'bold', value: String(pc), style: { color: "#ce93d8" } }, { type: 'text', value: " (" + pcDiffStr + ")", style: { color: pcColor } }] });
                 }
 
-                // 资产 tooltip
+                // Тултип активов
                 if (seriesVisible[3] && hasAssetSeries) {
                     var closestIdx = -1, closestDist = 600000;
                     for (var j = 0; j < lineAssetTs.length; j++) {
@@ -542,7 +542,7 @@
                     }
                 }
 
-                // 海里数 tooltip
+                // Тултип миль
                 if (seriesVisible[4] && hasDistanceSeries && idx < lineDistance.length && lineDistance[idx] !== null && lineDistance[idx] !== undefined) {
                     var d = lineDistance[idx];
                     var dDiff = idx > 0 && lineDistance[idx - 1] !== null && lineDistance[idx - 1] !== undefined ? (d - lineDistance[idx - 1]) : 0;
@@ -553,7 +553,7 @@
 
                 setTooltipContent(tipEl, tooltipRows);
             } else {
-                // K线图的鼠标交互（与上游一致）
+                // Взаимодействие с мышью для свечного графика (согласовано с апстримом)
                 var idx = Math.floor((mx_ - pad.l) / candleSpace);
                 idx = Math.max(0, Math.min(nn - 1, idx));
                 var cx = xCenter(idx);
@@ -629,7 +629,7 @@
             oc.clearRect(0, 0, ovCv.width, ovCv.height);
         });
 
-        // ======== 图例点击切换曲线 ========
+        // ======== Переключение кривых по клику на легенду ========
         var legendId = chartId + "_legend";
         var legendEl = document.getElementById(legendId);
         if (legendEl) {
@@ -641,9 +641,9 @@
                 if (!item) return;
                 var idx = parseInt(item.getAttribute("data-series"), 10);
                 if (isNaN(idx) || idx < 0 || idx >= seriesVisible.length) return;
-                // 独立切换：只开关当前点中的序列，不影响其他
+                // Независимое переключение: переключает только выбранный ряд, не затрагивая остальные
                 seriesVisible[idx] = !seriesVisible[idx];
-                // 确保至少一条序列可见
+                // Обеспечение видимости хотя бы одного ряда
                 var anyVisible = false;
                 for (var si = 0; si < seriesVisible.length; si++) {
                     if (seriesVisible[si]) { anyVisible = true; break; }
@@ -664,7 +664,7 @@
             });
         }
 
-        // ======== 缩放/平移（仅 line 图） ========
+        // ======== Масштабирование/панорамирование (только линейный график) ========
         if (chartType === 'line') {
             var zoomLevel = 1.0;
             var panOffset = 0;
@@ -709,7 +709,7 @@
 
                 drawAssetTicks(ctx, dyOf, dMin, dMax);
 
-                // Ap 线
+                // Линия AP
                 if (seriesVisible[0]) {
                 ctx.lineWidth = 1;
                 ctx.lineJoin = "round";
@@ -721,7 +721,7 @@
                     ctx.stroke();
                 }
 
-                // Ap 数据点
+                // Точки данных AP
                 var dotInterval = Math.max(1, Math.floor(visibleNn / 50));
                 for (var i = visibleStart; i < visibleEnd; i += dotInterval) {
                     ctx.beginPath();
@@ -732,10 +732,10 @@
                 }
                 }
 
-                // 绘制额外系列线
+                // Отрисовка дополнительных линий серий
                 drawSeriesLine(dxOf, visibleStart, visibleEnd);
 
-                // X 轴标签
+                // Метки оси X
                 var labelInterval = Math.max(1, Math.floor(visibleNn / 8));
                 for (var i = visibleStart; i < visibleEnd; i += labelInterval) {
                     var lx = dxOf(i);
@@ -761,12 +761,12 @@
                 isDragging = true;
                 dragStartX = e.clientX;
             if (my <= H - 40) {
-                // 图表区域 -> 选区缩放（不检查缩放状态，始终可选区）
+                // Область графика -> масштабирование выделением (без проверки состояния масштабирования, всегда доступно)
                 _isSelecting = true;
                 selStartX = e.clientX;
                 cv.style.cursor = "crosshair";
             } else {
-                // 底部时间轴区域 -> 拖动平移
+                // Нижняя область временной шкалы -> панорамирование перетаскиванием
                 _isSelecting = false;
                 dragStartPan = panOffset;
                 cv.style.cursor = "grabbing";
@@ -776,7 +776,7 @@
             addListener(document, "mousemove", function (e) {
                 if (!isDragging) return;
                 if (_isSelecting) {
-                    // 选区矩形占满图表高度
+                    // Прямоугольник выделения занимает всю высоту графика
                     var rect = cv.getBoundingClientRect();
                     var mx = e.clientX - rect.left;
                     var sx = selStartX - rect.left;

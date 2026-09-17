@@ -1,5 +1,6 @@
-"""突袭任务运行器，管理突袭的进入、次数检测和停止条件。
-支持 OCR 检测剩余次数和运行次数限制。
+"""Исполнитель задач рейда, управляющий входом в рейд, контролем попыток и условиями остановки.
+
+Поддерживает распознавание оставшихся попыток через OCR и ограничение числа запусков.
 """
 
 from module.base.timer import Timer
@@ -17,12 +18,12 @@ class RaidRun(Raid, CampaignEvent):
 
     def triggered_stop_condition(self, oil_check=False, pt_check=False, coin_check=False):
         """
-        检查是否触发了停止条件，包括运行次数限制和父类条件。
+        Проверка срабатывания условий остановки, включая лимит числа запусков и условия базового класса.
 
         Returns:
-            bool: 是否触发了停止条件。
+            bool: True, если условие остановки сработало.
         """
-        # 运行次数限制
+        # Ограничение числа запусков
         if self.run_limit and self.config.StopCondition_RunCount <= 0:
             logger.hr('Условие остановки: число запусков')
             self.config.StopCondition_RunCount = 0
@@ -33,14 +34,14 @@ class RaidRun(Raid, CampaignEvent):
 
     def get_remain(self, mode, skip_first_screenshot=True):
         """
-        获取指定难度的剩余挑战次数。
+        Получение оставшегося количества попыток для указанной сложности.
 
         Args:
-            mode (str): 难度模式，easy、normal、hard 或 ex。
-            skip_first_screenshot (bool): 是否跳过首次截图。
+            mode (str): Режим сложности (easy, normal, hard или ex).
+            skip_first_screenshot (bool): Пропускать ли первый снимок экрана.
 
         Returns:
-            int: 剩余挑战次数。
+            int: Количество оставшихся попыток.
         """
         confirm_timer = Timer(0.3, count=0)
         prev = 30
@@ -62,7 +63,7 @@ class RaidRun(Raid, CampaignEvent):
                 confirm_timer.reset()
                 continue
 
-            # 结束条件：OCR 结果稳定则认为读取完成
+            # Условие завершения: считаем чтение законченным, когда результат OCR стабилизировался
             if remain == prev:
                 if confirm_timer.reached():
                     break
@@ -75,12 +76,12 @@ class RaidRun(Raid, CampaignEvent):
 
     def run(self, name='', mode='', total=0):
         """
-        运行突袭任务主循环，处理战斗执行、停止条件和调度器切换。
+        Запуск основного рабочего цикла рейда с обработкой боёв, условий остановки и переключения планировщика.
 
         Args:
-            name (str): 突袭活动名称，如 'raid_20200624'。
-            mode (str): 突袭难度，如 'hard'、'normal'、'easy'。
-            total (int): 总运行次数，0 表示不限制。
+            name (str): Название рейдового события, например 'raid_20200624'.
+            mode (str): Сложность рейда ('hard', 'normal', 'easy').
+            total (int): Общий лимит числа запусков, 0 — без ограничений.
         """
         name = name if name else self.config.Campaign_Event
         mode = mode if mode else self.config.Raid_Mode
@@ -90,26 +91,26 @@ class RaidRun(Raid, CampaignEvent):
         self.run_count = 0
         self.run_limit = self.config.StopCondition_RunCount
         while 1:
-            # 达到指定运行次数则结束
+            # Завершаем после достижения заданного числа запусков
             if total and self.run_count == total:
                 break
             if self.event_time_limit_triggered():
                 self.config.task_stop()
 
-            # 日志输出
+            # Вывод в лог
             logger.hr(f'Рейд: {name}_{mode}', level=2)
             if self.config.StopCondition_RunCount > 0:
                 logger.info(f'Осталось запусков: {self.config.StopCondition_RunCount}')
             else:
                 logger.info(f'Счётчик: {self.run_count}')
 
-            # UI 切换：没有油量图标时先进入战役菜单检查停止条件
+            # Переход UI: если значка топлива нет, сначала открываем меню кампании и проверяем условия остановки
             if not self._raid_has_oil_icon:
                 self.ui_ensure(page_campaign_menu)
                 if self.triggered_stop_condition(oil_check=True, coin_check=True):
                     break
 
-            # 确保进入正确的 UI 页面
+            # Убеждаемся, что открыта правильная страница UI
             self.device.stuck_record_clear()
             self.device.click_record_clear()
             if not self.is_raid_rpg():
@@ -119,7 +120,7 @@ class RaidRun(Raid, CampaignEvent):
                 self.raid_rpg_swipe()
             self.disable_event_on_raid()
 
-            # EX 模式：检查是否有足够的突袭门票
+            # Режим EX: проверяем, достаточно ли рейдовых билетов
             if mode == 'ex' and not self.is_raid_rpg():
                 if not self.get_remain(mode):
                     logger.info('[Рейд — запуск] Сработало условие остановки: билеты рейда EX закончились')
@@ -129,7 +130,7 @@ class RaidRun(Raid, CampaignEvent):
                             self.config.Scheduler_Enable = False
                     break
 
-            # 执行突袭战斗
+            # Выполняем рейдовый бой
             self.device.stuck_record_clear()
             self.device.click_record_clear()
             try:
@@ -139,13 +140,13 @@ class RaidRun(Raid, CampaignEvent):
                 logger.info(str(e))
                 break
 
-            # 战斗结束后更新计数
+            # После боя обновляем счётчики
             self.run_count += 1
             if self.config.StopCondition_RunCount:
                 self.config.StopCondition_RunCount -= 1
-            # 检查停止条件
+            # Проверяем условия остановки
             if self.triggered_stop_condition():
                 break
-            # 检查调度器是否切换了任务
+            # Проверяем, переключил ли планировщик задачу
             if self.config.task_switched():
                 self.config.task_stop()

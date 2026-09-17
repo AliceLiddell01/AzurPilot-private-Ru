@@ -1,7 +1,8 @@
-"""模板匹配模块。
+"""Модуль сопоставления с шаблоном.
 
-定义 Template 类，用于对截图进行模板匹配以识别游戏 UI 元素。
-支持服务器特定资源路径、GIF 动画模板和二值化匹配等高级功能。
+Определяет класс Template для сопоставления фрагментов скриншота с шаблонами
+с целью распознавания элементов игрового интерфейса. Поддерживает серверные пути
+к ресурсам, анимированные GIF-шаблоны и бинаризованное сопоставление.
 """
 
 import os
@@ -20,10 +21,10 @@ from module.map_detection.utils import Points
 
 class Template(Resource):
     def __init__(self, file):
-        """初始化模板资源。
+        """Инициализировать ресурс шаблона.
 
         Args:
-            file: 模板文件路径，支持字典形式的服务器路径映射或普通字符串路径。
+            file: Путь к файлу шаблона; поддерживает словарь сопоставления серверных путей или обычную строку пути.
         """
         self.raw_file = file
         self._image = None
@@ -59,7 +60,7 @@ class Template(Resource):
                     if channel == 3:
                         image = image[:, :, :3].copy()
                     elif len(image.shape) == 3:
-                        # 与第一帧保持通道数一致，取单通道
+                        # Сохраняем число каналов как у первого кадра, оставляя один канал
                         image = image[:, :, 0].copy()
 
                     image = self.pre_process(image)
@@ -117,7 +118,7 @@ class Template(Resource):
 
     @staticmethod
     def _match_gif(image, templates, similarity, gray_templates=None, name=None):
-        """GIF 模板匹配，对每帧同时尝试原图和水平翻转。"""
+        """Сопоставление с GIF-шаблоном с одновременной проверкой оригинала и зеркального отражения каждого кадра."""
         for index, template in enumerate(templates):
             if gray_templates is None:
                 gray_template = None
@@ -154,13 +155,13 @@ class Template(Resource):
         self._image_gray = None
 
     def pre_process(self, image):
-        """对输入图像进行预处理。
+        """Предварительно обработать входное изображение.
 
         Args:
-            image: 输入图像，np.ndarray 格式。
+            image: Входное изображение в формате np.ndarray.
 
         Returns:
-            预处理后的图像。
+            Обработанное изображение.
         """
         return image
 
@@ -172,16 +173,16 @@ class Template(Resource):
             return self.image.shape[0:2][::-1]
 
     def match(self, image, scaling=1.0, similarity=0.85, direct_match=False):
-        """在截图图像上进行模板匹配。
+        """Выполнить сопоставление с шаблоном на изображении скриншота.
 
         Args:
-            image: 截图图像。
-            scaling: 缩放比例，用于缩放模板以匹配图像。
-            similarity: 相似度阈值，范围 0 到 1。
-            direct_match: 若为 True，跳过 lower_template_match_similarity 的阈值限制。
+            image: Изображение скриншота.
+            scaling: Масштаб для подгонки шаблона к изображению.
+            similarity: Порог сходства в диапазоне от 0 до 1.
+            direct_match: Если True, пропускает ограничение порога lower_template_match_similarity.
 
         Returns:
-            是否匹配成功。
+            Успешно ли сопоставление.
         """
         if not direct_match:
             similarity = lower_template_match_similarity(similarity)
@@ -209,29 +210,29 @@ class Template(Resource):
             return sim > similarity
 
     def match_binary(self, image, similarity=0.85):
-        """二值化后进行模板匹配。
+        """Выполнить сопоставление с шаблоном после бинаризации.
 
         Args:
-            image: 截图图像。
-            similarity: 相似度阈值，范围 0 到 1。
+            image: Изображение скриншота.
+            similarity: Порог сходства в диапазоне от 0 до 1.
 
         Returns:
-            是否匹配成功。
+            Успешно ли сопоставление.
         """
         similarity = lower_template_match_similarity(similarity)
         if self.is_gif:
-            # 灰度化
+            # Преобразование в градации серого
             image_gray = image if image.ndim == 2 else cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-            # 二值化
+            # Бинаризация
             _, image_binary = cv2.threshold(image_gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
             return self._match_gif(image_binary, self.image_binary, similarity, name=self.name)
 
         else:
-            # 灰度化
+            # Преобразование в градации серого
             image_gray = image if image.ndim == 2 else cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-            # 二值化
+            # Бинаризация
             _, image_binary = cv2.threshold(image_gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
-            # 模板匹配
+            # Сопоставление с шаблоном
             res = template_match(image_binary, self.image_binary, name=self.name)
             _, sim, _, _ = cv2.minMaxLoc(res)
             return sim > similarity
@@ -249,15 +250,15 @@ class Template(Resource):
             return sim > similarity
 
     def _point_to_button(self, point, image=None, name=None):
-        """将匹配点转换为 Button 对象。
+        """Преобразовать точку совпадения в объект Button.
 
         Args:
-            point: 匹配位置的坐标点 (x, y)。
-            image: 截图图像。若提供，则从中加载颜色和图像信息。
-            name: 按钮名称。
+            point: Координаты точки совпадения (x, y).
+            image: Изображение скриншота; если передано, загружает цвет и информацию об изображении.
+            name: Имя кнопки.
 
         Returns:
-            根据匹配点生成的 Button 对象。
+            Объект Button, сформированный по точке совпадения.
         """
         if name is None:
             name = self.name
@@ -268,14 +269,14 @@ class Template(Resource):
         return button
 
     def match_result(self, image, name=None):
-        """模板匹配并返回相似度和匹配位置的 Button 对象。
+        """Выполнить сопоставление с шаблоном и вернуть сходство и объект Button в найденной позиции.
 
         Args:
-            image: 截图图像。
-            name: 按钮名称。
+            image: Изображение скриншота.
+            name: Имя кнопки.
 
         Returns:
-            相似度（float）和对应的 Button 对象。
+            Сходство (float) и соответствующий объект Button.
         """
         res = template_match(
             image,
@@ -339,17 +340,17 @@ class Template(Resource):
             )
             result = np.array(np.where(result > similarity)).T[:, ::-1]
 
-        # result: np.array([[x0, y0], [x1, y1], ...])  匹配位置坐标数组
+        # result: np.array([[x0, y0], [x1, y1], ...]) — массив координат позиций совпадений
         if scaling != 1.0:
             result = np.round(result / scaling).astype(int)
         result = Points(result).group(threshold=threshold)
         return [self._point_to_button(point, image=raw, name=name) for point in result]
 
     def split_server(self):
-        """按服务器拆分为 4 个独立的 Button 对象。
+        """Разбить на 4 независимых объекта Button по серверам.
 
         Returns:
-            以服务器名称为键、Button 对象为值的字典。
+            Словарь, где ключ — имя сервера, а значение — объект Button.
         """
         out = {}
         for s in VALID_SERVER:

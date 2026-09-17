@@ -23,7 +23,7 @@ class EmulatorManager(AlasManager):
         return EmulatorManager()
 
     def adb_kill(self):
-        # 直接杀进程，因为部分 ADB 不遵守 kill-server 协议
+        # Завершаем процессы напрямую, поскольку некоторые ADB не соблюдают протокол kill-server.
         logger.hr('Завершение всех известных процессов ADB', level=2)
         for proc in self.iter_process_by_names([
             'adb.exe',
@@ -59,12 +59,12 @@ class EmulatorManager(AlasManager):
         """暴力连接所有可用的模拟器实例。"""
         devices = self.adb_devices()
 
-        # 断开离线设备
+        # Отключаем offline-устройства.
         for device in devices:
             if device.status == 'offline':
                 self.subprocess_execute([self.adb, 'disconnect', device.serial])
 
-        # 获取所有模拟器序列号
+        # Получаем серийные номера всех эмуляторов.
         list_serial = self.emulator_manager.all_emulator_serials
 
         logger.hr('Подключение ко всем экземплярам', level=2)
@@ -108,7 +108,7 @@ class EmulatorManager(AlasManager):
                 else:
                     continue
 
-        # 备份数量过多时覆盖第一个
+        # Если резервных копий слишком много, перезаписываем первую.
         return f'{adb}.bak'
 
     def iter_adb_to_replace(self) -> t.Iterable[str]:

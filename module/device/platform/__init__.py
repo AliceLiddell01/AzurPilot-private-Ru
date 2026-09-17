@@ -1,4 +1,4 @@
-"""平台模拟器管理包。"""
+"""Пакет управления эмуляторами и платформами."""
 
 from module.device.env import IS_WINDOWS, IS_MACINTOSH
 

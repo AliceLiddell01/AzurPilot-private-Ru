@@ -77,25 +77,25 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
         if not search_completed and search_completed is not None:
             logger.warning("[Операция «Сирена» — прокачка в зоне коррозии 1] Стратегический поиск вернул False: возможно, выполнение было прервано досрочно")
 
-        # 第一次重扫：检查是否还有事件
+        # Первый повторный скан: проверяем, остались ли события
         self._solved_map_event = set()
         self._solved_fleet_mechanism = False
         self.map_rescan()
 
-        # 强制移动逻辑
+        # Логика принудительного перемещения
         if self.config.OpsiHazard1Leveling_ExecuteFixedPatrolScan:
             if not self._solved_map_event:
                 self._execute_fixed_patrol_scan(ExecuteFixedPatrolScan=True)
-                # 第二次重扫：舰队移动后再次重扫
+                # Второй повторный скан: после перемещения флота сканируем снова
                 self._solved_map_event = set()
                 self.map_rescan()
 
         self.handle_after_auto_search()
 
-        # 明石遭遇记录
+        # Учёт встречи с Акаси
         solved_events = getattr(self, "_solved_map_event", set())
         if "is_akashi" in solved_events:
-            # 明石遭遇计数归入运行时指标，任务仅报告明石事件已解决
+            # Счётчик встреч с Акаси относится к runtime-метрикам; задача только сообщает, что событие Акаси обработано
             record_cl1_akashi_encounter(self.config)
 
     def os_hazard1_leveling(self):
@@ -112,12 +112,12 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
 
     def run_hazard1_leveling_once(self, ap_preserve=None):
         """执行一轮侵蚀 1 练级，由独立任务或 OpsiScheduling 调用。"""
-        # 启用随机事件以获得收益。调度器直接调用单轮时也需要保持该行为。
+        # Включаем случайные события ради наград. Это поведение нужно сохранять и при прямом запуске одного прохода планировщиком.
         self.config.override(
             OpsiGeneral_DoRandomMapEvent=True,
         )
 
-        # 读取行动力保留值
+        # Читаем резерв очков действия
         if ap_preserve is None:
             ap_preserve = getattr(
                 self.config, "OpsiHazard1Leveling_MinimumActionPointReserve", 200
@@ -135,7 +135,7 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
             "OS_ACTION_POINT_PRESERVE", self.config.OS_ACTION_POINT_PRESERVE
         )
 
-        # 获取当前区域
+        # Получаем текущую зону
         try:
             self.get_current_zone()
         except MapDetectionError as e:
@@ -143,7 +143,7 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
             logger.error(f"[Операция «Сирена» — прокачка в зоне коррозии 1] Ошибка распознавания OCR: {e}")
             raise
 
-        # 侵蚀 1 练级时，行动力优先用于此任务，而非耄耋相接。
+        # При прокачке в зоне коррозии 1 очки действия приоритетно расходуются на эту задачу, а не на Meowfficer Farming.
         self.action_point_set(
             cost=120, keep_current_ap=True, check_rest_ap=True
         )
@@ -154,7 +154,7 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
             self.check_and_notify_action_point_threshold()
             self._cl1_ap_check()
 
-        # ===== 确保在安全海域地图上（战前导航）=====
+        # ===== Убеждаемся, что находимся на карте безопасной зоны (навигация перед боем) =====
         if self.config.OpsiHazard1Leveling_TargetZone != 0:
             zone = self.config.OpsiHazard1Leveling_TargetZone
             if self.zone.zone_id != zone or not self.is_zone_name_hidden:
@@ -163,7 +163,7 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
             self.globe_goto(self.name_to_zone(22), types="SAFE", refresh=True)
         self.fleet_set(self.config.OpsiFleet_Fleet)
 
-        # ===== 海里数记录（可开关）=====
+        # ===== Учёт морских миль (можно отключить) =====
         sea_miles = None
         if self.config.OpsiHazard1Leveling_RecordSeaMiles:
             try:
@@ -175,10 +175,10 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
             except Exception as e:
                 logger.error(f"[Операция «Сирена» — прокачка в зоне коррозии 1] Ошибка при определении морских миль: {e}; дальнейшее выполнение продолжится")
 
-        # ===== 货币与体力记录（始终执行，包含海里数）=====
+        # ===== Учёт валюты и очков действия (всегда, включая морские мили) =====
         self._record_ap_and_coins(sea_miles=sea_miles)
 
-        # ===== 执行侵蚀 1 战略搜索与战后处理 =====
+        # ===== Выполняем стратегический поиск в зоне коррозии 1 и послебоевую обработку =====
         self._cl1_run_battle()
 
     def os_check_leveling(self):
@@ -737,7 +737,7 @@ class OpsiHazard1Leveling(CoinTaskMixin, OSMap):
             from module.application.runtime_storage import get_runtime_storage
             from module.statistics.opsi_month import get_coins_timeline
             instance_name = getattr(self.config, 'config_name', 'default')
-            # 从 DB 查找上次已知紫币值（商店写入），保持图表连续
+            # Ищем в DB последнее известное значение фиолетовых монет (записанное магазином), чтобы сохранить непрерывность графика
             purple_coins_val = None
             try:
                 coin_timeline = get_coins_timeline(instance_name=instance_name)

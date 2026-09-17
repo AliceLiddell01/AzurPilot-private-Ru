@@ -1,5 +1,5 @@
-"""网格预测模块。定义 GridPredictor 类，通过截图图像和四角坐标进行网格内容识别，
-包括敌人检测、舰队检测、素材匹配等。"""
+"""Модуль распознавания ячеек сетки. Определяет класс GridPredictor, выполняющий распознавание содержимого ячеек по снимку экрана и координатам четырёх углов,
+включая обнаружение врагов, флота, сопоставление ассетов и т.д."""
 
 from module.base.utils import *
 from module.config.config import AzurLaneConfig
@@ -12,20 +12,20 @@ from module.template.assets import *
 
 class GridPredictor:
     def __init__(self, location, image, corner, config):
-        """初始化网格预测器。
+        """Инициализировать распознаватель ячеек сетки.
 
         Args:
-            location (tuple): 网格坐标，(x, y)。
-            image (np.ndarray): 截图图像，形状 (720, 1280, 3)。
-            corner (np.ndarray): 四角点坐标，形状 (4, 2)，[左上, 右上, 左下, 右下]。
-            config (AzurLaneConfig): 配置对象。
+            location (tuple): Координаты ячейки, (x, y).
+            image (np.ndarray): Снимок экрана, форма (720, 1280, 3).
+            corner (np.ndarray): Координаты четырёх углов, форма (4, 2), [левый верхний, правый верхний, левый нижний, правый нижний].
+            config (AzurLaneConfig): Объект конфигурации.
         """
         self.location = location
         self.image = image
         self.corner = corner
         self.config = config
 
-        # 直接计算比调用现有函数更快。
+        # Прямое вычисление быстрее вызова существующих функций.
         x0, y0, x1, y1, x2, y2, x3, y3 = corner.flatten()
         divisor = x0 - x1 + x2 - x3
         x = (x0 * x2 - x1 * x3) / divisor
@@ -47,14 +47,14 @@ class GridPredictor:
         self.homo_invt = cv2.invert(self.homo_data)[1]
 
     def screen2grid(self, points):
-        """将屏幕坐标转换为海面网格坐标。
+        """Преобразовать экранные координаты в координаты сетки морской поверхности.
 
         Args:
-            points (np.ndarray): 屏幕坐标，[[x1, y1], [x2, y2], ...]。
+            points (np.ndarray): Экранные координаты, [[x1, y1], [x2, y2], ...].
 
         Returns:
-            np.ndarray: 海面网格坐标，[[x1, y1], [x2, y2], ...]。
-                坐标原点为左上角。
+            np.ndarray: Координаты сетки морской поверхности, [[x1, y1], [x2, y2], ...].
+                Начало координат в левом верхнем углу.
             (0, 0) +------+
                    |      |
                    |      |
@@ -63,14 +63,14 @@ class GridPredictor:
         return perspective_transform(points, self.homo_data) / self.config.HOMO_TILE
 
     def grid2screen(self, points):
-        """将海面网格坐标转换为屏幕坐标。
+        """Преобразовать координаты сетки морской поверхности в экранные координаты.
 
         Args:
-            points (np.ndarray): 海面网格坐标，[[x1, y1], [x2, y2], ...]。
-                参见 screen2grid()。
+            points (np.ndarray): Координаты сетки морской поверхности, [[x1, y1], [x2, y2], ...].
+                См. screen2grid().
 
         Returns:
-            np.ndarray: 屏幕坐标，[[x1, y1], [x2, y2], ...]。
+            np.ndarray: Экранные координаты, [[x1, y1], [x2, y2], ...].
         """
         return perspective_transform(np.multiply(points, self.config.HOMO_TILE), self.homo_invt)
 
@@ -117,33 +117,33 @@ class GridPredictor:
                 self.enemy_scale = 0
 
     def relative_crop(self, area, shape=None):
-        """裁剪图像并缩放到目标尺寸，消除透视变形的影响。
+        """Обрезать изображение и масштабировать к целевому размеру, устраняя перспективные искажения.
 
         Args:
-            area (tuple): 相对区域坐标 (左上x, 左上y, 右下x, 右下y)，如 (-1, -1, 1, 1)。
-            shape (tuple): 输出图像尺寸，(宽, 高)。
+            area (tuple): Координаты относительной области (левый_x, верхний_y, правый_x, нижний_y), например (-1, -1, 1, 1).
+            shape (tuple): Размер выходного изображения, (ширина, высота).
 
         Returns:
-            np.ndarray: 形状 (高, 宽, 通道)。
+            np.ndarray: Форма (высота, ширина, каналы).
         """
         area = self._image_center + np.array(area) * self._image_a
         image = crop(self.image, area=np.rint(area).astype(int), copy=False)
         if shape is not None:
-            # 使用 pillow 默认的重采样滤波器，即 BICUBIC。
+            # Используем стандартный фильтр ресемплинга Pillow — BICUBIC.
             image = cv2.resize(image, shape, interpolation=cv2.INTER_CUBIC)
         return image
 
     def relative_rgb_count(self, area, color, shape=(50, 50), threshold=221):
-        """统计相对区域内匹配目标 RGB 颜色的像素数量。
+        """Подсчитать количество пикселей, соответствующих целевому RGB-цвету в относительной области.
 
         Args:
-            area (tuple): 相对区域坐标 (左上x, 左上y, 右下x, 右下y)，如 (-1, -1, 1, 1)。
-            color (tuple): 目标 RGB 颜色。
-            shape (tuple): 输出图像尺寸，(宽, 高)。
-            threshold (int): 阈值 0-255，越大越严格，255 表示完全相同。
+            area (tuple): Координаты относительной области (левый_x, верхний_y, правый_x, нижний_y), например (-1, -1, 1, 1).
+            color (tuple): Целевой RGB-цвет.
+            shape (tuple): Размер выходного изображения, (ширина, высота).
+            threshold (int): Порог 0-255; чем выше, тем строже; 255 — полное совпадение.
 
         Returns:
-            int: 匹配的像素数量。
+            int: Количество совпавших пикселей.
         """
         mask = color_similarity_2d(self.relative_crop(area, shape=shape), color=color)
         cv2.inRange(mask, threshold, 255, dst=mask)
@@ -151,32 +151,32 @@ class GridPredictor:
         return count
 
     def relative_hsv_count(self, area, h=(0, 360), s=(0, 100), v=(0, 100), shape=(50, 50)):
-        """统计相对区域内匹配目标 HSV 颜色范围的像素数量。
+        """Подсчитать количество пикселей, соответствующих целевому диапазону HSV-цвета в относительной области.
 
         Args:
-            area (tuple): 相对区域坐标 (左上x, 左上y, 右下x, 右下y)，如 (-1, -1, 1, 1)。
-            h (tuple): 色相范围。
-            s (tuple): 饱和度范围。
-            v (tuple): 明度范围。
-            shape (tuple): 输出图像尺寸，(宽, 高)。
+            area (tuple): Координаты относительной области (левый_x, верхний_y, правый_x, нижний_y), например (-1, -1, 1, 1).
+            h (tuple): Диапазон оттенка (Hue).
+            s (tuple): Диапазон насыщенности (Saturation).
+            v (tuple): Диапазон яркости (Value).
+            shape (tuple): Размер выходного изображения, (ширина, высота).
 
         Returns:
-            int: 匹配的像素数量。
+            int: Количество совпавших пикселей.
         """
         image = self.relative_crop(area, shape=shape)
         cv2.cvtColor(image, cv2.COLOR_RGB2HSV, dst=image)
         lower = (h[0] / 2, s[0] * 2.55, v[0] * 2.55)
         upper = (h[1] / 2 + 1, s[1] * 2.55 + 1, v[1] * 2.55 + 1)
-        # 不要设置 `dst`，输出图像为 (50, 50) 但 `image` 为 (50, 50, 3)
+        # Не задаём `dst`: выходное изображение имеет форму (50, 50), а `image` — (50, 50, 3)
         image = cv2.inRange(image, lower, upper)
         count = cv2.countNonZero(image)
         return count
 
     def predict_enemy_scale(self):
-        """检测左上角显示敌人规模的图标：大型、中型、小型。
+        """Определить значок масштаба противника в левом верхнем углу: крупный, средний, малый.
 
         Returns:
-            int: 1: 小型, 2: 中型, 3: 大型, 0: 未知。
+            int: 1: малый, 2: средний, 3: крупный, 0: неизвестно.
         """
         image = self.relative_crop((-0.415 - 0.7, -0.62 - 0.7, -0.415, -0.62), shape=(50, 50))
         red = color_similarity_2d(image, (255, 130, 132))
@@ -241,7 +241,7 @@ class GridPredictor:
         if TEMPLATE_ENEMY_BOSS.match(image, similarity=0.75):
             return True
 
-        # 小型 Boss 图标
+        # Маленький значок Boss
         if self.relative_hsv_count(area=(0.03, -0.15, 0.63, 0.15), h=(358 - 3, 358 + 3), shape=(50, 20)) > 100:
             image = self.relative_crop((0.03, -0.15, 0.63, 0.15), shape=(50, 20))
             image = color_similarity_2d(image, color=(255, 77, 82))
@@ -268,16 +268,16 @@ class GridPredictor:
         return TEMPLATE_CAUGHT_BY_SIREN.match(image, similarity=0.6)
 
     def predict_mystery(self):
-        """预测网格是否为神秘事件。
+        """Определить, является ли ячейка таинственным событием.
 
         Returns:
-            bool: True 表示是神秘事件。
+            bool: True, если это таинственное событие.
         """
-        # 青色问号
+        # Бирюзовый знак вопроса
         if self.relative_rgb_count(
                 area=(-0.3, -2, 0.3, -0.6), color=(148, 255, 247), shape=(20, 50)) > 50:
             return True
-        # 白色背景
+        # Белый фон
         # if self.relative_rgb_count(
         #         area=(-0.7, -1.7, 0.7, -0.3), color=(239, 239, 239), shape=(50, 50)) > 700:
         #     return True
@@ -316,7 +316,7 @@ class GridPredictor:
         return False
 
     def predict_submarine_move(self):
-        # 检测潜艇移动模式下的橙色箭头。
+        # Определяем оранжевую стрелку в режиме перемещения подлодки.
         return self.relative_rgb_count((-0.5, -1, 0.5, 0), color=(231, 138, 49), shape=(60, 60)) > 200
 
     def predict_mob_move_icon(self):
@@ -349,14 +349,14 @@ class GridPredictor:
         return color[0] > 235
 
     def is_similar_to(self, grid, similarity=0.9):
-        """判断当前网格是否与另一个网格相似。
+        """Определить, похожа ли текущая ячейка на другую ячейку.
 
         Args:
-            grid (GridPredictor): 另一个网格实例。
-            similarity (float): 相似度阈值，0 到 1。
+            grid (GridPredictor): Экземпляр другой ячейки.
+            similarity (float): Порог схожести, от 0 до 1.
 
         Returns:
-            bool: 当前网格是否与另一个网格相似。
+            bool: Похожа ли текущая ячейка на другую.
         """
         if not self.is_in_detecting_area or not grid.is_in_detecting_area:
             return False

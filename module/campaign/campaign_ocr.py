@@ -1,16 +1,16 @@
-"""战役关卡 OCR 识别模块。
+"""Модуль OCR-распознавания этапов кампании.
 
-通过 OCR 和模板匹配识别战役关卡页面中的关卡入口。
-在关卡选择页面中，每个关卡入口显示为一个可点击的区域，
-包含关卡名称、难度星级和通关状态。
+Распознаёт входы на этапы на странице выбора этапа кампании с помощью OCR и сопоставления шаблонов.
+На странице выбора этапа каждый вход отображается в виде кликабельной области,
+содержащей название этапа, звёзды сложности и статус прохождения.
 
-功能：
-- 识别当前页面上的所有关卡入口
-- 通过 OCR 读取关卡名称（如 "12-4"、"D3"、"SP3"）
-- 匹配关卡名称到目标关卡
-- 检测关卡页面是否已完全加载
+Функциональность:
+- Распознавание всех входов на этапы на текущей странице
+- Считывание названий этапов через OCR (например, "12-4", "D3", "SP3")
+- Сопоставление распознанного названия с целевым этапом
+- Проверка полной загрузки страницы этапа
 
-继承自 ModuleBase，被 CampaignUI 使用。
+Наследуется от ModuleBase, используется классом CampaignUI.
 """
 
 import collections
@@ -27,30 +27,30 @@ from module.template.assets import *
 
 
 class CampaignOcr(ModuleBase):
-    """战役关卡 OCR 识别器。
+    """Распознаватель этапов кампании через OCR.
 
-    识别关卡选择页面上的关卡入口，通过 OCR 读取关卡名称。
+    Находит входы на этапы на странице выбора и считывает их названия через OCR.
 
     Attributes:
-        stage_entrance (dict): 已识别的关卡入口缓存。
-        campaign_chapter (str): 当前章节标识。
-        _stage_detect_area (tuple): 关卡入口检测的大致区域，用于加速匹配。
+        stage_entrance (dict): Кэш распознанных входов на этапы.
+        campaign_chapter (str): Идентификатор текущей главы.
+        _stage_detect_area (tuple): Примерная область поиска входов на этапы для ускорения шаблонов.
     """
     stage_entrance = {}
     campaign_chapter: str = '0'
-    # 关卡入口的大致区域，用于加速模板匹配
+    # Примерная область входов на этапы для ускорения сопоставления шаблонов
     _stage_detect_area = (87, 117, 1151, 636)
 
     @staticmethod
     def _campaign_get_chapter_index(name):
         """
-        获取章节索引。
+        Получает индекс главы.
 
         Args:
-            name (str, int): 章节名称或索引。
+            name (str, int): Название или индекс главы.
 
         Returns:
-            int: 章节索引。
+            int: Индекс главы.
         """
         if isinstance(name, int):
             return name
@@ -66,18 +66,18 @@ class CampaignOcr(ModuleBase):
 
     @staticmethod
     def _campaign_ocr_result_process(result):
-        # OCR 结果可能为 '7--2'，因为游戏中使用的是 '–' 而非 '-'
+        # Результат OCR может быть '7--2', поскольку в игре используется '–', а не '-'
         result = result.replace('--', '-').replace('--', '-').lstrip('-')
 
-        # 修正 OCR 将 '1' 误识别为 'I' 的情况，如 'I1-1'、'1I-1'、'I-I' 等
-        # 同时保留 'isp-2'、'sp1' 等含字母的正常结果
+        # Исправляем случаи, когда OCR распознаёт '1' как 'I', например 'I1-1', '1I-1', 'I-I'
+        # При этом сохраняем нормальные результаты с буквами, например 'isp-2' и 'sp1'
         def replace_func(match):
             segment = match.group(0)
             return segment.replace('I', '1')
 
         result = re.sub(r'[0-9I]+-[0-9I]+', replace_func, result, count=1)
 
-        # 将 '72' 转换为 '7-2'
+        # Преобразуем '72' в '7-2'
         if len(result) == 2 and result[0].isdigit():
             result = '-'.join(result)
 
@@ -87,13 +87,13 @@ class CampaignOcr(ModuleBase):
     @staticmethod
     def _campaign_separate_name(name):
         """
-        分离关卡名称为章节名和关卡索引。
+        Разделяет название этапа на имя главы и индекс этапа.
 
         Args:
-            name (str): 小写关卡名称，如 7-2、d3、sp3。
+            name (str): Название этапа в нижнем регистре, например 7-2, d3, sp3.
 
         Returns:
-            tuple[str]: (章节名, 关卡索引)，均为小写。如 ['7', '2']、['d', '3']、['sp', '3']。
+            tuple[str]: (имя главы, индекс этапа) в нижнем регистре. Например: ['7', '2'], ['d', '3'], ['sp', '3'].
         """
         name = name.strip('-')
         if name == 'sp':
@@ -117,20 +117,20 @@ class CampaignOcr(ModuleBase):
     def campaign_match_multi(self, template, image, stage_image=None, name_offset=(75, 9), name_size=(60, 16),
                              name_letter=(255, 255, 255), name_thresh=128, similarity=0.85):
         """
-        从给定图像中查找关卡入口。
+        Ищет входы на этапы на заданном изображении.
 
         Args:
-            template (Template): 模板图像。
-            image: 截图。
-            stage_image: 用于查找关卡入口的截图。
-            name_offset (tuple[int]): 关卡名称偏移量。
-            name_size (tuple[int]): 关卡名称区域大小。
-            name_letter (tuple[int]): 关卡名称字母颜色。
-            name_thresh (int): 关卡名称二值化阈值。
-            similarity (float): 模板匹配相似度阈值。
+            template (Template): Шаблон изображения.
+            image: Снимок экрана.
+            stage_image: Снимок экрана для поиска входов на этапы.
+            name_offset (tuple[int]): Смещение названия этапа.
+            name_size (tuple[int]): Размер области названия этапа.
+            name_letter (tuple[int]): Цвет букв названия этапа.
+            name_thresh (int): Порог бинаризации названия этапа.
+            similarity (float): Порог сходства шаблона.
 
         Returns:
-            list[Button]: 关卡通关状态按钮列表。
+            list[Button]: Список кнопок статуса прохождения этапа.
         """
         digits = []
         stage_image = image if stage_image is None else stage_image
@@ -141,11 +141,11 @@ class CampaignOcr(ModuleBase):
             button_name = button.crop(area=name_area, image=image)
             name = extract_letters(button_name.image, letter=name_letter, threshold=name_thresh)
             button_name = button_name.crop(area=self._extract_stage_name(name))
-            # 对每个 Button 实例：
-            # button.area: 关卡名称区域，如 '3-4'。临时替换用于 OCR。
-            # button.color: 关卡图标颜色，如 'CLEAR' 和 '%'。
-            # button.button: 关卡图标区域，如 'CLEAR' 和 '%'。
-            # button.name: 'STAGE'，无实际意义的名称。
+            # Для каждого экземпляра Button:
+            # button.area: область имени этапа, например '3-4'; временно подменяется для OCR.
+            # button.color: цвет значка этапа, например 'CLEAR' и '%'.
+            # button.button: область значка этапа, например 'CLEAR' и '%'.
+            # button.name: 'STAGE', техническое имя без практического значения.
             button.load_color(image)
             button.area = button_name.area
             digits.append(button)
@@ -216,14 +216,14 @@ class CampaignOcr(ModuleBase):
     @Config.when(SERVER=None)
     def campaign_extract_name_image(self, image):
         """
-        查找所有关卡入口并处理活动差异。
-        关卡入口设置参见 ManualConfig.STAGE_ENTRANCE。
+        Находит все входы на этапы с учётом различий событий.
+        Параметры входов на этапы см. в ManualConfig.STAGE_ENTRANCE.
 
         Args:
-            image: 截图。
+            image: Снимок экрана.
 
         Returns:
-            list[Button]: 关卡入口按钮列表。
+            list[Button]: Список кнопок входов на этапы.
         """
         digits = []
 
@@ -233,7 +233,7 @@ class CampaignOcr(ModuleBase):
                 image, self._stage_image_gray,
                 name_offset=(75, 9), name_size=(60, 16)
             )
-            # 2024.04.11 游戏客户端出现 bug，TEMPLATE_STAGE_CLEAR 周围出现随机损坏的素材
+            # В клиенте игры от 2024-04-11 появился баг: вокруг TEMPLATE_STAGE_CLEAR случайно повреждаются ресурсы
             # digits += self.campaign_match_multi(
             #     TEMPLATE_STAGE_CLEAR_SMALL,
             #     image, self._stage_image_gray,
@@ -290,13 +290,13 @@ class CampaignOcr(ModuleBase):
     @staticmethod
     def _extract_stage_name(image):
         """
-        从完整关卡名称图像中提取关卡编号区域。
+        Извлекает область номера этапа из полного изображения названия этапа.
 
         Args:
-            image: 裁剪后的完整关卡名称图像，如 '3-4 Counterattack!'。
+            image: Обрезанное полное изображение названия этапа, например '3-4 Counterattack!'.
 
         Returns:
-            关卡名称区域坐标，如输入图像中 '3-4' 的坐标。
+            Координаты области номера этапа, например координаты '3-4' во входном изображении.
         """
         x_skip = 10
         interval = 5
@@ -311,13 +311,13 @@ class CampaignOcr(ModuleBase):
 
     def _get_stage_name(self, image):
         """
-        从给定图像中解析关卡名称。
-        设置属性：
-        self.campaign_chapter: str，当前章节名称。
-        self.stage_entrance: dict，键为关卡名称(str)，值为进入关卡的按钮(Button)。
+        Распознаёт названия этапов на заданном изображении.
+        Устанавливает свойства:
+        self.campaign_chapter: str, название текущей главы.
+        self.stage_entrance: dict, ключ — название этапа (str), значение — кнопка входа (Button).
 
         Args:
-            image (np.ndarray): 截图。
+            image (np.ndarray): Снимок экрана.
         """
         self.stage_entrance = {}
         del_cached_property(self, '_stage_image')
@@ -348,12 +348,12 @@ class CampaignOcr(ModuleBase):
             # ['0F', 'F-IB', 'IGI']
             raise CampaignNameError
 
-        # OCR 完成后恢复按钮属性。
-        # 这些按钮将作为 `MapOperation.enter_map()` 的关卡入口。
-        # button.area: 关卡图标区域，如 'CLEAR' 和 '%'。
-        # button.color: 关卡图标颜色。
-        # button.button: 关卡图标区域。
-        # button.name: 关卡名称，来自 OCR 结果。
+        # После завершения OCR восстанавливаем атрибуты кнопок.
+        # Эти кнопки будут использоваться как входы на этапы в `MapOperation.enter_map()`.
+        # button.area: область значка этапа, например 'CLEAR' и '%'.
+        # button.color: цвет значка этапа.
+        # button.button: область значка этапа.
+        # button.name: имя этапа из результата OCR.
         for name, button in zip(result, buttons):
             button.area = button.button
             button.name = name
@@ -364,10 +364,10 @@ class CampaignOcr(ModuleBase):
 
     def handle_get_chapter_additional(self):
         """
-        获取章节时的额外处理。
+        Дополнительная обработка при получении главы.
 
         Returns:
-            bool: 是否进行了点击操作。
+            bool: Было ли выполнено действие клика.
         """
         if self.appear(WITHDRAW, offset=(30, 30)):
             logger.warning(f'[Кампания — OCR] При определении номера главы появилась кнопка отступления')
@@ -375,13 +375,13 @@ class CampaignOcr(ModuleBase):
 
     def get_chapter_index(self, skip_first_screenshot=True):
         """
-        获取当前章节索引，供 ui_ensure_index 使用。
+        Получает индекс текущей главы для использования в ui_ensure_index.
 
         Args:
-            skip_first_screenshot: 是否跳过首次截图。
+            skip_first_screenshot: Пропускать ли первый снимок экрана.
 
         Returns:
-            int: 章节索引。
+            int: Индекс главы.
         """
         timeout = Timer(2, count=4).start()
         while 1:

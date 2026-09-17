@@ -5,11 +5,11 @@
 包括服务器、设备和实例等初始化配置。
 """
 
-# OOBE (Out-Of-Box Experience) 初次设置向导
-# 在用户首次启动、没有配置文件时引导完成基本设置
+# OOBE (Out-Of-Box Experience) мастер первоначальной настройки
+# Проводит базовую настройку при первом запуске пользователя при отсутствии файлов конфигурации
 #
-# 重要：PyWebIO 的 put_html 输出原始 HTML，与 PyWebIO 组件在 DOM 中是平级兄弟节点，
-# 不能互相嵌套。因此卡片布局通过 CSS 定位 PyWebIO scope 容器实现，不使用 raw HTML wrapper。
+# Важно: put_html в PyWebIO выводит необработанный HTML, являющийся соседним узлом в DOM для компонентов PyWebIO,
+# они не могут быть вложены друг в друга. Поэтому макет карточки реализован через CSS-позиционирование контейнера scope PyWebIO без raw HTML wrapper.
 import subprocess
 import os
 
@@ -32,7 +32,7 @@ from module.submodule.submodule import load_config
 from module.webui.setting import State
 from module.webui.utils import Icon, load_webui_styles
 
-# PyWebIO scope 的 DOM ID 格式为 `pywebio-scope-{name}`
+# Формат DOM ID для scope PyWebIO: `pywebio-scope-{name}`
 OOBE_ROOT = "oobe_root"
 
 CSS = """
@@ -715,7 +715,7 @@ class OOBEWizard:
         put_scope(OOBE_ROOT)
         self._render()
 
-    # ─── 导航 ───
+    # ─── Навигация ───
 
     def _next_step(self):
         self.step_index += 1
@@ -726,8 +726,8 @@ class OOBEWizard:
         self.step_index -= 1
         self._render()
 
-    # ─── 整体渲染 ───
-    # 使用 put_scope("oobe_content") 作为卡片容器（CSS 上方通过 #pywebio-scope-oobe_content 定位）
+    # ─── Общий рендеринг ───
+    # Использование put_scope("oobe_content") как контейнера карточки (позиционируется в CSS выше через #pywebio-scope-oobe_content)
 
     def _render(self):
         clear(OOBE_ROOT)
@@ -739,7 +739,7 @@ class OOBEWizard:
                     self._render_steps()
                 getattr(self, f"_step_{self.STEPS[self.step_index]}")()
 
-    # ─── 静态装饰 ───
+    # ─── Статическое оформление ───
 
     @staticmethod
     def _hello_words():
@@ -786,7 +786,7 @@ class OOBEWizard:
             )
         put_html(f'<div class="oobe-steps">{steps}</div>')
 
-    # ─── 步骤 0：欢迎页 ───
+    # ─── Шаг 0: Страница приветствия ───
 
     def _step_intro(self):
         put_html(
@@ -807,7 +807,7 @@ class OOBEWizard:
             f'<p class="oobe-section-hint">{hint}</p>'
         )
 
-    # ─── 底部导航 ───
+    # ─── Нижняя навигация ───
 
     def _render_footer(self, back=True, next_label=None, next_color="primary",
                        on_next=None, on_back=None):
@@ -844,7 +844,7 @@ class OOBEWizard:
                 size="auto auto",
             ).style("justify-content: flex-end; margin-top: 24px;")
 
-    # ─── 步骤 1：导入配置 ───
+    # ─── Шаг 1: Импорт конфигурации ───
 
     def _step_import(self):
         put_html(
@@ -1033,7 +1033,7 @@ class OOBEWizard:
             raise ValueError(f"Неподдерживаемый сервер Global: {server}")
         return "com.YoStarEN.AzurLane"
 
-    # ─── 步骤 3：模拟器配置 ───
+    # ─── Шаг 3: Настройка эмулятора ───
 
     def _step_emulator(self):
         put_html(
@@ -1158,7 +1158,7 @@ class OOBEWizard:
             return devices
         return []
 
-    # ─── 步骤 4：确认配置 ───
+    # ─── Шаг 4: Подтверждение конфигурации ───
 
     def _step_review(self):
         put_html(
@@ -1185,7 +1185,7 @@ class OOBEWizard:
             on_next=lambda _: self._create_config_and_finish(),
         )
 
-    # ─── 创建配置 ───
+    # ─── Создание конфигурации ───
 
     def _create_config_and_finish(self):
         try:

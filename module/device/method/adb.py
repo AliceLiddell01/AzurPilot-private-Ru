@@ -1,11 +1,11 @@
 """
-ADB 截图和输入方法。
+Метод создания снимков экрана и ввода ADB.
 
-通过 Android Debug Bridge (ADB) 执行设备截图和触控操作。
-主要提供截图捕获（`screenshot_adb`）、XML 层级获取（`dump_hierarchy`）等方法。
-基于 `adb exec-out screencap -p` 命令捕获屏幕图像，
-通过 `adb shell input` 命令执行点击、滑动等触控操作。
-包含自动重试机制，处理 ADB 连接中断和图像截断等异常情况。
+Выполняет создание снимков экрана и сенсорные операции на устройстве через Android Debug Bridge (ADB).
+Предоставляет методы захвата снимков экрана (`screenshot_adb`), получения иерархии XML (`dump_hierarchy`) и др.
+Захват изображения экрана основан на команде `adb exec-out screencap -p`,
+а сенсорные операции кликов и свайпов осуществляются через `adb shell input`.
+Включает механизм автоматических повторных попыток при обрывах соединения ADB и усечении данных изображений.
 """
 import re
 import time
@@ -40,19 +40,19 @@ def retry(func):
                     time.sleep(retry_sleep(_))
                     init()
                 return func(self, *args, **kwargs)
-            # 无法处理
+            # Не обрабатывается
             except RequestHumanTakeover:
                 break
-            # 无法处理 - 必须向上抛出以触发模拟器重启
+            # Не обрабатывается — исключение нужно пробросить выше, чтобы перезапустить эмулятор
             except EmulatorNotRunningError:
                 raise
-            # ADB 服务被终止时
+            # Когда служба ADB остановлена
             except ConnectionResetError as e:
                 logger.error(str(f'[Устройство — ADB] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.adb_reconnect()
-            # ADB 错误
+            # Ошибка ADB
             except AdbError as e:
                 if handle_adb_error(e):
                     def init():
@@ -63,20 +63,20 @@ def retry(func):
                         self.adb_reconnect()
                 else:
                     break
-            # 应用未安装
+            # Приложение не установлено
             except PackageNotInstalled as e:
                 logger.error(str(f'[Устройство — ADB] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.detect_package()
-            # 图像数据截断
+            # Данные изображения обрезаны
             except ImageTruncated as e:
                 from module.device.method.utils import handle_image_truncated
                 handle_image_truncated(self, e)
 
                 def init():
                     pass
-            # 未知异常
+            # Неизвестное исключение
             except Exception as e:
                 logger.exception(str(f'[Устройство — ADB] Ошибка повторной попытки: {e}'))
 
@@ -97,21 +97,21 @@ def retry(func):
 
 def load_screencap(data):
     """
-    解析 screencap 输出的原始数据为图像。
+    Разобрать необработанные двоичные данные screencap в изображение.
 
     Args:
-        data: screencap 输出的原始二进制数据。
+        data: Исходные двоичные данные вывода screencap.
 
     Returns:
-        解析后的 RGB 图像。
+        Преобразованное изображение RGB.
     """
-    # 加载数据
+    # Загружаем данные
     if data is None or len(data) < 12:
         raise ImageTruncated('Пустые или неполные данные screencap')
 
     header = np.frombuffer(data[0:12], dtype=np.uint32)
-    channel = 4  # screencap 发送 RGBA 格式图像
-    width, height, _ = header  # 通常为 1280, 720, 1
+    channel = 4  # screencap передаёт изображение в формате RGBA
+    width, height, _ = header  # Обычно 1280, 720, 1
 
     if data is None or len(data) == 0:
         raise ImageTruncated('Пустые данные изображения от screencap')
@@ -224,23 +224,23 @@ class Adb(Connection):
     @retry
     def app_current_adb(self):
         """
-        获取当前前台应用的包名，复制自 uiautomator2。
+        Получить имя пакета активного приложения на переднем плане (скопировано из uiautomator2).
 
         Returns:
-            当前前台应用的包名。
+            Имя пакета активного приложения.
 
         Raises:
-            OSError: 无法获取前台应用时抛出。
+            OSError: Вызывается, если не удалось определить приложение на переднем плане.
 
         Note:
-            reset_uiautomator 函数依赖此方法，因此不能在此使用 jsonrpc。
+            Функция reset_uiautomator зависит от этого метода, поэтому здесь нельзя использовать jsonrpc.
         """
-        # 相关 issue: https://github.com/openatx/uiautomator2/issues/200
+        # Связанный issue: https://github.com/openatx/uiautomator2/issues/200
         # $ adb shell dumpsys window windows
-        # 输出示例:
+        # Пример вывода:
         #   mCurrentFocus=Window{41b37570 u0 com.incall.apps.launcher/com.incall.apps.launcher.Launcher}
         #   mFocusedApp=AppWindowToken{422df168 token=Token{422def98 ActivityRecord{422dee38 u0 com.example/.UI.play.PlayActivity t14}}}
-        # 正则表达式
+        # Регулярные выражения
         #   r'mFocusedApp=.*ActivityRecord{\w+ \w+ (?P<package>.*)/(?P<activity>.*) .*'
         #   r'mCurrentFocus=Window{\w+ \w+ (?P<package>.*)/(?P<activity>.*)\}')
         _focusedRE = re.compile(
@@ -250,7 +250,7 @@ class Adb(Connection):
         if m:
             return m.group('package')
 
-        # 尝试: adb shell dumpsys activity top
+        # Пробуем: adb shell dumpsys activity top
         _activityRE = re.compile(
             r'ACTIVITY (?P<package>[^\s]+)/(?P<activity>[^/\s]+) \w+ pid=(?P<pid>\d+)'
         )
@@ -259,24 +259,24 @@ class Adb(Connection):
         ret = None
         for m in ms:
             ret = m.group('package')
-        if ret:  # 取最后一个结果
+        if ret:  # Берём последний результат
             return ret
         raise OSError('[Устройство] Не удалось определить активное приложение')
 
     @retry
     def _app_start_adb_monkey(self, package_name=None, allow_failure=False):
         """
-        通过 monkey 命令启动应用。
+        Запустить приложение с помощью команды monkey.
 
         Args:
-            package_name: 应用包名，默认从配置获取。
-            allow_failure: 为 True 时不抛出 PackageNotInstalled 异常，直接返回 False。
+            package_name: Имя пакета приложения (по умолчанию из конфигурации).
+            allow_failure: Если True, не выбрасывать исключение PackageNotInstalled, а вернуть False.
 
         Returns:
-            是否成功启动。
+            Успешно ли запущено приложение.
 
         Raises:
-            PackageNotInstalled: 应用未安装且 allow_failure 为 False 时抛出。
+            PackageNotInstalled: Вызывается, если приложение не установлено и allow_failure=False.
         """
         if not package_name:
             package_name = self.package
@@ -302,18 +302,18 @@ class Adb(Connection):
     @retry
     def _app_start_adb_am(self, package_name=None, activity_name=None, allow_failure=False):
         """
-        通过 am start 命令启动应用。
+        Запустить приложение с помощью команды am start.
 
         Args:
-            package_name: 应用包名，默认从配置获取。
-            activity_name: Activity 名称，默认从 DICT_PACKAGE_TO_ACTIVITY 获取。
-            allow_failure: 为 True 时不抛出 PackageNotInstalled 异常，直接返回 False。
+            package_name: Имя пакета приложения (по умолчанию из конфигурации).
+            activity_name: Имя Activity (по умолчанию из DICT_PACKAGE_TO_ACTIVITY).
+            allow_failure: Если True, не выбрасывать исключение PackageNotInstalled, а вернуть False.
 
         Returns:
-            是否成功启动。
+            Успешно ли запущено приложение.
 
         Raises:
-            PackageNotInstalled: 应用未安装且 allow_failure 为 False 时抛出。
+            PackageNotInstalled: Вызывается, если приложение не установлено и allow_failure=False.
         """
         if not package_name:
             package_name = self.package
@@ -342,7 +342,7 @@ class Adb(Connection):
         if self.is_local_network_device and self.is_waydroid:
             cmd += ['--windowingMode', '4']
         ret = self.adb_shell(cmd)
-        # 无效 Activity
+        # Недопустимая Activity
         # Starting: Intent { act=android.intent.action.MAIN cat=[android.intent.category.LAUNCHER] cmp=... }
         # Error type 3
         # Error: Activity class {.../...} does not exist.
@@ -352,12 +352,12 @@ class Adb(Connection):
             else:
                 logger.error(ret)
                 return False
-        # 已在运行
+        # Уже запущено
         # Warning: Activity not started, intent has been delivered to currently running top-most instance.
         if 'Warning: Activity not started' in ret:
             logger.info('Activity приложения запущена')
             return True
-        # 权限拒绝
+        # Отказ в разрешении
         # Starting: Intent { act=android.intent.action.MAIN cat=[android.intent.category.LAUNCHER] cmp=com.YoStarEN.AzurLane/com.manjuu.azurlane.MainActivity }
         # java.lang.SecurityException: Permission Denial: ...
         if 'Permission Denial' in ret:
@@ -367,27 +367,27 @@ class Adb(Connection):
                 logger.error(ret)
                 logger.error('[Устройство — ADB] Отказ в разрешении при запуске приложения; вероятно, указана недопустимая Activity')
                 return False
-        # 启动成功
+        # Запуск успешен
         # Starting: Intent...
         return True
 
-    # 不使用 @retry 装饰器，因为 _app_start_adb_am 和 _app_start_adb_monkey 已经有 @retry
+    # Не используем декоратор @retry, поскольку _app_start_adb_am и _app_start_adb_monkey уже имеют @retry
     # @retry
     def app_start_adb(self, package_name=None, activity_name=None, allow_failure=False):
         """
-        启动应用，依次尝试 am start 和 monkey 方式。
+        Запустить приложение, последовательно пробуя способы am start и monkey.
 
         Args:
-            package_name: 应用包名，为 None 时从配置获取。
-            activity_name: Activity 名称，为 None 时从 DICT_PACKAGE_TO_ACTIVITY 获取，
-                仍为 None 时通过 monkey 启动，monkey 失败后再通过 am 启动。
-            allow_failure: 为 True 时不抛出 PackageNotInstalled 异常，直接返回 False。
+            package_name: Имя пакета приложения; если None, берется из конфигурации.
+            activity_name: Имя Activity; если None, берется из DICT_PACKAGE_TO_ACTIVITY;
+                если по-прежнему None, запуск выполняется через monkey, а в случае сбоя — через am.
+            allow_failure: Если True, не выбрасывать исключение PackageNotInstalled, а вернуть False.
 
         Returns:
-            是否成功启动。
+            Успешно ли запущено приложение.
 
         Raises:
-            PackageNotInstalled: 应用未安装且 allow_failure 为 False 时抛出。
+            PackageNotInstalled: Вызывается, если приложение не установлено и allow_failure=False.
         """
         if not package_name:
             package_name = self.package
@@ -407,7 +407,7 @@ class Adb(Connection):
 
     @retry
     def app_stop_adb(self, package_name=None):
-        """停止应用：am force-stop。"""
+        """Остановить приложение: am force-stop."""
         if not package_name:
             package_name = self.package
         self.adb_shell(['am', 'force-stop', package_name])
@@ -415,18 +415,18 @@ class Adb(Connection):
     @retry
     def dump_hierarchy_adb(self, temp: str = '/data/local/tmp/hierarchy.xml') -> etree._Element:
         """
-        通过 uiautomator dump 导出 UI 层级结构。
+        Экспортировать иерархию структуры UI через uiautomator dump.
 
         Args:
-            temp: 模拟器上的临时文件路径。
+            temp: Путь к временному файлу на эмуляторе.
 
         Returns:
-            解析后的 XML 层级结构。
+            Разобранная XML-иерархия структуры.
         """
-        # 删除已有文件
+        # Удаляем существующий файл
         # self.adb_shell(['rm', '/data/local/tmp/hierarchy.xml'])
 
-        # 导出层级结构
+        # Экспортируем иерархию
         for _ in range(2):
             response = self.adb_shell(['uiautomator', 'dump', '--compressed', temp])
             if 'hierchary' in response:
@@ -434,12 +434,12 @@ class Adb(Connection):
                 break
             else:
                 # <None>
-                # 必须终止 uiautomator2
+                # Нужно остановить uiautomator2
                 self.app_stop_adb('com.github.uiautomator')
                 self.app_stop_adb('com.github.uiautomator.test')
                 continue
 
-        # 从设备读取
+        # Читаем с устройства
         content = b''
         for chunk in self.adb.sync.iter_content(temp):
             if chunk:
@@ -447,6 +447,6 @@ class Adb(Connection):
             else:
                 break
 
-        # 使用 lxml 解析
+        # Разбираем через lxml
         hierarchy = etree.fromstring(content)
         return hierarchy

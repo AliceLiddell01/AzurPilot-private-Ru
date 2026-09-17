@@ -45,7 +45,7 @@ class IslandAirDrop(Island):
                 self.device.sleep(1)
                 self.island_down(1000)
                 self.island_air_drop()
-        # 是否前往其他玩家岛屿拿补给
+        # Переходим ли на острова других игроков за снабжением
         if self.config.IslandAirDrop_VisitOtherIsland:
             has_drops = True
             self.goto_management()
@@ -66,8 +66,8 @@ class IslandAirDrop(Island):
                         self.device.sleep(1)
                         self.run_and_get()
                         self.device.sleep(3)
-                        # 每次完成补给后立即重新检测剩余次数，确认消耗是否成功
-                        # 因为运行可能失败导致次数没使用成功
+                        # После каждого получения снабжения сразу повторно проверяем оставшиеся попытки, чтобы подтвердить их расходование
+                        # Выполнение могло завершиться неудачно, поэтому попытка могла не израсходоваться
                         self.ui_goto(page_island_visit, get_ship=False)
                         ocr_air_drop = DigitCounter(
                             OCR_AIR_DROP,
@@ -127,7 +127,7 @@ class IslandAirDrop(Island):
             if not air_drop_buttons:
                 logger.info("[Остров — ежедневное снабжение] Снабжение в заданной области не найдено")
 
-                # 检查是否在底部
+                # Проверяем, достигнут ли низ списка
                 if VISIT_SCROLL.at_bottom(main=self) and last_attempt_swipe > 0:
                     last_attempt_swipe -= 1
                     logger.info("[Остров — ежедневное снабжение] Полоса прокрутки уже внизу; последняя попытка прокрутки")
@@ -135,7 +135,7 @@ class IslandAirDrop(Island):
                 elif VISIT_SCROLL.at_bottom(main=self) and last_attempt_swipe <= 0:
                     logger.info("[Остров — ежедневное снабжение] Полоса прокрутки уже внизу; поиск остановлен")
                     return False
-                # 如果还有滑动次数，尝试滑动
+                # Если попытки прокрутки ещё остались, пробуем прокрутить
                 if swipe_count < max_swipe_attempts:
                     logger.info(f"[Остров — ежедневное снабжение] Попытка прокрутки {swipe_count + 1}/{max_swipe_attempts}")
                     self.visit_swipe(480)
@@ -149,7 +149,7 @@ class IslandAirDrop(Island):
             logger.info(f"[Остров — ежедневное снабжение] Найдено целей снабжения: {len(air_drop_buttons)}")
             air_drop_buttons.sort(key=lambda btn: btn.area[1])
 
-            # 标记是否有至少一个可以点击的补给
+            # Отмечаем, есть ли хотя бы одна доступная для нажатия цель снабжения
             has_clickable_air_drop = False
 
             for air_drop_button in air_drop_buttons:
@@ -163,10 +163,10 @@ class IslandAirDrop(Island):
                     continue
                 has_clickable_air_drop = True
                 return True
-            # 如果当前页面所有补给都不可用（全部skip或timeout）
+            # Если на текущей странице все цели снабжения недоступны (все завершились skip или timeout)
             if not has_clickable_air_drop:
                 logger.info("[Остров — ежедневное снабжение] На текущей странице нет доступных целей снабжения")
-                # 检查是否在底部
+                # Проверяем, достигнут ли низ списка
                 if VISIT_SCROLL.at_bottom(main=self) and last_attempt_swipe > 0:
                     last_attempt_swipe -= 1
                     logger.info("[Остров — ежедневное снабжение] Полоса прокрутки уже внизу; последняя попытка прокрутки")
@@ -174,7 +174,7 @@ class IslandAirDrop(Island):
                 elif VISIT_SCROLL.at_bottom(main=self) and last_attempt_swipe <= 0:
                     logger.info("[Остров — ежедневное снабжение] Полоса прокрутки уже внизу; поиск остановлен")
                     return False
-                # 滑动继续查找
+                # Прокручиваем и продолжаем поиск
                 if swipe_count < max_swipe_attempts:
                     logger.info(f"[Остров — ежедневное снабжение] Попытка прокрутки {swipe_count + 1}/{max_swipe_attempts}")
                     self.visit_swipe(480)
@@ -199,8 +199,8 @@ class IslandAirDrop(Island):
 
     def calculate_visit_position(self, air_drop_button_x, air_drop_button_y):
 
-        visit_button_x1 = air_drop_button_x + 225  # x偏移
-        visit_button_y1 = air_drop_button_y + 25  # y偏移
+        visit_button_x1 = air_drop_button_x + 225  # Смещение по x
+        visit_button_y1 = air_drop_button_y + 25  # Смещение по y
         visit_button_width = 73  # 960 - 887 = 73
         visit_button_height = 24  # 302 - 278 = 24
         visit_button_x2 = visit_button_x1 + visit_button_width
@@ -281,12 +281,12 @@ class IslandAirDrop(Island):
         area = OCR_AIR_DROP.area if hasattr(OCR_AIR_DROP, "area") else OCR_AIR_DROP
         cropped = crop(image, area)
 
-        # 测试不同参数
+        # Тестируем разные параметры
         letter = (150, 150, 150)
         threshold = 80
         processed = extract_letters(cropped, letter=letter, threshold=threshold)
 
-        # 显示处理后的图像
+        # Показываем обработанное изображение
         cv2.imshow("Processed OCR", processed)
         cv2.waitKey(0)
         cv2.destroyAllWindows()

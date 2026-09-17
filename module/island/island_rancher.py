@@ -581,16 +581,16 @@ class IslandRancher(Island, WarehouseOCR, LoginHandler):
 
         all_needs = []
 
-        # 添加牧场需求
+        # Добавляем необходимые позиции ранчо
         for post_id in ranch_needs:
             if post_id not in all_needs:
                 all_needs.append(post_id)
 
-        # 执行牧场岗位
+        # Выполняем позиции ранчо
         if all_needs:
             logger.info(f"[Остров — ранчо] Требуемые позиции ранчо: {all_needs}")
             for post_id in all_needs:
-                # 找到对应的时间变量名
+                # Находим соответствующее имя переменной времени
                 time_var_name = None
                 for config_post, var_name in all_configs:
                     if config_post == post_id:
@@ -612,10 +612,10 @@ class IslandRancher(Island, WarehouseOCR, LoginHandler):
         finish_times.append(six_hours_later)
         finish_times.sort()
         logger.info(f'[Остров — ранчо] Задача ранчо завершена; сохранено таймеров: {len(finish_times)}, ближайшее завершение: {finish_times[0]}')
-        # 不立即写入 task_delay，而是将牧场结束时间传给渔场，
-        # 等渔场任务执行完后合并比较，写入最早的时间
+        # Не записываем task_delay сразу, а передаём время завершения ранчо рыбному хозяйству,
+        # чтобы после его выполнения сравнить времена и записать самое раннее
 
-        # 牧场任务执行完毕，继续执行渔场任务
+        # Задача ранчо завершена; продолжаем задачей рыбного хозяйства
         from module.island.island_fishery import IslandFishery
         try:
             IslandFishery(config=self.config, device=self.device).run(ranch_finish_times=finish_times)

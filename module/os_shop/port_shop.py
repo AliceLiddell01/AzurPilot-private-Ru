@@ -1,8 +1,8 @@
-"""大世界港口商店模块。
+"""Модуль портовых магазинов Operation Siren.
 
-管理大世界（Operation Siren）港口（Port）商店的物品浏览和购买。
-提供货币图标模板加载、商品网格定位、物品查找以及全量扫描功能，
-支持在港口商店中自动购买指定商品。
+Управляет просмотром и покупкой товаров в портовых магазинах Operation Siren.
+Предоставляет загрузку шаблонов валют, позиционирование сетки товаров, поиск предметов и полное сканирование,
+обеспечивая автоматическую покупку заданных предметов в портовых магазинах.
 """
 from typing import List
 
@@ -20,16 +20,16 @@ from module.statistics.utils import load_folder
 
 
 class PortShop(OSStatus, OSShopUI, Selector, MapEventHandler):
-    """港口商店操作类。
+    """Класс операций в портовом магазине.
 
-    提供港口商店的物品识别、网格定位、物品查找和全量扫描功能。
+    Предоставляет распознавание товаров, позиционирование сетки, поиск предметов и полное сканирование.
     """
 
     @cached_property
     def TEMPLATES(self) -> List[Template]:
-        """加载货币图标模板。
+        """Загрузить шаблоны иконок валют.
 
-        加载正常货币和售罄货币的模板图像，用于匹配识别。
+        Загружает изображения шаблонов доступной валюты и валюты распроданных позиций для сопоставления.
         """
         TEMPLATES = []
         coins = load_folder('./assets/shop/os_cost')
@@ -41,12 +41,12 @@ class PortShop(OSStatus, OSShopUI, Selector, MapEventHandler):
         return TEMPLATES
 
     def _get_os_shop_cost(self) -> list:
-        """获取每个货币图标的左上角坐标。
+        """Получить координаты верхнего левого угла каждой иконки валюты.
 
-        通过模板匹配识别屏幕上所有货币图标的位置。
+        Определяет позиции всех иконок валюты на экране через сопоставление шаблонов.
 
         Returns:
-            list: 按 Y 坐标分组的货币图标位置列表。
+            list: Список позиций иконок валюты, сгруппированных по Y-координате.
         """
         image = self.image_crop((360, 320, 410, 700))
         result = sum([template.match_multi(image) for template in self.TEMPLATES], [])
@@ -55,7 +55,7 @@ class PortShop(OSStatus, OSShopUI, Selector, MapEventHandler):
 
     @cached_property
     def os_shop_items(self) -> ItemGrid:
-        """获取商店物品网格配置。"""
+        """Получить конфигурацию сетки товаров магазина."""
         os_shop_items = ItemGrid(
             grids=None, templates={}, amount_area=(77, 77, 96, 96),
             counter_area=(70, 167, 134, 186), price_area=(52, 132, 130, 165)
@@ -65,12 +65,12 @@ class PortShop(OSStatus, OSShopUI, Selector, MapEventHandler):
         return os_shop_items
 
     def _get_os_shop_grid(self) -> ButtonGrid:
-        """根据货币图标位置计算商店网格。
+        """Рассчитать сетку магазина по позициям иконок валюты.
 
-        根据识别到的货币图标行数和位置，动态生成物品网格。
+        Динамически формирует сетку товаров на основе распознанного числа строк и позиций иконок валюты.
 
         Returns:
-            ButtonGrid: 商店物品网格配置。
+            ButtonGrid: Конфигурация сетки товаров магазина.
         """
         costs = self._get_os_shop_cost()
         row = len(costs)
@@ -87,16 +87,16 @@ class PortShop(OSStatus, OSShopUI, Selector, MapEventHandler):
             origin=(356, y), delta=(160, delta_y), button_shape=(98, 98), grid_shape=(5, row), name='OS_SHOP_GRID')
 
     def os_shop_get_items(self, shop_index=False, scroll_pos=False) -> List[Item]:
-        """获取当前屏幕上的商店物品。
+        """Получить товары магазина на текущем экране.
 
-        识别物品的名称、数量、成本、价格和计数器信息。
+        Распознаёт название, количество, тип стоимости, цену и счетчик каждого товара.
 
         Args:
-            shop_index: 商店索引，用于记录物品所在商店。
-            scroll_pos: 滚动位置，用于记录物品在滚动条中的位置。
+            shop_index: Индекс магазина для привязки товара.
+            scroll_pos: Позиция прокрутки для привязки положения товара.
 
         Returns:
-            list[Item]: 识别到的物品列表，无物品时返回空列表。
+            list[Item]: Список распознанных товаров либо пустой список при их отсутствии.
         """
         self.os_shop_items.grids = self._get_os_shop_grid()
         if self.config.SHOP_EXTRACT_TEMPLATE:
@@ -117,16 +117,16 @@ class PortShop(OSStatus, OSShopUI, Selector, MapEventHandler):
         return []
 
     def os_shop_get_items_to_buy(self, name, price) -> Item:
-        """根据名称和价格查找待购买的物品。
+        """Найти товар для покупки по названию и цене.
 
-        处理商店加载延迟的情况，重试确认物品信息。
+        Обрабатывает возможную задержку загрузки магазина и повторяет попытку подтверждения данных.
 
         Args:
-            name: 物品名称。
-            price: 物品价格。
+            name: Название товара.
+            price: Цена товара.
 
         Returns:
-            Item: 匹配的物品，未找到返回 None。
+            Item: Найденный товар либо None.
         """
         items = self.os_shop_get_items()
         for _ in range(2):
@@ -144,16 +144,16 @@ class PortShop(OSStatus, OSShopUI, Selector, MapEventHandler):
         return None
 
     def scan_all(self) -> List[Item]:
-        """扫描所有商店页面的物品。
+        """Отсканировать товары на всех страницах магазина.
 
-        遍历 4 个商店页面，滚动扫描每页的所有物品，
-        使用集合去重避免重复扫描。
+        Обходит 4 вкладки магазина, выполняя прокрутку и сканирование всех товаров
+        с дедупликацией через множество.
 
         Returns:
-            list[Item]: 扫描到的所有物品列表。
+            list[Item]: Полный список отсканированных товаров.
         """
         items = []
-        # 使用 set 记录已扫描物品的键，实现 O(1) 去重
+        # Используем set для хранения ключей уже просканированных товаров и дедупликации за O(1)
         scanned_keys = set()
         self.device.click_record.clear()
 
@@ -176,8 +176,8 @@ class PortShop(OSStatus, OSShopUI, Selector, MapEventHandler):
                     else:
                         logger.info(f'[Магазин Операции «Сирена» — порт] В магазине {i + 1} на позиции {cur_pos:.2f} найдено предметов: {len(_items)} шт.')
                         break
-                # 始终添加物品，即使最后的物品列表包含未知物品
-                # 这样可以扫描到所有已知物品
+                # Всегда добавляем товары, даже если итоговый список содержит неизвестные позиции
+                # Так удаётся просканировать все известные товары
                 for item in _items:
                     key = (item.name, item.price, item.shop_index)
                     if key not in scanned_keys:

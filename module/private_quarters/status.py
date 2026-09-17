@@ -1,11 +1,11 @@
-"""
-私人休息室状态 OCR 识别。
+"""OCR-распознавание статуса личных покоев.
 
-提供私人宿舍商店的货币余额和互动次数的 OCR 读取能力，
-包括金币、钻石和每日互动剩余次数。
-通过服务器分支适配不同区域的 OCR 参数（字体颜色差异）。
+Обеспечивает считывание баланса валюты и счетчиков взаимодействий в магазине личных покоев через OCR,
+включая монеты, алмазы и остаток ежедневных взаимодействий.
+Адаптирует параметры OCR под серверы с учетом различий цветов шрифтов.
 
-Pages: in: PRIVATE_QUARTERS_SHOP, PRIVATE_QUARTERS_MAIN
+Pages:
+    in: PRIVATE_QUARTERS_SHOP, PRIVATE_QUARTERS_MAIN
 """
 import module.config.server as server
 from module.ocr.ocr import Digit, DigitCounter
@@ -32,40 +32,37 @@ OCR_SHOP_PRICE = Digit([], letter=(64, 72, 77), name='OCR_SHOP_PRICE')
 
 class PQStatus(ShopStatus):
     def status_get_gold_coins(self):
-        """
-        OCR 识别商店金币数量。
+        """Распознать через OCR количество монет в магазине.
 
         Returns:
-            int: 金币数量
+            int: Количество монет.
 
         Pages:
-            in: 私人宿舍商店页
+            in: Страница магазина личных покоев
         """
         amount = OCR_SHOP_GOLD_COINS.ocr(self.device.image)
         return amount
 
     def status_get_gems(self):
-        """
-        OCR 识别商店钻石数量。
+        """Распознать через OCR количество алмазов в магазине.
 
         Returns:
-            int: 钻石数量
+            int: Количество алмазов.
 
         Pages:
-            in: 私人宿舍商店页
+            in: Страница магазина личных покоев
         """
         amount = OCR_SHOP_GEMS.ocr(self.device.image)
         return amount
 
     def status_get_daily_count(self):
-        """
-        OCR 识别每日互动剩余次数。
+        """Распознать через OCR оставшееся количество ежедневных взаимодействий.
 
         Returns:
-            int: 剩余互动次数
+            int: Оставшееся количество взаимодействий.
 
         Pages:
-            in: 私人宿舍主页
+            in: Главная страница личных покоев
         """
         count, _, _ = OCR_DAILY_COUNT.ocr(self.device.image)
         return count

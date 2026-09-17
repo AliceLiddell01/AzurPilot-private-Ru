@@ -1,8 +1,8 @@
-"""大世界商店 UI 操作模块。
+"""Модуль операций с интерфейсом магазина Operation Siren.
 
-提供大世界商店界面的通用 UI 操作，包括商店页面加载检测、
-侧边栏导航（明石商店/港口商店）、自适应滚动条控制、
-安全区域点击防护以及死循环检测等基础交互功能。
+Предоставляет базовые операции взаимодействия с интерфейсом магазина Operation Siren,
+включая проверку загрузки страницы, навигацию по боковой панели (магазин Акаши / портовые магазины),
+управление адаптивной полосой прокрутки, защиту кликов по безопасной зоне и обработку зависаний.
 """
 from typing import Tuple
 from module.base.button import ButtonGrid
@@ -16,7 +16,7 @@ from module.ui.navbar import Navbar
 from module.ui.scroll import AdaptiveScroll
 from module.ui.ui import UI
 
-# 大世界商店+滚动条配置
+# Настройка магазина Операции «Сирена»+ и полосы прокрутки
 OS_SHOP_SCROLL = AdaptiveScroll(
     OS_SHOP_SCROLL_AREA.button,
     parameters={
@@ -30,24 +30,24 @@ OS_SHOP_SCROLL.edge_threshold = 0.1
 
 
 class OSShopUI(UI):
-    """大世界商店+ UI 操作类。
+    """Класс операций пользовательского интерфейса магазина Operation Siren.
 
-    提供商店页面加载检测、侧边栏导航、滚动条控制等功能。
+    Предоставляет методы проверки загрузки страницы, навигации по боковой панели и управления прокруткой.
     """
 
     def os_shop_load_ensure(self, skip_first_screenshot=True):
-        """确保商店页面完全加载。
+        """Убедиться, что страница магазина полностью загружена.
 
-        切换侧边栏后需要等待页面加载完成，类似舰队后勤的加载逻辑。
+        После переключения боковой панели необходимо дождаться полной загрузки интерфейса.
 
         Args:
-            skip_first_screenshot: 是否跳过首次截图。
+            skip_first_screenshot: Пропускать ли первый снимок экрана.
 
         Returns:
-            bool: 页面加载完成返回 True。
+            bool: True при успешной загрузке страницы.
 
         Raises:
-            GameStuckError: 等待超时抛出。
+            GameStuckError: Если время ожидания появления магазина истекло.
         """
         ensure_timeout = Timer(3, count=6).start()
         while True:
@@ -56,22 +56,22 @@ class OSShopUI(UI):
             else:
                 self.device.screenshot()
 
-            # 结束条件
+            # Условие завершения
             if self.appear(OS_SHOP_CHECK):
                 return True
             else:
                 logger.warning('Магазин Операции «Сирена»+ не появился, повторная попытка')
 
-            # 异常处理
+            # Обработка исключительной ситуации
             if ensure_timeout.reached():
-                raise GameStuckError('等待大世界商店+出现超时')
+                raise GameStuckError('Истекло время ожидания появления магазина Операции «Сирена»+')
 
     @cached_property
     def _os_shop_side_navbar(self):
-        """获取商店侧边栏导航组件。
+        """Получить компонент навигации боковой панели магазина.
 
-        侧边栏包含 4 个选项：
-            NY（纽约）、Liverpool（利物浦）、Gibraltar（直布罗陀）、St. Petersburg（圣彼得堡）
+        Боковая панель включает 4 порта:
+            NY (Нью-Йорк), Liverpool (Ливерпуль), Gibraltar (Гибралтар), St. Petersburg (Санкт-Петербург).
         """
         os_shop_side_navbar = ButtonGrid(
             origin=(44, 266), delta=(0, 87),
@@ -83,21 +83,19 @@ class OSShopUI(UI):
                       inactive_color=(12, 58, 86), inactive_threshold=221)
 
     def os_shop_side_navbar_ensure(self, upper=None, bottom=None):
-        """确保侧边栏导航到指定页面。
+        """Переключить боковую панель на указанную страницу.
 
         Args:
-            upper: 从上往下的索引。
-                limited|regular
-                    1     NY
-                    2     Liverpool
-                    3     Gibraltar
-                    4     St. Petersburg
-            bottom: 从下往上的索引。
-                limited|regular
-                    4     NY
-                    3     Liverpool
-                    2     Gibraltar
-                    1     St. Petersburg
+            upper: Индекс сверху вниз:
+                1: NY (Нью-Йорк)
+                2: Liverpool (Ливерпуль)
+                3: Gibraltar (Гибралтар)
+                4: St. Petersburg (Санкт-Петербург)
+            bottom: Индекс снизу вверх:
+                4: NY (Нью-Йорк)
+                3: Liverpool (Ливерпуль)
+                2: Gibraltar (Гибралтар)
+                1: St. Petersburg (Санкт-Петербург)
 
         Pages:
             in: PORT_SUPPLY_CHECK
@@ -108,15 +106,15 @@ class OSShopUI(UI):
         self._os_shop_side_navbar.set(self, upper=upper, bottom=bottom)
 
     def init_slider(self) -> Tuple[float, float]:
-        """初始化滚动条位置。
+        """Инициализировать позицию полосы прокрутки.
 
-        确保滚动条出现并滚动到顶部。
+        Убеждается в наличии полосы прокрутки и переводит её в крайнее верхнее положение.
 
         Returns:
-            Tuple[float, float]: (前一位置, 当前位置)，初始为 (-1.0, 0.0)。
+            Tuple[float, float]: (предыдущая позиция, текущая позиция), изначально (-1.0, 0.0).
 
         Raises:
-            GameStuckError: 滚动操作失败时抛出。
+            GameStuckError: Если прокрутка не удалась.
         """
         if not OS_SHOP_SCROLL.appear(main=self):
             logger.warning('Полоса прокрутки магазина Операции «Сирена»+ не появилась, попытка восстановления')
@@ -127,16 +125,16 @@ class OSShopUI(UI):
             logger.info('Полоса прокрутки магазина Операции «Сирена»+ не вверху, попытка прокрутки')
             OS_SHOP_SCROLL.set_top(main=self)
             if retry.reached():
-                raise GameStuckError('大世界商店+滚动条拖动页面失败')
+                raise GameStuckError('Не удалось перетащить полосу прокрутки магазина Операции «Сирена»+')
         return -1.0, 0.0
 
     def rescue_slider(self, distance=200):
-        """救援滚动条。
+        """Восстановить отображение полосы прокрутки.
 
-        当滚动条不可见时，通过拖拽操作使其重新出现。
+        Если полоса прокрутки скрыта, вызывает её повторное появление с помощью свайпа.
 
         Args:
-            distance: 拖拽距离，默认 200 像素。
+            distance: Расстояние свайпа в пикселях, по умолчанию 200.
         """
         detection_area = (1130, 230, 1170, 710)
         direction_vector = (0, distance)
@@ -147,19 +145,19 @@ class OSShopUI(UI):
         self.device.screenshot()
 
     def pre_scroll(self, pre_pos, cur_pos) -> float:
-        """预处理滚动操作。
+        """Предварительно обработать действие прокрутки.
 
-        当滚动失败时尝试救援滚动条并重试。
+        При сбое прокрутки пытается восстановить полосу и повторить попытку.
 
         Args:
-            pre_pos: 前一位置。
-            cur_pos: 当前位置。
+            pre_pos: Предыдущая позиция.
+            cur_pos: Текущая позиция.
 
         Returns:
-            float: 滚动后的位置。
+            float: Позиция после прокрутки.
 
         Raises:
-            GameStuckError: 滚动重试失败时抛出。
+            GameStuckError: Если повторные попытки прокрутки завершились неудачей.
         """
         if pre_pos == cur_pos:
             logger.warning('Не удалось перетащить полосу прокрутки магазина Операции «Сирена»+')
@@ -177,6 +175,6 @@ class OSShopUI(UI):
                     logger.info(f'Полоса прокрутки магазина Операции «Сирена»+ перемещена в {cur_pos}')
                     return cur_pos
                 if retry.reached():
-                    raise GameStuckError('大世界商店+滚动条拖动页面失败')
+                    raise GameStuckError('Не удалось перетащить полосу прокрутки магазина Операции «Сирена»+')
         else:
             return cur_pos

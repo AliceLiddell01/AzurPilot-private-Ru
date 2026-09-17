@@ -20,23 +20,23 @@ import re
 
 ISLAND_MAP_CONFIRM_WAIT = 3
 
-# 岗位产品选择滑动惯性消除安全区域
+# Безопасная область для устранения инерции прокрутки при выборе продукта позиции
 SELECT_PRODUCT_INERTIA_STOP = Button(
     area=(), color=(),
     button=(468, 400, 476, 500),
     file={'cn': '', 'en': '', 'jp': '', 'tw': ''}
 )
 
-# 岗位派遣页底部材料卡片上的数量文本，例如 150/2 或 150/(2+6)。
+# Текст количества на карточке материала внизу страницы назначения позиции, например 150/2 или 150/(2+6).
 OCR_SELECT_PRODUCT_MATERIAL_AMOUNT = Button(
     area=(742, 536, 850, 562), color=(),
     button=(742, 536, 850, 562),
     file={'cn': '', 'en': '', 'jp': '', 'tw': ''}
 )
 
-# 同一张材料卡片中“当前库存/”所在的左侧前缀区域。
-# 完整宽区域容易把 0/9 识别成 09、把 110/(2+6) 识别成 1102，
-# 因此当前库存优先从斜杠左侧前缀读取。
+# Левая область-префикс «текущий запас/» на той же карточке материала.
+# В полной широкой области 0/9 легко распознаются как 09, а 110/(2+6) — как 1102,
+# поэтому текущий запас в первую очередь считывается из префикса слева от косой черты.
 OCR_SELECT_PRODUCT_MATERIAL_CURRENT_AREAS = (
     (742, 536, 800, 562),
     (742, 536, 792, 562),
@@ -51,14 +51,14 @@ OCR_SELECT_PRODUCT_MATERIAL_COUNTER_AREAS = (
     (775, 536, 850, 562),
 )
 
-# select_product 中滑动操作的点击记录名称，提取为常量避免硬编码多处不一致
+# Имя записи клика для прокрутки в select_product вынесено в константу, чтобы избежать расхождений при жёстком кодировании в нескольких местах
 SELECTION_UP_SWIPE_NAME = "SelectionUpSwipe"
-# select_product 最大滑动尝试次数，覆盖列表底部产品（海参等位于列表末尾）
+# Максимальное число попыток прокрутки select_product, чтобы охватить продукты внизу списка, например морской огурец
 _SELECT_PRODUCT_MAX_SWIPES = 8
 
 class Island(SelectCharacter):
     def __init__(self, *args, **kwargs):
-        # 调用两个父类的初始化
+        # Вызываем инициализацию обоих родительских классов
         UI.__init__(self, *args, **kwargs)
         SelectCharacter.__init__(self, *args, **kwargs)
         self.island_error = False
@@ -104,7 +104,7 @@ class Island(SelectCharacter):
 
     def warehouse_filter(self, button1, button2=None):
         self.ui_goto(page_island_warehouse_filter, get_ship=False)
-        # 定义按钮名称到网格坐标的映射
+        # Сопоставление имён кнопок с координатами сетки
         kind_map = {
             'all_kind': (0, 0),
             'basic': (1, 0),
@@ -131,7 +131,7 @@ class Island(SelectCharacter):
         }
         all_kind_button = self.warehouse_filter_kind[kind_map['all_kind']]
         all_from_button = self.warehouse_filter_from[from_map['all_from']]
-        # 等待并重置筛选器，直到两个全选按钮都被选中
+        # Ждём и сбрасываем фильтр, пока обе кнопки «выбрать всё» не будут выбраны
         for _ in self.loop(timeout=8, skip_first=False):
             all_kind_selected = self.warehouse_filter_button_selected(all_kind_button)
             all_from_selected = self.warehouse_filter_button_selected(all_from_button)
@@ -143,8 +143,8 @@ class Island(SelectCharacter):
         else:
             raise GameStuckError("Истекло время сброса фильтра склада")
 
-        # 处理第一个按钮
-        # 确定按钮属于哪个网格并获取按钮对象
+        # Обрабатываем первую кнопку
+        # Определяем, к какой сетке относится кнопка, и получаем объект кнопки
         if button1 in kind_map:
             button_obj = self.warehouse_filter_kind[kind_map[button1]]
         elif button1 in from_map:
@@ -165,9 +165,9 @@ class Island(SelectCharacter):
         else:
             raise GameStuckError(f"Истекло время выбора кнопки фильтра склада: {button1}")
 
-        # 处理第二个按钮（如果有）
+        # Обрабатываем вторую кнопку, если она задана
         if button2:
-            # 确定按钮属于哪个网格并获取按钮对象
+            # Определяем, к какой сетке относится кнопка, и получаем объект кнопки
             if button2 in kind_map:
                 button2_obj = self.warehouse_filter_kind[kind_map[button2]]
             elif button2 in from_map:
@@ -241,8 +241,8 @@ class Island(SelectCharacter):
         for _ in self.loop(timeout=30, skip_first=False):
             if self.is_in_friend_island():
                 logger.info("[Остров] Повторная проверка состояния посещения...")
-                # 在等待的过程中, 先后会出现黑底黄鸡loading、UI(一闪而过)、白底沙漏loading
-				# 因此等待1s后进行二次确认, 避免中间UI一闪而过时出现误判
+                # Во время ожидания последовательно появляются loading с жёлтой птицей на чёрном фоне, UI на мгновение и loading с песочными часами на белом фоне
+				# Поэтому через 1 с выполняем повторную проверку, чтобы краткое появление промежуточного UI не дало ложное срабатывание
                 self.device.sleep(1)
                 self.device.screenshot()
                 if self.is_in_friend_island():
@@ -415,8 +415,8 @@ class Island(SelectCharacter):
             elif self.appear(post_manage_mode):
                 return True
             elif self.appear(ISLAND_GATHER_COLLECT_CHECK, offset=30):
-                # 当前在采集页签，appear_then_click 无法匹配到生产和经营页签
-                # 直接点击目标页签按钮（Button.button 返回点击坐标 tuple）
+                # Сейчас открыта вкладка сбора, поэтому appear_then_click не может сопоставить вкладки производства и бизнеса
+                # Нажимаем целевую вкладку напрямую; Button.button возвращает tuple координат клика
                 if direct_click_timer.reached():
                     self.device.click(post_manage_button)
                     direct_click_timer.reset()
@@ -436,28 +436,28 @@ class Island(SelectCharacter):
         raise GameStuckError("Истекло время переключения на вкладку сбора")
 
     def select_product(self, product_selection, product_selection_check):
-        # 清理之前可能残留的滑动记录，避免多次调用累积触发单按钮死循环检测
-        # （click_record maxlen=15，两次调用各 _SELECT_PRODUCT_MAX_SWIPES 条 >12 阈值）
+        # Удаляем оставшиеся записи прокрутки, чтобы повторные вызовы не накопились и не сработала защита от зацикливания на одной кнопке
+        # click_record имеет maxlen=15; два вызова по _SELECT_PRODUCT_MAX_SWIPES записей каждый превышают порог 12
         self.device.click_record_remove(SELECTION_UP_SWIPE_NAME)
 
         for _ in range(_SELECT_PRODUCT_MAX_SWIPES):
             self.device.screenshot()
 
-            # 使用形状+颜色双重验证来识别 product_selection_check
+            # Распознаём product_selection_check по форме и цвету одновременно
             if self.match_template_color(product_selection_check, offset=20, similarity=0.85, threshold=10):
                 return True
 
-            # 使用形状+颜色双重验证来识别 product_selection 并点击
+            # Распознаём product_selection по форме и цвету одновременно и нажимаем
             if self.match_template_color(product_selection, offset=300, similarity=0.85, threshold=10):
                 self.device.click(product_selection)
                 continue
 
-            # 如果都不匹配，则滑动寻找
+            # Если ничего не совпало, прокручиваем список для поиска
             self.device.swipe_vector(vector=(0, -200), box=(333, 142, 431, 602), name=SELECTION_UP_SWIPE_NAME)
             self.device.sleep(0.3)
-            # 点击安全区域消除滑动惯性，使用 control_check=False 避免与 swipe 交替
-            # 触发 GameTooManyClickError（两个按钮各 ≥6 次即报错）。
-            # swipe 本身仍记录在 click_record 中，8 次滑动 < 12 次单按钮阈值，安全。
+            # Нажимаем безопасную область для устранения инерции прокрутки; control_check=False не даёт проверке чередоваться со swipe
+            # и вызывать GameTooManyClickError: ошибка возникает при ≥6 кликах по каждой из двух кнопок.
+            # Сам swipe по-прежнему записывается в click_record; 8 прокруток < порога 12 для одной кнопки, поэтому это безопасно.
             self.device.click(SELECT_PRODUCT_INERTIA_STOP, control_check=False)
             self.device.sleep(0.2)
 

@@ -8,7 +8,7 @@
 from module.logger import logger
 
 
-# ==================== 季节常量 ====================
+# ==================== Константы сезонов ====================
 
 SEASONS = {
     'spring': '春季',
@@ -17,29 +17,29 @@ SEASONS = {
     'winter': '冬季',
 }
 
-# ==================== 每季度的季节限定物品映射 ====================
-# structure: { season: { module_key: [item_names] } }
-# module_key 对应各个店铺模块的类型标识
+# ==================== Карта сезонных предметов для каждого сезона ====================
+# Структура: { season: { module_key: [item_names] } }
+# module_key соответствует идентификатору типа соответствующего модуля магазина
 
 SEASONAL_ITEMS = {
     'spring': {
-        # 鱼餐馆：春季限定菜品
+        # Ресторан «Есть рыба»: весенние сезонные блюда
         'restaurant': ['double_bamboo_shoots', 'asparagus_shrimp'],
-        # 白熊饮品：春季限定饮品
+        # Напитки Белого Медведя: весенние сезонные напитки
         'teahouse': ['spring_flower_tea', 'pineapple_juice'],
-        # 青芽苗圃：春季限定作物（凤梨、芦笋）
+        # Питомник Цинъя: весенние сезонные культуры (ананас, спаржа)
         'nursery': ['asparagus', 'pineapple'],
-        # 工厂手工：春季限定产品
+        # Ручное производство: весенние сезонные продукты
         'handmade': ['shepherd_purse', 'spring_bouquet'],
     },
     'summer': {
-        # 鱼餐馆：夏季限定菜品
+        # Ресторан «Есть рыба»: летние сезонные блюда
         'restaurant': ['amaranth_rice_ball', 'tomato_egg'],
-        # 白熊饮品：夏季限定饮品
+        # Напитки Белого Медведя: летние сезонные напитки
         'teahouse': ['cucumber_juice', 'watermelon_juice'],
-        # 青芽苗圃：夏季限定作物
+        # Питомник Цинъя: летние сезонные культуры
         'nursery': ['tomato', 'cucumber'],
-        # 工厂手工：夏季限定产品
+        # Ручное производство: летние сезонные продукты
         'handmade': ['jasmine_oil', 'summer_bouquet'],
     },
     'autumn': {
@@ -56,8 +56,8 @@ SEASONAL_ITEMS = {
     },
 }
 
-# ==================== 季节图标映射 ====================
-# 每个季节对应的图标模板名称（在 assets 中定义）
+# ==================== Карта значков сезонов ====================
+# Имя шаблона значка для каждого сезона (определено в assets)
 SEASON_ICONS = {
     'spring': 'TEMPLATE_SEASON_SPRING',
     'summer': 'TEMPLATE_SEASON_SUMMER',
@@ -65,12 +65,12 @@ SEASON_ICONS = {
     'winter': 'TEMPLATE_SEASON_WINTER',
 }
 
-# ==================== 季节主题色 ====================
+# ==================== Цвета темы сезонов ====================
 SEASON_COLORS = {
-    'spring': (144, 238, 144),    # 浅绿色
-    'summer': (255, 215, 0),      # 金色
-    'autumn': (255, 140, 0),      # 橙色
-    'winter': (135, 206, 250),    # 天蓝色
+    'spring': (144, 238, 144),    # Светло-зелёный
+    'summer': (255, 215, 0),      # Золотой
+    'autumn': (255, 140, 0),      # Оранжевый
+    'winter': (135, 206, 250),    # Небесно-голубой
 }
 
 
@@ -143,7 +143,7 @@ class SeasonConfig:
             return False
         if module_key:
             return item_name in self.get_seasonal_items(module_key)
-        # 在所有模块中查找
+        # Ищем во всех модулях
         for module_items in SEASONAL_ITEMS.get(self._season, {}).values():
             if item_name in module_items:
                 return True
@@ -166,7 +166,7 @@ class SeasonConfig:
         return f"SeasonConfig(season={self._season}, name={self.season_name})"
 
 
-# ==================== 全局实例 ====================
+# ==================== Глобальный экземпляр ====================
 
 _global_season_config = None
 

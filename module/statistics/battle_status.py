@@ -1,7 +1,7 @@
-"""战斗状态统计。
+"""Статистика боевого статуса.
 
-从战斗结算截图中通过 OCR 识别敌方舰队名称，
-用于掉落统计系统中记录关卡敌人信息。
+Распознает название флота противника через OCR по скриншотам завершения боя,
+используется в системе статистики дропа для сохранения информации о врагах этапа.
 """
 
 from module.base.decorator import cached_property
@@ -19,16 +19,16 @@ class BattleStatusStatistics:
         return Ocr(ENEMY_NAME, lang='azur_lane', threshold=128, name='ENEMY_NAME')
 
     def stats_battle_status(self, image):
-        """从战斗状态截图中识别敌人名称。
+        """Распознает название противника по скриншоту боевого статуса.
 
         Args:
-            image (np.ndarray): 战斗状态截图。
+            image (np.ndarray): Скриншот боевого статуса.
 
         Returns:
-            str: 敌人名称，如 '中型主力舰队'。
+            str: Название противника, например 'Medium Main Fleet'.
         """
         result = self.ocr_object.ocr(image)
-        # 删除 OCR 误识别的字符
+        # Удаляем символы, ошибочно распознанные OCR.
         for letter in '-一个―~(':
             result = result.replace(letter, '')
 

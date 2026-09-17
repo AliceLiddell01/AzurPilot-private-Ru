@@ -29,11 +29,11 @@ from module.os_handler.assets import AUTO_SEARCH_REWARD
 from module.os_handler.port import PORT_CHECK
 from module.ui.assets import BACK_ARROW
 
-# 海域类型按钮列表
+# Список кнопок типов зон
 ZONE_TYPES = [ZONE_DANGEROUS, ZONE_SAFE, ZONE_OBSCURE, ZONE_ABYSSAL, ZONE_STRONGHOLD, ZONE_ARCHIVE]
-# 海域选择按钮列表（与 ZONE_TYPES 一一对应）
+# Список кнопок выбора зон (в том же порядке, что и ZONE_TYPES)
 ZONE_SELECT = [SELECT_DANGEROUS, SELECT_SAFE, SELECT_OBSCURE, SELECT_ABYSSAL, SELECT_STRONGHOLD, SELECT_ARCHIVE]
-# 固定海域检测的资源列表
+# Список ресурсов для определения закреплённой зоны
 ASSETS_PINNED_ZONE = ZONE_TYPES + [ZONE_ENTRANCE, ZONE_SWITCH, ZONE_PINNED]
 
 # Under a certain scene, the similarity are as follows:
@@ -241,8 +241,8 @@ class GlobeOperation(ActionPointHandler):
         Returns:
             list[Button]: 当前可见的海域类型选择按钮列表。
         """
-        # 降低阈值到 0.75
-        # 不确定原因，但有时字体不同会导致匹配困难
+        # Снижаем порог до 0.75
+        # Причина неясна, но иногда различия шрифтов затрудняют сопоставление
         return [select for select in ZONE_SELECT if
                 self.appear(select, offset=self._zone_select_offset, similarity=self._zone_select_similarity)]
 
@@ -280,7 +280,7 @@ class GlobeOperation(ActionPointHandler):
         """
         self.ui_click(ZONE_SWITCH, appear_button=self.is_zone_pinned, check_button=self.is_in_zone_select,
                       skip_first_screenshot=True)
-        # 点击太快碧蓝反应不过来
+        # При слишком быстром клике Azur Lane не успевает отреагировать
         time.sleep(0.015)
 
     def zone_select_execute(self, button):
@@ -322,7 +322,7 @@ class GlobeOperation(ActionPointHandler):
 
         if isinstance(types, str):
             types = [types]
-        # 在修改前记录请求的类型，用于日志
+        # Сохраняем запрошенный тип до изменения списка для логирования
         requested_type = types[0] if types else None
 
         def get_button(selection_):
@@ -345,15 +345,15 @@ class GlobeOperation(ActionPointHandler):
 
             button = get_button(selection)
             if button is None:
-                # 获取所有可用的区域类型（不含SELECT_前缀）
+                # Получаем все доступные типы зон без префикса SELECT_
                 available_types = [getattr(sel, 'name', str(sel)).replace('SELECT_', '') for sel in selection]
                 logger.warning(
                     f'[Операция «Сирена» — действия] Тип зоны {requested_type} отсутствует в списке выбора, '
                     f'Доступные типы: {available_types}, '
                     f'используется тип по умолчанию (SAFE > DANGEROUS)'
                 )
-                # 回退到安全的默认优先级，而不是选择列表中的第一个
-                # 这样在有深渊海域时不会错误地进入深渊而是选择安全海域
+                # Возвращаемся к безопасному приоритету по умолчанию, а не выбираем первый элемент списка
+                # Так при наличии абиссальной зоны не войдём в неё ошибочно, а выберем безопасную зону
                 types = ('SAFE', 'DANGEROUS')
                 button = get_button(selection)
                 if button is None:
@@ -387,7 +387,7 @@ class GlobeOperation(ActionPointHandler):
             self.zone_select_execute(button)
             return flag
         else:
-            # 没有切换按钮，已在 DANGEROUS 类型
+            # Кнопки переключения нет: уже выбран тип DANGEROUS
             return False
 
     def os_globe_goto_map(self, skip_first_screenshot=True):
@@ -398,7 +398,7 @@ class GlobeOperation(ActionPointHandler):
             in: is_in_globe
             out: is_in_map
         """
-        # 处理意外进入港口的情况
+        # Обрабатываем случайный вход в порт
         for _ in self.loop():
             if skip_first_screenshot:
                 skip_first_screenshot = False
@@ -437,32 +437,32 @@ class GlobeOperation(ActionPointHandler):
                 break
 
             if self.appear_then_click(MAP_GOTO_GLOBE, offset=(200, 5), interval=5):
-                # 仅用于初始化 MAP_GOTO_GLOBE_FOG 的间隔计时器
+                # Только для инициализации интервального таймера MAP_GOTO_GLOBE_FOG
                 self.appear(MAP_GOTO_GLOBE_FOG, interval=5)
                 self.interval_reset(MAP_GOTO_GLOBE_FOG)
                 click_count += 1
                 if click_count >= 5:
-                    # 当海域存在探索奖励时，游戏不会允许你离开。
+                    # Если в зоне есть награда за исследование, игра не позволит её покинуть.
                     logger.warning('[Операция «Сирена» — действия] Не удалось перейти к глобусу: возможно, выход блокирует несобранная награда за исследование зоны')
                     raise RewardUncollectedError
                 continue
             if self.appear_then_click(MAP_GOTO_GLOBE_FOG, interval=5):
-                # 仅在要塞中遇到；即使地图中有未领取的探索奖励，游戏也不会阻止退出
+                # Встречается только в крепостях; даже при несобранной награде за исследование игра не блокирует выход
                 self.interval_reset(MAP_GOTO_GLOBE)
                 continue
             if self.handle_map_event():
                 continue
-            # 意外进入港口
+            # Случайный вход в порт
             if self.appear(PORT_CHECK, offset=(20, 20), interval=5):
                 logger.info(f'Переключение экрана: {PORT_CHECK} -> {BACK_ARROW}')
                 self.device.click(BACK_ARROW)
                 continue
-            # 弹窗：AUTO_SEARCH_REWARD 出现较慢
+            # Всплывающее окно: AUTO_SEARCH_REWARD появляется с задержкой
             if self.appear_then_click(AUTO_SEARCH_REWARD, offset=(50, 50), interval=5):
                 continue
-            # 弹窗：离开当前海域将终止指挥喵搜索。
-            # 弹窗：离开当前海域将撤回潜艇。
-            # 搜索奖励将在进入其他海域后显示。
+            # Всплывающее окно: выход из текущей зоны прекратит поиск командирского мяуфицера.
+            # Всплывающее окно: выход из текущей зоны отзовёт подлодку.
+            # Награда за поиск появится после входа в другую зону.
             if self.handle_popup_confirm('GOTO_GLOBE'):
                 continue
 
@@ -515,7 +515,7 @@ class GlobeOperation(ActionPointHandler):
                     logger.warning(f'[Операция «Сирена» — действия] Не удалось войти в зону {zone}; возможно, соседняя зона ещё не исследована')
                     raise OSExploreError
                 if click_timer.reached():
-                    # 点太快会进不去 浪费时间
+                    # При слишком быстрых нажатиях вход не срабатывает и только тратит время
                     time.sleep(0.2)
                     self.device.click(ZONE_ENTRANCE)
                     click_count += 1
@@ -528,6 +528,6 @@ class GlobeOperation(ActionPointHandler):
                 continue
             if self.handle_popup_confirm('GLOBE_ENTER'):
                 continue
-            # 游戏 bug：上一个已清理海域的 AUTO_SEARCH_REWARD 弹窗
+            # Баг игры: всплывающее окно AUTO_SEARCH_REWARD от предыдущей уже зачищенной зоны
             if self.appear_then_click(AUTO_SEARCH_REWARD, offset=(50, 50), interval=3):
                 continue

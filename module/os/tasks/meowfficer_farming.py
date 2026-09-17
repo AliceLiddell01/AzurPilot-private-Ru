@@ -147,7 +147,7 @@ class OpsiMeowfficerFarming(MeowfficerTargetZoneMixin, CoinTaskMixin, OSMap):
         logger.attr('Резерв очков действия Операции «Сирена»', self.config.OS_ACTION_POINT_PRESERVE)
 
         if not ap_checked:
-            # 行动力前置检查，确保明日每日任务有足够行动力
+            # Предварительная проверка очков действия: оставляем достаточно для ежедневных задач на завтра
             smart_scheduled = self.is_running_smart_scheduling_task()
             keep_current_ap = True
             check_rest_ap = True
@@ -294,7 +294,7 @@ class OpsiMeowfficerFarming(MeowfficerTargetZoneMixin, CoinTaskMixin, OSMap):
             self.config.override(OpsiFleet_Submarine=False)
 
         if self.is_cl1_mode_enabled:
-            # 侵蚀 1 练级模式下的必要覆盖项
+            # Обязательные переопределения для режима прокачки в зоне коррозии 1
             self.config.override(
                 OpsiGeneral_DoRandomMapEvent=True,
                 OpsiGeneral_AkashiShopFilter='ActionPoint',
@@ -360,13 +360,13 @@ class OpsiMeowfficerFarming(MeowfficerTargetZoneMixin, CoinTaskMixin, OSMap):
 
         ap_checked = self._meow_ap_check(preserve, ap_checked)
 
-        # ===== 传统目标海域模式 =====
+        # ===== Традиционный режим целевой зоны =====
         traditional_zone = getattr(self, '_meow_traditional_zone', None)
         if traditional_zone is not None:
             self._meow_handle_traditional_zone(traditional_zone)
             return ap_checked
 
-        # ===== 指定海域计划作战 (StayInZone) =====
+        # ===== Плановый бой в указанной зоне (StayInZone) =====
         if self.config.OpsiMeowfficerFarming_StayInZone:
             target_zones = getattr(self, '_meow_target_zone_list', [])
             zone, _ = self._meow_target_zone_at(target_zones, getattr(self, '_meow_target_zone_index', 0))
@@ -377,6 +377,6 @@ class OpsiMeowfficerFarming(MeowfficerTargetZoneMixin, CoinTaskMixin, OSMap):
                 self._meow_handle_target_zone_search(zone)
             return ap_checked
 
-        # ===== 普通耄耋相接搜索主逻辑 =====
+        # ===== Основная логика обычного поиска мяуфицеров =====
         self._meow_handle_normal_search()
         return ap_checked

@@ -1,7 +1,7 @@
-"""任务优先级解析模块。
+"""Модуль разбора приоритетов задач.
 
-提供 parse_task_priority 函数，解析用户配置中的任务优先级文本，
-支持 Unicode 全角分隔符规范化、注释去除和去重处理。
+Предоставляет функцию parse_task_priority для разбора текстовой настройки приоритетов задач пользователя,
+поддерживает нормализацию полноширинных разделителей Unicode, удаление комментариев и дедупликацию.
 """
 
 import re
@@ -13,7 +13,7 @@ PRIORITY_SEPARATOR = "\n> "
 
 
 def parse_task_priority(value: Any) -> list[str]:
-    """解析任务优先级文本，返回去重后的任务名列表。"""
+    """Разобрать текст приоритетов задач и вернуть список имён задач без дубликатов."""
     if not value:
         return []
 
@@ -35,17 +35,17 @@ def parse_task_priority(value: Any) -> list[str]:
 
 
 def format_task_priority(tasks: Iterable[str]) -> str:
-    """将任务名列表格式化为配置文件中的优先级字符串。"""
+    """Отформатировать список имён задач в строку приоритетов для файла конфигурации."""
     return PRIORITY_SEPARATOR.join(str(task).strip() for task in tasks if str(task).strip())
 
 
 def normalize_task_priority(value: Any) -> str:
-    """标准化优先级文本，清除注释、空行和重复任务。"""
+    """Нормализовать текст приоритетов, удалив комментарии, пустые строки и повторяющиеся задачи."""
     return format_task_priority(parse_task_priority(value))
 
 
 def get_scheduler_tasks(args: dict[str, Any]) -> list[str]:
-    """从 args.json 结构中提取实际参与调度的任务。"""
+    """Извлечь из структуры args.json задачи, фактически участвующие в планировании."""
     tasks = []
     for path, data in deep_iter(args, depth=3):
         if path[-2:] != ["Scheduler", "Command"]:
@@ -93,7 +93,7 @@ def merge_task_priority(
         default: Any,
         available_tasks: Iterable[str] | None = None,
 ) -> str:
-    """合并用户优先级与默认优先级，并按默认位置补入新增任务。"""
+    """Объединить пользовательские приоритеты с приоритетами по умолчанию, дополнив новыми задачами согласно порядку по умолчанию."""
     default_order = parse_task_priority(default)
     available = list(available_tasks or default_order)
     available_set = set(available)
@@ -118,7 +118,7 @@ def merge_task_priority(
 
 
 def task_priority_from_config(config: dict[str, Any], args: dict[str, Any]) -> str:
-    """根据配置和 args 模板得到可保存、可展示的任务优先级。"""
+    """Получить сохраняемую и отображаемую строку приоритетов задач на основе конфигурации и шаблона args."""
     current = deep_get(config, "General.YukikazeTaskManager.TaskPriorityAdjustment")
     default = deep_get(args, "General.YukikazeTaskManager.TaskPriorityAdjustment.value")
     return merge_task_priority(current, default, get_scheduler_tasks(args))

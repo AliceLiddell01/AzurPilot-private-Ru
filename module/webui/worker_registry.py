@@ -23,7 +23,7 @@ LEGACY_WORKER_REGISTRY_FILE = Path("./config/webui-workers.json")
 REGISTRY_LOCK_TIMEOUT = 10.0
 REGISTRY_LOCK_RETRY_INTERVAL = 0.05
 
-# 同一 Python 进程内先串行化，避免重复竞争系统级文件锁。
+# Сначала сериализуем внутри одного процесса Python, чтобы не конкурировать повторно за системную файловую блокировку.
 _registry_lock = threading.RLock()
 
 
@@ -87,7 +87,7 @@ def _prepare_lock_file(lock_file: Path):
     lock_file.parent.mkdir(parents=True, exist_ok=True)
     handle = lock_file.open("a+b")
     try:
-        # msvcrt.locking() 不能锁定空文件，因此保留一个锁字节。
+        # msvcrt.locking() не может заблокировать пустой файл, поэтому сохраняем один байт для блокировки.
         if lock_file.stat().st_size == 0:
             handle.seek(0)
             handle.write(b"\0")
@@ -223,8 +223,8 @@ def _locked_registry() -> Iterator[Path]:
     """以进程内锁和系统级文件锁保护一次完整的读改写事务。"""
     with _registry_lock:
         if _legacy_registry_enabled():
-            # 即使旧登记尚未创建，也必须先锁旧路径。否则旧版本可能在
-            # exists() 检查之后创建旧登记，导致两个版本各自认领所有者。
+            # Даже если legacy-регистр ещё не создан, сначала нужно заблокировать старый путь. Иначе старая версия может
+            # создать legacy-регистр после проверки exists(), и тогда две версии независимо присвоят себе владение.
             with _locked_file(_legacy_registry_lock_file()):
                 with _locked_file(_registry_lock_file()):
                     yield _migrate_legacy_registry()
@@ -349,7 +349,7 @@ def claim_owner(owner_pid: int) -> None:
                 and abs(previous_owner["created_at"] - owner_created_at) < 0.01
             )
             if same_owner:
-                # 同一 WebUI 的重复初始化必须保留已登记的 worker。
+                # Повторная инициализация той же WebUI должна сохранять уже зарегистрированные worker-процессы.
                 return
 
             if "created_at" not in previous_owner:

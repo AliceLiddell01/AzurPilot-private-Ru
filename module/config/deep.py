@@ -1,17 +1,17 @@
-"""嵌套字典高性能访问模块。
+"""Модуль высокопроизводительного доступа к вложенным словарям.
 
-提供 deep_get、deep_set、deep_pop、deep_iter 等函数，
-用于高性能地访问和操作嵌套字典/列表结构的配置数据。
+Предоставляет функции deep_get, deep_set, deep_pop, deep_iter и др.,
+предназначенные для быстрого доступа и модификации конфигурационных данных во вложенных словарях и списках.
 """
 
 from collections import deque
 
-# deep_* 系列函数用于访问嵌套字典。
-# 以高性能为目标，因此代码可读性较低。
-# 一般性能基准测试中，耗时排序如下：
-# - 当 key 存在时
+# Функции семейства deep_* предназначены для доступа к вложенным словарям.
+# Приоритет — высокая производительность, поэтому читаемость кода ниже.
+# В обычных тестах производительности затраты располагаются в следующем порядке:
+# - Когда key существует
 #   try: dict[key] except KeyError << dict.get(key) < if key in dict: dict[key]
-# - 当 key 不存在时
+# - Когда key не существует
 #   if key in dict: dict[key] < dict.get(key) <<< try: dict[key] except KeyError
 
 OP_ADD = 'add'
@@ -20,18 +20,18 @@ OP_DEL = 'del'
 
 
 def deep_get(d, keys, default=None):
-    """从嵌套字典和列表中安全地获取值。
+    """Безопасно получить значение из вложенных словарей и списков.
 
-    参考: https://stackoverflow.com/questions/25833613/safe-method-to-get-value-of-nested-dictionary
+    Ссылка: https://stackoverflow.com/questions/25833613/safe-method-to-get-value-of-nested-dictionary
 
     Args:
-        d: 目标字典。
-        keys (list[str] | str): 键路径，如 ['Scheduler', 'NextRun', 'value']。
-            也支持点分字符串，如 'Scheduler.NextRun.value'。
-        default: 键不存在时的默认返回值。
+        d: Целевой словарь.
+        keys (list[str] | str): Путь ключей, например ['Scheduler', 'NextRun', 'value'].
+            Также поддерживается строка с точками: 'Scheduler.NextRun.value'.
+        default: Значение по умолчанию, возвращаемое при отсутствии ключа.
 
     Returns:
-        对应键路径的值，不存在时返回 default。
+        Значение по указанному пути либо default при отсутствии.
     """
     # 240 + 30 * depth (ns)
     if type(keys) is str:
@@ -41,30 +41,30 @@ def deep_get(d, keys, default=None):
         for k in keys:
             d = d[k]
         return d
-    # 键不存在
+    # Ключ не существует
     except KeyError:
         return default
-    # 索引越界
+    # Индекс вне диапазона
     except IndexError:
         return default
-    # keys 不可迭代或 d 不是字典（列表索引必须是整数或切片，不能是 str）
+    # keys не итерируется или d не является словарём: индекс списка должен быть int или slice, а не str
     except TypeError:
         return default
 
 
 def deep_get_with_error(d, keys):
-    """从嵌套字典和列表中获取值，键不存在时抛出 KeyError。
+    """Получить значение из вложенных словарей и списков с вызовом KeyError при отсутствии ключа.
 
     Args:
-        d: 目标字典。
-        keys (list[str] | str): 键路径，如 ['Scheduler', 'NextRun', 'value']。
-            也支持点分字符串，如 'Scheduler.NextRun.value'。
+        d: Целевой словарь.
+        keys (list[str] | str): Путь ключей, например ['Scheduler', 'NextRun', 'value'].
+            Также поддерживается строка с точками: 'Scheduler.NextRun.value'.
 
     Returns:
-        对应键路径的值。
+        Значение по указанному пути.
 
     Raises:
-        KeyError: 键不存在时抛出。
+        KeyError: Вызывается, если ключ отсутствует.
     """
     # 240 + 30 * depth (ns)
     if type(keys) is str:
@@ -74,26 +74,26 @@ def deep_get_with_error(d, keys):
         for k in keys:
             d = d[k]
         return d
-    # 键不存在（KeyError 直接透传）
+    # Ключ не существует — KeyError пробрасывается напрямую
     # except KeyError:
     #     raise
-    # 索引越界
+    # Индекс вне диапазона
     except IndexError:
         raise KeyError
-    # keys 不可迭代或 d 不是字典（列表索引必须是整数或切片，不能是 str）
+    # keys не итерируется или d не является словарём: индекс списка должен быть int или slice, а не str
     except TypeError:
         raise KeyError
 
 
 def deep_exist(d, keys):
-    """检查嵌套字典或列表中是否存在指定键路径。
+    """Проверить наличие указанного пути ключей во вложенном словаре или списке.
 
     Args:
-        d: 目标字典。
-        keys (str | list): 键路径，如 'Scheduler.NextRun.value' 或列表形式。
+        d: Целевой словарь.
+        keys (str | list): Путь ключей, например 'Scheduler.NextRun.value' или в виде списка.
 
     Returns:
-        bool: 键是否存在。
+        bool: Существует ли ключ.
     """
     # 240 + 30 * depth (ns)
     if type(keys) is str:
@@ -103,21 +103,21 @@ def deep_exist(d, keys):
         for k in keys:
             d = d[k]
         return True
-    # 键不存在
+    # Ключ не существует
     except KeyError:
         return False
-    # 索引越界
+    # Индекс вне диапазона
     except IndexError:
         return False
-    # keys 不可迭代或 d 不是字典（列表索引必须是整数或切片，不能是 str）
+    # keys не итерируется или d не является словарём: индекс списка должен быть int или slice, а не str
     except TypeError:
         return False
 
 
 def deep_set(d, keys, value):
-    """安全地向嵌套字典中设置值，模拟 deep_get() 的键路径遍历逻辑。
+    """Безопасно записать значение во вложенный словарь, повторяя логику обхода пути ключей deep_get().
 
-    仅支持字典类型，不支持列表。
+    Поддерживает только тип dict, списки не поддерживаются.
     """
     # 150 * depth (ns)
     if type(keys) is str:
@@ -136,7 +136,7 @@ def deep_set(d, keys, value):
                 first = False
                 continue
             try:
-                # 性能排序：if key in dict: dict[key] > dict.get > dict.setdefault > try dict[key] except
+                # Порядок производительности: if key in dict: dict[key] > dict.get > dict.setdefault > try dict[key] except
                 if exist and prev_k in d:
                     prev_d = d
                     d = d[prev_k]
@@ -146,7 +146,7 @@ def deep_set(d, keys, value):
                     d[prev_k] = new
                     d = new
             except TypeError:
-                # d 不是字典
+                # d не является словарём
                 exist = False
                 d = {}
                 prev_d[prev_k2] = {prev_k: d}
@@ -154,24 +154,24 @@ def deep_set(d, keys, value):
             prev_k2 = prev_k
             prev_k = k
             # prev_k2, prev_k = prev_k, k
-    # keys 不可迭代
+    # keys не итерируется
     except TypeError:
         return
 
-    # 最后一个键，设置值
+    # Последний ключ: устанавливаем значение
     try:
         d[prev_k] = value
         return
-    # 最后一个 d 不是字典
+    # Последний d не является словарём
     except TypeError:
         prev_d[prev_k2] = {prev_k: value}
         return
 
 
 def deep_default(d, keys, value):
-    """安全地向嵌套字典中设置默认值（仅当键不存在时），模拟 deep_get() 的键路径遍历逻辑。
+    """Безопасно записать значение по умолчанию во вложенный словарь (только если ключ отсутствует), повторяя логику обхода пути ключей deep_get().
 
-    仅支持字典类型，不支持列表。
+    Поддерживает только тип dict, списки не поддерживаются.
     """
     # 150 * depth (ns)
     if type(keys) is str:
@@ -190,7 +190,7 @@ def deep_default(d, keys, value):
                 first = False
                 continue
             try:
-                # 性能排序：if key in dict: dict[key] > dict.get > dict.setdefault > try dict[key] except
+                # Порядок производительности: if key in dict: dict[key] > dict.get > dict.setdefault > try dict[key] except
                 if exist and prev_k in d:
                     prev_d = d
                     d = d[prev_k]
@@ -200,7 +200,7 @@ def deep_default(d, keys, value):
                     d[prev_k] = new
                     d = new
             except TypeError:
-                # d 不是字典
+                # d не является словарём
                 exist = False
                 d = {}
                 prev_d[prev_k2] = {prev_k: d}
@@ -208,73 +208,73 @@ def deep_default(d, keys, value):
             prev_k2 = prev_k
             prev_k = k
             # prev_k2, prev_k = prev_k, k
-    # keys 不可迭代
+    # keys не итерируется
     except TypeError:
         return
 
-    # 最后一个键，设置默认值
+    # Последний ключ: устанавливаем значение по умолчанию
     try:
         d.setdefault(prev_k, value)
         return
-    # 最后一个 d 不是字典
+    # Последний d не является словарём
     except AttributeError:
         prev_d[prev_k2] = {prev_k: value}
         return
 
 
 def deep_pop(d, keys, default=None):
-    """从嵌套字典和列表中弹出值。"""
+    """Извлечь со значением (pop) элемент из вложенных словарей и списков."""
     if type(keys) is str:
         keys = keys.split('.')
 
     try:
         for k in keys[:-1]:
             d = d[k]
-        # 不使用 pop(k, default) 以兼容列表弹出
+        # Не используем pop(k, default), чтобы поддерживать pop у списков
         return d.pop(keys[-1])
-    # 键不存在
+    # Ключ не существует
     except KeyError:
         return default
-    # keys 不可迭代或 d 不是字典（列表索引必须是整数或切片，不能是 str）
+    # keys не итерируется или d не является словарём: индекс списка должен быть int или slice, а не str
     except TypeError:
         return default
-    # keys 索引越界
+    # Индекс keys вне диапазона
     except IndexError:
         return default
-    # 最后一个 d 不是字典（无 pop 方法）
+    # Последний d не является словарём и не имеет метода pop
     except AttributeError:
         return default
 
 
 def deep_iter_depth1(data):
-    """等价于 data.items()，但在 data 非字典时静默忽略错误。
+    """Эквивалентно data.items(), но без выброса ошибки, если data не является словарём.
 
     Args:
-        data: 待遍历的数据。
+        data: Данные для обхода.
 
     Yields:
-        Any: 键。
-        Any: 值。
+        Any: Ключ.
+        Any: Значение.
     """
     try:
         for k, v in data.items():
             yield k, v
         return
     except AttributeError:
-        # data 不是字典
+        # data не является словарём
         return
 
 
 def deep_iter_depth2(data):
-    """遍历深度为 2 的嵌套字典的键值对，是 deep_iter 的简化版本。
+    """Обойти пары ключ-значение вложенного словаря на глубину 2; упрощённая версия deep_iter.
 
     Args:
-        data: 待遍历的嵌套字典。
+        data: Вложенный словарь для обхода.
 
     Yields:
-        Any: 第一层键。
-        Any: 第二层键。
-        Any: 值。
+        Any: Ключ первого уровня.
+        Any: Ключ второго уровня.
+        Any: Значение.
     """
     try:
         for k1, v1 in data.items():
@@ -282,36 +282,36 @@ def deep_iter_depth2(data):
                 for k2, v2 in v1.items():
                     yield k1, k2, v2
     except AttributeError:
-        # data 不是字典
+        # data не является словарём
         return
 
 
 def deep_iter(data, min_depth=None, depth=3):
-    """遍历嵌套字典的键值对。
+    """Обойти пары ключ-значение вложенного словаря.
 
-    性能参考：depth=3 时遍历 alas.json（530+ 行）约 300us。
-    仅支持字典类型。
+    Справка по производительности: при depth=3 обход alas.json (530+ строк) занимает ~300 мкс.
+    Поддерживает только тип dict.
 
     Args:
-        data: 待遍历的嵌套字典。
-        min_depth: 最小遍历深度，小于此深度的层级仅用于路径构建。
-        depth: 最大遍历深度。
+        data: Вложенный словарь для обхода.
+        min_depth: Минимальная глубина обхода; уровни выше используются только для построения пути.
+        depth: Максимальная глубина обхода.
 
     Yields:
-        list[str]: 键路径。
-        Any: 值。
+        list[str]: Путь ключей.
+        Any: Значение.
     """
     if min_depth is None:
         min_depth = depth
     assert 1 <= min_depth <= depth
 
-    # 等价于 dict.items()
+    # Эквивалентно dict.items()
     try:
         if depth == 1:
             for k, v in data.items():
                 yield [k], v
             return
-        # 遍历第一层
+        # Обходим первый уровень
         elif min_depth == 1:
             q = deque()
             for k, v in data.items():
@@ -320,7 +320,7 @@ def deep_iter(data, min_depth=None, depth=3):
                     q.append((key, v))
                 else:
                     yield key, v
-        # 仅遍历目标深度
+        # Обходим только целевую глубину
         else:
             q = deque()
             for k, v in data.items():
@@ -328,19 +328,19 @@ def deep_iter(data, min_depth=None, depth=3):
                 if type(v) is dict:
                     q.append((key, v))
     except AttributeError:
-        # data 不是字典
+        # data не является словарём
         return
 
-    # 逐层遍历
+    # Поуровневый обход
     current = 2
     while current <= depth:
         new_q = deque()
-        # 最大深度
+        # Максимальная глубина
         if current == depth:
             for key, data in q:
                 for k, v in data.items():
                     yield key + [k], v
-        # 在目标深度范围内
+        # В диапазоне целевых глубин
         elif min_depth <= current < depth:
             for key, data in q:
                 for k, v in data.items():
@@ -349,7 +349,7 @@ def deep_iter(data, min_depth=None, depth=3):
                         new_q.append((subkey, v))
                     else:
                         yield subkey, v
-        # 尚未达到最小深度
+        # Минимальная глубина ещё не достигнута
         else:
             for key, data in q:
                 for k, v in data.items():
@@ -361,30 +361,30 @@ def deep_iter(data, min_depth=None, depth=3):
 
 
 def deep_values(data, min_depth=None, depth=3):
-    """遍历嵌套字典中的所有值。
+    """Обойти все значения во вложенном словаре.
 
-    性能参考：depth=3 时遍历 alas.json（530+ 行）约 300us。
-    仅支持字典类型。
+    Справка по производительности: при depth=3 обход alas.json (530+ строк) занимает ~300 мкс.
+    Поддерживает только тип dict.
 
     Args:
-        data: 待遍历的嵌套字典。
-        min_depth: 最小遍历深度。
-        depth: 最大遍历深度。
+        data: Вложенный словарь для обхода.
+        min_depth: Минимальная глубина обхода.
+        depth: Максимальная глубина обхода.
 
     Yields:
-        Any: 值。
+        Any: Значение.
     """
     if min_depth is None:
         min_depth = depth
     assert 1 <= min_depth <= depth
 
-    # 等价于 dict.values()
+    # Эквивалентно dict.values()
     try:
         if depth == 1:
             for v in data.values():
                 yield v
             return
-        # 遍历第一层
+        # Обходим первый уровень
         elif min_depth == 1:
             q = deque()
             for v in data.values():
@@ -392,26 +392,26 @@ def deep_values(data, min_depth=None, depth=3):
                     q.append(v)
                 else:
                     yield v
-        # 仅遍历目标深度
+        # Обходим только целевую глубину
         else:
             q = deque()
             for v in data.values():
                 if type(v) is dict:
                     q.append(v)
     except AttributeError:
-        # data 不是字典
+        # data не является словарём
         return
 
-    # 逐层遍历
+    # Поуровневый обход
     current = 2
     while current <= depth:
         new_q = deque()
-        # 最大深度
+        # Максимальная глубина
         if current == depth:
             for data in q:
                 for v in data.values():
                     yield v
-        # 在目标深度范围内
+        # В диапазоне целевых глубин
         elif min_depth <= current < depth:
             for data in q:
                 for v in data.values():
@@ -419,7 +419,7 @@ def deep_values(data, min_depth=None, depth=3):
                         new_q.append(v)
                     else:
                         yield v
-        # 尚未达到最小深度
+        # Минимальная глубина ещё не достигнута
         else:
             for data in q:
                 for v in data.values():
@@ -430,18 +430,18 @@ def deep_values(data, min_depth=None, depth=3):
 
 
 def deep_iter_diff(before, after):
-    """遍历两个字典之间的差异。
+    """Обойти различия между двумя словарями.
 
-    比较两个深度嵌套字典时速度很快，耗时与差异数量成正比。
+    Сравнение двух глубоко вложенных словарей выполняется очень быстро; время пропорционально количеству различий.
 
     Args:
-        before: 变更前的字典。
-        after: 变更后的字典。
+        before: Словарь до изменений.
+        after: Словарь после изменений.
 
     Yields:
-        list[str]: 键路径。
-        Any: before 中的值，不存在则为 None。
-        Any: after 中的值，不存在则为 None。
+        list[str]: Путь ключей.
+        Any: Значение в before, либо None при отсутствии.
+        Any: Значение в after, либо None при отсутствии.
     """
     if before == after:
         return
@@ -459,8 +459,8 @@ def deep_iter_diff(before, after):
                 try:
                     val2 = d2[key]
                 except KeyError:
-                    # 安全访问 d1[key]，因为 key 来自两者的并集
-                    # 如果不在 d2 中则一定在 d1 中
+                    # Безопасно обращаемся к d1[key], поскольку key взят из объединения обоих словарей
+                    # Если его нет в d2, он обязательно есть в d1
                     yield path + [key], d1[key], None
                     continue
                 try:
@@ -468,7 +468,7 @@ def deep_iter_diff(before, after):
                 except KeyError:
                     yield path + [key], None, val2
                     continue
-                # 先比较字典，速度很快
+                # Сначала сравниваем словари — это быстро
                 if val1 != val2:
                     if type(val1) is dict and type(val2) is dict:
                         new_queue.append((path + [key], val1, val2))
@@ -480,18 +480,18 @@ def deep_iter_diff(before, after):
 
 
 def deep_iter_patch(before, after):
-    """遍历从 before 到 after 的补丁事件，类似生成 json-patch。
+    """Обойти события патча от before к after, аналогично генерации json-patch.
 
-    比较两个深度嵌套字典时速度很快，耗时与差异数量成正比。
+    Сравнение двух глубоко вложенных словарей выполняется очень быстро; время пропорционально количеству различий.
 
     Args:
-        before: 变更前的字典。
-        after: 变更后的字典。
+        before: Словарь до изменений.
+        after: Словарь после изменений.
 
     Yields:
-        str: 操作类型，OP_ADD、OP_SET 或 OP_DEL。
-        list[str]: 键路径。
-        Any: after 中的值，OP_DEL 事件时为 None。
+        str: Тип операции: OP_ADD, OP_SET или OP_DEL.
+        list[str]: Путь ключей.
+        Any: Значение в after, либо None при событии OP_DEL.
     """
     if before == after:
         return
@@ -516,7 +516,7 @@ def deep_iter_patch(before, after):
                 except KeyError:
                     yield OP_ADD, path + [key], val2
                     continue
-                # 先比较字典，速度很快
+                # Сначала сравниваем словари — это быстро
                 if val1 != val2:
                     if type(val1) is dict and type(val2) is dict:
                         new_queue.append((path + [key], val1, val2))

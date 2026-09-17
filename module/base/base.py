@@ -1,15 +1,16 @@
-"""模块基类定义。
+"""Определение базового модуля.
 
-定义所有游戏逻辑模块的最高基类 ModuleBase，整合配置管理、设备控制、
-UI 导航、任务循环控制及基本异常处理逻辑，是所有功能模块的公共祖先。
+Определяет высший базовый класс ModuleBase для всех модулей игровой логики, объединяя
+управление конфигурацией, контроль устройства, навигацию по UI, управление циклами задач
+и базовую логику обработки исключений, являясь общим предком всех функциональных модулей.
 """
 
 from typing import Tuple, Union
 
 from module.base.button import Button
 from module.base.decorator import cached_property
-# 此文件定义了 Alas 逻辑模块的最高基类 ModuleBase。
-# 作为所有具体功能模块（如出击、大世界、每日任务等）的公共祖先，它整合了 UI 导航、任务循环控制及基本异常处理逻辑。
+# Этот файл определяет высший базовый класс логических модулей Alas — ModuleBase.
+# Как общий предок всех конкретных функциональных модулей, он объединяет UI-навигацию, управление циклами задач и базовую обработку исключений.
 from module.base.timer import Timer
 from module.base.utils import *
 from module.combat.emotion import Emotion
@@ -31,16 +32,18 @@ class ModuleBase:
 
     def __init__(self, config, device=None, task=None):
         """
-        初始化模块基类，绑定配置和设备。
+        Инициализация базового класса модуля, привязка конфигурации и устройства.
 
         Args:
-            config: 配置对象或配置名称。
-                传入 AzurLaneConfig 实例直接使用，传入 str 则从 ./config/ 下加载。
-            device: 设备对象、设备序列号或 None。
-                传入 Device 实例复用已有设备，传入 str 以指定模拟器序列号，
-                None 则自动创建新设备。
-            task: 绑定的任务名称，仅用于开发调试。
-                自动调度时通常为 None，使用默认配置。
+            config: Объект конфигурации или имя конфигурации.
+                При передаче экземпляра AzurLaneConfig используется напрямую,
+                при передаче str загружается из ./config/.
+            device: Объект устройства, серийный номер устройства или None.
+                При передаче экземпляра Device повторно используется существующее устройство,
+                при передаче str задаётся серийный номер эмулятора,
+                при None автоматически создаётся новое устройство.
+            task: Имя привязанной задачи, используется только для разработки и отладки.
+                При автоматическом диспетчеризировании обычно None с конфигурацией по умолчанию.
         """
         if isinstance(config, AzurLaneConfig):
             self.config = config
@@ -76,17 +79,18 @@ class ModuleBase:
 
     def early_ocr_import(self):
         """
-        异步预导入 OCR 模型。
+        Асинхронный предварительный импорт моделей OCR.
 
-        在实例刚启动截图时，后台线程预先加载 cnocr 等 OCR 依赖。
-        截图是 I/O 密集型，导入是 CPU 密集型，两者并行可加速启动 0.5~5 秒。
+        При запуске создания снимка экрана фоновый поток заранее загружает зависимости
+        OCR, такие как cnocr. Снимок экрана — I/O-интенсивная операция, импорт — CPU-интенсивная,
+        их параллельное выполнение ускоряет запуск на 0.5~5 секунд.
         """
         return
 
     @cached_class_property
     def worker(self):
         """
-        后台线程池，用于执行非阻塞的后台任务。
+        Пул фоновых потоков для выполнения неблокирующих фоновых задач.
 
         Examples:
             >>> def func(image):
@@ -108,29 +112,29 @@ class ModuleBase:
 
     def loop(self, skip_first=True, timeout=None):
         """
-        状态循环的语法糖，每次迭代自动截图。
+        Синтаксический сахар для цикла состояний с автоматическим созданием снимка экрана на каждой итерации.
 
         Args:
-            skip_first: 为 True 时复用上一次截图，避免冗余捕获。
-            timeout: 超时秒数或 Timer 对象，超时后自动退出循环。
+            skip_first: Если True, повторно использует предыдущий снимок во избежание лишнего захвата.
+            timeout: Таймаут в секундах или объект Timer; по истечении таймаута автоматически завершает цикл.
 
         Yields:
-            np.ndarray: 当前截图。
+            np.ndarray: Текущий снимок экрана.
 
         Examples:
-            基本状态循环：
+            Базовый цикл состояний:
             >>> for _ in self.loop():
             ...     if self.appear(END_CONDITION):
             ...         break
             ...     if self.appear_then_click(BUTTON_A):
             ...         continue
 
-            带超时的状态循环：
+            Цикл состояний с таймаутом:
             >>> for _ in self.loop(timeout=2):
             ...     if self.appear(END_CONDITION):
             ...         break
             >>> else:
-            ...     logger.warning('等待超时')
+            ...     logger.warning('Ожидание истекло')
         """
         if timeout is not None:
             if isinstance(timeout, Timer):
@@ -156,13 +160,13 @@ class ModuleBase:
 
     def loop_hierarchy(self, skip_first=True):
         """
-        层级结构状态循环的语法糖，每次迭代自动获取 UI 层级树。
+        Синтаксический сахар для цикла состояний иерархической структуры с автоматическим получением дерева UI.
 
         Args:
-            skip_first: 为 True 时复用上一次层级数据。
+            skip_first: Если True, повторно использует предыдущие данные иерархии.
 
         Yields:
-            etree._Element: 当前 UI 层级树。
+            etree._Element: Текущее дерево иерархии UI.
         """
         while 1:
             if skip_first:
@@ -173,13 +177,13 @@ class ModuleBase:
 
     def loop_screenshot_hierarchy(self, skip_first=True):
         """
-        同时获取截图和层级树的状态循环语法糖。
+        Синтаксический сахар для цикла состояний с одновременным получением снимка экрана и дерева иерархии.
 
         Args:
-            skip_first: 为 True 时复用上一次截图和层级数据。
+            skip_first: Если True, повторно использует предыдущий снимок и данные иерархии.
 
         Yields:
-            tuple[np.ndarray, etree._Element]: (截图, UI层级树)。
+            tuple[np.ndarray, etree._Element]: (снимок экрана, дерево иерархии UI).
         """
         while 1:
             if skip_first:
@@ -191,23 +195,24 @@ class ModuleBase:
 
     def appear(self, button, offset: Union[bool, int, Tuple[int, int]] = 0, interval=0, similarity=0.85, threshold=10):
         """
-        检测按钮/模板/层级元素是否出现在当前截图上。
+        Определяет, отображается ли кнопка/шаблон/элемент иерархии на текущем снимке экрана.
 
-        支持三种检测模式：
-        - 颜色检测（默认）：通过区域平均颜色判断
-        - 模板匹配（offset 非零）：通过图像模板匹配判断
-        - 层级检测（HierarchyButton）：通过 xpath 查找 UI 层级树
+        Поддерживает три режима обнаружения:
+        - Обнаружение по цвету (по умолчанию): определение по среднему цвету области
+        - Сопоставление с шаблоном (offset не 0): определение по совпадению с шаблоном изображения
+        - Обнаружение по иерархии (HierarchyButton): поиск в дереве иерархии UI по xpath
 
         Args:
-            button: 待检测的 Button、Template、HierarchyButton 或 xpath 字符串。
-            offset: 启用模板匹配的偏移量。
-                False/0 表示使用颜色检测，True 使用默认偏移，int/tuple 指定偏移范围。
-            interval: 两次检测之间的最小间隔秒数，防止快速重复触发。
-            similarity: 模板匹配相似度阈值，0~1。
-            threshold: 颜色检测容差，0~255，值越小要求越严格。
+            button: Проверяемый Button, Template, HierarchyButton или строка xpath.
+            offset: Смещение для сопоставления с шаблоном.
+                False/0 означает использование проверки цвета, True использует смещение по умолчанию,
+                int/tuple задаёт диапазон смещения.
+            interval: Минимальный интервал в секундах между двумя проверками для предотвращения частых срабатываний.
+            similarity: Порог сходства шаблона, от 0 до 1.
+            threshold: Допуск при проверке цвета, 0~255; чем меньше значение, тем строже проверка.
 
         Returns:
-            bool: 元素是否出现。
+            bool: Отображается ли элемент.
         """
         button = self.ensure_button(button)
         self.device.stuck_record_add(button)
@@ -237,19 +242,20 @@ class ModuleBase:
 
     def match_template_color(self, button, offset=(20, 20), interval=0, similarity=0.85, threshold=30):
         """
-        同时使用模板匹配和颜色检测来判断按钮是否出现。
+        Одновременно использует сопоставление с шаблоном и проверку цвета для определения наличия кнопки.
 
-        与 `appear()` 不同，此方法要求模板匹配和颜色检测同时通过。
+        В отличие от `appear()`, данный метод требует успешного прохождения как сопоставления шаблона,
+        так и проверки цвета.
 
         Args:
-            button: 待检测的 Button 实例。
-            offset: 模板匹配的偏移范围。
-            interval: 两次检测之间的最小间隔秒数。
-            similarity: 模板匹配相似度阈值，0~1。
-            threshold: 颜色检测容差，0~255。
+            button: Проверяемый экземпляр Button.
+            offset: Диапазон смещения шаблона.
+            interval: Минимальный интервал между проверками в секундах.
+            similarity: Порог сходства шаблона, от 0 до 1.
+            threshold: Допуск при проверке цвета, от 0 до 255.
 
         Returns:
-            bool: 按钮是否出现。
+            bool: Отображается ли кнопка.
         """
         button = self.ensure_button(button)
         self.device.stuck_record_add(button)
@@ -281,7 +287,7 @@ class ModuleBase:
                 self.device.sleep(self.config.WAIT_BEFORE_SAVING_SCREEN_SHOT)
                 self.device.screenshot()
                 self.device.save_screenshot(genre=genre)
-            self.device.sleep(0.1)  # 因为点击太快被多退役了一艘联动金船惨案QAQ
+            self.device.sleep(0.1)  # Трагический случай: из-за слишком быстрого клика отправили в отставку лишний золотой корабль коллаборации QAQ
             self.device.click(button)
         return appear
 
@@ -330,14 +336,14 @@ class ModuleBase:
 
     def image_crop(self, button, copy=True):
         """
-        从当前截图中裁剪指定区域。
+        Обрезает заданную область из текущего снимка экрана.
 
         Args:
-            button: Button 实例或区域元组 (x1, y1, x2, y2)。
-            copy: 是否复制裁剪结果，False 时返回原图视图以节省内存。
+            button: Экземпляр Button или кортеж области (x1, y1, x2, y2).
+            copy: Копировать ли результат обрезки; если False, возвращает срез исходного изображения для экономии памяти.
 
         Returns:
-            np.ndarray: 裁剪后的图像。
+            np.ndarray: Обрезанное изображение.
         """
         if isinstance(button, Button):
             return crop(self.device.image, button.area, copy=copy)
@@ -348,16 +354,16 @@ class ModuleBase:
 
     def image_color_count(self, button, color, threshold=221, count=50):
         """
-        统计指定区域中接近目标颜色的像素数量，判断是否达标。
+        Подсчитывает количество пикселей, близких к целевому цвету в указанной области, определяя достижение порога.
 
         Args:
-            button: Button 实例、区域元组或 np.ndarray 图像。
-            color: 目标 RGB 颜色值。
-            threshold: 颜色相似度容差，255 表示完全相同，值越小要求越严格。
-            count: 像素数量阈值，超过此数返回 True。
+            button: Экземпляр Button, кортеж области или изображение np.ndarray.
+            color: Целевое значение цвета RGB.
+            threshold: Допуск сходства цвета, 255 означает полное совпадение; чем меньше значение, тем строже критерий.
+            count: Порог количества пикселей; при превышении возвращает True.
 
         Returns:
-            bool: 匹配像素数是否超过阈值。
+            bool: Превышает ли число совпадающих пикселей заданный порог.
         """
         if isinstance(button, np.ndarray):
             image = button
@@ -367,22 +373,22 @@ class ModuleBase:
 
     def image_color_button(self, area, color, color_threshold=250, encourage=5, name='COLOR_BUTTON'):
         """
-        在指定区域中查找纯色区域，将其转换为可点击的 Button。
+        Находит однотонную область в пределах заданных координат и преобразует её в кликабельный Button.
 
         Args:
-            area: 搜索区域 (x1, y1, x2, y2)。
-            color: 目标 RGB 颜色值。
-            color_threshold: 颜色匹配容差，0~255，255 表示精确匹配。
-            encourage: 生成按钮的半径。
-            name: 按钮名称。
+            area: Область поиска (x1, y1, x2, y2).
+            color: Целевое значение цвета RGB.
+            color_threshold: Допуск совпадения цвета, 0~255, где 255 — точное совпадение.
+            encourage: Радиус генерируемой кнопки.
+            name: Имя кнопки.
 
         Returns:
-            Button: 匹配成功返回 Button 实例，否则返回 None。
+            Button: При успешном совпадении возвращает экземпляр Button, иначе None.
         """
         image = color_similarity_2d(self.image_crop(area, copy=False), color=color)
         points = np.array(np.where(image > color_threshold)).T[:, ::-1]
         if points.shape[0] < encourage ** 2:
-            # 匹配像素不足，无法生成有效按钮
+            # Недостаточно подходящих пикселей для создания корректной кнопки
             return None
 
         point = fit_points(points, mod=image_size(image), encourage=encourage)
@@ -443,9 +449,10 @@ class ModuleBase:
     @image_file.setter
     def image_file(self, value):
         """
-        从本地文件加载测试图像，用于开发调试。
+        Загружает тестовое изображение из локального файла, используется для разработки и отладки.
 
-        将图片加载到 self.device.image，无需连接模拟器即可测试图像识别逻辑。
+        Загружает изображение в self.device.image, позволяя тестировать логику распознавания
+        изображений без подключения к эмулятору.
         """
         if isinstance(value, Image.Image):
             value = np.array(value)
@@ -458,9 +465,9 @@ class ModuleBase:
 
     def set_server(self, server):
         """
-        切换游戏服务器，全局生效（仅用于开发调试）。
+        Переключает игровой сервер глобально (используется только для разработки и отладки).
 
-        切换后影响资源文件路径和服务器特定方法的分发。
+        После переключения влияет на пути к файлам ресурсов и диспетчеризацию специфичных для сервера методов.
         """
         package = to_package(server)
         self.device.package = package

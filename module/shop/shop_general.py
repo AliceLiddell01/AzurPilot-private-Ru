@@ -1,5 +1,5 @@
-"""通用商店处理器，支持金币和钻石两种货币购买商品。
-支持 2025-08-14 新 UI 布局，可配置是否允许使用钻石。
+"""Обработчик общего магазина, поддерживающий покупку товаров за монеты и алмазы.
+Поддерживает структуру интерфейса от 2025-08-14, настраивается разрешение на использование алмазов.
 """
 
 from module.base.decorator import cached_property
@@ -12,11 +12,11 @@ from module.ui.page import page_meowfficer
 
 
 class GeneralShop_250814(ShopClerk, ShopUI, ShopStatus):
-    """通用商店处理器 (2025-08-14 新 UI)。
+    """Обработчик общего магазина (новый интерфейс от 2025-08-14).
 
-    Pages: in: page_shop (general shop tab)
+    Pages: in: page_shop (вкладка общего магазина)
 
-    支持金币和钻石两种货币购买，可配置是否允许使用钻石。
+    Поддерживает покупку за монеты и алмазы, с настройкой разрешения на трату алмазов.
     """
 
     gems = 0
@@ -24,20 +24,20 @@ class GeneralShop_250814(ShopClerk, ShopUI, ShopStatus):
 
     @cached_property
     def shop_filter(self):
-        """获取通用商店过滤器。
+        """Получить строку фильтра общего магазина.
 
         Returns:
-            str: 过滤器字符串
+            str: Строка фильтра
         """
         return self.config.GeneralShop_Filter.strip()
 
-    # 2025-08-14 新 UI
+    # Новый UI от 2025-08-14
     @cached_property
     def shop_general_items(self):
-        """加载通用商店商品模板和配置。
+        """Загрузить шаблоны и конфигурацию товаров общего магазина.
 
         Returns:
-            ShopItemGrid_250814: 商店商品网格对象
+            ShopItemGrid_250814: Объект сетки товаров магазина
         """
         shop_grid = self.shop_grid
 
@@ -54,25 +54,25 @@ class GeneralShop_250814(ShopClerk, ShopUI, ShopStatus):
         return shop_general_items
 
     def shop_items(self):
-        """获取商店商品网格的统一接口。
+        """Единый интерфейс получения сетки товаров магазина.
 
-        所有商店共享相同的属性名。如存在服务器语言差异，
-        参考 shop_guild/medal 的 @Config 用法。
+        Все магазины используют общее имя свойства. При языковых различиях серверов
+        см. использование @Config в shop_guild/medal.
 
         Returns:
-            ShopItemGrid_250814: 商店商品网格
+            ShopItemGrid_250814: Сетка товаров магазина
         """
         return self.shop_general_items
 
     currency_rechecked = 0
 
     def shop_currency(self):
-        """OCR 识别通用商店货币数量（金币和钻石）。
+        """OCR-распознавание количества валюты общего магазина (монеты и алмазы).
 
-        通过状态检测获取当前金币和钻石余额并记录日志。
+        Определяет текущий баланс монет и алмазов через проверку статуса и записывает в лог.
 
         Returns:
-            int: 金币数量
+            int: Количество монет
         """
         while 1:
             self._currency = self.status_get_gold_coins()
@@ -88,13 +88,13 @@ class GeneralShop_250814(ShopClerk, ShopUI, ShopStatus):
         return self._currency
 
     def shop_check_item(self, item):
-        """检查商品是否可购买（基于货币余额）。
+        """Проверить доступность товара для покупки (исходя из баланса валюты).
 
         Args:
-            item: 待检查的商品对象
+            item: Проверяемый объект товара
 
         Returns:
-            bool: 是否可购买
+            bool: Доступен ли для покупки
         """
         if item.cost == 'Coins':
             if item.price > self._currency:
@@ -110,20 +110,20 @@ class GeneralShop_250814(ShopClerk, ShopUI, ShopStatus):
         return False
 
     def shop_check_custom_item(self, item):
-        """检查自定义商品是否满足特定购买条件。
+        """Проверить, удовлетворяет ли кастомный товар особым условиям покупки.
 
-        处理需要特殊判断的商品，如物资超过 ConsumeCoins 阈值时
-        自动购买消耗物资的商品，或购买装备外观箱。
+        Обрабатывает товары, требующие специальной проверки: автоматическая покупка
+        товаров при превышении порога ConsumeCoins или покупка ящиков скинов снаряжения.
 
         Args:
-            item: 待检查的商品对象
+            item: Проверяемый объект товара
 
         Returns:
-            bool: 是否为满足条件的自定义商品
+            bool: Является ли товар подходящим кастомным товаром
         """
         consume_coins = self.config.GeneralShop_ConsumeCoins
-        # 阈值验证：必须 > 0 且 <= 600000
-        # 类型安全由 run() → _validate_config_values() 中的规范化保证
+        # Проверка порога: должен быть > 0 и <= 600000
+        # Типобезопасность гарантируется нормализацией в run() → _validate_config_values()
         if consume_coins > 0 and consume_coins <= 600000:
             if self._currency >= consume_coins:
                 if item.cost == 'Coins':
@@ -131,7 +131,7 @@ class GeneralShop_250814(ShopClerk, ShopUI, ShopStatus):
 
         if self.config.GeneralShop_BuySkinBox:
             if (not item.is_known_item()) and item.amount == 1 and item.cost == 'Coins' and item.price == 7000:
-                # 装备外观箱无法通过模板匹配识别（颜色和外观持续变化）
+                # Ящик внешнего вида снаряжения нельзя распознать сопоставлением шаблонов: цвет и внешний вид постоянно меняются
                 logger.info(f'[Магазин — товар] Товар {item} считается ящиком внешнего вида снаряжения')
                 if self._currency >= item.price:
                     return True
@@ -140,17 +140,17 @@ class GeneralShop_250814(ShopClerk, ShopUI, ShopStatus):
 
     @staticmethod
     def _normalize_threshold(value, name):
-        """验证并修正阈值配置值。
+        """Проверить и скорректировать значение порога в конфигурации.
 
-        检测值是否为有效的 int 类型（排除 bool）且在 0-600000 范围内，
-        无效则返回 0 并记录警告。有效范围：0 表示关闭功能，1-600000 表示启用。
+        Проверяет, является ли значение допустимым int (исключая bool) и лежит ли в диапазоне 0–600000;
+        при некорректности возвращает 0 и записывает предупреждение. Допустимый диапазон: 0 — отключить функцию, 1–600000 — включить.
 
         Args:
-            value: 待验证的阈值。
-            name: 配置项名称（用于日志）。
+            value: Проверяемое значение порога.
+            name: Имя параметра конфигурации (для логирования).
 
         Returns:
-            int: 规范化后的阈值（0 或有效范围内的 int）。
+            int: Нормализованный порог (0 или int в допустимом диапазоне).
         """
         if isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 600000:
             return value
@@ -159,22 +159,22 @@ class GeneralShop_250814(ShopClerk, ShopUI, ShopStatus):
         return 0
 
     def _meowfficer_overflow_buy(self):
-        """金币溢出时自动购买猫箱。
+        """Автоматическая покупка ящиков Мяуфицеров при избытке монет.
 
-        当金币超过 OverflowCoins 阈值时，导航到指挥喵界面购买猫箱，
-        直到金币降至阈值以下或达到每日15个购买限制。
-        阈值范围 1-600000，超出范围视为无效并跳过功能。
+        Когда количество монет превышает порог OverflowCoins, переходит на экран Мяуфицеров
+        для покупки ящиков, пока баланс монет не опустится ниже порога или не будет достигнут суточный лимит 15 штук.
+        Диапазон порога: 1–600000; выход за диапазон считается недопустимым и пропускает функцию.
 
         Pages: in: page_shop, out: page_main
         """
         overflow_coins = self.config.GeneralShop_OverflowCoins
 
-        # 阈值检查：<= 0 表示功能关闭
-        # 类型安全由 run() → _validate_config_values() 中的规范化保证
+        # Проверка порога: <= 0 означает, что функция отключена
+        # Типобезопасность гарантируется нормализацией в run() → _validate_config_values()
         if overflow_coins <= 0:
             return
 
-        # 重新OCR识别金币（购买消耗物资后金币可能已变化）
+        # Повторно распознаём монеты через OCR: после покупок их количество могло измениться
         self.shop_currency()
         if self._currency <= overflow_coins:
             logger.info(f'[Магазин — избыток] Монеты {self._currency} <= порога избытка {overflow_coins}; покупка Мяуфицеров из избытка пропущена')
@@ -183,29 +183,29 @@ class GeneralShop_250814(ShopClerk, ShopUI, ShopStatus):
         logger.hr('Покупка Мяуфицеров из избытка', level=1)
         logger.info(f'[Магазин — избыток] Монеты {self._currency} > порога избытка {overflow_coins}; запуск покупки Мяуфицеров из избытка')
 
-        # 导航到指挥喵界面
+        # Переходим на экран Мяуфицеров
         self.ui_goto(page_meowfficer)
 
-        # 等待界面加载完成
+        # Ждём полной загрузки интерфейса
         from module.meowfficer.buy import MeowfficerBuy
         meow = MeowfficerBuy(config=self.config, device=self.device)
         meow.wait_meowfficer_buttons()
 
-        # 执行猫箱溢出购买
+        # Выполняем покупку ящиков при избытке монет
         meow.meow_overflow_buy(overflow_coins=overflow_coins)
 
-        # 返回主界面
+        # Возвращаемся на главный экран
         self.ui_goto_main()
 
     def _validate_config_values(self):
-        """验证并修正配置值。
+        """Проверить и скорректировать значения конфигурации.
 
-        检测 ConsumeCoins 和 OverflowCoins 的异常值（不在 0-600000 范围内，
-        或类型非 int（如旧数据中的 bool）），并将异常值强制设置为零。
+        Выявляет аномальные значения ConsumeCoins и OverflowCoins (вне диапазона 0–600000
+        или некорректного типа, например bool из старых данных) и принудительно устанавливает их в 0.
 
-        有效范围：0 表示关闭功能，1-600000 表示启用功能并设置阈值。
-        必须为 int 类型：Python 中 bool 是 int 的子类，True > 0 恒为 True，
-        旧数据中的布尔值会导致消费溢出逻辑永远触发。
+        Допустимый диапазон: 0 — отключить функцию, 1–600000 — включить функцию с установкой порога.
+        Значение обязано быть int: в Python bool является подклассом int (True > 0 всегда True),
+        поэтому булевы значения из старых данных приводили бы к вечному срабатыванию покупки избытка.
         """
         self.config.GeneralShop_ConsumeCoins = self._normalize_threshold(
             self.config.GeneralShop_ConsumeCoins, 'ConsumeCoins')
@@ -213,14 +213,14 @@ class GeneralShop_250814(ShopClerk, ShopUI, ShopStatus):
             self.config.GeneralShop_OverflowCoins, 'OverflowCoins')
 
     def run(self):
-        """运行通用商店购买流程。
+        """Запустить процесс покупки в общем магазине.
 
-        Pages: in: page_shop (general shop tab)
+        Pages: in: page_shop (вкладка общего магазина)
 
-        按照过滤器配置购买通用商店商品，支持刷新。
-        购买完成后，若金币超过溢出阈值则自动购买猫箱。
+        Покупает товары общего магазина по настройкам фильтра, поддерживает обновление ассортимента.
+        После завершения покупок, если баланс монет превышает порог избытка, автоматически покупает ящики Мяуфицеров.
         """
-        # 配置值验证：检测并修正异常值
+        # Проверяем и исправляем некорректные значения конфигурации
         self._validate_config_values()
 
         if not self.shop_filter:
@@ -228,7 +228,7 @@ class GeneralShop_250814(ShopClerk, ShopUI, ShopStatus):
 
         logger.hr('Общий магазин', level=1)
 
-        # 执行购买操作，启用刷新时最多尝试 2 次
+        # Выполняем покупки; при включённом обновлении делаем не более 2 попыток
         refresh = self.config.GeneralShop_Refresh
         for _ in range(2):
             success = self.shop_buy()
@@ -238,5 +238,5 @@ class GeneralShop_250814(ShopClerk, ShopUI, ShopStatus):
                 continue
             break
 
-        # 金币溢出购买猫箱
+        # При избытке монет покупаем ящики Мяуфицеров
         self._meowfficer_overflow_buy()

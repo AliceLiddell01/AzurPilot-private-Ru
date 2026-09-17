@@ -3,8 +3,8 @@
 图标按钮组和任务队列编辑器等组件。"""
 
 import copy
-# 此文件定义了 WebUI 中使用的各种自定义交互图形组件（Widgets）。
-# 包含彩色实时日志渲染器（RichLog）、状态感知切换按钮以及图标按钮组等高度定制化的可视化组件。
+# В этом файле определены различные пользовательские интерактивные графические компоненты (widgets), используемые в WebUI.
+# В их числе цветной рендерер журнала реального времени RichLog, переключатели с учётом состояния и группы кнопок с иконками.
 import html
 import io
 import json
@@ -90,7 +90,7 @@ class ScrollableCode:
     last_display_time: dict
 
     def set_scroll(self, b: bool) -> None:
-        # 用于 lambda 回调函数中设置是否保持滚动到底部
+        # Используется в lambda-callback для настройки удержания прокрутки внизу
         self.keep_bottom = b
 
 
@@ -112,7 +112,7 @@ class RichLog:
             highlighter=Highlighter(),
             theme=WEB_THEME,
         )
-        # 以下为已废弃的宽度回调相关代码，保留供参考
+        # Ниже оставлен для справки устаревший код callback-а ширины
         # self.callback_id = output_register_callback(
         #     self._callback_set_width, serial_mode=True)
         # self._callback_thread = None
@@ -136,7 +136,7 @@ class RichLog:
             code_format=LOG_CODE_FORMAT,
             inline_styles=True,
         )
-        # 调试：打印生成的 HTML
+        # Отладка: вывод сгенерированного HTML
         return html
 
     def extend(self, text):
@@ -168,11 +168,11 @@ class RichLog:
         )
 
     def set_scroll(self, b: bool) -> None:
-        # 用于 lambda 回调函数中设置是否保持滚动到底部
+        # Используется в lambda-callback для настройки удержания прокрутки внизу
         self.keep_bottom = b
 
     def set_dashboard_display(self, b: bool) -> None:
-        # 用于 lambda 回调函数中设置是否显示仪表盘
+        # Используется в lambda-callback для настройки отображения панели мониторинга
         self.display_dashboard = b
         self.first_display = True
 
@@ -195,7 +195,7 @@ class RichLog:
         width = eval_js(js)
         return 80 if width is None else 128 if width > 128 else int(width)
 
-    # 以下为已废弃的窗口宽度自适应回调代码，保留供参考
+    # Ниже оставлен для справки устаревший callback-код адаптации к ширине окна
     # def _register_resize_callback(self):
     #     js = """
     #     WebIO.pushData(
@@ -301,7 +301,7 @@ class BinarySwitchButton(Switch):
         put_button(label=label, onclick=onclick, color=color, scope=self.scope)
 
 
-# 侧边栏图标按钮
+# Кнопки с иконками на боковой панели
 
 
 def put_icon_buttons(
@@ -343,7 +343,7 @@ def put_none() -> Output:
     return put_html("<div></div>")
 
 
-# 配置表单同时承载字符串、布尔值、列表、输出组件及服务器专属选项。
+# Форма конфигурации одновременно содержит строки, логические значения, списки, компоненты вывода и серверные параметры.
 T_Output_Kwargs = Dict[str, Any]
 
 
@@ -365,7 +365,7 @@ def get_title_help(kwargs: T_Output_Kwargs) -> Output:
     return res
 
 
-# 参数输入组件
+# Компоненты ввода аргументов
 def put_arg_input(kwargs: T_Output_Kwargs) -> Output:
     name: str = kwargs["name"]
     after: Optional[Output] = kwargs.pop("after", None)
@@ -831,7 +831,7 @@ def put_arg_task_priority(kwargs: T_Output_Kwargs) -> Output:
 
 
 def put_arg_checkbox(kwargs: T_Output_Kwargs) -> Output:
-    # 非真正复选框，用作开关（开/关）
+    # Не настоящий checkbox, используется как переключатель (вкл./выкл.)
     name: str = kwargs["name"]
     value: str = kwargs["value"]
     _: str = kwargs.pop("invalid_feedback", None)
@@ -901,7 +901,7 @@ def put_arg_multiselect(kwargs: T_Output_Kwargs) -> Output:
     options: List[str] = kwargs.get("options", [])
     options_label: List[str] = kwargs.pop("options_label", [])
     _: str = kwargs.pop("invalid_feedback", None)
-    # 从 kwargs 中移除多余的键，避免传递给 put_checkbox 造成冲突
+    # Удаляем из kwargs лишние ключи, чтобы не передавать их в put_checkbox и не вызвать конфликт
     for key in ("disabled", "value", "options"):
         kwargs.pop(key, None)
 

@@ -27,7 +27,7 @@ class ExecutionError(Exception):
 
 
 class ConfigModel:
-    # Python 配置
+    # Конфигурация Python
     PythonExecutable: str = (
         "./.venv/Scripts/python.exe"
         if sys.platform == "win32"
@@ -36,7 +36,7 @@ class ConfigModel:
     PypiMirror: Optional[str] = None
     InstallDependencies: bool = True
 
-    # ADB 配置
+    # Конфигурация ADB
     AdbExecutable: str = (
         "./.venv/Scripts/adb.exe"
         if sys.platform == "win32"
@@ -46,19 +46,19 @@ class ConfigModel:
     AutoConnect: bool = True
     InstallUiautomator2: bool = True
 
-    # OCR 配置
+    # Конфигурация OCR
     UseOcrServer: bool = False
     StartOcrServer: bool = False
     OcrServerPort: int = 22268
     OcrClientAddress: str = "127.0.0.1:22268"
 
-    # WebUI supervisor 配置
+    # Конфигурация supervisor WebUI
     EnableReload: bool = True
 
-    # 杂项
+    # Прочее
     DiscordRichPresence: bool = False
 
-    # 远程访问
+    # Удалённый доступ
     EnableRemoteAccess: bool = False
     RemoteAccessMode: str = "auto"
     SSHUser: Optional[str] = None
@@ -69,7 +69,7 @@ class ConfigModel:
     TurnServers: Optional[str] = None
     TurnCredentialMode: str = "static"
 
-    # WebUI 配置
+    # Конфигурация WebUI
     WebuiHost: str = "0.0.0.0"
     WebuiPort: int = 25548
     RuntimeHandoverGraceSeconds: int = 30

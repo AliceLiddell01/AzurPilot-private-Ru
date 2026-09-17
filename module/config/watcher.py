@@ -1,7 +1,8 @@
-"""配置文件监控模块。
+"""Модуль наблюдения за файлами конфигурации.
 
-定义 ConfigWatcher 类，通过跟踪配置文件的修改时间来检测文件变更，
-支持在任务间自动热重载配置，避免重启应用。
+Определяет класс ConfigWatcher, отслеживающий изменения файлов конфигурации
+по времени их последней модификации. Обеспечивает автоматическую горячую
+перезагрузку конфигурации между задачами без перезапуска приложения.
 """
 
 import os
@@ -19,16 +20,16 @@ class ConfigWatcher:
         self.start_mtime = self.get_mtime()
 
     def get_mtime(self) -> datetime:
-        """获取配置文件的最后修改时间。"""
+        """Получить время последней модификации файла конфигурации."""
         timestamp = os.stat(filepath_config(self.config_name)).st_mtime
         mtime = datetime.fromtimestamp(timestamp).replace(microsecond=0)
         return mtime
 
     def should_reload(self) -> bool:
-        """检查配置文件是否已被修改，需要重新加载。
+        """Проверить, был ли файл конфигурации изменён и требуется ли перезагрузка.
 
         Returns:
-            bool: 文件是否已修改。
+            bool: Был ли файл модифицирован.
         """
         mtime = self.get_mtime()
         if mtime > self.start_mtime:

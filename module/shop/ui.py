@@ -1,5 +1,5 @@
-"""商店 UI 导航处理，管理商店页面的标签切换和导航栏。
-支持 2025-08-14 新 UI 的底部导航栏和标签页切换。
+"""Обработка навигации UI магазина: переключение вкладок и навигационных панелей.
+Поддерживает нижнюю панель навигации и вкладки нового интерфейса от 2025-08-14.
 """
 
 from module.base.button import ButtonGrid
@@ -18,13 +18,13 @@ class ShopUI(UI):
     @cached_property
     def _shop_bottom_navbar(self):
         """
-        以下信息基于 shop_swipe 之后的布局。
-        shop_bottom_navbar 有 5 个选项：
-            medal（勋章）
-            guild（舰队）
-            prototype（原型）
-            core（核心）
-            merit（功勋）
+        Информация ниже основана на расположении после shop_swipe.
+        У shop_bottom_navbar есть 5 вариантов:
+            medal (медали)
+            guild (гильдия)
+            prototype (прототипы)
+            core (ядро)
+            merit (заслуги)
         """
         shop_bottom_navbar = ButtonGrid(
             origin=(399, 619), delta=(182, 0),
@@ -37,15 +37,15 @@ class ShopUI(UI):
 
     def shop_bottom_navbar_ensure(self, left=None, right=None):
         """
-        确保能够跳转到对应页面，且页面已完全加载。
-        以下信息基于 shop_swipe 之后的布局。
+        Убедиться в переходе на соответствующую страницу и её полной загрузке.
+        Информация ниже основана на расположении после shop_swipe.
 
         Args:
-            left (int): 取决于商店导航栏的位置
-            right (int): 取决于商店导航栏的位置
+            left (int): Зависит от положения панели навигации магазина
+            right (int): Зависит от положения панели навигации магазина
 
         Returns:
-            bool: 底部导航栏是否设置成功
+            bool: Успешно ли установлена нижняя панель навигации
         """
         if self._shop_bottom_navbar.set(self, left=left, right=right):
             return True
@@ -54,10 +54,10 @@ class ShopUI(UI):
     @cached_property
     def shop_nav_250814(self):
         """
-        250814 版商店顶部导航栏切换器。
+        Переключатель верхней панели навигации магазина (версия 250814).
 
-        包含「通用」和「月度」两个导航选项，
-        用于在不同商店大类之间切换。
+        Содержит пункты навигации «Общий» и «Ежемесячный»
+        для переключения между основными категориями магазинов.
 
         Pages:
             in: page_munitions
@@ -70,10 +70,10 @@ class ShopUI(UI):
     @cached_property
     def shop_tab_250814(self):
         """
-        250814 版商店分类标签切换器。
+        Переключатель вкладок категорий магазина (версия 250814).
 
-        包含 9 个标签页：通用、功勋、舰队、META、奖励、
-        核心限定、核心月度、勋章、原型，用于切换不同商店分类。
+        Содержит 9 вкладок: Общий, Заслуги, Гильдия, META, Награды,
+        Ограниченное ядро, Ежемесячное ядро, Медали, Прототипы.
 
         Pages:
             in: page_munitions
@@ -92,28 +92,29 @@ class ShopUI(UI):
 
     def shop_refresh(self):
         """
-        执行商店刷新操作。
+        Выполнить операцию обновления магазина.
 
-        流程：点击刷新按钮，等待弹出确认框，确认后返回结果。
-        刷新按钮有两种激活颜色状态，若为暗色则表示不可刷新。
+        Процесс: нажать кнопку обновления, дождаться всплывающего окна подтверждения,
+        подтвердить и вернуть результат. У кнопки обновления есть два активных цветовых состояния;
+        тёмный цвет означает недоступность обновления.
 
         Pages:
-            in: page_munitions (SHOP_BACK_ARROW 可见)
+            in: page_munitions (SHOP_BACK_ARROW видна)
 
         Returns:
-            bool: 是否刷新成功
+            bool: Успешно ли выполнено обновление
         """
         logger.info('[Магазин — UI] Обновление магазина')
         refreshed = False
 
-        # 点击刷新按钮，等待确认弹窗出现
+        # Нажимаем кнопку обновления и ждём появления окна подтверждения
         for _ in self.loop():
             if self.appear(POPUP_CONFIRM, offset=(30, 30)):
                 break
-            # SHOP_REFRESH_CHECK 是刷新图标
-            # SHOP_REFRESH 是带背景的刷新图标
+            # SHOP_REFRESH_CHECK — значок обновления
+            # SHOP_REFRESH — значок обновления с фоном
             if self.appear(SHOP_REFRESH_CHECK, offset=(30, 30), interval=3):
-                # SHOP_REFRESH 激活时有两种颜色状态
+                # У активного SHOP_REFRESH есть два цветовых состояния
                 if self.image_color_count(SHOP_REFRESH.button, color=(49, 142, 207), threshold=221, count=50):
                     self.device.click(SHOP_REFRESH)
                     continue
@@ -123,10 +124,10 @@ class ShopUI(UI):
                 if self.image_color_count(SHOP_REFRESH.button, color=(52, 74, 94), threshold=221, count=50):
                     logger.info('[Магазин — UI] Обновление недоступно')
                     break
-                # 不使用 continue，当作 SHOP_REFRESH 未匹配处理
+                # Не используем continue; обрабатываем как отсутствие совпадения SHOP_REFRESH
                 self.interval_clear(SHOP_REFRESH)
 
-        # 处理确认弹窗，等待返回商店主界面
+        # Обрабатываем окно подтверждения и ждём возврата на главный экран магазина
         for _ in self.loop():
             if self.appear(SHOP_BACK_ARROW, offset=(30, 30)):
                 break
@@ -145,8 +146,8 @@ class ShopUI(UI):
 
     def ui_goto_shop(self):
         """
-        导航到 page_munitions（军需商店）。
-        此路由保证进入时位于通用商店。
+        Перейти к page_munitions (магазин припасов).
+        Этот маршрут гарантирует, что вход осуществляется в общий магазин.
 
         Pages:
             in: Any
@@ -168,6 +169,6 @@ class ShopUI(UI):
             if self.appear(page_munitions.check_button, offset=(20, 20)):
                 break
 
-            # 使用较大偏移量，因为学院中的摄像机可以移动
+            # Используем большой offset, поскольку камеру в академии можно перемещать
             if self.appear_then_click(ACADEMY_GOTO_MUNITIONS, offset=(200, 200), interval=5):
                 continue

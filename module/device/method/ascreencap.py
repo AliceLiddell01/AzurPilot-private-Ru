@@ -1,10 +1,12 @@
 """
-aScreenCap 截图方法。
+Метод создания снимков экрана aScreenCap.
 
-通过 aScreenCap 工具执行设备截图，是标准 `screencap` 命令的高性能替代方案。
-aScreenCap 直接读取 Android 设备的 framebuffer，绕过系统 screencap 的额外处理，
-截图速度更快、内存占用更低。支持原始压缩格式和 JPEG 编码两种模式。
-需要先通过 ADB 将 aScreenCap 推送至设备并赋予执行权限。
+Выполняет захват экрана устройства через утилиту aScreenCap, являющуюся высокопроизводительной
+альтернативой стандартной команде `screencap`.
+aScreenCap напрямую считывает буфер кадра (framebuffer) Android-устройства в обход дополнительной
+обработки системным screencap, что обеспечивает более высокую скорость и меньшее потребление памяти.
+Поддерживает режим исходного сжатия и кодирования в JPEG.
+Требует предварительной передачи исполняемого файла aScreenCap на устройство через ADB с правами исполнения.
 """
 import os
 import time
@@ -38,22 +40,22 @@ def retry(func):
                     time.sleep(retry_sleep(_))
                     init()
                 return func(self, *args, **kwargs)
-            # 无法处理
+            # Необрабатываемая ошибка
             except RequestHumanTakeover:
                 break
-            # ADB 服务被终止时
+            # Служба ADB была остановлена
             except ConnectionResetError as e:
                 logger.error(str(f'[Устройство — aScreenCap] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.adb_reconnect()
-            # ascreencap 未安装时
+            # aScreenCap не установлен
             except AscreencapError as e:
                 logger.error(str(f'[Устройство — aScreenCap] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.ascreencap_init()
-            # ADB 错误
+            # Ошибка ADB
             except AdbError as e:
                 if handle_adb_error(e):
                     def init():
@@ -64,17 +66,17 @@ def retry(func):
                         self.adb_reconnect()
                 else:
                     break
-            # 图像数据截断
+            # Данные изображения обрезаны
             except ImageTruncated as e:
                 from module.device.method.utils import handle_image_truncated
                 handle_image_truncated(self, e)
 
                 def init():
                     pass
-            # 无法处理 - 必须向上抛出以触发模拟器重启
+            # Необрабатываемая ошибка — пробрасываем выше, чтобы запустить перезапуск эмулятора
             except EmulatorNotRunningError:
                 raise
-            # 未知异常
+            # Неизвестное исключение
             except Exception as e:
                 logger.exception(str(f'[Устройство — aScreenCap] Ошибка повторной попытки: {e}'))
 
@@ -131,8 +133,8 @@ class AScreenCap(Connection):
 
     def _ascreencap_reposition_byte_pointer(self, byte_array):
         """
-        返回经过清理的 ascreencap 标准输出，用于存在链接器警告的设备。
-        正确的指针位置会被保存，供后续屏幕刷新使用。
+        Вернуть очищенный стандартный вывод ascreencap для устройств с предупреждениями компоновщика.
+        Корректная позиция указателя сохраняется для последующих обновлений экрана.
         """
         while byte_array[self.__bytepointer:self.__bytepointer + 4] != b'BMZ1':
             self.__bytepointer += 1
@@ -157,7 +159,7 @@ class AScreenCap(Connection):
     def __uncompress(self, screenshot):
         raw_compressed_data = self._ascreencap_reposition_byte_pointer(screenshot)
 
-        # 确保头部数据存在
+        # Проверяем наличие данных заголовка
         if raw_compressed_data is None or len(raw_compressed_data) < 20:
             text = 'aScreenCap вернул неполные или пустые данные'
             logger.warning(text)
@@ -165,7 +167,7 @@ class AScreenCap(Connection):
                 logger.warning(f'[Устройство — aScreenCap] Некорректный снимок экрана; получено {len(raw_compressed_data)} байт')
             raise AscreencapError(text)
 
-        # 头部格式参考：
+        # Формат заголовка:
         # https://github.com/ClnViewer/Android-fast-screen-capture#streamimage-compressed---header-format-using
         compressed_data_header = np.frombuffer(raw_compressed_data[0:20], dtype=np.uint32)
         if compressed_data_header[0] != 828001602:
@@ -188,15 +190,15 @@ class AScreenCap(Connection):
         if image is None or image.size == 0:
             raise ImageTruncated('Пустое изображение после чтения из буфера')
 
-        # 等同于 cv2.imdecode()
+        # Эквивалент cv2.imdecode()
         try:
             image = image[-int(width * height * channel):].reshape(height, width, channel)
         except ValueError as e:
             # ValueError: cannot reshape array of size 0 into shape (720,1280,4)
             raise ImageTruncated(str(e))
 
-        # 不使用 `dst=image` 进行翻转
-        # np.frombuffer 创建的是只读内存视图，此处需要创建可写的副本
+        # Не используем `dst=image` при перевороте
+        # np.frombuffer создаёт read-only view памяти; здесь нужна записываемая копия
         image = cv2.flip(image, 0)
         if image is None:
             raise ImageTruncated('Пустое изображение после cv2.flip')

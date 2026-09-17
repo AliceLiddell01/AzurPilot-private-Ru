@@ -1,21 +1,23 @@
-"""UI 页面定义和导航图。
+"""Определение UI-страниц и граф навигации.
 
-定义碧蓝航线游戏中的所有 UI 页面及其导航关系。
-每个页面由一个检查按钮（check_button）标识，页面之间通过按钮点击建立链接。
+Определяет все страницы интерфейса Azur Lane и связи навигации между ними.
+Каждая страница идентифицируется проверочной кнопкой (check_button), а переходы
+между страницами устанавливаются кликами по соответствующим кнопкам.
 
-导航系统使用 A* 寻路算法找到从当前页面到目标页面的最短路径。
-导航图在运行时通过 `init_connection()` 动态构建。
+Система навигации использует алгоритм поиска пути A* для нахождения кратчайшего маршрута
+от текущей страницы к целевой. Граф навигации строится динамически во время выполнения
+через метод `init_connection()`.
 
-页面层次：
-- 主页面（page_main）：游戏主界面，所有功能的入口
-- 功能页面：战役、活动、商店、宿舍等
-- 子页面：关卡选择、舰队准备等
+Иерархия страниц:
+- Главная страница (page_main): главный интерфейс игры, точка входа во все функции
+- Функциональные страницы: кампания, события, магазин, общежитие и т.д.
+- Дочерние страницы: выбор этапа, подготовка флота и т.д.
 
-使用示例:
+Пример использования:
     >>> page_main.link(button=MAIN_GOTO_CAMPAIGN, destination=page_campaign)
-    >>> # 从任意页面导航到 page_campaign
+    >>> # Навигация из любой страницы в page_campaign
     >>> Page.init_connection(page_main)
-    >>> # 之后可通过 page.parent 沿路径回溯
+    >>> # После этого возможен обратный переход по пути через page.parent
 """
 
 import traceback
@@ -31,21 +33,22 @@ import module.config.server as server
 
 
 class Page:
-    """UI 页面定义类。
+    """Класс определения UI-страницы.
 
-    每个 Page 实例代表游戏中的一个可导航页面。
-    通过 `link()` 方法建立页面间的导航关系，形成有向图。
-    `init_connection()` 使用 BFS 算法预计算从目标页面到所有源页面的最短路径。
+    Каждый экземпляр Page представляет одну доступную для навигации страницу игры.
+    Метод `link()` устанавливает навигационную связь между страницами, формируя ориентированный граф.
+    `init_connection()` использует алгоритм BFS для предварительного расчёта кратчайшего пути
+    от целевой страницы ко всем исходным страницам.
 
     Attributes:
-        all_pages (dict[str, Page]): 全局页面注册表，键为页面变量名。
-        check_button (Button): 页面标识按钮，用于检测当前是否在此页面。
-        links (dict[Page, Button]): 到达其他页面的链接，键为目标页面，值为点击按钮。
-        name (str): 页面变量名，如 'page_main'、'page_campaign'。
-        parent (Page | None): 在 A* 寻路中指向目标方向的父页面。
+        all_pages (dict[str, Page]): Глобальный реестр страниц, где ключ — имя переменной страницы.
+        check_button (Button): Кнопка-идентификатор страницы для проверки нахождения на ней.
+        links (dict[Page, Button]): Переходы на другие страницы, где ключ — целевая страница, значение — кнопка клика.
+        name (str): Имя переменной страницы, например 'page_main', 'page_campaign'.
+        parent (Page | None): Родительская страница в направлении цели при поиске пути A*.
     """
-    # 键: str, 页面名称如 "page_main"
-    # 值: Page, 页面实例
+    # Ключ: str, имя страницы, например "page_main"
+    # Значение: Page, экземпляр страницы
     all_pages = {}
 
     @classmethod
@@ -55,10 +58,10 @@ class Page:
 
     @classmethod
     def init_connection(cls, destination):
-        """初始化页面间的 A* 寻路连接。
+        """Инициализировать связи поиска пути A* между страницами.
 
         Args:
-            destination (Page): 目标页面。
+            destination (Page): Целевая страница.
         """
         cls.clear_connection()
 
@@ -108,11 +111,11 @@ class Page:
 
 
 """
-定义 UI 页面
+Определение UI-страниц
 """
 
-# 主界面
-# 使用 MAIN_GOTO_FLEET 代替 MAIN_GOTO_CAMPAIGN，配合 info_bar 可实现更快的页面切换
+# Главный экран
+# Используем MAIN_GOTO_FLEET вместо MAIN_GOTO_CAMPAIGN: в сочетании с info_bar это ускоряет переключение страниц
 page_main = Page(MAIN_GOTO_FLEET)
 page_campaign_menu = Page(CAMPAIGN_MENU_CHECK)
 page_campaign = Page(CAMPAIGN_CHECK)
@@ -125,31 +128,31 @@ page_campaign.link(button=GOTO_MAIN, destination=page_main)
 page_campaign.link(button=BACK_ARROW, destination=page_campaign_menu)
 page_fleet.link(button=GOTO_MAIN, destination=page_main)
 
-# 主界面（白色主题）
-# 2024.05.22, 新 UI 中 MAIN_GOTO_CAMPAIGN_WHITE 是主界面最后显示的按钮
+# Главный экран (белая тема)
+# 2024.05.22: в новом UI MAIN_GOTO_CAMPAIGN_WHITE — последняя отображаемая кнопка на главном экране
 page_main_white = Page(MAIN_GOTO_CAMPAIGN_WHITE)
 page_main_white.link(button=MAIN_GOTO_CAMPAIGN_WHITE, destination=page_campaign_menu)
 page_main_white.link(button=MAIN_GOTO_FLEET_WHITE, destination=page_fleet)
 
-# 未知页面
+# Неизвестная страница
 page_unknown = Page(None)
 page_unknown.link(button=GOTO_MAIN, destination=page_main)
 
-# 演习
-# 不要从 page_campaign 进入 page_exercise
+# Упражнения
+# Не переходить со страницы page_campaign на page_exercise
 page_exercise = Page(EXERCISE_CHECK)
 page_exercise.link(button=GOTO_MAIN, destination=page_main)
 page_exercise.link(button=BACK_ARROW, destination=page_campaign_menu)
 page_campaign_menu.link(button=CAMPAIGN_MENU_GOTO_EXERCISE, destination=page_exercise)
 
-# 每日任务
-# 不要从 page_campaign 进入 page_daily
+# Ежедневные задания
+# Не переходить со страницы page_campaign на page_daily
 page_daily = Page(DAILY_CHECK)
 page_daily.link(button=GOTO_MAIN, destination=page_main)
 page_daily.link(button=BACK_ARROW, destination=page_campaign_menu)
 page_campaign_menu.link(button=CAMPAIGN_MENU_GOTO_DAILY, destination=page_daily)
 
-# 活动
+# Событие
 page_event = Page(EVENT_CHECK)
 page_event.link(button=GOTO_MAIN, destination=page_main)
 page_event.link(button=BACK_ARROW, destination=page_campaign)
@@ -158,20 +161,20 @@ page_campaign.link(button=CAMPAIGN_GOTO_EVENT, destination=page_event)
 if server.server == 'tw':
     page_main.link(button=EVENT_20260430_ENTRANCE_TEMP, destination=page_event)
 
-# SP 关卡
+# Уровень SP
 page_sp = Page(SP_CHECK)
 page_sp.link(button=GOTO_MAIN, destination=page_main)
 page_sp.link(button=BACK_ARROW, destination=page_campaign)
 page_campaign_menu.link(button=CAMPAIGN_MENU_GOTO_EVENT, destination=page_sp)
 page_campaign.link(button=CAMPAIGN_GOTO_EVENT, destination=page_sp)
 
-# 联动活动
-# 怪谈纪实：逃离阈值山庄
+# Коллаборация
+# Хроники историй о привидениях: побег из усадьбы Порога
 page_coalition = Page(MYSTERY_RECORD_CHECK)
 page_coalition.link(button=GOTO_MAIN, destination=page_main)
 page_coalition.link(button=BACK_ARROW, destination=page_campaign_menu)
 page_campaign_menu.link(button=CAMPAIGN_MENU_GOTO_EVENT, destination=page_coalition)
-# 小学院
+# Малая академия
 # page_coalition_menu = Page(COALITION_ACADEMY_MAIN_CHECK)
 # page_coalition_menu.link(button=COALITION_ACADEMY_HOME, destination=page_main)
 # page_coalition = Page(COALITION_ACADEMY_CAMPAIGN_CHECK)
@@ -179,7 +182,7 @@ page_campaign_menu.link(button=CAMPAIGN_MENU_GOTO_EVENT, destination=page_coalit
 # page_coalition.link(button=COALITION_ACADEMY_BACK, destination=page_coalition_menu)
 # page_campaign_menu.link(button=CAMPAIGN_MENU_GOTO_EVENT, destination=page_coalition)
 # page_coalition_menu.link(button=COALITION_ACADEMY_GOTO_CAMPAIGN, destination=page_coalition)
-# 霓虹都市
+# Неоновый город
 # page_coalition = Page(NEONCITY_COALITION_CHECK)
 # page_coalition.link(button=NEONCITY_UI_HOME, destination=page_main)
 # page_coalition.link(button=NEONCITY_UI_BACK, destination=page_campaign_menu)
@@ -189,90 +192,90 @@ page_campaign_menu.link(button=CAMPAIGN_MENU_GOTO_EVENT, destination=page_coalit
 # page_coalition.link(button=GOTO_MAIN, destination=page_main)
 # page_coalition.link(button=BACK_ARROW, destination=page_campaign_menu)
 # page_campaign_menu.link(button=CAMPAIGN_MENU_GOTO_EVENT, destination=page_coalition)
-# 时尚联动
+# Модная коллаборация
 # page_coalition = Page(FASHION_COALITION_CHECK)
 # page_coalition.link(button=GOTO_MAIN, destination=page_main)
 # page_coalition.link(button=BACK_ARROW, destination=page_campaign_menu)
 # page_campaign_menu.link(button=CAMPAIGN_MENU_GOTO_EVENT, destination=page_coalition)
 
-# 大世界
+# Operation Siren
 page_os = Page(OS_CHECK)
 page_os.link(button=GOTO_MAIN, destination=page_main)
 page_campaign_menu.link(button=CAMPAIGN_MENU_GOTO_OS, destination=page_os)
 
-# 作战档案
-# 不要从 page_campaign 进入 page_archives
+# Архивы боевых действий
+# Не переходить со страницы page_campaign на page_archives
 page_archives = Page(WAR_ARCHIVES_CHECK)
 page_archives.link(button=WAR_ARCHIVES_GOTO_CAMPAIGN_MENU, destination=page_campaign_menu)
 page_campaign_menu.link(button=CAMPAIGN_MENU_GOTO_WAR_ARCHIVES, destination=page_archives)
 
-# 奖励
+# Награды
 page_reward = Page(REWARD_CHECK)
 page_reward.link(button=REWARD_GOTO_MAIN, destination=page_main)
 page_main.link(button=MAIN_GOTO_REWARD, destination=page_reward)
 page_main_white.link(button=MAIN_GOTO_REWARD_WHITE, destination=page_reward)
 
-# 任务
+# Задания
 page_mission = Page(MISSION_CHECK)
 page_mission.link(button=GOTO_MAIN, destination=page_main)
 page_main.link(button=MAIN_GOTO_MISSION, destination=page_mission)
 page_main_white.link(button=MAIN_GOTO_MISSION_WHITE, destination=page_mission)
 
-# 大舰队
+# Гильдия
 page_guild = Page(GUILD_CHECK)
 page_guild.link(button=GOTO_MAIN, destination=page_main)
 page_main.link(button=MAIN_GOTO_GUILD, destination=page_guild)
 page_main_white.link(button=MAIN_GOTO_GUILD_WHITE, destination=page_guild)
 
-# 委托
-# 不要从战役进入委托页面
+# Поручения
+# Не переходить из кампании на страницу поручений
 page_commission = Page(COMMISSION_CHECK)
 page_commission.link(button=GOTO_MAIN, destination=page_main)
 page_commission.link(button=BACK_ARROW, destination=page_reward)
 page_reward.link(button=REWARD_GOTO_COMMISSION, destination=page_commission)
 
-# 战术学院
-# 不要从学院进入战术学院
+# Тактическая академия
+# Не переходить из академии в тактическую академию
 page_tactical = Page(TACTICAL_CHECK)
 page_tactical.link(button=GOTO_MAIN, destination=page_main)
 page_tactical.link(button=BACK_ARROW, destination=page_reward)
 page_reward.link(button=REWARD_GOTO_TACTICAL, destination=page_tactical)
 
-# 通行券
+# Боевой пропуск
 page_battle_pass = Page(BATTLE_PASS_CHECK)
 page_battle_pass.link(button=GOTO_MAIN, destination=page_main)
 page_reward.link(button=REWARD_GOTO_BATTLE_PASS, destination=page_battle_pass)
 
-# 活动列表
+# Список событий
 page_event_list = Page(EVENT_LIST_CHECK)
 page_event_list.link(button=GOTO_MAIN, destination=page_main)
 page_main.link(button=MAIN_GOTO_EVENT_LIST, destination=page_event_list)
 page_main_white.link(button=MAIN_GOTO_EVENT_LIST_WHITE, destination=page_event_list)
 
-# 突袭
-# 旧版（2026.02.12 前）
+# Рейд
+# Старая версия (до 2026.02.12)
 # page_raid = Page(RAID_CHECK)
 # page_raid.link(button=GOTO_MAIN, destination=page_main)
 # page_main.link(button=MAIN_GOTO_RAID, destination=page_raid)
 # page_main_white.link(button=MAIN_GOTO_RAID_WHITE, destination=page_raid)
-# 新版（2026.02.12 后）
+# Новая версия (после 2026.02.12)
 page_raid = Page(RAID_CHECK)
 page_raid.link(button=GOTO_MAIN, destination=page_main)
 page_raid.link(button=BACK_ARROW, destination=page_campaign_menu)
 page_campaign_menu.link(button=CAMPAIGN_MENU_GOTO_EVENT, destination=page_raid)
 
-# 船坞
+# Док
 page_dock = Page(DOCK_CHECK)
 page_dock.link(button=GOTO_MAIN, destination=page_main)
 page_main.link(button=MAIN_GOTO_DOCK, destination=page_dock)
 page_main_white.link(button=MAIN_GOTO_DOCK_WHITE, destination=page_dock)
 
-# 科研
-# 不要从 page_reward 进入 page_research
+# Исследования
+# Не переходить со страницы page_reward на page_research
 page_research = Page(RESEARCH_CHECK)
 page_research.link(button=GOTO_MAIN, destination=page_main)
 
-# 船坞（研发）
+# Док (разработка)
 page_shipyard = Page(SHIPYARD_CHECK)
 page_shipyard.link(button=GOTO_MAIN, destination=page_main)
 
@@ -280,13 +283,13 @@ page_shipyard.link(button=GOTO_MAIN, destination=page_main)
 page_meta = Page(META_CHECK)
 page_meta.link(button=GOTO_MAIN, destination=page_main)
 
-# 仓库
+# Склад
 page_storage = Page(STORAGE_CHECK)
 page_storage.link(button=GOTO_MAIN, destination=page_main)
 page_main.link(button=MAIN_GOTO_STORAGE, destination=page_storage)
 page_main_white.link(button=MAIN_GOTO_STORAGE_WHITE, destination=page_storage)
 
-# 科研菜单
+# Меню исследований
 page_reshmenu = Page(RESHMENU_CHECK)
 page_reshmenu.link(button=RESHMENU_GOTO_RESEARCH, destination=page_research)
 page_reshmenu.link(button=RESHMENU_GOTO_SHIPYARD, destination=page_shipyard)
@@ -295,76 +298,76 @@ page_reshmenu.link(button=GOTO_MAIN, destination=page_main)
 page_main.link(button=MAIN_GOTO_RESHMENU, destination=page_reshmenu)
 page_main_white.link(button=MAIN_GOTO_RESHMENU, destination=page_reshmenu)
 
-# 后宅菜单
+# Меню общежития
 page_dormmenu = Page(DORMMENU_CHECK)
 page_dormmenu.link(button=DORMMENU_GOTO_MAIN, destination=page_main)
 page_main.link(button=MAIN_GOTO_DORMMENU, destination=page_dormmenu)
 page_main_white.link(button=MAIN_GOTO_DORMMENU_WHITE, destination=page_dormmenu)
 
-# 后宅
-# DORM_CHECK 是"管理"按钮（从右数第三个），因为它是最后加载完成的按钮
+# Общежитие
+# DORM_CHECK — это кнопка «Управление» (третья справа), так как она загружается последней
 page_dorm = Page(DORM_CHECK)
 page_dormmenu.link(button=DORMMENU_GOTO_DORM, destination=page_dorm)
 page_dorm.link(button=DORM_GOTO_MAIN, destination=page_main)
 
-# 指挥喵
+# Кошачьи офицеры
 page_meowfficer = Page(MEOWFFICER_CHECK)
 page_dormmenu.link(button=DORMMENU_GOTO_MEOWFFICER, destination=page_meowfficer)
 page_meowfficer.link(button=MEOWFFICER_GOTO_DORMMENU, destination=page_main)
 
-# 学院
+# Академия
 page_academy = Page(ACADEMY_CHECK)
 page_dormmenu.link(button=DORMMENU_GOTO_ACADEMY, destination=page_academy)
 page_academy.link(button=GOTO_MAIN, destination=page_main)
 
-# 私人休息室
+# Личная комната отдыха
 page_private_quarters = Page(PRIVATE_QUARTERS_CHECK)
 page_dormmenu.link(button=DORMMENU_GOTO_PRIVATE_QUARTERS, destination=page_private_quarters)
 page_private_quarters.link(button=PQ_GOTO_MAIN, destination=page_main)
 
-# 游戏室与选择游戏
+# Игровая комната и выбор игры
 page_game_room = Page(GAME_ROOM_CHECK)
 page_academy.link(button=ACADEMY_GOTO_GAME_ROOM, destination=page_game_room)
 page_game_room.link(button=GAME_ROOM_GOTO_MAIN, destination=page_main)
 
-# 商店
+# Магазин
 page_shop = Page(SHOP_CHECK)
 page_shop.link(button=GOTO_MAIN, destination=page_main)
 page_main.link(button=MAIN_GOTO_SHOP, destination=page_shop)
 page_main_white.link(button=MAIN_GOTO_SHOP_WHITE, destination=page_shop)
 
-# 军火商店
+# Военный магазин
 page_munitions = Page(MUNITIONS_CHECK)
-# 优先使用后一条路径，因为加载时默认为 shop_general，背景颜色更稳定
+# Приоритетен второй путь, так как при загрузке по умолчанию открывается shop_general и цвет фона стабильнее
 # page_shop.link(button=SHOP_GOTO_MUNITIONS, destination=page_munitions)
 page_academy.link(button=ACADEMY_GOTO_MUNITIONS, destination=page_munitions)
 page_munitions.link(button=GOTO_MAIN, destination=page_main)
 
-# 补给礼包
+# Наборы снабжения
 page_supply_pack = Page(SUPPLY_PACK_CHECK)
 page_shop.link(button=SHOP_GOTO_SUPPLY_PACK, destination=page_supply_pack)
 page_supply_pack.link(button=GOTO_MAIN, destination=page_main)
 
-# 建造
+# Постройка
 page_build = Page(BUILD_CHECK)
 page_build.link(button=GOTO_MAIN, destination=page_main)
 page_main.link(button=MAIN_GOTO_BUILD, destination=page_build)
 page_main_white.link(button=MAIN_GOTO_BUILD_WHITE, destination=page_build)
 
-# 邮件
+# Почта
 page_mail = Page(MAIL_CHECK)
 page_mail.link(button=GOTO_MAIN_WHITE, destination=page_main)
-# 邮件入口因不同 UI 而异
+# Вход в почту различается в зависимости от UI
 page_main_white.link(button=MAIL_ENTER_WHITE, destination=page_mail)
 page_main.link(button=MAIL_ENTER, destination=page_mail)
 
-# 世界频道
-# 新旧 UI 都有 CHANNEL_CHECK
-# 点击左侧空白区域离开
+# Мировой чат
+# И в старом, и в новом UI есть CHANNEL_CHECK
+# Клик по пустой области слева для выхода
 page_channel = Page(CHANNEL_CHECK)
 page_channel.link(button=CAMPAIGN_MENU_GOTO_CAMPAIGN, destination=page_main)
 
-# RPG 活动 (raid_20240328)
+# RPG-событие (raid_20240328)
 page_rpg_stage = Page(RPG_GOTO_STORY)
 page_rpg_story = Page(RPG_GOTO_STAGE)
 page_rpg_stage.link(button=RPG_GOTO_STORY, destination=page_rpg_story)
@@ -382,10 +385,10 @@ page_rpg_city = Page(RPG_LEAVE_CITY)
 page_rpg_city.link(button=RPG_LEAVE_CITY, destination=page_rpg_stage)
 page_rpg_city.link(button=RPG_HOME, destination=page_main)
 
-# 保留 page_rpg_stage，以便突袭模块可以导入
+# Сохраняем page_rpg_stage для возможности импорта модулем рейдов
 # page_rpg_stage = page_raid
 
-# 医院活动 (20250327)
+# Госпитальное событие (20250327)
 page_hospital = Page(HOSIPITAL_CHECK)
 page_hospital.link(button=GOTO_MAIN_WHITE, destination=page_main)
 page_campaign_menu.link(button=CAMPAIGN_MENU_GOTO_EVENT, destination=page_hospital)

@@ -1,7 +1,8 @@
-"""重试装饰器模块。
+"""Модуль декоратора повторных попыток.
 
-从 retry 库复制并修改，提供带退避（backoff）、抖动（jitter）和可配置异常处理的
-重试装饰器，用于自动重试失败的操作。
+Скопирован из библиотеки retry и модифицирован; предоставляет декораторы
+повторных попыток с экспоненциальным откатом (backoff), джиттером (jitter)
+и настраиваемой обработкой исключений для автоматического перезапуска сбойных операций.
 """
 
 import functools
@@ -12,19 +13,19 @@ from functools import partial
 from module.logger import logger as logging_logger
 
 """
-从 `retry` 库复制并修改。
+Скопировано из библиотеки `retry` с изменениями.
 """
 
 try:
     from decorator import decorator
 except ImportError:
     def decorator(caller):
-        """将 caller 转换为装饰器。
+        """Преобразовать caller в декоратор.
 
-        与 decorator 模块不同，不会保留函数签名。
+        В отличие от модуля decorator, сигнатура функции не сохраняется.
 
         Args:
-            caller: 调用函数，签名如 caller(f, *args, **kwargs)。
+            caller: Функция вызова с сигнатурой вида caller(f, *args, **kwargs).
         """
 
         def decor(f):
@@ -39,23 +40,23 @@ except ImportError:
 
 def __retry_internal(f, exceptions=Exception, tries=-1, delay=0, max_delay=None, backoff=1, jitter=0,
                      logger=logging_logger):
-    """执行函数并在失败时重试。
+    """Выполнить функцию и повторить попытку при сбое.
 
     Args:
-        f: 要执行的函数。
-        exceptions: 需要捕获的异常或异常元组。默认为 Exception。
-        tries: 最大尝试次数。默认为 -1（无限次）。
-        delay: 重试之间的初始延迟秒数。默认为 0。
-        max_delay: 延迟的最大值。默认为 None（无限制）。
-        backoff: 重试延迟的乘数因子。默认为 1（无退避）。
-            如果是数字则为固定值，如果是元组 (min, max) 则为随机范围。
-        jitter: 重试延迟的额外秒数。默认为 0。
-            如果是数字则为固定值，如果是元组 (min, max) 则为随机范围。
-        logger: 失败时调用 logger.warning(fmt, error, delay)。
-            默认为 retry.logging_logger。如果为 None 则禁用日志。
+        f: Выполняемая функция.
+        exceptions: Перехватываемое исключение или кортеж исключений. По умолчанию Exception.
+        tries: Максимальное число попыток. По умолчанию -1 (не ограничено).
+        delay: Начальная задержка между повторными попытками в секундах. По умолчанию 0.
+        max_delay: Максимальная задержка. По умолчанию None (без ограничений).
+        backoff: Коэффициент умножения задержки повтора. По умолчанию 1 (без отката).
+            Если число — фиксированное значение, если кортеж (min, max) — случайный диапазон.
+        jitter: Дополнительные секунды задержки повтора. По умолчанию 0.
+            Если число — фиксированное значение, если кортеж (min, max) — случайный диапазон.
+        logger: При сбое вызывает logger.warning(fmt, error, delay).
+            По умолчанию retry.logging_logger. Если None, логирование отключено.
 
     Returns:
-        f 函数的返回值。
+        Возвращаемое значение функции f.
     """
     _tries, _delay = tries, delay
     while _tries:
@@ -64,11 +65,11 @@ def __retry_internal(f, exceptions=Exception, tries=-1, delay=0, max_delay=None,
         except exceptions as e:
             _tries -= 1
             if not _tries:
-                # 与原版不同，抛出原始异常
+                # В отличие от оригинальной версии, выбрасываем исходное исключение.
                 raise e
 
             if logger is not None:
-                # 与原版不同，显示异常详情
+                # В отличие от оригинальной версии, показываем подробности исключения.
                 logger.exception(e)
                 logger.warning(f'{type(e).__name__}({e}), повторная попытка через {_delay} с...')
 
@@ -85,21 +86,21 @@ def __retry_internal(f, exceptions=Exception, tries=-1, delay=0, max_delay=None,
 
 
 def retry(exceptions=Exception, tries=-1, delay=0, max_delay=None, backoff=1, jitter=0, logger=logging_logger):
-    """返回一个重试装饰器。
+    """Вернуть декоратор повторных попыток.
 
     Args:
-        exceptions: 需要捕获的异常或异常元组。默认为 Exception。
-        tries: 最大尝试次数。默认为 -1（无限次）。
-        delay: 重试之间的初始延迟秒数。默认为 0。
-        max_delay: 延迟的最大值。默认为 None（无限制）。
-        backoff: 重试延迟的乘数因子。默认为 1（无退避）。
-        jitter: 重试延迟的额外秒数。默认为 0。
-            如果是数字则为固定值，如果是元组 (min, max) 则为随机范围。
-        logger: 失败时调用 logger.warning(fmt, error, delay)。
-            默认为 retry.logging_logger。如果为 None 则禁用日志。
+        exceptions: Перехватываемое исключение или кортеж исключений. По умолчанию Exception.
+        tries: Максимальное число попыток. По умолчанию -1 (не ограничено).
+        delay: Начальная задержка между повторными попытками в секундах. По умолчанию 0.
+        max_delay: Максимальная задержка. По умолчанию None (без ограничений).
+        backoff: Коэффициент умножения задержки повтора. По умолчанию 1 (без отката).
+        jitter: Дополнительные секунды задержки повтора. По умолчанию 0.
+            Если число — фиксированное значение, если кортеж (min, max) — случайный диапазон.
+        logger: При сбое вызывает logger.warning(fmt, error, delay).
+            По умолчанию retry.logging_logger. Если None, логирование отключено.
 
     Returns:
-        重试装饰器。
+        Декоратор повторных попыток.
     """
 
     @decorator
@@ -115,24 +116,24 @@ def retry(exceptions=Exception, tries=-1, delay=0, max_delay=None, backoff=1, ji
 def retry_call(f, fargs=None, fkwargs=None, exceptions=Exception, tries=-1, delay=0, max_delay=None, backoff=1,
                jitter=0,
                logger=logging_logger):
-    """调用函数并在失败时重新执行。
+    """Вызвать функцию и повторить выполнение при сбое.
 
     Args:
-        f: 要执行的函数。
-        fargs: 函数的位置参数。
-        fkwargs: 函数的关键字参数。
-        exceptions: 需要捕获的异常或异常元组。默认为 Exception。
-        tries: 最大尝试次数。默认为 -1（无限次）。
-        delay: 重试之间的初始延迟秒数。默认为 0。
-        max_delay: 延迟的最大值。默认为 None（无限制）。
-        backoff: 重试延迟的乘数因子。默认为 1（无退避）。
-        jitter: 重试延迟的额外秒数。默认为 0。
-            如果是数字则为固定值，如果是元组 (min, max) 则为随机范围。
-        logger: 失败时调用 logger.warning(fmt, error, delay)。
-            默认为 retry.logging_logger。如果为 None 则禁用日志。
+        f: Выполняемая функция.
+        fargs: Позиционные аргументы функции.
+        fkwargs: Именованные аргументы функции.
+        exceptions: Перехватываемое исключение или кортеж исключений. По умолчанию Exception.
+        tries: Максимальное число попыток. По умолчанию -1 (не ограничено).
+        delay: Начальная задержка между повторными попытками в секундах. По умолчанию 0.
+        max_delay: Максимальная задержка. По умолчанию None (без ограничений).
+        backoff: Коэффициент умножения задержки повтора. По умолчанию 1 (без отката).
+        jitter: Дополнительные секунды задержки повтора. По умолчанию 0.
+            Если число — фиксированное значение, если кортеж (min, max) — случайный диапазон.
+        logger: При сбое вызывает logger.warning(fmt, error, delay).
+            По умолчанию retry.logging_logger. Если None, логирование отключено.
 
     Returns:
-        f 函数的返回值。
+        Возвращаемое значение функции f.
     """
     args = fargs if fargs else list()
     kwargs = fkwargs if fkwargs else dict()

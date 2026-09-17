@@ -1,5 +1,6 @@
-"""突袭战斗处理器，继承战斗基类并适配突袭特有的战斗结算画面。
-处理大世界风格的战斗状态按钮和经验值显示。
+"""Обработчик рейдовых боёв, наследующий базовый боевой класс и адаптированный под экраны результатов рейдов.
+
+Обрабатывает кнопки статуса боя и отображение опыта в стиле Operation Siren.
 """
 
 from module.combat.assets import EXP_INFO_C, EXP_INFO_D
@@ -10,13 +11,13 @@ from module.guild.assets import BATTLE_STATUS_CF, EXP_INFO_CF
 class RaidCombat(Combat):
     def handle_battle_status(self, drop=None):
         """
-        处理突袭战斗的状态结算画面，识别大世界风格的战斗结算按钮。
+        Обработка экрана статуса боя в рейде с распознаванием кнопки результатов в стиле Operation Siren.
 
         Args:
-            drop (DropImage): 掉落物图像处理器。
+            drop (DropImage): Обработчик изображений выпавшей добычи.
 
         Returns:
-            bool: 是否成功识别并处理了战斗结算。
+            bool: True, если экран результатов успешно распознан и обработан.
         """
         if self.is_combat_executing():
             return False
@@ -34,13 +35,13 @@ class RaidCombat(Combat):
 
     def handle_get_items(self, drop=None):
         """
-        处理突袭战斗中的获取物品画面。
+        Обработка экрана получения предметов в рейдовом бою.
 
         Args:
-            drop (DropImage): 掉落物图像处理器。
+            drop (DropImage): Обработчик изображений выпавшей добычи.
 
         Returns:
-            bool: 是否成功处理了物品获取。
+            bool: True, если получение предметов успешно обработано.
         """
         if super().handle_get_items(drop=drop):
             self.interval_reset(BATTLE_STATUS_CF)
@@ -50,10 +51,10 @@ class RaidCombat(Combat):
 
     def handle_exp_info(self):
         """
-        处理突袭战斗中的经验值结算画面。
+        Обработка экрана начисления опыта в рейдовом бою.
 
         Returns:
-            bool: 是否成功识别并处理了经验结算。
+            bool: True, если экран опыта успешно распознан и обработан.
         """
         if self.is_combat_executing():
             return False

@@ -1,8 +1,8 @@
-"""医院活动事件主控模块。
+"""Модуль управления событием больницы.
 
-医院活动的顶层任务处理器，管理活动入口导航、难度选择、
-关卡进入和战斗编排。继承 Hospital 和 RaidRun，复用
-突袭任务的运行框架来驱动医院活动的完整执行流程。
+Главный диспетчер задач события больницы, управляющий переходом в событие, выбором сложности,
+входом на этапы и координацией боев. Наследует Hospital и RaidRun, повторно используя
+инфраструктуру рейдов для полного цикла выполнения события больницы.
 """
 
 from module.campaign.campaign_ui import ModeSwitch
@@ -24,15 +24,15 @@ ASIDE_SWITCH_HOSPITAL.add_state('hard', CHAPTER_HOSPITAL_HARD)
 
 
 class HospitalEvent(Hospital, RaidRun):
-    """医院活动事件处理器，继承 Hospital 和 RaidRun。"""
+    """Обработчик события больницы, наследующий Hospital и RaidRun."""
 
     raid_name = 'raid_20250327'
 
     def campaign_ensure_aside_hospital(self, chapter):
-        """确保医院活动难度标签正确设置。
+        """Обеспечивает установку правильной вкладки сложности события больницы.
 
         Args:
-            chapter: 难度，'easy'、'normal' 或 'hard'。
+            chapter: Сложность: 'easy', 'normal' или 'hard'.
         """
         if chapter in ['easy', 'normal', 'hard']:
             ASIDE_SWITCH_HOSPITAL.set(chapter, main=self)
@@ -40,12 +40,12 @@ class HospitalEvent(Hospital, RaidRun):
             logger.warning(f'Неизвестная глава госпиталя: {chapter}')
 
     def hospital_expected_end(self):
-        """判断医院活动战斗是否结束（突袭模式）。
+        """Определяет, завершился ли бой события больницы (режим рейда).
 
-        检测到医院主页时判定结束，处理各种返回按钮。
+        Завершение фиксируется при обнаружении главной страницы больницы, обрабатывая различные кнопки возврата.
 
         Returns:
-            bool: 战斗是否已结束。
+            bool: Завершился ли бой.
         """
         if self.ui_page_appear(page_hospital, interval=2):
             return True
@@ -64,14 +64,14 @@ class HospitalEvent(Hospital, RaidRun):
         return False
 
     def raid_enter(self, stage, raid, skip_first_screenshot=True):
-        """进入突袭关卡。
+        """Входит на этап рейда.
 
-        点击入口进入舰队准备界面，同时检查 PT 限制。
+        Нажимает на вход для перехода к экрану подготовки флота, проверяя лимит PT.
 
         Args:
-            stage: 关卡编号，如 'T1'、'T2'。
-            raid: 突袭名称。
-            skip_first_screenshot: 是否跳过首次截图复用上一状态。
+            stage: Обозначение этапа, например 'T1', 'T2'.
+            raid: Название рейда.
+            skip_first_screenshot: Пропускать ли первый скриншот, повторно используя предыдущий.
 
         Pages:
             in: page_raid
@@ -84,12 +84,12 @@ class HospitalEvent(Hospital, RaidRun):
             else:
                 self.device.screenshot()
 
-            # 到达舰队准备界面
+            # Достигли экрана подготовки флота
             if self.appear(RAID_FLEET_PREPARATION, offset=(30, 30)):
                 break
 
             if self.ui_page_appear(page_hospital):
-                # 入口出现时检查 PT 限制
+                # При появлении входа проверяем лимит PT
                 if self.event_pt_limit_triggered():
                     self.config.task_stop()
                 self.device.click(entrance)
@@ -102,12 +102,12 @@ class HospitalEvent(Hospital, RaidRun):
                 continue
 
     def raid_execute_once(self, mode, raid, stage):
-        """执行一次突袭战斗。
+        """Выполняет один бой рейда.
 
         Args:
-            mode: 难度模式。
-            raid: 突袭名称。
-            stage: 关卡编号。
+            mode: Режим сложности.
+            raid: Название рейда.
+            stage: Обозначение этапа.
 
         Pages:
             in: page_raid
@@ -130,13 +130,13 @@ class HospitalEvent(Hospital, RaidRun):
         logger.hr('Рейд завершён')
 
     def run(self, name='', mode='', stage='', total=0):
-        """医院活动突袭主入口。
+        """Основная точка входа рейда события больницы.
 
         Args:
-            name: 突袭名称，如 'raid_20250327'。
-            mode: 难度模式，如 'hard'、'normal'、'easy'。
-            stage: 关卡编号，如 'T1'、'T2'。
-            total: 总运行次数限制。
+            name: Название рейда, например 'raid_20250327'.
+            mode: Режим сложности, например 'hard', 'normal', 'easy'.
+            stage: Обозначение этапа, например 'T1', 'T2'.
+            total: Ограничение общего количества запусков.
         """
         name = name if name else self.raid_name
         mode = mode if mode else self.config.HospitalEvent_Mode
@@ -147,29 +147,29 @@ class HospitalEvent(Hospital, RaidRun):
         self.run_count = 0
         self.run_limit = self.config.StopCondition_RunCount
         while 1:
-            # 达到总次数限制
+            # Достигнут общий лимит запусков
             if total and self.run_count == total:
                 break
             if self.event_time_limit_triggered():
                 self.config.task_stop()
 
-            # 日志
+            # Логирование
             logger.hr(f'Госпиталь: {name}_{mode}_{stage}', level=2)
             if self.config.StopCondition_RunCount > 0:
                 logger.info(f'Осталось запусков: {self.config.StopCondition_RunCount}')
             else:
                 logger.info(f'Счётчик: {self.run_count}')
 
-            # 停止条件检查
+            # Проверяем условия остановки
             if self.triggered_stop_condition():
                 break
 
-            # 确保 UI 状态
+            # Обеспечиваем корректное состояние UI
             self.device.stuck_record_clear()
             self.device.click_record_clear()
             self.ui_ensure(page_hospital)
 
-            # 执行突袭
+            # Выполняем рейд
             self.device.stuck_record_clear()
             self.device.click_record_clear()
             try:
@@ -184,13 +184,13 @@ class HospitalEvent(Hospital, RaidRun):
                 logger.info(str(e))
                 break
 
-            # 运行后处理
+            # Обработка после запуска
             self.run_count += 1
             if self.config.StopCondition_RunCount:
                 self.config.StopCondition_RunCount -= 1
-            # 停止条件检查
+            # Проверяем условия остановки
             if self.triggered_stop_condition():
                 break
-            # 调度器检查
+            # Проверяем переключение задачи планировщиком
             if self.config.task_switched():
                 self.config.task_stop()

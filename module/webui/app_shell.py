@@ -36,14 +36,14 @@ class AppShellMixin(WebUIMixinBase):
 
     def __init__(self) -> None:
         super().__init__()
-        # 已修改的配置键，来自 pin_wait_change() 的返回值
+        # Изменённые ключи конфигурации из возвращаемого значения pin_wait_change()
         self.modified_config_queue = queue.Queue()
-        # 当前 Alas 配置名称
+        # Текущее имя конфигурации Alas
         self.alas_name = ""
         self.alas_mod = "alas"
         self.alas_config = AzurLaneConfig("template")
         self.initial()
-        # 已渲染的状态缓存
+        # Кэш уже отрисованных состояний
         self.rendered_cache = []
         self.inst_cache = []
         self._shell_mounted = False
@@ -64,8 +64,8 @@ class AppShellMixin(WebUIMixinBase):
 
             from module.webui.fake_pil_module import remove_fake_pil_module
 
-            # matplotlib 需要真实 PIL；仅移除 WebUI 启动阶段安装的替身，
-            # 避免其他会话已加载真实 PIL 时再次从模块缓存中删除它。
+            # matplotlib требует настоящий PIL; удаляем только подмену, установленную на этапе запуска WebUI,
+            # чтобы не удалять настоящий PIL из кэша модулей, если его уже загрузила другая сессия.
             if not hasattr(sys.modules.get("PIL"), "__path__"):
                 remove_fake_pil_module()
             from module.os_simulator.simulator import OSSimulator
@@ -75,7 +75,7 @@ class AppShellMixin(WebUIMixinBase):
 
     @use_scope("aside", clear=True)
     def set_aside(self) -> None:
-        # TODO: 更新 put_icon_buttons()
+        # TODO: обновить put_icon_buttons()
 
         current_date = current_time().date()
         if current_date.month == 4 and current_date.day == 1:

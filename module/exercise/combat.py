@@ -1,14 +1,14 @@
 """
-演习战斗执行模块。
+Модуль выполнения боёв в учениях.
 
-处理演习的战斗流程，包括：
-- 对手选择和进入战斗准备界面
-- 战斗执行和结算画面处理
-- 低血量检测和战斗退出处理
-- 装备管理（演习前穿装、演习后脱装）
+Обрабатывает боевой процесс в учениях, включая:
+- Выбор соперника и вход на экран подготовки к бою
+- Выполнение боя и обработку экранов расчёта результатов
+- Мониторинг низкого уровня здоровья и выход из боя при необходимости
+- Управление снаряжением (экипировка перед учениями, снятие после)
 
-战斗过程中自动检测 S/D 评价结算、经验信息、获得物品等画面，
-并通过弹窗处理器处理各类突发事件（紧急委托、投票等）。
+В процессе боя автоматически отслеживаются экраны результатов с оценками S/D, опыт, полученные предметы,
+а также обрабатываются всплывающие события (срочные поручения, голосования и т.д.).
 """
 from module.combat.combat import *
 from module.exercise.assets import *
@@ -20,25 +20,25 @@ from module.ui.assets import EXERCISE_CHECK
 
 class ExerciseCombat(HpDaemon, OpponentChoose, ExerciseEquipment, Combat):
     """
-    演习战斗处理器，整合对手选择、血量监控和装备管理。
+    Обработчик боёв в учениях, объединяющий выбор соперника, мониторинг здоровья и управление снаряжением.
 
-    继承自 HpDaemon（血量监控）、OpponentChoose（对手选择）、
-    ExerciseEquipment（装备管理）和 Combat（战斗逻辑），
-    提供完整的演习战斗执行流程。
+    Наследуется от HpDaemon (мониторинг здоровья), OpponentChoose (выбор соперника),
+    ExerciseEquipment (управление снаряжением) и Combat (логика боя),
+    предоставляя полный цикл выполнения боёв в учениях.
 
-    战斗流程：选择对手 -> 准备 -> 执行 -> 结算处理 -> 返回。
+    Цикл боя: выбор соперника -> подготовка -> выполнение боя -> расчёт результатов -> возврат.
     """
 
     def _in_exercise(self):
-        """检测当前是否在演习主页面。"""
+        """Проверка, находится ли сейчас на главной странице учений."""
         return self.appear(EXERCISE_CHECK, offset=(20, 20))
 
     def _combat_preparation(self, skip_first_screenshot=True):
         """
-        处理战斗准备界面，点击开始按钮进入战斗。
+        Обработка экрана подготовки к бою, нажатие кнопки начала боя для входа в сражение.
 
         Args:
-            skip_first_screenshot (bool): 是否跳过首次截图。
+            skip_first_screenshot (bool): Пропускать ли первый снимок экрана.
         """
         logger.info('[Учения — бой] Подготовка к бою')
         self.device.stuck_record_clear()
@@ -56,7 +56,7 @@ class ExerciseCombat(HpDaemon, OpponentChoose, ExerciseEquipment, Combat):
                 self.device.click(BATTLE_PREPARATION)
                 continue
 
-            # 结束
+            # Завершение
             pause = self.is_combat_executing()
             if pause:
                 logger.attr('Тема боевого интерфейса', pause)
@@ -64,10 +64,10 @@ class ExerciseCombat(HpDaemon, OpponentChoose, ExerciseEquipment, Combat):
 
     def _combat_execute(self):
         """
-        执行战斗。
+        Выполнение боя.
 
         Returns:
-            bool: 胜利返回 True，退出返回 False。
+            bool: True при победе, False при выходе из боя.
         """
         logger.info('[Учения — бой] Выполнение боя')
         self.device.stuck_record_clear()
@@ -75,14 +75,14 @@ class ExerciseCombat(HpDaemon, OpponentChoose, ExerciseEquipment, Combat):
         self.low_hp_confirm_timer = Timer(1.5, count=2).start()
         show_hp_timer = Timer(5)
         pause_interval = Timer(0.5, count=1)
-        # 暂停按钮用于识别战斗 UI 主题
+        # Кнопка паузы используется для определения темы боевого UI
         pause = None
         success = True
         end = False
-        battle_status_detected = False  # 是否在战斗结算画面
+        battle_status_detected = False  # находимся ли на экране результатов боя
         while 1:
             self.device.screenshot()
-            # 结束
+            # Завершение
             if self._in_exercise() or self.appear(BATTLE_PREPARATION, offset=(20, 20)):
                 logger.hr('Бой завершён')
                 if not end:
@@ -96,7 +96,7 @@ class ExerciseCombat(HpDaemon, OpponentChoose, ExerciseEquipment, Combat):
                     pause = p
             else:
                 self.low_hp_confirm_timer.reset()
-                # 结算 - S 或 D 评价
+                # Результат боя — оценка S или D
                 if self.appear(BATTLE_STATUS_S, interval=1):
                     logger.info(f'[Учения — бой] {BATTLE_STATUS_S} -> {CLICK_SAFE_AREA}')
                     self.device.click(CLICK_SAFE_AREA)
@@ -113,7 +113,7 @@ class ExerciseCombat(HpDaemon, OpponentChoose, ExerciseEquipment, Combat):
                     logger.info('[Учения — бой] Учения проиграны')
                     continue
 
-            # 仅在战斗结算后处理 GET_ITEMS_1
+            # Обрабатываем GET_ITEMS_1 только после экрана результатов боя
             if battle_status_detected and self.appear(GET_ITEMS_1, offset=(30, 30), interval=1):
                 logger.info(f'[Учения — бой] {GET_ITEMS_1} -> {CLICK_SAFE_AREA}')
                 self.device.click(CLICK_SAFE_AREA)
@@ -126,13 +126,13 @@ class ExerciseCombat(HpDaemon, OpponentChoose, ExerciseEquipment, Combat):
                 logger.info(f'[Учения — бой] {EXP_INFO_D} -> {CLICK_SAFE_AREA}')
                 self.device.click(CLICK_SAFE_AREA)
                 continue
-            # 最后的 D 评价画面
+            # Финальный экран оценки D
             if self.appear_then_click(OPTS_INFO_D, offset=(30, 30), interval=1):
                 success = True
                 end = True
                 logger.info('[Учения — бой] Учения проиграны')
                 continue
-            # 退出
+            # Выход
             if self.handle_combat_quit():
                 pause_interval.reset()
                 success = False
@@ -152,7 +152,7 @@ class ExerciseCombat(HpDaemon, OpponentChoose, ExerciseEquipment, Combat):
                     if show_hp_timer.reached():
                         show_hp_timer.reset()
                         self._show_hp()
-            # 弹窗处理
+            # Обработка всплывающих окон
             if self.handle_popup_confirm('EXERCISE_COMBAT_EXECUTE'):
                 continue
             if self.handle_urgent_commission():
@@ -167,10 +167,10 @@ class ExerciseCombat(HpDaemon, OpponentChoose, ExerciseEquipment, Combat):
 
     def _choose_opponent(self, index, skip_first_screenshot=True):
         """
-        选择对手。
+        Выбор соперника.
 
         Args:
-            index (int): 从左到右，0 到 3。
+            index (int): Слева направо, от 0 до 3.
         """
         logger.hr('Противник: %s' % str(index))
         opponent_timer = Timer(5)
@@ -192,24 +192,24 @@ class ExerciseCombat(HpDaemon, OpponentChoose, ExerciseEquipment, Combat):
                 opponent_timer.reset()
                 continue
 
-            # 结束
+            # Завершение
             if self.appear(BATTLE_PREPARATION, offset=(20, 20)):
                 break
 
     def _preparation_quit(self):
-        """从战斗准备界面退回演习主页面。"""
+        """Возврат с экрана подготовки к бою на главную страницу учений."""
         logger.info('[Учения — бой] Выход из экрана подготовки')
         self.ui_back(check_button=self._in_exercise, appear_button=BATTLE_PREPARATION, skip_first_screenshot=True)
 
     def _combat(self, opponent):
         """
-        执行一次战斗。
+        Выполнение одного боя.
 
         Args:
-            opponent(int): 从左到右，0 到 3。
+            opponent(int): Слева направо, от 0 до 3.
 
         Returns:
-            bool: 胜利返回 True，挑战次数耗尽返回 False。
+            bool: True при победе, False при исчерпании попыток.
         """
         self._choose_opponent(opponent)
 
@@ -229,7 +229,7 @@ class ExerciseCombat(HpDaemon, OpponentChoose, ExerciseEquipment, Combat):
         return False
 
     def equipment_take_off_when_finished(self):
-        """演习结束后卸下装备。"""
+        """Снятие снаряжения после завершения учений."""
         if self.config.EXERCISE_FLEET_EQUIPMENT is None:
             return False
         if not self.equipment_has_take_on:

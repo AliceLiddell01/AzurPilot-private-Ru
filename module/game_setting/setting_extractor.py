@@ -1,6 +1,6 @@
-"""游戏设置提取器，从碧蓝航线 Lua 源代码中解析 PlayerPrefs 配置项。
-通过正则表达式匹配 GetInt/GetFloat/GetString 等调用，
-自动提取键名、类型和默认值。"""
+"""Экстрактор игровых настроек: разбирает параметры PlayerPrefs из исходного кода Lua Azur Lane.
+Сопоставляет вызовы GetInt/GetFloat/GetString через регулярные выражения,
+автоматически извлекая имена ключей, типы и значения по умолчанию."""
 
 import os
 import re
@@ -11,27 +11,27 @@ from tqdm import tqdm
 from module.base.decorator import cached_property
 from module.device.method.utils import removeprefix
 
-# PlayerPrefs 调用模式匹配正则
+# Регулярное выражение для сопоставления вызовов PlayerPrefs
 REGEX_SETTING = re.compile(r'PlayerPrefs.Get(\w{1,10})\((.*)\)')
-# 设置键名提取正则
+# Регулярное выражение для извлечения имени ключа настройки
 REGEX_SETTING_KEY = re.compile(r'"(.*?)"')
 
 
 def _strip_code(string):
-    """提取字符串中最外层括号匹配的代码片段。
+    """Извлечь фрагмент кода, соответствующий внешним круглым скобкам в строке.
 
     Args:
-        string: 包含括号的代码字符串。
+        string: Строка кода, содержащая скобки.
 
     Yields:
-        括号内的字符，遇到最外层右括号时停止。
+        Символы внутри скобок до достижения внешней закрывающей скобки.
     """
     nested = 0
     for word in string:
         if word == '(':
             nested += 1
         if word == ')':
-            # 遇到最外层右括号时结束
+            # Завершаем при достижении внешней закрывающей скобки
             if nested == 1:
                 yield word
                 return
@@ -40,18 +40,18 @@ def _strip_code(string):
 
 
 def strip_code(string):
-    """拼接 _strip_code 生成器的输出为完整字符串。"""
+    """Объединить вывод генератора _strip_code в единую строку."""
     return ''.join(list(_strip_code(string)))
 
 
 @dataclass
 class Field:
-    """游戏设置字段定义，用于存储 PlayerPrefs 读取的配置项。
+    """Определение поля игровой настройки для хранения прочитанного параметра PlayerPrefs.
 
     Attributes:
-        formatter: 值类型转换函数（int/str/float）。
-        default: 默认值。
-        regex: 用于匹配设置键名的正则表达式。
+        formatter: Функция преобразования типа значения (int/str/float).
+        default: Значение по умолчанию.
+        regex: Регулярное выражение для сопоставления имени ключа настройки.
     """
     formatter: callable
     default: ''
@@ -60,26 +60,26 @@ class Field:
 
 @dataclass
 class LuaSetting:
-    """从 Lua 脚本中提取的 PlayerPrefs 设置项。
+    """Параметр PlayerPrefs, извлеченный из Lua-скрипта.
 
     Attributes:
-        raw: 原始代码行。
-        typ: 值类型，可选 "Int"、"String"、"Float"。
-        code: 设置键名和默认值的代码片段。
-        duplicate: 是否为重复项。
+        raw: Исходная строка кода.
+        typ: Тип значения ("Int", "String", "Float").
+        code: Фрагмент кода с именем ключа и значением по умолчанию.
+        duplicate: Является ли элемент дубликатом.
     """
     raw: str
     typ: str  # "Int", "String", "Float"
-    code: str  # 如 "AUTOFIGHT_BATTERY_SAVEMODE, 0" 或 "world_help_progress"
+    code: str  # Например, "AUTOFIGHT_BATTERY_SAVEMODE, 0" или "world_help_progress".
 
     duplicate = False
 
     @cached_property
     def default(self):
-        """解析设置项的默认值。
+        """Разобрать значение по умолчанию для параметра.
 
         Returns:
-            根据类型返回 int/str/float 默认值，无法解析时返回 None。
+            Значение по умолчанию int/str/float в зависимости от типа, либо None при ошибке разбора.
         """
         if ',' in self.code:
             name, default = self.code.split(',', 1)
@@ -107,10 +107,10 @@ class LuaSetting:
 
     @cached_property
     def key(self):
-        """提取设置项的键名，将特殊字符替换为下划线。
+        """Извлечь имя ключа настройки, заменяя специальные символы на подчеркивание.
 
         Returns:
-            清理后的键名字符串，无法提取时返回空字符串。
+            Очищенная строка имени ключа или пустая строка, если извлечь не удалось.
         """
         if ',' in self.code:
             code = self.code.rsplit(',', 1)[0].strip(' ')
@@ -125,10 +125,10 @@ class LuaSetting:
 
     @cached_property
     def formatter(self):
-        """获取值类型对应的格式化函数名。
+        """Получить имя функции форматирования для соответствующего типа значения.
 
         Returns:
-            'int'、'str' 或 'float'。
+            'int', 'str' или 'float'.
         """
         if self.typ == 'Int':
             return 'int'
@@ -140,10 +140,10 @@ class LuaSetting:
 
     @cached_property
     def regex(self):
-        """生成匹配设置键名的正则表达式。
+        """Сгенерировать регулярное выражение для сопоставления имени ключа настройки.
 
         Returns:
-            正则表达式字符串的 repr 形式。
+            Строковое представление (repr) регулярного выражения.
         """
         if ',' in self.code:
             code = self.code.rsplit(',', 1)[0].strip(' ')
@@ -164,20 +164,20 @@ class LuaSetting:
 
     @cached_property
     def generated(self):
-        """生成该设置项的 Python 代码行。
+        """Сгенерировать строки кода Python для этого параметра настройки.
 
         Returns:
-            包含注释和赋值语句的代码行列表。
+            Список строк кода с комментариями и оператором присваивания.
         """
         if self.key == '':
             return [
                 f'# {self.raw}',
-                'pass  # 未知'
+                'pass  # Неизвестно'
             ]
         if self.duplicate:
             return [
                 f'# {self.raw}',
-                'pass  # 重复'
+                'pass  # Повтор'
             ]
 
         return [
@@ -187,17 +187,17 @@ class LuaSetting:
 
 
 class SettingExtractor:
-    """从 Lua 脚本中提取 PlayerPrefs 设置并生成 Python 定义文件。"""
+    """Извлекает настройки PlayerPrefs из скриптов Lua и генерирует файл определений Python."""
 
     @staticmethod
     def iter_setting_from_file(file):
-        """从单个 Lua 文件中提取所有 PlayerPrefs 设置。
+        """Извлечь все настройки PlayerPrefs из одного файла Lua.
 
         Args:
-            file: Lua 文件路径。
+            file: Путь к файлу Lua.
 
         Yields:
-            LuaSetting 对象，每个对应一个 PlayerPrefs 调用。
+            Объекты LuaSetting, каждый соответствует одному вызову PlayerPrefs.
         """
         with open(file, mode='r', encoding='utf8') as f:
             data = list(f.readlines())
@@ -213,13 +213,13 @@ class SettingExtractor:
 
     @staticmethod
     def iter_file_from_folder(folder):
-        """遍历文件夹中的所有文件。
+        """Рекурсивно обойти все файлы в каталоге.
 
         Args:
-            folder: 目标文件夹路径。
+            folder: Путь к целевой директории.
 
         Yields:
-            文件的完整路径。
+            Полный путь к файлу.
         """
         for path, folders, files in os.walk(folder):
             for file in files:
@@ -227,19 +227,19 @@ class SettingExtractor:
                 yield file
 
     def iter_generated_lines(self, folder):
-        """生成设置文件的所有代码行。
+        """Сгенерировать все строки кода для файла настроек.
 
         Args:
-            folder: Lua 脚本所在文件夹路径。
+            folder: Путь к каталогу с Lua-скриптами.
 
         Yields:
-            Python 代码行字符串，包括导入语句、类定义和字段赋值。
+            Строки кода Python, включая импорты, определение класса и присваивание полей.
         """
         dic_settings = set()
         yield 'from module.game_setting.setting_extractor import Field'
         yield ''
-        yield '# 由 module/game_setting/setting_extractor.py 自动生成'
-        yield '# 请勿手动修改。'
+        yield '# Автоматически сгенерировано module/game_setting/setting_extractor.py'
+        yield '# Не изменяйте вручную.'
         yield ''
         yield ''
         yield 'class GameSettingsGenerated:'
@@ -259,11 +259,11 @@ class SettingExtractor:
                     yield f'    {line}'
 
     def generate(self, folder, output='./module/game_setting/setting_generated.py'):
-        """生成 Python 设置定义文件。
+        """Сгенерировать файл определений настроек Python.
 
         Args:
-            folder: Lua 脚本所在文件夹路径。
-            output: 输出文件路径，默认为 setting_generated.py。
+            folder: Путь к каталогу с Lua-скриптами.
+            output: Путь к выходному файлу, по умолчанию setting_generated.py.
         """
         lines = [l + '\n' for l in self.iter_generated_lines(folder)]
         with open(output, mode='w', encoding='utf8') as f:
@@ -271,7 +271,7 @@ class SettingExtractor:
 
 
 if __name__ == '__main__':
-    # AzurLaneLuaScripts\CN 的路径
+    # Путь к AzurLaneLuaScripts\CN
     FOLDER = r''
     ex = SettingExtractor()
     ex.generate(FOLDER)

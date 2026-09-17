@@ -110,7 +110,7 @@
     // Resource display configs
     var resourceMeta = [];
     var seriesVisible = [];
-    // 轴分配：左轴（主刻度）、右轴（彩色刻度）、隐藏轴（独立范围，不显示刻度）
+    // Распределение осей: левая (основная шкала), правая (цветная шкала), скрытая (независимый диапазон без делений)
     var RIGHT_AXIS_KEYS = { ActionPoint: 1, YellowCoin: 1, PurpleCoin: 1 };
     var HIDDEN_AXIS_KEYS = { Merit: 1 };
     for (var si = 0; si < seriesData.length; si++) {
@@ -160,10 +160,10 @@
 
         var visibleIndices = getVisibleDataIndices();
 
-        // ---- 所有资源独立 Y 轴范围 ----
-        var rightAxisCfgs = [];  // 右轴资源：用于彩色刻度
-        var yFns = {};           // 全部 12 项资源的 Y 函数
-        var gridMin = Infinity, gridMax = -Infinity;  // 网格/左轴参考范围
+        // ---- Независимые диапазоны оси Y для всех ресурсов ----
+        var rightAxisCfgs = [];  // Ресурсы правой оси: для цветных делений
+        var yFns = {};           // Y-функции для всех 12 ресурсов
+        var gridMin = Infinity, gridMax = -Infinity;  // Опорный диапазон сетки/левой оси
         (function () {
             for (var vi = 0; vi < visibleIndices.length; vi++) {
                 var si = visibleIndices[vi];
@@ -225,7 +225,7 @@
         ctx.fillStyle = "#1a1a2e";
         ctx.fillRect(0, 0, W, H);
 
-        // Grid lines + 左轴参考刻度
+        // Линии сетки + опорные деления левой оси
         ctx.strokeStyle = "#2a2a3e";
         ctx.lineWidth = 1;
         ctx.fillStyle = "#666";
@@ -373,9 +373,9 @@
                 if (!item) return;
                 var idx = parseInt(item.getAttribute("data-series"), 10);
                 if (isNaN(idx) || idx < 0 || idx >= seriesVisible.length) return;
-                // 独立切换：只开关当前点中的序列，不影响其他
+                // Независимое переключение: меняем только текущий ряд, не затрагивая остальные
                 seriesVisible[idx] = !seriesVisible[idx];
-                // 确保至少一条序列可见
+                // Гарантируем, что хотя бы один ряд остаётся видимым
                 var anyVisible = false;
                 for (var si = 0; si < seriesVisible.length; si++) {
                     if (seriesVisible[si]) { anyVisible = true; break; }
@@ -411,7 +411,7 @@
 
         var visibleIndices = getVisibleDataIndices();
 
-        // ---- 所有资源独立 Y 轴范围（缩放后） ----
+        // ---- Независимые диапазоны оси Y для всех ресурсов (после масштабирования) ----
         var rightAxisCfgs = [];
         var yFns = {};
         var gridMin = Infinity, gridMax = -Infinity;
@@ -476,7 +476,7 @@
         ctx.fillStyle = "#1a1a2e";
         ctx.fillRect(0, 0, W, H);
 
-        // Grid & left axis 参考刻度
+        // Сетка и опорные деления левой оси
         ctx.strokeStyle = "#2a2a3e";
         ctx.lineWidth = 1;
         ctx.fillStyle = "#666";
@@ -556,12 +556,12 @@
             isDragging = true;
             dragStartX = e.clientX;
             if (my <= H - 40) {
-                // 图表区域 -> 选区缩放（不检查缩放状态，始终可选区）
+                // Область графика -> масштабирование по выделению (доступно независимо от текущего масштаба)
                 _isSelecting = true;
                 selStartX = e.clientX;
                 cv.style.cursor = "crosshair";
             } else {
-                // 底部时间轴区域 -> 拖动平移
+                // Нижняя область временной шкалы -> перетаскивание для панорамирования
                 _isSelecting = false;
                 dragStartPan = panOffset;
                 cv.style.cursor = "grabbing";
@@ -571,7 +571,7 @@
         addListener(document, "mousemove", function (e) {
             if (!isDragging) return;
             if (_isSelecting) {
-                // 选区矩形占满图表高度
+                // Прямоугольник выделения занимает всю высоту графика
                 var rect = cv.getBoundingClientRect();
                 var mx = e.clientX - rect.left;
                 var sx = selStartX - rect.left;

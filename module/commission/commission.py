@@ -1,23 +1,23 @@
-"""委托任务执行模块。
+"""Модуль выполнения задач комиссий (поручений).
 
-负责碧蓝航线委托系统的自动化处理，包括委托奖励领取、委托检测、
-委托选择过滤、委托启动以及奖励收入统计。支持每日委托和紧急委托
-两大类别，通过 OCR 和图像匹配识别委托信息，并根据用户配置的
-过滤规则自动选择最优委托组合。
+Отвечает за автоматизацию системы комиссий в Azur Lane, включая сбор наград, обнаружение поручений,
+их фильтрацию и выбор, запуск и сбор статистики по полученным предметам. Поддерживает две основные категории:
+ежедневные и срочные комиссии, распознаёт параметры поручений через OCR и шаблоны,
+автоматически подбирая оптимальную комбинацию на основе правил пользователя.
 
-主要流程：
-    1. 从奖励页面进入委托页面
-    2. 领取已完成的委托奖励（commission_receive）
-    3. 扫描当前所有委托列表（_commission_scan_all）
-    4. 根据过滤规则选择待启动的委托（_commission_choose）
-    5. 逐一查找并启动选中的委托（commission_start）
-    6. 根据运行中委托的完成时间计算下次调度
+Основные этапы:
+    1. Переход на страницу комиссий со страницы наград
+    2. Сбор наград за завершённые комиссии (commission_receive)
+    3. Сканирование всего текущего списка комиссий (_commission_scan_all)
+    4. Выбор запускаемых комиссий согласно правилам фильтрации (_commission_choose)
+    5. Поочерёдный поиск и запуск выбранных комиссий (commission_start)
+    6. Расчёт времени следующего запуска на основе времени завершения активных поручений
 
-依赖：
-    - module.commission.project: 委托信息解析（Commission 类）
-    - module.commission.preset: 预设过滤规则
-    - module.ui.ui: 页面导航
-    - module.handler.info_handler: 弹窗/信息栏处理
+Зависимости:
+    - module.commission.project: парсинг данных комиссий (класс Commission)
+    - module.commission.preset: пресеты правил фильтрации
+    - module.ui.ui: навигация по страницам
+    - module.handler.info_handler: обработка всплывающих окон и информационной строки
 """
 
 import copy
@@ -59,43 +59,43 @@ COMMISSION_SCROLL = Scroll(COMMISSION_SCROLL_AREA, color=(247, 211, 66), name='C
 
 
 def lines_detect(image):
-    """检测委托列表中各委托条目底部的白色分割线位置。
+    """Определяет координаты белых разделительных линий внизу каждого элемента комиссии в списке.
 
-    通过分析截图中分割线区域（x: 597-619）的灰度均值，
-    使用 scipy.signal.find_peaks 定位白色线条的 Y 坐标。
+    Анализирует среднюю яркость в градациях серого в области разделительной линии (x: 597-619)
+    и использует scipy.signal.find_peaks для поиска Y-координат белых линий.
 
     Args:
-        image (np.ndarray): 游戏截图。
+        image (np.ndarray): Снимок экрана игры.
 
     Returns:
-        np.ndarray: 每个委托下方白色分割线的 Y 坐标数组。
+        np.ndarray: Массив Y-координат белых разделительных линий под каждой комиссией.
     """
-    # 通过查找每个委托下方的白色分割线来定位委托位置。
-    # (597, 0, 619, 720) 是只有白色分割线的区域。
+    # Позиция поручения определяется поиском белой разделительной линии снизу.
+    # (597, 0, 619, 720) — область, содержащая только белую разделительную линию.
     color_height = np.mean(rgb2gray(crop(image, (597, 0, 619, 720), copy=False)), axis=1)
     parameters = {'height': 200, 'distance': 100}
     peaks, _ = signal.find_peaks(color_height, **parameters)
-    # 67 是委托列表头部的高度
-    # 117 是单个委托卡片的高度。
+    # 67 — высота заголовка списка поручений
+    # 117 — высота одной карточки поручения.
     peaks = [y for y in peaks if y > 67 + 117]
     return np.array(peaks)
 
 
 class RewardCommission(UI, InfoHandler):
-    """委托任务处理器。
+    """Обработчик задач комиссий.
 
-    继承 UI 和 InfoHandler，负责委托系统的完整自动化流程，
-    包括委托检测、过滤选择、启动执行和奖励领取。
+    Наследует UI и InfoHandler, реализуя полный цикл автоматизации системы комиссий:
+    обнаружение, выбор по фильтрам, запуск и получение наград.
 
     Attributes:
-        daily (SelectedGrids): 当前扫描到的每日委托列表。
-        urgent (SelectedGrids): 当前扫描到的紧急委托列表。
-        daily_choose (SelectedGrids): 经过滤器选中的待启动每日委托。
-        urgent_choose (SelectedGrids): 经过滤器选中的待启动紧急委托。
-        comm_choose (SelectedGrids): 所有选中的委托（含每日和紧急），
-            用于调度判断和延迟任务计算。
-        max_commission (int): 最大可同时运行的委托数量，默认 4。
-            当存在活动委托（daily_event）时提升为 5。
+        daily (SelectedGrids): Список текущих обнаруженных ежедневных комиссий.
+        urgent (SelectedGrids): Список текущих обнаруженных срочных комиссий.
+        daily_choose (SelectedGrids): Выбранные фильтром для запуска ежедневные комиссии.
+        urgent_choose (SelectedGrids): Выбранные фильтром для запуска срочные комиссии.
+        comm_choose (SelectedGrids): Все выбранные комиссии (ежедневные и срочные),
+            используемые для планирования и расчёта задержки задач.
+        max_commission (int): Максимальное число одновременно выполняемых комиссий, по умолчанию 4.
+            При наличии комиссии события (daily_event) увеличивается до 5.
     """
 
     daily: SelectedGrids
@@ -107,13 +107,13 @@ class RewardCommission(UI, InfoHandler):
 
     def _commission_detect(self, image):
         """
-        从图像中获取所有委托。
+        Извлекает все комиссии из изображения.
 
         Args:
-            image (np.ndarray):
+            image (np.ndarray): Входное изображение.
 
         Returns:
-            SelectedGrids:
+            SelectedGrids: Набор обнаруженных объектов Commission.
         """
         logger.hr('Обнаружение комиссий')
         commission = []
@@ -128,14 +128,16 @@ class RewardCommission(UI, InfoHandler):
 
     def commission_detect(self, trial=1, area=None, skip_first_screenshot=True):
         """
+        Обнаруживает комиссии на экране с поддержкой повторных попыток.
+
         Args:
-            trial (int): 遇到无效委托时重试次数，
-                         通常是因为 info_bar 未完全消失。
-            area (tuple):
-            skip_first_screenshot (bool):
+            trial (int): Количество попыток при обнаружении невалидных комиссий
+                         (обычно из-за неисчезнувшей информационной строки info_bar).
+            area (tuple): Ограничивающая область обрезки либо None.
+            skip_first_screenshot (bool): Пропускать ли первый снимок экрана.
 
         Returns:
-            SelectedGrids:
+            SelectedGrids: Набор обнаруженных комиссий.
         """
         commissions = SelectedGrids([])
         for _ in range(trial):
@@ -160,18 +162,20 @@ class RewardCommission(UI, InfoHandler):
 
     def _commission_choose(self, daily, urgent):
         """
+        Выбирает комиссии для запуска на основе правил фильтрации.
+
         Args:
-            daily (SelectedGrids):
-            urgent (SelectedGrids):
+            daily (SelectedGrids): Список ежедневных комиссий.
+            urgent (SelectedGrids): Список срочных комиссий.
 
         Returns:
-            SelectedGrids, SelectedGrids: 选中的每日委托，选中的紧急委托
+            SelectedGrids, SelectedGrids: Выбранные ежедневные комиссии, выбранные срочные комиссии.
         """
         self.comm_choose = SelectedGrids([])
-        # 统计委托数量
+        # Подсчет количества поручений
         total = daily.add_by_eq(urgent)
-        # 后缀编号较大的委托总是在较小编号的下方
-        # 反转委托列表以优先选择后缀编号较大的委托
+        # Поручения с большим номером суффикса всегда расположены ниже меньших номеров
+        # Разворачиваем список поручений для приоритета больших суффиксов
         total = total[::-1]
         self.max_commission = 4
         for comm in total:
@@ -181,7 +185,7 @@ class RewardCommission(UI, InfoHandler):
         running_count = len(running_list)
         logger.attr('Выполняется', f'{running_count}/{self.max_commission}')
 
-        # 加载过滤器字符串
+        # Загрузка строки фильтра
         preset = self.config.Commission_PresetFilter
         if preset == 'custom':
             string = self.config.Commission_CustomFilter
@@ -197,13 +201,13 @@ class RewardCommission(UI, InfoHandler):
             string = DICT_FILTER_PRESET[preset]
         logger.attr('Фильтр комиссий', preset)
 
-        # 过滤
+        # Фильтрация
         COMMISSION_FILTER.load(string)
         run = COMMISSION_FILTER.apply(total.grids, func=self._commission_check)
         logger.attr('Порядок фильтрации', ' > '.join([str(c) for c in run]))
         run = SelectedGrids(run)
 
-        # 添加最短时间委托
+        # Добавляем поручения с наименьшим временем
         if self.config.Commission_AddShortest == False and preset == 'custom':
             logger.info('[Комиссия — выбор] Недостаточно комиссий для запуска')
         else:
@@ -213,13 +217,13 @@ class RewardCommission(UI, InfoHandler):
                     logger.info('[Комиссия — выбор] Недостаточно комиссий для запуска; добавляем самую короткую ежедневную комиссию')
                     COMMISSION_FILTER.load(SHORTEST_FILTER)
                     shortest = COMMISSION_FILTER.apply(daily[::-1], func=self._commission_check)
-                    # 反转每日委托列表以选择更好的委托
+                    # Разворачиваем список ежедневных поручений для выбора лучших
                     run = no_shortest.add_by_eq(SelectedGrids(shortest))
                     logger.attr('Порядок фильтрации', ' > '.join([str(c) for c in run]))
                 else:
                     logger.info('[Комиссия — выбор] Недостаточно комиссий для запуска')
 
-        # 优先处理快过期重要委托
+        # Приоритетная обработка истекающих важных поручений
         if 'expire' in run:
             logger.info('[Комиссия] Попытка заранее выполнить скоро истекающую комиссию')
 
@@ -246,7 +250,7 @@ class RewardCommission(UI, InfoHandler):
         if running_count >= self.max_commission:
             return SelectedGrids([]), SelectedGrids([])
 
-        # 分离每日和紧急委托
+        # Разделение ежедневных и срочных поручений
         run = run[:self.max_commission - running_count]
         daily_choose = run.intersect_by_eq(daily)
         urgent_choose = run.intersect_by_eq(urgent)
@@ -262,16 +266,16 @@ class RewardCommission(UI, InfoHandler):
         return daily_choose, urgent_choose
 
     def _commission_check(self, commission):
-        """检查委托是否符合执行条件。
+        """Проверяет, подходит ли комиссия под условия выполнения.
 
-        过滤掉无效委托、非待启动状态的委托，以及用户配置中
-        明确禁用的主线委托（major commission）。
+        Отфильтровывает невалидные комиссии, комиссии в не ожидающем запуска статусе,
+        а также основные сюжетные комиссии (major commission), если они отключены в настройках.
 
         Args:
-            commission (Commission): 待检查的委托对象。
+            commission (Commission): Проверяемый объект комиссии.
 
         Returns:
-            bool: 委托是否可以被选择执行。
+            bool: Может ли данная комиссия быть запущена.
         """
         if not commission.valid or commission.status != 'pending':
             return False
@@ -281,21 +285,21 @@ class RewardCommission(UI, InfoHandler):
         return True
 
     def _commission_ensure_mode(self, mode):
-        """切换委托列表的显示模式（每日/紧急）。
+        """Переключает режим отображения списка комиссий (ежедневные/срочные).
 
-        切换到指定模式后，等待列表滚动动画结束再返回，
-        以避免委托条目在动画过程中被误检或漏检。
+        После переключения в указанный режим ожидает завершения анимации прокрутки списка,
+        чтобы избежать ложного или неполного распознавания карточек в процессе анимации.
 
         Args:
-            mode (str): 目标模式，'daily' 或 'urgent'。
+            mode (str): Целевой режим, 'daily' или 'urgent'.
 
         Returns:
-            bool: 切换是否成功。
+            bool: Успешно ли выполнено переключение.
         """
         if COMMISSION_SWITCH.set(mode, main=self):
-            # 当每日委托列表超过 4 个（通常为 5 个），且紧急委托在 1 到 4 个之间时，
-            # 委托列表会出现滚动动画，
-            # 导致最顶部的委托无法被检测到。
+            # Когда в списке ежедневных поручений больше 4 (обычно 5), а срочных от 1 до 4,
+            # в списке поручений возникает анимация прокрутки,
+            # из-за чего верхнее поручение не обнаруживается.
             if not COMMISSION_SCROLL.appear(main=self) or COMMISSION_SCROLL.cal_position(main=self) < 0.05 or COMMISSION_SCROLL.length / COMMISSION_SCROLL.total > 0.98:
                 pre_peaks = lines_detect(self.device.image)
                 self.device.screenshot()
@@ -311,13 +315,13 @@ class RewardCommission(UI, InfoHandler):
             return False
 
     def _commission_mode_reset(self):
-        """重置委托列表显示模式。
+        """Сбрасывает режим отображения списка комиссий.
 
-        先切换到另一个模式再切回当前模式，强制刷新列表内容，
-        用于委托启动失败后恢复列表状态。
+        Сначала переключается на другой режим, затем возвращается в текущий, принудительно обновляя список.
+        Используется для восстановления состояния списка после неудачного запуска поручения.
 
         Returns:
-            bool: 重置是否成功。无法识别当前模式时返回 False。
+            bool: Успешен ли сброс режима. Возвращает False, если текущий режим не распознан.
         """
         logger.hr('Сброс режима комиссий')
         if self.appear(COMMISSION_DAILY):
@@ -334,12 +338,12 @@ class RewardCommission(UI, InfoHandler):
         return True
 
     def _commission_swipe(self):
-        """向下翻页委托列表。
+        """Прокручивает список комиссий на одну страницу вниз.
 
-        如果滚动条可见且未到底部，则向下翻一页；否则返回 False。
+        Если полоса прокрутки видна и ещё не достигла низа, листает страницу вниз; иначе возвращает False.
 
         Returns:
-            bool: 是否成功翻页。滚动条不可见或已到底部时返回 False。
+            bool: Была ли выполнена прокрутка. Возвращает False, если полоса прокрутки не видна или достигла низа.
         """
         if COMMISSION_SCROLL.appear(main=self):
             if COMMISSION_SCROLL.at_bottom(main=self):
@@ -351,10 +355,10 @@ class RewardCommission(UI, InfoHandler):
             return False
 
     def _commission_swipe_to_top(self):
-        """将委托列表滚动到顶部。
+        """Прокручивает список комиссий в самый верх.
 
         Returns:
-            bool: 是否执行了滚动操作。滚动条不可见时返回 False。
+            bool: Была ли выполнена операция прокрутки. Возвращает False, если полоса прокрутки не видна.
         """
         if not COMMISSION_SCROLL.appear(main=self):
             return False
@@ -363,8 +367,10 @@ class RewardCommission(UI, InfoHandler):
 
     def _commission_scan_list(self):
         """
+        Сканирует текущий список комиссий с постраничной прокруткой.
+
         Returns:
-            SelectedGrids: 包含 Commission 对象的 SelectedGrids
+            SelectedGrids: Набор объектов Commission из отсканированного списка.
         """
         self.device.click_record_clear()
         commission = SelectedGrids([])
@@ -372,7 +378,7 @@ class RewardCommission(UI, InfoHandler):
             new = self.commission_detect(trial=2)
             commission = commission.add_by_eq(new)
 
-            # 结束
+            # Конец
             if not self._commission_swipe():
                 break
 
@@ -386,7 +392,7 @@ class RewardCommission(UI, InfoHandler):
             out: page_commission
         """
         logger.hr('Сканирование комиссий', level=1)
-        # 紧急委托列表是懒加载的，先切换以强制刷新。
+        # Список срочных поручений загружается лениво; переключаем для принудительного обновления.
         self._commission_ensure_mode('urgent')
 
         logger.hr('Сканирование ежедневных комиссий', level=2)
@@ -400,11 +406,11 @@ class RewardCommission(UI, InfoHandler):
             self._commission_ensure_mode('urgent')
             self._commission_swipe_to_top()
             urgent = self._commission_scan_list()
-            # 将额外委托转换为夜间委托
+            # Преобразуем дополнительное поручение в ночное
             urgent.call('convert_to_night')
 
-            # 不在 21:00~03:00 时间段，但扫描到了夜间委托
-            # 可能是过期委托，刷新即可解决
+            # Вне диапазона 21:00~03:00, но обнаружено ночное поручение
+            # Возможно, просроченное поручение; решается обновлением
             if current_time() - get_server_next_update('21:00') > timedelta(hours=6):
                 night = urgent.select(category_str='night')
                 if night:
@@ -412,7 +418,7 @@ class RewardCommission(UI, InfoHandler):
                     for comm in night:
                         logger.attr('Комиссия', comm)
                     logger.info('[Комиссия — сканирование] Повторное сканирование списка срочных комиссий')
-                    # 虽然不是最佳方式，但在罕见情况下可以接受
+                    # Не лучший вариант, но допустим в редких случаях
                     self.device.sleep(2)
                     self._commission_ensure_mode('daily')
                     continue
@@ -435,19 +441,19 @@ class RewardCommission(UI, InfoHandler):
 
     def _commission_start_click(self, comm, is_urgent=False, skip_first_screenshot=True):
         """
-        启动一个委托。
+        Запускает одну выбранную комиссию.
 
         Args:
-            comm (Commission):
-            is_urgent (bool):
-            skip_first_screenshot:
+            comm (Commission): Объект комиссии.
+            is_urgent (bool): Является ли комиссия срочной.
+            skip_first_screenshot: Пропускать ли первый снимок экрана.
 
         Returns:
-            bool: 是否成功
+            bool: Успешен ли запуск.
 
         Pages:
             in: page_commission
-            out: page_commission, info_bar, commission details unfold
+            out: page_commission, info_bar, раскрытые детали комиссии
         """
         logger.hr('Запуск комиссии')
         self.interval_clear(COMMISSION_ADVICE)
@@ -460,17 +466,17 @@ class RewardCommission(UI, InfoHandler):
             else:
                 self.device.screenshot()
 
-            # 结束
+            # Конец
             if self.info_bar_count():
                 break
             if count >= 3:
-                # 重启游戏以处理委托推荐 bug。
-                # 点击"推荐"后，舰船出现后突然消失。
-                # 同时委托图标闪烁。
+                # Перезапуск игры для обхода бага рекомендации в поручениях.
+                # После клика «Рекомендовать» корабли появляются и внезапно исчезают.
+                # При этом иконка поручения мигает.
                 logger.warning('[Комиссия — запуск] Сработала ошибка мигания списка комиссий')
                 raise GameStuckError('[Комиссия — запуск] Сработала ошибка мигания списка комиссий')
 
-            # 点击
+            # Клик
             if self.match_template_color(COMMISSION_START, offset=(5, 20), interval=7):
                 self.device.click(COMMISSION_START)
                 self.interval_reset(COMMISSION_ADVICE)
@@ -480,18 +486,18 @@ class RewardCommission(UI, InfoHandler):
                 self.interval_reset(COMMISSION_ADVICE)
                 comm_timer.reset()
                 continue
-            # 误入船坞
+            # Случайный вход в док
             if self.appear(DOCK_CHECK, offset=(20, 20), interval=3):
                 logger.info(f'[Комиссия — запуск] Ошибочный вход в док {DOCK_CHECK} -> {BACK_ARROW}')
                 self.device.click(BACK_ARROW)
                 comm_timer.reset()
                 continue
-            # 检查是否是正确的委托
+            # Проверка корректности поручения
             if self.appear(COMMISSION_ADVICE, offset=(5, 20), interval=7):
                 area = (0, 0, image_size(self.device.image)[0], COMMISSION_ADVICE.button[1])
                 current = self.commission_detect(area=area)
                 if is_urgent:
-                    current.call('convert_to_night')  # 将额外委托转换为夜间委托
+                    current.call('convert_to_night')  # Преобразуем дополнительное поручение в ночное
                 if current.count >= 1:
                     current = current[0]
                     if current == comm:
@@ -507,7 +513,7 @@ class RewardCommission(UI, InfoHandler):
                 self.interval_clear(COMMISSION_START)
                 comm_timer.reset()
                 continue
-            # 进入委托
+            # Вход в поручение
             if comm_timer.reached():
                 self.device.click(comm.button)
                 self.device.sleep(0.3)
@@ -517,9 +523,11 @@ class RewardCommission(UI, InfoHandler):
 
     def _commission_find_and_start(self, comm, is_urgent=False):
         """
+        Находит и запускает указанную комиссию.
+
         Args:
-            comm (Commission):
-            is_urgent (bool):
+            comm (Commission): Объект запускаемой комиссии.
+            is_urgent (bool): Является ли комиссия срочной.
         """
         self.device.click_record_clear()
         comm = copy.deepcopy(comm)
@@ -533,10 +541,10 @@ class RewardCommission(UI, InfoHandler):
             for _ in range(15):
                 new = self.commission_detect(trial=2)
                 if is_urgent:
-                    new.call('convert_to_night')  # 将额外委托转换为夜间委托
+                    new.call('convert_to_night')  # Преобразуем дополнительное поручение в ночное
 
-                # 更新委托位置。
-                # 不同扫描中委托信息相同，但位置可能不同。
+                # Обновление позиции поручения.
+                # В разных сканированиях данные поручения совпадают, но позиция может меняться.
                 current = None
                 for new_comm in new:
                     if new_comm == comm:
@@ -551,7 +559,7 @@ class RewardCommission(UI, InfoHandler):
                         failed = False
                         break
 
-                # 结束条件
+                # Условие завершения
                 if not self._commission_swipe():
                     break
 
@@ -572,7 +580,7 @@ class RewardCommission(UI, InfoHandler):
 
     def commission_start(self):
         """
-        扫描并启动所有选定的委托。
+        Сканирует и запускает все выбранные комиссии.
 
         Pages:
             in: page_commission
@@ -602,11 +610,11 @@ class RewardCommission(UI, InfoHandler):
 
     def _record_commission_income(self):
         """
-        记录委托奖励的收入（物品）。
+        Регистрирует полученные награды комиссий (предметы).
 
-        分析委托奖励收集过程中在 `_commission_reward_images` 中截取的截图，
-        识别特定物品（钻石、心智魔方、心智单元、石油、金币），
-        汇总数量并保存到数据库。
+        Анализирует скриншоты, сохранённые в `_commission_reward_images` во время сбора наград,
+        распознаёт определённые предметы (алмазы, кубы, когнитивные чипы, нефть, монеты),
+        суммирует их количество и сохраняет в базу данных.
         """
         try:
             from module.statistics.get_items import (
@@ -745,13 +753,13 @@ class RewardCommission(UI, InfoHandler):
             logger.warning(f'[Комиссия — награды] Не удалось записать доход комиссии: {e}')
 
     def _handle_research_genre_t_update(self, completed_commission_count):
-        """更新 T 类科研任务的剩余委托计数。
+        """Обновляет оставшийся счётчик комиссий для исследований типа T.
 
-        当存在 T 类科研（要求完成指定次数委托）时，将已完成的委托次数
-        从剩余计数中扣除。计数归零时触发科研任务调度。
+        Когда активно исследование типа T (требующее завершения определённого числа комиссий),
+        вычитает количество завершённых комиссий из оставшегося счётчика. При обнулении счётчика вызывает планировщик задачи Research.
 
         Args:
-            completed_commission_count (int): 本次领取奖励时完成的委托数量。
+            completed_commission_count (int): Количество комиссий, завершённых при текущем сборе наград.
         """
         if completed_commission_count <= 0:
             return
@@ -767,20 +775,20 @@ class RewardCommission(UI, InfoHandler):
             self.config.task_call('Research')
 
     def _commission_receive(self, skip_first_screenshot=True):
-        """领取已完成的委托奖励。
+        """Получает награды за завершённые комиссии.
 
-        在委托页面和奖励页面之间循环，点击所有可领取的奖励弹窗
-        （经验、物品、舰船），同时收集奖励截图用于收入统计。
-        处理石油溢出的情况（触发宿舍喂食消耗石油）。
+        Циклически обрабатывает страницу комиссий и страницу наград, нажимая на все доступные окна наград
+        (опыт, предметы, корабли), параллельно собирая снимки наград для статистики дохода.
+        Обрабатывает переполнение запасов нефти (запуск кормления в общежитии для траты нефти).
 
         Args:
-            skip_first_screenshot (bool): 是否跳过首次截图，复用上一状态的截图。
+            skip_first_screenshot (bool): Пропускать ли первый снимок экрана, используя снимок из предыдущего состояния.
 
         Returns:
-            bool: 是否领取了任何奖励。
+            bool: Были ли получены какие-либо награды.
 
         Raises:
-            OilMaxed: 石油溢出且喂食 3 次仍无法解决时抛出。
+            OilMaxed: Вызывается, если нефть переполнена и трёхкратное кормление не помогло решить проблему.
         """
         logger.hr('Получение наград')
 
@@ -874,8 +882,10 @@ class RewardCommission(UI, InfoHandler):
 
     def commission_receive(self):
         """
+        Получает награды за комиссии с автоматической обработкой переполнения нефти.
+
         Returns:
-            bool: 是否领取了奖励。
+            bool: Были ли получены награды.
 
         Pages:
             in: page_reward
@@ -898,9 +908,9 @@ class RewardCommission(UI, InfoHandler):
             in: Any
             out: page_commission
         """
-        # 修复：如果卡在 TACTICAL_CLASS_START（技能书选择界面），点击取消退出
-        # TACTICAL_CHECK 在 TACTICAL_CLASS_START 中被误检测，导致 A* 导航
-        # 选择 BACK_ARROW，但从该页面无法导航到 page_reward
+        # Исправление: если застряли на TACTICAL_CLASS_START (выбор учебника), нажимаем отмену для выхода
+        # TACTICAL_CHECK ложно срабатывает в TACTICAL_CLASS_START, из-за чего навигация A*
+        # выбирает BACK_ARROW, но с этой страницы нельзя перейти на page_reward
         self.device.screenshot()
         if self.appear(TACTICAL_CLASS_START, offset=(30, 30)):
             logger.info('[Комиссия — тактика] Обнаружена кнопка начала тактического обучения; нажимаем отмену для выхода')
@@ -909,12 +919,12 @@ class RewardCommission(UI, InfoHandler):
         self.ui_ensure(page_reward)
         self.commission_receive()
 
-        # 在启航仪式委托获得舰船时会出现信息栏
-        # 这是游戏 bug，信息栏反复显示获得舰船，直到点击 get_ship 才消失
+        # При получении корабля в поручении церемонии отплытия появляется информационная панель
+        # Это баг игры: панель циклически показывает получение корабля, пока не будет нажат get_ship
         self.handle_info_bar()
         self.commission_start()
 
-        # 调度
+        # Планировщик
         total = self.daily.add_by_eq(self.urgent)
         future_finish = sorted([f for f in total.get('finish_time') if f is not None])
         logger.info(f'[Комиссия — завершение] Время завершения комиссий: {[str(f) for f in future_finish]}')
@@ -924,8 +934,8 @@ class RewardCommission(UI, InfoHandler):
             logger.info('[Комиссия — завершение] Нет выполняющихся комиссий')
             self.config.task_delay(success=False)
 
-        # 延迟钻石 farming / 三油低耗任务
-        # 遍历使用 GemsFarming 配置组的任务，检查是否启用且开启了 CommissionLimit
+        # Откладываем задачи фарма гемов / 3-oil low cost
+        # Проверяем задачи из группы GemsFarming: активны ли они и включен ли CommissionLimit
         limit_tasks = [
             task for task in ['GemsFarming', 'ThreeOilLowCost']
             if self.config.is_task_enabled(task)

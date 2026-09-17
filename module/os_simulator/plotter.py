@@ -1,8 +1,8 @@
-"""大世界模拟器可视化模块。
+"""Модуль визуализации симулятора Operation Siren.
 
-提供大世界模拟器的图表绘制功能，包括单样本轨迹图、
-多轮模拟的行动力/代币/完成海域数分布直方图以及
-综合报告图，使用 matplotlib 生成并保存为 PNG 图像。
+Предоставляет функции построения графиков для симулятора Operation Siren:
+траекторию одиночной выборки, средние траектории и доверительные интервалы очков действия / монет,
+а также кумулятивную вероятность сбоев с сохранением графиков через matplotlib в формате PNG.
 """
 import os
 import numpy as np
@@ -30,7 +30,7 @@ class OSSimulatorPlotter:
 
     def plot_single_sample_history(self, history_single):
         """
-        绘制单样本轨迹图。
+        Построить график траектории одиночной выборки.
         """
         self.logger.info("[Симулятор Операции «Сирена»] Создание траектории для одной выборки...")
         
@@ -73,15 +73,15 @@ class OSSimulatorPlotter:
             elif current_s == STATUS_CRASHED:
                 ax1.axvspan(start_t, times[-1], facecolor='red', alpha=0.15)
                 
-        cl1_patch = mpatches.Patch(color='green', alpha=0.15, label='Уровень коррозии 1')
-        meow_patch = mpatches.Patch(color='orange', alpha=0.15, label='Фарм мяуфицеров')
-        crash_patch = mpatches.Patch(color='red', alpha=0.15, label='Сбой')
-        
-        lines1, labels1 = ax1.get_legend_handles_labels()
-        lines2, labels2 = ax2.get_legend_handles_labels()
-        ax1.legend(lines1 + lines2 + [cl1_patch, meow_patch, crash_patch], 
-                labels1 + labels2 + ['Уровень коррозии 1', 'Фарм мяуфицеров', 'Сбой'],
-                loc='upper left')
+            cl1_patch = mpatches.Patch(color='green', alpha=0.15, label='Уровень коррозии 1')
+            meow_patch = mpatches.Patch(color='orange', alpha=0.15, label='Фарм мяуфицеров')
+            crash_patch = mpatches.Patch(color='red', alpha=0.15, label='Сбой')
+            
+            lines1, labels1 = ax1.get_legend_handles_labels()
+            lines2, labels2 = ax2.get_legend_handles_labels()
+            ax1.legend(lines1 + lines2 + [cl1_patch, meow_patch, crash_patch], 
+                    labels1 + labels2 + ['Уровень коррозии 1', 'Фарм мяуфицеров', 'Сбой'],
+                    loc='upper left')
 
         plt.title('Симулятор Operation Siren: траектория одного прогона')
         plt.tight_layout()
@@ -90,7 +90,7 @@ class OSSimulatorPlotter:
 
     def plot_multi_sample_history(self, result, history_multi_avg):
         """
-        多样本模式：绘制所有样本的平均值和标准差随时间变化的轨迹图。
+        Построить график изменения среднего значения и стандартного отклонения всех выборок во времени.
         """
         self.logger.info("[Симулятор Операции «Сирена»] Создание усреднённой траектории для нескольких выборок...")
         
@@ -101,7 +101,7 @@ class OSSimulatorPlotter:
         std_ap = history_multi_avg['ap_std']
         mean_coin = history_multi_avg['coin']
         std_coin = history_multi_avg['coin_std']
-        mean_crash = history_multi_avg['crash'] * 100.0  # 转为百分比
+        mean_crash = history_multi_avg['crash'] * 100.0  # Переводим в проценты.
 
         ax1.plot(times, mean_ap, color='blue', label='Средние очки действия', linewidth=2)
         ax1.fill_between(times, mean_ap - std_ap, mean_ap + std_ap, color='blue', alpha=0.2)
