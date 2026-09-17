@@ -1,5 +1,5 @@
-"""地图视图模块。定义 View 类继承 MapDetector，管理地图中所有网格的集合，
-提供网格查询、遍历、舰队位置计算和滑动偏移等功能。"""
+"""Модуль обзора карты. Определяет класс View, наследующий MapDetector, управляющий совокупностью
+всех ячеек карты, предоставляющий выборку ячеек, обход, вычисление координат флота и смещений свайпа."""
 
 import collections
 import time
@@ -24,9 +24,9 @@ class View(MapDetector):
     def __init__(self, config, mode='main', grid_class=Grid):
         """
         Args:
-            config (AzurLaneConfig): 配置对象。
-            mode (str): 'main' 为普通碧蓝航线地图，'os' 为大世界。
-            grid_class: 网格类。
+            config (AzurLaneConfig): Объект конфигурации.
+            mode (str): 'main' — обычная карта Azur Lane, 'os' — Operation Siren.
+            grid_class: Класс ячейки сетки.
         """
         super().__init__(config)
         self.mode = mode
@@ -56,10 +56,10 @@ class View(MapDetector):
             return cv2.copyTo(image, ASSETS.ui_mask_in_map)
 
     def load(self, image):
-        """加载图像并构建局部视野地图。
+        """Загрузить изображение и построить локальную карту поля зрения.
 
         Args:
-            image: 截图图像。
+            image: Снимок экрана.
         """
         image = self._image_clear_ui(np.array(image))
         self.image = image
@@ -105,7 +105,7 @@ class View(MapDetector):
             break
 
     def predict(self):
-        """预测所有网格信息。"""
+        """Распознать информацию обо всех ячейках сетки."""
         start_time = time.time()
         for grid in self:
             grid.predict()
@@ -115,8 +115,8 @@ class View(MapDetector):
         )
 
     def update(self, image):
-        """更新所有网格的图像。
-        如果摄像机位置未变化，无需重新计算，仅更新图像即可。
+        """Обновить изображение всех ячеек сетки.
+        Если положение камеры не изменилось, пересчёт не требуется, достаточно обновить изображение.
         """
         image = self._image_clear_ui(image)
         self.image = image
@@ -125,13 +125,13 @@ class View(MapDetector):
             grid.image = image
 
     def select(self, **kwargs):
-        """根据属性筛选网格。
+        """Отфильтровать ячейки сетки по заданным свойствам.
 
         Args:
-            **kwargs: 网格属性键值对。
+            **kwargs: Пары ключ-значение атрибутов ячейки.
 
         Returns:
-            SelectedGrids: 满足条件的网格集合。
+            SelectedGrids: Набор ячеек, удовлетворяющих условиям.
         """
         result = []
         for grid in self:
@@ -145,19 +145,19 @@ class View(MapDetector):
         return SelectedGrids(result)
 
     def predict_swipe(self, prev, with_current_fleet=True, with_sea_grids=True):
-        """预测滑动偏移量。
+        """Спрогнозировать величину смещения свайпа.
 
         Args:
-            prev (View): 滑动前的 View 实例。
-            with_current_fleet (bool): 是否使用当前舰队的绿色箭头进行预测。
-            with_sea_grids (bool): 是否使用所有海洋网格进行预测。
-                注意此方法存在一定的错误率。
+            prev (View): Экземпляр View до свайпа.
+            with_current_fleet (bool): Использовать ли зелёную стрелку текущего флота для прогнозирования.
+            with_sea_grids (bool): Использовать ли все морские ячейки для прогнозирования.
+                Обратите внимание: данный метод имеет некоторую погрешность.
 
         Returns:
-            tuple[int]: 偏移量 (x, y)。无法预测时返回 None。
+            tuple[int]: Смещение (x, y). Возвращает None, если прогноз невозможен.
 
         Log:
-            Map swipe predict: (2, 0) (0.023s, 当前舰队匹配)
+            Map swipe predict: (2, 0) (0.023s, текущий флот совпал)
         """
         start_time = time.time()
         offset = np.subtract(self.center_loca, prev.center_loca)

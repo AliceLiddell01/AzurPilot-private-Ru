@@ -1,5 +1,5 @@
-"""透视检测模块。通过检测网格线的消失点和边缘，确定地图的透视变换参数，
-用于校正地图视角并识别网格边界。"""
+"""Модуль перспективного распознавания. Определяет параметры перспективного преобразования карты
+путём поиска точек схода и краёв линий сетки для коррекции ракурса и определения границ."""
 
 import time
 import warnings
@@ -19,7 +19,7 @@ warnings.filterwarnings("ignore")
 
 
 class Perspective:
-    """透视检测。
+    """Распознавание перспективы.
 
     Examples:
         persp = Perspective(AzurLaneConfig('template'))
@@ -33,7 +33,7 @@ class Perspective:
     """
 
     """
-    输出
+    Выходные данные
     """
     image: np.ndarray
     config: AzurLaneConfig
@@ -44,7 +44,7 @@ class Perspective:
     upper_edge: Lines
 
     """
-    私有属性
+    Приватные атрибуты
     """
     horizontal: Lines
     vertical: Lines
@@ -56,14 +56,14 @@ class Perspective:
     def __init__(self, config):
         """
         Args:
-            config (AzurLaneConfig): 配置对象。
+            config (AzurLaneConfig): Объект конфигурации.
         """
         self.config = config
 
     def load(self, image):
         """
         Args:
-            image (np.ndarray): 截图图像，形状为 (720, 1280, 3)。
+            image (np.ndarray): Снимок экрана, форма (720, 1280, 3).
         """
         start_time = time.time()
         self.image = image
@@ -162,10 +162,10 @@ class Perspective:
                     )
 
     def load_image(self, image):
-        """将图像转为灰度图并隐藏 UI。
+        """Преобразовать изображение в полутоновое и скрыть UI.
 
         Args:
-            image: 截图图像。
+            image: Снимок экрана.
 
         Returns:
             np.ndarray
@@ -177,17 +177,17 @@ class Perspective:
 
     @staticmethod
     def find_peaks(image, is_horizontal, param, pad=0, mask=None):
-        """在图像中查找峰值点，用于线段检测。
+        """Найти пиковые точки на изображении для обнаружения отрезков линий.
 
         Args:
-            image (np.ndarray): 处理后的截图。
-            is_horizontal (bool): True 表示检测水平线。
-            param (dict): scipy.signal.find_peaks 使用的参数。
-            pad (int): 填充宽度。
-            mask (np.ndarray, None): 掩码图像。
+            image (np.ndarray): Обработанный снимок экрана.
+            is_horizontal (bool): True — обнаружение горизонтальных линий.
+            param (dict): Параметры для scipy.signal.find_peaks.
+            pad (int): Ширина отступа (padding).
+            mask (np.ndarray, None): Маска изображения.
 
         Returns:
-            np.ndarray: 峰值图像。
+            np.ndarray: Изображение пиков.
         """
         if is_horizontal:
             image = image.T
@@ -207,16 +207,16 @@ class Perspective:
         return out
 
     def hough_lines(self, image, is_horizontal, threshold, theta):
-        """对峰值图像执行霍夫线变换，检测线段。
+        """Выполнить преобразование Хафа на изображении пиков для обнаружения отрезков.
 
         Args:
-            image (np.ndarray): 峰值图像。
-            is_horizontal (bool): True 表示检测水平线。
-            threshold (int): cv2.HoughLines 使用的阈值。
-            theta (float): 角度阈值。
+            image (np.ndarray): Изображение пиков.
+            is_horizontal (bool): True — обнаружение горизонтальных линий.
+            threshold (int): Порог для cv2.HoughLines.
+            theta (float): Порог угла.
 
         Returns:
-            Lines: 检测到的线段集合。
+            Lines: Набор обнаруженных отрезков линий.
         """
         lines = cv2.HoughLines(image, 1, np.pi / 180, threshold)
         if lines is None:
@@ -233,7 +233,7 @@ class Perspective:
         return Lines(lines, is_horizontal=is_horizontal)
 
     def detect_lines(self, image, is_horizontal, param, threshold, theta, pad=0):
-        """封装 find_peaks 和 hough_lines 的线段检测方法。"""
+        """Обернуть методы find_peaks и hough_lines для обнаружения отрезков линий."""
         peaks = self.find_peaks(image, is_horizontal=is_horizontal, param=param, pad=pad, mask=ASSETS.ui_mask_stroke)
         # self.show_array(peaks)
         lines = self.hough_lines(peaks, is_horizontal=is_horizontal, threshold=threshold, theta=theta)
@@ -272,28 +272,28 @@ class Perspective:
         # image.save('123.png')
 
     def _vanish_point_value(self, point):
-        """评估某点到透视灭点的距离代价，值越小越好。
-        使用 log10 来鼓励重合线段组，抑制错误线段。
+        """Оценить стоимостную функцию расстояния от точки до точки схода перспективы; чем меньше значение, тем лучше.
+        Использует log10 для поощрения совпадающих групп отрезков и подавления ошибочных.
 
         Args:
-            point (np.ndarray): np.array([x, y])。
+            point (np.ndarray): np.array([x, y]).
 
         Returns:
-            float: 代价值。
+            float: Значение стоимости.
         """
         # Добавляем 0.001, чтобы избежать log10(0).
         distance = np.sum(np.log10(np.abs(self.vertical.distance_to_point(point)) + 0.001))
         return distance
 
     def _distant_point_value(self, x):
-        """评估某点到透视远点的距离代价，值越小越好。
-        使用 log10 来鼓励重合线段组，抑制错误线段。
+        """Оценить стоимостную функцию расстояния от точки до дальней точки перспективы; чем меньше значение, тем лучше.
+        Использует log10 для поощрения совпадающих групп отрезков и подавления ошибочных.
 
         Args:
-            x (np.ndarray): np.array([x])。
+            x (np.ndarray): np.array([x]).
 
         Returns:
-            float: 代价值。
+            float: Значение стоимости.
         """
         links = self.crossings.link((x[0], self.vanish_point[1]))
         mid = np.sort(links.mid)
@@ -301,15 +301,15 @@ class Perspective:
         return distance
 
     def mid_cleanse(self, mids, is_horizontal, threshold=3):
-        """清洗线段中值，去除错误线段并填充缺失线段。
+        """Очистить медианные значения отрезков: удалить ошибочные и восполнить недостающие.
 
         Args:
-            mids (np.ndarray): 线段中值数组，即 Lines.mid。
-            is_horizontal (bool): True 表示处理水平线。
-            threshold (int): 容差阈值。
+            mids (np.ndarray): Массив середин отрезков, т.е. Lines.mid.
+            is_horizontal (bool): True — обработка горизонтальных линий.
+            threshold (int): Порог допуска.
 
         Returns:
-            np.ndarray: 检测区域内所有正确的线段中值。例如:
+            np.ndarray: Все корректные середины отрезков в области обнаружения. Например:
             [ 147.52489312  276.64750191  405.77011071  534.89271951  664.0153283
             793.1379371   922.2605459  1051.38315469 1180.50576349 1309.62837229]
         """
@@ -327,9 +327,9 @@ class Perspective:
                 .get_y(x=self.config.SCREEN_CENTER[0])
 
         def coincident_point_value(point):
-            """评估某点到重合点的距离代价，值越小越好。
-            重合点可能有多个。
-            使用激活函数来鼓励重合线段组，忽略错误线段。
+            """Оценить стоимостную функцию расстояния от точки до совпадающих точек; чем меньше значение, тем лучше.
+            Совпадающих точек может быть несколько.
+            Использует функцию активации для поощрения согласованных групп отрезков и игнорирования ошибочных.
             """
             x, y = point
             # Не использовать:
@@ -432,10 +432,10 @@ class Perspective:
         return lines, lower, upper
 
     def generate(self):
-        """生成网格坐标和对应的四角点。
+        """Сгенерировать координаты сетки и соответствующие четыре угловые точки.
 
         Yields:
-            tuple: ((x, y), [左上, 右上, 左下, 右下])。
+            tuple: ((x, y), [левый верхний, правый верхний, левый нижний, правый нижний]).
         """
         points = self.horizontal.cross(self.vertical).points
         for data in points_to_area_generator(points, shape=(len(self.vertical), len(self.horizontal))):

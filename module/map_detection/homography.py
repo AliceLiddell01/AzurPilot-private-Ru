@@ -1,5 +1,5 @@
-"""单应性变换模块。通过特征点匹配计算截图与地图模板之间的单应性矩阵，
-用于确定截图在地图中的位置和视角变换。"""
+"""Модуль гомографического преобразования. Вычисляет матрицу гомографии между снимком экрана и шаблоном карты по ключевым точкам,
+используется для определения положения снимка на карте и перспективных преобразований."""
 
 import time
 
@@ -16,7 +16,7 @@ from module.map_detection.utils_assets import *
 
 
 class Homography:
-    """单应性变换。
+    """Гомографическое преобразование.
 
     Examples:
         hm = Homography(AzurLaneConfig('template'))
@@ -35,7 +35,7 @@ class Homography:
     """
 
     """
-    输出
+    Выходные данные
     """
     image: np.ndarray
     config: AzurLaneConfig
@@ -46,7 +46,7 @@ class Homography:
     upper_edge: int
 
     """
-    私有属性
+    Приватные атрибуты
     """
     homo_storage: tuple
     homo_data: np.ndarray
@@ -61,7 +61,7 @@ class Homography:
     def __init__(self, config):
         """
         Args:
-            config (AzurLaneConfig): 配置对象。
+            config (AzurLaneConfig): Объект конфигурации.
         """
         self.config = config
         self.homo_loaded = False
@@ -96,10 +96,10 @@ class Homography:
         return image
 
     def load(self, image):
-        """加载图像并执行检测。
+        """Загрузить изображение и выполнить распознавание.
 
         Args:
-            image (np.ndarray): 截图图像，形状 (720, 1280, 3)。
+            image (np.ndarray): Снимок экрана, форма (720, 1280, 3).
         """
         if not self.homo_loaded:
             self.load_homography(storage=self.config.HOMO_STORAGE, image=image)
@@ -107,13 +107,13 @@ class Homography:
         self.detect(image)
 
     def load_homography(self, storage=None, perspective=None, image=None, file=None):
-        """从多种数据源加载单应性变换参数。
+        """Загрузить параметры гомографического преобразования из различных источников.
 
         Args:
-            storage (tuple): 存储格式 ((x, y), [左上, 右上, 左下, 右下])。
-            perspective (Perspective): 透视检测器实例。
-            image (np.ndarray): 截图图像。
-            file (str): 图像文件路径。
+            storage (tuple): Формат хранения ((x, y), [левый верхний, правый верхний, левый нижний, правый нижний]).
+            perspective (Perspective): Экземпляр детектора перспективы.
+            image (np.ndarray): Снимок экрана.
+            file (str): Путь к файлу изображения.
         """
         if storage is not None:
             self.find_homography(*storage)
@@ -137,12 +137,12 @@ class Homography:
             raise MapDetectionError('Для load_homography не переданы данные; укажите хотя бы один набор.')
 
     def find_homography(self, size, src_pts, overflow=True):
-        """计算单应性变换矩阵。
+        """Вычислить матрицу гомографического преобразования.
 
         Args:
-            size (tuple): 网格尺寸 (x, y)。
-            src_pts (list[tuple]): 源角点 [左上, 右上, 左下, 右下]。
-            overflow (bool): True 获取完整变换图像，False 仅获取有效区域。
+            size (tuple): Размер сетки (x, y).
+            src_pts (list[tuple]): Исходные угловые точки [левый верхний, правый верхний, левый нижний, правый нижний].
+            overflow (bool): True — получить полное преобразованное изображение, False — только эффективную область.
         """
         self.homo_storage = (size, [(x, y) for x, y in np.round(src_pts, 3)])
         logger.attr('Сохранение гомографии', self.homo_storage)
@@ -171,13 +171,13 @@ class Homography:
         self.homo_loaded = True
 
     def detect(self, image):
-        """对截图执行单应性变换检测。
+        """Выполнить распознавание гомографии на снимке экрана.
 
         Args:
-            image (np.ndarray): 截图图像。
+            image (np.ndarray): Снимок экрана.
 
         Returns:
-            bool: 是否检测成功。
+            bool: Успешно ли выполнено распознавание.
         """
         start_time = time.time()
         self.image = image
@@ -233,18 +233,18 @@ class Homography:
                     )
 
     def search_tile_center(self, image, threshold_good=0.9, threshold=0.8, encourage=1.0):
-        """搜索空闲瓦片的中心位置。
-        注意: 这是主要方法。
-        `len(res[res > 0.8])` 比 `np.sum(res > 0.8)` 快 3 倍。
+        """Найти центральное положение свободных тайлов.
+        Примечание: это основной метод.
+        `len(res[res > 0.8])` в 3 раза быстрее `np.sum(res > 0.8)`.
 
         Args:
-            image (np.ndarray): 灰度图像。
-            threshold_good (float): 良好匹配阈值。
-            threshold (float): 匹配阈值。
-            encourage (int, float): 拟合鼓励值。
+            image (np.ndarray): Полутоновое изображение (градации серого).
+            threshold_good (float): Порог хорошего совпадения.
+            threshold (float): Порог совпадения.
+            encourage (int, float): Вес поощрения подгонки.
 
         Returns:
-            bool: 是否搜索成功。
+            bool: Успешен ли поиск.
         """
         threshold_good = lower_template_match_similarity(threshold_good)
         threshold = lower_template_match_similarity(threshold)
@@ -268,17 +268,17 @@ class Homography:
         return message != 'bad match'
 
     def search_tile_corner(self, image, threshold=0.8, encourage=1.0):
-        """搜索空闲瓦片的角点位置。
-        这是备用方法，几乎不需要使用。
-        注意: 此方法有 0.5 ~ 1.0 像素的误差。
+        """Найти угловые положения свободных тайлов.
+        Это резервный метод, используется крайне редко.
+        Примечание: метод даёт погрешность около 0.5–1.0 пикселя.
 
         Args:
-            image (np.ndarray): 灰度图像。
-            threshold (float): 匹配阈值。
-            encourage (int, float): 拟合鼓励值。
+            image (np.ndarray): Полутоновое изображение (градации серого).
+            threshold (float): Порог совпадения.
+            encourage (int, float): Вес поощрения подгонки.
 
         Returns:
-            bool: 是否搜索成功。
+            bool: Успешен ли поиск.
         """
         threshold = lower_template_match_similarity(threshold)
         similarity = 0
@@ -303,18 +303,18 @@ class Homography:
         return message != 'bad match'
 
     def search_tile_rectangle(self, image, threshold=10, encourage=5.1, close_kernel=(5, 10, 15, 20, 25)):
-        """搜索空闲瓦片的矩形位置。
-        这是备用方法的备用方法，几乎完全不需要使用。
-        注意: 此方法可能有约 2 像素的误差。
+        """Найти прямоугольные положения свободных тайлов.
+        Это резервный метод для резервного метода, практически никогда не требуется.
+        Примечание: метод может иметь погрешность около 2 пикселей.
 
         Args:
-            image (np.ndarray): 灰度图像。
-            threshold (int): 矩形数量阈值。
-            encourage (int, float): 拟合鼓励值。
-            close_kernel (tuple[int]): 形态学闭运算使用的核大小。
+            image (np.ndarray): Полутоновое изображение (градации серого).
+            threshold (int): Порог количества прямоугольников.
+            encourage (int, float): Вес поощрения подгонки.
+            close_kernel (tuple[int]): Размер ядра для морфологического замыкания.
 
         Returns:
-            bool: 是否搜索成功。
+            bool: Успешен ли поиск.
         """
         location = np.array([])
         for kernel in close_kernel:
@@ -347,13 +347,13 @@ class Homography:
         return message != 'bad match'
 
     def detect_edges(self, image, hough_th=120, theta_th=0.005, edge_th=9):
-        """检测地图边缘。
+        """Распознать границы карты.
 
         Args:
-            image (np.ndarray): 灰度图像。
-            hough_th (int): cv2.HoughLines 阈值。
-            theta_th (float): 线段角度阈值，单位为度。
-            edge_th (int): 边缘阈值，单位为像素。
+            image (np.ndarray): Полутоновое изображение (градации серого).
+            hough_th (int): Порог cv2.HoughLines.
+            theta_th (float): Угловой порог отрезка, в градусах.
+            edge_th (int): Порог границы, в пикселях.
         """
         lines = cv2.HoughLines(image, 1, np.pi / 180, hough_th)
         if lines is None:
@@ -392,10 +392,10 @@ class Homography:
         self.left_edge, self.right_edge = separate_edges(vert, inner=self.map_inner[0])
 
     def generate(self, edge_th=9):
-        """生成网格坐标和对应的四角点。
+        """Сгенерировать координаты сетки и соответствующие четыре угловые точки.
 
         Yields:
-            tuple: ((x, y), [左上, 右上, 左下, 右下])。
+            tuple: ((x, y), [левый верхний, правый верхний, левый нижний, правый нижний]).
         """
         area = [
             self.left_edge - edge_th if self.left_edge else 0,
@@ -415,10 +415,10 @@ class Homography:
             yield data
 
     def to_perspective(self):
-        """将单应性变换结果转换为透视线段。
+        """Преобразовать результат гомографического преобразования в перспективные отрезки.
 
         Returns:
-            (Lines, Lines): 水平线段和垂直线段。
+            (Lines, Lines): Горизонтальные и вертикальные отрезки.
         """
         grids = {}
         for loca, points in self.generate():

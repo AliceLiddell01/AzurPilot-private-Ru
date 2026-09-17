@@ -1,5 +1,5 @@
-"""地图网格单元模块。定义 Grid 类，组合 GridInfo（网格属性）和 GridPredictor（网格预测），
-表示地图中的单个网格及其几何信息。"""
+"""Модуль ячейки сетки карты. Определяет класс Grid, объединяющий GridInfo (свойства ячейки)
+и GridPredictor (распознавание содержимого ячейки) для представления отдельной ячейки карты и её геометрии."""
 
 from module.base.decorator import cached_property
 from module.map_detection.grid_info import GridInfo

@@ -1,11 +1,11 @@
-"""地图检测工具函数。
+"""Вспомогательные геометрические функции распознавания карты.
 
-提供地图网格检测中使用的几何计算工具，包括：
-- Points 类：二维点集的操作（排序、变换、拟合）
-- 坐标转换：梯形区域到矩形区域的转换
-- 矩形操作：区域填充、裁剪等
+Предоставляет инструменты геометрических вычислений для распознавания сетки карты:
+- Класс Points: операции над двумерными наборами точек (сортировка, преобразование, подгонка)
+- Преобразование координат: перевод трапециевидных областей в прямоугольные
+- Операции с прямоугольниками: заполнение областей, обрезка и др.
 
-这些工具被透视检测（Perspective）和网格检测（Grid）模块广泛使用。
+Широко используются модулями распознавания перспективы (Perspective) и сетки (Grid).
 """
 
 import numpy as np
@@ -15,15 +15,15 @@ from module.base.utils import area_pad
 
 
 class Points:
-    """二维点集操作类。
+    """Класс операций над набором двумерных точек.
 
-    封装 numpy 数组，提供点集的便捷操作方法。
-    支持迭代、索引、长度查询等基本操作。
+    Оборачивает массивы numpy, предоставляя удобные методы работы с точками.
+    Поддерживает итерацию, индексацию, запрос длины и другие базовые операции.
 
     Attributes:
-        points (np.ndarray): 形状为 (N, 2) 的点集数组。
-        x (np.ndarray): 所有点的 x 坐标数组。
-        y (np.ndarray): 所有点的 y 坐标数组。
+        points (np.ndarray): Массив точек формы (N, 2).
+        x (np.ndarray): Массив координат x всех точек.
+        y (np.ndarray): Массив координат y всех точек.
     """
     def __init__(self, points):
         if points is None or len(points) == 0:
@@ -239,38 +239,38 @@ class Lines:
 
 
 def area2corner(area):
-    """将区域坐标转换为四角点坐标。
+    """Преобразовать координаты области в координаты четырёх углов.
 
     Args:
-        area: (x1, y1, x2, y2)。
+        area: (x1, y1, x2, y2).
 
     Returns:
-        np.ndarray: [左上, 右上, 左下, 右下]。
+        np.ndarray: [левый верхний, правый верхний, левый нижний, правый нижний].
     """
     return np.array([[area[0], area[1]], [area[2], area[1]], [area[0], area[3]], [area[2], area[3]]])
 
 
 def corner2area(corner):
-    """将四角点坐标转换为区域坐标。
+    """Преобразовать координаты четырёх углов в координаты области.
 
     Args:
-        corner: [左上, 右上, 左下, 右下]。
+        corner: [левый верхний, правый верхний, левый нижний, правый нижний].
 
     Returns:
-        np.ndarray: (x1, y1, x2, y2)。
+        np.ndarray: (x1, y1, x2, y2).
     """
     x, y = np.array(corner).T
     return np.rint([np.min(x), np.min(y), np.max(x), np.max(y)]).astype(int)
 
 
 def corner2inner(corner):
-    """梯形内接的最大矩形。
+    """Наибольший прямоугольник, вписанный в трапецию.
 
     Args:
-        corner: ((x0, y0), (x1, y1), (x2, y2), (x3, y3))。
+        corner: ((x0, y0), (x1, y1), (x2, y2), (x3, y3)).
 
     Returns:
-        tuple[int]: (左上x, 左上y, 右下x, 右下y)。
+        tuple[int]: (левый_верхний_x, левый_верхний_y, правый_нижний_x, правый_нижний_y).
     """
     x0, y0, x1, y1, x2, y2, x3, y3 = np.array(corner).flatten()
     area = tuple(np.rint((max(x0, x2), max(y0, y1), min(x1, x3), min(y2, y3))).astype(int))
@@ -278,13 +278,13 @@ def corner2inner(corner):
 
 
 def corner2outer(corner):
-    """梯形外接的最小矩形。
+    """Наименьший прямоугольник, описанный вокруг трапеции.
 
     Args:
-        corner: ((x0, y0), (x1, y1), (x2, y2), (x3, y3))。
+        corner: ((x0, y0), (x1, y1), (x2, y2), (x3, y3)).
 
     Returns:
-        tuple[int]: (左上x, 左上y, 右下x, 右下y)。
+        tuple[int]: (левый_верхний_x, левый_верхний_y, правый_нижний_x, правый_нижний_y).
     """
     x0, y0, x1, y1, x2, y2, x3, y3 = np.array(corner).flatten()
     area = tuple(np.rint((min(x0, x2), min(y0, y1), max(x1, x3), max(y2, y3))).astype(int))
@@ -292,15 +292,15 @@ def corner2outer(corner):
 
 
 def trapezoid2area(corner, pad=0):
-    """将梯形角点转换为区域坐标。
+    """Преобразовать угловые точки трапеции в координаты области.
 
     Args:
-        corner: ((x0, y0), (x1, y1), (x2, y2), (x3, y3))。
-        pad (int): 填充值。
-            正值为内接区域，负值和 0 为外接区域。
+        corner: ((x0, y0), (x1, y1), (x2, y2), (x3, y3)).
+        pad (int): Значение отступа.
+            Положительное — вписанная область, отрицательное и 0 — описанная область.
 
     Returns:
-        tuple[int]: (左上x, 左上y, 右下x, 右下y)。
+        tuple[int]: (левый_верхний_x, левый_верхний_y, правый_нижний_x, правый_нижний_y).
     """
     if pad > 0:
         return area_pad(corner2inner(corner), pad=pad)
@@ -311,14 +311,14 @@ def trapezoid2area(corner, pad=0):
 
 
 def points_to_area_generator(points, shape):
-    """将点阵转换为网格区域生成器。
+    """Преобразовать матрицу точек в генератор областей ячеек сетки.
 
     Args:
-        points (np.ndarray): N x 2 数组。
-        shape (tuple): (x, y)。
+        points (np.ndarray): Массив N x 2.
+        shape (tuple): (x, y).
 
     Yields:
-        tuple, np.ndarray: (x, y), [左上, 右上, 左下, 右下]。
+        tuple, np.ndarray: (x, y), [левый верхний, правый верхний, левый нижний, правый нижний].
     """
     points = points.reshape(*shape[::-1], 2)
     for y in range(shape[1] - 1):
@@ -328,13 +328,13 @@ def points_to_area_generator(points, shape):
 
 
 def get_map_inner(points):
-    """计算点集的中心点。
+    """Вычислить центральную точку набора точек.
 
     Args:
-        points (np.ndarray): N x 2 数组。
+        points (np.ndarray): Массив N x 2.
 
     Returns:
-        np.ndarray: 中心坐标 (x, y)。
+        np.ndarray: Координаты центра (x, y).
     """
     points = np.array(points)
     if len(points.shape) == 1:
@@ -344,14 +344,14 @@ def get_map_inner(points):
 
 
 def separate_edges(edges, inner):
-    """将边缘分为上下（或左右）两组。
+    """Разделить края на две группы: верхнюю и нижнюю (или левую и правую).
 
     Args:
-        edges: 包含浮点数或整数的可迭代对象。
-        inner (float, int): 用于分离边缘的内部参考点。
+        edges: Итерируемый объект чисел с плавающей точкой или целых чисел.
+        inner (float, int): Внутренняя опорная точка для разделения краев.
 
     Returns:
-        float, float: 下边缘和上边缘。未找到时返回 None。
+        float, float: Нижний край и верхний край. Возвращает None, если не найден.
     """
     if len(edges) == 0:
         return None, None
@@ -367,15 +367,15 @@ def separate_edges(edges, inner):
 
 
 def perspective_transform(points, data):
-    """执行透视变换。
+    """Выполнить перспективное преобразование.
 
     Args:
-        points: 二维数组，形状 (n, 2)。
-        data: 透视变换数据，形状 (3, 3) 的二维数组，
-            参见 https://web.archive.org/web/20150222120106/xenia.media.mit.edu/~cwren/interpolator/
+        points: Двумерный массив, форма (n, 2).
+        data: Данные перспективного преобразования, двумерный массив формы (3, 3),
+            см. https://web.archive.org/web/20150222120106/xenia.media.mit.edu/~cwren/interpolator/
 
     Returns:
-        np.ndarray: 二维数组，形状 (n, 2)。
+        np.ndarray: Двумерный массив, форма (n, 2).
     """
     points = np.pad(np.array(points), ((0, 0), (0, 1)), mode='constant', constant_values=1)
     matrix = data.dot(points.T)
@@ -385,17 +385,17 @@ def perspective_transform(points, data):
 
 
 def fit_points(points, mod, encourage=1):
-    """在一组具有公差点中找到最接近的拟合点。
-    会忽略距离较远的点。
+    """Найти наиболее подходящую точку подгонки среди набора точек с допуском.
+    Удалённые точки игнорируются.
 
     Args:
-        points: 图像上的点，二维数组，形状 (n, 2)。
-        mod: 点的公差，(x, y)。
-        encourage (int, float): 拟合一组点的接近程度，单位为像素。
-            越小越接近局部最小值，越大越接近全局最小值。
+        points: Точки на изображении, двумерный массив формы (n, 2).
+        mod: Период/допуск точек, (x, y).
+        encourage (int, float): Степень близости при подгонке группы точек, в пикселях.
+            Чем меньше, тем ближе к локальному минимуму; чем больше, тем ближе к глобальному минимуму.
 
     Returns:
-        np.ndarray: 拟合点 (x, y)。
+        np.ndarray: Подобранная точка (x, y).
     """
     encourage = np.square(encourage)
     mod = np.array(mod)
