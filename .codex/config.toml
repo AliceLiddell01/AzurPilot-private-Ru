@@ -62,8 +62,8 @@ args = [
     "-transport",
     "stdio",
     "-disable-write",
-    "-disable-proxied",
 ]
+env_vars = ["GRAFANA_URL", "GRAFANA_SERVICE_ACCOUNT_TOKEN"]
 cwd = "."
 enabled = true
 required = false
@@ -78,6 +78,20 @@ args = [
     "-i",
     "mcp/dockerhub@sha256:76454af4edfd21571d9740113104d0d9f707220453d1c8f7c9971b21848d4248",
 ]
+enabled_tools = [
+    "checkRepository",
+    "checkRepositoryTag",
+    "dockerHardenedImages",
+    "getPersonalNamespace",
+    "getRepositoryInfo",
+    "getRepositoryTag",
+    "listAllNamespacesMemberOf",
+    "listNamespaces",
+    "listRepositoriesByNamespace",
+    "listRepositoryTags",
+    "search",
+]
+disabled_tools = ["createRepository", "updateRepositoryInfo"]
 cwd = "."
 enabled = true
 required = false
