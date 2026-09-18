@@ -103,10 +103,12 @@ def test_product_context_keeps_global_en_runtime_boundary() -> None:
 
 def test_python_tooling_context_uses_canonical_integration_inventory() -> None:
     tooling = _text(CONTEXT_ROOT / "11-PYTHON-TOOLING.md")
-    assert "IntegrationName" in tooling
-    assert "ADAPTER_ORDER" in tooling
-    assert "IntegrationRegistry" in tooling
-    assert "Docker MCP Toolkit/Gateway" in tooling
+    normalized = _normalized(tooling)
+    assert "integrationname" in normalized
+    assert "adapter_order" in normalized
+    assert "integrationregistry" in normalized
+    assert "docker mcp toolkit/gateway" in normalized
+    assert "generic mcp proxy" in normalized
 
 
 def test_cli_live_acceptance_cannot_become_global_gate() -> None:

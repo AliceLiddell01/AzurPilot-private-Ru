@@ -36,7 +36,8 @@ def _find_absolute_local_path(value: str) -> re.Match[str] | None:
 
 
 def _normalize_contract(value: str) -> str:
-    return " ".join(value.lower().replace("`", "").replace("*", "").split())
+    # Убираем только markdown bold markers, но сохраняем wildcard вроде codex/*.
+    return " ".join(value.lower().replace("`", "").replace("**", "").split())
 
 
 def _section(value: str, start: str, end: str) -> str:
@@ -318,7 +319,8 @@ def test_checkout_policy_defers_implementation_exceptions_to_canonical_workflow(
     workflow_content = (_REPOSITORY_ROOT / ".codex" / "context" / "GIT-WORKFLOW.md").read_text(
         encoding="utf-8"
     ).lower()
-    assert ".codex/context/git-workflow.md" in agents_content
+    assert "git-workflow.md" in agents_content
+    assert "для любых git/pr-операций следуй только" in agents_content
     assert "параллельная разработка" not in agents_content
     assert "опасный reproduction/experiment" not in agents_content
     for exception in (
@@ -337,10 +339,14 @@ def test_ci_contract_keeps_stable_stage_agnostic_required_contexts() -> None:
     assert isinstance(workflow, dict)
     triggers = workflow.get("on", workflow.get(True))
     assert isinstance(triggers, dict)
-    for event_name in ("pull_request", "push"):
-        event = triggers.get(event_name)
-        assert isinstance(event, dict)
-        assert event.get("branches") == ["personal/stable"]
+    pull_request = triggers.get("pull_request")
+    assert isinstance(pull_request, dict)
+    assert "branches" not in pull_request
+
+    push = triggers.get("push")
+    assert isinstance(push, dict)
+    assert push.get("branches") == ["personal/stable"]
+
     for event in triggers.values():
         if isinstance(event, dict):
             assert "paths" not in event
