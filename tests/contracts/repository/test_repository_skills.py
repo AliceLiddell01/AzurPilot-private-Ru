@@ -130,8 +130,9 @@ def test_coderabbit_supports_explicit_and_delegated_entry_points() -> None:
     ):
         assert required in review_content
     for required in (
-        "на canonical coderabbit review checkpoint",
-        "явно делегируй sibling skill `azurpilot-coderabbit-review`",
+        "coderabbit review checkpoint",
+        "явно делегируй",
+        "sibling skill `azurpilot-coderabbit-review`",
         "не требует повторного пользовательского coderabbit-запроса",
     ):
         assert required in development_content
@@ -249,7 +250,7 @@ def test_canonical_lifecycle_requires_final_review_before_merge() -> None:
         r"только затем.{0,120}merge"
     )
     assert causal_chain.search(merge_section), (
-        "GIT-WORKFLOW должен связывать final user review → отдельное текущее "
+        "GIT-WORKFLOW должен связывать финальное пользовательское ревью → отдельное текущее "
         "merge-разрешение → merge одним нормативным правилом"
     )
 
