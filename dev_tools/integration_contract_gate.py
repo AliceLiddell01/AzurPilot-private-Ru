@@ -47,7 +47,6 @@ ACTIVE_SOURCE_PATHS = (
     Path(".agents/skills/azurpilot-coderabbit-review/references/review-workflow.md"),
     Path(".agents/skills/azurpilot-repository-development/SKILL.md"),
     Path(".agents/skills/azurpilot-repository-development/references/engineering-contract.md"),
-    Path(".agents/skills/azurpilot-repository-development/references/pr-merge-cleanup.md"),
     Path("plugins/azurpilot/skills/azurpilot-development/SKILL.md"),
     Path("plugins/azurpilot/skills/azurpilot-troubleshooting/SKILL.md"),
 )
@@ -321,6 +320,7 @@ if __name__ == "__main__":
 
 
 __all__ = [
+    "ACTIVE_SOURCE_PATHS",
     "EXPECTED_FAMILIES",
     "RETIRED_PROFILE_PATHS",
     "check",

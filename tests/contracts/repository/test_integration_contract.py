@@ -26,6 +26,27 @@ def test_permanent_contract_has_no_retired_profile_paths():
     )
 
 
+def test_active_integration_policy_sources_exist_and_exclude_retired_skill_policy():
+    retired_skill_policy = {
+        Path(
+            ".agents/skills/azurpilot-repository-development/"
+            "references/ci-and-verification.md"
+        ),
+        Path(
+            ".agents/skills/azurpilot-repository-development/"
+            "references/pr-merge-cleanup.md"
+        ),
+    }
+
+    assert retired_skill_policy.isdisjoint(gate.ACTIVE_SOURCE_PATHS)
+    missing = [
+        relative
+        for relative in gate.ACTIVE_SOURCE_PATHS
+        if not (REPOSITORY_ROOT / relative).exists()
+    ]
+    assert missing == []
+
+
 def test_contract_rejects_empty_docker_hub_denylist(tmp_path: Path):
     source = (REPOSITORY_ROOT / ".codex" / "config.toml").read_text(encoding="utf-8")
     assert DOCKER_HUB_BLOCKED_TOOLS
