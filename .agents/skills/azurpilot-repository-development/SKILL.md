@@ -40,16 +40,17 @@ Git lifecycle или общей матрицы проверок.
    dashboards/alerts или game/runtime state только ради получения evidence.
 5. Проверки выбирай **только** по `08-VERIFICATION.md`. Этот skill не
    поддерживает собственную копию списка обязательных gates.
-6. Если canonical workflow требует CodeRabbit checkpoint, делегируй sibling
-   skill `azurpilot-coderabbit-review`. Каждый finding независимо проверяй по
-   фактическому коду; не применяй autofix вслепую и не делай polling-loop при
-   rate limit.
+6. Если canonical workflow требует CodeRabbit review checkpoint, явно делегируй
+   sibling skill `azurpilot-coderabbit-review`. Такая внутренняя делегация не
+   требует повторного пользовательского CodeRabbit-запроса. Каждый finding
+   независимо проверяй по фактическому коду; не применяй autofix вслепую и не
+   делай polling-loop при rate limit.
 7. Все правила commit/push/draft PR, состояния перед финальным пользовательским
    ревью, merge authorization, rollback и cleanup бери **только** из
    `GIT-WORKFLOW.md`. Этот skill не переопределяет их.
 
 ## Завершение
 
-Сообщай фактический status и evidence из canonical owner. Не объявляй тест,
+Сообщай фактический статус и evidence из документа-владельца. Не объявляй тест,
 CI, secret scan, live acceptance или внешнее ревью выполненными без реального
 результата.
