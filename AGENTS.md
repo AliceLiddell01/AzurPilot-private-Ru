@@ -55,8 +55,14 @@ Canonical owners правил перечислены в `INDEX.md`. В част�
 
 `master` — зеркало upstream; `personal/stable` — стабильная пользовательская
 ветка. Новая обычная работа использует явный task base и ветку
-`<domain>/<unique-capability-name>`. Уже опубликованную ветку/PR продолжай
-только после проверки exact identity и head. Полный lifecycle — только в
+`<domain>/<unique-capability-name>`. `codex/*` — compatibility/legacy
+namespace уже опубликованных веток; `codex/*` не является default, новые
+обычные задачи этот namespace не используют. `sync/*` предназначен для
+upstream sync. Уже опубликованную ветку/PR продолжай только после проверки exact
+identity и head.
+
+Дополнительный implementation checkout/worktree не является default; допустимые
+исключения и disposable cleanup определяет только
 `.codex/context/GIT-WORKFLOW.md`.
 
 ## 5. Долговременные инженерные инварианты
