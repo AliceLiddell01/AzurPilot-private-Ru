@@ -3,7 +3,7 @@
 Репозиторий: `AliceLiddell01/AzurPilot-private-Ru`  
 Upstream: `wess09/AzurPilot`
 
-Этот файл — **canonical owner** Git/branch/PR/upstream/merge/rollback/cleanup
+Этот файл — **единственный владелец** Git/branch/PR/upstream/merge/rollback/cleanup
 lifecycle. Он описывает текущее правило, а не changelog его эволюции.
 
 Модель ответственности: агент выполняет доступную техническую работу до
@@ -55,7 +55,7 @@ Codex не просит пользователя запускать команд
 Приоритет:
 
 1. фактический код/конфигурация целевой ветки;
-2. ближайшие executable tests и runtime behavior;
+2. ближайшие исполняемые тесты и runtime-поведение;
 3. корневой `AGENTS.md` и релевантные файлы `.codex/context/`;
 4. README/Wiki форка;
 5. upstream diff/issues/PR;
@@ -69,7 +69,7 @@ Codex не просит пользователя запускать команд
 - `POWERSHELL-GIT-RULES.md` читать только при PowerShell/Git scope;
 - не перечитывать большие документы после каждого небольшого fix;
 - не выполнять общий web/docs survey без конкретного вопроса;
-- не расширять problem surface без evidence из call graph, tests, diff или runtime behavior;
+- не расширять область проблемы без evidence из call graph, tests, diff или runtime-поведения;
 - при расхождении документации и кода сначала установить фактическое поведение.
 
 ## 4. Архитектурные границы форка
@@ -142,7 +142,7 @@ draft PR.
 Перед любой сменой branch в основном checkout Codex самостоятельно подтверждает:
 
 - ожидаемый путь репозитория, `git rev-parse --show-toplevel` и `origin`;
-- current branch и tracking/upstream;
+- текущая ветка и tracking/upstream;
 - `git status`, staged, unstaged и untracked files;
 - локальные commits, отсутствующие на upstream, и ahead/behind/divergence;
 - существование целевой remote branch.
@@ -307,7 +307,7 @@ Disposable clone/worktree допустим только при реальной 
 - base SHA;
 - класс задачи;
 - релевантный код/tests/history/context;
-- затронутые boundaries;
+- затронутые границы;
 - risks/checks/rollback.
 
 ### План
@@ -363,7 +363,7 @@ Disposable clone/worktree допустим только при реальной 
 
 ### Security pass
 
-Для чувствительных/расширенных изменений тот же основной Codex отдельно проверяет trust boundaries, findings, validation/severity, fix verification, secrets/privacy. Внешний scanner/reviewer остаётся независимым gate, если предусмотрен проектом.
+Для чувствительных/расширенных изменений тот же основной Codex отдельно проверяет trust-границы, findings, validation/severity, проверку исправления и secrets/privacy. Внешний scanner/reviewer остаётся независимым gate, если предусмотрен проектом.
 
 ## 14. PowerShell
 
