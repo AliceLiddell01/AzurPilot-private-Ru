@@ -131,7 +131,7 @@ required CI, relevant diff и review blockers. Успешный CI или CodeRa
 - загрузка старого config;
 - migration idempotency;
 - ru-RU keys/placeholders;
-- current EN runtime; inherited foreign server variants проверяются только при явной compatibility-задаче.
+- текущий EN runtime; унаследованные варианты других регионов проверяются только при явной задаче совместимости.
 
 ### Распознавание
 
@@ -139,14 +139,14 @@ required CI, relevant diff и review blockers. Успешный CI или CodeRa
 - отрицательные screenshots;
 - thresholds;
 - переходные кадры;
-- theme variants; foreign server fixtures — только при явной compatibility-задаче;
+- варианты темы; fixtures других регионов — только при явной задаче совместимости;
 - range validation OCR.
 
 Для UI-driven Formation/Fleet scanner дополнительно проверять:
 
 - одиночный переходный detector-positive кадр не запускает физический scanner;
 - открытие Info требует ограниченной последовательности свежих подтверждений состояния;
-- закрытие Info требует устойчивой Formation boundary до выбора следующего флота;
+- закрытие Info требует устойчивой границы Formation до выбора следующего флота;
 - scanner-layer exception сохраняет физическую диагностику слоя и типа;
 - структурный `complete == False` остаётся отдельным результатом распознавания и не превращается в physical failure;
 - recoverable continuation разрешён только после доказанного восстановления детерминированного UI состояния;
@@ -161,7 +161,7 @@ required CI, relevant diff и review blockers. Успешный CI или CodeRa
 
 Общий pytest suite запускает `tests/contracts/localization/test_runtime_russianization_audit.py`. Тест выполняет permanent semantic audit текущих production consumer sites и Global/EN identity, а self-tests обязаны доказывать обе стороны контракта:
 
-- FAIL: CJK operator prose, обычное untranslated English предложение, foreign locale/server/package/assets/OCR alias;
+- FAIL: CJK operator prose, обычное непереведённое английское предложение, locale/server/package/assets/OCR alias другого региона;
 - PASS: русский контекст, ADB/OCR/API/URL/path/package/game identifiers, deferred exception text и feature structure вне display sink.
 
 Для explicit translation PR этот guard дополняет, но не заменяет dynamic base→head structural gate. Для feature/bugfix/refactor structural parity не применяется, permanent integrity остаётся обязательной частью обычных product tests.
