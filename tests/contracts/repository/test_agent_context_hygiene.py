@@ -54,20 +54,35 @@ def test_durable_context_contains_no_task_state_residue() -> None:
 def test_final_review_policy_is_model_neutral() -> None:
     workflow = _text(CONTEXT_ROOT / "GIT-WORKFLOW.md")
     verification = _text(CONTEXT_ROOT / "08-VERIFICATION.md")
-    merge_section = _normalized(_section(workflow, "### Merge", "## 21."))
-    ready_section = _normalized(
-        _section(
-            verification,
-            "### Pre-merge `READY_FOR_CHATGPT_REVIEW`",
-            "### После подтверждённого merge",
-        )
+    sections = {
+        "merge": _normalized(_section(workflow, "### Merge", "## 21.")),
+        "ready": _normalized(
+            _section(
+                verification,
+                "### Pre-merge `READY_FOR_CHATGPT_REVIEW`",
+                "### После подтверждённого merge",
+            )
+        ),
+    }
+    delegated_reviewer = re.compile(
+        r"(?i)(?:через|с\s+помощью)\s+\S+|\bмодел\w*\b|"
+        r"\breviewer\b|\bассистент\w*\b|\bagent\w*\b"
     )
-    for name, section in (("merge", merge_section), ("ready", ready_section)):
-        assert "пользовательск" in section, name
-        assert "модел" not in section, (
-            f"{name}: нормативная область финального ревью не должна "
-            "привязывать обязательного проверяющего к модели"
-        )
+    for name, section in sections.items():
+        sentences = [
+            sentence.strip()
+            for sentence in re.split(r"[.;\n]+", section)
+            if "финаль" in sentence and ("ревью" in sentence or "review" in sentence)
+        ]
+        assert sentences, name
+        for sentence in sentences:
+            assert "пользоват" in sentence, (
+                f"{name}: финальное ревью должно оставаться пользовательским"
+            )
+            assert delegated_reviewer.search(sentence) is None, (
+                f"{name}: финальное пользовательское ревью нельзя делегировать "
+                "конкретному бренду, модели или другому обязательному reviewer"
+            )
 
 
 def test_project_map_matches_current_postgresql_runtime_boundary() -> None:
@@ -122,9 +137,9 @@ def test_navigation_context_respects_coarse_byte_budgets() -> None:
     tooling = _text(CONTEXT_ROOT / "11-PYTHON-TOOLING.md")
     assert len(agents.encode("utf-8")) <= ROOT_AGENT_BUDGET_BYTES, (
         "AGENTS.md перестал быть короткой картой; переносите детали к владельцам "
-        "правил, а не увеличивайте budget под текущий snapshot"
+        "правил, а не увеличивайте лимит под текущий снимок"
     )
     assert len(tooling.encode("utf-8")) <= DURABLE_CONTEXT_PAGE_BUDGET_BYTES, (
-        "11-PYTHON-TOOLING.md снова разросся в inventory/roadmap; сокращайте "
-        "снимочные детали вместо увеличения budget"
+        "11-PYTHON-TOOLING.md снова разросся в инвентарный список/дорожную карту; сокращайте "
+        "снимочные детали вместо увеличения лимита"
     )
