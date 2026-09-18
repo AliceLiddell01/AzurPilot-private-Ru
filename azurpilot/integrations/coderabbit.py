@@ -724,6 +724,7 @@ def _default_review_state() -> dict[str, object]:
         "last_head": None,
         "reviewed_head": None,
         "provider_state": None,
+        "recovery": None,
         "rate_limited_at": None,
         "retry_not_before": None,
         "retry_source": "unknown",
@@ -1459,6 +1460,8 @@ class CodeRabbitAdapter(IntegrationAdapter):
     def _review_state_classification(review_state: dict[str, object]) -> str:
         """Классифицировать durable state, не сводя его к ``active``."""
 
+        if review_state.get("provider_state") == "recovered_interrupted":
+            return "complete_non_terminal"
         if not review_state.get("operation_id") and not review_state.get("provider_state"):
             return "fresh"
         if review_state.get("active") is True:
@@ -1528,6 +1531,48 @@ class CodeRabbitAdapter(IntegrationAdapter):
         """Прочитать текущую bounded cycle summary для CLI result."""
 
         return self._cycle_summary(self._load_review_state(root))
+
+    def recover_interrupted_review(
+        self, root: Path, config: IntegrationConfig
+    ) -> AdapterOutcome:
+        """Безопасно закрыть только доказанно неактивную прерванную попытку."""
+
+        settings = self._settings(config)
+        state = self._load_review_state(root)
+        if self._review_state_classification(state) != "active":
+            return AdapterOutcome(
+                self._record_from_error(
+                    settings,
+                    "CODERABBIT_REVIEW_RECOVERY_NOT_REQUIRED",
+                    state=IntegrationState.INCOMPATIBLE,
+                    diagnostics=self._review_state_diagnostics(state),
+                )
+            )
+        operation_id = state.get("operation_id")
+        if not isinstance(operation_id, str) or not operation_id:
+            return AdapterOutcome(self._record_from_error(settings, "CODERABBIT_REVIEW_OPERATION_UNKNOWN", state=IntegrationState.INCOMPATIBLE))
+        runtime, error_code = self._configured_runtime(root, settings)
+        if runtime is None:
+            return AdapterOutcome(self._record_from_error(settings, error_code or "CODERABBIT_RUNTIME_UNAVAILABLE", state=IntegrationState.INCOMPATIBLE))
+        probe = runtime.command("pgrep", "-x", "coderabbit", timeout=30)
+        if probe.timed_out or probe.stdout_truncated or probe.stderr_truncated:
+            return AdapterOutcome(self._record_from_error(settings, "CODERABBIT_REVIEW_OPERATION_LIVENESS_UNKNOWN", state=IntegrationState.INCOMPATIBLE))
+        if probe.returncode == 0:
+            return AdapterOutcome(self._record_from_error(settings, "CODERABBIT_REVIEW_OPERATION_STILL_ALIVE", state=IntegrationState.INCOMPATIBLE, diagnostics=("provider_process_present=true",)))
+        if probe.returncode not in {1, 2}:
+            return AdapterOutcome(self._record_from_error(settings, "CODERABBIT_REVIEW_OPERATION_LIVENESS_UNKNOWN", state=IntegrationState.INCOMPATIBLE))
+        now = datetime.now(UTC).isoformat(timespec="seconds")
+        previous = list(state.get("previous_cycles") or [])
+        previous.append({"cycle_id": state.get("current_cycle_id", "not-started"), "started_at": state.get("started_at"), "finished_at": now, "last_reviewed_head": None, "terminal_reason": "external_interruption_recovered", "provider_state": "interrupted"})
+        previous = previous[-MAX_RETAINED_REVIEW_CYCLES:]
+        self._save_state(
+            root, iterations=int(state.get("substantive_iterations", 0)), head=str(state.get("last_head") or state.get("base_sha") or "0" * 40),
+            terminal=False, base_sha=str(state.get("base_sha") or "0" * 40), repository_identity=str(state.get("repository_identity") or ""),
+            attempt=int(state.get("attempt", 0)), operation_id="", started_at="", provider_state="recovered_interrupted", active=False,
+            complete_received=False, last_event_type="recovery", reviewed_head=None, cycle_status="recovered", previous_cycles=previous,
+            recovery={"reason": "external_interruption", "operation_id": operation_id, "cycle_id": str(state.get("current_cycle_id") or "not-started"), "head": state.get("last_head"), "base_sha": state.get("base_sha"), "substantive_iterations": int(state.get("substantive_iterations", 0)), "verified_at": now},
+        )
+        return AdapterOutcome(self._record_from_error(settings, "CODERABBIT_REVIEW_RECOVERED", state=IntegrationState.READY, diagnostics=("provider_process_absent=true",)))
 
     @staticmethod
     def _inventory_diagnostics(
@@ -2262,6 +2307,20 @@ class CodeRabbitAdapter(IntegrationAdapter):
                     ResultCode.TOOLING_VERIFICATION_UNKNOWN,
                     "Provider quota metadata CodeRabbit повреждена.",
                 )
+        recovery = payload.get("recovery")
+        if recovery is not None:
+            if not isinstance(recovery, dict) or set(recovery) - {"reason", "operation_id", "cycle_id", "head", "base_sha", "substantive_iterations", "verified_at"}:
+                raise ToolingError(ResultCode.TOOLING_VERIFICATION_UNKNOWN, "Evidence recovery CodeRabbit повреждена.")
+            for key in ("reason", "operation_id", "cycle_id", "head", "base_sha", "verified_at"):
+                value = recovery.get(key)
+                if value is not None and (not isinstance(value, str) or len(value) > 512):
+                    raise ToolingError(ResultCode.TOOLING_VERIFICATION_UNKNOWN, "Evidence recovery CodeRabbit повреждена.")
+            for key in ("head", "base_sha"):
+                value = recovery.get(key)
+                if value is not None and _SHA_RE.fullmatch(value) is None:
+                    raise ToolingError(ResultCode.TOOLING_VERIFICATION_UNKNOWN, "SHA recovery CodeRabbit повреждён.")
+            if not isinstance(recovery.get("substantive_iterations"), int):
+                raise ToolingError(ResultCode.TOOLING_VERIFICATION_UNKNOWN, "Счётчик recovery CodeRabbit повреждён.")
         quota_source = quota.get("retry_source", "unknown")
         if quota_source not in _RETRY_SOURCES:
             raise ToolingError(
@@ -2334,6 +2393,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
         cycle_status: str | None = None,
         previous_cycles: list[dict[str, object]] | None = None,
         provider_quota: dict[str, object] | None = None,
+        recovery: dict[str, object] | None = None,
     ) -> None:
         current = self._load_review_state(root)
         selected_cycle_id = cycle_id or str(current.get("current_cycle_id") or "not-started")
@@ -2400,6 +2460,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
             "rate_limit_hint": rate_limit_hint[:240] if rate_limit_hint else None,
             "previous_cycles": list(previous_cycles or current.get("previous_cycles", []))[-MAX_RETAINED_REVIEW_CYCLES:],
             "provider_quota": quota,
+            "recovery": recovery if recovery is not None else current.get("recovery"),
             "updated_at": datetime.now(UTC).isoformat(timespec="seconds"),
         }
         self._validate_review_state(payload)

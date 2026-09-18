@@ -1195,6 +1195,32 @@ def test_coderabbit_state_persists_recovery_provenance_without_secret_values(
     assert "token" not in serialized.casefold()
 
 
+def test_coderabbit_recovery_closes_stale_active_state_without_iteration(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    adapter = coderabbit.CodeRabbitAdapter()
+    root = tmp_path / "checkout"
+    root.mkdir()
+    base_sha, head_sha = "a" * 40, "b" * 40
+    adapter._save_state(root, iterations=0, head=head_sha, terminal=False, base_sha=base_sha,
+                        repository_identity="alice/example", attempt=1, operation_id="coderabbit-0123456789abcdef",
+                        started_at="2026-09-16T00:00:00+00:00", provider_state="reviewing", active=True,
+                        complete_received=False, last_event_type="review_start")
+    class Runtime:
+        def command(self, *args, **kwargs):
+            assert args[:3] == ("pgrep", "-x", "coderabbit")
+            return coderabbit._WslCommandResult(1, "", "", False, False, False)
+    monkeypatch.setattr(adapter, "_configured_runtime", lambda *_: (Runtime(), None))
+    monkeypatch.setattr(adapter, "_settings", lambda _: {})
+    outcome = adapter.recover_interrupted_review(root, IntegrationConfig())
+    assert outcome.record.reason_code == "CODERABBIT_REVIEW_RECOVERED"
+    state = adapter._load_review_state(root)
+    assert state["active"] is False
+    assert state["complete_received"] is False
+    assert state["reviewed_head"] is None
+    assert state["substantive_iterations"] == 0
+    assert state["previous_cycles"][-1]["terminal_reason"] == "external_interruption_recovered"
+
+
 def _install_fake_coderabbit_runtime(monkeypatch, outputs):
     class FakeRuntime:
         coderabbit_command = "coderabbit"

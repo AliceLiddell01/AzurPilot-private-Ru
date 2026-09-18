@@ -412,6 +412,10 @@ def build_parser() -> argparse.ArgumentParser:
             cycle_subparsers = cycle.add_subparsers(
                 dest="coderabbit_cycle_action", required=True, metavar="ACTION"
             )
+            cycle_recover = cycle_subparsers.add_parser(
+                "recover", help="восстановить доказанно прерванную попытку"
+            )
+            _add_common_options(cycle_recover, suppress_defaults=True)
             cycle_start = cycle_subparsers.add_parser(
                 "start", help="создать новый cycle без запуска provider review"
             )
@@ -973,6 +977,12 @@ def _dispatch(
                     else None
                 ),
             )
+        if (
+            target == IntegrationName.CODERABBIT.value
+            and action == "cycle"
+            and args.coderabbit_cycle_action == "recover"
+        ):
+            return services.integrations.recover_coderabbit_review(repository_root=root)
         if (
             target == IntegrationName.CODERABBIT.value
             and action == "cycle"
