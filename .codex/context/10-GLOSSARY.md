@@ -17,9 +17,9 @@
 | generated file | Файл, создаваемый generator из source YAML/schema/metadata |
 | Operation Siren | Отдельный большой игровой режим («большой мир») |
 | `azur` | Repository-owned Python CLI из `azurpilot.cli` |
-| tooling | Typed service/CLI infrastructure в `azurpilot.tooling`, не gameplay layer |
+| tooling | Типизированная service/CLI infrastructure в `azurpilot.tooling`, не игровой слой |
 | integration | Внешняя developer capability через `azurpilot.integrations` |
-| integration adapter | Типизированная граница конкретного внешнего provider без generic gateway fallback |
+| integration adapter | Типизированная граница конкретного внешнего провайдера без generic gateway fallback |
 | `READY_FOR_CHATGPT_REVIEW` | Draft PR прошёл доступные pre-merge gates и остановлен для финального пользовательского review |
 | `personal/stable` | Стабильная пользовательская ветка форка |
 | `master` | Чистое зеркало upstream master |

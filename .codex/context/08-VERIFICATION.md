@@ -94,8 +94,8 @@
 7. Незначительные правки документации, тестовых ожиданий или механические fixes сами по себе не запускают полный внешний review заново.
 
 Если внешний reviewer недоступен, зафиксируй это как ограничение проверки.
-Provider-specific triage/retry/rate-limit semantics принадлежат соответствующему
-review skill; влияние результата CodeRabbit на Git lifecycle определяется только
+Специфичные для провайдера правила triage/retry/rate limit принадлежат
+соответствующему review skill; влияние результата CodeRabbit на Git lifecycle определяется только
 `GIT-WORKFLOW.md`. Остальные обязательные gates продолжают выполняться.
 
 ## Pre-merge и post-merge outcomes

@@ -118,7 +118,7 @@ pending dependency-sync marker блокирует старт, поэтому Dev
 В standalone-режиме readiness доказывает принадлежность WebUI/worker дереву
 `session.process`, владение локальным listen socket и HTTP readiness. В
 shared WebUI-режиме текущая read-only проверка подтверждает зарегистрированного
-живого WebUI owner, worker назначенного target и свежий state snapshot с
+живого WebUI owner, worker назначенного target и свежий снимок состояния с
 совпадающими `session_id` и identity worker. Связь shared WebUI owner с
 `session.process` этим путём отдельно не доказывается.
 

@@ -132,8 +132,8 @@ AzurPilot Private RU наследует upstream, но содержит отде
 - очистить только принадлежащие текущему прогону временные ресурсы;
 - завершить прогон как `blocked`.
 
-Provider-specific retry/rate-limit semantics внешнего review принадлежат
-соответствующему review skill. Git lifecycle consequence для CodeRabbit
+Специфичные для провайдера правила retry/rate limit внешнего review принадлежат
+соответствующему review skill. Последствие для Git lifecycle у CodeRabbit
 определён в разделе «Внешнее ревью».
 
 Не создавать инфраструктурный issue автоматически из-за одной transient-ошибки; делать это только при устойчивой проблеме или если task contract требует tracking.
@@ -489,10 +489,10 @@ PR body, а permanent clone не удаляется в post-merge cleanup.
 Если CodeRabbit skill вернул `RATE_LIMITED` до финального пользовательского
 ревью, Git lifecycle может достичь `READY_FOR_CHATGPT_REVIEW`, когда остальные
 обязательные gates выполнены; limitation и последний фактически reviewed head
-фиксируются в PR evidence. Такой provider result не отменяет required CI,
+фиксируются в PR evidence. Такой результат провайдера не отменяет required CI,
 security/secret scan, mandatory product/live acceptance или blocking review
 threads. После `merge-authorized` или `merged` он сам по себе не откатывает
-lifecycle. Правила ожидания, retry и provider triage принадлежат CodeRabbit
+lifecycle. Правила ожидания, retry и triage провайдера принадлежат CodeRabbit
 skill/reference.
 
 ### Merge
@@ -564,7 +564,7 @@ git gc --prune=now
 Бюджет:
 
 - transient infrastructure: до 2 быстрых повторов, если нет explicit cooldown;
-- retry budget внешнего reviewer определяется его provider-specific skill/contract;
+- retry budget внешнего reviewer определяется его специализированным skill/contract;
 - flaky test: до 2 повторов с evidence;
 - одна code root cause: до 3 fix/targeted-check циклов;
 - security finding: до 2 fix/validation циклов.
@@ -574,7 +574,7 @@ git gc --prune=now
 очищаются.
 
 CodeRabbit-specific lifecycle consequence определён один раз в разделе
-«Внешнее ревью»; provider retry/triage policy здесь не дублируется.
+«Внешнее ревью»; правила retry/triage провайдера здесь не дублируются.
 
 ## 24. Post-merge и rollback
 
