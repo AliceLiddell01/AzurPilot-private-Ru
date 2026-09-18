@@ -16,10 +16,10 @@
 | CLI | `azurpilot.cli` | parsing/rendering отделены от service logic; import не запускает operations |
 | Typed result model | `azurpilot.tooling.contracts` | closed Pydantic models, stable result/state/reason codes, bounded evidence |
 | Repository/process primitives | `azurpilot.tooling` | exact identity, path/process ownership, bounded operations, fail-closed ambiguity |
-| Lifecycle/build/repair/update | соответствующие services в `azurpilot.tooling` | CLI является adapter; platform-specific behavior не размножается в renderer |
+| Lifecycle/build/repair/update | соответствующие services в `azurpilot.tooling` | CLI является adapter; platform-specific поведение не размножается в renderer |
 | Git delivery | `azurpilot.tooling.delivery` | typed manifest, exact refs, allowlist, journal, ordinary push/read-back |
 | Pull request publication | `azurpilot.tooling.pull_request` | typed PR spec/body, explicit provider identity, draft/read-back contract |
-| External integrations | `azurpilot.integrations` | direct typed adapters, bounded credential/evidence boundary |
+| Внешние интеграции | `azurpilot.integrations` | прямые типизированные adapters, ограниченная credential/evidence граница |
 | MCP status/compatibility | tooling + существующие MCP contract gates | source state не выдаётся за effective client registration |
 | Windows compatibility/operator paths | project PowerShell scripts/modules | не удаляются без доказанной parity и caller migration |
 
@@ -147,7 +147,7 @@ Tool allowlist остаётся read-only; mutating Grafana tools блокиру
 
 ### Docker Hub
 
-Docker Hub surface остаётся read-only через allowlist/denylist. Mutation tools
+Поверхность Docker Hub остаётся read-only через allowlist/denylist. Mutation tools
 не разрешаются как fallback ради удобства диагностики.
 
 ### CodeRabbit
@@ -179,10 +179,10 @@ CodeRabbit — advisory reviewer, не источник истины.
 
 Dev MCP и Game MCP остаются отдельными продуктами:
 
-- `module.dev_mcp` — development runtime/smoke/evidence/control boundary;
-- `module.game_mcp` — game read/control boundary;
+- `module.dev_mcp` — граница development runtime/smoke/evidence/control;
+- `module.game_mcp` — граница game read/control;
 - `module.mcp_shared` — нейтральный authenticated transport/shared protocol
-  code, но не новый product owner.
+  code, но не новый владелец продукта.
 
 Канонические источники версий/совместимости находятся в project metadata и generated
 plugin compatibility files. Не копировать mutable version/hash tables в context.
@@ -217,13 +217,13 @@ invocation и bounded filesystem/Git primitives.
 ## 9. Граница совместимости PowerShell
 
 Наличие Python command не означает автоматическое удаление существующего
-PowerShell owner или gate.
+владельца PowerShell или gate.
 
 Start/Stop/Update/Repair/Build и project modules могут оставаться operator/
 compatibility paths, пока callers не переведены и parity не доказана. Removal
 требует одновременно:
 
-- эквивалентного success/failure/recovery behavior;
+- эквивалентного поведения success/failure/recovery;
 - exact ownership/path/process/Git evidence;
 - миграции callers/docs/shortcuts/installers;
 - актуальных tests/CI на затронутых ОС;
