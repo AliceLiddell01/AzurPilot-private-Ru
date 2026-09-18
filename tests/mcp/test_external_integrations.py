@@ -54,6 +54,21 @@ from azurpilot.tooling.contracts import (
 )
 from azurpilot.tooling.errors import ToolingError
 from azurpilot.tooling.filesystem import StateLayout
+from azurpilot.tooling.process import (
+    INTEGRATION_CREDENTIAL_ENVIRONMENT_KEYS,
+    INTEGRATION_CREDENTIAL_FILE_ENVIRONMENT_KEYS,
+)
+
+
+@pytest.fixture(autouse=True)
+def isolate_integration_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Не позволять реальным credentials машины влиять на integration tests."""
+
+    for variable in (
+        *INTEGRATION_CREDENTIAL_ENVIRONMENT_KEYS,
+        *INTEGRATION_CREDENTIAL_FILE_ENVIRONMENT_KEYS,
+    ):
+        monkeypatch.delenv(variable, raising=False)
 
 
 def test_registry_is_closed_to_exactly_six_typed_families():
