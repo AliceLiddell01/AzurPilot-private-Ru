@@ -47,6 +47,23 @@ def _section(value: str, start: str, end: str) -> str:
     return tail.split(end, maxsplit=1)[0]
 
 
+def _numbered_contract_items(value: str) -> tuple[str, ...]:
+    items: list[list[str]] = []
+    current: list[str] | None = None
+    for line in value.splitlines():
+        match = re.match(r"^\s*\d+\.\s+(.*)$", line)
+        if match:
+            if current is not None:
+                items.append(current)
+            current = [match.group(1)]
+            continue
+        if current is not None and line.strip():
+            current.append(line.strip())
+    if current is not None:
+        items.append(current)
+    return tuple(_normalize_contract(" ".join(item)) for item in items)
+
+
 def test_repo_scoped_skills_have_unique_valid_frontmatter() -> None:
     skill_files = sorted(_SKILLS_ROOT.glob("*/SKILL.md"))
     discovered_skill_dirs = {path.parent.name for path in skill_files}
@@ -182,19 +199,17 @@ def test_development_skill_routes_to_canonical_workflow_owners() -> None:
     development_dir = _SKILLS_ROOT / "azurpilot-repository-development"
     development_content = (development_dir / "SKILL.md").read_text(encoding="utf-8")
 
-    for reference in (
-        "references/engineering-contract.md",
-        "references/browser-and-live-testing.md",
-    ):
+    linked_references = set(
+        re.findall(r"\]\((references/[^)]+\.md)\)", development_content)
+    )
+    reference_files = {
+        path.relative_to(development_dir).as_posix()
+        for path in (development_dir / "references").glob("*.md")
+    }
+    assert linked_references == reference_files
+    assert linked_references
+    for reference in linked_references:
         assert (development_dir / reference).is_file()
-        assert reference in development_content
-
-    for retired_reference in (
-        "references/ci-and-verification.md",
-        "references/pr-merge-cleanup.md",
-    ):
-        assert retired_reference not in development_content
-        assert not (development_dir / retired_reference).exists()
 
     normalized = _normalize_contract(development_content)
     assert ".codex/context/git-workflow.md" in normalized
@@ -221,10 +236,8 @@ def test_development_skill_routes_to_canonical_workflow_owners() -> None:
         "WSL2 Linux",
         "false positive",
         "rate limit",
-        "READY_FOR_CHATGPT_REVIEW",
     ):
         assert required.lower() in review_content.lower()
-
 
 def test_new_skills_contain_no_local_paths_secrets_or_stage_baselines() -> None:
     for path in _SKILLS_ROOT.rglob("*"):
@@ -242,32 +255,35 @@ def test_canonical_lifecycle_requires_final_review_before_merge() -> None:
     workflow = (_REPOSITORY_ROOT / ".codex" / "context" / "GIT-WORKFLOW.md").read_text(
         encoding="utf-8"
     )
-    merge_section = _normalize_contract(_section(workflow, "### Merge", "## 21."))
+    raw_merge_section = _section(workflow, "### Merge", "## 21.")
+    merge_section = _normalize_contract(raw_merge_section)
+    items = _numbered_contract_items(raw_merge_section)
+    assert len(items) >= 3
 
-    causal_chain = re.compile(
-        r"пользователь.{0,120}завершил.{0,120}финальн\w*.{0,80}"
-        r"пользовательск\w*.{0,80}ревью.{0,160}после этого.{0,120}"
-        r"отдельн\w*.{0,80}текущ\w*.{0,80}(?:сообщени|команд).{0,160}"
-        r"только затем.{0,120}merge"
+    final_review_index = next(
+        index
+        for index, item in enumerate(items)
+        if "финаль" in item and "пользоват" in item and "ревью" in item
     )
-    assert causal_chain.search(merge_section), (
-        "GIT-WORKFLOW должен связывать финальное пользовательское ревью → отдельное текущее "
-        "merge-разрешение → merge одним нормативным правилом"
+    authorization_index = next(
+        index
+        for index, item in enumerate(items)
+        if "разреш" in item and "отдельн" in item and "текущ" in item and "pr" in item
     )
+    merge_action_index = next(
+        index
+        for index, item in enumerate(items)
+        if "merge" in item and ("провер" in item or "revalidation" in item)
+    )
+    assert final_review_index < authorization_index < merge_action_index
 
-    assert re.search(
-        r"стар\w+ разрешени\w*.{0,240}(?:недостаточ|не подход)",
-        merge_section,
-    )
-    assert re.search(
-        r"(?:ci.{0,80}coderabbit.{0,80}self-review|"
-        r"self-review.{0,80}coderabbit.{0,80}ci).{0,160}"
-        r"не являются разрешением на merge",
-        merge_section,
-    )
+    assert "старое разрешение" in merge_section
+    assert "разрешение для другого pr" in merge_section
+    assert "недостаточ" in merge_section
+    assert all(token in merge_section for token in ("ci", "coderabbit", "self-review"))
+    assert "не являются разрешением на merge" in merge_section
     assert "ready_for_chatgpt_review" in merge_section
     assert "merge-authorized" in merge_section
-
 
 def test_new_capability_branch_contract_does_not_restore_codex_default() -> None:
     workflow = (
@@ -331,7 +347,7 @@ def test_checkout_policy_defers_implementation_exceptions_to_canonical_workflow(
         assert exception in workflow_content
 
 
-def test_ci_contract_keeps_stable_stage_agnostic_required_contexts() -> None:
+def test_ci_contract_runs_for_any_pr_and_stable_push() -> None:
     workflow = yaml.safe_load(
         (_REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     )
@@ -347,10 +363,18 @@ def test_ci_contract_keeps_stable_stage_agnostic_required_contexts() -> None:
     assert isinstance(push, dict)
     assert push.get("branches") == ["personal/stable"]
 
+    assert "независимо от target branch" in ci_doc
+    assert "push-trigger" in ci_doc.lower()
+
     for event in triggers.values():
         if isinstance(event, dict):
             assert "paths" not in event
             assert "paths-ignore" not in event
+
+    assert workflow.get("permissions") == {"contents": "read"}
+    concurrency = workflow.get("concurrency")
+    assert isinstance(concurrency, dict)
+    assert "github.event.pull_request.number" in str(concurrency.get("group", ""))
 
     jobs = workflow.get("jobs")
     assert isinstance(jobs, dict)

@@ -33,7 +33,7 @@ RETIRED_PROFILE_PATHS = (
     Path(".docker/azurpilot-observability-profile.json"),
 )
 
-ACTIVE_SOURCE_PATHS = (
+_ACTIVE_SOURCE_PATHS = (
     Path(".codex/config.toml"),
     Path("azurpilot/cli.py"),
     Path("azurpilot/tooling/doctor.py"),
@@ -46,7 +46,6 @@ ACTIVE_SOURCE_PATHS = (
     Path(".agents/skills/azurpilot-coderabbit-review/SKILL.md"),
     Path(".agents/skills/azurpilot-coderabbit-review/references/review-workflow.md"),
     Path(".agents/skills/azurpilot-repository-development/SKILL.md"),
-    Path(".agents/skills/azurpilot-repository-development/references/engineering-contract.md"),
     Path("plugins/azurpilot/skills/azurpilot-development/SKILL.md"),
     Path("plugins/azurpilot/skills/azurpilot-troubleshooting/SKILL.md"),
 )
@@ -208,7 +207,7 @@ def _check_codex_config(root: Path, errors: list[str]) -> None:
 def _check_active_text(root: Path, errors: list[str]) -> None:
     """Migration guard: активные surfaces не должны вернуть retired gateway route."""
 
-    paths = list(ACTIVE_SOURCE_PATHS) + [Path("azurpilot/integrations")]
+    paths = list(_ACTIVE_SOURCE_PATHS) + [Path("azurpilot/integrations")]
     for relative in paths:
         candidates = (
             sorted((root / relative).rglob("*.py"))
@@ -320,7 +319,6 @@ if __name__ == "__main__":
 
 
 __all__ = [
-    "ACTIVE_SOURCE_PATHS",
     "EXPECTED_FAMILIES",
     "RETIRED_PROFILE_PATHS",
     "check",

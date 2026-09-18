@@ -1,9 +1,8 @@
 name: CI
 
 on:
-  # PR CI должен быть привязан к самому PR независимо от его base branch.
-  # Это позволяет stacked PR проходить те же exact-head проверки без
-  # workflow_dispatch, который не предоставляет полноценный pull_request context.
+  # Pull-request CI запускается независимо от target branch, чтобы каждая
+  # промежуточная PR-ветка получила exact-head проверки до интеграции.
   pull_request: {}
   push:
     branches:

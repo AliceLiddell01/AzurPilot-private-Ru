@@ -2,7 +2,11 @@
 
 ## Назначение
 
-Постоянный CI AzurPilot Private RU проверяет текущее продуктовое поведение, а не историю этапов разработки. Единственный обязательный pull-request workflow находится в `.github/workflows/ci.yml` и запускается без `paths`-фильтров для каждого PR в `personal/stable`.
+Постоянный CI AzurPilot Private RU проверяет текущее продуктовое поведение, а не
+историю этапов разработки. Единственный pull-request workflow находится в
+`.github/workflows/ci.yml` и запускается без `paths`-фильтров для каждого pull
+request независимо от target branch. Push-trigger имеет отдельную branch policy
+и остаётся ограничен `personal/stable`.
 
 CI не использует исторические SHA, committed evidence, stage-specific baselines или временные migration gates как источник истины. Источниками истины являются текущий код, исполняемые тесты и фактическое состояние ветки.
 

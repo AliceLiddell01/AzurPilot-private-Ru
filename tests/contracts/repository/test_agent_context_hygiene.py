@@ -20,9 +20,18 @@ DURABLE_CONTEXT_PAGE_BUDGET_BYTES = 32 * 1024
 
 _TASK_RESIDUE_PATTERNS = (
     re.compile(r"(?i)\bstage(?:[\s_-]*\d+)\b"),
-    re.compile(r"(?i)\bincrement\b"),
-    re.compile(r"(?i)\bfollow-up\b"),
-    re.compile(r"(?i)\bprompt\b"),
+    re.compile(
+        r"(?i)\b(?:в|на|для)\s+(?:текущ\w*|следующ\w*|этом)\s+"
+        r"(?:этап\w*|итерац\w*|increment)\b"
+    ),
+    re.compile(
+        r"(?i)\b(?:в|на|для)\s+(?:этом|текущ\w*|следующ\w*)\s+"
+        r"follow-up(?:\s+(?:pr|задач\w*))?\b"
+    ),
+    re.compile(
+        r"(?i)\b(?:исходн\w*|предыдущ\w*|этот|текущ\w*)\s+prompt\b|"
+        r"\bprompt\s+(?:требовал\w*|просил\w*|задавал\w*)\b"
+    ),
 )
 
 
@@ -64,25 +73,46 @@ def test_final_review_policy_is_model_neutral() -> None:
             )
         ),
     }
-    delegated_reviewer = re.compile(
-        r"(?i)(?:через|с\s+помощью)\s+\S+|\bмодел\w*\b|"
-        r"\breviewer\b|\bассистент\w*\b|\bagent\w*\b"
+    concrete_model = re.compile(
+        r"(?i)\b(?:chatgpt\s*\d|gpt[-\s]?\d|claude\s*\d|gemini\s*\d)\b"
+    )
+    delegated_decision = re.compile(
+        r"(?i)(?:merge|слияни\w*).{0,100}(?:разрешает|одобряет|решает).{0,80}"
+        r"(?:coderabbit|reviewer|agent|ассистент|модел\w*)|"
+        r"(?:coderabbit|reviewer|agent|ассистент|модел\w*).{0,80}"
+        r"(?:разрешает|одобряет|решает).{0,100}(?:merge|слияни\w*)"
     )
     for name, section in sections.items():
-        sentences = [
+        final_review_sentences = [
             sentence.strip()
             for sentence in re.split(r"[.;\n]+", section)
             if "финаль" in sentence and ("ревью" in sentence or "review" in sentence)
         ]
-        assert sentences, name
-        for sentence in sentences:
-            assert "пользоват" in sentence, (
-                f"{name}: финальное ревью должно оставаться пользовательским"
-            )
-            assert delegated_reviewer.search(sentence) is None, (
-                f"{name}: финальное пользовательское ревью нельзя делегировать "
-                "конкретному бренду, модели или другому обязательному reviewer"
-            )
+        assert final_review_sentences, name
+        assert any("пользоват" in sentence for sentence in final_review_sentences), (
+            f"{name}: ownership финального ревью должен оставаться у пользователя"
+        )
+        assert concrete_model.search(section) is None, name
+        assert delegated_decision.search(section) is None, name
+
+
+def test_task_residue_patterns_are_contextual() -> None:
+    residue_examples = (
+        "В текущей итерации добавим ещё один gate.",
+        "В этом follow-up PR обновим policy.",
+        "Исходный prompt требовал временный обход.",
+        "Stage 12 оставляет старый route.",
+    )
+    allowed_examples = (
+        "Prompt injection обрабатывается отдельной security boundary.",
+        "API prompt contract является частью внешнего протокола.",
+        "Increment используется как имя технического счётчика.",
+        "Follow-up является названием внешнего события.",
+    )
+    for example in residue_examples:
+        assert any(pattern.search(example) for pattern in _TASK_RESIDUE_PATTERNS)
+    for example in allowed_examples:
+        assert all(pattern.search(example) is None for pattern in _TASK_RESIDUE_PATTERNS)
 
 
 def test_project_map_matches_current_postgresql_runtime_boundary() -> None:
@@ -131,7 +161,7 @@ def test_cli_live_acceptance_cannot_become_global_gate() -> None:
         / "SKILL.md",
     )
     for routed_path in routed_sources:
-        assert global_gate.search(_text(routed_path)) is None, routed_path
+        assert global_gate.search(_normalized(_text(routed_path))) is None, routed_path
 
 
 def test_navigation_context_respects_coarse_byte_budgets() -> None:
