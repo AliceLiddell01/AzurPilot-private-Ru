@@ -3,15 +3,15 @@
 ## Назначение
 
 Документ описывает **текущее** repository-owned Python tooling AzurPilot и его
-устойчивые границы. Это не roadmap миграции и не журнал предыдущих задач.
+устойчивые границы. Это не дорожная карта миграции и не журнал предыдущих задач.
 
-При споре сначала проверять текущий код, ближайшие tests и generated contracts.
-Current PR/head SHA, machine paths, review-cycle state и планы будущей реализации
-сюда не записываются.
+При споре сначала проверять текущий код, ближайшие тесты и сгенерированные
+контракты. Текущие PR/head SHA, локальные machine paths, состояние review-цикла
+и планы будущей реализации сюда не записываются.
 
-## 1. Текущие owners
+## 1. Текущие владельцы
 
-| Surface | Текущий owner | Инвариант |
+| Область | Текущий владелец | Инвариант |
 |---|---|---|
 | CLI | `azurpilot.cli` | parsing/rendering отделены от service logic; import не запускает operations |
 | Typed result model | `azurpilot.tooling.contracts` | closed Pydantic models, stable result/state/reason codes, bounded evidence |
@@ -23,32 +23,32 @@ Current PR/head SHA, machine paths, review-cycle state и планы будущ�
 | MCP status/compatibility | tooling + существующие MCP contract gates | source state не выдаётся за effective client registration |
 | Windows compatibility/operator paths | project PowerShell scripts/modules | не удаляются без доказанной parity и caller migration |
 
-Source package `azurpilot/` является tooling/application package и не
-становится gameplay owner. `alas.py`, `gui.py`, `module/application`,
-`module/device`, combat/map/campaign и другие product layers сохраняют свои
+Пакет `azurpilot/` является tooling/application package и не
+становится владельцем игрового поведения. `alas.py`, `gui.py`, `module/application`,
+`module/device`, combat/map/campaign и другие продуктовые слои сохраняют свои
 границы.
 
-## 2. CLI contract
+## 2. Контракт CLI
 
 Установленный entrypoint `azur` ведёт в `azurpilot.cli:main`. Текущая
 реализация использует `argparse` и Rich; это факт реализации, а не предложение
 для будущего выбора framework.
 
-CLI имеет два presentation режима:
+CLI имеет два режима представления:
 
-- human output — краткий terminal UI;
-- `--json` — ровно один закрытый machine-readable result envelope.
+- человекочитаемый вывод — краткий terminal UI;
+- `--json` — ровно один закрытый машиночитаемый результирующий конверт.
 
-Rich/ANSI/progress не меняют JSON schema. Service layer не зависит от terminal
-renderer, а tests/MCP не должны scrape human output.
+Rich/ANSI/progress не меняют JSON schema. Сервисный слой не зависит от terminal renderer, а tests/MCP не должны
+разбирать человекочитаемый вывод как машинный контракт.
 
-Project-bound command не угадывает repository identity по случайному cwd, если
+Команда, привязанная к проекту, не угадывает repository identity по случайному cwd, если
 identity не доказана. Explicit/configured/installation provenance валидируется,
 а неоднозначность завершается typed failure.
 
-## 3. Typed results и evidence
+## 3. Типизированные результаты и evidence
 
-`ToolingResult[TDetails, TEvidence]` и operation-specific DTO — canonical model
+`ToolingResult[TDetails, TEvidence]` и DTO конкретных операций — каноническая модель
 между service, CLI JSON и tests.
 
 Постоянные правила:
@@ -65,7 +65,7 @@ identity не доказана. Explicit/configured/installation provenance ва
 
 ## 4. Git delivery
 
-Delivery boundary публикует только доказанный Git state.
+Граница delivery публикует только доказанное состояние Git.
 
 Typed manifest/spec содержит необходимую identity:
 
@@ -76,7 +76,7 @@ Typed manifest/spec содержит необходимую identity:
 - intended paths/changes;
 - preimage/postimage и operation intent там, где они нужны.
 
-Правила publication:
+Правила публикации:
 
 - staged allowlist обязателен; `git add .` как скрытый fallback запрещён;
 - force/force-with-lease и destructive cleanup не используются;
@@ -89,7 +89,7 @@ Typed manifest/spec содержит необходимую identity:
 Git lifecycle, ветки и разрешение merge принадлежат
 `.codex/context/GIT-WORKFLOW.md`, а не этому документу.
 
-## 5. Pull request publication
+## 5. Публикация pull request
 
 `PullRequestService` работает через typed publication spec и renderer body.
 
@@ -100,27 +100,23 @@ PR contract:
 - duplicate, cross-repository, wrong-head и provider-unknown состояния
   fail-closed;
 - body строится из structured model, а не shell string;
-- operator-facing body — содержательный русскоязычный report; technical
+- операторский body — содержательный русскоязычный отчёт; technical
   identifiers сохраняются без перевода;
 - CodeRabbit evidence в body должно соответствовать exact base/head, если оно
   заявлено.
 
-Создание draft PR не даёт разрешение на merge. Lifecycle после publication
+Создание draft PR не даёт разрешение на merge. Lifecycle после публикации
 определяет `GIT-WORKFLOW.md`.
 
-## 6. External integrations
+## 6. Внешние интеграции
 
-`IntegrationRegistry` содержит текущие шесть семейств:
+Точный каталог интеграций не дублируется в документации: канонические имена
+берутся из `IntegrationName`, а порядок — из `ADAPTER_ORDER`.
+`IntegrationRegistry` обязан соответствовать этим источникам.
 
-1. CodeRabbit;
-2. Semgrep;
-3. Grafana;
-4. Context7;
-5. Docker Docs;
-6. Docker Hub.
-
-Это direct typed adapters. Docker MCP Toolkit/Gateway и generic MCP proxy не
-являются critical path или fallback registration source для этих integrations.
+Интеграции реализованы прямыми типизированными адаптерами. Docker MCP
+Toolkit/Gateway и generic MCP proxy не являются критическим путём или резервным
+источником регистрации.
 
 Общие правила:
 
@@ -130,7 +126,7 @@ PR contract:
 - provider mutation разрешена только если конкретный adapter и operation contract
   явно её поддерживают;
 - provider output нормализуется до bounded typed evidence;
-- отсутствие external capability не маскируется synthetic success.
+- отсутствие внешней capability не маскируется synthetic success.
 
 ### Semgrep
 
@@ -158,7 +154,7 @@ Docker Hub surface остаётся read-only через allowlist/denylist. Mut
 
 CodeRabbit — advisory reviewer, не источник истины.
 
-Current boundary:
+Текущая граница:
 
 - adapter выбирает доказанный WSL2 Linux review environment;
 - используется отдельный persistent review clone canonical repository;
@@ -179,16 +175,16 @@ Current boundary:
 `.agents/skills/azurpilot-coderabbit-review/`, а Git lifecycle — в
 `GIT-WORKFLOW.md`.
 
-## 7. MCP boundary
+## 7. Граница MCP
 
-Dev MCP и Game MCP остаются отдельными products:
+Dev MCP и Game MCP остаются отдельными продуктами:
 
 - `module.dev_mcp` — development runtime/smoke/evidence/control boundary;
 - `module.game_mcp` — game read/control boundary;
 - `module.mcp_shared` — нейтральный authenticated transport/shared protocol
   code, но не новый product owner.
 
-Canonical version/compatibility sources находятся в project metadata и generated
+Канонические источники версий/совместимости находятся в project metadata и generated
 plugin compatibility files. Не копировать mutable version/hash tables в context.
 
 MCP diagnostics должны различать:
@@ -202,13 +198,13 @@ MCP diagnostics должны различать:
 Нельзя объявлять effective registration «готовой» только потому, что
 `.codex/config.toml` корректен.
 
-## 8. Core cross-platform contract
+## 8. Базовый кроссплатформенный контракт
 
-Core Python tooling/CLI сохраняет одинаковую semantic model для Windows, Linux и
+Базовый Python tooling/CLI сохраняет одинаковую semantic model для Windows, Linux и
 macOS: DTO, reason codes, JSON contract, repository identity, structured process
 invocation и bounded filesystem/Git primitives.
 
-External/product capabilities capability-dependent:
+Внешние и продуктовые capabilities зависят от среды:
 
 - WSL/COM shortcut — Windows-specific;
 - конкретный emulator/device backend требует отдельного подтверждения;
@@ -216,9 +212,9 @@ External/product capabilities capability-dependent:
 - CodeRabbit review environment зависит от доказанного adapter/runtime.
 
 Запуск core CLI на ОС сам по себе не доказывает поддержку device/emulator или
-external provider на этой ОС.
+внешнего провайдера на этой ОС.
 
-## 9. PowerShell compatibility boundary
+## 9. Граница совместимости PowerShell
 
 Наличие Python command не означает автоматическое удаление существующего
 PowerShell owner или gate.
@@ -236,7 +232,7 @@ compatibility paths, пока callers не переведены и parity не �
 Image-native/container hooks PostgreSQL не считаются legacy host wrapper только
 из-за того, что написаны на shell.
 
-## 10. Security boundary
+## 10. Граница безопасности
 
 Tooling не должен:
 
@@ -248,9 +244,9 @@ Tooling не должен:
 - автоматически чинить ambiguous state mutating operation;
 - переносить пользовательские secrets/config в review/disposable checkout.
 
-## 11. Verification routing
+## 11. Маршрутизация проверок
 
-Проверки выбираются по изменённой surface.
+Проверки выбираются по изменённой области.
 
 Для core CLI/tooling contract:
 
@@ -260,7 +256,7 @@ Tooling не должен:
 - соответствующий `--json` invocation с одним closed result envelope;
 - platform gate, если затронут native adapter.
 
-Для external integrations:
+Для внешних интеграций:
 
 - tests соответствующего adapter/service;
 - `dev_tools/integration_contract_gate.py`;
@@ -273,20 +269,20 @@ MCP compatibility gate и generated metadata verification.
 Для PowerShell change остаются Parser/PSScriptAnalyzer и требуемый Windows
 acceptance. Они не запускаются для несвязанного Python/domain diff.
 
-Точный общий Definition of Done находится в `08-VERIFICATION.md`.
+Общие критерии готовности находятся в `08-VERIFICATION.md`.
 
 ## 12. Что не хранить здесь
 
 Не добавлять обратно:
 
-- roadmap/stage/increment/follow-up state;
-- исходный prompt и историю выбора framework;
-- «будущую» directory tree рядом с уже реализованной tree;
-- current PR/branch/SHA/CI run;
-- literal user/machine paths;
-- version tables, которые уже генерируются из canonical source;
+- номер временного этапа или состояние конкретной итерации задачи;
+- исходное пользовательское задание и историю выбора framework;
+- предлагаемую будущую структуру каталогов рядом с уже действующей;
+- текущие PR/branch/SHA/CI run;
+- буквальные пользовательские и machine paths;
+- таблицы версий, которые уже генерируются из канонического источника;
 - обещание capability, которого ещё нет в коде;
-- reviewer model/version как permanent requirement.
+- привязку обязательного финального ревью к конкретной модели/версии.
 
-Если появляется новая устойчивая owner/boundary — обновить соответствующий раздел
-и удалить старую формулировку, а не накапливать рядом временные слои.
+Если появляется новый устойчивый владелец или граница, обновить соответствующий
+раздел и удалить старую формулировку, а не накапливать рядом временные слои.
