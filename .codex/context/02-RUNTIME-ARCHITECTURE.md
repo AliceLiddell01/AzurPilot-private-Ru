@@ -132,7 +132,7 @@ control operation сериализуется общей repository-scoped coordi
 
 Этот слой остаётся основой Dev MCP и не меняет жизненный цикл игрового
 планировщика и рабочих задач.
-Stage 4 добавляет подтверждающие данные в пределах сессии в отдельном
+Dev Runtime хранит подтверждающие данные текущей сессии в отдельном
 `module.dev_runtime.evidence`: игнорируемые артефакты живут под
 `config/state/dev-runtime-runs/<session-id>/`, используют атомарные метаданные,
 межпроцессную блокировку, ограниченное хранение и типизированное состояние. Снимок Git,
@@ -241,7 +241,7 @@ reconciliation связывает их с физическим slot set-based и
 Dorm observation хранит baseline/rate/floor; complete двухэтажное отсутствие
 хранит `unknown` morale с доказанным outside-Dorm recovery, не fake baseline.
 Partial scan, замена occupant, смена формы, stale Fleet State или неоднозначный
-slot не переносят состояние. Legacy Combat path этим этапом не подключён.
+slot не переносят состояние. Legacy Combat path к этой persistence boundary не подключён.
 Canonical marker и другие runtime-state JSON находятся под `config/state/`, а
 корневой `config/*.json` является только пространством кандидатов: игровым
 профилем считается безопасный regular JSON, прошедший единый structural

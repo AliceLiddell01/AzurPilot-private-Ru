@@ -1,50 +1,65 @@
 # Индекс контекста Codex
 
-Папка содержит устойчивую русскоязычную карту AzurPilot Private RU.
+Папка содержит короткие **долговременные** архитектурные карты и рабочие
+контракты AzurPilot Private RU. Она не является snapshot текущего PR.
 
-## Правило использования
+## Как пользоваться
 
-1. Сначала прочитать корневой `AGENTS.md`.
-2. Определить затронутые подсистемы и класс задачи.
-3. Открыть только относящиеся к задаче документы из этой папки.
-4. Не читать `GIT-WORKFLOW.md` и `POWERSHELL-GIT-RULES.md` целиком без необходимости: первый нужен при Git/PR/upstream/release lifecycle, второй — только при создании или изменении `.ps1`/`.psm1` с Git-командами.
-5. Проверить изложенное по фактическому коду, тестам и CI целевой ветки.
-6. Не расширять исследование на соседние подсистемы, если фактический diff или вызовы не показывают такую необходимость.
+1. Прочитать корневой `AGENTS.md`.
+2. Определить фактический diff/scope.
+3. Открыть только документы из таблицы, которые владеют затронутой границей.
+4. Проверить вывод по коду, tests и generated contracts целевой ветки.
+5. При расширении scope догрузить новый документ; не перечитывать всё дерево.
+6. Внешнюю документацию открывать только для конкретного спорного API/контракта.
 
-## Документы
+## Canonical owners
 
-| Файл | Когда читать |
+| Файл | Владеет вопросом |
 |---|---|
-| `01-PROJECT-MAP.md` | Ориентация в репозитории, выбор слоя и файлов |
-| `02-RUNTIME-ARCHITECTURE.md` | Точки входа, диспетчеризация, жизненный цикл процессов |
-| `03-CONFIG-I18N.md` | Параметры, генератор, миграция и русский язык |
-| `04-DEVICE-UI-OCR.md` | ADB, backends, screenshot/control, Page, Button, OCR |
-| `05-COMBAT-MAP-CAMPAIGN.md` | Бой, карта, campaign и map detection |
-| `06-OPERATION-SIREN.md` | Большая часть `module/os*` и специализированный поток |
-| `07-WEBUI-INFRASTRUCTURE.md` | WebUI, MCP, статистика, уведомления и приватность |
-| `08-VERIFICATION.md` | Режимы задач, локальные/CI gates, review checkpoints и Definition of Done |
-| `09-SOURCES-MAINTENANCE.md` | Источники истины и поддержка этой папки |
-| `10-GLOSSARY.md` | Термины и быстрые связи |
-| `11-PYTHON-TOOLING.md` | Текущее состояние и постоянный контракт будущего единого Python tooling |
-| `GIT-WORKFLOW.md` | Git lifecycle, ветки, PR, upstream, merge, rollback; читать по релевантным разделам |
-| `POWERSHELL-GIT-RULES.md` | Стандарт `.ps1`/`.psm1` с Git-командами; читать только для PowerShell/Git задач |
-| `MIGRATION-MAP.md` | Что было сохранено и отброшено из старых AI-файлов |
+| `01-PROJECT-MAP.md` | где находится текущий owner поведения и основные слои |
+| `02-RUNTIME-ARCHITECTURE.md` | entrypoints, process/runtime composition и MCP runtime |
+| `03-CONFIG-I18N.md` | config sources/generation, migrations, RU/EN product boundary |
+| `04-DEVICE-UI-OCR.md` | ADB, screenshot/control, Page/Button/Template/OCR |
+| `05-COMBAT-MAP-CAMPAIGN.md` | combat, map, campaign и map detection |
+| `06-OPERATION-SIREN.md` | Operation Siren и `module/os*` |
+| `07-WEBUI-INFRASTRUCTURE.md` | WebUI, product MCP, persistence projections, notifications |
+| `08-VERIFICATION.md` | scope-derived gates, CI, review checkpoints, Definition of Done |
+| `09-SOURCES-MAINTENANCE.md` | правила качества и обновления этой папки |
+| `10-GLOSSARY.md` | краткие термины |
+| `11-PYTHON-TOOLING.md` | текущие `azurpilot.tooling`, integrations, CLI/delivery boundaries |
+| `GIT-WORKFLOW.md` | Git/branch/PR/upstream/merge/rollback/cleanup lifecycle |
+| `POWERSHELL-GIT-RULES.md` | Git внутри `.ps1`/`.psm1` |
+| `MIGRATION-MAP.md` | историческая справка о старом AI-контексте; **не читать в обычной задаче** |
 
-Постоянный контракт CI описан отдельно в `docs/ci.md`. Required checks: `Python`, `Windows`, `Security`.
+Постоянный CI contract дополнительно описан в `docs/ci.md`.
 
-## Принцип экономного контекста
+## Разрешение конфликтов
 
-- Сначала фактический код и ближайшие тесты, затем документация по необходимости.
-- Не перечитывать уже подтверждённый документ после каждого небольшого исправления; возвращаться к нему только при изменении scope, инварианта или плана.
-- Внешнюю документацию открывать для конкретного спорного API/контракта, а не как обязательный общий preflight.
-- Контекстные документы — карта и инварианты, а не замена фактическому diff и executable checks.
+- Код/tests/generated contracts выше контекстных документов.
+- Для workflow-вопроса побеждает соответствующий canonical owner из таблицы,
+  а не более общий повтор в соседнем документе.
+- Если два canonical документа реально расходятся, не пытайся «усреднить»
+  правило: установи фактическое состояние, исправь owner и убери дубликат.
+- Более свежий PR/issue не становится permanent rule автоматически.
 
-## Что здесь намеренно отсутствует
+## Экономия контекста
 
-- локальные разрешения Cursor/Claude;
-- длинные построчные обзоры конкретных версий файлов;
-- номера строк и количество методов;
-- неподтверждённые архитектурные предложения;
-- автоматически применяемые инструкции для всех задач;
-- исторические Stage/evidence-контракты и одноразовые отчёты;
-- китайский текст.
+- `GIT-WORKFLOW.md` читать по релевантным разделам, а не целиком.
+- `POWERSHELL-GIT-RULES.md` нужен только для PowerShell/Git scope.
+- `11-PYTHON-TOOLING.md` нужен только для Python tooling, CLI, delivery, PR,
+  MCP status или внешних integrations.
+- Domain docs не загружаются для несвязанной documentation/Git-only задачи.
+- Уже подтверждённый инвариант не перечитывается после каждого малого fix.
+
+## Что здесь запрещено хранить
+
+- current PR/branch/head SHA и одноразовый evidence;
+- номера roadmap/stage и состояние конкретного increment/follow-up;
+- остатки исходного prompt или обсуждения выбора решения;
+- привязку обязательного reviewer к конкретной модели/версии;
+- абсолютные пользовательские paths, secrets и machine-specific config;
+- точные номера строк, размеры файлов и количество методов/tools;
+- длинные построчные обзоры существующей реализации.
+
+Такие данные принадлежат текущему task/PR evidence или Git history, а не
+долговременному агентскому контексту.

@@ -93,7 +93,7 @@ uv run -m module.config.config_updater
 - повторный запуск миграции;
 - сохранение пользовательского значения;
 - rollback при невалидном значении;
-- различия server-specific defaults.
+- унаследованные server-specific defaults только когда задача явно касается совместимости; текущий product runtime остаётся EN-only.
 
 ## Global/EN product boundary
 
@@ -103,6 +103,8 @@ uv run -m module.config.config_updater
 - runtime WebUI — `ru-RU`; `en-US.json` — только build-time key/placeholder parity;
 - `ja-JP`, `zh-CN`, `zh-MIAO`, `zh-TW` не runtime-selectable;
 - event metadata source — `en`, foreign fallback order пуст.
+
+Унаследованные CN/JP/TW ветви конфигурации могут существовать как upstream compatibility code, но не являются поддерживаемыми product variants. Не расширять их и не добавлять foreign runtime matrix без явного изменения этого product boundary.
 
 ## Permanent runtime localization integrity
 

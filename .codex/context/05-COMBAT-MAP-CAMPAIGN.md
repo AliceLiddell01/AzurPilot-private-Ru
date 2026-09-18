@@ -66,7 +66,7 @@
 3. Проверить screenshot до и после действия.
 4. Проверить match score и область распознавания.
 5. Проверить модель карты и camera offset.
-6. Проверить server/theme assets.
+6. Проверить canonical EN/theme assets; foreign server assets — только если задача явно про inherited compatibility.
 7. Воспроизвести на сохранённом кадре, если возможно.
 8. Добавить точечный regression test или fixture.
 

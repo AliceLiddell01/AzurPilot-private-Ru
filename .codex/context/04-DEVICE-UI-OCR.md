@@ -42,7 +42,7 @@ Backends могут существенно различаться по latency, 
 
 - размер изображения;
 - порядок каналов;
-- server-specific asset;
+- canonical EN asset; foreign server asset проверяется только в явно заданной compatibility-задаче;
 - область crop;
 - масштабирование/DPI;
 - переходный кадр;
@@ -55,7 +55,7 @@ Backends могут существенно различаться по latency, 
 - `Button` хранит область распознавания и область клика;
 - `Template` выполняет шаблонное сопоставление;
 - average/color checks дешевле полного template matching;
-- assets могут различаться по серверу и теме.
+- upstream assets могут различаться по серверу и теме, но текущий product runtime использует canonical EN assets;
 
 Не менять threshold без набора положительных и отрицательных кадров. Локальное улучшение similarity может повысить ложные совпадения в другом состоянии.
 
@@ -67,7 +67,7 @@ Backends могут существенно различаться по latency, 
 
 - уникальность check button;
 - обе стороны нужных связей;
-- варианты темы/сервера;
+- варианты темы; foreign server variants — только при явной compatibility-задаче;
 - общие popup handlers;
 - корректность результата `ui_get_current_page`;
 - отсутствие цикла, когда две страницы считаются разными, но визуально эквивалентны.
@@ -93,7 +93,7 @@ OCR-слой содержит классы разного назначения:
 - числа;
 - счётчики `current/total`;
 - длительности;
-- server/language-specific модели;
+- унаследованные server/language-specific модели; runtime routing текущего продукта остаётся EN-only;
 - возможные ONNX/NCNN/RPC backends.
 
 Перед выбором нового OCR не использовать общий класс автоматически. Найти существующий аналог с похожим шрифтом, цветом, размером и форматом результата.
@@ -119,13 +119,13 @@ crop
 - отрицательный кадр похожего экрана;
 - переходный/анимированный кадр;
 - разные значения OCR;
-- server/theme variants, если затронуты.
+- theme variants, если затронуты; foreign server fixtures нужны только при явной задаче на inherited compatibility;
 
 ## Global/EN asset и OCR contract
 
 - canonical root — `assets/en`; CN/JP/TW roots и string fallback недопустимы;
 - generator читает module list из EN и fail-closed при missing asset;
 - package detection использует exact match `com.YoStarEN.AzurLane`;
-- 18 OCR files — Global recognition либо shared detection/generic resources;
+- OCR files canonical набора — Global recognition либо shared detection/generic resources;
 - registry exposes `azur_lane`; `cnocr`, JP и TW aliases отклоняются;
 - shared `det`, English routing, RPC allowlist, recovery и privacy controls сохраняются.

@@ -13,6 +13,7 @@ AzurPilot автоматизирует Azur Lane через цикл распо�
 - `module/game_mcp/` — отдельная игровая Game MCP read/control поверхность.
 - `module/dev_mcp/` — Dev MCP для development runtime и smoke/evidence.
 - `module/mcp_shared/` — нейтральные общие компоненты authenticated MCP transport.
+- `azurpilot/` — repository-owned Python tooling: typed CLI/services, Git delivery/PR orchestration и прямые external integrations; это не gameplay layer.
 
 ### Базовый слой
 
@@ -52,11 +53,7 @@ AzurPilot автоматизирует Azur Lane через цикл распо�
 - `module/application/` — неизменяемые транспортно-нейтральные DTO, ошибки,
   порты репозиториев, сервисы и контракты Unit of Work. Пакет не зависит от
   WebUI/MCP и persistence-фреймворков.
-- `module/persistence/` — инфраструктурные PostgreSQL-адаптеры, Core metadata,
-  ленивый engine на каждый процесс и граница health-check. Production consumers
-  пока не подключены; версионируемый DDL принадлежит только `migrations/` и
-  Alembic. Подпакет `module/persistence/legacy/` является отдельным строго
-  read-only offline adapter для migration tooling и не подключён к runtime.
+- `module/persistence/` — production PostgreSQL adapters и process-local composition. Runtime consumers входят через `module.application` services/ports; composition roots лениво импортируют `module.persistence.runtime`. Версионируемый DDL принадлежит только `migrations/` и Alembic. `module/persistence/legacy/` остаётся строго read-only offline adapter для migration tooling и не подключается как runtime fallback.
 - `dev_tools/postgresql_migration.py` — единый offline entry point inspection,
   import, reconciliation и disposable rehearsal без production wiring.
 - `module/webui/` — UI-сервер, процессы и настройки.
