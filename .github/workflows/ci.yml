@@ -1,9 +1,9 @@
 name: CI
 
 on:
-  pull_request:
-    branches:
-      - personal/stable
+  # Pull-request CI запускается независимо от target branch, чтобы каждая
+  # промежуточная PR-ветка получила exact-head проверки до интеграции.
+  pull_request: {}
   push:
     branches:
       - personal/stable

@@ -1,118 +1,52 @@
 ---
 name: azurpilot-repository-development
-description: "Feature, bugfix, refactor, infrastructure, CI/test, documentation, upstream adaptation, подготовка PR, продолжение ветки/PR и явная команда merge/cleanup в AzurPilot. Веди изменение через repository workflow до draft PR и остановись перед финальным ревью; не применяй для read-only объяснения кода, перевода текста без изменения репозитория или общего вопроса без инженерного действия."
+description: "Разработка, исправление ошибок, рефакторинг, инфраструктура, CI/тесты, документация, адаптация upstream, подготовка или продолжение PR и явно разрешённый merge/cleanup в AzurPilot. Используй для изменения репозитория; не применяй для read-only объяснений и других задач без изменения файлов."
 ---
 
-# Рабочий процесс разработки AzurPilot
+# Разработка AzurPilot
 
-Применяй этот skill, когда пользователь просит изменить репозиторий AzurPilot,
-продолжить существующую ветку или PR, подготовить PR либо выполнить явно
-разрешённый merge/cleanup. Для простого объяснения кода, перевода или другой
-read-only задачи без изменения репозитория этот skill не нужен.
+Этот skill — маршрутизатор инженерной задачи. Он не является вторым владельцем
+Git lifecycle или общей матрицы проверок.
 
-Перед началом прочитай `AGENTS.md`, `.codex/context/INDEX.md` и только
-относящиеся к задаче canonical docs. При Git/PR lifecycle обязательно прочитай
-`.codex/context/GIT-WORKFLOW.md` и `.codex/context/08-VERIFICATION.md`.
-Подробности загружай по мере необходимости:
+## Что читать
 
-- [engineering-contract.md](references/engineering-contract.md) — постоянные
-  границы реализации и языка;
-- [ci-and-verification.md](references/ci-and-verification.md) — выбор gates,
-  exact-head CI и secret scan;
-- [browser-and-live-testing.md](references/browser-and-live-testing.md) —
-  Browser/Computer Use, WebUI, device и live acceptance;
-- [pr-merge-cleanup.md](references/pr-merge-cleanup.md) — draft PR, финальное
-  ревью, явное разрешение merge и cleanup.
+1. Всегда: `AGENTS.md` и `.codex/context/INDEX.md`.
+2. Только относящиеся к фактическому diff доменные документы из INDEX.
+3. При Git/ветке/PR/публикации/merge/rollback/cleanup:
+   `.codex/context/GIT-WORKFLOW.md`.
+4. Перед выбором и итоговой оценкой проверок:
+   `.codex/context/08-VERIFICATION.md`.
+5. Для GUI/WebUI/device/game acceptance при необходимости открой
+   [browser-and-live-testing.md](references/browser-and-live-testing.md).
+
+Не загружай Git workflow, verification или live-testing reference, если
+фактическая задача их не затрагивает.
 
 ## Рабочий цикл
 
-1. Выполни preflight: подтверди repository root, remotes, текущую ветку,
-   tracking/upstream, base branch/SHA и staged/unstaged/untracked состояние.
-   Пользовательские изменения не stash/drop/reset и не включай в свой diff.
-2. Для новой задачи сначала определи Git-модель по
-   `.codex/context/GIT-WORKFLOW.md`. Для обычной fork-задачи обнови
-   `origin/personal/stable` разрешённым способом и создай в текущем основном
-   checkout ветку из task contract в формате
-   `domain/<unique-capability-name>`. `codex/<legacy-capability>` — compatibility/legacy
-   namespace уже опубликованных веток, которые можно продолжать только после
-   проверки exact identity и head. Для upstream sync используй модель `sync/*`, а
-   для переноса upstream в `personal/stable` — `codex/port-upstream-*` и
-   соответствующую процедуру canonical workflow. Однозначно относящуюся к
-   задаче опубликованную ветку/PR продолжай после проверки exact head. Не
-   создавай implementation worktree или второй clone без специальной причины.
-3. Проследи call sites, тесты, конфигурацию и ближайшие архитектурные границы.
-   Не зашивай task-specific данные в production, CI или permanent tests.
-   Текущие продуктовые тесты и CI остаются stage-agnostic: они проверяют
-   поведение, а не номер этапа.
-4. Реализуй минимальный связный diff. Вместе с поведением обнови релевантные
-   tests и документацию. В каждом реально затронутом файле проверь все
-   operator-facing комментарии, логи и диагностические сообщения: человеческий
-   текст должен быть литературным русским, а идентификаторы и machine tokens —
-   сохранены по контракту.
-   Для repository evidence Codex может без отдельного вопроса пользователю
-   использовать закрытый `IntegrationRegistry` и настроенные direct
-   Context7, Docker Docs, Semgrep, Grafana и Docker Hub adapters. Это не даёт
-   разрешения менять user config, OAuth/grants, dashboards/alerts или любые
-   runtime/game state; retired MCP intermediary не является fallback. При
-   недоступной surface сохраняй fail-closed evidence.
-5. Выполни релевантные проверки от дешёвых к дорогим: static/diff audit,
-   syntax, lint, targeted tests, полный связанный набор, browser/live acceptance
-   по необходимости и фактический secret scanner перед публикацией. Для
-   Git delivery/PR обязательно проверь typed manifest/spec, exact refs,
-   allowlist, staged и committed-range Gitleaks, ordinary push/read-back и
-   provider identity. Перед остановкой фактически выполни live acceptance
-   нового CLI как в human output, так и в agent-oriented `--json` режиме.
-   Для точных правил используй указанные references и `docs/ci.md`.
-6. Проведи adversarial self-review base→head. На canonical CodeRabbit review
-   checkpoint явно делегируй sibling skill `azurpilot-coderabbit-review` и
-   используй его
-   `azur integrations coderabbit` adapter с подтверждением WSL2 runtime. CodeRabbit advisory: findings
-   независимо классифицируются, максимум три substantive iterations, `0
-   findings` немедленно завершает loop, а rate limit не вызывает wait/retry.
-   Перед committed-only checkpoint зафиксируй coherent local candidate commit
-   с exact head; до authoritative `complete` его нельзя pushить. Во время
-   активного review immutable review clone нельзя менять, commit/push,
-   branch switch и resync там запрещены; triage и подготовка uncommitted fix
-   допустимы только в основном checkout после независимой проверки.
-   Такая внутренняя делегация не требует повторного пользовательского
-   CodeRabbit-запроса.
-7. После завершения проверок создай содержательный commit, push и **только draft
-   PR**. PR body формируй из typed model во временный внешний файл через
-   `--body-file`, затем выполни provider read-back. В body укажи exact
-   repository/base/head identity, цель, scope, подсистемы, реализацию,
-   фактически выполненные проверки, security/secret result,
-   CodeRabbit findings/disposition, rollback/migration и ограничения.
-   Body обязан быть полноценным операторским отчётом, а не набором коротких
-   однострочных тезисов: для каждой секции нужны конкретные факты, маркированные
-   списки изменённых подсистем/файлов и фактически выполненных проверок.
-   Обычный описательный текст body пишется на русском языке; на английском
-   остаются только технические идентификаторы, имена API/инструментов,
-   protocol tokens, названия CI contexts и другие необходимые специальные слова.
-   Содержательность проверяется fail-closed renderer до provider call.
-   Required CI должен быть проверен на exact PR head.
-8. Нормальная конечная точка — `READY_FOR_CHATGPT_REVIEW`. Сообщи, что draft PR
-   готов к финальному ревью ChatGPT 5.6 Sol, и остановись. CI, self-review и
-   CodeRabbit не заменяют это финальное ревью.
+1. Восстанови фактическую область задачи и текущее состояние затронутых файлов.
+   Если задача продолжает существующий PR/ветку, сначала сравни live-state с
+   предыдущей подтверждённой точкой и не повторяй уже выполненную работу.
+2. Проследи владельца поведения, call sites, ближайшие тесты, конфигурацию и
+   generated/source границы. Не вводи данные конкретной задачи в production,
+   CI или постоянные tests.
+3. Реализуй минимальный связный diff. Обнови относящиеся к изменению тесты и
+   документацию. Во всех затронутых файлах с текстом для человека проверь русский язык.
+4. Для репозиторных evidence при необходимости используй существующие прямые
+   адаптеры `azurpilot.integrations`. Не меняй user config, OAuth/grants,
+   dashboards/alerts или game/runtime state только ради получения evidence.
+5. Проверки выбирай **только** по `08-VERIFICATION.md`. Этот skill не
+   поддерживает собственную копию списка обязательных gates.
+6. Если canonical workflow требует CodeRabbit review checkpoint, явно делегируй
+   sibling skill `azurpilot-coderabbit-review`. Такая внутренняя делегация не
+   требует повторного пользовательского CodeRabbit-запроса. Специфичные для
+   провайдера правила triage, retry и rate limit принадлежат этому sibling skill.
+7. Все правила commit/push/draft PR, состояния перед финальным пользовательским
+   ревью, merge authorization, rollback и cleanup бери **только** из
+   `GIT-WORKFLOW.md`. Этот skill не переопределяет их.
 
-## Границы состояний и после явной команды merge
+## Завершение
 
-До финального ChatGPT review CodeRabbit rate limit/cooldown не является product
-blocker: не жди его, зафиксируй последний exact head, выполни остальные
-доступные gates и заверши pre-merge прогон в `READY_FOR_CHATGPT_REVIEW`.
-
-После финального ChatGPT review, но до отдельной текущей команды пользователя,
-ожидай только эту команду. Rate limit не переводит lifecycle обратно в
-`READY_FOR_CHATGPT_REVIEW` и не меняет состояние `merge-authorized`. Если после
-финального review появился relevant diff, повтори затронутые gates и review и
-получи новое актуальное merge authorization.
-
-Только отдельное текущее сообщение пользователя, однозначно относящееся к этому
-PR, разрешает merge. Перед ним заново проверь PR head, required CI, blocking
-review threads, итоговый diff и secret scan; убедись, что после финального
-ChatGPT review relevant diff перепроверен. После отдельной текущей команды
-пользователя:
-выполни exact-head revalidation и разрешённый merge, post-merge verification,
-безопасный возврат основного
-checkout на `personal/stable`, удаление task branch и только принадлежащих
-задаче временных ресурсов. После успешного merge lifecycle имеет состояние
-`merged`; CodeRabbit rate limit не может вернуть его в pre-merge состояние.
+Сообщай фактический статус и evidence из документа-владельца. Не объявляй тест,
+CI, secret scan, live acceptance или внешнее ревью выполненными без реального
+результата.

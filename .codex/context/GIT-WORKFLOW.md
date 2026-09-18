@@ -1,53 +1,14 @@
-# Регламент автономной работы Codex с Git для AzurPilot Private RU
+# Регламент автономной работы с Git для AzurPilot Private RU
 
-Версия: **2.4**
-Репозиторий: `AliceLiddell01/AzurPilot-private-Ru`
+Репозиторий: `AliceLiddell01/AzurPilot-private-Ru`  
 Upstream: `wess09/AzurPilot`
-Модель ответственности: **Codex выполняет 100% технической работы до готового draft PR; пользователь выполняет финальное ревью, а merge разрешается только отдельной явной командой.**
 
-## Журнал изменений
+Этот файл — **единственный владелец** Git/branch/PR/upstream/merge/rollback/cleanup
+lifecycle. Он описывает текущее правило, а не changelog его эволюции.
 
-### 2.4
-
-- fast-track явно останавливается на pre-merge `READY_FOR_CHATGPT_REVIEW`;
-- CodeRabbit delegation из development workflow является допустимым internal
-  trigger без повторного пользовательского запроса;
-- CodeRabbit rate limit отделён от product/security retry budget и не может
-  возвращать merge-authorized или merged lifecycle в pre-merge state;
-- внешний CLI проверяется по семантическому contract, а не по mutable flag
-  spelling без canonical version pin.
-
-### 2.1
-
-- capability preflight сокращён до минимального; task-specific capabilities проверяются перед первым использованием;
-- один основной Codex выполняет implementation, adversarial self-review, security и release passes последовательно, без обязательных subagents;
-- внешнее ревью запускается на существенных milestone checkpoints: не только в конце, но и не после каждого мелкого fix;
-- rate limit/cooldown обязательного reviewer завершает текущий прогон с сохранением состояния вместо ожидания;
-- дорогие suites/gates повторяются только после существенного relevant diff или для диагностики;
-- контекст загружается по необходимости; routine tool-call narration запрещён.
-
-### 2.2
-
-- основной Windows checkout закреплён как обычная рабочая копия для последовательной разработки;
-- добавлена безопасная preflight-проверка состояния main checkout перед сменой ветки;
-- disposable clone/worktree оставлены только для обоснованной параллельной, опасной или несовместимой работы;
-- WSL2 review clone отделён от implementation checkout и используется только для независимого CodeRabbit review;
-- после публикации feature-ветки checkout остаётся на ней до финального review/merge.
-
-### 2.3
-
-- pre-merge lifecycle завершается состоянием `READY_FOR_CHATGPT_REVIEW` на draft PR;
-- финальное ревью выполняет пользователь через ChatGPT 5.6 Sol;
-- merge требует отдельной текущей явной команды пользователя, после которой Codex выполняет post-merge verification и cleanup;
-- CodeRabbit rate limit/cooldown не блокирует draft PR и не требует ожидания.
-
-### 2.0
-
-- введён полностью автономный lifecycle;
-- рабочие ветки переведены на `codex/*`;
-- закреплены CI/security/secret/review/post-merge gates;
-- PowerShell Parser, PSScriptAnalyzer и Windows smoke стали обязательными для релевантных изменений;
-- описаны merge, rollback, cleanup и fail-closed поведение.
+Модель ответственности: агент выполняет доступную техническую работу до
+готового draft PR; пользователь выполняет финальное ревью, а merge разрешается
+только отдельной текущей явной командой.
 
 ## 1. Область действия
 
@@ -83,7 +44,7 @@ Upstream: `wess09/AzurPilot`
 → короткий доказательный отчёт
 ```
 
-Codex не просит пользователя запускать команды, тесты, Git, CI, создавать PR или проверять промежуточные файлы, если это технически доступно самому Codex. Merge не является частью автоматического финала: он выполняется только после отдельной текущей команды пользователя и финального ChatGPT review.
+Codex не просит пользователя запускать команды, тесты, Git, CI, создавать PR или проверять промежуточные файлы, если это технически доступно самому Codex. Merge не является частью автоматического финала: он выполняется только после отдельной текущей команды пользователя и финального пользовательского review.
 
 **Subagents не обязательны.** По умолчанию один основной Codex выполняет все внутренние passes последовательно. Независимость обеспечивается внешним reviewer/tool, когда он предусмотрен task contract.
 
@@ -94,7 +55,7 @@ Codex не просит пользователя запускать команд
 Приоритет:
 
 1. фактический код/конфигурация целевой ветки;
-2. ближайшие executable tests и runtime behavior;
+2. ближайшие исполняемые тесты и runtime-поведение;
 3. корневой `AGENTS.md` и релевантные файлы `.codex/context/`;
 4. README/Wiki форка;
 5. upstream diff/issues/PR;
@@ -108,7 +69,7 @@ Codex не просит пользователя запускать команд
 - `POWERSHELL-GIT-RULES.md` читать только при PowerShell/Git scope;
 - не перечитывать большие документы после каждого небольшого fix;
 - не выполнять общий web/docs survey без конкретного вопроса;
-- не расширять problem surface без evidence из call graph, tests, diff или runtime behavior;
+- не расширять область проблемы без evidence из call graph, tests, diff или runtime-поведения;
 - при расхождении документации и кода сначала установить фактическое поведение.
 
 ## 4. Архитектурные границы форка
@@ -171,17 +132,16 @@ AzurPilot Private RU наследует upstream, но содержит отде
 - очистить только принадлежащие текущему прогону временные ресурсы;
 - завершить прогон как `blocked`.
 
-До финального ChatGPT review rate limit/cooldown CodeRabbit обрабатывается
-специальным правилом внешнего review: это не product blocker и не причина ждать.
-После фиксации последнего exact head продолжи остальные gates и создай/обнови
-draft PR.
+Специфичные для провайдера правила retry/rate limit внешнего review принадлежат
+соответствующему review skill. Последствие для Git lifecycle у CodeRabbit
+определён в разделе «Внешнее ревью».
 
 Не создавать инфраструктурный issue автоматически из-за одной transient-ошибки; делать это только при устойчивой проблеме или если task contract требует tracking.
 
 Перед любой сменой branch в основном checkout Codex самостоятельно подтверждает:
 
 - ожидаемый путь репозитория, `git rev-parse --show-toplevel` и `origin`;
-- current branch и tracking/upstream;
+- текущая ветка и tracking/upstream;
 - `git status`, staged, unstaged и untracked files;
 - локальные commits, отсутствующие на upstream, и ahead/behind/divergence;
 - существование целевой remote branch.
@@ -204,10 +164,10 @@ draft PR.
 6. final diff + secret scan;
 7. commit/draft PR;
 8. required checks и достаточный review;
-9. `READY_FOR_CHATGPT_REVIEW` → STOP до финального ChatGPT review и отдельной
+9. `READY_FOR_CHATGPT_REVIEW` → STOP до финального пользовательского review и отдельной
    текущей команды пользователя.
 
-Fast-track не даёт разрешения на merge. После финального ChatGPT review и
+Fast-track не даёт разрешения на merge. После финального пользовательского review и
 отдельной текущей команды пользователя запускается обычный merge gate, включая
 exact-head revalidation и короткий relevant post-merge smoke.
 
@@ -346,7 +306,7 @@ Disposable clone/worktree допустим только при реальной 
 - base SHA;
 - класс задачи;
 - релевантный код/tests/history/context;
-- затронутые boundaries;
+- затронутые границы;
 - risks/checks/rollback.
 
 ### План
@@ -402,7 +362,7 @@ Disposable clone/worktree допустим только при реальной 
 
 ### Security pass
 
-Для чувствительных/расширенных изменений тот же основной Codex отдельно проверяет trust boundaries, findings, validation/severity, fix verification, secrets/privacy. Внешний scanner/reviewer остаётся независимым gate, если предусмотрен проектом.
+Для чувствительных/расширенных изменений тот же основной Codex отдельно проверяет trust-границы, findings, validation/severity, проверку исправления и secrets/privacy. Внешний scanner/reviewer остаётся независимым gate, если предусмотрен проектом.
 
 ## 14. PowerShell
 
@@ -526,28 +486,39 @@ PR body, а permanent clone не удаляется в post-merge cleanup.
 
 Не запускать полный внешний review заново из-за typo/format/docs или узкой test-only правки без изменения production contract.
 
-**Rate limit/cooldown до финального ChatGPT review:** не ждать таймер и не
-polling-loop внутри активного прогона. Для CodeRabbit сохранить branch/commit/PR,
-зафиксировать последний проверенный exact head и завершить pre-merge прогон в
-состоянии `READY_FOR_CHATGPT_REVIEW`; это не product blocker. Такой rate limit не
-обходит required CI, security/secret scan, mandatory product/live acceptance или
-blocking review threads. После финального review и отдельной текущей команды
-rate limit не меняет `merge-authorized` и не переводит lifecycle обратно в
-pre-merge; после merge состояние остаётся `merged`. Новый review возможен только
-в отдельном будущем запуске после доступности reviewer.
+Если CodeRabbit skill вернул `RATE_LIMITED` до финального пользовательского
+ревью, Git lifecycle может достичь `READY_FOR_CHATGPT_REVIEW`, когда остальные
+обязательные gates выполнены; limitation и последний фактически reviewed head
+фиксируются в PR evidence. Такой результат провайдера не отменяет required CI,
+security/secret scan, mandatory product/live acceptance или blocking review
+threads. После `merge-authorized` или `merged` он сам по себе не откатывает
+lifecycle. Правила ожидания, retry и triage провайдера принадлежат CodeRabbit
+skill/reference.
 
 ### Merge
 
-Merge выполняется только после финального ревью пользователя через ChatGPT 5.6 Sol и отдельной текущей команды, однозначно относящейся к этому PR. До такой команды draft PR остаётся на `READY_FOR_CHATGPT_REVIEW`, даже если CI и CodeRabbit зелёные; после команды lifecycle проходит `merge-authorized` и exact-head revalidation. Для `personal/stable` по умолчанию используется squash merge для небольших/средних PR; merge commit — только если самостоятельная история commits важна. Rebase merge — только с отдельным обоснованием.
+Обязательная последовательность одна:
 
-Если после финального ChatGPT review изменился relevant diff, прежнее
-merge-authorized состояние недействительно: повтори затронутые gates и review и
-получи новое актуальное разрешение по этому же pre-merge контракту.
+1. пользователь завершил финальное пользовательское ревью текущего head PR;
+2. **после этого** пользователь отправил отдельное текущее сообщение, однозначно
+   разрешающее merge именно этого PR;
+3. только затем выполняются повторная проверка точного head и разрешённый merge.
 
-До финального ChatGPT review не считай CodeRabbit rate limit/cooldown product
-blocker: не жди его и не повторяй запрос в цикле. Зафиксируй последний exact
-head, выполни остальные доступные gates и передай draft PR с пометкой
-`READY_FOR_CHATGPT_REVIEW`.
+Старое разрешение, разрешение для другого PR и общая фраза вроде «доведи до
+конца» недостаточны. Зелёные CI, CodeRabbit и self-review не являются
+разрешением на merge и не заменяют ни финальное пользовательское ревью, ни
+отдельную текущую команду.
+
+До такой команды draft PR остаётся в `READY_FOR_CHATGPT_REVIEW`. После команды
+состояние переходит в `merge-authorized` и выполняется exact-head
+revalidation. Для `personal/stable` по умолчанию используется squash merge для
+небольших/средних PR; merge commit допустим, когда самостоятельная история
+коммитов важна. Rebase merge требует отдельного обоснования.
+
+Если после финального пользовательского ревью изменился относящийся к задаче
+diff, прежнее `merge-authorized` состояние недействительно: повтори
+затронутые проверки и ревью и получи новое актуальное разрешение по тому же
+pre-merge контракту.
 
 `master` синхронизируется только процедурой раздела 9.
 
@@ -593,8 +564,7 @@ git gc --prune=now
 Бюджет:
 
 - transient infrastructure: до 2 быстрых повторов, если нет explicit cooldown;
-- explicit reviewer rate limit/cooldown: 0 ожидания/polling, сохранить состояние
-  и завершить run; для CodeRabbit действует отдельное pre-merge исключение ниже;
+- retry budget внешнего reviewer определяется его специализированным skill/contract;
 - flaky test: до 2 повторов с evidence;
 - одна code root cause: до 3 fix/targeted-check циклов;
 - security finding: до 2 fix/validation циклов.
@@ -603,13 +573,8 @@ git gc --prune=now
 блокируется, полезное состояние сохраняется, временные ресурсы безопасно
 очищаются.
 
-CodeRabbit rate limit/cooldown не является product/security gate: он не блокирует
-`READY_FOR_CHATGPT_REVIEW` и сам по себе не запрещает последующий merge после
-финального ChatGPT review и отдельной текущей команды пользователя. Это
-исключение не разрешает обходить required CI, security/secret scan, mandatory
-product/live acceptance или blocking review threads. После merge rate limit не
-может вернуть lifecycle в pre-merge состояние; при новом relevant diff нужно
-повторить затронутые gates и получить новое merge authorization.
+CodeRabbit-specific lifecycle consequence определён один раз в разделе
+«Внешнее ревью»; правила retry/triage провайдера здесь не дублируются.
 
 ## 24. Post-merge и rollback
 
@@ -668,8 +633,8 @@ Capability branches, включая explicit domain-prefixed branches, долж�
 - required CI зелёный на exact head;
 - blocking review threads отсутствуют;
 - draft PR содержит актуальные scope, base SHA, gates и ограничения;
-- финальное ревью ChatGPT 5.6 Sol ожидает пользователя;
-- merge не выполнялся без отдельной текущей команды пользователя.
+- PR ожидает финального пользовательского ревью;
+- последовательность разрешения merge соответствует разделу `### Merge`.
 
 ### Post-merge completion
 
@@ -721,7 +686,7 @@ Post-merge: relevant smoke/verification или `не применимо до mer
 ```text
 проверенный commit/draft PR
 + требуемые review/CI gates
-+ передача на финальное ChatGPT review
++ передача на финальное пользовательское review
 + остановка без merge
 + короткий отчёт
 ```

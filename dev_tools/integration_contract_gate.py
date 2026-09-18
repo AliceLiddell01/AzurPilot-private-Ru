@@ -1,6 +1,6 @@
 """Проверка repository-level инвариантов прямых внешних интеграций.
 
-Gate намеренно не хранит второй снимок runtime-конфигурации. Канонические
+Проверка намеренно не хранит второй снимок runtime-конфигурации. Канонические
 семейства, vendor endpoints, immutable image refs и tool allowlists берутся
 из production integration contracts; здесь остаются только независимые
 repository policy-инварианты.
@@ -33,7 +33,7 @@ RETIRED_PROFILE_PATHS = (
     Path(".docker/azurpilot-observability-profile.json"),
 )
 
-ACTIVE_SOURCE_PATHS = (
+_ACTIVE_SOURCE_PATHS = (
     Path(".codex/config.toml"),
     Path("azurpilot/cli.py"),
     Path("azurpilot/tooling/doctor.py"),
@@ -46,8 +46,6 @@ ACTIVE_SOURCE_PATHS = (
     Path(".agents/skills/azurpilot-coderabbit-review/SKILL.md"),
     Path(".agents/skills/azurpilot-coderabbit-review/references/review-workflow.md"),
     Path(".agents/skills/azurpilot-repository-development/SKILL.md"),
-    Path(".agents/skills/azurpilot-repository-development/references/engineering-contract.md"),
-    Path(".agents/skills/azurpilot-repository-development/references/pr-merge-cleanup.md"),
     Path("plugins/azurpilot/skills/azurpilot-development/SKILL.md"),
     Path("plugins/azurpilot/skills/azurpilot-troubleshooting/SKILL.md"),
 )
@@ -80,7 +78,7 @@ def _check_registry(errors: list[str]) -> None:
 def _direct_entries(
     servers: Mapping[object, object], errors: list[str]
 ) -> dict[str, tuple[str, Mapping[object, object]]]:
-    """Сопоставить repository registrations с canonical provider families."""
+    """Сопоставить регистрации репозитория с каноническими семействами провайдеров."""
 
     result: dict[str, tuple[str, Mapping[object, object]]] = {}
     for raw_name, raw_entry in servers.items():
@@ -171,8 +169,8 @@ def _check_codex_config(root: Path, errors: list[str]) -> None:
 
         if family == "grafana":
             # Единственный repository-level safety invariant для server args:
-            # Codex route обязан запрещать mutating Grafana tools. Наличие
-            # proxied/Tempo surface определяется production adapter contract,
+            # Маршрут Codex обязан запрещать mutating Grafana tools. Наличие
+            # proxied/Tempo-поверхность определяется production adapter contract,
             # а не дублируется здесь отдельным флагом.
             if "-disable-write" not in args:
                 errors.append(
@@ -207,9 +205,9 @@ def _check_codex_config(root: Path, errors: list[str]) -> None:
 
 
 def _check_active_text(root: Path, errors: list[str]) -> None:
-    """Migration guard: активные surfaces не должны вернуть retired gateway route."""
+    """Защита миграции: активные области не должны вернуть устаревший gateway route."""
 
-    paths = list(ACTIVE_SOURCE_PATHS) + [Path("azurpilot/integrations")]
+    paths = list(_ACTIVE_SOURCE_PATHS) + [Path("azurpilot/integrations")]
     for relative in paths:
         candidates = (
             sorted((root / relative).rglob("*.py"))
@@ -227,7 +225,7 @@ def _check_active_text(root: Path, errors: list[str]) -> None:
             for marker in _LEGACY_MARKERS:
                 if marker in text:
                     errors.append(
-                        f"{_relative(root, path)}: обнаружен marker устаревшего route"
+                        f"{_relative(root, path)}: обнаружен marker устаревшего маршрута"
                     )
             if any(pattern.search(text) for pattern in _MACHINE_PATTERNS):
                 errors.append(
@@ -253,7 +251,7 @@ def _run_check(
 
 
 def check(root: Path) -> dict[str, object]:
-    """Проверить direct integration policy без live secrets и второго snapshot."""
+    """Проверить политику прямых интеграций без чтения секретов и второго снимка."""
 
     repository_root = root.resolve()
     results = (

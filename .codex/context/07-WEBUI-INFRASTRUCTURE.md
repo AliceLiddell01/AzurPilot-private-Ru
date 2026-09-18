@@ -55,7 +55,14 @@ bind-ится только на `127.0.0.1`, требует внешний OAuth
 Game MCP и Dev MCP остаются независимыми продуктами и используют нейтральные
 общие компоненты `module.mcp_shared` только для authenticated Streamable HTTP.
 WebUI не монтирует MCP transport; игровые и development endpoints запускаются
-отдельными entrypoint-ами с собственными scope и runtime boundaries.
+отдельными entrypoint-ами с собственными областями и границами runtime.
+
+Внешние developer integrations не являются ещё одним Dev/Game MCP transport.
+Текущий владелец — `azurpilot.integrations`. Точный каталог адаптеров берётся из
+`IntegrationName`/`ADAPTER_ORDER`, а не дублируется в этом документе. Критический
+путь не должен возвращаться к Docker MCP Gateway/Toolkit или generic proxy.
+Credentials и локальная машинная маршрутизация остаются вне tracked source;
+граница read-only/mutation проверяется самим adapter и integration contract gate.
 
 ## Canonical Plugin AzurPilot
 
@@ -80,7 +87,7 @@ authenticated public URL `https://<public-host>/mcp`, Caddy reverse proxy в
 Docker Compose profile `remote-ingress` и внешним OAuth/OIDC provider; Caddy
 обращается к host-side loopback backend через `host.docker.internal`, custom
 authorization server и Secure MCP Tunnel
-для этого пути не требуются. `module.dev_mcp.contract` публикует read-only boundary с
+для этого пути не требуются. `module.dev_mcp.contract` публикует read-only границу с
 версиями API/Smoke schemas, required feature flags, capability families и
 result outcomes. Runtime status/control не раскрывают serial, package, пути или
 команды и хранят bounded operation state в ignored `config/state/`; control
@@ -140,8 +147,8 @@ forward-fix, автоматический rollback на SQLite запрещён.
 - различие warning и fatal error;
 - отсутствие блокировки главного игрового цикла.
 
-Stage 3 notification handover использует существующий process-local PostgreSQL
-Engine и единственный WebUI owner. `State.init()` подключает
+Notification handover использует существующий process-local PostgreSQL
+Engine и единственный владелец WebUI. `State.init()` подключает
 `DesktopAgentNotificationRuntime` только при полной Agent configuration;
 `GET /api/notification-agent/stream` является durable profile-scoped SSE
 projection, а `POST /api/notification-agent/ack` — отдельной authenticated

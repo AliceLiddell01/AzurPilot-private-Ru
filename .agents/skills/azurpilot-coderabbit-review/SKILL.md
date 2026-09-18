@@ -99,7 +99,7 @@ independent verification разрешена только uncommitted triage-prep
 `--body-file` и делай provider read-back; body сохраняет цель, scope, exact
 identity, проверки, security, rollback и ограничения.
 
-Нормальная конечная точка до merge — `READY_FOR_CHATGPT_REVIEW`. Не называй
-GitHub status, skipped review или rate limit substantive review и не выполняй
-merge без отдельной текущей команды пользователя после финального ChatGPT
-review.
+После provider review верни точный disposition и последний фактически
+проверенный head вызывающему workflow. Не называй GitHub status, skipped review
+или rate limit substantive review. Какой Git lifecycle state допустим после
+этого, определяет только `.codex/context/GIT-WORKFLOW.md`.

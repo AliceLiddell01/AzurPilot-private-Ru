@@ -93,16 +93,18 @@ uv run -m module.config.config_updater
 - повторный запуск миграции;
 - сохранение пользовательского значения;
 - rollback при невалидном значении;
-- различия server-specific defaults.
+- унаследованные server-specific defaults только когда задача явно касается совместимости; текущий product runtime остаётся EN-only.
 
-## Global/EN product boundary
+## Продуктовая граница Global/EN
 
 - server — только `en`; package — только `com.YoStarEN.AzurLane`;
 - legacy `auto` — sentinel device detection и допустим только после exact-match Global package;
-- foreign/unknown package или server отклоняется до device/game side effects;
+- package или server другого региона/неизвестного типа отклоняется до device/game side effects;
 - runtime WebUI — `ru-RU`; `en-US.json` — только build-time key/placeholder parity;
 - `ja-JP`, `zh-CN`, `zh-MIAO`, `zh-TW` не runtime-selectable;
-- event metadata source — `en`, foreign fallback order пуст.
+- источник event metadata — `en`, порядок fallback для других регионов пуст.
+
+Унаследованные CN/JP/TW ветви конфигурации могут существовать как код совместимости upstream, но не являются поддерживаемыми вариантами продукта. Не расширять их и не добавлять runtime-матрицу других регионов без явного изменения этой продуктовой границы.
 
 ## Permanent runtime localization integrity
 
@@ -112,6 +114,6 @@ uv run -m module.config.config_updater
 - обычное English-only предложение требует явной semantic classification;
 - точные technical/machine/game значения сохраняются;
 - произвольный exception text учитывается как `DEFERRED_EXCEPTION_TEXT`, а не переводится автоматически;
-- runtime identity остаётся `ru-RU` + `en` + `com.YoStarEN.AzurLane` + `assets/en` + OCR namespace `azur_lane` без foreign fallback.
+- runtime identity остаётся `ru-RU` + `en` + `com.YoStarEN.AzurLane` + `assets/en` + OCR namespace `azur_lane` без fallback для других регионов.
 
 Это не historical baseline: guard не хранит SHA, число файлов или before-tree snapshot.
