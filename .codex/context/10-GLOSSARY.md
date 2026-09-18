@@ -13,13 +13,13 @@
 | Page | Узел графа игровых экранов |
 | state loop | screenshot → распознавание → одно действие → новый screenshot |
 | handler | Общий обработчик повторяющегося состояния/диалога |
-| server | Product runtime сейчас только Global/EN (`en`); CN/JP/TW могут встречаться лишь как inherited upstream compatibility code |
+| server | Runtime продукта сейчас только Global/EN (`en`); CN/JP/TW могут встречаться лишь как унаследованный код совместимости upstream |
 | generated file | Файл, создаваемый generator из source YAML/schema/metadata |
 | Operation Siren | Отдельный большой игровой режим («большой мир») |
 | `azur` | Repository-owned Python CLI из `azurpilot.cli` |
 | tooling | Typed service/CLI infrastructure в `azurpilot.tooling`, не gameplay layer |
 | integration | Внешняя developer capability через `azurpilot.integrations` |
-| integration adapter | Typed boundary конкретного внешнего provider без generic gateway fallback |
+| integration adapter | Типизированная граница конкретного внешнего provider без generic gateway fallback |
 | `READY_FOR_CHATGPT_REVIEW` | Draft PR прошёл доступные pre-merge gates и остановлен для финального пользовательского review |
 | `personal/stable` | Стабильная пользовательская ветка форка |
 | `master` | Чистое зеркало upstream master |
