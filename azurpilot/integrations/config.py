@@ -22,6 +22,11 @@ MAX_CONFIG_BYTES = 256 * 1024
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
 _IMAGE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,255}@sha256:[0-9a-f]{64}$")
 _ENV_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,127}$")
+_PROVIDER_CREDENTIAL_ENVIRONMENT_KEYS: dict[str, str] = {
+    "context7": "CONTEXT7_API_KEY",
+    "grafana": "GRAFANA_SERVICE_ACCOUNT_TOKEN",
+    "docker-hub": "DOCKERHUB_PAT",
+}
 
 # Это vendor defaults, а не credentials или machine identity. Image refs
 # намеренно immutable; изменять их можно только через явную конфигурацию.
@@ -34,7 +39,7 @@ DEFAULTS: dict[str, dict[str, object]] = {
     "context7": {
         "endpoint": "https://mcp.context7.com/mcp",
         "route": "direct_streamable_http",
-        "credential_env": "CONTEXT7_API_KEY",
+        "credential_env": _PROVIDER_CREDENTIAL_ENVIRONMENT_KEYS["context7"],
     },
     "docker-docs": {
         "endpoint": "https://mcp-docs.docker.com/mcp",
@@ -47,7 +52,7 @@ DEFAULTS: dict[str, dict[str, object]] = {
             "9362bcf6aa0e44e61f645b905cec03fb346a946a34a4dafecd7f3e28d3724014"
         ),
         "route": "direct_container_stdio",
-        "credential_env": "GRAFANA_SERVICE_ACCOUNT_TOKEN",
+        "credential_env": _PROVIDER_CREDENTIAL_ENVIRONMENT_KEYS["grafana"],
     },
     "docker-hub": {
         "command": "docker",
@@ -56,7 +61,7 @@ DEFAULTS: dict[str, dict[str, object]] = {
             "76454af4edfd21571d9740113104d0d9f707220453d1c8f7c9971b21848d4248"
         ),
         "route": "direct_container_stdio",
-        "credential_env": "DOCKERHUB_PAT",
+        "credential_env": _PROVIDER_CREDENTIAL_ENVIRONMENT_KEYS["docker-hub"],
         "username_env": "DOCKERHUB_USERNAME",
     },
     "coderabbit": {"route": "direct_wsl_agent"},
@@ -75,18 +80,18 @@ _REPOSITORY_FIXED_VALUES: dict[str, dict[str, str]] = {
     "semgrep": {"command": "semgrep"},
     "context7": {
         "endpoint": "https://mcp.context7.com/mcp",
-        "credential_env": "CONTEXT7_API_KEY",
+        "credential_env": _PROVIDER_CREDENTIAL_ENVIRONMENT_KEYS["context7"],
     },
     "docker-docs": {"endpoint": "https://mcp-docs.docker.com/mcp"},
     "grafana": {
         "command": "docker",
         "image": str(DEFAULTS["grafana"]["image"]),
-        "credential_env": "GRAFANA_SERVICE_ACCOUNT_TOKEN",
+        "credential_env": _PROVIDER_CREDENTIAL_ENVIRONMENT_KEYS["grafana"],
     },
     "docker-hub": {
         "command": "docker",
         "image": str(DEFAULTS["docker-hub"]["image"]),
-        "credential_env": "DOCKERHUB_PAT",
+        "credential_env": _PROVIDER_CREDENTIAL_ENVIRONMENT_KEYS["docker-hub"],
     },
 }
 
@@ -343,6 +348,7 @@ def _validate_value(name: str, key: str, value: object) -> object:
         not isinstance(value, str)
         or _ENV_NAME_RE.fullmatch(value) is None
         or value not in INTEGRATION_CREDENTIAL_ENVIRONMENT_KEYS
+        or _PROVIDER_CREDENTIAL_ENVIRONMENT_KEYS.get(name) != value
     ):
         _raise(f"Параметр {name}.credential_env имеет неверное имя переменной.")
     if key == "username_env" and (

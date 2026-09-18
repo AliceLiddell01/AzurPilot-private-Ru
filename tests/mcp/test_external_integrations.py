@@ -956,6 +956,52 @@ def test_config_rejects_unapproved_credential_reference(tmp_path: Path, monkeypa
         load_integration_config(tmp_path)
 
 
+@pytest.mark.parametrize(
+    ("provider", "credential_env"),
+    [
+        ("grafana", "GRAFANA_SERVICE_ACCOUNT_TOKEN"),
+        ("docker-hub", "DOCKERHUB_PAT"),
+        ("context7", "CONTEXT7_API_KEY"),
+    ],
+)
+def test_config_accepts_provider_specific_credential_reference(
+    provider: str, credential_env: str, tmp_path: Path, monkeypatch
+):
+    variable = {
+        "grafana": "AZURPILOT_GRAFANA_CREDENTIAL_ENV",
+        "docker-hub": "AZURPILOT_DOCKER_HUB_CREDENTIAL_ENV",
+        "context7": "AZURPILOT_CONTEXT7_CREDENTIAL_ENV",
+    }[provider]
+    monkeypatch.setenv(variable, credential_env)
+
+    config = load_integration_config(tmp_path)
+
+    assert config.provider(provider)["credential_env"] == credential_env
+
+
+@pytest.mark.parametrize(
+    ("provider", "credential_env"),
+    [
+        ("grafana", "DOCKERHUB_PAT"),
+        ("grafana", "CONTEXT7_API_KEY"),
+        ("docker-hub", "GRAFANA_SERVICE_ACCOUNT_TOKEN"),
+        ("context7", "DOCKERHUB_PAT"),
+    ],
+)
+def test_config_rejects_cross_provider_credential_reference(
+    provider: str, credential_env: str, tmp_path: Path, monkeypatch
+):
+    variable = {
+        "grafana": "AZURPILOT_GRAFANA_CREDENTIAL_ENV",
+        "docker-hub": "AZURPILOT_DOCKER_HUB_CREDENTIAL_ENV",
+        "context7": "AZURPILOT_CONTEXT7_CREDENTIAL_ENV",
+    }[provider]
+    monkeypatch.setenv(variable, credential_env)
+
+    with pytest.raises(ToolingError, match="credential_env"):
+        load_integration_config(tmp_path)
+
+
 def test_config_rejects_file_reference_as_credential_value_name(
     tmp_path: Path, monkeypatch
 ):
