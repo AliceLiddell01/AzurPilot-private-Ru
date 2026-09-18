@@ -57,6 +57,13 @@ Game MCP и Dev MCP остаются независимыми продуктам
 WebUI не монтирует MCP transport; игровые и development endpoints запускаются
 отдельными entrypoint-ами с собственными scope и runtime boundaries.
 
+Внешние developer integrations не являются ещё одним Dev/Game MCP transport.
+Текущий owner — `azurpilot.integrations`: прямые typed adapters для CodeRabbit,
+Semgrep, Grafana, Context7, Docker Docs и Docker Hub. Их critical path не должен
+возвращаться к Docker MCP Gateway/Toolkit или generic proxy. Credentials и
+machine-local routing остаются вне tracked source; read-only/mutation boundary
+проверяется самим adapter и integration contract gate.
+
 ## Canonical Plugin AzurPilot
 
 `plugins/azurpilot/` — source-controlled package, сгенерированный текущим
@@ -140,7 +147,7 @@ forward-fix, автоматический rollback на SQLite запрещён.
 - различие warning и fatal error;
 - отсутствие блокировки главного игрового цикла.
 
-Stage 3 notification handover использует существующий process-local PostgreSQL
+Notification handover использует существующий process-local PostgreSQL
 Engine и единственный WebUI owner. `State.init()` подключает
 `DesktopAgentNotificationRuntime` только при полной Agent configuration;
 `GET /api/notification-agent/stream` является durable profile-scoped SSE

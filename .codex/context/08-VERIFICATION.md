@@ -1,5 +1,9 @@
 # Проверки и Definition of Done
 
+Этот файл — canonical owner выбора проверок и Definition of Done. Проверки
+выбираются по фактическому diff и изменённой boundary; соседние context/skills
+ссылаются сюда и не должны создавать второй обязательный verification matrix.
+
 ## Нулевая проверка
 
 До изменения файлов выполнить только дешёвый минимальный preflight:
@@ -86,7 +90,7 @@
 6. Новый внешний review нужен, если после прошлого checkpoint появился существенный новый code diff, изменился контракт/архитектура/безопасность или предыдущий reviewer явно требует повторной проверки.
 7. Незначительные правки документации, тестовых ожиданий или механические fixes сами по себе не запускают полный внешний review заново.
 
-До финального ChatGPT review, если обязательный внешний reviewer упёрся в rate
+До финального пользовательского review, если обязательный внешний reviewer упёрся в rate
 limit/cooldown, **не ждать cooldown внутри активного прогона**. Для CodeRabbit
 это не product blocker: зафиксировать последний exact head, продолжить остальные
 gates и передать draft PR в состоянии `READY_FOR_CHATGPT_REVIEW` с явной пометкой
@@ -99,7 +103,7 @@ Pre-merge Definition of Done заканчивается после commit/push d
 required `Python`, `Windows`, `Security` на exact head, secret scan, self-review
 и разрешения blocking review threads. Итоговый статус —
 `READY_FOR_CHATGPT_REVIEW`: финальное ревью выполняет пользователь через
-ChatGPT 5.6 Sol, а merge не выполняется без отдельной текущей команды пользователя.
+выбранный пользователем финальный reviewer, а merge не выполняется без отдельной текущей команды пользователя.
 
 Post-merge verification и cleanup являются отдельным этапом и выполняются только
 после подтверждённого merge. Перед ним нужно повторно проверить exact head,
@@ -127,7 +131,7 @@ required CI, relevant diff и review blockers. Успешный CI или CodeRa
 - загрузка старого config;
 - migration idempotency;
 - ru-RU keys/placeholders;
-- server variants.
+- current EN runtime; inherited foreign server variants проверяются только при явной compatibility-задаче.
 
 ### Распознавание
 
@@ -135,7 +139,7 @@ required CI, relevant diff и review blockers. Успешный CI или CodeRa
 - отрицательные screenshots;
 - thresholds;
 - переходные кадры;
-- server/theme variants;
+- theme variants; foreign server fixtures — только при явной compatibility-задаче;
 - range validation OCR.
 
 Для UI-driven Formation/Fleet scanner дополнительно проверять:
@@ -244,11 +248,13 @@ CI, security/secret scan, CodeRabbit disposition, rollback/migration и
 ограничения. Короткие общие абзацы без фактов и маркированных списков не
 принимаются renderer-ом.
 
-В конце feature acceptance должны быть фактически выполнены оба интерфейса:
-человекочитаемый `azur delivery ...`/`azur pr ...` и agent-oriented invocation
-с `--json`; JSON обязан содержать ровно один закрытый result envelope. Это
-отдельное live-доказательство не заменяет required `Python`, `Windows`,
-`Security` CI на exact PR head.
+Если diff затрагивает `azur delivery`, `azur pr`, общий CLI/tooling contract или
+их publication semantics, feature acceptance включает оба интерфейса:
+человекочитаемый invocation и agent-oriented invocation с `--json`; JSON обязан
+содержать ровно один закрытый result envelope. Для несвязанного combat/OCR/
+documentation fix этот gate не запускается только из-за существования CLI.
+Такое live-доказательство не заменяет required `Python`, `Windows`, `Security`
+CI на exact PR head.
 
 ## Definition of Done
 
@@ -270,7 +276,7 @@ CI, security/secret scan, CodeRabbit disposition, rollback/migration и
 - открытые blocking review threads отсутствуют;
 - документация обновлена;
 - draft PR создан или обновлён и содержит актуальный scope, base SHA, gates и ограничения;
-- финальное ревью ChatGPT 5.6 Sol ожидает пользователя;
+- финальное ревью выбранный пользователем финальный reviewer ожидает пользователя;
 - merge не выполнялся без отдельной текущей команды пользователя;
 - ограничения перечислены;
 - от пользователя не требуется рутинных технических действий.
