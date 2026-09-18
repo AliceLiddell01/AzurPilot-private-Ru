@@ -1,63 +1,64 @@
 # Индекс контекста Codex
 
-Папка содержит короткие **долговременные** архитектурные карты и рабочие
-контракты AzurPilot Private RU. Она не является snapshot текущего PR.
+Папка содержит короткие долговременные архитектурные карты и рабочие контракты
+AzurPilot Private RU. Она не является снимком текущего PR.
 
 ## Как пользоваться
 
 1. Прочитать корневой `AGENTS.md`.
-2. Определить фактический diff/scope.
+2. Определить фактическую область изменения.
 3. Открыть только документы из таблицы, которые владеют затронутой границей.
-4. Проверить вывод по коду, tests и generated contracts целевой ветки.
-5. При расширении scope догрузить новый документ; не перечитывать всё дерево.
+4. Проверить вывод по коду, тестам и сгенерированным контрактам целевой ветки.
+5. При расширении области догрузить новый документ; не перечитывать всё дерево.
 6. Внешнюю документацию открывать только для конкретного спорного API/контракта.
 
-## Canonical owners
+## Владельцы вопросов
 
 | Файл | Владеет вопросом |
 |---|---|
-| `01-PROJECT-MAP.md` | где находится текущий owner поведения и основные слои |
-| `02-RUNTIME-ARCHITECTURE.md` | entrypoints, process/runtime composition и MCP runtime |
-| `03-CONFIG-I18N.md` | config sources/generation, migrations, RU/EN product boundary |
+| `01-PROJECT-MAP.md` | основные слои и расположение владельца поведения |
+| `02-RUNTIME-ARCHITECTURE.md` | точки входа, состав процессов и MCP runtime |
+| `03-CONFIG-I18N.md` | источники config, генерация, миграции и RU/EN-граница продукта |
 | `04-DEVICE-UI-OCR.md` | ADB, screenshot/control, Page/Button/Template/OCR |
-| `05-COMBAT-MAP-CAMPAIGN.md` | combat, map, campaign и map detection |
+| `05-COMBAT-MAP-CAMPAIGN.md` | combat, map, campaign и обнаружение карты |
 | `06-OPERATION-SIREN.md` | Operation Siren и `module/os*` |
-| `07-WEBUI-INFRASTRUCTURE.md` | WebUI, product MCP, persistence projections, notifications |
-| `08-VERIFICATION.md` | scope-derived gates, CI, review checkpoints, Definition of Done |
-| `09-SOURCES-MAINTENANCE.md` | правила качества и обновления этой папки |
+| `07-WEBUI-INFRASTRUCTURE.md` | WebUI, product MCP, persistence projections и уведомления |
+| `08-VERIFICATION.md` | общая матрица проверок, CI, review checkpoints и критерии готовности |
+| `09-SOURCES-MAINTENANCE.md` | качество и поддержка этой папки |
 | `10-GLOSSARY.md` | краткие термины |
-| `11-PYTHON-TOOLING.md` | текущие `azurpilot.tooling`, integrations, CLI/delivery boundaries |
-| `GIT-WORKFLOW.md` | Git/branch/PR/upstream/merge/rollback/cleanup lifecycle |
+| `11-PYTHON-TOOLING.md` | `azurpilot.tooling`, внешние интеграции, CLI и delivery |
+| `GIT-WORKFLOW.md` | Git, ветки, PR, upstream, merge, rollback и cleanup |
 | `POWERSHELL-GIT-RULES.md` | Git внутри `.ps1`/`.psm1` |
-| `MIGRATION-MAP.md` | историческая справка о старом AI-контексте; **не читать в обычной задаче** |
+| `MIGRATION-MAP.md` | историческая справка о старом AI-контексте; не читать в обычной задаче |
 
-Постоянный CI contract дополнительно описан в `docs/ci.md`.
+Постоянный контракт CI дополнительно описан в `docs/ci.md`.
 
 ## Разрешение конфликтов
 
-- Код/tests/generated contracts выше контекстных документов.
-- Для workflow-вопроса побеждает соответствующий canonical owner из таблицы,
-  а не более общий повтор в соседнем документе.
-- Если два canonical документа реально расходятся, не пытайся «усреднить»
-  правило: установи фактическое состояние, исправь owner и убери дубликат.
-- Более свежий PR/issue не становится permanent rule автоматически.
+- Код, тесты и сгенерированные контракты выше контекстных документов.
+- Для общего правила действует владелец из таблицы, а не более общий повтор в
+  соседнем документе.
+- Если два документа-владельца реально расходятся, установи фактическое
+  состояние, исправь правильного владельца и убери дубликат.
+- Более свежий PR/issue не становится постоянным правилом автоматически.
 
 ## Экономия контекста
 
-- `GIT-WORKFLOW.md` читать по релевантным разделам, а не целиком.
-- `POWERSHELL-GIT-RULES.md` нужен только для PowerShell/Git scope.
+- `GIT-WORKFLOW.md` читать по относящимся к задаче разделам, а не целиком.
+- `POWERSHELL-GIT-RULES.md` нужен только для PowerShell/Git-задач.
 - `11-PYTHON-TOOLING.md` нужен только для Python tooling, CLI, delivery, PR,
-  MCP status или внешних integrations.
-- Domain docs не загружаются для несвязанной documentation/Git-only задачи.
+  MCP status или внешних интеграций.
+- Доменные документы не загружаются для несвязанной documentation/Git-only
+  задачи.
 - Уже подтверждённый инвариант не перечитывается после каждого малого fix.
 
 ## Что здесь запрещено хранить
 
-- current PR/branch/head SHA и одноразовый evidence;
-- номера roadmap/stage и состояние конкретного increment/follow-up;
-- остатки исходного prompt или обсуждения выбора решения;
-- привязку обязательного reviewer к конкретной модели/версии;
-- абсолютные пользовательские paths, secrets и machine-specific config;
+- текущий PR, ветку, head SHA и одноразовое evidence;
+- номер временного этапа/дорожной карты и состояние конкретной итерации;
+- остатки исходного задания или обсуждения выбора решения;
+- обязательную привязку финального ревью к конкретной модели/версии;
+- абсолютные пользовательские пути, secrets и machine-specific config;
 - точные номера строк, размеры файлов и количество методов/tools;
 - длинные построчные обзоры существующей реализации.
 
