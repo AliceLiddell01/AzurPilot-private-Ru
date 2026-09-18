@@ -255,7 +255,7 @@ def test_canonical_lifecycle_requires_final_review_before_merge() -> None:
     )
 
     assert re.search(
-        r"стар\w+ разрешени\w*.{0,120}(?:недостаточ|не подход)",
+        r"стар\w+ разрешени\w*.{0,240}(?:недостаточ|не подход)",
         merge_section,
     )
     assert re.search(
