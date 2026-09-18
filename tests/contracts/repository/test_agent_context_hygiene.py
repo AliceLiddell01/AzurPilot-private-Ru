@@ -32,6 +32,10 @@ _TASK_RESIDUE_PATTERNS = (
         r"(?i)\b(?:исходн\w*|предыдущ\w*|этот|текущ\w*)\s+prompt\b|"
         r"\bprompt\s+(?:требовал\w*|просил\w*|задавал\w*)\b"
     ),
+    re.compile(
+        r"(?i)\b(?:in|during)\s+(?:the\s+)?(?:current|next)\s+"
+        r"(?:stage|increment|iteration|follow-up)\b"
+    ),
 )
 
 
@@ -76,6 +80,16 @@ def test_final_review_policy_is_model_neutral() -> None:
     concrete_model = re.compile(
         r"(?i)\b(?:chatgpt\s*\d|gpt[-\s]?\d|claude\s*\d|gemini\s*\d)\b"
     )
+    named_reviewer = re.compile(
+        r"(?i)\b(?:chatgpt|openai|claude|anthropic|gemini|coderabbit)\b"
+    )
+    final_review_delegation = re.compile(
+        r"(?i)(?:финаль\w*.{0,40}(?:ревью|review)).{0,80}"
+        r"(?:выполняет|проводит|делегир\w*|через).{0,60}"
+        r"(?:chatgpt|openai|claude|anthropic|gemini|coderabbit)|"
+        r"(?:chatgpt|openai|claude|anthropic|gemini|coderabbit).{0,80}"
+        r"(?:выполняет|проводит).{0,80}финаль\w*.{0,40}(?:ревью|review)"
+    )
     delegated_decision = re.compile(
         r"(?i)(?:merge|слияни\w*).{0,100}(?:разрешает|одобряет|решает).{0,80}"
         r"(?:coderabbit|reviewer|agent|ассистент|модел\w*)|"
@@ -93,6 +107,9 @@ def test_final_review_policy_is_model_neutral() -> None:
             f"{name}: ownership финального ревью должен оставаться у пользователя"
         )
         assert concrete_model.search(section) is None, name
+        for sentence in final_review_sentences:
+            if named_reviewer.search(sentence):
+                assert final_review_delegation.search(sentence) is None, name
         assert delegated_decision.search(section) is None, name
 
 

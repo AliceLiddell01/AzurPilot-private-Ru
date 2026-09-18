@@ -31,16 +31,16 @@ Git lifecycle или общей матрицы проверок.
    generated/source границы. Не вводи данные конкретной задачи в production,
    CI или постоянные tests.
 3. Реализуй минимальный связный diff. Обнови относящиеся к изменению тесты и
-   документацию. Во всех затронутых human-facing файлах проверь русский текст.
-4. Для repository evidence при необходимости используй существующие прямые
+   документацию. Во всех затронутых файлах с текстом для человека проверь русский язык.
+4. Для репозиторных evidence при необходимости используй существующие прямые
    адаптеры `azurpilot.integrations`. Не меняй user config, OAuth/grants,
    dashboards/alerts или game/runtime state только ради получения evidence.
 5. Проверки выбирай **только** по `08-VERIFICATION.md`. Этот skill не
    поддерживает собственную копию списка обязательных gates.
 6. Если canonical workflow требует CodeRabbit review checkpoint, явно делегируй
    sibling skill `azurpilot-coderabbit-review`. Такая внутренняя делегация не
-   требует повторного пользовательского CodeRabbit-запроса. Provider-specific
-   triage, retry и rate-limit semantics принадлежат этому sibling skill.
+   требует повторного пользовательского CodeRabbit-запроса. Специфичные для
+   провайдера правила triage, retry и rate limit принадлежат этому sibling skill.
 7. Все правила commit/push/draft PR, состояния перед финальным пользовательским
    ревью, merge authorization, rollback и cleanup бери **только** из
    `GIT-WORKFLOW.md`. Этот skill не переопределяет их.

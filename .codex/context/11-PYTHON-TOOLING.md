@@ -2,11 +2,11 @@
 
 ## Назначение
 
-Документ описывает **текущее** repository-owned Python tooling AzurPilot и его
+Документ описывает **текущее** Python tooling AzurPilot, принадлежащее репозиторию, и его
 устойчивые границы. Это не дорожная карта миграции и не журнал предыдущих задач.
 
 При споре сначала проверять текущий код, ближайшие тесты и сгенерированные
-контракты. Текущие PR/head SHA, локальные machine paths, состояние review-цикла
+контракты. Текущие PR/head SHA, локальные пути конкретной машины, состояние цикла ревью
 и планы будущей реализации сюда не записываются.
 
 ## 1. Текущие владельцы
@@ -14,14 +14,14 @@
 | Область | Текущий владелец | Инвариант |
 |---|---|---|
 | CLI | `azurpilot.cli` | parsing/rendering отделены от service logic; import не запускает operations |
-| Typed result model | `azurpilot.tooling.contracts` | closed Pydantic models, stable result/state/reason codes, bounded evidence |
-| Repository/process primitives | `azurpilot.tooling` | exact identity, path/process ownership, bounded operations, fail-closed ambiguity |
-| Lifecycle/build/repair/update | соответствующие services в `azurpilot.tooling` | CLI является adapter; platform-specific поведение не размножается в renderer |
-| Git delivery | `azurpilot.tooling.delivery` | typed manifest, exact refs, allowlist, journal, ordinary push/read-back |
-| Pull request publication | `azurpilot.tooling.pull_request` | typed PR spec/body, explicit provider identity, draft/read-back contract |
-| Внешние интеграции | `azurpilot.integrations` | прямые типизированные adapters, ограниченная credential/evidence граница |
-| MCP status/compatibility | tooling + существующие MCP contract gates | source state не выдаётся за effective client registration |
-| Windows compatibility/operator paths | project PowerShell scripts/modules | не удаляются без доказанной parity и caller migration |
+| Типизированная модель результата | `azurpilot.tooling.contracts` | закрытые модели Pydantic, стабильные result/state/reason codes, ограниченные evidence |
+| Примитивы репозитория/процессов | `azurpilot.tooling` | точная identity, подтверждённое владение path/process, ограниченные операции, fail-closed при неоднозначности |
+| Lifecycle/build/repair/update | соответствующие сервисы в `azurpilot.tooling` | CLI является adapter; платформенно-зависимое поведение не размножается в renderer |
+| Git delivery | `azurpilot.tooling.delivery` | типизированный manifest, exact refs, allowlist, journal, обычный push/read-back |
+| Публикация pull request | `azurpilot.tooling.pull_request` | типизированный PR spec/body, явная identity провайдера, draft/read-back contract |
+| Внешние интеграции | `azurpilot.integrations` | прямые типизированные adapters, ограниченная граница credentials/evidence |
+| MCP status/compatibility | tooling + существующие MCP contract gates | состояние source не выдаётся за фактическую регистрацию клиента |
+| Пути совместимости Windows/оператора | проектные PowerShell scripts/modules | не удаляются без доказанной эквивалентности и миграции вызывающих компонентов |
 
 Пакет `azurpilot/` является tooling/application package и не
 становится владельцем игрового поведения. `alas.py`, `gui.py`, `module/application`,
@@ -44,7 +44,7 @@ Rich/ANSI/progress не меняют JSON schema. Сервисный слой н
 
 Команда, привязанная к проекту, не угадывает repository identity по случайному cwd, если
 identity не доказана. Explicit/configured/installation provenance валидируется,
-а неоднозначность завершается typed failure.
+а неоднозначность завершается типизированной ошибкой.
 
 ## 3. Типизированные результаты и evidence
 
@@ -55,19 +55,19 @@ identity не доказана. Explicit/configured/installation provenance ва
 
 - schema закрытая; arbitrary `dict[str, Any]` не используется как публичный
   result contract;
-- details/evidence bounded по размеру;
-- raw provider payload, full logs, tokens, cookies, credential URLs и личные
+- details/evidence ограничены по размеру;
+- сырой payload провайдера, полные логи, tokens, cookies, credential URLs и личные
   paths не сериализуются;
-- success/failure/unsupported/unavailable/not-configured различаются typed
+- success/failure/unsupported/unavailable/not-configured различаются типизированными
   state/reason codes, когда operation contract требует такого различия;
 - timeout/unknown external mutation не превращается в success по предположению;
-- diagnostic/read-only command не получает скрытый mutating fallback.
+- диагностическая/read-only команда не получает скрытый mutating fallback.
 
 ## 4. Git delivery
 
 Граница delivery публикует только доказанное состояние Git.
 
-Typed manifest/spec содержит необходимую identity:
+Типизированный manifest/spec содержит необходимую identity:
 
 - repository;
 - expected branch/local head;
@@ -81,7 +81,7 @@ Typed manifest/spec содержит необходимую identity:
 - staged allowlist обязателен; `git add .` как скрытый fallback запрещён;
 - force/force-with-lease и destructive cleanup не используются;
 - push обычный и проверяется exact remote SHA;
-- unknown/timeout mutation сохраняется в external journal как неоднозначное
+- unknown/timeout mutation сохраняется во внешнем journal как неоднозначное
   состояние, recovery сначала делает read-only verification;
 - Gitleaks evidence относится к staged/committed scope, определённому operation,
   а не заменяется случайным regex search.
@@ -91,12 +91,12 @@ Git lifecycle, ветки и разрешение merge принадлежат
 
 ## 5. Публикация pull request
 
-`PullRequestService` работает через typed publication spec и renderer body.
+`PullRequestService` работает через типизированный publication spec и renderer body.
 
 PR contract:
 
 - repository/base/head задаются явно;
-- provider read-back подтверждает repository identity, refs/SHAs и draft state;
+- read-back провайдера подтверждает identity репозитория, refs/SHAs и draft state;
 - duplicate, cross-repository, wrong-head и provider-unknown состояния
   fail-closed;
 - body строится из structured model, а не shell string;
@@ -123,9 +123,9 @@ Toolkit/Gateway и generic MCP proxy не являются критически�
 - user/machine credentials приходят из разрешённой внешней конфигурации или
   environment и не попадают в tracked source;
 - status/doctor/read operations остаются bounded;
-- provider mutation разрешена только если конкретный adapter и operation contract
+- мутация через провайдера разрешена только если конкретный adapter и operation contract
   явно её поддерживают;
-- provider output нормализуется до bounded typed evidence;
+- вывод провайдера нормализуется до ограниченного типизированного evidence;
 - отсутствие внешней capability не маскируется synthetic success.
 
 ### Semgrep
@@ -136,7 +136,7 @@ Findings нормализуются, path обязан оставаться вн
 
 ### Grafana
 
-Grafana route принимается только из подтверждённой текущей topology/config.
+Маршрут Grafana принимается только из подтверждённой текущей topology/config.
 Нельзя возвращать unconditional `host.docker.internal` или угадывать endpoint.
 Tool allowlist остаётся read-only; mutating Grafana tools блокируются.
 
@@ -152,7 +152,7 @@ Tool allowlist остаётся read-only; mutating Grafana tools блокиру
 
 ### CodeRabbit
 
-CodeRabbit — advisory reviewer, не источник истины.
+CodeRabbit — консультативный reviewer, а не источник истины.
 
 Текущая граница:
 
@@ -163,15 +163,15 @@ CodeRabbit — advisory reviewer, не источник истины.
 - review clone во время active review не используется для product fixes;
 - finding triage: confirmed / partially confirmed / false positive /
   insufficient evidence;
-- bounded review cycle ограничивает substantive iterations и сохраняет typed
+- ограниченный цикл review ограничивает substantive iterations и сохраняет типизированное
   state;
 - provider rate limit/cooldown не расходует substantive iteration и не запускает
   blind retry;
-- provider text/location/title нормализуются в bounded evidence;
+- text/location/title провайдера нормализуются в ограниченное evidence;
 - machine path, username, auth/config directory и executable path не
   хардкодятся в tracked source.
 
-Подробный human workflow хранится в
+Подробный workflow для человека хранится в
 `.agents/skills/azurpilot-coderabbit-review/`, а Git lifecycle — в
 `GIT-WORKFLOW.md`.
 
@@ -191,9 +191,9 @@ MCP diagnostics должны различать:
 
 - tracked/source configuration;
 - локально наблюдаемый runtime;
-- plugin/source snapshot;
+- снимок plugin/source;
 - effective client/session registration, если для него реально есть
-  authoritative evidence.
+  достоверное evidence.
 
 Нельзя объявлять effective registration «готовой» только потому, что
 `.codex/config.toml` корректен.
@@ -220,12 +220,12 @@ invocation и bounded filesystem/Git primitives.
 владельца PowerShell или gate.
 
 Start/Stop/Update/Repair/Build и project modules могут оставаться operator/
-compatibility paths, пока callers не переведены и parity не доказана. Removal
+compatibility paths, пока вызывающие компоненты не переведены и эквивалентность не доказана. Удаление
 требует одновременно:
 
 - эквивалентного поведения success/failure/recovery;
 - exact ownership/path/process/Git evidence;
-- миграции callers/docs/shortcuts/installers;
+- миграции вызывающих компонентов/docs/shortcuts/installers;
 - актуальных tests/CI на затронутых ОС;
 - отдельного решения об удалении, а не вывода «Python уже умеет похожую команду».
 
@@ -237,7 +237,7 @@ Image-native/container hooks PostgreSQL не считаются legacy host wrap
 Tooling не должен:
 
 - печатать секреты или полные credential URLs;
-- сериализовать arbitrary provider logs в JSON evidence;
+- сериализовать произвольные логи провайдера в JSON evidence;
 - читать произвольные файлы вне validated root;
 - останавливать процесс по PID/port/name без ownership evidence;
 - выполнять generic shell/eval ради обхода typed adapter;
@@ -279,7 +279,7 @@ acceptance. Они не запускаются для несвязанного P
 - исходное пользовательское задание и историю выбора framework;
 - предлагаемую будущую структуру каталогов рядом с уже действующей;
 - текущие PR/branch/SHA/CI run;
-- буквальные пользовательские и machine paths;
+- буквальные пользовательские пути и пути конкретной машины;
 - таблицы версий, которые уже генерируются из канонического источника;
 - обещание capability, которого ещё нет в коде;
 - привязку обязательного финального ревью к конкретной модели/версии.
