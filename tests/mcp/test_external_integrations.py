@@ -794,7 +794,7 @@ def test_http_probe_uses_file_credential_value(monkeypatch, tmp_path: Path):
     assert token not in outcome.record.model_dump_json()
 
 
-def test_grafana_discovery_prefers_confirmed_compose_network_route(monkeypatch, tmp_path: Path):
+def test_grafana_discovery_prefers_confirmed_compose_network_route(monkeypatch):
     monkeypatch.setattr(
         "azurpilot.integrations.adapters._executable", lambda _command: "docker"
     )
@@ -819,7 +819,7 @@ def test_grafana_discovery_prefers_confirmed_compose_network_route(monkeypatch, 
     assert settings["network"] == "observability_default"
 
 
-def test_grafana_discovery_rejects_ambiguous_published_routes(monkeypatch, tmp_path: Path):
+def test_grafana_discovery_rejects_ambiguous_published_routes(monkeypatch):
     monkeypatch.setattr(
         "azurpilot.integrations.adapters._executable", lambda _command: "docker"
     )
@@ -1202,13 +1202,25 @@ def _install_fake_coderabbit_runtime(monkeypatch, outputs):
         def __init__(self):
             self.calls = 0
 
-        def command(self, *_args, **_kwargs):
-            self.calls += 1
-            if not outputs:
-                raise AssertionError(
-                    "Провайдер вызван чаще, чем задано подготовленных выходов."
+        def command(self, *args, **_kwargs):
+            # Предварительная проверка возможности не считается содержательным вызовом.
+            if "--agent" in args:
+                self.calls += 1
+                if not outputs:
+                    raise AssertionError(
+                        "Провайдер вызван чаще, чем задано подготовленных выходов."
+                    )
+                return outputs.pop(0)
+            if args[-1:] == ("--help",):
+                return coderabbit._WslCommandResult(
+                    0,
+                    "review findings --agent --committed --base-commit\n",
+                    "",
+                    False,
+                    False,
+                    False,
                 )
-            return outputs.pop(0)
+            raise AssertionError(f"Неожиданная команда capability: {args!r}")
 
     runtime = FakeRuntime()
     monkeypatch.setattr(
@@ -1331,6 +1343,22 @@ def test_coderabbit_review_emits_bounded_heartbeat_without_retrying_provider(
     assert runtime.calls == 1
 
 
+def test_coderabbit_rate_limit_does_not_create_synthetic_retry_time(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    runtime = _install_fake_coderabbit_runtime(
+        monkeypatch,
+        [coderabbit._WslCommandResult(1, "", "429 rate limit", False, False, False)],
+    )
+    result = coderabbit.CodeRabbitAdapter().review(
+        tmp_path / "checkout", IntegrationConfig(), base_sha="a" * 40, head_sha="b" * 40
+    )
+    assert result.record.reason_code == "CODERABBIT_RATE_LIMITED"
+    state = coderabbit.CodeRabbitAdapter()._load_review_state(tmp_path / "checkout")
+    assert state["retry_not_before"] is None
+    assert state["retry_source"] == "unknown"
+    assert runtime.calls == 1
+
+
 def test_coderabbit_rate_limit_is_temporary_and_does_not_consume_cycle_budget(
     monkeypatch, tmp_path: Path
 ):
@@ -1349,8 +1377,8 @@ def test_coderabbit_rate_limit_is_temporary_and_does_not_consume_cycle_budget(
     state = adapter._load_review_state(tmp_path / "checkout")
     assert state["substantive_iterations"] == 0
     assert state["provider_state"] == "rate_limited_waiting"
-    assert state["retry_source"] == "estimated"
-    assert state["retry_not_before"]
+    assert state["retry_source"] == "unknown"
+    assert state["retry_not_before"] is None
     cycle_reset = adapter.start_cycle(tmp_path / "checkout", config, base_sha=base_sha)
     assert cycle_reset.record.reason_code == "CODERABBIT_RATE_LIMITED"
 
@@ -1487,8 +1515,11 @@ def test_cli_renders_coderabbit_cycle_and_all_findings_in_rich_and_json():
 
     rendered = stdout.getvalue()
     assert "Цикл ревью CodeRabbit" in rendered
-    assert "Сводка замечаний CodeRabbit" in rendered
-    assert "бюджет" in rendered
+    assert "Замечание 1" in rendered
+    assert "Рекомендация CodeRabbit" in rendered
+    assert "Независимая классификация" in rendered
+    assert "Принятое решение" in rendered
+    assert "принято" in rendered
     assert "высокий" in rendered
     assert "bounded" in rendered
     payload = result.model_dump_json()
@@ -1534,11 +1565,18 @@ def test_coderabbit_rate_limit_metadata_is_bounded_and_typed():
         retry_source="provider",
     )
     assert error.retry_source == "provider"
-    estimated, source = coderabbit._estimated_retry_metadata(
-        now=coderabbit.datetime(2026, 9, 16, tzinfo=coderabbit.UTC)
+    retry_at, source = coderabbit._parse_provider_retry_metadata(
+        {"metadata": {"retry_after_seconds": 120}},
+        now=coderabbit.datetime(2026, 9, 16, tzinfo=coderabbit.UTC),
     )
-    assert estimated.endswith("+00:00")
-    assert source == "estimated"
+    assert retry_at == "2026-09-16T00:02:00+00:00"
+    assert source == "provider"
+    unknown, unknown_source = coderabbit._parse_provider_retry_metadata(
+        {"metadata": {"retry_after_seconds": 0}},
+        now=coderabbit.datetime(2026, 9, 16, tzinfo=coderabbit.UTC),
+    )
+    assert unknown is None
+    assert unknown_source == "unknown"
 
 
 def test_coderabbit_provider_retry_hint_is_preserved_without_raw_payload():

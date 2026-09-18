@@ -518,9 +518,9 @@ def _coderabbit_progress_callback(stream: TextIO):
             f"время {_elapsed_label(event.elapsed_seconds)} | {event.message}"
         )
         if console is not None:
-            console.print(Text(line))
+            console.print(Text(line), end="\r")
         else:
-            stream.write(line + "\n")
+            stream.write("\r" + line)
             stream.flush()
 
     return emit
@@ -723,40 +723,32 @@ def _render_human(
                     "false positive": "ложное срабатывание",
                     "insufficient evidence": "недостаточно данных",
                 }
-                findings_table = Table(
-                    title="Сводка замечаний CodeRabbit", expand=True
-                )
-                findings_table.add_column("№", justify="right", no_wrap=True)
-                findings_table.add_column("Уровень", no_wrap=True)
-                findings_table.add_column("Путь и строки", overflow="fold")
-                findings_table.add_column("Правило", overflow="fold")
-                findings_table.add_column("Воздействие", overflow="fold")
-                findings_table.add_column("Классификация", overflow="fold")
-                findings_table.add_column("Решение", overflow="fold")
                 for index, finding in enumerate(findings, start=1):
                     severity = str(getattr(finding, "severity", "info"))
                     disposition = str(getattr(finding, "disposition", ""))
-                    findings_table.add_row(
-                        Text(str(index)),
-                        Text(severity_labels.get(severity, severity)),
-                        Text(
-                            str(getattr(finding, "path", "не указан"))
-                            + (
-                                f":{finding.line}"
-                                if getattr(finding, "line", None)
-                                and getattr(finding, "line_end", None) == getattr(finding, "line", None)
-                                else f":{finding.line}-{finding.line_end}"
-                                if getattr(finding, "line", None)
-                                and getattr(finding, "line_end", None)
-                                else ""
-                            )
-                        ),
-                        Text(str(getattr(finding, "title", None) or "не указано")),
-                        Text(str(getattr(finding, "message", "не указано"))),
-                        Text(disposition_labels.get(disposition, disposition or "не классифицировано")),
-                        Text(str(getattr(finding, "resolution", "не указано"))),
+                    location = str(getattr(finding, "path", "не указан"))
+                    if getattr(finding, "line", None):
+                        location += (
+                            f":{finding.line}"
+                            if getattr(finding, "line_end", None) == getattr(finding, "line", None)
+                            else f":{finding.line}-{finding.line_end}"
+                        )
+                    finding_table = Table(
+                        title=f"Замечание {index}: {severity_labels.get(severity, severity)}",
+                        show_header=False,
+                        box=None,
+                        expand=True,
                     )
-                console.print(findings_table)
+                    finding_table.add_column("Поле", style="bold", no_wrap=True)
+                    finding_table.add_column("Значение", overflow="fold")
+                    finding_table.add_row("Расположение", Text(location))
+                    finding_table.add_row("Заголовок", Text(str(getattr(finding, "title", None) or "не указано")))
+                    finding_table.add_row("Воздействие", Text(str(getattr(finding, "message", "не указано"))))
+                    finding_table.add_row("Рекомендация CodeRabbit", Text(str(getattr(finding, "resolution", "не указано"))))
+                    finding_table.add_row("Независимая классификация", Text(disposition_labels.get(disposition, disposition or "не классифицировано")))
+                    accepted = "принято" if disposition in {"confirmed", "partially confirmed"} else "не принято"
+                    finding_table.add_row("Принятое решение", Text(accepted))
+                    console.print(finding_table)
             console.print(f"{'✓' if result.ok else '✗'} {result.message}")
         elif checks is not None:
             from rich.table import Table

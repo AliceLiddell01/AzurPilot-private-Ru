@@ -126,7 +126,7 @@ class CodeRabbitCycleSummary(ClosedModel):
     provider_state: str = Field(min_length=1, max_length=80)
     rate_limited_at: str | None = Field(default=None, max_length=80)
     retry_not_before: str | None = Field(default=None, max_length=80)
-    retry_source: Literal["provider", "estimated", "unknown"] = "unknown"
+    retry_source: Literal["provider", "unknown"] = "unknown"
     last_reviewed_head: str | None = Field(default=None, pattern=r"^[0-9a-f]{40,64}$")
     previous_cycles_retained: int = Field(ge=0, le=MAX_RETAINED_REVIEW_CYCLES)
     findings_count: int = Field(ge=0, le=128)

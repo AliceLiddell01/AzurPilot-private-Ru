@@ -55,18 +55,14 @@ _VERSION_OUTPUT_RE = re.compile(
 _MAX_REVIEW_BYTES = 4 * 1024 * 1024
 _MAX_REVIEW_LINES = 512
 _MAX_STATE_BYTES = 32 * 1024
-# Совместимое публичное имя. Значение теперь является бюджетом одного cycle.
-MAX_REVIEW_ITERATIONS = MAX_SUBSTANTIVE_REVIEWS_PER_CYCLE
 REVIEW_STATE_SCHEMA_VERSION = 2
-# Алиас контракта, используемый диагностикой и release-отчётами.
 CODERABBIT_STATE_SCHEMA = REVIEW_STATE_SCHEMA_VERSION
 _MAX_REVIEW_ATTEMPTS = 128
-_RATE_LIMIT_ESTIMATE_SECONDS = 60 * 60 + 60
 _RATE_LIMIT_MAX_SECONDS = 7 * 24 * 60 * 60
 _HEARTBEAT_INTERVAL_SECONDS = 15.0
 _STATE_FILE_NAME = "coderabbit-review.json"
 _CYCLE_ID_RE = re.compile(r"^(?:coderabbit-cycle|legacy-coderabbit)-[0-9a-f]{16,64}$|^not-started$")
-_RETRY_SOURCES = frozenset({"provider", "estimated", "unknown"})
+_RETRY_SOURCES = frozenset({"provider", "unknown"})
 _RATE_LIMIT_WAITING = "rate_limited_waiting"
 _RATE_LIMIT_RETRY_ALLOWED = "rate_limited_retry_allowed"
 _DEFAULT_FINDING_IMPACT = "CodeRabbit finding требует независимой проверки."
@@ -307,18 +303,6 @@ def _parse_provider_retry_metadata(
                 retry_at = current + timedelta(seconds=seconds)
                 return retry_at.isoformat(timespec="seconds"), "provider"
     return None, "unknown"
-
-
-def _estimated_retry_metadata(*, now: datetime | None = None) -> tuple[str, str]:
-    """Вернуть явно помеченную conservative local estimate.
-
-    Это не утверждение о provider refill.  Estimate используется только как
-    bounded local backoff, без фонового polling и без сброса cycle state.
-    """
-
-    current = now or datetime.now(UTC)
-    retry_at = current + timedelta(seconds=_RATE_LIMIT_ESTIMATE_SECONDS)
-    return retry_at.isoformat(timespec="seconds"), "estimated"
 
 
 def _retry_time_has_arrived(
@@ -684,8 +668,21 @@ def _enrich_provider_findings(
     if not parsed.findings or not _findings_need_provider_enrichment(parsed.findings):
         return parsed
     try:
+        help_result = runtime.command(command, "review", "--help", timeout=30)
+    except (OSError, ToolingError, ValueError):
+        # Сбой проверки возможности не доказывает её отсутствие и не запускает
+        # предположенную запасную команду.
+        return parsed
+    if help_result.timed_out or help_result.stdout_truncated or help_result.stderr_truncated:
+        return parsed
+    help_text = (help_result.stdout + "\n" + help_result.stderr).casefold()
+    if help_result.returncode != 0 or "findings" not in help_text:
+        return parsed
+    try:
         result = runtime.command(command, "review", "findings", timeout=30)
     except (OSError, ToolingError, ValueError):
+        # Возможность подтверждена, но ошибка выполнения не превращается в
+        # доказательство отсутствия возможности.
         return parsed
     if result.returncode != 0 or result.timed_out or result.stdout_truncated:
         return parsed
@@ -1940,36 +1937,6 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 ResultCode.TOOLING_VERIFICATION_UNKNOWN,
                 "Состояние CodeRabbit имеет неподдерживаемую версию схемы.",
             )
-        # В schema 1 не было retry timestamp. Если наблюдение rate limit имеет
-        # bounded timestamp, один раз выводим явно помеченную local estimate;
-        # она никогда не считается authoritative reset time provider.
-        if (
-            str(payload.get("current_cycle_id", "")).startswith("legacy-coderabbit-")
-            and payload.get("provider_state") == _RATE_LIMIT_WAITING
-            and payload.get("retry_not_before") is None
-            and payload.get("retry_source") == "unknown"
-            and isinstance(payload.get("rate_limited_at"), str)
-        ):
-            try:
-                rate_limited_at = datetime.fromisoformat(str(payload["rate_limited_at"]))
-                if rate_limited_at.tzinfo is not None:
-                    retry_at, _ = _estimated_retry_metadata(
-                        now=rate_limited_at.astimezone(UTC)
-                    )
-                    payload = dict(payload)
-                    payload["retry_not_before"] = retry_at
-                    payload["retry_source"] = "estimated"
-                    quota = payload.get("provider_quota")
-                    if isinstance(quota, dict):
-                        payload["provider_quota"] = {
-                            **quota,
-                            "retry_not_before": retry_at,
-                            "retry_source": "estimated",
-                        }
-                    self._validate_review_state(payload)
-                    self._write_state(root, payload)
-            except (TypeError, ValueError, OverflowError):
-                pass
         if payload.get("provider_state") == _RATE_LIMIT_WAITING and _retry_time_has_arrived(
             payload.get("retry_not_before")
         ):
@@ -2909,9 +2876,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
             rate_limited = any(marker in combined for marker in ("rate limit", "429", "too many requests"))
             failure_code = "CODERABBIT_RATE_LIMITED" if rate_limited else "CODERABBIT_REVIEW_FAILED"
             rate_limited_at = datetime.now(UTC).isoformat(timespec="seconds") if rate_limited else None
-            retry_not_before, retry_source = (
-                _estimated_retry_metadata() if rate_limited else (None, "unknown")
-            )
+            retry_not_before, retry_source = (None, "unknown")
             self._save_state(
                 root,
                 iterations=iterations,
@@ -2964,8 +2929,6 @@ class CodeRabbitAdapter(IntegrationAdapter):
             retry_not_before, retry_source = (
                 (error.retry_not_before, error.retry_source)
                 if error.rate_limited and error.retry_not_before
-                else _estimated_retry_metadata()
-                if error.rate_limited
                 else (None, "unknown")
             )
             self._save_state(
@@ -3106,8 +3069,11 @@ class CodeRabbitAdapter(IntegrationAdapter):
         findings = tuple(
             IntegrationFinding(
                 kind="coderabbit",
-                identifier=f.path,
+                identifier=(f.title or f.path)[:240],
                 path=f.path,
+                line=f.line,
+                line_end=f.line_end,
+                title=f.title,
                 severity=f.severity.value,
                 message=f.impact[:400],
                 reviewed_head=head_sha,
@@ -3139,7 +3105,6 @@ def _git_head(root: Path) -> str | None:
 
 __all__ = [
     "CODERABBIT_STATE_SCHEMA",
-    "MAX_REVIEW_ITERATIONS",
     "MAX_SUBSTANTIVE_REVIEWS_PER_CYCLE",
     "REVIEW_STATE_SCHEMA_VERSION",
     "CodeRabbitAdapter",
