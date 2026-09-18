@@ -270,6 +270,7 @@ def test_canonical_lifecycle_requires_final_review_before_merge() -> None:
     assert "ChatGPT 5.6 Sol" not in combined
     assert "READY_FOR_CHATGPT_REVIEW" in combined
 
+
 def test_new_capability_branch_contract_does_not_restore_codex_default() -> None:
     current_sources = (
         _REPOSITORY_ROOT / "AGENTS.md",
