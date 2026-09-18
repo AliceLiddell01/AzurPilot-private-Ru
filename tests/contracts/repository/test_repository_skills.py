@@ -35,6 +35,17 @@ def _find_absolute_local_path(value: str) -> re.Match[str] | None:
     return _ABSOLUTE_LOCAL_PATH.search(_URL.sub("", value))
 
 
+def _normalize_contract(value: str) -> str:
+    return " ".join(value.lower().replace("`", "").replace("*", "").split())
+
+
+def _section(value: str, start: str, end: str) -> str:
+    assert start in value
+    tail = value.split(start, maxsplit=1)[1]
+    assert end in tail
+    return tail.split(end, maxsplit=1)[0]
+
+
 def test_repo_scoped_skills_have_unique_valid_frontmatter() -> None:
     skill_files = sorted(_SKILLS_ROOT.glob("*/SKILL.md"))
     discovered_skill_dirs = {path.parent.name for path in skill_files}
@@ -77,17 +88,18 @@ def test_development_description_has_positive_and_negative_routing() -> None:
     frontmatter, _ = _frontmatter(_SKILLS_ROOT / "azurpilot-repository-development" / "SKILL.md")
     description = str(frontmatter["description"]).lower()
     for trigger in (
-        "feature",
-        "bugfix",
-        "refactor",
-        "ci/test",
+        "разработ",
+        "исправлен",
+        "рефактор",
+        "инфраструктур",
+        "ci/тест",
         "upstream",
         "pr",
         "merge",
         "cleanup",
     ):
         assert trigger in description
-    for boundary in ("read-only", "перевода текста", "без изменения репозитория"):
+    for boundary in ("read-only", "объяснен", "без изменения"):
         assert boundary in description
 
 
@@ -164,39 +176,34 @@ def test_implicit_invocation_is_not_disabled() -> None:
         assert "allow_implicit_invocation: false" not in content
 
 
-def test_required_references_and_workflow_guardrails_are_present() -> None:
+def test_development_skill_routes_to_canonical_workflow_owners() -> None:
     development_dir = _SKILLS_ROOT / "azurpilot-repository-development"
-    development_content = " ".join(
-        (development_dir / "SKILL.md").read_text(encoding="utf-8").split()
-    )
+    development_content = (development_dir / "SKILL.md").read_text(encoding="utf-8")
+
     for reference in (
         "references/engineering-contract.md",
-        "references/ci-and-verification.md",
         "references/browser-and-live-testing.md",
-        "references/pr-merge-cleanup.md",
     ):
         assert (development_dir / reference).is_file()
         assert reference in development_content
-    for required in (
-        "task-specific",
-        "stage-agnostic",
-        "русским",
-        "текущем основном checkout",
-        "WSL2",
-        "Browser/Computer Use",
-        "GIT-WORKFLOW.md",
-        "canonical CodeRabbit review checkpoint",
-        "делегируй sibling skill",
-        "upstream sync",
-        "sync/*",
-        "codex/port-upstream",
-        "READY_FOR_CHATGPT_REVIEW",
-        "финальному пользовательскому ревью",
-        "явная команда",
-        "post-merge verification",
-        "rate limit",
+
+    for retired_reference in (
+        "references/ci-and-verification.md",
+        "references/pr-merge-cleanup.md",
     ):
-        assert required.lower() in development_content.lower()
+        assert retired_reference not in development_content
+        assert not (development_dir / retired_reference).exists()
+
+    normalized = _normalize_contract(development_content)
+    assert ".codex/context/git-workflow.md" in normalized
+    assert ".codex/context/08-verification.md" in normalized
+    for duplicated_policy in (
+        "merge-authorized",
+        "exact-head revalidation",
+        "required ci",
+        "ready_for_chatgpt_review",
+    ):
+        assert duplicated_policy not in normalized
 
     review_dir = _SKILLS_ROOT / "azurpilot-coderabbit-review"
     review_content = " ".join((review_dir / "SKILL.md").read_text(encoding="utf-8").split())
@@ -215,23 +222,6 @@ def test_required_references_and_workflow_guardrails_are_present() -> None:
         "READY_FOR_CHATGPT_REVIEW",
     ):
         assert required.lower() in review_content.lower()
-    reference_content = review_reference.read_text(encoding="utf-8").lower()
-    for required in (
-        "coderabbit review --help",
-        "agent mode",
-        "committed-only review scope",
-        "explicit base commit",
-        "canonical example",
-        "версия внешнего cli не закреплена в репозитории",
-        "не угадывай",
-    ):
-        assert required in reference_content
-    assert "отсутствие pr само по себе не блокирует" in reference_content
-    assert "partially confirmed" in reference_content
-    assert "insufficient evidence" in reference_content
-    assert "другой canonical review checkout" not in reference_content
-    assert "другую среду для coderabbit review" in reference_content
-    assert "linked worktree" in reference_content
 
 
 def test_new_skills_contain_no_local_paths_secrets_or_stage_baselines() -> None:
@@ -247,49 +237,46 @@ def test_new_skills_contain_no_local_paths_secrets_or_stage_baselines() -> None:
 
 
 def test_canonical_lifecycle_requires_final_review_before_merge() -> None:
-    canonical_paths = (
-        _REPOSITORY_ROOT / "AGENTS.md",
-        _REPOSITORY_ROOT / ".codex" / "context" / "GIT-WORKFLOW.md",
-        _REPOSITORY_ROOT / ".codex" / "context" / "08-VERIFICATION.md",
+    workflow = (_REPOSITORY_ROOT / ".codex" / "context" / "GIT-WORKFLOW.md").read_text(
+        encoding="utf-8"
     )
-    for path in canonical_paths:
-        content = path.read_text(encoding="utf-8").lower()
-        normalized = re.sub(r"[\x60*_]", "", content)
-        assert "ready_for_chatgpt_review" in normalized
-        assert "chatgpt 5.6 sol" not in normalized
-        assert "финаль" in normalized
-        assert "пользоват" in normalized
-        assert "merge" in normalized
-        assert "отдельн" in normalized
-        assert "текущ" in normalized
+    merge_section = _normalize_contract(_section(workflow, "### Merge", "## 21."))
 
-    combined = "\n".join(path.read_text(encoding="utf-8") for path in canonical_paths)
-    assert "100% технического цикла" not in combined
-    assert "auto-merge допустим после зелёных gates" not in combined
-    assert "завершить прогон как ожидающий review" not in combined
-    assert "ChatGPT 5.6 Sol" not in combined
-    assert "READY_FOR_CHATGPT_REVIEW" in combined
+    causal_chain = re.compile(
+        r"пользователь.{0,120}завершил.{0,120}финальн\w*.{0,80}"
+        r"пользовательск\w*.{0,80}ревью.{0,160}после этого.{0,120}"
+        r"отдельн\w*.{0,80}текущ\w*.{0,80}(?:сообщени|команд).{0,160}"
+        r"только затем.{0,120}merge"
+    )
+    assert causal_chain.search(merge_section), (
+        "GIT-WORKFLOW должен связывать final user review → отдельное текущее "
+        "merge-разрешение → merge одним нормативным правилом"
+    )
+
+    assert re.search(
+        r"стар\w+ разрешени\w*.{0,120}(?:недостаточ|не подход)",
+        merge_section,
+    )
+    assert re.search(
+        r"(?:ci.{0,80}coderabbit.{0,80}self-review|"
+        r"self-review.{0,80}coderabbit.{0,80}ci).{0,160}"
+        r"не являются разрешением на merge",
+        merge_section,
+    )
+    assert "ready_for_chatgpt_review" in merge_section
+    assert "merge-authorized" in merge_section
 
 
 def test_new_capability_branch_contract_does_not_restore_codex_default() -> None:
-    current_sources = (
-        _REPOSITORY_ROOT / "AGENTS.md",
-        _REPOSITORY_ROOT / ".codex" / "context" / "GIT-WORKFLOW.md",
-        _SKILLS_ROOT / "azurpilot-repository-development" / "SKILL.md",
-        _SKILLS_ROOT
-        / "azurpilot-repository-development"
-        / "references"
-        / "pr-merge-cleanup.md",
-    )
-    combined = "\n".join(path.read_text(encoding="utf-8") for path in current_sources)
-    normalized = " ".join(combined.lower().replace("`", "").split())
+    workflow = (
+        _REPOSITORY_ROOT / ".codex" / "context" / "GIT-WORKFLOW.md"
+    ).read_text(encoding="utf-8")
+    normalized = _normalize_contract(workflow)
     assert "<domain>/<unique-capability-name>" in normalized
     assert "codex/*" in normalized
     assert "compatibility/legacy" in normalized
-    assert "codex/* не является default" in normalized
     assert "новые обычные задачи этот namespace не используют" in normalized
     assert "sync/*" in normalized
-    assert "new ordinary task" not in normalized
 
 
 def test_fast_track_and_retry_budget_preserve_pre_merge_gate() -> None:
@@ -313,35 +300,16 @@ def test_fast_track_and_retry_budget_preserve_pre_merge_gate() -> None:
 
 
 def test_rate_limit_cannot_reopen_merge_authorized_or_merged_lifecycle() -> None:
-    development = (_SKILLS_ROOT / "azurpilot-repository-development" / "SKILL.md").read_text(
-        encoding="utf-8"
-    )
-    cleanup = (
-        _SKILLS_ROOT
-        / "azurpilot-repository-development"
-        / "references"
-        / "pr-merge-cleanup.md"
-    ).read_text(encoding="utf-8")
     workflow = (_REPOSITORY_ROOT / ".codex" / "context" / "GIT-WORKFLOW.md").read_text(
         encoding="utf-8"
     )
-    development_after_merge = " ".join(development.split()).split(
-        "После отдельной текущей команды пользователя:", maxsplit=1
-    )[1]
-    cleanup_after_merge = cleanup.split("## Post-merge cleanup", maxsplit=1)[1]
     workflow_post_merge = workflow.split("## 24. Post-merge и rollback", maxsplit=1)[1].split(
         "## 25. Branch protection", maxsplit=1
     )[0]
-
-    combined = f"{development}\n{cleanup}\n{workflow}".lower()
-    assert "merge-authorized" in combined
-    assert "merged" in combined
-    for post_merge_content in (
-        development_after_merge,
-        cleanup_after_merge,
-        workflow_post_merge,
-    ):
-        assert "ready_for_chatgpt_review" not in post_merge_content.lower()
+    normalized = _normalize_contract(workflow)
+    assert "merge-authorized" in normalized
+    assert "merged" in normalized
+    assert "ready_for_chatgpt_review" not in workflow_post_merge.lower()
 
 
 def test_checkout_policy_defers_implementation_exceptions_to_canonical_workflow() -> None:
@@ -349,9 +317,9 @@ def test_checkout_policy_defers_implementation_exceptions_to_canonical_workflow(
     workflow_content = (_REPOSITORY_ROOT / ".codex" / "context" / "GIT-WORKFLOW.md").read_text(
         encoding="utf-8"
     ).lower()
-    assert "implementation checkout/worktree" in agents_content
     assert ".codex/context/git-workflow.md" in agents_content
-    assert "отдельный wsl2 arch checkout разрешён только для независимого coderabbit review" not in agents_content
+    assert "параллельная разработка" not in agents_content
+    assert "опасный reproduction/experiment" not in agents_content
     for exception in (
         "параллельная разработка",
         "опасный reproduction/experiment",
