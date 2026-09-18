@@ -10,7 +10,19 @@ CONTEXT_ROOT = REPOSITORY_ROOT / ".codex" / "context"
 DURABLE_CONTEXT = tuple(
     path
     for path in sorted(CONTEXT_ROOT.glob("*.md"))
-    if path.name not in {"MIGRATION-MAP.md", "09-SOURCES-MAINTENANCE.md"}
+    if path.name != "MIGRATION-MAP.md"
+)
+
+# Это грубые потолки, а не снимок текущего числа строк. Они оставляют заметный
+# запас для обычного редактирования и работают вместе с семантическими тестами.
+ROOT_AGENT_BUDGET_BYTES = 24 * 1024
+DURABLE_CONTEXT_PAGE_BUDGET_BYTES = 32 * 1024
+
+_TASK_RESIDUE_PATTERNS = (
+    re.compile(r"(?i)\bstage(?:[\s_-]*\d+)\b"),
+    re.compile(r"(?i)\bincrement\b"),
+    re.compile(r"(?i)\bfollow-up\b"),
+    re.compile(r"(?i)\bprompt\b"),
 )
 
 
@@ -18,32 +30,44 @@ def _text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def test_durable_context_contains_no_task_prompt_residue() -> None:
-    forbidden = (
-        re.compile(r"(?i)\bstage[\s_-]*\d\b"),
-        re.compile(r"(?i)\bв\s+текущем\s+increment\b"),
-        re.compile(r"(?i)\bв\s+этом\s+follow-up\b"),
-        re.compile(r"(?i)\bисходн\w*\s+prompt\b"),
-    )
+def _normalized(value: str) -> str:
+    return " ".join(value.lower().replace("`", "").split())
+
+
+def _section(value: str, start: str, end: str) -> str:
+    assert start in value
+    tail = value.split(start, maxsplit=1)[1]
+    assert end in tail
+    return tail.split(end, maxsplit=1)[0]
+
+
+def test_durable_context_contains_no_task_state_residue() -> None:
     for path in DURABLE_CONTEXT:
         content = _text(path)
-        for pattern in forbidden:
-            assert pattern.search(content) is None, (path, pattern.pattern)
+        for pattern in _TASK_RESIDUE_PATTERNS:
+            assert pattern.search(content) is None, (
+                f"{path}: долговременный контекст содержит временное состояние "
+                f"задачи ({pattern.pattern})"
+            )
 
 
-def test_canonical_agent_context_is_not_pinned_to_reviewer_model() -> None:
-    paths = (
-        REPOSITORY_ROOT / "AGENTS.md",
-        CONTEXT_ROOT / "08-VERIFICATION.md",
-        CONTEXT_ROOT / "GIT-WORKFLOW.md",
-        REPOSITORY_ROOT
-        / ".agents"
-        / "skills"
-        / "azurpilot-repository-development"
-        / "SKILL.md",
+def test_final_review_policy_is_model_neutral() -> None:
+    workflow = _text(CONTEXT_ROOT / "GIT-WORKFLOW.md")
+    verification = _text(CONTEXT_ROOT / "08-VERIFICATION.md")
+    merge_section = _normalized(_section(workflow, "### Merge", "## 21."))
+    ready_section = _normalized(
+        _section(
+            verification,
+            "### Pre-merge `READY_FOR_CHATGPT_REVIEW`",
+            "### После подтверждённого merge",
+        )
     )
-    for path in paths:
-        assert "ChatGPT 5.6 Sol" not in _text(path), path
+    for name, section in (("merge", merge_section), ("ready", ready_section)):
+        assert "пользовательск" in section, name
+        assert "модел" not in section, (
+            f"{name}: нормативная область финального ревью не должна "
+            "привязывать обязательного проверяющего к модели"
+        )
 
 
 def test_project_map_matches_current_postgresql_runtime_boundary() -> None:
@@ -58,51 +82,49 @@ def test_product_context_keeps_global_en_runtime_boundary() -> None:
     glossary = _text(CONTEXT_ROOT / "10-GLOSSARY.md")
     assert "server — только" in config
     assert "com.YoStarEN.AzurLane" in config
-    assert "Product runtime сейчас только Global/EN" in glossary
+    assert "только Global/EN" in glossary
     assert "Регион игры: CN/EN/JP/TW" not in glossary
 
 
-def test_python_tooling_context_is_current_and_bounded() -> None:
+def test_python_tooling_context_uses_canonical_integration_inventory() -> None:
     tooling = _text(CONTEXT_ROOT / "11-PYTHON-TOOLING.md")
-    assert len(tooling.splitlines()) <= 360
-    for required in (
-        "azurpilot.tooling",
-        "azurpilot.integrations",
-        "IntegrationRegistry",
-        "Docker MCP Toolkit/Gateway",
-        "CodeRabbit",
-        "Semgrep",
-        "Grafana",
-        "Context7",
-        "Docker Docs",
-        "Docker Hub",
-    ):
-        assert required in tooling
-    assert "В текущем increment выполнены" not in tooling
-    assert "Не входит в этот increment" not in tooling
+    assert "IntegrationName" in tooling
+    assert "ADAPTER_ORDER" in tooling
+    assert "IntegrationRegistry" in tooling
+    assert "Docker MCP Toolkit/Gateway" in tooling
 
 
-def test_cli_live_acceptance_is_scope_derived() -> None:
+def test_cli_live_acceptance_cannot_become_global_gate() -> None:
     verification = _text(CONTEXT_ROOT / "08-VERIFICATION.md")
-    skill_ref = _text(
+    policy = _normalized(verification)
+    assert "только если diff затрагивает" in policy
+    assert "для несвязанного combat/ocr/documentation-исправления" in policy
+
+    global_gate = re.compile(
+        r"(?i)(?:cli|--json).{0,100}(?:обязател\w*|требует\w*).{0,100}"
+        r"(?:для\s+(?:любого|каждого|всех)\s+(?:pr|изменени\w*|задач\w*)|всегда)"
+    )
+    routed_sources = (
+        REPOSITORY_ROOT / "AGENTS.md",
+        CONTEXT_ROOT / "08-VERIFICATION.md",
         REPOSITORY_ROOT
         / ".agents"
         / "skills"
         / "azurpilot-repository-development"
-        / "references"
-        / "ci-and-verification.md"
+        / "SKILL.md",
     )
-    assert "Если diff затрагивает" in verification
-    assert "azur delivery" in verification and "azur pr" in verification
-    assert "Для несвязанного combat/OCR/" in verification
-    assert "Human CLI + " in skill_ref
-    assert "acceptance обязателен только когда diff затрагивает" in skill_ref
+    for routed_path in routed_sources:
+        assert global_gate.search(_text(routed_path)) is None, routed_path
 
 
-def test_root_agent_contract_stays_navigation_sized() -> None:
+def test_navigation_context_respects_coarse_byte_budgets() -> None:
     agents = _text(REPOSITORY_ROOT / "AGENTS.md")
-    assert len(agents.splitlines()) <= 220
-    assert ".codex/context/INDEX.md" in agents
-    assert ".codex/context/GIT-WORKFLOW.md" in agents
-    assert ".codex/context/08-VERIFICATION.md" in agents
-    assert ".codex/context/11-PYTHON-TOOLING.md" in agents
+    tooling = _text(CONTEXT_ROOT / "11-PYTHON-TOOLING.md")
+    assert len(agents.encode("utf-8")) <= ROOT_AGENT_BUDGET_BYTES, (
+        "AGENTS.md перестал быть короткой картой; переносите детали к владельцам "
+        "правил, а не увеличивайте budget под текущий snapshot"
+    )
+    assert len(tooling.encode("utf-8")) <= DURABLE_CONTEXT_PAGE_BUDGET_BYTES, (
+        "11-PYTHON-TOOLING.md снова разросся в inventory/roadmap; сокращайте "
+        "снимочные детали вместо увеличения budget"
+    )
