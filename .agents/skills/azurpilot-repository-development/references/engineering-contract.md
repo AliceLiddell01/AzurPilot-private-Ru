@@ -19,7 +19,7 @@ contract, уже установленная архитектурная конс�
 docs и Wiki форка, `.codex/context/`, затем upstream и внешняя документация.
 При расхождении документации с кодом сначала устанавливай фактическое поведение.
 
-## Product boundary
+## Продуктовая граница
 
 Текущий runtime форка поддерживает Global/EN: `server=en`, package
 `com.YoStarEN.AzurLane`, runtime WebUI `ru-RU`, canonical assets `assets/en`.
