@@ -19,6 +19,17 @@ contract, уже установленная архитектурная конс�
 docs и Wiki форка, `.codex/context/`, затем upstream и внешняя документация.
 При расхождении документации с кодом сначала устанавливай фактическое поведение.
 
+## Product boundary
+
+Текущий runtime форка поддерживает Global/EN: `server=en`, package
+`com.YoStarEN.AzurLane`, runtime WebUI `ru-RU`, canonical assets `assets/en`.
+Унаследованные CN/JP/TW branches и assets не являются product support и не
+расширяются без явной задачи на изменение этой границы.
+
+Repository-owned Python tooling находится в `azurpilot/`; direct external
+integrations — в `azurpilot.integrations`. Не создавай второй generic gateway
+или proxy поверх существующего typed adapter без доказанной необходимости.
+
 ## Устойчивые tests и CI
 
 Permanent CI и tests проверяют текущее продуктовое поведение. Не добавляй
@@ -49,5 +60,8 @@ WSL2 review checkout предназначен только для независ
 должен получать пользовательские secrets/config. Не смешивай product changes с
 review checkout и возвращай подтверждённые fixes в основной checkout.
 
-Не используй destructive Git-операции, не отменяй unrelated changes и не
-публикуй секреты, cookies, device identifiers, dumps или локальные конфигурации.
+В пользовательском checkout и опубликованных ветках destructive Git запрещён;
+разрешение пользователя само по себе не делает среду disposable. Исключения для
+доказанно disposable среды определяет `GIT-WORKFLOW.md`. Не отменяй unrelated
+changes и не публикуй secrets, cookies, device identifiers, dumps или локальные
+config.

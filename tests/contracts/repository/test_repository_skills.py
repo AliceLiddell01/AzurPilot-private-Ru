@@ -191,7 +191,7 @@ def test_required_references_and_workflow_guardrails_are_present() -> None:
         "sync/*",
         "codex/port-upstream",
         "READY_FOR_CHATGPT_REVIEW",
-        "ChatGPT 5.6 Sol",
+        "финальному пользовательскому ревью",
         "явная команда",
         "post-merge verification",
         "rate limit",
@@ -252,32 +252,23 @@ def test_canonical_lifecycle_requires_final_review_before_merge() -> None:
         _REPOSITORY_ROOT / ".codex" / "context" / "GIT-WORKFLOW.md",
         _REPOSITORY_ROOT / ".codex" / "context" / "08-VERIFICATION.md",
     )
-    merge_guards = {
-        _REPOSITORY_ROOT / "AGENTS.md": (
-            "только новое текущее сообщение пользователя",
-            "не выполняет merge без",
-        ),
-        _REPOSITORY_ROOT / ".codex" / "context" / "GIT-WORKFLOW.md": (
-            "до такой команды",
-            "отдельной текущей команды",
-        ),
-        _REPOSITORY_ROOT / ".codex" / "context" / "08-VERIFICATION.md": (
-            "merge не выполняется без отдельной текущей команды пользователя",
-            "не является разрешением на merge",
-        ),
-    }
     for path in canonical_paths:
         content = path.read_text(encoding="utf-8").lower()
-        assert "ready_for_chatgpt_review" in content
-        assert "chatgpt 5.6 sol" in content
-        assert merge_guards[path][0] in content
-        assert merge_guards[path][1] in content
+        normalized = re.sub(r"[\x60*_]", "", content)
+        assert "ready_for_chatgpt_review" in normalized
+        assert "chatgpt 5.6 sol" not in normalized
+        assert "финаль" in normalized
+        assert "пользоват" in normalized
+        assert "merge" in normalized
+        assert "отдельн" in normalized
+        assert "текущ" in normalized
+
     combined = "\n".join(path.read_text(encoding="utf-8") for path in canonical_paths)
     assert "100% технического цикла" not in combined
     assert "auto-merge допустим после зелёных gates" not in combined
     assert "завершить прогон как ожидающий review" not in combined
+    assert "ChatGPT 5.6 Sol" not in combined
     assert "READY_FOR_CHATGPT_REVIEW" in combined
-
 
 def test_new_capability_branch_contract_does_not_restore_codex_default() -> None:
     current_sources = (

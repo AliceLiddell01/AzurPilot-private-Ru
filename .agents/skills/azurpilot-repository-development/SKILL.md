@@ -60,8 +60,10 @@ read-only задачи без изменения репозитория этот
    по необходимости и фактический secret scanner перед публикацией. Для
    Git delivery/PR обязательно проверь typed manifest/spec, exact refs,
    allowlist, staged и committed-range Gitleaks, ordinary push/read-back и
-   provider identity. Перед остановкой фактически выполни live acceptance
-   нового CLI как в human output, так и в agent-oriented `--json` режиме.
+   provider identity. Если diff затрагивает CLI/tooling/delivery/PR capability
+   или его machine contract, фактически выполни human invocation и
+   agent-oriented `--json` acceptance. Для несвязанного domain/docs fix этот
+   gate не запускается только из-за существования CLI.
    Для точных правил используй указанные references и `docs/ci.md`.
 6. Проведи adversarial self-review base→head. На canonical CodeRabbit review
    checkpoint явно делегируй sibling skill `azurpilot-coderabbit-review` и
@@ -91,16 +93,16 @@ read-only задачи без изменения репозитория этот
    Содержательность проверяется fail-closed renderer до provider call.
    Required CI должен быть проверен на exact PR head.
 8. Нормальная конечная точка — `READY_FOR_CHATGPT_REVIEW`. Сообщи, что draft PR
-   готов к финальному ревью ChatGPT 5.6 Sol, и остановись. CI, self-review и
+   готов к финальному пользовательскому ревью, и остановись. CI, self-review и
    CodeRabbit не заменяют это финальное ревью.
 
 ## Границы состояний и после явной команды merge
 
-До финального ChatGPT review CodeRabbit rate limit/cooldown не является product
+До финального пользовательского review CodeRabbit rate limit/cooldown не является product
 blocker: не жди его, зафиксируй последний exact head, выполни остальные
 доступные gates и заверши pre-merge прогон в `READY_FOR_CHATGPT_REVIEW`.
 
-После финального ChatGPT review, но до отдельной текущей команды пользователя,
+После финального пользовательского review, но до отдельной текущей команды пользователя,
 ожидай только эту команду. Rate limit не переводит lifecycle обратно в
 `READY_FOR_CHATGPT_REVIEW` и не меняет состояние `merge-authorized`. Если после
 финального review появился relevant diff, повтори затронутые gates и review и
@@ -109,7 +111,7 @@ blocker: не жди его, зафиксируй последний exact head,
 Только отдельное текущее сообщение пользователя, однозначно относящееся к этому
 PR, разрешает merge. Перед ним заново проверь PR head, required CI, blocking
 review threads, итоговый diff и secret scan; убедись, что после финального
-ChatGPT review relevant diff перепроверен. После отдельной текущей команды
+пользовательского review relevant diff перепроверен. После отдельной текущей команды
 пользователя:
 выполни exact-head revalidation и разрешённый merge, post-merge verification,
 безопасный возврат основного

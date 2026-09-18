@@ -58,5 +58,7 @@ rollback/migration и ограничения. Не публикуй секции
 и CI contexts. Renderer отклоняет короткий body или секции без фактических
 маркированных пунктов до обращения к provider.
 
-Финальный live gate этого capability должен включать фактический human CLI
-вызов и agent CLI с `--json`; JSON выводится одним закрытым result envelope.
+Human CLI + `--json` acceptance обязателен только когда diff затрагивает
+`azur delivery`, `azur pr`, общий CLI/tooling contract или соответствующую
+publication semantics. JSON выводится одним закрытым result envelope. Для
+несвязанного domain/docs fix этот gate не становится обязательным.

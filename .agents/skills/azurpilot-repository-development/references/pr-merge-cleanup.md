@@ -22,19 +22,19 @@
    итоговый diff и secret scan;
 6. установи состояние `READY_FOR_CHATGPT_REVIEW` и остановись.
 
-Финальное ревью выполняет пользователь через ChatGPT 5.6 Sol. Ни green CI, ни
+Финальное ревью выполняет пользователь выбранным им способом. Ни green CI, ни
 self-review, ни CodeRabbit не дают разрешение на merge. Не запускай отдельное
-«финальное ревью ChatGPT» самостоятельно.
+«финальное пользовательское ревью» самостоятельно.
 
 ### Граница состояний CodeRabbit
 
-До финального ChatGPT review rate limit/cooldown CodeRabbit означает: не ждать,
+До финального пользовательского review rate limit/cooldown CodeRabbit означает: не ждать,
 сохранить последний exact head, выполнить остальные доступные gates и завершить
 pre-merge прогон в `READY_FOR_CHATGPT_REVIEW`. Это исключение не отменяет
 required CI, security/secret scan, обязательный product/live acceptance или
 blocking review threads.
 
-После финального ChatGPT review, но до отдельной текущей команды пользователя,
+После финального пользовательского review, но до отдельной текущей команды пользователя,
 нужно только ожидать эту команду. Rate limit не возвращает lifecycle в
 `READY_FOR_CHATGPT_REVIEW` и не меняет состояние `merge-authorized`.
 
@@ -52,7 +52,7 @@ Merge запрещён, пока нет отдельного текущего с
 
 Перед merge заново проверь актуальный PR head, base, required `Python`/`Windows`/
 `Security`, unresolved threads, relevant diff и secret scan. Если после
-финального ChatGPT review изменился relevant diff, повтори затронутые проверки и
+финального пользовательского review изменился relevant diff, повтори затронутые проверки и
 review. Используй только разрешённый проектом merge method.
 
 ## Post-merge cleanup
