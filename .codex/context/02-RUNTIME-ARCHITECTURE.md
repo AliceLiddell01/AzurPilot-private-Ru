@@ -83,7 +83,7 @@ Windows lifecycle пользовательской установки симме
 
 ```text
 Start-AzurPilot.ps1
-  → repository-scoped owner mutex
+  → repository-scoped mutex владельца
   → repository-scoped kernel stop event
   → project Python + gui.py
 
@@ -115,7 +115,7 @@ target identity и fingerprint критической конфигурации; 
 `gui.py --run <configured-target>`. Preflight требует уже подготовленное окружение: наличие
 pending dependency-sync marker блокирует старт, поэтому Dev Runtime сам не
 запускает `uv sync`, upgrade или repair. Готовность подтверждается не таймером,
-а связкой exact-owned root process → WebUI owner из read-only registry snapshot
+а связкой root process с подтверждённым владением → владелец WebUI из read-only registry snapshot
 → принадлежность локального listen socket → worker настроенного target → HTTP readiness.
 
 DevSession хранит repository-scoped marker и lock под `config/state/`. Marker
@@ -185,7 +185,7 @@ reconciliation и owned lifecycle; runtime reconciliation не редактир�
 source, а stale plugin/session классифицируется как `RELOAD_REQUIRED`. Source
 sets — bounded explicit mapping фактических application/persistence call graph;
 management-only MCP/Git/repository tooling из backend identity исключено.
-Permanent compatibility gate отдельно проверяет current-tree integrity и
+Постоянный compatibility gate отдельно проверяет целостность текущего дерева и
 base-to-head policy по переданному exact base SHA.
 
 Текущий development-контур предоставляет developer-only односторонний Game
@@ -241,13 +241,13 @@ reconciliation связывает их с физическим slot set-based и
 Dorm observation хранит baseline/rate/floor; complete двухэтажное отсутствие
 хранит `unknown` morale с доказанным outside-Dorm recovery, не fake baseline.
 Partial scan, замена occupant, смена формы, stale Fleet State или неоднозначный
-slot не переносят состояние. Legacy Combat path к этой persistence boundary не подключён.
+slot не переносят состояние. Legacy Combat path к этой границе persistence не подключён.
 Canonical marker и другие runtime-state JSON находятся под `config/state/`, а
 корневой `config/*.json` является только пространством кандидатов: игровым
 профилем считается безопасный regular JSON, прошедший единый structural
-classifier `module.config.profile`; произвольный report/state JSON профилем не
+classifier `module.config.profile`; произвольный JSON отчёта/состояния профилем не
 становится. Runtime state хранится только в `config/state/`.
-Локальный `.env` загружается одним persistence owner и направляет libpq к
+Локальный `.env` загружается одним владельцем persistence и направляет libpq к
 защищённым app/migrator passfiles без постоянного `PGPASSWORD`.
 
 Offline migration pipeline проходит через application-owned порты. Legacy
