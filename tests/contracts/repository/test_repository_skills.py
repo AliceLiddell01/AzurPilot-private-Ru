@@ -310,9 +310,10 @@ def test_fast_track_and_retry_budget_preserve_pre_merge_gate() -> None:
     workflow_flat = " ".join(workflow.split())
     for required in (
         "после исчерпания бюджета retry для обязательного product/security gate merge блокируется",
-        "coderabbit rate limit/cooldown не является product/security gate",
-        "не блокирует `ready_for_chatgpt_review`",
-        "не обходит required ci, security/secret scan",
+        "если coderabbit skill вернул `rate_limited`",
+        "git lifecycle может достичь `ready_for_chatgpt_review`",
+        "не отменяет required ci, security/secret scan, mandatory product/live acceptance или blocking review threads",
+        "правила ожидания, retry и triage провайдера принадлежат coderabbit skill/reference",
     ):
         assert required in workflow_flat
 
