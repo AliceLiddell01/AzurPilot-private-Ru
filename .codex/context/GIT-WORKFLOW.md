@@ -132,10 +132,9 @@ AzurPilot Private RU наследует upstream, но содержит отде
 - очистить только принадлежащие текущему прогону временные ресурсы;
 - завершить прогон как `blocked`.
 
-До финального пользовательского review rate limit/cooldown CodeRabbit обрабатывается
-специальным правилом внешнего review: это не product blocker и не причина ждать.
-После фиксации последнего exact head продолжи остальные gates и создай/обнови
-draft PR.
+Provider-specific retry/rate-limit semantics внешнего review принадлежат
+соответствующему review skill. Git lifecycle consequence для CodeRabbit
+определён в разделе «Внешнее ревью».
 
 Не создавать инфраструктурный issue автоматически из-за одной transient-ошибки; делать это только при устойчивой проблеме или если task contract требует tracking.
 
@@ -487,15 +486,14 @@ PR body, а permanent clone не удаляется в post-merge cleanup.
 
 Не запускать полный внешний review заново из-за typo/format/docs или узкой test-only правки без изменения production contract.
 
-**Rate limit/cooldown до финального пользовательского review:** не ждать таймер и не
-polling-loop внутри активного прогона. Для CodeRabbit сохранить branch/commit/PR,
-зафиксировать последний проверенный exact head и завершить pre-merge прогон в
-состоянии `READY_FOR_CHATGPT_REVIEW`; это не product blocker. Такой rate limit не
-обходит required CI, security/secret scan, mandatory product/live acceptance или
-blocking review threads. После финального review и отдельной текущей команды
-rate limit не меняет `merge-authorized` и не переводит lifecycle обратно в
-pre-merge; после merge состояние остаётся `merged`. Новый review возможен только
-в отдельном будущем запуске после доступности reviewer.
+Если CodeRabbit skill вернул `RATE_LIMITED` до финального пользовательского
+ревью, Git lifecycle может достичь `READY_FOR_CHATGPT_REVIEW`, когда остальные
+обязательные gates выполнены; limitation и последний фактически reviewed head
+фиксируются в PR evidence. Такой provider result не отменяет required CI,
+security/secret scan, mandatory product/live acceptance или blocking review
+threads. После `merge-authorized` или `merged` он сам по себе не откатывает
+lifecycle. Правила ожидания, retry и provider triage принадлежат CodeRabbit
+skill/reference.
 
 ### Merge
 
@@ -521,11 +519,6 @@ revalidation. Для `personal/stable` по умолчанию использу�
 diff, прежнее `merge-authorized` состояние недействительно: повтори
 затронутые проверки и ревью и получи новое актуальное разрешение по тому же
 pre-merge контракту.
-
-До финального пользовательского review не считай CodeRabbit rate limit/cooldown product
-blocker: не жди его и не повторяй запрос в цикле. Зафиксируй последний exact
-head, выполни остальные доступные gates и передай draft PR с пометкой
-`READY_FOR_CHATGPT_REVIEW`.
 
 `master` синхронизируется только процедурой раздела 9.
 
@@ -571,8 +564,7 @@ git gc --prune=now
 Бюджет:
 
 - transient infrastructure: до 2 быстрых повторов, если нет explicit cooldown;
-- explicit reviewer rate limit/cooldown: 0 ожидания/polling, сохранить состояние
-  и завершить run; для CodeRabbit действует отдельное pre-merge исключение ниже;
+- retry budget внешнего reviewer определяется его provider-specific skill/contract;
 - flaky test: до 2 повторов с evidence;
 - одна code root cause: до 3 fix/targeted-check циклов;
 - security finding: до 2 fix/validation циклов.
@@ -581,13 +573,8 @@ git gc --prune=now
 блокируется, полезное состояние сохраняется, временные ресурсы безопасно
 очищаются.
 
-CodeRabbit rate limit/cooldown не является product/security gate: он не блокирует
-`READY_FOR_CHATGPT_REVIEW` и сам по себе не запрещает последующий merge после
-финального пользовательского review и отдельной текущей команды пользователя. Это
-исключение не разрешает обходить required CI, security/secret scan, mandatory
-product/live acceptance или blocking review threads. После merge rate limit не
-может вернуть lifecycle в pre-merge состояние; при новом relevant diff нужно
-повторить затронутые gates и получить новое merge authorization.
+CodeRabbit-specific lifecycle consequence определён один раз в разделе
+«Внешнее ревью»; provider retry/triage policy здесь не дублируется.
 
 ## 24. Post-merge и rollback
 

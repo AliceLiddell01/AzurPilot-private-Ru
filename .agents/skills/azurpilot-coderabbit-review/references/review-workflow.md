@@ -76,6 +76,7 @@ resolution и fix head. Сохраняй exact base/head, фактические
 CodeRabbit status, security/secret result, rollback/migration и ограничения.
 После записи выполни provider read-back и сравни prepared body digest.
 
-Отсутствие PR само по себе не блокирует branch/commit review. Итоговый
-pre-merge state — `READY_FOR_CHATGPT_REVIEW`; CodeRabbit rate limit/cooldown не
-является product blocker, но и не является evidence успешного review.
+Отсутствие PR само по себе не блокирует branch/commit review. После review
+reference возвращает provider evidence и disposition; pre-merge lifecycle state
+определяет только `.codex/context/GIT-WORKFLOW.md`. Rate limit/cooldown не
+является evidence успешного review.

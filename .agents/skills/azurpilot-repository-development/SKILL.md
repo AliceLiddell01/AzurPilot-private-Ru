@@ -16,11 +16,8 @@ Git lifecycle или общей матрицы проверок.
    `.codex/context/GIT-WORKFLOW.md`.
 4. Перед выбором и итоговой оценкой проверок:
    `.codex/context/08-VERIFICATION.md`.
-5. Дополнительные skill-specific references:
-   - [engineering-contract.md](references/engineering-contract.md) — границы
-     реализации, языка и пользовательского checkout;
-   - [browser-and-live-testing.md](references/browser-and-live-testing.md) —
-     только для GUI/WebUI/device/game acceptance.
+5. Для GUI/WebUI/device/game acceptance при необходимости открой
+   [browser-and-live-testing.md](references/browser-and-live-testing.md).
 
 Не загружай Git workflow, verification или live-testing reference, если
 фактическая задача их не затрагивает.
@@ -42,9 +39,8 @@ Git lifecycle или общей матрицы проверок.
    поддерживает собственную копию списка обязательных gates.
 6. Если canonical workflow требует CodeRabbit review checkpoint, явно делегируй
    sibling skill `azurpilot-coderabbit-review`. Такая внутренняя делегация не
-   требует повторного пользовательского CodeRabbit-запроса. Каждый finding
-   независимо проверяй по фактическому коду; не применяй autofix вслепую и не
-   делай polling-loop при rate limit.
+   требует повторного пользовательского CodeRabbit-запроса. Provider-specific
+   triage, retry и rate-limit semantics принадлежат этому sibling skill.
 7. Все правила commit/push/draft PR, состояния перед финальным пользовательским
    ревью, merge authorization, rollback и cleanup бери **только** из
    `GIT-WORKFLOW.md`. Этот skill не переопределяет их.

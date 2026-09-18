@@ -26,7 +26,10 @@
 
 ## Постоянный CI
 
-Единственный постоянный pull-request workflow — `.github/workflows/ci.yml`. Он должен запускаться для каждого PR в `personal/stable` без `paths`-фильтров и публиковать три устойчивых context, которые ruleset обязан сделать required:
+Единственный постоянный pull-request workflow — `.github/workflows/ci.yml`. Он
+запускается для каждого pull request независимо от target/base branch и без
+`paths`-фильтров. Для защищённой `personal/stable` ruleset делает required три
+устойчивых context:
 
 - `Python`;
 - `Windows`;
@@ -90,20 +93,18 @@
 6. Новый внешний review нужен, если после прошлого checkpoint появился существенный новый code diff, изменился контракт/архитектура/безопасность или предыдущий reviewer явно требует повторной проверки.
 7. Незначительные правки документации, тестовых ожиданий или механические fixes сами по себе не запускают полный внешний review заново.
 
-До финального пользовательского review, если обязательный внешний reviewer упёрся в rate
-limit/cooldown, **не ждать cooldown внутри активного прогона**. Для CodeRabbit
-это не product blocker: зафиксировать последний exact head, продолжить остальные
-gates и передать draft PR в состоянии `READY_FOR_CHATGPT_REVIEW` с явной пометкой
-об ограничении. Другой внешний gate считать `blocked`, если его нельзя безопасно
-подтвердить.
+Если внешний reviewer недоступен, зафиксируй это как ограничение проверки.
+Provider-specific triage/retry/rate-limit semantics принадлежат соответствующему
+review skill; влияние результата CodeRabbit на Git lifecycle определяется только
+`GIT-WORKFLOW.md`. Остальные обязательные gates продолжают выполняться.
 
 ## Pre-merge и post-merge outcomes
 
 Pre-merge Definition of Done заканчивается после commit/push draft PR, проверки
 required `Python`, `Windows`, `Security` на exact head, secret scan, self-review
 и разрешения blocking review threads. Итоговый статус —
-`READY_FOR_CHATGPT_REVIEW`: финальное ревью выполняет пользователь через
-выбранный пользователем финальный reviewer, а merge не выполняется без отдельной текущей команды пользователя.
+`READY_FOR_CHATGPT_REVIEW`: финальное ревью выполняет пользователь, а merge не
+выполняется без отдельной текущей команды пользователя.
 
 Post-merge verification и cleanup являются отдельным этапом и выполняются только
 после подтверждённого merge. Перед ним нужно повторно проверить exact head,

@@ -114,9 +114,13 @@ target identity и fingerprint критической конфигурации; 
 Обычный runtime запускается только через project `.venv` Python и штатный
 `gui.py --run <configured-target>`. Preflight требует уже подготовленное окружение: наличие
 pending dependency-sync marker блокирует старт, поэтому Dev Runtime сам не
-запускает `uv sync`, upgrade или repair. Готовность подтверждается не таймером,
-а связкой root process с подтверждённым владением → владелец WebUI из read-only registry snapshot
-→ принадлежность локального listen socket → worker настроенного target → HTTP readiness.
+запускает `uv sync`, upgrade или repair. Готовность подтверждается не таймером.
+В standalone-режиме readiness доказывает принадлежность WebUI/worker дереву
+`session.process`, владение локальным listen socket и HTTP readiness. В
+shared WebUI-режиме текущая read-only проверка подтверждает зарегистрированного
+живого WebUI owner, worker назначенного target и свежий state snapshot с
+совпадающими `session_id` и identity worker. Связь shared WebUI owner с
+`session.process` этим путём отдельно не доказывается.
 
 DevSession хранит repository-scoped marker и lock под `config/state/`. Marker
 также сохраняет назначенный profile сессии: уже запущенный процесс и его Evidence
