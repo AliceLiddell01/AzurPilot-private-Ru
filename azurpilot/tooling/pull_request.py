@@ -143,6 +143,8 @@ class PullRequestBodyRenderer:
                 )
             if review.rate_limit:
                 lines.append(f"Ограничение rate limit: {review.rate_limit}")
+            if review.history:
+                lines.extend(("", review.history))
             if findings:
                 lines.extend(
                     (

@@ -390,11 +390,12 @@ class CodeRabbitFinding(ClosedModel):
 
 
 class CodeRabbitReview(ClosedModel):
-    """Evidence CodeRabbit, включая явный zero/rate-limit результат."""
+    """Evidence CodeRabbit, включая append-only историю итераций."""
 
     reviewed_head: str = Field(pattern=r"^[0-9a-f]{40,64}$")
     base_sha: str = Field(pattern=r"^[0-9a-f]{40,64}$")
     findings: tuple[CodeRabbitFinding, ...] = Field(max_length=128)
+    history: str | None = Field(default=None, max_length=20_000)
     rate_limit: str | None = Field(default=None, max_length=500)
 
 
