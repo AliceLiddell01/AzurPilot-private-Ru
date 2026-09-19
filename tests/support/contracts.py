@@ -16,6 +16,10 @@ DOCKER_FORBIDDEN_SOURCE_TOKENS = (
     "apt-get",
     "download.docker.com",
     "ifconfig.me",
+    "--volume",
+    ":rw",
+    "dnf install",
+    "sudo ",
 )
 
 

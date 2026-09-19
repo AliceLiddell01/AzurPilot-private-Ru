@@ -30,6 +30,4 @@ def test_project_has_no_tracked_legacy_operator_surfaces():
 def test_docker_service_has_no_host_package_install_path():
     source = (ROOT / "azurpilot" / "tooling" / "docker.py").read_text(encoding="utf-8")
     assert_source_excludes(source, DOCKER_FORBIDDEN_SOURCE_TOKENS)
-    assert "dnf install" not in source
-    assert "sudo " not in source
     assert callable(DockerDeploymentService.deploy)

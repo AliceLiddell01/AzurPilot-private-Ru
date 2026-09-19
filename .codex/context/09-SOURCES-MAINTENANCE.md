@@ -30,7 +30,6 @@
 - Git/PR/merge/rollback/cleanup — `GIT-WORKFLOW.md`.
 - Общие проверки и критерии готовности — `08-VERIFICATION.md`.
 - Python tooling и внешние интеграции — `11-PYTHON-TOOLING.md`.
-- Git-механика operator tooling — `GIT-WORKFLOW.md`.
 - Поведение доменной подсистемы — соответствующий numbered document.
 
 Соседний документ может направить к владельцу, но не должен поддерживать

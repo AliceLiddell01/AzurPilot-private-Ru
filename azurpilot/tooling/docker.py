@@ -302,7 +302,7 @@ class DockerDeploymentService:
                 "--restart",
                 "unless-stopped",
                 "--publish",
-                f"127.0.0.1:{host_port}:{host_port}",
+                f"127.0.0.1:{host_port}:{settings.webui_port}",
                 "--workdir",
                 "/app/AzurPilot",
                 image_name,

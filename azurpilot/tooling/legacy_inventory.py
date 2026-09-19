@@ -83,13 +83,12 @@ def inventory(root: Path) -> tuple[LegacySurface, ...]:
     return tuple(
         item
         for path in _tracked(root)
-        if (root / path).exists()
         if (item := classify(path)) is not None
     )
 
 
 def main() -> int:
-    root = Path(__file__).resolve().parents[1]
+    root = Path(__file__).resolve().parents[2]
     payload = {
         "schema_version": 1,
         "repository_root": "current-checkout",

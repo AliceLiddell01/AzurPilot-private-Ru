@@ -2092,6 +2092,20 @@ def test_managed_clone_snapshot_distinguishes_typed_states(
 
 
 @pytest.mark.parametrize(
+    ("code", "expected_state"),
+    [
+        ("CODERABBIT_REVIEW_CHECKOUT_ALREADY_EXISTS", IntegrationState.UNAVAILABLE),
+        ("CODERABBIT_REVIEW_CHECKOUT_READY", IntegrationState.DEGRADED),
+        ("CODERABBIT_RUNTIME_READY", IntegrationState.DEGRADED),
+    ],
+)
+def test_coderabbit_state_for_code_uses_exact_ready_suffix(
+    code: str, expected_state: IntegrationState
+):
+    assert coderabbit.CodeRabbitAdapter._state_for_code(code) is expected_state
+
+
+@pytest.mark.parametrize(
     ("runtime_kwargs", "expected_code"),
     [
         ({"status": "?? untracked.txt"}, ResultCode.TOOLING_OPERATION_CONFLICT),

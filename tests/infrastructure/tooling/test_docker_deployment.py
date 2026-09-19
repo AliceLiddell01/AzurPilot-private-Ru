@@ -62,8 +62,6 @@ def test_docker_service_contains_no_public_ip_or_implicit_installation():
     )
     assert_source_excludes(source, DOCKER_FORBIDDEN_SOURCE_TOKENS)
     assert '"rm"' in source  # замена ограничена явно названным container.
-    assert "--volume" not in source
-    assert ":rw" not in source
 
 
 def test_docker_deploy_binds_only_loopback(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
@@ -89,7 +87,7 @@ def test_docker_deploy_binds_only_loopback(monkeypatch: pytest.MonkeyPatch, tmp_
 
     assert result.ok is True
     run_call = next(call for call in runner.calls if call and call[0] == "run")
-    assert "127.0.0.1:25549:25549" in run_call
+    assert "127.0.0.1:25549:25548" in run_call
 
 
 def test_docker_deploy_cleans_container_created_before_run_timeout(

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dev_tools.legacy_tooling_inventory import classify, inventory
+from azurpilot.tooling.legacy_inventory import classify, inventory
 from tests.support.contracts import assert_no_legacy_operator_surfaces
 from tests.support.paths import REPOSITORY_ROOT
 

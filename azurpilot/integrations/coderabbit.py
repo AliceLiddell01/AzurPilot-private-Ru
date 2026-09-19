@@ -960,7 +960,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
             return IntegrationState.UNAUTHENTICATED
         if "RATE_LIMIT" in code:
             return IntegrationState.RATE_LIMITED
-        if any(marker in code for marker in ("SYNCABLE", "DETACHED_LEGACY", "READY")):
+        if code.endswith(("_SYNCABLE", "_DETACHED_LEGACY", "_READY")):
             return IntegrationState.DEGRADED
         return default
 
