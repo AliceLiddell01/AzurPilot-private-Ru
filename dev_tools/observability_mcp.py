@@ -22,6 +22,7 @@ from azurpilot.integrations.adapters import (
 )
 from azurpilot.integrations.config import load_integration_config
 from azurpilot.integrations.mcp_client import validate_tool_catalog
+from azurpilot.tooling.errors import ToolingError
 from azurpilot.tooling.process import safe_environment
 from tools.paths import REPOSITORY_ROOT
 
@@ -126,13 +127,13 @@ async def _read_only_grafana_tool_call_async(
     if tool_name in GRAFANA_BLOCKED_TOOLS or tool_name not in GRAFANA_READ_ONLY_TOOLS:
         raise ObservabilityMcpError("GRAFANA_READ_ONLY_TOOL_DENIED")
     bounded_arguments = _bounded_arguments(arguments)
-    config = load_integration_config(repository_root)
     adapter = GrafanaAdapter()
-    command = adapter.build_command(repository_root, config)
-    if command is None:
-        raise ObservabilityMcpError("GRAFANA_DIRECT_ROUTE_NOT_CONFIGURED")
-    executable, args, environment_values = command
     try:
+        config = load_integration_config(repository_root)
+        command = adapter.build_command(repository_root, config)
+        if command is None:
+            raise ObservabilityMcpError("GRAFANA_DIRECT_ROUTE_NOT_CONFIGURED")
+        executable, args, environment_values = command
         from mcp.client.session import ClientSession
         from mcp.client.stdio import StdioServerParameters, stdio_client
 
@@ -177,6 +178,8 @@ async def _read_only_grafana_tool_call_async(
             )
     except ObservabilityMcpError:
         raise
+    except (ToolingError, OSError, ValueError, TypeError) as exc:
+        raise ObservabilityMcpError("GRAFANA_DIRECT_CONFIG_INVALID") from exc
     except TimeoutError as exc:
         raise ObservabilityMcpError("GRAFANA_DIRECT_PROBE_TIMEOUT") from exc
     except Exception as exc:

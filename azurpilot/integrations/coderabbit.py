@@ -37,6 +37,7 @@ from .adapters import (
 )
 from .config import IntegrationConfig
 from .contracts import (
+    CYCLE_ID_PATTERN,
     MAX_RETAINED_REVIEW_CYCLES,
     MAX_SUBSTANTIVE_REVIEWS_PER_CYCLE,
     CodeRabbitCycleSummary,
@@ -61,7 +62,7 @@ _MAX_REVIEW_ATTEMPTS = 128
 _RATE_LIMIT_MAX_SECONDS = 7 * 24 * 60 * 60
 _HEARTBEAT_INTERVAL_SECONDS = 15.0
 _STATE_FILE_NAME = "coderabbit-review.json"
-_CYCLE_ID_RE = re.compile(r"^(?:coderabbit-cycle|legacy-coderabbit)-[0-9a-f]{16,64}$|^not-started$")
+_CYCLE_ID_RE = re.compile(CYCLE_ID_PATTERN)
 _RETRY_SOURCES = frozenset({"provider", "unknown"})
 _RATE_LIMIT_WAITING = "rate_limited_waiting"
 _RATE_LIMIT_RETRY_ALLOWED = "rate_limited_retry_allowed"
@@ -2744,8 +2745,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 "last_head": current_head,
                 "last_event_type": "cycle_start",
                 "previous_cycles": previous[-MAX_RETAINED_REVIEW_CYCLES:],
-                # Provider quota is deliberately carried independently from
-                # the fresh logical cycle budget.
+                # Квота провайдера хранится отдельно от бюджета нового логического цикла.
                 "provider_quota": quota,
                 "updated_at": now,
             }
@@ -3352,6 +3352,7 @@ def _git_head(root: Path) -> str | None:
 
 __all__ = [
     "CODERABBIT_STATE_SCHEMA",
+    "CYCLE_ID_PATTERN",
     "MAX_SUBSTANTIVE_REVIEWS_PER_CYCLE",
     "REVIEW_STATE_SCHEMA_VERSION",
     "CodeRabbitAdapter",

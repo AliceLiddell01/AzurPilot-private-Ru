@@ -36,7 +36,7 @@ def _find_absolute_local_path(value: str) -> re.Match[str] | None:
 
 
 def _normalize_contract(value: str) -> str:
-    # Убираем только markdown bold markers, но сохраняем wildcard вроде codex/*.
+    # Убираем markdown-разметку (backtick и bold), но сохраняем wildcard вроде codex/*.
     return " ".join(value.lower().replace("`", "").replace("**", "").split())
 
 
@@ -261,20 +261,32 @@ def test_canonical_lifecycle_requires_final_review_before_merge() -> None:
     assert len(items) >= 3
 
     final_review_index = next(
-        index
-        for index, item in enumerate(items)
-        if "финаль" in item and "пользоват" in item and "ревью" in item
+        (
+            index
+            for index, item in enumerate(items)
+            if "финаль" in item and "пользоват" in item and "ревью" in item
+        ),
+        None,
     )
+    assert final_review_index is not None, "В разделе Merge отсутствует финальное пользовательское ревью."
     authorization_index = next(
-        index
-        for index, item in enumerate(items)
-        if "разреш" in item and "отдельн" in item and "текущ" in item and "pr" in item
+        (
+            index
+            for index, item in enumerate(items)
+            if "разреш" in item and "отдельн" in item and "текущ" in item and "pr" in item
+        ),
+        None,
     )
+    assert authorization_index is not None, "В разделе Merge отсутствует отдельное разрешение для текущего PR."
     merge_action_index = next(
-        index
-        for index, item in enumerate(items)
-        if "merge" in item and ("провер" in item or "revalidation" in item)
+        (
+            index
+            for index, item in enumerate(items)
+            if "merge" in item and ("провер" in item or "revalidation" in item)
+        ),
+        None,
     )
+    assert merge_action_index is not None, "В разделе Merge отсутствует проверка merge/revalidation."
     assert final_review_index < authorization_index < merge_action_index
 
     assert "старое разрешение" in merge_section

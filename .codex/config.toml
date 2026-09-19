@@ -62,6 +62,7 @@ args = [
     "-transport",
     "stdio",
     "-disable-write",
+    "-disable-query",
 ]
 env_vars = ["GRAFANA_URL", "GRAFANA_SERVICE_ACCOUNT_TOKEN"]
 cwd = "."

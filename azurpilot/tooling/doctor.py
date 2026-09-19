@@ -281,7 +281,9 @@ class DoctorService:
                 summaries: list[IntegrationSummary] = []
                 for record in records:
                     status_text = record.state.value
-                    capability_status = _INTEGRATION_CAPABILITY_STATUS[record.state]
+                    capability_status = _INTEGRATION_CAPABILITY_STATUS.get(
+                        record.state, CapabilityStatus.UNKNOWN
+                    )
                     name = record.name.value
                     message = record.message
                     route = record.evidence.route

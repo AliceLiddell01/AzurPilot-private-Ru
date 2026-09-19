@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-import builtins
 import json
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -217,14 +217,7 @@ def test_human_report_mentions_direct_integrations_without_legacy_route(
 
 
 def test_missing_yaml_dependency_is_reported_without_name_error(monkeypatch, tmp_path):
-    original_import = builtins.__import__
-
-    def missing_yaml(name, *args, **kwargs):
-        if name == "yaml":
-            raise ImportError("yaml unavailable")
-        return original_import(name, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, "__import__", missing_yaml)
+    monkeypatch.setitem(sys.modules, "yaml", None)
     skill = tmp_path / "SKILL.md"
     skill.write_text("---\nname: test\ndescription: test\n---\n", encoding="utf-8")
 

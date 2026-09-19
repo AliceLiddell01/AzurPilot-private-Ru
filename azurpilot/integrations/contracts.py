@@ -16,6 +16,7 @@ from azurpilot.tooling.contracts import AnalysisScope, ClosedModel
 
 MAX_SUBSTANTIVE_REVIEWS_PER_CYCLE = 3
 MAX_RETAINED_REVIEW_CYCLES = 8
+CYCLE_ID_PATTERN = r"^(?:coderabbit-cycle|legacy-coderabbit)-[0-9a-f]{16,64}$|^not-started$"
 
 
 class IntegrationName(StrEnum):
@@ -119,7 +120,7 @@ class IntegrationFinding(ClosedModel):
 class CodeRabbitCycleSummary(ClosedModel):
     """Безопасная сводка текущего CodeRabbit review cycle."""
 
-    cycle_id: str = Field(pattern=r"^(?:coderabbit-cycle|legacy-coderabbit)-[0-9a-f]{16,64}$|^not-started$")
+    cycle_id: str = Field(pattern=CYCLE_ID_PATTERN)
     cycle_status: str = Field(min_length=1, max_length=80)
     substantive_iterations: int = Field(
         ge=0, le=MAX_SUBSTANTIVE_REVIEWS_PER_CYCLE
@@ -160,6 +161,7 @@ class IntegrationEvidenceBundle(ClosedModel):
 
 
 __all__ = [
+    "CYCLE_ID_PATTERN",
     "MAX_RETAINED_REVIEW_CYCLES",
     "MAX_SUBSTANTIVE_REVIEWS_PER_CYCLE",
     "CodeRabbitCycleSummary",

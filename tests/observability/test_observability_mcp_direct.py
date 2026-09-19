@@ -86,10 +86,14 @@ def test_argument_limit_fails_closed():
     assert len(json.dumps(exact, ensure_ascii=False).encode("utf-8")) == target.MAX_ARGUMENT_BYTES
     assert target._bounded_arguments(exact)["query"]
 
+    over_limit = {"query": "x" * (target.MAX_ARGUMENT_BYTES - prefix + 1)}
+    assert len(json.dumps(over_limit, ensure_ascii=False).encode("utf-8")) == (
+        target.MAX_ARGUMENT_BYTES + 1
+    )
     with pytest.raises(
         target.ObservabilityMcpError, match="GRAFANA_ARGUMENTS_TOO_LARGE"
     ):
-        target._bounded_arguments({"query": "x" * (target.MAX_ARGUMENT_BYTES + 1)})
+        target._bounded_arguments(over_limit)
 
 
 def test_result_payload_keeps_structured_results_shape():
