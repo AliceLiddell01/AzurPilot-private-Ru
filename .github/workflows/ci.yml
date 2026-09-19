@@ -897,6 +897,9 @@ jobs:
           }
 
           $analysisFindings = [System.Collections.Generic.List[object]]::new()
+          $processedFiles = 0
+          $totalFiles = $powerShellFiles.Count
+          $lastProgressAt = [DateTimeOffset]::UtcNow
 
           foreach ($relativePath in $powerShellFiles) {
               $scriptPath = Join-Path -Path $PWD -ChildPath $relativePath
