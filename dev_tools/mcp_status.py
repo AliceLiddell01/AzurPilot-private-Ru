@@ -441,7 +441,7 @@ async def _probe_local_stdio(
     try:
         catalog_hash = tool_catalog_sha256_from_tools(tool_items)
     except (TypeError, ValueError):
-        catalog_hash = None
+        return {"status": "unavailable", "reason_code": "LOCAL_TOOL_CATALOG_INVALID"}
     if not isinstance(contract, Mapping):
         return {"status": "unavailable", "reason_code": "LOCAL_CONTRACT_PAYLOAD_INVALID"}
     if observed_name is None:

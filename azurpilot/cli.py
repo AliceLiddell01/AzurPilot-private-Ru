@@ -756,7 +756,8 @@ def _render_human(
                     finding_table.add_row("Расположение", Text(location))
                     finding_table.add_row("Заголовок", Text(str(getattr(finding, "title", None) or "не указано")))
                     finding_table.add_row("Воздействие", Text(str(getattr(finding, "message", "не указано"))))
-                    finding_table.add_row("Рекомендация CodeRabbit", Text(str(getattr(finding, "resolution", "не указано"))))
+                    resolution = getattr(finding, "resolution", None)
+                    finding_table.add_row("Рекомендация CodeRabbit", Text(str(resolution or "не указано")))
                     finding_table.add_row("Независимая классификация", Text(disposition_labels.get(disposition, disposition or "не классифицировано")))
                     accepted = "принято" if disposition in {"confirmed", "partially confirmed"} else "не принято"
                     finding_table.add_row("Принятое решение", Text(accepted))

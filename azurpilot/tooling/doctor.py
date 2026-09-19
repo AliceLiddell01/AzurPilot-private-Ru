@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from azurpilot.integrations import IntegrationService
+from azurpilot.integrations.contracts import IntegrationState
 
 from .config import load_deploy_settings, project_adb, project_python, project_uv
 from .contracts import (
@@ -33,6 +34,18 @@ from .repository import RepositoryResolver
 
 def _check(name: str, status: CapabilityStatus, message: str) -> CapabilityCheck:
     return CapabilityCheck(name=name, status=status, message=message)
+
+
+_INTEGRATION_CAPABILITY_STATUS: dict[IntegrationState, CapabilityStatus] = {
+    IntegrationState.READY: CapabilityStatus.READY,
+    IntegrationState.NOT_CONFIGURED: CapabilityStatus.NOT_CONFIGURED,
+    IntegrationState.UNAUTHENTICATED: CapabilityStatus.UNAVAILABLE,
+    IntegrationState.UNAVAILABLE: CapabilityStatus.UNAVAILABLE,
+    IntegrationState.INCOMPATIBLE: CapabilityStatus.FAILED,
+    IntegrationState.RATE_LIMITED: CapabilityStatus.UNAVAILABLE,
+    IntegrationState.DEGRADED: CapabilityStatus.UNKNOWN,
+    IntegrationState.UNKNOWN: CapabilityStatus.UNKNOWN,
+}
 
 
 class DoctorService:
@@ -268,15 +281,7 @@ class DoctorService:
                 summaries: list[IntegrationSummary] = []
                 for record in records:
                     status_text = record.state.value
-                    capability_status = {
-                        "READY": CapabilityStatus.READY,
-                        "NOT_CONFIGURED": CapabilityStatus.NOT_CONFIGURED,
-                        "UNAUTHENTICATED": CapabilityStatus.UNAVAILABLE,
-                        "UNAVAILABLE": CapabilityStatus.UNAVAILABLE,
-                        "INCOMPATIBLE": CapabilityStatus.FAILED,
-                        "RATE_LIMITED": CapabilityStatus.UNAVAILABLE,
-                        "DEGRADED": CapabilityStatus.UNKNOWN,
-                    }.get(status_text, CapabilityStatus.UNKNOWN)
+                    capability_status = _INTEGRATION_CAPABILITY_STATUS[record.state]
                     name = record.name.value
                     message = record.message
                     route = record.evidence.route

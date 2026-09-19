@@ -761,9 +761,6 @@ def test_grafana_tempo_tools_are_read_only_and_not_mutations():
 
 
 def test_probe_records_run_adapters_concurrently(monkeypatch, tmp_path: Path):
-    import asyncio
-
-    from azurpilot.integrations.service import IntegrationRegistry
 
     started: list[IntegrationName] = []
     release = asyncio.Event()
@@ -811,7 +808,7 @@ def test_http_probe_uses_file_credential_value(monkeypatch, tmp_path: Path):
         values={
             "context7": {
                 "endpoint": "https://context7.example.test/mcp",
-                "credential_env": "GRAFANA_SERVICE_ACCOUNT_TOKEN",
+                "credential_env": "CONTEXT7_API_KEY",
                 "credential_file": str(credential_file),
             }
         }

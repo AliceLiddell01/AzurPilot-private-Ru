@@ -1609,7 +1609,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 )
             try:
                 help_result = runtime.command(runtime.coderabbit_command, "review", "--help", timeout=30)
-                help_text = (help_result.stdout + "\\n" + help_result.stderr).casefold()
+                help_text = (help_result.stdout + "\n" + help_result.stderr).casefold()
                 if help_result.returncode != 0 or help_result.timed_out or "findings" not in help_text:
                     raise ValueError("capability not advertised")
                 result = runtime.command(runtime.coderabbit_command, "review", "findings", timeout=30)

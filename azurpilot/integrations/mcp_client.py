@@ -236,12 +236,12 @@ async def probe_http(
 ) -> McpProbeResult:
     """Проверить конкретный streamable HTTP server с фиксированным read call."""
 
-    validate_endpoint(endpoint)
-    import httpx2
-    from mcp.client.session import ClientSession
-    from mcp.client.streamable_http import streamable_http_client
-
     try:
+        validate_endpoint(endpoint)
+        import httpx2
+        from mcp.client.session import ClientSession
+        from mcp.client.streamable_http import streamable_http_client
+
         async with httpx2.AsyncClient(
             headers=headers,
             timeout=timeout_seconds,

@@ -328,7 +328,7 @@ def test_rate_limit_cannot_reopen_merge_authorized_or_merged_lifecycle() -> None
     normalized = _normalize_contract(workflow)
     assert "merge-authorized" in normalized
     assert "merged" in normalized
-    assert "ready_for_chatgpt_review" not in workflow_post_merge.lower()
+    assert "ready_for_chatgpt_review" not in _normalize_contract(workflow_post_merge)
 
 
 def test_checkout_policy_defers_implementation_exceptions_to_canonical_workflow() -> None:

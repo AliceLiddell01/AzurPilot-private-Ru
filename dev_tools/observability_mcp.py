@@ -26,6 +26,7 @@ from azurpilot.tooling.process import safe_environment
 from tools.paths import REPOSITORY_ROOT
 
 MAX_RESULT_ITEMS = 128
+MAX_CATALOG_TOOLS = 256
 MAX_RESULT_TEXT = 4096
 MAX_ARGUMENT_BYTES = 64 * 1024
 GRAFANA_DIRECT_TIMEOUT_SECONDS = 45
@@ -156,7 +157,7 @@ async def _read_only_grafana_tool_call_async(
                 session.list_tools(), timeout=GRAFANA_DIRECT_TIMEOUT_SECONDS
             )
             tool_items = getattr(listed, "tools", None)
-            if not isinstance(tool_items, list) or len(tool_items) > MAX_RESULT_ITEMS:
+            if not isinstance(tool_items, list) or len(tool_items) > MAX_CATALOG_TOOLS:
                 raise ObservabilityMcpError("GRAFANA_TOOL_CATALOG_INVALID")
             raw_tool_names = [getattr(item, "name", None) for item in tool_items]
             if any(
@@ -251,6 +252,7 @@ __all__ = [
     "GRAFANA_DIRECT_TIMEOUT_SECONDS",
     "GRAFANA_READ_ONLY_TOOLS",
     "MAX_ARGUMENT_BYTES",
+    "MAX_CATALOG_TOOLS",
     "MAX_RESULT_ITEMS",
     "MAX_RESULT_TEXT",
     "ObservabilityMcpError",

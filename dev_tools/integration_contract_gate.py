@@ -58,7 +58,7 @@ _LEGACY_MARKERS = (
     "canonical_" + "docker_" + "profile",
 )
 _MACHINE_PATTERNS = (
-    re.compile(r"(?i)/home/[a-z0-9._-]+(?:/|$)"),
+    re.compile(r"(?i)(?<![a-z0-9._-])/home/[a-z0-9._-]+(?:/|$)"),
     re.compile(r"(?i)[a-z]:[\\/]+azurpilot(?:[\\/]|$)"),
     re.compile(r"(?i)\\\\wsl(?:\.localhost|\$)[\\/]"),
     re.compile(r"(?i)\$home[\\/][a-z0-9._-]+"),
