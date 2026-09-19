@@ -20,6 +20,7 @@ from azurpilot.integrations.adapters import (
     GRAFANA_ENABLED_TOOL_CATEGORIES,
     GRAFANA_EXPECTED_TOOL_NAMES,
     GRAFANA_READ_ONLY_TOOLS,
+    GRAFANA_REQUIRED_READ_ONLY_TOOLS,
     GRAFANA_TEMPO_READ_ONLY_TOOLS,
     Context7Adapter,
     GrafanaAdapter,
@@ -727,9 +728,12 @@ def test_grafana_file_credential_uses_direct_container_env(
     assert environment["GRAFANA_SERVICE_ACCOUNT_TOKEN"] == token
     assert token not in " ".join(args)
     assert "-disable-write" in args
+    assert "-disable-api" in args
+    assert "-disable-query" not in args
     assert "-disable-proxied" not in args
     enabled_tools_index = args.index("-enabled-tools")
     assert args[enabled_tools_index + 1] == GRAFANA_ENABLED_TOOL_CATEGORIES
+    assert GRAFANA_REQUIRED_READ_ONLY_TOOLS <= GRAFANA_READ_ONLY_TOOLS
     assert GRAFANA_TEMPO_READ_ONLY_TOOLS <= GRAFANA_READ_ONLY_TOOLS
 
 

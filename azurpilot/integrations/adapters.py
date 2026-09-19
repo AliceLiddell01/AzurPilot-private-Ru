@@ -114,6 +114,14 @@ GRAFANA_READ_ONLY_TOOLS = frozenset(
     }
 )
 GRAFANA_READ_ONLY_TOOLS |= GRAFANA_TEMPO_READ_ONLY_TOOLS
+GRAFANA_REQUIRED_READ_ONLY_TOOLS = frozenset(
+    {
+        "check_datasources_health",
+        "list_datasources",
+        "query_loki_logs",
+        "query_prometheus",
+    }
+) | GRAFANA_TEMPO_READ_ONLY_TOOLS
 GRAFANA_BLOCKED_TOOLS = frozenset(
     {
         "alerting_manage_routing",
@@ -909,6 +917,7 @@ class _ContainerMcpAdapter(IntegrationAdapter):
                     "-transport",
                     "stdio",
                     "-disable-write",
+                    "-disable-api",
                     "-enabled-tools",
                     GRAFANA_ENABLED_TOOL_CATEGORIES,
                 )
@@ -1068,7 +1077,7 @@ class GrafanaAdapter(_ContainerMcpAdapter):
     name = IntegrationName.GRAFANA
     image_name = "mcp/grafana"
     plan = McpCallPlan(
-        required_tools=frozenset({"list_datasources"}) | GRAFANA_TEMPO_READ_ONLY_TOOLS,
+        required_tools=GRAFANA_REQUIRED_READ_ONLY_TOOLS,
         probe_tool="list_datasources",
         arguments={},
         blocked_tools=GRAFANA_BLOCKED_TOOLS,
@@ -1264,6 +1273,7 @@ __all__ = [
     "GRAFANA_ENABLED_TOOL_CATEGORIES",
     "GRAFANA_EXPECTED_TOOL_NAMES",
     "GRAFANA_READ_ONLY_TOOLS",
+    "GRAFANA_REQUIRED_READ_ONLY_TOOLS",
     "GRAFANA_TEMPO_READ_ONLY_TOOLS",
     "AdapterOutcome",
     "Context7Adapter",

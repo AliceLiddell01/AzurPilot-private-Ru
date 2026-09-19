@@ -10,9 +10,11 @@ from dev_tools import observability_mcp as target
 
 def test_grafana_direct_allowlist_blocks_mutations():
     assert "list_datasources" in target.GRAFANA_READ_ONLY_TOOLS
+    assert {"query_loki_logs", "query_prometheus"} <= target.GRAFANA_READ_ONLY_TOOLS
     assert "tempo_get-trace" in target.GRAFANA_READ_ONLY_TOOLS
     assert "tempo_traceql-search" in target.GRAFANA_READ_ONLY_TOOLS
     assert "grafana_api_request" in target.GRAFANA_BLOCKED_TOOLS
+    assert "grafana_api_request" not in target.GRAFANA_READ_ONLY_TOOLS
     assert target.GRAFANA_BLOCKED_TOOLS.isdisjoint(target.GRAFANA_READ_ONLY_TOOLS)
 
 
@@ -28,6 +30,21 @@ def test_unknown_tool_is_rejected_before_transport(monkeypatch):
         target.ObservabilityMcpError, match="GRAFANA_READ_ONLY_TOOL_DENIED"
     ):
         target.read_only_grafana_tool_call("arbitrary_tool", {})
+    assert called is False
+
+
+def test_known_generic_api_is_rejected_before_transport(monkeypatch):
+    called = False
+
+    def fail_if_called(*_args, **_kwargs):
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr(target, "load_integration_config", fail_if_called)
+    with pytest.raises(
+        target.ObservabilityMcpError, match="GRAFANA_READ_ONLY_TOOL_DENIED"
+    ):
+        target.read_only_grafana_tool_call("grafana_api_request", {})
     assert called is False
 
 
