@@ -198,11 +198,14 @@ Source sets являются bounded explicit mapping фактических MCP
 `DEV_MCP_SOURCE_SET` включает Dev MCP, Dev Runtime и вызываемые application,
 persistence и operational dependencies; `GAME_MCP_SOURCE_SET` включает Game MCP,
 Game application/control/read services, legacy adapters и persistence
-dependencies; `SHARED_MCP_SOURCE_SET` содержит только общие transport/process/
-filesystem primitives и tooling contracts. Management-only reconciler, Git и
-repository tooling не являются backend runtime identity. Plugin metadata и
-skills вынесены в отдельные `PLUGIN_BUNDLE_SOURCE_SET` и
-`SKILL_BUNDLE_SOURCE_SET`.
+dependencies. `SHARED_MCP_SOURCE_SET` ограничен dedicated runtime-модулями:
+`module/mcp_shared`, `mcp_coordination.py`, `mcp_contracts.py`,
+`mcp_errors.py`, `mcp_filesystem.py`, `process_core.py` и `result.py`.
+Management-only фасады `contracts.py`, `errors.py`, `filesystem.py`,
+`coordination.py`, `process.py`, reconciler, Git и repository tooling не являются
+backend runtime identity; изменение Docker, delivery или PR DTO через эти фасады
+не должно инвалидировать MCP bundle. Plugin metadata и skills вынесены в
+отдельные `PLUGIN_BUNDLE_SOURCE_SET` и `SKILL_BUNDLE_SOURCE_SET`.
 
 Политика изменения SemVer для server identity фиксирована отдельно от
 protocol/schema версий:

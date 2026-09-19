@@ -54,10 +54,14 @@ def main(argv: list[str] | None = None) -> int:
             "code": error.code.value,
             "message": error.message,
         }
+        if error.details is not None:
+            payload["details"] = error.details.model_dump(mode="json")
         if arguments.as_json:
             print(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
         else:
             print(f"{_status_mark(False)} {error.code.value}: {error.message}")
+            if error.details is not None:
+                print(json.dumps({"details": payload["details"]}, ensure_ascii=False))
         return int(exit_code_for(error.code).value)
     payload = {
         "ok": True,
