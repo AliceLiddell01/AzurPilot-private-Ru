@@ -67,6 +67,7 @@ _RATE_LIMIT_WAITING = "rate_limited_waiting"
 _RATE_LIMIT_RETRY_ALLOWED = "rate_limited_retry_allowed"
 _DEFAULT_FINDING_IMPACT = "CodeRabbit finding требует независимой проверки."
 _DEFAULT_FINDING_RESOLUTION = "Не применено автоматически; требуется независимая проверка."
+_MAX_RETAINED_FINDINGS = 128
 _PROVIDER_FINDING_HEADER_RE = re.compile(
     r"^\s*(critical|major|minor|trivial|info)\s+\[[^\]]{1,160}\]\s*$",
     re.IGNORECASE,
@@ -698,6 +699,17 @@ def _enrich_provider_findings(
         complete=parsed.complete,
         unknown_events=parsed.unknown_events,
     )
+
+
+def _normalized_findings_digest(findings: Iterable[CodeRabbitFinding]) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            [finding.model_dump(mode="json") for finding in findings],
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
 
 
 def review_iteration_allowed(iterations: int, *, terminal: bool = False) -> bool:
@@ -1532,6 +1544,139 @@ class CodeRabbitAdapter(IntegrationAdapter):
 
         return self._cycle_summary(self._load_review_state(root))
 
+    def findings(
+        self,
+        root: Path,
+        config: IntegrationConfig,
+        *,
+        base_sha: str,
+        head_sha: str,
+    ) -> AdapterOutcome:
+        """Вернуть сохранённые findings без запуска provider review."""
+        settings = self._settings(config)
+        state = self._load_review_state(root)
+        if (
+            state.get("provider_state") != "complete"
+            or state.get("complete_received") is not True
+            or state.get("active") is True
+            or state.get("base_sha") != base_sha
+            or state.get("reviewed_head") != head_sha
+        ):
+            return AdapterOutcome(
+                self._record_from_error(
+                    settings,
+                    "CODERABBIT_REVIEW_FINDINGS_HEAD_MISMATCH",
+                    state=IntegrationState.INCOMPATIBLE,
+                    diagnostics=self._review_state_diagnostics(state),
+                ), (), self._cycle_summary(state)
+            )
+        if "findings" not in state:
+            if int(state.get("findings_count", 0)) == 0:
+                return AdapterOutcome(
+                    build_record(
+                        self.name,
+                        IntegrationState.READY,
+                        "CODERABBIT_REVIEW_FINDINGS_READY",
+                        "Authoritative CodeRabbit review завершён без findings.",
+                        build_evidence(
+                            config=settings,
+                            credential=CredentialRef(auth_verified=False),
+                            configured=True,
+                            reachable=False,
+                            diagnostics=self._review_state_diagnostics(state) + ("findings_source=durable_empty",),
+                        ),
+                    ), (), self._cycle_summary(state)
+                )
+            runtime, error_code = self._configured_runtime(root, settings)
+            if runtime is None:
+                return AdapterOutcome(
+                    self._record_from_error(
+                        settings,
+                        "CODERABBIT_REVIEW_FINDINGS_CAPABILITY_UNAVAILABLE",
+                        state=IntegrationState.UNAVAILABLE,
+                        diagnostics=(error_code or "runtime_unavailable",),
+                    ), (), self._cycle_summary(state)
+                )
+            runtime_state, _reason, diagnostics = self._runtime_preflight(runtime, runtime.coderabbit_command)
+            if runtime_state is not IntegrationState.READY:
+                return AdapterOutcome(
+                    self._record_from_error(
+                        settings,
+                        "CODERABBIT_REVIEW_FINDINGS_CAPABILITY_UNAVAILABLE",
+                        state=runtime_state,
+                        diagnostics=diagnostics,
+                    ), (), self._cycle_summary(state)
+                )
+            try:
+                help_result = runtime.command(runtime.coderabbit_command, "review", "--help", timeout=30)
+                help_text = (help_result.stdout + "\\n" + help_result.stderr).casefold()
+                if help_result.returncode != 0 or help_result.timed_out or "findings" not in help_text:
+                    raise ValueError("capability not advertised")
+                result = runtime.command(runtime.coderabbit_command, "review", "findings", timeout=30)
+                if result.returncode != 0 or result.timed_out or result.stdout_truncated:
+                    raise ValueError("findings capability failed")
+                stored = parse_provider_findings_output(result.stdout)
+            except (OSError, ToolingError, ValueError):
+                return AdapterOutcome(
+                    self._record_from_error(
+                        settings,
+                        "CODERABBIT_REVIEW_FINDINGS_CAPABILITY_UNAVAILABLE",
+                        state=IntegrationState.UNAVAILABLE,
+                        diagnostics=diagnostics,
+                    ), (), self._cycle_summary(state)
+                )
+            if len(stored) != int(state.get("findings_count", -1)):
+                return AdapterOutcome(
+                    self._record_from_error(settings, "CODERABBIT_REVIEW_FINDINGS_STATE_MISMATCH", state=IntegrationState.UNKNOWN),
+                    (), self._cycle_summary(state)
+                )
+        else:
+            stored = tuple(CodeRabbitFinding.model_validate(item) for item in state.get("findings", []))
+        if len(stored) != int(state.get("findings_count", -1)):
+            return AdapterOutcome(
+                self._record_from_error(settings, "CODERABBIT_REVIEW_FINDINGS_STATE_MISMATCH", state=IntegrationState.UNKNOWN),
+                (), self._cycle_summary(state)
+            )
+        digest = state.get("findings_digest")
+        if not isinstance(digest, str) or _normalized_findings_digest(stored) != digest:
+            return AdapterOutcome(
+                self._record_from_error(settings, "CODERABBIT_REVIEW_FINDINGS_DIGEST_MISMATCH", state=IntegrationState.UNKNOWN),
+                (), self._cycle_summary(state)
+            )
+        findings = tuple(
+            IntegrationFinding(
+                kind="coderabbit",
+                identifier=(item.title or item.path)[:240],
+                path=item.path,
+                line=item.line,
+                line_end=item.line_end,
+                title=item.title,
+                severity=item.severity.value,
+                message=item.impact[:400],
+                fingerprint=None,
+                reviewed_head=head_sha,
+                base_sha=base_sha,
+                fix_head=None,
+                disposition=item.disposition.value,
+                resolution=item.resolution[:400],
+            ) for item in stored
+        )
+        return AdapterOutcome(
+            build_record(
+                self.name,
+                IntegrationState.READY,
+                "CODERABBIT_REVIEW_FINDINGS_READY",
+                f"Сохранены findings CodeRabbit: {len(findings)}.",
+                build_evidence(
+                    config=settings,
+                    credential=CredentialRef(auth_verified=False),
+                    configured=True,
+                    reachable=True,
+                    diagnostics=self._review_state_diagnostics(state) + ("provider_review_not_started=true",),
+                ),
+            ), findings, self._cycle_summary(state)
+        )
+
     def recover_interrupted_review(
         self, root: Path, config: IntegrationConfig
     ) -> AdapterOutcome:
@@ -2241,10 +2386,39 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 "Завершённый CodeRabbit review не содержит reviewed head.",
             )
         findings_count = payload.get("findings_count")
-        if not isinstance(findings_count, int) or not 0 <= findings_count <= 128:
+        if not isinstance(findings_count, int) or not 0 <= findings_count <= _MAX_RETAINED_FINDINGS:
             raise ToolingError(
                 ResultCode.TOOLING_VERIFICATION_UNKNOWN,
                 "Счётчик findings CodeRabbit повреждён.",
+            )
+        has_persisted_findings = "findings" in payload
+        stored_findings = payload.get("findings", [])
+        if not isinstance(stored_findings, list) or len(stored_findings) > _MAX_RETAINED_FINDINGS:
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Список findings CodeRabbit повреждён.",
+            )
+        try:
+            normalized = tuple(CodeRabbitFinding.model_validate(item) for item in stored_findings)
+        except (TypeError, ValueError):
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Нормализованный finding CodeRabbit повреждён.",
+            ) from None
+        digest = payload.get("findings_digest")
+        if has_persisted_findings and len(normalized) != findings_count:
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Счётчик findings CodeRabbit не совпадает с сохранёнными findings.",
+            )
+        if has_persisted_findings and digest is not None and (
+            not isinstance(digest, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", digest)
+            or _normalized_findings_digest(normalized) != digest
+        ):
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Digest findings CodeRabbit не совпадает с сохранёнными findings.",
             )
         attempt = payload.get("attempt", 0)
         if not isinstance(attempt, int) or not 0 <= attempt <= _MAX_REVIEW_ATTEMPTS:
@@ -2383,6 +2557,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
         last_event_type: str,
         findings_count: int = 0,
         findings_digest: str | None = None,
+        findings: Iterable[CodeRabbitFinding] | None = None,
         rate_limit_hint: str | None = None,
         cycle_id: str | None = None,
         cycle_started_at: str | None = None,
@@ -2432,6 +2607,22 @@ class CodeRabbitAdapter(IntegrationAdapter):
             resolved_cycle_status = "budget_exhausted"
         else:
             resolved_cycle_status = cycle_status or str(provider_state or "fresh")
+        source_findings = (
+            findings
+            if findings is not None
+            else []
+            if not complete_received and findings_count == 0
+            else current.get("findings", [])
+        )
+        normalized_findings = [
+            item.model_dump(mode="json") if isinstance(item, CodeRabbitFinding) else item
+            for item in source_findings
+        ]
+        if len(normalized_findings) > _MAX_RETAINED_FINDINGS:
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Список findings CodeRabbit превышает bounded предел.",
+            )
         payload = {
             "schema_version": REVIEW_STATE_SCHEMA_VERSION,
             "current_cycle_id": selected_cycle_id[:80],
@@ -2457,6 +2648,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
             "last_event_type": last_event_type[:80],
             "findings_count": findings_count,
             "findings_digest": findings_digest,
+            **({"findings": normalized_findings} if findings is not None else {}),
             "rate_limit_hint": rate_limit_hint[:240] if rate_limit_hint else None,
             "previous_cycles": list(previous_cycles or current.get("previous_cycles", []))[-MAX_RETAINED_REVIEW_CYCLES:],
             "provider_quota": quota,
@@ -3068,14 +3260,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
                     state=IntegrationState.UNKNOWN,
                 )
             )
-        findings_digest = hashlib.sha256(
-            json.dumps(
-                [finding.model_dump(mode="json") for finding in parsed.findings],
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode("utf-8")
-        ).hexdigest()
+        findings_digest = _normalized_findings_digest(parsed.findings)
         self._save_state(
             root,
             iterations=iterations + 1,
@@ -3092,6 +3277,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
             last_event_type="complete",
             findings_count=len(parsed.findings),
             findings_digest=findings_digest,
+            findings=parsed.findings,
             cycle_id=cycle_id,
             cycle_started_at=str(cycle_started_at),
             reviewed_head=head_sha,

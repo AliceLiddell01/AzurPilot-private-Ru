@@ -35,13 +35,12 @@ paths, serials, account identifiers и необработанные логи. Ev
 ## Разрешённые внешние read-only MCP
 
 Для диагностики AzurPilot Codex может без отдельного запроса пользователю
-использовать уже настроенные read-only MCP-поверхности, когда они доступны в
-текущем catalog: прямой `context7_mcp` для документации библиотек, Docker Docs
-MCP через `fetch_docker_docs`, локальный Semgrep MCP через
-`semgrep_scan_local`/`semgrep_scan` и существующий Grafana MCP для Loki, Tempo,
-Prometheus и datasource evidence. Это дополнительное разрешение для
-диагностического чтения; оно не расширяет права собственных AzurPilot plugins
-и не разрешает mutation.
+использовать настроенные direct read-only adapters, когда они доступны в
+текущей конфигурации: `context7_direct`, `docker_docs_direct`,
+`semgrep_local_direct`, Grafana, Docker Hub и CodeRabbit. Это дополнительное
+разрешение для диагностического чтения; оно не расширяет права собственных
+AzurPilot plugins и не разрешает mutation. Retired MCP intermediary routes не
+используются как маршрут или fallback.
 
 Различай repository source, user-configured direct adapter и фактический
 negotiated discovery/`tools/list`/read-only call: это разные доказательства.

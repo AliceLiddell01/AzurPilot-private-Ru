@@ -44,6 +44,7 @@ from azurpilot.integrations.mcp_client import (
     McpProbeResult,
     validate_tool_catalog,
 )
+from azurpilot.integrations.service import ADAPTER_ORDER, AdapterOutcome
 from azurpilot.tooling.contracts import (
     AnalysisScope,
     FindingDisposition,
@@ -759,6 +760,49 @@ def test_grafana_tempo_tools_are_read_only_and_not_mutations():
     assert "grafana_api_request" in GRAFANA_BLOCKED_TOOLS
 
 
+def test_probe_records_run_adapters_concurrently(monkeypatch, tmp_path: Path):
+    import asyncio
+
+    from azurpilot.integrations.service import IntegrationRegistry
+
+    started: list[IntegrationName] = []
+    release = asyncio.Event()
+
+    class ProbeAdapter:
+        def __init__(self, name: IntegrationName):
+            self.name = name
+
+        async def probe(self, _root, _config):
+            started.append(self.name)
+            await release.wait()
+            return AdapterOutcome(
+                IntegrationRecord(
+                    name=self.name,
+                    state=IntegrationState.READY,
+                    reason_code="PROBE_READY",
+                    message="Готово",
+                    evidence=IntegrationEvidence(route="test"),
+                )
+            )
+
+    registry = IntegrationRegistry(
+        adapters=tuple(ProbeAdapter(name) for name in ADAPTER_ORDER)
+    )
+
+    async def run():
+        task = asyncio.create_task(registry.probe_records(tmp_path, IntegrationConfig()))
+        for _ in range(20):
+            await asyncio.sleep(0)
+            if len(started) == len(ADAPTER_ORDER):
+                break
+        assert tuple(started) == ADAPTER_ORDER
+        release.set()
+        return await task
+
+    outcomes = asyncio.run(run())
+    assert tuple(outcome.record.name for outcome in outcomes) == ADAPTER_ORDER
+
+
 def test_http_probe_uses_file_credential_value(monkeypatch, tmp_path: Path):
     token = "fixture-http-token"
     credential_file = tmp_path / "http-token"
@@ -1292,6 +1336,120 @@ def _complete_result(*, finding: bool = True):
     return coderabbit._WslCommandResult(0, "\n".join(lines) + "\n", "", False, False, False)
 
 
+def test_coderabbit_findings_persist_and_retrieve_after_new_adapter(
+    monkeypatch, tmp_path: Path
+):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    base_sha = "a" * 40
+    head_sha = "b" * 40
+    _install_fake_coderabbit_runtime(monkeypatch, [_complete_result()])
+    root = tmp_path / "checkout"
+    config = IntegrationConfig()
+    adapter = coderabbit.CodeRabbitAdapter()
+
+    reviewed = adapter.review(root, config, base_sha=base_sha, head_sha=head_sha)
+    assert len(reviewed.findings) == 1
+    state = adapter._load_review_state(root)
+    assert len(state["findings"]) == 1
+    assert "comment" not in json.dumps(state["findings"], ensure_ascii=False)
+    assert state["substantive_iterations"] == 1
+
+    fresh = coderabbit.CodeRabbitAdapter()
+    retrieved = fresh.findings(root, config, base_sha=base_sha, head_sha=head_sha)
+    assert retrieved.record.reason_code == "CODERABBIT_REVIEW_FINDINGS_READY"
+    assert retrieved.findings == reviewed.findings
+    assert fresh._load_review_state(root)["substantive_iterations"] == 1
+
+
+def test_coderabbit_findings_distinguishes_unavailable_capability(
+    monkeypatch, tmp_path: Path
+):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    root = tmp_path / "checkout"
+    adapter = coderabbit.CodeRabbitAdapter()
+    config = IntegrationConfig()
+    base_sha = "a" * 40
+    head_sha = "b" * 40
+    adapter._save_state(
+        root,
+        iterations=1,
+        head=head_sha,
+        terminal=False,
+        base_sha=base_sha,
+        repository_identity="hosted:github.com/alice/example",
+        attempt=1,
+        operation_id="coderabbit-legacy",
+        started_at="2026-09-16T00:00:00+00:00",
+        provider_state="complete",
+        active=False,
+        complete_received=True,
+        last_event_type="complete",
+        findings_count=1,
+        reviewed_head=head_sha,
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_configured_runtime",
+        lambda _root, _settings: (None, "CODERABBIT_WSL_UNAVAILABLE"),
+    )
+    result = adapter.findings(root, config, base_sha=base_sha, head_sha=head_sha)
+    assert result.record.reason_code == "CODERABBIT_REVIEW_FINDINGS_CAPABILITY_UNAVAILABLE"
+    assert result.findings == ()
+    assert adapter._load_review_state(root)["substantive_iterations"] == 1
+
+
+def test_coderabbit_findings_rejects_head_and_digest_mismatch(
+    monkeypatch, tmp_path: Path
+):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    base_sha = "a" * 40
+    head_sha = "b" * 40
+    _install_fake_coderabbit_runtime(monkeypatch, [_complete_result()])
+    root = tmp_path / "checkout"
+    config = IntegrationConfig()
+    adapter = coderabbit.CodeRabbitAdapter()
+    adapter.review(root, config, base_sha=base_sha, head_sha=head_sha)
+
+    mismatch = adapter.findings(root, config, base_sha=base_sha, head_sha="c" * 40)
+    assert mismatch.record.reason_code == "CODERABBIT_REVIEW_FINDINGS_HEAD_MISMATCH"
+    assert mismatch.findings == ()
+
+    path = StateLayout.for_repository(root).path("coderabbit-review.json")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["findings_digest"] = "0" * 64
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ToolingError, match="Digest findings"):
+        adapter._load_review_state(root)
+
+
+def test_coderabbit_zero_findings_is_distinct_from_missing_evidence(
+    monkeypatch, tmp_path: Path
+):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    base_sha = "a" * 40
+    head_sha = "b" * 40
+    _install_fake_coderabbit_runtime(monkeypatch, [_complete_result(finding=False)])
+    root = tmp_path / "checkout"
+    config = IntegrationConfig()
+    adapter = coderabbit.CodeRabbitAdapter()
+    adapter.review(root, config, base_sha=base_sha, head_sha=head_sha)
+
+    retrieved = coderabbit.CodeRabbitAdapter().findings(
+        root, config, base_sha=base_sha, head_sha=head_sha
+    )
+    assert retrieved.record.reason_code == "CODERABBIT_REVIEW_FINDINGS_READY"
+    assert retrieved.findings == ()
+    assert retrieved.coderabbit_cycle is not None
+    assert retrieved.coderabbit_cycle.findings_count == 0
+
+
+def test_coderabbit_findings_cli_requires_exact_references():
+    parser = build_parser()
+    args = parser.parse_args(["integrations", "coderabbit", "findings", "--base", "a" * 40, "--head", "b" * 40])
+    assert args.base == "a" * 40
+    assert args.head == "b" * 40
+
+
 def test_coderabbit_cycles_reset_only_explicitly_and_keep_bounded_history(
     monkeypatch, tmp_path: Path
 ):
@@ -1488,6 +1646,19 @@ def test_coderabbit_fresh_state_has_zero_of_three_and_typed_diagnostics(
     diagnostics = adapter._review_state_diagnostics(state)
     assert "substantive_iterations=0/3" in diagnostics
     assert any(item.startswith("provider_state=") for item in diagnostics)
+
+
+def test_integration_finding_rejects_reversed_line_range():
+    with pytest.raises(ValueError, match="line_end"):
+        IntegrationFinding(
+            kind="coderabbit",
+            identifier="finding",
+            path="module/example.py",
+            line=120,
+            line_end=10,
+            severity="minor",
+            message="Некорректный диапазон.",
+        )
 
 
 def test_cli_renders_coderabbit_cycle_and_all_findings_in_rich_and_json():

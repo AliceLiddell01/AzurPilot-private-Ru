@@ -308,6 +308,6 @@ __all__ = [
     "McpProbeResult",
     "probe_http",
     "probe_stdio",
-    "validate_tool_catalog",
     "validate_endpoint",
+    "validate_tool_catalog",
 ]

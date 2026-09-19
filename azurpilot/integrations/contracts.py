@@ -10,7 +10,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from azurpilot.tooling.contracts import AnalysisScope, ClosedModel
 
@@ -108,6 +108,12 @@ class IntegrationFinding(ClosedModel):
     fix_head: str | None = Field(default=None, pattern=r"^[0-9a-f]{40,64}$")
     disposition: str | None = Field(default=None, max_length=40)
     resolution: str | None = Field(default=None, max_length=400)
+
+    @model_validator(mode="after")
+    def validate_line_range(self) -> IntegrationFinding:
+        if self.line is not None and self.line_end is not None and self.line_end < self.line:
+            raise ValueError("line_end не может быть меньше line")
+        return self
 
 
 class CodeRabbitCycleSummary(ClosedModel):

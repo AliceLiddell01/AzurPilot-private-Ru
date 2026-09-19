@@ -406,6 +406,12 @@ def build_parser() -> argparse.ArgumentParser:
             review.add_argument(
                 "--head", default=None, help="exact review HEAD; по умолчанию текущий HEAD"
             )
+            findings = provider_subparsers.add_parser(
+                "findings", help="получить сохранённые findings без запуска review"
+            )
+            _add_common_options(findings, suppress_defaults=True)
+            findings.add_argument("--base", required=True, help="exact base SHA")
+            findings.add_argument("--head", required=True, help="exact reviewed HEAD")
             cycle = provider_subparsers.add_parser(
                 "cycle", help="управлять bounded CodeRabbit review cycles"
             )
@@ -731,11 +737,13 @@ def _render_human(
                     severity = str(getattr(finding, "severity", "info"))
                     disposition = str(getattr(finding, "disposition", ""))
                     location = str(getattr(finding, "path", "не указан"))
-                    if getattr(finding, "line", None):
+                    line = getattr(finding, "line", None)
+                    line_end = getattr(finding, "line_end", None)
+                    if line:
                         location += (
-                            f":{finding.line}"
-                            if getattr(finding, "line_end", None) == getattr(finding, "line", None)
-                            else f":{finding.line}-{finding.line_end}"
+                            f":{line}"
+                            if line_end is None or line_end == line
+                            else f":{line}-{line_end}"
                         )
                     finding_table = Table(
                         title=f"Замечание {index}: {severity_labels.get(severity, severity)}",
@@ -976,6 +984,12 @@ def _dispatch(
                     if not getattr(args, "json", False)
                     else None
                 ),
+            )
+        if target == IntegrationName.CODERABBIT.value and action == "findings":
+            return services.integrations.findings(
+                base_sha=args.base,
+                head_sha=args.head,
+                repository_root=root,
             )
         if (
             target == IntegrationName.CODERABBIT.value

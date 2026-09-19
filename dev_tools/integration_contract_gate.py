@@ -20,7 +20,7 @@ from azurpilot.integrations.adapters import (
     DOCKER_HUB_BLOCKED_TOOLS,
     DOCKER_HUB_READ_ONLY_TOOLS,
 )
-from azurpilot.integrations.config import DEFAULTS, _REPO_MCP_ALIASES
+from azurpilot.integrations.config import DEFAULTS, REPOSITORY_MCP_ALIASES
 from azurpilot.integrations.contracts import IntegrationName
 
 EXPECTED_FAMILIES = tuple(name.value for name in IntegrationName)
@@ -83,7 +83,7 @@ def _direct_entries(
     result: dict[str, tuple[str, Mapping[object, object]]] = {}
     for raw_name, raw_entry in servers.items():
         name = str(raw_name)
-        family = _REPO_MCP_ALIASES.get(name)
+        family = REPOSITORY_MCP_ALIASES.get(name)
         if family is None:
             continue
         if not isinstance(raw_entry, Mapping):

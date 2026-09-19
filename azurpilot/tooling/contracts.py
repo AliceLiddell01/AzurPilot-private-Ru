@@ -382,6 +382,12 @@ class CodeRabbitFinding(ClosedModel):
     resolution: str = Field(min_length=1, max_length=1200)
     fix_head: str | None = Field(default=None, pattern=r"^[0-9a-f]{40,64}$")
 
+    @model_validator(mode="after")
+    def validate_line_range(self) -> CodeRabbitFinding:
+        if self.line is not None and self.line_end is not None and self.line_end < self.line:
+            raise ValueError("line_end не может быть меньше line")
+        return self
+
 
 class CodeRabbitReview(ClosedModel):
     """Evidence CodeRabbit, включая явный zero/rate-limit результат."""

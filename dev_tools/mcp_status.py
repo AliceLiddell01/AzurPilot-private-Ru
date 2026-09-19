@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from azurpilot.integrations import IntegrationService
+from azurpilot.integrations import IntegrationName, IntegrationService
 from azurpilot.tooling.process import safe_environment
 from module.mcp_shared.catalog import tool_catalog_sha256_from_tools
 from module.mcp_shared.versioning import (
@@ -74,14 +74,7 @@ PLUGIN_REQUIRED_SKILLS = frozenset(
         "azurpilot-troubleshooting",
     }
 )
-DIRECT_INTEGRATION_NAMES = (
-    "coderabbit",
-    "semgrep",
-    "grafana",
-    "context7",
-    "docker-docs",
-    "docker-hub",
-)
+DIRECT_INTEGRATION_NAMES = tuple(name.value for name in IntegrationName)
 
 _SAFE_IDENTIFIER = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
 _SAFE_TOKEN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
@@ -917,7 +910,7 @@ def status_metric_samples(report: Mapping[str, object]) -> tuple[MetricSample, .
                         server=name,
                         surface="external_direct",
                         value=value,
-                        required=True,
+                        required=False,
                         probe_timestamp=probe_timestamp,
                     )
                 )

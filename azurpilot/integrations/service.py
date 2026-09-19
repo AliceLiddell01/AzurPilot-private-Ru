@@ -148,28 +148,25 @@ class IntegrationRegistry:
         names: Iterable[IntegrationName] | None = None,
     ) -> tuple[AdapterOutcome, ...]:
         selected = tuple(names or ADAPTER_ORDER)
-        outcomes: list[AdapterOutcome] = []
-        for name in selected:
+
+        async def probe_one(name: IntegrationName) -> AdapterOutcome:
             adapter = self._adapters[name]
             try:
-                outcomes.append(await adapter.probe(root, config))
+                return await adapter.probe(root, config)
             except ToolingError as error:
-                outcomes.append(
-                    AdapterOutcome(
-                        _error_record(name, error.code.value, IntegrationState.UNKNOWN)
-                    )
+                return AdapterOutcome(
+                    _error_record(name, error.code.value, IntegrationState.UNKNOWN)
                 )
             except Exception as error:  # noqa: BLE001 - bounded probe boundary.
-                outcomes.append(
-                    AdapterOutcome(
-                        _error_record(
-                            name,
-                            _unexpected_reason_code(error),
-                            IntegrationState.UNKNOWN,
-                        )
+                return AdapterOutcome(
+                    _error_record(
+                        name,
+                        _unexpected_reason_code(error),
+                        IntegrationState.UNKNOWN,
                     )
                 )
-        return tuple(outcomes)
+
+        return tuple(await asyncio.gather(*(probe_one(name) for name in selected)))
 
 
 class IntegrationService:
@@ -378,6 +375,21 @@ class IntegrationService:
             findings=outcome.findings,
             coderabbit_cycle=cycle_summary,
         )
+
+    def findings(
+        self,
+        *,
+        base_sha: str,
+        head_sha: str,
+        repository_root: str | Path | None = None,
+    ) -> ToolingResult[IntegrationDetails, IntegrationEvidenceBundle]:
+        root = self.resolve_root(repository_root)
+        config = load_integration_config(root)
+        adapter = self.registry.adapter(IntegrationName.CODERABBIT)
+        if not isinstance(adapter, CodeRabbitAdapter):
+            raise ToolingError(ResultCode.TOOLING_PRECONDITION_FAILED, "CodeRabbit adapter имеет неверный тип.")
+        outcome = adapter.findings(root, config, base_sha=base_sha, head_sha=head_sha)
+        return self._result("findings", (outcome.record,), target=IntegrationName.CODERABBIT, findings=outcome.findings, coderabbit_cycle=outcome.coderabbit_cycle)
 
     def recover_coderabbit_review(
         self, *, repository_root: str | Path | None = None

@@ -67,7 +67,7 @@ DEFAULTS: dict[str, dict[str, object]] = {
     "coderabbit": {"route": "direct_wsl_agent"},
 }
 
-_REPO_MCP_ALIASES = {
+REPOSITORY_MCP_ALIASES = {
     "semgrep_local_direct": "semgrep",
     "context7_direct": "context7",
     "docker_docs_direct": "docker-docs",
@@ -235,7 +235,7 @@ def _repo_mcp_table(root: Path) -> dict[str, dict[str, object]]:
         return {}
     result: dict[str, dict[str, object]] = {}
     for raw_name, raw_values in servers.items():
-        name = _REPO_MCP_ALIASES.get(str(raw_name))
+        name = REPOSITORY_MCP_ALIASES.get(str(raw_name))
         if name is None or not isinstance(raw_values, dict):
             continue
         values: dict[str, object] = {}

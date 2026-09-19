@@ -60,6 +60,11 @@ def test_arguments_and_provider_payload_are_bounded_and_redacted():
 
 
 def test_argument_sanitization_cannot_change_call_payload():
+    arguments = {"query": "x", "limit": 5}
+    bounded = target._bounded_arguments(arguments)
+    assert bounded == arguments
+    assert bounded is not arguments
+
     with pytest.raises(
         target.ObservabilityMcpError, match="GRAFANA_ARGUMENTS_INVALID"
     ):
