@@ -2229,13 +2229,6 @@ class CodeRabbitAdapter(IntegrationAdapter):
         runtime, error_code = self._configured_runtime(root, settings)
         if runtime is None:
             return AdapterOutcome(self._record_from_error(settings, error_code or "CODERABBIT_RUNTIME_UNAVAILABLE", state=IntegrationState.INCOMPATIBLE))
-        probe = runtime.command("pgrep", "-x", "coderabbit", timeout=30)
-        if probe.timed_out or probe.stdout_truncated or probe.stderr_truncated:
-            return AdapterOutcome(self._record_from_error(settings, "CODERABBIT_REVIEW_OPERATION_LIVENESS_UNKNOWN", state=IntegrationState.INCOMPATIBLE))
-        if probe.returncode == 0:
-            return AdapterOutcome(self._record_from_error(settings, "CODERABBIT_REVIEW_OPERATION_STILL_ALIVE", state=IntegrationState.INCOMPATIBLE, diagnostics=("provider_process_present=true",)))
-        if probe.returncode not in {1, 2}:
-            return AdapterOutcome(self._record_from_error(settings, "CODERABBIT_REVIEW_OPERATION_LIVENESS_UNKNOWN", state=IntegrationState.INCOMPATIBLE))
         checkout_path = state.get("review_checkout")
         if checkout_path is not None and not isinstance(checkout_path, str):
             return AdapterOutcome(
@@ -2245,8 +2238,56 @@ class CodeRabbitAdapter(IntegrationAdapter):
                     state=IntegrationState.INCOMPATIBLE,
                 )
             )
+        base_sha = state.get("base_sha")
+        expected_head = state.get("last_head") or state.get("reviewed_head")
+        expected_repository = state.get("repository_identity")
+        if (
+            not isinstance(base_sha, str)
+            or _SHA_RE.fullmatch(base_sha) is None
+            or not isinstance(expected_head, str)
+            or _SHA_RE.fullmatch(expected_head) is None
+            or not isinstance(expected_repository, str)
+        ):
+            return AdapterOutcome(
+                self._record_from_error(
+                    settings,
+                    "CODERABBIT_REVIEW_OPERATION_LIVENESS_UNKNOWN",
+                    state=IntegrationState.INCOMPATIBLE,
+                )
+            )
+        if isinstance(runtime, _WslRuntime):
+            if not isinstance(checkout_path, str):
+                return AdapterOutcome(
+                    self._record_from_error(
+                        settings,
+                        "CODERABBIT_REVIEW_CHECKOUT_STATE_UNKNOWN",
+                        state=IntegrationState.INCOMPATIBLE,
+                    )
+                )
+            liveness = self._provider_liveness(
+                runtime, checkout_path, base_sha=base_sha
+            )
+            if liveness == "alive":
+                return AdapterOutcome(self._record_from_error(settings, "CODERABBIT_REVIEW_OPERATION_STILL_ALIVE", state=IntegrationState.INCOMPATIBLE, diagnostics=("provider_process_present=true",)))
+            if liveness == "unknown":
+                return AdapterOutcome(self._record_from_error(settings, "CODERABBIT_REVIEW_OPERATION_LIVENESS_UNKNOWN", state=IntegrationState.INCOMPATIBLE))
+        else:
+            probe = runtime.command("pgrep", "-x", "coderabbit", timeout=30)
+            if probe.timed_out or probe.stdout_truncated or probe.stderr_truncated:
+                return AdapterOutcome(self._record_from_error(settings, "CODERABBIT_REVIEW_OPERATION_LIVENESS_UNKNOWN", state=IntegrationState.INCOMPATIBLE))
+            if probe.returncode == 0:
+                return AdapterOutcome(self._record_from_error(settings, "CODERABBIT_REVIEW_OPERATION_STILL_ALIVE", state=IntegrationState.INCOMPATIBLE, diagnostics=("provider_process_present=true",)))
+            if probe.returncode != 1:
+                return AdapterOutcome(self._record_from_error(settings, "CODERABBIT_REVIEW_OPERATION_LIVENESS_UNKNOWN", state=IntegrationState.INCOMPATIBLE))
         if isinstance(checkout_path, str):
-            cleaned, cleanup_reason = self._cleanup_review_checkout(runtime, checkout_path)
+            cleaned, cleanup_reason = self._cleanup_review_checkout(
+                runtime,
+                checkout_path,
+                operation_id=operation_id,
+                expected_head=expected_head,
+                base_sha=base_sha,
+                expected_repository=expected_repository,
+            )
             if not cleaned:
                 return AdapterOutcome(
                     self._record_from_error(
@@ -2585,12 +2626,165 @@ class CodeRabbitAdapter(IntegrationAdapter):
             raise ToolingError(ResultCode.TOOLING_PRECONDITION_FAILED, "WSL HOME имеет небезопасный формат.")
         return (home / _RUNTIME_OPERATION_CACHE / operation_id).as_posix()
 
+    @staticmethod
+    def _canonical_runtime_path(
+        runtime: _WslRuntime, path: str, *, must_exist: bool
+    ) -> str | None:
+        mode = "-e" if must_exist else "-m"
+        result = runtime.command("realpath", mode, "--", path, timeout=30)
+        if CodeRabbitAdapter._command_failed(result):
+            return None
+        values = tuple(line.strip() for line in result.stdout.splitlines() if line.strip())
+        if len(values) != 1 or values[0] != path:
+            return None
+        return values[0]
+
+    @staticmethod
+    def _worktree_inventory(
+        runtime: _WslRuntime,
+    ) -> tuple[dict[str, str | bool], ...] | None:
+        result = runtime.git("worktree", "list", "--porcelain", timeout=30)
+        if CodeRabbitAdapter._command_failed(result):
+            return None
+        entries: list[dict[str, str | bool]] = []
+        current: dict[str, str | bool] | None = None
+        for raw_line in result.stdout.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            if line.startswith("worktree "):
+                if current is not None:
+                    entries.append(current)
+                path = line.removeprefix("worktree ").strip()
+                if not path or not path.startswith("/") or "\x00" in path:
+                    return None
+                current = {"path": path, "head": "", "detached": False}
+            elif current is not None and line.startswith("HEAD "):
+                head = line.removeprefix("HEAD ").strip().casefold()
+                if _SHA_RE.fullmatch(head) is None:
+                    return None
+                current["head"] = head
+            elif current is not None and line == "detached":
+                current["detached"] = True
+            elif current is not None and line.startswith("branch "):
+                current["branch"] = line.removeprefix("branch ").strip()
+            elif current is not None and line.startswith("prunable "):
+                current["prunable"] = True
+        if current is not None:
+            entries.append(current)
+        if not entries or any(not entry.get("head") for entry in entries):
+            return None
+        return tuple(entries)
+
+    def _prove_review_worktree_ownership(
+        self,
+        runtime: _WslRuntime,
+        checkout_path: str,
+        *,
+        operation_id: str,
+        expected_head: str,
+        present: bool,
+    ) -> bool:
+        """Доказать владение через производный путь, realpath и инвентарь Git worktree."""
+
+        try:
+            expected_path = self._review_worktree_path(runtime, operation_id)
+        except ToolingError:
+            return False
+        if checkout_path != expected_path or _SHA_RE.fullmatch(expected_head) is None:
+            return False
+        if self._canonical_runtime_path(runtime, runtime.home, must_exist=True) != runtime.home:
+            return False
+        canonical = self._canonical_runtime_path(
+            runtime, checkout_path, must_exist=present
+        )
+        if canonical != checkout_path:
+            return False
+        inventory = self._worktree_inventory(runtime)
+        if inventory is None:
+            return False
+        matches = [entry for entry in inventory if entry.get("path") == checkout_path]
+        if not present:
+            return not matches
+        return (
+            len(matches) == 1
+            and matches[0].get("head") == expected_head.casefold()
+            and bool(matches[0].get("detached"))
+            and not bool(matches[0].get("prunable"))
+        )
+
+    def _provider_liveness(
+        self,
+        runtime: _WslRuntime,
+        checkout_path: str,
+        *,
+        base_sha: str,
+    ) -> str:
+        """Проверить конкретный процесс провайдера по PID, command line и cwd."""
+
+        configured = runtime.coderabbit_executable or runtime.coderabbit_command
+        provider_name = PurePosixPath(configured).name or "coderabbit"
+        probe = runtime.command("pgrep", "-x", provider_name, timeout=30)
+        if probe.timed_out or probe.stdout_truncated or probe.stderr_truncated:
+            return "unknown"
+        if probe.returncode not in {0, 1}:
+            return "unknown"
+        pgrep_pids: set[int] = set()
+        if probe.returncode == 0:
+            for raw_pid in probe.stdout.splitlines():
+                value = raw_pid.strip()
+                if not value.isdigit() or int(value) <= 0:
+                    return "unknown"
+                pgrep_pids.add(int(value))
+            if not pgrep_pids:
+                return "unknown"
+
+        process_list = runtime.command("ps", "-eo", "pid=,args=", timeout=30)
+        if CodeRabbitAdapter._command_failed(process_list):
+            return "unknown"
+        processes: list[tuple[int, str]] = []
+        for raw_line in process_list.stdout.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            match = re.match(r"^(?P<pid>[0-9]+)\s+(?P<args>.+)$", line)
+            if match is None:
+                return "unknown"
+            args = match.group("args").strip()
+            if not args:
+                return "unknown"
+            processes.append((int(match.group("pid")), args))
+
+        marker = provider_name.casefold()
+        base_marker = base_sha.casefold()
+        for pid, args in processes:
+            normalized = args.casefold()
+            if pid not in pgrep_pids and marker not in normalized:
+                continue
+            if marker not in normalized and pid in pgrep_pids:
+                return "unknown"
+            cwd = runtime.command("readlink", "-f", f"/proc/{pid}/cwd", timeout=30)
+            if CodeRabbitAdapter._command_failed(cwd):
+                return "unknown"
+            cwd_values = tuple(line.strip() for line in cwd.stdout.splitlines() if line.strip())
+            if len(cwd_values) != 1:
+                return "unknown"
+            if cwd_values[0] != checkout_path:
+                continue
+            if base_marker in normalized and "review" in normalized:
+                return "alive"
+            return "unknown"
+        if pgrep_pids and not pgrep_pids.issubset({pid for pid, _args in processes}):
+            return "unknown"
+        return "absent"
+
     def _prepare_review_checkout(
         self,
         runtime: _WslRuntime,
         root: Path,
         *,
         operation_id: str,
+        expected_base: str | None = None,
         expected_head: str,
         expected_repository: str,
     ) -> tuple[_WslRuntime, str | None, str]:
@@ -2600,6 +2794,14 @@ class CodeRabbitAdapter(IntegrationAdapter):
         # runtime; реальный WSL путь всегда проходит typed worktree flow ниже.
         if not isinstance(runtime, _WslRuntime):
             return runtime, None, "CODERABBIT_REVIEW_CLONE_READY"
+        if (
+            _SHA_RE.fullmatch(expected_head) is None
+            or (
+                expected_base is not None
+                and _SHA_RE.fullmatch(expected_base) is None
+            )
+        ):
+            return runtime, None, "CODERABBIT_REVIEW_TARGET_INVALID"
         ready, reason = self._prepare_clone(
             runtime,
             root,
@@ -2613,6 +2815,14 @@ class CodeRabbitAdapter(IntegrationAdapter):
             return runtime, None, "CODERABBIT_MANAGEMENT_BRANCH_NOT_CONFIGURED"
         remote, _branch, _upstream_ref = contract
         checkout_path = self._review_worktree_path(runtime, operation_id)
+        if not self._prove_review_worktree_ownership(
+            runtime,
+            checkout_path,
+            operation_id=operation_id,
+            expected_head=expected_head,
+            present=False,
+        ):
+            return runtime, None, "CODERABBIT_REVIEW_CHECKOUT_OWNERSHIP_UNKNOWN"
         exists = runtime.run(("--exec", "test", "-e", checkout_path), timeout=30)
         if exists.timed_out or exists.stdout_truncated or exists.stderr_truncated:
             return runtime, None, "CODERABBIT_REVIEW_CHECKOUT_OWNERSHIP_UNKNOWN"
@@ -2624,18 +2834,30 @@ class CodeRabbitAdapter(IntegrationAdapter):
         mkdir = runtime.run(("--exec", "mkdir", "-p", parent), timeout=30)
         if self._command_failed(mkdir):
             return runtime, None, "CODERABBIT_REVIEW_CHECKOUT_PARENT_UNAVAILABLE"
-        fetched = runtime.git("fetch", "--no-tags", remote, expected_head, timeout=15 * 60)
+        if self._canonical_runtime_path(runtime, parent, must_exist=True) != parent:
+            return runtime, None, "CODERABBIT_REVIEW_CHECKOUT_OWNERSHIP_UNKNOWN"
+        refs = tuple(ref for ref in (expected_base, expected_head) if ref is not None)
+        fetched = runtime.git("fetch", "--no-tags", remote, *refs, timeout=15 * 60)
         if self._command_failed(fetched):
             return runtime, None, "CODERABBIT_REVIEW_TARGET_FETCH_FAILED"
-        target = runtime.git("cat-file", "-e", f"{expected_head}^{{commit}}", timeout=30)
-        if self._command_failed(target):
-            return runtime, None, "CODERABBIT_REVIEW_TARGET_UNAVAILABLE"
+        for reference in refs:
+            target = runtime.git("cat-file", "-e", f"{reference}^{{commit}}", timeout=30)
+            if self._command_failed(target):
+                return runtime, None, "CODERABBIT_REVIEW_TARGET_UNAVAILABLE"
         added = runtime.git(
             "worktree", "add", "--detach", checkout_path, expected_head, timeout=120
         )
         if self._command_failed(added):
-            # Частично созданный worktree должен пройти общую remove/prune cleanup.
+            # Частично созданный worktree должен пройти очистку с доказательством владения.
             return runtime, checkout_path, "CODERABBIT_REVIEW_CHECKOUT_CREATE_FAILED"
+        if not self._prove_review_worktree_ownership(
+            runtime,
+            checkout_path,
+            operation_id=operation_id,
+            expected_head=expected_head,
+            present=True,
+        ):
+            return runtime, checkout_path, "CODERABBIT_REVIEW_CHECKOUT_OWNERSHIP_UNKNOWN"
         checkout_runtime = runtime.with_clone(checkout_path)
         verified, verify_reason = self._verify_clone(
             checkout_runtime, expected_head, expected_repository
@@ -2645,31 +2867,53 @@ class CodeRabbitAdapter(IntegrationAdapter):
         return checkout_runtime, checkout_path, "CODERABBIT_REVIEW_CHECKOUT_READY"
 
     def _cleanup_review_checkout(
-        self, runtime: _WslRuntime, checkout_path: str | None
+        self,
+        runtime: _WslRuntime,
+        checkout_path: str | None,
+        *,
+        operation_id: str,
+        expected_head: str,
+        base_sha: str,
+        expected_repository: str | None = None,
     ) -> tuple[bool, str]:
         """Удалить только clean owned worktree после доказанного provider exit."""
 
-        if checkout_path is None or not isinstance(runtime, _WslRuntime):
+        if checkout_path is None:
             return True, "CODERABBIT_REVIEW_CHECKOUT_NOT_APPLICABLE"
-        liveness = runtime.command("pgrep", "-x", "coderabbit", timeout=30)
-        if liveness.timed_out or liveness.stdout_truncated or liveness.stderr_truncated:
+        if not isinstance(runtime, _WslRuntime):
+            return False, "CODERABBIT_REVIEW_CHECKOUT_OWNERSHIP_UNKNOWN"
+        liveness = self._provider_liveness(runtime, checkout_path, base_sha=base_sha)
+        if liveness == "unknown":
             return False, "CODERABBIT_REVIEW_OPERATION_LIVENESS_UNKNOWN"
-        if liveness.returncode == 0:
+        if liveness == "alive":
             return False, "CODERABBIT_REVIEW_OPERATION_STILL_ALIVE"
-        if liveness.returncode not in {1, 2}:
-            return False, "CODERABBIT_REVIEW_OPERATION_LIVENESS_UNKNOWN"
+        if not self._prove_review_worktree_ownership(
+            runtime,
+            checkout_path,
+            operation_id=operation_id,
+            expected_head=expected_head,
+            present=True,
+        ):
+            return False, "CODERABBIT_REVIEW_CHECKOUT_OWNERSHIP_UNKNOWN"
         checkout_runtime = runtime.with_clone(checkout_path)
-        status = checkout_runtime.git("status", "--porcelain=v1", "--untracked-files=all")
-        if self._command_failed(status):
-            return False, "CODERABBIT_REVIEW_CHECKOUT_STATE_UNKNOWN"
-        if status.stdout.strip():
-            return False, "CODERABBIT_REVIEW_CHECKOUT_DIRTY"
+        verified, verify_reason = self._verify_clone(
+            checkout_runtime, expected_head, expected_repository
+        )
+        if not verified:
+            if verify_reason == "CODERABBIT_REVIEW_CLONE_DIRTY":
+                return False, "CODERABBIT_REVIEW_CHECKOUT_DIRTY"
+            return False, verify_reason
         removed = runtime.git("worktree", "remove", checkout_path, timeout=120)
         if self._command_failed(removed):
             return False, "CODERABBIT_REVIEW_CHECKOUT_REMOVE_FAILED"
-        pruned = runtime.git("worktree", "prune", timeout=120)
-        if self._command_failed(pruned):
-            return False, "CODERABBIT_REVIEW_CHECKOUT_PRUNE_FAILED"
+        if not self._prove_review_worktree_ownership(
+            runtime,
+            checkout_path,
+            operation_id=operation_id,
+            expected_head=expected_head,
+            present=False,
+        ):
+            return False, "CODERABBIT_REVIEW_CHECKOUT_REMOVE_UNCONFIRMED"
         exists = runtime.run(("--exec", "test", "-e", checkout_path), timeout=30)
         if exists.timed_out or exists.stdout_truncated or exists.stderr_truncated or exists.returncode not in {1}:
             return False, "CODERABBIT_REVIEW_CHECKOUT_REMOVE_UNCONFIRMED"
@@ -3637,7 +3881,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
             attempt=initial_attempt,
             substantive_iterations=iterations,
             provider_state=str(review_state.get("provider_state") or "not_observed"),
-            message="Проверяю cycle state, exact head и dedicated review clone.",
+            message="Проверяю состояние цикла, точный head и выделенную review-копию.",
         )
         review_classification = self._review_state_classification(review_state)
         if review_classification in {
@@ -3701,17 +3945,39 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 )
             )
         managed_runtime = runtime
+        if isinstance(managed_runtime, _WslRuntime):
+            try:
+                self._sync_managed_clone(
+                    root,
+                    managed_runtime,
+                    expected_repository=expected_repository,
+                )
+            except ToolingError as error:
+                return AdapterOutcome(
+                    self._record_from_error(
+                        settings,
+                        error.code.value,
+                        state=IntegrationState.INCOMPATIBLE,
+                        message=error.message,
+                    )
+                )
         runtime, checkout_path, reason = self._prepare_review_checkout(
             managed_runtime,
             root,
             operation_id=operation_id,
+            expected_base=base_sha,
             expected_head=head_sha,
             expected_repository=expected_repository,
         )
         if reason not in {"CODERABBIT_REVIEW_CHECKOUT_READY", "CODERABBIT_REVIEW_CLONE_READY"}:
             if checkout_path is not None:
                 cleaned, cleanup_reason = self._cleanup_review_checkout(
-                    managed_runtime, checkout_path
+                    managed_runtime,
+                    checkout_path,
+                    operation_id=operation_id,
+                    expected_head=head_sha,
+                    base_sha=base_sha,
+                    expected_repository=expected_repository,
                 )
                 if not cleaned:
                     self._set_review_cleanup_state(
@@ -3736,14 +4002,19 @@ class CodeRabbitAdapter(IntegrationAdapter):
             attempt=initial_attempt,
             substantive_iterations=iterations,
             provider_state="preflight",
-            message="Exact committed head подтверждён в dedicated review clone.",
+            message="Точный head commit подтверждён в выделенной review-копии.",
         )
         runtime_state, reason, runtime_diagnostics = self._runtime_preflight(runtime, command)
         if runtime_state is not IntegrationState.READY:
             cleanup_error = None
             if checkout_path is not None:
                 cleaned, cleanup_reason = self._cleanup_review_checkout(
-                    managed_runtime, checkout_path
+                    managed_runtime,
+                    checkout_path,
+                    operation_id=operation_id,
+                    expected_head=head_sha,
+                    base_sha=base_sha,
+                    expected_repository=expected_repository,
                 )
                 if not cleaned:
                     self._set_review_cleanup_state(
@@ -3865,7 +4136,12 @@ class CodeRabbitAdapter(IntegrationAdapter):
             if checkout_path is None:
                 return None
             cleaned, cleanup_reason = self._cleanup_review_checkout(
-                managed_runtime, checkout_path
+                managed_runtime,
+                checkout_path,
+                operation_id=operation_id,
+                expected_head=head_sha,
+                base_sha=base_sha,
+                expected_repository=expected_repository,
             )
             if not cleaned:
                 self._set_review_cleanup_state(

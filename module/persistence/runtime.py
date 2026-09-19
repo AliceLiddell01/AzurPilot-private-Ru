@@ -55,6 +55,34 @@ _engine_settings: DatabaseSettings | None = None
 _runtime_timezone: ZoneInfo | None = None
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 _LOGGER = logging.getLogger(__name__)
+_RUNTIME_ENV_PATH_VARIABLE = "AZURPILOT_LOCAL_ENV_PATH"
+_RUNTIME_MARKER_PATH_VARIABLE = "AZURPILOT_BACKEND_MARKER_PATH"
+
+
+def _configured_runtime_path(variable: str, default: Path) -> Path:
+    configured = os.environ.get(variable)
+    if configured is None:
+        return default
+    path = Path(configured)
+    if not path.is_absolute():
+        raise StorageConfigurationError(
+            f"{variable} должен содержать абсолютный путь."
+        )
+    return path
+
+
+def _runtime_environment_path(repository_root: Path) -> Path:
+    return _configured_runtime_path(
+        _RUNTIME_ENV_PATH_VARIABLE,
+        repository_root / DEFAULT_LOCAL_ENV_PATH,
+    )
+
+
+def _runtime_backend_marker_path(repository_root: Path) -> Path:
+    return _configured_runtime_path(
+        _RUNTIME_MARKER_PATH_VARIABLE,
+        repository_root / DEFAULT_BACKEND_MARKER_PATH,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,7 +145,7 @@ def build_read_only_persistence_composition(
         raise TypeError("environment должен содержать repository_root")
     repository_root = Path(repository_root).resolve()
     settings, marker_head, schema_marker_version = load_backend_marker_for_diagnostics(
-        repository_root / DEFAULT_BACKEND_MARKER_PATH
+        _runtime_backend_marker_path(repository_root)
     )
     marker_ready = (
         marker_head == EXPECTED_ALEMBIC_HEAD
@@ -130,7 +158,7 @@ def build_read_only_persistence_composition(
     }
     try:
         local_environment = read_local_postgres_environment(
-            repository_root / DEFAULT_LOCAL_ENV_PATH
+            _runtime_environment_path(repository_root)
         )
     except Exception as exc:  # noqa: BLE001 - read-only diagnostics сохраняют marker metadata.
         _LOGGER.warning(
@@ -192,16 +220,19 @@ def bootstrap_runtime_storage(
     with _lock:
         if _service is None:
             requested_marker = Path(marker_path)
-            if requested_marker == DEFAULT_BACKEND_MARKER_PATH:
+            configured_marker = os.environ.get(_RUNTIME_MARKER_PATH_VARIABLE)
+            if requested_marker == DEFAULT_BACKEND_MARKER_PATH and configured_marker is None:
                 resolved_marker = _REPOSITORY_ROOT / DEFAULT_BACKEND_MARKER_PATH
                 migrate_legacy_backend_marker(
                     target=resolved_marker,
                     legacy=_REPOSITORY_ROOT / LEGACY_BACKEND_MARKER_PATH,
                 )
+            elif requested_marker == DEFAULT_BACKEND_MARKER_PATH:
+                resolved_marker = _runtime_backend_marker_path(_REPOSITORY_ROOT)
             else:
                 resolved_marker = requested_marker
             local_environment = read_local_postgres_environment(
-                _REPOSITORY_ROOT / DEFAULT_LOCAL_ENV_PATH
+                _runtime_environment_path(_REPOSITORY_ROOT)
             )
             settings = DatabaseSettings.from_backend_marker(resolved_marker)
             if local_environment is not None:

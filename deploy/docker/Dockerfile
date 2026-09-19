@@ -9,14 +9,6 @@ ARG HTTP_PROXY=
 ARG HTTPS_PROXY=
 ARG NO_PROXY=127.0.0.1,localhost
 
-ENV UV_INDEX_URL=${UV_INDEX_URL}
-ENV UV_EXTRA_INDEX_URL=${UV_EXTRA_INDEX_URL}
-ENV http_proxy=${HTTP_PROXY}
-ENV https_proxy=${HTTPS_PROXY}
-ENV HTTP_PROXY=${HTTP_PROXY}
-ENV HTTPS_PROXY=${HTTPS_PROXY}
-ENV no_proxy=${NO_PROXY}
-ENV NO_PROXY=${NO_PROXY}
 ENV PATH=/app/AzurPilot/.venv/bin:${PATH}
 
 WORKDIR /app/AzurPilot
@@ -25,10 +17,10 @@ COPY --from=ghcr.io/astral-sh/uv:0.12.15@sha256:62f8c047d0a0e9ece6b53fc63df90258
 COPY pyproject.toml uv.lock ./
 
 RUN if [ -n "$HTTP_PROXY" ]; then \
+    export http_proxy="$HTTP_PROXY" https_proxy="$HTTPS_PROXY" HTTP_PROXY="$HTTP_PROXY" HTTPS_PROXY="$HTTPS_PROXY" no_proxy="$NO_PROXY" NO_PROXY="$NO_PROXY"; \
     printf 'Acquire::http::Proxy "%s";\nAcquire::https::Proxy "%s";\n' "$HTTP_PROXY" "$HTTPS_PROXY" > /etc/apt/apt.conf.d/99proxy; \
-    fi
-
-RUN apt-get update && \
+    fi; \
+    apt-get update && \
     apt-get install -y --no-install-recommends \
     git \
     adb \
@@ -37,15 +29,15 @@ RUN apt-get update && \
     libglib2.0-0 \
     openssh-client && \
     apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* /etc/apt/apt.conf.d/99proxy
 
-RUN git config --global --add safe.directory '*' && \
-    if [ -n "$HTTP_PROXY" ]; then \
-        git config --global http.proxy "$HTTP_PROXY" && \
-        git config --global https.proxy "$HTTPS_PROXY"; \
-    fi
+RUN git config --global --add safe.directory '*'
 
-RUN uv venv --relocatable --python /usr/local/bin/python .venv && \
+RUN if [ -n "$HTTP_PROXY" ]; then \
+    export http_proxy="$HTTP_PROXY" https_proxy="$HTTPS_PROXY" HTTP_PROXY="$HTTP_PROXY" HTTPS_PROXY="$HTTPS_PROXY" no_proxy="$NO_PROXY" NO_PROXY="$NO_PROXY"; \
+    fi; \
+    export UV_INDEX_URL="$UV_INDEX_URL" UV_EXTRA_INDEX_URL="$UV_EXTRA_INDEX_URL"; \
+    uv venv --relocatable --python /usr/local/bin/python .venv && \
     uv sync --frozen --no-dev --no-install-project && \
     cp /usr/local/bin/uv .venv/bin/uv && \
     cp /usr/bin/adb .venv/bin/adb && \
@@ -54,8 +46,4 @@ RUN uv venv --relocatable --python /usr/local/bin/python .venv && \
 
 COPY . .
 
-# Windows build contexts expose local secrets with permissive POSIX metadata.
-# Keep the runtime's fail-closed PostgreSQL env permission contract in the image.
-RUN if [ -f .env ]; then chmod 600 .env; fi
-
-CMD [".venv/bin/python", "gui.py"]
+CMD [".venv/bin/python", "deploy/docker/runtime_entrypoint.py"]

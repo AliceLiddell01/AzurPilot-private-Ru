@@ -264,17 +264,21 @@ def build_parser() -> argparse.ArgumentParser:
         dest="deploy_command", required=True, metavar="TARGET"
     )
     deploy_docker = deploy_subparsers.add_parser(
-        "docker", help="собрать image и запустить container через Docker CLI"
+        "docker", help="собрать образ и запустить контейнер через Docker CLI"
     )
     _add_common_options(deploy_docker, suppress_defaults=True)
-    deploy_docker.add_argument("--image", default=None, help="имя Docker image")
-    deploy_docker.add_argument("--container", default=None, help="имя Docker container")
+    deploy_docker.add_argument("--image", default=None, help="имя образа Docker")
+    deploy_docker.add_argument("--container", default=None, help="имя контейнера Docker")
     deploy_docker.add_argument("--port", type=int, default=None, help="локальный порт WebUI")
-    deploy_docker.add_argument("--source", default=None, help="каталог build context внутри repository")
+    deploy_docker.add_argument(
+        "--source",
+        default=None,
+        help="полный контекст сборки Docker внутри репозитория; относительный путь от корня",
+    )
     deploy_docker.add_argument(
         "--replace",
         action="store_true",
-        help="явно удалить только указанный существующий container перед запуском",
+        help="явно заменить только указанный существующий контейнер с откатом",
     )
     deploy_docker.add_argument(
         "--timeout",
@@ -286,9 +290,9 @@ def build_parser() -> argparse.ArgumentParser:
     deploy_docker.add_argument(
         "--readiness-timeout",
         type=float,
-        default=30.0,
+        default=180.0,
         metavar="SECONDS",
-        help="срок подтверждения готовности container",
+        help="срок подтверждения готовности контейнера",
     )
 
     delivery = subparsers.add_parser(

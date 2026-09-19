@@ -6,6 +6,7 @@ import re
 import shutil
 import time
 from pathlib import Path
+from typing import Literal
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
@@ -26,6 +27,14 @@ from .repository import RepositoryResolver
 _NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,255}$")
 _CONTAINER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 _MAX_TIMEOUT = 30 * 60
+_SOURCE_REQUIRED_PATHS = (
+    Path("pyproject.toml"),
+    Path("uv.lock"),
+    Path("gui.py"),
+    Path("deploy/docker/Dockerfile"),
+)
+_BACKEND_MARKER_PATH = Path("config/state/storage_backend.json")
+_ContainerState = Literal["found", "not_found", "unknown"]
 
 
 def _within(path: Path, parent: Path) -> bool:
@@ -108,13 +117,125 @@ class DockerDeploymentService:
 
     @staticmethod
     def _validate_source(root: Path, value: str | Path | None) -> Path:
-        candidate = canonical_path(Path(value) if value is not None else root)
-        if not candidate.is_dir() or path_has_link(candidate) or not _within(candidate, root):
+        raw = Path(value) if value is not None else Path(".")
+        candidate_input = raw if raw.is_absolute() else root / raw
+        if path_has_link(candidate_input):
             raise ToolingError(
                 ResultCode.TOOLING_PRECONDITION_FAILED,
-                "Каталог source должен существовать внутри repository root.",
+                "Исходный каталог Docker содержит symlink или reparse point.",
+            )
+        candidate = canonical_path(candidate_input)
+        if not candidate.is_dir() or not _within(candidate, root):
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "Исходный каталог Docker должен находиться внутри корня репозитория.",
             )
         return candidate
+
+    @staticmethod
+    def _validate_build_context(source: Path) -> None:
+        missing = tuple(
+            str(relative)
+            for relative in _SOURCE_REQUIRED_PATHS
+            if not (source / relative).is_file() or path_has_link(source / relative)
+        )
+        if missing:
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "Исходный каталог Docker не является полным контекстом сборки проекта.",
+            )
+
+    @staticmethod
+    def _source_identity(root: Path, source: Path) -> str:
+        return "repository_root" if source == root else "nested_build_context"
+
+    @staticmethod
+    def _runtime_passfile_path(env_path: Path) -> Path:
+        values: list[str] = []
+        for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, raw_value = line.split("=", 1)
+            if key.strip() in {
+                "AZURPILOT_POSTGRES_PGPASSFILE",
+                "AZURPILOT_POSTGRES_MIGRATOR_PGPASSFILE",
+            }:
+                value = raw_value.strip()
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+                    value = value[1:-1]
+                values.append(value)
+        if not values or any(not value or value != values[0] for value in values):
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "Локальный Docker env не содержит согласованный PGPASSFILE.",
+            )
+        return Path(values[0])
+
+    @staticmethod
+    def _runtime_secret_mount(root: Path) -> tuple[tuple[str, ...], str]:
+        """Подготовить источники только для чтения и tmpfs для запуска."""
+
+        env_path = root / ".env"
+        marker_path = root / _BACKEND_MARKER_PATH
+        if (
+            path_has_link(marker_path)
+            or not marker_path.is_file()
+            or marker_path.stat().st_size > 65_536
+        ):
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "Маркер боевого backend отсутствует или имеет небезопасный путь.",
+            )
+        mounts = [
+            "--mount",
+            "type=bind,source="
+            + str(canonical_path(marker_path))
+            + ",target=/run/secrets/storage_backend.json,readonly",
+            "--tmpfs",
+            "/run/azurpilot:noexec,nosuid,nodev",
+        ]
+        if not env_path.exists() and not env_path.is_symlink():
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "Локальный Docker env отсутствует; запуск без источника учётных данных PostgreSQL запрещён.",
+            )
+        if path_has_link(env_path) or not env_path.is_file() or env_path.stat().st_size > 65_536:
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "Локальный Docker env отсутствует или имеет небезопасный путь.",
+            )
+        try:
+            passfile_path = DockerDeploymentService._runtime_passfile_path(env_path)
+        except (OSError, UnicodeError) as exc:
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "Локальный Docker env невозможно безопасно прочитать.",
+            ) from exc
+        if not passfile_path.is_absolute():
+            passfile_path = root / passfile_path
+        if (
+            path_has_link(passfile_path)
+            or not passfile_path.is_file()
+            or passfile_path.stat().st_size > 65_536
+        ):
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "PGPASSFILE отсутствует или имеет небезопасный путь.",
+            )
+        mounts.extend(
+            (
+                "--mount",
+                "type=bind,source="
+                + str(canonical_path(env_path))
+                + ",target=/run/secrets/azurpilot.env,readonly",
+                "--mount",
+                "type=bind,source="
+                + str(canonical_path(passfile_path))
+                + ",target=/run/secrets/azurpilot.pgpass,readonly",
+            )
+        )
+        return tuple(mounts), "readonly_env_and_backend_marker"
 
     @staticmethod
     def _wait_readiness(host: str, port: int, timeout_seconds: float) -> bool:
@@ -132,24 +253,15 @@ class DockerDeploymentService:
     def _remove_container_if_present(
         self, docker: Path, root: Path, container: str
     ) -> None:
-        """Идемпотентно удалить только явно названный container и доказать его отсутствие."""
+        """Идемпотентно удалить только явно названный контейнер и доказать его отсутствие."""
 
-        inspected = self._run(
-            docker,
-            root,
-            "inspect",
-            "--type",
-            "container",
-            container,
-            timeout_seconds=30,
-            allow_nonzero=True,
-        )
-        if inspected.returncode == 1:
+        state = self._container_state(docker, root, container)
+        if state == "not_found":
             return
-        if inspected.returncode != 0:
+        if state == "unknown":
             raise ToolingError(
                 ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                "Docker не подтвердил состояние container перед cleanup.",
+                "Docker не подтвердил состояние контейнера перед очисткой.",
             )
         removed = self._run(
             docker,
@@ -163,9 +275,21 @@ class DockerDeploymentService:
         if removed.returncode not in {0, 1}:
             raise ToolingError(
                 ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                "Docker не подтвердил удаление нового container.",
+                "Docker не подтвердил удаление нового контейнера.",
             )
-        confirmed = self._run(
+        confirmed = self._container_state(docker, root, container)
+        if confirmed != "not_found":
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Docker не подтвердил отсутствие нового контейнера.",
+            )
+
+    def _container_state(
+        self, docker: Path, root: Path, container: str
+    ) -> _ContainerState:
+        """Различить найденный, отсутствующий и неоднозначный контейнер."""
+
+        inspected = self._run(
             docker,
             root,
             "inspect",
@@ -175,11 +299,35 @@ class DockerDeploymentService:
             timeout_seconds=30,
             allow_nonzero=True,
         )
-        if confirmed.returncode != 1:
-            raise ToolingError(
-                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                "Docker не подтвердил отсутствие нового container.",
-            )
+        if inspected.returncode == 0:
+            return "found"
+        if inspected.returncode != 1:
+            return "unknown"
+        if inspected.stdout_truncated or inspected.stderr_truncated:
+            return "unknown"
+        listed = self._run(
+            docker,
+            root,
+            "container",
+            "ls",
+            "--all",
+            "--filter",
+            f"name=^{container}$",
+            "--format",
+            "{{.Names}}",
+            timeout_seconds=30,
+            allow_nonzero=True,
+        )
+        if (
+            listed.returncode != 0
+            or listed.stdout_truncated
+            or listed.stderr_truncated
+        ):
+            return "unknown"
+        names = {line.strip() for line in listed.stdout.splitlines() if line.strip()}
+        if container in names:
+            return "found"
+        return "not_found"
 
     def deploy(
         self,
@@ -191,7 +339,7 @@ class DockerDeploymentService:
         source: str | Path | None = None,
         replace: bool = False,
         timeout_seconds: float = 20 * 60,
-        readiness_timeout_seconds: float = 30.0,
+        readiness_timeout_seconds: float = 180.0,
     ) -> ToolingResult[DockerDeploymentDetails, DockerDeploymentEvidence]:
         root = self.resolver.resolve(repository_root).path
         settings = load_deploy_settings(root)
@@ -201,6 +349,8 @@ class DockerDeploymentService:
         if isinstance(host_port, bool) or not isinstance(host_port, int) or not 1 <= host_port <= 65535:
             raise ToolingError(ResultCode.TOOLING_INVALID_INVOCATION, "Docker host port имеет неверное значение.")
         source_path = self._validate_source(root, source)
+        self._validate_build_context(source_path)
+        source_identity = self._source_identity(root, source_path)
         docker = self._docker()
         capability = self._run(docker, root, "info", timeout_seconds=30, allow_nonzero=True)
         if capability.returncode != 0:
@@ -208,9 +358,10 @@ class DockerDeploymentService:
                 ResultCode.TOOLING_CAPABILITY_UNAVAILABLE,
                 "Docker daemon недоступен; установщик host packages не запускается.",
             )
-        dockerfile = root / "deploy" / "docker" / "Dockerfile"
+        dockerfile = source_path / "deploy" / "docker" / "Dockerfile"
         if not dockerfile.is_file() or path_has_link(dockerfile):
             raise ToolingError(ResultCode.TOOLING_PRECONDITION_FAILED, "Канонический Dockerfile отсутствует или небезопасен.")
+        runtime_mount, runtime_secret_mode = self._runtime_secret_mount(root)
         self._run(
             docker,
             root,
@@ -223,17 +374,13 @@ class DockerDeploymentService:
             str(source_path),
             timeout_seconds=timeout_seconds,
         )
-        existing = self._run(
-            docker,
-            root,
-            "inspect",
-            "--type",
-            "container",
-            container_name,
-            timeout_seconds=30,
-            allow_nonzero=True,
-        )
-        if existing.returncode == 0 and not replace:
+        existing_state = self._container_state(docker, root, container_name)
+        if existing_state == "unknown":
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Docker не подтвердил состояние существующего контейнера.",
+            )
+        if existing_state == "found" and not replace:
             raise ToolingError(
                 ResultCode.TOOLING_OPERATION_CONFLICT,
                 "Контейнер уже существует; повторите с явным --replace.",
@@ -241,27 +388,18 @@ class DockerDeploymentService:
         replacement = False
         rollback_name: str | None = None
         existing_running = False
-        if existing.returncode == 0 and replace:
+        if existing_state == "found" and replace:
             rollback_name = self._rollback_container_name(container_name)
-            rollback_existing = self._run(
-                docker,
-                root,
-                "inspect",
-                "--type",
-                "container",
-                rollback_name,
-                timeout_seconds=30,
-                allow_nonzero=True,
-            )
-            if rollback_existing.returncode == 0:
+            rollback_state = self._container_state(docker, root, rollback_name)
+            if rollback_state == "found":
                 raise ToolingError(
                     ResultCode.TOOLING_OPERATION_CONFLICT,
-                    "Для безопасного Docker rollback уже существует резервный container.",
+                    "Для безопасного отката уже существует резервный контейнер.",
                 )
-            if rollback_existing.returncode != 1:
+            if rollback_state == "unknown":
                 raise ToolingError(
-                    ResultCode.TOOLING_INFRASTRUCTURE_FAILED,
-                    "Docker не смог проверить резервный container.",
+                    ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                    "Docker не смог доказать отсутствие резервного контейнера.",
                 )
             running = self._run(
                 docker,
@@ -271,9 +409,28 @@ class DockerDeploymentService:
                 container_name,
                 timeout_seconds=30,
             )
-            existing_running = running.stdout.strip().casefold() == "true"
+            running_state = running.stdout.strip().casefold()
+            if running_state not in {"true", "false"}:
+                raise ToolingError(
+                    ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                    "Docker не подтвердил состояние запуска существующего контейнера.",
+                )
+            existing_running = running_state == "true"
             if existing_running:
                 self._run(docker, root, "stop", container_name, timeout_seconds=120)
+                stopped = self._run(
+                    docker,
+                    root,
+                    "inspect",
+                    "--format={{.State.Running}}",
+                    container_name,
+                    timeout_seconds=30,
+                )
+                if stopped.stdout.strip().casefold() != "false":
+                    raise ToolingError(
+                        ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                        "Docker не подтвердил остановку существующего контейнера.",
+                    )
             self._run(
                 docker,
                 root,
@@ -283,14 +440,9 @@ class DockerDeploymentService:
                 timeout_seconds=120,
             )
             replacement = True
-        elif existing.returncode not in {0, 1}:
-            raise ToolingError(
-                ResultCode.TOOLING_INFRASTRUCTURE_FAILED,
-                "Docker не смог проверить существующий container.",
-            )
         new_container_attempted = False
         try:
-            # Docker daemon может успеть создать container до client timeout.
+            # Docker daemon может успеть создать контейнер до тайм-аута клиента.
             new_container_attempted = True
             self._run(
                 docker,
@@ -305,6 +457,7 @@ class DockerDeploymentService:
                 f"127.0.0.1:{host_port}:{settings.webui_port}",
                 "--workdir",
                 "/app/AzurPilot",
+                *runtime_mount,
                 image_name,
                 timeout_seconds=120,
             )
@@ -312,9 +465,9 @@ class DockerDeploymentService:
             if not readiness:
                 raise ToolingError(
                     ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                    "Docker container запущен, но локальная WebUI readiness не подтверждена.",
+                    "Контейнер Docker запущен, но локальная готовность WebUI не подтверждена.",
                 )
-        except ToolingError:
+        except ToolingError as primary_error:
             try:
                 if new_container_attempted:
                     self._remove_container_if_present(docker, root, container_name)
@@ -332,7 +485,8 @@ class DockerDeploymentService:
             except ToolingError as restore_error:
                 raise ToolingError(
                     ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                    "Новый Docker container не прошёл readiness, а прежний container не восстановлен.",
+                    "Операция Docker завершилась кодом "
+                    f"{primary_error.code.value}, а прежний контейнер не восстановлен.",
                 ) from restore_error
             raise
         if rollback_name is not None:
@@ -341,23 +495,25 @@ class DockerDeploymentService:
             ok=True,
             code=ResultCode.OK,
             state=OperationState.READY,
-            message="Docker image собран, container запущен и локальная readiness подтверждена.",
+            message="Образ Docker собран, контейнер запущен и локальная готовность подтверждена.",
             details=DockerDeploymentDetails(
                 image=image_name,
                 container=container_name,
                 port=host_port,
-                source="repository",
+                source=source_identity,
                 build_confirmed=True,
                 container_started=True,
                 readiness_confirmed=True,
                 replace_performed=replacement,
+                runtime_secret_mode=runtime_secret_mode,
             ),
             evidence=DockerDeploymentEvidence(
-                docker_cli="docker",
+                docker_cli=docker.name,
                 capability=CapabilityStatus.READY,
                 image=image_name,
                 container=container_name,
                 readiness_probe="loopback_http",
+                runtime_secret_mode=runtime_secret_mode,
             ),
         )
 

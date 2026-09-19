@@ -272,7 +272,7 @@ class DeliveryEvidence(ClosedModel):
 
 
 class DockerDeploymentDetails(ClosedModel):
-    """Типизированный результат явного развёртывания Docker image/container."""
+    """Типизированный результат явного развёртывания образа/контейнера Docker."""
 
     action: Literal["deploy"] = "deploy"
     image: str = Field(min_length=1, max_length=256)
@@ -283,6 +283,12 @@ class DockerDeploymentDetails(ClosedModel):
     container_started: bool
     readiness_confirmed: bool
     replace_performed: bool = False
+    runtime_secret_mode: Literal[
+        "not_configured",
+        "readonly_env_file",
+        "readonly_backend_marker",
+        "readonly_env_and_backend_marker",
+    ] = "not_configured"
 
 
 class DockerDeploymentEvidence(ClosedModel):
@@ -293,6 +299,12 @@ class DockerDeploymentEvidence(ClosedModel):
     image: str = Field(min_length=1, max_length=256)
     container: str = Field(min_length=1, max_length=128)
     readiness_probe: str = Field(min_length=1, max_length=80)
+    runtime_secret_mode: Literal[
+        "not_configured",
+        "readonly_env_file",
+        "readonly_backend_marker",
+        "readonly_env_and_backend_marker",
+    ] = "not_configured"
 
 
 class PullRequestIdentity(ClosedModel):
