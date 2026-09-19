@@ -33,7 +33,6 @@
 - Git, ветки, PR, merge, rollback и cleanup — `GIT-WORKFLOW.md`;
 - общие проверки и критерии готовности — `08-VERIFICATION.md`;
 - Python tooling и внешние интеграции — `11-PYTHON-TOOLING.md`;
-- Git внутри PowerShell — `POWERSHELL-GIT-RULES.md`.
 
 Не создавай в этом файле вторую копию правил этих документов.
 `MIGRATION-MAP.md` — историческая справка и не входит в обычный рабочий
@@ -87,9 +86,9 @@ Python tooling, принадлежащее репозиторию, находи�
 общий gateway/proxy в критический путь поверх существующего типизированного
 адаптера.
 
-PowerShell Start/Stop/Update/Repair/Build остаются самостоятельными
-операторскими/совместимостными путями, пока их замена не доказана по контракту
-`11-PYTHON-TOOLING.md`.
+Операции Start/Stop/Update/Repair/Build принадлежат `azurpilot.tooling` и
+вызываются через `azur`/`python -m azurpilot`; PowerShell не является
+production operator path.
 
 ## 7. Безопасность
 

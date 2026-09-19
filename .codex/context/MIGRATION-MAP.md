@@ -11,7 +11,7 @@
 | `.agent/OS-SYSTEM.md` | `06-OPERATION-SIREN.md` |
 | `.agent/ENTRY-ALAS.md`, `ENTRY-GUI.md`, `ENTRY-MCP-SERVER.md`, `INFRASTRUCTURE.md` | `02-RUNTIME-ARCHITECTURE.md`, `07-WEBUI-INFRASTRUCTURE.md` |
 | `.agent/CONVENTIONS.md`, `.cursor/rules/develop-rules.mdc` | корневой `AGENTS.md`, `08-VERIFICATION.md` |
-| проектные русские Git/PowerShell-регламенты | `GIT-WORKFLOW.md`, `POWERSHELL-GIT-RULES.md` |
+| проектные русские Git/tooling-регламенты | `GIT-WORKFLOW.md`, `11-PYTHON-TOOLING.md` |
 
 ## Не перенесено намеренно
 

@@ -77,17 +77,18 @@ gui.py
 - restart event;
 - корректное завершение Uvicorn;
 - различие между остановкой WebUI и экземпляра задачи;
-- совместимость со `Start-AzurPilot.ps1`.
+- совместимость с typed `azurpilot.tooling.lifecycle` и `azur start`.
 
-Windows lifecycle пользовательской установки симметричен:
+Windows lifecycle пользовательской установки симметричен и принадлежит
+`azurpilot.tooling.lifecycle`:
 
 ```text
-Start-AzurPilot.ps1
+azur start
   → repository-scoped mutex владельца
   → repository-scoped kernel stop event
   → project Python + gui.py
 
-Stop-AzurPilot.ps1
+azur stop
   → exact checkout/process ownership
   → stop event владельцу Start
   → bounded wait и только exact-owned fallback

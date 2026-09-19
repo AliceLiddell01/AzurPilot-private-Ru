@@ -1,5 +1,5 @@
 # docker build -t azurpilot-private-ru:local -f deploy/docker/Dockerfile .
-# docker run -v ${PWD}:/app/AzurPilot -p 25548:25548 --name AzurPilot -it --rm azurpilot-private-ru:local
+# docker run -p 25548:25548 --name AzurPilot --rm azurpilot-private-ru:local
 
 FROM python:3.14-slim-bookworm
 
@@ -53,5 +53,9 @@ RUN uv venv --relocatable --python /usr/local/bin/python .venv && \
     rm -rf /root/.cache/uv
 
 COPY . .
+
+# Windows build contexts expose local secrets with permissive POSIX metadata.
+# Keep the runtime's fail-closed PostgreSQL env permission contract in the image.
+RUN if [ -f .env ]; then chmod 600 .env; fi
 
 CMD [".venv/bin/python", "gui.py"]

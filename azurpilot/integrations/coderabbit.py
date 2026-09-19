@@ -10,7 +10,7 @@ import shutil
 import threading
 import time
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePosixPath
 
@@ -62,6 +62,9 @@ _MAX_REVIEW_ATTEMPTS = 128
 _RATE_LIMIT_MAX_SECONDS = 7 * 24 * 60 * 60
 _HEARTBEAT_INTERVAL_SECONDS = 15.0
 _STATE_FILE_NAME = "coderabbit-review.json"
+_RUNTIME_STATE_FILE_NAME = "coderabbit-runtime.json"
+_RUNTIME_STATE_SCHEMA_VERSION = 1
+_RUNTIME_OPERATION_CACHE = ".cache/azurpilot/coderabbit/reviews"
 _CYCLE_ID_RE = re.compile(CYCLE_ID_PATTERN)
 _RETRY_SOURCES = frozenset({"provider", "unknown"})
 _RATE_LIMIT_WAITING = "rate_limited_waiting"
@@ -106,6 +109,25 @@ class WslReviewEnvironment:
     review_clone: str
     coderabbit_executable: str
     repository_identity: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ManagedCloneSnapshot:
+    """Ограниченное состояние постоянного branch-attached clone CodeRabbit."""
+
+    repository_identity: str
+    origin_identity: str
+    management_branch: str
+    upstream_ref: str
+    head_sha: str | None
+    remote_head_sha: str | None
+    clean: bool
+    ahead: int
+    behind: int
+    diverged: bool
+    sync_state: str
+    ownership_state: str
+    last_sync_at: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -750,6 +772,11 @@ def _default_review_state() -> dict[str, object]:
         "findings_count": 0,
         "findings_digest": None,
         "rate_limit_hint": None,
+        "managed_clone": None,
+        "review_checkout": None,
+        "provider_liveness": None,
+        "phase": "idle",
+        "cleanup_state": "not_started",
         "previous_cycles": [],
         "provider_quota": {
             "state": "unknown",
@@ -779,6 +806,7 @@ def _state_summary(
         "cycle_id": str(state.get("current_cycle_id") or "not-started")[:80],
         "started_at": state.get("cycle_started_at"),
         "finished_at": finished_at[:40],
+        "base_sha": state.get("base_sha"),
         "substantive_iterations": int(state.get("substantive_iterations", 0)),
         "last_reviewed_head": state.get("reviewed_head"),
         "last_findings_count": int(state.get("findings_count", 0)),
@@ -839,6 +867,22 @@ class _WslRuntime:
         )
         self.runner = StructuredProcessRunner()
 
+    def with_clone(self, clone: str) -> _WslRuntime:
+        """Создать runtime для другого checkout в той же WSL identity."""
+
+        return _WslRuntime(
+            self.root,
+            self.executable,
+            distro=self.distro,
+            user=self.user,
+            home=self.home,
+            clone=clone,
+            repository_identity=self.environment.repository_identity,
+            coderabbit_executable=self.coderabbit_executable,
+            coderabbit_command=self.coderabbit_command,
+            path=self.path,
+        )
+
     def run(self, args: tuple[str, ...], *, timeout: float = 30.0) -> _WslCommandResult:
         result = self.runner.run(
             ProcessSpec(
@@ -898,6 +942,11 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 "NOT_LINUX_NATIVE",
                 "WSL2_REQUIRED",
                 "CLONE_DIRTY",
+                "MANUAL_ATTENTION_REQUIRED",
+                "WRONG_BRANCH",
+                "AHEAD",
+                "DIVERGED",
+                "ORIGIN_MISMATCH",
                 "REMOTE_MISMATCH",
                 "HEAD_MISMATCH",
                 "NOT_DETACHED",
@@ -911,6 +960,8 @@ class CodeRabbitAdapter(IntegrationAdapter):
             return IntegrationState.UNAUTHENTICATED
         if "RATE_LIMIT" in code:
             return IntegrationState.RATE_LIMITED
+        if code.endswith(("_SYNCABLE", "_DETACHED_LEGACY", "_READY")):
+            return IntegrationState.DEGRADED
         return default
 
     @staticmethod
@@ -1354,10 +1405,240 @@ class CodeRabbitAdapter(IntegrationAdapter):
             or realpath_result.stdout.strip() != clone.rstrip("/")
         ):
             return None, "CODERABBIT_REVIEW_CLONE_NOT_CANONICAL"
-        ok, reason = CodeRabbitAdapter._verify_clone_state(runtime, expected_repository)
-        if not ok:
-            return None, reason
+        # Чистота, branch attachment и ahead/behind принадлежат state machine
+        # managed clone ниже. Discovery должна оставить canonical
+        # dirty/ahead/diverged clone доступным, чтобы status/reconcile показали
+        # точную неразрушающую причину, а не общий отказ clone.
         return runtime, None
+
+    @staticmethod
+    def _load_runtime_metadata(root: Path) -> dict[str, object] | None:
+        """Прочитать только bounded machine-local ownership metadata."""
+
+        path = StateLayout.for_repository(root).path(_RUNTIME_STATE_FILE_NAME)
+        if not path.is_file():
+            return None
+        try:
+            payload = json.loads(bounded_read_text(path, max_bytes=16 * 1024))
+        except (OSError, UnicodeError, ValueError, ToolingError) as exc:
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Состояние CodeRabbit WSL runtime повреждено.",
+            ) from exc
+        if not isinstance(payload, dict) or payload.get("schema_version") != _RUNTIME_STATE_SCHEMA_VERSION:
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Состояние CodeRabbit WSL runtime имеет неизвестную схему.",
+            )
+        allowed = {
+            "schema_version",
+            "distro",
+            "linux_user",
+            "home",
+            "managed_clone",
+            "repository_identity",
+            "management_branch",
+            "upstream_ref",
+            "last_sync_at",
+            "ownership_token",
+        }
+        if set(payload) - allowed:
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Состояние CodeRabbit WSL runtime содержит неожиданные поля.",
+            )
+        for key in (
+            "distro",
+            "linux_user",
+            "home",
+            "managed_clone",
+            "repository_identity",
+            "management_branch",
+            "upstream_ref",
+            "ownership_token",
+        ):
+            value = payload.get(key)
+            if value is not None and (not isinstance(value, str) or not value.strip() or len(value) > 1024):
+                raise ToolingError(
+                    ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                    "Состояние CodeRabbit WSL runtime содержит неверное поле.",
+                )
+        return payload
+
+    @staticmethod
+    def _write_runtime_metadata(
+        root: Path,
+        *,
+        runtime: _WslRuntime,
+        repository_identity: str,
+        management_branch: str,
+        upstream_ref: str,
+        last_sync_at: str,
+    ) -> None:
+        layout = StateLayout.for_repository(root)
+        layout.ensure()
+        payload = {
+            "schema_version": _RUNTIME_STATE_SCHEMA_VERSION,
+            "distro": runtime.distro,
+            "linux_user": runtime.user,
+            "home": runtime.home,
+            "managed_clone": runtime.clone,
+            "repository_identity": repository_identity[:512],
+            "management_branch": management_branch[:256],
+            "upstream_ref": upstream_ref[:320],
+            "last_sync_at": last_sync_at[:40],
+            "ownership_token": "coderabbit-managed-clone-v1",
+        }
+        ScopedPath(layout.repository_directory).atomic_write_text(
+            _RUNTIME_STATE_FILE_NAME,
+            json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n",
+        )
+
+    @staticmethod
+    def _management_contract(root: Path) -> tuple[str, str, str] | None:
+        try:
+            from azurpilot.tooling.config import load_deploy_settings
+
+            settings = load_deploy_settings(root)
+            remote = settings.git_remote
+            branch = settings.git_branch
+        except (OSError, ToolingError, ValueError):
+            return None
+        if (
+            not _NAME_RE.fullmatch(remote)
+            or not branch
+            or branch.startswith(("/", "-"))
+            or ".." in branch
+            or "@{" in branch
+            or any(char.isspace() for char in branch)
+            or len(branch) > 256
+        ):
+            return None
+        return remote, branch, f"{remote}/{branch}"
+
+    @staticmethod
+    def _command_failed(result: _WslCommandResult) -> bool:
+        return bool(
+            result.timed_out
+            or result.stdout_truncated
+            or result.stderr_truncated
+            or result.returncode != 0
+        )
+
+    @staticmethod
+    def _parse_sha(value: str) -> str | None:
+        candidate = value.strip().splitlines()[-1].casefold() if value.strip() else ""
+        return candidate if _SHA_RE.fullmatch(candidate) else None
+
+    def _managed_clone_snapshot(
+        self,
+        root: Path,
+        runtime: _WslRuntime,
+        *,
+        expected_repository: str,
+        remote: str,
+        branch: str,
+        fetch: bool = False,
+    ) -> ManagedCloneSnapshot:
+        """Снять typed state без изменения clone, кроме явно запрошенного fetch."""
+
+        if fetch:
+            fetched = runtime.git("fetch", "--no-tags", "--prune", remote, timeout=15 * 60)
+            if self._command_failed(fetched):
+                raise ToolingError(
+                    ResultCode.TOOLING_GIT_FAILED,
+                    "WSL managed clone не смог обновить remote refs.",
+                )
+        identity_ok, identity_reason = self._verify_clone_identity(runtime, expected_repository)
+        if not identity_ok:
+            raise ToolingError(ResultCode.TOOLING_REMOTE_IDENTITY_UNVERIFIED, identity_reason)
+        status = runtime.git("status", "--porcelain=v1", "--untracked-files=all")
+        head_result = runtime.git("rev-parse", "HEAD")
+        branch_result = runtime.git("branch", "--show-current")
+        if any(self._command_failed(item) for item in (status, head_result, branch_result)):
+            raise ToolingError(ResultCode.TOOLING_VERIFICATION_UNKNOWN, "WSL managed clone state не удалось прочитать.")
+        head_sha = self._parse_sha(head_result.stdout)
+        if head_sha is None:
+            raise ToolingError(ResultCode.TOOLING_VERIFICATION_UNKNOWN, "WSL managed clone HEAD имеет неверный формат.")
+        remote_result = runtime.git("rev-parse", f"refs/remotes/{remote}/{branch}")
+        remote_head = self._parse_sha(remote_result.stdout) if not self._command_failed(remote_result) else None
+        clean = not bool(status.stdout.strip())
+        current_branch = branch_result.stdout.strip()
+        ahead = behind = 0
+        diverged = False
+        if remote_head is not None:
+            counts = runtime.git("rev-list", "--left-right", "--count", "HEAD..." + f"refs/remotes/{remote}/{branch}")
+            if not self._command_failed(counts):
+                fields = counts.stdout.strip().split()
+                if len(fields) == 2 and all(item.isdigit() for item in fields):
+                    ahead, behind = int(fields[0]), int(fields[1])
+                    diverged = ahead > 0 and behind > 0
+        upstream_result = runtime.git(
+            "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"
+        )
+        upstream = upstream_result.stdout.strip() if not self._command_failed(upstream_result) else ""
+        upstream_ref = f"{remote}/{branch}"
+        if not clean:
+            sync_state = "DIRTY"
+            ownership_state = "MANUAL_ATTENTION_REQUIRED"
+        elif diverged:
+            sync_state = "DIVERGED"
+            ownership_state = "MANUAL_ATTENTION_REQUIRED"
+        elif ahead:
+            sync_state = "AHEAD"
+            ownership_state = "MANUAL_ATTENTION_REQUIRED"
+        elif current_branch and current_branch != branch:
+            sync_state = "WRONG_BRANCH"
+            ownership_state = "MANUAL_ATTENTION_REQUIRED"
+        elif not current_branch:
+            sync_state = "DETACHED_LEGACY"
+            ownership_state = "ADOPTABLE"
+        elif remote_head is None:
+            sync_state = "REMOTE_UNAVAILABLE"
+            ownership_state = "MANUAL_ATTENTION_REQUIRED"
+        elif behind:
+            sync_state = "SYNCABLE"
+            ownership_state = "ADOPTABLE"
+        elif upstream != upstream_ref:
+            sync_state = "WRONG_UPSTREAM"
+            ownership_state = "ADOPTABLE"
+        else:
+            sync_state = "READY"
+            ownership_state = "ADOPTABLE"
+        metadata = self._load_runtime_metadata(root)
+        if metadata is not None:
+            expected_values = {
+                "distro": runtime.distro,
+                "linux_user": runtime.user,
+                "home": runtime.home,
+                "managed_clone": runtime.clone,
+                "repository_identity": expected_repository,
+                "management_branch": branch,
+                "upstream_ref": upstream_ref,
+            }
+            if all(metadata.get(key) == value for key, value in expected_values.items()):
+                ownership_state = "OWNED" if ownership_state != "MANUAL_ATTENTION_REQUIRED" else ownership_state
+            elif ownership_state != "MANUAL_ATTENTION_REQUIRED":
+                ownership_state = "MANUAL_ATTENTION_REQUIRED"
+        return ManagedCloneSnapshot(
+            repository_identity=expected_repository,
+            origin_identity=expected_repository,
+            management_branch=branch,
+            upstream_ref=upstream_ref,
+            head_sha=head_sha,
+            remote_head_sha=remote_head,
+            clean=clean,
+            ahead=ahead,
+            behind=behind,
+            diverged=diverged,
+            sync_state=sync_state,
+            ownership_state=ownership_state,
+            last_sync_at=(
+                str(metadata.get("last_sync_at"))
+                if metadata is not None and metadata.get("last_sync_at") is not None
+                else None
+            ),
+        )
 
     @staticmethod
     def _configured_runtime(
@@ -1366,6 +1647,14 @@ class CodeRabbitAdapter(IntegrationAdapter):
         executable = shutil.which("wsl.exe") or shutil.which("wsl")
         configured_distro = settings.get("wsl_distribution")
         clone = settings.get("review_clone")
+        try:
+            runtime_metadata = CodeRabbitAdapter._load_runtime_metadata(root)
+        except ToolingError:
+            return None, "CODERABBIT_RUNTIME_STATE_UNAVAILABLE"
+        if clone is None and runtime_metadata is not None:
+            clone = runtime_metadata.get("managed_clone")
+            if configured_distro is None:
+                configured_distro = runtime_metadata.get("distro")
         if executable is None:
             return None, "CODERABBIT_WSL_UNAVAILABLE"
         if clone is not None and (
@@ -1409,6 +1698,21 @@ class CodeRabbitAdapter(IntegrationAdapter):
             if not clones:
                 return None, discovery_error or "CODERABBIT_REVIEW_CLONE_NOT_CONFIGURED"
             if len(clones) > 1:
+                selected: list[_WslRuntime] = []
+                for candidate_clone in clones:
+                    candidate_runtime, _candidate_failure = CodeRabbitAdapter._candidate_environment(
+                        root, executable, candidate, candidate_clone, settings
+                    )
+                    if candidate_runtime is None:
+                        continue
+                    branch_result = candidate_runtime.git("branch", "--show-current")
+                    if (
+                        not CodeRabbitAdapter._command_failed(branch_result)
+                        and not branch_result.stdout.strip()
+                    ):
+                        selected.append(candidate_runtime)
+                if len(selected) == 1:
+                    return selected[0], None
                 return None, "CODERABBIT_REVIEW_CLONE_AMBIGUOUS"
             runtime, failure = CodeRabbitAdapter._candidate_environment(
                 root, executable, candidate, clones[0], settings
@@ -1428,9 +1732,40 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 )
                 continue
             if len(clones) > 1:
-                return None, "CODERABBIT_REVIEW_CLONE_AMBIGUOUS"
-            canonical_candidates.append((candidate, clones[0]))
+                detached_clones: list[str] = []
+                for candidate_clone in clones:
+                    candidate_runtime, _failure = CodeRabbitAdapter._candidate_environment(
+                        root, executable, candidate, candidate_clone, settings
+                    )
+                    if candidate_runtime is None:
+                        continue
+                    branch_result = candidate_runtime.git("branch", "--show-current")
+                    if (
+                        not CodeRabbitAdapter._command_failed(branch_result)
+                        and not branch_result.stdout.strip()
+                    ):
+                        detached_clones.append(candidate_clone)
+                if len(detached_clones) != 1:
+                    return None, "CODERABBIT_REVIEW_CLONE_AMBIGUOUS"
+                canonical_candidates.append((candidate, detached_clones[0]))
+            else:
+                canonical_candidates.append((candidate, clones[0]))
         if len(canonical_candidates) > 1:
+            detached: list[_WslRuntime] = []
+            for candidate, candidate_clone in canonical_candidates:
+                candidate_runtime, _failure = CodeRabbitAdapter._candidate_environment(
+                    root, executable, candidate, candidate_clone, settings
+                )
+                if candidate_runtime is None:
+                    continue
+                branch_result = candidate_runtime.git("branch", "--show-current")
+                if (
+                    not CodeRabbitAdapter._command_failed(branch_result)
+                    and not branch_result.stdout.strip()
+                ):
+                    detached.append(candidate_runtime)
+            if len(detached) == 1:
+                return detached[0], None
             return None, "CODERABBIT_REVIEW_CLONE_AMBIGUOUS"
         if canonical_candidates:
             candidate, selected_clone = canonical_candidates[0]
@@ -1454,12 +1789,13 @@ class CodeRabbitAdapter(IntegrationAdapter):
         *,
         state: IntegrationState = IntegrationState.UNAVAILABLE,
         diagnostics: tuple[str, ...] = (),
+        message: str | None = None,
     ) -> IntegrationRecord:
         return build_record(
             self.name,
             state,
             code,
-            "Прямой CodeRabbit WSL runtime не подтверждён.",
+            message or "Прямой CodeRabbit WSL runtime не подтверждён.",
             build_evidence(
                 config=settings,
                 credential=CredentialRef(),
@@ -1467,6 +1803,199 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 reachable=False,
                 diagnostics=diagnostics,
             ),
+        )
+
+    def _sync_managed_clone(
+        self,
+        root: Path,
+        runtime: _WslRuntime,
+        *,
+        expected_repository: str,
+    ) -> ManagedCloneSnapshot:
+        """Синхронизировать только доказанно безопасный managed clone."""
+
+        contract = self._management_contract(root)
+        if contract is None:
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "Deploy Git config не содержит безопасной management branch.",
+            )
+        remote, branch, upstream_ref = contract
+        snapshot = self._managed_clone_snapshot(
+            root,
+            runtime,
+            expected_repository=expected_repository,
+            remote=remote,
+            branch=branch,
+            fetch=True,
+        )
+        if not snapshot.clean:
+            raise ToolingError(
+                ResultCode.TOOLING_OPERATION_CONFLICT,
+                "WSL managed clone изменён; автоматическое восстановление запрещено.",
+            )
+        if snapshot.ahead or snapshot.diverged:
+            code = (
+                ResultCode.TOOLING_UPDATE_DIVERGED
+                if snapshot.diverged
+                else ResultCode.TOOLING_UPDATE_LOCAL_AHEAD
+            )
+            raise ToolingError(code, "WSL managed clone содержит локальные commits; требуется ручное решение.")
+        if snapshot.remote_head_sha is None:
+            raise ToolingError(
+                ResultCode.TOOLING_REMOTE_REF_CONFLICT,
+                "Management branch отсутствует на настроенном remote.",
+            )
+
+        branch_result = runtime.git("branch", "--show-current")
+        if self._command_failed(branch_result):
+            raise ToolingError(ResultCode.TOOLING_GIT_FAILED, "Не удалось определить branch WSL managed clone.")
+        current_branch = branch_result.stdout.strip()
+        if current_branch != branch:
+            local_branch = runtime.git(
+                "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"
+            )
+            if local_branch.returncode not in {0, 1} or local_branch.timed_out or local_branch.stdout_truncated or local_branch.stderr_truncated:
+                raise ToolingError(ResultCode.TOOLING_GIT_FAILED, "Не удалось проверить management branch WSL clone.")
+            if local_branch.returncode == 0:
+                local_head_result = runtime.git("rev-parse", f"refs/heads/{branch}")
+                local_counts = runtime.git(
+                    "rev-list", "--left-right", "--count", f"refs/heads/{branch}...{upstream_ref}"
+                )
+                fields = local_counts.stdout.strip().split()
+                if (
+                    self._command_failed(local_head_result)
+                    or self._command_failed(local_counts)
+                    or len(fields) != 2
+                    or not all(item.isdigit() for item in fields)
+                    or int(fields[0]) > 0
+                ):
+                    raise ToolingError(
+                        ResultCode.TOOLING_UPDATE_LOCAL_AHEAD,
+                        "Локальная management branch содержит commits вне remote; recovery остановлен.",
+                    )
+                switched = runtime.git("switch", branch, timeout=120)
+            else:
+                switched = runtime.git(
+                    "switch", "--create", branch, "--track", upstream_ref, timeout=120
+                )
+            if self._command_failed(switched):
+                raise ToolingError(ResultCode.TOOLING_GIT_FAILED, "Не удалось безопасно привязать management branch WSL clone.")
+        else:
+            upstream = runtime.git(
+                "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"
+            )
+            if self._command_failed(upstream) or upstream.stdout.strip() != upstream_ref:
+                tracked = runtime.git("branch", "--set-upstream-to", upstream_ref, branch)
+                if self._command_failed(tracked):
+                    raise ToolingError(ResultCode.TOOLING_GIT_FAILED, "Не удалось подтвердить upstream management branch.")
+
+        current = runtime.git("rev-parse", "HEAD")
+        if self._command_failed(current):
+            raise ToolingError(ResultCode.TOOLING_GIT_FAILED, "Не удалось прочитать HEAD WSL clone.")
+        current_sha = self._parse_sha(current.stdout)
+        if current_sha != snapshot.remote_head_sha:
+            merged = runtime.git("merge", "--ff-only", upstream_ref, timeout=15 * 60)
+            if self._command_failed(merged):
+                raise ToolingError(
+                    ResultCode.TOOLING_UPDATE_DIVERGED,
+                    "WSL managed clone не прошёл безопасный fast-forward.",
+                )
+        final = self._managed_clone_snapshot(
+            root,
+            runtime,
+            expected_repository=expected_repository,
+            remote=remote,
+            branch=branch,
+            fetch=False,
+        )
+        if (
+            not final.clean
+            or final.management_branch != branch
+            or final.remote_head_sha is None
+            or final.head_sha != final.remote_head_sha
+            or final.upstream_ref != upstream_ref
+            or final.ahead
+            or final.behind
+            or final.diverged
+        ):
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Постусловие WSL managed clone не подтверждено.",
+            )
+        now = datetime.now(UTC).isoformat(timespec="seconds")
+        self._write_runtime_metadata(
+            root,
+            runtime=runtime,
+            repository_identity=expected_repository,
+            management_branch=branch,
+            upstream_ref=upstream_ref,
+            last_sync_at=now,
+        )
+        return replace(final, ownership_state="OWNED", last_sync_at=now)
+
+    def reconcile(self, root: Path, config: IntegrationConfig) -> AdapterOutcome:
+        """Явно принять ownership и согласовать persistent WSL clone."""
+
+        settings = self._settings(config)
+        runtime, error_code = self._configured_runtime(root, settings)
+        if runtime is None:
+            return AdapterOutcome(
+                self._record_from_error(
+                    settings,
+                    error_code or "CODERABBIT_RUNTIME_UNAVAILABLE",
+                    state=self._state_for_code(error_code or "CODERABBIT_RUNTIME_UNAVAILABLE"),
+                    message="CodeRabbit WSL managed clone не выбран; reconcile не выполнялся.",
+                )
+            )
+        expected_repository = self._expected_repository(root, settings)
+        if expected_repository is None:
+            return AdapterOutcome(
+                self._record_from_error(
+                    settings,
+                    "CODERABBIT_REPOSITORY_NOT_CONFIGURED",
+                    state=IntegrationState.NOT_CONFIGURED,
+                    message="Canonical repository identity для CodeRabbit не настроена.",
+                )
+            )
+        try:
+            snapshot = self._sync_managed_clone(
+                root, runtime, expected_repository=expected_repository
+            )
+        except ToolingError as error:
+            code = error.code.value
+            state = IntegrationState.INCOMPATIBLE
+            if error.code in {ResultCode.TOOLING_CAPABILITY_UNAVAILABLE, ResultCode.TOOLING_REMOTE_REF_CONFLICT}:
+                state = IntegrationState.UNAVAILABLE
+            return AdapterOutcome(
+                self._record_from_error(
+                    settings,
+                    code,
+                    state=state,
+                    diagnostics=(f"managed_clone_state={code}",),
+                    message=error.message,
+                )
+            )
+        diagnostics = (
+            "managed_clone_state=READY",
+            f"managed_clone_sync_at={snapshot.last_sync_at or 'unknown'}",
+            f"management_branch={snapshot.management_branch}",
+            f"upstream_ref={snapshot.upstream_ref}",
+        )
+        return AdapterOutcome(
+            build_record(
+                self.name,
+                IntegrationState.READY,
+                "CODERABBIT_MANAGED_CLONE_RECONCILED",
+                "WSL managed clone привязан к management branch и подтверждён.",
+                build_evidence(
+                    config=settings,
+                    credential=CredentialRef(),
+                    configured=True,
+                    reachable=True,
+                    diagnostics=diagnostics,
+                ),
+            )
         )
 
     @staticmethod
@@ -1707,6 +2236,26 @@ class CodeRabbitAdapter(IntegrationAdapter):
             return AdapterOutcome(self._record_from_error(settings, "CODERABBIT_REVIEW_OPERATION_STILL_ALIVE", state=IntegrationState.INCOMPATIBLE, diagnostics=("provider_process_present=true",)))
         if probe.returncode not in {1, 2}:
             return AdapterOutcome(self._record_from_error(settings, "CODERABBIT_REVIEW_OPERATION_LIVENESS_UNKNOWN", state=IntegrationState.INCOMPATIBLE))
+        checkout_path = state.get("review_checkout")
+        if checkout_path is not None and not isinstance(checkout_path, str):
+            return AdapterOutcome(
+                self._record_from_error(
+                    settings,
+                    "CODERABBIT_REVIEW_CHECKOUT_STATE_UNKNOWN",
+                    state=IntegrationState.INCOMPATIBLE,
+                )
+            )
+        if isinstance(checkout_path, str):
+            cleaned, cleanup_reason = self._cleanup_review_checkout(runtime, checkout_path)
+            if not cleaned:
+                return AdapterOutcome(
+                    self._record_from_error(
+                        settings,
+                        cleanup_reason,
+                        state=IntegrationState.INCOMPATIBLE,
+                        diagnostics=("provider_process_absent=true",),
+                    )
+                )
         now = datetime.now(UTC).isoformat(timespec="seconds")
         previous = list(state.get("previous_cycles") or [])
         previous.append({"cycle_id": state.get("current_cycle_id", "not-started"), "started_at": state.get("started_at"), "finished_at": now, "last_reviewed_head": None, "terminal_reason": "external_interruption_recovered", "provider_state": "interrupted"})
@@ -1718,6 +2267,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
             complete_received=False, last_event_type="recovery", reviewed_head=None, cycle_status="recovered", previous_cycles=previous,
             recovery={"reason": "external_interruption", "operation_id": operation_id, "cycle_id": str(state.get("current_cycle_id") or "not-started"), "head": state.get("last_head"), "base_sha": state.get("base_sha"), "substantive_iterations": int(state.get("substantive_iterations", 0)), "verified_at": now},
         )
+        self._set_review_cleanup_state(root, state="removed", checkout_path=None)
         return AdapterOutcome(self._record_from_error(settings, "CODERABBIT_REVIEW_RECOVERED", state=IntegrationState.READY, diagnostics=("provider_process_absent=true",)))
 
     @staticmethod
@@ -1813,9 +2363,12 @@ class CodeRabbitAdapter(IntegrationAdapter):
             "incomplete_unknown",
             "rate_limited",
         }:
+            active_review = review_classification == "active"
             return self._record_from_error(
                 settings,
-                "CODERABBIT_REVIEW_RECOVERY_REQUIRED"
+                "CODERABBIT_ACTIVE_REVIEW"
+                if active_review
+                else "CODERABBIT_REVIEW_RECOVERY_REQUIRED"
                 if review_classification != "rate_limited"
                 else "CODERABBIT_RATE_LIMITED",
                 state=IntegrationState.RATE_LIMITED
@@ -1824,13 +2377,71 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 diagnostics=inventory_diagnostics
                 + self._review_state_diagnostics(review_state),
             )
+        contract = self._management_contract(root)
+        if contract is None:
+            return self._record_from_error(
+                settings,
+                "CODERABBIT_MANAGEMENT_BRANCH_NOT_CONFIGURED",
+                state=IntegrationState.NOT_CONFIGURED,
+                diagnostics=inventory_diagnostics,
+                message="Deploy Git config не содержит management branch для WSL clone.",
+            )
+        remote, branch, _upstream_ref = contract
+        expected_repository = self._expected_repository(root, settings)
+        if expected_repository is None:
+            return self._record_from_error(
+                settings,
+                "CODERABBIT_REPOSITORY_NOT_CONFIGURED",
+                state=IntegrationState.NOT_CONFIGURED,
+                diagnostics=inventory_diagnostics,
+                message="Canonical repository identity для CodeRabbit не настроена.",
+            )
+        try:
+            managed_snapshot = self._managed_clone_snapshot(
+                root,
+                runtime,
+                expected_repository=expected_repository,
+                remote=remote,
+                branch=branch,
+            )
+        except ToolingError as error:
+            return self._record_from_error(
+                settings,
+                "CODERABBIT_MANAGED_CLONE_STATE_UNAVAILABLE",
+                state=IntegrationState.UNKNOWN,
+                diagnostics=inventory_diagnostics + (f"managed_clone_error={error.code.value}",),
+                message=error.message,
+            )
+        managed_diagnostics = inventory_diagnostics + (
+            f"managed_clone_state={managed_snapshot.sync_state}",
+            f"managed_clone_ownership={managed_snapshot.ownership_state}",
+            f"managed_clone_clean={str(managed_snapshot.clean).lower()}",
+            f"managed_clone_ahead={managed_snapshot.ahead}",
+            f"managed_clone_behind={managed_snapshot.behind}",
+        )
+        if managed_snapshot.sync_state != "READY":
+            reason = "CODERABBIT_MANAGED_CLONE_" + managed_snapshot.sync_state
+            return self._record_from_error(
+                settings,
+                reason,
+                state=(
+                    IntegrationState.DEGRADED
+                    if managed_snapshot.sync_state in {"SYNCABLE", "DETACHED_LEGACY", "WRONG_UPSTREAM"}
+                    else IntegrationState.INCOMPATIBLE
+                ),
+                diagnostics=managed_diagnostics,
+                message=(
+                    "WSL managed clone готов, но требует явного reconcile: "
+                    f"{managed_snapshot.sync_state}."
+                ),
+            )
         command = runtime.coderabbit_command
         runtime_state, reason, runtime_diagnostics = self._runtime_preflight(
             runtime, command
         )
         diagnostics = _bounded_diagnostics(
             self._review_state_diagnostics(review_state),
-            inventory_diagnostics,
+            managed_diagnostics,
             runtime_diagnostics,
         )
         if runtime_state is not IntegrationState.READY:
@@ -1953,7 +2564,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
         expected_head: str,
         expected_repository: str,
     ) -> tuple[bool, str]:
-        """Безопасно подготовить clean dedicated clone к exact committed head."""
+        """Проверить persistent clone без изменения его branch attachment."""
 
         identity_ok, identity_reason = self._verify_clone_identity(
             runtime, expected_repository
@@ -1963,39 +2574,130 @@ class CodeRabbitAdapter(IntegrationAdapter):
         ready, reason = self._verify_clone_state(runtime, expected_repository)
         if not ready:
             return False, reason
-        current_head = runtime.git("rev-parse", "HEAD")
-        current = current_head.stdout.strip().casefold()
-        if current == expected_head:
-            return self._verify_clone(runtime, expected_head, expected_repository)
-        fetched = runtime.git(
-            "fetch", "--no-tags", "origin", expected_head, timeout=15 * 60
+        return True, "CODERABBIT_MANAGED_CLONE_READY"
+
+    @staticmethod
+    def _review_worktree_path(runtime: _WslRuntime, operation_id: str) -> str:
+        if not operation_id.startswith("coderabbit-") or not _NAME_RE.fullmatch(operation_id):
+            raise ToolingError(ResultCode.TOOLING_INVALID_INVOCATION, "CodeRabbit operation id имеет неверный формат.")
+        home = PurePosixPath(runtime.home)
+        if not home.is_absolute() or ".." in home.parts:
+            raise ToolingError(ResultCode.TOOLING_PRECONDITION_FAILED, "WSL HOME имеет небезопасный формат.")
+        return (home / _RUNTIME_OPERATION_CACHE / operation_id).as_posix()
+
+    def _prepare_review_checkout(
+        self,
+        runtime: _WslRuntime,
+        root: Path,
+        *,
+        operation_id: str,
+        expected_head: str,
+        expected_repository: str,
+    ) -> tuple[_WslRuntime, str | None, str]:
+        """Подготовить exact detached linked worktree, не изменяя persistent clone."""
+
+        # Сохраняем возможность unit-тестировать provider policy маленьким fake
+        # runtime; реальный WSL путь всегда проходит typed worktree flow ниже.
+        if not isinstance(runtime, _WslRuntime):
+            return runtime, None, "CODERABBIT_REVIEW_CLONE_READY"
+        ready, reason = self._prepare_clone(
+            runtime,
+            root,
+            expected_head=expected_head,
+            expected_repository=expected_repository,
         )
-        if (
-            fetched.timed_out
-            or fetched.stdout_truncated
-            or fetched.stderr_truncated
-            or fetched.returncode != 0
-        ):
-            return False, "CODERABBIT_REVIEW_TARGET_FETCH_FAILED"
-        target = runtime.git(
-            "cat-file", "-e", f"{expected_head}^{{commit}}", timeout=30
+        if not ready:
+            return runtime, None, reason
+        contract = self._management_contract(root)
+        if contract is None:
+            return runtime, None, "CODERABBIT_MANAGEMENT_BRANCH_NOT_CONFIGURED"
+        remote, _branch, _upstream_ref = contract
+        checkout_path = self._review_worktree_path(runtime, operation_id)
+        exists = runtime.run(("--exec", "test", "-e", checkout_path), timeout=30)
+        if exists.timed_out or exists.stdout_truncated or exists.stderr_truncated:
+            return runtime, None, "CODERABBIT_REVIEW_CHECKOUT_OWNERSHIP_UNKNOWN"
+        if exists.returncode == 0:
+            return runtime, None, "CODERABBIT_REVIEW_CHECKOUT_ALREADY_EXISTS"
+        if exists.returncode != 1:
+            return runtime, None, "CODERABBIT_REVIEW_CHECKOUT_OWNERSHIP_UNKNOWN"
+        parent = PurePosixPath(checkout_path).parent.as_posix()
+        mkdir = runtime.run(("--exec", "mkdir", "-p", parent), timeout=30)
+        if self._command_failed(mkdir):
+            return runtime, None, "CODERABBIT_REVIEW_CHECKOUT_PARENT_UNAVAILABLE"
+        fetched = runtime.git("fetch", "--no-tags", remote, expected_head, timeout=15 * 60)
+        if self._command_failed(fetched):
+            return runtime, None, "CODERABBIT_REVIEW_TARGET_FETCH_FAILED"
+        target = runtime.git("cat-file", "-e", f"{expected_head}^{{commit}}", timeout=30)
+        if self._command_failed(target):
+            return runtime, None, "CODERABBIT_REVIEW_TARGET_UNAVAILABLE"
+        added = runtime.git(
+            "worktree", "add", "--detach", checkout_path, expected_head, timeout=120
         )
-        if (
-            target.timed_out
-            or target.stdout_truncated
-            or target.stderr_truncated
-            or target.returncode != 0
-        ):
-            return False, "CODERABBIT_REVIEW_TARGET_UNAVAILABLE"
-        checkout = runtime.git("checkout", "--detach", expected_head, timeout=120)
-        if (
-            checkout.timed_out
-            or checkout.stdout_truncated
-            or checkout.stderr_truncated
-            or checkout.returncode != 0
-        ):
-            return False, "CODERABBIT_REVIEW_CLONE_PREPARE_FAILED"
-        return self._verify_clone(runtime, expected_head, expected_repository)
+        if self._command_failed(added):
+            # Частично созданный worktree должен пройти общую remove/prune cleanup.
+            return runtime, checkout_path, "CODERABBIT_REVIEW_CHECKOUT_CREATE_FAILED"
+        checkout_runtime = runtime.with_clone(checkout_path)
+        verified, verify_reason = self._verify_clone(
+            checkout_runtime, expected_head, expected_repository
+        )
+        if not verified:
+            return runtime, checkout_path, verify_reason
+        return checkout_runtime, checkout_path, "CODERABBIT_REVIEW_CHECKOUT_READY"
+
+    def _cleanup_review_checkout(
+        self, runtime: _WslRuntime, checkout_path: str | None
+    ) -> tuple[bool, str]:
+        """Удалить только clean owned worktree после доказанного provider exit."""
+
+        if checkout_path is None or not isinstance(runtime, _WslRuntime):
+            return True, "CODERABBIT_REVIEW_CHECKOUT_NOT_APPLICABLE"
+        liveness = runtime.command("pgrep", "-x", "coderabbit", timeout=30)
+        if liveness.timed_out or liveness.stdout_truncated or liveness.stderr_truncated:
+            return False, "CODERABBIT_REVIEW_OPERATION_LIVENESS_UNKNOWN"
+        if liveness.returncode == 0:
+            return False, "CODERABBIT_REVIEW_OPERATION_STILL_ALIVE"
+        if liveness.returncode not in {1, 2}:
+            return False, "CODERABBIT_REVIEW_OPERATION_LIVENESS_UNKNOWN"
+        checkout_runtime = runtime.with_clone(checkout_path)
+        status = checkout_runtime.git("status", "--porcelain=v1", "--untracked-files=all")
+        if self._command_failed(status):
+            return False, "CODERABBIT_REVIEW_CHECKOUT_STATE_UNKNOWN"
+        if status.stdout.strip():
+            return False, "CODERABBIT_REVIEW_CHECKOUT_DIRTY"
+        removed = runtime.git("worktree", "remove", checkout_path, timeout=120)
+        if self._command_failed(removed):
+            return False, "CODERABBIT_REVIEW_CHECKOUT_REMOVE_FAILED"
+        pruned = runtime.git("worktree", "prune", timeout=120)
+        if self._command_failed(pruned):
+            return False, "CODERABBIT_REVIEW_CHECKOUT_PRUNE_FAILED"
+        exists = runtime.run(("--exec", "test", "-e", checkout_path), timeout=30)
+        if exists.timed_out or exists.stdout_truncated or exists.stderr_truncated or exists.returncode not in {1}:
+            return False, "CODERABBIT_REVIEW_CHECKOUT_REMOVE_UNCONFIRMED"
+        return True, "CODERABBIT_REVIEW_CHECKOUT_REMOVED"
+
+    def _set_review_cleanup_state(
+        self,
+        root: Path,
+        *,
+        state: str,
+        checkout_path: str | None,
+        provider_liveness: str = "verified_absent",
+    ) -> None:
+        payload = self._load_review_state(root)
+        payload["cleanup_state"] = state
+        payload["review_checkout"] = checkout_path
+        payload["provider_liveness"] = provider_liveness
+        payload["phase"] = "cleanup_complete" if state == "removed" else "recovery_required"
+        self._validate_review_state(payload)
+        self._write_state(root, payload)
+
+    @staticmethod
+    def _cleanup_liveness(cleanup_reason: str) -> str:
+        if cleanup_reason == "CODERABBIT_REVIEW_OPERATION_STILL_ALIVE":
+            return "alive"
+        if cleanup_reason == "CODERABBIT_REVIEW_OPERATION_LIVENESS_UNKNOWN":
+            return "unknown"
+        return "verified_absent"
 
     def _auth_ready(self, runtime: _WslRuntime, command: str) -> tuple[bool, str]:
         result = runtime.command(
@@ -2345,6 +3047,11 @@ class CodeRabbitAdapter(IntegrationAdapter):
             "last_event_type",
             "findings_digest",
             "rate_limit_hint",
+            "managed_clone",
+            "review_checkout",
+            "provider_liveness",
+            "phase",
+            "cleanup_state",
             "updated_at",
         ):
             value = payload.get(key)
@@ -2376,6 +3083,26 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 ResultCode.TOOLING_VERIFICATION_UNKNOWN,
                 "Идентификатор операции CodeRabbit повреждён.",
             )
+        for key in ("managed_clone", "review_checkout"):
+            value = payload.get(key)
+            if value is not None and (
+                not isinstance(value, str)
+                or not value.startswith("/")
+                or "\x00" in value
+                or ".." in PurePosixPath(value).parts
+                or len(value) > 1024
+            ):
+                raise ToolingError(
+                    ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                    "Путь CodeRabbit runtime state повреждён.",
+                )
+        for key in ("phase", "cleanup_state", "provider_liveness"):
+            value = payload.get(key)
+            if value is not None and (not isinstance(value, str) or len(value) > 80):
+                raise ToolingError(
+                    ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                    "Фаза CodeRabbit runtime state повреждена.",
+                )
         if payload.get("active") and payload.get("started_at") is None:
             raise ToolingError(
                 ResultCode.TOOLING_VERIFICATION_UNKNOWN,
@@ -2445,20 +3172,19 @@ class CodeRabbitAdapter(IntegrationAdapter):
                     ResultCode.TOOLING_VERIFICATION_UNKNOWN,
                     "Идентификатор исторического cycle CodeRabbit повреждён.",
                 )
-            for key in ("started_at", "finished_at", "last_reviewed_head", "terminal_reason", "provider_state"):
+            for key in ("started_at", "finished_at", "base_sha", "last_reviewed_head", "terminal_reason", "provider_state"):
                 value = summary.get(key)
                 if value is not None and (not isinstance(value, str) or len(value) > 512):
                     raise ToolingError(
                         ResultCode.TOOLING_VERIFICATION_UNKNOWN,
                         "Историческое поле CodeRabbit повреждено.",
                     )
-            if summary.get("last_reviewed_head") is not None and _SHA_RE.fullmatch(
-                str(summary["last_reviewed_head"])
-            ) is None:
-                raise ToolingError(
-                    ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                    "Исторический reviewed head CodeRabbit повреждён.",
-                )
+            for key, message in (
+                ("base_sha", "Исторический base SHA CodeRabbit повреждён."),
+                ("last_reviewed_head", "Исторический reviewed head CodeRabbit повреждён."),
+            ):
+                if summary.get(key) is not None and _SHA_RE.fullmatch(str(summary[key])) is None:
+                    raise ToolingError(ResultCode.TOOLING_VERIFICATION_UNKNOWN, message)
         quota = payload.get("provider_quota")
         if not isinstance(quota, dict):
             raise ToolingError(
@@ -2570,6 +3296,11 @@ class CodeRabbitAdapter(IntegrationAdapter):
         previous_cycles: list[dict[str, object]] | None = None,
         provider_quota: dict[str, object] | None = None,
         recovery: dict[str, object] | None = None,
+        managed_clone: str | None = None,
+        review_checkout: str | None = None,
+        provider_liveness: str | None = None,
+        phase: str | None = None,
+        cleanup_state: str | None = None,
     ) -> None:
         current = self._load_review_state(root)
         selected_cycle_id = cycle_id or str(current.get("current_cycle_id") or "not-started")
@@ -2651,6 +3382,11 @@ class CodeRabbitAdapter(IntegrationAdapter):
             "findings_digest": findings_digest,
             **({"findings": normalized_findings} if findings is not None else {}),
             "rate_limit_hint": rate_limit_hint[:240] if rate_limit_hint else None,
+            "managed_clone": managed_clone if managed_clone is not None else current.get("managed_clone"),
+            "review_checkout": review_checkout if review_checkout is not None else current.get("review_checkout"),
+            "provider_liveness": provider_liveness if provider_liveness is not None else current.get("provider_liveness"),
+            "phase": (phase or str(current.get("phase") or "idle"))[:80],
+            "cleanup_state": (cleanup_state or str(current.get("cleanup_state") or "not_started"))[:80],
             "previous_cycles": list(previous_cycles or current.get("previous_cycles", []))[-MAX_RETAINED_REVIEW_CYCLES:],
             "provider_quota": quota,
             "recovery": recovery if recovery is not None else current.get("recovery"),
@@ -2699,15 +3435,6 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 "CodeRabbit cycle base должен быть exact SHA.",
             )
         stored_base = review_state.get("base_sha")
-        if base_sha is not None and isinstance(stored_base, str) and stored_base and stored_base != base_sha:
-            return AdapterOutcome(
-                self._record_from_error(
-                    settings,
-                    "CODERABBIT_REVIEW_BASE_MISMATCH",
-                    state=IntegrationState.INCOMPATIBLE,
-                    diagnostics=self._review_state_diagnostics(review_state),
-                )
-            )
         expected_repository = self._expected_repository(root, settings)
         now = datetime.now(UTC).isoformat(timespec="seconds")
         previous = list(review_state.get("previous_cycles", []))
@@ -2791,10 +3518,13 @@ class CodeRabbitAdapter(IntegrationAdapter):
             "incomplete_unknown",
             "rate_limited",
         }:
+            active_review = review_classification == "active"
             return AdapterOutcome(
                 self._record_from_error(
                     settings,
-                    "CODERABBIT_REVIEW_RECOVERY_REQUIRED"
+                    "CODERABBIT_ACTIVE_REVIEW"
+                    if active_review
+                    else "CODERABBIT_REVIEW_RECOVERY_REQUIRED"
                     if review_classification != "rate_limited"
                     else "CODERABBIT_RATE_LIMITED",
                     state=IntegrationState.RATE_LIMITED
@@ -2816,12 +3546,49 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 )
             )
         command = runtime.coderabbit_command
-        expected_head = _git_head(root)
-        if expected_head is None:
-            return AdapterOutcome(self._record_from_error(settings, "CODERABBIT_LOCAL_HEAD_UNAVAILABLE"))
-        ok, reason = self._verify_clone(runtime, expected_head, None)
-        if not ok:
-            return AdapterOutcome(self._record_from_error(settings, reason, state=IntegrationState.INCOMPATIBLE))
+        contract = self._management_contract(root)
+        expected_repository = self._expected_repository(root, settings)
+        if contract is None or expected_repository is None:
+            return AdapterOutcome(
+                self._record_from_error(
+                    settings,
+                    "CODERABBIT_MANAGEMENT_BRANCH_NOT_CONFIGURED",
+                    state=IntegrationState.NOT_CONFIGURED,
+                )
+            )
+        remote, branch, _upstream_ref = contract
+        try:
+            managed_snapshot = self._managed_clone_snapshot(
+                root,
+                runtime,
+                expected_repository=expected_repository,
+                remote=remote,
+                branch=branch,
+            )
+        except ToolingError as error:
+            return AdapterOutcome(
+                self._record_from_error(
+                    settings,
+                    "CODERABBIT_MANAGED_CLONE_STATE_UNAVAILABLE",
+                    state=IntegrationState.UNKNOWN,
+                    message=error.message,
+                )
+            )
+        if managed_snapshot.sync_state != "READY":
+            return AdapterOutcome(
+                self._record_from_error(
+                    settings,
+                    "CODERABBIT_MANAGED_CLONE_" + managed_snapshot.sync_state,
+                    state=(
+                        IntegrationState.DEGRADED
+                        if managed_snapshot.sync_state
+                        in {"SYNCABLE", "DETACHED_LEGACY", "WRONG_UPSTREAM"}
+                        else IntegrationState.INCOMPATIBLE
+                    ),
+                    diagnostics=(f"managed_clone_state={managed_snapshot.sync_state}",),
+                    message="WSL managed clone требует явного reconcile перед probe.",
+                )
+            )
         runtime_state, reason, diagnostics = self._runtime_preflight(runtime, command)
         if runtime_state is not IntegrationState.READY:
             return AdapterOutcome(
@@ -2913,7 +3680,6 @@ class CodeRabbitAdapter(IntegrationAdapter):
         runtime, error_code = self._configured_runtime(root, settings)
         if runtime is None:
             return AdapterOutcome(self._record_from_error(settings, error_code or "CODERABBIT_RUNTIME_UNAVAILABLE"))
-        command = runtime.coderabbit_command
         expected_repository = self._expected_repository(root, settings)
         if expected_repository is None:
             return AdapterOutcome(
@@ -2923,14 +3689,46 @@ class CodeRabbitAdapter(IntegrationAdapter):
                     state=IntegrationState.NOT_CONFIGURED,
                 )
             )
-        ok, reason = self._prepare_clone(
-            runtime,
+        operation_id = f"coderabbit-{secrets.token_hex(8)}"
+        attempt = int(review_state.get("attempt", 0)) + 1
+        if attempt > _MAX_REVIEW_ATTEMPTS:
+            return AdapterOutcome(
+                self._record_from_error(
+                    settings,
+                    "CODERABBIT_REVIEW_ATTEMPT_LIMIT_EXHAUSTED",
+                    state=IntegrationState.INCOMPATIBLE,
+                    diagnostics=self._review_state_diagnostics(review_state),
+                )
+            )
+        managed_runtime = runtime
+        runtime, checkout_path, reason = self._prepare_review_checkout(
+            managed_runtime,
             root,
+            operation_id=operation_id,
             expected_head=head_sha,
             expected_repository=expected_repository,
         )
-        if not ok:
-            return AdapterOutcome(self._record_from_error(settings, reason, state=IntegrationState.INCOMPATIBLE))
+        if reason not in {"CODERABBIT_REVIEW_CHECKOUT_READY", "CODERABBIT_REVIEW_CLONE_READY"}:
+            if checkout_path is not None:
+                cleaned, cleanup_reason = self._cleanup_review_checkout(
+                    managed_runtime, checkout_path
+                )
+                if not cleaned:
+                    self._set_review_cleanup_state(
+                        root,
+                        state="recovery_required",
+                        checkout_path=checkout_path,
+                        provider_liveness=self._cleanup_liveness(cleanup_reason),
+                    )
+            return AdapterOutcome(
+                self._record_from_error(
+                    settings,
+                    reason,
+                    state=IntegrationState.INCOMPATIBLE,
+                    message="Exact detached review worktree не подготовлен; persistent clone не изменён.",
+                )
+            )
+        command = runtime.coderabbit_command
         _emit_progress(
             progress_callback,
             phase="clone_ready",
@@ -2942,6 +3740,30 @@ class CodeRabbitAdapter(IntegrationAdapter):
         )
         runtime_state, reason, runtime_diagnostics = self._runtime_preflight(runtime, command)
         if runtime_state is not IntegrationState.READY:
+            cleanup_error = None
+            if checkout_path is not None:
+                cleaned, cleanup_reason = self._cleanup_review_checkout(
+                    managed_runtime, checkout_path
+                )
+                if not cleaned:
+                    self._set_review_cleanup_state(
+                        root,
+                        state="recovery_required",
+                        checkout_path=checkout_path,
+                        provider_liveness=self._cleanup_liveness(cleanup_reason),
+                    )
+                    cleanup_error = cleanup_reason
+                else:
+                    self._set_review_cleanup_state(root, state="removed", checkout_path=None)
+            if cleanup_error is not None:
+                return AdapterOutcome(
+                    self._record_from_error(
+                        settings,
+                        cleanup_error,
+                        state=IntegrationState.INCOMPATIBLE,
+                        message="Provider preflight не прошёл, а review worktree не удалось удалить.",
+                    )
+                )
             return AdapterOutcome(
                 self._record_from_error(
                     settings,
@@ -2959,18 +3781,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
             provider_state="ready",
             message="CLI, review syntax и agent authentication подтверждены.",
         )
-        operation_id = f"coderabbit-{secrets.token_hex(8)}"
         started_at = datetime.now(UTC).isoformat(timespec="seconds")
-        attempt = int(review_state.get("attempt", 0)) + 1
-        if attempt > _MAX_REVIEW_ATTEMPTS:
-            return AdapterOutcome(
-                self._record_from_error(
-                    settings,
-                    "CODERABBIT_REVIEW_ATTEMPT_LIMIT_EXHAUSTED",
-                    state=IntegrationState.INCOMPATIBLE,
-                    diagnostics=self._review_state_diagnostics(review_state),
-                )
-            )
         cycle_id = str(review_state.get("current_cycle_id") or "not-started")
         if cycle_id == "not-started":
             cycle_id = "coderabbit-cycle-" + secrets.token_hex(8)
@@ -2996,6 +3807,11 @@ class CodeRabbitAdapter(IntegrationAdapter):
             if isinstance(review_state.get("reviewed_head"), str)
             else None,
             provider_quota=provider_quota if isinstance(provider_quota, dict) else None,
+            managed_clone=managed_runtime.clone if isinstance(managed_runtime, _WslRuntime) else None,
+            review_checkout=checkout_path,
+            provider_liveness="pending",
+            phase="provider_starting",
+            cleanup_state="active" if checkout_path else "not_applicable",
         )
         provider_started = time.monotonic()
         _emit_progress(
@@ -3044,6 +3860,35 @@ class CodeRabbitAdapter(IntegrationAdapter):
             heartbeat_stop.set()
             if heartbeat_thread is not None:
                 heartbeat_thread.join(timeout=1.0)
+
+        def cleanup_checkout_or_error() -> AdapterOutcome | None:
+            if checkout_path is None:
+                return None
+            cleaned, cleanup_reason = self._cleanup_review_checkout(
+                managed_runtime, checkout_path
+            )
+            if not cleaned:
+                self._set_review_cleanup_state(
+                    root,
+                    state="recovery_required",
+                    checkout_path=checkout_path,
+                    provider_liveness=self._cleanup_liveness(cleanup_reason),
+                )
+                return AdapterOutcome(
+                    self._record_from_error(
+                        settings,
+                        cleanup_reason,
+                        state=IntegrationState.INCOMPATIBLE,
+                        diagnostics=(
+                            "provider_process_liveness="
+                            + self._cleanup_liveness(cleanup_reason),
+                        ),
+                        message="Review worktree не удалось безопасно удалить; требуется recovery.",
+                    )
+                )
+            self._set_review_cleanup_state(root, state="removed", checkout_path=None)
+            return None
+
         _emit_progress(
             progress_callback,
             phase="provider_finished",
@@ -3085,6 +3930,9 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 message="Review завершился по timeout; substantive iteration не расходуется.",
                 started_monotonic=provider_started,
             )
+            cleanup_error = cleanup_checkout_or_error()
+            if cleanup_error is not None:
+                return cleanup_error
             return AdapterOutcome(self._record_from_error(settings, "CODERABBIT_REVIEW_TIMEOUT"))
         if result.stdout_truncated or result.stderr_truncated:
             self._save_state(
@@ -3117,6 +3965,9 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 message="Provider output усечён; substantive iteration не расходуется.",
                 started_monotonic=provider_started,
             )
+            cleanup_error = cleanup_checkout_or_error()
+            if cleanup_error is not None:
+                return cleanup_error
             return AdapterOutcome(
                 self._record_from_error(
                     settings,
@@ -3168,6 +4019,9 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 ),
                 started_monotonic=provider_started,
             )
+            cleanup_error = cleanup_checkout_or_error()
+            if cleanup_error is not None:
+                return cleanup_error
             return AdapterOutcome(
                 self._record_from_error(
                     settings,
@@ -3222,6 +4076,9 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 ),
                 started_monotonic=provider_started,
             )
+            cleanup_error = cleanup_checkout_or_error()
+            if cleanup_error is not None:
+                return cleanup_error
             return AdapterOutcome(
                 self._record_from_error(
                     settings,
@@ -3253,6 +4110,9 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 if isinstance(review_state.get("reviewed_head"), str)
                 else None,
             )
+            cleanup_error = cleanup_checkout_or_error()
+            if cleanup_error is not None:
+                return cleanup_error
             return AdapterOutcome(
                 self._record_from_error(
                     settings,
@@ -3288,6 +4148,9 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 "retry_source": "unknown",
             },
         )
+        cleanup_error = cleanup_checkout_or_error()
+        if cleanup_error is not None:
+            return cleanup_error
         completed_state = self._load_review_state(root)
         completed_diagnostics = _bounded_diagnostics(
             self._review_state_diagnostics(completed_state),
@@ -3358,6 +4221,7 @@ __all__ = [
     "CodeRabbitAdapter",
     "CodeRabbitProgress",
     "CodeRabbitStreamError",
+    "ManagedCloneSnapshot",
     "ParsedCodeRabbitReview",
     "WslDistribution",
     "WslReviewEnvironment",

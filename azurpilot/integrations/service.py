@@ -402,6 +402,28 @@ class IntegrationService:
         outcome = adapter.recover_interrupted_review(root, config)
         return self._result("recover", (outcome.record,), target=IntegrationName.CODERABBIT, findings=outcome.findings, coderabbit_cycle=outcome.coderabbit_cycle)
 
+    def reconcile_coderabbit(
+        self, *, repository_root: str | Path | None = None
+    ) -> ToolingResult[IntegrationDetails, IntegrationEvidenceBundle]:
+        """Явно согласовать постоянный WSL managed clone CodeRabbit."""
+
+        root = self.resolve_root(repository_root)
+        config = load_integration_config(root)
+        adapter = self.registry.adapter(IntegrationName.CODERABBIT)
+        if not isinstance(adapter, CodeRabbitAdapter):
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "CodeRabbit adapter имеет неверный тип.",
+            )
+        outcome = adapter.reconcile(root, config)
+        return self._result(
+            "reconcile",
+            (outcome.record,),
+            target=IntegrationName.CODERABBIT,
+            findings=outcome.findings,
+            coderabbit_cycle=outcome.coderabbit_cycle,
+        )
+
     def start_coderabbit_cycle(
         self,
         *,
