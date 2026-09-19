@@ -1,4 +1,4 @@
-"""Machine-readable inventory and semantic gate for legacy operator surfaces."""
+"""Машиночитаемый inventory и semantic gate для legacy operator surfaces."""
 
 from __future__ import annotations
 
@@ -31,7 +31,10 @@ def classify(path: str) -> LegacySurface | None:
     suffix = Path(normalized).suffix.casefold()
     if suffix not in {".ps1", ".psm1", ".sh", ".bat", ".cmd"}:
         return None
-    if normalized.startswith("infrastructure/observability/") and suffix == ".sh":
+    if normalized in {
+        "infrastructure/observability/postgres/bootstrap/01-bootstrap.sh",
+        "infrastructure/observability/postgres/init/01-bootstrap.sh",
+    }:
         return LegacySurface(
             normalized,
             "EXTERNAL_NATIVE_HOOK",

@@ -30,6 +30,13 @@ def test_external_native_hooks_are_not_mistaken_for_operator_tooling():
     assert retained.disposition == "RETAIN"
 
 
+def test_unlisted_observability_shell_is_not_auto_retained():
+    candidate = classify("infrastructure/observability/example/operator.sh")
+    assert candidate is not None
+    assert candidate.category == "UNCLASSIFIED_SHELL"
+    assert candidate.disposition == "REVIEW"
+
+
 def test_removed_operator_directories_stay_removed():
     assert not any((ROOT / "scripts").rglob("*.ps1"))
     assert not any((ROOT / "scripts").rglob("*.psm1"))

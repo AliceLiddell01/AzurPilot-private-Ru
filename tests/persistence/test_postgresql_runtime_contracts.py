@@ -1,6 +1,4 @@
 from __future__ import annotations
-from tests.support.paths import REPOSITORY_ROOT
-
 
 import asyncio
 import json
@@ -27,6 +25,7 @@ from module.persistence.config import (
 from module.persistence.local_environment import DEFAULT_LOCAL_ENV_PATH
 from module.persistence.schema import EXPECTED_ALEMBIC_HEAD
 from module.statistics import postgresql_stats
+from tests.support.paths import REPOSITORY_ROOT
 from tests.support.repository.import_inspection import imports_for_path
 
 ROOT = REPOSITORY_ROOT
@@ -512,7 +511,7 @@ def test_python_services_encode_postgresql_and_lifecycle_ownership():
     assert "Repair не меняет Git" in repair
     assert "JournalStore" in repair
     assert "StructuredProcessRunner" in infrastructure
-    assert "docker" in infrastructure
+    assert "def _run_docker" in infrastructure
 
 
 def test_webui_rejects_database_upload_before_read():

@@ -199,7 +199,7 @@ metadata, DNS/TLS и read-only MCP contract через публичные endpoi
 как rollback safety и не требует `systemctl start postgresql`.
 Для восстановления Caddy после входа в Windows в Docker Desktop должна быть
 включена настройка General → Start Docker Desktop when you sign in. Скрипт
-`azur start` не изменяет эту пользовательскую настройку; после её
+Команда `azur start` не изменяет эту пользовательскую настройку; после её
 включения перезагрузка проверяет Docker Desktop → Compose project → Caddy.
 
 ### pgAdmin

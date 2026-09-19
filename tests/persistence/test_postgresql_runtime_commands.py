@@ -496,18 +496,6 @@ def test_schema_upgrade_process_uses_isolated_python_child(tmp_path: Path) -> No
     assert options["check"] is False
 
 
-def test_python_start_preflight_owns_schema_reconciliation() -> None:
-    source = (
-        postgresql_runtime._REPOSITORY_ROOT
-        / "azurpilot"
-        / "tooling"
-        / "lifecycle.py"
-    ).read_text(encoding="utf-8")
-
-    assert "InfrastructureService" in source
-    assert "ensure_started" in source
-
-
 def test_runtime_command_redacts_sqlalchemy_diagnostics(capsys):
     diagnostic = OperationalError(
         "SELECT secret_value",

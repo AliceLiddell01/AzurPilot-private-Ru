@@ -405,7 +405,7 @@ class IntegrationService:
     def reconcile_coderabbit(
         self, *, repository_root: str | Path | None = None
     ) -> ToolingResult[IntegrationDetails, IntegrationEvidenceBundle]:
-        """Явно согласовать persistent WSL managed clone CodeRabbit."""
+        """Явно согласовать постоянный WSL managed clone CodeRabbit."""
 
         root = self.resolve_root(repository_root)
         config = load_integration_config(root)

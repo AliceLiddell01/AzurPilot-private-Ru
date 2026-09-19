@@ -12,8 +12,8 @@
 - `uv run python -m tools.acceptance.game_recovery_smoke --help` — bounded smoke game-recovery контрактов;
 - `uv run python -m tools.acceptance.emulator_recovery --help` — live recovery acceptance для явно выбранного эмулятора;
 - `uv run python -m tools.acceptance.webui_traceback_browser` — browser acceptance traceback fixtures;
-- `uv run --locked python -m pytest tests/platform/windows` — Windows Python
-  tooling, lifecycle and shortcut contract checks.
+- `uv run --locked python -m pytest tests/platform/windows` — контрактные
+  проверки Windows Python tooling, lifecycle и shortcut.
 
 Результаты приёмки являются локальной диагностикой. Не коммитьте generated reports, screenshots, device identifiers, локальные пути и внешний вывод.
 

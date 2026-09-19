@@ -103,7 +103,7 @@ AzurPilot Private RU наследует upstream, но содержит отде
 Проверяются перед первым соответствующим gate:
 
 - GitHub push/PR/review/checks/artifacts/merge;
-- Windows Python tooling and native integration checks;
+- проверки Windows Python tooling и native integration;
 - secret/security scanners;
 - browser/WebUI;
 - ADB/emulator/game;
@@ -381,7 +381,7 @@ azur build
 acceptance проверяет эти typed Python services, а PowerShell остаётся только
 runner glue.
 
-## 16. Python и зависимости
+## 15. Python и зависимости
 
 Формальный контракт задаётся `pyproject.toml`/`uv.lock`; текущий проверяемый Windows runtime — Python 3.14.6.
 
@@ -389,7 +389,7 @@ runner glue.
 
 При dependency change обязательны согласованность lock, clean locked sync, релевантные tests/rollback, source/vulnerability check и license review для новой зависимости.
 
-## 17. Secrets
+## 16. Secrets
 
 Не записывать/печатать secrets в repo/logs/artifacts и не переносить пользовательскую конфигурацию в disposable worktree без необходимости.
 
@@ -399,7 +399,7 @@ Secret scanner обязателен перед публикацией relevant d
 
 При finding: блокировать публикацию/merge, удалить secret из рабочего дерева, проверить историю текущей ветки и при remote exposure использовать доступный revoke/rotate workflow без публикации значения.
 
-## 18. GUI, emulator и игровая проверка
+## 17. GUI, emulator и игровая проверка
 
 Запускать только когда изменение реально требует этого acceptance.
 
@@ -411,7 +411,7 @@ Secret scanner обязателен перед публикацией relevant d
 
 Если обязательный безопасный acceptance невозможен, sensitive merge блокируется.
 
-## 19. Коммиты
+## 18. Коммиты
 
 Commit должен быть логически цельным. Не дробить задачу ради формального числа commits и не создавать новый commit только из-за каждого review fix, если squash/amend безопасен и политика ветки это допускает.
 
@@ -424,7 +424,7 @@ Commit должен быть логически цельным. Не дроби�
 
 Сообщение описывает смысл изменения (`fix(update): ...`, `feat(build): ...`), а не `fix/final/test`.
 
-## 20. PR, review и merge
+## 19. PR, review и merge
 
 PR обязателен для `master`, `personal/stable`, standard/extended задач, dependency/security-sensitive изменений и Start/Update/Repair/Build.
 
@@ -510,13 +510,13 @@ pre-merge контракту.
 
 `master` синхронизируется только процедурой раздела 9.
 
-## 21. GitHub Actions
+## 20. GitHub Actions
 
 Предпочитать существующие reusable workflows и runners. Новый workflow создавать только для устойчивой повторяемой ценности, а не для разового запуска, компенсации временно отсутствующего инструмента или дублирования существующей проверки.
 
 Workflow должен иметь ограниченные permissions, безопасно работать с недоверенным PR и использовать проектную политику pinning actions.
 
-## 22. Опасные Git-операции
+## 21. Опасные Git-операции
 
 В пользовательском checkout, `master`, `personal/stable` и опубликованных ветках запрещены:
 
@@ -536,7 +536,7 @@ git gc --prune=now
 
 В disposable clone/worktree destructive cleanup допустим только после проверки, что среда создана Codex для текущей задачи, не содержит пользовательских данных/secrets и полезный результат уже сохранён. Предпочтительно удалить весь worktree.
 
-## 23. Ошибки и retry budget
+## 22. Ошибки и retry budget
 
 Для ошибки:
 
@@ -564,7 +564,7 @@ git gc --prune=now
 CodeRabbit-specific lifecycle consequence определён один раз в разделе
 «Внешнее ревью»; правила retry/triage провайдера здесь не дублируются.
 
-## 24. Post-merge и rollback
+## 23. Post-merge и rollback
 
 После merge:
 
@@ -577,7 +577,7 @@ CodeRabbit-specific lifecycle consequence определён один раз в 
 
 При regression destructive rollback не выполнять автоматически. Использовать controlled revert/hotfix branch и ускоренный relevant pipeline.
 
-## 25. Branch protection
+## 24. Branch protection
 
 ### `master`
 
@@ -603,7 +603,7 @@ Capability branches, включая explicit domain-prefixed branches, долж�
 - после успешного merge удалять ветку согласно cleanup;
 - полезную незавершённую ветку сохранять при blocker.
 
-## 26. Definition of Done
+## 25. Definition of Done
 
 ### Pre-merge `READY_FOR_CHATGPT_REVIEW`
 
@@ -637,7 +637,7 @@ Capability branches, включая explicit domain-prefixed branches, долж�
 
 Task-specific capability не входит в DoD, если соответствующий gate не относится к фактическому scope.
 
-## 27. Progress updates и итоговый отчёт
+## 26. Progress updates и итоговый отчёт
 
 Во время работы писать progress update только при:
 
@@ -663,11 +663,11 @@ Post-merge: relevant smoke/verification или `не применимо до mer
 
 Не дублировать в финале полные изменённые файлы, длинные test logs и историю каждого tool call, если пользователь прямо этого не просил.
 
-## 28. Живое состояние
+## 27. Живое состояние
 
 Активные branches, PR, SHAs, CI status и upstream state не фиксируются здесь как постоянные факты. Получать их заново при соответствующей операции.
 
-## 29. Итоговая политика
+## 28. Итоговая политика
 
 Штатный pre-merge результат:
 

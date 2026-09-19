@@ -7,6 +7,7 @@ import pytest
 from azurpilot.tooling.contracts import ResultCode
 from azurpilot.tooling.docker import DockerDeploymentService
 from azurpilot.tooling.errors import ToolingError
+from tests.support.paths import REPOSITORY_ROOT
 
 
 def test_docker_source_is_confined_to_repository(tmp_path: Path):
@@ -27,8 +28,12 @@ def test_docker_names_are_bounded(value: str):
 
 
 def test_docker_service_contains_no_public_ip_or_implicit_installation():
-    source = Path("azurpilot/tooling/docker.py").read_text(encoding="utf-8")
+    source = (REPOSITORY_ROOT / "azurpilot" / "tooling" / "docker.py").read_text(
+        encoding="utf-8"
+    )
     assert "apt-get" not in source
     assert "download.docker.com" not in source
     assert "ifconfig.me" not in source
-    assert '"rm"' in source  # replacement is explicit and scoped to one named container.
+    assert '"rm"' in source  # замена ограничена явно названным container.
+    assert "--volume" not in source
+    assert ":rw" not in source

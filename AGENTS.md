@@ -33,8 +33,6 @@
 - Git, ветки, PR, merge, rollback и cleanup — `GIT-WORKFLOW.md`;
 - общие проверки и критерии готовности — `08-VERIFICATION.md`;
 - Python tooling и внешние интеграции — `11-PYTHON-TOOLING.md`;
-- Git выполняется через канонические Python tooling/services; runner glue в CI
-  не является production operator path.
 
 Не создавай в этом файле вторую копию правил этих документов.
 `MIGRATION-MAP.md` — историческая справка и не входит в обычный рабочий

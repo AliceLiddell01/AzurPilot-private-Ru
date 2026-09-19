@@ -1,4 +1,4 @@
-"""Явный typed Docker deployment без legacy shell orchestrator."""
+"""Явное типизированное развёртывание Docker без устаревшего shell-оркестратора."""
 
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ def _within(path: Path, parent: Path) -> bool:
 
 
 class DockerDeploymentService:
-    """Build/run/readiness lifecycle для проекта через argv-only Docker CLI."""
+    """Жизненный цикл build/run/readiness через argv-only Docker CLI."""
 
     def __init__(
         self,
@@ -88,7 +88,7 @@ class DockerDeploymentService:
         if not allow_nonzero and result.returncode != 0:
             raise ToolingError(
                 ResultCode.TOOLING_INFRASTRUCTURE_FAILED,
-                "Docker операция завершилась ошибкой; host prerequisites не изменялись.",
+                "Операция Docker завершилась ошибкой; предусловия host не изменялись.",
             )
         return result
 
@@ -98,9 +98,13 @@ class DockerDeploymentService:
         if not isinstance(value, str) or not pattern.fullmatch(value):
             raise ToolingError(
                 ResultCode.TOOLING_INVALID_INVOCATION,
-                "Docker image или container имеет небезопасное имя.",
+                "Docker образ или контейнер имеет небезопасное имя.",
             )
         return value
+
+    @staticmethod
+    def _rollback_container_name(container: str) -> str:
+        return f"{container[:100]}.azurpilot-old"
 
     @staticmethod
     def _validate_source(root: Path, value: str | Path | None) -> Path:
@@ -108,7 +112,7 @@ class DockerDeploymentService:
         if not candidate.is_dir() or path_has_link(candidate) or not _within(candidate, root):
             raise ToolingError(
                 ResultCode.TOOLING_PRECONDITION_FAILED,
-                "Docker source должен быть существующим каталогом внутри repository root.",
+                "Каталог source должен существовать внутри repository root.",
             )
         return candidate
 
@@ -155,6 +159,18 @@ class DockerDeploymentService:
         dockerfile = root / "deploy" / "docker" / "Dockerfile"
         if not dockerfile.is_file() or path_has_link(dockerfile):
             raise ToolingError(ResultCode.TOOLING_PRECONDITION_FAILED, "Канонический Dockerfile отсутствует или небезопасен.")
+        self._run(
+            docker,
+            root,
+            "build",
+            "--pull",
+            "--tag",
+            image_name,
+            "--file",
+            str(dockerfile),
+            str(source_path),
+            timeout_seconds=timeout_seconds,
+        )
         existing = self._run(
             docker,
             root,
@@ -171,47 +187,103 @@ class DockerDeploymentService:
                 "Контейнер уже существует; повторите с явным --replace.",
             )
         replacement = False
+        rollback_name: str | None = None
+        existing_running = False
         if existing.returncode == 0 and replace:
-            self._run(docker, root, "rm", "--force", container_name, timeout_seconds=120)
+            rollback_name = self._rollback_container_name(container_name)
+            rollback_existing = self._run(
+                docker,
+                root,
+                "inspect",
+                "--type",
+                "container",
+                rollback_name,
+                timeout_seconds=30,
+                allow_nonzero=True,
+            )
+            if rollback_existing.returncode == 0:
+                raise ToolingError(
+                    ResultCode.TOOLING_OPERATION_CONFLICT,
+                    "Для безопасного Docker rollback уже существует резервный container.",
+                )
+            if rollback_existing.returncode != 1:
+                raise ToolingError(
+                    ResultCode.TOOLING_INFRASTRUCTURE_FAILED,
+                    "Docker не смог проверить резервный container.",
+                )
+            running = self._run(
+                docker,
+                root,
+                "inspect",
+                "--format={{.State.Running}}",
+                container_name,
+                timeout_seconds=30,
+            )
+            existing_running = running.stdout.strip().casefold() == "true"
+            if existing_running:
+                self._run(docker, root, "stop", container_name, timeout_seconds=120)
+            self._run(
+                docker,
+                root,
+                "rename",
+                container_name,
+                rollback_name,
+                timeout_seconds=120,
+            )
             replacement = True
         elif existing.returncode not in {0, 1}:
-            raise ToolingError(ResultCode.TOOLING_INFRASTRUCTURE_FAILED, "Docker не смог проверить существующий container.")
-        self._run(
-            docker,
-            root,
-            "build",
-            "--pull",
-            "--tag",
-            image_name,
-            "--file",
-            str(dockerfile),
-            str(source_path),
-            timeout_seconds=timeout_seconds,
-        )
-        self._run(
-            docker,
-            root,
-            "run",
-            "--detach",
-            "--name",
-            container_name,
-            "--restart",
-            "unless-stopped",
-            "--publish",
-            f"{host_port}:{host_port}",
-            "--volume",
-            f"{root}:/app/AzurPilot:rw",
-            "--workdir",
-            "/app/AzurPilot",
-            image_name,
-            timeout_seconds=120,
-        )
-        readiness = self._wait_readiness("127.0.0.1", host_port, readiness_timeout_seconds)
-        if not readiness:
             raise ToolingError(
-                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                "Docker container запущен, но локальная WebUI readiness не подтверждена.",
+                ResultCode.TOOLING_INFRASTRUCTURE_FAILED,
+                "Docker не смог проверить существующий container.",
             )
+        new_container_attempted = False
+        try:
+            self._run(
+                docker,
+                root,
+                "run",
+                "--detach",
+                "--name",
+                container_name,
+                "--restart",
+                "unless-stopped",
+                "--publish",
+                f"{host_port}:{host_port}",
+                "--workdir",
+                "/app/AzurPilot",
+                image_name,
+                timeout_seconds=120,
+            )
+            new_container_attempted = True
+            readiness = self._wait_readiness("127.0.0.1", host_port, readiness_timeout_seconds)
+            if not readiness:
+                raise ToolingError(
+                    ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                    "Docker container запущен, но локальная WebUI readiness не подтверждена.",
+                )
+        except ToolingError:
+            try:
+                if new_container_attempted:
+                    self._run(docker, root, "rm", "--force", container_name, timeout_seconds=120)
+                if rollback_name is not None:
+                    self._run(
+                        docker,
+                        root,
+                        "rename",
+                        rollback_name,
+                        container_name,
+                        timeout_seconds=120,
+                    )
+                    if existing_running:
+                        self._run(docker, root, "start", container_name, timeout_seconds=120)
+            except ToolingError as restore_error:
+                raise ToolingError(
+                    ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                    "Новый Docker container не прошёл readiness, а прежний container не восстановлен.",
+                ) from restore_error
+            raise
+        if rollback_name is not None:
+            self._run(docker, root, "rm", "--force", rollback_name, timeout_seconds=120)
         return ToolingResult(
             ok=True,
             code=ResultCode.OK,

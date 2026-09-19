@@ -113,7 +113,7 @@ class WslReviewEnvironment:
 
 @dataclass(frozen=True, slots=True)
 class ManagedCloneSnapshot:
-    """Bounded state of the persistent branch-attached CodeRabbit clone."""
+    """Ограниченное состояние постоянного branch-attached clone CodeRabbit."""
 
     repository_identity: str
     origin_identity: str
@@ -1405,11 +1405,10 @@ class CodeRabbitAdapter(IntegrationAdapter):
             or realpath_result.stdout.strip() != clone.rstrip("/")
         ):
             return None, "CODERABBIT_REVIEW_CLONE_NOT_CANONICAL"
-        # Cleanliness, branch attachment and ahead/behind state belong to the
-        # managed-clone state machine below. Discovery must keep a canonical
-        # dirty/ahead/diverged clone selectable so status/reconcile can expose
-        # the exact non-destructive reason instead of collapsing it into a
-        # generic clone rejection.
+        # Чистота, branch attachment и ahead/behind принадлежат state machine
+        # managed clone ниже. Discovery должна оставить canonical
+        # dirty/ahead/diverged clone доступным, чтобы status/reconcile показали
+        # точную неразрушающую причину, а не общий отказ clone.
         return runtime, None
 
     @staticmethod
@@ -1648,7 +1647,10 @@ class CodeRabbitAdapter(IntegrationAdapter):
         executable = shutil.which("wsl.exe") or shutil.which("wsl")
         configured_distro = settings.get("wsl_distribution")
         clone = settings.get("review_clone")
-        runtime_metadata = CodeRabbitAdapter._load_runtime_metadata(root)
+        try:
+            runtime_metadata = CodeRabbitAdapter._load_runtime_metadata(root)
+        except ToolingError:
+            return None, "CODERABBIT_RUNTIME_STATE_UNAVAILABLE"
         if clone is None and runtime_metadata is not None:
             clone = runtime_metadata.get("managed_clone")
             if configured_distro is None:
@@ -2606,7 +2608,10 @@ class CodeRabbitAdapter(IntegrationAdapter):
         )
         if not ready:
             return runtime, None, reason
-        self._sync_managed_clone(root, runtime, expected_repository=expected_repository)
+        contract = self._management_contract(root)
+        if contract is None:
+            return runtime, None, "CODERABBIT_MANAGEMENT_BRANCH_NOT_CONFIGURED"
+        remote, _branch, _upstream_ref = contract
         checkout_path = self._review_worktree_path(runtime, operation_id)
         exists = runtime.run(("--exec", "test", "-e", checkout_path), timeout=30)
         if exists.timed_out or exists.stdout_truncated or exists.stderr_truncated:
@@ -2619,7 +2624,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
         mkdir = runtime.run(("--exec", "mkdir", "-p", parent), timeout=30)
         if self._command_failed(mkdir):
             return runtime, None, "CODERABBIT_REVIEW_CHECKOUT_PARENT_UNAVAILABLE"
-        fetched = runtime.git("fetch", "--no-tags", "origin", expected_head, timeout=15 * 60)
+        fetched = runtime.git("fetch", "--no-tags", remote, expected_head, timeout=15 * 60)
         if self._command_failed(fetched):
             return runtime, None, "CODERABBIT_REVIEW_TARGET_FETCH_FAILED"
         target = runtime.git("cat-file", "-e", f"{expected_head}^{{commit}}", timeout=30)
@@ -2670,15 +2675,28 @@ class CodeRabbitAdapter(IntegrationAdapter):
         return True, "CODERABBIT_REVIEW_CHECKOUT_REMOVED"
 
     def _set_review_cleanup_state(
-        self, root: Path, *, state: str, checkout_path: str | None
+        self,
+        root: Path,
+        *,
+        state: str,
+        checkout_path: str | None,
+        provider_liveness: str = "verified_absent",
     ) -> None:
         payload = self._load_review_state(root)
         payload["cleanup_state"] = state
         payload["review_checkout"] = checkout_path
-        payload["provider_liveness"] = "verified_absent"
+        payload["provider_liveness"] = provider_liveness
         payload["phase"] = "cleanup_complete" if state == "removed" else "recovery_required"
         self._validate_review_state(payload)
         self._write_state(root, payload)
+
+    @staticmethod
+    def _cleanup_liveness(cleanup_reason: str) -> str:
+        if cleanup_reason == "CODERABBIT_REVIEW_OPERATION_STILL_ALIVE":
+            return "alive"
+        if cleanup_reason == "CODERABBIT_REVIEW_OPERATION_LIVENESS_UNKNOWN":
+            return "unknown"
+        return "verified_absent"
 
     def _auth_ready(self, runtime: _WslRuntime, command: str) -> tuple[bool, str]:
         result = runtime.command(
@@ -3560,7 +3578,12 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 self._record_from_error(
                     settings,
                     "CODERABBIT_MANAGED_CLONE_" + managed_snapshot.sync_state,
-                    state=IntegrationState.DEGRADED,
+                    state=(
+                        IntegrationState.DEGRADED
+                        if managed_snapshot.sync_state
+                        in {"SYNCABLE", "DETACHED_LEGACY", "WRONG_UPSTREAM"}
+                        else IntegrationState.INCOMPATIBLE
+                    ),
                     diagnostics=(f"managed_clone_state={managed_snapshot.sync_state}",),
                     message="WSL managed clone требует явного reconcile перед probe.",
                 )
@@ -3686,12 +3709,15 @@ class CodeRabbitAdapter(IntegrationAdapter):
         )
         if reason not in {"CODERABBIT_REVIEW_CHECKOUT_READY", "CODERABBIT_REVIEW_CLONE_READY"}:
             if checkout_path is not None:
-                cleaned, _cleanup_reason = self._cleanup_review_checkout(
+                cleaned, cleanup_reason = self._cleanup_review_checkout(
                     managed_runtime, checkout_path
                 )
                 if not cleaned:
                     self._set_review_cleanup_state(
-                        root, state="recovery_required", checkout_path=checkout_path
+                        root,
+                        state="recovery_required",
+                        checkout_path=checkout_path,
+                        provider_liveness=self._cleanup_liveness(cleanup_reason),
                     )
             return AdapterOutcome(
                 self._record_from_error(
@@ -3720,7 +3746,10 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 )
                 if not cleaned:
                     self._set_review_cleanup_state(
-                        root, state="recovery_required", checkout_path=checkout_path
+                        root,
+                        state="recovery_required",
+                        checkout_path=checkout_path,
+                        provider_liveness=self._cleanup_liveness(cleanup_reason),
                     )
                     cleanup_error = cleanup_reason
                 else:
@@ -3839,14 +3868,20 @@ class CodeRabbitAdapter(IntegrationAdapter):
             )
             if not cleaned:
                 self._set_review_cleanup_state(
-                    root, state="recovery_required", checkout_path=checkout_path
+                    root,
+                    state="recovery_required",
+                    checkout_path=checkout_path,
+                    provider_liveness=self._cleanup_liveness(cleanup_reason),
                 )
                 return AdapterOutcome(
                     self._record_from_error(
                         settings,
                         cleanup_reason,
                         state=IntegrationState.INCOMPATIBLE,
-                        diagnostics=("provider_process_liveness=verified_absent",),
+                        diagnostics=(
+                            "provider_process_liveness="
+                            + self._cleanup_liveness(cleanup_reason),
+                        ),
                         message="Review worktree не удалось безопасно удалить; требуется recovery.",
                     )
                 )

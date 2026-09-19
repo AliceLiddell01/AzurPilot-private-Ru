@@ -258,7 +258,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     deploy = subparsers.add_parser(
-        "deploy", help="выполнить явное typed deployment"
+        "deploy", help="выполнить явное типизированное развёртывание"
     )
     deploy_subparsers = deploy.add_subparsers(
         dest="deploy_command", required=True, metavar="TARGET"
@@ -267,10 +267,10 @@ def build_parser() -> argparse.ArgumentParser:
         "docker", help="собрать image и запустить container через Docker CLI"
     )
     _add_common_options(deploy_docker, suppress_defaults=True)
-    deploy_docker.add_argument("--image", default=None)
-    deploy_docker.add_argument("--container", default=None)
-    deploy_docker.add_argument("--port", type=int, default=None)
-    deploy_docker.add_argument("--source", default=None)
+    deploy_docker.add_argument("--image", default=None, help="имя Docker image")
+    deploy_docker.add_argument("--container", default=None, help="имя Docker container")
+    deploy_docker.add_argument("--port", type=int, default=None, help="локальный порт WebUI")
+    deploy_docker.add_argument("--source", default=None, help="каталог build context внутри repository")
     deploy_docker.add_argument(
         "--replace",
         action="store_true",

@@ -1,5 +1,5 @@
 # docker build -t azurpilot-private-ru:local -f deploy/docker/Dockerfile .
-# docker run -v ${PWD}:/app/AzurPilot -p 25548:25548 --name AzurPilot -it --rm azurpilot-private-ru:local
+# docker run -p 25548:25548 --name AzurPilot --rm azurpilot-private-ru:local
 
 FROM python:3.14-slim-bookworm
 

@@ -577,7 +577,7 @@ def test_persistent_clone_is_validated_without_detaching_or_rewriting_git(
 
     assert ready is True
     assert reason == "CODERABBIT_MANAGED_CLONE_READY"
-    assert target_head not in runtime.calls
+    assert not any(target_head in call for call in runtime.calls)
     assert not any(
         argument in {"reset", "clean", "checkout", "switch"}
         for call in runtime.calls

@@ -355,7 +355,7 @@ class DeliveryEvidence(ClosedModel):
 
 
 class DockerDeploymentDetails(ClosedModel):
-    """Typed результат явного Docker image/container deployment."""
+    """Типизированный результат явного развёртывания Docker image/container."""
 
     action: Literal["deploy"] = "deploy"
     image: str = Field(min_length=1, max_length=256)
@@ -369,7 +369,7 @@ class DockerDeploymentDetails(ClosedModel):
 
 
 class DockerDeploymentEvidence(ClosedModel):
-    """Bounded evidence deployment без секретов и public-IP discovery."""
+    """Ограниченное evidence развёртывания без секретов и public-IP discovery."""
 
     docker_cli: str = Field(min_length=1, max_length=80)
     capability: CapabilityStatus

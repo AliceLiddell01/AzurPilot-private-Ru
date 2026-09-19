@@ -1,6 +1,6 @@
 # Deploy
 
-This directory holds the AzurPilot installer.
+Этот каталог содержит материалы Docker deployment для AzurPilot.
 
 Prepare AzurPilot by running `azur build` in the repository root, then use
 `azur start` for the WebUI lifecycle.
