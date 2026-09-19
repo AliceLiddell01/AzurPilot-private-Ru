@@ -266,8 +266,9 @@ Tooling не должен:
 Для MCP source/compatibility изменений дополнительно применяется существующий
 MCP compatibility gate и generated metadata verification.
 
-Для PowerShell change остаются Parser/PSScriptAnalyzer и требуемый Windows
-acceptance. Они не запускаются для несвязанного Python/domain diff.
+Для Windows tooling change запускаются Python CLI/lifecycle/shortcut/update/
+repair/build checks. PowerShell остаётся только runner glue и не является
+production operator implementation.
 
 Общие критерии готовности находятся в `08-VERIFICATION.md`.
 

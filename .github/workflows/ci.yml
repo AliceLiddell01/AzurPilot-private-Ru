@@ -770,170 +770,6 @@ jobs:
               throw ('Синхронизация Windows-окружения завершилась с кодом {0}.' -f $runnerExitCode)
           }
 
-      - name: Проверить PowerShell Parser
-        id: windows_parser
-        timeout-minutes: 10
-        shell: pwsh
-        run: |
-          Set-StrictMode -Version Latest
-          $ErrorActionPreference = 'Stop'
-          $PSNativeCommandUseErrorActionPreference = $false
-
-          $gitCommand = Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1
-          $gitExecutable = $gitCommand.Path
-          $gitArguments = @(
-              'ls-files'
-              '--'
-              '*.ps1'
-              '*.psm1'
-          )
-          $powerShellFiles = @(& $gitExecutable @gitArguments)
-          $gitExitCode = $LASTEXITCODE
-
-          if ($gitExitCode -ne 0) {
-              throw ('git ls-files завершился с кодом {0}.' -f $gitExitCode)
-          }
-
-          $parseFindings = [System.Collections.Generic.List[string]]::new()
-
-          foreach ($relativePath in $powerShellFiles) {
-              $scriptPath = Join-Path -Path $PWD -ChildPath $relativePath
-              $tokens = $null
-              $parseErrors = $null
-
-              [void][System.Management.Automation.Language.Parser]::ParseFile(
-                  $scriptPath,
-                  [ref]$tokens,
-                  [ref]$parseErrors
-              )
-
-              foreach ($parseError in $parseErrors) {
-                  $parseFindings.Add(
-                      ('{0}:{1}: {2}' -f $relativePath, $parseError.Extent.StartLineNumber, $parseError.Message)
-                  )
-              }
-          }
-
-          $artifactDirectory = Join-Path -Path $env:RUNNER_TEMP -ChildPath 'azurpilot-ci-windows'
-          New-Item -ItemType Directory -Path $artifactDirectory -Force | Out-Null
-          $logPath = Join-Path -Path $artifactDirectory -ChildPath 'powershell-parser.log'
-
-          if ($parseFindings.Count -gt 0) {
-              $parseFindings | Set-Content -LiteralPath $logPath -Encoding utf8
-              $message = $parseFindings | Out-String
-              throw "PowerShell Parser обнаружил замечания:`n$message"
-          }
-
-          'PowerShell Parser: замечаний нет.' | Set-Content -LiteralPath $logPath -Encoding utf8
-
-      - name: Установить PSScriptAnalyzer
-        id: windows_pssa_install
-        timeout-minutes: 10
-        shell: pwsh
-        run: |
-          Set-StrictMode -Version Latest
-          $ErrorActionPreference = 'Stop'
-          $PSNativeCommandUseErrorActionPreference = $false
-
-          $pythonCommand = Get-Command python -CommandType Application -ErrorAction Stop | Select-Object -First 1
-          $pythonExecutable = $pythonCommand.Path
-          $pwshCommand = Get-Command pwsh -CommandType Application -ErrorAction Stop | Select-Object -First 1
-          $pwshExecutable = $pwshCommand.Path
-          $runnerPath = Join-Path -Path $PWD -ChildPath 'tools/ci_heartbeat.py'
-          $installScript = Join-Path -Path $env:RUNNER_TEMP -ChildPath 'install-psscriptanalyzer.ps1'
-          $logPath = Join-Path -Path $env:RUNNER_TEMP -ChildPath 'azurpilot-ci-windows/psscriptanalyzer-install.log'
-
-          @'
-          Set-StrictMode -Version Latest
-          $ErrorActionPreference = 'Stop'
-          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
-          Install-Module -Name PSScriptAnalyzer -RequiredVersion '1.25.0' -Scope CurrentUser -Force
-          '@ | Set-Content -LiteralPath $installScript -Encoding utf8
-
-          $runnerArguments = @(
-              $runnerPath
-              '--label'
-              'Установка PSScriptAnalyzer'
-              '--heartbeat-seconds'
-              '60'
-              '--log-file'
-              $logPath
-              '--'
-              $pwshExecutable
-              '-NoLogo'
-              '-NoProfile'
-              '-File'
-              $installScript
-          )
-          & $pythonExecutable @runnerArguments
-          $runnerExitCode = $LASTEXITCODE
-
-          if ($runnerExitCode -ne 0) {
-              throw ('Установка PSScriptAnalyzer завершилась с кодом {0}.' -f $runnerExitCode)
-          }
-
-      - name: Запустить PSScriptAnalyzer
-        id: windows_pssa
-        timeout-minutes: 15
-        shell: pwsh
-        run: |
-          Set-StrictMode -Version Latest
-          $ErrorActionPreference = 'Stop'
-          $PSNativeCommandUseErrorActionPreference = $false
-
-          $gitCommand = Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1
-          $gitExecutable = $gitCommand.Path
-          $gitArguments = @(
-              'ls-files'
-              '--'
-              '*.ps1'
-              '*.psm1'
-          )
-          $powerShellFiles = @(& $gitExecutable @gitArguments)
-          $gitExitCode = $LASTEXITCODE
-
-          if ($gitExitCode -ne 0) {
-              throw ('git ls-files завершился с кодом {0}.' -f $gitExitCode)
-          }
-
-          $analysisFindings = [System.Collections.Generic.List[object]]::new()
-          $processedFiles = 0
-          $totalFiles = $powerShellFiles.Count
-          $lastProgressAt = [DateTimeOffset]::UtcNow
-
-          foreach ($relativePath in $powerShellFiles) {
-              $scriptPath = Join-Path -Path $PWD -ChildPath $relativePath
-              $findings = @(Invoke-ScriptAnalyzer -Path $scriptPath -Severity Error, Warning)
-
-              foreach ($finding in $findings) {
-                  $analysisFindings.Add($finding)
-              }
-
-              $processedFiles += 1
-              $now = [DateTimeOffset]::UtcNow
-
-              if (($now - $lastProgressAt).TotalSeconds -ge 60) {
-                  Write-Host (
-                      '[heartbeat] PSScriptAnalyzer: обработано {0}/{1} файлов.' -f
-                      $processedFiles,
-                      $totalFiles
-                  )
-                  $lastProgressAt = $now
-              }
-          }
-
-          $artifactDirectory = Join-Path -Path $env:RUNNER_TEMP -ChildPath 'azurpilot-ci-windows'
-          New-Item -ItemType Directory -Path $artifactDirectory -Force | Out-Null
-          $logPath = Join-Path -Path $artifactDirectory -ChildPath 'psscriptanalyzer.log'
-
-          if ($analysisFindings.Count -gt 0) {
-              $message = $analysisFindings | Format-Table -AutoSize | Out-String
-              $message | Set-Content -LiteralPath $logPath -Encoding utf8
-              throw "PSScriptAnalyzer обнаружил замечания:`n$message"
-          }
-
-          'PSScriptAnalyzer: замечаний нет.' | Set-Content -LiteralPath $logPath -Encoding utf8
-
       - name: Запустить Windows-регрессии
         id: windows_tests
         timeout-minutes: 20
@@ -967,7 +803,6 @@ jobs:
               '-v'
               'tests.webui.test_webui_no_reload_recovery'
               'tests.device.test_device_acceptance'
-              'tests.platform.powershell.test_powershell_contracts'
               'tests.infrastructure.tooling.test_deploy_set'
               'tests.webui.test_webui_deploy_settings'
               'tests.persistence.test_persistence_contracts'
@@ -1027,81 +862,13 @@ jobs:
               'pytest'
               '-q'
               'tests/infrastructure/tooling'
+              'tests/platform/windows/test_python_tooling_contracts.py'
           )
           & $pythonExecutable @runnerArguments
           $runnerExitCode = $LASTEXITCODE
 
           if ($runnerExitCode -ne 0) {
               throw ('Контрактные тесты Python tooling завершились с кодом {0}.' -f $runnerExitCode)
-          }
-
-          $pwshCommand = Get-Command pwsh -CommandType Application -ErrorAction Stop | Select-Object -First 1
-          $robocopyCommand = Get-Command robocopy -CommandType Application -ErrorAction Stop | Select-Object -First 1
-          $tarCommand = Get-Command tar -CommandType Application -ErrorAction Stop | Select-Object -First 1
-          $updaterTest = Join-Path -Path $PWD -ChildPath 'tools/acceptance/powershell/Test-Update-AzurPilot.ps1'
-          $updater = Join-Path -Path $PWD -ChildPath 'scripts/Update-AzurPilot.ps1'
-          $projectPython = Join-Path -Path $PWD -ChildPath '.venv/Scripts/python.exe'
-          $updaterLog = Join-Path -Path $env:RUNNER_TEMP -ChildPath 'azurpilot-ci-windows/updater-regressions.log'
-          $runnerArguments = @(
-              $runnerPath
-              '--label'
-              'Изолированные регрессии Update-AzurPilot'
-              '--heartbeat-seconds'
-              '60'
-              '--log-file'
-              $updaterLog
-              '--'
-              $pwshCommand.Path
-              '-NoLogo'
-              '-NoProfile'
-              '-File'
-              $updaterTest
-              '-UpdaterPath'
-              $updater
-              '-UvExecutablePath'
-              $uvExecutable
-              '-PythonExecutablePath'
-              $projectPython
-              '-RobocopyExecutablePath'
-              $robocopyCommand.Path
-              '-TarExecutablePath'
-              $tarCommand.Path
-          )
-          & $pythonExecutable @runnerArguments
-          $runnerExitCode = $LASTEXITCODE
-
-          if ($runnerExitCode -ne 0) {
-              throw ('Изолированные регрессии Update-AzurPilot завершились с кодом {0}.' -f $runnerExitCode)
-          }
-
-          $lifecycleTest = Join-Path -Path $PWD -ChildPath 'tools/acceptance/powershell/Test-AzurPilotLifecycle.ps1'
-          $lifecycleModule = Join-Path -Path $PWD -ChildPath 'scripts/lib/AzurPilot.Lifecycle.psm1'
-          $stopScript = Join-Path -Path $PWD -ChildPath 'scripts/Stop-AzurPilot.ps1'
-          $lifecycleLog = Join-Path -Path $env:RUNNER_TEMP -ChildPath 'azurpilot-ci-windows/lifecycle-regressions.log'
-          $runnerArguments = @(
-              $runnerPath
-              '--label'
-              'Изолированные регрессии lifecycle AzurPilot'
-              '--heartbeat-seconds'
-              '60'
-              '--log-file'
-              $lifecycleLog
-              '--'
-              $pwshCommand.Path
-              '-NoLogo'
-              '-NoProfile'
-              '-File'
-              $lifecycleTest
-              '-LifecycleModulePath'
-              $lifecycleModule
-              '-StopScriptPath'
-              $stopScript
-          )
-          & $pythonExecutable @runnerArguments
-          $runnerExitCode = $LASTEXITCODE
-
-          if ($runnerExitCode -ne 0) {
-              throw ('Изолированные регрессии lifecycle AzurPilot завершились с кодом {0}.' -f $runnerExitCode)
           }
 
       - name: Проверить чистоту рабочего дерева
@@ -1151,7 +918,7 @@ jobs:
               ''
               'Commit: `${{ github.event.pull_request.head.sha || github.sha }}`'
               ''
-              'При падении логи Parser, PSScriptAnalyzer и Windows-регрессий находятся в `windows-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}`.'
+              'При падении логи Windows-регрессий и Python tooling находятся в `windows-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}`.'
           ) | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
 
       - name: Собрать диагностику Windows

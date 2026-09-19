@@ -2,7 +2,6 @@ from __future__ import annotations
 from tests.support.paths import REPOSITORY_ROOT
 
 
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -106,7 +105,7 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
     remote_access = (ROOT / "module/webui/remote_access.py").read_text(
         encoding="utf-8"
     )
-    docker_deploy = (ROOT / "deploy/docker/deploy-image.sh").read_text(encoding="utf-8")
+    docker_deploy = (ROOT / "azurpilot/tooling/docker.py").read_text(encoding="utf-8")
     maa_argument = (
         ROOT / "submodule/AlasMaaBridge/module/config/argument/argument.yaml"
     ).read_text(encoding="utf-8")
@@ -256,23 +255,14 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
     assert "server, server_port = _parse_host_port(State.deploy_config.SSHServer)" in remote_access
     assert '"server": target' in remote_access
 
-    # Docker helper сохраняет развёртывание, но больше не зависит от китайских repo/image/mirror/IP endpoints.
-    if shutil.which("bash"):
-        subprocess.run(
-            ["bash", "-n"],
-            input=docker_deploy.encode("utf-8"),
-            check=True,
-        )
-    assert "https://github.com/AliceLiddell01/AzurPilot-private-Ru.git" in docker_deploy
-    assert 'BRANCH="${BRANCH:-personal/stable}"' in docker_deploy
-    assert "https://download.docker.com/linux/" in docker_deploy
-    assert 'codename="${UBUNTU_CODENAME:-${VERSION_CODENAME}}"' in docker_deploy
-    assert '"${distro}" "${codename}"' in docker_deploy
-    assert 'IMAGE="${IMAGE:-azurpilot-private-ru:local}"' in docker_deploy
-    assert 'docker_cmd build --pull -t "${IMAGE}"' in docker_deploy
-    assert 'merge --ff-only "origin/${BRANCH}"' in docker_deploy
-    assert "https://ifconfig.me/ip" not in docker_deploy
-    assert "AZURPILOT_PUBLIC_IP" in docker_deploy
+    # Docker deployment принадлежит typed Python service и не устанавливает host packages.
+    assert "StructuredProcessRunner" in docker_deploy
+    assert '"build"' in docker_deploy
+    assert '"run"' in docker_deploy
+    assert "_wait_readiness" in docker_deploy
+    assert "apt-get" not in docker_deploy
+    assert "download.docker.com" not in docker_deploy
+    assert "ifconfig.me" not in docker_deploy
     for token in (
         "gitcode.com",
         "aliyuncs.com",

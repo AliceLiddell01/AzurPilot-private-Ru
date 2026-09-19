@@ -5,7 +5,6 @@ from tests.support.paths import REPOSITORY_ROOT
 import asyncio
 import json
 import os
-import re
 import subprocess
 import sys
 from datetime import UTC, datetime
@@ -491,31 +490,29 @@ def test_production_modules_do_not_import_sqlite_or_legacy_database():
     assert "np.loadtxt" not in azurstats
 
 
-def test_lifecycle_scripts_encode_postgresql_ownership():
-    start = (ROOT / "scripts" / "Start-AzurPilot.ps1").read_text(encoding="utf-8")
-    update = (ROOT / "scripts" / "Update-AzurPilot.ps1").read_text(encoding="utf-8")
-    repair = (ROOT / "scripts" / "Repair-AzurPilot.ps1").read_text(encoding="utf-8")
-    build = (ROOT / "scripts" / "Build-AzurPilot.ps1").read_text(encoding="utf-8")
+def test_python_services_encode_postgresql_and_lifecycle_ownership():
+    lifecycle = (ROOT / "azurpilot" / "tooling" / "lifecycle.py").read_text(
+        encoding="utf-8"
+    )
+    update = (ROOT / "azurpilot" / "tooling" / "update.py").read_text(
+        encoding="utf-8"
+    )
+    repair = (ROOT / "azurpilot" / "tooling" / "repair.py").read_text(
+        encoding="utf-8"
+    )
+    infrastructure = (ROOT / "azurpilot" / "tooling" / "infrastructure.py").read_text(
+        encoding="utf-8"
+    )
 
-    assert re.search(r"'compose'\s+'--env-file'", start)
-    assert re.search(r"'config'\s+'--quiet'", start)
-    assert "dev_tools.observability_compose_migration" in start
-    assert "'migrate'" in start
-    assert re.search(r"'up'\s+'--detach'\s+'--wait'\s+'postgres'", start)
-    assert "dev_tools.postgresql_runtime" in start
-    backup_call = update.index("\n        $postgresqlBackupPath = Backup-ProductionPostgreSql\n")
-    merge_call = update.index("'merge'", backup_call)
-    assert backup_call < merge_call
-    assert "Invoke-ProductionPostgreSqlSchemaUpgrade" in update
-    assert "Repair не изменяет БД" in repair
-    assert "dev_tools.postgresql_security" in repair
-    assert "dev_tools.postgresql_runtime" not in build
-    assert "Get-Command -Name 'docker.exe'" in start
-    assert "foreach ($dockerName in @('docker.exe', 'docker'))" in repair
-    assert re.search(r"'--deployment'\s+'docker'", repair)
-    assert "Select-Object -First 1" in start
-    assert "Select-Object -First 1" in repair
-    assert "-TimeoutMilliseconds 30000" in repair
+    assert "InfrastructureService" in lifecycle
+    assert "ensure_started" in lifecycle
+    assert "fetch_branch" in update
+    assert "merge_ff_only" in update
+    assert "PostgreSqlBackupService" in update
+    assert "Repair не меняет Git" in repair
+    assert "JournalStore" in repair
+    assert "StructuredProcessRunner" in infrastructure
+    assert "docker" in infrastructure
 
 
 def test_webui_rejects_database_upload_before_read():

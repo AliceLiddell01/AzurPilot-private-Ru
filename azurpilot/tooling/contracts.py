@@ -354,6 +354,30 @@ class DeliveryEvidence(ClosedModel):
     branch: BranchIdentity | None = None
 
 
+class DockerDeploymentDetails(ClosedModel):
+    """Typed результат явного Docker image/container deployment."""
+
+    action: Literal["deploy"] = "deploy"
+    image: str = Field(min_length=1, max_length=256)
+    container: str = Field(min_length=1, max_length=128)
+    port: int = Field(ge=1, le=65535)
+    source: str = Field(min_length=1, max_length=80)
+    build_confirmed: bool
+    container_started: bool
+    readiness_confirmed: bool
+    replace_performed: bool = False
+
+
+class DockerDeploymentEvidence(ClosedModel):
+    """Bounded evidence deployment без секретов и public-IP discovery."""
+
+    docker_cli: str = Field(min_length=1, max_length=80)
+    capability: CapabilityStatus
+    image: str = Field(min_length=1, max_length=256)
+    container: str = Field(min_length=1, max_length=128)
+    readiness_probe: str = Field(min_length=1, max_length=80)
+
+
 class PullRequestIdentity(ClosedModel):
     """Полная repository-qualified identity PR."""
 

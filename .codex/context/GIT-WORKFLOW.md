@@ -66,7 +66,6 @@ Codex не просит пользователя запускать команд
 
 - сначала `.codex/context/INDEX.md`, затем только нужные документы;
 - `GIT-WORKFLOW.md` читать по релевантным разделам;
-- `POWERSHELL-GIT-RULES.md` читать только при PowerShell/Git scope;
 - не перечитывать большие документы после каждого небольшого fix;
 - не выполнять общий web/docs survey без конкретного вопроса;
 - не расширять область проблемы без evidence из call graph, tests, diff или runtime-поведения;
@@ -84,7 +83,7 @@ AzurPilot Private RU наследует upstream, но содержит отде
 | screenshot/input/OCR | координаты, thresholds, localization |
 | combat/campaign/Operation Siren | state machine, retries, exit conditions |
 | integrations/MCP | secrets, privacy, network errors |
-| `scripts/*.ps1` | Git, `.venv`, update, rollback |
+| `azurpilot.tooling` | Git, `.venv`, update, rollback |
 | production data | migration, credentials, recovery, rollback |
 
 Оценивать сквозной поток только в пределах фактически затронутых границ.
@@ -104,7 +103,7 @@ AzurPilot Private RU наследует upstream, но содержит отде
 Проверяются перед первым соответствующим gate:
 
 - GitHub push/PR/review/checks/artifacts/merge;
-- Windows/PowerShell Parser/PSScriptAnalyzer;
+- Windows Python tooling and native integration checks;
 - secret/security scanners;
 - browser/WebUI;
 - ADB/emulator/game;
@@ -364,26 +363,13 @@ Disposable clone/worktree допустим только при реальной 
 
 Для чувствительных/расширенных изменений тот же основной Codex отдельно проверяет trust-границы, findings, validation/severity, проверку исправления и secrets/privacy. Внешний scanner/reviewer остаётся независимым gate, если предусмотрен проектом.
 
-## 14. PowerShell
-
-При изменении `.ps1`/`.psm1` с Git-командами применяется `POWERSHELL-GIT-RULES.md`.
-
-Обязательные релевантные gates:
-
-- фактический Parser через `pwsh`;
-- PSScriptAnalyzer закреплённой версии;
-- disposable Git smoke для изменённой Git-логики;
-- Windows integration smoke для Start/Update/Repair/Build и другого затронутого Windows flow.
-
-Статический аудит не заменяет обязательный runtime gate.
-
-## 15. Контракт Start/Update/Repair/Build
+## 14. Контракт Start/Update/Repair/Build
 
 ```text
-scripts/Start-AzurPilot.ps1
-scripts/Update-AzurPilot.ps1
-scripts/Repair-AzurPilot.ps1
-scripts/Build-AzurPilot.ps1
+azur start
+azur update
+azur repair
+azur build
 ```
 
 - **Start:** запускает подготовленную установку; не владеет Git update.
@@ -391,7 +377,9 @@ scripts/Build-AzurPilot.ps1
 - **Repair:** диагностирует и транзакционно восстанавливает `.venv`, сохраняя rollback state до успешной проверки.
 - **Build:** подготавливает уже полученный checkout; не клонирует repo, не подменяет Update, не уничтожает config, проверяет hashes загружаемых artifacts.
 
-Изменение одной команды не должно захватывать обязанности другой.
+Изменение одной команды не должно захватывать обязанности другой. Windows
+acceptance проверяет эти typed Python services, а PowerShell остаётся только
+runner glue.
 
 ## 16. Python и зависимости
 

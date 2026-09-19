@@ -37,19 +37,15 @@ class LegacyInstallerRemovalTests(unittest.TestCase):
     def test_cn_only_uncensored_runtime_is_absent(self):
         self.assertFalse(legacy_runtime_exists(ROOT / 'module/daemon/uncensored.py'))
 
-    def test_start_allows_supervisor_reload_without_updater_guard(self):
-        source = (ROOT / 'scripts/Start-AzurPilot.ps1').read_text(encoding='utf-8-sig')
-
-        self.assertIn("-Key 'EnableReload'", source)
-        self.assertIn('EnableReload = $enableReload', source)
-        self.assertNotIn(
-            'EnableReload должен быть явно установлен в false',
-            source,
-        )
-        self.assertNotIn(
-            'встроенный updater снова получает управление обновлениями',
-            source,
-        )
+    def test_operator_cutover_has_one_python_owner(self):
+        self.assertFalse(any((ROOT / 'scripts').rglob('*.ps1')))
+        self.assertFalse(any((ROOT / 'scripts').rglob('*.psm1')))
+        self.assertFalse((ROOT / 'deploy/docker/deploy-image.sh').exists())
+        self.assertFalse((ROOT / 'deploy/docker/Docker-run.sh').exists())
+        self.assertTrue((ROOT / 'azurpilot/tooling/lifecycle.py').is_file())
+        self.assertTrue((ROOT / 'azurpilot/tooling/update.py').is_file())
+        self.assertTrue((ROOT / 'azurpilot/tooling/repair.py').is_file())
+        self.assertTrue((ROOT / 'azurpilot/tooling/bootstrap.py').is_file())
 
 
 if __name__ == '__main__':

@@ -32,6 +32,7 @@ from .tooling.contracts import (
     exit_code_for,
 )
 from .tooling.delivery import DeliveryService
+from .tooling.docker import DockerDeploymentService
 from .tooling.doctor import DoctorService
 from .tooling.errors import ToolingError
 from .tooling.lifecycle import LifecycleService
@@ -60,6 +61,7 @@ class ServiceContainer:
     repair: RepairService
     update: UpdateService
     delivery: DeliveryService
+    docker: DockerDeploymentService
     pull_request: PullRequestService
     mcp: McpService
     integrations: IntegrationService
@@ -75,6 +77,7 @@ class ServiceContainer:
             repair=RepairService(),
             update=UpdateService(mcp_service=mcp),
             delivery=DeliveryService(),
+            docker=DockerDeploymentService(),
             pull_request=PullRequestService(),
             mcp=mcp,
             integrations=integrations,
@@ -254,6 +257,32 @@ def build_parser() -> argparse.ArgumentParser:
         help="общий срок обновления",
     )
 
+    deploy = subparsers.add_parser(
+        "deploy", help="выполнить явное typed deployment"
+    )
+    deploy_subparsers = deploy.add_subparsers(
+        dest="deploy_command", required=True, metavar="TARGET"
+    )
+    deploy_docker = deploy_subparsers.add_parser(
+        "docker", help="собрать image и запустить container через Docker CLI"
+    )
+    _add_common_options(deploy_docker, suppress_defaults=True)
+    deploy_docker.add_argument("--image", default=None)
+    deploy_docker.add_argument("--container", default=None)
+    deploy_docker.add_argument("--port", type=int, default=None)
+    deploy_docker.add_argument("--source", default=None)
+    deploy_docker.add_argument(
+        "--replace",
+        action="store_true",
+        help="явно удалить только указанный существующий container перед запуском",
+    )
+    deploy_docker.add_argument(
+        "--timeout", type=float, default=20 * 60, metavar="SECONDS"
+    )
+    deploy_docker.add_argument(
+        "--readiness-timeout", type=float, default=30.0, metavar="SECONDS"
+    )
+
     delivery = subparsers.add_parser(
         "delivery", help="проверить или опубликовать allowlisted Git delivery"
     )
@@ -398,6 +427,10 @@ def build_parser() -> argparse.ArgumentParser:
                 help="явный repository-relative файл; параметр можно повторять",
             )
         if name is IntegrationName.CODERABBIT:
+            reconcile = provider_subparsers.add_parser(
+                "reconcile", help="явно согласовать WSL managed clone"
+            )
+            _add_common_options(reconcile, suppress_defaults=True)
             review = provider_subparsers.add_parser(
                 "review", help="запустить advisory CodeRabbit review"
             )
@@ -890,6 +923,17 @@ def _dispatch(
             expected_origin_url=args.expected_origin_url,
             timeout_seconds=args.timeout,
         )
+    if command == "deploy" and args.deploy_command == "docker":
+        return services.docker.deploy(
+            root,
+            image=args.image,
+            container=args.container,
+            port=args.port,
+            source=args.source,
+            replace=args.replace,
+            timeout_seconds=args.timeout,
+            readiness_timeout_seconds=args.readiness_timeout,
+        )
     if command == "delivery":
         if args.delivery_command == "validate":
             return services.delivery.validate(args.manifest, root)
@@ -986,6 +1030,8 @@ def _dispatch(
                     else None
                 ),
             )
+        if target == IntegrationName.CODERABBIT.value and action == "reconcile":
+            return services.integrations.reconcile_coderabbit(repository_root=root)
         if target == IntegrationName.CODERABBIT.value and action == "findings":
             return services.integrations.findings(
                 base_sha=args.base,

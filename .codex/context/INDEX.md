@@ -28,7 +28,6 @@ AzurPilot Private RU. Она не является снимком текущег
 | `10-GLOSSARY.md` | краткие термины |
 | `11-PYTHON-TOOLING.md` | `azurpilot.tooling`, внешние интеграции, CLI и delivery |
 | `GIT-WORKFLOW.md` | Git, ветки, PR, upstream, merge, rollback и cleanup |
-| `POWERSHELL-GIT-RULES.md` | Git внутри `.ps1`/`.psm1` |
 | `MIGRATION-MAP.md` | историческая справка о старом AI-контексте; не читать в обычной задаче |
 
 Постоянный контракт CI дополнительно описан в `docs/ci.md`.
@@ -45,7 +44,6 @@ AzurPilot Private RU. Она не является снимком текущег
 ## Экономия контекста
 
 - `GIT-WORKFLOW.md` читать по относящимся к задаче разделам, а не целиком.
-- `POWERSHELL-GIT-RULES.md` нужен только для PowerShell/Git-задач.
 - `11-PYTHON-TOOLING.md` нужен только для Python tooling, CLI, delivery, PR,
   MCP status или внешних интеграций.
 - Доменные документы не загружаются для несвязанной documentation/Git-only

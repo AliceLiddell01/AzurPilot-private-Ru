@@ -730,7 +730,7 @@ uv run --locked --no-sync python -m dev_tools.infrastructure_doctor --repository
 ```
 
 Если `AZURPILOT_CADDY_HOST` удалён из `.env`, следующий запуск через
-`Start-AzurPilot.ps1` останавливает только принадлежащий этому Compose project
+`azur start` останавливает только принадлежащий этому Compose project
 service `caddy`. Named volumes и остальные инфраструктурные services не трогаются;
 при ошибке остановки startup завершается с ошибкой.
 
