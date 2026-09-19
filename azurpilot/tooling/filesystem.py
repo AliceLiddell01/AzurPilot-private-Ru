@@ -15,7 +15,7 @@ from typing import TypeVar
 
 from pydantic import BaseModel
 
-from .contracts import ResultCode, TransactionJournal
+from .contracts import DeliveryJournal, ResultCode, TransactionJournal
 from .errors import ToolingError
 
 MAX_FILE_BYTES = 16 * 1024 * 1024
@@ -428,6 +428,33 @@ class JournalStore:
         data = updated.model_dump_json(indent=2).encode("utf-8")
         return scope.atomic_write_bytes("journal.json", data)
 
+    def _validate_delivery_directory(self, directory: Path) -> None:
+        """Проверить чужое typed delivery-state, не смешивая его с tooling journal."""
+
+        state_path = directory / "state.json"
+        if _is_reparse_or_symlink(state_path) or not state_path.is_file():
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Состояние delivery-транзакции повреждено или недоступно.",
+            )
+        try:
+            journal = DeliveryJournal.model_validate_json(
+                bounded_read_text(state_path, max_bytes=128 * 1024)
+            )
+        except Exception as exc:
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Состояние delivery-транзакции повреждено или имеет неизвестную схему.",
+            ) from exc
+        if (
+            journal.operation_id != directory.name
+            or journal.repository_root_identity != path_identity(self.layout.repository_root)
+        ):
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Состояние delivery-транзакции не соответствует своему каталогу или корню.",
+            )
+
     def _read_entries(self) -> list[tuple[Path, TransactionJournal]]:
         root = self.layout.transactions_directory
         if _is_reparse_or_symlink(root):
@@ -461,6 +488,9 @@ class JournalStore:
             )
         journals: list[tuple[Path, TransactionJournal]] = []
         for directory in entries:
+            if directory.name.startswith("delivery-"):
+                self._validate_delivery_directory(directory)
+                continue
             journal_path = directory / "journal.json"
             if not journal_path.exists():
                 raise ToolingError(
