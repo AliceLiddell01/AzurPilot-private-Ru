@@ -1,10 +1,12 @@
 from __future__ import annotations
-from tests.support.paths import REPOSITORY_ROOT
-
 
 import subprocess
-from pathlib import Path
 
+from tests.support.contracts import (
+    DOCKER_FORBIDDEN_SOURCE_TOKENS,
+    assert_source_excludes,
+)
+from tests.support.paths import REPOSITORY_ROOT
 
 ROOT = REPOSITORY_ROOT
 TEXT_SUFFIXES = {
@@ -260,9 +262,7 @@ def test_network_cleanup_preserves_useful_features_and_removes_only_reviewed_def
     assert '"build"' in docker_deploy
     assert '"run"' in docker_deploy
     assert "_wait_readiness" in docker_deploy
-    assert "apt-get" not in docker_deploy
-    assert "download.docker.com" not in docker_deploy
-    assert "ifconfig.me" not in docker_deploy
+    assert_source_excludes(docker_deploy, DOCKER_FORBIDDEN_SOURCE_TOKENS)
     for token in (
         "gitcode.com",
         "aliyuncs.com",

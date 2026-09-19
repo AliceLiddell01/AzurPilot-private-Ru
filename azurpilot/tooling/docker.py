@@ -123,11 +123,63 @@ class DockerDeploymentService:
         while time.monotonic() < deadline:
             try:
                 with urlopen(Request(url, method="GET"), timeout=2.0) as response:
-                    if 200 <= int(response.status) < 500:
+                    if 200 <= int(response.status) < 300:
                         return True
             except (TimeoutError, OSError, URLError):
                 time.sleep(0.5)
         return False
+
+    def _remove_container_if_present(
+        self, docker: Path, root: Path, container: str
+    ) -> None:
+        """Идемпотентно удалить только явно названный container и доказать его отсутствие."""
+
+        inspected = self._run(
+            docker,
+            root,
+            "inspect",
+            "--type",
+            "container",
+            container,
+            timeout_seconds=30,
+            allow_nonzero=True,
+        )
+        if inspected.returncode == 1:
+            return
+        if inspected.returncode != 0:
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Docker не подтвердил состояние container перед cleanup.",
+            )
+        removed = self._run(
+            docker,
+            root,
+            "rm",
+            "--force",
+            container,
+            timeout_seconds=120,
+            allow_nonzero=True,
+        )
+        if removed.returncode not in {0, 1}:
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Docker не подтвердил удаление нового container.",
+            )
+        confirmed = self._run(
+            docker,
+            root,
+            "inspect",
+            "--type",
+            "container",
+            container,
+            timeout_seconds=30,
+            allow_nonzero=True,
+        )
+        if confirmed.returncode != 1:
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Docker не подтвердил отсутствие нового container.",
+            )
 
     def deploy(
         self,
@@ -238,6 +290,8 @@ class DockerDeploymentService:
             )
         new_container_attempted = False
         try:
+            # Docker daemon может успеть создать container до client timeout.
+            new_container_attempted = True
             self._run(
                 docker,
                 root,
@@ -248,13 +302,12 @@ class DockerDeploymentService:
                 "--restart",
                 "unless-stopped",
                 "--publish",
-                f"{host_port}:{host_port}",
+                f"127.0.0.1:{host_port}:{host_port}",
                 "--workdir",
                 "/app/AzurPilot",
                 image_name,
                 timeout_seconds=120,
             )
-            new_container_attempted = True
             readiness = self._wait_readiness("127.0.0.1", host_port, readiness_timeout_seconds)
             if not readiness:
                 raise ToolingError(
@@ -264,7 +317,7 @@ class DockerDeploymentService:
         except ToolingError:
             try:
                 if new_container_attempted:
-                    self._run(docker, root, "rm", "--force", container_name, timeout_seconds=120)
+                    self._remove_container_if_present(docker, root, container_name)
                 if rollback_name is not None:
                     self._run(
                         docker,
@@ -283,7 +336,7 @@ class DockerDeploymentService:
                 ) from restore_error
             raise
         if rollback_name is not None:
-            self._run(docker, root, "rm", "--force", rollback_name, timeout_seconds=120)
+            self._remove_container_if_present(docker, root, rollback_name)
         return ToolingResult(
             ok=True,
             code=ResultCode.OK,

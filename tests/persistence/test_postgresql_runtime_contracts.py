@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import asyncio
 import json
 import os
@@ -508,7 +509,15 @@ def test_python_services_encode_postgresql_and_lifecycle_ownership():
     assert "fetch_branch" in update
     assert "merge_ff_only" in update
     assert "PostgreSqlBackupService" in update
-    assert "Repair не меняет Git" in repair
+    repair_tree = ast.parse(repair)
+    git_calls = [
+        node
+        for node in ast.walk(repair_tree)
+        if isinstance(node, ast.Call)
+        and getattr(node.func, "attr", getattr(node.func, "id", "")).casefold()
+        in {"git", "git_command", "git_run"}
+    ]
+    assert not git_calls
     assert "JournalStore" in repair
     assert "StructuredProcessRunner" in infrastructure
     assert "def _run_docker" in infrastructure

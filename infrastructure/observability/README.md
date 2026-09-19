@@ -198,8 +198,8 @@ metadata, DNS/TLS и read-only MCP contract через публичные endpoi
 Владелец lifecycle — Docker Compose/Docker Desktop; Arch WSL2 сохраняется только
 как rollback safety и не требует `systemctl start postgresql`.
 Для восстановления Caddy после входа в Windows в Docker Desktop должна быть
-включена настройка General → Start Docker Desktop when you sign in. Скрипт
-Команда `azur start` не изменяет эту пользовательскую настройку; после её
+включена настройка General → Start Docker Desktop when you sign in. Команда
+`azur start` не изменяет эту пользовательскую настройку; после её
 включения перезагрузка проверяет Docker Desktop → Compose project → Caddy.
 
 ### pgAdmin

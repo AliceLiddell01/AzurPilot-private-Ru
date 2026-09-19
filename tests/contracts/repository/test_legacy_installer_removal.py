@@ -1,8 +1,8 @@
-from tests.support.paths import REPOSITORY_ROOT
-
 import unittest
 from pathlib import Path
 
+from tests.support.contracts import assert_no_legacy_operator_surfaces
+from tests.support.paths import REPOSITORY_ROOT
 
 ROOT = REPOSITORY_ROOT
 
@@ -38,10 +38,7 @@ class LegacyInstallerRemovalTests(unittest.TestCase):
         self.assertFalse(legacy_runtime_exists(ROOT / 'module/daemon/uncensored.py'))
 
     def test_operator_cutover_has_one_python_owner(self):
-        self.assertFalse(any((ROOT / 'scripts').rglob('*.ps1')))
-        self.assertFalse(any((ROOT / 'scripts').rglob('*.psm1')))
-        self.assertFalse((ROOT / 'deploy/docker/deploy-image.sh').exists())
-        self.assertFalse((ROOT / 'deploy/docker/Docker-run.sh').exists())
+        assert_no_legacy_operator_surfaces(ROOT)
         self.assertTrue((ROOT / 'azurpilot/tooling/lifecycle.py').is_file())
         self.assertTrue((ROOT / 'azurpilot/tooling/update.py').is_file())
         self.assertTrue((ROOT / 'azurpilot/tooling/repair.py').is_file())

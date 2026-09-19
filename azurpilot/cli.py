@@ -277,10 +277,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="явно удалить только указанный существующий container перед запуском",
     )
     deploy_docker.add_argument(
-        "--timeout", type=float, default=20 * 60, metavar="SECONDS"
+        "--timeout",
+        type=float,
+        default=20 * 60,
+        metavar="SECONDS",
+        help="общий срок развёртывания",
     )
     deploy_docker.add_argument(
-        "--readiness-timeout", type=float, default=30.0, metavar="SECONDS"
+        "--readiness-timeout",
+        type=float,
+        default=30.0,
+        metavar="SECONDS",
+        help="срок подтверждения готовности container",
     )
 
     delivery = subparsers.add_parser(

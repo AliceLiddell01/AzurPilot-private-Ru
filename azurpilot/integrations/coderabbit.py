@@ -2634,7 +2634,8 @@ class CodeRabbitAdapter(IntegrationAdapter):
             "worktree", "add", "--detach", checkout_path, expected_head, timeout=120
         )
         if self._command_failed(added):
-            return runtime, None, "CODERABBIT_REVIEW_CHECKOUT_CREATE_FAILED"
+            # Частично созданный worktree должен пройти общую remove/prune cleanup.
+            return runtime, checkout_path, "CODERABBIT_REVIEW_CHECKOUT_CREATE_FAILED"
         checkout_runtime = runtime.with_clone(checkout_path)
         verified, verify_reason = self._verify_clone(
             checkout_runtime, expected_head, expected_repository

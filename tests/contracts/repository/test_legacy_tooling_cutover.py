@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dev_tools.legacy_tooling_inventory import classify, inventory
+from tests.support.contracts import assert_no_legacy_operator_surfaces
 from tests.support.paths import REPOSITORY_ROOT
 
 ROOT = REPOSITORY_ROOT
@@ -38,7 +39,4 @@ def test_unlisted_observability_shell_is_not_auto_retained():
 
 
 def test_removed_operator_directories_stay_removed():
-    assert not any((ROOT / "scripts").rglob("*.ps1"))
-    assert not any((ROOT / "scripts").rglob("*.psm1"))
-    assert not any((ROOT / "tools" / "acceptance" / "powershell").rglob("*.ps1"))
-    assert not (ROOT / "dev_tools" / "alas2.bat").exists()
+    assert_no_legacy_operator_surfaces(ROOT)
