@@ -806,6 +806,7 @@ def _state_summary(
         "cycle_id": str(state.get("current_cycle_id") or "not-started")[:80],
         "started_at": state.get("cycle_started_at"),
         "finished_at": finished_at[:40],
+        "base_sha": state.get("base_sha"),
         "substantive_iterations": int(state.get("substantive_iterations", 0)),
         "last_reviewed_head": state.get("reviewed_head"),
         "last_findings_count": int(state.get("findings_count", 0)),
@@ -3152,20 +3153,19 @@ class CodeRabbitAdapter(IntegrationAdapter):
                     ResultCode.TOOLING_VERIFICATION_UNKNOWN,
                     "Идентификатор исторического cycle CodeRabbit повреждён.",
                 )
-            for key in ("started_at", "finished_at", "last_reviewed_head", "terminal_reason", "provider_state"):
+            for key in ("started_at", "finished_at", "base_sha", "last_reviewed_head", "terminal_reason", "provider_state"):
                 value = summary.get(key)
                 if value is not None and (not isinstance(value, str) or len(value) > 512):
                     raise ToolingError(
                         ResultCode.TOOLING_VERIFICATION_UNKNOWN,
                         "Историческое поле CodeRabbit повреждено.",
                     )
-            if summary.get("last_reviewed_head") is not None and _SHA_RE.fullmatch(
-                str(summary["last_reviewed_head"])
-            ) is None:
-                raise ToolingError(
-                    ResultCode.TOOLING_VERIFICATION_UNKNOWN,
-                    "Исторический reviewed head CodeRabbit повреждён.",
-                )
+            for key, message in (
+                ("base_sha", "Исторический base SHA CodeRabbit повреждён."),
+                ("last_reviewed_head", "Исторический reviewed head CodeRabbit повреждён."),
+            ):
+                if summary.get(key) is not None and _SHA_RE.fullmatch(str(summary[key])) is None:
+                    raise ToolingError(ResultCode.TOOLING_VERIFICATION_UNKNOWN, message)
         quota = payload.get("provider_quota")
         if not isinstance(quota, dict):
             raise ToolingError(
@@ -3416,15 +3416,6 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 "CodeRabbit cycle base должен быть exact SHA.",
             )
         stored_base = review_state.get("base_sha")
-        if base_sha is not None and isinstance(stored_base, str) and stored_base and stored_base != base_sha:
-            return AdapterOutcome(
-                self._record_from_error(
-                    settings,
-                    "CODERABBIT_REVIEW_BASE_MISMATCH",
-                    state=IntegrationState.INCOMPATIBLE,
-                    diagnostics=self._review_state_diagnostics(review_state),
-                )
-            )
         expected_repository = self._expected_repository(root, settings)
         now = datetime.now(UTC).isoformat(timespec="seconds")
         previous = list(review_state.get("previous_cycles", []))

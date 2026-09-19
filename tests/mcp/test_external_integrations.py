@@ -1490,6 +1490,42 @@ def test_coderabbit_cycles_reset_only_explicitly_and_keep_bounded_history(
     assert state["previous_cycles"][0]["substantive_iterations"] == 3
 
 
+def test_coderabbit_cycle_start_accepts_new_base_after_completed_cycle(
+    monkeypatch, tmp_path: Path
+):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    adapter = coderabbit.CodeRabbitAdapter()
+    config = IntegrationConfig()
+    root = tmp_path / "checkout"
+    old_base = "a" * 40
+    new_base = "b" * 40
+    adapter._save_state(
+        root,
+        iterations=1,
+        head="c" * 40,
+        terminal=False,
+        base_sha=old_base,
+        repository_identity="hosted:github.com/alice/example",
+        attempt=1,
+        operation_id="coderabbit-complete",
+        started_at="2026-09-16T00:00:00+00:00",
+        provider_state="complete",
+        active=False,
+        complete_received=True,
+        last_event_type="complete",
+        findings_count=1,
+        reviewed_head="c" * 40,
+    )
+
+    result = adapter.start_cycle(root, config, base_sha=new_base)
+
+    assert result.record.reason_code == "CODERABBIT_REVIEW_CYCLE_STARTED"
+    state = adapter._load_review_state(root)
+    assert state["base_sha"] == new_base
+    assert state["substantive_iterations"] == 0
+    assert state["previous_cycles"][-1]["base_sha"] == old_base
+
+
 def test_coderabbit_review_emits_bounded_heartbeat_without_retrying_provider(
     monkeypatch, tmp_path: Path
 ):
