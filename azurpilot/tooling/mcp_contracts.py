@@ -23,6 +23,3 @@ class ProcessEvidence(_McpRuntimeModel):
 
 
 __all__ = ["ProcessEvidence"]
-
-
-

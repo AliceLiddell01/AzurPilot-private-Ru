@@ -91,4 +91,3 @@ __all__ = [
     "is_unsafe_path",
     "path_has_link",
 ]
-
