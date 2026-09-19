@@ -289,6 +289,10 @@ class DockerDeploymentDetails(ClosedModel):
         "readonly_backend_marker",
         "readonly_env_and_backend_marker",
     ] = "not_configured"
+    postgres_compose_project: str = "azurpilot-infrastructure"
+    postgres_compose_service: str = "postgres"
+    postgres_network: str = Field(default="", max_length=256)
+    postgres_endpoint: Literal["postgres:5432"] = "postgres:5432"
 
 
 class DockerDeploymentEvidence(ClosedModel):
@@ -305,6 +309,10 @@ class DockerDeploymentEvidence(ClosedModel):
         "readonly_backend_marker",
         "readonly_env_and_backend_marker",
     ] = "not_configured"
+    postgres_compose_project: str = "azurpilot-infrastructure"
+    postgres_compose_service: str = "postgres"
+    postgres_network: str = Field(default="", max_length=256)
+    postgres_endpoint: Literal["postgres:5432"] = "postgres:5432"
 
 
 class PullRequestIdentity(ClosedModel):

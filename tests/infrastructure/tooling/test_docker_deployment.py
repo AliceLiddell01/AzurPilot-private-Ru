@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -23,14 +24,16 @@ def _process_result(
     returncode: int | None = 0,
     stdout: str = "",
     stderr: str = "",
+    stdout_truncated: bool = False,
+    stderr_truncated: bool = False,
     timed_out: bool = False,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         returncode=returncode,
         stdout=stdout,
         stderr=stderr,
-        stdout_truncated=False,
-        stderr_truncated=False,
+        stdout_truncated=stdout_truncated,
+        stderr_truncated=stderr_truncated,
         timed_out=timed_out,
     )
 
@@ -71,6 +74,16 @@ def _prepare_runtime_sources(root: Path) -> None:
         )
         + "\n",
         encoding="utf-8",
+    )
+
+
+def _patch_postgres_runtime(
+    monkeypatch: pytest.MonkeyPatch, service: DockerDeploymentService
+) -> None:
+    monkeypatch.setattr(
+        service,
+        "_resolve_postgres_runtime",
+        lambda *_args: SimpleNamespace(network="azurpilot-test-network", host="postgres", port=5432),
     )
 
 
@@ -268,6 +281,7 @@ def test_docker_nested_full_context_reports_category_and_resolved_cli(
     )
     monkeypatch.setattr(service, "_docker", lambda: Path(sys.executable))
     monkeypatch.setattr(service, "_wait_readiness", lambda *_args: True)
+    _patch_postgres_runtime(monkeypatch, service)
 
     result = service.deploy(
         root,
@@ -316,12 +330,23 @@ def test_docker_deploy_binds_only_loopback(monkeypatch: pytest.MonkeyPatch, tmp_
     )
     monkeypatch.setattr(service, "_docker", lambda: Path(sys.executable))
     monkeypatch.setattr(service, "_wait_readiness", lambda *_args: True)
+    _patch_postgres_runtime(monkeypatch, service)
 
     result = service.deploy(root, image="cutover:local", container="cutover", port=25549)
 
     assert result.ok is True
     run_call = next(call for call in runner.calls if call and call[0] == "run")
     assert "127.0.0.1:25549:25548" in run_call
+    assert "--network" in run_call
+    assert "AZURPILOT_DOCKER_POSTGRES_HOST=postgres" in run_call
+    assert "AZURPILOT_DOCKER_POSTGRES_PORT=5432" in run_call
+    assert "AZURPILOT_DOCKER_POSTGRES_PORT=25549" not in run_call
+    assert run_call[-4:] == (
+        "cutover:local",
+        "deploy/docker/runtime_entrypoint.py",
+        "--host",
+        "0.0.0.0",
+    )
 
 
 def test_docker_deploy_cleans_container_created_before_run_timeout(
@@ -354,6 +379,7 @@ def test_docker_deploy_cleans_container_created_before_run_timeout(
         runner=runner,
     )
     monkeypatch.setattr(service, "_docker", lambda: Path(sys.executable))
+    _patch_postgres_runtime(monkeypatch, service)
 
     with pytest.raises(ToolingError) as error:
         service.deploy(
@@ -367,3 +393,244 @@ def test_docker_deploy_cleans_container_created_before_run_timeout(
     assert error.value.code is ResultCode.TOOLING_TIMEOUT
     assert ("rm", "--force", "cutover") in runner.calls
     assert ("rename", "cutover.azurpilot-old", "cutover") in runner.calls
+
+
+def _compose_root(tmp_path: Path) -> Path:
+    root = tmp_path / "repository"
+    compose = root / "infrastructure" / "observability" / "compose.yaml"
+    compose.parent.mkdir(parents=True)
+    compose.write_text("name: azurpilot-infrastructure\nservices:\n  postgres: {}\n", encoding="utf-8")
+    (root / ".env").write_text("AZURPILOT_POSTGRES_PORT=55432\n", encoding="utf-8")
+    return root
+
+
+def _compose_ps_record(
+    *,
+    project: str = "azurpilot-infrastructure",
+    service: str = "postgres",
+    container_id: str = "a" * 64,
+) -> str:
+    return json.dumps(
+        {
+            "Project": project,
+            "Service": service,
+            "ID": container_id[:12],
+            "Name": "azurpilot-infrastructure-postgres-1",
+            "State": "running",
+            "Health": "healthy",
+        }
+    )
+
+
+def _container_inspect_record(
+    *,
+    project: str = "azurpilot-infrastructure",
+    service: str = "postgres",
+    container_id: str = "a" * 64,
+    networks: dict[str, object] | None = None,
+) -> str:
+    labels = {
+        "com.docker.compose.project": project,
+        "com.docker.compose.service": service,
+    }
+    return "\t".join(
+        (
+            container_id,
+            "/azurpilot-infrastructure-postgres-1",
+            "running",
+            "healthy",
+            json.dumps(labels),
+            json.dumps(
+                networks
+                or {"azurpilot-test-network": {"Aliases": ["postgres"]}}
+            ),
+        )
+    )
+
+
+def _network_inspect_record(
+    *,
+    project: str = "azurpilot-infrastructure",
+    name: str = "azurpilot-test-network",
+    container_id: str = "a" * 64,
+) -> str:
+    labels = {"com.docker.compose.project": project}
+    return "\t".join(
+        (
+            "b" * 64,
+            name,
+            json.dumps(labels),
+            json.dumps({container_id: {"Name": "azurpilot-infrastructure-postgres-1"}}),
+        )
+    )
+
+
+def test_docker_resolves_only_healthy_canonical_compose_network(tmp_path: Path):
+    root = _compose_root(tmp_path)
+    runner = _FakeDockerRunner(
+        [
+            _process_result(stdout=_compose_ps_record()),
+            _process_result(stdout=_container_inspect_record()),
+            _process_result(stdout=_network_inspect_record()),
+        ]
+    )
+    service = DockerDeploymentService(runner=runner)
+
+    runtime = service._resolve_postgres_runtime(Path(sys.executable), root)
+
+    assert runtime.network == "azurpilot-test-network"
+    assert "--project-name" in runner.calls[0]
+    assert "postgres" in runner.calls[0]
+    assert "azurpilot-test-network" in runner.calls[2]
+
+
+@pytest.mark.parametrize(
+    "result",
+    (
+        _process_result(returncode=1),
+        _process_result(stdout="{}", stdout_truncated=True),
+    ),
+)
+def test_docker_compose_preflight_errors_are_unknown(
+    tmp_path: Path, result: SimpleNamespace
+):
+    root = _compose_root(tmp_path)
+    service = DockerDeploymentService(runner=_FakeDockerRunner([result]))
+
+    with pytest.raises(ToolingError) as error:
+        service._resolve_postgres_runtime(Path(sys.executable), root)
+
+    assert error.value.code is ResultCode.TOOLING_VERIFICATION_UNKNOWN
+
+
+@pytest.mark.parametrize(
+    "record",
+    (
+        _compose_ps_record(project="foreign-project"),
+        _compose_ps_record(service="foreign-service"),
+        "",
+    ),
+)
+def test_docker_compose_missing_or_foreign_service_fails_closed(
+    tmp_path: Path, record: str
+):
+    root = _compose_root(tmp_path)
+    service = DockerDeploymentService(
+        runner=_FakeDockerRunner([_process_result(stdout=record)])
+    )
+
+    with pytest.raises(ToolingError) as error:
+        service._resolve_postgres_runtime(Path(sys.executable), root)
+
+    assert error.value.code is ResultCode.TOOLING_PRECONDITION_FAILED
+
+
+def test_docker_network_inspect_error_is_unknown(tmp_path: Path):
+    root = _compose_root(tmp_path)
+    runner = _FakeDockerRunner(
+        [
+            _process_result(stdout=_compose_ps_record()),
+            _process_result(stdout=_container_inspect_record()),
+            _process_result(stdout="broken", stdout_truncated=True),
+        ]
+    )
+    service = DockerDeploymentService(runner=runner)
+
+    with pytest.raises(ToolingError) as error:
+        service._resolve_postgres_runtime(Path(sys.executable), root)
+
+    assert error.value.code is ResultCode.TOOLING_VERIFICATION_UNKNOWN
+
+
+@pytest.mark.parametrize(
+    "inspect_record",
+    (
+        _container_inspect_record(project="foreign-project"),
+        _container_inspect_record(
+            networks={
+                "azurpilot-test-network": {"Aliases": ["postgres"]},
+                "foreign-network": {"Aliases": ["postgres"]},
+            }
+        ),
+    ),
+)
+def test_docker_container_identity_and_network_ambiguity_fail_closed(
+    tmp_path: Path, inspect_record: str
+):
+    root = _compose_root(tmp_path)
+    service = DockerDeploymentService(
+        runner=_FakeDockerRunner(
+            [
+                _process_result(stdout=_compose_ps_record()),
+                _process_result(stdout=inspect_record),
+            ]
+        )
+    )
+
+    with pytest.raises(ToolingError) as error:
+        service._resolve_postgres_runtime(Path(sys.executable), root)
+
+    assert error.value.code is ResultCode.TOOLING_PRECONDITION_FAILED
+
+
+def _docker_env_identity(*, port: int = 55432) -> bytes:
+    return (
+        "\n".join(
+            (
+                "AZURPILOT_POSTGRES_HOST=127.0.0.1",
+                f"AZURPILOT_POSTGRES_PORT={port}",
+                "AZURPILOT_POSTGRES_DATABASE=azurpilot",
+                "AZURPILOT_POSTGRES_USER=azurpilot_app",
+                "AZURPILOT_POSTGRES_MIGRATOR_HOST=127.0.0.1",
+                f"AZURPILOT_POSTGRES_MIGRATOR_PORT={port}",
+                "AZURPILOT_POSTGRES_MIGRATOR_DATABASE=azurpilot",
+                "AZURPILOT_POSTGRES_MIGRATOR_USER=azurpilot_migrator",
+            )
+        )
+        + "\n"
+    ).encode()
+
+
+def test_docker_pgpass_staging_uses_service_endpoint_and_keeps_only_roles(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv("AZURPILOT_DOCKER_POSTGRES_HOST", "postgres")
+    monkeypatch.setenv("AZURPILOT_DOCKER_POSTGRES_PORT", "5432")
+    payload = (
+        b"remote.example:5432:other:alice:remote-secret\n"
+        b"127.0.0.1:55432:azurpilot:azurpilot_app:app\\:secret\\\\suffix\n"
+        b"localhost:55432:azurpilot:azurpilot_app:app\\:secret\\\\suffix\n"
+        b"127.0.0.1:55432:*:azurpilot_migrator:migrator-secret\n"
+    )
+
+    staged = runtime_entrypoint._stage_docker_pgpass(
+        payload, _docker_env_identity()
+    ).decode()
+
+    assert staged == (
+        "postgres:5432:azurpilot:azurpilot_app:app\\:secret\\\\suffix\n"
+        "postgres:5432:*:azurpilot_migrator:migrator-secret\n"
+    )
+    assert "remote.example" not in staged
+    assert "55432" not in staged
+
+
+@pytest.mark.parametrize(
+    "payload",
+    (
+        b"127.0.0.1:55432:azurpilot:azurpilot_app:one\\nonsense\n",
+        (
+            b"127.0.0.1:55432:azurpilot:azurpilot_app:first\n"
+            b"127.0.0.1:55432:azurpilot:azurpilot_app:second\n"
+            b"127.0.0.1:55432:*:azurpilot_migrator:migrator\n"
+        ),
+    ),
+)
+def test_docker_pgpass_staging_rejects_malformed_or_ambiguous_records(
+    monkeypatch: pytest.MonkeyPatch, payload: bytes
+):
+    monkeypatch.setenv("AZURPILOT_DOCKER_POSTGRES_HOST", "postgres")
+    monkeypatch.setenv("AZURPILOT_DOCKER_POSTGRES_PORT", "5432")
+
+    with pytest.raises(RuntimeError):
+        runtime_entrypoint._stage_docker_pgpass(payload, _docker_env_identity())

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 from urllib.error import URLError
@@ -34,7 +36,26 @@ _SOURCE_REQUIRED_PATHS = (
     Path("deploy/docker/Dockerfile"),
 )
 _BACKEND_MARKER_PATH = Path("config/state/storage_backend.json")
+_COMPOSE_FILE_PATH = Path("infrastructure/observability/compose.yaml")
+_COMPOSE_PROJECT = "azurpilot-infrastructure"
+_COMPOSE_POSTGRES_SERVICE = "postgres"
+_DOCKER_POSTGRES_HOST = "postgres"
+_DOCKER_POSTGRES_PORT = 5432
+_DOCKER_WEBUI_BIND_HOST = "0.0.0.0"
+_DOCKER_RUNTIME_PYTHON = "/app/AzurPilot/.venv/bin/python"
+_DOCKER_POSTGRES_HOST_ENV = "AZURPILOT_DOCKER_POSTGRES_HOST"
+_DOCKER_POSTGRES_PORT_ENV = "AZURPILOT_DOCKER_POSTGRES_PORT"
+_CONTAINER_ID_RE = re.compile(r"^[0-9a-f]{12,64}$")
 _ContainerState = Literal["found", "not_found", "unknown"]
+
+
+@dataclass(frozen=True, slots=True)
+class _DockerPostgresRuntime:
+    """Проверенный ephemeral transport для канонического Compose PostgreSQL."""
+
+    network: str
+    host: Literal["postgres"] = _DOCKER_POSTGRES_HOST
+    port: Literal[5432] = _DOCKER_POSTGRES_PORT
 
 
 def _within(path: Path, parent: Path) -> bool:
@@ -238,6 +259,268 @@ class DockerDeploymentService:
         return tuple(mounts), "readonly_env_and_backend_marker"
 
     @staticmethod
+    def _canonical_compose_paths(root: Path) -> tuple[Path, Path]:
+        compose_path = root / _COMPOSE_FILE_PATH
+        env_path = root / ".env"
+        if (
+            path_has_link(compose_path)
+            or path_has_link(env_path)
+            or not compose_path.is_file()
+            or not env_path.is_file()
+        ):
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "Канонические Docker Compose и локальный env недоступны.",
+            )
+        return canonical_path(compose_path), canonical_path(env_path)
+
+    @staticmethod
+    def _compose_records(raw: str) -> list[dict[str, object]]:
+        if not raw.strip():
+            return []
+        try:
+            value = json.loads(raw)
+        except json.JSONDecodeError:
+            records: list[dict[str, object]] = []
+            for line in raw.splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    item = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    raise ToolingError(
+                        ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                        "Docker Compose вернул некорректное состояние PostgreSQL.",
+                    ) from exc
+                if not isinstance(item, dict):
+                    raise ToolingError(
+                        ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                        "Docker Compose вернул неоднозначное состояние PostgreSQL.",
+                    )
+                records.append(item)
+            return records
+        if isinstance(value, dict):
+            return [value]
+        if isinstance(value, list) and all(isinstance(item, dict) for item in value):
+            return list(value)
+        raise ToolingError(
+            ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+            "Docker Compose вернул неоднозначное состояние PostgreSQL.",
+        )
+
+    @staticmethod
+    def _decode_object(raw: str, message: str) -> dict[str, object]:
+        try:
+            value = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ToolingError(ResultCode.TOOLING_VERIFICATION_UNKNOWN, message) from exc
+        if not isinstance(value, dict):
+            raise ToolingError(ResultCode.TOOLING_VERIFICATION_UNKNOWN, message)
+        return value
+
+    def _resolve_postgres_runtime(
+        self, docker: Path, root: Path
+    ) -> _DockerPostgresRuntime:
+        """Доказать Compose ownership и вернуть только фактическую сеть сервиса."""
+
+        compose_path, env_path = self._canonical_compose_paths(root)
+        compose = self._run(
+            docker,
+            root,
+            "compose",
+            "--project-name",
+            _COMPOSE_PROJECT,
+            "--env-file",
+            str(env_path),
+            "--file",
+            str(compose_path),
+            "ps",
+            "--all",
+            "--format",
+            "json",
+            _COMPOSE_POSTGRES_SERVICE,
+            timeout_seconds=60,
+            allow_nonzero=True,
+        )
+        if (
+            compose.returncode != 0
+            or compose.stdout_truncated
+            or compose.stderr_truncated
+        ):
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Docker Compose не подтвердил состояние канонического PostgreSQL.",
+            )
+        records = self._compose_records(compose.stdout)
+        if len(records) != 1:
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "Канонический Compose PostgreSQL отсутствует или неоднозначен.",
+            )
+        record = records[0]
+        project = record.get("Project")
+        service = record.get("Service")
+        container_id = record.get("ID")
+        container_name = record.get("Name")
+        state = record.get("State")
+        health = record.get("Health")
+        if not all(
+            isinstance(value, str)
+            for value in (project, service, container_id, container_name, state, health)
+        ):
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Docker Compose не вернул доказуемую identity PostgreSQL.",
+            )
+        if project != _COMPOSE_PROJECT or service != _COMPOSE_POSTGRES_SERVICE:
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "Compose service PostgreSQL принадлежит другому project или service.",
+            )
+        if not _CONTAINER_ID_RE.fullmatch(container_id):
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Docker Compose вернул некорректный идентификатор PostgreSQL.",
+            )
+        if not _CONTAINER_RE.fullmatch(container_name.lstrip("/")):
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Docker Compose вернул некорректное имя PostgreSQL.",
+            )
+        if state.casefold() != "running" or health.casefold() != "healthy":
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "Канонический PostgreSQL Compose не находится в состоянии healthy.",
+            )
+
+        inspect = self._run(
+            docker,
+            root,
+            "inspect",
+            "--type",
+            "container",
+            "--format",
+            "{{.Id}}\t{{.Name}}\t{{.State.Status}}\t{{if .State.Health}}{{.State.Health.Status}}{{end}}\t{{json .Config.Labels}}\t{{json .NetworkSettings.Networks}}",
+            container_id,
+            timeout_seconds=30,
+            allow_nonzero=True,
+        )
+        if (
+            inspect.returncode != 0
+            or inspect.stdout_truncated
+            or inspect.stderr_truncated
+        ):
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Docker inspect не подтвердил canonical PostgreSQL.",
+            )
+        fields = inspect.stdout.strip().split("\t")
+        if len(fields) != 6:
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Docker inspect вернул неполную identity PostgreSQL.",
+            )
+        inspected_id, inspected_name, inspected_state, inspected_health = fields[:4]
+        labels = self._decode_object(
+            fields[4], "Docker inspect вернул некорректные labels PostgreSQL."
+        )
+        networks = self._decode_object(
+            fields[5], "Docker inspect вернул некорректные networks PostgreSQL."
+        )
+        if (
+            not _CONTAINER_ID_RE.fullmatch(inspected_id)
+            or not (
+                inspected_id.startswith(container_id)
+                or container_id.startswith(inspected_id)
+            )
+            or inspected_name.lstrip("/") != container_name.lstrip("/")
+            or inspected_state.casefold() != "running"
+            or inspected_health.casefold() != "healthy"
+        ):
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "Docker inspect identity PostgreSQL не совпадает с Compose.",
+            )
+        if (
+            labels.get("com.docker.compose.project") != _COMPOSE_PROJECT
+            or labels.get("com.docker.compose.service") != _COMPOSE_POSTGRES_SERVICE
+        ):
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "Docker container PostgreSQL принадлежит другому Compose project или service.",
+            )
+        if len(networks) != 1:
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "Сеть канонического PostgreSQL отсутствует или неоднозначна.",
+            )
+        network_name, network_config = next(iter(networks.items()))
+        network_aliases = network_config.get("Aliases") if isinstance(network_config, dict) else None
+        if (
+            not isinstance(network_name, str)
+            or not _NAME_RE.fullmatch(network_name)
+            or not isinstance(network_config, dict)
+            or not isinstance(network_aliases, list)
+            or "postgres" not in network_aliases
+        ):
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Docker inspect вернул небезопасную сеть PostgreSQL.",
+            )
+
+        network = self._run(
+            docker,
+            root,
+            "network",
+            "inspect",
+            "--format",
+            "{{.Id}}\t{{.Name}}\t{{json .Labels}}\t{{json .Containers}}",
+            network_name,
+            timeout_seconds=30,
+            allow_nonzero=True,
+        )
+        if (
+            network.returncode != 0
+            or network.stdout_truncated
+            or network.stderr_truncated
+        ):
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Docker inspect не подтвердил сеть canonical PostgreSQL.",
+            )
+        network_fields = network.stdout.strip().split("\t")
+        if len(network_fields) != 4:
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Docker inspect вернул неполную сеть PostgreSQL.",
+            )
+        network_id, inspected_network_name = network_fields[:2]
+        network_labels = self._decode_object(
+            network_fields[2], "Docker network inspect вернул некорректные labels."
+        )
+        network_containers = self._decode_object(
+            network_fields[3], "Docker network inspect вернул некорректных участников."
+        )
+        if (
+            not _CONTAINER_ID_RE.fullmatch(network_id)
+            or inspected_network_name != network_name
+            or network_labels.get("com.docker.compose.project") != _COMPOSE_PROJECT
+            or not any(
+                isinstance(member_id, str)
+                and (
+                    member_id.startswith(inspected_id)
+                    or inspected_id.startswith(member_id)
+                )
+                for member_id in network_containers
+            )
+        ):
+            raise ToolingError(
+                ResultCode.TOOLING_PRECONDITION_FAILED,
+                "Сеть PostgreSQL не доказана как сеть канонического Compose project.",
+            )
+        return _DockerPostgresRuntime(network=network_name)
+
+    @staticmethod
     def _wait_readiness(host: str, port: int, timeout_seconds: float) -> bool:
         deadline = time.monotonic() + max(0.0, min(timeout_seconds, 300.0))
         url = f"http://{host}:{port}/"
@@ -361,6 +644,7 @@ class DockerDeploymentService:
         dockerfile = source_path / "deploy" / "docker" / "Dockerfile"
         if not dockerfile.is_file() or path_has_link(dockerfile):
             raise ToolingError(ResultCode.TOOLING_PRECONDITION_FAILED, "Канонический Dockerfile отсутствует или небезопасен.")
+        postgres_runtime = self._resolve_postgres_runtime(docker, root)
         runtime_mount, runtime_secret_mode = self._runtime_secret_mount(root)
         self._run(
             docker,
@@ -453,12 +737,23 @@ class DockerDeploymentService:
                 container_name,
                 "--restart",
                 "unless-stopped",
+                "--network",
+                postgres_runtime.network,
                 "--publish",
                 f"127.0.0.1:{host_port}:{settings.webui_port}",
+                "--env",
+                f"{_DOCKER_POSTGRES_HOST_ENV}={postgres_runtime.host}",
+                "--env",
+                f"{_DOCKER_POSTGRES_PORT_ENV}={postgres_runtime.port}",
                 "--workdir",
                 "/app/AzurPilot",
                 *runtime_mount,
+                "--entrypoint",
+                _DOCKER_RUNTIME_PYTHON,
                 image_name,
+                "deploy/docker/runtime_entrypoint.py",
+                "--host",
+                _DOCKER_WEBUI_BIND_HOST,
                 timeout_seconds=120,
             )
             readiness = self._wait_readiness("127.0.0.1", host_port, readiness_timeout_seconds)
@@ -506,6 +801,7 @@ class DockerDeploymentService:
                 readiness_confirmed=True,
                 replace_performed=replacement,
                 runtime_secret_mode=runtime_secret_mode,
+                postgres_network=postgres_runtime.network,
             ),
             evidence=DockerDeploymentEvidence(
                 docker_cli=docker.name,
@@ -514,6 +810,7 @@ class DockerDeploymentService:
                 container=container_name,
                 readiness_probe="loopback_http",
                 runtime_secret_mode=runtime_secret_mode,
+                postgres_network=postgres_runtime.network,
             ),
         )
 

@@ -258,6 +258,45 @@ dispose_runtime_storage()
     assert result.returncode == 0, result.stderr
 
 
+def test_docker_transport_override_is_ephemeral_and_exact(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    settings = DatabaseSettings(
+        host="127.0.0.1",
+        port=55432,
+        database="azurpilot",
+        user="azurpilot_app",
+        sslmode="disable",
+        runtime_timezone="Asia/Novosibirsk",
+    )
+    monkeypatch.delenv("AZURPILOT_DOCKER_POSTGRES_HOST", raising=False)
+    monkeypatch.delenv("AZURPILOT_DOCKER_POSTGRES_PORT", raising=False)
+
+    assert persistence_runtime._docker_postgres_transport() is None
+    assert (
+        persistence_runtime._apply_docker_postgres_transport(
+            settings, None, None
+        ).host
+        == "127.0.0.1"
+    )
+
+    monkeypatch.setenv("AZURPILOT_DOCKER_POSTGRES_HOST", "postgres")
+    monkeypatch.setenv("AZURPILOT_DOCKER_POSTGRES_PORT", "5432")
+    transport = persistence_runtime._docker_postgres_transport()
+    effective = persistence_runtime._apply_docker_postgres_transport(
+        settings, object(), transport
+    )
+
+    assert effective.host == "postgres"
+    assert effective.port == 5432
+    assert settings.host == "127.0.0.1"
+    assert settings.port == 55432
+
+    monkeypatch.setenv("AZURPILOT_DOCKER_POSTGRES_HOST", "host.docker.internal")
+    with pytest.raises(StorageConfigurationError):
+        persistence_runtime._docker_postgres_transport()
+
+
 def test_database_diagnostics_builds_standalone_read_only_engine_without_production_mutation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

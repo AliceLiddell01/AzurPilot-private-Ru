@@ -9,7 +9,7 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 from zoneinfo import ZoneInfo
 
 if TYPE_CHECKING:
@@ -57,6 +57,20 @@ _REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 _LOGGER = logging.getLogger(__name__)
 _RUNTIME_ENV_PATH_VARIABLE = "AZURPILOT_LOCAL_ENV_PATH"
 _RUNTIME_MARKER_PATH_VARIABLE = "AZURPILOT_BACKEND_MARKER_PATH"
+_DOCKER_POSTGRES_HOST_VARIABLE = "AZURPILOT_DOCKER_POSTGRES_HOST"
+_DOCKER_POSTGRES_PORT_VARIABLE = "AZURPILOT_DOCKER_POSTGRES_PORT"
+_APP_POSTGRES_HOST_VARIABLE = "AZURPILOT_POSTGRES_HOST"
+_APP_POSTGRES_PORT_VARIABLE = "AZURPILOT_POSTGRES_PORT"
+_MIGRATOR_POSTGRES_HOST_VARIABLE = "AZURPILOT_POSTGRES_MIGRATOR_HOST"
+_MIGRATOR_POSTGRES_PORT_VARIABLE = "AZURPILOT_POSTGRES_MIGRATOR_PORT"
+
+
+@dataclass(frozen=True, slots=True)
+class _DockerPostgresTransport:
+    """Ограниченный transport override только для проверенного Compose runtime."""
+
+    host: Literal["postgres"] = "postgres"
+    port: Literal[5432] = 5432
 
 
 def _configured_runtime_path(variable: str, default: Path) -> Path:
@@ -83,6 +97,45 @@ def _runtime_backend_marker_path(repository_root: Path) -> Path:
         _RUNTIME_MARKER_PATH_VARIABLE,
         repository_root / DEFAULT_BACKEND_MARKER_PATH,
     )
+
+
+def _docker_postgres_transport() -> _DockerPostgresTransport | None:
+    host = os.environ.get(_DOCKER_POSTGRES_HOST_VARIABLE)
+    port = os.environ.get(_DOCKER_POSTGRES_PORT_VARIABLE)
+    if host is None and port is None:
+        return None
+    if host != "postgres" or port != "5432":
+        raise StorageConfigurationError(
+            "Docker PostgreSQL transport не соответствует каноническому Compose service."
+        )
+    return _DockerPostgresTransport()
+
+
+def _apply_docker_postgres_transport(
+    settings: DatabaseSettings,
+    local_environment: object | None,
+    transport: _DockerPostgresTransport | None,
+) -> DatabaseSettings:
+    if transport is None:
+        return settings
+    if local_environment is None:
+        raise StorageConfigurationError(
+            "Docker PostgreSQL transport требует валидный локальный env."
+        )
+    return replace(settings, host=transport.host, port=transport.port)
+
+
+def _install_docker_postgres_transport(transport: _DockerPostgresTransport) -> None:
+    for host_variable in (
+        _APP_POSTGRES_HOST_VARIABLE,
+        _MIGRATOR_POSTGRES_HOST_VARIABLE,
+    ):
+        os.environ[host_variable] = transport.host
+    for port_variable in (
+        _APP_POSTGRES_PORT_VARIABLE,
+        _MIGRATOR_POSTGRES_PORT_VARIABLE,
+    ):
+        os.environ[port_variable] = str(transport.port)
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,6 +213,7 @@ def build_read_only_persistence_composition(
         local_environment = read_local_postgres_environment(
             _runtime_environment_path(repository_root)
         )
+        transport = _docker_postgres_transport()
     except Exception as exc:  # noqa: BLE001 - read-only diagnostics сохраняют marker metadata.
         _LOGGER.warning(
             "Чтение локальной конфигурации read-only persistence завершилось недоступностью: %s",
@@ -178,7 +232,14 @@ def build_read_only_persistence_composition(
         )
 
     try:
+        if transport is not None and local_environment is None:
+            raise StorageConfigurationError(
+                "Docker PostgreSQL transport требует валидный локальный env."
+            )
         local_environment.require_app_runtime_match(settings)
+        settings = _apply_docker_postgres_transport(
+            settings, local_environment, transport
+        )
         settings = replace(settings, passfile=local_environment.app_passfile)
     except Exception as exc:  # noqa: BLE001 - mismatch не должен раскрывать детали env.
         _LOGGER.warning(
@@ -234,10 +295,20 @@ def bootstrap_runtime_storage(
             local_environment = read_local_postgres_environment(
                 _runtime_environment_path(_REPOSITORY_ROOT)
             )
+            transport = _docker_postgres_transport()
             settings = DatabaseSettings.from_backend_marker(resolved_marker)
             if local_environment is not None:
                 local_environment.require_app_runtime_match(settings)
                 local_environment.install(role="app")
+                settings = _apply_docker_postgres_transport(
+                    settings, local_environment, transport
+                )
+                if transport is not None:
+                    _install_docker_postgres_transport(transport)
+            elif transport is not None:
+                raise StorageConfigurationError(
+                    "Docker PostgreSQL transport требует валидный локальный env."
+                )
             if _engine is None:
                 _engine = LazyEngine(settings)
                 _engine_settings = settings

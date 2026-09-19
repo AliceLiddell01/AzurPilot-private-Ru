@@ -32,9 +32,27 @@ Dockerfile нужны файлы из корня проекта.
 а `runtime_entrypoint.py` переносит их в ограниченный tmpfs с правами владельца.
 Значения секретов не передаются в argv, логи или результат команды.
 
-Среда выполнения Docker должна получить доступный из контейнера адрес PostgreSQL
-в маркере среды и passfile; сервис не меняет контракт узла и базы данных и не
-перезаписывает боевое состояние.
+Постоянный host-контракт PostgreSQL остаётся loopback-only: marker, `.env` и
+host-side passfile используют `127.0.0.1:<published_port>` (или другой
+разрешённый loopback-адрес) и не переписываются командой Docker.
+
+Перед запуском Docker-сервис читает только канонический
+`infrastructure/observability/compose.yaml`, проверяет Compose project
+`azurpilot-infrastructure`, service `postgres`, состояние `healthy`, labels,
+принадлежность контейнера и фактическую сеть. Неугаданный, отсутствующий или
+неоднозначный project/service/network останавливает операцию.
+
+После этой проверки контейнер подключается к обнаруженной Compose-сети, а
+runtime получает эфемерный transport PostgreSQL `postgres:5432`. Это отдельный
+Docker-only endpoint: опубликованный host-порт из `.env` внутрь контейнера не
+передаётся. `runtime_entrypoint.py` проверяет loopback marker и согласованный
+`.env`, stages только ожидаемые app/migrator записи `.pgpass` на
+`postgres:5432` в tmpfs с правами `0600`, после чего persistence применяет тот
+же ограниченный override. Marker, `.env` и host passfile остаются неизменными.
+
+WebUI публикуется только на host loopback. Внутри контейнера сервис запускается
+с bind `0.0.0.0`, чтобы Docker port-forward достиг приложения; наружу по-прежнему
+выставляется только `127.0.0.1:<webui_port>`.
 
 ## Безопасность и замена контейнера
 
