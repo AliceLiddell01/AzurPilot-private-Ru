@@ -81,6 +81,28 @@ network failure, invalid/truncated stream и rate limit до `complete` бюдж
 создавай retry loop; продолжай остальные product/security gates. Provider
 quota динамический: remaining count и reset time не выдумывай.
 
+## Долгий provider review и остановка
+
+`status=running` является evidence живой provider operation. Отсутствие нового
+stdout не является timeout, stall или failure. Агент не выбирает elapsed-time
+cutoff: ни 2 минуты, ни 5, ни 10, ни иной «bounded wait»; minimum wait, после
+которого остановка становится допустимой, не вводится. `job_kill` нельзя
+использовать только из-за времени или отсутствия output.
+
+Timeout authority принадлежит canonical adapter/runtime/provider contract.
+Outer Harness/tool timeout не должен быть короче внутреннего provider timeout.
+Для background review продолжай редкий status polling, пока не наступит одно
+из объективных состояний: provider сообщил authoritative `complete`, provider
+сообщил `error`/`RATE_LIMITED`, canonical runtime timeout завершил operation,
+процесс доказанно перестал существовать или пользователь явно приказал
+остановить review. Ожидаемая длительность CodeRabbit не хардкодится: десять
+минут может быть нормальной длительностью и не является special case.
+
+Пока предыдущая operation имеет `status=running`, не выполняй recovery, не
+запускай второй review и не считай operation interrupted. Recovery допустим
+только после доказанного прекращения предыдущего process, а не после периода
+silence.
+
 ## Recovery и публикация
 
 Local review state не содержит secrets и минимум хранит attempt, repository,

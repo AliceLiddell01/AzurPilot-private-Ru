@@ -61,6 +61,27 @@ candidate commit с exact head; push до authoritative `complete` запрещ�
 запрещены. После `complete` выполни coherent fixes, targeted tests, self-review
 и только затем commit/push и publication.
 
+### Долгая операция provider
+
+`status=running` — evidence живой provider operation. Отсутствие нового stdout
+не означает timeout, stall или failure. Агент не имеет права выбирать
+elapsed-time cutoff — ни 2 минуты, ни 5, ни 10, ни иной «bounded wait» — и не
+вводит minimum wait, после которого остановка становится допустимой. Нельзя
+вызывать `job_kill` только на основании времени или отсутствия output.
+
+Timeout authority принадлежит canonical adapter/runtime/provider contract;
+outer Harness/tool timeout не должен быть короче внутреннего provider timeout.
+Для background review выполняй редкий status polling, пока operation не
+завершится authoritative `complete`, provider не сообщит `error`/rate limit,
+canonical runtime timeout не завершит operation, процесс объективно не
+перестанет существовать или пользователь явно не прикажет остановить review.
+Ожидаемая длительность CodeRabbit не хардкодится: 10 минут может быть нормальной
+длительностью и не является special case.
+
+Пока operation остаётся `status=running`, запрещены recovery, второй review и
+классификация operation как interrupted. Recovery допустим только после
+доказанного прекращения предыдущего process, а не после периода silence.
+
 Максимум — три substantive iterations. Completed `0 findings` означает early
 stop. Auth/network/process/parse failure и rate limit до `complete` не
 потребляют budget. При rate limit немедленно остановись без wait/retry loop и
