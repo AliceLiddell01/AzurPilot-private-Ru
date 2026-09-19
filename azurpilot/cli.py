@@ -14,10 +14,15 @@ from typing import Any, TextIO
 
 from pydantic import BaseModel
 
+from .integrations import IntegrationService
+from .integrations.coderabbit import CodeRabbitProgress
+from .integrations.contracts import IntegrationName
 from .tooling.bootstrap import BuildService
 from .tooling.contracts import (
+    AnalysisScope,
     CapabilityStatus,
     DeliveryPhase,
+    GitRange,
     McpLifecycleDetails,
     McpStatusDetails,
     McpVersionDetails,
@@ -57,12 +62,14 @@ class ServiceContainer:
     delivery: DeliveryService
     pull_request: PullRequestService
     mcp: McpService
+    integrations: IntegrationService
 
     @classmethod
     def create(cls) -> ServiceContainer:
         mcp = McpService()
+        integrations = IntegrationService()
         return cls(
-            doctor=DoctorService(),
+            doctor=DoctorService(integrations=integrations),
             lifecycle=LifecycleService(),
             build=BuildService(),
             repair=RepairService(),
@@ -70,6 +77,7 @@ class ServiceContainer:
             delivery=DeliveryService(),
             pull_request=PullRequestService(),
             mcp=mcp,
+            integrations=integrations,
         )
 
 
@@ -123,6 +131,11 @@ def build_parser() -> argparse.ArgumentParser:
         "doctor", help="проверка возможностей проекта без изменений"
     )
     _add_common_options(doctor, suppress_defaults=True)
+    doctor.add_argument(
+        "--full",
+        action="store_true",
+        help="добавить дорогую read-only проверку внешних интеграций",
+    )
 
     start = subparsers.add_parser(
         "start", help="запустить WebUI после проверки владения и готовности"
@@ -325,6 +338,97 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="явная политика server SemVer для доказанного contract change",
     )
+
+    integrations = subparsers.add_parser(
+        "integrations", help="проверить прямые внешние интеграции"
+    )
+    integration_subparsers = integrations.add_subparsers(
+        dest="integration_target", required=True, metavar="TARGET"
+    )
+    for action in ("status", "doctor"):
+        command = integration_subparsers.add_parser(
+            action,
+            help=(
+                "прочитать конфигурацию и доступность интеграций"
+                if action == "status"
+                else "выполнить bounded read-only probes интеграций"
+            ),
+        )
+        _add_common_options(command, suppress_defaults=True)
+    for name in IntegrationName:
+        provider = integration_subparsers.add_parser(
+            name.value, help=f"операции интеграции {name.value}"
+        )
+        provider_subparsers = provider.add_subparsers(
+            dest="integration_action", required=True, metavar="ACTION"
+        )
+        for action in ("status", "doctor", "probe"):
+            command = provider_subparsers.add_parser(
+                action,
+                help=(
+                    "прочитать конфигурацию"
+                    if action == "status"
+                    else "выполнить bounded read-only probe"
+                ),
+            )
+            _add_common_options(command, suppress_defaults=True)
+        if name is IntegrationName.SEMGREP:
+            scan = provider_subparsers.add_parser(
+                "scan", help="выполнить только явно ограниченный Semgrep scan"
+            )
+            _add_common_options(scan, suppress_defaults=True)
+            scope_group = scan.add_mutually_exclusive_group(required=False)
+            scope_group.add_argument(
+                "--staged", action="store_true", help="взять только staged paths"
+            )
+            scope_group.add_argument(
+                "--changed", action="store_true", help="взять paths из base..HEAD"
+            )
+            scan.add_argument(
+                "--base",
+                dest="scan_base",
+                default=None,
+                help="exact base SHA для --changed",
+            )
+            scope_group.add_argument(
+                "--paths",
+                action="append",
+                default=[],
+                metavar="PATH",
+                help="явный repository-relative файл; параметр можно повторять",
+            )
+        if name is IntegrationName.CODERABBIT:
+            review = provider_subparsers.add_parser(
+                "review", help="запустить advisory CodeRabbit review"
+            )
+            _add_common_options(review, suppress_defaults=True)
+            review.add_argument("--base", required=True, help="exact base SHA")
+            review.add_argument(
+                "--head", default=None, help="exact review HEAD; по умолчанию текущий HEAD"
+            )
+            findings = provider_subparsers.add_parser(
+                "findings", help="получить сохранённые findings без запуска review"
+            )
+            _add_common_options(findings, suppress_defaults=True)
+            findings.add_argument("--base", required=True, help="exact base SHA")
+            findings.add_argument("--head", required=True, help="exact reviewed HEAD")
+            cycle = provider_subparsers.add_parser(
+                "cycle", help="управлять bounded CodeRabbit review cycles"
+            )
+            cycle_subparsers = cycle.add_subparsers(
+                dest="coderabbit_cycle_action", required=True, metavar="ACTION"
+            )
+            cycle_recover = cycle_subparsers.add_parser(
+                "recover", help="восстановить доказанно прерванную попытку"
+            )
+            _add_common_options(cycle_recover, suppress_defaults=True)
+            cycle_start = cycle_subparsers.add_parser(
+                "start", help="создать новый cycle без запуска provider review"
+            )
+            _add_common_options(cycle_start, suppress_defaults=True)
+            cycle_start.add_argument(
+                "--base", default=None, help="необязательный exact base SHA"
+            )
     return parser
 
 
@@ -375,6 +479,61 @@ def _short_sha(value: str | None) -> str:
     if not value:
         return "не создан"
     return value[:12] + "…"
+
+
+def _short_cycle_id(value: str) -> str:
+    """Показать различимый короткий идентификатор цикла."""
+
+    if value.startswith(("coderabbit-cycle-", "legacy-coderabbit-")):
+        return "CR:" + value.rsplit("-", 1)[-1][:8]
+    return value[:16]
+
+
+def _elapsed_label(seconds: int) -> str:
+    seconds = max(0, int(seconds))
+    return f"{seconds // 60:02d}:{seconds % 60:02d}"
+
+
+def _coderabbit_progress_callback(stream: TextIO):
+    """Создать Rich-представление bounded heartbeat CodeRabbit."""
+
+    try:
+        from rich.console import Console
+        from rich.text import Text
+
+        console = Console(file=stream, no_color=True, force_terminal=False, highlight=False)
+    except (ImportError, OSError, RuntimeError, TypeError, ValueError):
+        console = None
+
+    phase_labels = {
+        "preflight": "предпроверка",
+        "clone_ready": "clone готов",
+        "provider_preflight": "предпроверка provider",
+        "provider_started": "provider запущен",
+        "provider_running": "provider выполняется",
+        "provider_finished": "provider завершён",
+        "timeout": "тайм-аут",
+        "output_truncated": "вывод усечён",
+        "rate_limited": "ограничение provider",
+        "provider_failed": "ошибка provider",
+        "parse_failed": "ошибка разбора",
+        "complete": "завершено",
+    }
+
+    def emit(event: CodeRabbitProgress) -> None:
+        line = (
+            f"CodeRabbit | этап {phase_labels.get(event.phase, event.phase)} | "
+            f"цикл {_short_cycle_id(event.cycle_id)} | "
+            f"попытка {event.attempt} | завершено {event.substantive_iterations}/3 | "
+            f"время {_elapsed_label(event.elapsed_seconds)} | {event.message}"
+        )
+        if console is not None:
+            console.print(Text(line), end="\r")
+        else:
+            stream.write("\r" + line)
+            stream.flush()
+
+    return emit
 
 
 def _render_delivery_validation_preview(
@@ -485,10 +644,24 @@ def _render_human(
             "console_path": "PATH",
             "adb": "ADB",
             "docker": "Docker/PostgreSQL",
+            "external_integrations": "Внешние интеграции",
         }.get(name, name)
+
+    def integration_label(value: object) -> str:
+        return {
+            "READY": "готово",
+            "NOT_CONFIGURED": "не настроено",
+            "UNAVAILABLE": "недоступно",
+            "UNAUTHENTICATED": "нет аутентификации",
+            "RATE_LIMITED": "ограничение провайдера",
+            "INCOMPATIBLE": "несовместимо",
+            "DEGRADED": "ограничено",
+            "UNKNOWN": "неизвестно",
+        }.get(str(getattr(value, "value", value)), "неизвестно")
 
     try:
         from rich.console import Console
+        from rich.text import Text
 
         is_tty = bool(getattr(stream, "isatty", lambda: False)())
         console = Console(
@@ -499,7 +672,98 @@ def _render_human(
         )
 
         checks = getattr(result.details, "checks", None)
-        if checks is not None:
+        integrations = getattr(result.details, "integrations", None)
+        if integrations is not None:
+            from rich.table import Table
+
+            table = Table(title="Внешние интеграции AzurPilot", expand=True)
+            table.add_column("Интеграция", no_wrap=True)
+            table.add_column("Состояние", no_wrap=True)
+            table.add_column("Маршрут", no_wrap=True)
+            table.add_column("Результат", overflow="fold")
+            for item in integrations:
+                value = str(getattr(getattr(item, "state", None), "value", "UNKNOWN"))
+                marker = "✓" if value == "READY" else "⚠"
+                evidence = getattr(item, "evidence", None)
+                route = getattr(evidence, "route", "direct")
+                table.add_row(
+                    str(getattr(getattr(item, "name", None), "value", "неизвестно")),
+                    f"{marker} {integration_label(value)}",
+                    str(route),
+                    str(getattr(item, "message", "Состояние не подтверждено.")),
+                )
+            console.print(table)
+            cycle = getattr(result.details, "coderabbit_cycle", None)
+            if cycle is not None:
+                cycle_table = Table(title="Цикл ревью CodeRabbit", expand=True)
+                cycle_table.add_column("Поле", no_wrap=True)
+                cycle_table.add_column("Значение", overflow="fold")
+                cycle_rows = (
+                    ("цикл", cycle.cycle_id),
+                    ("статус", cycle.cycle_status),
+                    (
+                        "бюджет",
+                        f"{cycle.substantive_iterations}/{cycle.substantive_budget}",
+                    ),
+                    ("provider", cycle.provider_state),
+                    ("ограничение с", cycle.rate_limited_at or "не наблюдалось"),
+                    ("повторить не ранее", cycle.retry_not_before or "не задано"),
+                    ("источник retry", cycle.retry_source),
+                    (
+                        "последний проверенный head",
+                        cycle.last_reviewed_head or "не наблюдался",
+                    ),
+                    ("сохранённых циклов", str(cycle.previous_cycles_retained)),
+                )
+                for label, value in cycle_rows:
+                    cycle_table.add_row(Text(str(label)), Text(str(value)))
+                console.print(cycle_table)
+            findings = tuple(getattr(result.details, "findings", ()))
+            if findings:
+                severity_labels = {
+                    "critical": "критический",
+                    "major": "высокий",
+                    "minor": "средний",
+                    "trivial": "незначительный",
+                    "info": "информация",
+                }
+                disposition_labels = {
+                    "confirmed": "подтверждено",
+                    "partially confirmed": "частично подтверждено",
+                    "false positive": "ложное срабатывание",
+                    "insufficient evidence": "недостаточно данных",
+                }
+                for index, finding in enumerate(findings, start=1):
+                    severity = str(getattr(finding, "severity", "info"))
+                    disposition = str(getattr(finding, "disposition", ""))
+                    location = str(getattr(finding, "path", "не указан"))
+                    line = getattr(finding, "line", None)
+                    line_end = getattr(finding, "line_end", None)
+                    if line:
+                        location += (
+                            f":{line}"
+                            if line_end is None or line_end == line
+                            else f":{line}-{line_end}"
+                        )
+                    finding_table = Table(
+                        title=f"Замечание {index}: {severity_labels.get(severity, severity)}",
+                        show_header=False,
+                        box=None,
+                        expand=True,
+                    )
+                    finding_table.add_column("Поле", style="bold", no_wrap=True)
+                    finding_table.add_column("Значение", overflow="fold")
+                    finding_table.add_row("Расположение", Text(location))
+                    finding_table.add_row("Заголовок", Text(str(getattr(finding, "title", None) or "не указано")))
+                    finding_table.add_row("Воздействие", Text(str(getattr(finding, "message", "не указано"))))
+                    resolution = getattr(finding, "resolution", None)
+                    finding_table.add_row("Рекомендация CodeRabbit", Text(str(resolution or "не указано")))
+                    finding_table.add_row("Независимая классификация", Text(disposition_labels.get(disposition, disposition or "не классифицировано")))
+                    accepted = "принято" if disposition in {"confirmed", "partially confirmed"} else "не принято"
+                    finding_table.add_row("Принятое решение", Text(accepted))
+                    console.print(finding_table)
+            console.print(f"{'✓' if result.ok else '✗'} {result.message}")
+        elif checks is not None:
             from rich.table import Table
 
             table = Table(title="AzurPilot Doctor", expand=True)
@@ -583,11 +847,16 @@ def _render_human(
 
 
 def _dispatch(
-    args: argparse.Namespace, services: ServiceContainer
+    args: argparse.Namespace,
+    services: ServiceContainer,
+    *,
+    progress_stream: TextIO | None = None,
 ) -> ToolingResult[BaseModel, BaseModel]:
     root = getattr(args, "repository_root", None)
     command = args.command
     if command == "doctor":
+        if getattr(args, "full", False):
+            return services.doctor.run(root, include_external_integrations=True)
         return services.doctor.run(root)
     if command == "start":
         return services.lifecycle.start(
@@ -660,6 +929,88 @@ def _dispatch(
             return services.mcp.stop(root)
         if args.mcp_command == "restart":
             return services.mcp.restart(root)
+    if command == "integrations":
+        target = args.integration_target
+        if target == "status":
+            return services.integrations.status(root)
+        if target == "doctor":
+            return services.integrations.doctor(root)
+        action = args.integration_action
+        if target == IntegrationName.SEMGREP.value and action == "scan":
+            integration_root = services.integrations.resolve_root(root)
+            paths = tuple(
+                item.strip()
+                for raw in getattr(args, "paths", ())
+                for item in raw.split(",")
+                if item.strip()
+            )
+            scope_count = sum((bool(args.changed), bool(args.staged), bool(paths)))
+            if scope_count == 0:
+                raise CliInvocationError(
+                    "Semgrep scan требует --staged, --changed или --paths."
+                )
+            if scope_count > 1:
+                raise CliInvocationError(
+                    "Semgrep scan принимает только один scope: --staged, --changed или --paths."
+                )
+            if args.scan_base and not args.changed:
+                raise CliInvocationError("--base разрешён только вместе с --changed.")
+            if args.changed:
+                if not args.scan_base:
+                    raise CliInvocationError("--changed требует --base с exact SHA.")
+                from .tooling.git import GitClient
+
+                end_sha = GitClient(integration_root).head()
+                scope = AnalysisScope(
+                    paths=paths,
+                    mode="committed_range",
+                    git_range=GitRange(start_sha=args.scan_base, end_sha=end_sha),
+                )
+            else:
+                scope = AnalysisScope(paths=paths, mode="staged")
+            return services.integrations.scan(scope, root)
+        if target == IntegrationName.CODERABBIT.value and action == "review":
+            integration_root = services.integrations.resolve_root(root)
+            head = args.head
+            if head is None:
+                from .tooling.git import GitClient
+
+                head = GitClient(integration_root).head()
+            return services.integrations.review(
+                base_sha=args.base,
+                head_sha=head,
+                repository_root=root,
+                progress_callback=(
+                    _coderabbit_progress_callback(progress_stream or sys.stderr)
+                    if not getattr(args, "json", False)
+                    else None
+                ),
+            )
+        if target == IntegrationName.CODERABBIT.value and action == "findings":
+            return services.integrations.findings(
+                base_sha=args.base,
+                head_sha=args.head,
+                repository_root=root,
+            )
+        if (
+            target == IntegrationName.CODERABBIT.value
+            and action == "cycle"
+            and args.coderabbit_cycle_action == "recover"
+        ):
+            return services.integrations.recover_coderabbit_review(repository_root=root)
+        if (
+            target == IntegrationName.CODERABBIT.value
+            and action == "cycle"
+            and args.coderabbit_cycle_action == "start"
+        ):
+            return services.integrations.start_coderabbit_cycle(
+                base_sha=args.base,
+                repository_root=root,
+            )
+        if action == "status":
+            return services.integrations.status_one(target, root)
+        if action == "doctor" or action == "probe":
+            return services.integrations.probe(target, root)
     raise CliInvocationError(f"неизвестная команда: {command}")
 
 
@@ -709,9 +1060,17 @@ def main(
             with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(
                 io.StringIO()
             ):
-                result = _dispatch(args, services or ServiceContainer.create())
+                result = _dispatch(
+                    args,
+                    services or ServiceContainer.create(),
+                    progress_stream=stderr,
+                )
         else:
-            result = _dispatch(args, services or ServiceContainer.create())
+            result = _dispatch(
+                args,
+                services or ServiceContainer.create(),
+                progress_stream=stderr,
+            )
     except CliInvocationError as error:
         result = _invocation_result(str(error))
     except ToolingError as error:

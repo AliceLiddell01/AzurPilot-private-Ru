@@ -193,6 +193,16 @@ def test_process_environment_policy_requires_explicit_test_opt_in() -> None:
     assert spec.launch_environment[test_key] == "azurpilot-dev"
 
 
+def test_process_environment_keeps_credential_file_reference_typed() -> None:
+    environment = safe_environment(
+        {"GRAFANA_SERVICE_ACCOUNT_TOKEN_FILE": "C:/private/grafana-token"}
+    )
+
+    assert environment["GRAFANA_SERVICE_ACCOUNT_TOKEN_FILE"] == (
+        "C:/private/grafana-token"
+    )
+
+
 def test_process_runner_classifies_timeout() -> None:
     started = time.monotonic()
     result = StructuredProcessRunner().run(

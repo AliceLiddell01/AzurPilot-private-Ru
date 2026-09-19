@@ -1,9 +1,9 @@
 name: CI
 
 on:
-  pull_request:
-    branches:
-      - personal/stable
+  # Pull-request CI запускается независимо от target branch, чтобы каждая
+  # промежуточная PR-ветка получила exact-head проверки до интеграции.
+  pull_request: {}
   push:
     branches:
       - personal/stable
@@ -306,6 +306,18 @@ jobs:
             -- uv run --locked --no-sync python -m dev_tools.mcp_compatibility_gate \
               --base-commit "$PR_BASE_SHA"
 
+      - name: Проверить контракт прямых интеграций
+        id: python_integration_contract
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/ci_heartbeat.py \
+            --label "Проверка контракта прямых интеграций" \
+            --heartbeat-seconds 0 \
+            --log-file "${RUNNER_TEMP}/azurpilot-ci-python/integration-contract.log" \
+            -- uv run --locked --no-sync python -m dev_tools.integration_contract_gate
+
       - name: Проверить компиляцию Python
         id: python_compile
         timeout-minutes: 10
@@ -376,7 +388,7 @@ jobs:
 
       - name: Загрузить coverage в Codecov
         id: python_codecov
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.python_pytest.outcome == 'success' }}
         timeout-minutes: 10
         uses: codecov/codecov-action@0b35c9ecc4f0529d0eb674914510c22f85b196b4 # v7
         with:
@@ -785,9 +797,9 @@ jobs:
           $parseFindings = [System.Collections.Generic.List[string]]::new()
 
           foreach ($relativePath in $powerShellFiles) {
+              $scriptPath = Join-Path -Path $PWD -ChildPath $relativePath
               $tokens = $null
               $parseErrors = $null
-              $scriptPath = Join-Path -Path $PWD -ChildPath $relativePath
 
               [void][System.Management.Automation.Language.Parser]::ParseFile(
                   $scriptPath,
@@ -885,8 +897,8 @@ jobs:
           }
 
           $analysisFindings = [System.Collections.Generic.List[object]]::new()
-          $totalFiles = $powerShellFiles.Count
           $processedFiles = 0
+          $totalFiles = $powerShellFiles.Count
           $lastProgressAt = [DateTimeOffset]::UtcNow
 
           foreach ($relativePath in $powerShellFiles) {

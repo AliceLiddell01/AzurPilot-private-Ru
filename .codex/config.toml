@@ -37,19 +37,63 @@ required = false
 startup_timeout_sec = 10
 tool_timeout_sec = 180
 
-[mcp_servers.MCP_DOCKER]
+# Прямые read-only registrations. Секреты не хранятся в repository config.
+[mcp_servers.context7_direct]
+url = "https://mcp.context7.com/mcp"
+enabled = true
+required = false
+startup_timeout_sec = 20
+tool_timeout_sec = 120
+
+[mcp_servers.docker_docs_direct]
+url = "https://mcp-docs.docker.com/mcp"
+enabled = true
+required = false
+startup_timeout_sec = 20
+tool_timeout_sec = 120
+
+[mcp_servers.grafana_direct]
 command = "docker"
-args = ["mcp", "gateway", "run", "--profile", "azurpilot-development"]
+args = [
+    "run",
+    "--rm",
+    "-i",
+    "mcp/grafana@sha256:9362bcf6aa0e44e61f645b905cec03fb346a946a34a4dafecd7f3e28d3724014",
+    "-transport",
+    "stdio",
+    "-disable-write",
+    "-disable-query",
+]
+env_vars = ["GRAFANA_URL", "GRAFANA_SERVICE_ACCOUNT_TOKEN"]
 cwd = "."
 enabled = true
 required = false
 startup_timeout_sec = 20
-tool_timeout_sec = 180
+tool_timeout_sec = 120
 
-# Прямые read-only routes для документации и локального security scan.
-# Секреты не хранятся в repository config; Context7 остаётся в user config.
-[mcp_servers.docker_docs_direct]
-url = "https://mcp-docs.docker.com/mcp"
+[mcp_servers.dockerhub_direct]
+command = "docker"
+args = [
+    "run",
+    "--rm",
+    "-i",
+    "mcp/dockerhub@sha256:76454af4edfd21571d9740113104d0d9f707220453d1c8f7c9971b21848d4248",
+]
+enabled_tools = [
+    "checkRepository",
+    "checkRepositoryTag",
+    "dockerHardenedImages",
+    "getPersonalNamespace",
+    "getRepositoryInfo",
+    "getRepositoryTag",
+    "listAllNamespacesMemberOf",
+    "listNamespaces",
+    "listRepositoriesByNamespace",
+    "listRepositoryTags",
+    "search",
+]
+disabled_tools = ["createRepository", "updateRepositoryInfo"]
+cwd = "."
 enabled = true
 required = false
 startup_timeout_sec = 20

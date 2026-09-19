@@ -232,6 +232,14 @@ class AnalysisScope(ClosedModel):
     git_range: GitRange | None = None
     mode: Literal["staged", "committed_range"]
 
+    @model_validator(mode="after")
+    def validate_mode(self) -> AnalysisScope:
+        if self.mode == "committed_range" and self.git_range is None:
+            raise ValueError("committed_range требует exact Git range")
+        if self.mode == "staged" and self.git_range is not None:
+            raise ValueError("staged не принимает Git range")
+        return self
+
 
 class GitSnapshot(ClosedModel):
     """Bounded snapshot Git-состояния перед mutating delivery."""
@@ -366,18 +374,28 @@ class CodeRabbitFinding(ClosedModel):
 
     severity: FindingSeverity
     path: str = Field(min_length=1, max_length=512)
+    title: str | None = Field(default=None, max_length=160)
+    line: int | None = Field(default=None, ge=1, le=10_000_000)
+    line_end: int | None = Field(default=None, ge=1, le=10_000_000)
     impact: str = Field(min_length=1, max_length=1200)
     disposition: FindingDisposition
     resolution: str = Field(min_length=1, max_length=1200)
     fix_head: str | None = Field(default=None, pattern=r"^[0-9a-f]{40,64}$")
 
+    @model_validator(mode="after")
+    def validate_line_range(self) -> CodeRabbitFinding:
+        if self.line is not None and self.line_end is not None and self.line_end < self.line:
+            raise ValueError("line_end не может быть меньше line")
+        return self
+
 
 class CodeRabbitReview(ClosedModel):
-    """Evidence CodeRabbit, включая явный zero/rate-limit результат."""
+    """Evidence CodeRabbit, включая append-only историю итераций."""
 
     reviewed_head: str = Field(pattern=r"^[0-9a-f]{40,64}$")
     base_sha: str = Field(pattern=r"^[0-9a-f]{40,64}$")
     findings: tuple[CodeRabbitFinding, ...] = Field(max_length=128)
+    history: str | None = Field(default=None, max_length=20_000)
     rate_limit: str | None = Field(default=None, max_length=500)
 
 
@@ -458,9 +476,22 @@ class CapabilityCheck(ClosedModel):
     message: str = Field(min_length=1, max_length=240)
 
 
+class IntegrationSummary(ClosedModel):
+    """Внешняя integration summary, добавляемая read-only Doctor."""
+
+    name: str = Field(min_length=1, max_length=80)
+    status: str = Field(pattern=r"^[A-Z][A-Z0-9_]{1,31}$")
+    reason_code: str = Field(pattern=r"^[A-Z][A-Z0-9_]{1,127}$")
+    route: str = Field(min_length=1, max_length=80)
+    message: str = Field(min_length=1, max_length=300)
+
+
 class DoctorDetails(ClosedModel):
     checks: tuple[CapabilityCheck, ...] = Field(max_length=32)
     healthy: bool
+    external_integrations: tuple[IntegrationSummary, ...] = Field(
+        default_factory=tuple, max_length=6
+    )
 
 
 class DoctorEvidence(ClosedModel):
@@ -826,6 +857,7 @@ __all__ = [
     "GitEvidence",
     "GitRange",
     "GitSnapshot",
+    "IntegrationSummary",
     "LifecycleDetails",
     "LifecycleEvidence",
     "LifecycleRecord",

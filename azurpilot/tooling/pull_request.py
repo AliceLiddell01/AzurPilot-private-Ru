@@ -125,7 +125,7 @@ class PullRequestBodyRenderer:
         if review is None:
             review_text = (
                 "Проверка CodeRabbit ещё не выполнялась на этой точке lifecycle. "
-                "После создания draft PR проверка выполняется в постоянном WSL2 Arch clone; "
+                "После создания draft PR проверка выполняется в постоянном WSL2 review clone; "
                 "результат и disposition будут добавлены отдельным обновлением body."
             )
         else:
@@ -143,6 +143,8 @@ class PullRequestBodyRenderer:
                 )
             if review.rate_limit:
                 lines.append(f"Ограничение rate limit: {review.rate_limit}")
+            if review.history:
+                lines.extend(("", review.history))
             if findings:
                 lines.extend(
                     (

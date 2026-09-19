@@ -174,26 +174,22 @@ contract/diagnostics при этом остаются действительны
 пользователю уже настроенные read-only MCP-поверхности, если они callable в
 текущей сессии:
 
-- прямой `context7_mcp` — поиск идентификатора библиотеки и актуальной
-  документации через доступные Context7 tools;
-- прямой Docker Docs MCP — чтение официальной документации через
-  `fetch_docker_docs`;
-- локальный Semgrep MCP — bounded анализ исходников и diff через
-  `semgrep_scan_local` или `semgrep_scan`; `security_check` используй только
-  если он опубликован текущим catalog;
-- подключённый Grafana MCP — только существующие read-only tools для Loki,
-  Tempo, Prometheus и datasource/catalog evidence.
+- прямые Context7, Docker Docs, Semgrep, Grafana и Docker Hub adapters из
+  закрытого `IntegrationRegistry` — только их bounded read-only capabilities;
+- `azur integrations status` для конфигурации и `azur integrations doctor`
+  для negotiated catalog/probe evidence;
+- Semgrep только через явный `AnalysisScope` (`--staged`, exact base range или
+  validated file allowlist), без implicit whole-repository scan.
 
-Предпочитай прямую Context7/Docker Docs/Semgrep surface Docker MCP Gateway,
-когда прямой маршрут callable. Наличие сервера или его записи в profile не
-считай доказательством готовности: сначала проверь текущий catalog и bounded
-read-only вызов. Если surface недоступна, зафиксируй точное ограничение и не
-заменяй её догадкой, бесконечным retry или обходным инструментом.
+Retired MCP intermediary не является маршрутом, fallback или source of truth.
+Наличие записи в Codex config или provider catalog не доказывает готовность:
+проверяй конкретный direct route и bounded read-only call. Если surface
+недоступна, фиксируй точное `NOT_CONFIGURED`, `UNAVAILABLE`,
+`UNAUTHENTICATED`, `INCOMPATIBLE` или `DEGRADED` состояние без retry loop.
 
-Это разрешение не включает изменение MCP profile, secret store, OAuth/grants,
-репозитория, Grafana dashboards/alerts, AzurPilot runtime или игрового
-состояния. Секреты, API keys, tokens и Authorization headers не выводи и не
-записывай в evidence.
+Это разрешение не включает изменение user config, OAuth/grants, репозитория,
+Grafana dashboards/alerts, AzurPilot runtime или игрового состояния. Секреты,
+API keys, tokens и Authorization headers не выводи и не записывай в evidence.
 
 ## Граница Game workflow
 

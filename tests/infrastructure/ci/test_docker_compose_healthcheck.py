@@ -1,10 +1,9 @@
-from tests.support.paths import REPOSITORY_ROOT
-
 import json
-from pathlib import Path
 
 import pytest
 import yaml
+
+from tests.support.paths import REPOSITORY_ROOT
 
 ROOT = REPOSITORY_ROOT
 
@@ -401,7 +400,7 @@ def test_grafana_dashboard_queries_are_provisioned_as_code(
         in mcp_queries
     )
     assert any(
-        'surface="docker_gateway",required_runtime="1"' in query
+        'surface="external_direct",required_runtime="1"' in query
         for query in mcp_queries
     )
     assert any("azurpilot_mcp_version_drift" in query for query in mcp_queries)

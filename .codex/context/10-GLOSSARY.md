@@ -3,23 +3,28 @@
 | Термин | Значение |
 |---|---|
 | ALAS | Историческое имя/база AzurLaneAutoScript; встречается в символах и путях |
-| AzurPilot | Текущий продуктовый проект |
-| instance | Именованный пользовательский config и связанный процесс задачи |
+| AzurPilot | Текущий продуктовый проект и персональный форк |
+| instance | Именованный пользовательский config и связанный runtime context |
 | task | Верхнеуровневая команда планировщика |
 | group | Группа параметров внутри task |
 | argument | Конкретный параметр конфигурации |
-| Button | Объект распознавания UI с областью поиска и клика |
+| Button | Объект распознавания UI с областями поиска/клика |
 | Template | Шаблонное изображение для matching |
 | Page | Узел графа игровых экранов |
-| state loop | Цикл screenshot → распознавание → действие |
+| state loop | screenshot → распознавание → одно действие → новый screenshot |
 | handler | Общий обработчик повторяющегося состояния/диалога |
-| server | Регион игры: CN/EN/JP/TW; влияет на assets и OCR |
-| generated file | Файл, создаваемый генератором из source YAML/данных |
-| Operation Siren | Большой отдельный игровой режим, часто называемый «большой мир» |
-| personal/stable | Стабильная пользовательская ветка форка |
-| master | Чистое зеркало upstream master |
+| server | Runtime продукта сейчас только Global/EN (`en`); CN/JP/TW могут встречаться лишь как унаследованный код совместимости upstream |
+| generated file | Файл, создаваемый generator из source YAML/schema/metadata |
+| Operation Siren | Отдельный большой игровой режим («большой мир») |
+| `azur` | Repository-owned Python CLI из `azurpilot.cli` |
+| tooling | Типизированная service/CLI infrastructure в `azurpilot.tooling`, не игровой слой |
+| integration | Внешняя developer capability через `azurpilot.integrations` |
+| integration adapter | Типизированная граница конкретного внешнего провайдера без generic gateway fallback |
+| `READY_FOR_CHATGPT_REVIEW` | Draft PR прошёл доступные pre-merge gates и остановлен для финального пользовательского review |
+| `personal/stable` | Стабильная пользовательская ветка форка |
+| `master` | Чистое зеркало upstream master |
 | upstream | Исходный `wess09/AzurPilot` |
 | takeover | Остановка автоматизации с требованием ручного вмешательства |
-| recoverable | Ошибка, после которой верхний уровень может восстановить выполнение |
+| recoverable | Ошибка, после которой верхний уровень может безопасно восстановить выполнение |
 | smoke test | Короткая проверка сквозного базового сценария |
-| secret scan | Поиск случайно добавленных токенов, credentials и персональных данных |
+| secret scan | Проверка на случайно добавленные tokens/credentials/personal data |

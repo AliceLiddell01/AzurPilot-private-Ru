@@ -112,30 +112,10 @@ Grafana и pgAdmin передаётся через Compose secret и не поп
         Set-Content -LiteralPath $envFile -Encoding utf8NoBOM
     Remove-Variable password
 
-Если `.env` уже содержит новый canonical Grafana admin password, а существующий
-volume был создан со старым password, выполните отдельное явное recovery из
-корня checkout:
-
-    uv run --locked --no-sync python -m dev_tools.observability_mcp recover-admin
-
-Recovery не является побочным эффектом `ensure-identity`. Команда проверяет
-canonical Compose и наличие именно `azurpilot-observability_grafana-data`,
-останавливает только основной `grafana`, запускает официальный
-`grafana cli admin reset-admin-password --password-from-stdin --user-id 1` в
-одноразовом контейнере с теми же Compose mounts/config/secrets, затем штатно
-поднимает Grafana с healthcheck. Пароль передаётся только через stdin и не
-попадает в CLI arguments, logs, traceback или временный plaintext-файл. Volume
-не удаляется и не пересоздаётся.
-
-После reset recovery проверяет Grafana Admin API, запускает обычный
-`ensure-identity` и отдельно выполняет Gateway probe. `ensure-identity` всегда
-проверяет Admin API, canonical service account
-`azurpilot-observability-mcp`, его роль `Viewer` и enabled state; успешный
-Viewer/Gateway token не используется как обход этой проверки. HTTP 401 означает
-`MCP_GRAFANA_ADMIN_CREDENTIALS_REJECTED` — текущие admin credentials отклонены;
-это само по себе не доказывает stale volume и может означать другой неверный
-user/password.
-
+Если persisted Grafana admin credential нужно восстановить, используйте штатный
+Compose lifecycle из раздела выше и отдельную процедуру проекта. Direct MCP
+adapter не изменяет admin password, named volumes или Compose state: он только
+проверяет read-only endpoint и возвращает bounded состояние.
 Для Docker PostgreSQL дополнительно требуется локальный bootstrap secret
 `AZURPILOT_POSTGRES_DOCKER_BOOTSTRAP_PASSWORD`. Он нужен только Compose для
 первичного создания superuser. App и migrator secrets монтируются только в
@@ -346,8 +326,8 @@ signals продолжают поступать, после recovery queued и f
 Prometheus догоняет WAL. При Alloy проверяются local fallback и новые события
 после recovery, без backfill уже отброшенных SDK данных. При Grafana direct
 backend ingestion продолжается, а Grafana MCP failure ожидаем; после recovery
-проверяются datasources, PromQL, LogQL и Tempo trace reads через
-`azurpilot-observability`.
+проверяются datasources, PromQL, LogQL и Tempo trace reads через direct
+read-only Grafana adapter.
 
 Параметр `--hold-seconds` задаёт дополнительную паузу после readiness и signal
 checks. Полное время outage включает baseline и recovery ожидания и может быть
@@ -667,308 +647,147 @@ repository-relative paths, а persistent state отделён named volumes. П�
 bindings и внешним endpoint в deployment-specific настройках, не меняя
 топологию сервисов.
 
-## MCP-профиль наблюдаемости
+## Прямые внешние интеграции и MCP status
 
-`azurpilot-observability` — отдельный Docker MCP Toolkit profile для
-диагностики observability. Он не управляет AzurPilot, игровыми профилями,
-эмулятором или Docker-инфраструктурой: Development MCP и Game MCP остаются
-самостоятельными поверхностями, а Docker CLI для намеренных outage/recovery
-действий относится к отдельному эксплуатационному workflow.
+Developer tooling использует шесть типизированных direct integrations:
 
-Единственный version-controlled источник определения profile —
-`.docker/azurpilot-observability-profile.json`. Он одновременно является
-portable export и canonical server definition; отдельная вручную поддерживаемая
-копия Grafana MCP server не используется.
+| Семейство | Канонический transport | Credential и граница |
+| --- | --- | --- |
+| CodeRabbit | WSL2 agent через isolated checkout | явный или однозначно обнаруженный WSL2 runtime; agent review advisory |
+| Semgrep | локальный CLI | только явно заданный staged/committed/path scope |
+| Grafana | официальный контейнерный MCP server, stdio | явный endpoint и credential; read-only server flags |
+| Context7 | официальный streamable HTTP endpoint | user-scoped credential, без repository secret |
+| Docker Docs | официальный streamable HTTP endpoint | read-only public documentation |
+| Docker Hub | официальный контейнерный MCP server, stdio | public probe допускается без auth; write tools запрещены |
 
-Profile содержит только один pinned image `mcp/grafana` и не содержит volume,
-Docker socket, host port или произвольный host filesystem bind. Grafana MCP
-запускается с `--disable-write` и `--max-loki-log-limit=50`. Profile export
-не содержит token: credential подставляется только из отдельного secret store.
+Источники конфигурации имеют приоритет explicit CLI, validated user/machine
+configuration, repository registration и deterministic discovery. Значения
+credential никогда не попадают в Git, CLI arguments, logs или operator-facing
+evidence. В evidence сохраняются только source, безопасное имя или file
+provenance, факт настройки, authenticated/not_observable и bounded reason code.
 
-### Восстановление profile и подключение Codex
+### CLI и bounded evidence
 
-Из корня checkout canonical profile сначала проверяется и импортируется без
-повторения GUI-действий:
+Проверка всех семейств:
 
-```powershell
-uv run --locked --no-sync python -m dev_tools.observability_mcp profile --import
-```
+    azur integrations status
+    azur integrations status --json
+    azur integrations doctor
+    azur integrations doctor --json
 
-После импорта нужно установить bounded static boundary. Dynamic MCP является
-global feature Docker MCP Toolkit, а не свойством одного profile. Встроенные
-`mcp-*`, `mcp-exec` и `code-mode` tools поэтому должны быть отключены до
-подключения client:
+Проверка одного семейства использует только typed leaves:
 
-```powershell
-uv run --locked --no-sync python -m dev_tools.observability_mcp ensure-boundary
-uv run --locked --no-sync python -m dev_tools.observability_mcp runtime-tools
-```
+    azur integrations coderabbit status
+    azur integrations coderabbit doctor
+    azur integrations semgrep status
+    azur integrations semgrep scan --staged
+    azur integrations semgrep scan --changed --base <exact-sha>
+    azur integrations grafana probe
+    azur integrations context7 probe
+    azur integrations docker-docs probe
+    azur integrations docker-hub probe
 
-В repository Development/Game surfaces используют собственные local stdio или
-authenticated MCP entrypoints и не зависят от Docker Dynamic MCP. Глобальное
-отключение feature меняет только Docker MCP Toolkit; оно не добавляет и не
-удаляет `azurpilot-dev` или Game MCP configuration.
+Semgrep не запускает полный repository scan по умолчанию. Для custom path
+scope передавайте повторяемый --paths с validated относительными файлами.
+Адаптер использует tracked local ruleset и отключает telemetry metrics.
+Committed scan требует exact base commit; текущий HEAD определяется локальным
+Git и не подменяется историческим evidence.
 
-Адрес Grafana внутри MCP container —
-`http://host.docker.internal:3000`; сама Grafana остаётся доступной только на
-`127.0.0.1:3000`. Для подключения глобального Codex client используется
-фактический CLI contract Docker MCP Toolkit:
+azur doctor по умолчанию выполняет дешёвую локальную диагностику; флаг
+`azur doctor --full` добавляет шесть внешних integration summaries. Оба режима
+read-only: они не создают credential, не запускают full scan и не изменяют
+Compose или runtime. dev_tools.mcp_status использует тот же
+IntegrationService и публикует только bounded status, source/runtime
+provenance и machine-readable reason codes:
 
-```powershell
-docker mcp client connect codex --profile azurpilot-observability --global
-```
+    uv run --locked --no-sync python -m dev_tools.mcp_status
+    uv run --locked --no-sync python -m dev_tools.mcp_status --json
+    uv run --locked --no-sync python -m dev_tools.mcp_status --json --strict
+    uv run --locked --no-sync python -m dev_tools.mcp_status --json --emit-metrics
+    uv run --locked --no-sync python -m dev_tools.mcp_status --watch --interval-seconds 60
 
-Команда должна сохранить существующий `azurpilot-dev` и добавить отдельный
-`MCP_DOCKER` с тем же profile. После изменения глобальной конфигурации Codex
-может потребовать перезапуск клиента.
+--strict fail-closed требует clean source, согласованный first-party contract
+и READY для всех шести direct integrations. `effective_codex_registration`
+остаётся `not_observable` и проверяется отдельной live acceptance; это
+состояние не маскируется под READY.
 
-### Доступные MCP tools
+### CodeRabbit
 
-Allowlist берётся из canonical profile и включает только read-only Grafana и
-Tempo proxied tools:
+CodeRabbit выполняется только в постоянном isolated WSL2 review clone. Перед
+review проверяются exact canonical repository identity, detached clean checkout,
+точный committed HEAD, explicit base SHA, non-root Linux user и доступность
+официальной команды:
 
-```text
-check_datasources_health
-get_dashboard_panel_queries
-get_dashboard_property
-get_dashboard_summary
-get_datasource
-list_datasources
-list_loki_label_names
-list_loki_label_values
-list_prometheus_label_names
-list_prometheus_label_values
-list_prometheus_metric_metadata
-list_prometheus_metric_names
-query_loki_logs
-query_prometheus
-query_prometheus_histogram
-search_dashboards
-generate_deeplink
-alerting_manage_rules
-tempo_docs-traceql
-tempo_get-attribute-names
-tempo_get-attribute-values
-tempo_get-trace
-tempo_traceql-metrics-instant
-tempo_traceql-metrics-range
-tempo_traceql-search
-```
+    azur integrations coderabbit status
+    azur integrations coderabbit doctor
+    azur integrations coderabbit review --base <exact-base-sha> --head <exact-head-sha>
 
-`alerting_manage_rules` оставлен только вместе с backend-флагом `--disable-write`:
-текущая реализация Grafana MCP объединяет чтение и управление rules в одном
-catalog tool, а write operations должны быть отброшены самим server mode.
-Dashboard create/update/delete, snapshots, plugin/admin/OnCall/Sift/Pyroscope,
-generic API и Docker-control tools в profile отсутствуют.
+Agent NDJSON разбирается с bounded size/line limits. Findings получают одну из
+классификаций confirmed, partially confirmed, false positive или insufficient
+evidence. Адаптер не исполняет provider snippets или codegen instructions;
+первые две категории только становятся candidates для отдельного исправления.
+Review budget ограничен тремя содержательными итерациями. Rate limit или
+недоступная credential фиксируются как RATE_LIMITED/UNAUTHENTICATED и не
+превращаются в бесконечный retry.
 
-### Service account и token
+WSL inventory читается через wsl.exe --list --quiet и --list --verbose.
+При заданном exact distro проверяются WSL2, non-root user и usable clone. Без
+заданного имени используется только один WSL2 candidate; ноль даёт
+NOT_CONFIGURED, несколько дают AMBIGUOUS. Машинное имя distro, домашний
+каталог и путь clone не встраиваются в source или документацию.
 
-Для MCP используется отдельный Grafana service account
-`azurpilot-observability-mcp` с ролью `Viewer`; Grafana admin password,
-PostgreSQL credentials и пользовательские credentials для MCP не передаются.
-Значение service account token не хранится в Git, `.env`, profile export,
-README, аргументах команд или временном plaintext-файле. Стабильное имя secret
-в Docker MCP contract — `grafana.api_key`, а pinned server передаёт его через
-`GRAFANA_SERVICE_ACCOUNT_TOKEN`.
+### Семантика direct MCP adapters
 
-Фактический pinned runtime проверяется через `tools/list`. В текущем image
-официальный `user_info` отсутствует, поэтому `list_datasources` не считается
-доказательством identity. При наличии доступного credential `ensure-identity`
-проверяет его тем же bearer token через официальный Grafana read-only endpoint
-`/api/access-control/user/permissions` и обязательный заголовок
-`X-Grafana-Identity-Id: service-account:<id>`. Отсутствующий endpoint не заменяется
-проверкой доступа к datasource: identity verification завершается
-`MCP_GRAFANA_TOKEN_IDENTITY_UNAVAILABLE`. Отсутствующий или foreign header,
-malformed permissions, invalid или более широкая роль приводят к
-fail-closed/rotation. После записи нового token в secret store identity
-проверяется повторно; obsolete tokens удаляются только у canonical account. Если
-pinned Gateway не предоставляет `user_info`, а credential нельзя получить
-официальным способом для identity-проверки, команда завершается диагностируемой
-ошибкой и не объявляет token canonical.
+Grafana запускается pinned immutable image через stdio с disable-write и
+disable-proxied. Endpoint передаётся через validated AZURPILOT_GRAFANA_URL
+или bounded discovery текущей Compose topology, а credential выбирается через
+поддержанный environment или validated file reference.
+Allowlist содержит только datasource, dashboard, Loki, Prometheus, Tempo и deeplink reads;
+create/update/delete, generic API, admin, plugin, annotation и alert mutation
+tools блокируются до call. Проверка доступности не заявляет более широкую
+роль, чем подтверждённый credential.
 
-Идемпотентный bootstrap выполняется из корня checkout. Он использует
-Grafana admin credentials из локального `.env`, проверяет или создаёт ровно
-один canonical service account, приводит его к роли `Viewer`, проверяет
-существующий Gateway secret и создаёт replacement token только при
-authentication failure. Token передаётся в Docker secret store через stdin
-в bounded process и никогда не печатается:
+Context7 использует официальный endpoint
+https://mcp.context7.com/mcp; anonymous read-only probe допустим, а
+authenticated readiness требует user-scoped credential. Docker Docs использует
+https://mcp-docs.docker.com/mcp и bounded fetch_docker_docs call. Public
+Docker Hub использует pinned mcp/dockerhub image и допускает
+checkRepository/info/tag reads без PAT; createRepository, updateRepositoryInfo и
+deleteRepository никогда не вызываются адаптером.
 
-```powershell
-uv run --locked --no-sync python -m dev_tools.observability_mcp ensure-identity
-```
+### Compose и observability lifecycle
 
-Команда использует официальный service-account API pinned Grafana 13.2.1:
-поиск, создание/обновление account и создание token выполняются через
-`/api/serviceaccounts/*`; secret value не сохраняется в repository, environment,
-CLI arguments, logs, traceback или artifact. При rotation новый token сначала
-проверяется напрямую и через Gateway, затем старые tokens с canonical name
-отзываются по metadata. При неуспешной проверке replacement token отзывается,
-а старый token не отзывается. Admin API bootstrap принимает только loopback
-Grafana URL (`127.0.0.1`, `localhost` или `::1`).
+Direct integrations не владеют Compose lifecycle. Docker Desktop/Engine/Compose,
+Grafana, Loki, Tempo, Prometheus, PostgreSQL, Caddy, pgAdmin, Alloy,
+healthchecks, named volumes и существующие backup/recovery workflows остаются
+в infrastructure/observability/compose.yaml и связанных lifecycle-модулях.
+Замена developer-tooling integrations не удаляет volumes, не пересоздаёт
+observability project и не переводит application logs/traces на новый storage.
 
-Если Docker Secrets Engine недоступен, bootstrap завершается с ошибкой и не
-создаёт новый token. Pinned Gateway secret проверяется косвенно через Gateway;
-сам bootstrap не читает secret store обратно. Для reuse существующего account
-credential должен быть явно передан через поддержанный
-`GRAFANA_SERVICE_ACCOUNT_TOKEN` или `GRAFANA_SERVICE_ACCOUNT_TOKEN_FILE`;
-при отсутствии такого источника identity probe завершается fail-closed.
-Исправлять нужно именно credential transport, а не обходить его plaintext-файлом
-или переменной в profile.
+Grafana direct adapter читает explicit endpoint или безопасно подтверждённую
+локальную Compose topology; он не создаёт service account, не ротирует token и
+не сбрасывает admin password. Compose credentials и persistence остаются
+отдельным operator-owned контуром. Унаследованный Gateway/Secrets Engine
+контур Docker не используется как credential boundary для direct adapter. При
+недоступном endpoint или credential status честно остаётся NOT_CONFIGURED,
+UNAUTHENTICATED или UNAVAILABLE.
 
-### Question-driven diagnostic workflow
+### Приёмка и ограничения
 
-Начинай с discovery и узких запросов, затем связывай один фактически
-существующий AzurPilot task run между сигналами:
+Для финальной приёмки фиксируются на одном exact HEAD:
 
-1. `list_datasources`, `check_datasources_health`, `search_dashboards` и
-   `get_dashboard_summary` подтверждают identity и доступные источники.
-2. `query_prometheus` ищет `azurpilot_task_run_total`, а
-   `query_prometheus_histogram` — базу
-   `azurpilot_task_duration_seconds`; для воспроизводимого bounded запроса
-   передавай явные `startTime`, `endTime` и `stepSeconds`, а range и labels
-   ограничивай нужным окном времени и profile/task.
-3. `query_loki_logs` использует bounded LogQL с `service_name="azurpilot"`
-   и, при необходимости, `trace_id` в structured metadata; не запрашивай весь
-   retention window.
-4. `get_dashboard_property` и `get_dashboard_panel_queries` показывают, какая
-   panel и query визуализируют найденный run; для перехода используй
-   `generate_deeplink`.
-5. Через Gateway выполняются TraceQL search с RFC3339 `start`/`end`, attribute
-   discovery и `tempo_get-trace` для trace ID, извлечённого из того же task run;
-   прямой второй Tempo MCP connection не создаётся.
+- human и JSON output для integrations и dev_tools.mcp_status;
+- Semgrep staged/changed scope с доказанным ограничением файловой области;
+- Grafana list/query reads;
+- Context7 resolve/search;
+- Docker Docs search/fetch;
+- Docker Hub repository/info/tag reads;
+- Compose health и сохранность observability volumes;
+- CodeRabbit dogfood review с canonical clone evidence.
 
-Tempo MCP включён в `tempo/config.yaml` через
-`query_frontend.mcp_server.enabled: true`. Tempo `3200` не опубликован на
-host: Grafana обращается к нему через Compose network и datasource proxy.
-Если `tempo_*` tools не появились, проверь `tempo` logs и `/api/mcp` из
-Grafana container, затем перезапусти именно Grafana MCP Gateway после
-перезапуска Tempo. Не расширяй profile и не добавляй второй Tempo server как
-обходной путь.
-
-Отсутствие application metric, log или trace — это `INCOMPLETE`, а не PASS.
-Нельзя писать synthetic records напрямую в Prometheus, Loki или Tempo только
-ради acceptance. Полный результат требует цепочку `task metric → task/profile
-→ log → trace_id → tempo_get-trace`; результат MCP для выбранных metric,
-dashboard, alert и trace по возможности сверяется независимым Grafana/backend
-API.
-
-Synthetic и Docker outage harness не запускают Azur Lane. Live game acceptance
-намеренно остаётся `PENDING USER AUTHORIZATION` до отдельного разрешения
-пользователя.
-
-### Проверка безопасности и восстановление Docker Desktop
-
-Перед live query проверь только несекретные свойства:
-
-```powershell
-uv run --locked --no-sync python -m dev_tools.observability_mcp preflight
-uv run --locked --no-sync python -m dev_tools.observability_mcp runtime-tools
-```
-
-В отдельных host/sandbox-контекстах Docker Desktop команды Secrets Engine
-(`docker pass plugins ls`, `docker pass run`) и Gateway могут завершаться ошибкой
-вида:
-
-```text
-secrets engine is not available: unavailable: dial unix ...docker-secrets-engine...engine.sock: connect: An invalid argument was supplied
-```
-
-Сначала зафиксируй контекст проверки и разделяй независимые поверхности:
-`docker pass ls` может успешно читать Windows Credential Manager, но это только
-keychain evidence; оно не доказывает работоспособность Secrets Engine RPC.
-`docker pass run` внутри Codex Desktop sandbox может быть недоступен из-за
-изоляции host-side `engine.sock`, даже если тот же вызов во внешнем host shell
-работает. Это не является самостоятельным доказательством отказа всего secret
-store.
-
-Секретные ссылки `se://` проверяются отдельно по фактической container runtime
-injection и по разрешению секретов самим Docker MCP Gateway. Положительный
-`initialize`, `tools/list` и read-only call через Gateway имеет больший вес, чем
-отдельная host-side RPC probe; при этом профильный dry-run и фактическая текущая
-поверхность tools должны фиксироваться раздельно. Не выполняй socket reset,
-переименование каталогов, изменение ACL, credential rotation или смену backend
-только из-за sandbox-specific ошибки без нового подтверждённого owner/runtime
-диагноза.
-
-Одного созданного profile или прямого Grafana API недостаточно для Gateway/MCP
-acceptance. Required evidence — exact runtime allowlist, положительные reads через
-сам Gateway, отрицательная проверка Grafana write и bounded evidence по каждой
-обязательной поверхности. `EOF`, отсутствие `initialize`/`tools/list` или нулевая
-фактическая поверхность tools означают `BLOCKED` для соответствующей поверхности;
-статический profile export не маскирует текущую runtime/auth ошибку.
-
-## MCP Platform status и Development profile
-
-Подробное решение Stage 2, границы Dev/Game и текущие Gateway acceptance
-ограничения собраны в tracked-документации
-[`docs/dev-runtime.md`](../../docs/dev-runtime.md) и в этом разделе.
-
-Этот раздел описывает bounded status collector и не меняет canonical transport
-Development/Game или authenticated public HTTPS для ChatGPT:
-
-```powershell
-uv run --locked --no-sync python -m dev_tools.mcp_status
-uv run --locked --no-sync python -m dev_tools.mcp_status --json
-uv run --locked --no-sync python -m dev_tools.mcp_status --json --strict
-uv run --locked --no-sync python -m dev_tools.mcp_status --json --emit-metrics
-uv run --locked --no-sync python -m dev_tools.mcp_status --watch --interval-seconds 60
-```
-
-Collector выполняет только bounded read-only MCP handshake/contract calls,
-protected resource metadata GET, локальный Semgrep probe, `docker mcp profile
-list`, фактический Gateway catalog и read-only Gateway tool calls. Он разделяет
-profile config, Gateway runtime, client connection и third-party server policy;
-статический profile или public-edge metadata не маскируют отсутствие runtime
-evidence. Канонические routes таковы: Dev/Game — local stdio, Context7 —
-user-scoped direct Codex MCP, Docker Docs — direct project MCP, Semgrep —
-local `semgrep mcp -t stdio`, а обязательные Docker Gateway routes — только
-Grafana и Docker Hub. Context7/Docker Docs/Semgrep в profile остаются
-optional pilot/rollback observations; их Gateway drift не входит в global health
-или `--strict`. User-scoped Context7 acceptance, выполненный в текущей Codex
-сессии, collector явно оставляет внешним evidence и не заменяет его
-синтетическим `ready`. Collector не выводит URL, headers, tokens, secret
-values, paths или полное окружение. `--strict` — fail-closed gate только для
-canonical routes и подтверждённого source/version drift.
-
-`--emit-metrics` — one-shot отправка через существующий OTel/Alloy/Prometheus
-path. Для bounded периодического наблюдения используй встроенный `--watch`;
-это operator-owned foreground lifecycle с bounded interval `10..3600` секунд:
-новый daemon, auto-restart и retry storm не создаются, остановка выполняется
-`Ctrl+C`. Новый metrics runtime не создаётся.
-При отсутствии `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`,
-`AZURPILOT_OBSERVABILITY_OTLP_ENDPOINT` или общего OTLP endpoint экспорт
-остаётся `MCP_METRICS_ENDPOINT_UNCONFIGURED`, а status без `--strict` не
-маскирует это как delivered.
-
-Canonical Docker Toolkit profile `azurpilot-development` содержит ровно пять
-third-party servers: `grafana`, `context7`, `docker-docs`, `dockerhub` и
-`semgrep`. Профиль экспортируется в
-`.docker/azurpilot-development-profile.json`; этот artifact является
-проверяемой копией фактического CLI state, а не заменой `docker mcp profile`
-команд. Для Docker Hub разрешены только read operations; `createRepository` и
-`updateRepositoryInfo` не входят в allowlist. Для Grafana используется
-`--disable-write` и allowlist без `alerting_manage_rules` и без dashboard,
-datasource, incident, annotation или plugin mutations. Remote documentation
-servers считаются read-only по своему catalog contract, а status validator
-фиксирует exact official endpoints для Context7, Docker Docs и Semgrep. Секреты
-остаются в Docker Desktop secret store и не записываются в export.
-
-Профиль подключается к Codex отдельным optional `MCP_DOCKER` entrypoint и не
-заменяет direct routes `azurpilot-dev` и `azurpilot-game`; Game остаётся
-standalone `module.game_mcp` surface. Connected App/remote surface не является
-fallback для этих Codex routes.
-Старый `azurpilot-observability` profile и его export сохраняются для
-rollback. Docker Gateway принимает catalog/OCI/file server references, но
-host-side `module.dev_mcp` и `module.game_mcp` не превращаются в OCI image
-автоматически. Context7, Docker Docs и локальный Semgrep также могут
-использоваться через настроенные direct read-only MCP routes; их прямой
-callable catalog проверяется отдельно и не подменяется статическим Gateway
-profile. API keys и secret references остаются вне Git и operator-facing
-evidence.
-
-Host-side `docker pass`/Secrets Engine probes являются auxiliary diagnostics и
-не являются readiness gate: они не доказывают `se://` injection. Успешный
-bounded read-only Grafana tool call через Gateway является authoritative
-evidence для Grafana credential path; публичный Docker Hub probe не заявляет
-наличие credential. Поэтому отсутствие host visibility само по себе не должно
-переводить canonical status в failure.
+Каждая поверхность имеет собственный READY/NOT_CONFIGURED/UNAVAILABLE/
+UNAUTHENTICATED/RATE_LIMITED/INCOMPATIBLE/DEGRADED/UNKNOWN state. Public
+unauthenticated probe, синтетический notifier, bounded test fixture или
+статическая конфигурация не заменяют фактическое authenticated runtime
+evidence. Deferred write capabilities и старые operator shell workflows не
+входят в direct adapter scope и не считаются успешной частью приёмки.
