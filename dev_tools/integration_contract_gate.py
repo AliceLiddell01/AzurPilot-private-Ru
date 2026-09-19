@@ -19,6 +19,10 @@ from azurpilot.integrations import IntegrationRegistry
 from azurpilot.integrations.adapters import (
     DOCKER_HUB_BLOCKED_TOOLS,
     DOCKER_HUB_READ_ONLY_TOOLS,
+    GRAFANA_BLOCKED_TOOLS,
+    GRAFANA_ENABLED_TOOL_CATEGORIES,
+    GRAFANA_READ_ONLY_TOOLS,
+    GRAFANA_REQUIRED_READ_ONLY_TOOLS,
 )
 from azurpilot.integrations.config import DEFAULTS, REPOSITORY_MCP_ALIASES
 from azurpilot.integrations.contracts import IntegrationName
@@ -168,13 +172,46 @@ def _check_codex_config(root: Path, errors: list[str]) -> None:
             continue
 
         if family == "grafana":
-            # Единственный repository-level safety invariant для server args:
-            # Маршрут Codex обязан запрещать mutating Grafana tools. Наличие
-            # proxied/Tempo-поверхность определяется production adapter contract,
-            # а не дублируется здесь отдельным флагом.
             if "-disable-write" not in args:
                 errors.append(
                     ".codex/config.toml: grafana_direct обязан быть read-only"
+                )
+            if "-disable-api" not in args:
+                errors.append(
+                    ".codex/config.toml: grafana_direct обязан блокировать generic API"
+                )
+            if any(flag in args for flag in ("-disable-query", "--disable-query")):
+                errors.append(
+                    ".codex/config.toml: grafana_direct не должен отключать datasource queries"
+                )
+            if any(flag in args for flag in ("-disable-proxied", "--disable-proxied")):
+                errors.append(
+                    ".codex/config.toml: grafana_direct не должен отключать required Tempo proxied reads"
+                )
+            enabled_categories = [
+                index for index, value in enumerate(args) if value == "-enabled-tools"
+            ]
+            if (
+                len(enabled_categories) != 1
+                or enabled_categories[0] + 1 >= len(args)
+                or args[enabled_categories[0] + 1] != GRAFANA_ENABLED_TOOL_CATEGORIES
+            ):
+                errors.append(
+                    ".codex/config.toml: grafana_direct categories расходятся с read-only observability contract"
+                )
+            enabled_tools = _string_list(entry, "enabled_tools")
+            if enabled_tools is None or set(enabled_tools) != set(GRAFANA_READ_ONLY_TOOLS):
+                errors.append(
+                    ".codex/config.toml: grafana_direct allowlist расходится с adapter contract"
+                )
+            elif not set(GRAFANA_REQUIRED_READ_ONLY_TOOLS).issubset(enabled_tools):
+                errors.append(
+                    ".codex/config.toml: grafana_direct allowlist не содержит required query/Tempo reads"
+                )
+            disabled_tools = _string_list(entry, "disabled_tools")
+            if disabled_tools is None or set(disabled_tools) != set(GRAFANA_BLOCKED_TOOLS):
+                errors.append(
+                    ".codex/config.toml: grafana_direct denylist расходится с adapter contract"
                 )
             env_vars = _string_list(entry, "env_vars")
             expected_env = {

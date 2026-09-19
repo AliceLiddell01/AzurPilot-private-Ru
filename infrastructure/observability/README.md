@@ -738,14 +738,21 @@ NOT_CONFIGURED, несколько дают AMBIGUOUS. Машинное имя d
 
 ### Семантика direct MCP adapters
 
-Grafana запускается pinned immutable image через stdio с disable-write и
-disable-proxied. Endpoint передаётся через validated AZURPILOT_GRAFANA_URL
-или bounded discovery текущей Compose topology, а credential выбирается через
-поддержанный environment или validated file reference.
-Allowlist содержит только datasource, dashboard, Loki, Prometheus, Tempo и deeplink reads;
-create/update/delete, generic API, admin, plugin, annotation и alert mutation
-tools блокируются до call. Проверка доступности не заявляет более широкую
-роль, чем подтверждённый credential.
+Grafana запускается pinned immutable image через stdio с disable-write,
+disable-api и явными bounded categories; query execution остаётся включённым,
+поскольку observability contract требует Loki/Prometheus reads. Текущий image
+публикует Tempo/TraceQL только через proxied Tempo MCP, поэтому disable-proxied
+на этом route не используется: он удаляет required Tempo tools. Вместо этого
+Codex registration использует deny-by-default allowlist из typed
+`GRAFANA_READ_ONLY_TOOLS`, а exact runtime catalog gate отклоняет неизвестную
+proxied surface до любого tool call. Endpoint передаётся через validated
+AZURPILOT_GRAFANA_URL или bounded discovery текущей Compose topology, а
+credential выбирается через поддержанный environment или validated file
+reference.
+Create/update/delete, generic API, admin, plugin, annotation и alert mutation
+tools не попадают в registration и дополнительно блокируются typed policy.
+Проверка доступности не заявляет более широкую роль, чем подтверждённый
+credential.
 
 Context7 использует официальный endpoint
 https://mcp.context7.com/mcp; anonymous read-only probe допустим, а
