@@ -462,6 +462,11 @@ def test_reconcile_rejects_unknown_restart_postcondition(
         "_start_owned",
         lambda _root, _bundle, *, server_names: (True, {}),
     )
+    monkeypatch.setattr(
+        service,
+        "_supervisor",
+        lambda _root, _server_name: SimpleNamespace(stop=lambda: True),
+    )
 
     with pytest.raises(ToolingError) as error:
         service.reconcile(REPOSITORY_ROOT)
