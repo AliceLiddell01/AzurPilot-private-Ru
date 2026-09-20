@@ -132,7 +132,7 @@ class OpsiDaily(OSMap):
         """
         logger.hr('Операция «Сирена» — ежедневные задания+: выполнение заданий', level=1)
         count = 0
-        # 防止港口类型每日任务的无限刷新循环（如对话/拾取/商店交互等自动搜索无法完成的情况）
+        # Предотвращаем бесконечное обновление портовых ежедневных заданий, которые автопоиск не может завершить (диалоги/подбор/магазин и т. п.)
         stuck_port_zone_id = None
         stuck_port_retry = 0
         abort_due_to_stuck_port = False
@@ -142,8 +142,8 @@ class OpsiDaily(OSMap):
                 break
 
             if result != 'pinned_at_archive_zone':
-                # 档案海域的名称是 "archive zone"，不是已存在的区域。
-                # 完成档案海域后会自动返回之前的区域。
+                # Название архивной зоны — "archive zone", а не существующая зона.
+                # После завершения архивной зоны игра автоматически возвращается в предыдущую зону.
                 self.zone_init()
             if result == 'already_at_mission_zone':
                 self.globe_goto(self.zone, refresh=True)
@@ -165,8 +165,8 @@ class OpsiDaily(OSMap):
                     self.os_daily_set_keep_mission_zone()
                 finished_combat = 0
 
-            # 检测港口中的重复无进展循环，提前停止本轮运行。
-            # 防止无尽的"刷新当前区域"来回切换。
+            # Обнаруживаем повторяющийся цикл без прогресса в порту и досрочно завершаем текущий запуск.
+            # Это предотвращает бесконечное переключение при «обновлении текущей зоны».
             if self.zone.is_port and finished_combat == 0 and result in (
                     'already_at_mission_zone', 'pinned_at_mission_zone'):
                 zone_id = self.zone.zone_id
@@ -190,13 +190,13 @@ class OpsiDaily(OSMap):
                 self.config.check_task_switch()
 
         if abort_due_to_stuck_port:
-            # 返回 0 让外层 OpsiDaily 流程干净地退出本轮
+            # Возвращаем 0, чтобы внешний цикл OpsiDaily корректно завершил текущий запуск
             return 0
 
         return count
 
     def os_daily(self):
-        # 清理调谐样本
+        # Используем образцы настройки
         if self.config.OpsiDaily_UseTuningSample:
             self.tuning_sample_use(quit=not self.config.OpsiGeneral_UseLogger)
         if self.config.OpsiGeneral_UseLogger:
@@ -211,10 +211,10 @@ class OpsiDaily(OSMap):
 
         skip_siren_mission = self.config.OpsiDaily_SkipSirenResearchMission
         while True:
-            # 如果无法接收更多每日任务，先完成已有任务再重试
+            # Если больше нельзя принять ежедневные задания, сначала завершаем уже полученные и повторяем попытку
             success = self.os_mission_overview_accept(skip_siren_mission=skip_siren_mission)
-            # 重新初始化区域名称
-            # MISSION_ENTER 从右侧出现，需确认动画结束，否则会点击到 MAP_GOTO_GLOBE
+            # Повторно инициализируем название зоны
+            # MISSION_ENTER появляется справа; ждём завершения анимации, иначе клик попадёт в MAP_GOTO_GLOBE
             self.zone_init()
             if self.os_finish_daily_mission(
                     skip_siren_mission=skip_siren_mission,

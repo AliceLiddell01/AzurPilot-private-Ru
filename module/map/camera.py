@@ -1,19 +1,20 @@
-"""地图相机控制系统。
+"""Система управления камерой на карте.
 
-管理地图探索时的相机移动和视图更新。碧蓝航线的地图是可滚动的网格系统，
-相机用于聚焦到特定区域进行侦察和操作。
+Управляет перемещением камеры и обновлением обзора во время исследования карты.
+Карта Azur Lane представляет собой прокручиваемую систему сеток; камера используется
+для фокусировки на определённой области для разведки и взаимодействия.
 
-核心功能：
-- 地图滑动：通过滑动向量控制相机在地图上移动
-- 视图更新：通过透视检测（Perspective Detection）解析当前视野中的网格信息
-- 坐标转换：全局坐标（map 坐标）与局部坐标（view 坐标）的相互转换
-- 全图扫描：系统性地扫描整个地图，发现所有敌人和事件
-- 错误恢复：处理各种检测错误（信息栏遮挡、弹窗、剧情等）
+Ключевые функции:
+- Свайп карты: перемещение камеры по карте с помощью векторов свайпа.
+- Обновление обзора: разбор информации о сетке в текущем поле зрения с помощью перспективного анализа (Perspective Detection).
+- Преобразование координат: взаимное преобразование глобальных координат (map) и локальных координат (view).
+- Полное сканирование карты: систематическое сканирование всей карты для обнаружения всех врагов и событий.
+- Восстановление после ошибок: обработка разнообразных ошибок распознавания (перекрытие инфобаром, всплывающие окна, сюжеты и др.).
 
-坐标系统：
-- 全局坐标 (camera)：地图上的绝对位置，如 (3, 5) 表示第3列第5行
-- 局部坐标 (view)：当前视野中的相对位置
-- center_offset：相机中心相对于网格中心的偏移量，(0.5, 0.5) 表示完美居中
+Система координат:
+- Глобальные координаты (camera): абсолютное положение на карте, например (3, 5) означает 3-й столбец, 5-ю строку.
+- Локальные координаты (view): относительное положение в текущем поле зрения.
+- center_offset: смещение центра камеры относительно центра клетки, (0.5, 0.5) означает идеальное центрирование.
 """
 
 import copy
@@ -43,18 +44,19 @@ _MAP_OUTSIDE_WARNING_KEY = ('map-camera', 'outside-map')
 
 
 class Camera(MapOperation):
-    """地图相机控制器。
+    """Контроллер камеры на карте.
 
-    管理地图探索中的相机位置、视图更新和坐标转换。
-    通过透视检测将屏幕截图解析为网格信息，并提供全局/局部坐标转换。
+    Управляет положением камеры, обновлением обзора и преобразованием координат
+    во время исследования карты. Анализирует снимки экрана в информацию о сетке
+    с помощью перспективного анализа и обеспечивает преобразование глобальных и локальных координат.
 
     Attributes:
-        view (View): 当前视野的网格视图对象。
-        map (CampaignMap): 战役地图对象，存储全局地图数据。
-        camera (tuple[int, int]): 当前相机位置（全局坐标）。
-        grid_class (Grid): 网格检测器类，默认为 Grid。
-        _prev_view (View | None): 上一次滑动前的视图快照，用于预测滑动结果。
-        _prev_swipe (np.ndarray | None): 上一次的滑动向量。
+        view (View): Объект представления сетки текущего обзора.
+        map (CampaignMap): Объект карты кампании, хранящий глобальные данные карты.
+        camera (tuple[int, int]): Текущее положение камеры (глобальные координаты).
+        grid_class (Grid): Класс детектора сетки, по умолчанию Grid.
+        _prev_view (View | None): Снимок обзора перед предыдущим свайпом для прогнозирования результатов свайпа.
+        _prev_swipe (np.ndarray | None): Вектор предыдущего свайпа.
     """
     view: View
     map: CampaignMap
@@ -68,23 +70,23 @@ class Camera(MapOperation):
     def _map_swipe(self, vector, box=(123, 159, 1175, 628)):
         """
         Args:
-            vector (tuple, np.ndarray): 滑动向量（浮点数）。
-            box (tuple): 允许滑动的区域。
+            vector (tuple, np.ndarray): Вектор свайпа (числа с плавающей точкой).
+            box (tuple): Допустимая область свайпа.
 
         Returns:
-            bool: 相机是否移动了。
+            bool: Переместилась ли камера.
         """
         vector = np.array(vector)
         name = 'MAP_SWIPE_' + '_'.join([str(int(round(x))) for x in vector])
         if np.any(np.abs(vector) > self.config.MAP_SWIPE_DROP):
-            # 地图网格适配
+            # Адаптация к сетке карты
             if self.config.DEVICE_CONTROL_METHOD == 'minitouch':
                 distance = self.view.swipe_base * self.config.MAP_SWIPE_MULTIPLY_MINITOUCH
             elif self.config.DEVICE_CONTROL_METHOD == 'MaaTouch':
                 distance = self.view.swipe_base * self.config.MAP_SWIPE_MULTIPLY_MAATOUCH
             else:
                 distance = self.view.swipe_base * self.config.MAP_SWIPE_MULTIPLY
-            # 优化滑动路径
+            # Оптимизируем траекторию свайпа
             if self.config.MAP_SWIPE_OPTIMIZE:
                 whitelist, blacklist = self.get_swipe_area_opt(vector)
             else:
@@ -93,24 +95,24 @@ class Camera(MapOperation):
             vector = distance * vector
             vector = -vector
             self.device.swipe_vector(vector, name=name, box=box, whitelist_area=whitelist, blacklist_area=blacklist)
-            # 不知道为什么初始提交中有一个 sleep
+            # Неизвестно, зачем в исходном коммите был этот sleep
             # self.device.sleep(0.3)
             self.update(wait_swipe=True)
             return True
         else:
-            # 舍弃滑动
+            # Отбрасываем свайп
             # self.update(camera=False)
             return False
 
     def map_swipe(self, vector):
-        """使用相对位置滑动到目标格子。
-        调用前请先更新相机位置。
+        """Выполнить сдвиг к целевой клетке с использованием относительного положения.
+        Перед вызовом необходимо обновить положение камеры.
 
         Args:
-            vector (tuple): 整数滑动向量。
+            vector (tuple): Целочисленный вектор свайпа.
 
         Returns:
-            bool: 相机是否移动了。
+            bool: Переместилась ли камера.
         """
         logger.debug('[Карта — камера] Сдвиг карты: %s' % str(vector))
         self._prev_view = copy.copy(self.view)
@@ -120,13 +122,13 @@ class Camera(MapOperation):
         return self._map_swipe(vector)
 
     def focus_to_grid_center(self, tolerance=None):
-        """重新聚焦到格子中心。
+        """Повторно сфокусироваться на центре клетки.
 
         Args:
-            tolerance (float): 容差值，0 到 0.5。为 None 时使用 MAP_GRID_CENTER_TOLERANCE。
+            tolerance (float): Допустимое отклонение, от 0 до 0.5. Если None, используется MAP_GRID_CENTER_TOLERANCE.
 
         Returns:
-            bool: 地图是否滑动了。
+            bool: Был ли выполнен сдвиг карты.
         """
         if not tolerance:
             tolerance = self.config.MAP_GRID_CENTER_TOLERANCE
@@ -141,7 +143,7 @@ class Camera(MapOperation):
             self.view = View(self.config, grid_class=self.grid_class)
 
     def _update_view(self):
-        """更新地图视图。
+        """Обновить обзор карты.
         """
         self._view_init()
         try:
@@ -166,7 +168,7 @@ class Camera(MapOperation):
                 return False
             elif self.appear(GET_ITEMS_1, offset=5):
                 logger.warning('[Карта — камера] Экран получения предметов вызвал ошибку перспективы')
-                # 此处不要使用 handle_mystery()，因为大世界会覆盖它。
+                # Здесь не используем handle_mystery(), потому что Operation Siren переопределяет его.
                 self.device.click(GET_ITEMS_1)
                 return False
             elif self.appear(GET_ITEMS_1_RYZA, offset=(-20, -100, 20, 20)):
@@ -222,7 +224,7 @@ class Camera(MapOperation):
                                   skip_first_screenshot=True)
                     return False
             elif 'opsi' in self.config.task.command.lower() and self.handle_popup_confirm('OPSI'):
-                # 在大世界中始终确认弹窗，与 os_map_goto_globe() 中的弹窗相同
+                # В Operation Siren всегда подтверждаем всплывающее окно — такое же, как в os_map_goto_globe()
                 logger.warning('[Карта — камера] Всплывающее окно вызвало ошибку перспективы')
                 return False
             elif self.appear(PORT_SUPPLY_CHECK, offset=(20, 20)):
@@ -238,7 +240,7 @@ class Camera(MapOperation):
                 logger.warning(string)
                 x, y = string.split('=')[1].strip('() ').split(',')
                 self._map_swipe((-int(x.strip()), -int(y.strip())))
-            # 最后检查游戏是否在运行
+            # В последнюю очередь проверяем, запущена ли игра
             elif not self.device.app_is_running():
                 logger.error('[Карта — камера] Попытка обновить камеру после выхода из игры')
                 raise GameNotRunningError
@@ -285,18 +287,18 @@ class Camera(MapOperation):
         return True
 
     def update(self, camera=True, wait_swipe=False, allow_error=False):
-        """更新地图图像。
-        封装原始 update() 方法以处理随机出现的 MapDetectionError，
-        该错误通常由网络问题和误点击引起。
+        """Обновить изображение карты.
+        Оборачивает исходный метод update() для обработки случайно возникающих ошибок MapDetectionError,
+        обычно вызванных сетевыми проблемами или ошибочными кликами.
 
         Args:
-            camera (bool): 为 True 时更新相机位置和透视数据。
-            wait_swipe (bool): 为 True 时等待相机到达格子中心。
-            allow_error (bool): 为 True 时遇到检测错误则退出。
+            camera (bool): Если True, обновляет положение камеры и данные перспективы.
+            wait_swipe (bool): Если True, ожидает прибытия камеры в центр клетки.
+            allow_error (bool): Если True, завершает работу при ошибке обнаружения.
         """
         error_confirm = Timer(5, count=10).start()
         swipe_wait_timeout = Timer(0.35, count=1).start()
-        # 假设已经滑动过
+        # Предполагаем, что свайп уже выполнялся
         swiped = True
         if wait_swipe:
             try:
@@ -309,21 +311,21 @@ class Camera(MapOperation):
             prev_center_offset = None
 
         def is_grid_center():
-            # 是否聚焦在格子中心
-            # 参见 focus_to_grid_center
+            # Сфокусирован ли вид на центре клетки
+            # См. focus_to_grid_center
             if np.any(np.abs(self.view.center_offset - 0.5) > self.config.MAP_GRID_CENTER_TOLERANCE):
                 return False
             return True
 
         def is_still_prev():
-            # 是否与之前的视图相同
+            # Совпадает ли текущий вид с предыдущим
             if prev_center_offset is None:
                 return False
             return np.linalg.norm(self.view.center_offset - prev_center_offset) < 0.001
 
         while 1:
-            # Camera.update() 没有 skip_first_screenshot
-            # 等待 swipe_wait_timeout 时不设置截图间隔
+            # У Camera.update() нет skip_first_screenshot
+            # Во время ожидания swipe_wait_timeout не задаём интервал скриншотов
             if not swipe_wait_timeout.reached():
                 self.device._screenshot_interval.clear()
             self.device.screenshot()
@@ -340,8 +342,8 @@ class Camera(MapOperation):
                     continue
                 logger.attr('Смещение центра обзора', self.view.center_offset)
                 if wait_swipe and not swipe_wait_timeout.reached() and success:
-                    # 如果第一张截图仍然是之前的视图
-                    # 必须先离开格子中心再重新聚焦
+                    # Если первый скриншот всё ещё показывает предыдущий вид
+                    # Сначала нужно покинуть центр клетки, а затем сфокусироваться заново
                     if is_still_prev():
                         swiped = False
                     if is_grid_center():
@@ -356,7 +358,7 @@ class Camera(MapOperation):
                     if success:
                         break
                     else:
-                        # MapDetectionError 已在 _update_view() 中处理，再次更新
+                        # MapDetectionError уже обработан в _update_view(); обновляем ещё раз
                         error_confirm.reset()
                         continue
             except MapDetectionError:
@@ -367,7 +369,7 @@ class Camera(MapOperation):
                 else:
                     continue
 
-        # 计算视图数据
+        # Вычисляем данные вида
         self._update_view_data()
 
     def predict(self):
@@ -461,11 +463,11 @@ class Camera(MapOperation):
         return record
 
     def focus_to(self, location, swipe_limit=(4, 3)):
-        """将相机聚焦到指定格子。
+        """Сфокусировать камеру на указанной клетке.
 
         Args:
-            location: 目标格子坐标。
-            swipe_limit (tuple): (x, y)。滑动限制在 (-x, -y, x, y) 范围内。
+            location: Координаты целевой клетки.
+            swipe_limit (tuple): (x, y). Ограничение свайпа в диапазоне (-x, -y, x, y).
         """
         location = location_ensure(location)
         logger.info('[Карта — камера] Фокусировка на: %s' % location2node(location))
@@ -489,16 +491,16 @@ class Camera(MapOperation):
 
     def full_scan(self, queue=None, must_scan=None, battle_count=0, mystery_count=0, siren_count=0, carrier_count=0,
                   mode='normal'):
-        """扫描整个地图。
+        """Сканировать всю карту.
 
         Args:
-            queue (SelectedGrids): 需要聚焦的格子。为 None 时使用 map.camera_data。
-            must_scan (SelectedGrids): 必须扫描的格子。
-            battle_count (int): 战斗计数。
-            mystery_count (int): 神秘事件计数。
-            siren_count (int): 塞壬计数。
-            carrier_count (int): 航母计数。
-            mode (str): 扫描模式，如 'init'、'normal'、'carrier'、'movable'。
+            queue (SelectedGrids): Клетки, на которых необходимо сфокусироваться. Если None, используется map.camera_data.
+            must_scan (SelectedGrids): Клетки, обязательные для сканирования.
+            battle_count (int): Счётчик боёв.
+            mystery_count (int): Счётчик таинственных событий (вопросительных знаков).
+            siren_count (int): Счётчик Сирен.
+            carrier_count (int): Счётчик авианосцев.
+            mode (str): Режим сканирования: 'init', 'normal', 'carrier', 'movable'.
         """
         logger.info(f'[Карта — камера] Начато сканирование всей карты, режим={mode}')
         self.map.reset_fleet()
@@ -568,11 +570,11 @@ class Camera(MapOperation):
         self.map.show()
 
     def in_sight(self, location, sight=None):
-        """确保目标位置在相机视野内。
+        """Убедиться, что целевая позиция находится в поле зрения камеры.
 
         Args:
-            location: 目标位置坐标。
-            sight (tuple): 视野范围，如 (-3, -1, 3, 2)。
+            location: Координаты целевой позиции.
+            sight (tuple): Область обзора, например (-3, -1, 3, 2).
         """
         location = location_ensure(location)
         logger.info('[Карта — камера] В области обзора: %s' % location2node(location))
@@ -595,14 +597,14 @@ class Camera(MapOperation):
         self.focus_to((self.camera[0] + x, self.camera[1] + y))
 
     def convert_global_to_local(self, location):
-        """将全局坐标转换为局部坐标。
-        如果 self.grids 不包含该位置，则将相机聚焦到该位置后重新转换。
+        """Преобразовать глобальные координаты в локальные.
+        Если self.grids не содержит этой позиции, камера фокусируется на позиции и повторяет преобразование.
 
         Args:
-            location: self.map 中的格子实例。
+            location: Экземпляр клетки в self.map.
 
         Returns:
-            Grid: self.view 中的格子实例。
+            Grid: Экземпляр клетки в self.view.
         """
         location = location_ensure(location)
 
@@ -622,14 +624,14 @@ class Camera(MapOperation):
             return self.view[local]
 
     def convert_local_to_global(self, location):
-        """将局部坐标转换为全局坐标。
-        如果 self.map 不包含该位置，相机可能有误，修正相机后重新转换。
+        """Преобразовать локальные координаты в глобальные.
+        Если self.map не содержит этой позиции, камера может ошибаться; корректирует камеру и повторяет преобразование.
 
         Args:
-            location: self.view 中的格子实例。
+            location: Экземпляр клетки в self.view.
 
         Returns:
-            Grid: self.map 中的格子实例。
+            Grid: Экземпляр клетки в self.map.
         """
         location = location_ensure(location)
 
@@ -671,21 +673,21 @@ class Camera(MapOperation):
         return False
 
     def get_swipe_area_opt(self, map_vector):
-        """获取 random_rectangle_vector_opted() 的白名单和黑名单。
+        """Получить белый и чёрный списки для random_rectangle_vector_opted().
 
         Args:
-            map_vector: 地图滑动向量。
+            map_vector: Вектор сдвига карты.
 
         Returns:
-            list, list: 白名单和黑名单。
+            list, list: Белый и чёрный списки областей.
         """
         map_vector = np.array(map_vector)
 
         def local_to_area(local_grid, pad=0):
             result = []
             for local in local_grid:
-                # 预测滑动后格子的位置。
-                # 滑动应在此结束，以防止将滑动视为点击。
+                # Предсказываем положение клетки после свайпа.
+                # Свайп должен завершаться здесь, чтобы его не приняли за клик.
                 area = area_offset((0, 0, 1, 1), offset=-map_vector)
                 corner = local.grid2screen(area2corner(area))
                 area = trapezoid2area(corner, pad=pad)

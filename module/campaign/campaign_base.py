@@ -1,14 +1,13 @@
 """
-战役执行基类模块。
+Базовый модуль выполнения кампании.
 
-提供战役任务的核心执行逻辑，包括：
-- 战斗函数分发（根据地图数据选择不同的战斗策略）
-- 战役全流程编排（进入地图、初始化、循环执行战斗、异常处理）
-- 自动搜索模式支持
+Предоставляет ключевую логику выполнения задач кампании, включая:
+- Диспетчеризацию функций боя (выбор стратегии боя по данным карты)
+- Полную оркестрацию кампании (вход на карту, инициализация, цикл выполнения боёв, обработка исключений)
+- Поддержку режима автопоиска (AutoSearch)
 
-本模块是所有战役任务（主线、活动、作战档案等）的执行基础，
-组合了 CampaignUI（UI 导航）、Map（地图操作）和 AutoSearchCombat（自动搜索战斗）
-的能力。
+Этот модуль является фундаментом для всех задач кампании (основная, события, военный архив и т. д.),
+объединяя возможности CampaignUI (UI-навигация), Map (управление картой) и AutoSearchCombat (автобой в автопоиске).
 """
 
 from module.base.decorator import Config, cached_property
@@ -21,30 +20,30 @@ from module.map.map_base import CampaignMap
 
 
 class CampaignBase(CampaignUI, Map, AutoSearchCombat):
-    """战役执行基类，组合 UI 导航、地图操作和自动搜索战斗能力。
+    """Базовый класс выполнения кампании, объединяющий навигацию по UI, операции на карте и бой в автопоиске.
 
-    负责战役任务的完整执行流程：从进入地图到循环执行每一场战斗，
-    直到战役结束或触发异常。通过 `@Config.when` 装饰器实现多种战斗策略的
-    条件分发，支持普通模式、全清模式和数据不足模式。
+    Управляет полным циклом выполнения задачи кампании: от входа на карту до последовательного проведения каждого боя,
+    вплоть до завершения кампании или возникновения исключения. Через декоратор `@Config.when` реализует
+    условную диспетчеризацию различных стратегий боя, поддерживая стандартный режим, режим полной зачистки и режим неполных данных карты.
 
-    战斗函数的查找机制：根据当前 battle_count 动态查找对应的战斗函数
-    （如 battle_0、battle_1 等），找不到则回退到 battle_default。
+    Механизм поиска функций боя: динамически ищет соответствующую функцию боя по текущему `battle_count`
+    (например, battle_0, battle_1 и т. д.), а при отсутствии откатывается к `battle_default`.
 
     Attributes:
-        FUNCTION_NAME_BASE (str): 战斗函数名称前缀，默认为 'battle_'。
-        MAP (CampaignMap): 当前战役的地图数据对象，包含网格布局、敌人位置、
-            出生点等信息。由子类的地图文件定义。
+        FUNCTION_NAME_BASE (str): Префикс имени функции боя, по умолчанию 'battle_'.
+        MAP (CampaignMap): Объект данных карты текущей кампании, содержащий сетку, позиции врагов,
+            точки появления и т. д. Определяется файлом карты подкласса.
     """
     FUNCTION_NAME_BASE = 'battle_'
     MAP: CampaignMap
 
     def battle_default(self):
-        """默认战斗策略：清除所有敌人。
+        """Стратегия боя по умолчанию: зачистка всех врагов.
 
-        作为战斗函数查找失败时的回退策略，尝试清除地图上的敌人。
+        Используется как резервная стратегия при неудаче поиска специализированной функции боя, пытаясь уничтожить врагов на карте.
 
         Returns:
-            bool: True 表示成功执行战斗，False 表示没有执行任何战斗。
+            bool: True, если бой успешно проведён; False, если боёв не выполнено.
         """
         if self.clear_enemy():
             return True
@@ -53,12 +52,12 @@ class CampaignBase(CampaignUI, Map, AutoSearchCombat):
         return False
 
     def battle_boss(self):
-        """Boss 战斗策略：强制清除 Boss。
+        """Стратегия боя с боссом: принудительное уничтожение босса.
 
-        使用蛮力方式直接清除 Boss，忽略路径优化。
+        Уничтожает босса напрямую грубой силой, игнорируя оптимизацию пути.
 
         Returns:
-            bool: True 表示成功执行战斗，False 表示没有执行任何战斗。
+            bool: True, если бой успешно проведён; False, если боёв не выполнено.
         """
         if self.brute_clear_boss():
             return True
@@ -68,14 +67,14 @@ class CampaignBase(CampaignUI, Map, AutoSearchCombat):
 
     @Config.when(POOR_MAP_DATA=True, MAP_CLEAR_ALL_THIS_TIME=False)
     def battle_function(self):
-        """战斗函数：地图数据不足模式。
+        """Функция боя: режим неполных данных карты.
 
-        当地图数据不完整时使用的战斗策略。优先攻击 Boss，
-        其次清除精英敌人，最后清除普通敌人。
-        会优先处理被塞壬锁定的第二舰队和神秘格子。
+        Стратегия боя при неполных данных карты. В первую очередь атакует босса,
+        затем уничтожает элитных врагов, и в последнюю очередь — обычных врагов.
+        Приоритетно освобождает второй флот при захвате сиренами и зачищает загадочные клетки (?/Mystery).
 
         Returns:
-            bool: True 表示成功执行战斗，False 表示没有执行任何战斗。
+            bool: True, если бой успешно проведён; False, если боёв не выполнено.
         """
         logger.info('[Кампания — основное] Используется функция: battle_with_poor_map_data')
         if self.fleet_2_break_siren_caught():
@@ -97,13 +96,13 @@ class CampaignBase(CampaignUI, Map, AutoSearchCombat):
 
     @Config.when(MAP_CLEAR_ALL_THIS_TIME=True)
     def battle_function(self):
-        """战斗函数：全清模式。
+        """Функция боя: режим полной зачистки.
 
-        清除地图上所有敌人（包括精英、普通和要塞敌人）后才攻击 Boss。
-        适用于需要全清才能达成三星或 100% 通关率的关卡。
+        Уничтожает всех врагов на карте (включая элиту, обычных врагов и крепости) перед атакой босса.
+        Применяется для этапов, требующих полной зачистки ради трёх звёзд или 100% прохождения.
 
         Returns:
-            bool: True 表示成功执行战斗，False 表示没有执行任何战斗。
+            bool: True, если бой успешно проведён; False, если боёв не выполнено.
         """
         logger.info('[Кампания — основное] Используется функция: clear_all')
         if self.fleet_2_break_siren_caught():
@@ -136,15 +135,15 @@ class CampaignBase(CampaignUI, Map, AutoSearchCombat):
 
     @Config.when(MAP_CLEAR_ALL_THIS_TIME=False, POOR_MAP_DATA=False)
     def battle_function(self):
-        """战斗函数：标准模式。
+        """Функция боя: стандартный режим.
 
-        根据当前 battle_count 动态查找对应的战斗函数。
-        查找顺序：battle_N -> battle_(N-1) -> ... -> battle_default。
-        允许地图文件定义特定战斗步骤的自定义策略（如 battle_0 攻击 Boss，
-        battle_1 清除特定敌人等）。
+        Динамически находит соответствующую функцию боя на основе текущего `battle_count`.
+        Порядок поиска: battle_N -> battle_(N-1) -> ... -> battle_default.
+        Позволяет файлам карт задавать собственные стратегии для конкретных шагов боя (например, battle_0 атакует босса,
+        battle_1 уничтожает конкретных врагов и т. д.).
 
         Returns:
-            bool: True 表示成功执行战斗，False 表示没有执行任何战斗。
+            bool: True, если бой успешно проведён; False, если боёв не выполнено.
         """
         func = self.FUNCTION_NAME_BASE + 'default'
         for extra_battle in range(10):
@@ -160,17 +159,17 @@ class CampaignBase(CampaignUI, Map, AutoSearchCombat):
         return result
 
     def execute_a_battle(self):
-        """执行单场战斗。
+        """Выполняет один бой.
 
-        调用 battle_function() 执行一场战斗，处理 MapEnemyMoved 异常
-        （敌人移动导致的地图状态变化）。如果战斗未成功执行且启用了
-        错误处理，则撤退；否则抛出 ScriptError。
+        Вызывает `battle_function()` для проведения боя, обрабатывает исключение `MapEnemyMoved`
+        (изменение состояния карты из-за перемещения врага). Если бой не был успешно проведён и включена
+        обработка ошибок, отступает; в противном случае выбрасывает `ScriptError`.
 
         Returns:
-            bool: True 表示成功执行战斗。
+            bool: True, если бой успешно выполнен.
 
         Raises:
-            ScriptError: 战斗未执行且未启用错误处理时抛出。
+            ScriptError: Выбрасывается, если бой не выполнен и отключена обработка ошибок.
         """
         logger.hr(f'{self.FUNCTION_NAME_BASE}{self.battle_count}', level=2)
         prev = self.battle_count
@@ -197,32 +196,32 @@ class CampaignBase(CampaignUI, Map, AutoSearchCombat):
         return result
 
     def run(self):
-        """执行完整的战役流程。
+        """Выполняет полный рабочий процесс кампании.
 
-        流程：
-        1. 获取地图信息并进入地图
-        2. 初始化地图（锁定舰队、初始化地图数据）
-        3. 循环执行战斗（最多 20 场），直到战役结束
-        4. 异常处理：如果战斗函数耗尽，根据配置撤退或抛出异常
+        Процесс:
+        1. Получение информации о карте и вход на карту
+        2. Инициализация карты (блокировка флота, инициализация данных карты)
+        3. Цикл проведения боёв (до 20 боёв) до завершения кампании
+        4. Обработка ошибок: если функции боя исчерпаны, отступает или выбрасывает исключение в зависимости от конфигурации
 
-        自动搜索模式下跳过地图初始化，直接进入自动搜索战斗循环。
+        В режиме автопоиска инициализация карты пропускается и сразу начинается цикл боёв в автопоиске.
 
         Returns:
-            bool: True 表示战役正常结束。
+            bool: True при штатном завершении кампании.
 
         Raises:
-            ScriptError: 战斗函数耗尽且未启用错误处理时抛出。
+            ScriptError: Выбрасывается при исчерпании функций боя, если отключена обработка ошибок.
         """
         logger.hr(self.ENTRANCE, level=2)
 
-        # 进入地图
+        # Входим на карту.
         self.map_get_info()
         logger.attr('Число боёв на карте', self._map_battle)
         self.emotion.check_reduce(self._map_battle)
         self.ENTRANCE.area = self.ENTRANCE.button
         self.enter_map(self.ENTRANCE, mode=self.config.Campaign_Mode)
 
-        # 地图初始化
+        # Инициализируем карту.
         if not self.map_is_auto_search:
             self.handle_map_fleet_lock()
             self.map_init(self.MAP)
@@ -233,7 +232,7 @@ class CampaignBase(CampaignUI, Map, AutoSearchCombat):
             self.lv_reset()
             self.lv_get()
 
-        # 执行战斗
+        # Выполняем бои.
         for _ in range(20):
             try:
                 if not self.map_is_auto_search:
@@ -244,7 +243,7 @@ class CampaignBase(CampaignUI, Map, AutoSearchCombat):
                 logger.hr('Кампания завершена')
                 return True
 
-        # 异常处理
+        # Обрабатываем ошибки.
         logger.warning('[Кампания — основное] Функции боя исчерпаны')
         if self.config.Error_HandleError:
             logger.warning('[Кампания — основное] Ошибка сценария: функции боя исчерпаны; отступаю')
@@ -259,10 +258,10 @@ class CampaignBase(CampaignUI, Map, AutoSearchCombat):
     @Config.when(MAP_CLEAR_ALL_THIS_TIME=False)
     def _map_battle(self):
         """
-        获取当前地图的战斗次数（仅计算到 Boss 出现前）。
+        Получает число боёв на текущей карте (только до появления босса).
 
         Returns:
-            int: 当前地图的战斗次数。
+            int: Число боёв на текущей карте.
         """
         for data in self.MAP.spawn_data:
             if 'boss' in data:
@@ -278,10 +277,10 @@ class CampaignBase(CampaignUI, Map, AutoSearchCombat):
     @Config.when(MAP_CLEAR_ALL_THIS_TIME=True)
     def _map_battle(self):
         """
-        获取当前地图的总战斗次数（全清模式，计算所有敌人）。
+        Получает общее число боёв на текущей карте (режим полной зачистки, учитываются все враги).
 
         Returns:
-            int: 当前地图的总战斗次数。
+            int: Общее число боёв на текущей карте.
         """
         battle_count = 0
         for data in self.MAP.spawn_data:
@@ -295,10 +294,10 @@ class CampaignBase(CampaignUI, Map, AutoSearchCombat):
         return battle_count
 
     def auto_search_execute_a_battle(self):
-        """使用自动搜索模式执行单场战斗。
+        """Выполняет один бой с использованием режима автопоиска.
 
-        通过自动搜索移动舰队并执行战斗，适用于自动搜索已开启的关卡。
-        战斗完成后自动递增 battle_count。
+        Перемещает флот через автопоиск и проводит бой; используется для этапов с включённым автопоиском.
+        После боя автоматически увеличивает `battle_count`.
         """
         logger.hr(f'{self.FUNCTION_NAME_BASE}{self.battle_count}', level=2)
         self.auto_search_moving()

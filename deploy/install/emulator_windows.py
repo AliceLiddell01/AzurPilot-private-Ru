@@ -49,11 +49,11 @@ def abspath(path):
 
 @dataclass
 class EmulatorInstance:
-    # ADB 连接序列号
+    # Серийный номер подключения ADB
     serial: str
-    # 模拟器实例名称，用于启动/停止模拟器
+    # Имя экземпляра эмулятора, используется для запуска/остановки
     name: str
-    # 模拟器 .exe 文件路径
+    # Путь к .exe-файлу эмулятора
     path: str
 
     def __str__(self):
@@ -185,7 +185,7 @@ class Emulator:
             EmulatorInstance: 找到的模拟器实例。
         """
         if self.emu in [Emulator.NoxPlayer, Emulator.NoxPlayer64]:
-            # 夜神模拟器：./BignoxVMS/{name}/{name}.vbox
+            # Эмулятор Nox: ./BignoxVMS/{name}/{name}.vbox
             for folder in iter_folder(self.abspath('./BignoxVMS'), is_dir=True):
                 for file in iter_folder(folder, ext='.vbox'):
                     serial = self.vbox_file_to_serial(file)
@@ -196,7 +196,7 @@ class Emulator:
                             path=self.path,
                         )
         elif self.emu == Emulator.BlueStacks5:
-            # 获取 BlueStacks 数据存储目录 UserDefinedDir
+            # Получаем каталог хранения данных BlueStacks UserDefinedDir
             folder = None
             try:
                 with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\BlueStacks_nxt") as reg:
@@ -210,10 +210,10 @@ class Emulator:
                 pass
             if not folder:
                 return
-            # 读取 bluestacks.conf 配置文件
+            # Читаем файл конфигурации bluestacks.conf
             with open(self.abspath('./bluestacks.conf', folder), encoding='utf-8') as f:
                 content = f.read()
-            # 配置格式：bst.instance.Nougat64.adb_port="5555"
+            # Формат конфигурации: bst.instance.Nougat64.adb_port="5555"
             emulators = re.findall(r'bst.instance.(\w+).status.adb_port="(\d+)"', content)
             for emulator in emulators:
                 yield EmulatorInstance(
@@ -222,7 +222,7 @@ class Emulator:
                     path=self.path,
                 )
         elif self.emu in [Emulator.LDPlayer3, Emulator.LDPlayer4, Emulator.LDPlayer9]:
-            # 雷电模拟器：./vms/leidian0
+            # Эмулятор LDPlayer: ./vms/leidian0
             try:
                 folders = list(iter_folder(self.abspath('./vms'), is_dir=True))
             except FileNotFoundError:
@@ -233,7 +233,7 @@ class Emulator:
                 res = regex.match(folder)
                 if not res:
                     continue
-                # 雷电模拟器没有 .vbox 端口转发配置，端口自动递增：5555, 5557, 5559, ...
+                # У LDPlayer нет настройки проброса портов .vbox; порты увеличиваются автоматически: 5555, 5557, 5559, ...
                 port = int(res.group(1)) * 2 + 5555
                 yield EmulatorInstance(
                     serial=f'127.0.0.1:{port}',
@@ -241,14 +241,14 @@ class Emulator:
                     path=self.path
                 )
         elif self.emu == Emulator.MumuAppPlayer:
-            # MuMu 模拟器没有多开功能，固定端口 7555
+            # MuMu не поддерживает несколько экземпляров, фиксированный порт 7555
             yield EmulatorInstance(
                 serial='127.0.0.1:7555',
                 name='',
                 path=self.path,
             )
         elif self.emu == Emulator.MemuPlayer:
-            # 逍遥模拟器：./MemuHyperv VMs/{name}/{name}.memu
+            # Эмулятор MEmu: ./MemuHyperv VMs/{name}/{name}.memu
             for folder in iter_folder(self.abspath('./MemuHyperv VMs'), is_dir=True):
                 for file in iter_folder(folder, ext='.memu'):
                     serial = self.vbox_file_to_serial(file)
@@ -323,10 +323,10 @@ class EmulatorManager:
                         uninstall = winreg.QueryValueEx(software_reg, 'UninstallString')[0]
                         if not uninstall:
                             continue
-                        # UninstallString 格式如：
+                        # Формат UninstallString, например:
                         # C:\Program Files\BlueStacks_nxt\BlueStacksUninstaller.exe -tmp
                         # "E:\ProgramFiles\Microvirt\MEmu\uninstall\uninstall.exe" -u
-                        # 提取引号中的路径
+                        # Извлекаем путь в кавычках
                         res = re.search('"(.*?)"', uninstall)
                         uninstall = res.group(1) if res else uninstall
                         yield uninstall
@@ -336,7 +336,7 @@ class EmulatorManager:
         """获取当前计算机上所有已安装的模拟器。"""
         exe = set([])
 
-        # 通过 MuiCache 注册表查找已运行过的模拟器
+        # Ищем ранее запущенные эмуляторы через реестр MuiCache
         path = r'Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\MuiCache'
         regex = re.compile(r'(^.*\.exe)\.')
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, path) as reg:
@@ -347,7 +347,7 @@ class EmulatorManager:
                     if Emulator.is_emulator(file) and os.path.exists(file):
                         exe.add(file)
 
-        # 雷电模拟器安装路径
+        # Путь установки LDPlayer
         for path in [r'SOFTWARE\leidian\ldplayer',
                      r'SOFTWARE\leidian\ldplayer9']:
             ld = self.get_install_dir_from_reg(path, 'InstallDir')
@@ -356,9 +356,9 @@ class EmulatorManager:
                 if Emulator.is_emulator(ld) and os.path.exists(ld):
                     exe.add(ld)
 
-        # 通过卸载注册表查找模拟器
+        # Ищем эмуляторы через разделы удаления в реестре
         for uninstall in self.iter_uninstall_registry():
-            # 从卸载程序目录中查找模拟器可执行文件
+            # Ищем исполняемый файл эмулятора в каталоге программы удаления
             for file in iter_folder(abspath(os.path.dirname(uninstall)), ext='.exe'):
                 if Emulator.is_emulator(file) and os.path.exists(file):
                     exe.add(file)

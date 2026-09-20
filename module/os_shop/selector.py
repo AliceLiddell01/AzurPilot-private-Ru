@@ -1,7 +1,7 @@
-"""大世界商店+物品筛选与选择逻辑。
+"""Логика фильтрации и выбора предметов в магазине Operation Siren.
 
-基于正则表达式解析商品类型，并根据用户配置的过滤器决定购买行为。
-支持明石商店过滤和 OS 商店预设两种过滤模式。
+Разбирает категории товаров на основе регулярных выражений и принимает решения о покупке
+согласно настроенным пользователем фильтрам. Поддерживает фильтрацию магазина Акаши и предустановки магазина OS.
 """
 import re
 from typing import List
@@ -10,7 +10,7 @@ from module.os_shop.preset import OS_SHOP
 from module.os_shop.item import OSShopItem as Item
 from module.base.filter import Filter
 
-# 物品名称正则匹配规则
+# Правило regex-сопоставления названий товаров
 FILTER_REGEX = re.compile(
     '^(actionpoint|crystallizedheatresistantsteel|developmentmaterial'
     '|energystoragedevice|geardesignplan|gearpart|logger|metaredbook'
@@ -28,21 +28,21 @@ FILTER = Filter(FILTER_REGEX, FILTER_ATTR)
 
 
 class Selector():
-    """商店物品选择器基类。
+    """Базовый селектор товаров магазина.
 
-    提供物品预处理、金币检查、物品计数验证和过滤功能。
+    Предоставляет предварительную обработку предметов, проверку монет, валидацию количества и фильтрацию.
     """
 
     def pretreatment(self, items) -> List[Item]:
-        """预处理物品列表，解析物品名称中的类型信息。
+        """Предварительно обработать список предметов, извлекая информацию о типе из названий.
 
-        通过正则表达式提取物品的 group、sub_genre 和 tier 属性。
+        С помощью регулярных выражений извлекает атрибуты group, sub_genre и tier предмета.
 
         Args:
-            items: 待预处理的物品列表。
+            items: Список предметов для предварительной обработки.
 
         Returns:
-            list[Item]: 预处理后的物品列表，仅包含可解析的物品。
+            list[Item]: Список обработанных предметов, содержащий только успешно распознанные.
         """
         _items = []
         for item in items:
@@ -57,13 +57,13 @@ class Selector():
         return _items
 
     def enough_coins_in_akashi(self, item) -> bool:
-        """检查明石商店是否有足够金币购买物品。
+        """Проверить, достаточно ли монет в магазине Акаши для покупки предмета.
 
         Args:
-            item: 待检查的物品。
+            item: Проверяемый предмет.
 
         Returns:
-            bool: 金币足够返回 True，否则返回 False。
+            bool: True, если монет достаточно, иначе False.
         """
         if item.cost == 'YellowCoins' and item.price <= self._shop_yellow_coins:
             return True
@@ -73,37 +73,37 @@ class Selector():
         return False
 
     def check_cl1_purple_coins(self, item) -> bool:
-        """检查 CL1 模式下是否允许购买紫币。
+        """Проверить, разрешена ли покупка фиолетовых монет в режиме CL1.
 
         Args:
-            item: 待检查的物品。
+            item: Проверяемый предмет.
 
         Returns:
-            bool: 允许购买返回 True，CL1 模式下购买紫币返回 False。
+            bool: True, если покупка разрешена; False, если это фиолетовые монеты в режиме CL1.
         """
         return not (self.is_cl1_mode_enabled and item.name == 'PurpleCoins')
 
     def check_item_count(self, item) -> bool:
-        """检查物品计数是否有效。
+        """Проверить валидность количества предмета.
 
         Args:
-            item: 待检查的物品。
+            item: Проверяемый предмет.
 
         Returns:
-            bool: 计数有效（当前数量 >= 1，总数量 >= 1，当前不超过总数）返回 True。
+            bool: True, если количество валидно (текущее >= 1, общее >= 1, текущее не превышает общее).
         """
         return item.count >= 1 and item.total_count >= 1 and item.count <= item.total_count
 
     def items_filter_in_akashi_shop(self, items) -> List[Item]:
-        """过滤明石商店中可购买的物品。
+        """Отфильтровать доступные для покупки предметы в магазине Акаши.
 
-        根据 CL1 模式或通用配置过滤物品，并检查金币是否充足。
+        Фильтрует предметы согласно режиму CL1 или общей конфигурации, проверяя баланс монет.
 
         Args:
-            items: 待过滤的物品列表。
+            items: Список предметов для фильтрации.
 
         Returns:
-            list[Item]: 可购买的物品列表。
+            list[Item]: Список доступных для покупки предметов.
         """
         items = self.pretreatment(items)
         if getattr(self, 'is_running_cl1_leveling', False):
@@ -118,15 +118,16 @@ class Selector():
         return FILTER.applys(items, funcs=[self.enough_coins_in_akashi])
 
     def items_filter_in_os_shop(self, items) -> List[Item]:
-        """过滤 OS 商店中可购买的物品。
+        """Отфильтровать доступные для покупки предметы в магазине Operation Siren.
 
-        根据预设或自定义过滤器筛选物品，并检查 CL1 紫币限制和物品计数。
+        Фильтрует предметы по предустановленному или пользовательскому фильтру,
+        проверяя ограничения CL1 для фиолетовых монет и валидность количества.
 
         Args:
-            items: 待过滤的物品列表。
+            items: Список предметов для фильтрации.
 
         Returns:
-            list[Item]: 可购买的物品列表。
+            list[Item]: Список доступных для покупки предметов.
         """
         items = self.pretreatment(items)
         preset = self.config.OpsiShop_PresetFilter

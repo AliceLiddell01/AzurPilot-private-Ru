@@ -13,7 +13,7 @@ def _click_area(device, area):
     a = area.get('cn', area) if isinstance(area, dict) else area
     btn = Button(area=a, color=(0,0,0), button=a, file='')
     device.click(btn)
-# 重新导入鱼苗商店专用按钮（覆盖 island.assets 中的同名旧定义）
+# Повторно импортируем специальные кнопки магазина мальков (переопределяем одноимённые старые определения из island.assets)
 from module.island_fishery.assets import (
     ISLAND_FISH_FRY_SHOP_FRESHWATER,
     ISLAND_FISH_FRY_SHOP_FRESHWATER_CHECK,
@@ -56,7 +56,7 @@ class IslandFishery(Island, WarehouseOCR, LoginHandler):
         self.plant_yellowfin_tuna = self.config.IslandFishery_PlantYellowfinTuna
         self.rancher_filter = self.config.IslandFishery_RancherFilter
 
-        # 产品配置
+        # Конфигурация продуктов
         self.FISHERY_ITEMS = [
             {'name': 'bass', 'template': TEMPLATE_BASS, 'var_name': 'bass',
              'selection': SELECT_BASS, 'selection_check': SELECT_BASS_CHECK,
@@ -96,7 +96,7 @@ class IslandFishery(Island, WarehouseOCR, LoginHandler):
         for item in self.FISHERY_ITEMS:
             self.name_to_config[item['name']] = item
 
-        # 岗位信息
+        # Информация о позициях
         self.posts = {
             'ISLAND_FISHERY_POST1': {'button': ISLAND_FISHERY_POST1, 'crop': None, 'runs': 0, 'state': 'unknown'},
             'ISLAND_FISHERY_POST2': {'button': ISLAND_FISHERY_POST2, 'crop': None, 'runs': 0, 'state': 'unknown'},
@@ -120,7 +120,7 @@ class IslandFishery(Island, WarehouseOCR, LoginHandler):
             yield_amount = item_config.get('yield', 1)
             if count < threshold:
                 deficit = threshold - count
-                fry_needed = (deficit + yield_amount - 1) // yield_amount  # 向上取整
+                fry_needed = (deficit + yield_amount - 1) // yield_amount  # Округляем вверх
                 logger.info(f"[Остров — рыбное хозяйство] {item_name}: запас {count} < порога {threshold}, дефицит {deficit}, "
                             f"выход с одного малька {yield_amount}, требуется купить мальков: {fry_needed}")
                 for _ in range(fry_needed):
@@ -249,7 +249,7 @@ class IslandFishery(Island, WarehouseOCR, LoginHandler):
             self.posts[post_id]['crop'] = product_name or 'unknown'
             self.posts[post_id]['runs'] = post_number
             self.posts[post_id]['state'] = 'working'
-            # 记录正在工作中的岗位的完成时间
+            # Записываем время завершения работающей позиции
             time_work = Duration(ISLAND_WORKING_TIME)
             time_value = time_work.ocr(self.device.image)
             finish_time = current_time() + time_value
@@ -323,7 +323,7 @@ class IslandFishery(Island, WarehouseOCR, LoginHandler):
         self.post_open(post_button)
         self.device.sleep(0.5)
         self.device.screenshot()
-        # OCR并记录完成时间
+        # Распознаём OCR и записываем время завершения
         time_work = Duration(ISLAND_WORKING_TIME)
         time_value = time_work.ocr(self.device.image)
         finish_time = current_time() + time_value
@@ -333,7 +333,7 @@ class IslandFishery(Island, WarehouseOCR, LoginHandler):
         if post_index < len(self.fishery_times):
             self.fishery_times[post_index] = finish_time
 
-        # 更新岗位作物信息
+        # Обновляем информацию о продукте на позиции
         for post_id, post_info in self.posts.items():
             if post_info['button'] == post_button:
                 post_info['crop'] = product
@@ -344,7 +344,7 @@ class IslandFishery(Island, WarehouseOCR, LoginHandler):
             removed = self._remove_plant_demand(product, post_number)
             logger.info(f"[Остров — рыбное хозяйство] Для запланированного выращивания {product} потребность уменьшена на {removed}/{post_number}")
 
-        # 关闭详情弹窗，防止后续操作被弹窗遮挡
+        # Закрываем окно сведений, чтобы оно не перекрывало последующие действия
         self.post_close()
         return True
 
@@ -382,10 +382,10 @@ class IslandFishery(Island, WarehouseOCR, LoginHandler):
     def run(self, ranch_finish_times=None):
         self.island_error = False
 
-        # 重置渔场时间追踪列表
+        # Сбрасываем список отслеживания времени рыбного хозяйства
         self.fishery_times = [None] * self.fishery_positions
 
-        # 首轮先检查岗位并收取已完成鱼获，确保随后读取的仓库库存包含本轮收获。
+        # В первом проходе проверяем позиции и собираем готовый улов, чтобы последующее чтение склада учитывало текущий сбор.
         self.goto_postmanage()
         self.post_manage_mode(POST_MANAGE_PRODUCTION)
         self.post_close()
@@ -441,11 +441,11 @@ class IslandFishery(Island, WarehouseOCR, LoginHandler):
         if not idle_posts:
             logger.info("[Остров — рыбное хозяйство] Свободных позиций нет; выращивание пропущено")
         else:
-            # 确定需要养殖的产品
+            # Определяем продукты, которые нужно выращивать
             products_to_plant, remaining_idle, supply_post_counts = self._build_supply_plant_products(len(idle_posts))
             default_post_counts = {}
 
-            # 继续用剩余空闲岗位满足默认黄鳍金枪鱼岗位数
+            # Оставшиеся свободные позиции используем для достижения заданного числа позиций с yellowfin_tuna по умолчанию
             already_planted_default = 0
             for i in range(self.fishery_positions):
                 post_id = f'ISLAND_FISHERY_POST{i + 1}'
@@ -470,7 +470,7 @@ class IslandFishery(Island, WarehouseOCR, LoginHandler):
                     default_post_counts,
                 )
 
-                # 养殖
+                # Выращивание
                 for i, post_info in enumerate(idle_posts):
                     if i >= len(products_to_plant):
                         logger.info(f"[Остров — рыбное хозяйство] Позиция {post_info['post_id']} пропущена: нет требуемого продукта")
@@ -492,15 +492,15 @@ class IslandFishery(Island, WarehouseOCR, LoginHandler):
 
         logger.info("[Остров — рыбное хозяйство] \nУправление рыбным хозяйством завершено")
 
-        # 设置下次运行时间：合并牧场和渔场的计时器，取最早的时间
+        # Назначаем следующий запуск: объединяем таймеры ранчо и рыбного хозяйства и выбираем ближайшее время
         future_finish = []
         six_hours_later = current_time() + timedelta(hours=6)
         future_finish.append(six_hours_later)
-        # 合并牧场的结束时间（如果传入了的话）
+        # Добавляем время завершения ранчо, если оно передано
         if ranch_finish_times:
             future_finish.extend(ranch_finish_times)
             logger.info(f'[Остров — рыбное хозяйство] Добавлено таймеров ранчо: {len(ranch_finish_times)}')
-        # === 修复：添加渔场自身的完成时间 ===
+        # === Исправление: добавляем собственное время завершения рыбного хозяйства ===
         fishery_finish_times = [t for t in self.fishery_times if t is not None]
         if fishery_finish_times:
             future_finish.extend(fishery_finish_times)

@@ -1,11 +1,11 @@
-"""
-私人休息室商店店员逻辑。
+"""Логика продавца магазина личных покоев.
 
-封装私人宿舍商店的购买流程，继承通用 ShopClerk 和 PQShopUI，
-提供商品购买执行、间隔计时器清除等操作。
-支持最大数量购买和确认弹窗处理。
+Инкапсулирует процесс покупки в магазине личных покоев, наследует ShopClerk и PQShopUI,
+обеспечивает выполнение покупки товаров, сброс таймеров интервалов и сопутствующие операции.
+Поддерживает покупку максимального количества и обработку диалогов подтверждения.
 
-Pages: in: PRIVATE_QUARTERS_SHOP
+Pages:
+    in: PRIVATE_QUARTERS_SHOP
 """
 from module.base.timer import Timer
 from module.logger import logger
@@ -16,10 +16,9 @@ from module.shop.clerk import ShopClerk
 
 class PQShopClerk(ShopClerk, PQShopUI):
     def shop_interval_clear(self):
-        """
-        清除私人宿舍商店相关的按钮间隔计时器。
+        """Очистить интервальные таймеры кнопок магазина личных покоев.
 
-        子类可覆写此方法以清除特定资产的间隔。
+        Подклассы могут переопределять этот метод для очистки интервалов определенных ассетов.
         """
         self.interval_clear([
             PRIVATE_QUARTERS_SHOP_CHECK,
@@ -28,21 +27,20 @@ class PQShopClerk(ShopClerk, PQShopUI):
         ])
 
     def shop_buy_execute(self, item, skip_first_screenshot=True):
-        """
-        执行单个商品的购买流程。
+        """Выполнить покупку одного товара.
 
-        点击商品 -> 最大数量 -> 确认购买 -> 等待购买完成。
+        Клик по товару -> максимальное количество -> подтверждение покупки -> ожидание завершения.
 
         Args:
-            item: 要购买的商品按钮
-            skip_first_screenshot (bool): 是否跳过首次截图
+            item: Кнопка покупаемого товара.
+            skip_first_screenshot (bool): Пропускать ли первый скриншот.
 
         Pages:
-            in: 私人宿舍商店
-            out: 私人宿舍商店
+            in: Магазин личных покоев
+            out: Магазин личных покоев
         """
 
-        # 辅助函数：检测购买确认前后的界面状态
+        # Вспомогательная функция: определяет состояние интерфейса до и после подтверждения покупки
         def after_confirm_state():
             return (self.appear(PRIVATE_QUARTERS_SHOP_WEEKLY_ROSES_GET, offset=(20, 20)) or
                     self.appear(PRIVATE_QUARTERS_SHOP_WEEKLY_CAKES_GET, offset=(20, 20)))
@@ -57,7 +55,7 @@ class PQShopClerk(ShopClerk, PQShopUI):
 
         for _ in self.loop():
 
-            # 结束条件：购买确认状态
+            # Условие завершения: состояние подтверждения покупки
             if after_confirm_state():
                 break
 
@@ -71,7 +69,7 @@ class PQShopClerk(ShopClerk, PQShopUI):
 
         click_timer = Timer(3, count=6)
         for _ in self.loop():
-            # 结束条件：购买完成状态
+            # Условие завершения: состояние завершённой покупки
             if after_purchase_state():
                 break
 
@@ -81,21 +79,20 @@ class PQShopClerk(ShopClerk, PQShopUI):
                 continue
 
     def shop_buy(self):
-        """
-        循环扫描并购买商店中的可购物品。
+        """Циклически сканировать и покупать доступные товары в магазине.
 
-        最多循环 12 次，每次扫描商品列表、检查余额、购买第一个匹配项。
+        Выполняет до 12 итераций: сканирует витрину, проверяет баланс и покупает первое подходящее совпадение.
 
         Returns:
-            bool: 是否成功完成（True=全部买完或无可买项，False=余额不足）
+            bool: Успешно ли завершено (True — все куплено или нечего покупать, False — недостаточно средств).
 
         Pages:
-            in: 私人宿舍商店
-            out: 私人宿舍商店
+            in: Магазин личных покоев
+            out: Магазин личных покоев
         """
         for _ in range(12):
             logger.hr('Покупки в магазине', level=2)
-            # 先获取商品列表，再读取货币以获得更准确的 OCR 结果
+            # Сначала получаем список товаров, затем считываем валюту для более точного результата OCR
             items = self.shop_get_items()
             self.shop_currency()
             if self._currency <= 0:
@@ -109,7 +106,7 @@ class PQShopClerk(ShopClerk, PQShopUI):
             else:
                 self.shop_buy_execute(item)
 
-                # 购买后导航栏会重置到默认位置，需要重新定位
+                # После покупки панель навигации сбрасывается в положение по умолчанию, поэтому позицию нужно восстановить
                 self.shop_left_navbar_ensure(2)
                 self.shop_bottom_navbar_ensure(2)
 

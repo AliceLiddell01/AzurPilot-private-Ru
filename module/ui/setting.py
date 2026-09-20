@@ -1,5 +1,6 @@
-"""游戏设置面板模块。定义 Setting 类，封装游戏中设置面板的选项切换逻辑，
-支持多组设置项的管理和状态追踪。"""
+"""Модуль панели внутриигровых настроек. Определяет класс Setting, инкапсулирующий
+логику переключения опций на панели настроек игры, поддерживает управление несколькими
+группами параметров и отслеживание их состояния."""
 
 import copy
 import typing as t
@@ -15,20 +16,20 @@ from module.logger import logger
 class Setting:
     def __init__(self, name='Setting', main: ModuleBase = None):
         self.name = name
-        # Alas 模块对象
+        # Объект модуля Alas
         self.main: ModuleBase = main
-        # 设置选项前先重置为默认值
+        # Перед настройкой параметров сначала сбрасывать значения по умолчанию
         self.reset_first = True
-        # 是否需要取消已激活的选项
+        # Нужно ли снимать выбор с уже активных параметров
         self.need_deselect = False
-        # (设置名, 选项名): 选项按钮
+        # (имя настройки, имя параметра): кнопка параметра
         # {
         #     ('sort', 'rarity'): Button(),
         #     ('sort', 'level'): Button(),
         #     ('sort', 'total'): Button(),
         # }
         self.settings: t.Dict[(str, str), Button] = {}
-        # 设置名: 选项名
+        # Имя настройки: имя параметра
         # {
         #     'sort': 'rarity',
         #     'index': 'all',
@@ -37,13 +38,13 @@ class Setting:
 
     def add_setting(self, setting, option_buttons, option_names, option_default):
         """
-        添加一组设置选项。
+        Добавить группу параметров настроек.
 
         Args:
-            setting (str): 设置名称。
-            option_buttons (list[Button], ButtonGrid): 选项按钮列表，可由 ButtonGrid.buttons 生成。
-            option_names (list[str]): 每个选项的名称，长度必须与 option_buttons 一致。
-            option_default (str): 默认选项名称，必须在 option_names 中。
+            setting (str): Имя настройки.
+            option_buttons (list[Button], ButtonGrid): Список кнопок опций (может быть сгенерирован ButtonGrid.buttons).
+            option_names (list[str]): Имена каждой опции; длина должна совпадать с option_buttons.
+            option_default (str): Имя опции по умолчанию; должно присутствовать в option_names.
         """
         if isinstance(option_buttons, ButtonGrid):
             option_buttons = option_buttons.buttons
@@ -63,15 +64,15 @@ class Setting:
 
     def _product_setting_status(self, **kwargs) -> t.Dict[Button, bool]:
         """
-        生成每个选项按钮的目标激活状态。
+        Сформировать целевое состояние активности для каждой кнопки опции.
 
         Args:
-            **kwargs: 键为设置名，值为所需选项或选项列表。
-                例如 `sort=['rarity', 'level']` 或 `sort='rarity'`，
-                `sort=None` 表示不更改该设置。
+            **kwargs: Ключ — имя настройки, значение — требуемая опция или список опций.
+                Например, `sort=['rarity', 'level']` или `sort='rarity'`.
+                `sort=None` означает, что настройка не изменяется.
 
         Returns:
-            dict: 键为选项按钮，值为是否应激活。
+            dict: Ключ — кнопка опции, значение — должна ли она быть активна.
         """
         # Add defaults
         required_options = copy.deepcopy(self.settings_default)
@@ -91,7 +92,7 @@ class Setting:
 
     def show_active_buttons(self):
         """
-        记录当前激活的选项按钮。
+        Записать в журнал текущие активные кнопки опций.
 
         Logs:
             [Setting] sort/rarity, sort/level
@@ -106,13 +107,13 @@ class Setting:
 
     def get_buttons_to_click(self, status: t.Dict[Button, bool]) -> t.List[Button]:
         """
-        根据目标状态计算需要点击的按钮列表。
+        Вычислить список кнопок для клика на основе целевого состояния.
 
         Args:
-            status: 键为选项按钮，值为是否应激活。
+            status: Ключ — кнопка опции, значение — должна ли она быть активна.
 
         Returns:
-            list[Button]: 需要点击的按钮列表。
+            list[Button]: Список кнопок, по которым необходимо кликнуть.
         """
         click = []
         for option_button, enable in status.items():
@@ -126,15 +127,15 @@ class Setting:
 
     def _set_execute(self, **kwargs):
         """
-        执行设置选项的切换，带超时和重试机制。
+        Выполнить переключение параметров настроек с механизмом тайм-аута и повторов.
 
         Args:
-            **kwargs: 键为设置名，值为所需选项或选项列表。
-                例如 `sort=['rarity', 'level']` 或 `sort='rarity'`，
-                `sort=None` 表示不更改该设置。
+            **kwargs: Ключ — имя настройки, значение — требуемая опция или список опций.
+                Например, `sort=['rarity', 'level']` или `sort='rarity'`.
+                `sort=None` означает, что настройка не изменяется.
 
         Returns:
-            bool: 是否设置成功。
+            bool: Успешно ли применены настройки.
         """
         status = self._product_setting_status(**kwargs)
 
@@ -165,15 +166,15 @@ class Setting:
 
     def set(self, **kwargs):
         """
-        设置选项，若 reset_first 为 True 则先重置为默认值。
+        Установить параметры настроек; если reset_first=True, предварительно сбрасывает в значения по умолчанию.
 
         Args:
-            **kwargs: 键为设置名，值为所需选项或选项列表。
-                例如 `sort=['rarity', 'level']` 或 `sort='rarity'`，
-                `sort=None` 表示不更改该设置。
+            **kwargs: Ключ — имя настройки, значение — требуемая опция или список опций.
+                Например, `sort=['rarity', 'level']` или `sort='rarity'`.
+                `sort=None` означает, что настройка не изменяется.
 
         Returns:
-            bool: 是否设置成功。
+            bool: Успешно ли применены настройки.
         """
         if self.reset_first:
             self._set_execute()  # Reset options

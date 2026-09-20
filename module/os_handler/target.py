@@ -1,8 +1,8 @@
-"""大世界目标系统处理器。
+"""Обработчик системы целей Операции «Сирена».
 
-管理大世界目标面板的交互，包括目标筛选（全部/未完成）、
-目标浏览（上一个/下一个）、奖励领取（单个/全部）以及
-目标区域 ID 的 OCR 识别，用于判断海域的目标完成状态。
+Управляет панелью целей Операции «Сирена», включая фильтрацию целей (все/незавершённые),
+навигацию по целям (предыдущая/следующая), получение наград (по отдельности/все сразу),
+а также OCR-распознавание идентификатора зоны для определения статуса завершения целей.
 """
 from module.base.timer import Timer
 from module.base.button import *
@@ -26,22 +26,22 @@ TARGET_SWITCH.add_state('unfinished', TARGET_UNFINISHED_ON)
 ZONE_ID = Digit(OCR_TARGET_ZONE_ID, name='TARGET_ZONE_ID')
 
 class OSTarget:
-    """大世界目标数据。"""
+    """Данные о целях Операции «Сирена»."""
     def is_file(self, zone, index):
-        """判断是否为文件类目标。"""
+        """Определить, является ли цель архивным файлом."""
         return not isinstance(DIC_OS_TARGET[zone][index], bool)
 
     def is_safe(self, zone, index):
-        """判断是否为安全目标。"""
+        """Определить, является ли цель выполнимой в безопасном режиме."""
         return DIC_OS_TARGET[zone][index] == True
 
 class OSTargetHandler(OSTarget, Combat, UI):
     def _receive_reward_all(self, skip_first_screenshot=True):
         """
-        领取所有目标奖励（如果有两个或更多）。
+        Получить все награды за цели (при наличии двух или более).
 
         Returns:
-            bool: 是否领取成功。
+            bool: Были ли успешно получены награды.
         """
         confirm_timer = Timer(1, count=3).start()
         received = False
@@ -71,12 +71,12 @@ class OSTargetHandler(OSTarget, Combat, UI):
     
     def find_unreceived_zone(self, skip_first_screenshot=True):
         """
-        切换到有奖励的海域（如果只有一个需要领取）。
+        Переключиться на зону с доступной наградой (если доступна только одна).
 
         Returns:
-            bool: 是否找到。
+            bool: Найдена ли зона с наградой.
         """
-        # 确保在所有海域列表中
+        # Убеждаемся, что открыт список всех зон
         TARGET_SWITCH.set('all', main=self)
 
         while 1:
@@ -85,7 +85,7 @@ class OSTargetHandler(OSTarget, Combat, UI):
             else:
                 self.device.screenshot()
 
-            # 结束
+            # Завершение
             if self.appear(TARGET_RECEIVE_SINGLE):
                 return True
 
@@ -99,10 +99,10 @@ class OSTargetHandler(OSTarget, Combat, UI):
                      
     def _receive_reward_single(self, skip_first_screenshot=True):
         """
-        领取单个目标奖励。
+        Получить награду за отдельную цель.
 
         Returns:
-            bool: 是否领取成功。
+            bool: Была ли успешно получена награда.
         """
         confirm_timer = Timer(1, count=3).start()
         received = False
@@ -130,10 +130,10 @@ class OSTargetHandler(OSTarget, Combat, UI):
 
     def receive_reward(self):
         """
-        领取目标奖励。
+        Получить награды за цели.
 
         Returns:
-            bool: 是否领取成功。
+            bool: Были ли успешно получены награды.
         """
         logger.hr('Получение наград за достижения Операции «Сирена»', level=2)
         TARGET_SWITCH.set('all', main=self)
@@ -161,11 +161,11 @@ class OSTargetHandler(OSTarget, Combat, UI):
     
     def scan_current_zone(self):
         """
-        扫描当前海域信息。
+        Сканировать информацию о текущей зоне.
 
         Returns:
-            zone_id: 海域 ID。
-            finished: 完成状态列表。
+            zone_id: Идентификатор зоны.
+            finished: Список статусов завершения целей.
         """
         zone_id = ZONE_ID.ocr(self.device.image)
         finished = [self._is_finished(button.area) for button in self._star_grid().buttons]
@@ -174,10 +174,10 @@ class OSTargetHandler(OSTarget, Combat, UI):
 
     def find_unfinished_safe_star_zone(self, skip_first_screenshot=True):
         """
-        通过搜索未完成的海域，查找有未完成安全星标的海域。
+        Найти зону с незавершёнными звёздами безопасного режима путём поиска по незавершённым зонам.
 
         Returns:
-            int: 有未完成安全星标的海域 ID，如果不存在则返回 0。
+            int: Идентификатор зоны с незавершёнными безопасными звёздами, либо 0, если не найдена.
         """
         last_zone = self.config.OpsiTarget_TargetZone
         info_timer = Timer(1)
@@ -207,7 +207,7 @@ class OSTargetHandler(OSTarget, Combat, UI):
                             continue
             if self.appear(TARGET_NEXT_ZONE):
                 self.device.click(TARGET_NEXT_ZONE)
-                # 可能点击超过 15 次
+                # Возможно более 15 нажатий
                 self.device.click_record.pop()
                 info_timer.reset()
                 continue

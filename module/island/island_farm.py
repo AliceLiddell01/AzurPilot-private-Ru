@@ -58,7 +58,7 @@ class IslandFarm(Island, WarehouseOCR, LoginHandler):
         Island.__init__(self, *args, **kwargs)
         WarehouseOCR.__init__(self)
         
-        # === 初始化全局季节配置 ===
+        # === Инициализация глобальной конфигурации сезона ===
         from module.island.island_season import get_global_season_config
         self.season_config = get_global_season_config(self.config)
         if self.season_config.is_seasonal_enabled:
@@ -79,7 +79,7 @@ class IslandFarm(Island, WarehouseOCR, LoginHandler):
         self.ignore_avocado = self.config.IslandOrchard_IgnoreAvocado
         self.ignore_pineapple = self.config.IslandNursery_IgnorePineapple
 
-        # 修改默认作物配置：数值类型，表示要种植默认作物的岗位数量
+        # Изменяем конфигурацию культур по умолчанию: числовое значение задаёт число позиций для культуры по умолчанию
         self.plant_config = {
             'farm': {
                 'plant_default': self.config.IslandFarm_PlantPotatoes,  # 0-4
@@ -212,7 +212,7 @@ class IslandFarm(Island, WarehouseOCR, LoginHandler):
             }
         }
 
-        # 简化岗位信息，只保留按钮和作物信息
+        # Упрощённая информация о позициях: сохраняем только кнопку и культуру
         self.posts = {
             'ISLAND_FARM_POST1': {'button': ISLAND_FARM_POST1, 'crop': None},
             'ISLAND_FARM_POST2': {'button': ISLAND_FARM_POST2, 'crop': None},
@@ -255,7 +255,7 @@ class IslandFarm(Island, WarehouseOCR, LoginHandler):
                     continue
                 if category == 'nursery' and item_name == 'pineapple' and self.ignore_pineapple:
                     continue
-                # === 季节限定：不在当季的作物不列入补种计划 ===
+                # === Сезонные ограничения: культуры вне текущего сезона не добавляем в план посадки ===
                 if category == 'nursery' and hasattr(self, 'season_config'):
                     if not self._is_nursery_crop_in_season(item_name):
                         logger.info(f"[Остров — ферма] Несезонная культура питомника пропущена: {item_name}")
@@ -270,16 +270,16 @@ class IslandFarm(Island, WarehouseOCR, LoginHandler):
         """
         if not hasattr(self, 'season_config') or not self.season_config.is_seasonal_enabled:
             return True
-        # 获取当前季节的 nursery 限定作物列表
+        # Получаем список сезонных культур nursery для текущего сезона
         seasonal_items = self.season_config.get_seasonal_items('nursery')
-        # 检查该作物是否是任何季节的限定品
+        # Проверяем, является ли культура сезонной для любого сезона
         from module.island.island_season import SEASONAL_ITEMS
         for season_key in ['spring', 'summer', 'autumn', 'winter']:
             other_items = SEASONAL_ITEMS.get(season_key, {}).get('nursery', [])
             if crop_name in other_items:
-                # 该作物是季节限定品，检查是否在当季
+                # Культура сезонная: проверяем, доступна ли она в текущем сезоне
                 return crop_name in seasonal_items
-        # 非季节限定作物，始终可用
+        # Несезонная культура доступна всегда
         return True
 
     def warehouse_inventory(self, category):
@@ -445,13 +445,13 @@ class IslandFarm(Island, WarehouseOCR, LoginHandler):
         finish_time = current_time() + time_value
         setattr(self, time_var_name, finish_time)
 
-        # 更新岗位作物信息
+        # Обновляем информацию о культуре на позиции
         for post_id, post_info in self.posts.items():
             if post_info['button'] == post_button:
                 post_info['crop'] = product
                 break
 
-        # 关闭详情弹窗，防止后续操作被弹窗遮挡
+        # Закрываем окно сведений, чтобы оно не перекрывало последующие действия
         self.post_close()
         return True
 
@@ -504,7 +504,7 @@ class IslandFarm(Island, WarehouseOCR, LoginHandler):
 
         idle_posts = {'farm': [], 'orchard': [], 'nursery': []}
 
-        # 先遍历农田和果园
+        # Сначала обходим ферму и сад
         for category in ['farm', 'orchard']:
             positions = len(self.time_vars[category])
             for i in range(positions):
@@ -522,12 +522,12 @@ class IslandFarm(Island, WarehouseOCR, LoginHandler):
                         'time_var_name': time_var_name
                     })
 
-        # 滑动到苗圃位置
+        # Прокручиваем к позициям питомника
         self.device.sleep(1)
         self.post_manage_up_swipe(450)
-        self.device.sleep(0.5)  # 等待滑动动画完成
+        self.device.sleep(0.5)  # Ждём завершения анимации прокрутки
 
-        # 然后遍历苗圃
+        # Затем обходим питомник
         category = 'nursery'
         positions = len(self.time_vars[category])
         for i in range(positions):
@@ -594,7 +594,7 @@ class IslandFarm(Island, WarehouseOCR, LoginHandler):
             self.post_manage_swipe(0)
             self.device.sleep(1)
 
-            # 先处理农田和果园的播种，种子不足时在产品选择页即时补买。
+            # Сначала обрабатываем посадки на ферме и в саду; недостающие семена сразу докупаем на странице выбора продукта.
             for category in ['farm', 'orchard']:
                 if not idle_posts[category]:
                     continue
@@ -617,7 +617,7 @@ class IslandFarm(Island, WarehouseOCR, LoginHandler):
                         if crop_to_plant in self.to_plant_lists[category]:
                             self.to_plant_lists[category].remove(crop_to_plant)
 
-            # 然后处理苗圃的播种
+            # Затем обрабатываем посадки в питомнике
             category = 'nursery'
             if idle_posts[category]:
                 self.post_manage_up_swipe(450)

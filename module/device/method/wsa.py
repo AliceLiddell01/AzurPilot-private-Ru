@@ -1,5 +1,5 @@
-"""WSA（Windows Subsystem for Android）截图和控制后端。
-继承 Connection，通过 ADB 连接 WSA 实例进行截图和操作。"""
+"""Бэкенд создания снимков экрана и управления WSA (Windows Subsystem for Android).
+Наследует Connection, подключаясь к инстансу WSA через ADB для захвата экрана и операций."""
 
 import re
 import time
@@ -28,10 +28,10 @@ def retry(func):
                     time.sleep(retry_sleep(_))
                     init()
                 return func(self, *args, **kwargs)
-            # 不可处理
+            # Не обрабатывается
             except RequestHumanTakeover:
                 break
-            # adb server 被终止时
+            # Когда adb server остановлен
             except ConnectionResetError as e:
                 logger.error(str(f'[Устройство — WSA] Ошибка повторной попытки: {e}'))
 
@@ -48,13 +48,13 @@ def retry(func):
                         self.adb_reconnect()
                 else:
                     break
-            # 包未安装
+            # Пакет не установлен
             except PackageNotInstalled as e:
                 logger.error(str(f'[Устройство — WSA] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.detect_package()
-            # 未知异常，可能是损坏的图像
+            # Неизвестное исключение; возможно повреждено изображение
             except Exception as e:
                 logger.exception(str(f'[Устройство — WSA] Ошибка повторной попытки: {e}'))
 
@@ -73,12 +73,12 @@ class WSA(Connection):
     def app_current_wsa(self):
         """
         Returns:
-            str: 包名。
+            str: Имя пакета.
 
         Raises:
             OSError
         """
-        # 尝试: adb shell dumpsys activity top
+        # Пробуем: adb shell dumpsys activity top
         _activityRE = re.compile(
             r'ACTIVITY (?P<package>[^\s]+)/(?P<activity>[^/\s]+) \w+ pid=(?P<pid>\d+)'
         )
@@ -101,7 +101,7 @@ class WSA(Connection):
             display (int):
 
         Returns:
-            bool: 是否成功启动
+            bool: Успешно ли выполнен запуск.
         """
         if not package_name:
             package_name = self.package
@@ -140,8 +140,8 @@ class WSA(Connection):
     def get_display_id(self):
         """
         Returns:
-            0: 未找到
-            int: 游戏的 display id
+            0: Не найден.
+            int: Идентификатор дисплея (display id) игры.
         """
         try:
             get_dump_sys_display = str(self.adb_shell(['dumpsys', 'display']))
@@ -149,7 +149,7 @@ class WSA(Connection):
             display_id = int(display_id_list[0])
             return display_id
         except IndexError:
-            return 0  # 当游戏运行在 display 0 上时，其 display id 无法被找到
+            return 0  # Если игра работает на display 0, его display id определить невозможно
 
     @retry
     def display_resize_wsa(self, display):

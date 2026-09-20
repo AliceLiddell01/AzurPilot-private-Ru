@@ -1,22 +1,22 @@
-"""Windows ML ONNX Runtime 设备选择模块。
+"""Модуль выбора устройств Windows ML для ONNX Runtime.
 
-在 Windows 平台上为 ONNX Runtime 推理会话选择最优的执行提供程序 (Execution Provider)。
-支持的 EP 优先级（从高到低）：
+Выбирает оптимальный Execution Provider (EP) для сессий инференса ONNX Runtime на платформе Windows.
+Приоритеты поддерживаемых EP (по убыванию):
 
-1. DirectML (DmlExecutionProvider): 通用 GPU 加速，支持所有 Windows GPU
-2. QNN (QNNExecutionProvider): 高通 NPU 加速（特定硬件）
-3. OpenVINO (OpenVINOExecutionProvider): Intel 硬件加速
-4. CUDA (CUDAExecutionProvider): NVIDIA GPU 加速
-5. CPU (CPUExecutionProvider): 兜底方案
+1. DirectML (DmlExecutionProvider): универсальное ускорение на GPU, поддерживающее все GPU Windows
+2. QNN (QNNExecutionProvider): аппаратное ускорение Qualcomm NPU
+3. OpenVINO (OpenVINOExecutionProvider): аппаратное ускорение Intel
+4. CUDA (CUDAExecutionProvider): ускорение NVIDIA GPU
+5. CPU (CPUExecutionProvider): резервный вариант
 
-设备选择逻辑：
-- 根据用户配置的设备偏好（'gpu'、'cpu'、'npu'）选择 EP
-- 自动检测 AMD 集成显卡并排除不兼容的 EP
-- 通过 GPU 显存大小区分独显和集显
-- 使用线程锁确保 EP 初始化的线程安全性
+Логика выбора устройств:
+- Выбор EP согласно пользовательским предпочтениям ('gpu', 'cpu', 'npu')
+- Автоматическое обнаружение встроенных видеокарт AMD и исключение несовместимых EP
+- Различение дискретных и встроенных GPU по объему видеопамяти
+- Потокобезопасная инициализация EP через блокировки
 
-核心函数 create_onnx_session() 被 al_ocr.py 调用，
-为 OCR 模型创建优化的推理会话。
+Основная функция create_onnx_session() вызывается из al_ocr.py
+для создания оптимизированных сессий инференса моделей OCR.
 """
 
 import os
@@ -26,7 +26,7 @@ import threading
 from module.logger import logger
 
 
-# 执行提供程序常量
+# Константы Execution Provider
 QNN_EP = "QNNExecutionProvider"
 OPENVINO_EP = "OpenVINOExecutionProvider"
 DML_EP = "DmlExecutionProvider"
@@ -74,7 +74,7 @@ def create_onnx_session(
     allow_vendor_execution_providers=True,
     device_preference="auto",
 ):
-    """按固定优先级创建 Windows ML 或 CPU ONNX Runtime session。"""
+    """Создать сессию ONNX Runtime с Windows ML или CPU согласно фиксированным приоритетам."""
     create_options = session_options_factory or ort.SessionOptions
 
     if os.name != "nt" or not allow_acceleration:
@@ -99,8 +99,8 @@ def create_onnx_session(
         allow_vendor_execution_providers=allow_vendor_execution_providers,
     ):
         options = create_options()
-        # OrtEpDevice 已包含目标硬件的标识；重复传入 ep_options 会导致
-        # ONNX Runtime 重复设置 DirectML 的 device_id 并输出无意义警告。
+        # OrtEpDevice уже содержит идентификатор целевого оборудования; повторная передача ep_options приводит к
+        # повторной установке device_id DirectML в ONNX Runtime и бессмысленному предупреждению.
         options.add_provider_for_devices([device], {})
         if device.ep_name == DML_EP:
             options.enable_mem_pattern = False
@@ -129,7 +129,7 @@ def create_onnx_session(
 
 
 def _prepare_vendor_execution_providers(ort, provider_names):
-    """通过 Windows Update 获取并注册本项目允许使用的厂商 EP。"""
+    """Получить через Windows Update и зарегистрировать разрешенные для проекта vendor EP."""
     marker = id(ort)
     with _provider_lock:
         pending_provider_names = tuple(
@@ -150,7 +150,7 @@ def _prepare_vendor_execution_providers(ort, provider_names):
             return
 
         try:
-            # ExecutionProvider 句柄由 EpCatalog 所有，必须在目录关闭前完成注册。
+            # Дескриптор ExecutionProvider принадлежит EpCatalog, поэтому регистрацию нужно завершить до закрытия каталога.
             with windowsml.EpCatalog() as catalog:
                 providers = {
                     provider.name: provider
@@ -248,9 +248,9 @@ def _is_discrete_gpu(device):
     if discrete is not None:
         return str(discrete).lower() in ("1", "true")
 
-    # Windows 10 的部分驱动不会填充 Discrete。先排除已知核显和软件适配器，
-    # 再用 DXGI 专用显存确认其余设备；缺少显存元数据时仍放行未知名称，
-    # 避免 GTX 1070 之类独显被漏掉。
+    # Некоторые драйверы Windows 10 не заполняют Discrete. Сначала исключаем известные встроенные GPU и программные адаптеры,
+    # затем подтверждаем остальные устройства по выделенной видеопамяти DXGI; если метаданные о видеопамяти отсутствуют,
+    # всё равно допускаем неизвестные имена, чтобы не пропустить дискретные GPU вроде GTX 1070.
     name = _normalize_gpu_name(metadata.get("Description", ""))
     if _is_known_integrated_gpu_name(name) or _is_software_gpu_name(name):
         return False
@@ -268,7 +268,7 @@ def _normalize_gpu_name(name):
 
 
 def _is_known_integrated_gpu_name(name):
-    """根据 Windows 设备名识别没有 Discrete 元数据的常见核显。"""
+    """Определить по имени устройства Windows распространенные встроенные GPU без метаданных Discrete."""
     if name.startswith(
         (
             "intel graphics media accelerator",
@@ -285,7 +285,7 @@ def _is_known_integrated_gpu_name(name):
             "intel arc 140v",
         )
     ):
-        # Intel Iris Xe MAX 是独显，名称不会落入上述 Iris Xe Graphics 前缀。
+        # Intel Iris Xe MAX — дискретная GPU; её имя не попадает под указанный выше префикс Iris Xe Graphics.
         return True
 
     for prefix in ("amd ", "advanced micro devices, inc. "):

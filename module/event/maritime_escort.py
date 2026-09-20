@@ -70,11 +70,11 @@ class MaritimeEscort(MapOperation, CampaignEvent):
         if self.event_time_limit_triggered():
             self.config.task_stop()
 
-        # 从主页面导航到海上护卫界面
+        # Переходим с главной страницы в интерфейс морского эскорта.
         self.ui_goto_main()
         self.ui_click(MAIN_GOTO_ESCORT, check_button=ESCORT_CHECK, offset=(20, 150), skip_first_screenshot=True)
 
-        # OCR 识别剩余可执行次数
+        # Распознаём через OCR оставшееся число доступных попыток.
         current, _, _ = OCR_REMAIN.ocr(self.device.image)
         if current > 0:
             self.run_escort()

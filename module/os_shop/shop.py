@@ -1,16 +1,15 @@
-"""大世界商店模块。
+"""Модуль магазинов Operation Siren.
 
-提供碧蓝航线大世界（Operation Siren）商店的自动化购买功能，包括：
-- 港口商店（Port Shop）的扫描、过滤与批量购买
-- 海域内明石商店（Akashi Shop）的交互与购买
-- 购买数量的智能计算（基于货币余额和库存上限）
-- 黄币 / 紫币的余额管理与保留量控制
-- 购买确认弹窗和数量选择器的处理
-- 大世界重置周期下的货币策略调整
-- 侵蚀 1 练级模式下的明石行动力购买记录
+Обеспечивает автоматические покупки в магазинах Operation Siren (Azur Lane), включая:
+- сканирование, фильтрацию и пакетную покупку в портовых магазинах (Port Shop);
+- взаимодействие и покупку в магазинах Акаши (Akashi Shop) на карте;
+- интеллектуальный расчёт количества покупки (с учётом баланса валюты и лимитов);
+- управление балансом желтых и фиолетовых монет с контролем резерва;
+- обработку диалогов подтверждения покупки и выбора количества;
+- адаптацию стратегии валюты под цикл сброса Operation Siren;
+- фиксацию покупки очков действия у Акаши в режиме прокачки коррозии 1.
 
-本模块整合了 PortShop 和 AkashiShop 两个子模块的功能，
-通过统一的购买执行接口处理大世界中的所有商店交互。
+Модуль объединяет функции PortShop и AkashiShop, предоставляя единый интерфейс покупок.
 """
 from module.application.errors import StorageError
 from module.base.decorator import cached_property
@@ -28,35 +27,35 @@ from module.shop.clerk import OCR_SHOP_AMOUNT
 
 
 class OSShop(PortShop, AkashiShop):
-    """大世界商店购买执行器。
+    """Исполнитель покупок в магазинах Operation Siren.
 
-    继承港口商店（PortShop）和明石商店（AkashiShop）的功能，
-    提供统一的购买执行接口和货币管理策略。
+    Наследует функциональность портовых магазинов (PortShop) и магазина Акаши (AkashiShop),
+    предоставляя единый интерфейс исполнения покупок и стратегию управления валютой.
 
-    主要功能：
-    - 单个物品购买执行（含确认弹窗、数量选择、重试机制）
-    - 批量物品购买循环
-    - 购买数量的智能计算（基于货币余额、库存、保留量）
-    - 黄币 / 紫币的可用余额计算（考虑大世界重置周期）
-    - 港口商店的完整购买流程（扫描 -> 过滤 -> 购买）
-    - 明石商店的购买交互（进入海域商店 -> 购买 -> 返回地图）
+    Основные возможности:
+    - исполнение покупки отдельного предмета (с подтверждениями, выбором количества и повторами);
+    - цикл пакетной покупки предметов;
+    - интеллектуальный расчёт количества (по балансу, складу и резерву);
+    - расчёт доступного баланса монет (с учётом цикла сброса Operation Siren);
+    - полный процесс покупки в портовом магазине (сканирование -> фильтрация -> покупка);
+    - взаимодействие с магазином Акаши (вход -> покупка -> возврат на карту).
 
     Attributes:
-        _shop_yellow_coins (int): 当前黄币余额（由 os_shop_get_coins 设置）。
-        _shop_purple_coins (int): 当前紫币余额（由 os_shop_get_coins 设置）。
+        _shop_yellow_coins (int): Текущий баланс жёлтых монет (устанавливается os_shop_get_coins).
+        _shop_purple_coins (int): Текущий баланс фиолетовых монет (устанавливается os_shop_get_coins).
     """
 
     def os_shop_buy_execute(self, button, skip_first_screenshot=True) -> bool:
-        """执行单个物品的购买操作。
+        """Выполнить покупку одного предмета.
 
-        处理购买确认、数量选择、弹窗确认等交互流程。
+        Обрабатывает подтверждение покупки, выбор количества и всплывающие окна.
 
         Args:
-            button: 待购买的物品按钮。
-            skip_first_screenshot: 是否跳过首次截图。
+            button: Кнопка покупаемого предмета.
+            skip_first_screenshot: Пропускать ли первый снимок экрана.
 
         Returns:
-            bool: 购买成功返回 True，失败返回 False。
+            bool: True при успешной покупке, иначе False.
 
         Pages:
             in: PORT_SUPPLY_CHECK
@@ -69,7 +68,7 @@ class OSShop(PortShop, AkashiShop):
             SHOP_CLICK_SAFE_AREA
         ])
         set_amount_retry = 0
-        # 购买重试计数器，防止代币不足时无限重试点击商品和确认按钮
+        # Счётчик повторных попыток покупки: предотвращает бесконечные нажатия товара и подтверждения при нехватке валюты
         buy_retry = 0
         buy_retry_limit = 3
 
@@ -117,22 +116,22 @@ class OSShop(PortShop, AkashiShop):
                 self.device.click(button)
                 continue
 
-            # 结束条件
+            # Условие завершения
             if success and self.appear(PORT_SUPPLY_CHECK, offset=(20, 20)):
                 break
 
         return success
 
     def os_shop_buy(self, select_func) -> int:
-        """批量购买物品。
+        """Выполнить пакетную покупку предметов.
 
-        循环调用选择函数获取待购买物品，执行购买直到无物品或达到上限。
+        Последовательно вызывает функцию выбора предметов и выполняет покупки до опустошения очереди или достижения лимита.
 
         Args:
-            select_func: 物品选择函数，返回待购买物品或 None。
+            select_func: Функция выбора предмета, возвращающая объект покупки или None.
 
         Returns:
-            int: 成功购买的物品数量。
+            int: Количество успешно купленных предметов.
 
         Pages:
             in: PORT_SUPPLY_CHECK
@@ -182,12 +181,12 @@ class OSShop(PortShop, AkashiShop):
         return count
 
     def close_shop_buy_confirm_amount(self, skip_first_screenshot=True):
-        """关闭购买数量确认界面。
+        """Закрыть интерфейс подтверждения количества покупки.
 
-        通过点击安全区域关闭数量选择弹窗。
+        Закрывает всплывающее окно выбора количества кликом по безопасной зоне.
 
         Args:
-            skip_first_screenshot: 是否跳过首次截图。
+            skip_first_screenshot: Пропускать ли первый снимок экрана.
 
         Pages:
             in: SHOP_BUY_CONFIRM_AMOUNT
@@ -207,20 +206,20 @@ class OSShop(PortShop, AkashiShop):
                 self.device.click(SHOP_CLICK_SAFE_AREA)
 
     def shop_buy_amount_handler(self, item, skip_first_screenshot=True):
-        """处理购买数量选择。
+        """Обработать выбор количества покупки.
 
-        根据金币数量和物品库存计算最优购买数量，
-        通过加减按钮调整到目标数量。
+        Рассчитывает оптимальное количество по балансу монет и доступному запасу,
+        после чего настраивает целевое число кнопками интерфейса.
 
         Args:
-            item: 待购买的物品。
-            skip_first_screenshot: 是否跳过首次截图。
+            item: Покупаемый предмет.
+            skip_first_screenshot: Пропускать ли первый снимок экрана.
 
         Returns:
-            bool: 数量设置成功返回 True，失败返回 False。
+            bool: True при успешной установке количества, иначе False.
 
         Raises:
-            ScriptError: OCR 识别购买上限失败时抛出。
+            ScriptError: Если не удалось распознать лимит через OCR.
         """
         limit = -1
         retry = Timer(0, count=3)
@@ -256,7 +255,7 @@ class OSShop(PortShop, AkashiShop):
         total_count = min(int(coins // item.price), item.count)
 
         set_to_max = False
-        # 所有物品平均数量（不含紫币）约为 8.9，因此使用 10 作为阈值
+        # Среднее количество всех товаров (кроме покупаемых за фиолетовые монеты) около 8.9, поэтому используем порог 10
         if count <= 10:
             if count - 1 > total_count - count:
                 set_to_max = True
@@ -271,7 +270,7 @@ class OSShop(PortShop, AkashiShop):
             limit = 10
 
         self.interval_clear(AMOUNT_MAX)
-        # amount_max_stall: 记录AMOUNT_MAX点击后数量未变化的次数，防止按钮无效时死循环
+        # amount_max_stall: число случаев, когда количество не изменилось после нажатия AMOUNT_MAX; предотвращает бесконечный цикл при неработающей кнопке
         amount_max_stall = 0
         amount_max_stall_limit = 5
         while set_to_max:
@@ -287,13 +286,13 @@ class OSShop(PortShop, AkashiShop):
             if current_amount > 1:
                 break
 
-            # AMOUNT_MAX点击后数量仍为1，说明按钮可能被游戏禁用（如商品只能逐个购买）
+            # Если после нажатия AMOUNT_MAX количество остаётся равным 1, кнопка, вероятно, отключена игрой (например, товар можно покупать только по одному)
             amount_max_stall += 1
             if amount_max_stall >= amount_max_stall_limit:
                 logger.info(f'[Магазин Операции «Сирена»] После {amount_max_stall} нажатий AMOUNT_MAX количество осталось равным {current_amount}; переход к AMOUNT_PLUS')
                 break
 
-        # 仅在已点击AMOUNT_MAX且数量成功增加时，才能读取游戏端实际允许的最大数量
+        # Только если AMOUNT_MAX уже нажали и количество успешно увеличилось, можно считать фактический игровой максимум
         if set_to_max:
             game_max = OCR_SHOP_AMOUNT.ocr(self.device.image)
             if game_max > 1 and limit > game_max:
@@ -305,12 +304,12 @@ class OSShop(PortShop, AkashiShop):
         return True
 
     def handle_port_supply_buy(self) -> bool:
-        """处理港口商店购买。
+        """Обработать покупки в портовом магазине.
 
-        扫描所有商店页面，过滤可购买物品，按顺序执行购买。
+        Сканирует все вкладки магазина, фильтрует доступные товары и последовательно выполняет покупку.
 
         Returns:
-            bool: 成功购买或无可购买物品返回 True，金币不足返回 False。
+            bool: True при успешных покупках или отсутствии подходящих товаров, False при нехватке валюты.
 
         Pages:
             in: PORT_SUPPLY_CHECK
@@ -359,12 +358,12 @@ class OSShop(PortShop, AkashiShop):
         return True
 
     def handle_akashi_supply_buy(self, grid):
-        """处理明石商店购买。
+        """Обработать покупки в магазине Акаши.
 
-        点击明石所在的网格进入商店，执行购买后返回地图。
+        Кликает по ячейке с Акаши для перехода в магазин, выполняет покупки и возвращается на карту.
 
         Args:
-            grid: 明石所在的网格位置。
+            grid: Координаты сетки, где находится Акаши.
 
         Pages:
             in: is_in_map
@@ -377,22 +376,22 @@ class OSShop(PortShop, AkashiShop):
 
     @cached_property
     def yellow_coins_preserve(self):
-        """获取黄币保留数量配置。"""
+        """Получить настройку резерва жёлтых монет."""
         if self.is_cl1_mode_enabled:
             return self.config.OpsiHazard1Leveling_OperationCoinsPreserve
         else:
             return self.config.OS_NORMAL_YELLOW_COINS_PRESERVE
 
     def get_currency_coins(self, item):
-        """获取可用于购买的货币数量。
+        """Получить доступное для покупок количество валюты.
 
-        根据大世界重置剩余时间决定是否扣除保留数量。
+        Определяет, нужно ли вычитать резерв, основываясь на времени до сброса Operation Siren.
 
         Args:
-            item: 待购买的物品。
+            item: Покупаемый предмет.
 
         Returns:
-            int: 可用货币数量。
+            int: Доступное количество валюты.
         """
         if item.cost == 'YellowCoins':
             if get_os_reset_remain() == 0:
@@ -407,13 +406,13 @@ class OSShop(PortShop, AkashiShop):
                 return self._shop_purple_coins - self.config.OS_NORMAL_PURPLE_COINS_PRESERVE
 
     def get_coins_no_limit(self, item):
-        """获取不限制的货币数量（不扣除保留量）。
+        """Получить полное количество валюты (без вычета резерва).
 
         Args:
-            item: 待购买的物品。
+            item: Покупаемый предмет.
 
         Returns:
-            int: 货币总量。
+            int: Общий баланс валюты.
         """
         if item.cost == 'YellowCoins':
             return self._shop_yellow_coins
@@ -421,10 +420,10 @@ class OSShop(PortShop, AkashiShop):
             return self._shop_purple_coins
 
     def is_coins_both_not_enough(self):
-        """检查黄币和紫币是否都不足。
+        """Проверить, недостаточны ли обе валюты (жёлтые и фиолетовые монеты).
 
         Returns:
-            bool: 两种货币都不足返回 True，否则返回 False。
+            bool: True, если обе валюты ниже допустимого порога, иначе False.
         """
         if get_os_reset_remain() == 0:
             return False

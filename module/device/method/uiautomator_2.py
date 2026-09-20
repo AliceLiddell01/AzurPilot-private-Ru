@@ -1,5 +1,5 @@
-# 此文件实现了基于 uiautomator2 的设备交互逻辑。
-# 包含截图、模拟点击、长按、滑动、层级提取（dump）等控制移动端设备的核心操作。
+# Этот файл реализует взаимодействие с устройством на основе uiautomator2.
+# Содержит основные операции управления мобильным устройством: скриншоты, клики, долгие нажатия, свайпы и извлечение иерархии (dump).
 import re
 import shlex
 import time
@@ -35,10 +35,10 @@ def retry(func):
                     time.sleep(retry_sleep(_))
                     init()
                 return func(self, *args, **kwargs)
-            # 不可处理
+            # Необрабатываемая ошибка
             except RequestHumanTakeover:
                 break
-            # adb server 被终止时
+            # При остановке adb server
             except ConnectionResetError as e:
                 logger.error(str(f'[Устройство — uiautomator2] Ошибка повторной попытки: {e}'))
 
@@ -69,31 +69,31 @@ def retry(func):
                         self.adb_reconnect()
                 else:
                     break
-            # 在 `assert c.read string(4) == _OKAY` 时
-            # 模拟器未启用 ADB
+            # При `assert c.read string(4) == _OKAY`
+            # В эмуляторе не включён ADB
             except AssertionError as e:
                 logger.exception(str(f'[Устройство — uiautomator2] Ошибка повторной попытки: {e}'))
                 possible_reasons(
                     '[Устройство — ADB] Если используется BlueStacks, LDPlayer или WSA, включите ADB в настройках эмулятора'
                 )
                 break
-            # 包未安装
+            # Пакет не установлен
             except PackageNotInstalled as e:
                 logger.error(str(f'[Устройство — uiautomator2] Ошибка повторной попытки: {e}'))
 
                 def init():
                     self.detect_package()
-            # 图像截断
+            # Изображение обрезано
             except ImageTruncated as e:
                 from module.device.method.utils import handle_image_truncated
                 handle_image_truncated(self, e)
 
                 def init():
                     pass
-            # 不可处理 - 必须向上抛出以触发模拟器重启
+            # Необрабатываемая ошибка — обязательно пробрасываем выше, чтобы запустить перезапуск эмулятора
             except EmulatorNotRunningError:
                 raise
-            # 未知异常
+            # Неизвестное исключение
             except Exception as e:
                 logger.exception(str(f'[Устройство — uiautomator2] Ошибка повторной попытки: {e}'))
 
@@ -242,7 +242,7 @@ class Uiautomator2(Connection):
 
     @retry
     def _drag_along(self, path):
-        """沿路径滑动。
+        """Свайп по заданной траектории.
 
         Args:
             path (list): (x, y, sleep)
@@ -255,7 +255,7 @@ class Uiautomator2(Connection):
                 (821, 326+10, 0.1),
                 (821, 326, 0),
             ])
-            等价于:
+            Эквивалентно:
             al.device.touch.down(403, 421)
             time.sleep(0.2)
             al.device.touch.move(821, 326)
@@ -315,7 +315,7 @@ class Uiautomator2(Connection):
     def app_current_uiautomator2(self):
         """
         Returns:
-            str: 包名。
+            str: Имя пакета.
         """
         result = self.u2.app_current()
         return result['package']
@@ -328,7 +328,7 @@ class Uiautomator2(Connection):
             allow_failure (bool):
 
         Returns:
-            bool: 是否成功启动
+            bool: Успешно ли выполнен запуск.
 
         Raises:
             PackageNotInstalled:
@@ -363,7 +363,7 @@ class Uiautomator2(Connection):
             allow_failure (bool):
 
         Returns:
-            bool: 是否成功启动
+            bool: Успешно ли выполнен запуск.
 
         Raises:
             PackageNotInstalled:
@@ -385,7 +385,7 @@ class Uiautomator2(Connection):
                 elif 'not found' in str(e):
                     logger.error(str(f'[Устройство — uiautomator2] Ошибка запуска приложения через uiautomator2: {e}'))
                     raise PackageNotInstalled(package_name)
-                # 未知错误
+                # Неизвестная ошибка
                 else:
                     raise
             activity_name = info['mainActivity']
@@ -395,7 +395,7 @@ class Uiautomator2(Connection):
         if self.is_local_network_device and self.is_waydroid:
             cmd += ['--windowingMode', '4']
         ret = self.u2.shell(cmd)
-        # 无效的 activity
+        # Недопустимая activity
         # Starting: Intent { act=android.intent.action.MAIN cat=[android.intent.category.LAUNCHER] cmp=... }
         # Error type 3
         # Error: Activity class {.../...} does not exist.
@@ -405,7 +405,7 @@ class Uiautomator2(Connection):
             else:
                 logger.error(ret)
                 return False
-        # 已在运行
+        # Уже запущено
         # Warning: Activity not started, intent has been delivered to currently running top-most instance.
         if 'Warning: Activity not started' in ret.output:
             logger.info('Activity приложения запущена')
@@ -428,26 +428,26 @@ class Uiautomator2(Connection):
                 logger.error(ret)
                 logger.error('Отказ в разрешении при запуске приложения; вероятно, указана недопустимая Activity')
                 return False
-        # 成功
+        # Успешно
         # Starting: Intent...
         return True
 
-    # 不使用 @retry 装饰器，因为 _app_start_adb_am 和 _app_start_adb_monkey 已有 @retry
+    # Не используем декоратор @retry, поскольку _app_start_adb_am и _app_start_adb_monkey уже имеют @retry
     # @retry
     def app_start_uiautomator2(self, package_name=None, activity_name=None, allow_failure=False):
         """
         Args:
             package_name (str):
-                为 None 时从配置中获取
+                Если None, берется из конфигурации.
             activity_name (str):
-                为 None 时从 DICT_PACKAGE_TO_ACTIVITY 获取
-                仍为 None 时通过 monkey 启动
-                monkey 失败时，获取 activity 名称并通过 am 启动
+                Если None, берется из DICT_PACKAGE_TO_ACTIVITY.
+                Если все еще None, запуск выполняется через monkey.
+                При сбое monkey определяется имя activity и запуск повторяется через am.
             allow_failure (bool):
-                为 True 时不抛出 PackageNotInstalled，只返回 False
+                Если True, не выбрасывать PackageNotInstalled, а только вернуть False.
 
         Returns:
-            bool: 是否成功启动
+            bool: Успешно ли выполнен запуск.
 
         Raises:
             PackageNotInstalled:
@@ -488,17 +488,17 @@ class Uiautomator2(Connection):
     @retry
     def resolution_uiautomator2(self, cal_rotation=True) -> t.Tuple[int, int]:
         """
-        获取设备的有效分辨率，优先通过 ADB wm size 获取（支持 wm size override），
-        回退到 uiautomator2 /info 接口。
+        Получить эффективное разрешение устройства: приоритетно через ADB wm size (поддерживает wm size override),
+        с откатом к интерфейсу /info uiautomator2.
 
-        当用户通过 `adb shell wm size 720x1280` 设置了覆盖分辨率时，
-        uiautomator2 /info 接口仍返回物理分辨率（如 1080x2400），
-        而 ADB wm size 能正确报告 Override size。
+        Когда пользователь задает переопределение через `adb shell wm size 720x1280`,
+        интерфейс /info uiautomator2 по-прежнему возвращает физическое разрешение (например, 1080x2400),
+        тогда как ADB wm size корректно сообщает Override size.
 
         Returns:
             (width, height)
         """
-        # 优先使用 ADB wm size，支持 override 分辨率
+        # Сначала используем ADB wm size, включая override-разрешение
         lines = []
         result = ''
         try:
@@ -512,7 +512,7 @@ class Uiautomator2(Connection):
             import re
             size_pattern = re.compile(r'^(\d+)x(\d+)$')
 
-            # 优先读取 Override size（用户通过 wm size 设置的值）
+            # Сначала читаем Override size — значение, заданное пользователем через wm size
             for line in lines:
                 line = line.strip()
                 if 'Override size:' in line:
@@ -526,7 +526,7 @@ class Uiautomator2(Connection):
                         continue
 
             if w is None:
-                # 没有 Override，尝试 Physical size 行或裸分辨率行
+                # Override отсутствует: пробуем строку Physical size или строку с чистым разрешением
                 for line in lines:
                     line = line.strip()
                     try:
@@ -537,7 +537,7 @@ class Uiautomator2(Connection):
                                 w, h = int(m.group(1)), int(m.group(2))
                                 break
                         elif size_pattern.match(line):
-                            # 旧版 Android 仅输出 "1080x2400"
+                            # Старые версии Android выводят только "1080x2400"
                             m = size_pattern.match(line)
                             if m:
                                 w, h = int(m.group(1)), int(m.group(2))
@@ -571,14 +571,14 @@ class Uiautomator2(Connection):
 
     def resolution_check_uiautomator2(self):
         """
-        Alas 不主动检查分辨率，而是检查截图的宽高。
-        但某些截图方法不提供设备分辨率，因此在此处进行检查。
+        Alas не проверяет разрешение превентивно, а анализирует ширину и высоту снимка экрана.
+        Однако некоторые методы снимков не возвращают разрешение устройства, поэтому проверка выполняется здесь.
 
         Returns:
             (width, height)
 
         Raises:
-            RequestHumanTakeover: 分辨率不是 1280x720 时抛出
+            RequestHumanTakeover: Вызывается, если разрешение не равно 1280x720.
         """
         width, height = self.resolution_uiautomator2()
         logger.attr('Размер экрана', f'{width}x{height}')
@@ -694,7 +694,7 @@ class Uiautomator2(Connection):
     def u2_send_keys(self, text: str, clear: bool=False):
         self.u2.send_keys(text=text, clear=clear)
 
-    # 参考: https://uiautomator2.readthedocs.io/en/latest/api.html#uiautomator2.Session.send_action
+    # См.: https://uiautomator2.readthedocs.io/en/latest/api.html#uiautomator2.Session.send_action
     def u2_send_action(self, code):
         self.u2.send_action(code=code)
 

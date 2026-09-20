@@ -509,11 +509,11 @@ def _build_ws_scrcpy_video_settings(width, fps, bitrate):
     payload += struct.pack(">B", 101)  # TYPE_CHANGE_STREAM_PARAMETERS
     payload += struct.pack(">i", int(bitrate))
     payload += struct.pack(">i", int(fps))
-    payload += struct.pack(">b", 1)  # iFrameInterval，低延迟下更快恢复
+    payload += struct.pack(">b", 1)  # iFrameInterval, более быстрое восстановление при низкой задержке
     payload += struct.pack(">h", int(width))
     payload += struct.pack(">h", int(height))
     payload += struct.pack(">hhhh", 0, 0, 0, 0)  # crop
-    payload += struct.pack(">b", 0)  # sendFrameMeta=false，浏览器直接收 H264
+    payload += struct.pack(">b", 0)  # sendFrameMeta=false, браузер напрямую принимает H264
     payload += struct.pack(">b", -1)  # unlocked orientation
     payload += struct.pack(">i", 0)  # displayId
     payload += struct.pack(">i", 0)  # codecOptions
@@ -843,7 +843,7 @@ class LiveScrcpySession:
 
     @property
     def bitrate(self):
-        # scrcpy 1.20 超过 20Mbps 会回落默认值，保守限制在 20Mbps 内。
+        # scrcpy 1.20 откатывается к значению по умолчанию выше 20 Мбит/с, консервативно ограничено до 20 Мбит/с.
         base = max(1, self.width * int(self.width * 9 / 16) * self.fps)
         bitrate = int(base * 0.20 * self.bitrate_scale)
         return max(300_000, min(bitrate, 20_000_000))
@@ -856,7 +856,7 @@ class LiveScrcpySession:
         finally:
             ScrcpyOptions.frame_rate = original_frame_rate
 
-        # scrcpy-server 1.20 参数位置：max_size、bitrate、max_fps。
+        # Позиции параметров scrcpy-server 1.20: max_size, bitrate, max_fps.
         commands[6] = str(self.width)
         commands[7] = str(self.bitrate)
         commands[8] = str(self.fps)
@@ -1251,7 +1251,7 @@ async def _ws_live_raw_scrcpy(websocket, instance, fps, target_width, bitrate_sc
             await websocket.send_bytes(raw_h264)
     finally:
         stop_event.set()
-        # 预览关闭即停止 scrcpy，避免后台持续占用编码器。
+        # Остановка scrcpy сразу при закрытии предпросмотра, чтобы избежать постоянной загрузки кодировщика в фоне.
         if session is not None:
             await asyncio.to_thread(LiveScrcpySession.release, instance, session=session)
 

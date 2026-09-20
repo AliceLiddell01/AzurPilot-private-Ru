@@ -30,7 +30,7 @@ from module.notify import handle_notify, notify_webui
 from module.observability.incident import incident_directory_time_key
 from module.persistence.runtime import bootstrap_runtime_storage
 
-# 缓存 i18n 任务名查找
+# Кэш поиска имен задач i18n
 _i18n_task_names = None
 _SERVER_AVAILABILITY_POLL_SECONDS = 0.25
 def _get_task_display_name(task_command):
@@ -87,16 +87,16 @@ class AzurLaneAutoScript:
         bootstrap_runtime_storage(require_ready=True)
         logger.info('[Хранилище] PostgreSQL готов к работе')
         self.config_name = config_name
-        # 跳过启动后的第一次 Restart 任务
+        # Пропускаем первую задачу Restart после запуска
         self.is_first_task = True
-        # 任务失败计数器，key 为任务名，value 为连续失败次数
+        # Счетчик сбоев задач: ключ — имя задачи, значение — число последовательных сбоев
         self.failure_record = {}
         # Счётчики последовательных зависаний игры и сбоев ADB для ограничения циклов восстановления.
         self.consecutive_game_stuck = 0
         self.consecutive_adb_offline = 0
         self._last_emulator_recovery_mode = ''
         self._emulator_recovery_transport_lost = False
-        # 上次计划重启模拟器的时间戳
+        # Временная метка последнего запланированного перезапуска эмулятора
         self.last_emulator_restart_time = time.monotonic()
         self._manual_scan_wakeup = False
 
@@ -1404,7 +1404,7 @@ class AzurLaneAutoScript:
 
     def emulator_manager(self):
         import subprocess
-        # 优先使用 EmulatorInfo 中的 SSH 配置
+        # Приоритетно используем конфигурацию SSH из EmulatorInfo
         if getattr(self.config, 'EmulatorInfo_EnableRemoteSSH', False):
             host = getattr(self.config, 'EmulatorInfo_RemoteSSHHost', '')
             port = getattr(self.config, 'EmulatorInfo_RemoteSSHPort', 22)
@@ -1412,7 +1412,7 @@ class AzurLaneAutoScript:
             command = getattr(self.config, 'EmulatorInfo_RemoteStartCommand', '')
             key = getattr(self.config, 'EmulatorInfo_RemoteSSHPublicKey', '')
         else:
-            # 回退到 EmulatorManager 配置
+            # Откат к конфигурации EmulatorManager
             enable = deep_get(self.config.data, 'EmulatorManager.EmulatorManager.EnableRemoteSSH', False)
             if not enable:
                 logger.warning('[Alas-SSH] Удалённый SSH не включён в настройках управления эмулятором')
@@ -1433,7 +1433,7 @@ class AzurLaneAutoScript:
         logger.hr('Команда удалённого SSH', level=1)
         target = f'{user}@{host}' if user else host
         clear_ssh_host_key(host, port)
-        # -n: 禁用标准输入  -T: 禁用伪终端分配  BatchMode: 避免密码提示导致挂起
+        # -n: отключить stdin  -T: отключить выделение псевдотерминала  BatchMode: избежать зависания на запросе пароля
         cmd = [
             'ssh', '-n', '-T', '-p', str(port),
             '-o', 'StrictHostKeyChecking=no',
@@ -1477,7 +1477,7 @@ class AzurLaneAutoScript:
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
             )
 
-            # 缓存 stderr 输出，仅在失败时打印
+            # Буферизуем вывод stderr, выводим только при сбое
             stderr_content = []
             import threading
 
@@ -1495,7 +1495,7 @@ class AzurLaneAutoScript:
             stdout_thread.start()
 
             try:
-                # 主线程等待进程退出
+                # Главный поток ожидает завершения процесса
                 process.wait(timeout=30)
             except subprocess.TimeoutExpired:
                 process.kill()
@@ -1597,7 +1597,7 @@ class AzurLaneAutoScript:
                 if (
                     self.config.Optimization_CloseEmulatorDuringLongWait
                     and wait_duration > timedelta(hours=3)
-                    and 'device' in self.__dict__ and self.device.emulator_instance is not None  # 远程设备（无线 ADB / SSH）没有本地模拟器实例可管理，跳过关闭流程，走常规等待逻辑
+                    and 'device' in self.__dict__ and self.device.emulator_instance is not None  # Для удаленных устройств (беспроводной ADB / SSH) нет локального экземпляра эмулятора; пропускаем остановку и переходим к штатному ожиданию
                 ):
                     logger.info(
                         f'Следующая задача `{task.command}` запустится через {wait_duration}; '
@@ -1884,7 +1884,7 @@ class AzurLaneAutoScript:
                     logger.info('[Alas] После текущей задачи получен запрос на cooperative stop')
                     break
 
-                # 每任务推送通知（须在 config_generated 刷新前读取）
+                # Push-уведомление для каждой задачи (необходимо прочитать до обновления config_generated)
                 if success is not None:
                     try:
                         if getattr(self.config, 'Scheduler_PushNotification', False):
@@ -1903,18 +1903,18 @@ class AzurLaneAutoScript:
                     except Exception:
                         logger.warning('[Alas] Не удалось отправить уведомление о задаче; уведомление пропущено')
 
-                # 检查失败
-                # 单个任务连续失败三次终止程序
-                # 注意：可恢复错误 (success == 'recoverable') 不计入失败次数
+                # Проверка сбоев
+                # Завершаем программу при трех последовательных сбоях одной задачи
+                # Примечание: восстановимые ошибки (success == 'recoverable') не учитываются в количестве сбоев
                 failed = deep_get(self.failure_record, keys=task, default=0)
                 if success == True:
-                    failed = 0  # 成功，重置计数
+                    failed = 0  # Успех: сбрасываем счетчик
                 elif success == 'recoverable':
-                    # 可恢复错误（如 GameStuckError），不增加失败计数
-                    # 但也不重置，保持之前的计数
+                    # Восстановимая ошибка (например, GameStuckError): не увеличиваем счетчик сбоев
+                    # Но и не сбрасываем, сохраняя прежнее значение
                     logger.info(f'[Alas] В задаче `{task}` произошла восстановимая ошибка; предел ошибок не увеличен')
                 else:
-                    failed = failed + 1  # 不可恢复错误，增加计数
+                    failed = failed + 1  # Невосстановимая ошибка: увеличиваем счетчик
                 deep_set(self.failure_record, keys=task, value=failed)
 
                 if self._emulator_recovery_transport_lost:
@@ -1958,19 +1958,19 @@ class AzurLaneAutoScript:
 
                 if success == True:
                     del_cached_property(self, 'config')
-                    consecutive_global_failures = 0 # 任务成功时重置全局失败计数器
+                    consecutive_global_failures = 0 # Сбрасываем глобальный счетчик сбоев при успешном выполнении задачи
                     self.consecutive_game_stuck = 0
                     self.consecutive_adb_offline = 0
                     continue
                 elif success == 'recoverable' or self.config.Error_HandleError:
-                    # 可恢复错误或启用了错误处理，刷新配置后继续循环
+                    # Восстановимая ошибка или включена обработка ошибок: обновляем конфигурацию и продолжаем цикл
                     del_cached_property(self, 'config')
                     self.checker.check_now()
                     continue
                 else:
                     break
 
-            # 捕获全局异常并执行重启
+            # Перехватываем глобальное исключение и выполняем перезапуск
             except Exception as e:
                 scheduler_task = getattr(
                     getattr(self.__dict__.get("config"), "task", None),
@@ -1994,7 +1994,7 @@ class AzurLaneAutoScript:
                     action='Изучите стек ниже. При повторении проверьте подключение устройства, конфигурацию и недавно обновлённые ресурсы.',
                 )
 
-                # 即使没有达到重启或失败上限，也第一时间自动请求分析崩溃原因
+                # Даже если лимит перезапусков или сбоев не достигнут, сразу автоматически запрашиваем анализ причин падения
                 try:
                     if hasattr(self, 'config') and getattr(self.config, 'Error_LlmAnalysis', False):
                         from module.llm import analyze_exception
@@ -2006,7 +2006,7 @@ class AzurLaneAutoScript:
                     f">>> Последовательная глобальная ошибка {consecutive_global_failures} из {MAX_GLOBAL_FAILURES}."
                 )
 
-                # 检查是否达到重试上限
+                # Проверяем, достигнут ли лимит повторных попыток
                 if consecutive_global_failures >= MAX_GLOBAL_FAILURES:
                     logger.error_context(
                         title='Достигнут предел последовательных ошибок планировщика',
@@ -2020,12 +2020,12 @@ class AzurLaneAutoScript:
                     logger.warning("[Alas] Обнаружена невосстановимая ошибка; подробности сохранены только в локальном журнале.")
                     exit(1)
 
-                # 尝试重启
+                # Пробуем перезапустить
                 logger.warning("[Alas] Попытка восстановления через принудительное назначение задачи `Restart`...")
                 try:
-                    # 注入 Restart 任务
+                    # Внедряем задачу Restart
                     self.config.task_call('Restart')
-                    # 重新加载配置
+                    # Перезагружаем конфигурацию
                     del_cached_property(self, 'config')
                     logger.info("[Alas] Задача `Restart` назначена для следующего цикла.")
                 except Exception as restart_e:
@@ -2036,7 +2036,7 @@ class AzurLaneAutoScript:
                         action='Проверьте доступность конфигурации, включена ли задача Restart и остаётся ли устройство подключённым.',
                     )
 
-                # 等待一段时间后开始下一次循环
+                # Ожидаем некоторое время перед началом следующего цикла
                 wait_seconds = RESTART_DELAY if consecutive_global_failures < 4 else LONG_WAIT
                 logger.info(
                     f"Планировщик повторит цикл с начала через {wait_seconds} с."

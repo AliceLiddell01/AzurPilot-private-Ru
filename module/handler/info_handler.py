@@ -1,19 +1,21 @@
-"""信息栏和弹窗处理器。
+"""Обработчик панели уведомлений и всплывающих окон.
 
-处理游戏中各种信息提示和弹窗对话框，是所有处理器的基础组件。
+Обрабатывает внутриигровые информационные уведомления и всплывающие диалоги;
+является базовым компонентом для всех обработчиков.
 
-信息栏（Info Bar）：
-    屏幕顶部的通知条，包含委托完成、敌人搜索等提示。
-    通过检测信息栏的出现和消失来同步自动化流程。
+Панель уведомлений (Info Bar):
+    Полоса уведомлений в верхней части экрана, содержащая сообщения о завершении комиссий,
+    поиске противников и т.д. Синхронизирует автоматизацию по появлению и исчезновению панели.
 
-弹窗处理：
-    - 确认/取消对话框（如退役确认、战斗确认）
-    - 活动公告弹窗
-    - 紧急委托通知
-    - 大舰队相关弹窗
+Обработка всплывающих окон:
+    - Диалоги подтверждения/отмены (подтверждение списания кораблей, подтверждение боя)
+    - Всплывающие объявления событий
+    - Уведомления о срочных комиссиях
+    - Всплывающие окна Большого флота (гильдии)
 
-预处理函数 info_letter_preprocess()：
-    调整信息栏文字图像的对比度，用于模板匹配识别信息栏内容。
+Функция предварительной обработки info_letter_preprocess():
+    Регулирует контрастность изображения текста панели уведомлений
+    для сопоставления с шаблоном при распознавании содержимого панели.
 """
 
 from scipy import signal
@@ -31,13 +33,13 @@ from module.ui_white.assets import POPUP_CANCEL_WHITE, POPUP_CONFIRM_WHITE, POPU
 
 def info_letter_preprocess(image):
     """
-    对信息栏文字图像进行预处理，调整对比度。
+    Выполнить предварительную обработку изображения текста панели уведомлений, настроив контрастность.
 
     Args:
-        image: 输入图像。
+        image: Входное изображение.
 
     Returns:
-        处理后的 uint8 图像。
+        Обработанное изображение uint8.
     """
     image = image.astype(float)
     image = (image - 64) / 0.75
@@ -48,29 +50,29 @@ def info_letter_preprocess(image):
 
 
 class InfoHandler(ModuleBase):
-    """信息栏和弹窗处理器基类。
+    """Базовый класс обработчика панели уведомлений и всплывающих окон.
 
-    提供游戏中各类 UI 弹窗的统一检测和处理接口。
-    所有需要处理弹窗的处理器都应继承此类。
+    Предоставляет единый интерфейс обнаружения и обработки различных всплывающих окон интерфейса игры.
+    Все обработчики, требующие взаимодействия с всплывающими окнами, должны наследоваться от этого класса.
 
-    主要功能：
-    - 信息栏检测和处理（info_bar_count, handle_info_bar）
-    - 弹窗确认/取消（handle_popup_confirm, handle_popup_cancel）
-    - 紧急委托处理（handle_urgent_commission）
-    - 剧情跳过（handle_story_skip）
-    - 大舰队弹窗处理（handle_guild_popup_cancel）
-    - 投票弹窗处理（handle_vote_popup）
+    Основные функции:
+    - Обнаружение и обработка панели уведомлений (info_bar_count, handle_info_bar)
+    - Подтверждение/отмена всплывающих окон (handle_popup_confirm, handle_popup_cancel)
+    - Обработка срочных комиссий (handle_urgent_commission)
+    - Пропуск сюжета (handle_story_skip)
+    - Обработка всплывающих окон Большого флота (handle_guild_popup_cancel)
+    - Обработка всплывающих окон голосования (handle_vote_popup)
     """
     """
-    信息栏
+    Панель уведомлений
     """
 
     def info_bar_count(self):
         """
-        通过顶部蓝色线条检测信息栏数量。
+        Определить количество панелей уведомлений по синей линии в верхней части.
 
         Returns:
-            检测到的信息栏数量。
+            Количество обнаруженных панелей уведомлений.
         """
         image = self.image_crop(INFO_BAR_AREA, copy=False)
         line = cv2.reduce(image, 1, cv2.REDUCE_AVG)
@@ -79,7 +81,7 @@ class InfoHandler(ModuleBase):
         parameters = {
             'height': 235,
             'prominence': 50,
-            # 蓝色线条间距约为 56 像素
+            # Расстояние между синими линиями составляет около 56 пикселей
             'distance': 50,
         }
         peaks, _ = signal.find_peaks(line, **parameters)
@@ -110,14 +112,14 @@ class InfoHandler(ModuleBase):
             if self.handle_info_bar():
                 handled = True
 
-            # 结束条件
+            # Условие завершения
             if timeout.reached():
                 break
 
         return handled
 
     """
-    弹窗信息
+    Всплывающие окна
     """
     _popup_offset = (3, 30)
 
@@ -180,13 +182,13 @@ class InfoHandler(ModuleBase):
 
     def handle_urgent_commission(self, drop=None):
         """
-        处理紧急委托弹窗。
+        Обработать всплывающее окно срочной комиссии.
 
         Args:
-            drop: 掉落图像记录对象，可为 None。
+            drop: Объект записи изображений дропа, может быть None.
 
         Returns:
-            是否检测到并处理了紧急委托弹窗。
+            Обнаружено и обработано ли всплывающее окно срочной комиссии.
         """
         appear = self.appear(GET_MISSION, offset=True, interval=2)
         if appear:
@@ -197,15 +199,15 @@ class InfoHandler(ModuleBase):
             self.device.click(GET_MISSION)
             self._hot_fix_check_wait.reset()
 
-        # 在点击确认按钮后 3~6 秒内检查游戏客户端是否存活
-        # 热更新可能会导致游戏进程被杀死
+        # Проверяем работоспособность игрового клиента в течение 3~6 секунд после клика подтверждения
+        # Горячее обновление может привести к завершению процесса игры
         if self._hot_fix_check_wait.reached():
             self._hot_fix_check_wait.clear()
         if self._hot_fix_check_wait.started() and 3 <= self._hot_fix_check_wait.current_time() <= 6:
             if not self.device.app_is_running():
                 logger.error('[Обработчик — горячее обновление] Обнаружено горячее обновление игрового сервера; игровой процесс завершён')
                 raise GameNotRunningError
-            # 使用模板匹配（不含颜色匹配），因为维护公告弹窗颜色不同
+            # Используем шаблонное сопоставление (без проверки цвета), так как цвет окна объявления о техобслуживании отличается
             if self.appear(LOGIN_CHECK, offset=(30, 30)):
                 logger.warning('[Обработчик — горячее обновление] Выполнен выход из аккаунта; '
                                'возможны обслуживание сервера или вход с другого устройства')
@@ -219,7 +221,7 @@ class InfoHandler(ModuleBase):
 
         result = self.handle_popup_confirm('IGNORE_LOW_EMOTION')
         if result:
-            # 避免误点 AUTO_SEARCH_MAP_OPTION_OFF
+            # Избегаем случайного клика по AUTO_SEARCH_MAP_OPTION_OFF
             self.interval_reset(AUTO_SEARCH_MAP_OPTION_OFF)
         return result
 
@@ -242,28 +244,28 @@ class InfoHandler(ModuleBase):
                     self.device.click(USE_DATA_KEY_NOTIFIED)
                     continue
 
-            self.config.USE_DATA_KEY = False  # 成功后重置，因为任务可能在恢复前被停止
+            self.config.USE_DATA_KEY = False  # Сбрасываем после успеха, так как задача может быть остановлена до восстановления
             return self.handle_popup_confirm('USE_DATA_KEY')
 
         return False
 
     def handle_vote_popup(self):
         """
-        关闭投票弹窗。
+        Закрыть всплывающее окно голосования.
 
         Returns:
-            是否处理了投票弹窗。
+            Было ли обработано всплывающее окно голосования.
         """
-        # 投票弹窗已于 2023 年移除
+        # Всплывающее окно голосования удалено в 2023 году
         # return self.appear_then_click(VOTE_CANCEL, offset=(20, 20), interval=2)
         return False
 
     def handle_get_skin(self):
         """
-        处理获取皮肤弹窗。
+        Обработать всплывающее окно получения скина.
 
         Returns:
-            是否处理了皮肤弹窗。
+            Было ли обработано всплывающее окно скина.
         """
         return self.appear_then_click(GET_SKIN, offset=(20, 20), interval=2)
 
@@ -286,7 +288,7 @@ class InfoHandler(ModuleBase):
         return False
 
     """
-    大舰队弹窗
+    Всплывающие окна Большого флота
     """
 
     def handle_guild_popup_confirm(self):
@@ -306,7 +308,7 @@ class InfoHandler(ModuleBase):
         return False
 
     """
-    任务弹窗
+    Всплывающие окна заданий
     """
 
     def handle_mission_popup_go(self):
@@ -326,10 +328,10 @@ class InfoHandler(ModuleBase):
         return False
 
     """
-    剧情
+    Сюжет
     """
     story_popup_timeout = Timer(10, count=20)
-    map_has_clear_mode = False  # 会在 fast_forward.py 中被覆盖
+    map_has_clear_mode = False  # Будет переопределено в fast_forward.py
     map_is_threat_safe = False
 
     _story_confirm = Timer(0.5, count=1)
@@ -339,14 +341,14 @@ class InfoHandler(ModuleBase):
 
     def _story_option_buttons(self):
         """
-        检测剧情选项按钮（旧版样式）。
+        Обнаружить кнопки вариантов сюжета (старый стиль).
 
         Returns:
-            从上到下排列的剧情选项按钮列表，未找到则返回空列表。
+            Список кнопок вариантов сюжета сверху вниз; если не найдены, пустой список.
         """
-        # 选项检测区域，至少需要包含 3 个选项
+        # Область детекции вариантов: должна содержать как минимум 3 варианта
         story_option_area = (730, 188, 1140, 480)
-        # 选项左侧部分的背景颜色
+        # Цвет фона левой части варианта
         story_option_color = (99, 121, 156)
         image = color_similarity_2d(self.image_crop(story_option_area, copy=False), color=story_option_color) > 225
         x_count = np.where(np.sum(image, axis=0) > 40)[0]
@@ -355,12 +357,12 @@ class InfoHandler(ModuleBase):
         x_min, x_max = np.min(x_count), np.max(x_count)
 
         parameters = {
-            # 选项尺寸约为 300~320px x 50~52px
+            # Размер варианта примерно 300~320px x 50~52px
             'height': 280,
             'width': 45,
             'distance': 50,
-            # 选择峰值宽度测量的相对高度（占突出度的百分比）
-            # 1.0 在最低等高线处计算，0.5 在突出度一半处计算，必须 >= 0
+            # Выбор относительной высоты измерения ширины пика (в процентах от выраженности)
+            # 1.0 рассчитывается на нижнем контуре, 0.5 на половине выраженности, значение должно быть >= 0
             'rel_height': 5,
         }
         y_count = np.sum(image, axis=1)
@@ -379,12 +381,12 @@ class InfoHandler(ModuleBase):
 
     def _story_option_buttons_2(self):
         """
-        检测剧情选项按钮（新版大白色选项样式）。
+        Обнаружить кнопки вариантов сюжета (новый стиль крупных белых вариантов).
 
         Returns:
-            从上到下排列的剧情选项按钮列表，未找到则返回空列表。
+            Список кнопок вариантов сюжета сверху вниз; если не найдены, пустой список.
         """
-        # 选项检测区域，至少需要包含 3 个选项
+        # Область детекции вариантов: должна содержать как минимум 3 варианта
         story_option_area = (330, 135, 980, 555)
         story_detect_area = (330, 135, 355, 555)
         story_option_color = (247, 247, 247)
@@ -396,13 +398,13 @@ class InfoHandler(ModuleBase):
         line[line >= 200] = 255
 
         parameters = {
-            # 选项尺寸约为 300~320px x 50~52px
+            # Размер варианта примерно 300~320px x 50~52px
             'height': 200,
             'width': 40,
             'distance': 40,
-            # 选择峰值宽度测量的相对高度（占突出度的百分比）
-            # 1.0 在最低等高线处计算，0.5 在突出度一半处计算，必须 >= 0
-            # rel_height 约为 240 / 48
+            # Выбор относительной высоты измерения ширины пика (в процентах от выраженности)
+            # 1.0 рассчитывается на нижнем контуре, 0.5 на половине выраженности, значение должно быть >= 0
+            # rel_height составляет примерно 240 / 48
             'rel_height': 4,
         }
         peaks, properties = signal.find_peaks(line, **parameters)
@@ -433,13 +435,13 @@ class InfoHandler(ModuleBase):
 
     def _identify_siren_device_option(self, options):
         """
-        根据固定的 5 选项序列识别塞壬研究装置选项。
+        Определить вариант исследовательского устройства Сирен по фиксированной последовательности из 5 вариантов.
 
         Args:
-            options: 检测到的剧情选项按钮列表。
+            options: Список обнаруженных кнопок вариантов сюжета.
 
         Returns:
-            需要点击的按钮，若非塞壬研究装置则返回 None。
+            Кнопка для клика; если это не исследовательское устройство Сирен, возвращается None.
         """
         if len(options) != 5:
             return None
@@ -474,10 +476,10 @@ class InfoHandler(ModuleBase):
 
     def story_skip(self, drop=None):
         """
-        跳过剧情对话。
+        Пропустить сюжетный диалог.
 
-        2023.09.14 剧情选项变更为中间大白色选项样式，
-        通过 STORY_SKIP_3 检测但点击原始 STORY_SKIP。
+        2023.09.14: варианты сюжета изменены на крупные белые варианты по центру экрана;
+        обнаружение выполняется через STORY_SKIP_3, но кликается исходный STORY_SKIP.
         """
         if self.story_popup_timeout.started() and not self.story_popup_timeout.reached():
             if self.handle_popup_confirm('STORY_SKIP'):
@@ -523,9 +525,9 @@ class InfoHandler(ModuleBase):
                 self._story_option_record = options_count
                 self._story_option_confirm.reset()
         if self.appear(STORY_SKIP_3, offset=(20, 20), interval=2):
-            # 确认是剧情画面
-            # 当剧情播放速度为"非常快"时，AzurPilot 可能点击了跳过但剧情已消失
-            # 此点击会打断自动搜索
+            # Подтверждаем, что это сюжетный экран
+            # При скорости воспроизведения сюжета «Очень быстро» AzurPilot мог нажать пропуск, когда сюжет уже завершился
+            # Этот клик может прервать автопоиск
             self.interval_reset([STORY_SKIP_3])
             if self._story_confirm.reached():
                 if drop:
@@ -554,10 +556,10 @@ class InfoHandler(ModuleBase):
         self.interval_clear(STORY_LETTERS_ONLY)
 
     def handle_story_skip(self, drop=None):
-        # 通关后重打活动仍可能有剧情
-        # 通关模式下通常无剧情
-        # 但 B3/D3 在威胁等级变为安全前仍有剧情
-        # 威胁安全后不再有剧情
+        # Повторное прохождение события после очистки все еще может содержать сюжет
+        # В режиме зачистки сюжета обычно нет
+        # Однако на B3/D3 сюжет остается до снижения уровня угрозы до «Безопасно»
+        # После достижения статуса «Безопасно» сюжета больше нет
         if self.map_is_threat_safe and self.config.Campaign_Event != 'event_20201012_cn':
             return False
 
@@ -585,15 +587,15 @@ class InfoHandler(ModuleBase):
         self.ensure_no_story()
 
     """
-    游戏提示
+    Внутриигровые подсказки
     """
 
     def handle_game_tips(self):
         """
-        处理游戏提示弹窗。
+        Обработать всплывающее окно внутриигровой подсказки.
 
         Returns:
-            是否处理了游戏提示。
+            Была ли обработана подсказка.
         """
         if self.appear(GAME_TIPS, offset=(20, 20), interval=2) and self.image_color_count(
                 GAME_TIPS.button, color=(40, 40, 40), threshold=240, count=50):
@@ -611,27 +613,27 @@ class InfoHandler(ModuleBase):
         return False
 
     """
-    小黄鸡加载动画
+    Анимация загрузки с цыплёнком Манджу
     """
 
     def manjuu_count(self):
         """
-        通过模板匹配检测小黄鸡数量。
+        Определить количество цыплят Манджу сопоставлением с шаблоном.
 
         Returns:
-            检测到的小黄鸡数量。
+            Количество обнаруженных цыплят Манджу.
         """
         image = self.image_crop(MANJUU_AREA, copy=False)
-        # 默认阈值 0.85 对小黄鸡不适用，因为其面部会被拉伸和压缩
-        # 导致模板无法匹配，使用 0.8 来匹配变形后的面部
+        # Порог по умолчанию 0.85 не подходит для цыпленка Манджу, так как его лицо растягивается и сжимается
+        # из-за чего шаблон не совпадает; используем 0.8 для сопоставления деформированного лица
         buttons = TEMPLATE_MANJUU.match_multi(image, similarity=0.8, name='INFO_MANJUU')
         return len(buttons)
 
     def wait_until_manjuu_disappear(self):
         """
-        等待小黄鸡加载动画消失。
+        Ожидать исчезновения анимации загрузки с цыплёнком Манджу.
         """
-        # 模板对象没有可读名称，这里手动添加字符串用于卡死检测记录
+        # У объекта шаблона нет читаемого имени, вручную добавляем строку для записи в журнал детекции зависаний
         self.device.stuck_record_add('TEMPLATE_MANJUU')
         timer = Timer(1.5, count=3).start()
         while 1:
@@ -645,10 +647,10 @@ class InfoHandler(ModuleBase):
 
     def handle_manjuu(self):
         """
-        处理小黄鸡加载动画。
+        Обработать анимацию загрузки с цыплёнком Манджу.
 
         Returns:
-            是否检测到并处理了小黄鸡加载。
+            Была ли обнаружена и обработана загрузка с цыплёнком Манджу.
         """
         count = self.manjuu_count()
         if count > 2:

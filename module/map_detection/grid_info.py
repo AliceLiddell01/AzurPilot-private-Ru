@@ -1,28 +1,28 @@
-"""网格静态信息模块。定义 GridInfo 类，存储地图网格的固定属性（陆地、海洋、出生点、
-敌人刷新点等），数据来源于碧蓝航线 WIKI。"""
+"""Модуль статической информации о ячейках карты. Определяет класс GridInfo, хранящий фиксированные
+свойства ячеек карты (суша, море, точки возрождения, точки появления врагов и т.д.), полученные из WIKI по Azur Lane."""
 
 from module.base.utils import location2node
 
 
 class GridInfo:
-    """收集 map_v1 中网格基本信息的类。
+    """Класс сбора базовой информации о ячейках сетки в map_v1.
 
-    访问碧蓝航线WIKI http://wiki.biligame.com/blhx 可获取地图基本信息。
-    例如访问 http://wiki.biligame.com/blhx/7-2 可了解战役 7-2 的详情，
-    包括 Boss 点位和敌人刷新点。
+    Базовые сведения о картах доступны в Azur Lane WIKI: http://wiki.biligame.com/blhx.
+    Например, страница http://wiki.biligame.com/blhx/7-2 описывает детали кампании 7-2,
+    включая позиции босса и точки появления врагов.
 
-    网格包含以下可从 WIKI 获取的固定属性。
-    | 显示名     | 属性名                   | 说明                    |
-    |------------|--------------------------|-------------------------|
-    | ++         | is_land                  | 舰队无法进入陆地        |
-    | --         | is_sea                   | 海洋                    |
-    | __         | is_submarine_spawn_point | 潜艇刷新点              |
-    | SP         | is_spawn_point           | 舰队可能在此刷新        |
-    | ME         | may_enemy                | 敌人可能在此刷新        |
-    | MB         | may_boss                 | Boss 可能在此刷新       |
-    | MM         | may_mystery              | 神秘事件可能在此刷新    |
-    | MA         | may_ammo                 | 舰队可在此获取弹药      |
-    | MS         | may_siren                | 塞壬/精英敌人刷新点     |
+    Ячейки содержат следующие фиксированные свойства, доступные из WIKI:
+    | Символ     | Имя свойства             | Описание                               |
+    |------------|--------------------------|----------------------------------------|
+    | ++         | is_land                  | Суша, флот не может войти              |
+    | --         | is_sea                   | Море                                   |
+    | __         | is_submarine_spawn_point | Точка возрождения подлодки             |
+    | SP         | is_spawn_point           | Флот может появиться здесь             |
+    | ME         | may_enemy                | Враг может появиться здесь             |
+    | MB         | may_boss                 | Босс может появиться здесь             |
+    | MM         | may_mystery              | Таинственное событие может появиться   |
+    | MA         | may_ammo                 | Флот может пополнить боезапас здесь    |
+    | MS         | may_siren                | Точка появления Сирены/элитного врага  |
     """
     is_os = False
 
@@ -53,18 +53,18 @@ class GridInfo:
     maze_nearby = None  # SelectedGrids
 
     enemy_scale = 0
-    enemy_genre = None  # Light, Main, Carrier, Treasure, Enemy(未知)
+    enemy_genre = None  # Light, Main, Carrier, Treasure, Enemy(неизвестно)
 
     is_cleared = False
     is_caught_by_siren = False
-    is_carrier = False  # 是否为神秘事件中刷新的航母
-    is_movable = False  # 是否为可移动敌人
-    is_mechanism_trigger = False  # 机关是否已触发
-    is_mechanism_block = False  # 是否被机关阻挡
+    is_carrier = False  # Является ли авианосцем, появившимся из таинственного события
+    is_movable = False  # Является ли подвижным противником
+    is_mechanism_trigger = False  # Активирован ли механизм
+    is_mechanism_block = False  # Заблокировано ли механизмом
     mechanism_trigger = None  # SelectedGrids
     mechanism_block = None  # SelectedGrids
-    mechanism_wait = 2  # 等待机关解锁动画的秒数
-    is_fortress = False  # 机械要塞
+    mechanism_wait = 2  # Время ожидания анимации разблокировки механизма в секундах
+    is_fortress = False  # Механическая крепость
     is_flare = False
     is_missile_attack = False
     may_bouncing_enemy = False
@@ -110,7 +110,7 @@ class GridInfo:
         if self.is_siren:
             if not self.enemy_genre:
                 return 'SU'
-            # enemy_genre 的格式类似 "Siren_xxx"
+            # Формат enemy_genre похож на "Siren_xxx"
             name = self.enemy_genre[6:]
             if '_' in name:
                 _, _, name = name.partition('_')
@@ -185,17 +185,17 @@ class GridInfo:
         return self.cost < 20
 
     def merge(self, info, mode='normal'):
-        """将扫描到的网格信息合并到当前网格。
+        """Объединить распознанную информацию о ячейке с текущей ячейкой.
 
         Args:
-            info (GridInfo): 待合并的网格信息。
-            mode (str): 扫描模式，如 'init'、'normal'、'carrier'、'movable'。
+            info (GridInfo): Информация о ячейке для объединения.
+            mode (str): Режим сканирования ('init', 'normal', 'carrier', 'movable').
 
         Returns:
-            bool: 是否合并成功。
+            bool: Успешно ли выполнено объединение.
         """
-        # 潜艇可能出现在任何位置，因此合并信息没有成功/失败之分
-        # 但期望潜艇在刷新点处能被尽早发现
+        # Подлодка может появиться в любом месте, поэтому слияние информации не делится на успешное и неуспешное
+        # Но желательно как можно раньше обнаружить подлодку в точке появления
         if info.is_submarine:
             if self.is_submarine_spawn_point:
                 self.is_submarine = True
@@ -213,8 +213,8 @@ class GridInfo:
                 if info.is_current_fleet:
                     self.is_current_fleet = True
                 if mode == 'init' and info.is_enemy:
-                    # 在初始扫描时，允许网格同时为 is_fleet 和 is_enemy
-                    # 以便 fixup_submarine_fleet 获取信息
+                    # При начальном сканировании разрешаем клетке одновременно быть is_fleet и is_enemy
+                    # Чтобы fixup_submarine_fleet мог получить информацию
                     pass
                 else:
                     return True
@@ -241,14 +241,14 @@ class GridInfo:
                 return False
         if info.is_enemy:
             if self.is_fortress:
-                # 要塞可以是普通敌人
+                # Крепость может быть обычным противником
                 return True
             elif not self.is_land and (self.may_enemy or self.is_carrier or mode == 'decoy'):
                 self.is_enemy = True
                 if info.enemy_scale and not self.enemy_scale:
                     self.enemy_scale = info.enemy_scale
                 if info.enemy_scale == 3 and self.enemy_scale == 2:
-                    # 但允许 3 覆盖 2
+                    # Но разрешаем 3 заменять 2
                     self.enemy_scale = info.enemy_scale
                 if info.enemy_genre and not (info.enemy_genre == 'Enemy' and self.enemy_genre):
                     self.enemy_genre = info.enemy_genre
@@ -289,14 +289,14 @@ class GridInfo:
             elif self.may_enemy:
                 self.is_enemy = True
                 return True
-            # 允许错误的预测
+            # Разрешаем ошибочный прогноз
             # else:
             #     return False
 
         return True
 
     def wipe_out(self):
-        """当舰队踏上网格时调用此方法，清除网格上的敌人/事件信息。"""
+        """Вызывается при переходе флота на ячейку для очистки информации о врагах и событиях."""
         self.is_enemy = False
         self.enemy_scale = 0
         self.enemy_genre = None
@@ -313,7 +313,7 @@ class GridInfo:
             self.mechanism_block.set(is_mechanism_block=False)
 
     def reset(self):
-        """进入地图后调用此方法，重置网格所有状态。"""
+        """Вызывается при входе на карту для сброса всех динамических состояний ячейки."""
         self.wipe_out()
         self.is_fleet = False
         self.is_current_fleet = False
@@ -326,10 +326,10 @@ class GridInfo:
         self.may_bouncing_enemy = False
 
     def covered_grid(self):
-        """获取被遮挡网格的相对坐标。
+        """Получить относительные координаты перекрытых ячеек сетки.
 
         Returns:
-            list[tuple]: 被遮挡网格的相对坐标列表。
+            list[tuple]: Список относительных координат перекрытых ячеек.
         """
         if self.is_current_fleet:
             return [(0, -1), (0, -2)]
@@ -339,13 +339,13 @@ class GridInfo:
         return []
 
     def distance_to(self, other):
-        """计算到另一个网格的曼哈顿距离。
+        """Вычислить манхэттенское расстояние до другой ячейки сетки.
 
         Args:
-            other (GridInfo): 目标网格。
+            other (GridInfo): Целевая ячейка.
 
         Returns:
-            int: 曼哈顿距离。
+            int: Манхэттенское расстояние.
         """
         l1 = self.location
         l2 = other.location

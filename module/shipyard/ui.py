@@ -1,6 +1,8 @@
-"""船坞系统 UI 操作模块，处理船坞页面的导航和交互。
-包括系列选择、蓝图计数读取、开发/研究等级 OCR、
-以及适配不同服务器的特殊 UI 元素识别。"""
+"""Модуль операций с интерфейсом верфи, обрабатывающий навигацию и взаимодействие со страницами.
+
+Включает выбор серии PR, чтение количества чертежей, OCR уровней разработки и исследований,
+а также распознавание специфических элементов интерфейса для разных серверов.
+"""
 
 from module.base.decorator import cached_property
 from module.base.timer import Timer
@@ -28,7 +30,7 @@ class ShipyardNavbar(Navbar):
     def is_button_active(self, button, main):
         if main.image_color_count(button, color=(33, 113, 222), threshold=221, count=400):
             return True
-        # 奥丁肩部区域的颜色
+        # Цвет области плеча Одина
         if main.image_color_count(button, color=(41, 85, 165), threshold=221, count=400):
             return True
         return False
@@ -37,13 +39,13 @@ class ShipyardNavbar(Navbar):
 class ShipyardUI(UI):
     def _shipyard_cannot_strengthen(self):
         """
-        检测舰船是否无法继续强化。
+        Проверка, невозможно ли дальнейшее усиление корабля.
 
-        在 DEV 或 FATE 界面中，判断当前舰船是否已达
-        到当前等级的最大强化程度，无法继续消耗蓝图。
+        В интерфейсе DEV или FATE определяет, достиг ли текущий корабль
+        максимального усиления для текущего уровня без возможности дальнейшего расхода чертежей.
 
         Returns:
-            bool: 是否出现无法强化的提示
+            bool: Появилось ли уведомление о невозможности усиления.
         """
         if self.appear(SHIPYARD_PROGRESS_DEV, offset=(20, 20)) \
                 or self.appear(SHIPYARD_PROGRESS_FATE, offset=(20, 20)) \
@@ -55,10 +57,10 @@ class ShipyardUI(UI):
 
     def _shipyard_get_append(self):
         """
-        获取当前所处的开发阶段后缀。
+        Получение суффикса текущей стадии разработки.
 
         Returns:
-            str: 'FATE' 或 'DEV'
+            str: 'FATE' или 'DEV'.
         """
         if self.appear(SHIPYARD_IN_FATE, offset=(20, 20)):
             return 'FATE'
@@ -67,18 +69,18 @@ class ShipyardUI(UI):
 
     def _shipyard_get_total(self):
         """
-        获取当前界面中的蓝图总数读值。
+        Получение текущего значения общего числа чертежей на экране.
 
-        游戏 UI 在不同 PR 季节间有差异，且 DEV/FATE
-        阶段的按钮布局不同，需要动态检测并生成 OCR 区域。
+        Интерфейс игры различается между сезонами PR, а раскладка кнопок
+        на стадиях DEV/FATE не совпадает, поэтому область OCR определяется динамически.
 
         Returns:
-            tuple: (plus 按钮, minus 按钮, OCR 识别的数值)
+            tuple: (кнопка плюс, кнопка минус, распознанное число).
         """
-        # 游戏 UI 在此处较为复杂，DEV/FATE 与 MAX 按钮的有无会导致不同布局。
-        # 有 MAX 按钮时: | - |   0   | + | | MAX |
-        # 无 MAX 按钮时: | - |       0       | + |
-        # 动态检测并生成新的 OCR 区域。
+        # Здесь игровой UI довольно сложный: наличие DEV/FATE и кнопки MAX меняет раскладку.
+        # С кнопкой MAX: | - |   0   | + | | MAX |
+        # Без кнопки MAX: | - |       0       | + |
+        # Динамически определяем и формируем новую область OCR.
         append = self._shipyard_get_append()
         ocr = globals()[f'OCR_SHIPYARD_TOTAL_{append}']
         minus = globals()[f'SHIPYARD_MINUS_{append}']
@@ -92,17 +94,17 @@ class ShipyardUI(UI):
 
     def _shipyard_ensure_index(self, count, skip_first_screenshot=True):
         """
-        调整蓝图消耗数量到目标值。
+        Установка требуемого количества расходуемых чертежей.
 
-        类似 ui_ensure_index 的实现，尝试将消耗数量调整到
-        count。若界面不允许消耗全部数量，则保留允许的最大值。
+        Аналогично ui_ensure_index пытается скорректировать количество расхода до count.
+        Если интерфейс не позволяет израсходовать всё количество, сохраняет максимально допустимое.
 
         Args:
-            count (int): 目标消耗数量
-            skip_first_screenshot (bool): 是否跳过首次截图
+            count (int): Целевое количество для расхода
+            skip_first_screenshot (bool): Пропускать ли первый снимок экрана
 
         Returns:
-            int: 无法消耗的剩余蓝图数量，None 表示异常
+            int: Оставшееся неизрасходованное количество чертежей, либо None при ошибке
         """
         if count < 0:
             logger.warning('[Верфь — UI] count < 0; продолжение невозможно')
@@ -131,15 +133,15 @@ class ShipyardUI(UI):
 
     def _shipyard_get_bp_count(self, index=0):
         """
-        获取指定位置舰船的蓝图数量。
+        Получение количества чертежей корабля в указанной позиции.
 
         Args:
-            index (int): 目标舰船位置（从 1 开始）
+            index (int): Позиция целевого корабля (начиная с 1)
 
         Returns:
-            int: OCR 识别的蓝图数量
+            int: Распознанное через OCR количество чертежей
         """
-        # index(config.SHIPYARD_INDEX) 从 1 开始
+        # index(config.SHIPYARD_INDEX) начинается с 1
         if index <= 0 or index > len(SHIPYARD_BP_COUNT_GRID.buttons):
             logger.warning(f'[Верфь — UI] Не удалось получить количество по индексу {index}')
             return -1
@@ -150,10 +152,10 @@ class ShipyardUI(UI):
 
     def _shipyard_in_ui(self):
         """
-        检测当前是否在船坞界面内。
+        Проверка нахождения в интерфейсе верфи.
 
         Returns:
-            bool: 是否处于船坞 UI 区域
+            bool: Находится ли сейчас в области интерфейса верфи.
         """
         if self.appear(SHIPYARD_CHECK, offset=(20, 20)):
             return True
@@ -166,14 +168,14 @@ class ShipyardUI(UI):
 
     def _shipyard_set_series(self, series=1, skip_first_screenshot=True):
         """
-        设置当前显示的科研系列。
+        Выбор отображаемой серии исследований.
 
         Args:
-            series (int): 目标科研系列编号
-            skip_first_screenshot (bool): 是否跳过首次截图
+            series (int): Номер целевой серии исследований
+            skip_first_screenshot (bool): Пропускать ли первый снимок экрана
 
         Returns:
-            bool: 是否设置成功
+            bool: Успешно ли переключена серия
         """
         if series <= 0 or series > len(SHIPYARD_SERIES_GRID.buttons):
             logger.warning(f'Серия исследований {series} недоступна для выбора')
@@ -192,9 +194,9 @@ class ShipyardUI(UI):
     @cached_property
     def _shipyard_bottom_navbar(self):
         """
-        船坞底部导航栏，用于在选定系列内切换舰船。
+        Нижняя панель навигации верфи для переключения кораблей внутри выбранной серии.
 
-        位置因用户的科研进度而异，用户需自行确认索引。
+        Позиции зависят от индивидуального прогресса игрока; пользователь должен подтвердить индекс.
         """
         return ShipyardNavbar(
             grids=SHIPYARD_FACE_GRID,
@@ -202,17 +204,17 @@ class ShipyardUI(UI):
 
     def shipyard_bottom_navbar_ensure(self, left=None, right=None, skip_first_screenshot=True):
         """
-        确保导航到指定索引的舰船页面。
+        Гарантированный переход на страницу корабля по заданному индексу.
 
-        根据索引切换底部导航栏，等待界面完全过渡。
+        Переключает нижнюю панель навигации по индексу и ожидает полного завершения анимации перехода.
 
         Args:
-            left (int): 目标舰船索引
-            right (int): 目标舰船索引（右侧）
-            skip_first_screenshot (bool): 是否跳过首次截图
+            left (int): Индекс целевого корабля
+            right (int): Индекс целевого корабля (справа)
+            skip_first_screenshot (bool): Пропускать ли первый снимок экрана
 
         Returns:
-            bool: 导航栏是否设置成功
+            bool: Успешно ли установлена панель навигации
         """
         if left is None and right is not None:
             left = right
@@ -226,7 +228,7 @@ class ShipyardUI(UI):
         if self._shipyard_bottom_navbar.set(self, left=left, right=right, skip_first_screenshot=skip_first_screenshot):
             ensured = True
 
-        # 导航栏设置后，等待界面完全过渡
+        # После настройки панели навигации ждём полного завершения перехода интерфейса
         confirm_timer = Timer(1.5, count=3).start()
         while 1:
             if skip_first_screenshot:
@@ -234,7 +236,7 @@ class ShipyardUI(UI):
             else:
                 self.device.screenshot()
 
-            # 结束
+            # Завершение
             if self._shipyard_in_ui():
                 if confirm_timer.reached():
                     break
@@ -245,15 +247,15 @@ class ShipyardUI(UI):
 
     def shipyard_set_focus(self, series=1, index=1, skip_first_screenshot=True):
         """
-        设置船坞焦点到指定系列和舰船。
+        Установка фокуса верфи на указанную серию и корабль.
 
         Args:
-            series (int): 目标科研系列编号
-            index (int): 目标舰船索引
-            skip_first_screenshot (bool): 是否跳过首次截图
+            series (int): Номер целевой серии исследований
+            index (int): Индекс целевого корабля
+            skip_first_screenshot (bool): Пропускать ли первый снимок экрана
 
         Returns:
-            bool: 是否设置成功
+            bool: Успешно ли установлен фокус
         """
         if series > 2 and index > 5:
             logger.warning(f'[Верфь — UI] Для серии исследований {series} допустимы только индексы 1–5; невозможно установить фокус на {index}')
@@ -263,12 +265,12 @@ class ShipyardUI(UI):
 
     def _shipyard_get_ship(self, skip_first_screenshot=True):
         """
-        处理获取已完成研发的舰船的界面过渡。
+        Обработка экрана получения корабля с завершённым исследованием.
 
         Pages: in: SHIPYARD_RESEARCH_COMPLETE, out: SHIPYARD_CONFIRM_DEV
 
         Args:
-            skip_first_screenshot (bool): 是否跳过首次截图
+            skip_first_screenshot (bool): Пропускать ли первый снимок экрана
         """
         from module.combat.assets import GET_SHIP
 
@@ -304,13 +306,13 @@ class ShipyardUI(UI):
 
     def _shipyard_buy_confirm(self, text, skip_first_screenshot=True):
         """
-        处理使用/购买蓝图的界面过渡。
+        Обработка интерфейса использования/покупки чертежей.
 
-        Pages: in: SHIPYARD_CONFIRM_DEV/FATE, out: 船坞界面
+        Pages: in: SHIPYARD_CONFIRM_DEV/FATE, out: интерфейс верфи
 
         Args:
-            text (str): 弹窗确认标识文本
-            skip_first_screenshot (bool): 是否跳过首次截图
+            text (str): Идентификатор подтверждения всплывающего окна
+            skip_first_screenshot (bool): Пропускать ли первый снимок экрана
         """
         success = False
         append = self._shipyard_get_append()
@@ -326,7 +328,7 @@ class ShipyardUI(UI):
                 self.device.screenshot()
 
             if ocr_timer.reached():
-                # 未能检测到正常退出，回退到 OCR 检查
+                # Не удалось определить обычный выход; откатываемся к проверке OCR
                 logger.warning('[Верфь — UI] Не удалось определить обычный выход; переход к проверке OCR')
                 _, _, current = self._shipyard_get_total()
                 if not current:
@@ -359,7 +361,7 @@ class ShipyardUI(UI):
                 confirm_timer.reset()
                 continue
 
-            # DEV 完成进入 FATE 时会弹出 FATE 信息
+            # При переходе из завершённого DEV в FATE появляется информация о FATE
             if self.appear_then_click(LOGIN_ANNOUNCE, offset=area_pad((-300, 127, -300, 127), pad=-50), interval=3):
                 self.interval_reset(button)
                 success = True
@@ -367,7 +369,7 @@ class ShipyardUI(UI):
                 confirm_timer.reset()
                 continue
 
-            # 结束
+            # Завершение
             if success and self._shipyard_in_ui():
                 if confirm_timer.reached():
                     break
@@ -376,13 +378,13 @@ class ShipyardUI(UI):
 
     def _shipyard_buy_enter(self):
         """
-        进入蓝图购买界面。
+        Переход в интерфейс покупки чертежей.
 
-        检查当前舰船是否已完成研发，若研发完成则获取舰船，
-        若有 FATE 阶段则进入 FATE 界面。
+        Проверяет завершение исследования текущего корабля (при завершении получает корабль),
+        при наличии фазы FATE переходит в её интерфейс.
 
         Returns:
-            bool: 是否成功进入购买界面
+            bool: Успешен ли переход в интерфейс покупки
         """
         if self.appear(SHIPYARD_RESEARCH_INCOMPLETE, offset=(20, 20)) \
                 or self.appear(SHIPYARD_RESEARCH_IN_PROGRESS, offset=(20, 20)):
@@ -400,10 +402,10 @@ class ShipyardUI(UI):
 
     def _shipyard_get_coin(self):
         """
-        获取当前金币数量。
+        Получение текущего количества монет.
 
         Returns:
-            int: 金币数量
+            int: Количество монет
         """
         if self.ui_page_appear(page_main_white):
             return MAIN_OCR_COIN.ocr(self.device.image)

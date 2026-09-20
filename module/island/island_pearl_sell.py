@@ -58,7 +58,7 @@ class IslandPearlSell(Island):
 
         pearl_trade_time = self._get_next_pearl_trade_time(now=now)
 
-        # 判断当前触发类型
+        # Определяем текущий тип запуска
         trade_due = self._trade_due(now=now, next_time=pearl_trade_time)
         refresh_due = False if trade_due else self._refresh_due(now=now)
         logger.attr("Следующий запуск планировщика", self.config.Scheduler_NextRun)
@@ -75,7 +75,7 @@ class IslandPearlSell(Island):
 
         self.ui_ensure(page_island)
 
-        # 采购售卖时间已到，执行完整周循环
+        # Наступило время покупки и продажи — выполняем полный недельный цикл
         if trade_due:
             buy_status = self.run_buy_phase()
             if buy_status == self.PHASE_DONE:
@@ -99,7 +99,7 @@ class IslandPearlSell(Island):
             self.config.save()
             return
 
-        # 每日价格刷新
+        # Ежедневное обновление цены
         if refresh_due:
             self.run_price_refresh()
             next_run = self._next_run(now=now)
@@ -108,14 +108,14 @@ class IslandPearlSell(Island):
             self.config.save()
             return
 
-    # ==================== 采购 / 售卖阶段 ====================
+    # ==================== Этапы покупки / продажи ====================
 
     def run_buy_phase(self):
         """执行采购阶段。"""
         logger.hr("Этап покупки жемчуга", level=2)
         self._purchase_quota_exhausted = False
 
-        # 检查购买延时——如果还没到购买时间则跳过采购，让售卖正常执行
+        # Проверяем задержку покупки: если время ещё не наступило, пропускаем покупку и не мешаем продаже
         if not self._buy_next_run_due():
             logger.info("[Остров — жемчуг] Задержка покупки ещё не истекла; покупка пропущена")
             return self.PHASE_SKIPPED
@@ -282,7 +282,7 @@ class IslandPearlSell(Island):
         logger.info("[Остров — жемчуг] Продажа завершена")
         return self.PHASE_DONE
 
-    # ==================== 地图与路线 ====================
+    # ==================== Карта и маршруты ====================
 
     def _enter_home_pearl_shop(self, destination):
         """从本岛进入指定地点的珍珠商店。"""
@@ -366,7 +366,7 @@ class IslandPearlSell(Island):
                 continue
         return False
 
-    # ==================== 好友排名 ====================
+    # ==================== Рейтинг друзей ====================
 
     def visit_friend_by_rank(self, mode, threshold):
         """
@@ -615,7 +615,7 @@ class IslandPearlSell(Island):
         except (ValueError, TypeError):
             return ""
 
-    # ==================== 交易数量与确认 ====================
+    # ==================== Количество сделки и подтверждение ====================
 
     def sell_all_current_pearls(self, current_pearl):
         """售卖后复检珍珠数量，直到识别为 0 或达到最大轮次。"""
@@ -749,7 +749,7 @@ class IslandPearlSell(Island):
     def _action_name(action):
         return "покупка" if action == "buy" else "продажа"
 
-    # ==================== 价格刷新 ====================
+    # ==================== Обновление цены ====================
 
     def run_price_refresh(self):
         """每日 03:00 进入珍珠售卖商店后立即退出，刷新价格显示。"""
@@ -762,7 +762,7 @@ class IslandPearlSell(Island):
         logger.info("[Остров — жемчуг] Обновление цены завершено")
         return True
 
-    # ==================== 时间与延时 ====================
+    # ==================== Время и задержки ====================
 
     def _trade_due(self, now=None, next_time=None):
         """检查是否到了每周采购售卖的执行时间。"""
@@ -785,7 +785,7 @@ class IslandPearlSell(Island):
         )
         if now < today_refresh:
             return False
-        # 仅在未到周循环时间时才做价格刷新
+        # Обновляем цену только до наступления времени недельного цикла
         next_trade = self._get_next_pearl_trade_time(now=now)
         return now < next_trade
 
@@ -848,7 +848,7 @@ class IslandPearlSell(Island):
         now = now or current_time().replace(microsecond=0)
         candidates = [self._next_trade_run(now=now)]
 
-        # 每日价格刷新
+        # Ежедневное обновление цены
         if self.config.IslandPearlSell_DailyPriceRefresh:
             candidates.append(self._next_daily_refresh(now=now))
 

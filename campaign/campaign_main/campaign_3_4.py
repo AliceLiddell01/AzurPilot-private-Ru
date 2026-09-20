@@ -8,8 +8,8 @@ MAP = CampaignMap()
 MAP.shape = 'H4'
 MAP.camera_data = ['E2']
 MAP.camera_data_spawn_point = ['D1', 'D2']
-# WIKI的图是错的: https://wiki.biligame.com/blhx/3-4
-# A3有岛, 假图害人
+# Карта в WIKI неверна: https://wiki.biligame.com/blhx/3-4
+# На A3 находится остров; неверная карта вводит в заблуждение.
 MAP.map_data = """
     SP -- -- ME -- ++ ++ ++
     SP ME -- ME -- MA ++ ++

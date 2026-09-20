@@ -1,12 +1,12 @@
-"""神秘格子（Mystery Node）处理器。
+"""Обработчик таинственных клеток (Mystery Node).
 
-处理地图上的神秘格子事件，包括：
-- 获取道具（装备箱、材料等）
-- 获取弹药补给
-- 获取航空支援（航母编队）
+Обрабатывает события таинственных клеток на карте:
+- Получение предметов (ящики снаряжения, материалы и т. д.)
+- Пополнение боеприпасов
+- Получение авиационной поддержки (эскадрильи авианосцев)
 
-继承自 StrategyHandler 和 EnemySearchingHandler，
-可在地图操作的状态循环中直接调用。
+Наследуется от StrategyHandler и EnemySearchingHandler,
+может вызываться напрямую в цикле состояний карты.
 """
 
 from module.base.timer import Timer
@@ -19,32 +19,32 @@ from module.logger import logger
 
 
 class MysteryHandler(StrategyHandler, EnemySearchingHandler):
-    """神秘格子事件处理器。
+    """Обработчик событий таинственных клеток.
 
-    处理地图中踩到神秘格子（问号格子）后触发的各类事件。
-    神秘格子可能给予道具、弹药或航空支援。
+    Обрабатывает различные типы событий, возникающие при наступлении флота на клетку с вопросительным знаком.
+    Таинственная клетка может дать предметы, боеприпасы или авиационную поддержку.
 
     Attributes:
-        _get_ammo_log_timer (Timer): 弹药获取日志节流计时器，
-            避免频繁记录相同的弹药获取日志。
-        carrier_count (int): 本次地图中获取的航空支援次数。
+        _get_ammo_log_timer (Timer): Таймер ограничения частоты логирования боеприпасов,
+            предотвращающий спам повторяющимися логами.
+        carrier_count (int): Количество полученных авиационных поддержек на текущей карте.
     """
     _get_ammo_log_timer = Timer(3)
     carrier_count = 0
 
     def handle_mystery(self, button=None):
-        """处理神秘格子事件的统一入口。
+        """Единая точка входа для обработки событий таинственных клеток.
 
-        依次检测道具获取、弹药获取和航空支援三种事件类型。
+        Последовательно проверяет получение предметов, пополнение боеприпасов и авиационную поддержку.
 
         Args:
-            button (Button | None): 获取道具时点击的按钮。
-                可以是目标格子，使操作更接近人类行为。
-                为 None 时使用默认的 MYSTERY_ITEM 按钮。
+            button (Button | None): Кнопка клика при получении предмета.
+                Может быть целевой клеткой для имитации действий человека.
+                Если None, используется стандартная кнопка MYSTERY_ITEM.
 
         Returns:
-            str | bool: 事件类型字符串（'get_item'、'get_ammo'、'get_carrier'），
-                未检测到任何事件时返回 False。
+            str | bool: Строка типа события ('get_item', 'get_ammo', 'get_carrier')
+                или False, если события не обнаружено.
         """
         with self.stat.new(
                 genre=self.config.campaign_name, method=self.config.DropRecord_CombatRecord
@@ -59,17 +59,17 @@ class MysteryHandler(StrategyHandler, EnemySearchingHandler):
             return False
 
     def handle_mystery_items(self, button=None, drop=None):
-        """处理神秘格子的道具获取事件。
+        """Обрабатывает событие получения предметов с таинственной клетки.
 
-        检测 "获得道具" 界面，记录掉落并关闭界面。
+        Определяет экран "Получены предметы", фиксирует дроп и закрывает окно.
 
         Args:
-            button (Button | None): 点击按钮。当 `MAP_MYSTERY_MAP_CLICK` 关闭时
-                使用默认 MYSTERY_ITEM 按钮。
-            drop (DropImage | None): 掉落记录对象。
+            button (Button | None): Кнопка клика. Если опция `MAP_MYSTERY_MAP_CLICK` отключена,
+                используется стандартная кнопка MYSTERY_ITEM.
+            drop (DropImage | None): Объект фиксации дропа.
 
         Returns:
-            bool: 是否处理了道具获取事件。
+            bool: Было ли обработано событие получения предметов.
         """
         if not self.config.MAP_MYSTERY_MAP_CLICK:
             button = MYSTERY_ITEM
@@ -89,15 +89,15 @@ class MysteryHandler(StrategyHandler, EnemySearchingHandler):
         return False
 
     def handle_mystery_ammo(self, drop=None):
-        """处理神秘格子的弹药补给事件。
+        """Обрабатывает событие пополнения боеприпасов с таинственной клетки.
 
-        检测信息栏中的弹药获取提示，记录掉落。
+        Определяет уведомление в информационной строке о получении боеприпасов и фиксирует дроп.
 
         Args:
-            drop (DropImage | None): 掉落记录对象。
+            drop (DropImage | None): Объект фиксации дропа.
 
         Returns:
-            bool: 是否检测到弹药获取。
+            bool: Было ли обнаружено пополнение боеприпасов.
         """
         if self.info_bar_count():
             if self._get_ammo_log_timer.reached() and self.appear(GET_AMMO):
@@ -110,16 +110,16 @@ class MysteryHandler(StrategyHandler, EnemySearchingHandler):
         return False
 
     def handle_mystery_carrier(self, drop=None):
-        """处理神秘格子的航空支援（航母编队）事件。
+        """Обрабатывает событие авиационной поддержки с таинственной клетки.
 
-        当配置允许时，检测地图中出现的敌人搜索动画（航母加入），
-        等待动画完成并记录掉落。
+        Если разрешено конфигурацией, определяет появление анимации поиска врагов (присоединение авианосцев),
+        дожидается завершения анимации и фиксирует событие.
 
         Args:
-            drop (DropImage | None): 掉落记录对象。
+            drop (DropImage | None): Объект фиксации дропа.
 
         Returns:
-            bool: 是否处理了航空支援事件。
+            bool: Была ли обработана авиационная поддержка.
         """
         if self.config.MAP_MYSTERY_HAS_CARRIER:
             if self.is_in_map() and self.enemy_searching_appear():

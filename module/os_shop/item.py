@@ -1,8 +1,8 @@
-"""大世界商店物品数据模块。
+"""Модуль данных о товарах магазина Operation Siren.
 
-定义大世界商店的物品数据结构，包括价格 OCR 识别器（修正常见
-OCR 错误）、计数器 OCR 识别器以及商品价格区域的识别逻辑，
-为商店购买决策提供准确的价格和数量信息。
+Определяет структуры данных товаров магазина Operation Siren, включая OCR-распознаватель цены
+(с исправлением типичных ошибок распознавания), OCR-распознаватель счётчика и логику областей цен товаров,
+предоставляя точную информацию о стоимости и количестве для принятия решений о покупке.
 """
 from typing import List
 import module.config.server as server
@@ -12,10 +12,10 @@ from module.statistics.item import Item, ItemGrid
 
 
 class PriceOcr(DigitYuv):
-    """商店价格 OCR 识别器。
+    """OCR-распознаватель цены товаров магазина.
 
-    修正常见 OCR 错误：I→1, D→0, S→5, B→8，
-    处理前导零的情况。
+    Исправляет типичные ошибки OCR: I→1, D→0, S→5, B→8,
+    а также обрабатывает случаи с ведущим нулём.
     """
 
     def after_process(self, result):
@@ -32,9 +32,9 @@ class PriceOcr(DigitYuv):
 
 
 class CounterOcr(Ocr):
-    """商店计数器 OCR 识别器。
+    """OCR-распознаватель счётчика товаров магазина.
 
-    识别形如 `14/15` 的计数器文本，返回当前值和总值。
+    Распознаёт текст счётчика вида `14/15`, возвращая текущее и общее значение.
     """
 
     def __init__(self, buttons, lang='azur_lane', letter=(255, 255, 255), threshold=128, alphabet='0123456789/IDSB',
@@ -48,14 +48,14 @@ class CounterOcr(Ocr):
         return result
 
     def ocr(self, image, direct_ocr=False):
-        """识别计数器文本，如 `14/15`，返回 [当前值, 总值]。
+        """Распознать текст счётчика вида `14/15`, возвращая [текущее_значение, общее_значение].
 
         Args:
-            image: 待识别的图像。
-            direct_ocr: 是否直接进行 OCR 识别。
+            image: Изображение для распознавания.
+            direct_ocr: Выполнять ли прямое OCR-распознавание.
 
         Returns:
-            list[list[int]]: 识别结果列表，每个元素为 [当前值, 总值]。
+            list[list[int]]: Список результатов распознавания, где каждый элемент — [текущее, общее].
         """
         result_list = super().ocr(image, direct_ocr=direct_ocr)
         if isinstance(result_list, list):
@@ -87,7 +87,7 @@ class CounterOcr(Ocr):
             return [int(i) for i in parts]
 
 
-# 根据服务器选择不同的价格 OCR 配置
+# Выбираем конфигурацию OCR цены в зависимости от сервера
 COUNTER_OCR = CounterOcr([], threshold=96, name='Counter_ocr')
 if server.server in ['jp']:
     PRICE_OCR = PriceOcr([], letter=(245, 214, 58), threshold=32, name='Price_ocr')
@@ -96,9 +96,9 @@ else:
 
 
 class OSShopItem(Item):
-    """大世界商店+物品类。
+    """Класс товара магазина Operation Siren.
 
-    扩展基础物品类，增加商店索引、滚动位置、库存计数等属性。
+    Расширяет базовый класс товара, добавляя атрибуты индекса магазина, позиции прокрутки и количества на складе.
     """
 
     def __init__(self, *args, **kwargs):
@@ -110,7 +110,7 @@ class OSShopItem(Item):
 
     @property
     def shop_index(self):
-        """获取商店索引。"""
+        """Получить индекс магазина."""
         return self._shop_index
 
     @shop_index.setter
@@ -119,7 +119,7 @@ class OSShopItem(Item):
 
     @property
     def scroll_pos(self):
-        """获取滚动位置。"""
+        """Получить позицию прокрутки."""
         return self._scroll_pos
 
     @scroll_pos.setter
@@ -127,12 +127,12 @@ class OSShopItem(Item):
         self._scroll_pos = value
 
     def is_known_item(self) -> bool:
-        """判断是否为已知物品。
+        """Определить, является ли предмет известным.
 
-        排除默认物品、空物品和纯数字名称的物品。
+        Исключает предметы по умолчанию, пустые слоты и числовые имена предметов.
 
         Returns:
-            bool: 是已知物品返回 True，否则返回 False。
+            bool: True, если предмет известен, иначе False.
         """
         if self.name == 'DefaultItem':
             return False
@@ -161,9 +161,9 @@ class OSShopItem(Item):
 
 
 class OSShopItemGrid(ItemGrid):
-    """大世界商店+物品网格类。
+    """Класс сетки товаров магазина Operation Siren.
 
-    支持物品识别、计数器 OCR、商店索引和滚动位置记录。
+    Поддерживает распознавание предметов, OCR счётчиков, а также фиксацию индекса магазина и позиции прокрутки.
     """
 
     item_class = OSShopItem
@@ -177,19 +177,19 @@ class OSShopItemGrid(ItemGrid):
         self.counter_area = counter_area
 
     def predict(self, image, counter=False, shop_index=None, scroll_pos=None) -> List[OSShopItem]:
-        """预测图像中的商店物品。
+        """Распознать товары магазина на изображении.
 
-        识别物品的名称、数量、成本和价格，可选择性地识别计数器、
-        商店索引和滚动位置。
+        Распознаёт название, количество, стоимость и цену товаров, а также опционально счётчик,
+        индекс магазина и позицию прокрутки.
 
         Args:
-            image: 待识别的图像。
-            counter: 是否识别物品计数器。
-            shop_index: 商店索引，用于记录物品所在商店。
-            scroll_pos: 滚动位置，用于记录物品在滚动条中的位置。
+            image: Изображение для распознавания.
+            counter: Распознавать ли счётчик товаров.
+            shop_index: Индекс магазина для привязки товара.
+            scroll_pos: Позиция прокрутки для привязки положения товара.
 
         Returns:
-            list[OSShopItem]: 识别到的物品列表。
+            list[OSShopItem]: Список распознанных товаров.
         """
         super().predict(image, name=True, amount=True, cost=True, price=True)
         if counter and len(self.items):

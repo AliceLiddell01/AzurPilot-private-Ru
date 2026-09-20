@@ -28,7 +28,7 @@ else:
     TARGET_DR_SHIPS = ('Agir', 'Hakuryu')
 SHIP_NAME_MAP = dict(zip(BASE_SHIPS, TARGET_SHIPS))
 
-# 索引，期数，名称，出现权重，彩图纸掉落，彩图纸掉落，金图纸掉落，金图纸掉落，金图纸掉落，彩装备掉落
+# Индекс, сезон, название, вес появления, дроп чертежей UR, дроп чертежей UR, дроп чертежей SSR, дроп чертежей SSR, дроп чертежей SSR, дроп снаряжения UR
 PROJECT_TABLE = """
 0	4	B-4	58.42861987	0	0	0.346666667	0.346666667	0.346666667	0.0588
 1	4	B-4	58.42861987	0	0	0.346666667	0.346666667	0.346666667	0.0588
@@ -713,10 +713,10 @@ class Research:
     bp_Tenrai: float
 
     def __post_init__(self):
-        # 转换变量类型
+        # Преобразование типов переменных
         for k, v in self.__dict__.items():
             self.__setattr__(k, parse_value(v))
-        # 构造科研过滤器需要的对象属性
+        # Формирование свойств объекта, необходимых фильтру исследований
         self.genre, self.duration = self.name.split('-')
         self.duration = str(self.duration)
         if self.series == 4:
@@ -746,12 +746,12 @@ def product_dict(func):
     return out
 
 
-# 掉落加那么一点点，防止过滤器写错，100年都不毕业
+# Добавляем немного к дропу, чтобы при ошибке фильтра прогресс не затягивался на 100 лет
 PROJECT_DROP = product_dict(lambda project: np.array(
     [project.bp_Agir, project.bp_Hakuryu, project.bp_Anchorage, project.bp_August, project.bp_Marcopolo,
      project.bp_Tenrai]) + 0.000001)
 PROJECT_DURATION = product_dict(lambda project: float(project.duration) / 24)
-# 构造出掉落数据的数组，给numba
+# Формирование массива данных дропа для numba
 # Shape: (project_index=188, drop_items=6)
 PROJECT_DROP_ARRAY = np.array(list(PROJECT_DROP.values()))
 PROJECT_DURATION_ARRAY = np.array(list(PROJECT_DURATION.values()))
@@ -806,12 +806,12 @@ class ResearchPool:
             remain = len(ships)
             if 0 < remain < 5:
                 changed = []
-                # 将所有四期船的概率增加到未完成的船上
+                # Переносим вероятности всех кораблей 4 сезона на незавершенные корабли
                 for ship in ships:
                     for project in projects.select(ship=ship):
                         weight[project.index] *= 5 / remain
                         changed.append(project.index)
-                # 将已完成的科研船的定向概率归0
+                # Обнуляем целевую вероятность для завершенных исследовательских кораблей
                 for project in projects.select(genre='D'):
                     if project.index not in changed:
                         weight[project.index] = 0
@@ -822,8 +822,8 @@ class ResearchPool:
 
 SPAWN_RATE = ResearchPool('reset').cal_project_spawn_rate(PROJECTS)
 SPAWN_RATE_S4 = ResearchPool('reset').cal_project_spawn_rate(PROJECTS_S4)
-# 构造出不同条件下的刷新概率数组，给numba
-# 事先累加概率，加快 random_choice()
+# Формирование массива вероятностей обновления для различных условий для numba
+# Заранее аккумулируем вероятности для ускорения random_choice()
 SPAWN_RATE = np.array([np.cumsum(SPAWN_RATE[n]) for n in range(64)])
 SPAWN_RATE_S4 = np.array([np.cumsum(SPAWN_RATE_S4[n]) for n in range(64)])
 
@@ -857,29 +857,29 @@ def sample(condition, project_select_index, reset_index):
         int, int: 有刷新时选择的科研项目, 无刷新时选择的科研项目
     """
     while 1:
-        # 将完成情况转换成数组索引
+        # Преобразуем статус завершения в индексы массива
         index = 0
         for i, c in enumerate(condition):
             if c:
                 index += 2 ** i
-        # 随机生成5个科研项目，包含3个四期，和2个任意
+        # Случайная генерация 5 исследовательских проектов: 3 из 4 сезона и 2 произвольных
         # np.random.seed(3)
         p1, p2, p3 = random_choice(3, SPAWN_RATE_S4[index])
         p4, p5 = random_choice(2, SPAWN_RATE[index])
-        # 去重
+        # Удаление дубликатов
         if p1 == p4 or p2 == p4 or p3 == p4 or p1 == p5 or p2 == p5 or p3 == p5:
             continue
-        # 加入刷新，1000表示刷新
+        # Добавляем обновление: 1000 означает обновление
         project_list = np.array([p1, p2, p3, p4, p5, 1000])
-        # 将项目索引转换为过滤器索引
+        # Преобразуем индекс проекта в индекс фильтра
         f1, f2, f3, f4, f5 = np.take(project_select_index, project_list[:5])
         # print(filter_index)
         # print(project_list)
 
-        # 无刷新时，选择的科研项目
+        # Выбранный исследовательский проект без обновления
         s_index = np.array([f1, f2, f3, f4, f5, 999])
         selected_no_reset = project_list[np.argmin(s_index)]
-        # 有刷新时，选择的科研项目
+        # Выбранный исследовательский проект при обновлении
         s_index = np.array([f1, f2, f3, f4, f5, reset_index])
         selected_with_reset = project_list[np.argmin(s_index)]
 
@@ -888,8 +888,8 @@ def sample(condition, project_select_index, reset_index):
 
 @jit(nopython=True, fastmath=True)
 def events_add(rewards, condition):
-    # 活动兑换蓝图给进度最慢的，有利于提高整体速度
-    # 因为G系给的是随机的，早毕业的就溢出了，给进度最慢的不会溢出，就快了
+    # Чертежи из обмена события отдаем наиболее отстающему: это повышает общую скорость
+    # так как проекты G дают случайные чертежи, раннее завершение ведет к переливу; вливание в отстающего исключает перелив
     index = np.argmin(rewards[:2])
     rewards[index] += 0.5  # 15 DR blueprints in each event
     index = np.argmin(rewards[2:5])
@@ -913,7 +913,7 @@ def simulate(project_select_index, reset_index, target, active=1., interval=0.):
         float, np.ndarray: 消耗时间，累计获得物品 Shape: (6,)
     """
     rewards = np.array([0., 0., 0., 0., 0., 0.])
-    condition = rewards != 0  # 每样物品是否达到目标数量，True未达到，False已达到
+    condition = rewards != 0  # Достигнуто ли целевое количество каждого предмета: True — не достигнуто, False — достигнуто
     has_reset = True
     day_cost = 0
 
@@ -932,7 +932,7 @@ def simulate(project_select_index, reset_index, target, active=1., interval=0.):
                     break
             else:
                 if index_no_reset == 1000:
-                    # 刷新次数用完，且需要刷新时，等到明天，使用明天的刷新次数
+                    # Если попытки обновления исчерпаны, а обновление необходимо, ждем следующего дня и используем новые попытки
                     day_cost = int(day_cost) + 1
                     rewards = events_add(rewards, condition)
                     has_reset = False
@@ -951,12 +951,12 @@ def simulate(project_select_index, reset_index, target, active=1., interval=0.):
         condition = rewards < target
         new_day = int(day_cost)
         new_hour = day_cost - new_day
-        # 跨天重置刷新次数
+        # Сброс количества обновлений при смене суток
         if new_day > prev_day:
             has_reset = True
             rewards = events_add(rewards, condition)
         else:
-            # 超出活跃时间
+            # Превышено активное время
             if new_hour > active:
                 day_cost = int(day_cost) + 1
                 has_reset = True
@@ -1160,27 +1160,27 @@ class BruteForceOptimizer:
 """
 科研设置
 """
-# 去除的科研项目
-# 默认去除 B/T/E，因为掉落数据样本小
-# 切魔方：'B > T > E'
-# 只做0.5h魔方：'B > T > E > H1 > H2 > H4'
-# 不切魔方：'B > T > E > H'
+# Исключаемые исследовательские проекты
+# По умолчанию исключаем B/T/E из-за малой выборки данных дропа
+# Тратить кубы: 'B > T > E'
+# Только кубы на 0.5 ч: 'B > T > E > H1 > H2 > H4'
+# Без кубов: 'B > T > E > H'
 ResearchPool.remove_projects = 'B > T > H1 > H2 > H4'
-# 每日活跃时间，按天计算
-# 超出活跃时间后，仍在挂项目，但不再开始新项目
+# Ежедневное активное время в долях суток
+# После окончания активного времени текущий проект продолжается, но новые не запускаются
 FilterSimulator.active = 24 / 24
-# 收菜间隔，按天计算
-# 项目完成后，过多长时间才收获
+# Интервал сбора наград в долях суток
+# Через какое время после завершения проекта забирать результат
 FilterSimulator.interval = 0 / 60 / 24
-# 科研目标
-# 需要的彩图纸 彩图纸 金图纸 金图纸 金图纸 彩装备 的物品数量
-# 某种图纸数量满足后，不再产生该种定向科研，图纸全满后重置
-# 四期毕业：np.array([513, 513, 343, 343, 343, 100])
-# 仅科研船：np.array([513, 513, 343, 343, 343, 0])
-# 仅天雷：np.array([0, 0, 0, 0, 0, 150])
+# Цель исследований
+# Требуемое количество предметов: чертежи UR, чертежи UR, чертежи SSR, чертежи SSR, чертежи SSR, снаряжение UR
+# При достижении лимита чертежей направленные проекты этого типа прекращаются, после заполнения всех сбрасывается
+# Завершение 4 сезона: np.array([513, 513, 343, 343, 343, 100])
+# Только корабли: np.array([513, 513, 343, 343, 343, 0])
+# Только Tenrai: np.array([0, 0, 0, 0, 0, 150])
 FilterSimulator.target = np.array([513, 513, 343, 343, 343, 100])
-# 运行的进程数
-# 建议为cpu的物理进程数
+# Количество запускаемых процессов
+# Рекомендуется число физических ядер CPU
 BruteForceOptimizer.process = 6
 
 if __name__ == '__main__':

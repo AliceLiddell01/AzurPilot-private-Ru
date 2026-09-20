@@ -49,7 +49,7 @@ class CoinTaskMixin:
             ...
     """
     
-    # 任务名称映射（用于通知显示）
+    # Сопоставление имён задач для отображения в уведомлениях
     TASK_NAMES = {
         'OpsiMeowfficerFarming': 'Фарм мяуфицеров',
         'OpsiObscure': 'Скрытые зоны',
@@ -57,14 +57,14 @@ class CoinTaskMixin:
         'OpsiStronghold': 'Крепости Сирен'
     }
     
-    # 配置路径常量
+    # Константы путей конфигурации
     CONFIG_PATH_CL1_PRESERVE = 'OpsiHazard1Leveling.OpsiHazard1Leveling.OperationCoinsPreserve'
-    # 四个独立任务开关的配置路径
+    # Пути конфигурации четырёх независимых переключателей задач
     CONFIG_PATH_ENABLE_MEOWFFICER = 'OpsiScheduling.OpsiScheduling.EnableMeowfficerFarming'
     CONFIG_PATH_ENABLE_OBSCURE = 'OpsiScheduling.OpsiScheduling.EnableObscure'
     CONFIG_PATH_ENABLE_ABYSSAL = 'OpsiScheduling.OpsiScheduling.EnableAbyssal'
     CONFIG_PATH_ENABLE_STRONGHOLD = 'OpsiScheduling.OpsiScheduling.EnableStronghold'
-    # 智能调度+新增配置路径
+    # Новые пути конфигурации «Умного планирования+»
     CONFIG_PATH_USE_SMART_CL1_PRESERVE = 'OpsiScheduling.OpsiScheduling.UseSmartSchedulingOperationCoinsPreserve'
     CONFIG_PATH_SMART_CL1_PRESERVE = 'OpsiScheduling.OpsiScheduling.OperationCoinsPreserve'
     CONFIG_PATH_SMART_AP_PRESERVE = 'OpsiScheduling.OpsiScheduling.ActionPointPreserve'
@@ -78,11 +78,11 @@ class CoinTaskMixin:
     RUNTIME_ATTR_LAST_NOTIFIED_COIN_TASK = '_smart_scheduling_last_notified_coin_task'
     RUNTIME_ATTR_LAST_COIN_TASK_NOTIFICATION_ATTEMPT = '_smart_scheduling_last_coin_task_notification_attempt'
     RUNTIME_ATTR_PREVENT_OVERFLOW_DELAY = '_prevent_action_point_overflow_delay'
-    # 各任务的配置路径常量（集中管理，避免硬编码）
+    # Константы путей конфигурации задач: централизованное управление без hardcode
     CONFIG_PATH_MEOW_AP_PRESERVE = 'OpsiMeowfficerFarming.OpsiMeowfficerFarming.ActionPointPreserve'
     CONFIG_PATH_CL1_MIN_AP_RESERVE = 'OpsiHazard1Leveling.OpsiHazard1Leveling.MinimumActionPointReserve'
     
-    # 耄耋相接任务名称
+    # Имя задачи фарма мяуфицеров
     TASK_NAME_MEOWFFICER_FARMING = 'OpsiMeowfficerFarming'
     TASK_NAME_HAZARD1_LEVELING = 'OpsiHazard1Leveling'
     TASK_NAME_SCHEDULING = 'OpsiScheduling'
@@ -189,7 +189,7 @@ class CoinTaskMixin:
             task=self.TASK_NAME_SCHEDULING,
         )
     
-    # ==================== 推送通知相关方法 ====================
+    # ==================== Методы push-уведомлений ====================
     
     def notify_push(self, title, content):
         """
@@ -207,7 +207,7 @@ class CoinTaskMixin:
         Returns:
             bool: True 表示推送成功发送，False 表示未发送或发送失败
         """
-        # 检查是否启用智能调度+
+        # Проверяем, включено ли «Умное планирование+»
         if not self.is_smart_scheduling_enabled():
             return False
 
@@ -216,7 +216,7 @@ class CoinTaskMixin:
         if not launcher_enabled and not onepush_enabled:
             return False
 
-        # 获取实例名称并格式化标题
+        # Получаем имя экземпляра и форматируем заголовок
         instance_name = getattr(self.config, 'config_name', 'AzurPilot')
         if title.startswith('[AzurPilot]'):
             formatted_title = f"[AzurPilot <{instance_name}>]{title[len('[AzurPilot]'):]}"
@@ -251,7 +251,7 @@ class CoinTaskMixin:
         if not onepush_enabled:
             return webui_success
 
-        # 检查是否配置了 OnePush。启动器推送不依赖 OnePush 配置。
+        # Проверяем конфигурацию OnePush. Push лаунчера от конфигурации OnePush не зависит.
         push_config = (
             self.config.OpsiGeneral_OpsiOnePushConfig
             if self.config.OpsiGeneral_IndependentPush
@@ -322,12 +322,12 @@ class CoinTaskMixin:
         if not push_config:
             return False
         
-        # 尝试解析为结构化数据
+        # Пытаемся разобрать структурированные данные
         if isinstance(push_config, dict):
             provider = push_config.get('provider')
             return provider is not None and provider.lower() != 'null'
         
-        # 回退到字符串匹配
+        # Fallback к сопоставлению строки
         if isinstance(push_config, str):
             push_config_lower = push_config.lower()
             if 'provider:null' in push_config_lower or 'provider: null' in push_config_lower:
@@ -369,7 +369,7 @@ class CoinTaskMixin:
         total_ap = self._action_point_total
 
         instance_name = getattr(self.config, 'config_name', 'default')
-        # AP 快照由各任务模块自行管理（如 _record_ap_and_coins），此处仅保留推送逻辑。
+        # Снимками AP управляют сами модули задач (например _record_ap_and_coins); общий планировщик здесь только координирует уведомления.
         previous_ap = None
         try:
             from module.application.runtime_storage import get_runtime_storage
@@ -419,21 +419,21 @@ class CoinTaskMixin:
         Returns:
             int: 保留的黄币数量
         """
-        # 检查是否启用智能调度+黄币保留配置
+        # Проверяем, включена ли настройка резерва жёлтых монет «Умного планирования+»
         use_smart_preserve = self._is_coin_target_scheduling_enabled()
         
         if not use_smart_preserve:
-            # 开关未开启，回退到侵蚀1原配置
+            # Переключатель выключен: возвращаемся к исходной конфигурации CL1
             cl1_preserve_original = self.config.cross_get(
                 keys=self.CONFIG_PATH_CL1_PRESERVE
             )
-            # 保证返回 int 以免后续比较报错
+            # Гарантируем int, чтобы последующие сравнения не завершались ошибкой
             if cl1_preserve_original is None:
                 cl1_preserve_original = 0
             logger.info(f'[Операция «Сирена» — умное планирование+] Резерв жёлтых монет взят из исходной конфигурации: {cl1_preserve_original} (планирование целевого запаса отключено)')
             return cl1_preserve_original
         else:
-            # 开关开启，使用智能调度+自己的配置，允许为 0
+            # Переключатель включён: используем собственную конфигурацию «Умного планирования+», значение 0 допустимо
             preserve = self.config.cross_get(
                 keys=self.CONFIG_PATH_SMART_CL1_PRESERVE
             )
@@ -636,7 +636,7 @@ class CoinTaskMixin:
         """
         enabled_tasks = []
         
-        # 检查每个任务的独立开关
+        # Проверяем независимый переключатель каждой задачи
         task_config_map = {
             'OpsiStronghold': self.CONFIG_PATH_ENABLE_STRONGHOLD,
             'OpsiObscure': self.CONFIG_PATH_ENABLE_OBSCURE,
@@ -648,7 +648,7 @@ class CoinTaskMixin:
             if self._config_enabled(keys=config_path):
                 enabled_tasks.append(task_name)
 
-        # 按照 OpsiScheduling_TaskPriority 配置的顺序进行过滤和排序
+        # Фильтруем и сортируем в порядке из OpsiScheduling_TaskPriority
         try:
             priority_str = self.config.OpsiScheduling_TaskPriority
             if priority_str:
@@ -1042,7 +1042,7 @@ class OpsiScheduling(CoinTaskMixin, OSMap):
         """
         logger.hr('Операция «Сирена» — умное планирование+', level=1)
 
-        # 检查是否启用智能调度+
+        # Проверяем, включено ли «Умное планирование+»
         if not self.is_smart_scheduling_enabled():
             logger.info('[Операция «Сирена» — умное планирование+] «Умное планирование+» отключено, выполнение пропущено')
             return

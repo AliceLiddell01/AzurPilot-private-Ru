@@ -1,6 +1,6 @@
-"""委托项目数据字典，定义各语言（CN/EN/JP/TW）下委托名称的关键词映射。
-用于通过 OCR 识别委托标题并自动分类为日常、紧急、额外等类型，
-支持多语言委托名称的模糊匹配。"""
+"""Словарь данных проектов комиссий, определяющий сопоставление ключевых слов в названиях поручений для различных языков (CN/EN/JP/TW).
+Используется для распознавания заголовков комиссий через OCR и автоматической классификации на ежедневные, срочные, дополнительные и др.,
+поддерживая нечёткое сопоставление мультиязычных названий поручений."""
 
 dictionary_cn = {
     'major_comm': ['自主训练', '对抗演习', '科研任务', '工具整备', '战术课程', '货物运输'],
@@ -19,8 +19,8 @@ dictionary_cn = {
     'urgent_gem': ['要员', '度假', '巡视'],
     'urgent_ship': ['观舰'],
 }
-# major_comm 必须排在 extra_cube 之后，
-# 因为 'Fleet Cargo Transport' 匹配 extra_cube，而 'Cargo Transport I' 匹配 major_comm
+# major_comm должен располагаться после extra_cube,
+# потому что 'Fleet Cargo Transport' соответствует extra_cube, а 'Cargo Transport I' — major_comm.
 dictionary_en = {
     'daily_resource': ['DAILY RESOURCE EXTRACTION'],
     'daily_chip': ['AWAKENING TACTICAL RESEARCH'],

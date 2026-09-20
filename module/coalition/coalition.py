@@ -1,20 +1,21 @@
-"""联动活动（Coalition Event）执行模块。
+"""Модуль выполнения совместных операций (Coalition Event).
 
-自动执行碧蓝航线的联动活动战斗。联动活动是一种特殊的限时活动，
-通常分为多个难度（Easy/Normal/Hard 或 TC1/TC2/TC3），部分活动有 SP 关卡。
+Автоматически выполняет бои совместных операций Azur Lane. Совместные операции — это
+особое временное событие, обычно разделённое на несколько сложностей (Easy/Normal/Hard или TC1/TC2/TC3),
+некоторые события также имеют этап SP.
 
-本模块的核心功能：
-- 活动 PT（点数）识别：不同活动使用不同的 OCR 策略和参数
-- 燃油检查：部分活动 UI 不显示燃油图标，需跳过检查
-- 关卡标准化：兼容旧配置中的 TC-1/2/3 难度名
-- 停止条件管理：运行次数、燃油、PT、金币、任务均衡器
-- 情绪管理：单舰队模式下强制防止黄脸
+Ключевые возможности модуля:
+- Распознавание очков PT события: разные события используют индивидуальные стратегии OCR и параметры
+- Проверка топлива: в интерфейсе некоторых событий отсутствует значок топлива, проверка пропускается
+- Стандартизация названий этапов: совместимость с устаревшими именами сложностей TC-1/2/3
+- Управление условиями остановки: лимит числа запусков, топливо, PT, монеты, балансировщик задач
+- Управление настроением флота: в режиме одного флота принудительно предотвращается оранжевое настроение
 
-支持的联动活动包括霜落（Frostfall）、学园、约会大作战（DAL）、
-霓虹都市、时尚、恐怖故事等。
+Поддерживаемые события включают Frostfall, Academy, Date A Live (DAL),
+Neon City, Fashion, Horror Stories и др.
 
-配置路径: Campaign.Event (活动名称), Coalition.Mode (关卡难度),
-         Coalition.Fleet (舰队模式)
+Пути в конфигурации: Campaign.Event (имя события), Coalition.Mode (сложность этапа),
+         Coalition.Fleet (режим флота).
 """
 
 import re
@@ -32,16 +33,16 @@ from module.ui.page import page_campaign_menu
 
 
 class AcademyPtOcr(Digit):
-    """学园活动 PT 专用 OCR，识别形如 '累计: 840' 的文本。"""
+    """Специализированный OCR для очков PT события Academy, распознающий текст формата очков (например, 'Всего: 840')."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.alphabet += ':'
 
     def after_process(self, result):
-        """从冒号后提取数字部分。
+        """Извлечение числовой части после двоеточия.
 
-        输入示例: '累计: 840' -> 提取 '840'
+        Пример входных данных: 'Всего: 840' -> извлечение '840'.
         """
         logger.attr(self.name, result)
         try:
@@ -52,16 +53,16 @@ class AcademyPtOcr(Digit):
 
 
 class DALPtOcr(Digit):
-    """DAL 活动 PT 专用 OCR，识别形如 'X9100' 的文本。"""
+    """Специализированный OCR для очков PT события DAL, распознающий текст вида 'X9100'."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.alphabet += 'X'
 
     def after_process(self, result):
-        """从 X 字符后提取数字部分。
+        """Извлечение числовой части после символа X.
 
-        输入示例: 'X9100' -> 提取 '9100'
+        Пример входных данных: 'X9100' -> извлечение '9100'.
         """
         logger.attr(self.name, result)
         try:
@@ -72,32 +73,33 @@ class DALPtOcr(Digit):
 
 
 class Coalition(CoalitionCombat, CampaignEvent):
-    """联动活动战役执行器。
+    """Исполнитель кампании совместных операций (Coalition Event).
 
-    继承自 CoalitionCombat（联动战斗逻辑）和 CampaignEvent（活动战役基础），
-    负责联动活动的完整自动化流程：
-    1. 从配置读取活动名称、关卡难度和舰队模式
-    2. 标准化关卡名称（兼容旧配置格式）
-    3. 循环执行战斗，每次检查停止条件
-    4. 识别活动 PT 值用于进度追踪
-    5. 处理无燃油图标的特殊活动 UI
+    Наследует CoalitionCombat (боевая логика совместных операций) и CampaignEvent (база событий кампании),
+    отвечает за полный цикл автоматизации совместной операции:
+    1. Чтение из конфигурации названия события, сложности этапа и режима флота
+    2. Стандартизация названия этапа (совместимость со старыми форматами конфигурации)
+    3. Циклическое проведение боёв с проверкой условий остановки перед каждым боем
+    4. Распознавание значения PT события для отслеживания прогресса
+    5. Обработка особого интерфейса событий без значка топлива
 
     Attributes:
-        run_count: 当前已执行的战斗次数。
-        run_limit: 配置的运行次数上限。
+        run_count: Количество уже проведённых боёв.
+        run_limit: Ограничение количества запусков из конфигурации.
     """
 
     run_count: int
     run_limit: int
 
     def get_event_pt(self):
-        """识别当前活动的 PT 数值。
+        """Распознавание текущего количества очков PT события.
 
-        根据不同活动选择对应的 OCR 对象和参数，从截图中读取 PT 值。
-        999999 视为默认值，需等待画面刷新后重试。
+        В зависимости от текущего события выбирает соответствующий объект OCR и параметры,
+        считывая значение PT со снимка экрана.
+        Значение 999999 считается заполнителем по умолчанию, требующим ожидания обновления экрана.
 
         Returns:
-            int: PT 数值，识别失败返回 0。
+            int: Количество очков PT; 0 при ошибке распознавания.
         """
         event = self.config.Campaign_Event
         if event == 'coalition_20230323':
@@ -105,7 +107,7 @@ class Coalition(CoalitionCombat, CampaignEvent):
         elif event == 'coalition_20240627':
             ocr = AcademyPtOcr(ACADEMY_PT_OCR, name='OCR_PT', letter=(255, 255, 255), threshold=128)
         elif event == 'coalition_20250626':
-            # 使用通用 OCR 模型
+            # Используем универсальную модель OCR
             ocr = Digit(NEONCITY_PT_OCR, name='OCR_PT', lang='azur_lane', letter=(208, 208, 208), threshold=128)
         elif event == 'coalition_20251120':
             ocr = DALPtOcr(DAL_PT_OCR, name='OCR_PT', letter=(255, 213, 69), threshold=128)
@@ -120,7 +122,7 @@ class Coalition(CoalitionCombat, CampaignEvent):
         pt = 0
         for _ in self.loop(timeout=1.5):
             pt = ocr.ocr(self.device.image)
-            # 999999 是默认占位值，等待画面刷新
+            # 999999 — значение-заполнитель по умолчанию; ждём обновления экрана
             if pt not in [999999]:
                 break
         else:
@@ -130,15 +132,15 @@ class Coalition(CoalitionCombat, CampaignEvent):
         return pt
 
     def check_oil(self):
-        """检查燃油是否低于限制值。
+        """Проверка, не опустился ли уровень топлива ниже установленного лимита.
 
-        部分活动 UI 不显示燃油图标，此时跳过检查。
-        首次检测到燃油不足时，等待画面稳定后二次确认。
+        В интерфейсе некоторых событий значок топлива не отображается, в этом случае проверка пропускается.
+        При первом обнаружении нехватки топлива ожидает стабилизации экрана для повторного подтверждения.
 
         Returns:
-            bool: 燃油不足返回 True，否则返回 False。
+            bool: True, если топлива недостаточно; иначе False.
         """
-        # 无燃油图标的联动活动跳过检查
+        # Для коалиционных событий без значка топлива пропускаем проверку
         if not self._coalition_has_oil_icon:
             logger.info('В коалиционном событии нет значка топлива; проверка топлива пропущена')
             return False
@@ -147,7 +149,7 @@ class Coalition(CoalitionCombat, CampaignEvent):
         if not (self.get_oil() < limit):
             return False
 
-        # 等待 OCR 数值稳定后再确认一次
+        # Ждём стабилизации значения OCR и затем проверяем ещё раз
         timeout = Timer(1, count=2).start()
         while True:
             self.device.screenshot()
@@ -163,10 +165,10 @@ class Coalition(CoalitionCombat, CampaignEvent):
 
     @property
     def _coalition_has_oil_icon(self):
-        """当前联动活动是否在 UI 上显示燃油图标。
+        """Отображается ли значок топлива в интерфейсе текущей совместной операции.
 
-        部分活动出于 UI 设计考虑移除了燃油显示。
-        参见: https://github.com/LmeSzinc/AzurLaneAutoScript/issues/5214
+        В некоторых событиях значок топлива удалён разработчиками из соображений дизайна UI.
+        См.: https://github.com/LmeSzinc/AzurLaneAutoScript/issues/5214
         """
         if self.config.Campaign_Event in [
             'coalition_20260122',
@@ -177,42 +179,43 @@ class Coalition(CoalitionCombat, CampaignEvent):
         return True
 
     def triggered_stop_condition(self, oil_check=False, pt_check=False, coin_check=False):
-        """检查是否触发停止条件。
+        """Проверка выполнения условий остановки.
 
-        依次检查：运行次数上限、燃油不足、活动 PT 上限、金币上限、任务均衡器。
+        Последовательно проверяет: лимит числа запусков, нехватку топлива, лимит PT события,
+        лимит монет, балансировщик задач.
 
         Args:
-            oil_check: 是否检查燃油限制。
-            pt_check: 是否检查活动 PT 限制。
-            coin_check: 是否检查金币限制。
+            oil_check: Проверять ли лимит топлива.
+            pt_check: Проверять ли лимит PT события.
+            coin_check: Проверять ли лимит монет.
 
         Returns:
-            bool: 触发了停止条件返回 True。
+            bool: True, если сработало хотя бы одно условие остановки.
         """
-        # 运行次数上限
+        # Лимит числа запусков
         if self.run_limit and self.config.StopCondition_RunCount <= 0:
             logger.hr('Условие остановки: число запусков')
             self.config.StopCondition_RunCount = 0
             self.config.Scheduler_Enable = False
             return True
-        # 燃油限制
+        # Лимит топлива
         if oil_check:
-            # 检查 ui_current 是否存在，避免属性异常
+            # Проверяем наличие ui_current, чтобы избежать ошибки атрибута
             ui_is_campaign_menu = hasattr(self, 'ui_current') and self.ui_current == page_campaign_menu
             if (self._coalition_has_oil_icon or ui_is_campaign_menu) and self.check_oil():
                 logger.hr('Условие остановки: лимит топлива')
                 self.config.task_delay(minute=(120, 240))
                 return True
-        # 活动 PT 限制
+        # Лимит PT события
         if pt_check:
             if self.event_pt_limit_triggered():
                 logger.hr('Условие остановки: лимит PT события')
                 return True
-        # 金币限制
+        # Лимит монет
         if coin_check and self.coin_limit_triggered():
             logger.hr('Условие остановки: лимит монет')
             return True
-        # 任务均衡器
+        # Балансировщик задач
         if self.run_count >= 1:
             if self.config.TaskBalancer_Enable and self.triggered_task_balancer():
                 logger.hr('Условие остановки: лимит монет')
@@ -222,15 +225,17 @@ class Coalition(CoalitionCombat, CampaignEvent):
         return False
 
     def coalition_execute_once(self, event, stage, fleet):
-        """执行一次联动战斗。
+        """Выполнение одного боя совместной операции.
 
-        覆盖战役配置，处理情绪管理，检测停止条件后进入战斗。
-        SP 关卡强制使用多舰队；单舰队模式下情绪控制不低于黄脸。
+        Переопределяет настройки кампании, контролирует настроение флотов,
+        проверяет условия остановки и входит в бой.
+        Для этапа SP принудительно используется несколько флотов; в режиме одного флота
+        контроль настроения не опускается ниже оранжевого (yellow_face).
 
         Args:
-            event: 活动名称，如 'coalition_20230323'。
-            stage: 关卡名称，如 'a1'、'sp'。
-            fleet: 舰队模式，如 'single'、'multi'。
+            event: Название события, например 'coalition_20230323'.
+            stage: Название этапа, например 'a1', 'sp'.
+            fleet: Режим флота, например 'single', 'multi'.
 
         Pages:
             in: in_coalition
@@ -245,7 +250,7 @@ class Coalition(CoalitionCombat, CampaignEvent):
             logger.warning('[Коалиция] В режиме одной коалиционной флотилии нельзя допускать мораль ниже 30; принудительно включён режим prevent_yellow_face')
             self.config.override(Emotion_Fleet1Control='prevent_yellow_face')
         if stage == 'sp':
-            # SP 关卡需要多舰队
+            # Для этапа SP требуется несколько флотов
             self.config.override(
                 Coalition_Fleet='multi',
             )
@@ -264,17 +269,17 @@ class Coalition(CoalitionCombat, CampaignEvent):
 
     @staticmethod
     def handle_stage_name(event, stage):
-        """标准化活动名称和关卡名称。
+        """Стандартизация названий события и этапа.
 
-        去除空白字符并转小写。霜落活动使用内部 TC 编号；
-        其他活动兼容旧配置中的 TC-1/2/3 难度名。
+        Удаляет пробельные символы и приводит к нижнему регистру. Для события Frostfall
+        используется внутренний номер TC; для остальных событий преобразует устаревшие названия TC-1/2/3.
 
         Args:
-            event: 活动名称。
-            stage: 关卡名称。
+            event: Название события.
+            stage: Название этапа.
 
         Returns:
-            tuple: (event, stage) 标准化后的名称。
+            tuple: (event, stage) со стандартизированными названиями.
         """
         stage = re.sub('[ \t\n]', '', str(stage)).lower()
         if event == 'coalition_20230323':
@@ -297,20 +302,22 @@ class Coalition(CoalitionCombat, CampaignEvent):
         return event, stage
 
     def run(self, event='', mode='', fleet='', total=0):
-        """联动活动主循环。
+        """Основной рабочий цикл совместной операции.
 
-        从配置读取活动、关卡、舰队参数，循环执行战斗直到触发停止条件。
-        无燃油图标的活动需先跳转到战役菜单检查停止条件再进入联动页面。
+        Считывает из конфигурации параметры события, этапа и флота, циклически выполняет
+        бои до срабатывания условий остановки.
+        Для событий без отображения топлива предварительно переходит в меню кампании
+        для проверки условий остановки перед входом на страницу события.
 
         Args:
-            event: 活动名称，为空时从配置读取。
-            mode: 关卡名称，为空时从配置读取。
-            fleet: 舰队模式，为空时从配置读取。
-            total: 总运行次数上限，0 表示不限。
+            event: Название события; если пусто, считывается из конфигурации.
+            mode: Название этапа; если пусто, считывается из конфигурации.
+            fleet: Режим флота; если пусто, считывается из конфигурации.
+            total: Общий лимит числа запусков, 0 — без ограничений.
 
         Raises:
-            ScriptError: 参数未填写。
-            ScriptEnd: 触发停止条件或脚本正常结束。
+            ScriptError: Если обязательные параметры не указаны.
+            ScriptEnd: При срабатывании условий остановки или штатном завершении скрипта.
         """
         event = event if event else self.config.Campaign_Event
         mode = mode if mode else self.config.Coalition_Mode
@@ -322,20 +329,20 @@ class Coalition(CoalitionCombat, CampaignEvent):
         self.run_count = 0
         self.run_limit = self.config.StopCondition_RunCount
         while 1:
-            # 达到总次数上限
+            # Достигнут общий лимит запусков
             if total and self.run_count == total:
                 break
             if self.event_time_limit_triggered():
                 self.config.task_stop()
 
-            # 日志输出当前关卡和剩余次数
+            # Выводим в лог текущий этап и оставшееся число запусков
             logger.hr(f'Коалиция: {event}_{mode}', level=2)
             if self.config.StopCondition_RunCount > 0:
                 logger.info(f'Осталось запусков: {self.config.StopCondition_RunCount}')
             else:
                 logger.info(f'Счётчик: {self.run_count}')
 
-            # 无燃油图标时，先在战役菜单检查停止条件
+            # Если значка топлива нет, сначала проверяем условия остановки в меню кампании
             if not self._coalition_has_oil_icon:
                 self.ui_goto(page_campaign_menu)
                 if self.triggered_stop_condition(oil_check=True, coin_check=True):
@@ -346,11 +353,11 @@ class Coalition(CoalitionCombat, CampaignEvent):
             self.disable_event_on_raid()
             self.coalition_ensure_mode(event, 'battle')
 
-            # 检查 PT 和金币停止条件
+            # Проверяем условия остановки по PT и монетам
             if self.triggered_stop_condition(pt_check=True, coin_check=True):
                 break
 
-            # 执行战斗
+            # Выполняем бой
             self.device.stuck_record_clear()
             self.device.click_record_clear()
             try:
@@ -360,14 +367,14 @@ class Coalition(CoalitionCombat, CampaignEvent):
                 logger.info(str(e))
                 break
 
-            # 战斗后更新计数
+            # После боя обновляем счётчики
             self.run_count += 1
             if self.config.StopCondition_RunCount:
                 self.config.StopCondition_RunCount -= 1
-            # 再次检查停止条件
+            # Повторно проверяем условия остановки
             if self.triggered_stop_condition(pt_check=True, coin_check=True):
                 break
-            # 任务调度器检查
+            # Проверяем планировщик задач
             if self.config.task_switched():
                 self.config.task_stop()
 

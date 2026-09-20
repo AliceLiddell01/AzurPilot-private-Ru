@@ -30,10 +30,10 @@ from module.ui.assets import BACK_ARROW
 from module.ui.navbar import Navbar
 from module.ui.switch import Switch
 
-# 滑动参数
+# Параметры свайпа
 SWIPE_DISTANCE = 250
 SWIPE_RANDOM_RANGE = (-40, -20, 40, 20)
-# 装备中过滤器开关
+# Переключатель фильтра «экипировано»
 equipping_filter = Switch('Equiping_filter')
 equipping_filter.add_state('on', check_button=EQUIPPING_ON)
 equipping_filter.add_state('off', check_button=EQUIPPING_OFF)

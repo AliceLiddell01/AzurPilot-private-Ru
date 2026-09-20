@@ -1,5 +1,5 @@
-"""战斗策略面板处理器模块。定义 StrategyHandler，管理战斗中的阵型选择、潜艇搜索/视角开关、
-机动回避、空袭等策略操作。"""
+"""Модуль панели стратегии боя. Определяет StrategyHandler, управляющий выбором строя,
+переключателями поиска/вида подлодок, манёврами уклонения и воздушными ударами."""
 
 from module.combat.assets import GET_ITEMS_1
 from module.handler.assets import *
@@ -9,7 +9,7 @@ from module.template.assets import (TEMPLATE_FORMATION_1, TEMPLATE_FORMATION_2,
                                     TEMPLATE_FORMATION_3)
 from module.ui.switch import Switch
 
-# 2023.10.19，单行图标数量从 2 个增加到 3 个
+# 2023-10-19: количество значков в одной строке увеличено с 2 до 3
 FORMATION = Switch('Formation', offset=(100, 200))
 FORMATION.add_state('line_ahead', check_button=FORMATION_1)
 FORMATION.add_state('double_line', check_button=FORMATION_2)
@@ -46,7 +46,7 @@ class StrategyHandler(InfoHandler):
                 self.device.click(STRATEGY_OPEN)
                 continue
 
-            # 处理遗漏的神秘格子
+            # Обрабатываем пропущенную таинственную клетку
             if self.appear_then_click(GET_ITEMS_1, offset=5):
                 continue
 
@@ -66,12 +66,12 @@ class StrategyHandler(InfoHandler):
 
     def strategy_set_execute(self, formation=None, sub_view=None, sub_hunt=None):
         """
-        执行策略设置（编队阵型、潜艇视图、潜艇狩猎）。
+        Выполняет установку настроек стратегии (построение флота, вид подлодок, охота подлодок).
 
         Args:
-            formation (str): 'line_ahead'、'double_line'、'diamond'，或 None 表示不更改。
-            sub_view (bool): 是否开启潜艇视图。
-            sub_hunt (bool): 是否开启潜艇狩猎。
+            formation (str): 'line_ahead', 'double_line', 'diamond' или None (без изменений).
+            sub_view (bool): Включить ли отображение зоны подлодок.
+            sub_hunt (bool): Включить ли свободную охоту подлодок.
 
         Pages:
             in: STRATEGY_OPENED
@@ -80,12 +80,12 @@ class StrategyHandler(InfoHandler):
 
         if formation is not None:
             FORMATION.set(formation, main=self)
-        # 在潜艇区域图标 bug 修复前禁用此功能
-        # 使用潜艇时不要启用 MAP_HAS_DYNAMIC_RED_BORDER
+        # Отключаем эту функцию до исправления бага значка в зоне подлодок
+        # При использовании подлодок не включать MAP_HAS_DYNAMIC_RED_BORDER
 
-        # 潜艇视图检查已恢复，参见 SwitchWithHandler。
+        # Проверка отображения подлодок восстановлена; см. SwitchWithHandler.
 
-        # 不知何时游戏 bug 已修复，移除 SwitchWithHandler 的使用
+        # Баг игры был исправлен неизвестно когда; использование SwitchWithHandler удалено
         if sub_view is not None:
             if SUBMARINE_VIEW.appear(main=self):
                 SUBMARINE_VIEW.set('on' if sub_view else 'off', main=self)
@@ -99,13 +99,13 @@ class StrategyHandler(InfoHandler):
 
     def handle_strategy(self, index):
         """
-        处理舰队策略设置。
+        Обрабатывает настройки стратегии флота.
 
         Args:
-            index (int): 舰队索引。
+            index (int): Индекс флота.
 
         Returns:
-            bool: 是否进行了更改。
+            bool: Были ли внесены изменения.
         """
         if self.__getattribute__(f'fleet_{index}_formation_fixed'):
             return False
@@ -127,10 +127,10 @@ class StrategyHandler(InfoHandler):
 
     def _strategy_get_from_map_buff(self):
         """
-        从地图增益图标获取当前阵型。
+        Получает текущий строй из значка усилений на карте.
 
         Returns:
-            str: 阵型名称。
+            str: Название строя.
         """
         image = self.image_crop(MAP_BUFF, copy=False)
         if TEMPLATE_FORMATION_2.match(image):
@@ -147,16 +147,16 @@ class StrategyHandler(InfoHandler):
 
     def is_in_strategy_submarine_move(self):
         """
-        判断是否处于潜艇移动确认界面。
+        Проверяет, находится ли экран в интерфейсе подтверждения перемещения подлодок.
 
         Returns:
-            bool: 是否在潜艇移动确认界面。
+            bool: Находится ли в интерфейсе подтверждения перемещения подлодок.
         """
         return self.appear(SUBMARINE_MOVE_CONFIRM, offset=(20, 20))
 
     def strategy_submarine_move_enter(self, skip_first_screenshot=True):
         """
-        进入潜艇移动界面。
+        Переходит в интерфейс перемещения подлодок.
 
         Pages:
             in: STRATEGY_OPENED, SUBMARINE_MOVE_ENTER
@@ -177,7 +177,7 @@ class StrategyHandler(InfoHandler):
 
     def strategy_submarine_move_confirm(self, skip_first_screenshot=True):
         """
-        确认潜艇移动。
+        Подтверждает перемещение подлодок.
 
         Pages:
             in: SUBMARINE_MOVE_CONFIRM
@@ -200,7 +200,7 @@ class StrategyHandler(InfoHandler):
 
     def strategy_submarine_move_cancel(self, skip_first_screenshot=True):
         """
-        取消潜艇移动。
+        Отменяет перемещение подлодок.
 
         Pages:
             in: SUBMARINE_MOVE_CONFIRM
@@ -223,16 +223,16 @@ class StrategyHandler(InfoHandler):
 
     def is_in_strategy_mob_move(self):
         """
-        判断是否处于普通舰队移动界面。
+        Проверяет, находится ли экран в интерфейсе перемещения обычного флота.
 
         Returns:
-            bool: 是否在普通舰队移动界面。
+            bool: Находится ли в интерфейсе перемещения флота.
         """
         return self.appear(MOB_MOVE_CANCEL, offset=(20, 20))
 
     def strategy_has_mob_move(self):
         """
-        检查是否有普通舰队移动选项。
+        Проверяет наличие опции перемещения обычного флота.
 
         Pages:
             in: STRATEGY_OPENED
@@ -245,7 +245,7 @@ class StrategyHandler(InfoHandler):
 
     def strategy_mob_move_enter(self, skip_first_screenshot=True):
         """
-        进入普通舰队移动界面。
+        Переходит в интерфейс перемещения обычного флота.
 
         Pages:
             in: STRATEGY_OPENED, MOB_MOVE_ENTER
@@ -266,7 +266,7 @@ class StrategyHandler(InfoHandler):
 
     def strategy_mob_move_cancel(self, skip_first_screenshot=True):
         """
-        取消普通舰队移动。
+        Отменяет перемещение обычного флота.
 
         Pages:
             in: MOB_MOVE_CANCEL

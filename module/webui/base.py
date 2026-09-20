@@ -19,11 +19,11 @@ class Base:
 
     def __init__(self) -> None:
         self.alive = True
-        # 窗口是否可见（切换页面时置为 False 阻止旧页面的任务继续执行）
+        # Видимо ли окно: при переключении страницы устанавливается False, чтобы задачи старой страницы не продолжали выполняться
         self.visible = True
-        # 是否为移动端设备
+        # Используется ли мобильное устройство
         self.is_mobile = info.user_agent.is_mobile
-        # 任务处理器，用于管理后台异步任务
+        # Обработчик задач для управления фоновыми асинхронными задачами
         self.task_handler = WebIOTaskHandler()
         defer_call(self.stop)
 

@@ -1,14 +1,14 @@
-"""资源管理模块。
+"""Модуль управления ресурсами.
 
-管理 Button 和 Template 实例的注册、缓存释放和内存优化。
-在任务切换时释放不再需要的资源（OCR 模型、模板图像、地图检测缓存），
-以控制长时间运行时的内存占用。
+Управляет регистрацией экземпляров Button и Template, сбросом кэша и оптимизацией памяти.
+При смене задач освобождает ресурсы, которые больше не требуются (модели OCR,
+изображения шаблонов, кэш распознавания карты), для контроля потребления памяти при длительной работе.
 
-典型内存占用：
-    - 每个 OCR 模型约 20MB
-    - UI 资源（约 80 个 Button）约 3MB
-    - 模板图像每个约 6MB
-    - 地图检测缓存图像不定
+Типичное потребление памяти:
+    - каждая модель OCR: около 20 МБ
+    - ресурсы UI (около 80 кнопок Button): около 3 МБ
+    - каждое изображение шаблона: около 6 МБ
+    - кэш изображений распознавания карты: переменный объём
 """
 
 import gc
@@ -19,14 +19,14 @@ from module.base.decorator import cached_property, del_cached_property
 
 
 def get_assets_from_file(file, regex):
-    """从 Python 源文件中通过正则表达式提取资源常量名称。
+    """Извлечь имена констант ресурсов из исходного файла Python с помощью регулярного выражения.
 
     Args:
-        file (str): 源文件路径。
-        regex (re.Pattern): 编译后的正则表达式，需包含一个捕获组。
+        file (str): Путь к исходному файлу.
+        regex (re.Pattern): Скомпилированное регулярное выражение с одной группой захвата.
 
     Returns:
-        set[str]: 匹配到的资源常量名称集合。
+        set[str]: Множество совпавших имён констант ресурсов.
     """
     assets = set()
     with open(file, 'r', encoding='utf-8') as f:
@@ -38,12 +38,13 @@ def get_assets_from_file(file, regex):
 
 
 class PreservedAssets:
-    """收集需要在任务切换时保留的 UI 资源。
+    """Сбор UI-ресурсов, которые необходимо сохранять при переключении задач.
 
-    这些资源用于页面检测和导航，释放后会导致无法正确识别当前页面。
+    Эти ресурсы используются для обнаружения экранов и навигации; их сброс приведёт
+    к невозможности корректно определить текущую страницу.
 
     Attributes:
-        ui (set[str]): 需要保留的 UI 资源名称集合，包括 UI 导航按钮和弹窗处理按钮。
+        ui (set[str]): Множество имён сохраняемых ресурсов UI, включая кнопки навигации UI и кнопки обработки всплывающих окон.
     """
 
     @cached_property
@@ -61,59 +62,59 @@ class PreservedAssets:
             file='./module/handler/info_handler.py',
             regex=re.compile(r'\(([A-Z][A-Z0-9_]+),')
         )
-        # MAIN_CHECK 等价于 MAIN_GOTO_CAMPAIGN
+        # MAIN_CHECK эквивалентен MAIN_GOTO_CAMPAIGN
         # assets.add('MAIN_GOTO_CAMPAIGN')
         return assets
 
 
-# 全局实例，用于判断哪些资源需要保留
+# Глобальный экземпляр для определения ресурсов, которые нужно сохранять
 _preserved_assets = PreservedAssets()
 
 
 class Resource:
-    """所有 Button 和 Template 资源的基类。
+    """Базовый класс для всех ресурсов Button и Template.
 
-    提供资源实例的全局注册机制和缓存释放功能。
-    所有 Button 和 Template 对象在模块加载时自动注册到 `instances` 字典中，
-    任务切换时通过 `resource_release()` 批量释放已加载的图像缓存。
+    Предоставляет механизм глобальной регистрации экземпляров ресурсов и функциональность сброса кэша.
+    Все объекты Button и Template автоматически регистрируются в словаре `instances` при загрузке модуля,
+    а при смене задач кэш загруженных изображений пакетом освобождается через `resource_release()`.
 
     Attributes:
-        instances (dict[str, Resource]): 全局资源实例注册表，
-            键为资源标识符（通常为文件路径或资源名称），值为 Resource 实例。
-        cached (list[str]): 需要释放缓存的属性名称列表，
-            子类应在创建缓存属性时维护此列表。
+        instances (dict[str, Resource]): Глобальный реестр экземпляров ресурсов;
+            ключ — идентификатор ресурса (обычно путь к файлу или имя ресурса), значение — экземпляр Resource.
+        cached (list[str]): Список имён свойств, кэш которых необходимо сбрасывать;
+            подклассы должны поддерживать этот список при создании кэшируемых свойств.
     """
-    # 类属性，记录所有按钮和模板实例
+    # Атрибут класса: хранит все экземпляры кнопок и шаблонов
     instances = {}
-    # 实例属性，记录实例的缓存属性名称列表
+    # Атрибут экземпляра: хранит список имён кэшируемых свойств
     cached = []
 
     def resource_add(self, key):
-        """将当前实例注册到全局资源表。
+        """Зарегистрировать текущий экземпляр в глобальной таблице ресурсов.
 
         Args:
-            key (str): 资源的唯一标识符。
+            key (str): Уникальный идентификатор ресурса.
         """
         Resource.instances[key] = self
 
     def resource_release(self):
-        """释放当前实例的所有缓存属性。
+        """Сбросить все кэшированные свойства текущего экземпляра.
 
-        调用 `del_cached_property` 删除已缓存的属性值，
-        使下次访问时重新计算或重新加载图像。
+        Вызывает `del_cached_property` для удаления кэшированных значений свойств,
+        чтобы при следующем обращении изображение пересчитывалось или загружалось заново.
         """
         for cache in self.cached:
             del_cached_property(self, cache)
 
     @classmethod
     def is_loaded(cls, obj):
-        """检查资源对象是否已加载图像数据。
+        """Проверить, загружены ли данные изображения для объекта ресурса.
 
         Args:
-            obj: Button 或 Template 对象。
+            obj: Объект Button или Template.
 
         Returns:
-            bool: 如果图像数据已加载则返回 True。
+            bool: Возвращает True, если данные изображения уже загружены.
         """
         if hasattr(obj, '_image') and obj._image is None:
             return False
@@ -123,9 +124,9 @@ class Resource:
 
     @classmethod
     def resource_show(cls):
-        """打印所有未加载的资源信息，用于调试。
+        """Вывести информацию обо всех незагруженных ресурсах для отладки.
 
-        输出当前注册表中尚未加载图像数据的资源列表。
+        Выводит список ресурсов в текущем реестре, данные изображений которых ещё не загружены.
         """
         from module.logger import logger
         logger.hr('Отображение ресурсов')
@@ -136,18 +137,18 @@ class Resource:
 
     @staticmethod
     def parse_property(data, s=None):
-        """解析 Button 或 Template 对象的属性值。
+        """Разобрать значение свойства объекта Button или Template.
 
-        支持按服务器区分的字典格式和直接值格式。
-        当属性值为字典时，根据当前服务器选择对应的值。
+        Поддерживает как словарь с разделением по серверам, так и прямое значение.
+        Если значение является словарём, выбирается значение для текущего сервера.
 
         Args:
-            data: 属性值。可以是字典（按服务器区分）或直接值。
-            s (str | None): 服务器标识，如 'cn'、'en'、'jp'、'tw'。
-                为 None 时使用全局 `server.server`。
+            data: Значение свойства. Может быть словарём (по серверам) или прямым значением.
+            s (str | None): Идентификатор сервера ('cn', 'en', 'jp', 'tw').
+                Если None, используется глобальный `server.server`.
 
         Returns:
-            解析后的属性值。
+            Разобранное значение свойства.
 
         Example:
             >>> Resource.parse_property({'cn': (100, 200), 'en': (110, 210)}, s='cn')
@@ -164,33 +165,33 @@ class Resource:
 
 
 def release_resources(next_task=''):
-    """释放不再需要的资源以优化内存占用。
+    """Освободить больше не требующиеся ресурсы для оптимизации потребления памяти.
 
-    在任务调度的空闲期调用，释放三类资源：
-    1. OCR 模型（每个约 20MB）
-    2. Button/Template 图像缓存（UI 资源约 3MB，模板图像每个约 6MB）
-    3. 地图检测缓存图像
+    Вызывается в период простоя планировщика задач; освобождает три категории ресурсов:
+    1. Модели OCR (каждая около 20 МБ)
+    2. Кэш изображений Button/Template (ресурсы UI около 3 МБ, изображения шаблонов около 6 МБ каждое)
+    3. Кэшированные изображения распознавания карты
 
-    释放策略根据下一个任务动态调整：
-    - 大世界/委托任务即将执行时，保留 OCR 模型
-    - 有后续任务时，保留 azur_lane 模型和 UI 导航资源
-    - 空闲时释放所有资源
+    Стратегия освобождения динамически адаптируется в зависимости от следующей задачи:
+    - При скором запуске Operation Siren / комиссий сохраняются модели OCR
+    - При наличии последующих задач сохраняются модель azur_lane и ресурсы навигации UI
+    - В состоянии простоя освобождаются все ресурсы
 
     Args:
-        next_task (str): 下一个任务名称。空字符串表示空闲状态。
+        next_task (str): Имя следующей задачи. Пустая строка означает состояние простоя.
     """
     released_ocr_models = 0
     from module.webui.setting import State
     if State.deploy_config.UseOcrServer:
         if not next_task:
-            # 空闲时断开 OCR 服务器连接
+            # В состоянии простоя отключаемся от OCR-сервера
             from module.ocr.ocr import OCR_MODEL
             try:
                 OCR_MODEL.close()
             except AttributeError:
                 pass
     else:
-        # 仅在使用实例内 OCR 时释放
+        # Освобождаем только при использовании локального OCR
         from module.ocr.al_ocr import release_ocr_models
         from module.ocr.ocr import OCR_MODEL
         # The Global OCR namespace is retained between active tasks.
@@ -205,19 +206,19 @@ def release_resources(next_task=''):
                 cache_names.append('det')
             released_ocr_models = release_ocr_models(names=cache_names)
 
-    # 释放资源缓存
-    # module.ui 约有 80 个资源，占约 3MB
-    # Alas 总共约 800 个资源，但不会全部加载
-    # 模板图像占用更多，每个约 6MB
+    # Освобождаем кэш ресурсов
+    # В module.ui около 80 ресурсов, занимающих примерно 3 МБ
+    # Всего в Alas около 800 ресурсов, но загружаются не все
+    # Изображения шаблонов занимают больше: примерно 6 МБ каждое
     for key, obj in Resource.instances.items():
-        # 保留 UI 切换所需的资源
+        # Сохраняем ресурсы, необходимые для переключения UI
         if next_task and str(obj) in _preserved_assets.ui:
             continue
         # if Resource.is_loaded(obj):
         #     logger.info(f'Release {obj}')
         obj.resource_release()
 
-    # 释放地图检测的缓存图像
+    # Освобождаем кэшированные изображения обнаружения карты
     from module.map_detection.utils_assets import ASSETS
     attr_list = [
         'ui_mask',
@@ -232,7 +233,7 @@ def release_resources(next_task=''):
     for attr in attr_list:
         del_cached_property(ASSETS, attr)
 
-    # NumPy/OpenCV 图像的引用计数会立即释放；只在全局 OCR 缓存已实际剔除时
-    # 回收可能存在的 Python 循环引用，避免在截图和战斗循环中引入 GC 停顿。
+    # Счётчик ссылок изображений NumPy/OpenCV освобождает их сразу; только когда глобальный OCR-кэш действительно очищен
+    # собираем возможные циклические ссылки Python, чтобы не вносить паузы GC в циклы скриншотов и боя.
     if released_ocr_models:
         gc.collect(2)

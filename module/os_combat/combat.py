@@ -1,8 +1,8 @@
-"""大世界战斗处理器模块。
+"""Модуль обработчика боёв в Operation Siren.
 
-针对大世界（Operation Siren）场景定制战斗流程，继承标准战斗处理器
-和地图事件处理器。提供连续战斗检测（塞壬扫描装置场景）、S 评价
-延迟点击、大世界专用物品获取逻辑，以及战斗统计计时等功能。
+Адаптирует боевой процесс под условия Operation Siren, наследуя стандартный обработчик
+боя и обработчик событий карты. Предоставляет распознавание непрерывных боёв (сценарии сканирующих устройств Сирен),
+отложенный клик по оценке S, специализированную логику получения предметов и таймер статистики боёв.
 """
 from module.combat.assets import *
 from module.combat.combat import Combat as Combat_
@@ -17,40 +17,40 @@ from module.statistics.opsi_runtime import finish_battle_timer, start_battle_tim
 
 class ContinuousCombat(Exception):
     """
-    大世界连续战斗异常。
+    Исключение непрерывного боя в Operation Siren.
 
-    在塞壬扫描装置等场景中，两个敌人无间隔出现，
-    战斗结束后立即进入下一场战斗时抛出此异常，
-    由 combat() 方法捕获并循环重试。
+    В сценариях вроде сканирующих устройств Сирен враги появляются подряд без пауз.
+    Если сразу после завершения одного боя начинается следующий, выбрасывается это исключение,
+    которое перехватывается в combat() для повторного прогона цикла боя.
     """
     pass
 
 
 class Combat(Combat_, MapEventHandler):
     """
-    大世界战斗处理器。
+    Обработчик боёв в Operation Siren.
 
-    继承标准战斗和地图事件处理器，针对大世界场景定制战斗流程：
-    连续战斗检测、S 评价延迟点击、大世界专用物品获取逻辑。
+    Наследует стандартный боевой процессор и обработчик событий карты, адаптируя боевой поток под Operation Siren:
+    распознавание непрерывных боёв, задержка клика по оценке S, специальная логика сбора предметов.
 
     Attributes:
-        battle_status_s_autoclick_delay (int): S 评价页面自动点击延迟秒数。
+        battle_status_s_autoclick_delay (int): Задержка в секундах перед автоматическим кликом по экрану оценки S.
     """
     battle_status_s_autoclick_delay = 20
 
     def combat_appear(self):
         """
-        检测是否进入战斗。
+        Проверить, начался ли вход в бой.
 
-        依次检查地图状态、战斗加载、战斗执行、战斗准备和塞壬准备界面，
-        任一条件满足即判定为已进入战斗。
+        Последовательно проверяет состояние карты, загрузку боя, выполнение боя, экран подготовки и подготовку к Сирене;
+        при выполнении любого условия считает, что бой начался.
 
         Pages:
-            in: 大世界地图或战斗过渡画面
-            out: 战斗准备界面或战斗执行中
+            in: карта Operation Siren или переходный экран боя
+            out: экран подготовки к бою или активный бой
 
         Returns:
-            bool: 是否进入战斗。
+            bool: Выполняется ли переход в бой.
         """
         if self.is_in_map():
             return False
@@ -58,8 +58,8 @@ class Combat(Combat_, MapEventHandler):
         if self.is_combat_loading():
             return True
 
-        # 检查是否已在战斗执行中（暂停按钮可见）
-        # 处理自动搜索跳过战斗准备界面的情况
+        # Проверяем, не выполняется ли уже бой — видна кнопка паузы
+        # Обрабатываем случай, когда автопоиск пропускает экран подготовки к бою
         if self.is_combat_executing():
             return True
 
@@ -74,13 +74,13 @@ class Combat(Combat_, MapEventHandler):
 
     def _battle_status_s_timer(self):
         """
-        获取或重建 S 评价延迟点击计时器。
+        Получить или создать таймер задержки клика по оценке S.
 
-        大世界自动战斗中，S 评价页面需要延迟一段时间再点击，
-        避免与自动搜索的自动推进产生冲突。
+        В автобою Operation Siren клик по экрану оценки S выполняется с задержкой,
+        чтобы не конфликтовать с автоматическим продвижением автопоиска.
 
         Returns:
-            Timer: S 评价延迟计时器实例。
+            Timer: Экземпляр таймера задержки оценки S.
         """
         try:
             timer = self._os_battle_status_s_timer
@@ -94,23 +94,23 @@ class Combat(Combat_, MapEventHandler):
 
     def _clear_battle_status_s_timer(self):
         """
-        重置 S 评价延迟计时器，在每次新的战斗状态出现时调用。
+        Сбросить таймер задержки клика по оценке S; вызывается при каждом появлении нового статуса боя.
         """
         self._battle_status_s_timer().clear()
 
     def _handle_auto_battle_status_s(self, drop=None, timer=None):
         """
-        大世界自动模式下，等待后再点击 BATTLE_STATUS_S。
+        В автоматическом режиме Operation Siren ожидать перед кликом по BATTLE_STATUS_S.
 
-        自动搜索通常会自行推进 S 评价结果页面，此处仅作为客户端卡住时的延迟兜底处理。
-        先启动计时器，到达延迟阈值后才执行点击，避免与自动搜索冲突。
+        Автопоиск обычно сам перелистывает экран результата оценки S, поэтому данный обработчик служит страховкой на случай зависания клиента.
+        Сначала запускает таймер и выполняет клик только по истечении порога задержки.
 
         Args:
-            drop (DropImage): 掉落图像对象，用于处理战斗掉落。
-            timer (Timer): 可选的外部计时器，为 None 时使用内部计时器。
+            drop (DropImage): Объект изображений дропа для сохранения наград.
+            timer (Timer): Опциональный внешний таймер; если None, используется внутренний.
 
         Returns:
-            tuple: (是否出现, 是否点击)。
+            tuple: (появился ли статус, был ли обработан клик).
         """
         timer = timer or self._battle_status_s_timer()
         if not self.appear(BATTLE_STATUS_S):
@@ -127,20 +127,20 @@ class Combat(Combat_, MapEventHandler):
 
     def combat_preparation(self, balance_hp=False, emotion_reduce=False, auto='combat_auto', fleet_index=1):
         """
-        大世界战斗准备阶段。
+        Фаза подготовки к бою в Operation Siren.
 
-        循环处理战斗准备界面，设置自动战斗模式、处理退役和弹窗确认，
-        直到检测到战斗执行界面出现。
+        Циклически обрабатывает интерфейс подготовки, настраивает автобой, обрабатывает отставку и подтверждения,
+        пока не появится экран выполнения боя.
 
         Pages:
-            in: 战斗准备界面（BATTLE_PREPARATION 或 SIREN_PREPARATION）
-            out: 战斗执行中界面
+            in: интерфейс подготовки к бою (BATTLE_PREPARATION или SIREN_PREPARATION)
+            out: экран активного боя
 
         Args:
-            balance_hp (bool): 是否平衡血量。
-            emotion_reduce (bool): 是否减少情绪值。
-            auto (str): 自动战斗模式。
-            fleet_index (int): 舰队索引。
+            balance_hp (bool): Балансировать ли здоровье флота.
+            emotion_reduce (bool): Снижать ли настроение кораблей.
+            auto (str): Режим автобоя.
+            fleet_index (int): Индекс флота.
         """
         logger.info('Подготовка к бою')
         self.device.stuck_record_clear()
@@ -165,7 +165,7 @@ class Combat(Combat_, MapEventHandler):
             if self.handle_story_skip():
                 continue
 
-            # 结束
+            # Завершение
             pause = self.is_combat_executing()
             if pause:
                 logger.attr('Интерфейс боя', pause)
@@ -173,29 +173,29 @@ class Combat(Combat_, MapEventHandler):
 
     def _get_exp_info_sleep(self):
         """
-        返回经验结算页面点击后的随机等待时间范围。
+        Возвращает диапазон времени случайного ожидания после клика по экрану опыта.
 
-        有掉落物时等待更久（1.5-2秒），让掉落识别完成；
-        无掉落时快速跳过（0.25-0.5秒）。
+        При наличии дропа ожидает дольше (1.5-2 с), чтобы распознавание успело отработать;
+        без дропа быстро пропускает (0.25-0.5 с).
 
         Returns:
-            tuple: (最小秒数, 最大秒数)。
+            tuple: (минимальное число секунд, максимальное число секунд).
         """
         return (1.5, 2) if self.__os_combat_drop else (0.25, 0.5)
 
     def handle_exp_info(self):
         """
-        处理战斗结束后的经验结算页面（S/A/B/C/D 评价）。
+        Обработать экран опыта после окончания боя (оценки S/A/B/C/D).
 
-        点击对应评价按钮后清除 S 评价计时器，并等待随机时间。
-        战斗执行中时不处理。
+        После клика по соответствующей кнопке оценки сбрасывает таймер оценки S и ожидает случайное время.
+        Не обрабатывается, если бой ещё продолжается.
 
         Pages:
-            in: 战斗结束，经验结算界面
-            out: 经验结算界面已关闭
+            in: конец боя, экран расчёта опыта
+            out: экран расчёта опыта закрыт
 
         Returns:
-            bool: 是否点击了经验结算按钮。
+            bool: Была ли нажата кнопка экрана опыта.
         """
         if self.is_combat_executing():
             return False
@@ -225,13 +225,13 @@ class Combat(Combat_, MapEventHandler):
 
     def handle_get_items(self, drop=None):
         """
-        点击安全区域关闭物品获取弹窗，而非直接点击按钮本身。
+        Кликнуть по безопасной зоне для закрытия окна получения предметов вместо клика по самой кнопке.
 
         Args:
-            drop (DropImage): 掉落图像对象。
+            drop (DropImage): Объект изображений дропа.
 
         Returns:
-            bool: 是否处理了物品获取弹窗。
+            bool: Было ли обработано всплывающее окно получения предметов.
         """
         if getattr(self, '_disable_handle_get_items', False):
             return False
@@ -267,17 +267,17 @@ class Combat(Combat_, MapEventHandler):
 
     def _os_combat_expected_end(self):
         """
-        判断大世界战斗是否已结束并回到地图。
+        Определить, завершён ли бой в Operation Siren и выполнен ли возврат на карту.
 
-        处理地图事件后检测是否仍在战斗中，若连续战斗则抛出异常；
-        否则确认已回到大世界地图。
+        После обработки событий карты проверяет, не начался ли новый бой (выбрасывая исключение ContinuousCombat);
+        иначе подтверждает нахождение на карте Operation Siren.
 
         Pages:
-            in: 战斗结束结算或地图事件
-            out: 大世界地图
+            in: расчёт окончания боя или события карты
+            out: карта Operation Siren
 
         Returns:
-            bool: 是否已回到大世界地图。
+            bool: Выполнен ли возврат на карту Operation Siren.
         """
         if self.handle_map_event(drop=self.__os_combat_drop):
             return False
@@ -290,24 +290,24 @@ class Combat(Combat_, MapEventHandler):
 
     def combat_status(self, drop=None, expected_end=None):
         """
-        大世界战斗状态处理。
+        Обработка статуса боя в Operation Siren.
 
-        禁用标准物品获取弹窗处理，仅使用大世界专用的地图物品获取逻辑。
-        通过 _disable_handle_get_items 标志临时禁用 handle_get_items，
-        使掉落物通过 handle_map_get_items 路径处理。
+        Отключает стандартную обработку окон предметов, используя только специализированную логику Operation Siren.
+        Через флаг _disable_handle_get_items временно отключает handle_get_items,
+        перенаправляя обработку наград через handle_map_get_items.
 
         Pages:
-            in: 战斗执行中或战斗结束结算
-            out: 大世界地图
+            in: бой продолжается или идёт расчёт завершения
+            out: карта Operation Siren
 
         Args:
-            drop (DropImage): 掉落图像对象。
-            expected_end (callable): 自定义战斗结束判断函数，默认为 _os_combat_expected_end。
+            drop (DropImage): Объект изображений дропа.
+            expected_end (callable): Пользовательская функция проверки завершения боя (по умолчанию _os_combat_expected_end).
         """
         self.__os_combat_drop = drop
         if expected_end is None:
             expected_end = self._os_combat_expected_end
-        # 禁用 handle_get_items，仅使用 handle_map_get_items
+        # Отключаем handle_get_items и используем только handle_map_get_items
         self._disable_handle_get_items = True
         try:
             super().combat_status(drop=drop, expected_end=expected_end)
@@ -316,22 +316,21 @@ class Combat(Combat_, MapEventHandler):
 
     def combat(self, *args, save_get_items=False, **kwargs):
         """
-        处理大世界中的连续战斗。
+        Обработать последовательные непрерывные бои в Operation Siren.
 
-        在塞壬扫描装置中，有 2 个无间隔的伏击敌人。
-        舰队前往塞壬扫描装置，攻击一个敌人，跳过 TB，攻击另一个。
-        标准 combat 函数需要确认战斗已结束且已返回地图，
-        但处理塞壬扫描装置时会在第二场战斗中卡住。
-        此函数通过捕获 ContinuousCombat 异常实现最多 3 次重试。
+        В сканирующих устройствах Сирен появляются 2 вражеские засады подряд без пауз.
+        Флот подходит к устройству Сирен, атакует одного врага, пропускает диалог TB и сразу атакует второго.
+        Стандартный combat требует подтверждения выхода на карту, что приводит к зависанию на втором бою.
+        Данный метод перехватывает исключение ContinuousCombat и повторяет бой (до 3 раз).
 
         Pages:
-            in: 大世界地图，即将进入战斗
-            out: 大世界地图，连续战斗全部结束
+            in: карта Operation Siren, переход в бой
+            out: карта Operation Siren, все последовательные бои завершены
 
         Args:
-            *args: 传递给父类 combat 的位置参数。
-            save_get_items (bool): 是否保存物品获取截图。
-            **kwargs: 传递给父类 combat 的关键字参数。
+            *args: Позиционные аргументы родительского метода combat.
+            save_get_items (bool): Сохранять ли скриншоты наград.
+            **kwargs: Именованные аргументы родительского метода combat.
         """
         for count in range(3):
             self._clear_battle_status_s_timer()
@@ -349,18 +348,18 @@ class Combat(Combat_, MapEventHandler):
 
     def _handle_single_battle_status(self, status_button, status_letter, drop):
         """
-        处理单个战斗评价状态按钮（S/A/B/C/D）。
+        Обработать отдельную кнопку оценки боя (S/A/B/C/D).
 
-        检测到对应评价按钮后，记录掉落数据并点击按钮关闭评价页面。
-        S 评价记录为 info 级别，其余评价记录为 warning 级别。
+        При обнаружении соответствующей кнопки оценки фиксирует дроп и кликает кнопку для закрытия экрана.
+        Оценка S логируется на уровне info, остальные — warning.
 
         Args:
-            status_button (Button): 评价状态按钮资源。
-            status_letter (str): 评价等级字母（'S'/'A'/'B'/'C'/'D'）。
-            drop (DropImage): 掉落图像对象，为 None 时仅等待随机时间。
+            status_button (Button): Ресурс кнопки статуса оценки.
+            status_letter (str): Буква оценки боя ('S'/'A'/'B'/'C'/'D').
+            drop (DropImage): Объект дропа; если None, только ожидает случайное время.
 
         Returns:
-            bool: 是否检测到并点击了评价按钮。
+            bool: Была ли обнаружена и нажата кнопка оценки.
         """
         if self.appear(status_button, interval=self.battle_status_click_interval):
             if status_letter == 'S':
@@ -377,20 +376,20 @@ class Combat(Combat_, MapEventHandler):
 
     def handle_battle_status(self, drop=None):
         """
-        处理大世界战斗评价状态页面（S/A/B/C/D）。
+        Обработать экран оценки боя Operation Siren (S/A/B/C/D).
 
-        战斗执行中时重置 S 评价计时器并跳过处理。
-        优先通过延迟机制处理 S 评价，再依次检查 A/B/C/D 评价。
+        Во время выполнения боя сбрасывает таймер оценки S и пропускает обработку.
+        Сначала через механизм задержки обрабатывает оценку S, затем последовательно проверяет A/B/C/D.
 
         Pages:
-            in: 战斗评价页面（S/A/B/C/D 任一可见）
-            out: 评价页面已关闭
+            in: экран оценки боя (видна любая из S/A/B/C/D)
+            out: экран оценки закрыт
 
         Args:
-            drop (DropImage): 掉落图像对象。
+            drop (DropImage): Объект изображений дропа.
 
         Returns:
-            bool: 是否处理了评价状态页面。
+            bool: Был ли обработан экран статуса боя.
         """
         if self.is_combat_executing():
             self._clear_battle_status_s_timer()
@@ -414,21 +413,21 @@ class Combat(Combat_, MapEventHandler):
 
     def handle_auto_search_battle_status(self, drop=None, battle_status_s_timer=None):
         """
-        自动搜索模式下的战斗评价状态处理。
+        Обработка статуса оценки боя в режиме автопоиска.
 
-        与 handle_battle_status 类似，但使用外部传入的 S 评价计时器，
-        且不检查 is_combat_executing 状态（由调用方保证）。
+        Аналогично handle_battle_status, но использует переданный извне таймер оценки S
+        и не проверяет состояние is_combat_executing (гарантируется вызывающей стороной).
 
         Pages:
-            in: 战斗评价页面（S/A/B/C/D 任一可见）
-            out: 评价页面已关闭
+            in: экран оценки боя (видна любая из S/A/B/C/D)
+            out: экран оценки закрыт
 
         Args:
-            drop (DropImage): 掉落图像对象。
-            battle_status_s_timer (Timer): S 评价延迟计时器。
+            drop (DropImage): Объект изображений дропа.
+            battle_status_s_timer (Timer): Таймер задержки оценки S.
 
         Returns:
-            bool: 是否处理了评价状态页面。
+            bool: Был ли обработан экран статуса боя.
         """
         _, clicked = self._handle_auto_battle_status_s(
             drop=drop, timer=battle_status_s_timer
@@ -448,17 +447,17 @@ class Combat(Combat_, MapEventHandler):
 
     def handle_auto_search_exp_info(self):
         """
-        自动搜索模式下的经验结算页面处理。
+        Обработка экрана расчёта опыта в режиме автопоиска.
 
-        依次检查 S/A/B/C/D 经验结算按钮，点击后清除 S 评价计时器并等待随机时间。
-        等待时间根据是否有掉落物决定（有掉落 1.5-2 秒，无掉落 0.25-0.5 秒）。
+        Последовательно проверяет кнопки опыта S/A/B/C/D, кликает, сбрасывает таймер оценки S и ожидает случайное время.
+        Длительность ожидания зависит от наличия дропа (с дропом 1.5-2 с, без дропа 0.25-0.5 с).
 
         Pages:
-            in: 经验结算页面（S/A/B/C/D 任一可见）
-            out: 经验结算页面已关闭
+            in: экран опыта (видна любая из кнопок S/A/B/C/D)
+            out: экран опыта закрыт
 
         Returns:
-            bool: 是否点击了经验结算按钮。
+            bool: Была ли нажата кнопка экрана опыта.
         """
         sleep = self._get_exp_info_sleep()
         for exp_info_button in [EXP_INFO_S, EXP_INFO_A, EXP_INFO_B, EXP_INFO_C, EXP_INFO_D]:
@@ -470,26 +469,26 @@ class Combat(Combat_, MapEventHandler):
 
     def auto_search_combat(self, drop=None):
         """
-        大世界自动搜索战斗处理。
+        Обработка боя автопоиска в Operation Siren.
 
-        分为加载和执行两个阶段：加载阶段等待战斗界面就绪，
-        执行阶段处理潜艇呼叫、战斗评价、经验结算和地图事件。
-        CL1 指标模式下设置 5 分钟超时限制。
+        Разделена на фазы загрузки и выполнения: на фазе загрузки ожидает готовности интерфейса боя,
+        на фазе выполнения обрабатывает вызов подлодок, оценки боя, экран опыта и события карты.
+        В режиме метрик CL1 установлен 5-минутный лимит времени.
 
         Pages:
-            in: 战斗加载中（is_combat_loading()）
-            out: 大世界地图（战斗状态处理完毕）
+            in: загрузка боя (is_combat_loading())
+            out: карта Operation Siren (статус боя полностью обработан)
 
         Args:
-            drop (DropImage): 掉落图像对象。
+            drop (DropImage): Объект изображений дропа.
 
         Returns:
-            bool: 敌人是否已清除，舰队阵亡则返回 False。
+            bool: Уничтожены ли враги; при гибели флота возвращает False.
 
         Raises:
-            GameBugError: CL1 指标模式下战斗超过 5 分钟超时。
+            GameBugError: Если в режиме метрик CL1 длительность боя превысила 5 минут.
         """
-        # 保持战斗专注于状态转换；指标层决定此任务是否应产生 CL1/short-meow 计时样本。
+        # Бой отвечает только за переходы состояний; слой метрик решает, должна ли эта задача создавать выборку таймера CL1/short-meow.
         battle_timer_source = start_battle_timer(self.config)
         
         cl1_combat_timer = Timer(300, count=300)
@@ -504,7 +503,7 @@ class Combat(Combat_, MapEventHandler):
             if self.handle_combat_automation_confirm():
                 continue
 
-            # 结束
+            # Завершение
             if self.handle_os_auto_search_map_option(drop=drop):
                 self._clear_battle_status_s_timer()
                 break
@@ -537,13 +536,13 @@ class Combat(Combat_, MapEventHandler):
 
             if self.handle_submarine_call(submarine_mode):
                 continue
-            # 失败时不更改自动搜索选项
+            # При неудаче не меняем настройку автопоиска
             enable = success if success is not None else None
             if self.handle_os_auto_search_map_option(drop=drop, enable=enable):
                 battle_status_s_timer.clear()
                 continue
 
-            # 结束
+            # Завершение
             if self.is_in_map():
                 self.device.screenshot_interval_set()
                 break
@@ -563,7 +562,7 @@ class Combat(Combat_, MapEventHandler):
             
         logger.info('Бой окончен')
         
-        # 通过相同的指标源结束，避免 CL1 和 short-meow 样本意外共享存储键。
+        # Завершаем через тот же источник метрик, чтобы выборки CL1 и short-meow случайно не использовали общий ключ хранения.
         finish_battle_timer(self.config, battle_timer_source)
         
         return success

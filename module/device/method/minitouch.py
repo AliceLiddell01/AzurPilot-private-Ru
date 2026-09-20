@@ -1,11 +1,11 @@
 """
-minitouch 触控输入方法。
+Метод сенсорного ввода minitouch.
 
-基于 minitouch 工具实现低延迟的设备触控操作。
-minitouch 通过 Unix Socket 直接向 Android 设备的输入子系统发送触控事件，
-比 `adb shell input` 命令更快、更精确。支持点击、长按、滑动和多点触控。
-使用正态分布随机化触控坐标和速度，模拟自然的用户操作行为。
-需要先通过 ADB 将 minitouch 推送至设备并建立 Socket 连接。
+Обеспечивает низкую задержку сенсорного управления устройством на базе утилиты minitouch.
+minitouch отправляет события ввода напрямую в подсистему ввода устройства Android через сокет Unix,
+что быстрее и точнее стандартной команды `adb shell input`. Поддерживает клики, длинные нажатия, свайпы и мультитач.
+Использует нормальное распределение для рандомизации координат касания и скорости, имитируя естественные действия пользователя.
+Требует предварительной передачи исполняемого файла minitouch на устройство через ADB и установки сокет-соединения.
 """
 import asyncio
 import json
@@ -43,16 +43,16 @@ def random_rho(dis):
 
 def insert_swipe(p0, p3, speed=15, min_distance=10):
     """
-    在起点和终点之间插入路径点，首先生成一条三次贝塞尔曲线。
-    First generate a cubic bézier curve
+    Интерполировать промежуточные точки траектории между начальной и конечной точками по кубической кривой Безье.
+
     Args:
-        p0: 起点坐标。
-        p3: 终点坐标。
-        speed: 平均移动速度，像素/10ms。
-        min_distance: 最小点间距。
+        p0: Координаты начальной точки.
+        p3: Координаты конечной точки.
+        speed: Средняя скорость движения (пикселей / 10 мс).
+        min_distance: Минимальное расстояние между соседними точками.
 
     Returns:
-        路径点列表。
+        Список точек траектории.
 
     Examples:
         > insert_swipe((400, 400), (600, 600), speed=20)
@@ -64,11 +64,11 @@ def insert_swipe(p0, p3, speed=15, min_distance=10):
 
     distance = np.linalg.norm(p3 - p0)
 
-    # 贝塞尔曲线的随机控制点
+    # Случайные контрольные точки кривой Безье
     p1 = 2 / 3 * p0 + 1 / 3 * p3 + random_theta() * random_rho(distance * 0.1)
     p2 = 1 / 3 * p0 + 2 / 3 * p3 + random_theta() * random_rho(distance * 0.1)
 
-    # 贝塞尔曲线上的随机 `t` 值，中间稀疏，两端密集
+    # Случайные значения `t` на кривой Безье: реже в середине, плотнее по краям
     segments = max(int(distance / speed) + 1, 5)
     lower = random_normal_distribution(-85, -60)
     upper = random_normal_distribution(80, 90)
@@ -77,7 +77,7 @@ def insert_swipe(p0, p3, speed=15, min_distance=10):
     ts = np.sign(ts) * abs(ts) ** 0.9
     ts = (ts - min(ts)) / (max(ts) - min(ts))
 
-    # 生成三次贝塞尔曲线
+    # Генерируем кубическую кривую Безье
     points = []
     prev = (-100, -100)
     for t in ts:
@@ -89,7 +89,7 @@ def insert_swipe(p0, p3, speed=15, min_distance=10):
         points.append(point)
         prev = point
 
-    # 删除过近的点
+    # Удаляем слишком близкие точки
     if len(points[1:]):
         distance = np.linalg.norm(np.subtract(points[1:], points[0]), axis=1)
         mask = np.append(True, distance > min_distance)
@@ -115,17 +115,17 @@ class Command:
             text: str = ''
     ):
         """
-        minitouch 命令，参考 https://github.com/openstf/minitouch#writable-to-the-socket
+        Команда minitouch, справочно: https://github.com/openstf/minitouch#writable-to-the-socket
 
         Args:
-            operation: 操作类型，c/r/d/m/u/w。
-            contact: 触点索引。
-            x: X 坐标。
-            y: Y 坐标。
-            ms: 等待时间（毫秒）。
-            pressure: 压力值。
-            mode: 模式。
-            text: 文本内容。
+            operation: Тип операции (c/r/d/m/u/w).
+            contact: Индекс точки касания.
+            x: Координата X.
+            y: Координата Y.
+            ms: Время ожидания в миллисекундах.
+            pressure: Сила нажатия.
+            mode: Режим.
+            text: Текстовое содержимое.
         """
         self.operation = operation
         self.contact = contact
@@ -137,7 +137,7 @@ class Command:
         self.text = text
 
     def to_minitouch(self) -> str:
-        """转换为写入 minitouch socket 的字符串。"""
+        """Преобразовать в строку протокола для записи в сокет minitouch."""
         if self.operation == 'c':
             return f'{self.operation}\n'
         elif self.operation == 'r':
@@ -185,8 +185,8 @@ class Command:
 
     def to_atx_agent(self, max_x=1280, max_y=720) -> str:
         """
-        转换为发送到 atx-agent 的字典格式，$DEVICE_URL/minitouch。
-        参考 https://github.com/openatx/atx-agent#minitouch%E6%93%8D%E4%BD%9C%E6%96%B9%E6%B3%95
+        Преобразовать в формат словаря для отправки в atx-agent, $DEVICE_URL/minitouch.
+        Справочно: https://github.com/openatx/atx-agent#minitouch%E6%93%8D%E4%BD%9C%E6%96%B9%E6%B3%95
         """
         x, y = self.x / max_x, self.y / max_y
         if self.operation == 'c':
@@ -207,9 +207,9 @@ class Command:
 
 
 class CommandBuilder:
-    """构建 minitouch 命令字符串。
+    """Конструктор строк команд minitouch.
 
-    可用于自定义操作::
+    Может использоваться для пользовательских сценариев управления::
 
         with safe_connection(_DEVICE_ID) as connection:
             builder = CommandBuilder()
@@ -236,7 +236,7 @@ class CommandBuilder:
     ):
         """
         Args:
-            device: 设备实例。
+            device: Экземпляр устройства.
         """
         self.device = device
         self.commands = []
@@ -270,29 +270,29 @@ class CommandBuilder:
 
         self.max_x, self.max_y = max_x, max_y
         if not self.device.config.DEVICE_OVER_HTTP:
-            # 最大 X 和 Y 坐标可能（但通常不会）与显示尺寸匹配
+            # Максимальные координаты X и Y могут (хотя обычно не должны) совпадать с размером дисплея
             x, y = int(x / 1280 * max_x), int(y / 720 * max_y)
         else:
-            # HTTP 模式下 max_x 和 max_y 默认为 1280 和 720，跳过显示尺寸匹配
+            # В HTTP-режиме max_x и max_y по умолчанию равны 1280 и 720; масштабирование под размер дисплея пропускаем
             x, y = int(x), int(y)
         return x, y
 
     def commit(self):
-        """添加 minitouch 命令：'c\n'。"""
+        """Добавить команду minitouch: 'c\n'."""
         self.commands.append(Command(
             'c'
         ))
         return self
 
     def reset(self, mode=0):
-        """添加 minitouch 命令：'r\n'。"""
+        """Добавить команду minitouch: 'r\n'."""
         self.commands.append(Command(
             'r', mode=mode
         ))
         return self
 
     def wait(self, ms=10):
-        """添加 minitouch 命令：'w <ms>\n'。"""
+        """Добавить команду minitouch: 'w <ms>\n'."""
         self.commands.append(Command(
             'w', ms=ms
         ))
@@ -300,14 +300,14 @@ class CommandBuilder:
         return self
 
     def up(self, mode=0):
-        """添加 minitouch 命令：'u <contact>\n'。"""
+        """Добавить команду minitouch: 'u <contact>\n'."""
         self.commands.append(Command(
             'u', contact=self.contact, mode=mode
         ))
         return self
 
     def down(self, x, y, pressure=100, mode=0):
-        """添加 minitouch 命令：'d <contact> <x> <y> <pressure>\n'。"""
+        """Добавить команду minitouch: 'd <contact> <x> <y> <pressure>\n'."""
         x, y = self.convert(x, y)
         self.commands.append(Command(
             'd', x=x, y=y, contact=self.contact, pressure=pressure, mode=mode
@@ -315,7 +315,7 @@ class CommandBuilder:
         return self
 
     def move(self, x, y, pressure=100, mode=0):
-        """添加 minitouch 命令：'m <contact> <x> <y> <pressure>\n'。"""
+        """Добавить команду minitouch: 'm <contact> <x> <y> <pressure>\n'."""
         x, y = self.convert(x, y)
         self.commands.append(Command(
             'm', x=x, y=y, contact=self.contact, pressure=pressure, mode=mode
@@ -323,7 +323,7 @@ class CommandBuilder:
         return self
 
     def clear(self):
-        """清空当前命令列表。"""
+        """Очистить текущий список команд."""
         self.commands = []
         self.delay = 0
         return self
@@ -348,10 +348,10 @@ class CommandBuilder:
 
     def _check_empty(self, text=None):
         """
-        检查命令列表是否为空。有效的命令列表必须包含除提交和等待之外的操作。
+        Проверить, пуст ли список команд. Действительный список должен содержать операции помимо commit и wait.
 
         Returns:
-            命令列表是否为空。
+            bool: Пуст ли список команд.
         """
         empty = True
         for command in self.commands:
@@ -385,10 +385,10 @@ def retry(func):
                     time.sleep(retry_sleep(_))
                     init()
                 return func(self, *args, **kwargs)
-            # 无法处理
+            # Необрабатываемая ошибка
             except RequestHumanTakeover:
                 break
-            # ADB 服务被终止时
+            # При остановке службы ADB
             except ConnectionResetError as e:
                 logger.error(str(f'[Устройство — minitouch] Ошибка повторной попытки: {e}'))
 
@@ -397,7 +397,7 @@ def retry(func):
                     if self._minitouch_port:
                         self.adb_forward_remove(f'tcp:{self._minitouch_port}')
                     del_cached_property(self, '_minitouch_builder')
-            # 模拟器关闭
+            # Эмулятор выключен
             except ConnectionAbortedError as e:
                 logger.error(str(f'[Устройство — minitouch] Ошибка повторной попытки: {e}'))
 
@@ -406,7 +406,7 @@ def retry(func):
                     if self._minitouch_port:
                         self.adb_forward_remove(f'tcp:{self._minitouch_port}')
                     del_cached_property(self, '_minitouch_builder')
-            # MinitouchNotInstalledError: 从 minitouch 收到空数据
+            # MinitouchNotInstalledError: от minitouch получены пустые данные
             except MinitouchNotInstalledError as e:
                 logger.error(str(f'[Устройство — minitouch] Ошибка повторной попытки: {e}'))
 
@@ -415,7 +415,7 @@ def retry(func):
                     if self._minitouch_port:
                         self.adb_forward_remove(f'tcp:{self._minitouch_port}')
                     del_cached_property(self, '_minitouch_builder')
-            # MinitouchOccupiedError: 连接 minitouch 超时
+            # MinitouchOccupiedError: истекло время подключения к minitouch
             except MinitouchOccupiedError as e:
                 logger.error(str(f'[Устройство — minitouch] Ошибка повторной попытки: {e}'))
 
@@ -424,7 +424,7 @@ def retry(func):
                     if self._minitouch_port:
                         self.adb_forward_remove(f'tcp:{self._minitouch_port}')
                     del_cached_property(self, '_minitouch_builder')
-            # ADB 错误
+            # Ошибка ADB
             except AdbError as e:
                 if handle_adb_error(e):
                     def init():
@@ -446,10 +446,10 @@ def retry(func):
 
                 def init():
                     del_cached_property(self, '_minitouch_builder')
-            # 无法处理 - 必须向上抛出以触发模拟器重启
+            # Необрабатываемая ошибка — обязательно пробрасываем выше, чтобы запустить перезапуск эмулятора
             except EmulatorNotRunningError:
                 raise
-            # 未知异常，可能是图像损坏
+            # Неизвестное исключение, возможно повреждение изображения
             except Exception as e:
                 logger.exception(str(f'[Устройство — minitouch] Ошибка повторной попытки: {e}'))
 
@@ -485,7 +485,7 @@ class Minitouch(Connection):
 
     @property
     def minitouch_builder(self):
-        # 等待初始化线程完成
+        # Ждём завершения потока инициализации
         if self._minitouch_init_thread is not None:
             self._minitouch_init_thread.join()
             del self._minitouch_init_thread
@@ -495,8 +495,8 @@ class Minitouch(Connection):
 
     def early_minitouch_init(self):
         """
-        在 Alas 实例开始截图时启动线程初始化 minitouch 连接。
-        这将加速首次点击约 0.05 秒。
+        Запустить поток инициализации соединения minitouch при старте первого снимка экрана в инстансе Alas.
+        Это ускоряет первое нажатие примерно на 0.05 секунды.
         """
         if has_cached_property(self, '_minitouch_builder'):
             return
@@ -563,7 +563,7 @@ class Minitouch(Connection):
             self._minitouch_socket_file = socket_out
 
             # v <version>
-            # 协议版本，通常为 1，无需使用
+            # Версия протокола, обычно 1; использовать её не требуется
             try:
                 out = socket_out.readline().replace("\n", "").replace("\r", "")
             except socket.timeout:
@@ -589,7 +589,7 @@ class Minitouch(Connection):
                         '[Устройство — minitouch] Получены пустые данные; вероятно, minitouch не установлен'
                     )
                 else:
-                    # minitouch 可能启动没那么快
+                    # minitouch может запускаться не так быстро
                     self.sleep(1)
                     continue
 
@@ -627,13 +627,13 @@ class Minitouch(Connection):
 
     def _minitouch_loop_run(self, event):
         """
-        运行异步事件循环。
+        Запустить асинхронный цикл событий.
 
         Args:
-            event: 异步函数。
+            event: Асинхронная корутина/функция.
 
         Raises:
-            MinitouchOccupiedError: 连接被占用时抛出。
+            MinitouchOccupiedError: Вызывается, если соединение занято другим процессом.
         """
         try:
             return self._minitouch_loop.run_until_complete(event)
@@ -672,9 +672,9 @@ class Minitouch(Connection):
 
         async def connect():
             ws = await websockets.connect(url)
-            # 启动 @minitouch 服务
+            # Запускаем службу @minitouch
             logger.info(await ws.recv())
-            # 连接 unix:@minitouch
+            # Подключаемся к unix:@minitouch
             logger.info(await ws.recv())
             return ws
 
