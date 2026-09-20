@@ -96,32 +96,6 @@ if ($LASTEXITCODE -ne 0) {
     throw "Проверка Python завершилась с кодом $LASTEXITCODE."
 }
 
-Write-Host 'Проверка PSScriptAnalyzer 1.25.0...'
-$analyzerSetup = @'
-$ErrorActionPreference = "Stop"
-
-$module = Get-Module -ListAvailable -Name PSScriptAnalyzer |
-    Where-Object { $_.Version -eq [Version]"1.25.0" } |
-    Select-Object -First 1
-
-if (-not $module) {
-    if (-not (Get-Command Install-PSResource -ErrorAction SilentlyContinue)) {
-        throw "Install-PSResource недоступен."
-    }
-
-    Install-PSResource `
-        -Name PSScriptAnalyzer `
-        -Version 1.25.0 `
-        -Scope CurrentUser `
-        -TrustRepository
-}
-'@
-
-pwsh -NoLogo -NoProfile -Command $analyzerSetup
-if ($LASTEXITCODE -ne 0) {
-    throw "Подготовка PSScriptAnalyzer завершилась с кодом $LASTEXITCODE."
-}
-
 Write-Host 'Установка Chromium для Playwright...'
 uv run --locked playwright install chromium
 if ($LASTEXITCODE -ne 0) {

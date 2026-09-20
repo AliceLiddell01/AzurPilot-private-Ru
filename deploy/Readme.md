@@ -1,17 +1,72 @@
-# Deploy
+# Развёртывание AzurPilot через Docker
 
-This directory holds the AzurPilot installer.
+Каноническая команда развёртывания — `azur deploy docker` из корня
+репозитория. Она собирает образ через Docker CLI, запускает явно названный
+контейнер с публикацией WebUI только на loopback и подтверждает HTTP-готовность.
 
-Install AzurPilot by running `python -m deploy.installer` in AzurPilot root folder.
+```powershell
+azur deploy docker
+azur deploy docker --image azurpilot-private-ru:local --container azurpilot-private-ru
+azur deploy docker --source . --replace
+```
 
-This entry point bootstraps the project-local `.venv` with `uv` and syncs
-dependencies from `pyproject.toml` and `uv.lock` before continuing. It does not
-install packages into the system Python environment.
+## Контракт `--source`
 
+Без `--source` используется корень текущего репозитория. Относительный путь
+разрешается от этого корня, а не от текущего рабочего каталога процесса.
+Абсолютный путь также обязан находиться внутри корня репозитория. Symlink,
+junction и reparse point в пути исходного каталога запрещены.
 
-# Launcher
+Исходный каталог должен быть полным контекстом сборки Docker и содержать как минимум
+`pyproject.toml`, `uv.lock`, `gui.py` и `deploy/docker/Dockerfile`. Поэтому
+`deploy/docker` нельзя передавать как самостоятельный узкий контекст: этому
+Dockerfile нужны файлы из корня проекта.
 
-Launcher `AzurPilot.exe` is a `.bat` file converted to `.exe` file by [Bat To Exe Converter](https://f2ko.de/programme/bat-to-exe-converter/).
+Корневой `.dockerignore` и `deploy/docker/Dockerfile.dockerignore` исключают
+`.env`, passfile, `config/state/` и распространённые файлы учётных данных из
+контекста сборки. Боевое состояние `config/state/storage_backend.json` и
+локальный `.env` никогда не копируются в образ и не выводятся в evidence. Для
+этой команды `.env`, passfile и маркер состояния обязательны: без них
+предпроверка останавливает запуск. При запуске типизированный Docker-сервис
+подключает маркер, `.env` и passfile только как источники, доступные для чтения,
+а `runtime_entrypoint.py` переносит их в ограниченный tmpfs с правами владельца.
+Значения секретов не передаются в argv, логи или результат команды.
 
-If you have warnings from your anti-virus software, replace `AzurPilot.exe` with `deploy/launcher/Alas.bat`. They should do the same thing.
+Постоянный host-контракт PostgreSQL остаётся loopback-only: marker, `.env` и
+host-side passfile используют `127.0.0.1:<published_port>` (или другой
+разрешённый loopback-адрес) и не переписываются командой Docker.
+
+Перед запуском Docker-сервис читает только канонический
+`infrastructure/observability/compose.yaml`, проверяет Compose project
+`azurpilot-infrastructure`, service `postgres`, состояние `healthy`, labels,
+принадлежность контейнера и фактическую сеть. Неугаданный, отсутствующий или
+неоднозначный project/service/network останавливает операцию.
+
+После этой проверки контейнер подключается к обнаруженной Compose-сети, а
+runtime получает эфемерный transport PostgreSQL `postgres:5432`. Это отдельный
+Docker-only endpoint: опубликованный host-порт из `.env` внутрь контейнера не
+передаётся. `runtime_entrypoint.py` проверяет loopback marker и согласованный
+`.env`, stages только ожидаемые app/migrator записи `.pgpass` на
+`postgres:5432` в tmpfs с правами `0600`, после чего persistence применяет тот
+же ограниченный override. Marker, `.env` и host passfile остаются неизменными.
+
+WebUI публикуется только на host loopback. Внутри контейнера сервис запускается
+с bind `0.0.0.0`, чтобы Docker port-forward достиг приложения; наружу по-прежнему
+выставляется только `127.0.0.1:<webui_port>`.
+
+## Безопасность и замена контейнера
+
+Docker-сервис не устанавливает пакеты узла, не клонирует репозиторий, не
+переключает ветку и не запускает удалённый legacy shell-оркестратор. Подготовку
+исходников выполняют `azur build` и `azur update` по их собственным контрактам.
+
+`--replace` обязателен для замены существующего контейнера. Перед заменой сервис
+проверяет свободное резервное имя, останавливает и переименовывает старый
+контейнер, затем запускает новый. При ошибке запуска или готовности он удаляет
+только принадлежащий текущей операции новый контейнер и пытается вернуть старый.
+Если Docker не позволяет доказать состояние любого объекта, изменение
+прекращается и возвращается типизированный результат `UNKNOWN`/`repair required`.
+
+Порт публикуется только на `127.0.0.1`; готовность проверяется через loopback
+HTTP. Публичные IP-адреса, пароли и иные учётные данные не печатаются.
 

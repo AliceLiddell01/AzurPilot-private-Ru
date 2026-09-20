@@ -36,12 +36,6 @@ reviews:
         first-party коде новые и изменённые комментарии и пользовательские логи должны быть на русском, кроме
         неизменяемого внешнего текста, протоколов, API и собственных имён. Перед предложением исправления сначала
         проверь фактический контракт, call sites и существующие тесты.
-    - path: scripts/**/*.ps1
-      instructions: Считай .codex/context/POWERSHELL-GIT-RULES.md обязательным контрактом. Для PowerShell с Git проверяй
-        совместимость с PowerShell 7.6.x, Set-StrictMode, ручную обработку native exit codes, немедленное сохранение
-        $LASTEXITCODE после каждого Git-вызова, передачу Git-аргументов отдельными элементами массива, отсутствие
-        Invoke-Expression, запрет разделения выполняемых команд через ";" и отсутствие разрушительных Git-операций без
-        явного разрешения. Не предлагай bash/cmd как замену PowerShell Parser или PSScriptAnalyzer.
     - path: .github/workflows/**
       instructions: Проверяй минимальные permissions, отсутствие лишнего доступа к secrets, ограниченные triggers,
         timeout/concurrency и закрепление сторонних GitHub Actions по commit SHA там, где это принято проектом. Не
@@ -115,7 +109,6 @@ knowledge_base:
   code_guidelines:
     filePatterns:
       - .codex/context/GIT-WORKFLOW.md
-      - .codex/context/POWERSHELL-GIT-RULES.md
   learnings:
     scope: local
     approval_delay: 30

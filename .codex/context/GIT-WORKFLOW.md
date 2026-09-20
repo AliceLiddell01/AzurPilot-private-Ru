@@ -66,7 +66,6 @@ Codex не просит пользователя запускать команд
 
 - сначала `.codex/context/INDEX.md`, затем только нужные документы;
 - `GIT-WORKFLOW.md` читать по релевантным разделам;
-- `POWERSHELL-GIT-RULES.md` читать только при PowerShell/Git scope;
 - не перечитывать большие документы после каждого небольшого fix;
 - не выполнять общий web/docs survey без конкретного вопроса;
 - не расширять область проблемы без evidence из call graph, tests, diff или runtime-поведения;
@@ -84,7 +83,7 @@ AzurPilot Private RU наследует upstream, но содержит отде
 | screenshot/input/OCR | координаты, thresholds, localization |
 | combat/campaign/Operation Siren | state machine, retries, exit conditions |
 | integrations/MCP | secrets, privacy, network errors |
-| `scripts/*.ps1` | Git, `.venv`, update, rollback |
+| `azurpilot.tooling` | Git, `.venv`, update, rollback |
 | production data | migration, credentials, recovery, rollback |
 
 Оценивать сквозной поток только в пределах фактически затронутых границ.
@@ -104,7 +103,7 @@ AzurPilot Private RU наследует upstream, но содержит отде
 Проверяются перед первым соответствующим gate:
 
 - GitHub push/PR/review/checks/artifacts/merge;
-- Windows/PowerShell Parser/PSScriptAnalyzer;
+- проверки Windows Python tooling и native integration;
 - secret/security scanners;
 - browser/WebUI;
 - ADB/emulator/game;
@@ -364,26 +363,13 @@ Disposable clone/worktree допустим только при реальной 
 
 Для чувствительных/расширенных изменений тот же основной Codex отдельно проверяет trust-границы, findings, validation/severity, проверку исправления и secrets/privacy. Внешний scanner/reviewer остаётся независимым gate, если предусмотрен проектом.
 
-## 14. PowerShell
-
-При изменении `.ps1`/`.psm1` с Git-командами применяется `POWERSHELL-GIT-RULES.md`.
-
-Обязательные релевантные gates:
-
-- фактический Parser через `pwsh`;
-- PSScriptAnalyzer закреплённой версии;
-- disposable Git smoke для изменённой Git-логики;
-- Windows integration smoke для Start/Update/Repair/Build и другого затронутого Windows flow.
-
-Статический аудит не заменяет обязательный runtime gate.
-
-## 15. Контракт Start/Update/Repair/Build
+## 14. Контракт Start/Update/Repair/Build
 
 ```text
-scripts/Start-AzurPilot.ps1
-scripts/Update-AzurPilot.ps1
-scripts/Repair-AzurPilot.ps1
-scripts/Build-AzurPilot.ps1
+azur start
+azur update
+azur repair
+azur build
 ```
 
 - **Start:** запускает подготовленную установку; не владеет Git update.
@@ -391,9 +377,11 @@ scripts/Build-AzurPilot.ps1
 - **Repair:** диагностирует и транзакционно восстанавливает `.venv`, сохраняя rollback state до успешной проверки.
 - **Build:** подготавливает уже полученный checkout; не клонирует repo, не подменяет Update, не уничтожает config, проверяет hashes загружаемых artifacts.
 
-Изменение одной команды не должно захватывать обязанности другой.
+Изменение одной команды не должно захватывать обязанности другой. Windows
+acceptance проверяет эти typed Python services, а PowerShell остаётся только
+runner glue.
 
-## 16. Python и зависимости
+## 15. Python и зависимости
 
 Формальный контракт задаётся `pyproject.toml`/`uv.lock`; текущий проверяемый Windows runtime — Python 3.14.6.
 
@@ -401,7 +389,7 @@ scripts/Build-AzurPilot.ps1
 
 При dependency change обязательны согласованность lock, clean locked sync, релевантные tests/rollback, source/vulnerability check и license review для новой зависимости.
 
-## 17. Secrets
+## 16. Secrets
 
 Не записывать/печатать secrets в repo/logs/artifacts и не переносить пользовательскую конфигурацию в disposable worktree без необходимости.
 
@@ -411,7 +399,7 @@ Secret scanner обязателен перед публикацией relevant d
 
 При finding: блокировать публикацию/merge, удалить secret из рабочего дерева, проверить историю текущей ветки и при remote exposure использовать доступный revoke/rotate workflow без публикации значения.
 
-## 18. GUI, emulator и игровая проверка
+## 17. GUI, emulator и игровая проверка
 
 Запускать только когда изменение реально требует этого acceptance.
 
@@ -423,7 +411,7 @@ Secret scanner обязателен перед публикацией relevant d
 
 Если обязательный безопасный acceptance невозможен, sensitive merge блокируется.
 
-## 19. Коммиты
+## 18. Коммиты
 
 Commit должен быть логически цельным. Не дробить задачу ради формального числа commits и не создавать новый commit только из-за каждого review fix, если squash/amend безопасен и политика ветки это допускает.
 
@@ -436,7 +424,7 @@ Commit должен быть логически цельным. Не дроби�
 
 Сообщение описывает смысл изменения (`fix(update): ...`, `feat(build): ...`), а не `fix/final/test`.
 
-## 20. PR, review и merge
+## 19. PR, review и merge
 
 PR обязателен для `master`, `personal/stable`, standard/extended задач, dependency/security-sensitive изменений и Start/Update/Repair/Build.
 
@@ -522,13 +510,13 @@ pre-merge контракту.
 
 `master` синхронизируется только процедурой раздела 9.
 
-## 21. GitHub Actions
+## 20. GitHub Actions
 
 Предпочитать существующие reusable workflows и runners. Новый workflow создавать только для устойчивой повторяемой ценности, а не для разового запуска, компенсации временно отсутствующего инструмента или дублирования существующей проверки.
 
 Workflow должен иметь ограниченные permissions, безопасно работать с недоверенным PR и использовать проектную политику pinning actions.
 
-## 22. Опасные Git-операции
+## 21. Опасные Git-операции
 
 В пользовательском checkout, `master`, `personal/stable` и опубликованных ветках запрещены:
 
@@ -548,7 +536,7 @@ git gc --prune=now
 
 В disposable clone/worktree destructive cleanup допустим только после проверки, что среда создана Codex для текущей задачи, не содержит пользовательских данных/secrets и полезный результат уже сохранён. Предпочтительно удалить весь worktree.
 
-## 23. Ошибки и retry budget
+## 22. Ошибки и retry budget
 
 Для ошибки:
 
@@ -576,7 +564,7 @@ git gc --prune=now
 CodeRabbit-specific lifecycle consequence определён один раз в разделе
 «Внешнее ревью»; правила retry/triage провайдера здесь не дублируются.
 
-## 24. Post-merge и rollback
+## 23. Post-merge и rollback
 
 После merge:
 
@@ -589,7 +577,7 @@ CodeRabbit-specific lifecycle consequence определён один раз в 
 
 При regression destructive rollback не выполнять автоматически. Использовать controlled revert/hotfix branch и ускоренный relevant pipeline.
 
-## 25. Branch protection
+## 24. Branch protection
 
 ### `master`
 
@@ -615,7 +603,7 @@ Capability branches, включая explicit domain-prefixed branches, долж�
 - после успешного merge удалять ветку согласно cleanup;
 - полезную незавершённую ветку сохранять при blocker.
 
-## 26. Definition of Done
+## 25. Definition of Done
 
 ### Pre-merge `READY_FOR_CHATGPT_REVIEW`
 
@@ -649,7 +637,7 @@ Capability branches, включая explicit domain-prefixed branches, долж�
 
 Task-specific capability не входит в DoD, если соответствующий gate не относится к фактическому scope.
 
-## 27. Progress updates и итоговый отчёт
+## 26. Progress updates и итоговый отчёт
 
 Во время работы писать progress update только при:
 
@@ -675,11 +663,11 @@ Post-merge: relevant smoke/verification или `не применимо до mer
 
 Не дублировать в финале полные изменённые файлы, длинные test logs и историю каждого tool call, если пользователь прямо этого не просил.
 
-## 28. Живое состояние
+## 27. Живое состояние
 
 Активные branches, PR, SHAs, CI status и upstream state не фиксируются здесь как постоянные факты. Получать их заново при соответствующей операции.
 
-## 29. Итоговая политика
+## 28. Итоговая политика
 
 Штатный pre-merge результат:
 

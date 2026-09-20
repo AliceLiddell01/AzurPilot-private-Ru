@@ -20,7 +20,7 @@ from pydantic import ValidationError
 
 import azurpilot.tooling.coordination as tooling_coordination
 import azurpilot.tooling.path as tooling_path
-import azurpilot.tooling.process as tooling_process
+import azurpilot.tooling.process_core as tooling_process
 from azurpilot.cli import main
 from azurpilot.tooling import adb as tooling_adb
 from azurpilot.tooling import bootstrap as tooling_bootstrap

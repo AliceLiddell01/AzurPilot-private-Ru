@@ -255,18 +255,18 @@ context не создаётся.
 
 ## Windows
 
-Job выполняется на `windows-latest` с PowerShell и Python `3.14.6`:
+Job выполняется на `windows-latest` с PowerShell runner glue и Python `3.14.6`:
 
-- парсит каждый tracked `.ps1` и `.psm1` через PowerShell Parser;
-- запускает PSScriptAnalyzer `1.25.0` с уровнями `Error` и `Warning`;
-- выполняет Windows-регрессии WebUI, device acceptance contract и эксплуатационных PowerShell-скриптов;
+- проверяет `azur` CLI и JSON contracts;
+- выполняет Windows-регрессии WebUI, device acceptance contract и Python tooling;
 - выполняет изолированные lifecycle-регрессии repository-scoped mutex/event,
   exact ownership и защиты foreign process от принудительной остановки;
 - импортирует SQLAlchemy/Psycopg/Alembic wheels на Python 3.14 и проверяет
   lazy engine, PID/spawn, pool, config и redaction без сетевого подключения;
 - требует чистое рабочее дерево.
 
-Локальные проверки должны выполняться через `pwsh`, а не через Windows PowerShell 5.1. Правила написания Git-команд находятся в `.codex/context/POWERSHELL-GIT-RULES.md`.
+PowerShell в Windows job используется только как синтаксис runner glue; product
+операции принадлежат `azur` и Python services.
 
 ## Security
 

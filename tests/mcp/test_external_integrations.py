@@ -527,7 +527,7 @@ def test_review_state_classification_does_not_treat_incomplete_as_fresh():
     ) == "rate_limited"
 
 
-def test_clean_stale_canonical_clone_is_prepared_without_destructive_git(
+def test_persistent_clone_is_validated_without_detaching_or_rewriting_git(
     tmp_path: Path,
 ):
     old_head = "b" * 40
@@ -567,13 +567,6 @@ def test_clean_stale_canonical_clone_is_prepared_without_destructive_git(
                 return result()
             if arguments == ("rev-parse", "HEAD"):
                 return result(stdout=self.current_head)
-            if arguments[:3] == ("fetch", "--no-tags", "origin"):
-                return result()
-            if arguments[:2] == ("cat-file", "-e"):
-                return result()
-            if arguments[:2] == ("checkout", "--detach"):
-                self.current_head = arguments[2]
-                return result()
             raise AssertionError(arguments)
 
     runtime = Runtime()
@@ -583,11 +576,10 @@ def test_clean_stale_canonical_clone_is_prepared_without_destructive_git(
     )
 
     assert ready is True
-    assert reason == "CODERABBIT_REVIEW_CLONE_READY"
-    assert ("fetch", "--no-tags", "origin", target_head) in runtime.calls
-    assert ("checkout", "--detach", target_head) in runtime.calls
+    assert reason == "CODERABBIT_MANAGED_CLONE_READY"
+    assert not any(target_head in call for call in runtime.calls)
     assert not any(
-        argument in {"reset", "clean"}
+        argument in {"reset", "clean", "checkout", "switch"}
         for call in runtime.calls
         for argument in call
     )
@@ -1498,6 +1490,42 @@ def test_coderabbit_cycles_reset_only_explicitly_and_keep_bounded_history(
     assert state["previous_cycles"][0]["substantive_iterations"] == 3
 
 
+def test_coderabbit_cycle_start_accepts_new_base_after_completed_cycle(
+    monkeypatch, tmp_path: Path
+):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    adapter = coderabbit.CodeRabbitAdapter()
+    config = IntegrationConfig()
+    root = tmp_path / "checkout"
+    old_base = "a" * 40
+    new_base = "b" * 40
+    adapter._save_state(
+        root,
+        iterations=1,
+        head="c" * 40,
+        terminal=False,
+        base_sha=old_base,
+        repository_identity="hosted:github.com/alice/example",
+        attempt=1,
+        operation_id="coderabbit-complete",
+        started_at="2026-09-16T00:00:00+00:00",
+        provider_state="complete",
+        active=False,
+        complete_received=True,
+        last_event_type="complete",
+        findings_count=1,
+        reviewed_head="c" * 40,
+    )
+
+    result = adapter.start_cycle(root, config, base_sha=new_base)
+
+    assert result.record.reason_code == "CODERABBIT_REVIEW_CYCLE_STARTED"
+    state = adapter._load_review_state(root)
+    assert state["base_sha"] == new_base
+    assert state["substantive_iterations"] == 0
+    assert state["previous_cycles"][-1]["base_sha"] == old_base
+
+
 def test_coderabbit_review_emits_bounded_heartbeat_without_retrying_provider(
     monkeypatch, tmp_path: Path
 ):
@@ -1920,3 +1948,687 @@ def test_direct_status_is_ready_without_credential_and_without_mutation(
     assert result.reason_code == "INTEGRATION_ENDPOINT_CONFIGURED"
     assert result.evidence.credential.name == "CONTEXT7_API_KEY"
     assert result.evidence.authenticated is None
+
+
+def _managed_clone_result(
+    *, stdout: str = "", returncode: int = 0
+) -> coderabbit._WslCommandResult:
+    return coderabbit._WslCommandResult(
+        returncode=returncode,
+        stdout=stdout,
+        stderr="",
+        timed_out=False,
+        stdout_truncated=False,
+        stderr_truncated=False,
+    )
+
+
+class _ManagedCloneRuntime:
+    """Минимальный typed fake для проверки non-destructive Git state machine."""
+
+    distro = "ReviewLinux"
+    user = "reviewer"
+    home = "/home/reviewer"
+    clone = "/home/reviewer/canonical"
+
+    def __init__(
+        self,
+        *,
+        current_branch: str = "personal/stable",
+        status: str = "",
+        counts: str = "0 0",
+        head: str = "a" * 40,
+        remote_head: str = "a" * 40,
+        upstream: str = "origin/personal/stable",
+        remote_url: str = "https://github.com/AliceLiddell01/AzurPilot-private-Ru.git",
+    ) -> None:
+        self.current_branch = current_branch
+        self.status = status
+        self.counts = counts
+        self.head = head
+        self.remote_head = remote_head
+        self.upstream = upstream
+        self.remote_url = remote_url
+        self.after_merge = False
+        self.calls: list[tuple[str, ...]] = []
+
+    def git(self, *arguments: str, timeout: float = 30.0):
+        del timeout
+        self.calls.append(arguments)
+        if arguments == ("fetch", "--no-tags", "--prune", "origin"):
+            return _managed_clone_result()
+        if arguments == ("rev-parse", "--show-toplevel"):
+            return _managed_clone_result(stdout=self.clone)
+        if arguments == ("remote", "get-url", "origin"):
+            return _managed_clone_result(stdout=self.remote_url)
+        if arguments == ("status", "--porcelain=v1", "--untracked-files=all"):
+            return _managed_clone_result(stdout=self.status)
+        if arguments == ("status", "--porcelain=v1"):
+            return _managed_clone_result(stdout=self.status)
+        if arguments == ("rev-parse", "HEAD"):
+            head = self.remote_head if self.after_merge else self.head
+            return _managed_clone_result(stdout=head)
+        if arguments == ("branch", "--show-current"):
+            return _managed_clone_result(stdout=self.current_branch)
+        if arguments == (
+            "rev-parse",
+            "refs/remotes/origin/personal/stable",
+        ):
+            return _managed_clone_result(stdout=self.remote_head)
+        if arguments == (
+            "rev-list",
+            "--left-right",
+            "--count",
+            "HEAD...refs/remotes/origin/personal/stable",
+        ):
+            counts = "0 0" if self.after_merge else self.counts
+            return _managed_clone_result(stdout=counts)
+        if arguments == (
+            "rev-parse",
+            "--abbrev-ref",
+            "--symbolic-full-name",
+            "@{upstream}",
+        ):
+            return _managed_clone_result(stdout=self.upstream)
+        if arguments == (
+            "show-ref",
+            "--verify",
+            "--quiet",
+            "refs/heads/personal/stable",
+        ):
+            return _managed_clone_result(returncode=1)
+        if arguments == ("switch", "personal/stable") or arguments == (
+            "switch",
+            "--create",
+            "personal/stable",
+            "--track",
+            "origin/personal/stable",
+        ):
+            self.current_branch = "personal/stable"
+            return _managed_clone_result()
+        if arguments == (
+            "branch",
+            "--set-upstream-to",
+            "origin/personal/stable",
+            "personal/stable",
+        ):
+            self.upstream = "origin/personal/stable"
+            return _managed_clone_result()
+        if arguments == ("merge", "--ff-only", "origin/personal/stable"):
+            self.after_merge = True
+            return _managed_clone_result()
+        raise AssertionError(arguments)
+
+
+@pytest.mark.parametrize(
+    ("runtime_kwargs", "expected_state"),
+    [
+        ({"counts": "0 0"}, "READY"),
+        ({"counts": "0 2"}, "SYNCABLE"),
+        ({"current_branch": ""}, "DETACHED_LEGACY"),
+        ({"status": " M tracked.py"}, "DIRTY"),
+        ({"counts": "2 0"}, "AHEAD"),
+        ({"counts": "2 3"}, "DIVERGED"),
+        ({"current_branch": "feature"}, "WRONG_BRANCH"),
+        ({"upstream": "origin/other"}, "WRONG_UPSTREAM"),
+        ({"remote_head": ""}, "REMOTE_UNAVAILABLE"),
+    ],
+)
+def test_managed_clone_snapshot_distinguishes_typed_states(
+    tmp_path: Path, runtime_kwargs: dict[str, str], expected_state: str
+):
+    runtime = _ManagedCloneRuntime(**runtime_kwargs)
+    snapshot = coderabbit.CodeRabbitAdapter()._managed_clone_snapshot(
+        tmp_path,
+        runtime,
+        expected_repository="hosted:github.com/aliceliddell01/azurpilot-private-ru",
+        remote="origin",
+        branch="personal/stable",
+    )
+
+    assert snapshot.sync_state == expected_state
+    assert snapshot.repository_identity == snapshot.origin_identity
+    assert snapshot.upstream_ref == "origin/personal/stable"
+
+
+@pytest.mark.parametrize(
+    ("code", "expected_state"),
+    [
+        ("CODERABBIT_REVIEW_CHECKOUT_ALREADY_EXISTS", IntegrationState.UNAVAILABLE),
+        ("CODERABBIT_REVIEW_CHECKOUT_READY", IntegrationState.DEGRADED),
+        ("CODERABBIT_RUNTIME_READY", IntegrationState.DEGRADED),
+    ],
+)
+def test_coderabbit_state_for_code_uses_exact_ready_suffix(
+    code: str, expected_state: IntegrationState
+):
+    assert coderabbit.CodeRabbitAdapter._state_for_code(code) is expected_state
+
+
+@pytest.mark.parametrize(
+    ("runtime_kwargs", "expected_code"),
+    [
+        ({"status": "?? untracked.txt"}, ResultCode.TOOLING_OPERATION_CONFLICT),
+        ({"counts": "2 0"}, ResultCode.TOOLING_UPDATE_LOCAL_AHEAD),
+        ({"counts": "2 3"}, ResultCode.TOOLING_UPDATE_DIVERGED),
+    ],
+)
+def test_managed_clone_reconcile_never_discards_dirty_or_local_commits(
+    tmp_path: Path,
+    runtime_kwargs: dict[str, str],
+    expected_code: ResultCode,
+):
+    runtime = _ManagedCloneRuntime(**runtime_kwargs)
+
+    with pytest.raises(ToolingError) as error:
+        coderabbit.CodeRabbitAdapter()._sync_managed_clone(
+            tmp_path,
+            runtime,
+            expected_repository="hosted:github.com/aliceliddell01/azurpilot-private-ru",
+        )
+
+    assert error.value.code is expected_code
+    assert not any(
+        argument in {"reset", "clean", "checkout", "switch", "merge"}
+        for call in runtime.calls
+        for argument in call
+    )
+
+
+def test_managed_clone_reconcile_fast_forwards_clean_stale_clone(
+    tmp_path: Path,
+):
+    runtime = _ManagedCloneRuntime(
+        counts="0 2",
+        head="a" * 40,
+        remote_head="b" * 40,
+    )
+
+    snapshot = coderabbit.CodeRabbitAdapter()._sync_managed_clone(
+        tmp_path,
+        runtime,
+        expected_repository="hosted:github.com/aliceliddell01/azurpilot-private-ru",
+    )
+
+    assert snapshot.head_sha == "b" * 40
+    assert snapshot.ownership_state == "OWNED"
+    assert ("merge", "--ff-only", "origin/personal/stable") in runtime.calls
+    assert not any(
+        argument in {"reset", "clean", "checkout"}
+        for call in runtime.calls
+        for argument in call
+    )
+
+
+def test_managed_clone_reconcile_adopts_clean_detached_legacy_clone(
+    tmp_path: Path,
+):
+    runtime = _ManagedCloneRuntime(current_branch="")
+
+    snapshot = coderabbit.CodeRabbitAdapter()._sync_managed_clone(
+        tmp_path,
+        runtime,
+        expected_repository="hosted:github.com/aliceliddell01/azurpilot-private-ru",
+    )
+
+    assert snapshot.ownership_state == "OWNED"
+    assert runtime.current_branch == "personal/stable"
+    assert (
+        "switch",
+        "--create",
+        "personal/stable",
+        "--track",
+        "origin/personal/stable",
+    ) in runtime.calls
+
+
+def test_managed_clone_reconcile_rejects_wrong_origin_without_mutation(
+    tmp_path: Path,
+):
+    runtime = _ManagedCloneRuntime(
+        remote_url="https://github.com/example/unrelated.git",
+    )
+
+    with pytest.raises(ToolingError) as error:
+        coderabbit.CodeRabbitAdapter()._sync_managed_clone(
+            tmp_path,
+            runtime,
+            expected_repository="hosted:github.com/aliceliddell01/azurpilot-private-ru",
+        )
+
+    assert error.value.code is ResultCode.TOOLING_REMOTE_IDENTITY_UNVERIFIED
+    assert not any(
+        argument in {"reset", "clean", "checkout", "switch", "merge"}
+        for call in runtime.calls
+        for argument in call
+    )
+
+
+class _ReviewWorktreeRuntime(coderabbit._WslRuntime):
+    """Fake WSL runtime с общей трассировкой lifecycle linked worktree."""
+
+    def __init__(self, root: Path, *, clone: str, shared=None, worktrees=None) -> None:
+        super().__init__(
+            root,
+            "wsl.exe",
+            distro="ReviewLinux",
+            user="reviewer",
+            home="/home/reviewer",
+            clone=clone,
+            repository_identity="hosted:github.com/aliceliddell01/azurpilot-private-ru",
+            coderabbit_executable="/home/reviewer/.local/bin/coderabbit",
+            coderabbit_command="/home/reviewer/.local/bin/coderabbit",
+        )
+        self.shared = shared if shared is not None else []
+        self.worktrees = worktrees if worktrees is not None else {
+            "/home/reviewer/canonical": "a" * 40
+        }
+        self.current_branch = "personal/stable" if clone.endswith("canonical") else ""
+        self.head = "a" * 40 if clone.endswith("canonical") else "c" * 40
+        self.provider_alive = False
+        self.provider_cwd = self.clone
+        self.pgrep_status = None
+        self.ps_stdout = None
+        self.ps_returncode = 0
+        self.checkout_status = ""
+        self.missing_refs: set[str] = set()
+
+    def with_clone(self, clone: str):
+        result = _ReviewWorktreeRuntime(
+            self.root,
+            clone=clone,
+            shared=self.shared,
+            worktrees=self.worktrees,
+        )
+        result.provider_alive = self.provider_alive
+        result.provider_cwd = self.provider_cwd
+        result.pgrep_status = self.pgrep_status
+        result.ps_stdout = self.ps_stdout
+        result.ps_returncode = self.ps_returncode
+        result.checkout_status = self.checkout_status
+        result.missing_refs = self.missing_refs
+        return result
+
+    def run(self, args: tuple[str, ...], *, timeout: float = 30.0):
+        del timeout
+        self.shared.append((self.clone, *args))
+        if args[:3] == ("--exec", "test", "-e"):
+            return _managed_clone_result(returncode=0 if self.clone.endswith("review") else 1)
+        if args[:2] == ("--exec", "mkdir"):
+            return _managed_clone_result()
+        if args[:2] == ("--exec", "realpath"):
+            return _managed_clone_result(stdout=args[-1] + "\n")
+        raise AssertionError(args)
+
+    def command(self, command: str, *arguments: str, timeout: float = 30.0):
+        del timeout
+        self.shared.append((self.clone, command, *arguments))
+        if command == "pgrep" and self.pgrep_status is not None:
+            return _managed_clone_result(returncode=self.pgrep_status)
+        if command == "pgrep" and self.provider_alive:
+            return _managed_clone_result(returncode=0, stdout="1234\n")
+        if command == "pgrep":
+            return _managed_clone_result(returncode=1)
+        if command == "ps":
+            if self.ps_stdout is not None:
+                return _managed_clone_result(
+                    returncode=self.ps_returncode,
+                    stdout=self.ps_stdout,
+                )
+            if self.provider_alive:
+                return _managed_clone_result(
+                    stdout=f"1234 /home/reviewer/.local/bin/coderabbit review --committed --base-commit {'b' * 40}\n"
+                )
+            return _managed_clone_result()
+        if command == "readlink":
+            return _managed_clone_result(stdout=self.provider_cwd + "\n")
+        if command == "realpath":
+            return _managed_clone_result(stdout=arguments[-1] + "\n")
+        raise AssertionError((command, *arguments))
+
+    def git(self, *arguments: str, timeout: float = 30.0):
+        del timeout
+        self.shared.append((self.clone, *arguments))
+        if arguments == ("rev-parse", "--show-toplevel"):
+            return _managed_clone_result(stdout=self.clone)
+        if arguments == ("remote", "get-url", "origin"):
+            return _managed_clone_result(
+                stdout="https://github.com/AliceLiddell01/AzurPilot-private-Ru.git"
+            )
+        if arguments == ("status", "--porcelain=v1"):
+            return _managed_clone_result(
+                stdout=self.checkout_status if "/reviews/" in self.clone else ""
+            )
+        if arguments == ("status", "--porcelain=v1", "--untracked-files=all"):
+            return _managed_clone_result(
+                stdout=self.checkout_status if "/reviews/" in self.clone else ""
+            )
+        if arguments == ("rev-parse", "HEAD"):
+            return _managed_clone_result(stdout=self.head)
+        if arguments == ("branch", "--show-current"):
+            return _managed_clone_result(stdout=self.current_branch)
+        if arguments == (
+            "rev-parse",
+            "refs/remotes/origin/personal/stable",
+        ):
+            return _managed_clone_result(stdout="a" * 40)
+        if arguments == (
+            "rev-list",
+            "--left-right",
+            "--count",
+            "HEAD...refs/remotes/origin/personal/stable",
+        ):
+            return _managed_clone_result(stdout="0 0")
+        if arguments == (
+            "rev-parse",
+            "--abbrev-ref",
+            "--symbolic-full-name",
+            "@{upstream}",
+        ):
+            return _managed_clone_result(stdout="origin/personal/stable")
+        if arguments == ("fetch", "--no-tags", "--prune", "origin"):
+            return _managed_clone_result()
+        if arguments[:3] == ("fetch", "--no-tags", "origin"):
+            return _managed_clone_result()
+        if arguments[:2] == ("cat-file", "-e"):
+            reference = arguments[2].split("^{", 1)[0]
+            if reference in self.missing_refs:
+                return _managed_clone_result(returncode=1)
+            return _managed_clone_result()
+        if arguments == ("worktree", "list", "--porcelain"):
+            payload = []
+            for path, head in self.worktrees.items():
+                payload.extend((f"worktree {path}", f"HEAD {head}"))
+                if path.endswith("canonical"):
+                    payload.append("branch refs/heads/personal/stable")
+                else:
+                    payload.append("detached")
+                payload.append("")
+            return _managed_clone_result(stdout="\n".join(payload))
+        if arguments[:2] == ("worktree", "add"):
+            self.worktrees[arguments[3]] = arguments[4]
+            return _managed_clone_result()
+        if arguments[:2] == ("worktree", "remove"):
+            self.worktrees.pop(arguments[2], None)
+            return _managed_clone_result()
+        raise AssertionError(arguments)
+
+
+def test_review_uses_owned_detached_worktree_and_preserves_managed_clone(
+    tmp_path: Path,
+):
+    shared: list[tuple[str, ...]] = []
+    managed = _ReviewWorktreeRuntime(
+        tmp_path,
+        clone="/home/reviewer/canonical",
+        shared=shared,
+    )
+    adapter = coderabbit.CodeRabbitAdapter()
+    checkout_runtime, checkout_path, reason = adapter._prepare_review_checkout(
+        managed,
+        tmp_path,
+        operation_id="coderabbit-0123456789abcdef",
+        expected_base="b" * 40,
+        expected_head="c" * 40,
+        expected_repository="hosted:github.com/aliceliddell01/azurpilot-private-ru",
+    )
+
+    assert reason == "CODERABBIT_REVIEW_CHECKOUT_READY"
+    assert checkout_path == "/home/reviewer/.cache/azurpilot/coderabbit/reviews/coderabbit-0123456789abcdef"
+    assert checkout_runtime.clone == checkout_path
+    assert checkout_runtime.current_branch == ""
+    assert managed.clone == "/home/reviewer/canonical"
+    assert managed.current_branch == "personal/stable"
+    assert (
+        managed.clone,
+        "worktree",
+        "add",
+        "--detach",
+        checkout_path,
+        "c" * 40,
+    ) in shared
+    assert (
+        managed.clone,
+        "fetch",
+        "--no-tags",
+        "origin",
+        "b" * 40,
+        "c" * 40,
+    ) in shared
+    assert (
+        managed.clone,
+        "cat-file",
+        "-e",
+        f"{'b' * 40}^{{commit}}",
+    ) in shared
+
+    cleaned, cleanup_reason = adapter._cleanup_review_checkout(
+        managed,
+        checkout_path,
+        operation_id="coderabbit-0123456789abcdef",
+        expected_head="c" * 40,
+        base_sha="b" * 40,
+        expected_repository="hosted:github.com/aliceliddell01/azurpilot-private-ru",
+    )
+
+    assert cleaned is True
+    assert cleanup_reason == "CODERABBIT_REVIEW_CHECKOUT_REMOVED"
+    assert (
+        managed.clone,
+        "worktree",
+        "remove",
+        checkout_path,
+    ) in shared
+
+
+def test_review_worktree_cleanup_is_blocked_for_live_provider_or_dirty_state(
+    tmp_path: Path,
+):
+    shared: list[tuple[str, ...]] = []
+    managed = _ReviewWorktreeRuntime(
+        tmp_path,
+        clone="/home/reviewer/canonical",
+        shared=shared,
+    )
+    adapter = coderabbit.CodeRabbitAdapter()
+    checkout_path = "/home/reviewer/.cache/azurpilot/coderabbit/reviews/coderabbit-0123456789abcdef"
+
+    managed.provider_alive = True
+    managed.provider_cwd = checkout_path
+    managed.worktrees[checkout_path] = "c" * 40
+    cleaned, reason = adapter._cleanup_review_checkout(
+        managed,
+        checkout_path,
+        operation_id="coderabbit-0123456789abcdef",
+        expected_head="c" * 40,
+        base_sha="b" * 40,
+        expected_repository="hosted:github.com/aliceliddell01/azurpilot-private-ru",
+    )
+    assert cleaned is False
+    assert reason == "CODERABBIT_REVIEW_OPERATION_STILL_ALIVE"
+
+    managed.provider_alive = False
+    managed.checkout_status = "?? unexpected.txt"
+    cleaned, reason = adapter._cleanup_review_checkout(
+        managed,
+        checkout_path,
+        operation_id="coderabbit-0123456789abcdef",
+        expected_head="c" * 40,
+        base_sha="b" * 40,
+        expected_repository="hosted:github.com/aliceliddell01/azurpilot-private-ru",
+    )
+    assert cleaned is False
+    assert reason == "CODERABBIT_REVIEW_CHECKOUT_DIRTY"
+    assert not any(call[1:3] == ("worktree", "remove") for call in shared)
+
+
+@pytest.mark.parametrize("missing_ref", ["base", "head"])
+def test_review_checkout_requires_each_exact_commit(
+    missing_ref: str, tmp_path: Path
+):
+    managed = _ReviewWorktreeRuntime(
+        tmp_path,
+        clone="/home/reviewer/canonical",
+    )
+    base_sha = "b" * 40
+    head_sha = "c" * 40
+    managed.missing_refs.add(base_sha if missing_ref == "base" else head_sha)
+
+    _, checkout_path, reason = coderabbit.CodeRabbitAdapter()._prepare_review_checkout(
+        managed,
+        tmp_path,
+        operation_id="coderabbit-0123456789abcdef",
+        expected_base=base_sha,
+        expected_head=head_sha,
+        expected_repository="hosted:github.com/aliceliddell01/azurpilot-private-ru",
+    )
+
+    assert checkout_path is None
+    assert reason == "CODERABBIT_REVIEW_TARGET_UNAVAILABLE"
+    assert not any(call[1:3] == ("worktree", "add") for call in managed.shared)
+
+
+def test_review_checkout_rejects_fetched_head_mismatch(
+    tmp_path: Path,
+):
+    managed = _ReviewWorktreeRuntime(
+        tmp_path,
+        clone="/home/reviewer/canonical",
+    )
+
+    _, checkout_path, reason = coderabbit.CodeRabbitAdapter()._prepare_review_checkout(
+        managed,
+        tmp_path,
+        operation_id="coderabbit-0123456789abcdef",
+        expected_base="b" * 40,
+        expected_head="d" * 40,
+        expected_repository="hosted:github.com/aliceliddell01/azurpilot-private-ru",
+    )
+
+    assert checkout_path is not None
+    assert reason == "CODERABBIT_REVIEW_HEAD_MISMATCH"
+
+
+def test_review_cleanup_preserves_foreign_linked_worktree(
+    tmp_path: Path,
+):
+    managed = _ReviewWorktreeRuntime(
+        tmp_path,
+        clone="/home/reviewer/canonical",
+    )
+    checkout_path = "/home/reviewer/.cache/azurpilot/coderabbit/reviews/coderabbit-0123456789abcdef"
+    managed.worktrees[checkout_path] = "d" * 40
+
+    cleaned, reason = coderabbit.CodeRabbitAdapter()._cleanup_review_checkout(
+        managed,
+        checkout_path,
+        operation_id="coderabbit-0123456789abcdef",
+        expected_head="c" * 40,
+        base_sha="b" * 40,
+        expected_repository="hosted:github.com/aliceliddell01/azurpilot-private-ru",
+    )
+
+    assert cleaned is False
+    assert reason == "CODERABBIT_REVIEW_CHECKOUT_OWNERSHIP_UNKNOWN"
+    assert managed.worktrees[checkout_path] == "d" * 40
+    assert not any(call[1:3] == ("worktree", "remove") for call in managed.shared)
+
+
+def test_review_reconciles_managed_wsl_clone_before_checkout(monkeypatch, tmp_path: Path):
+    managed = _ReviewWorktreeRuntime(
+        tmp_path,
+        clone="/home/reviewer/canonical",
+    )
+    adapter = coderabbit.CodeRabbitAdapter()
+    calls: list[str] = []
+
+    monkeypatch.setattr(adapter, "_settings", lambda _config: {})
+    monkeypatch.setattr(
+        adapter,
+        "_configured_runtime",
+        lambda _root, _settings: (managed, None),
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_expected_repository",
+        lambda _root, _settings: "hosted:github.com/aliceliddell01/azurpilot-private-ru",
+    )
+
+    def reconcile(_root, _runtime, *, expected_repository):
+        assert expected_repository == "hosted:github.com/aliceliddell01/azurpilot-private-ru"
+        calls.append("reconcile")
+
+    monkeypatch.setattr(adapter, "_sync_managed_clone", reconcile)
+    monkeypatch.setattr(
+        adapter,
+        "_prepare_review_checkout",
+        lambda *_args, **_kwargs: (
+            managed,
+            None,
+            "CODERABBIT_MANAGEMENT_BRANCH_NOT_CONFIGURED",
+        ),
+    )
+
+    outcome = adapter.review(
+        tmp_path,
+        coderabbit.IntegrationConfig(),
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+    )
+
+    assert calls == ["reconcile"]
+    assert outcome.record.reason_code == "CODERABBIT_MANAGEMENT_BRANCH_NOT_CONFIGURED"
+
+
+@pytest.mark.parametrize("probe_code", [2, 3])
+def test_coderabbit_liveness_probe_errors_are_unknown(
+    probe_code: int, tmp_path: Path
+):
+    runtime = _ReviewWorktreeRuntime(
+        tmp_path,
+        clone="/home/reviewer/canonical",
+    )
+    runtime.pgrep_status = probe_code
+
+    assert (
+        coderabbit.CodeRabbitAdapter()._provider_liveness(
+            runtime,
+            "/home/reviewer/.cache/azurpilot/coderabbit/reviews/coderabbit-op",
+            base_sha="b" * 40,
+        )
+        == "unknown"
+    )
+
+
+def test_coderabbit_liveness_ignores_unrelated_and_rejects_stale_pid(
+    tmp_path: Path,
+):
+    runtime = _ReviewWorktreeRuntime(
+        tmp_path,
+        clone="/home/reviewer/canonical",
+    )
+    runtime.ps_stdout = (
+        "1234 /home/reviewer/.local/bin/coderabbit review --committed "
+        + "--base-commit "
+        + "c" * 40
+        + "\n"
+    )
+    assert (
+        coderabbit.CodeRabbitAdapter()._provider_liveness(
+            runtime,
+            "/home/reviewer/.cache/azurpilot/coderabbit/reviews/coderabbit-op",
+            base_sha="b" * 40,
+        )
+        == "absent"
+    )
+
+    runtime.pgrep_status = 0
+    runtime.ps_stdout = ""
+    assert (
+        coderabbit.CodeRabbitAdapter()._provider_liveness(
+            runtime,
+            "/home/reviewer/.cache/azurpilot/coderabbit/reviews/coderabbit-op",
+            base_sha="b" * 40,
+        )
+        == "unknown"
+    )

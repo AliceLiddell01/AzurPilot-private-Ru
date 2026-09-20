@@ -29,6 +29,8 @@ from azurpilot.tooling.config import DeploySettings, load_deploy_settings
 from azurpilot.tooling.contracts import (
     CapabilityCheck,
     CapabilityStatus,
+    DeliveryJournal,
+    DeliveryPhase,
     DoctorDetails,
     DoctorEvidence,
     McpLifecycleDetails,
@@ -801,6 +803,44 @@ def test_journal_rejects_directory_identity_mismatch(
 
     with pytest.raises(ToolingError) as error:
         store.active()
+    assert error.value.code is ResultCode.TOOLING_VERIFICATION_UNKNOWN
+
+
+def test_journal_ignores_valid_delivery_state_in_shared_transaction_root(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    layout = _layout(monkeypatch, tmp_path)
+    delivery_directory = layout.transactions_directory / "delivery-legacy"
+    delivery_directory.mkdir(parents=True)
+    delivery_state = DeliveryJournal(
+        operation_id=delivery_directory.name,
+        repository_root_identity=path_identity(layout.repository_root),
+        phase=DeliveryPhase.DELIVERED,
+        branch="tooling/test",
+        remote_name="origin",
+        remote_branch="tooling/test",
+        expected_local_head="a" * 40,
+        expected_base_sha="b" * 40,
+        target_paths=("README.md",),
+        updated_at="2026-09-20T00:00:00+00:00",
+    )
+    (delivery_directory / "state.json").write_text(
+        delivery_state.model_dump_json(), encoding="utf-8"
+    )
+
+    assert JournalStore(layout, "build").active() is None
+
+
+def test_journal_rejects_corrupted_delivery_state_in_shared_transaction_root(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    layout = _layout(monkeypatch, tmp_path)
+    delivery_directory = layout.transactions_directory / "delivery-corrupted"
+    delivery_directory.mkdir(parents=True)
+    (delivery_directory / "state.json").write_text("{}", encoding="utf-8")
+
+    with pytest.raises(ToolingError) as error:
+        JournalStore(layout, "build").active()
     assert error.value.code is ResultCode.TOOLING_VERIFICATION_UNKNOWN
 
 

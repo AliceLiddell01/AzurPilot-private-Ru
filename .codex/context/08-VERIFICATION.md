@@ -15,7 +15,8 @@
 Остальные capabilities проверяются **лениво, непосредственно перед первым gate, которому они нужны**:
 
 - GitHub push/PR/checks/merge — перед соответствующей GitHub-операцией;
-- PowerShell Parser/PSScriptAnalyzer — перед проверкой затронутого PowerShell;
+- Windows-native runtime checks — только если затронут соответствующий Python
+  adapter или Windows integration;
 - secret/security scanner — перед соответствующим verification checkpoint;
 - browser/GUI/emulator/game — только если изменение реально требует такого acceptance;
 - production/network capabilities — только перед production/network gate.
@@ -167,12 +168,11 @@ required CI, relevant diff и review blockers. Успешный CI или CodeRa
 
 Для explicit translation PR этот guard дополняет, но не заменяет dynamic base→head structural gate. Для feature/bugfix/refactor structural parity не применяется, permanent integrity остаётся обязательной частью обычных product tests.
 
-### PowerShell
+### Windows Python tooling
 
-- Parser через фактический `pwsh` для tracked затронутых `.ps1`/`.psm1` и для полного набора, если этого требует CI;
-- PSScriptAnalyzer зафиксированной версии как обязательный gate;
-- статический аудит правил;
-- disposable smoke для изменённой Git-логики;
+- `azur` CLI и JSON envelope на Windows;
+- lifecycle, update, repair, build, shortcut и Docker capability checks через
+  Python services;
 - идемпотентный повторный запуск там, где идемпотентность является контрактом.
 
 ### WebUI
@@ -192,7 +192,7 @@ required CI, relevant diff и review blockers. Успешный CI или CodeRa
 - create-only migration валидного marker в `config/state/`, rejection повреждённого legacy marker и отсутствие runtime-state JSON в profile discovery;
 - `.env`/passfile contract, distinct app/migrator secrets и old-credential negative auth;
 - app DML положительно, DDL/role/database отрицательно;
-- Start/Update/Repair/Build ownership и PowerShell gates;
+- Start/Update/Repair/Build ownership и Windows Python tooling gates;
 - final import, repeat zero-delta, dump/list, scratch restore и reconciliation;
 - после canary legacy `.db` и canonical CSV не создаются повторно.
 

@@ -198,8 +198,8 @@ metadata, DNS/TLS и read-only MCP contract через публичные endpoi
 Владелец lifecycle — Docker Compose/Docker Desktop; Arch WSL2 сохраняется только
 как rollback safety и не требует `systemctl start postgresql`.
 Для восстановления Caddy после входа в Windows в Docker Desktop должна быть
-включена настройка General → Start Docker Desktop when you sign in. Скрипт
-`Start-AzurPilot.ps1` не изменяет эту пользовательскую настройку; после её
+включена настройка General → Start Docker Desktop when you sign in. Команда
+`azur start` не изменяет эту пользовательскую настройку; после её
 включения перезагрузка проверяет Docker Desktop → Compose project → Caddy.
 
 ### pgAdmin
@@ -350,7 +350,7 @@ Prometheus, Tempo или Grafana в application code нет.
 
 Для локального Compose deployment корневой `.env` является единственным
 каноническим источником application OTLP и Compose-настроек. Каждый штатный
-entrypoint (`Start-AzurPilot.ps1`, GUI, scheduler worker, `alas`, `ap` и OCR
+entrypoint (`azur start`, GUI, scheduler worker, `alas`, `ap` и OCR
 RPC) вызывает `configure_runtime_logging()`, который загружает из этого файла
 только ключи `OTEL_*`; значения уже существующего окружения имеют приоритет.
 Одного заполнения `.env` достаточно, отдельный PowerShell-сеанс перед каждым

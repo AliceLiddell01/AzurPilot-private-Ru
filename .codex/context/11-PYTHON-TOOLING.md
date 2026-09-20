@@ -216,12 +216,10 @@ invocation и bounded filesystem/Git primitives.
 
 ## 9. Граница совместимости PowerShell
 
-Наличие Python command не означает автоматическое удаление существующего
-владельца PowerShell или gate.
-
-Start/Stop/Update/Repair/Build и project modules могут оставаться operator/
-compatibility paths, пока вызывающие компоненты не переведены и эквивалентность не доказана. Удаление
-требует одновременно:
+В поддерживаемой product scope владельцем Start/Stop/Update/Repair/Build является
+Python tooling. PowerShell остаётся только runner glue; legacy shell допустим
+лишь для external native hooks и CI glue, а не как второй project-owned operator
+path. Удаление legacy-пути требует одновременно:
 
 - эквивалентного поведения success/failure/recovery;
 - exact ownership/path/process/Git evidence;
@@ -266,8 +264,9 @@ Tooling не должен:
 Для MCP source/compatibility изменений дополнительно применяется существующий
 MCP compatibility gate и generated metadata verification.
 
-Для PowerShell change остаются Parser/PSScriptAnalyzer и требуемый Windows
-acceptance. Они не запускаются для несвязанного Python/domain diff.
+Для Windows tooling change запускаются Python CLI/lifecycle/shortcut/update/
+repair/build checks. PowerShell остаётся только runner glue и не является
+production operator implementation.
 
 Общие критерии готовности находятся в `08-VERIFICATION.md`.
 

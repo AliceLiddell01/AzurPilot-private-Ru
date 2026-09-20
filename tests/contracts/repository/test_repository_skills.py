@@ -334,8 +334,8 @@ def test_rate_limit_cannot_reopen_merge_authorized_or_merged_lifecycle() -> None
     workflow = (_REPOSITORY_ROOT / ".codex" / "context" / "GIT-WORKFLOW.md").read_text(
         encoding="utf-8"
     )
-    workflow_post_merge = workflow.split("## 24. Post-merge и rollback", maxsplit=1)[1].split(
-        "## 25. Branch protection", maxsplit=1
+    workflow_post_merge = workflow.split("## 23. Post-merge и rollback", maxsplit=1)[1].split(
+        "## 24. Branch protection", maxsplit=1
     )[0]
     normalized = _normalize_contract(workflow)
     assert "merge-authorized" in normalized

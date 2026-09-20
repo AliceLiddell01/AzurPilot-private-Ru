@@ -8,9 +8,9 @@ from types import SimpleNamespace
 import pytest
 
 import azurpilot.tooling.mcp as mcp_tooling
-import dev_tools.mcp_status as mcp_status
-from azurpilot.tooling.errors import ToolingError
 from azurpilot.tooling.contracts import ResultCode
+from azurpilot.tooling.errors import ToolingError
+from dev_tools import mcp_status
 from dev_tools.mcp_status import first_party_source_registration
 from module.mcp_shared.catalog import tool_catalog_sha256_from_tools
 from module.mcp_shared.versioning import (
@@ -109,7 +109,7 @@ def test_source_classification_follows_bounded_backend_dependencies() -> None:
     assert dev.affected_servers == ("azurpilot-dev",)
 
     shared = mcp_tooling.classify_source_changes(
-        ("azurpilot/tooling/process.py",)
+        ("azurpilot/tooling/process_core.py",)
     )
     assert shared.changed_components == ("SHARED_MCP_SOURCE_SET",)
     assert shared.affected_servers == ("azurpilot-dev", "azurpilot-game")
@@ -118,6 +118,50 @@ def test_source_classification_follows_bounded_backend_dependencies() -> None:
     assert management.changed_components == ()
     assert management.affected_servers == ()
     assert management.unknown_paths == ("azurpilot/tooling/mcp.py",)
+
+
+def test_management_and_docker_tooling_changes_do_not_affect_mcp_identity() -> None:
+    classification = mcp_tooling.classify_source_changes(
+        (
+            "azurpilot/tooling/contracts.py",
+            "azurpilot/tooling/coordination.py",
+            "azurpilot/tooling/docker.py",
+            "azurpilot/tooling/errors.py",
+            "azurpilot/tooling/filesystem.py",
+            "azurpilot/tooling/process.py",
+        )
+    )
+
+    assert classification.changed_components == ()
+    assert classification.affected_servers == ()
+    assert classification.unknown_paths == (
+        "azurpilot/tooling/contracts.py",
+        "azurpilot/tooling/coordination.py",
+        "azurpilot/tooling/docker.py",
+        "azurpilot/tooling/errors.py",
+        "azurpilot/tooling/filesystem.py",
+        "azurpilot/tooling/process.py",
+    )
+
+
+def test_dedicated_shared_runtime_modules_affect_both_servers() -> None:
+    classification = mcp_tooling.classify_source_changes(
+        (
+            "azurpilot/tooling/mcp_contracts.py",
+            "azurpilot/tooling/mcp_coordination.py",
+            "azurpilot/tooling/mcp_errors.py",
+            "azurpilot/tooling/mcp_filesystem.py",
+            "azurpilot/tooling/process_core.py",
+            "azurpilot/tooling/result.py",
+        )
+    )
+
+    assert classification.changed_components == ("SHARED_MCP_SOURCE_SET",)
+    assert classification.affected_servers == (
+        "azurpilot-dev",
+        "azurpilot-game",
+    )
+    assert classification.unknown_paths == ()
 
 
 def test_game_application_service_file_is_in_game_backend_identity() -> None:
@@ -361,6 +405,33 @@ def test_source_digest_is_stable_across_text_checkout_line_endings(
     assert crlf_digest == lf_digest
 
 
+def test_shared_digest_ignores_unrelated_management_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        mcp_tooling,
+        "SOURCE_SET_PATHS",
+        {"SHARED_MCP_SOURCE_SET": (Path("runtime.py"),)},
+    )
+    runtime = tmp_path / "runtime.py"
+    unrelated = tmp_path / "docker_contract.py"
+    runtime.write_text("runtime-v1", encoding="utf-8")
+    unrelated.write_text("docker-v1", encoding="utf-8")
+
+    before = mcp_tooling.source_set_digest(tmp_path, "SHARED_MCP_SOURCE_SET")
+    unrelated.write_text("docker-v2", encoding="utf-8")
+    after_unrelated_change = mcp_tooling.source_set_digest(
+        tmp_path, "SHARED_MCP_SOURCE_SET"
+    )
+    runtime.write_text("runtime-v2", encoding="utf-8")
+    after_runtime_change = mcp_tooling.source_set_digest(
+        tmp_path, "SHARED_MCP_SOURCE_SET"
+    )
+
+    assert after_unrelated_change == before
+    assert after_runtime_change != before
+
+
 def test_semver_classifier_requires_explicit_major_for_breaking_change() -> None:
     server = load_mcp_bundle(REPOSITORY_ROOT).servers["azurpilot-game"]
     implementation_only = replace(server, source_set_digest="0" * 64)
@@ -537,3 +608,58 @@ def test_reconciler_detects_unreconciled_source_without_mutating_repository(
     with pytest.raises(ToolingError) as error:
         reconciler.check(tmp_path)
     assert error.value.code.value == "MCP_SOURCE_BUNDLE_DRIFT"
+    assert isinstance(error.value.details, mcp_tooling.McpSourceDriftDetails)
+    assert error.value.details.artifact == "config/mcp-versions.toml"
+    assert error.value.details.changed_source_sets == ("SKILL_BUNDLE_SOURCE_SET",)
+    assert error.value.details.affected_servers == ()
+    assert set(error.value.details.expected_source_digests) == {
+        "SKILL_BUNDLE_SOURCE_SET"
+    }
+    assert set(error.value.details.actual_source_digests) == {
+        "SKILL_BUNDLE_SOURCE_SET"
+    }
+
+
+def test_shared_runtime_change_invalidates_and_reconcile_restores_bundle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source_paths = {
+        name: (Path(f"{name.lower()}.txt"),)
+        for name in mcp_tooling.SOURCE_SET_NAMES
+    }
+    monkeypatch.setattr(mcp_tooling, "SOURCE_SET_PATHS", source_paths)
+    for path in source_paths.values():
+        (tmp_path / path[0]).write_text(path[0].stem, encoding="utf-8")
+
+    manifest = tmp_path / "config" / "mcp-versions.toml"
+    manifest.parent.mkdir()
+    shutil.copy2(REPOSITORY_ROOT / "config" / "mcp-versions.toml", manifest)
+    plugin_manifest = tmp_path / mcp_tooling.PLUGIN_MANIFEST_PATH
+    plugin_manifest.parent.mkdir(parents=True)
+    shutil.copy2(REPOSITORY_ROOT / mcp_tooling.PLUGIN_MANIFEST_PATH, plugin_manifest)
+
+    reconciler = mcp_tooling.McpSourceReconciler()
+    reconciler.reconcile(tmp_path)
+    old_bundle = load_mcp_bundle(tmp_path)
+    (tmp_path / source_paths["SHARED_MCP_SOURCE_SET"][0]).write_text(
+        "shared-runtime-changed", encoding="utf-8"
+    )
+
+    with pytest.raises(ToolingError) as error:
+        reconciler.check(tmp_path)
+
+    assert error.value.code is ResultCode.MCP_SOURCE_BUNDLE_DRIFT
+    assert isinstance(error.value.details, mcp_tooling.McpSourceDriftDetails)
+    assert error.value.details.changed_source_sets == ("SHARED_MCP_SOURCE_SET",)
+    assert error.value.details.affected_servers == (
+        "azurpilot-dev",
+        "azurpilot-game",
+    )
+    assert error.value.details.expected_source_digests != {}
+    assert error.value.details.actual_source_digests != {}
+
+    reconciler.reconcile(tmp_path)
+    new_bundle = reconciler.check(tmp_path).bundle
+    assert new_bundle.source_digests["SHARED_MCP_SOURCE_SET"] != old_bundle.source_digests[
+        "SHARED_MCP_SOURCE_SET"
+    ]

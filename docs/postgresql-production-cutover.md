@@ -66,18 +66,19 @@ passfiles. Migrator выбирается только maintenance-команда
 
 ## Lifecycle
 
-- `Start-AzurPilot.ps1` проверяет Docker Compose и поднимает service `postgres`
-  с ожиданием health; при заданных `AZURPILOT_CADDY_HOST` и
+- `azur start` и typed infrastructure services проверяют Docker Compose и
+  поднимают service `postgres` с ожиданием health; при заданных
+  `AZURPILOT_CADDY_HOST` и
   `AZURPILOT_GAME_MCP_PUBLIC_HOST` он также поднимает Caddy profile
   `remote-ingress`. Если Dev host удалён, он останавливает только Caddy этого
   Compose project. Затем проверяются marker, app auth и head до GUI.
-- `Update-AzurPilot.ps1` после graceful stop создаёт новый Docker `pg_dump -Fc`, затем
+- `azur update` после graceful stop создаёт новый Docker `pg_dump -Fc`, затем
   применяет reviewed Alembic код отдельным migrator и проверяет app health.
   Ошибка backup блокирует update; автоматического pruning нет.
-- `Repair-AzurPilot.ps1` диагностирует Docker Compose service/auth/head,
+- `azur repair` диагностирует Docker Compose service/auth/head,
   loopback binding, SCRAM и разобранные HBA rules; он не меняет HBA, роли,
   database или пароль.
-- `Build-AzurPilot.ps1` готовит checkout и зависимости, но не provision и не
+- `azur build` готовит checkout и зависимости, но не provision и не
   мигрирует production data.
 
 Arch WSL2 оставлен только как аварийный rollback-контур: его package и data
