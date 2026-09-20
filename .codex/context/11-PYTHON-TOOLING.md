@@ -156,11 +156,13 @@ CodeRabbit — консультативный reviewer, а не источник
 
 Текущая граница:
 
-- adapter выбирает доказанный WSL2 Linux review environment;
-- используется отдельный persistent review clone canonical repository;
+- adapter выбирает доказанный native Windows executable;
+- provider запускается в том же canonical checkout, что прошёл exact
+  repository/root/head и clean-candidate preflight;
 - review scope — exact committed head/base; implementation checkout не
-  подменяется review clone;
-- review clone во время active review не используется для product fixes;
+  подменяется другим checkout;
+- pre/post candidate fingerprint должен совпасть; mutation в checkout во время
+  active review не допускается;
 - finding triage: confirmed / partially confirmed / false positive /
   insufficient evidence;
 - ограниченный цикл review ограничивает substantive iterations и сохраняет типизированное
@@ -209,7 +211,8 @@ invocation и bounded filesystem/Git primitives.
 - WSL/COM shortcut — Windows-specific;
 - конкретный emulator/device backend требует отдельного подтверждения;
 - Docker/PostgreSQL availability зависит от configured runtime;
-- CodeRabbit review environment зависит от доказанного adapter/runtime.
+- CodeRabbit review environment зависит от доказанного native adapter/runtime и
+  exact process identity.
 
 Запуск core CLI на ОС сам по себе не доказывает поддержку device/emulator или
 внешнего провайдера на этой ОС.

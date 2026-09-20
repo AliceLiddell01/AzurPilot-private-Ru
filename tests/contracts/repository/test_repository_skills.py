@@ -124,7 +124,7 @@ def test_development_description_has_positive_and_negative_routing() -> None:
 def test_coderabbit_description_routes_review_requests() -> None:
     frontmatter, _ = _frontmatter(_SKILLS_ROOT / "azurpilot-coderabbit-review" / "SKILL.md")
     description = str(frontmatter["description"]).lower()
-    for trigger in ("coderabbit", "review", "pr", "findings", "rate limit", "wsl2 linux"):
+    for trigger in ("coderabbit", "review", "pr", "findings", "rate limit", "native windows"):
         assert trigger in description
     for delegated_trigger in ("делегации", "canonical", "checkpoint"):
         assert delegated_trigger in description
@@ -139,10 +139,9 @@ def test_coderabbit_supports_explicit_and_delegated_entry_points() -> None:
     development_content = " ".join(development_skill.read_text(encoding="utf-8").lower().split())
 
     for required in (
-        "явно запрашивает coderabbit/code review",
-        "делегирует canonical coderabbit review checkpoint",
-        "internal trigger",
-        "отдельный пользовательский coderabbit-запрос не требуется",
+        "явном запросе coderabbit/code review",
+        "внутренней делегации",
+        "native windows executable",
         "generic pr preparation",
         "обычной разработки вне такого checkpoint",
     ):
@@ -151,7 +150,7 @@ def test_coderabbit_supports_explicit_and_delegated_entry_points() -> None:
         "coderabbit review checkpoint",
         "явно делегируй",
         "sibling skill `azurpilot-coderabbit-review`",
-        "не требует повторного пользовательского coderabbit-запроса",
+        "provider rate limit",
     ):
         assert required in development_content
 
@@ -233,7 +232,7 @@ def test_development_skill_routes_to_canonical_workflow_owners() -> None:
         "если PR существует",
         "partially confirmed",
         "insufficient evidence",
-        "WSL2 Linux",
+        "native Windows",
         "false positive",
         "rate limit",
     ):

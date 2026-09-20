@@ -445,10 +445,6 @@ def build_parser() -> argparse.ArgumentParser:
                 help="явный repository-relative файл; параметр можно повторять",
             )
         if name is IntegrationName.CODERABBIT:
-            reconcile = provider_subparsers.add_parser(
-                "reconcile", help="явно согласовать WSL managed clone"
-            )
-            _add_common_options(reconcile, suppress_defaults=True)
             review = provider_subparsers.add_parser(
                 "review", help="запустить advisory CodeRabbit review"
             )
@@ -1086,8 +1082,6 @@ def _dispatch(
                     else None
                 ),
             )
-        if target == IntegrationName.CODERABBIT.value and action == "reconcile":
-            return services.integrations.reconcile_coderabbit(repository_root=root)
         if target == IntegrationName.CODERABBIT.value and action == "findings":
             return services.integrations.findings(
                 base_sha=args.base,

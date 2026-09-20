@@ -130,7 +130,9 @@ Reconnect не являются fallback для direct local stdio; они пр�
 Context7 endpoint, а `semgrep_local_direct` запускает локальный `semgrep mcp -t
 stdio`. Grafana и Docker Hub запускаются как отдельные immutable container
 servers, если их endpoint/image подтверждены локальной конфигурацией; для
-Grafana credential требуется, а Docker Hub допускает public read-only probe. CodeRabbit использует отдельный read-only review adapter. Все
+Grafana credential требуется, а Docker Hub допускает public read-only probe.
+CodeRabbit использует native Windows read-only review adapter в canonical
+checkout с exact candidate pre/postcondition. Все
 шесть поверхностей собираются общим
 `azurpilot.integrations.IntegrationRegistry`; промежуточный MCP-маршрутизатор и
 общий secret owner для них не используются.

@@ -293,7 +293,11 @@ fetch origin
 
 Disposable clone/worktree допустим только при реальной необходимости: параллельная разработка, опасный reproduction/experiment, несовместимое состояние зависимостей/runtime, destructive recovery testing или явный запрос пользователя. Он не является default и не должен использоваться для переноса обычного diff.
 
-Для review разрешён отдельный persistent WSL2 clone, выбранный через exact inventory и проверенный как Linux/non-root/canonical; он не является implementation checkout: он получает exact branch/head, выполняет независимый CodeRabbit review, а все подтверждённые fixes вносятся в основной checkout.
+Для CodeRabbit review используется только native Windows executable в том же
+canonical implementation checkout. Adapter обязан доказать exact
+repository/root/base/head, clean index/worktree и postcondition того же
+candidate; отдельные clone, worktree, UNC route и wrapper не являются
+допустимой заменой.
 
 В любой дополнительной среде base SHA фиксируется до изменений, пользовательские config/secrets не копируются без необходимости, временные artifacts отделяются, а после завершения удаляются только ресурсы текущей задачи. Destructive Git внутри disposable среды регулируется разделом 22.
 
@@ -460,14 +464,14 @@ range. Push — обычный explicit refspec без force/force-with-lease с
 в read-only recovery без blind retry.
 
 GitHub PR проверяется с явными `--repo`, `--base`, `--head`, draft mode и
-read-back exact identity. CodeRabbit остаётся внешним checkpoint: review
-выполняется в permanent WSL2 review clone, findings и disposition сохраняются в
-PR body, а permanent clone не удаляется в post-merge cleanup.
+read-back exact identity. CodeRabbit остаётся внешним checkpoint: native review
+выполняется в canonical checkout, findings и disposition сохраняются в PR body,
+а provider process подтверждается exact PID/start/executable/argv/cwd.
 Один logical development task использует один task-scoped CodeRabbit cycle;
 `3/3` не переносится между tasks. Canonical caller передаёт opaque `--task-id`;
-новый head той же task продолжает cycle. Pre-push exact candidate допускается:
-adapter передаёт его local Git objects в managed review clone через Git-native
-bundle transport без публикации remote ref.
+новый head той же task продолжает cycle. Candidate должен быть committed и
+clean до provider call; изменение candidate во время review делает результат
+non-authoritative и не расходует substantive budget.
 
 ### Внешнее ревью
 

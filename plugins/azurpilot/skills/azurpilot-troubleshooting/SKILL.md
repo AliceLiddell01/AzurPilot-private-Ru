@@ -42,6 +42,11 @@ paths, serials, account identifiers и необработанные логи. Ev
 AzurPilot plugins и не разрешает mutation. Retired MCP intermediary routes не
 используются как маршрут или fallback.
 
+Для CodeRabbit проверяй именно native Windows provider через
+`azur integrations coderabbit status|doctor`: executable, auth, agent syntax,
+canonical checkout и exact process liveness. Не заменяй этот маршрут wrapper,
+другим checkout, clone или ручным повторным provider call.
+
 Различай repository source, user-configured direct adapter и фактический
 negotiated discovery/`tools/list`/read-only call: это разные доказательства.
 Для внешних интеграций используй закрытый `IntegrationRegistry` и

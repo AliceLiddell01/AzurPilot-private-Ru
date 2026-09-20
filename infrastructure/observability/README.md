@@ -731,7 +731,7 @@ Developer tooling использует шесть типизированных d
 
 | Семейство | Канонический transport | Credential и граница |
 | --- | --- | --- |
-| CodeRabbit | WSL2 agent через isolated checkout | явный или однозначно обнаруженный WSL2 runtime; agent review advisory |
+| CodeRabbit | native Windows agent в canonical checkout | exact executable, auth/syntax readiness и clean candidate; agent review advisory |
 | Semgrep | локальный CLI | только явно заданный staged/committed/path scope |
 | Grafana | официальный контейнерный MCP server, stdio | явный endpoint и credential; read-only server flags |
 | Context7 | официальный streamable HTTP endpoint | user-scoped credential, без repository secret |
@@ -791,14 +791,14 @@ provenance и machine-readable reason codes:
 
 ### CodeRabbit
 
-CodeRabbit выполняется только в постоянном isolated WSL2 review clone. Перед
-review проверяются exact canonical repository identity, detached clean checkout,
-точный committed HEAD, explicit base SHA, non-root Linux user и доступность
-официальной команды:
+CodeRabbit выполняется только через native Windows executable в canonical
+checkout. Перед review проверяются exact repository/root identity, clean index и
+worktree, committed HEAD, explicit base SHA, auth/syntax readiness и отсутствие
+другой active operation:
 
     azur integrations coderabbit status
     azur integrations coderabbit doctor
-    azur integrations coderabbit review --base <exact-base-sha> --head <exact-head-sha>
+    azur integrations coderabbit review --base <exact-base-sha> --head <exact-head-sha> --task-id <opaque-task-id>
 
 Agent NDJSON разбирается с bounded size/line limits. Findings получают одну из
 классификаций confirmed, partially confirmed, false positive или insufficient
@@ -808,11 +808,12 @@ Review budget ограничен тремя содержательными ит�
 недоступная credential фиксируются как RATE_LIMITED/UNAUTHENTICATED и не
 превращаются в бесконечный retry.
 
-WSL inventory читается через wsl.exe --list --quiet и --list --verbose.
-При заданном exact distro проверяются WSL2, non-root user и usable clone. Без
-заданного имени используется только один WSL2 candidate; ноль даёт
-NOT_CONFIGURED, несколько дают AMBIGUOUS. Машинное имя distro, домашний
-каталог и путь clone не встраиваются в source или документацию.
+Provider запускается прямым process invocation без shell wrapper, другого host,
+clone или temporary worktree. Adapter сразу сохраняет exact
+PID/start/executable/argv/cwd, держит bounded heartbeat и после terminal event
+повторно подтверждает тот же candidate. Изменение candidate делает результат
+non-authoritative и не расходует substantive budget. Legacy state не считается
+active native operation без новой доказанной identity.
 
 ### Семантика direct MCP adapters
 
@@ -868,7 +869,7 @@ UNAUTHENTICATED или UNAVAILABLE.
 - Docker Docs search/fetch;
 - Docker Hub repository/info/tag reads;
 - Compose health и сохранность observability volumes;
-- CodeRabbit dogfood review с canonical clone evidence.
+- CodeRabbit dogfood review с canonical native-checkout evidence.
 
 Каждая поверхность имеет собственный READY/NOT_CONFIGURED/UNAVAILABLE/
 UNAUTHENTICATED/RATE_LIMITED/INCOMPATIBLE/DEGRADED/UNKNOWN state. Public

@@ -167,6 +167,48 @@ def test_process_identity_capture_tolerates_posix_process_group_race(
     assert captured.process_group is None
 
 
+@pytest.mark.parametrize(
+    ("process_state", "expected"),
+    [("exact", "alive"), ("different_start", "absent"), ("unreadable", "unknown")],
+)
+def test_process_controller_inspect_state_is_exact_and_fail_closed(
+    monkeypatch: pytest.MonkeyPatch, process_state: str, expected: str
+) -> None:
+    identity = _identity()
+
+    class InspectableProcess(_IdentityProcess):
+        def is_running(self) -> bool:
+            return True
+
+    if process_state == "exact":
+        process = InspectableProcess()
+    elif process_state == "different_start":
+        process = InspectableProcess(start_time=11.0)
+    else:
+        process = InspectableProcess()
+
+        def unreadable() -> str:
+            raise psutil.AccessDenied(pid=identity.pid)
+
+        process.exe = unreadable  # type: ignore[method-assign]
+
+    monkeypatch.setattr(tooling_process.psutil, "Process", lambda _pid: process)
+
+    assert ProcessController.inspect_state(identity) == expected
+
+
+def test_process_controller_inspect_state_returns_absent_for_missing_pid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        tooling_process.psutil,
+        "Process",
+        lambda _pid: (_ for _ in ()).throw(psutil.NoSuchProcess(pid=12345)),
+    )
+
+    assert ProcessController.inspect_state(_identity()) == "absent"
+
+
 class _FakeStream:
     def __init__(
         self,

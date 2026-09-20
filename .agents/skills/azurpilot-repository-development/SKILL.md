@@ -49,7 +49,8 @@ Git lifecycle или общей матрицы проверок.
 8. Если canonical workflow требует CodeRabbit review checkpoint, явно делегируй
    sibling skill `azurpilot-coderabbit-review`. Такая внутренняя делегация не
    требует повторного пользовательского CodeRabbit-запроса. Специфичные для
-   провайдера правила triage, retry и rate limit принадлежат этому sibling skill.
+   провайдера правила triage, provider rate limit и retry принадлежат этому
+   sibling skill.
 9. Все правила commit/push/draft PR, состояния перед финальным пользовательским
    ревью, merge authorization, rollback и cleanup бери **только** из
    `GIT-WORKFLOW.md`. Этот skill не переопределяет их.
