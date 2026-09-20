@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
+from threading import Lock
 from typing import Protocol
 
 from module.application.errors import StorageError
@@ -70,9 +72,52 @@ class RuntimeCache(Protocol):
         """Освободить текущие transport resources."""
 
 
+_provider_lock = Lock()
+_provider: Callable[[], RuntimeCache] | None = None
+
+
+def install_runtime_cache_provider(provider: Callable[[], RuntimeCache]) -> None:
+    """Установить transport provider на композиционной границе приложения."""
+
+    if not callable(provider):
+        raise TypeError("Provider runtime cache должен быть callable.")
+    global _provider
+    with _provider_lock:
+        _provider = provider
+
+
+def clear_runtime_cache_provider() -> None:
+    """Сбросить process-local provider при завершении runtime."""
+
+    global _provider
+    with _provider_lock:
+        _provider = None
+
+
+def get_runtime_cache() -> RuntimeCache:
+    """Получить cache через установленную composition root точку."""
+
+    with _provider_lock:
+        provider = _provider
+    if provider is None:
+        raise RuntimeCacheError(RuntimeCacheStatus.NOT_CONFIGURED)
+    try:
+        cache = provider()
+    except RuntimeCacheError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - provider boundary is fail-closed
+        raise RuntimeCacheError(RuntimeCacheStatus.UNKNOWN) from exc
+    if cache is None:
+        raise RuntimeCacheError(RuntimeCacheStatus.UNKNOWN)
+    return cache
+
+
 __all__ = (
     "RuntimeCache",
     "RuntimeCacheError",
     "RuntimeCacheHealth",
     "RuntimeCacheStatus",
+    "clear_runtime_cache_provider",
+    "get_runtime_cache",
+    "install_runtime_cache_provider",
 )

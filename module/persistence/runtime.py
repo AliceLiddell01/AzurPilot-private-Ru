@@ -31,6 +31,10 @@ from module.application.runtime_storage import (
     clear_runtime_storage_provider,
     install_runtime_storage_provider,
 )
+from module.application.runtime_cache import (
+    clear_runtime_cache_provider,
+    install_runtime_cache_provider,
+)
 from module.persistence.config import (
     BACKEND_MARKER_VERSION,
     DEFAULT_BACKEND_MARKER_PATH,
@@ -47,6 +51,7 @@ from module.persistence.local_environment import (
 )
 from module.persistence.schema import EXPECTED_ALEMBIC_HEAD
 from module.persistence.unit_of_work import PostgresUnitOfWork
+from module.persistence.redis_runtime_cache import RedisRuntimeCache
 
 _lock = Lock()
 _service: RuntimeStorageService | None = None
@@ -324,6 +329,7 @@ def bootstrap_runtime_storage(
             )
             service = _service
             install_runtime_storage_provider(lambda: service)
+            install_runtime_cache_provider(RedisRuntimeCache.from_environment)
         engine = _engine
         service = _service
     if engine is None or service is None:
@@ -538,6 +544,7 @@ def dispose_runtime_storage() -> None:
         _runtime_timezone = None
         _service = None
         clear_runtime_storage_provider()
+        clear_runtime_cache_provider()
 
 
 __all__ = [

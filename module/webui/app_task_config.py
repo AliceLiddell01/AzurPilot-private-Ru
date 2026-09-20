@@ -151,6 +151,10 @@ class TaskConfigMixin(WebUIMixinBase):
             with use_scope("groups"):
                 self._os_simulator()
 
+        if task == "Commission":
+            with use_scope("groups"):
+                self._render_commission_recovery_state()
+
         for group, arg_dict in deep_iter(self.ALAS_ARGS[task], depth=1):
             if self.set_group(group, arg_dict, config, task):
                 self.set_navigator(group)
@@ -278,6 +282,96 @@ class TaskConfigMixin(WebUIMixinBase):
             label=t(f"{group[0]}._info.name"),
             onclick=lambda: run_js(js),
             color="navigator",
+        )
+
+    def _render_commission_recovery_state(self) -> None:
+        """Показать состояние защиты Commission только для чтения."""
+
+        instance = self.alas_name or DEFAULT_CONFIG_NAME
+        scope_id = re.sub(r"[^0-9A-Za-z_]", "_", instance)
+        root_id = f"commission-recovery-{scope_id}"
+        status_id = f"{root_id}-status"
+        values = {
+            "used": f"{root_id}-used",
+            "remaining": f"{root_id}-remaining",
+            "cost": f"{root_id}-cost",
+            "gain": f"{root_id}-gain",
+            "reset": f"{root_id}-reset",
+            "result": f"{root_id}-result",
+            "confirmed": f"{root_id}-confirmed",
+        }
+        put_html(
+            f"""
+            <section id="{root_id}" class="commission-recovery-panel">
+              <div class="commission-recovery-title">{t("Gui.CommissionRecovery.Title")}</div>
+              <div class="commission-recovery-description">{t("Gui.CommissionRecovery.Description")}</div>
+              <div class="commission-recovery-status-row">
+                <span>{t("Gui.CommissionRecovery.Status")}</span>
+                <strong id="{status_id}">{t("Gui.CommissionRecovery.Loading")}</strong>
+              </div>
+              <div class="commission-recovery-grid">
+                <span>{t("Gui.CommissionRecovery.Used")}</span><strong id="{values['used']}">—</strong>
+                <span>{t("Gui.CommissionRecovery.Remaining")}</span><strong id="{values['remaining']}">—</strong>
+                <span>{t("Gui.CommissionRecovery.NextOilCost")}</span><strong id="{values['cost']}">—</strong>
+                <span>{t("Gui.CommissionRecovery.NextApGain")}</span><strong id="{values['gain']}">—</strong>
+                <span>{t("Gui.CommissionRecovery.ResetAt")}</span><strong id="{values['reset']}">—</strong>
+                <span>{t("Gui.CommissionRecovery.LastResult")}</span><strong id="{values['result']}">—</strong>
+                <span>{t("Gui.CommissionRecovery.ConfirmedAt")}</span><strong id="{values['confirmed']}">—</strong>
+              </div>
+            </section>
+            """
+        )
+        run_js(
+            f"""
+            (function() {{
+              const instance = {json.dumps(instance)};
+              const timerKey = {json.dumps(f"commissionRecoveryTimer_{scope_id}")};
+              if (window[timerKey]) window.clearInterval(window[timerKey]);
+              const noData = {json.dumps(t("Gui.CommissionRecovery.NoData"))};
+              const loading = {json.dumps(t("Gui.CommissionRecovery.Loading"))};
+              const failed = {json.dumps(t("Gui.CommissionRecovery.RefreshFailed"))};
+              const statusText = {{
+                confirmed: {json.dumps(t("Gui.CommissionRecovery.StatusConfirmed"))},
+                unknown: {json.dumps(t("Gui.CommissionRecovery.StatusUnknown"))},
+                unavailable: {json.dumps(t("Gui.CommissionRecovery.StatusUnavailable"))}
+              }};
+              const resultText = {{
+                ap_purchase: {json.dumps(t("Gui.CommissionRecovery.ResultApPurchase"))},
+                dorm_fallback: {json.dumps(t("Gui.CommissionRecovery.ResultDormFallback"))},
+                ap_unavailable: {json.dumps(t("Gui.CommissionRecovery.ResultApUnavailable"))}
+              }};
+              const statusEl = document.getElementById({json.dumps(status_id)});
+              const elements = {json.dumps(values)};
+              const value = (item) => item === null || item === undefined || item === "" ? noData : String(item);
+              const localDate = (item) => item ? new Date(item).toLocaleString() : noData;
+
+              function render(data) {{
+                statusEl.textContent = statusText[data.status] || failed;
+                document.getElementById(elements.used).textContent = value(data.used);
+                document.getElementById(elements.remaining).textContent = value(data.remaining);
+                document.getElementById(elements.cost).textContent = value(data.next_oil_cost);
+                document.getElementById(elements.gain).textContent = value(data.next_ap_gain);
+                document.getElementById(elements.reset).textContent = localDate(data.reset_at);
+                document.getElementById(elements.result).textContent = resultText[data.last_result] || value(data.last_result);
+                document.getElementById(elements.confirmed).textContent = localDate(data.confirmed_at);
+              }}
+
+              async function refresh() {{
+                statusEl.textContent = loading;
+                try {{
+                  const response = await fetch('/api/commission/recovery?instance=' + encodeURIComponent(instance), {{cache: 'no-store'}});
+                  const result = await response.json();
+                  if (!result.success || !result.data) throw new Error('state');
+                  render(result.data);
+                }} catch (error) {{
+                  statusEl.textContent = failed;
+                }}
+              }}
+
+              window[timerKey] = window.setInterval(refresh, 5000);
+              refresh();
+            }})();
+            """
         )
 
     def _render_startup_run_setting(self) -> None:

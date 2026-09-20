@@ -150,6 +150,7 @@ class TestSharedWebUiLocalizationContracts(unittest.TestCase):
             [
                 ("Route", "/api/cl1_stats", None),
                 ("Route", "/api/ap_timeline", None),
+                ("Route", "/api/commission/recovery", None),
                 ("Route", "/api/notify", ("POST",)),
                 ("Route", "/api/notify_stream", None),
                 ("Route", "/api/notification-agent/stream", None),

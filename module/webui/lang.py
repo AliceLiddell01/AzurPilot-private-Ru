@@ -83,6 +83,27 @@ _RECOVERY_STAGE3_TRANSLATIONS = {
 _PERSONAL_RUNTIME_TRANSLATIONS = {
     "Gui.Dashboard.EventPtTotal": "Всего валюты ивента заработано",
     "Gui.Dashboard.EventCurrencyBalance": "Текущий баланс валюты ивента",
+    "Gui.CommissionRecovery.Title": "Защита награды Commission",
+    "Gui.CommissionRecovery.Description": (
+        "Только чтение: подтверждённое состояние недельной покупки AP и последнего восстановления нефти."
+    ),
+    "Gui.CommissionRecovery.Status": "Состояние",
+    "Gui.CommissionRecovery.StatusConfirmed": "Подтверждено игрой",
+    "Gui.CommissionRecovery.StatusUnknown": "Не подтверждено",
+    "Gui.CommissionRecovery.StatusUnavailable": "Недоступно",
+    "Gui.CommissionRecovery.Used": "Использовано покупок AP",
+    "Gui.CommissionRecovery.Remaining": "Осталось покупок AP",
+    "Gui.CommissionRecovery.NextOilCost": "Следующая стоимость, нефть",
+    "Gui.CommissionRecovery.NextApGain": "Прирост AP",
+    "Gui.CommissionRecovery.ResetAt": "Следующий сброс",
+    "Gui.CommissionRecovery.LastResult": "Последний результат",
+    "Gui.CommissionRecovery.ResultApPurchase": "Покупка AP подтверждена",
+    "Gui.CommissionRecovery.ResultDormFallback": "Использован резерв общежития",
+    "Gui.CommissionRecovery.ResultApUnavailable": "Покупки AP недоступны",
+    "Gui.CommissionRecovery.ConfirmedAt": "Подтверждено",
+    "Gui.CommissionRecovery.NoData": "Нет данных",
+    "Gui.CommissionRecovery.Loading": "Загрузка состояния…",
+    "Gui.CommissionRecovery.RefreshFailed": "Состояние временно недоступно",
 }
 
 dic_lang: Dict[str, str] = {}

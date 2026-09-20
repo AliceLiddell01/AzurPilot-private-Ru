@@ -40,6 +40,11 @@ from module.application.runtime_cache import (
     RuntimeCacheHealth,
     RuntimeCacheStatus,
 )
+from module.application.commission_recovery import (
+    CommissionRecoveryState,
+    CommissionRecoveryStore,
+    next_en_weekly_reset,
+)
 from module.application.fleet_autoscan import (
     FLEET_AUTOSCAN_SOURCE,
     FleetAutoScanConfig,
@@ -207,6 +212,8 @@ __all__ = (
     "ChannelCapabilities",
     "CommissionIncome",
     "CommissionItem",
+    "CommissionRecoveryState",
+    "CommissionRecoveryStore",
     "ConfigArgumentDefinition",
     "ConfigSnapshot",
     "ConfigUpdateRequest",
@@ -353,5 +360,6 @@ __all__ = (
     "TaskOption",
     "TaskSummary",
     "finalize_rehearsal",
+    "next_en_weekly_reset",
     "project_morale",
 )
