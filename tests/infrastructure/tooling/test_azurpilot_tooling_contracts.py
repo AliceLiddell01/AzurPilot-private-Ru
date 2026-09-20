@@ -945,6 +945,8 @@ def test_docker_environment_is_bounded_and_reused_by_inspect_and_start(
             specs.append(spec)
             output = (
                 '{"Service":"postgres","State":"running","Health":"healthy"}\n'
+                '{"Service":"redis","State":"running","Health":"healthy"}\n'
+                '{"Service":"redisinsight","State":"running","Health":"healthy"}\n'
                 if "ps" in spec.argv
                 else ""
             )
@@ -958,7 +960,7 @@ def test_docker_environment_is_bounded_and_reused_by_inspect_and_start(
         "_run_project_module",
         lambda *_args, **_kwargs: "",
     )
-    service.ensure_started(root, settings, timeout_seconds=30)
+    outcome = service.ensure_started(root, settings, timeout_seconds=30)
 
     docker_specs = specs
     assert docker_specs
@@ -971,10 +973,50 @@ def test_docker_environment_is_bounded_and_reused_by_inspect_and_start(
     assert all("SOME_SECRET_TOKEN" not in spec.env for spec in docker_specs)
     assert inspection.compose is CapabilityStatus.READY
     assert inspection.postgres is CapabilityStatus.READY
+    assert outcome.redisinsight is CapabilityStatus.READY
+    assert sum("ps" in spec.argv for spec in docker_specs) == 2
     assert tooling_postgresql_runtime._backup_process_environment()[
         "DOCKER_CONTEXT"
     ] == "remote-context"
     assert "SOME_SECRET_TOKEN" not in tooling_postgresql_runtime._backup_process_environment()
+
+
+def test_docker_inspection_requires_health_for_redis_and_redisinsight(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = tmp_path / "repository"
+    compose = root / "infrastructure" / "observability" / "compose.yaml"
+    compose.parent.mkdir(parents=True)
+    compose.write_text("services: {}\n", encoding="utf-8")
+    (root / ".env").write_text("\n", encoding="utf-8")
+    monkeypatch.setattr(
+        InfrastructureService,
+        "_docker",
+        staticmethod(lambda: Path(sys.executable)),
+    )
+
+    records = json.dumps(
+        [
+            {"Service": "postgres", "State": "running", "Health": "healthy"},
+            {"Service": "redis", "State": "running", "Health": ""},
+            {"Service": "redisinsight", "State": "running", "Health": ""},
+        ]
+    )
+
+    class FakeRunner:
+        def run(self, spec: ProcessSpec) -> SimpleNamespace:
+            return SimpleNamespace(
+                ok=True,
+                stdout=records if "ps" in spec.argv else "",
+            )
+
+    inspection = InfrastructureService(FakeRunner()).inspect(
+        root, DeploySettings(source_path=None)
+    )
+
+    assert inspection.postgres is CapabilityStatus.READY
+    assert inspection.redis is CapabilityStatus.UNAVAILABLE
+    assert inspection.redisinsight is CapabilityStatus.UNAVAILABLE
 
 
 def test_docker_records_accept_object_array_and_ndjson_without_silent_parse_loss() -> None:

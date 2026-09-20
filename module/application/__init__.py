@@ -34,6 +34,12 @@ from module.application.errors import (
     StorageInvariantViolationError,
     StorageUnavailableError,
 )
+from module.application.runtime_cache import (
+    RuntimeCache,
+    RuntimeCacheError,
+    RuntimeCacheHealth,
+    RuntimeCacheStatus,
+)
 from module.application.fleet_autoscan import (
     FLEET_AUTOSCAN_SOURCE,
     FleetAutoScanConfig,
@@ -320,6 +326,10 @@ __all__ = (
     "ResourceSnapshot",
     "RetryPolicy",
     "RuntimeLogTail",
+    "RuntimeCache",
+    "RuntimeCacheError",
+    "RuntimeCacheHealth",
+    "RuntimeCacheStatus",
     "RuntimeState",
     "ScheduleTaskRequest",
     "ScheduleTaskResult",

@@ -261,9 +261,25 @@ class DoctorService:
             infrastructure = self.infrastructure.inspect(root, settings)
             docker_status = infrastructure.compose
             docker_message = infrastructure.message
+            redis_status = infrastructure.redis
+            redis_message = (
+                "Канонический Redis healthy и принадлежит Compose project."
+                if redis_status is CapabilityStatus.READY
+                else "Канонический Redis не подтверждён; runtime cache недоступен."
+            )
+            redisinsight_status = infrastructure.redisinsight
+            redisinsight_message = (
+                "RedisInsight healthy и доступен только на loopback."
+                if redisinsight_status is CapabilityStatus.READY
+                else "RedisInsight не подтверждён; Redis runtime от этого не зависит."
+            )
         else:
             docker_status = CapabilityStatus.UNAVAILABLE
             docker_message = "Docker CLI не найден в текущей среде."
+            redis_status = CapabilityStatus.UNAVAILABLE
+            redis_message = "Docker CLI не найден; Redis runtime cache не подтверждён."
+            redisinsight_status = CapabilityStatus.UNAVAILABLE
+            redisinsight_message = "Docker CLI не найден; RedisInsight не подтверждён."
         checks.append(
             _check(
                 "docker",
@@ -271,6 +287,8 @@ class DoctorService:
                 docker_message,
             )
         )
+        checks.append(_check("redis", redis_status, redis_message))
+        checks.append(_check("redisinsight", redisinsight_status, redisinsight_message))
 
         external_integrations: tuple[IntegrationSummary, ...] = ()
         if include_external_integrations:
@@ -377,6 +395,13 @@ class DoctorService:
                 ToolingWarning(
                     code=WarningCode.TOOLING_POSTGRES_UNAVAILABLE,
                     message="Docker/PostgreSQL не подтверждены; doctor оставил среду без изменений.",
+                )
+            )
+        if redis_status is not CapabilityStatus.READY:
+            warnings.append(
+                ToolingWarning(
+                    code=WarningCode.TOOLING_REDIS_UNAVAILABLE,
+                    message="Docker/Redis не подтверждены; runtime cache оставлен без fallback.",
                 )
             )
         return ToolingResult[DoctorDetails, DoctorEvidence](

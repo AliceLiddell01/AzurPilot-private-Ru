@@ -62,6 +62,54 @@ services:
       timeout: 5s
       retries: 12
       start_period: 30s
+  redis:
+    image: redis:8.10.1@sha256:8a1efc5f479551822b47424ccae982026b633f28818eab0387348120a61e10e2
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    user: redis
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        umask 077
+        app_password="$$(cat /run/secrets/redis_app_password)"
+        admin_password="$$(cat /run/secrets/redis_admin_password)"
+        test -n "$$app_password"
+        test -n "$$admin_password"
+        rm -f -- /data/acl.conf
+        mkdir -p /run/redis
+        case "$$app_password$$admin_password" in
+          *[!A-Za-z0-9._~+=:@%/,-]*)
+            echo "Redis secrets contain unsupported characters" >&2
+            exit 1
+            ;;
+        esac
+        printf '%s\n' \
+          'user default off -@all' \
+          "user azurpilot_app on >$$app_password ~azurpilot:* +ping +get +set +del +expire +expireat +ttl" \
+          "user azurpilot_admin on >$$admin_password ~* +@all" \
+          >/run/redis/acl.conf
+        exec redis-server --appendonly yes --appendfsync everysec --aclfile /run/redis/acl.conf
+    ports:
+      - "127.0.0.1:${AZURPILOT_REDIS_PORT:-6379}:6379"
+    secrets:
+      - redis_app_password
+      - redis_admin_password
+    volumes:
+      - type: volume
+        source: redis-data
+        target: /data
+    tmpfs:
+      - /run/redis:rw,noexec,nosuid,nodev,uid=999,gid=999,mode=0700
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'REDISCLI_AUTH="$$(cat /run/secrets/redis_app_password)" redis-cli --user azurpilot_app ping | grep -q PONG'
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
   postgres-bootstrap:
     image: postgres:18@sha256:4ef4dbc939d61acea57712655ddb4b4ab27419c913f94cca0cd57cb3ea3c2280
     depends_on:
@@ -126,6 +174,52 @@ services:
           "--tries=1",
           "--spider",
           "http://127.0.0.1:8080/misc/ping",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+  redisinsight:
+    image: redis/redisinsight:3.8.0@sha256:b5e19ee240abef6edb435871b90ff8a210995422e8e018ab61c0339d318a1f84
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    entrypoint: ["/usr/src/app/docker-entry.sh"]
+    ports:
+      - "127.0.0.1:${AZURPILOT_REDISINSIGHT_PORT:-5540}:5540"
+    environment:
+      RI_APP_HOST: 0.0.0.0
+      RI_APP_PORT: "5540"
+      RI_ENCRYPTION_KEY: ${AZURPILOT_REDISINSIGHT_ENCRYPTION_KEY:-}
+      RI_REDIS_HOST: redis
+      RI_REDIS_PORT: "6379"
+      RI_REDIS_ALIAS: AzurPilot Redis
+      RI_REDIS_USERNAME: azurpilot_admin
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        if [ -z "$${RI_ENCRYPTION_KEY}" ]; then
+          echo "RedisInsight encryption key is required" >&2
+          exit 1
+        fi
+        exec node redisinsight/api/dist/src/main
+    volumes:
+      - type: volume
+        source: redisinsight-data
+        target: /data
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://127.0.0.1:5540/api/health/",
         ]
       interval: 10s
       timeout: 5s
@@ -297,6 +391,10 @@ services:
 volumes:
   postgres-data:
     name: azurpilot-postgres-data
+  redis-data:
+    name: azurpilot-redis-data
+  redisinsight-data:
+    name: azurpilot-redisinsight-data
   pgadmin-data:
     name: azurpilot-pgadmin-data
   alloy-data:
@@ -332,3 +430,7 @@ secrets:
     environment: AZURPILOT_OBSERVABILITY_PGADMIN_ADMIN_PASSWORD
   pgadmin_pgpass:
     environment: AZURPILOT_OBSERVABILITY_PGADMIN_PGPASS
+  redis_app_password:
+    environment: AZURPILOT_REDIS_PASSWORD
+  redis_admin_password:
+    environment: AZURPILOT_REDIS_ADMIN_PASSWORD

@@ -22,6 +22,8 @@ toolkit
 *.env
 **/*.env
 **/.env.*
+.azurpilot-runtime.env
+**/.azurpilot-runtime.env
 !.env.example
 !.env.template
 .pgpass

@@ -27,6 +27,7 @@ VOLUME_SERVICES = {
     "azurpilot-observability_prometheus-data": "prometheus",
     "azurpilot-observability_tempo-data": "tempo",
 }
+OPTIONAL_SERVICES = {"redisinsight"}
 
 
 class ComposeMigrationError(RuntimeError):
@@ -276,14 +277,22 @@ def _verify_canonical_mounts(repository_root: Path) -> None:
 
 def _verify_canonical_project(repository_root: Path) -> list[dict[str, Any]]:
     records = _compose_records(repository_root)
-    expected_services = {"postgres", "pgadmin", *VOLUME_SERVICES.values()}
+    expected_services = {
+        "postgres",
+        "pgadmin",
+        "redis",
+        *VOLUME_SERVICES.values(),
+    }
     observed_services = {
         record.get("Service") for record in records if record.get("Service")
     }
     if not expected_services.issubset(observed_services):
         raise ComposeMigrationError("CANONICAL_SERVICE_MISSING")
     for record in records:
-        if record.get("Service") not in expected_services:
+        service = record.get("Service")
+        if service in OPTIONAL_SERVICES:
+            continue
+        if service not in expected_services:
             continue
         state = str(record.get("State", "")).casefold()
         health = str(record.get("Health", "")).casefold()
@@ -306,7 +315,33 @@ def migrate(repository_root: Path) -> dict[str, Any]:
         mode = "migration"
 
     _run_compose(repository_root, "config", "--quiet", timeout=60)
-    _run_compose(repository_root, "up", "--detach", "--wait", timeout=360)
+    required_services = (
+        "postgres",
+        "pgadmin",
+        "redis",
+        *VOLUME_SERVICES.values(),
+    )
+    _run_compose(
+        repository_root,
+        "up",
+        "--detach",
+        "--wait",
+        *required_services,
+        timeout=360,
+    )
+    # RedisInsight остаётся постоянным canonical service, но его operator UI
+    # не может блокировать готовность игрового runtime: проверка его health
+    # выполняется отдельным typed doctor capability.
+    optional_services: dict[str, dict[str, str]] = {
+        "redisinsight": {"status": "started"}
+    }
+    try:
+        _run_compose(repository_root, "up", "--detach", "redisinsight", timeout=120)
+    except ComposeMigrationError as exc:
+        optional_services["redisinsight"] = {
+            "status": "unavailable",
+            "reason_code": str(exc),
+        }
     records = _verify_canonical_project(repository_root)
     final_state = inventory()
     if (
@@ -327,6 +362,7 @@ def migrate(repository_root: Path) -> dict[str, Any]:
         "persistent_volumes": list(LEGACY_VOLUMES),
         "legacy_containers_removed": len(state["legacy_containers"]),
         "legacy_networks_removed": len(state["legacy_networks"]),
+        "optional_services": optional_services,
     }
 
 

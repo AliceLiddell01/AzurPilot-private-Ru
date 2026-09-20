@@ -133,3 +133,83 @@ def test_legacy_cleanup_never_removes_persistent_volumes(monkeypatch):
         ["container", "rm"],
         ["network", "rm"],
     ]
+
+
+def test_redisinsight_is_optional_for_canonical_migration(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    services = (
+        "postgres",
+        "pgadmin",
+        "redis",
+        *migration.VOLUME_SERVICES.values(),
+    )
+    monkeypatch.setattr(
+        migration,
+        "_compose_records",
+        lambda _root: [{"Service": service, "State": "running", "Health": "healthy"} for service in services],
+    )
+    monkeypatch.setattr(migration, "_verify_canonical_mounts", lambda _root: None)
+
+    records = migration._verify_canonical_project(tmp_path)
+
+    assert {record["Service"] for record in records} == set(services)
+
+
+def test_unhealthy_redisinsight_does_not_block_canonical_migration(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    services = (
+        "postgres",
+        "pgadmin",
+        "redis",
+        *migration.VOLUME_SERVICES.values(),
+        "redisinsight",
+    )
+    monkeypatch.setattr(
+        migration,
+        "_compose_records",
+        lambda _root: [
+            {
+                "Service": service,
+                "State": "restarting" if service == "redisinsight" else "running",
+                "Health": "unhealthy" if service == "redisinsight" else "healthy",
+            }
+            for service in services
+        ],
+    )
+    monkeypatch.setattr(migration, "_verify_canonical_mounts", lambda _root: None)
+
+    records = migration._verify_canonical_project(tmp_path)
+
+    assert {record["Service"] for record in records} == set(services)
+
+
+def test_redisinsight_start_failure_is_non_blocking(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    state = _state("fresh")
+    inventories = iter((state, state))
+    monkeypatch.setattr(migration, "inventory", lambda: next(inventories))
+    monkeypatch.setattr(migration, "_create_fresh_legacy_volumes", lambda: None)
+    monkeypatch.setattr(
+        migration,
+        "_verify_canonical_project",
+        lambda _root: [{"Service": "postgres"}],
+    )
+
+    def run_compose(_root: Path, *arguments: str, **_kwargs: object) -> str:
+        if "redisinsight" in arguments:
+            raise migration.ComposeMigrationError("DOCKER_COMMAND_FAILED")
+        return ""
+
+    monkeypatch.setattr(migration, "_run_compose", run_compose)
+
+    result = migration.migrate(tmp_path)
+
+    assert result["optional_services"] == {
+        "redisinsight": {
+            "status": "unavailable",
+            "reason_code": "DOCKER_COMMAND_FAILED",
+        }
+    }
