@@ -14,8 +14,9 @@ redacted config, sanitized logs или screenshot, получить справк
 разрешённый параметр или выполнить опубликованное runtime-control действие.
 
 В standalone Codex CLI источник действий — project-scoped `azurpilot-game`,
-зарегистрированный в `.codex/config.toml` и запущенный через direct local stdio:
-`uv run --locked --no-sync python -m module.game_mcp`. Codex Desktop также явно
+зарегистрированный в `.codex/config.toml`; lifecycle этого route проверяется и
+восстанавливается только через буквальные `azur mcp ...` команды из PATH. Не
+запускай `module.game_mcp` или другой внутренний module напрямую. Codex Desktop также явно
 поддерживает first-class authenticated loopback route `azurpilot_game`; protocol
 identity остаётся `azurpilot-game`. Проверяй фактический
 MCP callable catalog текущей сессии. Этот skill не добавляет MCP-сервер, не
@@ -70,7 +71,11 @@ fallback для обычного Codex route. Если выбранный route,
 `azur mcp restart`. При session/plugin mismatch зафиксируй `RELOAD_REQUIRED`;
 не называй обновление tracked bundle или owned process hot reload. Проверяй
 `plugin_source_state` отдельно от runtime; `MCP_RELOAD_REQUIRED` означает
-неуспешную reconciliation до подтверждения новой session.
+неуспешную reconciliation до подтверждения новой session. После
+`azur mcp reconcile --source --bump auto` source считается только
+`source_reconciled`; live workflow требует `azur mcp status` и
+`runtime_ready=true`, с `azur mcp start`/`azur mcp restart` для допустимого
+owned transition. `MCP_RUNTIME_UNAVAILABLE` не является live acceptance.
 
 ## Модель состояния
 

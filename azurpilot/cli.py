@@ -899,6 +899,8 @@ def _render_human(
                 for field, label in (
                     ("source_state", "Source"),
                     ("runtime_state", "Runtime"),
+                    ("source_reconciled", "Source reconciled"),
+                    ("runtime_ready", "Runtime ready"),
                     ("plugin_state", "Plugin"),
                     ("plugin_source_state", "Plugin source"),
                     ("session_state", "Session"),

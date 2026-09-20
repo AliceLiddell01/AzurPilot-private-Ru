@@ -238,6 +238,66 @@ def test_development_skill_routes_to_canonical_workflow_owners() -> None:
     ):
         assert required.lower() in review_content.lower()
 
+
+def test_operator_workflow_requires_literal_azur_and_separates_mcp_readiness() -> None:
+    policy_paths = (
+        _REPOSITORY_ROOT / "AGENTS.md",
+        _REPOSITORY_ROOT / ".codex" / "context" / "11-PYTHON-TOOLING.md",
+        _REPOSITORY_ROOT / ".codex" / "context" / "GIT-WORKFLOW.md",
+        _SKILLS_ROOT / "azurpilot-repository-development" / "SKILL.md",
+        _SKILLS_ROOT / "azurpilot-coderabbit-review" / "SKILL.md",
+        _SKILLS_ROOT
+        / "azurpilot-coderabbit-review"
+        / "references"
+        / "review-workflow.md",
+        _REPOSITORY_ROOT
+        / "plugins"
+        / "azurpilot"
+        / "skills"
+        / "azurpilot-development"
+        / "SKILL.md",
+        _REPOSITORY_ROOT
+        / "plugins"
+        / "azurpilot"
+        / "skills"
+        / "azurpilot-game-control"
+        / "SKILL.md",
+        _REPOSITORY_ROOT
+        / "plugins"
+        / "azurpilot"
+        / "skills"
+        / "azurpilot-troubleshooting"
+        / "SKILL.md",
+        _REPOSITORY_ROOT
+        / "plugins"
+        / "azurpilot"
+        / "references"
+        / "mcp-routing.md",
+    )
+    content = " ".join(path.read_text(encoding="utf-8").lower() for path in policy_paths)
+    for required in (
+        "literal",
+        "azur ...",
+        "source_reconciled",
+        "runtime_ready",
+        "local_mcp_supervisor_stopped",
+        "codex/base-*",
+        "tooling_stacked_parent_unpublished",
+    ):
+        assert required in content
+
+    development_skill = (
+        _REPOSITORY_ROOT
+        / "plugins"
+        / "azurpilot"
+        / "skills"
+        / "azurpilot-development"
+        / "SKILL.md"
+    ).read_text(encoding="utf-8").lower()
+    assert "каноническая codex-команда: uv run" not in development_skill
+    assert "uv run --locked --no-sync python -m module.dev_mcp" not in content
+    assert "uv run --locked --no-sync python -m module.game_mcp" not in content
+
 def test_new_skills_contain_no_local_paths_secrets_or_stage_baselines() -> None:
     for path in _SKILLS_ROOT.rglob("*"):
         if not path.is_file():

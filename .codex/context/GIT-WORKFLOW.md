@@ -299,6 +299,12 @@ repository/root/base/head, clean index/worktree и postcondition того же
 candidate; отдельные clone, worktree, UNC route и wrapper не являются
 допустимой заменой.
 
+Stacked publication использует только реальную опубликованную parent branch.
+Запрещены `codex/base-*`, temporary/scratch/transport/helper remote ref и
+вспомогательная remote publication. Если parent local HEAD ещё не совпадает с
+parent remote HEAD, canonical delivery/PR workflow возвращает typed
+`TOOLING_STACKED_PARENT_UNPUBLISHED` и не создаёт обходной ref.
+
 В любой дополнительной среде base SHA фиксируется до изменений, пользовательские config/secrets не копируются без необходимости, временные artifacts отделяются, а после завершения удаляются только ресурсы текущей задачи. Destructive Git внутри disposable среды регулируется разделом 22.
 
 ## 12. Рабочий цикл
@@ -323,7 +329,20 @@ base проходит `azur mcp impact --base <exact-base-sha>`. При `REQUIRE
 штатный `azur mcp reconcile --source --bump auto` и последующие integrity и
 base-to-head compatibility checks обязательны; изменение source set после
 reconciliation делает предыдущий результат stale. Generated MCP artifacts
-являются производным scope той же задачи.
+являются производным scope той же задачи. Source reconciliation имеет только
+`source_reconciled=true`; если live MCP входит в обязательный gate, напрямую
+вызови через PATH `azur mcp status`, а при доказанном owned
+`LOCAL_MCP_SUPERVISOR_STOPPED` — `azur mcp start`/`azur mcp restart`, затем
+повторный status с `runtime_ready=true`. Source-only result и
+`MCP_RUNTIME_UNAVAILABLE` не закрывают live acceptance. Внутренние
+`module.*_mcp`, supervisor scripts и Python module launchers напрямую не
+используются.
+
+Для любой project-owned operator capability, уже представленной через `azur`,
+каноничен только literal invocation `azur ...` из PATH текущей shell. `uv run`,
+`python -m azurpilot`, `.venv/.../azur`, absolute executable path и shell
+wrapper — запрещённые обходы, а не эквивалентные формы. `uv` разрешён для
+dependency/bootstrap/test/build задач, где он является владельцем операции.
 
 - минимальный связный diff;
 - не форматировать посторонние файлы;

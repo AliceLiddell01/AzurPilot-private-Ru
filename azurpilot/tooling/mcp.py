@@ -1695,10 +1695,16 @@ class McpService:
                     ),
                 )
             )
+        source_reconciled = source_state == "ready" and plugin_source_state == "ready"
+        runtime_ready = runtime_state == "ready" and all(
+            status.status == "ready" for status in statuses
+        )
         return build, runtime_state, runtime, McpStatusDetails(
             action=action,
             source_state=source_state,
             runtime_state=runtime_state,
+            source_reconciled=source_reconciled,
+            runtime_ready=runtime_ready,
             plugin_state=plugin_state,
             plugin_source_state=plugin_source_state,
             session_state=session_state,
@@ -1743,17 +1749,24 @@ class McpService:
             code = ResultCode.MCP_RUNTIME_UNAVAILABLE
         else:
             code = ResultCode.OK
+        if code is ResultCode.MCP_RUNTIME_UNAVAILABLE and details.source_reconciled:
+            message = (
+                "MCP source reconciled, но live runtime не готов; обязательная "
+                "live-проверка не завершена."
+            )
+        else:
+            message = (
+                "MCP source, routes и bounded runtime status прочитаны."
+                if code is ResultCode.OK
+                else "MCP source, runtime или derived metadata требуют reconciliation."
+            )
         return ToolingResult(
             ok=code is ResultCode.OK,
             code=code,
             state=(
                 OperationState.READY if code is ResultCode.OK else OperationState.FAILED
             ),
-            message=(
-                "MCP source, routes и bounded runtime status прочитаны."
-                if code is ResultCode.OK
-                else "MCP source, runtime или derived metadata требуют reconciliation."
-            ),
+            message=message,
             details=details,
         )
 
@@ -2021,6 +2034,8 @@ class McpService:
                 mode="source",
                 source_state="ready",
                 runtime_state="unknown",
+                source_reconciled=True,
+                runtime_ready=False,
                 mutation_performed=True,
                 changed_components=build.changed_components,
                 affected_servers=build.affected_servers,
@@ -2070,14 +2085,14 @@ class McpService:
                 ResultCode.MCP_RUNTIME_STALE,
                 "Состояние local MCP runtime нельзя безопасно классифицировать.",
             )
-        if runtime_state == "stale":
+        if runtime_state in {"stale", "stopped"}:
             service_items = {
                 item.get("server_name"): item
                 for item in runtime.get("services", [])
                 if isinstance(item, dict)
             }
             supervisors = runtime.get("supervisors", {})
-            stale_names = tuple(
+            repair_names = tuple(
                 name
                 for name in MCP_SERVER_NAMES
                 if service_items.get(name, {}).get("ready") is not True
@@ -2088,12 +2103,12 @@ class McpService:
                     "LOCAL_MCP_SUPERVISOR_STOPPED",
                 }
             )
-            if not stale_names:
+            if not repair_names:
                 raise ToolingError(
                     ResultCode.MCP_RUNTIME_STALE,
-                    "Устаревший local MCP runtime не имеет безопасного exact owner.",
+                    "Остановленный или устаревший local MCP runtime не имеет безопасного exact owner.",
                 )
-            for name in stale_names:
+            for name in repair_names:
                 if supervisors[name].get("code") == "LOCAL_MCP_SUPERVISOR_STOPPED":
                     continue
                 if not self._supervisor(root, name).stop():
@@ -2102,19 +2117,22 @@ class McpService:
                         "Устаревший локальный MCP runtime нельзя безопасно остановить.",
                     )
             _changed, runtime = self._start_owned(
-                root, bundle, server_names=stale_names
+                root, bundle, server_names=repair_names
             )
-            restarted = stale_names
+            restarted = repair_names
             runtime_state, runtime = self._runtime_status(root, bundle)
             if runtime_state != "ready":
                 raise ToolingError(
-                    ResultCode.MCP_RUNTIME_STALE,
-                    "После restart readiness и exact MCP runtime postcondition не подтверждены.",
+                    ResultCode.MCP_RUNTIME_UNAVAILABLE,
+                    "После start/restart readiness и exact MCP runtime postcondition не подтверждены.",
                 )
+            session_state = self._session_state(root, runtime, changed_paths=changed_paths)
         details = McpReconcileDetails(
             mode="runtime",
             source_state="ready",
             runtime_state=runtime_state,
+            source_reconciled=True,
+            runtime_ready=runtime_state == "ready",
             mutation_performed=bool(restarted),
             changed_components=(),
             affected_servers=restarted,
@@ -2137,7 +2155,7 @@ class McpService:
             message=(
                 "MCP runtime уже согласован; mutation не потребовалась."
                 if not restarted
-                else "Устаревший owned MCP runtime перезапущен; readiness подтверждён."
+                else "Остановленный или устаревший owned MCP runtime запущен/перезапущен; readiness подтверждён."
             ),
             details=details,
         )

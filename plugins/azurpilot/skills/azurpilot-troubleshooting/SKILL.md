@@ -183,9 +183,14 @@ capability gap, а не доказанный stale client. Зафиксируй 
 
 Состояния `MCP_RUNTIME_STALE`, `MCP_PLUGIN_RUNTIME_INCOMPATIBLE` и
 `MCP_RELOAD_REQUIRED` требуют read-only фиксации source/runtime/plugin-source/session
-расхождения. Для доказанно owned runtime разрешён один штатный
-`azur mcp restart`; при изменении plugin/skill сначала требуется новая
-session или явное подтверждение reload, а hot reload не предполагается.
+расхождения. `azur mcp reconcile --source --bump auto` доказывает только
+`source_reconciled`; для обязательного live gate после него вызови `azur mcp
+status` и требуй `runtime_ready=true`. Для доказанно owned runtime разрешён
+штатный `azur mcp start` при `LOCAL_MCP_SUPERVISOR_STOPPED` или `azur mcp
+restart` при stale runtime, после чего нужен повторный status. При unknown
+ownership, port conflict или readiness failure остановись typed fail-closed.
+Не запускай внутренние MCP modules/scripts напрямую; не используй `uv`, Python
+module entrypoint или wrapper вместо доступного literal `azur`.
 
 `GAME_*` или `DEV_*` machine-readable response означает, что вызов достиг
 backend boundary. `Unknown tool`, platform block или отсутствие callable

@@ -29,7 +29,7 @@ from .contracts import (
 )
 from .errors import ToolingError
 from .filesystem import bounded_read_text, canonical_path, path_has_link
-from .git import GitClient, repository_identity_from_remote
+from .git import GitClient, is_ad_hoc_remote_ref, repository_identity_from_remote
 from .process import ProcessSpec, StructuredProcessRunner
 from .repository import RepositoryResolver, ResolvedRepository
 
@@ -690,6 +690,13 @@ class PullRequestService:
             )
         _validate_ref(spec.base_ref)
         _validate_ref(spec.head_ref)
+        if is_ad_hoc_remote_ref(spec.base_ref) or is_ad_hoc_remote_ref(spec.head_ref):
+            raise _error(
+                ResultCode.TOOLING_AD_HOC_REMOTE_TOPOLOGY,
+                "PR spec не принимает temporary/scratch/transport ref; "
+                "stacked parent должен быть реальной опубликованной branch.",
+                state=OperationState.CONFLICT,
+            )
         if not _SAFE_REMOTE.fullmatch(spec.remote_name):
             raise _error(ResultCode.TOOLING_PR_BODY_INVALID, "PR remote имеет небезопасное имя.")
         if spec.repository.host.casefold() == "local":
@@ -729,7 +736,20 @@ class PullRequestService:
             raise _error(ResultCode.TOOLING_PRECONDITION_FAILED, "Local branch не совпадает с PR spec head_ref.")
         if git.head() != spec.head_sha:
             raise _error(ResultCode.TOOLING_PRECONDITION_FAILED, "Local HEAD не совпадает с PR spec head_sha.")
-        if git.remote_ref(spec.remote_name, spec.base_ref) != spec.base_sha:
+        remote_base_sha = git.remote_ref(spec.remote_name, spec.base_ref)
+        if remote_base_sha != spec.base_sha:
+            try:
+                parent_is_local = git.object_exists(spec.base_sha)
+            except ToolingError:
+                parent_is_local = False
+            if parent_is_local:
+                raise _error(
+                    ResultCode.TOOLING_STACKED_PARENT_UNPUBLISHED,
+                    "Exact parent branch remote SHA отличается от local parent HEAD; "
+                    "PR publication заблокирована до canonical parent publication. "
+                    "Temporary remote ref запрещён.",
+                    state=OperationState.CONFLICT,
+                )
             raise _error(ResultCode.TOOLING_PRECONDITION_FAILED, "Remote base SHA не совпадает с PR spec.")
         if git.remote_ref(spec.remote_name, spec.head_ref) != spec.head_sha:
             raise _error(ResultCode.TOOLING_PRECONDITION_FAILED, "Remote head SHA не совпадает с PR spec.")

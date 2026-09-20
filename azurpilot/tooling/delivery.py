@@ -43,7 +43,7 @@ from .filesystem import (
     path_identity,
     sha256_file,
 )
-from .git import GitClient, repository_identity_from_remote
+from .git import GitClient, is_ad_hoc_remote_ref, repository_identity_from_remote
 from .process import ProcessResult, ProcessSpec, StructuredProcessRunner
 from .repository import RepositoryResolver, ResolvedRepository
 
@@ -612,6 +612,22 @@ class DeliveryService:
         _validate_ref(manifest.expected_branch)
         _validate_ref(manifest.remote_branch)
         _validate_ref(manifest.base_branch)
+        if is_ad_hoc_remote_ref(manifest.base_branch) or is_ad_hoc_remote_ref(
+            manifest.remote_branch
+        ):
+            raise _error(
+                ResultCode.TOOLING_AD_HOC_REMOTE_TOPOLOGY,
+                "Delivery не принимает temporary/scratch/transport remote ref; "
+                "parent и feature branch должны публиковаться canonical workflow-ом.",
+                state=OperationState.CONFLICT,
+            )
+        if manifest.remote_branch != manifest.expected_branch:
+            raise _error(
+                ResultCode.TOOLING_AD_HOC_REMOTE_TOPOLOGY,
+                "Delivery remote_branch обязан совпадать с реальной local branch; "
+                "вспомогательная remote publication запрещена.",
+                state=OperationState.CONFLICT,
+            )
         repository = self.resolver.resolve(repository_root)
         git = self.git_factory(repository.path, self.runner)
         if (
@@ -653,6 +669,18 @@ class DeliveryService:
             )
         base_sha = git.remote_ref(manifest.base_remote_name, manifest.base_branch)
         if base_sha != manifest.expected_base_sha:
+            try:
+                parent_is_local = git.object_exists(manifest.expected_base_sha)
+            except ToolingError:
+                parent_is_local = False
+            if parent_is_local and manifest.base_branch != manifest.expected_branch:
+                raise _error(
+                    ResultCode.TOOLING_STACKED_PARENT_UNPUBLISHED,
+                    "Exact parent branch remote SHA отличается от local parent HEAD; "
+                    "сначала опубликуйте реальную parent branch через canonical delivery "
+                    "workflow. Temporary remote ref создавать нельзя.",
+                    state=OperationState.CONFLICT,
+                )
             raise _error(
                 ResultCode.TOOLING_PRECONDITION_FAILED,
                 "Exact base SHA remote не совпадает с manifest.",

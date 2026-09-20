@@ -114,9 +114,11 @@ def _write_delivery_manifest(
     base_sha: str,
     branch: str,
     targets: list[dict[str, object]],
+    base_branch: str = "personal/stable",
     publication_intent: str = "commit_and_push",
     base_remote_name: str = "origin",
     remote_name: str = "origin",
+    remote_branch: str | None = None,
     expected_remote_sha: str | None = None,
 ) -> Path:
     path.write_text(
@@ -128,9 +130,9 @@ def _write_delivery_manifest(
                 "expected_local_head": base_sha,
                 "expected_base_sha": base_sha,
                 "base_remote_name": base_remote_name,
-                "base_branch": "personal/stable",
+                "base_branch": base_branch,
                 "remote_name": remote_name,
-                "remote_branch": branch,
+                "remote_branch": remote_branch or branch,
                 "expected_remote_sha": expected_remote_sha,
                 "targets": targets,
                 "commit_message": "feat(test): проверить delivery contract",
@@ -140,6 +142,96 @@ def _write_delivery_manifest(
         encoding="utf-8",
     )
     return path
+
+
+def test_delivery_rejects_ad_hoc_remote_topology(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, _bare, base_sha, _remote_url, identity = _fixture_repository(tmp_path)
+    before = b"base\n"
+    after = b"changed\n"
+    (root / "README.md").write_bytes(after)
+    manifest_path = _write_delivery_manifest(
+        tmp_path / "delivery.json",
+        identity,
+        base_sha=base_sha,
+        branch="cli/fixture-delivery",
+        base_branch="codex/base-coderabbit-native-windows-boundary",
+        targets=[
+            {
+                "path": "README.md",
+                "preimage": {
+                    "exists": True,
+                    "sha256": hashlib.sha256(before).hexdigest(),
+                    "size": len(before),
+                },
+                "postimage": {
+                    "exists": True,
+                    "sha256": hashlib.sha256(after).hexdigest(),
+                    "size": len(after),
+                },
+            }
+        ],
+        publication_intent="validate_only",
+    )
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+
+    with pytest.raises(ToolingError) as error:
+        DeliveryService(
+            scanner_factory=_NoopScanner,
+            allow_non_hosted_remote=True,
+        ).validate(manifest_path, root)
+
+    assert error.value.code is ResultCode.TOOLING_AD_HOC_REMOTE_TOPOLOGY
+
+
+def test_stacked_delivery_fails_closed_without_temporary_parent_ref(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, _bare, base_sha, remote_url, identity = _fixture_repository(tmp_path)
+    _git(root, "push", "origin", f"{base_sha}:refs/heads/parent-local")
+    _git(root, "switch", "-c", "parent-local")
+    (root / "README.md").write_bytes(b"parent\n")
+    _git(root, "add", "--", "README.md")
+    _git(root, "commit", "-m", "feat(test): добавить parent change")
+    parent_sha = _git(root, "rev-parse", "HEAD")
+    _git(root, "switch", "-c", "cli/stacked-delivery")
+    before = b"parent\n"
+    after = b"child\n"
+    (root / "README.md").write_bytes(after)
+    manifest_path = _write_delivery_manifest(
+        tmp_path / "delivery.json",
+        identity,
+        base_sha=parent_sha,
+        branch="cli/stacked-delivery",
+        base_branch="parent-local",
+        targets=[
+            {
+                "path": "README.md",
+                "preimage": {
+                    "exists": True,
+                    "sha256": hashlib.sha256(before).hexdigest(),
+                    "size": len(before),
+                },
+                "postimage": {
+                    "exists": True,
+                    "sha256": hashlib.sha256(after).hexdigest(),
+                    "size": len(after),
+                },
+            }
+        ],
+        publication_intent="validate_only",
+    )
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+
+    with pytest.raises(ToolingError) as error:
+        DeliveryService(
+            scanner_factory=_NoopScanner,
+            allow_non_hosted_remote=True,
+        ).validate(manifest_path, root)
+
+    assert error.value.code is ResultCode.TOOLING_STACKED_PARENT_UNPUBLISHED
+    assert _git(root, "ls-remote", "--refs", remote_url, "refs/heads/codex/base-*") == ""
 
 
 def test_delivery_publishes_allowlisted_change_to_disposable_bare_remote(

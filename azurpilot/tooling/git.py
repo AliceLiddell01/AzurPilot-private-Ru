@@ -16,6 +16,18 @@ from .filesystem import path_has_link
 from .process import ProcessResult, ProcessSpec, StructuredProcessRunner
 
 _MAX_GIT_OBJECT_BYTES = 16 * 1024 * 1024
+_AD_HOC_REMOTE_REF_PATTERNS = (
+    re.compile(
+        r"(?i)^codex/(?:base|scratch|tmp|temporary|transport|helper|aux)(?:[-/]|$)"
+    ),
+    re.compile(r"(?i)(?:^|/)(?:temporary|scratch|transport)(?:[-/]|$)"),
+)
+
+
+def is_ad_hoc_remote_ref(value: str) -> bool:
+    """Распознать reserved refs, которые не являются parent/feature topology."""
+
+    return any(pattern.search(value) for pattern in _AD_HOC_REMOTE_REF_PATTERNS)
 
 
 @dataclass(frozen=True)
@@ -594,5 +606,6 @@ __all__ = [
     "GitClient",
     "GitCommand",
     "canonical_remote_identity",
+    "is_ad_hoc_remote_ref",
     "repository_identity_from_remote",
 ]

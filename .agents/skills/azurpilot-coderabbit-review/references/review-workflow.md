@@ -13,7 +13,10 @@ mutation.
    native executable, актуальную version, auth status, agent syntax и готовность
    canonical checkout.
 3. Не используй wrapper, другой checkout, clone, temporary worktree или ручной
-   запуск provider в обход adapter. Любая неоднозначность даёт typed blocker.
+   запуск provider в обход adapter. Project-owned operator command должна быть
+   буквальной прямой `azur ...` из PATH текущей shell; `uv run ... azur`,
+   `python -m azurpilot`, `.venv/.../azur`, absolute `azur.exe` path и shell
+   wrapper запрещены. Любая неоднозначность даёт typed blocker.
 4. Machine-specific executable path и auth payload не публикуй; evidence содержит
    только безопасное имя, version, state и bounded diagnostics.
 
@@ -36,6 +39,13 @@ coderabbit review --agent --committed --base-commit <base-sha>
 
 Если executable, auth, help, remote, refs или clean candidate не подтверждены,
 provider review не запускай.
+
+Если task требует live MCP, source reconciliation и runtime readiness — разные
+gates. После `azur mcp reconcile --source --bump auto` обязательно вызови
+`azur mcp status`; при доказанном owned `LOCAL_MCP_SUPERVISOR_STOPPED` допустим
+только штатный `azur mcp start`/`azur mcp restart`, после чего status должен
+подтвердить `runtime_ready=true`. Source-only success не закрывает live gate;
+внутренние `module.*_mcp` и supervisor scripts напрямую не запускай.
 
 ## Запуск и postcondition
 
@@ -78,4 +88,6 @@ CodeRabbit state, security/secret result, rollback/migration и ограниче
 
 Rate limit или skipped review — ограничение checkpoint, а не evidence успешного
 review. Merge и Ready разрешаются только отдельной текущей командой пользователя
-и применимым Git workflow.
+и применимым Git workflow. Не создавай для stacked PR `codex/base-*`, temporary,
+scratch, transport или helper remote ref: при unpublished parent возвращай typed
+precondition blocker и жди canonical parent publication.

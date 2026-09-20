@@ -38,12 +38,19 @@ project trust и effective registration должны быть подтвержд
 | Troubleshooting | read-only evidence соответствующего direct route | direct local stdio | соответствующий `module.*_mcp` | none |
 | ChatGPT/public | отдельная remote surface | authenticated HTTPS/remote | соответствующий `module.*_mcp.remote` той же backend family | не является Codex fallback |
 
-Канонические локальные команды:
+Канонический project-owned operator lifecycle:
 
 ```text
-azurpilot-dev  → uv run --locked --no-sync python -m module.dev_mcp
-azurpilot-game → uv run --locked --no-sync python -m module.game_mcp
+azur mcp status
+azur mcp reconcile --source --bump auto
+azur mcp start | azur mcp restart
 ```
+
+`reconcile --source` означает только `source_reconciled`; live acceptance
+требует повторного `azur mcp status` с `runtime_ready=true`. Внутренние
+`module.*_mcp` и supervisor modules являются implementation details и напрямую
+не запускаются. Если `azur` отсутствует в PATH, workflow fail-closed; `uv run`,
+Python module entrypoint и shell wrapper не являются fallback.
 
 Codex Desktop aliases намеренно отличаются от protocol identities:
 `azurpilot_dev` → `http://127.0.0.1:8775/mcp` и

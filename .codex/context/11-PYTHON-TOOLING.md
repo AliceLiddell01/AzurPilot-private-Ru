@@ -46,6 +46,17 @@ Rich/ANSI/progress не меняют JSON schema. Сервисный слой н
 identity не доказана. Explicit/configured/installation provenance валидируется,
 а неоднозначность завершается типизированной ошибкой.
 
+### Literal operator boundary
+
+Если project-owned capability уже представлена через установленный `azur` и
+PATH текущей shell её подтверждает, operator action вызывается только
+буквальной командой `azur ...`. `uv run ... azur`, `uv run python -m
+azurpilot`, `python -m azurpilot`, `.venv/.../azur`, absolute `azur.exe` path и
+PowerShell/cmd wrapper являются обходом operator path и запрещены. Отсутствие
+`azur` — typed unavailable/precondition, а не разрешение на fallback. `uv`
+остаётся допустимым для dependency/bootstrap/test/build задач, не представленных
+через project-owned operator capability.
+
 ## 3. Типизированные результаты и evidence
 
 `ToolingResult[TDetails, TEvidence]` и DTO конкретных операций — каноническая модель
@@ -85,6 +96,11 @@ identity не доказана. Explicit/configured/installation provenance ва
   состояние, recovery сначала делает read-only verification;
 - Gitleaks evidence относится к staged/committed scope, определённому operation,
   а не заменяется случайным regex search.
+- remote mutation публикует только реальную `expected_branch` через typed
+  lifecycle; temporary/scratch/transport/helper refs и `codex/base-*` запрещены;
+- если stacked parent local HEAD отличается от parent remote HEAD, typed delivery
+  возвращает `TOOLING_STACKED_PARENT_UNPUBLISHED` и ждёт canonical publication
+  parent branch; вспомогательный remote ref не создаётся.
 
 Git lifecycle, ветки и разрешение merge принадлежат
 `.codex/context/GIT-WORKFLOW.md`, а не этому документу.
@@ -199,6 +215,21 @@ MCP diagnostics должны различать:
 
 Нельзя объявлять effective registration «готовой» только потому, что
 `.codex/config.toml` корректен.
+
+Для MCP lifecycle различай минимум два typed результата:
+
+- `source_reconciled`: tracked source и generated metadata согласованы после
+  `azur mcp reconcile --source --bump auto`;
+- `runtime_ready`: owned runtime реально запущен, exact contract/catalog
+  подтверждены через `azur mcp status`.
+
+Source reconciliation не закрывает live gate. Если live MCP обязателен, после
+source reconcile напрямую через PATH вызови `azur mcp status`; при
+`LOCAL_MCP_SUPERVISOR_STOPPED` и подтверждённом owned supervisor допустим
+`azur mcp start`/`azur mcp restart`, затем повторный status. `MCP_RUNTIME_UNAVAILABLE`,
+`runtime_state=stopped`, `session_state=not_observable` или unknown ownership
+остаются blocker/limitation. Не запускай `module.*_mcp`, supervisor modules или
+внутренние Python scripts напрямую.
 
 ## 8. Базовый кроссплатформенный контракт
 

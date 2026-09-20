@@ -74,6 +74,26 @@ _CODERABBIT_RETIRED_MARKERS = (
     "wsl.exe --list",
     "pgrep -x coderabbit",
 )
+_OPERATOR_POLICY_PATHS = (
+    Path("AGENTS.md"),
+    Path(".codex/context/11-PYTHON-TOOLING.md"),
+    Path(".codex/context/GIT-WORKFLOW.md"),
+    Path(".agents/skills/azurpilot-repository-development/SKILL.md"),
+    Path(".agents/skills/azurpilot-coderabbit-review/SKILL.md"),
+    Path(".agents/skills/azurpilot-coderabbit-review/references/review-workflow.md"),
+    Path("plugins/azurpilot/skills/azurpilot-development/SKILL.md"),
+    Path("plugins/azurpilot/skills/azurpilot-game-control/SKILL.md"),
+    Path("plugins/azurpilot/skills/azurpilot-troubleshooting/SKILL.md"),
+    Path("plugins/azurpilot/references/mcp-routing.md"),
+)
+_OPERATOR_POLICY_MARKERS = (
+    "source_reconciled",
+    "runtime_ready",
+    "literal",
+    "azur ...",
+    "codex/base-*",
+    "TOOLING_STACKED_PARENT_UNPUBLISHED",
+)
 
 
 def _relative(root: Path, path: Path) -> str:
@@ -310,6 +330,33 @@ def _check_coderabbit_native_boundary(root: Path, errors: list[str]) -> None:
         return
 
 
+def _check_operator_workflow_boundary(root: Path, errors: list[str]) -> None:
+    """Проверить literal azur path, MCP readiness split и topology policy."""
+
+    contents: list[str] = []
+    for relative in _OPERATOR_POLICY_PATHS:
+        path = root / relative
+        try:
+            contents.append(path.read_text(encoding="utf-8").casefold())
+        except (OSError, UnicodeError):
+            errors.append(f"{relative.as_posix()}: operator policy source не прочитан")
+    policy = "\n".join(contents)
+    for marker in _OPERATOR_POLICY_MARKERS:
+        if marker.casefold() not in policy:
+            errors.append(f"operator workflow: отсутствует policy marker {marker}")
+    development_skill = (
+        root / "plugins" / "azurpilot" / "skills" / "azurpilot-development" / "SKILL.md"
+    )
+    try:
+        development_text = development_skill.read_text(encoding="utf-8").casefold()
+    except (OSError, UnicodeError):
+        return
+    if "каноническая codex-команда: uv run" in development_text:
+        errors.append(
+            "operator workflow: plugin development skill возвращает uv/module launcher"
+        )
+
+
 def _run_check(
     check_id: str,
     checker: Callable[[list[str]], None],
@@ -340,6 +387,10 @@ def check(root: Path) -> dict[str, object]:
         _run_check(
             "coderabbit_native_boundary",
             lambda errors: _check_coderabbit_native_boundary(repository_root, errors),
+        ),
+        _run_check(
+            "operator_workflow_boundary",
+            lambda errors: _check_operator_workflow_boundary(repository_root, errors),
         ),
     )
     errors = [error for _check_id, check_errors in results for error in check_errors]

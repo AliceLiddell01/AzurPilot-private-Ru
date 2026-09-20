@@ -27,7 +27,20 @@ Adapter обязан доказать repository root и identity, exact base/he
 worktree, отсутствие другой операции и тот же candidate после завершения provider.
 Provider запускается прямым native Windows executable в том же canonical checkout.
 Нельзя подменять этот маршрут shell wrapper, другим host, UNC-путём, клоном,
-временным worktree или ручным provider invocation.
+временным worktree или ручным provider invocation. Сама project-owned команда
+вызывается только буквально как `azur ...`, разрешённая через PATH текущей shell:
+не используй `uv run ... azur`, `python -m azurpilot`, `.venv/.../azur`,
+absolute `azur.exe` path или PowerShell/cmd wrapper. Если `azur` недоступен,
+остановись fail-closed; `uv` разрешён для tests/build/dependency задач, но не
+является fallback launcher-ом operator action.
+
+Если review milestone требует live MCP evidence, сначала раздели
+`source_reconciled` и `runtime_ready`: `azur mcp reconcile --source --bump auto`
+согласует source/generated metadata, но не завершает live gate. После него
+вызови `azur mcp status`; при owned `LOCAL_MCP_SUPERVISOR_STOPPED` выполни
+`azur mcp start` или `azur mcp restart`, затем повтори status и требуй
+`runtime_ready=true`. Не запускай внутренние `module.*_mcp` или supervisor
+scripts напрямую и не называй source-only result live acceptance.
 
 ## Agent stream и triage
 
@@ -72,3 +85,7 @@ native operation без новой доказанной identity и не сбр�
 lifecycle, PR state, CI, security/secret checks, readiness и merge определяются
 `.codex/context/GIT-WORKFLOW.md` и `.codex/context/08-VERIFICATION.md`. Skipped
 review, GitHub comment или rate limit не называй substantive review.
+Для stacked publication используй только реальную опубликованную parent branch.
+Не создавай `codex/base-*`, temporary/scratch/transport/helper remote ref или
+вспомогательную remote publication; при расхождении local parent и parent
+remote верни typed precondition blocker через canonical delivery/PR workflow.

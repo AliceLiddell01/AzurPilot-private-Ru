@@ -716,6 +716,8 @@ class McpStatusDetails(ClosedModel):
     action: Literal["status", "reconcile", "start", "stop", "restart"]
     source_state: Literal["ready", "drift", "invalid", "unknown"]
     runtime_state: Literal["ready", "stale", "stopped", "unknown", "conflict"]
+    source_reconciled: bool
+    runtime_ready: bool
     plugin_state: Literal["ready", "drift", "invalid", "unknown"]
     plugin_source_state: Literal["ready", "drift", "unknown"]
     session_state: Literal["current", "reload_required", "not_observable", "unknown"]
@@ -752,12 +754,14 @@ class McpLifecycleDetails(ClosedModel):
 
 
 class McpReconcileDetails(ClosedModel):
-    """Результат source или runtime reconciliation без свободного payload."""
+    """Раздельный результат source reconciliation и live runtime readiness."""
 
     action: Literal["reconcile"] = "reconcile"
     mode: Literal["source", "runtime"]
     source_state: Literal["ready", "drift", "invalid", "unknown"]
     runtime_state: Literal["ready", "stale", "stopped", "unknown", "conflict"]
+    source_reconciled: bool
+    runtime_ready: bool
     mutation_performed: bool
     changed_components: tuple[str, ...] = Field(default_factory=tuple, max_length=32)
     affected_servers: tuple[str, ...] = Field(default_factory=tuple, max_length=2)
