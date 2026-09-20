@@ -318,7 +318,7 @@ class DockerDeploymentService:
             )
             if os.name != "nt":
                 staged_env_path.chmod(0o600)
-        except (OSError, RuntimeError, UnicodeError) as exc:
+        except (ImportError, OSError, RuntimeError, UnicodeError) as exc:
             raise ToolingError(
                 ResultCode.TOOLING_PRECONDITION_FAILED,
                 "Application runtime env невозможно безопасно подготовить.",
