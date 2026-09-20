@@ -158,6 +158,9 @@ def test_legacy_config_adapter_reads_redacted_data_and_limits_scheduler_mutation
     assert tuple(item.task for item in queue) == ("Main",)
     resources = adapter.read_resources("ap")
     assert resources.items[0].label == "Нефть"
+    assert resources.items[0].value == 10
+    assert resources.items[0].limit == 100
+    assert resources.items[0].last_update == datetime(2026, 8, 31, tzinfo=UTC)
 
     adapter.update_config(ConfigUpdateRequest("ap", "Main", "General", "Count", 2))
     assert configs[-1].changes == [("Main.General.Count", 2)]

@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import secrets
 import shutil
+import tempfile
 import threading
 import time
 from collections.abc import Callable, Iterable, Mapping
@@ -40,6 +42,7 @@ from .contracts import (
     CYCLE_ID_PATTERN,
     MAX_RETAINED_REVIEW_CYCLES,
     MAX_SUBSTANTIVE_REVIEWS_PER_CYCLE,
+    TASK_ID_PATTERN,
     CodeRabbitCycleSummary,
     CredentialRef,
     IntegrationFinding,
@@ -66,6 +69,7 @@ _RUNTIME_STATE_FILE_NAME = "coderabbit-runtime.json"
 _RUNTIME_STATE_SCHEMA_VERSION = 1
 _RUNTIME_OPERATION_CACHE = ".cache/azurpilot/coderabbit/reviews"
 _CYCLE_ID_RE = re.compile(CYCLE_ID_PATTERN)
+_TASK_ID_RE = re.compile(TASK_ID_PATTERN)
 _RETRY_SOURCES = frozenset({"provider", "unknown"})
 _RATE_LIMIT_WAITING = "rate_limited_waiting"
 _RATE_LIMIT_RETRY_ALLOWED = "rate_limited_retry_allowed"
@@ -749,6 +753,9 @@ def _default_review_state() -> dict[str, object]:
         "current_cycle_id": "not-started",
         "cycle_started_at": None,
         "cycle_status": "fresh",
+        # None означает legacy/unbound cycle: его нельзя автоматически
+        # приписывать новой logical task.
+        "logical_task_id": None,
         "substantive_iterations": 0,
         # Совместимый алиас для потребителей schema 1. Это всегда счётчик
         # текущего cycle, а не lifetime-счётчик PR или репозитория.
@@ -804,6 +811,7 @@ def _state_summary(
 
     return {
         "cycle_id": str(state.get("current_cycle_id") or "not-started")[:80],
+        "task_id": state.get("logical_task_id"),
         "started_at": state.get("cycle_started_at"),
         "finished_at": finished_at[:40],
         "base_sha": state.get("base_sha"),
@@ -2024,6 +2032,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
         return (
             "review_state=" + CodeRabbitAdapter._review_state_classification(review_state),
             f"cycle_id={str(review_state.get('current_cycle_id') or 'not-started')[:80]}",
+            f"task_id={str(review_state.get('logical_task_id') or 'unbound')[:128]}",
             f"cycle_status={str(review_state.get('cycle_status') or 'fresh')[:80]}",
             f"substantive_iterations={int(review_state.get('substantive_iterations', review_state.get('iterations', 0)))}/{MAX_SUBSTANTIVE_REVIEWS_PER_CYCLE}",
             f"provider_state={str(review_state.get('provider_state') or 'not_observed')[:80]}",
@@ -2040,6 +2049,11 @@ class CodeRabbitAdapter(IntegrationAdapter):
         previous = review_state.get("previous_cycles")
         return CodeRabbitCycleSummary(
             cycle_id=str(review_state.get("current_cycle_id") or "not-started"),
+            task_id=(
+                str(review_state["logical_task_id"])
+                if review_state.get("logical_task_id") is not None
+                else None
+            ),
             cycle_status=str(review_state.get("cycle_status") or "fresh")[:80],
             substantive_iterations=int(
                 review_state.get(
@@ -2618,6 +2632,86 @@ class CodeRabbitAdapter(IntegrationAdapter):
         return True, "CODERABBIT_MANAGED_CLONE_READY"
 
     @staticmethod
+    def _wsl_local_path(path: Path) -> str | None:
+        """Преобразовать обычный Windows/POSIX path в bounded WSL path."""
+
+        resolved = path.resolve(strict=False)
+        as_posix = resolved.as_posix()
+        drive = resolved.drive
+        if len(drive) == 2 and drive[1] == ":":
+            return f"/mnt/{drive[0].casefold()}{as_posix[2:]}"
+        if as_posix.startswith("/"):
+            return as_posix
+        return None
+
+    @staticmethod
+    def _local_exact_candidate(
+        root: Path, *, expected_base: str | None, expected_head: str
+    ) -> bool:
+        """Проверить наличие exact local objects без доверия к remote refs."""
+
+        if expected_base is None:
+            return False
+        try:
+            git = GitClient(root)
+            return git.object_exists(f"{expected_base}^{{commit}}") and git.object_exists(
+                f"{expected_head}^{{commit}}"
+            )
+        except (AttributeError, OSError, ToolingError, ValueError):
+            return False
+
+    def _transport_local_candidate(
+        self,
+        runtime: _WslRuntime,
+        root: Path,
+        *,
+        expected_base: str,
+        expected_head: str,
+    ) -> bool:
+        """Передать exact commit objects через Git bundle, не публикуя remote ref."""
+
+        bundle_path: Path | None = None
+        try:
+            # mkstemp даёт ownership уже созданного ordinary file; удаляем его
+            # перед `git bundle create`, чтобы Git создал содержимое сам.
+            handle, raw_path = tempfile.mkstemp(
+                prefix="azurpilot-coderabbit-",
+                suffix=".bundle",
+            )
+            os.close(handle)
+            bundle_path = Path(raw_path)
+            bundle_path.unlink(missing_ok=True)
+            wsl_bundle_path = self._wsl_local_path(bundle_path)
+            if wsl_bundle_path is None:
+                return False
+            git = GitClient(root)
+            git.run(
+                "bundle",
+                "create",
+                str(bundle_path),
+                expected_base,
+                expected_head,
+                timeout_seconds=120,
+            )
+            if not bundle_path.is_file():
+                return False
+            fetched = runtime.git(
+                "fetch",
+                "--no-tags",
+                wsl_bundle_path,
+                timeout=15 * 60,
+            )
+            return not self._command_failed(fetched)
+        except (OSError, ToolingError, ValueError):
+            return False
+        finally:
+            if bundle_path is not None:
+                try:
+                    bundle_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+
+    @staticmethod
     def _review_worktree_path(runtime: _WslRuntime, operation_id: str) -> str:
         if not operation_id.startswith("coderabbit-") or not _NAME_RE.fullmatch(operation_id):
             raise ToolingError(ResultCode.TOOLING_INVALID_INVOCATION, "CodeRabbit operation id имеет неверный формат.")
@@ -2837,9 +2931,22 @@ class CodeRabbitAdapter(IntegrationAdapter):
         if self._canonical_runtime_path(runtime, parent, must_exist=True) != parent:
             return runtime, None, "CODERABBIT_REVIEW_CHECKOUT_OWNERSHIP_UNKNOWN"
         refs = tuple(ref for ref in (expected_base, expected_head) if ref is not None)
-        fetched = runtime.git("fetch", "--no-tags", remote, *refs, timeout=15 * 60)
-        if self._command_failed(fetched):
-            return runtime, None, "CODERABBIT_REVIEW_TARGET_FETCH_FAILED"
+        if self._local_exact_candidate(
+            root,
+            expected_base=expected_base,
+            expected_head=expected_head,
+        ):
+            if not self._transport_local_candidate(
+                runtime,
+                root,
+                expected_base=expected_base,
+                expected_head=expected_head,
+            ):
+                return runtime, None, "CODERABBIT_REVIEW_TARGET_TRANSPORT_FAILED"
+        else:
+            fetched = runtime.git("fetch", "--no-tags", remote, *refs, timeout=15 * 60)
+            if self._command_failed(fetched):
+                return runtime, None, "CODERABBIT_REVIEW_TARGET_FETCH_FAILED"
         for reference in refs:
             target = runtime.git("cat-file", "-e", f"{reference}^{{commit}}", timeout=30)
             if self._command_failed(target):
@@ -3259,6 +3366,14 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 ResultCode.TOOLING_VERIFICATION_UNKNOWN,
                 "Статус cycle CodeRabbit повреждён.",
             )
+        task_id = payload.get("logical_task_id")
+        if task_id is not None and (
+            not isinstance(task_id, str) or _TASK_ID_RE.fullmatch(task_id) is None
+        ):
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Identity logical task CodeRabbit повреждена.",
+            )
         iterations = payload.get("substantive_iterations")
         alias = payload.get("iterations", iterations)
         if (
@@ -3416,13 +3531,18 @@ class CodeRabbitAdapter(IntegrationAdapter):
                     ResultCode.TOOLING_VERIFICATION_UNKNOWN,
                     "Идентификатор исторического cycle CodeRabbit повреждён.",
                 )
-            for key in ("started_at", "finished_at", "base_sha", "last_reviewed_head", "terminal_reason", "provider_state"):
+            for key in ("started_at", "finished_at", "base_sha", "last_reviewed_head", "terminal_reason", "provider_state", "task_id"):
                 value = summary.get(key)
                 if value is not None and (not isinstance(value, str) or len(value) > 512):
                     raise ToolingError(
                         ResultCode.TOOLING_VERIFICATION_UNKNOWN,
                         "Историческое поле CodeRabbit повреждено.",
                     )
+            if summary.get("task_id") is not None and _TASK_ID_RE.fullmatch(str(summary["task_id"])) is None:
+                raise ToolingError(
+                    ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                    "Identity исторического task CodeRabbit повреждена.",
+                )
             for key, message in (
                 ("base_sha", "Исторический base SHA CodeRabbit повреждён."),
                 ("last_reviewed_head", "Исторический reviewed head CodeRabbit повреждён."),
@@ -3536,6 +3656,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
         rate_limited_at: str | None = None,
         retry_not_before: str | None = None,
         retry_source: str = "unknown",
+        task_id: str | None = None,
         cycle_status: str | None = None,
         previous_cycles: list[dict[str, object]] | None = None,
         provider_quota: dict[str, object] | None = None,
@@ -3547,6 +3668,15 @@ class CodeRabbitAdapter(IntegrationAdapter):
         cleanup_state: str | None = None,
     ) -> None:
         current = self._load_review_state(root)
+        if task_id is not None and _TASK_ID_RE.fullmatch(task_id) is None:
+            raise ToolingError(
+                ResultCode.TOOLING_INVALID_INVOCATION,
+                "CodeRabbit task identity имеет неверный формат.",
+            )
+        selected_task_id = task_id
+        if selected_task_id is None:
+            current_task_id = current.get("logical_task_id")
+            selected_task_id = current_task_id if isinstance(current_task_id, str) else None
         selected_cycle_id = cycle_id or str(current.get("current_cycle_id") or "not-started")
         if selected_cycle_id == "not-started":
             selected_cycle_id = "coderabbit-cycle-" + secrets.token_hex(8)
@@ -3604,6 +3734,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
             "current_cycle_id": selected_cycle_id[:80],
             "cycle_started_at": str(selected_started_at)[:40],
             "cycle_status": resolved_cycle_status[:80],
+            "logical_task_id": selected_task_id,
             "substantive_iterations": iterations,
             # Совместимый алиас; см. _default_review_state().
             "iterations": iterations,
@@ -3645,8 +3776,9 @@ class CodeRabbitAdapter(IntegrationAdapter):
         config: IntegrationConfig,
         *,
         base_sha: str | None = None,
+        task_id: str | None = None,
     ) -> AdapterOutcome:
-        """Явно закрыть предыдущий cycle и создать новый без запуска review."""
+        """Создать/привязать cycle на явной границе logical task."""
 
         settings = self._settings(config)
         review_state = self._load_review_state(root)
@@ -3678,7 +3810,33 @@ class CodeRabbitAdapter(IntegrationAdapter):
                 ResultCode.TOOLING_INVALID_INVOCATION,
                 "CodeRabbit cycle base должен быть exact SHA.",
             )
+        if task_id is not None and _TASK_ID_RE.fullmatch(task_id) is None:
+            raise ToolingError(
+                ResultCode.TOOLING_INVALID_INVOCATION,
+                "CodeRabbit task identity имеет неверный формат.",
+            )
         stored_base = review_state.get("base_sha")
+        stored_task_id = review_state.get("logical_task_id")
+        if (
+            task_id is not None
+            and stored_task_id == task_id
+            and (base_sha is None or stored_base in {None, base_sha})
+        ):
+            record = build_record(
+                self.name,
+                IntegrationState.READY,
+                "CODERABBIT_REVIEW_CYCLE_ATTACHED",
+                "CodeRabbit cycle уже привязан к этой logical task; budget не сброшен.",
+                build_evidence(
+                    config=settings,
+                    credential=CredentialRef(),
+                    configured=True,
+                    reachable=False,
+                    authenticated=None,
+                    diagnostics=self._review_state_diagnostics(review_state),
+                ),
+            )
+            return AdapterOutcome(record, coderabbit_cycle=self._cycle_summary(review_state))
         expected_repository = self._expected_repository(root, settings)
         now = datetime.now(UTC).isoformat(timespec="seconds")
         previous = list(review_state.get("previous_cycles", []))
@@ -3709,6 +3867,7 @@ class CodeRabbitAdapter(IntegrationAdapter):
         new_state.update(
             {
                 "current_cycle_id": "coderabbit-cycle-" + secrets.token_hex(8),
+                "logical_task_id": task_id or "task-" + secrets.token_hex(8),
                 "cycle_started_at": now,
                 "cycle_status": "fresh",
                 "repository_identity": review_state.get("repository_identity") or expected_repository,
@@ -3857,6 +4016,89 @@ class CodeRabbitAdapter(IntegrationAdapter):
             )
         )
 
+    def _ensure_task_cycle(
+        self,
+        root: Path,
+        config: IntegrationConfig,
+        review_state: dict[str, object],
+        *,
+        base_sha: str,
+        task_id: str | None,
+    ) -> AdapterOutcome | None:
+        """Доказать принадлежность saved cycle текущей logical task."""
+
+        if task_id is not None and _TASK_ID_RE.fullmatch(task_id) is None:
+            raise ToolingError(
+                ResultCode.TOOLING_INVALID_INVOCATION,
+                "CodeRabbit task identity имеет неверный формат.",
+            )
+        current_task_id = review_state.get("logical_task_id")
+        current_cycle_id = str(review_state.get("current_cycle_id") or "not-started")
+        if current_task_id is None:
+            if current_cycle_id == "not-started":
+                # Первый review является безопасной точкой автоматического
+                # создания cycle; новая task после legacy state требует
+                # явного transition и не получает старый budget.
+                started = self.start_cycle(
+                    root,
+                    config,
+                    base_sha=base_sha,
+                    task_id=task_id,
+                )
+                if started.record.reason_code not in {
+                    "CODERABBIT_REVIEW_CYCLE_STARTED",
+                    "CODERABBIT_REVIEW_CYCLE_ATTACHED",
+                }:
+                    return started
+                return None
+            settings = self._settings(config)
+            return AdapterOutcome(
+                self._record_from_error(
+                    settings,
+                    "CODERABBIT_REVIEW_TASK_UNBOUND",
+                    state=IntegrationState.INCOMPATIBLE,
+                    message=(
+                        "Сохранённый legacy CodeRabbit cycle не привязан к logical task; "
+                        "сначала выполните явный cycle start с task identity."
+                    ),
+                    diagnostics=self._review_state_diagnostics(review_state),
+                ),
+                coderabbit_cycle=self._cycle_summary(review_state),
+            )
+        if task_id is None or task_id == current_task_id:
+            return None
+
+        classification = self._review_state_classification(review_state)
+        if classification in {
+            "active",
+            "incomplete_known_failure",
+            "incomplete_unknown",
+            "rate_limited",
+        }:
+            settings = self._settings(config)
+            return AdapterOutcome(
+                self._record_from_error(
+                    settings,
+                    "CODERABBIT_REVIEW_TASK_MISMATCH",
+                    state=IntegrationState.INCOMPATIBLE,
+                    message="Текущий CodeRabbit cycle принадлежит другой active logical task.",
+                    diagnostics=self._review_state_diagnostics(review_state),
+                ),
+                coderabbit_cycle=self._cycle_summary(review_state),
+            )
+        transitioned = self.start_cycle(
+            root,
+            config,
+            base_sha=base_sha,
+            task_id=task_id,
+        )
+        if transitioned.record.reason_code not in {
+            "CODERABBIT_REVIEW_CYCLE_STARTED",
+            "CODERABBIT_REVIEW_CYCLE_ATTACHED",
+        }:
+            return transitioned
+        return None
+
     def review(
         self,
         root: Path,
@@ -3864,11 +4106,22 @@ class CodeRabbitAdapter(IntegrationAdapter):
         *,
         base_sha: str,
         head_sha: str,
+        task_id: str | None = None,
         progress_callback: Callable[[CodeRabbitProgress], None] | None = None,
     ) -> AdapterOutcome:
         if not _SHA_RE.fullmatch(base_sha) or not _SHA_RE.fullmatch(head_sha):
             raise ToolingError(ResultCode.TOOLING_INVALID_INVOCATION, "CodeRabbit base/head должны быть exact SHA.")
         settings = self._settings(config)
+        review_state = self._load_review_state(root)
+        task_transition = self._ensure_task_cycle(
+            root,
+            config,
+            review_state,
+            base_sha=base_sha,
+            task_id=task_id,
+        )
+        if task_transition is not None:
+            return task_transition
         review_state = self._load_review_state(root)
         iterations = int(review_state.get("substantive_iterations", review_state.get("iterations", 0)))
         terminal = bool(review_state.get("terminal", False))

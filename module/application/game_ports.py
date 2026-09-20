@@ -13,6 +13,7 @@ from module.application.game_models import (
     DashboardResources,
     GameApplicationState,
     GameLoginState,
+    LiveResourceObservation,
     MediaFrame,
     SchedulerEntry,
 )
@@ -38,6 +39,12 @@ class GameConfigReader(Protocol):
         instance: str,
         schedulable_tasks: Sequence[str],
     ) -> Sequence[SchedulerEntry]: ...
+
+
+class LiveResourceReader(Protocol):
+    """Read-only owner свежего resource observation из текущего UI."""
+
+    def read_live_resources(self, instance: str) -> LiveResourceObservation: ...
 
 
 class GameConfigWriter(Protocol):
@@ -147,6 +154,7 @@ __all__ = [
     "GameConfigReader",
     "GameConfigWriter",
     "InstanceLifecycleController",
+    "LiveResourceReader",
     "RuntimeExecutionStateReader",
     "RuntimeLogReader",
     "SchedulerTaskReader",

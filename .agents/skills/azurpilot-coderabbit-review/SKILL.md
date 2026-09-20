@@ -25,8 +25,10 @@ CodeRabbit — advisory reviewer, а не источник истины: каж�
 1. `azur integrations coderabbit status` — read-only configuration summary.
 2. `azur integrations coderabbit doctor` — bounded WSL, clone, executable,
    auth и review syntax checks.
-3. `azur integrations coderabbit review --base <exact-base-sha>` — advisory
-   committed-only review текущего exact head.
+3. `azur integrations coderabbit review --base <exact-base-sha> --task-id
+   <opaque-task-id>` — advisory committed-only review текущего exact head.
+   `task-id` является identity logical development task: новый head той же
+   task продолжает её cycle, а другая task не наследует старый budget.
 
 Не дублируй в skill произвольный WSL/Git bootstrap. Если adapter недоступен,
 ручная процедура из reference допускается только как read-only diagnostic или
@@ -113,9 +115,13 @@ findings digest/count и last event. Crash до `complete` fail-closed: попы
 
 До запуска committed-only review implementation checkout должен иметь local
 candidate commit с exact head; этот commit не pushится до authoritative
-`complete`. Во время `REVIEWING` review clone остаётся immutable: commit/push,
-branch switch и resync там запрещены. В implementation checkout после
-independent verification разрешена только uncommitted triage-preparation.
+`complete`. Canonical adapter передаёт exact local base/head objects в managed
+WSL review clone Git-native bundle transport’ом, сохраняя SHA и не публикуя
+remote ref. Поэтому обычный unpushed candidate не должен закономерно падать
+на remote-only fetch. Во время `REVIEWING` review clone остаётся immutable:
+commit/push, branch switch и resync там запрещены. В implementation checkout
+после independent verification разрешена только uncommitted
+triage-preparation.
 После `complete` выполняй coherent fixes, targeted checks, затем commit/push.
 Если PR существует, передавай полный disposition через
 `--body-file` и делай provider read-back; body сохраняет цель, scope, exact

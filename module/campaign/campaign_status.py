@@ -147,13 +147,8 @@ class CampaignStatus(UI):
 
         return ocr.ocr(self.device.image)
 
-    def get_oil(self, skip_first_screenshot=True, update=False):
-        """
-        Получает количество нефти.
-
-        Returns:
-            int: Количество нефти.
-        """
+    def get_oil_snapshot(self, skip_first_screenshot=True, update=False, record=True):
+        """Считать значение и отображаемый предел нефти с текущего экрана."""
         _oil = {}
         timeout = Timer(1, count=2).start()
         while 1:
@@ -176,11 +171,23 @@ class CampaignStatus(UI):
             }
             if _oil['Value'] >= 100:
                 break
-        LogRes(self.config).Oil = _oil
-        if update:
+        if record:
+            LogRes(self.config).Oil = _oil
+        if update and record:
             self.config.update()
+        return _oil
 
-        return _oil['Value']
+    def get_oil(self, skip_first_screenshot=True, update=False):
+        """
+        Получает количество нефти.
+
+        Returns:
+            int: Количество нефти.
+        """
+        return self.get_oil_snapshot(
+            skip_first_screenshot=skip_first_screenshot,
+            update=update,
+        ).get('Value', 0)
 
     def is_balancer_task(self):
         """

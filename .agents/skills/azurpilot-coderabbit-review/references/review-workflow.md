@@ -19,6 +19,12 @@
    публикуй только в bounded redacted evidence. Не превращай их в permanent
    condition, test baseline или repository constant.
 
+Перед review должен быть определён opaque `logical task-id`. Один logical
+work-item использует один cycle и максимум `3/3`; новый commit той же task не
+сбрасывает budget, а другая task получает новый cycle даже при том же repo/base.
+Legacy или unbound saved state нельзя автоматически присвоить новой task:
+используй явный `cycle start --task-id` либо получи typed mismatch.
+
 ## CLI prerequisite
 
 Adapter обязан получить actual CLI version, `auth status --agent` и
@@ -40,7 +46,7 @@ coderabbit review --agent --committed --base-commit <base-sha>
 После exact preflight запускай review только через typed command:
 
 ```text
-azur integrations coderabbit review --base <base-sha> --head <head-sha>
+azur integrations coderabbit review --base <base-sha> --head <head-sha> --task-id <opaque-task-id>
 ```
 
 `--head` должен быть exact SHA; если он опущен, adapter читает текущий local
@@ -56,10 +62,12 @@ security impact и declared scope. Classification только одна из:
 `confirmed`, `partially confirmed`, `false positive`, `insufficient evidence`.
 Исправляй только confirmed и partially confirmed после независимой проверки.
 До запуска committed-only review implementation checkout должен иметь local
-candidate commit с exact head; push до authoritative `complete` запрещён. Во
-время active review clone immutable: commit, push, branch switch и resync
-запрещены. После `complete` выполни coherent fixes, targeted tests, self-review
-и только затем commit/push и publication.
+candidate commit с exact head; push до authoritative `complete` запрещён.
+Adapter передаёт local exact objects в managed WSL review clone через
+Git-native bundle transport с сохранением SHA, поэтому pre-push candidate не
+должен требовать remote fetch. Во время active review clone immutable: commit,
+push, branch switch и resync запрещены. После `complete` выполни coherent
+fixes, targeted tests, self-review и только затем commit/push и publication.
 
 ### Долгая операция provider
 

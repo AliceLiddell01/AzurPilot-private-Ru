@@ -30,18 +30,27 @@ Git lifecycle или общей матрицы проверок.
 2. Проследи владельца поведения, call sites, ближайшие тесты, конфигурацию и
    generated/source границы. Не вводи данные конкретной задачи в production,
    CI или постоянные tests.
-3. Реализуй минимальный связный diff. Обнови относящиеся к изменению тесты и
+3. Для effective candidate diff относительно exact base выполни read-only
+   `azur mcp impact --base <exact-base-sha>`. Если результат `REQUIRED`,
+   выполни штатный `azur mcp reconcile --source --bump auto`, затем повтори
+   current-tree integrity и base-to-head compatibility checks. Любое новое
+   изменение затронутого source set после reconciliation делает прежний
+   результат stale и требует повторной reconciliation.
+4. Перед CodeRabbit review создай или привяжи opaque logical task identity и
+   передай её в canonical review flow через `--task-id`; новый head той же
+   task продолжает её cycle, а другая task получает новый cycle.
+5. Реализуй минимальный связный diff. Обнови относящиеся к изменению тесты и
    документацию. Во всех затронутых файлах с текстом для человека проверь русский язык.
-4. Для репозиторных evidence при необходимости используй существующие прямые
+6. Для репозиторных evidence при необходимости используй существующие прямые
    адаптеры `azurpilot.integrations`. Не меняй user config, OAuth/grants,
    dashboards/alerts или game/runtime state только ради получения evidence.
-5. Проверки выбирай **только** по `08-VERIFICATION.md`. Этот skill не
+7. Проверки выбирай **только** по `08-VERIFICATION.md`. Этот skill не
    поддерживает собственную копию списка обязательных gates.
-6. Если canonical workflow требует CodeRabbit review checkpoint, явно делегируй
+8. Если canonical workflow требует CodeRabbit review checkpoint, явно делегируй
    sibling skill `azurpilot-coderabbit-review`. Такая внутренняя делегация не
    требует повторного пользовательского CodeRabbit-запроса. Специфичные для
    провайдера правила triage, retry и rate limit принадлежат этому sibling skill.
-7. Все правила commit/push/draft PR, состояния перед финальным пользовательским
+9. Все правила commit/push/draft PR, состояния перед финальным пользовательским
    ревью, merge authorization, rollback и cleanup бери **только** из
    `GIT-WORKFLOW.md`. Этот skill не переопределяет их.
 

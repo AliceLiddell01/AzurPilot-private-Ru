@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from enum import StrEnum
 from types import MappingProxyType
@@ -135,6 +135,27 @@ class DashboardResources:
         keys = tuple(item.key for item in self.items)
         if len(keys) != len(set(keys)):
             raise ValueError("Ресурсы dashboard не должны повторяться")
+
+
+@dataclass(frozen=True, slots=True)
+class LiveResourceObservation:
+    """Одно свежее read-only наблюдение ресурсов с текущего игрового экрана."""
+
+    instance: str
+    resources: DashboardResources
+    observed_at: datetime
+    source: str = "live_game_screen_ocr"
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.instance, str) or not self.instance:
+            raise ValueError("instance должен быть непустой строкой")
+        if not isinstance(self.resources, DashboardResources):
+            raise TypeError("resources должен быть DashboardResources")
+        if not isinstance(self.observed_at, datetime) or self.observed_at.tzinfo is None:
+            raise ValueError("observed_at должен быть timezone-aware datetime")
+        object.__setattr__(self, "observed_at", self.observed_at.astimezone(UTC))
+        if not isinstance(self.source, str) or not self.source:
+            raise ValueError("source должен быть непустой строкой")
 
 
 @dataclass(frozen=True, slots=True)
@@ -500,6 +521,7 @@ __all__ = [
     "GameRuntimeRestartResult",
     "LifecycleOutcome",
     "LifecycleResult",
+    "LiveResourceObservation",
     "MediaFrame",
     "RuntimeLogTail",
     "ScheduleTaskRequest",

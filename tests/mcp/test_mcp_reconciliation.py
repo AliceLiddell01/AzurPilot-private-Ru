@@ -175,6 +175,80 @@ def test_game_application_service_file_is_in_game_backend_identity() -> None:
     assert classification.affected_servers == ("azurpilot-game",)
 
 
+def test_mcp_impact_reports_not_required_for_non_source_candidate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class FakeGit:
+        def __init__(self, _root: Path) -> None:
+            pass
+
+        def head(self) -> str:
+            return "b" * 40
+
+        def is_ancestor(self, _base: str, _head: str) -> bool:
+            return True
+
+        def changed_paths(self, _base: str, _head: str) -> tuple[str, ...]:
+            return ("docs/notes.md",)
+
+        def status_z(self) -> str:
+            return " M docs/working-notes.md\x00"
+
+    monkeypatch.setattr(mcp_tooling, "GitClient", FakeGit)
+
+    details = mcp_tooling._candidate_mcp_impact(tmp_path, base_commit="a" * 40)
+
+    assert details.status == "NOT_REQUIRED"
+    assert details.reconciliation_required is False
+    assert details.candidate_paths == (
+        "docs/notes.md",
+        "docs/working-notes.md",
+    )
+    assert details.path_impacts[0].source_sets == ()
+    assert details.generated_artifacts == ()
+
+
+def test_mcp_impact_includes_uncommitted_persistence_and_both_servers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class FakeGit:
+        def __init__(self, _root: Path) -> None:
+            pass
+
+        def head(self) -> str:
+            return "b" * 40
+
+        def is_ancestor(self, _base: str, _head: str) -> bool:
+            return True
+
+        def changed_paths(self, _base: str, _head: str) -> tuple[str, ...]:
+            return ()
+
+        def status_z(self) -> str:
+            return " M module/persistence/runtime.py\x00"
+
+    monkeypatch.setattr(mcp_tooling, "GitClient", FakeGit)
+
+    details = mcp_tooling._candidate_mcp_impact(tmp_path, base_commit="a" * 40)
+
+    assert details.status == "REQUIRED"
+    assert details.reconciliation_required is True
+    assert details.changed_components == (
+        "DEV_MCP_SOURCE_SET",
+        "GAME_MCP_SOURCE_SET",
+    )
+    assert details.affected_servers == ("azurpilot-dev", "azurpilot-game")
+    assert details.path_impacts[0].affected_servers == (
+        "azurpilot-dev",
+        "azurpilot-game",
+    )
+    assert details.generated_artifacts == (
+        "config/mcp-versions.toml",
+        "plugins/azurpilot/.codex-plugin/plugin.json",
+        "plugins/azurpilot/compatibility.json",
+    )
+
+
 @pytest.mark.parametrize(
     "changed_path",
     (
@@ -473,7 +547,10 @@ def test_explicit_bump_can_raise_a_proven_change_without_auto_major_guess() -> N
 
     assert mcp_tooling._server_version(server, bump="patch") != server.version
     assert mcp_tooling._server_version(server, bump="minor").endswith(".0")
-    assert mcp_tooling._server_version(server, bump="major").startswith("2.")
+    current_major = int(server.version.split(".", 1)[0])
+    assert mcp_tooling._server_version(server, bump="major").startswith(
+        f"{current_major + 1}."
+    )
 
 
 def test_auth_readiness_is_scoped_to_servers_being_started(monkeypatch) -> None:

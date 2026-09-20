@@ -104,6 +104,27 @@ queue и logs не подменяют этот read path и не должны и
 `stopped` относится к подтверждённой domain projection, а не к этому error
 envelope.
 
+## Resources: snapshot и current observation
+
+`game_get_resources` без `mode` возвращает `mode=dashboard_snapshot` и
+`resource_provenance.freshness=snapshot_time_only`. Такой ответ является
+исторической dashboard/config projection: его `Dashboard.<resource>.Record`
+сохраняется в `resource.last_update`, но отсутствие или давность этого поля
+никогда не означает «измерено сейчас». `value` и `limit` относятся к одному
+времени snapshot и не доказывают current game state.
+
+Для обязательного live precondition используй только
+`game_get_resources(profile, mode=live_current)` с
+`resource_provenance.freshness=current_observation` и
+`current_state_authority=true`, полученным в рамках текущего acceptance run.
+Если такой callable path или его postcondition недоступны, зафиксируй
+`BLOCKED_PRECONDITION`; не вводи TTL и не заменяй current observation старым
+dashboard snapshot.
+
+Dashboard `limit`/displayed `MAX` — soft/displayed value, а не абсолютная
+вместимость Oil. Состояние `Oil=25000` при `MAX=17050` структурно допустимо и
+не должно отклоняться правилом `value <= limit`.
+
 ## Нормальный read workflow
 
 1. Зафиксируй пользовательскую цель и `<profile>`.

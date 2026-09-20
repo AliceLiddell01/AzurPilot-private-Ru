@@ -309,6 +309,25 @@ _RESOURCE_OUTPUT = {
     "required": ["key", "label", "value"],
     "additionalProperties": False,
 }
+_RESOURCE_PROVENANCE_OUTPUT = {
+    "type": "object",
+    "properties": {
+        "source": {"type": "string", "minLength": 1, "maxLength": 128},
+        "freshness": {
+            "type": "string",
+            "enum": ["snapshot_time_only", "current_observation"],
+        },
+        "observed_at": {"type": ["string", "null"], "maxLength": 128},
+        "current_state_authority": {"type": "boolean"},
+    },
+    "required": [
+        "source",
+        "freshness",
+        "observed_at",
+        "current_state_authority",
+    ],
+    "additionalProperties": False,
+}
 _SCHEDULER_ENTRY_OUTPUT = {
     "type": "object",
     "properties": {
@@ -701,6 +720,11 @@ _OUTPUT_SCHEMAS = {
                 "maxItems": 256,
                 "items": _RESOURCE_OUTPUT,
             },
+            "mode": {
+                "type": "string",
+                "enum": ["dashboard_snapshot", "live_current"],
+            },
+            "resource_provenance": _RESOURCE_PROVENANCE_OUTPUT,
         }
     ),
     "game_get_current_task": _output_schema(
@@ -958,7 +982,7 @@ def tool_definitions() -> list[Tool]:
         "game_get_contract": "Получить стабильный контракт AzurPilot Game MCP read/control plane.",
         "game_list_profiles": "Перечислить канонические профили AzurPilot без путей и секретов.",
         "game_get_profile_status": "Получить статус выбранного профиля AzurPilot.",
-        "game_get_resources": "Получить ограниченный снимок игровых ресурсов выбранного профиля.",
+        "game_get_resources": "Получить dashboard snapshot или свежее read-only наблюдение ресурсов выбранного профиля.",
         "game_get_current_task": "Получить подтверждённое состояние текущего выполнения профиля.",
         "game_get_scheduler_queue": "Получить read-only очередь scheduler выбранного профиля.",
         "game_list_tasks": "Получить каталог игровых задач и краткую локализованную справку.",
@@ -984,7 +1008,19 @@ def tool_definitions() -> list[Tool]:
             for name in GAME_MCP_NO_ARGUMENT_TOOLS
         },
         "game_get_profile_status": _PROFILE_INPUT,
-        "game_get_resources": _PROFILE_INPUT,
+        "game_get_resources": {
+            "type": "object",
+            "properties": {
+                "profile": _PROFILE_INPUT["properties"]["profile"],
+                "mode": {
+                    "type": "string",
+                    "enum": ["dashboard_snapshot", "live_current"],
+                    "default": "dashboard_snapshot",
+                },
+            },
+            "required": ["profile"],
+            "additionalProperties": False,
+        },
         "game_get_current_task": _PROFILE_INPUT,
         "game_get_scheduler_queue": _PROFILE_INPUT,
         "game_get_task_help": _TASK_INPUT,

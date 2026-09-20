@@ -99,6 +99,13 @@
 соответствующему review skill; влияние результата CodeRabbit на Git lifecycle определяется только
 `GIT-WORKFLOW.md`. Остальные обязательные gates продолжают выполняться.
 
+Для MCP-изменений первым repository gate является effective candidate
+classification: `azur mcp impact --base <exact-base-sha>`. Команда должна
+учитывать committed base..HEAD и staged/unstaged/untracked candidate paths.
+При `REQUIRED` обязательны source reconciliation, generated artifact check и
+base-to-head compatibility check; изменение соответствующего source set после
+reconciliation инвалидирует прежнее evidence.
+
 ## Pre-merge и post-merge outcomes
 
 Pre-merge Definition of Done заканчивается после commit/push draft PR, проверки
@@ -106,6 +113,14 @@ required `Python`, `Windows`, `Security` на exact head, secret scan, self-revi
 и разрешения blocking review threads. Итоговый статус —
 `READY_FOR_CHATGPT_REVIEW`: финальное ревью выполняет пользователь, а merge не
 выполняется без отдельной текущей команды пользователя.
+
+Typed readiness разделяет implementation, mandatory gates, external reviewer
+limitation, `READY_FOR_CHATGPT_REVIEW` и merge-ready. Mandatory gate имеет
+terminal state `PASS`, `FAIL`, `BLOCKED_PRECONDITION` или `NOT_REQUIRED`;
+`FAIL`/`BLOCKED_PRECONDITION` сохраняет полезный Draft, но требует blocked
+overall outcome и запрещает readiness/merge. CodeRabbit rate limit фиксируется
+отдельно и сам по себе не блокирует readiness при остальных фактически
+пройденных обязательных gates.
 
 Post-merge verification и cleanup являются отдельным этапом и выполняются только
 после подтверждённого merge. Перед ним нужно повторно проверить exact head,
@@ -123,6 +138,16 @@ required CI, relevant diff и review blockers. Успешный CI или CodeRa
 - полный связанный набор один раз перед PR/финальным checkpoint, если после него не было существенного code diff;
 - generator check;
 - чистое рабочее дерево после генераторов.
+
+### Game resource evidence
+
+- dashboard `game_get_resources` явно помечен как snapshot/history-derived
+  projection и сохраняет `Dashboard.<resource>.Record` в `last_update`;
+- неизвестный или старый timestamp не считается current state;
+- обязательный live gate использует fresh current observation, а не
+  dashboard snapshot;
+- displayed Oil `limit`/`MAX` не проверяется как hard storage cap: `25000` при
+  `17050` является допустимым структурным состоянием.
 
 Не повторять полный suite после каждого небольшого fix, если targeted checks покрывают изменённую область. После PR не дублировать локально тот же полный CI без причины: доверять exact-head required checks, а локальный повтор делать при диагностике падения или существенном post-CI изменении.
 

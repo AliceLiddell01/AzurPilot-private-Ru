@@ -11,7 +11,7 @@ import re
 import shutil
 import subprocess
 from collections.abc import Callable, Mapping, Sequence
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from io import BytesIO
 from math import isfinite
 from pathlib import Path
@@ -29,9 +29,11 @@ from module.application.errors import (
 from module.application.game_models import (
     ConfigUpdateRequest,
     CurrentTaskSnapshot,
+    DashboardResource,
     DashboardResources,
     GameApplicationState,
     GameLoginState,
+    LiveResourceObservation,
     MediaFrame,
     SchedulerEntry,
     thaw_payload,
@@ -870,6 +872,54 @@ class LegacyGameApplicationAdapter:
         instance = _safe_instance_name(instance)
         with _adb_host_lock():
             return self._read_state(instance)
+
+    def read_live_resources(self, instance: str) -> LiveResourceObservation:
+        """Считать Oil и displayed MAX с одного свежего игрового экрана."""
+
+        instance = _safe_instance_name(instance)
+        device: object | None = None
+        with _adb_host_lock():
+            try:
+                config = self._make_config(instance)
+                device = self._device_factory(config)
+                screenshot = getattr(device, "screenshot", None)
+                if not callable(screenshot):
+                    raise OperationFailedError(
+                        "Device owner не предоставил свежий screenshot."
+                    )
+                screenshot()
+                from module.campaign.campaign_status import CampaignStatus
+
+                snapshot = CampaignStatus(config, device=device).get_oil_snapshot(
+                    skip_first_screenshot=True,
+                    update=False,
+                    record=False,
+                )
+                value = snapshot.get("Value")
+                limit = snapshot.get("Limit")
+                if not isinstance(value, int) or not isinstance(limit, int):
+                    raise OperationFailedError(
+                        "Свежий экран не подтвердил числовые Oil value и displayed MAX."
+                    )
+                return LiveResourceObservation(
+                    instance=instance,
+                    resources=DashboardResources(
+                        items=(
+                            DashboardResource(
+                                key="Oil",
+                                label="Oil",
+                                value=value,
+                                limit=limit,
+                            ),
+                        )
+                    ),
+                    observed_at=datetime.now(UTC),
+                )
+            finally:
+                if device is not None:
+                    release_resource = getattr(device, "release_resource", None)
+                    if callable(release_resource):
+                        release_resource()
 
     def start_game(self, instance: str) -> bool:
         instance = _safe_instance_name(instance)

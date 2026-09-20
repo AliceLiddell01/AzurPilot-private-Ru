@@ -314,6 +314,13 @@ Disposable clone/worktree допустим только при реальной 
 
 ### Реализация
 
+До публикации candidate или запуска review effective diff относительно exact
+base проходит `azur mcp impact --base <exact-base-sha>`. При `REQUIRED`
+штатный `azur mcp reconcile --source --bump auto` и последующие integrity и
+base-to-head compatibility checks обязательны; изменение source set после
+reconciliation делает предыдущий результат stale. Generated MCP artifacts
+являются производным scope той же задачи.
+
 - минимальный связный diff;
 - не форматировать посторонние файлы;
 - dependencies/network sources менять только с обоснованием;
@@ -431,7 +438,8 @@ PR обязателен для `master`, `personal/stable`, standard/extended з
 PR body должен быть создан из typed structured model через временный внешний
 Markdown-файл и `--body-file`, а затем прочитан обратно. Обязательны разделы
 `Цель`, `Scope`, `Реализация`, `Проверки`, `CI`, `Security / secret scan`,
-`CodeRabbit review и disposition`, `Migration / rollback`, `Ограничения`.
+`CodeRabbit review и disposition`, `Readiness`, `Migration / rollback`,
+`Ограничения`.
 В body фиксируются repository/base/head identity, base SHA, подсистемы,
 фактически выполненные gates, security result, migration/rollback,
 ограничения и предполагаемый merge method. Inline shell body и implicit
@@ -455,6 +463,11 @@ GitHub PR проверяется с явными `--repo`, `--base`, `--head`, d
 read-back exact identity. CodeRabbit остаётся внешним checkpoint: review
 выполняется в permanent WSL2 review clone, findings и disposition сохраняются в
 PR body, а permanent clone не удаляется в post-merge cleanup.
+Один logical development task использует один task-scoped CodeRabbit cycle;
+`3/3` не переносится между tasks. Canonical caller передаёт opaque `--task-id`;
+новый head той же task продолжает cycle. Pre-push exact candidate допускается:
+adapter передаёт его local Git objects в managed review clone через Git-native
+bundle transport без публикации remote ref.
 
 ### Внешнее ревью
 
@@ -482,6 +495,12 @@ security/secret scan, mandatory product/live acceptance или blocking review
 threads. После `merge-authorized` или `merged` он сам по себе не откатывает
 lifecycle. Правила ожидания, retry и triage провайдера принадлежат CodeRabbit
 skill/reference.
+
+Readiness фиксируется typed state: обязательный gate имеет `PASS`, `FAIL`,
+`BLOCKED_PRECONDITION` или `NOT_REQUIRED`. `FAIL`/`BLOCKED_PRECONDITION`
+требует `overall_outcome=BLOCKED` и запрещает `READY_FOR_CHATGPT_REVIEW` и
+merge-ready, даже если implementation complete. Provider rate limit является
+review limitation и не меняет mandatory product/live gate.
 
 ### Merge
 
@@ -612,6 +631,8 @@ Capability branches, включая explicit domain-prefixed branches, долж�
 - base branch/SHA и scope зафиксированы;
 - работа выполнена в основном checkout либо в явно обоснованной дополнительной среде;
 - diff минимален и без scope creep;
+- effective candidate diff прошёл MCP impact classification; при затронутом
+  source set canonical bundle и derived artifacts согласованы повторно;
 - релевантные local gates выполнены;
 - tests обновлены там, где менялось поведение;
 - полный suite выполнен в установленном checkpoint и не повторялся без причины;
@@ -621,6 +642,7 @@ Capability branches, включая explicit domain-prefixed branches, долж�
 - required CI зелёный на exact head;
 - blocking review threads отсутствуют;
 - draft PR содержит актуальные scope, base SHA, gates и ограничения;
+- typed readiness не содержит противоречия между mandatory gate и overall outcome;
 - PR ожидает финального пользовательского ревью;
 - последовательность разрешения merge соответствует разделу `### Merge`.
 

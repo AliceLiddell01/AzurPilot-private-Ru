@@ -1,16 +1,16 @@
 {
   "contract_schema_version": 1,
   "product_family": "AzurPilot",
-  "plugin_version": "0.1.0+codex.68135669128961",
-  "bundle_revision": "8649f219025a7381f58c316b7bd48bd1b8ec9906548f4bf1153d1cb9141f39cb",
-  "skill_bundle_revision": "6bf1303f911afd5c6d8cc94b122d5a94706a75cd25bb1957fe5d26df0b2e43ec",
+  "plugin_version": "0.1.0+codex.84258935217495",
+  "bundle_revision": "4914ec078b951eaa1889e23890fb18566d94bb5fecd2b263da86edbf989a9ad8",
+  "skill_bundle_revision": "5396b7d2cfc4b9d0887258b4e5d4c86469e9ee120a5ad2f50130d272deb58599",
   "required_mcp_servers": {
-    "azurpilot-dev": ">=3.0.46,<4.0.0",
-    "azurpilot-game": ">=1.0.46,<2.0.0"
+    "azurpilot-dev": ">=4.0.1,<5.0.0",
+    "azurpilot-game": ">=2.0.1,<3.0.0"
   },
   "servers": {
     "azurpilot-dev": {
-      "version": "3.0.46",
+      "version": "4.0.1",
       "api_version": 3,
       "contract_schema_version": 1,
       "tool_count": 38,
@@ -56,15 +56,15 @@
         "dev_validate_smoke": "39bbd0c9c693b2036340662bbf5426e381d7111f36dfa33f61e030e0ad8fcd09"
       },
       "capability_catalog_sha256": "97853974a1f2a8387b6b9578a01dbc25ef463346ad5742bc6304a2b5bb3152d9",
-      "contract_revision": "197d46309773caeda7f996c74f9eda1f741680c360fe718e7b96aa5752d49b4a",
-      "source_set_digest": "ca08bf4e740206948286ab86cc7647cee1d856285a0958dd7582850b9cf0d276"
+      "contract_revision": "142ac303505cdf4964e504954e7fed142a4bdd9fa6ece1112d53637016d951f2",
+      "source_set_digest": "f4bd8dc44467d44494f8e5b062a94802681eb2b7d18807c75784a8ff36b63f7f"
     },
     "azurpilot-game": {
-      "version": "1.0.46",
+      "version": "2.0.1",
       "api_version": 1,
       "contract_schema_version": 1,
       "tool_count": 22,
-      "tool_catalog_sha256": "80385c25c98aef038cc5bd797c227c42abadb00af3640b2c01e75fb97db648bc",
+      "tool_catalog_sha256": "82be6e4f0435056095228971bde827e19082a80285113c3e9232fadc2a17782c",
       "tool_descriptor_hashes": {
         "game_clear_scheduler_queue": "5bfd5c7cdd03d0305a41f728f8645c93e28003ef77f5b830ab1844ea0c7ff85c",
         "game_get_config": "dc27d3e8309f09408533085c98272915a79c584e1eaf1663e695e762d72df3d8",
@@ -74,7 +74,7 @@
         "game_get_morale": "e9a9d6c85c61ed3718e17d248246fff8cfc420e4cf247054accfad4f126856db",
         "game_get_profile_status": "5444c22f43e8e09a743b2b6e082c6150c0ae4384c26894a70701b96fb5b9f5dc",
         "game_get_recent_logs": "c3c4151076bf3e065bcaa5bafe005cb6cd61198205dfd0c75e434a50e32ca4e1",
-        "game_get_resources": "62e5dc0044fa88c4449ba55392601cc60fecc6f92fea51fb62f85cffcd456569",
+        "game_get_resources": "87c3d1c5956e2ce00f891aa6abf7c1a14eafa7868e6c82c8a95a79820aa615a8",
         "game_get_scheduler_queue": "397ee166d328830568aa32faf85b1261be05fd0c4dc72dd2999e5597bd60cf87",
         "game_get_screenshot": "c6281f2043f3d0fca67e64cba9cfa3cd05625121b56f2e642387f04e9c6c46cf",
         "game_get_task_help": "23cae07219fc7e0cf3541cf8a728eab9e9358627b6dd548aacacf0a73927c9bd",
@@ -90,8 +90,8 @@
         "game_update_config": "8bd346de8696db8d5abb38d39de544764e58a627dab12ede97e34a01529dfc65"
       },
       "capability_catalog_sha256": "115b25b6082846093ff4047d44d7bd82661f713c7bebf00145784ff72fcc24d7",
-      "contract_revision": "5ae604b766e92cdf2aa0feb2462192681359d50f806d9efbf9d4950aa4d0ef47",
-      "source_set_digest": "7931e9ecb6d50bc5638fac3af7a8e67da54f01605a7c1c34906cad61f3d4e0cc"
+      "contract_revision": "1928fe83e91f14a8dfafac20dab6965a484dcc682a86161cfaca9954d74b592e",
+      "source_set_digest": "2d2a5c10364d79ebed1d09a10e950f9cb0221af339ff72341543a569441439c0"
     }
   },
   "required_feature_flags": {
@@ -224,21 +224,21 @@
   },
   "tool_catalog_sha256": {
     "azurpilot-dev": "71e8865dde29b7e7794de15097103db78ace4976ecbe837d1429e99aee4fe9af",
-    "azurpilot-game": "80385c25c98aef038cc5bd797c227c42abadb00af3640b2c01e75fb97db648bc"
+    "azurpilot-game": "82be6e4f0435056095228971bde827e19082a80285113c3e9232fadc2a17782c"
   },
   "capability_catalog_sha256": {
     "azurpilot-dev": "97853974a1f2a8387b6b9578a01dbc25ef463346ad5742bc6304a2b5bb3152d9",
     "azurpilot-game": "115b25b6082846093ff4047d44d7bd82661f713c7bebf00145784ff72fcc24d7"
   },
   "contract_revision": {
-    "azurpilot-dev": "197d46309773caeda7f996c74f9eda1f741680c360fe718e7b96aa5752d49b4a",
-    "azurpilot-game": "5ae604b766e92cdf2aa0feb2462192681359d50f806d9efbf9d4950aa4d0ef47"
+    "azurpilot-dev": "142ac303505cdf4964e504954e7fed142a4bdd9fa6ece1112d53637016d951f2",
+    "azurpilot-game": "1928fe83e91f14a8dfafac20dab6965a484dcc682a86161cfaca9954d74b592e"
   },
   "source_digests": {
-    "DEV_MCP_SOURCE_SET": "9d6387a49e2c86290527873e07125f4ee268f97aa0b45b25ba266d0bb28a875c",
-    "GAME_MCP_SOURCE_SET": "fe3184fec691965b4b389e76cb935fc1344bb110a73f98e6bce238c1eddb1199",
+    "DEV_MCP_SOURCE_SET": "1050f8d63ea179259330aae7d9b36e1722204813af9ea36cde62c551ab2401df",
+    "GAME_MCP_SOURCE_SET": "c540073fc9e517021f9bc4d1cd1505fb6837fdd8d97046f829db5dd61171bf98",
     "SHARED_MCP_SOURCE_SET": "dae42e8b8b46cd402aa5da9c7d185a28c815edf7a8cb3134d62e13d2b86b8caf",
     "PLUGIN_BUNDLE_SOURCE_SET": "bfe0c8e0ca56aa1c870772b2ef9a8d65172d9a2d96374f41725dce72063d39ec",
-    "SKILL_BUNDLE_SOURCE_SET": "6bf1303f911afd5c6d8cc94b122d5a94706a75cd25bb1957fe5d26df0b2e43ec"
+    "SKILL_BUNDLE_SOURCE_SET": "5396b7d2cfc4b9d0887258b4e5d4c86469e9ee120a5ad2f50130d272deb58599"
   }
 }

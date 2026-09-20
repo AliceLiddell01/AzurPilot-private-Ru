@@ -347,6 +347,7 @@ class IntegrationService:
         *,
         base_sha: str,
         head_sha: str,
+        task_id: str | None = None,
         repository_root: str | Path | None = None,
         progress_callback: Callable[[CodeRabbitProgress], None] | None = None,
     ) -> ToolingResult[IntegrationDetails, IntegrationEvidenceBundle]:
@@ -360,6 +361,7 @@ class IntegrationService:
             config,
             base_sha=base_sha,
             head_sha=head_sha,
+            task_id=task_id,
             progress_callback=progress_callback,
         )
         cycle_summary = outcome.coderabbit_cycle
@@ -428,6 +430,7 @@ class IntegrationService:
         self,
         *,
         base_sha: str | None = None,
+        task_id: str | None = None,
         repository_root: str | Path | None = None,
     ) -> ToolingResult[IntegrationDetails, IntegrationEvidenceBundle]:
         """Создать новый CodeRabbit cycle без запуска provider review."""
@@ -440,7 +443,7 @@ class IntegrationService:
                 ResultCode.TOOLING_PRECONDITION_FAILED,
                 "CodeRabbit adapter имеет неверный тип.",
             )
-        outcome = adapter.start_cycle(root, config, base_sha=base_sha)
+        outcome = adapter.start_cycle(root, config, base_sha=base_sha, task_id=task_id)
         return self._result(
             "cycle-start",
             (outcome.record,),

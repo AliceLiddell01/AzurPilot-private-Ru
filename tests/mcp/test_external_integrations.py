@@ -1490,6 +1490,103 @@ def test_coderabbit_cycles_reset_only_explicitly_and_keep_bounded_history(
     assert state["previous_cycles"][0]["substantive_iterations"] == 3
 
 
+def test_coderabbit_cycle_budget_is_scoped_to_logical_task(
+    monkeypatch, tmp_path: Path
+):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    outputs = [
+        _complete_result(),
+        _complete_result(),
+        _complete_result(finding=False),
+        _complete_result(),
+    ]
+    runtime = _install_fake_coderabbit_runtime(monkeypatch, outputs)
+    adapter = coderabbit.CodeRabbitAdapter()
+    config = IntegrationConfig()
+    root = tmp_path / "checkout"
+    base_sha = "a" * 40
+
+    for head_sha in ("b" * 40, "c" * 40, "d" * 40):
+        result = adapter.review(
+            root,
+            config,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            task_id="task-a",
+        )
+        assert result.record.reason_code == "CODERABBIT_REVIEW_COMPLETE"
+
+    exhausted = adapter.review(
+        root,
+        config,
+        base_sha=base_sha,
+        head_sha="e" * 40,
+        task_id="task-a",
+    )
+    assert exhausted.record.reason_code == "CODERABBIT_REVIEW_ITERATION_BUDGET_EXHAUSTED"
+    state = adapter._load_review_state(root)
+    cycle_a = state["current_cycle_id"]
+    assert state["logical_task_id"] == "task-a"
+    assert state["substantive_iterations"] == 3
+
+    new_task = adapter.review(
+        root,
+        config,
+        base_sha=base_sha,
+        head_sha="f" * 40,
+        task_id="task-b",
+    )
+    assert new_task.record.reason_code == "CODERABBIT_REVIEW_COMPLETE"
+    state = adapter._load_review_state(root)
+    assert runtime.calls == 4
+    assert state["logical_task_id"] == "task-b"
+    assert state["current_cycle_id"] != cycle_a
+    assert state["substantive_iterations"] == 1
+    assert state["previous_cycles"][-1]["task_id"] == "task-a"
+    assert state["previous_cycles"][-1]["substantive_iterations"] == 3
+
+
+def test_coderabbit_legacy_unbound_cycle_is_not_auto_assigned(
+    monkeypatch, tmp_path: Path
+):
+    monkeypatch.setenv("AZURPILOT_STATE_HOME", str(tmp_path / "state"))
+    adapter = coderabbit.CodeRabbitAdapter()
+    root = tmp_path / "checkout"
+    base_sha = "a" * 40
+    head_sha = "b" * 40
+    adapter._save_state(
+        root,
+        iterations=1,
+        head=head_sha,
+        terminal=True,
+        base_sha=base_sha,
+        repository_identity="hosted:github.com/alice/example",
+        attempt=1,
+        operation_id="coderabbit-legacy",
+        started_at="2026-09-16T00:00:00+00:00",
+        provider_state="complete",
+        active=False,
+        complete_received=True,
+        last_event_type="complete",
+        cycle_id="legacy-coderabbit-0123456789abcdef",
+        cycle_started_at="2026-09-16T00:00:00+00:00",
+        reviewed_head=head_sha,
+    )
+
+    result = adapter.review(
+        root,
+        IntegrationConfig(),
+        base_sha=base_sha,
+        head_sha="c" * 40,
+        task_id="new-task",
+    )
+
+    assert result.record.reason_code == "CODERABBIT_REVIEW_TASK_UNBOUND"
+    state = adapter._load_review_state(root)
+    assert state["logical_task_id"] is None
+    assert state["substantive_iterations"] == 1
+
+
 def test_coderabbit_cycle_start_accepts_new_base_after_completed_cycle(
     monkeypatch, tmp_path: Path
 ):

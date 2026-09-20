@@ -56,6 +56,7 @@ _BODY_HEADINGS = (
     "## CI",
     "## Security / secret scan",
     "## CodeRabbit review и disposition",
+    "## Readiness",
     "## Migration / rollback",
     "## Ограничения",
 )
@@ -168,6 +169,22 @@ class PullRequestBodyRenderer:
                 lines.append("На последнем проверенном head findings не было.")
             review_text = "\n".join(lines)
 
+        readiness_lines = [
+            f"Статус реализации: `{body.readiness.implementation_status}`.",
+            f"Итог: `{body.readiness.overall_outcome}`.",
+            f"READY_FOR_CHATGPT_REVIEW: `{str(body.readiness.ready_for_chatgpt_review).lower()}`.",
+            f"Merge-ready: `{str(body.readiness.merge_ready).lower()}`.",
+            f"Внешний reviewer: `{body.readiness.external_reviewer_status}`.",
+        ]
+        if body.readiness.reviewer_limitation:
+            readiness_lines.append(
+                f"Ограничение reviewer: {body.readiness.reviewer_limitation}"
+            )
+        readiness_lines.extend(
+            f"- gate `{gate.name}`: `{gate.state.value}`; "
+            f"required=`{str(gate.required).lower()}`; evidence: {gate.evidence}"
+            for gate in body.readiness.mandatory_gates
+        )
         sections = (
             ("Цель", body.goal),
             ("Scope", body.scope),
@@ -176,6 +193,7 @@ class PullRequestBodyRenderer:
             ("CI", body.ci),
             ("Security / secret scan", body.security_secret_scan),
             ("CodeRabbit review и disposition", review_text),
+            ("Readiness", "\n".join(readiness_lines)),
             (
                 "Migration / rollback",
                 f"Предполагаемый способ merge: `{body.merge_method}`.\n\n{body.migration_rollback}",
@@ -236,6 +254,24 @@ class PullRequestBodyRenderer:
                 ResultCode.TOOLING_PR_BODY_INVALID,
                 "CodeRabbit evidence в PR body не относится к exact base/head spec "
                 "и не содержит явного rate-limit объяснения.",
+            )
+        # ReadinessState itself enforces the cross-field invariant; keep this
+        # explicit at the renderer boundary so a future model replacement does
+        # not reintroduce "live missing but ready" PR bodies.
+        readiness = body.readiness
+        blocking = any(
+            gate.required
+            and gate.state.value in {"FAIL", "BLOCKED_PRECONDITION"}
+            for gate in readiness.mandatory_gates
+        )
+        if blocking and (
+            readiness.ready_for_chatgpt_review
+            or readiness.merge_ready
+            or readiness.overall_outcome == "READY"
+        ):
+            raise _error(
+                ResultCode.TOOLING_PR_BODY_INVALID,
+                "PR body не может быть READY при blocked mandatory gate.",
             )
 
     @classmethod

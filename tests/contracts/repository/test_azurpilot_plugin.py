@@ -314,13 +314,21 @@ def test_project_config_declares_separate_local_http_registration_aliases() -> N
         ("smoke_spec_schema_version", 3),
         ("smoke_result_schema_version", 3),
         ("server_name", "other-server"),
-        ("server_version", "4.0.0"),
     ],
 )
 def test_incompatible_contract_values_fail_closed(field: str, value: object) -> None:
     compatibility = _json(_COMPATIBILITY_PATH)
     runtime = contract_payload()
     runtime[field] = value
+
+    assert contract_compatibility_issues(compatibility, runtime)
+
+
+def test_incompatible_server_version_fails_closed() -> None:
+    compatibility = _json(_COMPATIBILITY_PATH)
+    runtime = contract_payload()
+    version = SemVer.parse(runtime["server_version"])
+    runtime["server_version"] = f"{version.major + 1}.0.0"
 
     assert contract_compatibility_issues(compatibility, runtime)
 

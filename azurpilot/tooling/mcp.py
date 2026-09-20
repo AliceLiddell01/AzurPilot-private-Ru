@@ -39,6 +39,8 @@ from module.mcp_shared.versioning import (
 from .config import project_python
 from .contracts import (
     McpDigest,
+    McpImpactDetails,
+    McpImpactPath,
     McpLifecycleDetails,
     McpReconcileDetails,
     McpServerStatus,
@@ -68,6 +70,11 @@ MCP_SERVER_NAMES = ("azurpilot-dev", "azurpilot-game")
 PLUGIN_MANIFEST_PATH = Path("plugins/azurpilot/.codex-plugin/plugin.json")
 PLUGIN_COMPATIBILITY_PATH = Path("plugins/azurpilot/compatibility.json")
 CODEX_CONFIG_PATH = Path(".codex/config.toml")
+MCP_GENERATED_ARTIFACTS = (
+    Path("config/mcp-versions.toml"),
+    PLUGIN_MANIFEST_PATH,
+    PLUGIN_COMPATIBILITY_PATH,
+)
 
 SOURCE_SET_PATHS: Mapping[str, tuple[Path, ...]] = {
     # Эти пути отражают реальные import/lazy-import границы backend-ов. Здесь
@@ -406,6 +413,84 @@ def classify_source_changes(paths: Iterable[str | Path]) -> SourceChangeClassifi
         ),
         skill_changed="SKILL_BUNDLE_SOURCE_SET" in changed,
         unknown_paths=tuple(unknown),
+    )
+
+
+def _working_tree_paths(git: GitClient) -> tuple[str, ...]:
+    """Получить staged/unstaged/untracked paths без потери rename preimage."""
+
+    tokens = [token for token in git.status_z().split("\x00") if token]
+    paths: set[str] = set()
+    index = 0
+    while index < len(tokens):
+        record = tokens[index]
+        if len(record) < 4 or record[2] != " ":
+            raise ToolingError(
+                ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                "Git status вернул неподдерживаемую porcelain-запись.",
+            )
+        status = record[:2]
+        path = record[3:]
+        if path:
+            paths.add(path)
+        index += 1
+        if status[0] in {"R", "C"} or status[1] in {"R", "C"}:
+            if index >= len(tokens) or not tokens[index]:
+                raise ToolingError(
+                    ResultCode.TOOLING_VERIFICATION_UNKNOWN,
+                    "Git status не содержит второй путь rename/copy.",
+                )
+            paths.add(tokens[index])
+            index += 1
+    return tuple(sorted(paths))
+
+
+def _candidate_mcp_impact(
+    root: Path, *, base_commit: str
+) -> McpImpactDetails:
+    """Классифицировать committed и working-tree candidate относительно exact base."""
+
+    if _REVISION_RE.fullmatch(base_commit) is None:
+        raise ToolingError(
+            ResultCode.TOOLING_INVALID_INVOCATION,
+            "MCP impact base должен быть полным SHA.",
+        )
+    git = GitClient(root)
+    head = git.head()
+    if not git.is_ancestor(base_commit, head):
+        raise ToolingError(
+            ResultCode.MCP_SOURCE_BUNDLE_INVALID,
+            "MCP impact base не является предком текущего HEAD.",
+        )
+    committed_paths = git.changed_paths(base_commit, head)
+    working_tree_paths = _working_tree_paths(git)
+    candidate_paths = tuple(sorted(set(committed_paths) | set(working_tree_paths)))
+    classification = classify_source_changes(candidate_paths)
+    path_impacts = tuple(
+        McpImpactPath(
+            path=path,
+            source_sets=classify_source_changes((path,)).changed_components,
+            affected_servers=classify_source_changes((path,)).affected_servers,
+        )
+        for path in candidate_paths
+    )
+    required = bool(classification.changed_components)
+    return McpImpactDetails(
+        base_sha=base_commit,
+        head_sha=head,
+        status="REQUIRED" if required else "NOT_REQUIRED",
+        candidate_paths=candidate_paths,
+        committed_paths=committed_paths,
+        working_tree_paths=working_tree_paths,
+        path_impacts=path_impacts,
+        changed_components=classification.changed_components,
+        affected_servers=classification.affected_servers,
+        generated_artifacts=(
+            tuple(path.as_posix() for path in MCP_GENERATED_ARTIFACTS)
+            if required
+            else ()
+        ),
+        reconciliation_required=required,
     )
 
 
@@ -1685,6 +1770,28 @@ class McpService:
             component_digests=_digest_models(bundle.source_digests),
         )
         return ToolingResult(ok=True, code=ResultCode.OK, state=OperationState.READY, message="Canonical MCP versions и revisions подтверждены.", details=details)
+
+    def impact(
+        self,
+        repository_root: str | Path | None = None,
+        *,
+        base_commit: str,
+    ) -> ToolingResult[McpImpactDetails, McpLifecycleDetails]:
+        """Прочитать MCP impact effective candidate diff относительно exact base."""
+
+        root = self._root(repository_root)
+        details = _candidate_mcp_impact(root, base_commit=base_commit)
+        return ToolingResult(
+            ok=True,
+            code=ResultCode.OK,
+            state=OperationState.READY,
+            message=(
+                "MCP source reconciliation требуется для effective candidate diff."
+                if details.reconciliation_required
+                else "Effective candidate diff не затрагивает MCP source sets."
+            ),
+            details=details,
+        )
 
     @staticmethod
     def _auth_ready(server_names: Iterable[str] = MCP_SERVER_NAMES) -> bool:

@@ -17,9 +17,12 @@ from azurpilot.tooling.contracts import (
     DeliveryEvidence,
     DeliveryPhase,
     GitSnapshot,
+    MandatoryGate,
+    MandatoryGateState,
     OperationState,
     PrPublicationSpec,
     PullRequestBody,
+    ReadinessState,
     RepositoryIdentity,
     ResultCode,
     ToolingResult,
@@ -1109,6 +1112,54 @@ def test_structured_pr_body_rejects_thin_operator_report() -> None:
         PullRequestBodyRenderer.render(body, base_sha="a" * 40, head_sha="b" * 40)
 
     assert error.value.code is ResultCode.TOOLING_PR_BODY_INVALID
+
+
+def test_readiness_state_blocks_ready_when_mandatory_gate_is_blocked() -> None:
+    gate = MandatoryGate(
+        name="product_live_acceptance",
+        state=MandatoryGateState.BLOCKED_PRECONDITION,
+        evidence="Текущее live observation Oil недоступно.",
+    )
+    blocked = ReadinessState(
+        implementation_status="COMPLETE",
+        mandatory_gates=(gate,),
+        overall_outcome="BLOCKED",
+    )
+    assert blocked.ready_for_chatgpt_review is False
+    assert blocked.merge_ready is False
+
+    with pytest.raises(ValueError):
+        ReadinessState(
+            implementation_status="COMPLETE",
+            mandatory_gates=(gate,),
+            overall_outcome="IN_PROGRESS",
+        )
+    with pytest.raises(ValueError):
+        ReadinessState(
+            implementation_status="COMPLETE",
+            mandatory_gates=(gate,),
+            overall_outcome="BLOCKED",
+            ready_for_chatgpt_review=True,
+        )
+
+
+def test_readiness_rate_limit_is_independent_from_product_gate() -> None:
+    readiness = ReadinessState(
+        implementation_status="COMPLETE",
+        mandatory_gates=(
+            MandatoryGate(
+                name="product_live_acceptance",
+                state=MandatoryGateState.PASS,
+                evidence="Свежий current observation и postcondition подтверждены.",
+            ),
+        ),
+        external_reviewer_status="RATE_LIMITED",
+        reviewer_limitation="Provider rate limit; substantive review не завершён.",
+        overall_outcome="READY",
+        ready_for_chatgpt_review=True,
+    )
+    assert readiness.merge_ready is False
+    assert readiness.overall_outcome == "READY"
 
 
 def test_structured_pr_body_keeps_prior_coderabbit_head_under_rate_limit() -> None:

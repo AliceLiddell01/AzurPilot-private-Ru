@@ -369,6 +369,77 @@ class CodeRabbitReview(ClosedModel):
     rate_limit: str | None = Field(default=None, max_length=500)
 
 
+class MandatoryGateState(StrEnum):
+    """Terminal semantic state обязательного product/verification gate."""
+
+    PASS = "PASS"
+    FAIL = "FAIL"
+    BLOCKED_PRECONDITION = "BLOCKED_PRECONDITION"
+    NOT_REQUIRED = "NOT_REQUIRED"
+
+
+class MandatoryGate(ClosedModel):
+    """Один обязательный или неприменимый gate с bounded evidence."""
+
+    name: str = Field(min_length=1, max_length=80)
+    state: MandatoryGateState
+    required: bool = True
+    evidence: str = Field(min_length=1, max_length=1000)
+
+    @model_validator(mode="after")
+    def validate_required_state(self) -> MandatoryGate:
+        if not self.required and self.state is not MandatoryGateState.NOT_REQUIRED:
+            raise ValueError("необязательный gate должен иметь state NOT_REQUIRED")
+        return self
+
+
+class ReadinessState(ClosedModel):
+    """Непротиворечивое состояние реализации, gates и lifecycle readiness."""
+
+    implementation_status: Literal["IN_PROGRESS", "COMPLETE", "BLOCKED"] = "IN_PROGRESS"
+    mandatory_gates: tuple[MandatoryGate, ...] = Field(default_factory=tuple, max_length=32)
+    external_reviewer_status: Literal[
+        "NOT_RUN", "SUBSTANTIVE", "LIMITED", "RATE_LIMITED"
+    ] = "NOT_RUN"
+    reviewer_limitation: str | None = Field(default=None, max_length=1000)
+    overall_outcome: Literal["IN_PROGRESS", "BLOCKED", "READY"] = "IN_PROGRESS"
+    ready_for_chatgpt_review: bool = False
+    merge_ready: bool = False
+
+    @model_validator(mode="after")
+    def validate_lifecycle(self) -> ReadinessState:
+        blocking = any(
+            gate.required
+            and gate.state
+            in {MandatoryGateState.FAIL, MandatoryGateState.BLOCKED_PRECONDITION}
+            for gate in self.mandatory_gates
+        )
+        if blocking and (
+            self.overall_outcome != "BLOCKED"
+            or self.ready_for_chatgpt_review
+            or self.merge_ready
+        ):
+            raise ValueError(
+                "FAIL/BLOCKED_PRECONDITION mandatory gate требует overall_outcome BLOCKED "
+                "и запрещает readiness/merge"
+            )
+        if self.merge_ready and not self.ready_for_chatgpt_review:
+            raise ValueError("merge_ready требует ready_for_chatgpt_review")
+        if self.overall_outcome == "READY" and (
+            self.implementation_status != "COMPLETE"
+            or not self.ready_for_chatgpt_review
+            or any(
+                gate.required
+                and gate.state not in {MandatoryGateState.PASS, MandatoryGateState.NOT_REQUIRED}
+                for gate in self.mandatory_gates
+            )
+        ):
+            raise ValueError("READY требует complete implementation и PASS/NOT_REQUIRED gates")
+        if self.external_reviewer_status in {"LIMITED", "RATE_LIMITED"} and not self.reviewer_limitation:
+            raise ValueError("ограничение внешнего reviewer требует reviewer_limitation")
+        return self
+
+
 class PullRequestBody(ClosedModel):
     """Структурированное тело PR с обязательными durable разделами."""
 
@@ -379,6 +450,7 @@ class PullRequestBody(ClosedModel):
     ci: str = Field(min_length=1, max_length=4000)
     security_secret_scan: str = Field(min_length=1, max_length=4000)
     coderabbit_review: CodeRabbitReview | None = None
+    readiness: ReadinessState = Field(default_factory=ReadinessState)
     migration_rollback: str = Field(min_length=1, max_length=4000)
     limitations: str = Field(min_length=1, max_length=4000)
     merge_method: Literal["squash", "merge", "rebase"] = "squash"
@@ -585,6 +657,31 @@ class McpDigest(ClosedModel):
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
+class McpImpactPath(ClosedModel):
+    """Одна path-to-source-set связь effective candidate diff."""
+
+    path: str = Field(min_length=1, max_length=512)
+    source_sets: tuple[str, ...] = Field(default_factory=tuple, max_length=8)
+    affected_servers: tuple[str, ...] = Field(default_factory=tuple, max_length=2)
+
+
+class McpImpactDetails(ClosedModel):
+    """Read-only классификация MCP impact до публикации candidate."""
+
+    action: Literal["impact"] = "impact"
+    base_sha: str = Field(pattern=r"^[0-9a-f]{40,64}$")
+    head_sha: str = Field(pattern=r"^[0-9a-f]{40,64}$")
+    status: Literal["NOT_REQUIRED", "REQUIRED"]
+    candidate_paths: tuple[str, ...] = Field(default_factory=tuple, max_length=512)
+    committed_paths: tuple[str, ...] = Field(default_factory=tuple, max_length=512)
+    working_tree_paths: tuple[str, ...] = Field(default_factory=tuple, max_length=512)
+    path_impacts: tuple[McpImpactPath, ...] = Field(default_factory=tuple, max_length=512)
+    changed_components: tuple[str, ...] = Field(default_factory=tuple, max_length=8)
+    affected_servers: tuple[str, ...] = Field(default_factory=tuple, max_length=2)
+    generated_artifacts: tuple[str, ...] = Field(default_factory=tuple, max_length=3)
+    reconciliation_required: bool
+
+
 class McpServerStatus(ClosedModel):
     """Transport-neutral status одной first-party backend family."""
 
@@ -756,7 +853,11 @@ __all__ = [
     "LifecycleDetails",
     "LifecycleEvidence",
     "LifecycleRecord",
+    "MandatoryGate",
+    "MandatoryGateState",
     "McpDigest",
+    "McpImpactDetails",
+    "McpImpactPath",
     "McpLifecycleDetails",
     "McpReconcileDetails",
     "McpServerStatus",
@@ -772,6 +873,7 @@ __all__ = [
     "PullRequestDetails",
     "PullRequestEvidence",
     "PullRequestIdentity",
+    "ReadinessState",
     "RemoteIdentity",
     "RemoteIdentityEvidence",
     "RepairDetails",

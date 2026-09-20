@@ -23,6 +23,7 @@ from .tooling.contracts import (
     CapabilityStatus,
     DeliveryPhase,
     GitRange,
+    McpImpactDetails,
     McpLifecycleDetails,
     McpStatusDetails,
     McpVersionDetails,
@@ -364,6 +365,11 @@ def build_parser() -> argparse.ArgumentParser:
             }[action],
         )
         _add_common_options(command, suppress_defaults=True)
+    impact = mcp_subparsers.add_parser(
+        "impact", help="классифицировать MCP impact effective candidate diff"
+    )
+    _add_common_options(impact, suppress_defaults=True)
+    impact.add_argument("--base", required=True, help="exact base SHA")
     reconcile = mcp_subparsers.add_parser(
         "reconcile", help="согласовать source bundle или owned runtime"
     )
@@ -451,6 +457,11 @@ def build_parser() -> argparse.ArgumentParser:
             review.add_argument(
                 "--head", default=None, help="exact review HEAD; по умолчанию текущий HEAD"
             )
+            review.add_argument(
+                "--task-id",
+                default=None,
+                help="opaque logical task identity; сохраняет cycle между head commits",
+            )
             findings = provider_subparsers.add_parser(
                 "findings", help="получить сохранённые findings без запуска review"
             )
@@ -473,6 +484,11 @@ def build_parser() -> argparse.ArgumentParser:
             _add_common_options(cycle_start, suppress_defaults=True)
             cycle_start.add_argument(
                 "--base", default=None, help="необязательный exact base SHA"
+            )
+            cycle_start.add_argument(
+                "--task-id",
+                default=None,
+                help="opaque logical task identity для нового cycle",
             )
     return parser
 
@@ -830,7 +846,32 @@ def _render_human(
                 f"{'✓' if result.ok else '✗'} {result.message}"
             )
         else:
-            if isinstance(
+            if isinstance(result.details, McpImpactDetails):
+                from rich.table import Table
+
+                details = result.details
+                console.print(
+                    f"MCP impact: {details.status} "
+                    f"(base={details.base_sha}, head={details.head_sha})"
+                )
+                table = Table(title="Candidate paths → MCP source sets", expand=True)
+                table.add_column("Path", overflow="fold")
+                table.add_column("Source sets", overflow="fold")
+                table.add_column("Affected servers", overflow="fold")
+                for item in details.path_impacts:
+                    table.add_row(
+                        item.path,
+                        ", ".join(item.source_sets) or "—",
+                        ", ".join(item.affected_servers) or "—",
+                    )
+                console.print(table)
+                if details.generated_artifacts:
+                    console.print(
+                        "Generated artifacts: "
+                        + ", ".join(details.generated_artifacts)
+                    )
+                console.print(f"{'✓' if result.ok else '✗'} {result.message}")
+            elif isinstance(
                 result.details,
                 (McpLifecycleDetails, McpStatusDetails, McpVersionDetails),
             ):
@@ -963,6 +1004,8 @@ def _dispatch(
         if args.pr_command == "verify":
             return services.pull_request.verify(args.number, args.spec, root)
     if command == "mcp":
+        if args.mcp_command == "impact":
+            return services.mcp.impact(root, base_commit=args.base)
         if args.mcp_command == "status":
             return services.mcp.status(root)
         if args.mcp_command == "versions":
@@ -1035,6 +1078,7 @@ def _dispatch(
             return services.integrations.review(
                 base_sha=args.base,
                 head_sha=head,
+                task_id=getattr(args, "task_id", None),
                 repository_root=root,
                 progress_callback=(
                     _coderabbit_progress_callback(progress_stream or sys.stderr)
@@ -1063,6 +1107,7 @@ def _dispatch(
         ):
             return services.integrations.start_coderabbit_cycle(
                 base_sha=args.base,
+                task_id=getattr(args, "task_id", None),
                 repository_root=root,
             )
         if action == "status":
